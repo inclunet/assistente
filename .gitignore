@@ -1,0 +1,57 @@
+# Executáveis e binários
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+assistente
+assistente.exe
+
+# Build artifacts
+build/bin/
+*.log
+
+# Go
+*.test
+*.out
+go.work
+
+# Frontend - Node.js
+frontend/node_modules/
+frontend/dist/
+frontend/.svelte-kit/
+frontend/.vite/
+
+# IDEs
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+*.tmp
+*.temp
+*.bak
+
+# Test coverage
+coverage/
+*.cover
+*.coverage
+
+# Wails
+wails.json.bak

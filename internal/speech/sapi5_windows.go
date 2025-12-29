@@ -1,0 +1,433 @@
+//go:build windows
+// +build windows
+
+package speech
+
+import (
+	"fmt"
+	"sync"
+	"unicode/utf16"
+
+	"github.com/go-ole/go-ole"
+	"github.com/go-ole/go-ole/oleutil"
+)
+
+// Voice representa uma voz SAPI5
+type Voice struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Language    string `json:"language"`
+	Gender      string `json:"gender"`
+	Age         string `json:"age"`
+	Vendor      string `json:"vendor"`
+	Description string `json:"description"`
+	Source      string `json:"source"` // "sapi5"
+}
+
+// SAPI5Manager gerencia a síntese de voz via SAPI5 usando COM
+type SAPI5Manager struct {
+	mu          sync.Mutex
+	initialized bool
+	voices      []Voice
+	spVoice     *ole.IDispatch // Instância persistente do SpVoice
+}
+
+var (
+	manager     *SAPI5Manager
+	managerOnce sync.Once
+)
+
+// GetSAPI5Manager retorna a instância singleton do manager
+func GetSAPI5Manager() *SAPI5Manager {
+	managerOnce.Do(func() {
+		manager = &SAPI5Manager{}
+	})
+	return manager
+}
+
+// Initialize inicializa o COM e carrega as vozes disponíveis
+func (m *SAPI5Manager) Initialize() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.initialized {
+		return nil
+	}
+
+	// Inicializa COM (pode ser chamado múltiplas vezes com segurança)
+	if err := ole.CoInitializeEx(0, ole.COINIT_MULTITHREADED); err != nil {
+		// Ignora erro se já inicializado
+		oleErr, ok := err.(*ole.OleError)
+		if !ok || (oleErr.Code() != 0x00000001 && oleErr.Code() != 0x80010106) {
+			// 0x00000001 = S_FALSE (já inicializado)
+			// 0x80010106 = RPC_E_CHANGED_MODE (modo diferente, mas OK)
+			return fmt.Errorf("CoInitializeEx failed: %w", err)
+		}
+	}
+
+	// Cria instância do SpVoice
+	unknown, err := oleutil.CreateObject("SAPI.SpVoice")
+	if err != nil {
+		return fmt.Errorf("failed to create SpVoice: %w", err)
+	}
+
+	spVoice, err := unknown.QueryInterface(ole.IID_IDispatch)
+	if err != nil {
+		return fmt.Errorf("failed to query IDispatch: %w", err)
+	}
+	m.spVoice = spVoice
+
+	// Carrega vozes disponíveis
+	if err := m.loadVoices(); err != nil {
+		return fmt.Errorf("failed to load voices: %w", err)
+	}
+
+	m.initialized = true
+	return nil
+}
+
+// loadVoices carrega todas as vozes SAPI5 instaladas
+func (m *SAPI5Manager) loadVoices() error {
+	if m.spVoice == nil {
+		return fmt.Errorf("SpVoice not initialized")
+	}
+
+	// Obtém a coleção de vozes
+	voicesResult, err := oleutil.CallMethod(m.spVoice, "GetVoices")
+	if err != nil {
+		return fmt.Errorf("GetVoices failed: %w", err)
+	}
+	voicesCollection := voicesResult.ToIDispatch()
+	defer voicesCollection.Release()
+
+	// Obtém o número de vozes
+	countResult, err := oleutil.GetProperty(voicesCollection, "Count")
+	if err != nil {
+		return fmt.Errorf("failed to get voice count: %w", err)
+	}
+	count := int(countResult.Val)
+
+	m.voices = make([]Voice, 0, count)
+
+	// Itera sobre as vozes
+	for i := 0; i < count; i++ {
+		itemResult, err := oleutil.CallMethod(voicesCollection, "Item", i)
+		if err != nil {
+			continue
+		}
+		voiceToken := itemResult.ToIDispatch()
+
+		voice := m.extractVoiceInfo(voiceToken)
+		if voice.Name != "" {
+			m.voices = append(m.voices, voice)
+		}
+
+		voiceToken.Release()
+	}
+
+	return nil
+}
+
+// extractVoiceInfo extrai informações de um token de voz
+func (m *SAPI5Manager) extractVoiceInfo(voiceToken *ole.IDispatch) Voice {
+	voice := Voice{Source: "sapi5"}
+
+	// Obtém o ID
+	if idResult, err := oleutil.GetProperty(voiceToken, "Id"); err == nil {
+		voice.ID = idResult.ToString()
+	}
+
+	// Obtém os atributos
+	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Name"); err == nil {
+		voice.Name = attrsResult.ToString()
+	}
+
+	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Language"); err == nil {
+		langCode := attrsResult.ToString()
+		voice.Language = lcidToLanguage(langCode)
+	}
+
+	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Gender"); err == nil {
+		voice.Gender = attrsResult.ToString()
+	}
+
+	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Age"); err == nil {
+		voice.Age = attrsResult.ToString()
+	}
+
+	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Vendor"); err == nil {
+		voice.Vendor = attrsResult.ToString()
+	}
+
+	// Monta descrição
+	voice.Description = fmt.Sprintf("%s (%s)", voice.Name, voice.Language)
+
+	return voice
+}
+
+// lcidToLanguage converte código LCID hexadecimal para código de idioma
+func lcidToLanguage(lcid string) string {
+	// Mapeamento comum de LCIDs
+	lcidMap := map[string]string{
+		"409":  "en-US",
+		"809":  "en-GB",
+		"416":  "pt-BR",
+		"816":  "pt-PT",
+		"40A":  "es-ES",
+		"80A":  "es-MX",
+		"40C":  "fr-FR",
+		"407":  "de-DE",
+		"410":  "it-IT",
+		"411":  "ja-JP",
+		"412":  "ko-KR",
+		"804":  "zh-CN",
+		"404":  "zh-TW",
+		"419":  "ru-RU",
+		"41D":  "sv-SE",
+		"406":  "da-DK",
+		"413":  "nl-NL",
+		"414":  "nb-NO",
+		"40B":  "fi-FI",
+		"408":  "el-GR",
+		"40E":  "hu-HU",
+		"415":  "pl-PL",
+		"405":  "cs-CZ",
+		"41F":  "tr-TR",
+		"40D":  "he-IL",
+		"401":  "ar-SA",
+		"41E":  "th-TH",
+		"42A":  "vi-VN",
+		"421":  "id-ID",
+		"41A":  "hr-HR",
+		"424":  "sl-SI",
+		"418":  "ro-RO",
+		"41B":  "sk-SK",
+		"422":  "uk-UA",
+		"402":  "bg-BG",
+		"403":  "ca-ES",
+		"42D":  "eu-ES",
+		"456":  "gl-ES",
+		"C0A":  "es-ES", // Espanhol moderno
+		"1009": "en-CA",
+		"1409": "en-NZ",
+		"C09":  "en-AU",
+		"1809": "en-IE",
+	}
+
+	if lang, ok := lcidMap[lcid]; ok {
+		return lang
+	}
+	return lcid // Retorna o código original se não encontrar
+}
+
+// GetVoices retorna a lista de vozes disponíveis
+func (m *SAPI5Manager) GetVoices() []Voice {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.initialized {
+		if err := m.Initialize(); err != nil {
+			return []Voice{}
+		}
+	}
+
+	return m.voices
+}
+
+// Speak sintetiza texto usando a voz padrão ou uma específica
+func (m *SAPI5Manager) Speak(text string, voiceName string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.initialized {
+		if err := m.Initialize(); err != nil {
+			return err
+		}
+	}
+
+	// Se um nome de voz foi especificado, seleciona a voz
+	if voiceName != "" {
+		if err := m.selectVoice(voiceName); err != nil {
+			// Se falhar ao selecionar, continua com a voz padrão
+			fmt.Printf("Warning: failed to select voice '%s': %v\n", voiceName, err)
+		}
+	}
+
+	// SVSFlagsAsync = 1 (fala de forma assíncrona)
+	// SVSFPurgeBeforeSpeak = 2 (limpa buffer antes)
+	const SVSFlagsAsync = 1
+	const SVSFPurgeBeforeSpeak = 2
+
+	_, err := oleutil.CallMethod(m.spVoice, "Speak", text, SVSFlagsAsync|SVSFPurgeBeforeSpeak)
+	if err != nil {
+		return fmt.Errorf("Speak failed: %w", err)
+	}
+
+	return nil
+}
+
+// selectVoice seleciona uma voz pelo nome
+func (m *SAPI5Manager) selectVoice(voiceName string) error {
+	// Obtém a coleção de vozes
+	voicesResult, err := oleutil.CallMethod(m.spVoice, "GetVoices")
+	if err != nil {
+		return err
+	}
+	voicesCollection := voicesResult.ToIDispatch()
+	defer voicesCollection.Release()
+
+	// Obtém o número de vozes
+	countResult, err := oleutil.GetProperty(voicesCollection, "Count")
+	if err != nil {
+		return err
+	}
+	count := int(countResult.Val)
+
+	// Procura a voz pelo nome
+	for i := 0; i < count; i++ {
+		itemResult, err := oleutil.CallMethod(voicesCollection, "Item", i)
+		if err != nil {
+			continue
+		}
+		voiceToken := itemResult.ToIDispatch()
+
+		nameResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Name")
+		if err != nil {
+			voiceToken.Release()
+			continue
+		}
+
+		if nameResult.ToString() == voiceName {
+			// Encontrou! Define como voz ativa
+			_, err := oleutil.PutPropertyRef(m.spVoice, "Voice", voiceToken)
+			voiceToken.Release()
+			return err
+		}
+
+		voiceToken.Release()
+	}
+
+	return fmt.Errorf("voice '%s' not found", voiceName)
+}
+
+// Stop para a síntese atual
+func (m *SAPI5Manager) Stop() error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.initialized || m.spVoice == nil {
+		return nil
+	}
+
+	// SVSFPurgeBeforeSpeak limpa o buffer e para a síntese
+	_, err := oleutil.CallMethod(m.spVoice, "Speak", "", 2) // 2 = SVSFPurgeBeforeSpeak
+	return err
+}
+
+// SetVolume define o volume (0-100)
+func (m *SAPI5Manager) SetVolume(volume int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.initialized || m.spVoice == nil {
+		return fmt.Errorf("not initialized")
+	}
+
+	if volume < 0 {
+		volume = 0
+	}
+	if volume > 100 {
+		volume = 100
+	}
+
+	_, err := oleutil.PutProperty(m.spVoice, "Volume", volume)
+	return err
+}
+
+// SetRate define a velocidade (-10 a 10, 0 é normal)
+func (m *SAPI5Manager) SetRate(rate int) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.initialized || m.spVoice == nil {
+		return fmt.Errorf("not initialized")
+	}
+
+	if rate < -10 {
+		rate = -10
+	}
+	if rate > 10 {
+		rate = 10
+	}
+
+	_, err := oleutil.PutProperty(m.spVoice, "Rate", rate)
+	return err
+}
+
+// IsSpeaking verifica se está falando
+func (m *SAPI5Manager) IsSpeaking() bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.initialized || m.spVoice == nil {
+		return false
+	}
+
+	// Status.RunningState: 0=done, 1=waiting, 2=speaking
+	statusResult, err := oleutil.GetProperty(m.spVoice, "Status")
+	if err != nil {
+		return false
+	}
+	status := statusResult.ToIDispatch()
+	defer status.Release()
+
+	runningResult, err := oleutil.GetProperty(status, "RunningState")
+	if err != nil {
+		return false
+	}
+
+	return runningResult.Val == 2 // SRSEIsSpeaking
+}
+
+// WaitUntilDone aguarda a síntese terminar
+func (m *SAPI5Manager) WaitUntilDone(timeoutMs int) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.initialized || m.spVoice == nil {
+		return true
+	}
+
+	result, err := oleutil.CallMethod(m.spVoice, "WaitUntilDone", timeoutMs)
+	if err != nil {
+		return true
+	}
+
+	return result.Val != 0 // true se terminou, false se timeout
+}
+
+// Cleanup libera recursos
+func (m *SAPI5Manager) Cleanup() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.spVoice != nil {
+		m.spVoice.Release()
+		m.spVoice = nil
+	}
+
+	if m.initialized {
+		ole.CoUninitialize()
+		m.initialized = false
+	}
+}
+
+// StopSpeaking para a síntese atual (função global para compatibilidade)
+func StopSpeaking() {
+	GetSAPI5Manager().Stop()
+}
+
+// Função auxiliar para converter string Go para UTF-16 (não usada atualmente, mas útil)
+func stringToUTF16(s string) []uint16 {
+	return utf16.Encode([]rune(s + "\x00"))
+}
