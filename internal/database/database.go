@@ -62,6 +62,7 @@ func Init() error {
 		&MCPAgentDB{},
 		&OAuthConnection{},
 		&ModelCapability{},
+		&FileAgentAuthorizedPath{},
 	)
 }
 
@@ -1061,6 +1062,60 @@ func GetActiveOAuthConnectionForProvider(providerID string) (*OAuthConnection, e
 	return &conn, nil
 }
 
+// ==================== FileAgentAuthorizedPath ====================
+
+// CreateFileAgentAuthorizedPath cria uma nova pasta autorizada
+func CreateFileAgentAuthorizedPath(path string, allowDelete, allowWrite, recursive bool) (*FileAgentAuthorizedPath, error) {
+	authPath := &FileAgentAuthorizedPath{
+		Path:        path,
+		AllowDelete: allowDelete,
+		AllowWrite:  allowWrite,
+		Recursive:   recursive,
+	}
+	if err := db.Create(authPath).Error; err != nil {
+		return nil, err
+	}
+	return authPath, nil
+}
+
+// GetFileAgentAuthorizedPath retorna uma pasta autorizada por ID
+func GetFileAgentAuthorizedPath(id uint) (*FileAgentAuthorizedPath, error) {
+	var authPath FileAgentAuthorizedPath
+	err := db.First(&authPath, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &authPath, nil
+}
+
+// GetAllFileAgentAuthorizedPaths retorna todas as pastas autorizadas
+func GetAllFileAgentAuthorizedPaths() ([]FileAgentAuthorizedPath, error) {
+	var authPaths []FileAgentAuthorizedPath
+	err := db.Order("path ASC").Find(&authPaths).Error
+	return authPaths, err
+}
+
+// UpdateFileAgentAuthorizedPath atualiza uma pasta autorizada
+func UpdateFileAgentAuthorizedPath(id uint, path string, allowDelete, allowWrite, recursive bool) (*FileAgentAuthorizedPath, error) {
+	var authPath FileAgentAuthorizedPath
+	if err := db.First(&authPath, id).Error; err != nil {
+		return nil, err
+	}
+	authPath.Path = path
+	authPath.AllowDelete = allowDelete
+	authPath.AllowWrite = allowWrite
+	authPath.Recursive = recursive
+	if err := db.Save(&authPath).Error; err != nil {
+		return nil, err
+	}
+	return &authPath, nil
+}
+
+// DeleteFileAgentAuthorizedPath deleta uma pasta autorizada
+func DeleteFileAgentAuthorizedPath(id uint) error {
+	return db.Delete(&FileAgentAuthorizedPath{}, id).Error
+}
+
 // ==================== Utilities ====================
 
 // GenerateTitle gera um título baseado na primeira mensagem
@@ -1101,4 +1156,3 @@ func sqrtFloat64(x float64) float64 {
 	}
 	return z
 }
-

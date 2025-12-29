@@ -25,6 +25,8 @@ export function CreateConversation(arg1:string,arg2:string):Promise<database.Con
 
 export function CreateFAQ(arg1:string,arg2:string,arg3:string):Promise<database.FAQ>;
 
+export function CreateFileAgentAuthorizedPath(arg1:string,arg2:boolean,arg3:boolean,arg4:boolean):Promise<main.FileAgentAuthorizedPathInfo>;
+
 export function CreateHTTPAgent(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:number):Promise<database.HTTPAgent>;
 
 export function CreateHTTPAgentFull(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:boolean,arg7:string,arg8:string,arg9:string,arg10:string,arg11:number,arg12:number):Promise<main.HTTPAgentFullConfig>;
@@ -46,6 +48,8 @@ export function DeleteAgentConfig(arg1:number):Promise<void>;
 export function DeleteConversation(arg1:number):Promise<void>;
 
 export function DeleteFAQ(arg1:number):Promise<void>;
+
+export function DeleteFileAgentAuthorizedPath(arg1:number):Promise<void>;
 
 export function DeleteHTTPAgent(arg1:number):Promise<void>;
 
@@ -120,6 +124,10 @@ export function GetCoreMemories():Promise<Array<database.Memory>>;
 export function GetFAQ(arg1:number):Promise<database.FAQ>;
 
 export function GetFAQEmbeddingStatus():Promise<main.FAQEmbeddingStatus>;
+
+export function GetFileAgentAuthorizedPaths():Promise<Array<main.FileAgentAuthorizedPathInfo>>;
+
+export function GetFileAgentProtectedPaths():Promise<Record<string, any>>;
 
 export function GetGlobalHotkeys():Promise<Array<main.HotkeyInfo>>;
 
@@ -263,6 +271,8 @@ export function TestConnection():Promise<boolean>;
 
 export function TestEmbeddings():Promise<string>;
 
+export function TestFileAgent(arg1:string):Promise<string>;
+
 export function TestHTTPEndpoint(arg1:number,arg2:string,arg3:string):Promise<string>;
 
 export function TestMCPAgent(arg1:number,arg2:string):Promise<string>;
@@ -276,6 +286,8 @@ export function UpdateConversation(arg1:number,arg2:string,arg3:string):Promise<
 export function UpdateConversationModel(arg1:number,arg2:string):Promise<void>;
 
 export function UpdateFAQ(arg1:number,arg2:string,arg3:string,arg4:string):Promise<database.FAQ>;
+
+export function UpdateFileAgentAuthorizedPath(arg1:number,arg2:string,arg3:boolean,arg4:boolean,arg5:boolean):Promise<main.FileAgentAuthorizedPathInfo>;
 
 export function UpdateHTTPAgent(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:number):Promise<database.HTTPAgent>;
 

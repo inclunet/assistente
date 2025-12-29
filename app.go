@@ -5,11 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"strings"
 
 	"assistente/internal/agents"
 	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/faq"
+	"assistente/internal/filemanager"
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
 	"assistente/internal/memory"
@@ -28,6 +30,7 @@ type App struct {
 	speechManager     *speech.SpeechManager
 	hotkeyManager     *hotkey.Manager
 	voiceHotkeyID     int
+	InitialWorkDir    string // Diretório de trabalho inicial (passado via --workdir ou pwd)
 }
 
 // NewApp creates a new App application struct
@@ -116,6 +119,22 @@ func (a *App) initAgents() {
 		a.registry.Register(imageAgent)
 	}
 
+	// Agente de Gerenciamento de Arquivos
+	fileAgent := agents.NewFileAgent(a.llmClient, agentModel)
+	a.applyAgentConfig(fileAgent)
+	a.loadFileAgentAuthorizedPaths(fileAgent)
+	// Configura diretório de trabalho inicial (se passado via --workdir ou detectado do terminal)
+	if a.InitialWorkDir != "" {
+		if err := fileAgent.SetWorkingDirectory(a.InitialWorkDir); err != nil {
+			log.Printf("Aviso: Não foi possível definir diretório de trabalho inicial: %v", err)
+		} else {
+			log.Printf("FileAgent: Diretório de trabalho inicial: %s", a.InitialWorkDir)
+		}
+	}
+	// Configura Google Docs se houver conexão OAuth ativa
+	a.configureFileAgentGoogleDocs(fileAgent)
+	a.registry.Register(fileAgent)
+
 	// Carrega MCP Agents salvos no banco
 	a.loadSavedMCPAgents()
 
@@ -187,6 +206,114 @@ func (a *App) applyAgentConfig(agent agents.Agent) {
 	agent.SetEnabled(config.Enabled)
 
 	log.Printf("Configuração do banco aplicada ao agente: %s", agent.GetName())
+}
+
+// configureFileAgentGoogleDocs configura o suporte a Google Docs no FileAgent
+func (a *App) configureFileAgentGoogleDocs(fileAgent *agents.FileAgent) {
+	// Cria uma função que obtém o token do Google via OAuth
+	tokenProvider := func() (string, error) {
+		return a.GetOAuthAccessTokenForProvider("google")
+	}
+	
+	// Verifica se há uma conexão ativa do Google
+	conn, err := a.GetActiveOAuthConnectionForProvider("google")
+	if err != nil || conn == nil {
+		log.Printf("FileAgent: Google Docs não configurado (sem conexão OAuth ativa)")
+		return
+	}
+	
+	// Verifica se a conexão tem os scopes necessários para Drive/Docs
+	scopes := conn.Scopes
+	hasAccess := strings.Contains(scopes, "drive") || 
+	             strings.Contains(scopes, "documents") || 
+	             strings.Contains(scopes, "spreadsheets")
+	
+	if !hasAccess {
+		log.Printf("FileAgent: Conexão Google existe mas não tem scopes de Drive/Docs")
+		return
+	}
+	
+	fileAgent.SetGoogleTokenProvider(tokenProvider)
+	log.Printf("FileAgent: Google Docs habilitado (conta: %s)", conn.UserEmail)
+}
+
+// loadFileAgentAuthorizedPaths carrega as pastas autorizadas para o FileAgent
+func (a *App) loadFileAgentAuthorizedPaths(fileAgent *agents.FileAgent) {
+	paths, err := database.GetAllFileAgentAuthorizedPaths()
+	if err != nil {
+		log.Printf("Erro ao carregar pastas autorizadas do FileAgent: %v", err)
+		return
+	}
+
+	// Converte para o formato esperado pelo FileAgent
+	var authorizedPaths []filemanager.AuthorizedPath
+	for _, p := range paths {
+		authorizedPaths = append(authorizedPaths, filemanager.AuthorizedPath{
+			ID:          p.ID,
+			Path:        p.Path,
+			AllowDelete: p.AllowDelete,
+			AllowWrite:  p.AllowWrite,
+			Recursive:   p.Recursive,
+		})
+	}
+
+	fileAgent.SetAuthorizedPaths(authorizedPaths)
+	log.Printf("FileAgent: %d pastas autorizadas carregadas", len(authorizedPaths))
+
+	// Configura callback para persistir mudanças nas autorizações
+	agents.OnAuthorizationChange = func(paths []filemanager.AuthorizedPath) {
+		a.syncFileAgentAuthorizedPaths(paths)
+	}
+}
+
+// syncFileAgentAuthorizedPaths sincroniza as pastas autorizadas com o banco
+func (a *App) syncFileAgentAuthorizedPaths(paths []filemanager.AuthorizedPath) {
+	// Obtém paths atuais do banco
+	existingPaths, err := database.GetAllFileAgentAuthorizedPaths()
+	if err != nil {
+		log.Printf("Erro ao obter pastas do banco: %v", err)
+		return
+	}
+
+	// Cria mapa das paths existentes
+	existingMap := make(map[string]database.FileAgentAuthorizedPath)
+	for _, p := range existingPaths {
+		existingMap[p.Path] = p
+	}
+
+	// Cria mapa das novas paths
+	newMap := make(map[string]filemanager.AuthorizedPath)
+	for _, p := range paths {
+		newMap[p.Path] = p
+	}
+
+	// Remove paths que não existem mais
+	for path, existing := range existingMap {
+		if _, found := newMap[path]; !found {
+			if err := database.DeleteFileAgentAuthorizedPath(existing.ID); err != nil {
+				log.Printf("Erro ao remover autorização %s: %v", path, err)
+			} else {
+				log.Printf("FileAgent: Autorização removida: %s", path)
+			}
+		}
+	}
+
+	// Adiciona novas paths
+	for path, newPath := range newMap {
+		if _, found := existingMap[path]; !found {
+			_, err := database.CreateFileAgentAuthorizedPath(
+				newPath.Path,
+				newPath.AllowDelete,
+				newPath.AllowWrite,
+				newPath.Recursive,
+			)
+			if err != nil {
+				log.Printf("Erro ao criar autorização %s: %v", path, err)
+			} else {
+				log.Printf("FileAgent: Autorização criada: %s", path)
+			}
+		}
+	}
 }
 
 // GetAgentRegistry retorna o registry de agentes (para uso interno)

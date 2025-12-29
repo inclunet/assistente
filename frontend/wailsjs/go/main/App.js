@@ -38,6 +38,10 @@ export function CreateFAQ(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateFAQ'](arg1, arg2, arg3);
 }
 
+export function CreateFileAgentAuthorizedPath(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['CreateFileAgentAuthorizedPath'](arg1, arg2, arg3, arg4);
+}
+
 export function CreateHTTPAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['main']['App']['CreateHTTPAgent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
@@ -80,6 +84,10 @@ export function DeleteConversation(arg1) {
 
 export function DeleteFAQ(arg1) {
   return window['go']['main']['App']['DeleteFAQ'](arg1);
+}
+
+export function DeleteFileAgentAuthorizedPath(arg1) {
+  return window['go']['main']['App']['DeleteFileAgentAuthorizedPath'](arg1);
 }
 
 export function DeleteHTTPAgent(arg1) {
@@ -228,6 +236,14 @@ export function GetFAQ(arg1) {
 
 export function GetFAQEmbeddingStatus() {
   return window['go']['main']['App']['GetFAQEmbeddingStatus']();
+}
+
+export function GetFileAgentAuthorizedPaths() {
+  return window['go']['main']['App']['GetFileAgentAuthorizedPaths']();
+}
+
+export function GetFileAgentProtectedPaths() {
+  return window['go']['main']['App']['GetFileAgentProtectedPaths']();
 }
 
 export function GetGlobalHotkeys() {
@@ -514,6 +530,10 @@ export function TestEmbeddings() {
   return window['go']['main']['App']['TestEmbeddings']();
 }
 
+export function TestFileAgent(arg1) {
+  return window['go']['main']['App']['TestFileAgent'](arg1);
+}
+
 export function TestHTTPEndpoint(arg1, arg2, arg3) {
   return window['go']['main']['App']['TestHTTPEndpoint'](arg1, arg2, arg3);
 }
@@ -540,6 +560,10 @@ export function UpdateConversationModel(arg1, arg2) {
 
 export function UpdateFAQ(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['UpdateFAQ'](arg1, arg2, arg3, arg4);
+}
+
+export function UpdateFileAgentAuthorizedPath(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['UpdateFileAgentAuthorizedPath'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function UpdateHTTPAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {

@@ -94,6 +94,47 @@ O **File Manager Agent** é um agente especializado em gerenciamento de arquivos
 
 O **diretório de trabalho** é essencial para o agente interpretar caminhos relativos corretamente. Quando o usuário diz "leia o arquivo config.json", o agente precisa saber em qual pasta procurar.
 
+### 8. Interface Unificada Local + Cloud
+
+O FileAgent usa uma **interface unificada** - as mesmas ferramentas funcionam para arquivos locais E na nuvem!
+O sistema detecta automaticamente o provider pelo formato do caminho.
+
+**Formatos de caminho suportados**:
+| Formato | Provider | Exemplo |
+|---------|----------|---------|
+| Caminho absoluto | Local | `C:\docs\arquivo.txt` |
+| Caminho relativo | Local | `./relativo/arquivo.txt` |
+| URL Google Docs | Google Drive | `https://docs.google.com/document/d/{ID}/edit` |
+| Pseudo-protocolo | Google Drive | `gdrive://{ID}`, `gdocs://{ID}`, `gsheet://{ID}` |
+
+**Exemplos de uso unificado**:
+```
+file_read("C:\docs\relatorio.docx")           → Lê documento Word local
+file_read("gdrive://1BxiMVs0XRA5...")         → Lê documento do Google Drive
+file_read("https://docs.google.com/...")       → Lê Google Doc via URL
+folder_list("gdrive://")                       → Lista raiz do Google Drive
+file_search_name("gdrive://", "*.pdf")         → Busca PDFs no Drive
+file_search_content("gdrive://", "relatório")  → Busca por conteúdo no Drive
+```
+
+**Requisitos para Google Drive**:
+- Conexão OAuth com Google ativa nas configurações
+- Scopes necessários: `drive`, `documents`, `spreadsheets` ou `presentations`
+
+**Arquitetura StorageProvider**:
+```
+┌─────────────────────────────────────────────────────────────┐
+│                    StorageManager                            │
+│  • Detecta provider pelo path                                │
+│  • Roteia operações para o provider correto                 │
+│  • Interface unificada para FileAgent                       │
+├─────────────────────────────────────────────────────────────┤
+│  LocalStorageProvider  │  GoogleDriveProvider  │  (Futuro)  │
+│  • Sistema de arquivos │  • Google Drive API   │  OneDrive  │
+│  • Segurança local     │  • OAuth tokens       │  Dropbox   │
+└─────────────────────────────────────────────────────────────┘
+```
+
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │                 DIRETÓRIO DE TRABALHO                        │
@@ -725,15 +766,17 @@ internal/
 
 ### Formatos Planejados
 
-| Fase | Formatos | Bibliotecas Go |
-|------|----------|----------------|
-| **Fase 1** | `.txt`, `.md`, `.json`, `.xml`, `.yaml`, `.csv` | stdlib |
-| **Fase 2** | `.docx`, `.xlsx`, `.pptx` | `unioffice`, `excelize` |
-| **Fase 3** | `.pdf` | `pdfcpu`, `unipdf`, ou `pdftotext` externo |
-| **Fase 4** | `.doc`, `.xls`, `.ppt` (legacy) | Conversão via LibreOffice CLI |
-| **Fase 5** | `.rtf`, `.odt`, `.ods` | Parsing custom / LibreOffice |
-| **Fase 6** | Google Docs, Sheets, Slides | Google Drive API |
-| **Futuro** | `.epub`, `.mobi`, `.fb2` | `epubgo` |
+| Fase | Formatos | Bibliotecas Go | Status |
+|------|----------|----------------|--------|
+| **Fase 1** | `.txt`, `.md`, `.json`, `.xml`, `.yaml`, `.csv` | stdlib | ✅ CONCLUÍDA |
+| **Fase 2** | `.docx`, `.xlsx`, `.pptx` | `unioffice`, `excelize` | ✅ CONCLUÍDA |
+| **Fase 3** | `.pdf` | `ledongthuc/pdf` | ✅ CONCLUÍDA |
+| **Fase 4** | `.xls` (legacy) | `extrame/xls` | ✅ CONCLUÍDA |
+| **Fase 5** | `.odt`, `.ods`, `.odp` | XML parsing | ✅ CONCLUÍDA |
+| **Fase 6** | Google Docs, Sheets, Slides | Google Drive API | ✅ CONCLUÍDA |
+| **Fase 7** | `.epub` | `go-epub` | ✅ CONCLUÍDA |
+
+> **Nota**: Formatos legados `.doc` e `.ppt` não são suportados por falta de bibliotecas Go confiáveis.
 
 ### Diagrama de Responsabilidades
 
@@ -2025,170 +2068,188 @@ Quando o usuário mencionar caminhos relativos (ex: "leia config.json"), você p
 
 ## Fases de Implementação
 
-### Fase 1: Pacote fileformats - Estrutura Base (3-4 dias)
+> **Nota sobre estrutura de pacotes:** Decidimos consolidar tudo em um único pacote `internal/filemanager` 
+> em vez de separar em `fileformats` e `fileops`. Isso mantém o código coeso sem perder as abstrações.
+> O agente (`file_agent.go`) permanece em `internal/agents/` seguindo o padrão dos outros agentes.
 
-**Objetivo:** Criar pacote independente e extensível para manipulação de formatos de arquivo.
+### Fase 1: Pacote filemanager - Estrutura Base ✅ CONCLUÍDA
+
+**Objetivo:** Criar pacote único e extensível para gerenciamento de arquivos.
 
 **Tarefas:**
-- [ ] Criar interface `FormatHandler` e tipos (`Content`, `Capabilities`, etc.)
-- [ ] Implementar `FormatRegistry` com auto-descoberta de handlers
-- [ ] Implementar `PlainTextHandler` (.txt, .md, .json, .xml, .yaml, .csv)
-- [ ] Implementar detecção de encoding (UTF-8, Latin1, etc.)
-- [ ] Testes unitários para cada handler
+- [x] Criar interface `FormatHandler` e tipos (`Content`, `Capabilities`, etc.)
+- [x] Implementar `FormatRegistry` com handlers registráveis
+- [x] Implementar `PlainTextHandler` (.txt, .md, .json, .xml, .yaml, .csv, código)
+- [x] Implementar detecção de encoding (UTF-8, UTF-16, Latin1, Windows-1252)
+- [x] Implementar `SecurityValidator` com validação de caminhos protegidos
+- [x] Implementar detector de tipo de arquivo por extensão
+- [ ] Testes unitários para cada componente
 
 **Arquivos:**
 ```
-internal/fileformats/
-├── types.go             # Content, Capabilities, interfaces
-├── registry.go          # FormatRegistry
-├── encoding.go          # Detecção de encoding
-├── handlers/
-│   ├── plaintext.go     # Handler para texto simples
-│   └── plaintext_test.go
-└── utils.go             # Funções auxiliares
+internal/filemanager/
+├── types.go              # Todos os tipos (FileInfo, Content, AuthorizedPath, etc)
+├── registry.go           # FormatRegistry
+├── encoding.go           # Detecção e conversão de encoding
+├── security.go           # Validação de caminhos protegidos
+├── detector.go           # Detecção de tipo/categoria de arquivo
+└── handler_plaintext.go  # Handler para texto simples e código
 ```
 
-### Fase 2: Handlers de Documentos (4-5 dias)
+### Fase 2: Handlers de Documentos ✅ CONCLUÍDA
 
 **Objetivo:** Adicionar suporte a formatos complexos de documentos.
 
 **Tarefas:**
-- [ ] Implementar `OfficeHandler` para .docx, .xlsx, .pptx (usando `unioffice`, `excelize`)
-- [ ] Implementar `PDFHandler` (usando `pdfcpu` ou `pdftotext` externo)
-- [ ] Implementar `RTFHandler` para .rtf
-- [ ] Suporte a extração de tabelas e imagens embedded
-- [ ] Testes com arquivos reais de diferentes versões
+- [x] Implementar `ExcelHandler` para .xlsx (usando `excelize/v2`)
+- [x] Implementar `WordHandler` para .docx (usando `unioffice`)
+- [x] Implementar `PDFHandler` (usando `ledongthuc/pdf`)
+- [x] Suporte a extração de tabelas de Excel
+- [x] Suporte a extração de texto de Word/PDF
+- [ ] Testes com arquivos reais
 
 **Dependências Go:**
 ```
-github.com/unidoc/unioffice     # Word/PowerPoint
-github.com/xuri/excelize/v2     # Excel
-github.com/pdfcpu/pdfcpu        # PDF
+github.com/xuri/excelize/v2       # Excel (.xlsx) - 18k+ stars
+github.com/unidoc/unioffice       # Word (.docx) - 4k+ stars
+github.com/ledongthuc/pdf         # PDF - 1k+ stars
 ```
 
 **Arquivos:**
 ```
-internal/fileformats/handlers/
-├── office.go            # .docx, .xlsx, .pptx
-├── office_test.go
-├── pdf.go               # .pdf
-├── pdf_test.go
-├── rtf.go               # .rtf
-└── rtf_test.go
+internal/filemanager/
+├── handler_excel.go      # .xlsx, .xlsm - Leitura/Escrita/Busca
+├── handler_word.go       # .docx - Leitura/Escrita/Busca
+├── handler_pdf.go        # .pdf - Leitura/Busca
+└── handler_*_test.go     # Testes (pendente)
 ```
 
-### Fase 3: FileAgent - Estrutura Base (2-3 dias)
+### Fase 3: FileAgent - Estrutura Base ✅ CONCLUÍDA
 
-**Objetivo:** Criar agente usando o pacote fileformats.
+**Objetivo:** Criar agente usando o pacote filemanager.
 
 **Tarefas:**
-- [ ] Criar pacote `internal/fileops` para segurança e busca
-- [ ] Implementar `security.go` com validações de pastas protegidas
-- [ ] Criar `file_agent.go` integrado com `fileformats.FormatRegistry`
-- [ ] Implementar tools básicas: `file_read`, `file_info`, `folder_list`
-- [ ] Implementar `get_working_directory`, `set_working_directory`
+- [x] Criar `file_agent.go` integrado com `filemanager.FormatRegistry`
+- [x] Implementar tools básicas: `file_read`, `file_info`, `folder_list`
+- [x] Implementar `get_working_directory`, `set_working_directory`, `clear_working_directory`
+- [x] Integrar com `SecurityValidator`
 - [ ] Testes unitários
 
 **Arquivos:**
 ```
-internal/fileops/
-├── types.go
-├── security.go          # Validação de caminhos protegidos
-├── security_test.go
-└── detector.go          # Detecção de tipo de arquivo
-
 internal/agents/
 ├── file_agent.go
 └── file_agent_test.go
 ```
 
-### Fase 4: Operações de Escrita e Edição (2-3 dias)
+### Fase 4: Operações de Escrita e Edição ✅ CONCLUÍDA
 
 **Objetivo:** Implementar escrita e replace.
 
 **Tarefas:**
-- [ ] Implementar `file_write`, `file_append`, `folder_create`
-- [ ] Implementar `file_replace` e `file_replace_regex`
-- [ ] Implementar `file_replace_multiple`
-- [ ] Validações de permissão de escrita por handler
+- [x] Implementar `file_write`, `file_append`, `folder_create`
+- [x] Implementar `file_replace` e `file_replace_regex`
+- [x] Implementar `file_replace_multiple`
+- [x] Validações de permissão de escrita
 - [ ] Testes
 
-### Fase 5: Motor de Busca Avançado (3-4 dias)
+### Fase 5: Motor de Busca Avançado ✅ CONCLUÍDA
 
 **Objetivo:** Implementar busca estruturada com iterações.
 
 **Tarefas:**
-- [ ] Implementar `file_grep` com retorno estruturado
-- [ ] Implementar `file_read_lines` para detalhamento
-- [ ] Busca por nome com glob patterns (usando `doublestar`)
-- [ ] Busca dentro de arquivos usando handlers do `fileformats`
-- [ ] Busca com expressões regulares
+- [x] Implementar `file_grep` com retorno estruturado
+- [x] Implementar `file_read_lines` para detalhamento
+- [x] Implementar `file_search_name` com glob patterns
+- [x] Implementar `file_search_content` para busca em conteúdo
+- [x] Busca com expressões regulares
 - [ ] Otimização para grandes diretórios (concurrent, streaming)
 - [ ] Testes de performance
 
-**Arquivos:**
-```
-internal/fileops/
-├── search.go            # Motor de busca
-├── search_test.go
-├── grep.go              # file_grep estruturado
-└── grep_test.go
-```
-
-### Fase 6: Sistema de Segurança e Autorização (2 dias)
+### Fase 6: Sistema de Segurança e Autorização ✅ CONCLUÍDA
 
 **Objetivo:** Implementar sistema de autorização para exclusões.
 
 **Tarefas:**
-- [ ] Criar tabela `file_agent_authorized_paths` no banco
-- [ ] CRUD de pastas autorizadas
-- [ ] Lógica de confirmação pendente com timeout
-- [ ] Integração com `file_delete`
-- [ ] Testes de segurança (path traversal, symlinks, etc.)
+- [x] Criar tabela `file_agent_authorized_paths` no banco
+- [x] CRUD de pastas autorizadas (database + APIs)
+- [x] Lógica de confirmação pendente com timeout
+- [x] Integração com `file_delete` e `file_delete_confirm`
+- [x] Proteção contra path traversal e symlinks
+- [ ] Testes de segurança
 
-### Fase 7: Handlers Avançados (3-4 dias)
+### Fase 7: Handlers Avançados ✅ CONCLUÍDA (parcial)
 
 **Objetivo:** Adicionar suporte a formatos legacy e cloud.
 
 **Tarefas:**
-- [ ] Suporte a .doc, .xls, .ppt (via LibreOffice CLI ou Aspose)
+- [x] Suporte a .xls (via `extrame/xls`)
+- [x] Suporte a .pptx (via parsing XML direto)
+- [x] Implementar `OpenDocumentHandler` (.odt, .ods, .odp)
 - [ ] Implementar `GoogleDocsHandler` (requer OAuth já existente)
-- [ ] Implementar `OpenDocumentHandler` (.odt, .ods, .odp)
 - [ ] Testes de integração
 
 **Arquivos:**
 ```
-internal/fileformats/handlers/
-├── legacy_office.go     # .doc, .xls, .ppt
-├── google.go            # Google Docs API
-└── opendocument.go      # .odt, .ods
+internal/filemanager/
+├── handler_powerpoint.go     # .pptx (PowerPoint moderno)
+├── handler_legacy_office.go  # .xls (Excel 97-2003)
+├── handler_opendocument.go   # .odt, .ods, .odp
+├── handler_epub.go           # .epub (todas as versões: 2.0, 3.0, 3.2)
+└── handler_google.go         # Google Docs API (futuro)
 ```
 
-### Fase 8: Integração e UI (2 dias)
+**Formatos NÃO suportados (decisão de projeto):**
+- `.doc` - Word 97-2003 (binário OLE2)
+- `.ppt` - PowerPoint 97-2003 (binário OLE2)
+
+> **Justificativa:** Não existem bibliotecas Go puras confiáveis para esses formatos binários legados.
+> A alternativa seria depender de CLIs externas (LibreOffice, Antiword), o que introduziria
+> dependências que podem não estar disponíveis no sistema do usuário. Decidimos não suportar
+> esses formatos por enquanto. Implementaremos quando houver bibliotecas nativas confiáveis
+> ou quando for conveniente assumir a dependência externa.
+
+### Fase 8: Integração e UI ✅ CONCLUÍDA
 
 **Objetivo:** Integrar ao sistema e criar UI de configuração.
 
 **Tarefas:**
-- [ ] Registrar agente no Registry
-- [ ] Expor APIs para frontend (autorizar pastas, formatos suportados)
-- [ ] Criar `FileAgentConfig.svelte`
-- [ ] Atualizar `AgentManager.svelte`
+- [x] Registrar agente no Registry
+- [x] Expor APIs para frontend (autorizar pastas, formatos suportados)
+- [x] Criar `FileAgentConfig.svelte`
+- [x] Atualizar `AgentManager.svelte` (botão de config para FileAgent)
+- [x] Suporte a `--workdir` na inicialização
+- [x] Menu de contexto Windows "Abrir Assistente Aqui"
 - [ ] Playground para testar leitura de diferentes formatos
 - [ ] Testes de integração end-to-end
 
 ### Resumo do Timeline
 
-| Fase | Descrição | Duração | Dependências |
-|------|-----------|---------|--------------|
-| 1 | fileformats - Base | 3-4 dias | - |
-| 2 | Handlers de Documentos | 4-5 dias | Fase 1 |
-| 3 | FileAgent - Base | 2-3 dias | Fase 1 |
-| 4 | Escrita e Edição | 2-3 dias | Fase 3 |
-| 5 | Motor de Busca | 3-4 dias | Fase 3 |
-| 6 | Segurança | 2 dias | Fase 3, 4 |
-| 7 | Handlers Avançados | 3-4 dias | Fase 2 |
-| 8 | UI e Integração | 2 dias | Todas |
-| **Total** | | **~22-28 dias** | |
+| Fase | Descrição | Status |
+|------|-----------|--------|
+| 1 | filemanager - Base | ✅ Concluída |
+| 2 | Handlers de Documentos (.docx, .xlsx, .pptx, .pdf) | ✅ Concluída |
+| 3 | FileAgent - Base | ✅ Concluída |
+| 4 | Escrita e Edição | ✅ Concluída |
+| 5 | Motor de Busca | ✅ Concluída |
+| 6 | Segurança e Autorização | ✅ Concluída |
+| 7 | Handlers Avançados (.xls, .odt, .ods, .odp, .epub) | ✅ Concluída |
+| 8 | UI e Integração | ✅ Concluída |
+
+### Formatos Suportados
+
+| Categoria | Formatos |
+|-----------|----------|
+| Texto/Código | .txt, .md, .json, .xml, .yaml, .csv, .js, .ts, .py, .go, etc |
+| Word | .docx |
+| Excel | .xlsx, .xlsm, .xls |
+| PowerPoint | .pptx |
+| PDF | .pdf |
+| OpenDocument | .odt, .ods, .odp |
+| Ebook | .epub |
+
+### Formatos NÃO Suportados (decisão de projeto)
+- `.doc`, `.ppt` - Binários OLE2 sem bibliotecas Go confiáveis
 
 ---
 
@@ -2639,14 +2700,90 @@ func isProtectedFile(fileName string) bool {
 
 ---
 
-## Próximos Passos
+## Status de Implementação
 
-1. **Revisar este documento** - Validar funcionalidades e arquitetura
-2. **Fase 1** - Implementar estrutura base e operações de leitura
-3. **Fase 2** - Operações de escrita e edição
-4. **Fase 3** - Motor de busca avançado
-5. **Fase 4** - Sistema de segurança e autorização
-6. **Fase 5** - Integração e UI
+### ✅ Concluído
+
+| Fase | Descrição | Status |
+|------|-----------|--------|
+| **Base** | Estrutura StorageProvider + StorageManager | ✅ |
+| **Local** | LocalStorageProvider (leitura, escrita, busca) | ✅ |
+| **Formatos** | .txt, .md, .json, .xml, .yaml, .csv, .docx, .xlsx, .pptx, .pdf, .odt, .ods, .odp, .xls, .epub | ✅ |
+| **Google Drive** | GoogleDriveProvider (leitura, listagem, busca) | ✅ |
+| **Segurança** | Pastas protegidas, autorizações, confirmações | ✅ |
+| **UI** | FileAgentConfig.svelte, integração AgentManager | ✅ |
+| **CLI** | --workdir, menu de contexto Windows | ✅ |
+
+---
+
+## Roadmap - Capacidades Futuras
+
+### 🔜 Curto Prazo
+
+| Funcionalidade | Descrição | Prioridade |
+|---------------|-----------|------------|
+| **Escrita no Google Drive** | `file_write("gdrive://...", conteúdo)` - criar/editar documentos | Alta |
+| **OneDrive Provider** | Suporte a Microsoft OneDrive via OAuth | Alta |
+| **Dropbox Provider** | Suporte a Dropbox via OAuth | Média |
+
+### 📋 Médio Prazo
+
+| Funcionalidade | Descrição | Prioridade |
+|---------------|-----------|------------|
+| **Editor Integrado** | Monaco Editor no assistente para editar arquivos de código | Alta |
+| **Preview de Documentos** | Visualização inline de PDFs, imagens, documentos | Alta |
+| **Sincronização** | Copiar arquivos entre providers: local ↔ Drive ↔ OneDrive | Média |
+| **Diff/Compare** | Comparar duas versões de um arquivo | Média |
+
+### 🔮 Longo Prazo
+
+| Funcionalidade | Descrição | Prioridade |
+|---------------|-----------|------------|
+| **iCloud Provider** | Suporte a Apple iCloud | Baixa |
+| **S3/Azure Blob** | Suporte a storage clouds enterprise | Baixa |
+| **Versionamento** | Histórico de versões integrado | Média |
+| **Colaboração** | Edição simultânea com outros usuários | Baixa |
+| **OCR** | Extração de texto de imagens e PDFs escaneados | Média |
+| **Conversão de Formatos** | Converter entre formatos (ex: .docx → .pdf) | Média |
+
+### 🎨 UI/UX Avançada
+
+| Funcionalidade | Descrição |
+|---------------|-----------|
+| **File Browser** | Navegador de arquivos visual integrado no assistente |
+| **Drag & Drop** | Arrastar arquivos para o chat para anexar/processar |
+| **Quick Actions** | Menu de contexto com ações rápidas nos arquivos |
+| **Favoritos** | Marcar arquivos/pastas como favoritos para acesso rápido |
+| **Recentes** | Lista de arquivos recentemente acessados |
+
+---
+
+## Arquitetura para Novos Providers
+
+Para adicionar um novo provider de armazenamento (ex: OneDrive):
+
+```go
+// internal/filemanager/storage_onedrive.go
+
+type OneDriveProvider struct {
+    // ...
+}
+
+func (p *OneDriveProvider) Name() string { return "onedrive" }
+func (p *OneDriveProvider) Scheme() string { return "onedrive://" }
+func (p *OneDriveProvider) IsAvailable() bool { /* verifica OAuth */ }
+
+// Implementar interface StorageProvider:
+// - ReadFile, GetFileInfo, ListDirectory
+// - SearchByName, SearchByContent
+// - WriteFile, CreateDirectory, DeleteFile (opcionais)
+```
+
+Depois, registrar no `App`:
+```go
+onedriveProvider := filemanager.NewOneDriveProvider(tokenProvider)
+fileAgent.storage.RegisterProvider(onedriveProvider)
+```
 
 ---
 
@@ -2656,4 +2793,7 @@ func isProtectedFile(fileName string) bool {
 - [Go filepath package](https://pkg.go.dev/path/filepath)
 - [Go regexp package](https://pkg.go.dev/regexp)
 - [doublestar - Glob patterns](https://github.com/bmatcuk/doublestar)
+- [Google Drive API](https://developers.google.com/drive/api/v3/about-sdk)
+- [Microsoft Graph API (OneDrive)](https://docs.microsoft.com/en-us/graph/api/resources/onedrive)
+- [Dropbox API](https://www.dropbox.com/developers/documentation/http/documentation)
 

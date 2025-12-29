@@ -294,4 +294,3 @@ func (a *App) GenerateImageDescription(imageBase64 string, model string) (string
 
 	return llm.GenerateImageDescription(cfg, imageBase64, model, a.GetModels)
 }
-

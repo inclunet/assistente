@@ -8,6 +8,8 @@ import (
 	"strings"
 
 	"assistente/internal/agents"
+	"assistente/internal/database"
+	"assistente/internal/filemanager"
 	"assistente/internal/llm"
 )
 
@@ -463,4 +465,127 @@ func getEnvVars() map[string]string {
 		}
 	}
 	return envVars
+}
+
+// ==================== File Agent APIs ====================
+
+// FileAgentAuthorizedPathInfo representa info de uma pasta autorizada para a UI
+type FileAgentAuthorizedPathInfo struct {
+	ID          uint   `json:"id"`
+	Path        string `json:"path"`
+	AllowDelete bool   `json:"allow_delete"`
+	AllowWrite  bool   `json:"allow_write"`
+	Recursive   bool   `json:"recursive"`
+}
+
+// GetFileAgentAuthorizedPaths retorna todas as pastas autorizadas
+func (a *App) GetFileAgentAuthorizedPaths() ([]FileAgentAuthorizedPathInfo, error) {
+	paths, err := database.GetAllFileAgentAuthorizedPaths()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]FileAgentAuthorizedPathInfo, len(paths))
+	for i, p := range paths {
+		result[i] = FileAgentAuthorizedPathInfo{
+			ID:          p.ID,
+			Path:        p.Path,
+			AllowDelete: p.AllowDelete,
+			AllowWrite:  p.AllowWrite,
+			Recursive:   p.Recursive,
+		}
+	}
+	return result, nil
+}
+
+// CreateFileAgentAuthorizedPath cria uma nova pasta autorizada
+func (a *App) CreateFileAgentAuthorizedPath(path string, allowDelete, allowWrite, recursive bool) (*FileAgentAuthorizedPathInfo, error) {
+	authPath, err := database.CreateFileAgentAuthorizedPath(path, allowDelete, allowWrite, recursive)
+	if err != nil {
+		return nil, err
+	}
+
+	// Atualiza o FileAgent
+	a.reloadFileAgentPaths()
+
+	return &FileAgentAuthorizedPathInfo{
+		ID:          authPath.ID,
+		Path:        authPath.Path,
+		AllowDelete: authPath.AllowDelete,
+		AllowWrite:  authPath.AllowWrite,
+		Recursive:   authPath.Recursive,
+	}, nil
+}
+
+// UpdateFileAgentAuthorizedPath atualiza uma pasta autorizada
+func (a *App) UpdateFileAgentAuthorizedPath(id uint, path string, allowDelete, allowWrite, recursive bool) (*FileAgentAuthorizedPathInfo, error) {
+	authPath, err := database.UpdateFileAgentAuthorizedPath(id, path, allowDelete, allowWrite, recursive)
+	if err != nil {
+		return nil, err
+	}
+
+	// Atualiza o FileAgent
+	a.reloadFileAgentPaths()
+
+	return &FileAgentAuthorizedPathInfo{
+		ID:          authPath.ID,
+		Path:        authPath.Path,
+		AllowDelete: authPath.AllowDelete,
+		AllowWrite:  authPath.AllowWrite,
+		Recursive:   authPath.Recursive,
+	}, nil
+}
+
+// DeleteFileAgentAuthorizedPath deleta uma pasta autorizada
+func (a *App) DeleteFileAgentAuthorizedPath(id uint) error {
+	err := database.DeleteFileAgentAuthorizedPath(id)
+	if err != nil {
+		return err
+	}
+
+	// Atualiza o FileAgent
+	a.reloadFileAgentPaths()
+	return nil
+}
+
+// reloadFileAgentPaths recarrega as pastas autorizadas no FileAgent
+func (a *App) reloadFileAgentPaths() {
+	if a.registry == nil {
+		return
+	}
+
+	agent := a.registry.Get("file_manager")
+	if agent == nil {
+		return
+	}
+
+	fileAgent, ok := agent.(*agents.FileAgent)
+	if !ok {
+		return
+	}
+
+	a.loadFileAgentAuthorizedPaths(fileAgent)
+}
+
+// GetFileAgentProtectedPaths retorna as pastas protegidas (apenas leitura)
+func (a *App) GetFileAgentProtectedPaths() map[string]interface{} {
+	return map[string]interface{}{
+		"paths":      filemanager.GetProtectedPaths(),
+		"extensions": filemanager.GetProtectedExtensions(),
+		"files":      filemanager.GetProtectedFiles(),
+	}
+}
+
+// TestFileAgent executa o FileAgent com uma tarefa de teste
+func (a *App) TestFileAgent(task string) (string, error) {
+	if a.registry == nil {
+		return "", fmt.Errorf("registry não inicializado")
+	}
+
+	agent := a.registry.Get("file_manager")
+	if agent == nil {
+		return "", fmt.Errorf("FileAgent não encontrado")
+	}
+
+	return agent.Execute(context.Background(), task)
 }

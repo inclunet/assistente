@@ -861,6 +861,26 @@ export namespace main {
 	        this.without_embedding = source["without_embedding"];
 	    }
 	}
+	export class FileAgentAuthorizedPathInfo {
+	    id: number;
+	    path: string;
+	    allow_delete: boolean;
+	    allow_write: boolean;
+	    recursive: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new FileAgentAuthorizedPathInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.path = source["path"];
+	        this.allow_delete = source["allow_delete"];
+	        this.allow_write = source["allow_write"];
+	        this.recursive = source["recursive"];
+	    }
+	}
 	export class HTTPEndpointInfo {
 	    id: number;
 	    name: string;

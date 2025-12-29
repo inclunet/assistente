@@ -501,14 +501,16 @@
                   on:blur={commitEdit}
                 />
               {:else if column.action}
-                <button
-                  class="cell-button"
-                  tabindex="-1"
-                  aria-label={column.label}
-                  on:click|stopPropagation={() => dispatch('cellAction', { item, column, rowIndex, colIndex })}
-                >
-                  {column.actionIcon || column.label}
-                </button>
+                {#if !column.showIf || column.showIf(item)}
+                  <button
+                    class="cell-button"
+                    tabindex="-1"
+                    aria-label={column.label}
+                    on:click|stopPropagation={() => dispatch('cellAction', { item, column, rowIndex, colIndex })}
+                  >
+                    {column.actionIcon || column.label}
+                  </button>
+                {/if}
               {:else}
                 <span class="cell-content" class:cell-truncate={column.truncate}>
                   {getCellValue(item, column)}

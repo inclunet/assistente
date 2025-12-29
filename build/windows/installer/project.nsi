@@ -94,6 +94,16 @@ Section
     !insertmacro wails.associateFiles
     !insertmacro wails.associateCustomProtocols
 
+    # Adiciona menu de contexto "Abrir Assistente Aqui" para pastas
+    WriteRegStr HKCR "Directory\shell\OpenAssistente" "" "Abrir Assistente Aqui"
+    WriteRegStr HKCR "Directory\shell\OpenAssistente" "Icon" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    WriteRegStr HKCR "Directory\shell\OpenAssistente\command" "" '"$INSTDIR\${PRODUCT_EXECUTABLE}" --workdir="%V"'
+
+    # Adiciona menu de contexto para background de pastas (clique em espaço vazio)
+    WriteRegStr HKCR "Directory\Background\shell\OpenAssistente" "" "Abrir Assistente Aqui"
+    WriteRegStr HKCR "Directory\Background\shell\OpenAssistente" "Icon" "$INSTDIR\${PRODUCT_EXECUTABLE}"
+    WriteRegStr HKCR "Directory\Background\shell\OpenAssistente\command" "" '"$INSTDIR\${PRODUCT_EXECUTABLE}" --workdir="%V"'
+
     !insertmacro wails.writeUninstaller
 SectionEnd
 
@@ -106,6 +116,10 @@ Section "uninstall"
 
     Delete "$SMPROGRAMS\${INFO_PRODUCTNAME}.lnk"
     Delete "$DESKTOP\${INFO_PRODUCTNAME}.lnk"
+
+    # Remove menu de contexto "Abrir Assistente Aqui"
+    DeleteRegKey HKCR "Directory\shell\OpenAssistente"
+    DeleteRegKey HKCR "Directory\Background\shell\OpenAssistente"
 
     !insertmacro wails.unassociateFiles
     !insertmacro wails.unassociateCustomProtocols

@@ -3,6 +3,7 @@
   import { GetRegisteredAgents, GetAllAgentConfigs, SaveOrUpdateAgentConfig, TestAgent, GetAllHTTPAgentsFull, GetAllMCPAgentsFull, DeleteMCPAgentFull } from '../../wailsjs/go/main/App.js';
   import HTTPAgentEditor from './HTTPAgentEditor.svelte';
   import MCPAgentEditor from './MCPAgentEditor.svelte';
+  import FileAgentConfig from './FileAgentConfig.svelte';
   import ImportSpecModal from './ImportSpecModal.svelte';
   import Modal from './Modal.svelte';
   import DataGrid from './DataGrid.svelte';
@@ -32,6 +33,9 @@
   // Estado do MCP Agent Editor
   let showMCPEditor = false;
   let editingMCPAgentId = null;
+  
+  // Estado do FileAgent Config
+  let showFileAgentConfig = false;
   
   // Estado do Import Modal
   let showImportModal = false;
@@ -101,6 +105,14 @@
       width: '80px',
       action: true,
       actionIcon: '▶️'
+    },
+    { 
+      key: 'config', 
+      label: 'Config',
+      width: '80px',
+      action: true,
+      actionIcon: '📁',
+      showIf: (item) => item.name === 'file_manager'
     },
     { 
       key: 'edit', 
@@ -367,6 +379,11 @@
       if (item.enabled !== false) {
         openPlayground(item);
       }
+    } else if (column.key === 'config') {
+      // Abre configuração específica do agente
+      if (item.name === 'file_manager') {
+        showFileAgentConfig = true;
+      }
     } else if (column.key === 'edit') {
       openEditForm(item);
     }
@@ -516,6 +533,16 @@
     mcpAgentId={editingMCPAgentId}
     onClose={closeMCPAgentEditor}
   />
+</Modal>
+
+<!-- Modal de Configuração do FileAgent -->
+<Modal 
+  title="📁 Configuração do File Manager" 
+  open={showFileAgentConfig} 
+  on:close={() => showFileAgentConfig = false}
+  size="large"
+>
+  <FileAgentConfig />
 </Modal>
 
 <!-- Modal de Importação OpenAPI/Postman -->

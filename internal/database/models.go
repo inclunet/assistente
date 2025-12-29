@@ -214,3 +214,16 @@ func (c *OAuthConnection) NeedsRefresh() bool {
 	return time.Now().Add(30 * time.Second).After(c.ExpiresAt)
 }
 
+// ==================== File Agent ====================
+
+// FileAgentAuthorizedPath representa uma pasta autorizada para operações de arquivo
+type FileAgentAuthorizedPath struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	Path        string    `json:"path" gorm:"type:text;not null"`
+	AllowDelete bool      `json:"allow_delete" gorm:"default:true"`
+	AllowWrite  bool      `json:"allow_write" gorm:"default:true"`
+	Recursive   bool      `json:"recursive" gorm:"default:true"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+

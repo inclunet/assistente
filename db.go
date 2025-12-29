@@ -392,4 +392,3 @@ func (a *App) HardDeleteOAuthConnection(id uint) error {
 func (a *App) GetActiveOAuthConnectionForProvider(providerID string) (*OAuthConnection, error) {
 	return database.GetActiveOAuthConnectionForProvider(providerID)
 }
-
