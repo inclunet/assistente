@@ -175,6 +175,31 @@ func TestSecurityValidator_AuthorizedPathsNonRecursive(t *testing.T) {
 	t.Log("SetAuthorizedPaths (non-recursive) called successfully")
 }
 
+func TestSecurityValidator_WSLPaths(t *testing.T) {
+	sv := NewSecurityValidator(nil)
+
+	// Caminhos WSL NÃO devem ser bloqueados como pastas do sistema
+	wslPaths := []string{
+		`\\wsl$\Ubuntu\home\user\projeto\main.go`,
+		`\\wsl$\Ubuntu-24.04\home\user\projeto\app.js`,
+		`\\wsl.localhost\Ubuntu\home\user\projeto\styles.css`,
+		`\\wsl.localhost\Ubuntu-24.04\var\www\index.html`,
+	}
+
+	for _, path := range wslPaths {
+		t.Run(path, func(t *testing.T) {
+			// WSL paths devem passar validação de leitura (não são pastas do sistema)
+			// Nota: o arquivo pode não existir, mas não deve ser bloqueado por segurança
+			err := sv.ValidatePathForOperation(path, OpRead)
+			if err == ErrProtectedPath {
+				t.Errorf("WSL path should not be blocked as protected: %s", path)
+			}
+			// Outros erros (arquivo não existe) são OK
+			t.Logf("WSL path %s: err=%v", path, err)
+		})
+	}
+}
+
 func TestSecurityValidator_PathTraversal(t *testing.T) {
 	sv := NewSecurityValidator(nil)
 

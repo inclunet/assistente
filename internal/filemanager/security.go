@@ -175,6 +175,12 @@ func (v *SecurityValidator) ValidatePathForOperation(path string, op Operation) 
 func isProtectedPath(absPath string) bool {
 	lowerPath := strings.ToLower(absPath)
 
+	// Caminhos WSL não são considerados pastas de sistema do Windows
+	// Eles são sistemas de arquivos separados (Linux) acessíveis via rede
+	if isWSLPath(lowerPath) {
+		return false
+	}
+
 	for _, protected := range protectedPaths {
 		protectedLower := strings.ToLower(protected)
 
@@ -197,6 +203,19 @@ func isProtectedPath(absPath string) bool {
 		}
 	}
 	return false
+}
+
+// isWSLPath verifica se o caminho é um path do WSL (Windows Subsystem for Linux)
+func isWSLPath(path string) bool {
+	lowerPath := strings.ToLower(path)
+	// Formatos de caminho WSL:
+	// \\wsl$\Ubuntu\...
+	// \\wsl.localhost\Ubuntu\...
+	// \\wsl$\Ubuntu-24.04\...
+	return strings.HasPrefix(lowerPath, `\\wsl$\`) ||
+		strings.HasPrefix(lowerPath, `\\wsl.localhost\`) ||
+		strings.HasPrefix(lowerPath, `//wsl$/`) ||
+		strings.HasPrefix(lowerPath, `//wsl.localhost/`)
 }
 
 // isProtectedExtension verifica se a extensão é protegida
