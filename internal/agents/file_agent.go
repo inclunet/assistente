@@ -52,8 +52,11 @@ func NewFileAgent(llmClient LLMClient, model string) *FileAgent {
 As mesmas ferramentas funcionam para arquivos locais E na nuvem!
 O sistema detecta automaticamente pelo formato do caminho:
 
-**Caminhos locais**: C:\docs\arquivo.txt, ./relativo/arquivo.txt
+**Caminhos locais Windows**: C:\docs\arquivo.txt, ./relativo/arquivo.txt
+**Caminhos WSL (Linux no Windows)**: \\wsl$\Ubuntu\home\..., \\wsl.localhost\Ubuntu-24.04\...
 **Google Drive**: gdrive://ID, https://docs.google.com/..., ou URLs do Drive
+
+IMPORTANTE: Caminhos WSL (\\wsl$ e \\wsl.localhost) são PERMITIDOS! São sistemas Linux rodando no Windows.
 
 ## Suas capacidades:
 
@@ -83,8 +86,11 @@ O sistema detecta automaticamente pelo formato do caminho:
 
 ## Exemplos de uso:
 - file_read("C:\docs\relatorio.docx") → Lê documento Word local
+- file_read("\\wsl$\Ubuntu\home\user\projeto\main.go") → Lê arquivo Go no WSL
+- file_read("\\wsl.localhost\Ubuntu-24.04\var\www\app.js") → Lê arquivo JS no WSL
 - file_read("gdrive://1BxiMVs0XRA5...") → Lê documento do Google Drive
 - file_read("https://docs.google.com/document/d/...") → Lê Google Doc via URL
+- folder_list("\\wsl$\Ubuntu\home\user") → Lista pasta no WSL
 - folder_list("gdrive://") → Lista raiz do Google Drive
 - file_search_name("gdrive://", "*.pdf") → Busca PDFs no Drive
 
