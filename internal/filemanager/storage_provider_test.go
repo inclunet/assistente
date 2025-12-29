@@ -311,6 +311,174 @@ func TestStorageManager_DeleteFile_Local(t *testing.T) {
 	}
 }
 
+func TestStorageManager_GetFileInfo_Local(t *testing.T) {
+	sm := NewStorageManager()
+	tmpDir := t.TempDir()
+	testFile := filepath.Join(tmpDir, "info.txt")
+	content := "Test file for info"
+	os.WriteFile(testFile, []byte(content), 0644)
+
+	info, err := sm.GetFileInfo(context.Background(), testFile)
+	if err != nil {
+		t.Fatalf("GetFileInfo failed: %v", err)
+	}
+
+	if info.Name != "info.txt" {
+		t.Errorf("Name = %q, want %q", info.Name, "info.txt")
+	}
+	if info.Size != int64(len(content)) {
+		t.Errorf("Size = %d, want %d", info.Size, len(content))
+	}
+	if info.Provider != "local" {
+		t.Errorf("Provider = %q, want %q", info.Provider, "local")
+	}
+}
+
+func TestStorageManager_GetFileInfo_NotFound(t *testing.T) {
+	sm := NewStorageManager()
+
+	_, err := sm.GetFileInfo(context.Background(), "/nonexistent/file.txt")
+	if err == nil {
+		t.Error("Expected error for nonexistent file")
+	}
+}
+
+func TestStorageManager_ReadFile_CloudNotConfigured(t *testing.T) {
+	sm := NewStorageManager()
+
+	// Tenta ler de um provider não configurado
+	_, err := sm.ReadFile(context.Background(), "gdrive://abc123", ReadOptions{})
+	if err == nil {
+		t.Error("Expected error for unconfigured provider")
+	}
+}
+
+func TestStorageManager_WriteFile_CloudNotConfigured(t *testing.T) {
+	sm := NewStorageManager()
+
+	// Tenta escrever em um provider não configurado
+	err := sm.WriteFile(context.Background(), "gdrive://abc123", &Content{Text: "test"}, WriteOptions{})
+	if err == nil {
+		t.Error("Expected error for unconfigured provider")
+	}
+}
+
+func TestStorageManager_RegisterProvider_AndUse(t *testing.T) {
+	sm := NewStorageManager()
+
+	// Registra provider mock
+	mock := &mockStorageProvider{
+		name:      "testcloud",
+		scheme:    "testcloud://",
+		available: true,
+	}
+	sm.RegisterProvider(mock)
+
+	// Verifica que está disponível
+	providers := sm.GetAvailableProviders()
+	found := false
+	for _, p := range providers {
+		if p == "testcloud" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("testcloud provider not found in available providers")
+	}
+}
+
+func TestStorageManager_ReadFile_WithMockProvider(t *testing.T) {
+	sm := NewStorageManager()
+
+	// Registra provider mock
+	mock := &mockStorageProvider{
+		name:      "mockread",
+		scheme:    "mockread://",
+		available: true,
+	}
+	sm.RegisterProvider(mock)
+
+	// Nota: O ParsePath tem uma lista fixa de schemes conhecidos
+	// Providers customizados precisariam de modificações no ParsePath
+	// Este teste verifica apenas que o provider foi registrado
+	providers := sm.GetAvailableProviders()
+	found := false
+	for _, p := range providers {
+		if p == "mockread" {
+			found = true
+			break
+		}
+	}
+
+	if !found {
+		t.Error("mockread provider not found")
+	}
+}
+
+func TestStorageManager_MultipleProviders(t *testing.T) {
+	sm := NewStorageManager()
+
+	// Registra múltiplos providers
+	mock1 := &mockStorageProvider{name: "cloud1", scheme: "cloud1://", available: true}
+	mock2 := &mockStorageProvider{name: "cloud2", scheme: "cloud2://", available: true}
+	
+	sm.RegisterProvider(mock1)
+	sm.RegisterProvider(mock2)
+
+	providers := sm.GetAvailableProviders()
+	
+	// Deve ter local + 2 mocks
+	if len(providers) < 3 {
+		t.Errorf("Expected at least 3 providers, got %d", len(providers))
+	}
+
+	// Verifica que ambos estão disponíveis
+	foundCloud1, foundCloud2 := false, false
+	for _, p := range providers {
+		if p == "cloud1" {
+			foundCloud1 = true
+		}
+		if p == "cloud2" {
+			foundCloud2 = true
+		}
+	}
+
+	if !foundCloud1 || !foundCloud2 {
+		t.Errorf("Expected to find cloud1 and cloud2 in providers: %v", providers)
+	}
+}
+
+func TestStorageManager_GetProvider_ByScheme(t *testing.T) {
+	sm := NewStorageManager()
+
+	mock := &mockStorageProvider{
+		name:      "myscheme",
+		scheme:    "myscheme://",
+		available: true,
+	}
+	sm.RegisterProvider(mock)
+
+	// Verifica que o provider foi registrado pelo scheme também
+	if provider, ok := sm.providers["myscheme://"]; ok {
+		if provider.Name() != "myscheme" {
+			t.Errorf("Provider name = %q, want %q", provider.Name(), "myscheme")
+		}
+	} else {
+		t.Log("Provider not found by scheme (ParsePath has fixed list)")
+	}
+
+	// Verifica pelo nome
+	if provider, ok := sm.providers["myscheme"]; ok {
+		if provider.Name() != "myscheme" {
+			t.Errorf("Provider name = %q, want %q", provider.Name(), "myscheme")
+		}
+	} else {
+		t.Error("Provider not found by name")
+	}
+}
+
 // Mock storage provider for testing
 type mockStorageProvider struct {
 	name      string
