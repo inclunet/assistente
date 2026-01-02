@@ -222,6 +222,10 @@ export function GetConversationTokenStats(arg1) {
   return window['go']['main']['App']['GetConversationTokenStats'](arg1);
 }
 
+export function GetConversationWithThreads(arg1) {
+  return window['go']['main']['App']['GetConversationWithThreads'](arg1);
+}
+
 export function GetConversations() {
   return window['go']['main']['App']['GetConversations']();
 }
@@ -304,6 +308,10 @@ export function GetMCPResources(arg1) {
 
 export function GetMemoriesByCategory(arg1) {
   return window['go']['main']['App']['GetMemoriesByCategory'](arg1);
+}
+
+export function GetMessageChildren(arg1) {
+  return window['go']['main']['App']['GetMessageChildren'](arg1);
 }
 
 export function GetModelCapability(arg1) {
@@ -446,8 +454,8 @@ export function SearchMemories(arg1) {
   return window['go']['main']['App']['SearchMemories'](arg1);
 }
 
-export function SendMessage(arg1, arg2) {
-  return window['go']['main']['App']['SendMessage'](arg1, arg2);
+export function SendMessage(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3, arg4);
 }
 
 export function SendMessageSync(arg1, arg2) {
@@ -556,6 +564,10 @@ export function UpdateConversation(arg1, arg2, arg3) {
 
 export function UpdateConversationModel(arg1, arg2) {
   return window['go']['main']['App']['UpdateConversationModel'](arg1, arg2);
+}
+
+export function UpdateConversationSettings(arg1, arg2) {
+  return window['go']['main']['App']['UpdateConversationSettings'](arg1, arg2);
 }
 
 export function UpdateFAQ(arg1, arg2, arg3, arg4) {

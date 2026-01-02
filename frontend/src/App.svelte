@@ -1,16 +1,31 @@
 <script>
   import { onMount } from 'svelte';
-  import Layout from './components/Layout.svelte';
-  import Chat from './components/Chat.svelte';
-  import Settings from './components/Settings.svelte';
-  import ConversationList from './components/ConversationList.svelte';
-  import FAQManager from './components/FAQManager.svelte';
-  import MemoryManager from './components/MemoryManager.svelte';
-  import AgentManager from './components/AgentManager.svelte';
-  import OAuthManager from './components/OAuthManager.svelte';
+  import { Layout } from './components/layout';
+  import { Chat } from './pages/chat';
+  import { Settings } from './pages/settings';
+  import { ConversationList } from './pages/history';
+  import { FAQManager } from './pages/faq';
+  import { MemoryManager } from './pages/memory';
+  import { AgentManager } from './pages/agents';
+  import { OAuthManager } from './pages/oauth';
   import { GetConfig, GetConversation } from '../wailsjs/go/main/App.js';
 
+  // ========================================
+  // Mapa de páginas (roteamento idiomático)
+  // ========================================
+  const pages = {
+    chat: { component: Chat, fullWidth: true },
+    history: { component: ConversationList },
+    faq: { component: FAQManager },
+    memories: { component: MemoryManager },
+    agents: { component: AgentManager },
+    oauth: { component: OAuthManager },
+    settings: { component: Settings, wrapper: 'settings' }
+  };
+
+  // ========================================
   // Estado global
+  // ========================================
   let configLoaded = false;
   let hasApiKey = false;
   let defaultModel = '';
@@ -18,34 +33,54 @@
   let currentPage = 'chat';
   let currentConversation = null;
   
-  // Refs dos componentes
-  let chatComponent;
-  let conversationListComponent;
-  let faqManagerComponent;
-  let memoryManagerComponent;
-  let agentManagerComponent;
+  // Ref do componente atual (para métodos como focusList, refresh, etc.)
+  let currentComponent;
 
-  // Atalhos globais são gerenciados pelo Topbar (Alt+Key)
-  // Atalhos locais (Ctrl+Key) são gerenciados por cada componente
+  // ========================================
+  // Props dinâmicas por página
+  // ========================================
+  $: pageProps = {
+    chat: {
+      hasApiKey,
+      defaultModel,
+      defaultChatParams,
+      conversation: currentConversation
+    },
+    history: {
+      currentConversationId: currentConversation?.id
+    },
+    faq: {},
+    memories: {},
+    agents: {},
+    oauth: {},
+    settings: {}
+  };
 
+  // ========================================
+  // Handlers de eventos por página
+  // ========================================
+  // Nota: ConversationList recarrega dados no onMount, então não precisa
+  // de refresh explícito quando conversas são atualizadas no Chat.
+  const pageEvents = {
+    history: {
+      select: (e) => { currentConversation = e.detail; currentPage = 'chat'; },
+      new: () => startNewConversation()
+    },
+    settings: {
+      saved: () => { hasApiKey = true; currentPage = 'chat'; }
+    }
+  };
+
+  // ========================================
+  // Navegação
+  // ========================================
   function navigateTo(page) {
     currentPage = page;
     
     // Foca no grid quando navegar para listas
     setTimeout(() => {
-      switch (page) {
-        case 'history':
-          conversationListComponent?.focusList();
-          break;
-        case 'faq':
-          faqManagerComponent?.focusList();
-          break;
-        case 'memories':
-          memoryManagerComponent?.focusList();
-          break;
-        case 'agents':
-          agentManagerComponent?.focusList();
-          break;
+      if (page !== 'chat' && page !== 'settings') {
+        currentComponent?.focusList?.();
       }
     }, 100);
   }
@@ -57,11 +92,12 @@
   function startNewConversation() {
     currentConversation = null;
     currentPage = 'chat';
-    if (chatComponent) {
-      chatComponent.startNewConversation();
-    }
+    setTimeout(() => currentComponent?.startNewConversation?.(), 0);
   }
 
+  // ========================================
+  // Inicialização
+  // ========================================
   onMount(async () => {
     try {
       const config = await GetConfig();
@@ -99,25 +135,12 @@
     }
   });
 
-
-  function handleSettingsSaved() {
-    hasApiKey = true;
-    currentPage = 'chat';
-  }
-
-  function handleSelectConversation(event) {
-    currentConversation = event.detail;
-    currentPage = 'chat';
-  }
-
-  function handleNewConversation() {
-    startNewConversation();
-  }
-
-  function handleConversationUpdated() {
-    if (conversationListComponent) {
-      conversationListComponent.refresh();
-    }
+  // ========================================
+  // Helper: dispatch de eventos dinâmico
+  // ========================================
+  function handlePageEvent(eventName, event) {
+    const handler = pageEvents[currentPage]?.[eventName];
+    if (handler) handler(event);
   }
 </script>
 
@@ -128,51 +151,43 @@
   </div>
 {:else}
   <Layout {currentPage} {hasApiKey} on:navigate={handleNavigate}>
-    {#if currentPage === 'chat'}
-      <Chat 
-        bind:this={chatComponent}
-        {hasApiKey} 
-        {defaultModel}
-        {defaultChatParams}
-        conversation={currentConversation}
-        on:conversationUpdated={handleConversationUpdated}
+    {@const pageConfig = pages[currentPage]}
+    
+    {#if pageConfig.fullWidth}
+      <!-- Páginas full-width (chat) -->
+      <svelte:component
+        this={pageConfig.component}
+        bind:this={currentComponent}
+        {...pageProps[currentPage]}
       />
-    {:else if currentPage === 'history'}
-      <div class="page-container">
-        <ConversationList 
-          bind:this={conversationListComponent}
-          currentConversationId={currentConversation?.id}
-          on:select={handleSelectConversation}
-          on:new={handleNewConversation}
-        />
-      </div>
-    {:else if currentPage === 'faq'}
-      <div class="page-container">
-        <FAQManager bind:this={faqManagerComponent} />
-      </div>
-    {:else if currentPage === 'memories'}
-      <div class="page-container">
-        <MemoryManager bind:this={memoryManagerComponent} />
-      </div>
-    {:else if currentPage === 'agents'}
-      <div class="page-container">
-        <AgentManager bind:this={agentManagerComponent} />
-      </div>
-    {:else if currentPage === 'oauth'}
-      <div class="page-container">
-        <OAuthManager />
-      </div>
-    {:else if currentPage === 'settings'}
+    {:else if pageConfig.wrapper === 'settings'}
+      <!-- Página de configurações com wrapper especial -->
       <div class="page-container">
         <div class="settings-wrapper">
           <h2>⚙️ Configurações</h2>
-          <Settings on:saved={handleSettingsSaved} />
+          <svelte:component
+            this={pageConfig.component}
+            bind:this={currentComponent}
+            {...pageProps[currentPage]}
+            on:saved={(e) => handlePageEvent('saved', e)}
+          />
           {#if !hasApiKey}
             <p class="settings-notice">
               Configure sua chave de API para começar a usar o assistente.
             </p>
           {/if}
         </div>
+      </div>
+    {:else}
+      <!-- Páginas padrão com container -->
+      <div class="page-container">
+        <svelte:component
+          this={pageConfig.component}
+          bind:this={currentComponent}
+          {...pageProps[currentPage]}
+          on:select={(e) => handlePageEvent('select', e)}
+          on:new={(e) => handlePageEvent('new', e)}
+        />
       </div>
     {/if}
   </Layout>

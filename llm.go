@@ -1,6 +1,8 @@
 package main
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"strings"
 
@@ -37,34 +39,149 @@ var strPtr = llm.StrPtr
 // ==================== StreamHandler Implementation ====================
 
 // appStreamHandler implementa llm.StreamHandler usando *App
+// NOVA ARQUITETURA v2: Hierarquia baseada na mensagem do usuário
+// - n0: user/assistant (parentID=null)
+// - n1: interações com agentes (parentID=userMessageID)
+// - n2: interações do agente com tools (parentID=agentMessageID)
 type appStreamHandler struct {
-	app *App
+	app                *App
+	conversationID     uint            // ID da conversa
+	userMessageID      uint            // ID da mensagem do usuário (raiz da thread)
+	accumulatedContent string          // Conteúdo acumulado durante streaming
+	accumulatedCalls   []llm.ToolCall  // Acumula tool calls
+	accumulatedResults []string        // Acumula resultados de tools
 }
 
 func (h *appStreamHandler) OnChunk(content string) {
-	runtime.EventsEmit(h.app.ctx, "chat:chunk", llm.StreamChunk{
-		Content: content,
+	// Acumula o conteúdo
+	h.accumulatedContent += content
+
+	// Emite evento de streaming (sem messageId fixo - será criado no OnDone)
+	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
+		Content: h.accumulatedContent,
 		Done:    false,
 	})
 }
 
 func (h *appStreamHandler) OnError(err string) {
-	runtime.EventsEmit(h.app.ctx, "chat:error", err)
+	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
+		Content: h.accumulatedContent,
+		Done:    true,
+		Error:   err,
+	})
 }
 
 func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
-	runtime.EventsEmit(h.app.ctx, "chat:chunk", llm.StreamChunk{
-		Done:             true,
-		FullResponse:     fullResponse,
-		PromptTokens:     usage.PromptTokens,
-		CompletionTokens: usage.CompletionTokens,
-		TotalTokens:      usage.TotalTokens,
-		Model:            model,
+	// Usa o conteúdo acumulado ou o fullResponse
+	finalContent := fullResponse
+	if finalContent == "" {
+		finalContent = h.accumulatedContent
+	}
+
+	// Salva resposta final do assistant no nível 0 (sem parentID)
+	if h.conversationID > 0 && finalContent != "" {
+		msg, err := database.CreateMessage(database.MessageOptions{
+			ConversationID:   h.conversationID,
+			Role:             "assistant",
+			Content:          finalContent,
+			PromptTokens:     usage.PromptTokens,
+			CompletionTokens: usage.CompletionTokens,
+			TotalTokens:      usage.TotalTokens,
+			Model:            model,
+		})
+		if err != nil {
+			fmt.Printf("❌ Erro ao salvar resposta do assistant: %v\n", err)
+		} else {
+			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", msg.ID)
+		}
+	}
+
+	// Emite evento final de streaming
+	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
+		Content: finalContent,
+		Done:    true,
+	})
+
+	// Emite evento para frontend recarregar a conversa
+	runtime.EventsEmit(h.app.ctx, "chat:done", map[string]interface{}{
+		"conversationId": h.conversationID,
 	})
 }
 
 func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage, model string) {
-	// Handled internally by processToolCalls
+	// Acumula as tool calls
+	h.accumulatedCalls = append(h.accumulatedCalls, toolCalls...)
+
+	// Salva mensagem do assistant com tool_calls como filha da mensagem do usuário (nível 1)
+	if h.conversationID > 0 && h.userMessageID > 0 {
+		toolCallsJSON, _ := json.Marshal(toolCalls)
+
+		// Extrai nome do agente e a tarefa
+		agentName := ""
+		taskContent := ""
+		allArgs := ""
+		if len(toolCalls) > 0 {
+			tc := toolCalls[0]
+			name := tc.Function.Name
+			if strings.HasPrefix(name, "delegate_to_") {
+				agentName = strings.TrimPrefix(name, "delegate_to_")
+			} else {
+				agentName = name
+			}
+			
+			// Guarda argumentos completos para debug
+			allArgs = tc.Function.Arguments
+			
+			// Extrai a tarefa dos argumentos
+			var args map[string]interface{}
+			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
+				if task, ok := args["task"].(string); ok {
+					taskContent = task
+				}
+			}
+		}
+
+		// Conteúdo é a tarefa que o assistente está delegando
+		// Se não houver task explícito, mostra os argumentos completos
+		content := taskContent
+		if content == "" && allArgs != "" {
+			// Formata JSON para legibilidade
+			var prettyArgs bytes.Buffer
+			if err := json.Indent(&prettyArgs, []byte(allArgs), "", "  "); err == nil {
+				content = fmt.Sprintf("Chamando %s:\n```json\n%s\n```", agentName, prettyArgs.String())
+			} else {
+				content = fmt.Sprintf("Chamando %s: %s", agentName, allArgs)
+			}
+		} else if content == "" {
+			content = fmt.Sprintf("Solicitando ajuda de %s", agentName)
+		}
+
+		// Salva como filho da mensagem do usuário (nível 1)
+		// role="assistant" porque é o assistente falando com o agente
+		msg, err := database.AddChildMessage(
+			h.conversationID,
+			h.userMessageID, // ParentID = mensagem do usuário
+			"assistant",
+			content,
+			string(toolCallsJSON),
+			"",
+			agentName, // agentName indica qual agente está sendo chamado
+			model,
+		)
+		if err != nil {
+			fmt.Printf("❌ Erro ao salvar delegação: %v\n", err)
+		} else {
+			fmt.Printf("✅ Delegação salva: ID=%d, parentID=%d, agente=%s (nível 1)\n", msg.ID, h.userMessageID, agentName)
+			// Define no App para os agentes usarem como ParentID (nível 2)
+			h.app.currentDelegationID = msg.ID
+		}
+
+		// Emite evento de streaming
+		runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
+			Content: fmt.Sprintf("🤖 Consultando %s...", agentName),
+			Done:    false,
+		})
+	}
 }
 
 func (h *appStreamHandler) OnToolsExecuting(toolNames []string) {
@@ -75,14 +192,53 @@ func (h *appStreamHandler) OnToolsExecuting(toolNames []string) {
 }
 
 func (h *appStreamHandler) OnToolResults(results []string, usage llm.Usage, model string) {
+	// Acumula os resultados
+	h.accumulatedResults = append(h.accumulatedResults, results...)
+
+	// Salva cada tool result como filha da mensagem do usuário (nível 1)
+	// Estas são as respostas dos agentes
+	if h.conversationID > 0 && h.userMessageID > 0 {
+		for i, result := range results {
+			var toolCallID string
+			var agentName string
+			callIndex := len(h.accumulatedCalls) - len(results) + i
+			if callIndex >= 0 && callIndex < len(h.accumulatedCalls) {
+				tc := h.accumulatedCalls[callIndex]
+				toolCallID = tc.ID
+				toolName := tc.Function.Name
+				
+				// Extrai nome do agente
+				if strings.HasPrefix(toolName, "delegate_to_") {
+					agentName = strings.TrimPrefix(toolName, "delegate_to_")
+				} else {
+					agentName = toolName
+				}
+			}
+
+			// Salva como filho da mensagem do usuário (nível 1)
+			// role="agent" para indicar que é o agente respondendo (não "tool")
+			msg, err := database.AddChildMessage(
+				h.conversationID,
+				h.userMessageID, // ParentID = mensagem do usuário
+				"agent",         // role="agent" para distinguir de tool results internos
+				result,
+				"",         // toolCalls
+				toolCallID, // toolCallID
+				agentName,  // agentName identifica qual agente respondeu
+				model,
+			)
+			if err != nil {
+				fmt.Printf("❌ Erro ao salvar resposta do agente: %v\n", err)
+			} else {
+				fmt.Printf("✅ Resposta do agente salva: ID=%d, parentID=%d, agent=%s (nível 1)\n",
+					msg.ID, h.userMessageID, agentName)
+			}
+		}
+	}
+
+	// Emite evento para feedback visual
 	runtime.EventsEmit(h.app.ctx, "chat:tool_results", map[string]interface{}{
 		"results": results,
-		"usage": map[string]int{
-			"promptTokens":     usage.PromptTokens,
-			"completionTokens": usage.CompletionTokens,
-			"totalTokens":      usage.TotalTokens,
-		},
-		"model": model,
 	})
 }
 
@@ -91,6 +247,13 @@ func (h *appStreamHandler) GetTools() []llm.Tool {
 }
 
 func (h *appStreamHandler) ExecuteTool(tc llm.ToolCall) (string, error) {
+	// Define o contexto no App para os agentes poderem salvar mensagens
+	h.app.currentConversationID = h.conversationID
+	// currentDelegationID é definido em OnToolCalls (nível 1 → nível 2)
+	
+	fmt.Printf("🔧 [EXECUTE] Tool: %s, conversationID=%d, delegationID=%d\n",
+		tc.Function.Name, h.conversationID, h.app.currentDelegationID)
+	
 	return h.app.ExecuteTool(tc)
 }
 
@@ -126,7 +289,11 @@ func (a *App) GetModels() ([]string, error) {
 }
 
 // SendMessage envia uma mensagem para a API com streaming
-func (a *App) SendMessage(messages []Message, params ChatParams) error {
+// NOVA ARQUITETURA: Backend gerencia todo o estado
+// 1. Cria mensagens no banco ANTES de streamar
+// 2. Emite evento único com IDs das mensagens criadas
+// 3. Streaming emite eventos com messageId
+func (a *App) SendMessage(conversationID uint, userContent string, userMedia string, params ChatParams) error {
 	cfg, err := config.Load()
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao carregar configuração: "+err.Error())
@@ -138,9 +305,109 @@ func (a *App) SendMessage(messages []Message, params ChatParams) error {
 		return fmt.Errorf("API Key não configurada")
 	}
 
-	handler := &appStreamHandler{app: a}
+	// Se não tem conversationID, cria uma nova conversa
+	if conversationID == 0 {
+		title := userContent
+		if len(title) > 50 {
+			title = title[:50]
+		}
+		conv, err := database.CreateConversation(title, params.Model)
+		if err != nil {
+			runtime.EventsEmit(a.ctx, "chat:error", "Erro ao criar conversa: "+err.Error())
+			return err
+		}
+		conversationID = conv.ID
+		// Emite evento com ID da nova conversa
+		runtime.EventsEmit(a.ctx, "chat:conversation_created", map[string]interface{}{
+			"id":    conversationID,
+			"title": title,
+		})
+	}
+
+	// 1. Salva mensagem do usuário no banco
+	userMsg, err := database.AddMessageWithMedia(conversationID, "user", userContent, userMedia, "", "")
+	if err != nil {
+		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao salvar mensagem: "+err.Error())
+		return err
+	}
+	fmt.Printf("✅ Mensagem do usuário salva: ID=%d\n", userMsg.ID)
+
+	// 2. Emite evento informando que mensagem do usuário foi criada
+	runtime.EventsEmit(a.ctx, "chat:messages_ready", map[string]interface{}{
+		"conversationId": conversationID,
+		"userMessageId":  userMsg.ID,
+	})
+
+	// 3. Carrega histórico da conversa para contexto
+	messages, err := a.loadConversationHistory(conversationID)
+	if err != nil {
+		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao carregar histórico: "+err.Error())
+		return err
+	}
+
+	// 4. Processa com LLM - userMessageID é a raiz da thread
+	handler := &appStreamHandler{
+		app:            a,
+		conversationID: conversationID,
+		userMessageID:  userMsg.ID, // Raiz da thread para interações com agentes
+	}
 	go llm.StreamChat(a.ctx, cfg, messages, params, handler)
 	return nil
+}
+
+// loadConversationHistory carrega o histórico de mensagens de uma conversa
+// NOVA ARQUITETURA v2: Apenas mensagens de nível 0 vão para a API
+// As interações com agentes ficam em threads (parentID != null)
+func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
+	conv, err := database.GetConversation(conversationID)
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Printf("📋 [HISTORY] Carregando histórico da conversa %d (%d mensagens total)\n", conversationID, len(conv.Messages))
+
+	var messages []Message
+	for i, m := range conv.Messages {
+		fmt.Printf("📋 [HISTORY] Msg %d: role=%s, parentID=%v, content=%s\n",
+			i, m.Role, m.ParentID, truncateStr(m.Content, 50))
+
+		// Apenas mensagens de nível 0 (sem parentID) vão para a API
+		if m.ParentID != nil {
+			fmt.Printf("📋 [HISTORY]   -> IGNORADA (nível %d, parentID=%d)\n", 1, *m.ParentID)
+			continue
+		}
+		fmt.Printf("📋 [HISTORY]   -> INCLUÍDA (nível 0)\n")
+
+		msg := Message{
+			Role: m.Role,
+		}
+
+		// Processa conteúdo (pode ser texto simples ou multimodal)
+		if m.Media != "" {
+			var mediaParts []map[string]interface{}
+			if err := json.Unmarshal([]byte(m.Media), &mediaParts); err == nil {
+				var content []interface{}
+				if m.Content != "" {
+					content = append(content, map[string]interface{}{
+						"type": "text",
+						"text": m.Content,
+					})
+				}
+				for _, mp := range mediaParts {
+					content = append(content, mp)
+				}
+				msg.Content = content
+			} else {
+				msg.Content = m.Content
+			}
+		} else {
+			msg.Content = m.Content
+		}
+
+		messages = append(messages, msg)
+	}
+
+	return messages, nil
 }
 
 // SendMessageSync envia uma mensagem sem streaming (para acessibilidade)

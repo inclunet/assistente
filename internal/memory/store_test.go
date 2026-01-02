@@ -276,3 +276,7 @@ func TestMockProvider_Categories(t *testing.T) {
 		t.Errorf("fatos count = %d, want 1", categories["fatos"])
 	}
 }
+
+
+
+

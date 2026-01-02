@@ -9,23 +9,31 @@ import (
 
 // Conversation representa uma conversa
 type Conversation struct {
-	ID        uint          `json:"id" gorm:"primaryKey"`
-	Title     string        `json:"title"`
-	Model     string        `json:"model"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
-	Messages  []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
+	ID                   uint          `json:"id" gorm:"primaryKey"`
+	Title                string        `json:"title"`
+	Model                string        `json:"model"`
+	ShowInternalMessages bool          `json:"show_internal_messages" gorm:"default:false"` // Exibir mensagens internas (tool calls, debug)
+	CreatedAt            time.Time     `json:"created_at"`
+	UpdatedAt            time.Time     `json:"updated_at"`
+	Messages             []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
 }
 
 // ChatMessage representa uma mensagem na conversa
+// A hierarquia é definida pelo ParentID:
+//   - ParentID=null: mensagem de nível 0 (user/assistant principal)
+//   - ParentID=ID_delegação: mensagem de nível 1 (agente respondendo ao orquestrador)
+//   - ParentID=ID_agente_tool: mensagem de nível 2 (tool respondendo ao agente)
 type ChatMessage struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
 	ConversationID   uint      `json:"conversation_id" gorm:"index"`
-	Role             string    `json:"role"`
+	ParentID         *uint     `json:"parent_id,omitempty" gorm:"index"` // ID da mensagem pai (define hierarquia)
+	Role             string    `json:"role"`                             // user, assistant, tool, system
 	Content          string    `json:"content"`
 	Media            string    `json:"media,omitempty"`             // JSON com mídias (imagens, áudio, etc) em base64
 	ToolCalls        string    `json:"tool_calls,omitempty"`        // JSON serializado
-	ToolResults      string    `json:"tool_results,omitempty"`      // JSON serializado
+	ToolResults      string    `json:"tool_results,omitempty"`      // JSON serializado (deprecated, usar hierarquia)
+	ToolCallID       string    `json:"tool_call_id,omitempty"`      // ID da tool call (para role="tool")
+	AgentName        string    `json:"agent_name,omitempty"`        // Nome do agente que processou (file_manager, faq, etc)
 	PromptTokens     int       `json:"prompt_tokens,omitempty"`     // Tokens de entrada
 	CompletionTokens int       `json:"completion_tokens,omitempty"` // Tokens de saída
 	TotalTokens      int       `json:"total_tokens,omitempty"`      // Total de tokens
@@ -226,4 +234,3 @@ type FileAgentAuthorizedPath struct {
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
-

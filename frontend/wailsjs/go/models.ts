@@ -152,11 +152,14 @@ export namespace database {
 	export class ChatMessage {
 	    id: number;
 	    conversation_id: number;
+	    parent_id?: number;
 	    role: string;
 	    content: string;
 	    media?: string;
 	    tool_calls?: string;
 	    tool_results?: string;
+	    tool_call_id?: string;
+	    agent_name?: string;
 	    prompt_tokens?: number;
 	    completion_tokens?: number;
 	    total_tokens?: number;
@@ -171,11 +174,14 @@ export namespace database {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.conversation_id = source["conversation_id"];
+	        this.parent_id = source["parent_id"];
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.media = source["media"];
 	        this.tool_calls = source["tool_calls"];
 	        this.tool_results = source["tool_results"];
+	        this.tool_call_id = source["tool_call_id"];
+	        this.agent_name = source["agent_name"];
 	        this.prompt_tokens = source["prompt_tokens"];
 	        this.completion_tokens = source["completion_tokens"];
 	        this.total_tokens = source["total_tokens"];
@@ -205,6 +211,7 @@ export namespace database {
 	    id: number;
 	    title: string;
 	    model: string;
+	    show_internal_messages: boolean;
 	    created_at: time.Time;
 	    updated_at: time.Time;
 	    messages?: ChatMessage[];
@@ -218,6 +225,7 @@ export namespace database {
 	        this.id = source["id"];
 	        this.title = source["title"];
 	        this.model = source["model"];
+	        this.show_internal_messages = source["show_internal_messages"];
 	        this.created_at = this.convertValues(source["created_at"], time.Time);
 	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
@@ -845,6 +853,80 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	    }
 	}
+	export class MessageNode {
+	    message: database.ChatMessage;
+	    children?: MessageNode[];
+	    level: number;
+	    child_count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessageNode(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.message = this.convertValues(source["message"], database.ChatMessage);
+	        this.children = this.convertValues(source["children"], MessageNode);
+	        this.level = source["level"];
+	        this.child_count = source["child_count"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ConversationWithThreads {
+	    id: number;
+	    title: string;
+	    model: string;
+	    show_internal_messages: boolean;
+	    threads: MessageNode[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationWithThreads(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.model = source["model"];
+	        this.show_internal_messages = source["show_internal_messages"];
+	        this.threads = this.convertValues(source["threads"], MessageNode);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class FAQEmbeddingStatus {
 	    total_faqs: number;
 	    with_embedding: number;
@@ -1236,6 +1318,7 @@ export namespace main {
 	        this.stop_reason = source["stop_reason"];
 	    }
 	}
+	
 	export class OAuthConnectionInfo {
 	    id: number;
 	    provider_id: string;

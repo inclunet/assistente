@@ -11,6 +11,8 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/filemanager"
 	"assistente/internal/llm"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ToolResult representa o resultado de uma execução de ferramenta
@@ -61,6 +63,15 @@ func (a *App) ExecuteTool(toolCall llm.ToolCall) (string, error) {
 		}
 
 		fmt.Printf("📤 [ORQUESTRADOR] Delegando para agente '%s': %s\n", agentName, truncateStr(task, 80))
+		fmt.Printf("📤 [ORQUESTRADOR] currentDelegationID=%d, conversationID=%d\n", a.currentDelegationID, a.currentConversationID)
+
+		// Configura o saver para salvar mensagens internas do agente
+		if a.currentConversationID > 0 && a.currentDelegationID > 0 {
+			a.registry.SetAgentConversationContext(agentName, a.currentConversationID, a.createAgentMessageSaver())
+		} else {
+			fmt.Printf("⚠️ [ORQUESTRADOR] Saver não criado: conversationID=%d, delegationID=%d\n", 
+				a.currentConversationID, a.currentDelegationID)
+		}
 
 		// Executa delegação para o agente
 		result, err := a.registry.ExecuteDelegation(context.Background(), agentName, task)
@@ -82,6 +93,82 @@ func (a *App) ExecuteTool(toolCall llm.ToolCall) (string, error) {
 		},
 	}
 	return a.registry.ExecuteTool(agentToolCall)
+}
+
+// createAgentMessageSaver cria um callback para salvar mensagens internas dos agentes
+// NOVA ARQUITETURA v2:
+// - n0: user/assistant
+// - n1: assistant chamando agent (parentId=userMessage)
+// - n2: agent interagindo com tools (parentId=mensagem de tool_calls do assistant)
+func (a *App) createAgentMessageSaver() llm.MessageSaver {
+	// NÃO captura parentID aqui - usa sempre o valor atual de currentDelegationID
+	// Isso garante que múltiplas interações usem o parentID correto
+	
+	fmt.Printf("📝 [SAVER CRIADO] delegationID atual: %d\n", a.currentDelegationID)
+
+	return func(msg llm.AgentMessage) error {
+		// Usa o valor ATUAL de currentDelegationID (não capturado)
+		parentID := a.currentDelegationID
+		
+		if a.currentConversationID == 0 || parentID == 0 {
+			fmt.Printf("⚠️ [AGENT SAVER] Sem contexto: conversationID=%d, delegationID=%d\n", 
+				a.currentConversationID, parentID)
+			return nil
+		}
+
+		// Serializa tool calls se houver
+		var toolCallsJSON string
+		if len(msg.ToolCalls) > 0 {
+			if data, err := json.Marshal(msg.ToolCalls); err == nil {
+				toolCallsJSON = string(data)
+			}
+		}
+
+		// Para mensagens de tool_calls (agente chamando tools), 
+		// enriquece o conteúdo com os parâmetros para facilitar debug
+		content := msg.Content
+		if len(msg.ToolCalls) > 0 && content == "" {
+			var toolDescriptions []string
+			for _, tc := range msg.ToolCalls {
+				toolDesc := fmt.Sprintf("📤 %s(%s)", tc.Function.Name, tc.Function.Arguments)
+				toolDescriptions = append(toolDescriptions, toolDesc)
+			}
+			content = strings.Join(toolDescriptions, "\n")
+		}
+
+		fmt.Printf("💾 [AGENT SAVER] Salvando: role=%s, agent=%s, parentID=%d (nível 2)\n",
+			msg.Role, msg.AgentName, parentID)
+
+		// Salva como filho da mensagem de tool_calls do assistant (nível 2)
+		savedMsg, err := database.AddChildMessage(
+			a.currentConversationID,
+			parentID,
+			msg.Role,
+			content,
+			toolCallsJSON,
+			msg.ToolCallID,
+			msg.AgentName,
+			msg.Model,
+		)
+		if err != nil {
+			fmt.Printf("❌ [AGENT SAVER] Erro ao salvar: %v\n", err)
+			return err
+		}
+		fmt.Printf("✅ [AGENT SAVER] Salvo: ID=%d, parentID=%d\n", savedMsg.ID, parentID)
+
+		// Emite evento em tempo real para o frontend
+		runtime.EventsEmit(a.ctx, "chat:agent_message", map[string]interface{}{
+			"id":         savedMsg.ID,
+			"parentId":   parentID,
+			"role":       msg.Role,
+			"content":    content,
+			"agentName":  msg.AgentName,
+			"toolCalls":  toolCallsJSON,
+			"toolCallId": msg.ToolCallID,
+		})
+
+		return nil
+	}
 }
 
 // truncateStr trunca uma string para exibição em logs

@@ -117,6 +117,8 @@ export function GetConversation(arg1:number):Promise<database.Conversation>;
 
 export function GetConversationTokenStats(arg1:number):Promise<Record<string, number>>;
 
+export function GetConversationWithThreads(arg1:number):Promise<main.ConversationWithThreads>;
+
 export function GetConversations():Promise<Array<database.Conversation>>;
 
 export function GetCoreMemories():Promise<Array<database.Memory>>;
@@ -158,6 +160,8 @@ export function GetMCPResourceTemplates(arg1:number):Promise<Array<main.MCPResou
 export function GetMCPResources(arg1:number):Promise<Array<main.MCPResourceInfo>>;
 
 export function GetMemoriesByCategory(arg1:string):Promise<Array<database.Memory>>;
+
+export function GetMessageChildren(arg1:number):Promise<Array<main.MessageNode>>;
 
 export function GetModelCapability(arg1:string):Promise<database.ModelCapability>;
 
@@ -229,7 +233,7 @@ export function SearchFAQSemantic(arg1:string,arg2:number,arg3:number):Promise<A
 
 export function SearchMemories(arg1:string):Promise<Array<database.Memory>>;
 
-export function SendMessage(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<void>;
+export function SendMessage(arg1:number,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<void>;
 
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
 
@@ -284,6 +288,8 @@ export function UpdateAgentConfig(arg1:number,arg2:string,arg3:string,arg4:strin
 export function UpdateConversation(arg1:number,arg2:string,arg3:string):Promise<void>;
 
 export function UpdateConversationModel(arg1:number,arg2:string):Promise<void>;
+
+export function UpdateConversationSettings(arg1:number,arg2:boolean):Promise<void>;
 
 export function UpdateFAQ(arg1:number,arg2:string,arg3:string,arg4:string):Promise<database.FAQ>;
 

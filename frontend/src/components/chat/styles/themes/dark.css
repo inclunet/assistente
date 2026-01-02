@@ -1,0 +1,62 @@
+/**
+ * @chat-components - Dark Theme
+ * 
+ * Import this file to apply dark theme:
+ *   import '@chat-components/styles/themes/dark.css';
+ * 
+ * Or use with class:
+ *   <div class="chat-theme-dark">...</div>
+ */
+
+:root,
+.chat-theme-dark {
+  /* Base colors */
+  --chat-color-bg: #1a1a2e;
+  --chat-color-bg-secondary: #16213e;
+  --chat-color-bg-tertiary: #0f3460;
+  
+  --chat-color-text: #eaeaea;
+  --chat-color-text-secondary: #b8b8b8;
+  --chat-color-text-muted: #888888;
+  
+  --chat-color-border: #2d2d44;
+  --chat-color-border-focus: #4da8da;
+  
+  /* Semantic colors */
+  --chat-color-primary: #4da8da;
+  --chat-color-primary-hover: #6bc0ed;
+  --chat-color-primary-text: #1a1a2e;
+  
+  --chat-color-success: #4ade80;
+  --chat-color-error: #f87171;
+  --chat-color-warning: #fbbf24;
+  
+  /* Message bubbles */
+  --chat-color-user-bg: #4da8da;
+  --chat-color-user-text: #1a1a2e;
+  --chat-color-user-border: #4da8da;
+  
+  --chat-color-assistant-bg: #16213e;
+  --chat-color-assistant-text: #eaeaea;
+  --chat-color-assistant-border: #2d2d44;
+  
+  --chat-color-agent-bg: #3d3412;
+  --chat-color-agent-text: #fbbf24;
+  --chat-color-agent-border: #4a4012;
+  
+  --chat-color-tool-bg: #2d2d44;
+  --chat-color-tool-text: #b8b8b8;
+  --chat-color-tool-border: #3d3d54;
+  
+  /* Interactive states */
+  --chat-color-hover: rgba(255, 255, 255, 0.05);
+  --chat-color-active: rgba(255, 255, 255, 0.1);
+  --chat-color-focus-ring: rgba(77, 168, 218, 0.4);
+  
+  /* Shadows for dark mode */
+  --chat-shadow-sm: 0 1px 2px 0 rgba(0, 0, 0, 0.3);
+  --chat-shadow-md: 0 4px 6px -1px rgba(0, 0, 0, 0.4), 0 2px 4px -2px rgba(0, 0, 0, 0.3);
+  --chat-shadow-lg: 0 10px 15px -3px rgba(0, 0, 0, 0.5), 0 4px 6px -4px rgba(0, 0, 0, 0.4);
+}
+
+

@@ -169,14 +169,30 @@ func (a *FileAgent) Execute(ctx context.Context, task string) (string, error) {
 	// Inclui o diretório de trabalho atual no contexto
 	enhancedTask := fmt.Sprintf("[Diretório de trabalho atual: %s]\n\n%s", a.GetWorkingDirectory(), task)
 
-	result, err := a.LLM.ChatWithTools(
-		ctx,
-		a.Model,
-		a.SystemPrompt,
-		enhancedTask,
-		a.GetTools(),
-		a.ExecuteTool,
-	)
+	// Usa o método com saver se disponível
+	var result string
+	var err error
+	if a.MessageSaver != nil {
+		result, err = a.LLM.ChatWithToolsAndSaver(
+			ctx,
+			a.Model,
+			a.SystemPrompt,
+			enhancedTask,
+			a.GetTools(),
+			a.ExecuteTool,
+			a.Name,
+			a.MessageSaver,
+		)
+	} else {
+		result, err = a.LLM.ChatWithTools(
+			ctx,
+			a.Model,
+			a.SystemPrompt,
+			enhancedTask,
+			a.GetTools(),
+			a.ExecuteTool,
+		)
+	}
 
 	if err != nil {
 		return "", fmt.Errorf("erro no File Agent: %w", err)

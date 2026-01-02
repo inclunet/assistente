@@ -124,54 +124,186 @@ func UpdateConversationModel(id uint, model string) error {
 	}).Error
 }
 
-// ==================== ChatMessage ====================
-
-// AddMessage adiciona uma mensagem a uma conversa
-func AddMessage(conversationID uint, role, content, toolCalls, toolResults string) (*ChatMessage, error) {
-	return AddMessageWithMedia(conversationID, role, content, "", toolCalls, toolResults)
+// UpdateConversationSettings atualiza as configurações de exibição da conversa
+func UpdateConversationSettings(id uint, showInternalMessages bool) error {
+	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"show_internal_messages": showInternalMessages,
+		"updated_at":             time.Now(),
+	}).Error
 }
 
-// AddMessageWithMedia adiciona uma mensagem com mídias a uma conversa
-func AddMessageWithMedia(conversationID uint, role, content, media, toolCalls, toolResults string) (*ChatMessage, error) {
+// ==================== ChatMessage ====================
+
+// MessageOptions contém opções para criar uma mensagem
+type MessageOptions struct {
+	ConversationID   uint
+	ParentID         *uint  // ID da mensagem pai (define hierarquia)
+	Role             string // user, assistant, tool
+	Content          string
+	Media            string // JSON com mídias
+	ToolCalls        string // JSON com tool calls
+	ToolCallID       string // ID da tool call (para role="tool")
+	AgentName        string // Nome do agente
+	PromptTokens     int
+	CompletionTokens int
+	TotalTokens      int
+	Model            string
+}
+
+// CreateMessage cria uma mensagem com todas as opções disponíveis
+func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 	msg := &ChatMessage{
+		ConversationID:   opts.ConversationID,
+		ParentID:         opts.ParentID,
+		Role:             opts.Role,
+		Content:          opts.Content,
+		Media:            opts.Media,
+		ToolCalls:        opts.ToolCalls,
+		ToolCallID:       opts.ToolCallID,
+		AgentName:        opts.AgentName,
+		PromptTokens:     opts.PromptTokens,
+		CompletionTokens: opts.CompletionTokens,
+		TotalTokens:      opts.TotalTokens,
+		Model:            opts.Model,
+	}
+	if err := db.Create(msg).Error; err != nil {
+		return nil, err
+	}
+	db.Model(&Conversation{}).Where("id = ?", opts.ConversationID).Update("updated_at", time.Now())
+	return msg, nil
+}
+
+// AddMessage adiciona uma mensagem simples (sem parent - nível 0)
+func AddMessage(conversationID uint, role, content, toolCalls, toolResults string) (*ChatMessage, error) {
+	return CreateMessage(MessageOptions{
+		ConversationID: conversationID,
+		Role:           role,
+		Content:        content,
+		ToolCalls:      toolCalls,
+	})
+}
+
+// AddMessageWithMedia adiciona uma mensagem com mídias (sem parent - nível 0)
+func AddMessageWithMedia(conversationID uint, role, content, media, toolCalls, toolResults string) (*ChatMessage, error) {
+	return CreateMessage(MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
 		Media:          media,
 		ToolCalls:      toolCalls,
-		ToolResults:    toolResults,
-	}
-	if err := db.Create(msg).Error; err != nil {
-		return nil, err
-	}
-	db.Model(&Conversation{}).Where("id = ?", conversationID).Update("updated_at", time.Now())
-	return msg, nil
+	})
 }
 
 // AddMessageWithTokens adiciona uma mensagem com informações de tokens
 func AddMessageWithTokens(conversationID uint, role, content, toolCalls, toolResults string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
-	return AddMessageWithTokensAndMedia(conversationID, role, content, "", toolCalls, toolResults, promptTokens, completionTokens, totalTokens, model)
+	return CreateMessage(MessageOptions{
+		ConversationID:   conversationID,
+		Role:             role,
+		Content:          content,
+		ToolCalls:        toolCalls,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
+		Model:            model,
+	})
 }
 
 // AddMessageWithTokensAndMedia adiciona uma mensagem com mídias e informações de tokens
 func AddMessageWithTokensAndMedia(conversationID uint, role, content, media, toolCalls, toolResults string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
-	msg := &ChatMessage{
+	return CreateMessage(MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
 		Media:            media,
 		ToolCalls:        toolCalls,
-		ToolResults:      toolResults,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      totalTokens,
 		Model:            model,
+	})
+}
+
+// AddToolMessage adiciona uma mensagem de role="tool" (resposta de tool ao orquestrador)
+func AddToolMessage(conversationID uint, content, toolCallID string) (*ChatMessage, error) {
+	return CreateMessage(MessageOptions{
+		ConversationID: conversationID,
+		Role:           "tool",
+		Content:        content,
+		ToolCallID:     toolCallID,
+	})
+}
+
+// AddChildMessage adiciona uma mensagem filha (com ParentID definido)
+// Usada para mensagens internas de agentes e tools
+func AddChildMessage(conversationID uint, parentID uint, role, content, toolCalls, toolCallID, agentName, model string) (*ChatMessage, error) {
+	return CreateMessage(MessageOptions{
+		ConversationID: conversationID,
+		ParentID:       &parentID,
+		Role:           role,
+		Content:        content,
+		ToolCalls:      toolCalls,
+		ToolCallID:     toolCallID,
+		AgentName:      agentName,
+		Model:          model,
+	})
+}
+
+// UpdateMessageContent atualiza o conteúdo e tokens de uma mensagem existente
+// Usado para completar mensagens de delegação com a resposta final
+func UpdateMessageContent(messageID uint, content string, promptTokens, completionTokens, totalTokens int, model string) error {
+	return db.Model(&ChatMessage{}).Where("id = ?", messageID).Updates(map[string]interface{}{
+		"content":           content,
+		"prompt_tokens":     promptTokens,
+		"completion_tokens": completionTokens,
+		"total_tokens":      totalTokens,
+		"model":             model,
+	}).Error
+}
+
+// UpdateMessageToolCalls atualiza uma mensagem com tool_calls
+// Usado quando o assistant decide chamar ferramentas
+func UpdateMessageToolCalls(messageID uint, toolCalls string, agentName string) error {
+	return db.Model(&ChatMessage{}).Where("id = ?", messageID).Updates(map[string]interface{}{
+		"tool_calls": toolCalls,
+		"agent_name": agentName,
+	}).Error
+}
+
+// GetMessageChildren retorna todas as mensagens filhas de uma mensagem
+func GetMessageChildren(parentID uint) ([]ChatMessage, error) {
+	var messages []ChatMessage
+	err := db.Where("parent_id = ?", parentID).Order("created_at ASC").Find(&messages).Error
+	return messages, err
+}
+
+// GetMessageTree retorna uma mensagem com todos os seus descendentes
+func GetMessageTree(messageID uint) (*ChatMessage, []ChatMessage, error) {
+	var message ChatMessage
+	if err := db.First(&message, messageID).Error; err != nil {
+		return nil, nil, err
 	}
-	if err := db.Create(msg).Error; err != nil {
-		return nil, err
+
+	// Busca todos os descendentes recursivamente
+	var descendants []ChatMessage
+	if err := getDescendants(messageID, &descendants); err != nil {
+		return nil, nil, err
 	}
-	db.Model(&Conversation{}).Where("id = ?", conversationID).Update("updated_at", time.Now())
-	return msg, nil
+
+	return &message, descendants, nil
+}
+
+func getDescendants(parentID uint, descendants *[]ChatMessage) error {
+	var children []ChatMessage
+	if err := db.Where("parent_id = ?", parentID).Order("created_at ASC").Find(&children).Error; err != nil {
+		return err
+	}
+	for _, child := range children {
+		*descendants = append(*descendants, child)
+		if err := getDescendants(child.ID, descendants); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // GetConversationTokenStats retorna estatísticas de tokens de uma conversa

@@ -584,3 +584,7 @@ func (c *HTTPClient) CreateMessage(request *SamplingRequest) (*SamplingResult, e
 
 // Verifica que HTTPClient implementa Transport
 var _ Transport = (*HTTPClient)(nil)
+
+
+
+

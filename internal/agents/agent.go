@@ -34,6 +34,9 @@ type LLMClient interface {
 	// ChatWithTools envia mensagens para o LLM e processa tool calls
 	// Retorna a resposta final após executar todas as tools necessárias
 	ChatWithTools(ctx context.Context, model, systemPrompt string, userMessage string, tools []llm.Tool, toolExecutor func(llm.ToolCall) (string, error)) (string, error)
+
+	// ChatWithToolsAndSaver é como ChatWithTools mas salva mensagens internas via callback
+	ChatWithToolsAndSaver(ctx context.Context, model, systemPrompt string, userMessage string, tools []llm.Tool, toolExecutor func(llm.ToolCall) (string, error), agentName string, saver llm.MessageSaver) (string, error)
 }
 
 // MCPNativeLLMClient interface para LLMs que suportam MCP nativamente
@@ -79,14 +82,22 @@ type Agent interface {
 
 // BaseAgent fornece implementação base para campos comuns
 type BaseAgent struct {
-	Name         string
-	DisplayName  string
-	Description  string
-	AgentType    string
-	Model        string
-	SystemPrompt string
-	Enabled      bool
-	LLM          LLMClient // Cliente LLM para o agente usar
+	Name           string
+	DisplayName    string
+	Description    string
+	AgentType      string
+	Model          string
+	SystemPrompt   string
+	Enabled        bool
+	LLM            LLMClient        // Cliente LLM para o agente usar
+	ConversationID uint             // ID da conversa atual (para salvar mensagens internas)
+	MessageSaver   llm.MessageSaver // Callback para salvar mensagens internas
+}
+
+// SetConversationContext define o contexto da conversa para salvar mensagens internas
+func (b *BaseAgent) SetConversationContext(conversationID uint, saver llm.MessageSaver) {
+	b.ConversationID = conversationID
+	b.MessageSaver = saver
 }
 
 func (b *BaseAgent) GetName() string {

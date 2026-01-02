@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"sync"
+
+	"assistente/internal/llm"
 )
 
 // Registry gerencia todos os agentes disponíveis
@@ -113,6 +115,31 @@ func (r *Registry) ExecuteDelegation(ctx context.Context, agentName, task string
 	}
 
 	return agent.Execute(ctx, task)
+}
+
+// SetAgentConversationContext configura o contexto de conversa para um agente
+// Isso permite que o agente salve suas mensagens internas no histórico
+func (r *Registry) SetAgentConversationContext(agentName string, conversationID uint, saver llm.MessageSaver) {
+	agent := r.Get(agentName)
+	if agent == nil {
+		return
+	}
+
+	// Tenta configurar o contexto se o agente suportar
+	switch a := agent.(type) {
+	case *FileAgent:
+		a.SetConversationContext(conversationID, saver)
+	case *FAQAgent:
+		a.SetConversationContext(conversationID, saver)
+	case *MemoryAgent:
+		a.SetConversationContext(conversationID, saver)
+	case *ImageAgent:
+		a.SetConversationContext(conversationID, saver)
+	case *HTTPAgent:
+		a.SetConversationContext(conversationID, saver)
+	case *MCPAgent:
+		a.SetConversationContext(conversationID, saver)
+	}
 }
 
 // =====================================================

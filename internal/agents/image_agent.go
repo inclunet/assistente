@@ -178,7 +178,14 @@ func (a *ImageAgent) Execute(ctx context.Context, task string) (string, error) {
 		return a.ExecuteTool(tc)
 	}
 
-	result, err := a.LLM.ChatWithTools(ctx, a.Model, a.GetSystemPrompt(), task, tools, executor)
+	// Usa o método com saver se disponível
+	var result string
+	var err error
+	if a.MessageSaver != nil {
+		result, err = a.LLM.ChatWithToolsAndSaver(ctx, a.Model, a.GetSystemPrompt(), task, tools, executor, a.Name, a.MessageSaver)
+	} else {
+		result, err = a.LLM.ChatWithTools(ctx, a.Model, a.GetSystemPrompt(), task, tools, executor)
+	}
 	if err != nil {
 		log.Printf("🎨 [IMAGE_AGENT] Erro no ChatWithTools: %v", err)
 		return "", err

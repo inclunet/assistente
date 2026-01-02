@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"assistente/internal/database"
@@ -39,6 +40,149 @@ func (a *App) GetConversation(id uint) (*Conversation, error) {
 	return database.GetConversation(id)
 }
 
+// GetConversationWithThreads retorna uma conversa com mensagens de nível 0 apenas (lazy loading)
+// Os filhos são carregados sob demanda via GetMessageChildren
+func (a *App) GetConversationWithThreads(id uint) (*ConversationWithThreads, error) {
+	conv, err := database.GetConversation(id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Filtra apenas mensagens raiz (nível 0) - sem ParentID
+	var rootMessages []database.ChatMessage
+	childCounts := make(map[uint]int) // Conta filhos de cada mensagem
+	
+	for _, msg := range conv.Messages {
+		if msg.ParentID == nil {
+			rootMessages = append(rootMessages, msg)
+		} else {
+			// Conta quantos filhos cada mensagem tem
+			childCounts[*msg.ParentID]++
+		}
+	}
+
+	// Converte para MessageNode com contagem de filhos (sem carregar os filhos)
+	threads := make([]MessageNode, 0, len(rootMessages))
+	for _, msg := range rootMessages {
+		threads = append(threads, MessageNode{
+			Message:    msg,
+			Children:   nil, // Não carrega filhos - lazy loading
+			Level:      0,
+			ChildCount: childCounts[msg.ID],
+		})
+	}
+
+	fmt.Printf("🌳 [LAZY] Conversa %d: %d raízes, filhos serão carregados sob demanda\n", id, len(threads))
+
+	return &ConversationWithThreads{
+		ID:                   conv.ID,
+		Title:                conv.Title,
+		Model:                conv.Model,
+		ShowInternalMessages: conv.ShowInternalMessages,
+		Threads:              threads,
+	}, nil
+}
+
+// GetMessageChildren retorna os filhos diretos de uma mensagem (lazy loading)
+func (a *App) GetMessageChildren(messageID uint) ([]MessageNode, error) {
+	children, err := database.GetMessageChildren(messageID)
+	if err != nil {
+		return nil, err
+	}
+
+	// Conta netos para cada filho
+	grandchildCounts := make(map[uint]int)
+	for _, child := range children {
+		gc, _ := database.GetMessageChildren(child.ID)
+		grandchildCounts[child.ID] = len(gc)
+	}
+
+	// Converte para MessageNode
+	result := make([]MessageNode, 0, len(children))
+	for _, msg := range children {
+		result = append(result, MessageNode{
+			Message:    msg,
+			Children:   nil, // Lazy loading
+			Level:      1,   // Será ajustado pelo frontend se necessário
+			ChildCount: grandchildCounts[msg.ID],
+		})
+	}
+
+	fmt.Printf("🌳 [LAZY] Mensagem %d: %d filhos carregados\n", messageID, len(result))
+	return result, nil
+}
+
+// buildMessageTree organiza mensagens planas em uma árvore hierárquica
+// Mensagens com ParentID=nil são raízes (nível 0)
+// Mensagens com ParentID apontam para seu pai
+func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
+	fmt.Printf("🌳 [TREE] Construindo árvore com %d mensagens\n", len(messages))
+	
+	// Passo 1: Cria mapa de filhos (parentID -> lista de mensagens filhas)
+	childrenMap := make(map[uint][]database.ChatMessage)
+	var rootMessages []database.ChatMessage
+	
+	for _, msg := range messages {
+		if msg.ParentID == nil {
+			rootMessages = append(rootMessages, msg)
+		} else {
+			childrenMap[*msg.ParentID] = append(childrenMap[*msg.ParentID], msg)
+		}
+	}
+	
+	// Passo 2: Ordena raízes e filhos por ID
+	sort.Slice(rootMessages, func(i, j int) bool {
+		return rootMessages[i].ID < rootMessages[j].ID
+	})
+	for parentID := range childrenMap {
+		sort.Slice(childrenMap[parentID], func(i, j int) bool {
+			return childrenMap[parentID][i].ID < childrenMap[parentID][j].ID
+		})
+	}
+	
+	// Passo 3: Função recursiva para construir nó com todos os descendentes
+	var buildNode func(msg database.ChatMessage, level int) MessageNode
+	buildNode = func(msg database.ChatMessage, level int) MessageNode {
+		node := MessageNode{
+			Message:  msg,
+			Children: []MessageNode{},
+			Level:    level,
+		}
+		
+		// Adiciona filhos recursivamente
+		children := childrenMap[msg.ID]
+		for _, child := range children {
+			childNode := buildNode(child, level+1)
+			node.Children = append(node.Children, childNode)
+		}
+		
+		return node
+	}
+	
+	// Passo 4: Constrói árvore a partir das raízes
+	result := make([]MessageNode, 0, len(rootMessages))
+	for _, rootMsg := range rootMessages {
+		node := buildNode(rootMsg, 0)
+		result = append(result, node)
+	}
+	
+	// Log do resultado
+	fmt.Printf("🌳 [TREE] Resultado: %d raízes\n", len(result))
+	var logTree func(nodes []MessageNode, indent string)
+	logTree = func(nodes []MessageNode, indent string) {
+		for _, n := range nodes {
+			fmt.Printf("🌳 [TREE] %sID=%d, role=%s, children=%d\n", 
+				indent, n.Message.ID, n.Message.Role, len(n.Children))
+			if len(n.Children) > 0 {
+				logTree(n.Children, indent+"  ")
+			}
+		}
+	}
+	logTree(result, "  ")
+
+	return result
+}
+
 func (a *App) UpdateConversation(id uint, title, model string) error {
 	return database.UpdateConversation(id, title, model)
 }
@@ -49,6 +193,10 @@ func (a *App) DeleteConversation(id uint) error {
 
 func (a *App) UpdateConversationModel(id uint, model string) error {
 	return database.UpdateConversationModel(id, model)
+}
+
+func (a *App) UpdateConversationSettings(id uint, showInternalMessages bool) error {
+	return database.UpdateConversationSettings(id, showInternalMessages)
 }
 
 // ==================== ChatMessage ====================

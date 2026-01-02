@@ -219,3 +219,7 @@ type Reconnectable interface {
 	// Reconnect tenta reconectar ao servidor
 	Reconnect() error
 }
+
+
+
+

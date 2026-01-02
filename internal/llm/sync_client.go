@@ -52,6 +52,19 @@ type syncChatResponse struct {
 	} `json:"choices"`
 }
 
+// AgentMessage representa uma mensagem interna de um agente para ser salva
+type AgentMessage struct {
+	Role       string     // "assistant" ou "tool"
+	Content    string     // Conteúdo textual
+	ToolCalls  []ToolCall // Tool calls (para role="assistant")
+	ToolCallID string     // ID da tool call (para role="tool")
+	AgentName  string     // Nome do agente
+	Model      string     // Modelo usado
+}
+
+// MessageSaver é um callback para salvar mensagens internas de agentes
+type MessageSaver func(msg AgentMessage) error
+
 // ChatWithTools envia mensagens para o LLM e processa tool calls automaticamente
 // Retorna a resposta final após executar todas as tools necessárias
 func (c *SyncClient) ChatWithTools(
@@ -60,6 +73,19 @@ func (c *SyncClient) ChatWithTools(
 	userMessage string,
 	tools []Tool,
 	toolExecutor func(ToolCall) (string, error),
+) (string, error) {
+	return c.ChatWithToolsAndSaver(ctx, model, systemPrompt, userMessage, tools, toolExecutor, "", nil)
+}
+
+// ChatWithToolsAndSaver é como ChatWithTools mas salva mensagens internas via callback
+func (c *SyncClient) ChatWithToolsAndSaver(
+	ctx context.Context,
+	model, systemPrompt string,
+	userMessage string,
+	tools []Tool,
+	toolExecutor func(ToolCall) (string, error),
+	agentName string,
+	saver MessageSaver,
 ) (string, error) {
 	messages := []syncChatMessage{
 		{Role: "system", Content: StrPtr(systemPrompt)},
@@ -95,6 +121,16 @@ func (c *SyncClient) ChatWithTools(
 			ToolCalls: choice.Message.ToolCalls,
 		})
 
+		// Salva mensagem de tool call se tiver saver
+		if saver != nil {
+			saver(AgentMessage{
+				Role:      "assistant",
+				ToolCalls: choice.Message.ToolCalls,
+				AgentName: agentName,
+				Model:     model,
+			})
+		}
+
 		// Executa tool calls em paralelo para melhor performance
 		toolResults := executeToolsParallel(choice.Message.ToolCalls, toolExecutor)
 
@@ -105,6 +141,25 @@ func (c *SyncClient) ChatWithTools(
 				Content:    StrPtr(tr.result),
 				ToolCallID: tr.toolCallID,
 			})
+
+			// Salva resultado da tool se tiver saver
+			if saver != nil {
+				// Encontra o nome da tool
+				toolName := ""
+				for _, tc := range choice.Message.ToolCalls {
+					if tc.ID == tr.toolCallID {
+						toolName = tc.Function.Name
+						break
+					}
+				}
+				saver(AgentMessage{
+					Role:       "tool",
+					Content:    tr.result,
+					ToolCallID: tr.toolCallID,
+					AgentName:  toolName,
+					Model:      model,
+				})
+			}
 		}
 	}
 
@@ -211,3 +266,4 @@ func executeToolsParallel(toolCalls []ToolCall, executor func(ToolCall) (string,
 	wg.Wait()
 	return results
 }
+

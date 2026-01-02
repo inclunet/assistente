@@ -1,0 +1,63 @@
+{
+  "chat": {
+    "copy": "Copiar",
+    "copyMarkdown": "Copiar como Markdown",
+    "copyCode": "Copiar código",
+    "edit": "Editar",
+    "delete": "Eliminar",
+    "pin": "Fijar",
+    "unpin": "Desfijar",
+    "speak": "Escuchar",
+    "stopSpeaking": "Parar",
+    "resend": "Reenviar",
+    "reply": "Responder",
+    "moreActions": "Más acciones",
+    "calling": "Llamando",
+    
+    "expand": "Expandir",
+    "collapse": "Contraer",
+    "interactions": "{count, plural, =0 {Sin interacciones} =1 {1 interacción} other {# interacciones}}",
+    "level": "nivel",
+    
+    "placeholder": "Escribe tu mensaje...",
+    "send": "Enviar",
+    "cancel": "Cancelar",
+    "save": "Guardar",
+    "saveEdit": "Guardar",
+    "cancelEdit": "Cancelar",
+    "editPlaceholder": "Editar mensaje...",
+    
+    "addMedia": "Adjuntar archivo",
+    "removeMedia": "Eliminar",
+    "download": "Descargar",
+    "zoom": "Ampliar",
+    "imageAlt": "Imagen",
+    "viewFullSize": "Ver tamaño completo",
+    
+    "startRecording": "Iniciar grabación",
+    "stopRecording": "Detener grabación",
+    "cancelRecording": "Cancelar grabación",
+    "recording": "Grabando...",
+    
+    "copied": "¡Copiado!",
+    "deleted": "Mensaje eliminado",
+    "saved": "¡Guardado!",
+    "error": "Error",
+    "loading": "Cargando...",
+    "sending": "Enviando...",
+    
+    "emptyChat": "Sin mensajes aún",
+    "emptyDescription": "Inicia una conversación enviando un mensaje",
+    "messageHistory": "Historial de mensajes",
+    
+    "you": "Tú",
+    "assistant": "Asistente",
+    "agent": "Agente",
+    "tool": "Herramienta",
+    "system": "Sistema",
+    "messageOf": "{n} de {total}",
+    
+    "startOfMessages": "Inicio de mensajes",
+    "endOfMessages": "Fin de mensajes"
+  }
+}

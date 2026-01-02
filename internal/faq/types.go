@@ -17,3 +17,7 @@ type Provider interface {
 	Delete(id uint) error
 	Search(query string) ([]Data, error)
 }
+
+
+
+

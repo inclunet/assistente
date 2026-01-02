@@ -109,3 +109,7 @@ func (s *Store) Search(query string) ([]Data, error) {
 
 // Verifica que Store implementa Provider
 var _ Provider = (*Store)(nil)
+
+
+
+

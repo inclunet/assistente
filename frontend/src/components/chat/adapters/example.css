@@ -1,0 +1,105 @@
+/**
+ * Chat Components - Example Adapter
+ * 
+ * This file shows how to create an adapter that maps your project's
+ * design system variables to the chat component's --chat-* tokens.
+ * 
+ * Copy this file and customize it for your project.
+ * 
+ * Usage:
+ *   import '@your-project/components/chat/adapters/your-project.css';
+ */
+
+:root {
+  /* ============================================
+   * Map your design system to chat tokens
+   * ============================================ */
+  
+  /* Colors - Map from your variables */
+  --chat-color-bg: var(--your-bg-color, #ffffff);
+  --chat-color-text: var(--your-text-color, #1a1a1a);
+  --chat-color-text-muted: var(--your-text-muted, #6b7280);
+  --chat-color-border: var(--your-border-color, #e5e7eb);
+  --chat-color-hover: var(--your-hover-bg, #f3f4f6);
+  --chat-color-error: var(--your-error-color, #dc2626);
+  --chat-color-success: var(--your-success-color, #16a34a);
+  
+  /* Message bubbles */
+  --chat-msg-user-bg: var(--your-primary-color, #3b82f6);
+  --chat-msg-user-text: var(--your-primary-text, #ffffff);
+  --chat-msg-assistant-bg: var(--your-secondary-bg, #f3f4f6);
+  --chat-msg-assistant-text: var(--your-text-color, #1a1a1a);
+  
+  /* Input */
+  --chat-input-bg: var(--your-input-bg, #ffffff);
+  --chat-input-text: var(--your-input-text, #1a1a1a);
+  --chat-input-border: var(--your-input-border, #d1d5db);
+  --chat-input-placeholder: var(--your-placeholder, #9ca3af);
+  --chat-input-focus-border: var(--your-focus-color, #3b82f6);
+  --chat-input-focus-ring: var(--your-focus-ring, rgba(59, 130, 246, 0.2));
+  
+  /* Buttons */
+  --chat-btn-primary-bg: var(--your-primary-color, #3b82f6);
+  --chat-btn-primary-text: var(--your-primary-text, #ffffff);
+  --chat-btn-primary-hover: var(--your-primary-hover, #2563eb);
+  --chat-btn-secondary-bg: var(--your-secondary-bg, #e5e7eb);
+  --chat-btn-secondary-text: var(--your-text-color, #374151);
+  --chat-btn-secondary-hover: var(--your-secondary-hover, #d1d5db);
+  
+  /* Typography - Use your font stack */
+  --chat-font-family: var(--your-font-family, system-ui, -apple-system, sans-serif);
+  --chat-font-size-base: var(--your-font-size, 1rem);
+  --chat-font-size-sm: var(--your-font-size-sm, 0.875rem);
+  --chat-font-size-xs: var(--your-font-size-xs, 0.75rem);
+  --chat-line-height: var(--your-line-height, 1.5);
+  
+  /* Spacing - Use your spacing scale */
+  --chat-space-1: var(--your-space-1, 0.25rem);
+  --chat-space-2: var(--your-space-2, 0.5rem);
+  --chat-space-3: var(--your-space-3, 0.75rem);
+  --chat-space-4: var(--your-space-4, 1rem);
+  --chat-space-6: var(--your-space-6, 1.5rem);
+  
+  /* Border radius - Use your radius scale */
+  --chat-radius-sm: var(--your-radius-sm, 0.25rem);
+  --chat-radius-md: var(--your-radius-md, 0.5rem);
+  --chat-radius-lg: var(--your-radius-lg, 1rem);
+  --chat-radius-full: var(--your-radius-full, 9999px);
+  
+  /* Shadows */
+  --chat-shadow-sm: var(--your-shadow-sm, 0 1px 2px rgba(0, 0, 0, 0.05));
+  --chat-shadow-md: var(--your-shadow-md, 0 4px 6px rgba(0, 0, 0, 0.1));
+  
+  /* Transitions */
+  --chat-transition-fast: var(--your-transition-fast, 150ms ease);
+  --chat-transition-normal: var(--your-transition, 200ms ease);
+  
+  /* Focus */
+  --chat-color-border-focus: var(--your-focus-color, #3b82f6);
+  
+  /* Layout */
+  --chat-messages-gap: var(--your-gap, 1rem);
+  --chat-max-width: var(--your-max-width, 800px);
+}
+
+/* ============================================
+ * Dark mode support (optional)
+ * ============================================ */
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    /* Override with dark mode values if not handled by your design system */
+    /* --chat-color-bg: var(--your-dark-bg, #1a1a1a); */
+    /* --chat-color-text: var(--your-dark-text, #f3f4f6); */
+    /* ... */
+  }
+}
+
+/* Or use a class-based approach */
+.dark {
+  /* --chat-color-bg: var(--your-dark-bg, #1a1a1a); */
+  /* --chat-color-text: var(--your-dark-text, #f3f4f6); */
+  /* ... */
+}
+
+

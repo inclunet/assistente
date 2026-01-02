@@ -65,15 +65,30 @@ func (a *MemoryAgent) Execute(ctx context.Context, task string) (string, error) 
 
 	fmt.Printf("🧠 [Memory Agent] Recebeu tarefa: %s\n", task)
 
-	// Chama o LLM do agente com suas tools
-	result, err := a.LLM.ChatWithTools(
-		ctx,
-		a.Model,
-		a.SystemPrompt,
-		task,
-		a.GetTools(),
-		a.ExecuteTool,
-	)
+	// Usa o método com saver se disponível
+	var result string
+	var err error
+	if a.MessageSaver != nil {
+		result, err = a.LLM.ChatWithToolsAndSaver(
+			ctx,
+			a.Model,
+			a.SystemPrompt,
+			task,
+			a.GetTools(),
+			a.ExecuteTool,
+			a.Name,
+			a.MessageSaver,
+		)
+	} else {
+		result, err = a.LLM.ChatWithTools(
+			ctx,
+			a.Model,
+			a.SystemPrompt,
+			task,
+			a.GetTools(),
+			a.ExecuteTool,
+		)
+	}
 
 	if err != nil {
 		return "", fmt.Errorf("erro no Memory Agent: %w", err)

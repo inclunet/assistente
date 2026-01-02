@@ -587,3 +587,7 @@ func (p *PostmanParser) extractPropertiesFromJSON(obj map[string]interface{}, pr
 		properties[propName] = schema
 	}
 }
+
+
+
+

@@ -139,17 +139,34 @@ func (a *HTTPAgent) Execute(ctx context.Context, task string) (string, error) {
 		return "", fmt.Errorf("LLM não configurado para o agente %s", a.Name)
 	}
 
-	// Usa o LLM para decidir qual endpoint chamar
-	result, err := a.LLM.ChatWithTools(
-		ctx,
-		a.Model,
-		a.buildSystemPrompt(),
-		task,
-		a.GetTools(),
-		func(tc ToolCall) (string, error) {
-			return a.ExecuteTool(tc)
-		},
-	)
+	executor := func(tc ToolCall) (string, error) {
+		return a.ExecuteTool(tc)
+	}
+
+	// Usa o método com saver se disponível
+	var result string
+	var err error
+	if a.MessageSaver != nil {
+		result, err = a.LLM.ChatWithToolsAndSaver(
+			ctx,
+			a.Model,
+			a.buildSystemPrompt(),
+			task,
+			a.GetTools(),
+			executor,
+			a.Name,
+			a.MessageSaver,
+		)
+	} else {
+		result, err = a.LLM.ChatWithTools(
+			ctx,
+			a.Model,
+			a.buildSystemPrompt(),
+			task,
+			a.GetTools(),
+			executor,
+		)
+	}
 
 	if err != nil {
 		return "", fmt.Errorf("erro ao executar agente HTTP: %w", err)

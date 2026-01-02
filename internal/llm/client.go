@@ -397,6 +397,9 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 func processToolCalls(ctx context.Context, cfg *config.Config, messages []Message, toolCalls []ToolCall, params ChatParams, handler StreamHandler, depth int, usage Usage, model string) {
 	fmt.Printf("🔧 [DEBUG] processToolCalls - depth=%d, toolCalls=%d\n", depth, len(toolCalls))
 
+	// Notifica sobre as tool calls para acumulação no histórico
+	handler.OnToolCalls(toolCalls, usage, model)
+
 	toolNames := make([]string, len(toolCalls))
 	for i, tc := range toolCalls {
 		toolNames[i] = tc.Function.Name

@@ -1,0 +1,63 @@
+{
+  "chat": {
+    "copy": "Copy",
+    "copyMarkdown": "Copy as Markdown",
+    "copyCode": "Copy code",
+    "edit": "Edit",
+    "delete": "Delete",
+    "pin": "Pin",
+    "unpin": "Unpin",
+    "speak": "Listen",
+    "stopSpeaking": "Stop",
+    "resend": "Resend",
+    "reply": "Reply",
+    "moreActions": "More actions",
+    "calling": "Calling",
+    
+    "expand": "Expand",
+    "collapse": "Collapse",
+    "interactions": "{count, plural, =0 {No interactions} =1 {1 interaction} other {# interactions}}",
+    "level": "level",
+    
+    "placeholder": "Type your message...",
+    "send": "Send",
+    "cancel": "Cancel",
+    "save": "Save",
+    "saveEdit": "Save",
+    "cancelEdit": "Cancel",
+    "editPlaceholder": "Edit message...",
+    
+    "addMedia": "Attach media",
+    "removeMedia": "Remove",
+    "download": "Download",
+    "zoom": "Zoom",
+    "imageAlt": "Image",
+    "viewFullSize": "View full size",
+    
+    "startRecording": "Start recording",
+    "stopRecording": "Stop recording",
+    "cancelRecording": "Cancel recording",
+    "recording": "Recording...",
+    
+    "copied": "Copied!",
+    "deleted": "Message deleted",
+    "saved": "Saved!",
+    "error": "Error",
+    "loading": "Loading...",
+    "sending": "Sending...",
+    
+    "emptyChat": "No messages yet",
+    "emptyDescription": "Start a conversation by sending a message",
+    "messageHistory": "Message history",
+    
+    "you": "You",
+    "assistant": "Assistant",
+    "agent": "Agent",
+    "tool": "Tool",
+    "system": "System",
+    "messageOf": "{n} of {total}",
+    
+    "startOfMessages": "Start of messages",
+    "endOfMessages": "End of messages"
+  }
+}

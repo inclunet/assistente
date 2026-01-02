@@ -849,3 +849,7 @@ func (c *Client) Reconnect() error {
 
 // Verifica que Client implementa Transport
 var _ Transport = (*Client)(nil)
+
+
+
+

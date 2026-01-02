@@ -69,3 +69,7 @@ func (s *Store) Delete(id uint) error {
 
 // Verifica que Store implementa Provider
 var _ Provider = (*Store)(nil)
+
+
+
+

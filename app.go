@@ -23,14 +23,43 @@ import (
 
 // App struct
 type App struct {
-	ctx               context.Context
-	registry          *agents.Registry
-	llmClient         *llm.SyncClient
-	embeddingsService *llm.EmbeddingsService
-	speechManager     *speech.SpeechManager
-	hotkeyManager     *hotkey.Manager
-	voiceHotkeyID     int
-	InitialWorkDir    string // Diretório de trabalho inicial (passado via --workdir ou pwd)
+	ctx                   context.Context
+	registry              *agents.Registry
+	llmClient             *llm.SyncClient
+	embeddingsService     *llm.EmbeddingsService
+	speechManager         *speech.SpeechManager
+	hotkeyManager         *hotkey.Manager
+	voiceHotkeyID         int
+	InitialWorkDir        string // Diretório de trabalho inicial (passado via --workdir ou pwd)
+	currentConversationID uint   // ID da conversa atual (para passar aos agentes)
+	currentDelegationID   uint   // ID da mensagem de delegação atual (para ParentID)
+}
+
+// ==================== Tipos para Threads ====================
+
+// MessageNode representa uma mensagem com seus filhos na hierarquia
+type MessageNode struct {
+	Message    database.ChatMessage `json:"message"`
+	Children   []MessageNode        `json:"children,omitempty"`
+	Level      int                  `json:"level"`
+	ChildCount int                  `json:"child_count"` // Para lazy loading
+}
+
+// ConversationWithThreads representa uma conversa com mensagens organizadas em árvore
+type ConversationWithThreads struct {
+	ID                   uint          `json:"id"`
+	Title                string        `json:"title"`
+	Model                string        `json:"model"`
+	ShowInternalMessages bool          `json:"show_internal_messages"`
+	Threads              []MessageNode `json:"threads"`
+}
+
+// StreamEvent representa um evento de streaming simplificado
+type StreamEvent struct {
+	MessageID uint   `json:"messageId"`
+	Content   string `json:"content"`
+	Done      bool   `json:"done"`
+	Error     string `json:"error,omitempty"`
 }
 
 // NewApp creates a new App application struct
