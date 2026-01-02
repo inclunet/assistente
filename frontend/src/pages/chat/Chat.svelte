@@ -1,18 +1,19 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
   import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime.js';
-  import { SendMessage, GetModels, CreateConversation, AddMessage, AddMessageWithTokens, AddMessageWithMedia, AddMessageWithTokensAndMedia, GetConversation, GetConversationWithThreads, GetMessageChildren, UpdateConversationModel, UpdateConversationSettings, SetDefaultModel, SetLastConversation, GetCoreMemories, SpeakSAPI5, StopSAPI5, SetSAPI5Volume, SetSAPI5Rate, SynthesizeOpenAIWithVoice, SetOpenAITTSSpeed, GenerateImageDescription, TranscribeWhisper } from '../../../wailsjs/go/main/App.js';
+  import { SendMessage, GetModels, CreateConversation, AddMessage, AddMessageWithTokens, AddMessageWithMedia, AddMessageWithTokensAndMedia, GetConversation, GetConversationWithThreads, GetMessageChildren, UpdateConversationModel, UpdateConversationSettings, SetDefaultModel, SetLastConversation, GetCoreMemories, GenerateImageDescription } from '../../../wailsjs/go/main/App.js';
   import { Modal, ImageModal } from '../../components/modal';
   import { Markdown } from '../../components/markdown';
   import VoiceButton from './VoiceButton.svelte';
   import { Toolbar } from '../../components/toolbar';
   import { ModelPicker, VoicePicker, STTProviderPicker, VOICE_DISABLED, STT_WEBSPEECH, STT_WHISPER } from '../../components/pickers';
-  import { SpeechSynthesisManager, AudioRecorder } from '../../lib/speech/index.js';
+  import { ttsService, TTS_PROVIDERS, AudioRecorder } from '../../lib/speech/index.js';
   import { ContextMenu, ContextMenuTrigger } from '../../components/contextmenu';
   import MediaMenu, { RECORDING_MODES, MENU_ACTIONS } from './MediaMenu.svelte';
   import { detectMediaType, MEDIA_CATEGORIES, getCategoryIcon, getCategoryLabel, ALL_ACCEPTED_TYPES } from '../../lib/media-detector.js';
   import ChatContainer from '../../components/chat/wrappers/ChatContainer.svelte';
   import ChatInput from '../../components/chat/core/input/ChatInput.svelte';
+  import { VoiceSettingsPanel } from '../../components/speech';
 
   export let hasApiKey = false;
   export let conversation = null;
@@ -59,7 +60,6 @@
   let voiceButtonComponent;
   let voiceEnabled = true; // Habilitar voz
   let autoSpeak = true; // Falar respostas automaticamente
-  let ttsManager = null; // Manager de TTS separado para falar respostas (WebSpeech)
   let isVoiceInput = false; // Indica que a entrada atual veio da voz
   let selectedVoice = VOICE_DISABLED; // Inicia desativado (usa leitor de telas)
   let selectedVoiceSource = 'disabled'; // 'disabled', 'webspeech', 'sapi5', ou 'openai'
@@ -72,8 +72,7 @@
   // Configurações de voz
   let showVoiceSettings = false;
   let voiceVolume = 100; // 0-100
-  let voiceRate = 0; // -10 a 10 (SAPI5) ou 0.1-10 (WebSpeech)
-  let volumeInput; // Referência para focar no modal
+  let voiceRate = 0; // -10 a 10
   
   // Verifica se TTS está desativado (usa leitor de telas)
   $: isTTSDisabled = selectedVoice === VOICE_DISABLED;
@@ -1301,23 +1300,14 @@
     window.addEventListener('keyup', handleGlobalKeyUp);
     
     
-    // Inicializa TTS para falar respostas
-    if (SpeechSynthesisManager.isSupported()) {
-      ttsManager = new SpeechSynthesisManager({
-        language: 'pt-BR',
-        rate: 1.0,
-        onStart: () => {
-          // Não anuncia nada - TTS já está falando, não queremos duplicar no leitor
-        },
-        onEnd: () => {
-          playSound('receive');
-        },
-        onError: (error) => {
-          console.error('TTS error:', error);
-        }
-      });
-    }
+    // Configura listener de TTS para som de conclusão
+    ttsService.addEventListener('speakEnd', handleTTSSpeakEnd);
   });
+  
+  // Handler para quando TTS termina de falar
+  function handleTTSSpeakEnd() {
+    playSound('receive');
+  }
   
   // Foco automático no input quando disponível
   $: if (inputElement && hasApiKey && selectedModel) {
@@ -1347,10 +1337,9 @@
     window.removeEventListener('keydown', handleChatKeyDown);
     window.removeEventListener('keyup', handleGlobalKeyUp);
     
-    // Para TTS se estiver falando
-    if (ttsManager) {
-      ttsManager.stop();
-    }
+    // Remove listener e para TTS se estiver falando
+    ttsService.removeEventListener('speakEnd', handleTTSSpeakEnd);
+    ttsService.stop();
   });
 
   function handleToolsExecution(data) {
@@ -2178,60 +2167,17 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
 
   function toggleVoiceSettings() {
     showVoiceSettings = !showVoiceSettings;
-    if (showVoiceSettings) {
-      setTimeout(() => {
-        volumeInput?.focus();
-      }, 50);
-    }
+    // O VoiceSettingsPanel foca automaticamente no primeiro input
   }
 
-  // Aplica configurações de volume
-  async function applyVoiceVolume(volume) {
+  // Sincroniza estado local de volume (ttsService já foi atualizado pelo VoiceSettingsPanel)
+  function applyVoiceVolume(volume) {
     voiceVolume = volume;
-    
-    // Aplica no WebSpeech
-    if (ttsManager) {
-      ttsManager.setVolume(volume / 100); // WebSpeech usa 0-1
-    }
-    
-    // Aplica no SAPI5
-    if (selectedVoiceSource === 'sapi5') {
-      try {
-        await SetSAPI5Volume(volume);
-      } catch (e) {
-        console.error('Failed to set SAPI5 volume:', e);
-      }
-    }
   }
 
-  // Aplica configurações de velocidade
-  async function applyVoiceRate(rate) {
+  // Sincroniza estado local de velocidade (ttsService já foi atualizado pelo VoiceSettingsPanel)
+  function applyVoiceRate(rate) {
     voiceRate = rate;
-    
-    // Aplica no WebSpeech (converte de -10/10 para 0.1/10)
-    if (ttsManager) {
-      // -10 -> 0.1, 0 -> 1, 10 -> 10
-      const webRate = rate <= 0 ? 1 + (rate * 0.09) : 1 + (rate * 0.9);
-      ttsManager.setRate(Math.max(0.1, Math.min(10, webRate)));
-    }
-    
-    // Aplica no SAPI5 (já usa -10 a 10)
-    if (selectedVoiceSource === 'sapi5') {
-      try {
-        await SetSAPI5Rate(rate);
-      } catch (e) {
-        console.error('Failed to set SAPI5 rate:', e);
-      }
-    }
-    
-    // Aplica no OpenAI TTS
-    if (selectedVoiceSource === 'openai') {
-      try {
-        await SetOpenAITTSSpeed(rate);
-      } catch (e) {
-        console.error('Failed to set OpenAI TTS speed:', e);
-      }
-    }
   }
 
   function handleModelChange(event) {
@@ -2260,6 +2206,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     if (selectedVoice === VOICE_DISABLED) {
       selectedVoiceSource = 'disabled';
       openaiVoiceId = null;
+      ttsService.setProvider(TTS_PROVIDERS.DISABLED);
     } else if (voicePickerComponent) {
       const voice = voicePickerComponent.getSelectedVoice();
       selectedVoiceSource = voice?.source || 'webspeech';
@@ -2267,14 +2214,17 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       // Extrai o ID da voz OpenAI se aplicável
       if (selectedVoiceSource === 'openai') {
         openaiVoiceId = voicePickerComponent.getOpenAIVoiceId();
+        ttsService.setProvider(TTS_PROVIDERS.OPENAI, { 
+          voice: selectedVoice,
+          voiceId: openaiVoiceId 
+        });
+      } else if (selectedVoiceSource === 'sapi5') {
+        openaiVoiceId = null;
+        ttsService.setProvider(TTS_PROVIDERS.SAPI5, { voice: selectedVoice });
       } else {
         openaiVoiceId = null;
+        ttsService.setProvider(TTS_PROVIDERS.WEBSPEECH, { voice: selectedVoice });
       }
-    }
-    
-    // Só configura o ttsManager se for WebSpeech
-    if (selectedVoiceSource === 'webspeech' && ttsManager) {
-      ttsManager.setVoice(selectedVoice);
     }
   }
 
@@ -2408,55 +2358,15 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       .trim();
   }
 
-  // Sintetiza texto usando a voz apropriada (WebSpeech, SAPI5, ou OpenAI)
+  // Sintetiza texto usando o ttsService (delega ao provider configurado)
   async function speakText(text) {
     if (!text) return;
-    
-    if (selectedVoiceSource === 'openai' && openaiVoiceId) {
-      // Usa OpenAI TTS via backend
-      try {
-        const result = await SynthesizeOpenAIWithVoice(text, openaiVoiceId);
-        if (result && result.audioBase64) {
-          // Reproduz o áudio base64
-          const audio = new Audio(`data:audio/mp3;base64,${result.audioBase64}`);
-          audio.play();
-        }
-      } catch (e) {
-        console.error('OpenAI TTS error:', e);
-        // Fallback para WebSpeech se OpenAI falhar
-        if (ttsManager) {
-          ttsManager.speak(text);
-        }
-      }
-    } else if (selectedVoiceSource === 'sapi5') {
-      // Usa SAPI5 via backend
-      try {
-        await SpeakSAPI5(text, selectedVoice);
-      } catch (e) {
-        console.error('SAPI5 speak error:', e);
-        // Fallback para WebSpeech se SAPI5 falhar
-        if (ttsManager) {
-          ttsManager.speak(text);
-        }
-      }
-    } else if (ttsManager) {
-      // Usa WebSpeech
-      ttsManager.speak(text);
-    }
+    await ttsService.speak(text);
   }
 
   // Para a síntese de voz atual
   async function stopSpeaking() {
-    if (selectedVoiceSource === 'sapi5') {
-      try {
-        await StopSAPI5();
-      } catch (e) {
-        console.error('SAPI5 stop error:', e);
-      }
-    }
-    if (ttsManager) {
-      ttsManager.stop();
-    }
+    await ttsService.stop();
   }
 
   // Handler para hotkey global (Ctrl+Shift+A de qualquer janela)
@@ -3799,83 +3709,15 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
 
   <!-- Modal de Configurações de Voz -->
   <Modal title="Configurações de Voz" open={showVoiceSettings} on:close={() => showVoiceSettings = false} autoFocus={false}>
-    <!-- Configurações de Síntese (TTS) -->
-    <div class="param-group">
-      <label for="voice-volume">Volume: <strong>{voiceVolume}%</strong></label>
-      <p class="param-description">Ajusta o volume da síntese de voz.</p>
-      <input
-        id="voice-volume"
-        type="range"
-        bind:this={volumeInput}
-        bind:value={voiceVolume}
-        on:change={() => applyVoiceVolume(voiceVolume)}
-        min="0"
-        max="100"
-        step="5"
-        aria-valuemin="0"
-        aria-valuemax="100"
-        aria-valuenow={voiceVolume}
-      />
-      <div class="range-labels" aria-hidden="true">
-        <span>🔇 0%</span>
-        <span>🔊 100%</span>
-      </div>
-    </div>
-    
-    <div class="param-group">
-      <label for="voice-rate">Velocidade: <strong>{voiceRate > 0 ? '+' : ''}{voiceRate}</strong></label>
-      <p class="param-description">Ajusta a velocidade da fala. Valores negativos são mais lentos, positivos são mais rápidos.</p>
-      <input
-        id="voice-rate"
-        type="range"
-        bind:value={voiceRate}
-        on:change={() => applyVoiceRate(voiceRate)}
-        min="-10"
-        max="10"
-        step="1"
-        aria-valuemin="-10"
-        aria-valuemax="10"
-        aria-valuenow={voiceRate}
-      />
-      <div class="range-labels" aria-hidden="true">
-        <span>🐢 Lento (-10)</span>
-        <span>🐇 Rápido (+10)</span>
-      </div>
-    </div>
-    
-    <div class="param-group">
-      <label class="toggle-label">
-        <input
-          type="checkbox"
-          bind:checked={autoSpeak}
-          aria-describedby="autospeak-description"
-        />
-        Falar respostas automaticamente
-      </label>
-      <p id="autospeak-description" class="param-description">
-        Quando ativado, o assistente fala as respostas automaticamente usando a voz selecionada.
-      </p>
-    </div>
-    
-    <div class="voice-info" role="note">
-      <strong>Voz atual:</strong> 
-      {#if isTTSDisabled}
-        🔇 Desativada (usando leitor de telas)
-      {:else}
-        {selectedVoice.startsWith('openai:') ? selectedVoice.substring(7) : selectedVoice} 
-        <span class="voice-source">({selectedVoiceSource === 'openai' ? 'OpenAI ✨' : selectedVoiceSource === 'sapi5' ? 'SAPI5' : 'WebSpeech'})</span>
-      {/if}
-    </div>
-    
-    <div class="modal-actions">
-      <button 
-        class="btn-secondary"
-        on:click={() => speakText('Olá! Esta é uma demonstração da voz selecionada.')}
-        disabled={isTTSDisabled}
-      >
-        🔊 Testar Voz
-      </button>
-    </div>
+    <VoiceSettingsPanel
+      bind:volume={voiceVolume}
+      bind:rate={voiceRate}
+      bind:autoSpeak={autoSpeak}
+      selectedVoice={selectedVoice}
+      voiceSource={selectedVoiceSource}
+      on:volumeChange={(e) => applyVoiceVolume(e.detail.volume)}
+      on:rateChange={(e) => applyVoiceRate(e.detail.rate)}
+    />
   </Modal>
 
   {#if !hasApiKey}
