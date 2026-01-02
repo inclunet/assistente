@@ -13,6 +13,7 @@
   import { detectMediaType, MEDIA_CATEGORIES, getCategoryIcon, getCategoryLabel, ALL_ACCEPTED_TYPES } from '../../lib/media-detector.js';
   import ChatContainer from '../../components/chat/wrappers/ChatContainer.svelte';
   import ChatInput from '../../components/chat/core/input/ChatInput.svelte';
+  import SendButton from '../../components/chat/core/input/SendButton.svelte';
   import { VoiceSettingsPanel } from '../../components/speech';
 
   export let hasApiKey = false;
@@ -3889,22 +3890,14 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
                     {/if}
                   </div>
                 {:else}
-                  <button 
-                    type="submit" 
-                    class="btn-primary send-btn"
+                  <SendButton
+                    type="submit"
                     disabled={!canSendMessage}
-                    aria-label={isLoading ? 'Enviando mensagem...' : isGeneratingAltText ? 'Aguardando descrição da imagem...' : 'Enviar mensagem'}
-                    aria-busy={isLoading || isGeneratingAltText}
-                    title={isGeneratingAltText ? 'Aguardando descrição da imagem...' : ''}
+                    {isLoading}
+                    {isGeneratingAltText}
                   >
-                    {#if isLoading}
-                      <span class="loading-spinner" aria-hidden="true"></span>
-                    {:else if isGeneratingAltText}
-                      <span class="generating-indicator" aria-hidden="true">✨</span> Aguarde...
-                    {:else}
-                      📤 Enviar
-                    {/if}
-                  </button>
+                    📤 Enviar
+                  </SendButton>
                 {/if}
               </svelte:fragment>
             </ChatInput>

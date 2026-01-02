@@ -50,7 +50,8 @@ export const RECORDING_MODES = {
   PTT: 'ptt',                  // Push-to-talk: segura para gravar
   TOGGLE: 'toggle',            // Clique para iniciar/parar
   VAD_SILENCE: 'vad_silence',  // Clique + detecta silêncio para parar
-  VAD_ACTIVITY: 'vad_activity' // Full auto: detecta início e fim de fala
+  VAD_ACTIVITY: 'vad_activity', // Full auto: detecta início e fim de fala
+  RECORD_AUDIO: 'record_audio' // Grava áudio como arquivo (não transcreve)
 };
 
 // Estados possíveis
@@ -154,6 +155,13 @@ class STTService extends EventTarget {
     return !!TranscribeWhisper;
   }
   
+  /**
+   * Verifica se algum provider de STT está disponível
+   */
+  get isSupported() {
+    return this.isWebSpeechSupported || this.isWhisperSupported;
+  }
+  
   // === Configuração ===
   
   /**
@@ -210,6 +218,7 @@ class STTService extends EventTarget {
       switch (this._mode) {
         case RECORDING_MODES.PTT:
         case RECORDING_MODES.TOGGLE:
+        case RECORDING_MODES.RECORD_AUDIO:
           // Inicia gravação imediatamente
           await this._startActualRecording();
           break;
@@ -251,7 +260,7 @@ class STTService extends EventTarget {
     }
     
     // Para gravação
-    if (this._provider === STT_PROVIDERS.WHISPER) {
+    if (this._mode === RECORDING_MODES.RECORD_AUDIO || this._provider === STT_PROVIDERS.WHISPER) {
       if (this._audioRecorder) {
         this._audioRecorder.stop();
       }
@@ -282,6 +291,13 @@ class STTService extends EventTarget {
   }
   
   /**
+   * Alias para cancelRecording
+   */
+  cancel() {
+    this.cancelRecording();
+  }
+  
+  /**
    * Toggle gravação (para modos Toggle e VAD)
    */
   toggleRecording() {
@@ -295,7 +311,8 @@ class STTService extends EventTarget {
   // === Métodos internos ===
   
   async _startActualRecording() {
-    if (this._provider === STT_PROVIDERS.WHISPER) {
+    // Modo record_audio sempre usa AudioRecorder (não transcreve)
+    if (this._mode === RECORDING_MODES.RECORD_AUDIO || this._provider === STT_PROVIDERS.WHISPER) {
       if (this._audioRecorder) {
         this._audioRecorder.start();
       }
@@ -391,6 +408,14 @@ class STTService extends EventTarget {
   }
   
   async _processAudioBlob(blob) {
+    // Modo record_audio: apenas dispara evento com arquivo
+    if (this._mode === RECORDING_MODES.RECORD_AUDIO) {
+      const file = new File([blob], `audio-${Date.now()}.webm`, { type: 'audio/webm' });
+      this._dispatchEvent('audioFile', { file, blob });
+      this._setState(STT_STATES.IDLE);
+      return;
+    }
+    
     if (this._provider === STT_PROVIDERS.WHISPER && TranscribeWhisper) {
       await this._transcribeWithWhisper(blob);
     } else {
@@ -433,13 +458,19 @@ class STTService extends EventTarget {
   // === Handlers ===
   
   _handleRecordingStart() {
-    this._setState(STT_STATES.RECORDING);
+    let message = 'Gravando. Fale agora.';
+    if (this._mode === RECORDING_MODES.RECORD_AUDIO) {
+      message = 'Gravando áudio. Solte para anexar.';
+    } else if (this._provider === STT_PROVIDERS.WHISPER) {
+      message = 'Gravando para Whisper. Fale agora.';
+    }
+    this._setState(STT_STATES.RECORDING, message);
     this._interimText = '';
   }
   
   _handleInterim(text) {
     this._interimText = text;
-    this._dispatchEvent('interim', { text });
+    this._dispatchEvent('interimResult', { text });
   }
   
   _handleFinalResult(transcript) {
@@ -450,14 +481,15 @@ class STTService extends EventTarget {
     this._stopVAD();
     
     if (transcript && transcript.trim()) {
-      this._setState(STT_STATES.IDLE);
+      this._setState(STT_STATES.IDLE, `Transcrição: ${transcript.trim()}`);
       this._dispatchEvent('transcription', { 
         text: transcript.trim(),
+        isFinal: true,
         provider: this._provider 
       });
     } else {
       this._dispatchEvent('noSpeechDetected', {});
-      this._setState(STT_STATES.IDLE);
+      this._setState(STT_STATES.IDLE, 'Nenhuma fala detectada.');
     }
     
     this._interimText = '';
@@ -476,10 +508,10 @@ class STTService extends EventTarget {
     }, 3000);
   }
   
-  _setState(state) {
+  _setState(state, message = '') {
     const previousState = this._state;
     this._state = state;
-    this._dispatchEvent('stateChange', { state, previousState });
+    this._dispatchEvent('stateChange', { state, previousState, message });
   }
   
   _dispatchEvent(type, detail) {
