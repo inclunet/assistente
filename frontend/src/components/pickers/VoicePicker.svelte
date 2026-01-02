@@ -6,8 +6,8 @@
 
 <script>
   import { onMount, createEventDispatcher } from 'svelte';
-  import { Combobox as ComboboxPicker } from './combobox';
-  import { GetSAPI5Voices, GetOpenAITTSVoices } from '../../wailsjs/go/main/App.js';
+  import { Combobox as ComboboxPicker } from '../combobox';
+  import { GetSAPI5Voices, GetOpenAITTSVoices } from '../../../wailsjs/go/main/App.js';
 
   const dispatch = createEventDispatcher();
 

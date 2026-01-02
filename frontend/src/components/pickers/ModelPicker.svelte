@@ -1,7 +1,7 @@
 <script>
   import { onMount, createEventDispatcher } from 'svelte';
-  import { GetModels } from '../../wailsjs/go/main/App.js';
-  import { Combobox as ComboboxPicker } from './combobox';
+  import { GetModels } from '../../../wailsjs/go/main/App.js';
+  import { Combobox as ComboboxPicker } from '../combobox';
 
   const dispatch = createEventDispatcher();
 

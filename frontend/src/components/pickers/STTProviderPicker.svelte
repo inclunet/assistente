@@ -10,7 +10,7 @@
 
 <script>
   import { onMount, createEventDispatcher } from 'svelte';
-  import { Combobox as ComboboxPicker } from './combobox';
+  import { Combobox as ComboboxPicker } from '../combobox';
 
   const dispatch = createEventDispatcher();
 
