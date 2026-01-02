@@ -39,8 +39,6 @@
   let streamingMessageId = null;  // ID da mensagem sendo streamada
   let streamingContent = '';      // Conteúdo acumulado do streaming
   
-  // Deprecated - mantido para compatibilidade durante transição
-  let currentStreamedMessage = '';
 
   // Reage a mudanças na conversa passada como prop
   $: if (conversation) {
@@ -906,16 +904,7 @@
   }
 
   // Referência para cleanup de eventos
-  let unsubscribeChunk;
-  let unsubscribeError;
-  let unsubscribeTools;
-  let unsubscribeToolResults;
   let unsubscribeGlobalHotkey;
-  let unsubscribeConversationCreated;
-  let unsubscribeMessageSaved;
-  let unsubscribeMessageUpdated;
-  let unsubscribeInternalMessage;
-  let unsubscribeAgentMessage;
 
   onMount(() => {
     // Carrega modo de gravação salvo
@@ -928,71 +917,20 @@
       console.warn('Não foi possível carregar modo de gravação');
     }
     
-    // Registrar listeners de eventos do Wails
-    unsubscribeChunk = EventsOn('chat:chunk', handleStreamChunk);
-    unsubscribeError = EventsOn('chat:error', handleError);
-    unsubscribeTools = EventsOn('chat:tools', handleToolsExecution);
-    unsubscribeToolResults = EventsOn('chat:tool_results', handleToolResults);
+    // === BIND MESSAGESERVICE AOS EVENTOS DO BACKEND ===
+    messageService.bindBackendEvents();
     
-    // Listener para quando backend cria nova conversa
-    unsubscribeConversationCreated = EventsOn('chat:conversation_created', (data) => {
-      console.log('[NEW] Conversa criada:', data);
-      currentConversationId = data.id;
-      conversationTitle = data.title;
-      dispatch('conversationUpdated');
-    });
-    
-    // NOVA ARQUITETURA: Listener para quando mensagens foram criadas
-    unsubscribeMessageSaved = EventsOn('chat:messages_ready', async (data) => {
-      console.log('[NEW] Mensagens prontas:', data);
-      streamingMessageId = data.assistantMessageId;
-      // Recarrega a conversa para ter as novas mensagens
-      await reloadConversation();
-    });
-    
-    // NOVA ARQUITETURA: Listener único de streaming
-    unsubscribeMessageUpdated = EventsOn('chat:stream', (event) => {
-      console.log('[NEW] Stream event:', event.messageId, event.done ? 'DONE' : event.content?.length + ' chars');
-      
-      streamingMessageId = event.messageId;
-      streamingContent = event.content || '';
-      
-      // Atualiza a mensagem no array local para exibição imediata
-      if (conversationData?.threads) {
-        updateMessageContent(event.messageId, event.content);
-      }
-      
-      if (event.done) {
-        // Streaming terminou
-        isLoading = false;
-        playSound('receive');
-        
-        // Anuncia para leitor de telas
-        if (isTTSDisabled && event.content) {
-          liveMessage = 'Assistente: ' + event.content;
-        }
-        
-        // Limpa estado de streaming
-        streamingMessageId = null;
-        streamingContent = '';
-      }
-      
-      scrollToBottom();
-    });
-    
-    // NOVA ARQUITETURA: Listener para quando streaming terminou
-    EventsOn('chat:done', async (data) => {
-      console.log('[NEW] Chat done:', data);
-      isLoading = false;
-      // Recarrega a conversa para ter dados finais com threads
-      await reloadConversation();
-    });
-    
-    // Listener para mensagens internas (tool calls, tool results)
-    unsubscribeInternalMessage = EventsOn('chat:internal_message', handleInternalMessage);
-    
-    // Listener para mensagens de agentes em tempo real (nível 2)
-    unsubscribeAgentMessage = EventsOn('chat:agent_message', handleAgentMessage);
+    // Listeners do messageService para atualizar estado local
+    messageService.addEventListener('messagesUpdated', handleMessagesUpdated);
+    messageService.addEventListener('streamingChunk', handleServiceStreamingChunk);
+    messageService.addEventListener('streamingEnded', handleServiceStreamingEnded);
+    messageService.addEventListener('toolsExecution', handleServiceToolsExecution);
+    messageService.addEventListener('toolResults', handleServiceToolResults);
+    messageService.addEventListener('error', handleServiceError);
+    messageService.addEventListener('conversationCreated', handleServiceConversationCreated);
+    messageService.addEventListener('messagesReady', handleServiceMessagesReady);
+    messageService.addEventListener('agentMessage', handleServiceAgentMessage);
+    messageService.addEventListener('chatDone', handleServiceChatDone);
     
     // Listener para hotkey global (Ctrl+Shift+A de qualquer janela)
     unsubscribeGlobalHotkey = EventsOn('global:hotkey:voice', handleGlobalHotkeyVoice);
@@ -1002,7 +940,6 @@
     
     // Captura tecla Applications que dispara contextmenu mas não keydown em alguns casos
     window.addEventListener('keyup', handleGlobalKeyUp);
-    
     
     // Configura listener de TTS para som de conclusão
     ttsService.addEventListener('speakEnd', handleTTSSpeakEnd);
@@ -1027,16 +964,20 @@
   }
 
   onDestroy(() => {
-    // Limpar event listeners
-    if (unsubscribeChunk) EventsOff('chat:chunk');
-    if (unsubscribeError) EventsOff('chat:error');
-    if (unsubscribeTools) EventsOff('chat:tools');
-    if (unsubscribeToolResults) EventsOff('chat:tool_results');
-    if (unsubscribeConversationCreated) EventsOff('chat:conversation_created');
-    if (unsubscribeMessageSaved) EventsOff('chat:message_saved');
-    if (unsubscribeMessageUpdated) EventsOff('chat:message_updated');
-    if (unsubscribeInternalMessage) EventsOff('chat:internal_message');
-    if (unsubscribeAgentMessage) EventsOff('chat:agent_message');
+    // Unbind do messageService
+    messageService.unbindBackendEvents();
+    messageService.removeEventListener('messagesUpdated', handleMessagesUpdated);
+    messageService.removeEventListener('streamingChunk', handleServiceStreamingChunk);
+    messageService.removeEventListener('streamingEnded', handleServiceStreamingEnded);
+    messageService.removeEventListener('toolsExecution', handleServiceToolsExecution);
+    messageService.removeEventListener('toolResults', handleServiceToolResults);
+    messageService.removeEventListener('error', handleServiceError);
+    messageService.removeEventListener('conversationCreated', handleServiceConversationCreated);
+    messageService.removeEventListener('messagesReady', handleServiceMessagesReady);
+    messageService.removeEventListener('agentMessage', handleServiceAgentMessage);
+    messageService.removeEventListener('chatDone', handleServiceChatDone);
+    
+    // Outros listeners
     if (unsubscribeGlobalHotkey) EventsOff('global:hotkey:voice');
     window.removeEventListener('keydown', handleChatKeyDown);
     window.removeEventListener('keyup', handleGlobalKeyUp);
@@ -1046,177 +987,102 @@
     ttsService.stop();
   });
 
-  function handleToolsExecution(data) {
-    executingTools = true;
-    toolsMessage = data.message || 'Executando ferramentas...';
+  // === Handlers do MessageService ===
+  
+  function handleMessagesUpdated(event) {
+    const { messages: newMessages } = event.detail;
+    messages = newMessages;
+    conversationData = messageService.conversationData;
+  }
+  
+  function handleServiceStreamingChunk(event) {
+    scrollToBottom();
+  }
+  
+  function handleServiceStreamingEnded(event) {
+    const { content, toolCalls } = event.detail;
     
-    // Toca som de notificação
-    playSound('send');
+    isLoading = false;
+    playSound('receive');
     
-    // Atualiza a mensagem do assistente para mostrar que está usando ferramentas
-    if (messages.length > 0) {
-      const lastIndex = messages.length - 1;
-      if (messages[lastIndex].role === 'assistant') {
-        messages[lastIndex].toolsInfo = `🔧 ${toolsMessage}`;
-        messages[lastIndex].isStreaming = true;
-        messages = [...messages];
+    // Lógica de leitura da resposta
+    if (isTTSDisabled) {
+      liveMessage = 'Assistente: ' + content;
+    } else if (autoSpeak && content) {
+      const textToSpeak = cleanMarkdownForSpeech(content);
+      if (textToSpeak) {
+        speakText(textToSpeak);
       }
     }
     
-    // Anuncia para leitores de tela apenas se TTS desativado
+    if (toolCalls && toolCalls.length > 0) {
+      console.log('Tool calls executadas:', toolCalls.map(tc => tc.function?.name));
+    }
+    
+    scrollToBottom();
+  }
+  
+  function handleServiceToolsExecution(event) {
+    const { message, executing } = event.detail;
+    executingTools = executing;
+    toolsMessage = message;
+    
+    playSound('send');
+    
     if (isTTSDisabled) {
-      liveMessage = toolsMessage;
+      liveMessage = message;
     }
   }
-
-  function handleToolResults(data) {
+  
+  function handleServiceToolResults(event) {
+    const { count } = event.detail;
     executingTools = false;
     toolsMessage = '';
     
-    if (data.results && data.results.length > 0) {
-      const resultCount = data.results.length;
-      
-      // Anuncia para leitores de tela apenas se TTS desativado
+    if (count > 0) {
       if (isTTSDisabled) {
-        liveMessage = `${resultCount} ferramenta(s) executada(s) com sucesso.`;
+        liveMessage = `${count} ferramenta(s) executada(s) com sucesso.`;
       }
-      
-      // Toca som de conclusão
       playSound('receive');
     }
   }
   
-  /**
-   * Processa mensagens internas (tool calls, tool results) do backend
-   * e adiciona ao array de mensagens para exibição quando habilitado
-   */
-  function handleInternalMessage(data) {
-    console.log('Mensagem interna recebida:', data);
-    
-    // Cria objeto de mensagem interna
-    const internalMsg = {
-      id: data.id,
-      role: data.role,
-      content: data.content || '',
-      internal: true,
-      agentName: data.agentName || '',
-      toolCallId: data.toolCallId || '',
-      toolName: data.toolName || '',
-      toolCalls: data.toolCalls || null
-    };
-    
-    // Adiciona ao array de mensagens
-    messages = [...messages, internalMsg];
+  function handleServiceError(event) {
+    const { message } = event.detail;
+    error = message;
+    isLoading = false;
+    playSound('error');
   }
   
-  /**
-   * Handler para mensagens de agentes em tempo real (nível 2)
-   * Recebe eventos do backend quando tools são chamadas/respondidas
-   */
-  function handleAgentMessage(data) {
-    console.log('[AGENT] Mensagem do agente em tempo real:', data);
+  function handleServiceConversationCreated(event) {
+    const { conversationId, title } = event.detail;
+    currentConversationId = conversationId;
+    conversationTitle = title;
+    dispatch('conversationUpdated');
+  }
+  
+  function handleServiceMessagesReady(event) {
+    isLoading = true;
+  }
+  
+  function handleServiceAgentMessage(event) {
+    const { agentName, role, content, toolCalls } = event.detail;
     
-    // Anuncia para leitores de tela
-    const agentName = formatAgentName(data.agentName);
-    const roleLabel = data.role === 'tool' ? 'Resultado' : agentName;
-    const preview = (data.content || '').substring(0, 100);
+    const formattedName = formatAgentName(agentName);
+    const roleLabel = role === 'tool' ? 'Resultado' : formattedName;
+    const preview = (content || '').substring(0, 100);
     
-    // Anuncia a ação
-    if (data.role === 'assistant' && data.toolCalls) {
-      announce(`${agentName} chamando ferramenta`);
-    } else if (data.role === 'tool') {
+    if (role === 'assistant' && toolCalls) {
+      announce(`${formattedName} chamando ferramenta`);
+    } else if (role === 'tool') {
       announce(`Resposta de ferramenta: ${preview}`);
     } else {
       announce(`${roleLabel}: ${preview}`);
     }
-    
-    // Armazena para exibição se mensagens internas estiverem habilitadas
-    if (showInternalMessages) {
-      const agentMsg = {
-        id: data.id,
-        parentId: data.parentId,
-        role: data.role,
-        content: data.content || '',
-        internal: true,
-        agentName: data.agentName || '',
-        toolCallId: data.toolCallId || '',
-        toolCalls: data.toolCalls || null
-      };
-      messages = [...messages, agentMsg];
-    }
   }
-
-
-  function handleStreamChunk(chunk) {
-    // Encontra a mensagem de streaming (pode ter ID do backend ou não)
-    const streamingIndex = messages.findIndex(m => m.role === 'assistant' && m.isStreaming);
-    
-    if (chunk.done) {
-      // Streaming finalizado
-      const fullResponse = chunk.fullResponse || currentStreamedMessage;
-      
-      // Atualiza a mensagem de streaming com o conteúdo completo
-      if (streamingIndex >= 0) {
-        messages[streamingIndex].content = fullResponse;
-        messages[streamingIndex].isStreaming = false;
-        messages = [...messages];
-      }
-      
-      currentStreamedMessage = '';
-      isLoading = false;
-      playSound('receive');
-      
-      // Lógica de leitura da resposta:
-      // - Se TTS desativado: envia para aria-live (leitor de telas lê)
-      // - Se TTS ativado: usa TTS e NÃO envia para aria-live (evita duplicação)
-      if (isTTSDisabled) {
-        // TTS desativado - usa aria-live para leitor de telas
-        liveMessage = 'Assistente: ' + fullResponse;
-      } else if (autoSpeak && fullResponse) {
-        // TTS ativado - fala via síntese de voz (não duplica no leitor)
-        // Limpa markdown básico para fala mais natural
-        const textToSpeak = cleanMarkdownForSpeech(fullResponse);
-        
-        if (textToSpeak) {
-          speakText(textToSpeak);
-        }
-      }
-      
-      // NOTA: O backend agora salva a mensagem do assistant automaticamente
-      // Apenas log para debug
-      if (chunk.toolCalls && chunk.toolCalls.length > 0) {
-        console.log('Tool calls executadas:', chunk.toolCalls.map(tc => tc.function?.name));
-      }
-      
-      // NOVA ARQUITETURA: Recarrega a conversa completa com threads
-      reloadConversation();
-      
-      scrollToBottom();
-    } else {
-      // Recebendo chunk
-      currentStreamedMessage += chunk.content;
-      
-      // Atualiza a mensagem em streaming
-      if (streamingIndex >= 0) {
-        messages[streamingIndex].content = currentStreamedMessage;
-        messages = [...messages]; // Trigger reatividade
-      }
-      
-      scrollToBottom();
-    }
-  }
-
-  function handleError(errorMessage) {
-    error = errorMessage;
+  
+  function handleServiceChatDone(event) {
     isLoading = false;
-    currentStreamedMessage = '';
-    
-    // Remove mensagem de loading se existir
-    if (messages.length > 0 && messages[messages.length - 1].isStreaming) {
-      messages = messages.slice(0, -1);
-    }
-    
-    playSound('error');
   }
 
   async function scrollToBottom() {

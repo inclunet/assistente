@@ -29,6 +29,8 @@ let GetMessages = null;
 let UpdateConversationModel = null;
 let UpdateConversationSettings = null;
 let SetLastConversation = null;
+let EventsOn = null;
+let EventsOff = null;
 
 async function loadWailsFunctions() {
   try {
@@ -45,6 +47,15 @@ async function loadWailsFunctions() {
     SetLastConversation = wails.SetLastConversation;
   } catch (e) {
     console.warn('Wails functions not available:', e.message);
+  }
+  
+  // Carrega runtime events
+  try {
+    const runtime = await import('../../../wailsjs/runtime/runtime.js');
+    EventsOn = runtime.EventsOn;
+    EventsOff = runtime.EventsOff;
+  } catch (e) {
+    console.warn('Wails runtime not available:', e.message);
   }
 }
 
@@ -65,6 +76,13 @@ class MessageService extends EventTarget {
     // Streaming
     this._streamingMessageId = null;
     this._streamingContent = '';
+    this._isStreaming = false;
+    this._executingTools = false;
+    this._toolsMessage = '';
+    
+    // Event subscriptions
+    this._eventUnsubscribers = [];
+    this._boundToBackend = false;
     
     // Inicialização
     this._initialized = false;
@@ -80,6 +98,313 @@ class MessageService extends EventTarget {
     await this._initPromise;
   }
   
+  // === Backend Event Binding ===
+  
+  /**
+   * Conecta aos eventos do backend (Wails)
+   * Deve ser chamado uma vez no onMount do componente principal
+   */
+  bindBackendEvents() {
+    if (this._boundToBackend || !EventsOn) {
+      console.warn('[MessageService] Backend events already bound or EventsOn not available');
+      return;
+    }
+    
+    // Streaming de chunks
+    this._eventUnsubscribers.push(
+      EventsOn('chat:chunk', (chunk) => this._handleChunk(chunk))
+    );
+    
+    // Novo sistema de streaming unificado
+    this._eventUnsubscribers.push(
+      EventsOn('chat:stream', (event) => this._handleStreamEvent(event))
+    );
+    
+    // Streaming finalizado
+    this._eventUnsubscribers.push(
+      EventsOn('chat:done', (data) => this._handleDone(data))
+    );
+    
+    // Erros
+    this._eventUnsubscribers.push(
+      EventsOn('chat:error', (error) => this._handleError(error))
+    );
+    
+    // Execução de ferramentas
+    this._eventUnsubscribers.push(
+      EventsOn('chat:tools', (data) => this._handleToolsExecution(data))
+    );
+    
+    // Resultados de ferramentas
+    this._eventUnsubscribers.push(
+      EventsOn('chat:tool_results', (data) => this._handleToolResults(data))
+    );
+    
+    // Conversa criada pelo backend
+    this._eventUnsubscribers.push(
+      EventsOn('chat:conversation_created', (data) => this._handleConversationCreated(data))
+    );
+    
+    // Mensagens prontas (após salvar)
+    this._eventUnsubscribers.push(
+      EventsOn('chat:messages_ready', (data) => this._handleMessagesReady(data))
+    );
+    
+    // Mensagens internas (tool calls, tool results)
+    this._eventUnsubscribers.push(
+      EventsOn('chat:internal_message', (data) => this._handleInternalMessage(data))
+    );
+    
+    // Mensagens de agentes em tempo real
+    this._eventUnsubscribers.push(
+      EventsOn('chat:agent_message', (data) => this._handleAgentMessage(data))
+    );
+    
+    this._boundToBackend = true;
+    console.log('[MessageService] Backend events bound');
+  }
+  
+  /**
+   * Desconecta dos eventos do backend
+   * Deve ser chamado no onDestroy do componente principal
+   */
+  unbindBackendEvents() {
+    if (EventsOff) {
+      this._eventUnsubscribers.forEach(unsub => {
+        if (typeof unsub === 'function') unsub();
+      });
+    }
+    this._eventUnsubscribers = [];
+    this._boundToBackend = false;
+    console.log('[MessageService] Backend events unbound');
+  }
+  
+  // === Backend Event Handlers ===
+  
+  _handleChunk(chunk) {
+    if (chunk.done) {
+      // Streaming finalizado
+      const fullResponse = chunk.fullResponse || this._streamingContent;
+      
+      // Atualiza mensagem de streaming
+      this._updateStreamingMessage(fullResponse, false);
+      
+      // Finaliza streaming
+      this._isStreaming = false;
+      const messageId = this._streamingMessageId;
+      this._streamingMessageId = null;
+      this._streamingContent = '';
+      
+      // Recarrega conversa para obter dados salvos
+      this.reload();
+      
+      // Emite evento para UI reagir (sons, TTS, etc.)
+      this._dispatchEvent('streamingEnded', { 
+        messageId, 
+        content: fullResponse,
+        toolCalls: chunk.toolCalls || null
+      });
+    } else {
+      // Recebendo chunk
+      this._streamingContent += chunk.content;
+      this._updateStreamingMessage(this._streamingContent, true);
+      
+      this._dispatchEvent('streamingChunk', { 
+        messageId: this._streamingMessageId,
+        chunk: chunk.content,
+        content: this._streamingContent
+      });
+    }
+  }
+  
+  _handleStreamEvent(event) {
+    // Sistema unificado de streaming
+    const { messageId, content, done } = event;
+    
+    if (messageId && !this._streamingMessageId) {
+      // Inicia streaming com ID do backend
+      this._streamingMessageId = messageId;
+      this._isStreaming = true;
+      this._dispatchEvent('streamingStarted', { messageId });
+    }
+    
+    if (content) {
+      this._streamingContent += content;
+      this._updateStreamingMessage(this._streamingContent, true);
+      
+      this._dispatchEvent('streamingChunk', { 
+        messageId: this._streamingMessageId,
+        chunk: content,
+        content: this._streamingContent
+      });
+    }
+    
+    if (done) {
+      this._handleChunk({ done: true, fullResponse: event.fullResponse });
+    }
+  }
+  
+  _handleDone(data) {
+    // Chat finalizado completamente
+    this._isStreaming = false;
+    this._executingTools = false;
+    this.reload();
+    
+    this._dispatchEvent('chatDone', { 
+      conversationId: this._conversationId,
+      ...data
+    });
+  }
+  
+  _handleError(errorMessage) {
+    this._isStreaming = false;
+    this._executingTools = false;
+    
+    // Remove mensagem de streaming se existir
+    if (this._streamingMessageId) {
+      this._removeStreamingMessage();
+    }
+    
+    this._streamingMessageId = null;
+    this._streamingContent = '';
+    
+    this._dispatchEvent('error', { message: errorMessage });
+  }
+  
+  _handleToolsExecution(data) {
+    this._executingTools = true;
+    this._toolsMessage = data.message || 'Executando ferramentas...';
+    
+    // Atualiza mensagem de streaming para mostrar tools
+    if (this._messages.length > 0) {
+      const lastMsg = this._messages[this._messages.length - 1];
+      if (lastMsg.role === 'assistant') {
+        lastMsg.toolsInfo = `🔧 ${this._toolsMessage}`;
+        this._messages = [...this._messages];
+        this._dispatchEvent('messagesUpdated', { messages: this._messages });
+      }
+    }
+    
+    this._dispatchEvent('toolsExecution', { 
+      message: this._toolsMessage,
+      executing: true 
+    });
+  }
+  
+  _handleToolResults(data) {
+    this._executingTools = false;
+    this._toolsMessage = '';
+    
+    this._dispatchEvent('toolResults', { 
+      results: data.results,
+      count: data.results?.length || 0
+    });
+  }
+  
+  _handleConversationCreated(data) {
+    console.log('[MessageService] Conversa criada:', data);
+    this._conversationId = data.conversationId;
+    this._conversationTitle = data.title || 'Nova conversa';
+    
+    this._dispatchEvent('conversationCreated', {
+      conversationId: data.conversationId,
+      title: this._conversationTitle
+    });
+  }
+  
+  async _handleMessagesReady(data) {
+    console.log('[MessageService] Mensagens prontas:', data);
+    
+    // Atualiza conversa se necessário
+    if (data.conversationId && data.conversationId !== this._conversationId) {
+      this._conversationId = data.conversationId;
+    }
+    
+    // Adiciona mensagem placeholder de streaming
+    this._addStreamingPlaceholder();
+    this._isStreaming = true;
+    
+    this._dispatchEvent('messagesReady', data);
+  }
+  
+  _handleInternalMessage(data) {
+    console.log('[MessageService] Mensagem interna:', data);
+    
+    const internalMsg = {
+      id: data.id,
+      role: data.role,
+      content: data.content || '',
+      internal: true,
+      agentName: data.agentName || '',
+      toolCallId: data.toolCallId || '',
+      toolName: data.toolName || '',
+      toolCalls: data.toolCalls || null
+    };
+    
+    this._messages = [...this._messages, internalMsg];
+    
+    this._dispatchEvent('internalMessage', { message: internalMsg });
+    this._dispatchEvent('messagesUpdated', { messages: this._messages });
+  }
+  
+  _handleAgentMessage(data) {
+    console.log('[MessageService] Mensagem de agente:', data);
+    
+    // Armazena se mensagens internas estiverem habilitadas
+    if (this._showInternalMessages) {
+      const agentMsg = {
+        id: data.id,
+        parentId: data.parentId,
+        role: data.role,
+        content: data.content || '',
+        internal: true,
+        agentName: data.agentName || '',
+        toolCallId: data.toolCallId || '',
+        toolCalls: data.toolCalls || null
+      };
+      this._messages = [...this._messages, agentMsg];
+      this._dispatchEvent('messagesUpdated', { messages: this._messages });
+    }
+    
+    this._dispatchEvent('agentMessage', { 
+      agentName: data.agentName,
+      role: data.role,
+      content: data.content,
+      toolCalls: data.toolCalls
+    });
+  }
+  
+  // === Streaming Helpers ===
+  
+  _addStreamingPlaceholder() {
+    const placeholder = {
+      id: null, // Sem ID ainda
+      role: 'assistant',
+      content: '',
+      isStreaming: true
+    };
+    this._messages = [...this._messages, placeholder];
+    this._dispatchEvent('messagesUpdated', { messages: this._messages });
+  }
+  
+  _updateStreamingMessage(content, isStreaming) {
+    const idx = this._messages.findIndex(m => m.role === 'assistant' && m.isStreaming);
+    if (idx >= 0) {
+      this._messages[idx].content = content;
+      this._messages[idx].isStreaming = isStreaming;
+      this._messages = [...this._messages];
+      this._dispatchEvent('messagesUpdated', { messages: this._messages });
+    }
+  }
+  
+  _removeStreamingMessage() {
+    const idx = this._messages.findIndex(m => m.isStreaming);
+    if (idx >= 0) {
+      this._messages = this._messages.filter((_, i) => i !== idx);
+      this._dispatchEvent('messagesUpdated', { messages: this._messages });
+    }
+  }
+  
   // === Getters ===
   
   get conversationId() { return this._conversationId; }
@@ -89,6 +414,10 @@ class MessageService extends EventTarget {
   get showInternalMessages() { return this._showInternalMessages; }
   get streamingMessageId() { return this._streamingMessageId; }
   get streamingContent() { return this._streamingContent; }
+  get isStreaming() { return this._isStreaming; }
+  get executingTools() { return this._executingTools; }
+  get toolsMessage() { return this._toolsMessage; }
+  get isBoundToBackend() { return this._boundToBackend; }
   
   get hasConversation() { return this._conversationId !== null; }
   get isEmpty() { return this._messages.length === 0; }
