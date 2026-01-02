@@ -1,7 +1,7 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
   import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime.js';
-  import { SendMessage, GetModels, CreateConversation, AddMessage, AddMessageWithTokens, AddMessageWithMedia, AddMessageWithTokensAndMedia, GetConversation, GetConversationWithThreads, GetMessageChildren, UpdateConversationModel, UpdateConversationSettings, SetDefaultModel, SetLastConversation, GetCoreMemories, GenerateImageDescription } from '../../../wailsjs/go/main/App.js';
+  import { SendMessage, GetModels, SetDefaultModel, GetCoreMemories, GenerateImageDescription } from '../../../wailsjs/go/main/App.js';
   import { Modal, ImageModal } from '../../components/modal';
   import { Markdown } from '../../components/markdown';
   import VoiceButton from './VoiceButton.svelte';
@@ -15,6 +15,7 @@
   import ChatInput from '../../components/chat/core/input/ChatInput.svelte';
   import SendButton from '../../components/chat/core/input/SendButton.svelte';
   import { VoiceSettingsPanel } from '../../components/speech';
+  import { messageService } from '../../lib/chat/index.js';
 
   export let hasApiKey = false;
   export let conversation = null;
@@ -526,22 +527,10 @@
   async function reloadConversation() {
     if (!currentConversationId) return;
     
-    try {
-      conversationData = await GetConversationWithThreads(currentConversationId);
-      console.log('[NEW] Conversa recarregada:', conversationData?.threads?.length, 'threads');
-      
-      // Atualiza estado da conversa
-      if (conversationData) {
-        conversationTitle = conversationData.title;
-        showInternalMessages = conversationData.show_internal_messages;
-        
-        // Extrai mensagens flat para compatibilidade
-        messages = extractMessagesFromThreads(conversationData.threads);
-      }
-      
+    const success = await messageService.reload();
+    if (success) {
+      syncFromMessageService();
       scrollToBottom();
-    } catch (err) {
-      console.error('Erro ao recarregar conversa:', err);
     }
   }
   
@@ -627,96 +616,16 @@
   /**
    * Extrai mensagens de forma flat da estrutura de threads (para compatibilidade).
    */
-  function extractMessagesFromThreads(threads) {
-    const result = [];
-    
-    function traverse(nodes) {
-      for (const node of nodes) {
-        const m = node.message;
-        
-        // Parseia tool_calls se for string JSON
-        let toolCalls = null;
-        if (m.tool_calls) {
-          try {
-            toolCalls = typeof m.tool_calls === 'string' ? JSON.parse(m.tool_calls) : m.tool_calls;
-          } catch (e) { /* ignore */ }
-        }
-        
-        // Extrai nome da tool do primeiro tool call
-        let toolName = '';
-        if (toolCalls && toolCalls.length > 0) {
-          toolName = toolCalls[0].function?.name || toolCalls[0].Function?.Name || '';
-        }
-        
-        // Reconstrói mídia do JSON se houver
-        let media = undefined;
-        if (m.media) {
-          try {
-            const mediaArray = JSON.parse(m.media);
-            if (Array.isArray(mediaArray) && mediaArray.length > 0) {
-              media = mediaArray.map(item => ({
-                type: item.type,
-                preview: item.data,
-                altText: item.altText || '',
-                file: { name: item.filename || 'arquivo' }
-              }));
-            }
-          } catch (e) { /* ignore */ }
-        }
-        
-        result.push({
-          id: m.id,
-          parentId: m.parent_id || null,
-          role: m.role,
-          content: m.content,
-          toolCalls: toolCalls,
-          toolCallId: m.tool_call_id,
-          agentName: m.agent_name,
-          toolName: toolName,
-          internal: m.parent_id != null,
-          media: media,
-          level: node.level
-        });
-        
-        if (node.children?.length > 0) {
-          traverse(node.children);
-        }
-      }
-    }
-    
-    traverse(threads || []);
-    return result;
-  }
+  // extractMessagesFromThreads movido para messageService
   
   /**
    * Atualiza o conteúdo de uma mensagem específica durante streaming.
    */
   function updateMessageContent(messageId, content) {
-    function updateInThreads(nodes) {
-      for (let i = 0; i < nodes.length; i++) {
-        if (nodes[i].message.id === messageId) {
-          nodes[i].message.content = content;
-          return true;
-        }
-        if (nodes[i].children?.length > 0 && updateInThreads(nodes[i].children)) {
-          return true;
-        }
-      }
-      return false;
-    }
-    
-    if (conversationData?.threads) {
-      updateInThreads(conversationData.threads);
-      // Força reatividade
-      conversationData = { ...conversationData };
-    }
-    
-    // Também atualiza no array flat
-    const idx = messages.findIndex(m => m.id === messageId);
-    if (idx >= 0) {
-      messages[idx].content = content;
-      messages = [...messages];
-    }
+    messageService.updateMessageContent(messageId, content);
+    // Sincroniza estado local
+    conversationData = messageService.conversationData;
+    messages = messageService.messages;
   }
   
   // ==================== FIM NOVA ARQUITETURA ====================
@@ -2002,157 +1911,65 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     return reloadConversation();
   }
   
-  // Função antiga mantida para referência - será removida em versão futura
-  async function _legacyReloadMessagesFromDB() {
-    if (!currentConversationId) return;
-    
-    try {
-      const fullConv = await GetConversation(currentConversationId);
-      if (!fullConv || !fullConv.messages) return;
-      
-      // Converte mensagens do banco para o formato local
-      messages = fullConv.messages.map(m => {
-        let media = undefined;
-        if (m.media) {
-          try {
-            const mediaArray = JSON.parse(m.media);
-            if (Array.isArray(mediaArray) && mediaArray.length > 0) {
-              media = mediaArray.map(item => ({
-                type: item.type,
-                preview: item.data,
-                altText: item.altText || '',
-                file: { name: item.filename || 'arquivo' }
-              }));
-            }
-          } catch (e) { /* ignore */ }
-        }
-        
-        let toolCalls = null;
-        if (m.tool_calls) {
-          try {
-            toolCalls = typeof m.tool_calls === 'string' ? JSON.parse(m.tool_calls) : m.tool_calls;
-          } catch (e) { /* ignore */ }
-        }
-        
-        let toolName = '';
-        if (toolCalls && toolCalls.length > 0) {
-          toolName = toolCalls[0].function?.name || toolCalls[0].Function?.Name || '';
-        }
-        
-        return {
-          id: m.id,
-          parentId: m.parent_id || null,
-          role: m.role,
-          content: m.content,
-          toolCalls: toolCalls,
-          toolResults: m.tool_results,
-          toolCallId: m.tool_call_id,
-          agentName: m.agent_name,
-          toolName: toolName,
-          internal: m.parent_id != null,
-          media
-        };
-      });
-      
-      console.log('[RELOAD] Mensagens recarregadas do banco:', messages.length);
-    } catch (err) {
-      console.error('Erro ao recarregar mensagens:', err);
-    }
-  }
-
+  // _legacyReloadMessagesFromDB removida - agora usa messageService.reload()
   async function loadConversation(conv) {
     if (!conv || !conv.id) return;
     
     try {
-      // NOVA ARQUITETURA: Usa GetConversationWithThreads
-      conversationData = await GetConversationWithThreads(conv.id);
+      // Usa messageService para carregar a conversa
+      const success = await messageService.loadConversation(conv, selectedModel);
       
-      if (!conversationData) {
+      if (!success) {
         throw new Error('Conversa não encontrada');
       }
       
-      currentConversationId = conversationData.id;
-      conversationTitle = conversationData.title;
-      
-      // Salva como última conversa
-      try {
-        await SetLastConversation(conversationData.id);
-      } catch (e) {
-        console.error('Erro ao salvar última conversa:', e);
-      }
-      
-      // Extrai mensagens flat da estrutura de threads
-      messages = extractMessagesFromThreads(conversationData.threads || []);
-      
-      // Usa o modelo da conversa se disponível
-      if (conversationData.model) {
-        selectedModel = conversationData.model;
-      }
-      
-      // Carrega configuração de exibição de mensagens internas
-      showInternalMessages = conversationData.show_internal_messages || false;
+      // Sincroniza estado local com o serviço
+      syncFromMessageService();
       
       scrollToBottom();
     } catch (err) {
       error = 'Erro ao carregar conversa: ' + err;
     }
   }
+  
+  /**
+   * Sincroniza estado local com messageService
+   */
+  function syncFromMessageService() {
+    currentConversationId = messageService.conversationId;
+    conversationTitle = messageService.conversationTitle;
+    conversationData = messageService.conversationData;
+    messages = messageService.messages;
+    showInternalMessages = messageService.showInternalMessages;
+    
+    // Usa o modelo da conversa se disponível
+    if (conversationData?.model) {
+      selectedModel = conversationData.model;
+    }
+  }
 
   async function saveMessage(role, content, toolCalls = '', toolResults = '', tokenInfo = null, media = null) {
-    if (!currentConversationId) {
-      // Cria uma nova conversa
-      const title = role === 'user' ? content.substring(0, 50) : 'Nova conversa';
-      try {
-        const conv = await CreateConversation(title, selectedModel);
-        currentConversationId = conv.id;
-        conversationTitle = title;
-        // Salva como última conversa (aguarda para garantir persistência)
-        try {
-          await SetLastConversation(conv.id);
-        } catch (e) {
-          console.error('Erro ao salvar última conversa:', e);
-        }
-        dispatch('conversationUpdated');
-      } catch (err) {
-        console.error('Erro ao criar conversa:', err);
-        return;
-      }
-    }
+    const success = await messageService.saveMessage(role, content, {
+      toolCalls,
+      toolResults,
+      tokenInfo,
+      media,
+      model: selectedModel
+    });
     
-    // Serializa mídia para JSON se houver
-    const mediaJson = media && media.length > 0 ? JSON.stringify(media) : '';
-    
-    try {
-      // Se tiver informações de tokens, usa AddMessageWithTokensAndMedia
-      if (tokenInfo && tokenInfo.totalTokens > 0) {
-        await AddMessageWithTokensAndMedia(
-          currentConversationId, 
-          role, 
-          content,
-          mediaJson,
-          toolCalls, 
-          toolResults,
-          tokenInfo.promptTokens,
-          tokenInfo.completionTokens,
-          tokenInfo.totalTokens,
-          tokenInfo.model
-        );
-      } else {
-        await AddMessageWithMedia(currentConversationId, role, content, mediaJson, toolCalls, toolResults);
+    if (success) {
+      // Sincroniza IDs caso tenha criado conversa
+      if (messageService.conversationId !== currentConversationId) {
+        currentConversationId = messageService.conversationId;
+        conversationTitle = messageService.conversationTitle;
       }
       dispatch('conversationUpdated');
-    } catch (err) {
-      console.error('Erro ao salvar mensagem:', err);
     }
   }
 
   async function updateModel() {
     if (currentConversationId && selectedModel) {
-      try {
-        await UpdateConversationModel(currentConversationId, selectedModel);
-      } catch (err) {
-        console.error('Erro ao atualizar modelo:', err);
-      }
+      await messageService.updateModel(selectedModel);
     }
   }
 
@@ -2192,11 +2009,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    */
   async function handleShowInternalMessagesChange() {
     if (currentConversationId) {
-      try {
-        await UpdateConversationSettings(currentConversationId, showInternalMessages);
-      } catch (e) {
-        console.error('Erro ao salvar configuração de mensagens internas:', e);
-      }
+      await messageService.updateSettings(showInternalMessages);
     }
   }
 
