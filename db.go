@@ -40,39 +40,75 @@ func (a *App) GetConversation(id uint) (*Conversation, error) {
 	return database.GetConversation(id)
 }
 
-// GetConversationWithThreads retorna uma conversa com mensagens de nível 0 apenas (lazy loading)
-// Os filhos são carregados sob demanda via GetMessageChildren
-func (a *App) GetConversationWithThreads(id uint) (*ConversationWithThreads, error) {
-	conv, err := database.GetConversation(id)
+// GetMessages retorna mensagens com filtro por parent (API unificada)
+// - conversationID > 0 e parentID == nil: mensagens raiz da conversa
+// - parentID != nil: filhos da mensagem especificada
+//
+// Retorna MessageNode com ChildCount para lazy loading
+func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, error) {
+	messages, err := database.GetMessages(conversationID, parentID)
 	if err != nil {
 		return nil, err
 	}
 
-	// Filtra apenas mensagens raiz (nível 0) - sem ParentID
-	var rootMessages []database.ChatMessage
-	childCounts := make(map[uint]int) // Conta filhos de cada mensagem
-	
-	for _, msg := range conv.Messages {
-		if msg.ParentID == nil {
-			rootMessages = append(rootMessages, msg)
-		} else {
-			// Conta quantos filhos cada mensagem tem
-			childCounts[*msg.ParentID]++
-		}
+	// Coleta IDs para contar filhos
+	msgIDs := make([]uint, len(messages))
+	for i, msg := range messages {
+		msgIDs[i] = msg.ID
 	}
 
-	// Converte para MessageNode com contagem de filhos (sem carregar os filhos)
-	threads := make([]MessageNode, 0, len(rootMessages))
-	for _, msg := range rootMessages {
-		threads = append(threads, MessageNode{
+	// Conta filhos de cada mensagem
+	childCounts, err := database.CountChildren(msgIDs)
+	if err != nil {
+		// Log mas não falha - apenas não teremos contagem
+		fmt.Printf("⚠️ Erro ao contar filhos: %v\n", err)
+		childCounts = make(map[uint]int)
+	}
+
+	// Determina o nível baseado no contexto
+	level := 0
+	if parentID != nil {
+		level = 1 // Filhos são pelo menos nível 1
+	}
+
+	// Converte para MessageNode
+	result := make([]MessageNode, 0, len(messages))
+	for _, msg := range messages {
+		result = append(result, MessageNode{
 			Message:    msg,
-			Children:   nil, // Não carrega filhos - lazy loading
-			Level:      0,
+			Children:   nil, // Lazy loading
+			Level:      level,
 			ChildCount: childCounts[msg.ID],
 		})
 	}
 
-	fmt.Printf("🌳 [LAZY] Conversa %d: %d raízes, filhos serão carregados sob demanda\n", id, len(threads))
+	if parentID != nil {
+		fmt.Printf("🌳 [LAZY] Mensagem %d: %d filhos carregados\n", *parentID, len(result))
+	} else {
+		fmt.Printf("🌳 [LAZY] Conversa %d: %d mensagens raiz\n", conversationID, len(result))
+	}
+
+	return result, nil
+}
+
+// GetConversationInfo retorna apenas metadados da conversa (sem mensagens)
+func (a *App) GetConversationInfo(id uint) (*Conversation, error) {
+	return database.GetConversationInfo(id)
+}
+
+// GetConversationWithThreads retorna conversa com mensagens raiz (lazy loading)
+// Deprecated: Use GetConversationInfo + GetMessages instead
+func (a *App) GetConversationWithThreads(id uint) (*ConversationWithThreads, error) {
+	conv, err := database.GetConversationInfo(id)
+	if err != nil {
+		return nil, err
+	}
+
+	// Usa a nova API para buscar mensagens raiz
+	threads, err := a.GetMessages(id, nil)
+	if err != nil {
+		return nil, err
+	}
 
 	return &ConversationWithThreads{
 		ID:                   conv.ID,
@@ -83,33 +119,10 @@ func (a *App) GetConversationWithThreads(id uint) (*ConversationWithThreads, err
 	}, nil
 }
 
-// GetMessageChildren retorna os filhos diretos de uma mensagem (lazy loading)
+// GetMessageChildren retorna os filhos de uma mensagem (lazy loading)
+// Deprecated: Use GetMessages(0, &parentID) instead
 func (a *App) GetMessageChildren(messageID uint) ([]MessageNode, error) {
-	children, err := database.GetMessageChildren(messageID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Conta netos para cada filho
-	grandchildCounts := make(map[uint]int)
-	for _, child := range children {
-		gc, _ := database.GetMessageChildren(child.ID)
-		grandchildCounts[child.ID] = len(gc)
-	}
-
-	// Converte para MessageNode
-	result := make([]MessageNode, 0, len(children))
-	for _, msg := range children {
-		result = append(result, MessageNode{
-			Message:    msg,
-			Children:   nil, // Lazy loading
-			Level:      1,   // Será ajustado pelo frontend se necessário
-			ChildCount: grandchildCounts[msg.ID],
-		})
-	}
-
-	fmt.Printf("🌳 [LAZY] Mensagem %d: %d filhos carregados\n", messageID, len(result))
-	return result, nil
+	return a.GetMessages(0, &messageID)
 }
 
 // buildMessageTree organiza mensagens planas em uma árvore hierárquica

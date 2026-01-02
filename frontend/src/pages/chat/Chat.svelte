@@ -241,7 +241,7 @@
   }
   
   /**
-   * Carrega filhos de um node pelo ID da mensagem (lazy loading unificado)
+   * Carrega filhos de um node pelo ID da mensagem (lazy loading via messageService)
    */
   async function loadChildrenForNode(messageId, path) {
     // Verifica cache
@@ -251,26 +251,28 @@
     
     try {
       console.log(`[LAZY] Carregando filhos de mensagem ${messageId} (path: ${path})...`);
-      const children = await GetMessageChildren(messageId);
+      
+      // Usa messageService para carregar filhos
+      const children = await messageService.loadChildren(messageId);
       
       // Converte para formato do frontend
       const convertedChildren = children.map((c, i) => {
-        const msg = c.message || c;
-        const childCount = c.child_count ?? c.childCount ?? 0;
+        const msg = c.message || c.Message || c;
+        const childCount = c.child_count ?? c.childCount ?? c.ChildCount ?? 0;
         
         return {
           message: {
-            id: msg.id,
-            parentId: msg.parent_id,
-            role: msg.role,
-            content: msg.content || '',
-            toolCalls: parseToolCalls(msg.tool_calls),
-            toolCallId: msg.tool_call_id,
-            agentName: msg.agent_name,
+            id: msg.id || msg.ID,
+            parentId: msg.parent_id || msg.ParentID,
+            role: msg.role || msg.Role,
+            content: msg.content || msg.Content || '',
+            toolCalls: parseToolCalls(msg.tool_calls || msg.ToolCalls),
+            toolCallId: msg.tool_call_id || msg.ToolCallID,
+            agentName: msg.agent_name || msg.AgentName,
             internal: true,
           },
-          agentName: msg.agent_name,
-          level: c.level ?? 0,
+          agentName: msg.agent_name || msg.AgentName,
+          level: c.level ?? c.Level ?? 1,
           originalIndex: i,
           children: [],
           childCount: childCount
@@ -535,90 +537,6 @@
   }
   
   /**
-   * Converte threads do backend para o formato esperado pelo frontend.
-   * Preserva toda a hierarquia (3 níveis) corretamente.
-   */
-  function convertBackendThreads(threads) {
-    if (!threads || !Array.isArray(threads)) return [];
-    
-    let nodeIndex = 0;
-    
-    function convertNode(node, level) {
-      // O Wails serializa com campos snake_case
-      const m = node.message || {};
-      
-      // Parseia tool_calls
-      let toolCalls = null;
-      if (m.tool_calls) {
-        try {
-          toolCalls = typeof m.tool_calls === 'string' ? JSON.parse(m.tool_calls) : m.tool_calls;
-        } catch (e) { /* ignore */ }
-      }
-      
-      // Extrai toolName
-      let toolName = '';
-      if (toolCalls && toolCalls.length > 0) {
-        toolName = toolCalls[0].function?.name || toolCalls[0].Function?.Name || '';
-      }
-      
-      const currentIndex = nodeIndex++;
-      
-      // Converte filhos recursivamente - backend envia como "children"
-      const rawChildren = node.children || [];
-      const children = rawChildren.map(child => convertNode(child, level + 1));
-      
-      // Log para debug
-      if (level === 1 && children.length > 0) {
-        console.log(`[THREADS] Nível 1 ID=${m.id} tem ${children.length} filhos (nível 2)`);
-      }
-      
-      return {
-        message: {
-          id: m.id,
-          parentId: m.parent_id,
-          role: m.role,
-          content: m.content || '',
-          toolCalls: toolCalls,
-          toolCallId: m.tool_call_id,
-          agentName: m.agent_name,
-          toolName: toolName,
-          internal: m.parent_id != null,
-          model: m.model,
-          promptTokens: m.prompt_tokens,
-          completionTokens: m.completion_tokens,
-          totalTokens: m.total_tokens,
-        },
-        agentName: m.agent_name,
-        toolName: toolName,
-        level: node.level !== undefined ? node.level : level,
-        originalIndex: currentIndex,
-        children: children,
-        childCount: node.child_count || children.length // Para lazy loading
-      };
-    }
-    
-    const result = threads.map(t => convertNode(t, 0));
-    
-    console.log('[THREADS] Convertido', threads.length, 'threads do backend, total nodes:', nodeIndex);
-    
-    // Log da estrutura final
-    result.forEach((node, i) => {
-      const childCount = node.children?.length || 0;
-      const grandchildCount = node.children?.reduce((acc, c) => acc + (c.children?.length || 0), 0) || 0;
-      if (childCount > 0) {
-        console.log(`[THREADS] Root ${i} (ID=${node.message.id}): ${childCount} filhos, ${grandchildCount} netos`);
-      }
-    });
-    
-    return result;
-  }
-  
-  /**
-   * Extrai mensagens de forma flat da estrutura de threads (para compatibilidade).
-   */
-  // extractMessagesFromThreads movido para messageService
-  
-  /**
    * Atualiza o conteúdo de uma mensagem específica durante streaming.
    */
   function updateMessageContent(messageId, content) {
@@ -628,175 +546,55 @@
     messages = messageService.messages;
   }
   
-  // ==================== FIM NOVA ARQUITETURA ====================
-  
   /**
-   * Organiza mensagens em estrutura de threads usando parentId do banco.
-   * A hierarquia é definida pelo campo parentId de cada mensagem:
-   * - parentId=null: mensagem de nível 0 (user/assistant principal)
-   * - parentId=X: mensagem filha da mensagem com id=X
-   * 
-   * IMPORTANTE: Mensagens de role=tool do orquestrador (nível 0) são agrupadas
-   * visualmente com suas respectivas delegações, mesmo estando no nível 0 no banco.
-   * Isso é necessário porque a API do LLM precisa vê-las no nível 0.
-   * 
-   * Agrupa mensagens do mesmo agente em um único child object com:
-   * { agentName, delegationMsg, toolCalls: [], toolResults: [] }
+   * Converte MessageNode do backend para formato do frontend.
+   * Backend já envia estrutura correta, apenas normaliza campos.
    */
-  function organizeMessagesIntoThreads(msgs) {
-    console.log('[THREADS] Organizando', msgs.length, 'mensagens, showInternalMessages=', showInternalMessages);
+  function convertMessageNode(node, index = 0) {
+    const m = node.message || node.Message || {};
     
-    // Cria índice de todas as mensagens por ID e por índice
-    const allMessagesById = {};
-    const msgIndexById = {};
-    for (let i = 0; i < msgs.length; i++) {
-      const msg = msgs[i];
-      if (msg.id) {
-        allMessagesById[msg.id] = msg;
-        msgIndexById[msg.id] = i;
-      }
+    // Parseia tool_calls se for string
+    let toolCalls = null;
+    const rawToolCalls = m.tool_calls || m.ToolCalls;
+    if (rawToolCalls) {
+      try {
+        toolCalls = typeof rawToolCalls === 'string' ? JSON.parse(rawToolCalls) : rawToolCalls;
+      } catch (e) { /* ignore */ }
     }
     
-    // Estrutura: { message, level, children: [{ message, level, children: [] }] }
-    const roots = [];
-    const nodesById = {}; // Para encontrar nós já criados
-    const processedIds = new Set(); // IDs já processados
-    
-    // Cria mapa de tool_call_id -> mensagem de delegação do orquestrador
-    const delegationByToolCallId = {};
-    
-    // Função para criar nó recursivamente
-    function createNode(msg, msgIndex) {
-      if (!msg || !msg.id || processedIds.has(msg.id)) return null;
-      
-      // Se tem parentId, precisa criar o pai primeiro
-      if (msg.parentId) {
-        const parentMsg = allMessagesById[msg.parentId];
-        if (parentMsg && !nodesById[msg.parentId]) {
-          // Cria o pai recursivamente
-          createNode(parentMsg, msgIndexById[msg.parentId]);
-        }
-      }
-      
-      // Se já foi processado durante a recursão, retorna o nó existente
-      if (nodesById[msg.id]) {
-        return nodesById[msg.id];
-      }
-      
-      processedIds.add(msg.id);
-      
-      const hasDelegationCalls = msg.role === 'assistant' && msg.toolCalls && msg.toolCalls.length > 0;
-      
-      const node = {
-        message: msg,
-        originalIndex: msgIndex,
-        level: 0,
-        children: [],
-        isDelegation: hasDelegationCalls,
-        agentName: msg.agentName || msg.toolName || 'Agent'
-      };
-      
-      if (msg.parentId) {
-        // Adiciona como filho do pai
-        const parentNode = nodesById[msg.parentId];
-        if (parentNode) {
-          node.level = parentNode.level + 1;
-          parentNode.children.push(node);
-        } else {
-          // Pai não encontrado, trata como raiz (não deveria acontecer)
-          console.warn('[THREADS] Pai não encontrado para msg', msgIndex, 'parentId=', msg.parentId);
-          roots.push(node);
-        }
-      } else {
-        // Mensagem raiz
-        roots.push(node);
-        
-        // Indexa tool_call_ids para agrupar tool results do orquestrador
-        if (hasDelegationCalls && msg.toolCalls) {
-          for (const tc of msg.toolCalls) {
-            if (tc.id) {
-              delegationByToolCallId[tc.id] = node;
-            }
-          }
-        }
-      }
-      
-      nodesById[msg.id] = node;
-      return node;
+    // Extrai toolName
+    let toolName = '';
+    if (toolCalls && toolCalls.length > 0) {
+      toolName = toolCalls[0].function?.name || toolCalls[0].Function?.Name || '';
     }
     
-    // Processa todas as mensagens
-    for (let i = 0; i < msgs.length; i++) {
-      const msg = msgs[i];
-      if (msg.id && !processedIds.has(msg.id)) {
-        createNode(msg, i);
-      } else if (!msg.id) {
-        // Mensagem sem ID (streaming em andamento) - trata como raiz
-        const node = {
-          message: msg,
-          originalIndex: i,
-          level: 0,
-          children: [],
-          isDelegation: false
-        };
-        roots.push(node);
-      }
-    }
-    
-    // Agrupa tool results do orquestrador (parentId=null mas pertencem a delegação)
-    for (let i = 0; i < msgs.length; i++) {
-      const msg = msgs[i];
-      if (msg.role === 'tool' && !msg.parentId && msg.toolCallId) {
-        const delegationNode = delegationByToolCallId[msg.toolCallId];
-        if (delegationNode && !msg._visuallyGrouped) {
-          const childNode = {
-            message: msg,
-            originalIndex: i,
-            level: 1,
-            children: [],
-            isOrchestratorToolResult: true,
-            toolName: 'delegate_result'
-          };
-          delegationNode.children.push(childNode);
-          msg._visuallyGrouped = true;
-        }
-      }
-    }
-    
-    // Ordena children por originalIndex em cada nível
-    function sortChildren(node) {
-      if (node.children && node.children.length > 0) {
-        node.children.sort((a, b) => a.originalIndex - b.originalIndex);
-        for (const child of node.children) {
-          sortChildren(child);
-        }
-      }
-    }
-    
-    for (const root of roots) {
-      sortChildren(root);
-    }
-    
-    // Ordena raízes
-    roots.sort((a, b) => a.originalIndex - b.originalIndex);
-    
-    console.log('[THREADS] Resultado final:', roots.length, 'raízes');
-    
-    // Filtra resultados
-    if (!showInternalMessages) {
-      // Modo normal: só mostra mensagens visíveis (não delegações vazias nem visualmente agrupadas)
-      return roots.filter(r => !r.message._visuallyGrouped);
-    }
-    
-    return roots.filter(r => !r.message._visuallyGrouped);
+    return {
+      message: {
+        id: m.id || m.ID,
+        parentId: m.parent_id || m.ParentID,
+        role: m.role || m.Role,
+        content: m.content || m.Content || '',
+        toolCalls: toolCalls,
+        toolCallId: m.tool_call_id || m.ToolCallID,
+        agentName: m.agent_name || m.AgentName,
+        toolName: toolName,
+        internal: (m.parent_id || m.ParentID) != null,
+        model: m.model || m.Model,
+        promptTokens: m.prompt_tokens || m.PromptTokens,
+        completionTokens: m.completion_tokens || m.CompletionTokens,
+        totalTokens: m.total_tokens || m.TotalTokens,
+      },
+      agentName: m.agent_name || m.AgentName,
+      toolName: toolName,
+      level: node.level ?? node.Level ?? 0,
+      originalIndex: index,
+      children: [], // Lazy loading - filhos são carregados sob demanda
+      childCount: node.child_count ?? node.ChildCount ?? 0
+    };
   }
   
-  // Mensagens organizadas em threads - usa diretamente os dados do backend
-  // Se conversationData.threads existir, converte para o formato esperado
-  // Caso contrário, usa a função de reconstrução como fallback
-  $: threadedMessages = conversationData?.threads?.length > 0 
-    ? convertBackendThreads(conversationData.threads)
-    : organizeMessagesIntoThreads(messages);
+  // Mensagens organizadas em threads - converte do backend para formato do frontend
+  $: threadedMessages = (conversationData?.threads || []).map((node, i) => convertMessageNode(node, i));
   
   // Filtra mensagens visíveis (fallback para modo não-threaded)
   $: visibleMessages = showInternalMessages 
@@ -831,7 +629,7 @@
   // toggleAgentThread removida - agora usa ThreadNode com paths
   
   /**
-   * Carrega filhos de uma mensagem via API (lazy loading)
+   * Carrega filhos de uma mensagem via messageService (lazy loading)
    */
   async function loadChildren(node, parentIndex, childIndex = null) {
     const messageId = node.message.id;
@@ -845,32 +643,28 @@
     
     try {
       console.log(`[LAZY] Carregando filhos de mensagem ${messageId}...`);
-      const children = await GetMessageChildren(messageId);
       
-      // Debug: verifica estrutura dos dados
-      console.log(`[LAZY] Estrutura do primeiro filho:`, children[0]);
+      // Usa messageService para carregar filhos
+      const children = await messageService.loadChildren(messageId);
       
       // Converte para formato do frontend
-      // O Wails retorna MessageNode com: message (ChatMessage), children, level, child_count
       const convertedChildren = children.map((c, i) => {
-        const msg = c.message || c;
-        const childCount = c.child_count ?? c.childCount ?? 0;
-        
-        console.log(`[LAZY] Filho ${i}: id=${msg.id}, role=${msg.role}, child_count=${childCount}`);
+        const msg = c.message || c.Message || c;
+        const childCount = c.child_count ?? c.childCount ?? c.ChildCount ?? 0;
         
         return {
           message: {
-            id: msg.id,
-            parentId: msg.parent_id,
-            role: msg.role,
-            content: msg.content || '',
-            toolCalls: parseToolCalls(msg.tool_calls),
-            toolCallId: msg.tool_call_id,
-            agentName: msg.agent_name,
+            id: msg.id || msg.ID,
+            parentId: msg.parent_id || msg.ParentID,
+            role: msg.role || msg.Role,
+            content: msg.content || msg.Content || '',
+            toolCalls: parseToolCalls(msg.tool_calls || msg.ToolCalls),
+            toolCallId: msg.tool_call_id || msg.ToolCallID,
+            agentName: msg.agent_name || msg.AgentName,
             internal: true,
           },
-          agentName: msg.agent_name,
-          level: c.level ?? (node.level || 0) + 1,
+          agentName: msg.agent_name || msg.AgentName,
+          level: c.level ?? c.Level ?? (node.level || 0) + 1,
           originalIndex: i,
           children: [],
           childCount: childCount

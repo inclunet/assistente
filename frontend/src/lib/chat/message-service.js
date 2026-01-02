@@ -24,9 +24,8 @@ let AddMessage = null;
 let AddMessageWithTokens = null;
 let AddMessageWithMedia = null;
 let AddMessageWithTokensAndMedia = null;
-let GetConversation = null;
-let GetConversationWithThreads = null;
-let GetMessageChildren = null;
+let GetConversationInfo = null;
+let GetMessages = null;
 let UpdateConversationModel = null;
 let UpdateConversationSettings = null;
 let SetLastConversation = null;
@@ -39,9 +38,8 @@ async function loadWailsFunctions() {
     AddMessageWithTokens = wails.AddMessageWithTokens;
     AddMessageWithMedia = wails.AddMessageWithMedia;
     AddMessageWithTokensAndMedia = wails.AddMessageWithTokensAndMedia;
-    GetConversation = wails.GetConversation;
-    GetConversationWithThreads = wails.GetConversationWithThreads;
-    GetMessageChildren = wails.GetMessageChildren;
+    GetConversationInfo = wails.GetConversationInfo;
+    GetMessages = wails.GetMessages;
     UpdateConversationModel = wails.UpdateConversationModel;
     UpdateConversationSettings = wails.UpdateConversationSettings;
     SetLastConversation = wails.SetLastConversation;
@@ -123,22 +121,31 @@ class MessageService extends EventTarget {
     }
     
     try {
-      // Carrega a conversa com threads do backend
-      const data = await GetConversationWithThreads(conversation.id);
+      // Carrega metadados da conversa
+      const convInfo = await GetConversationInfo(conversation.id);
+      
+      // Carrega mensagens raiz (lazy loading)
+      const rootMessages = await GetMessages(conversation.id, null);
       
       this._conversationId = conversation.id;
-      this._conversationTitle = conversation.title || 'Conversa sem título';
-      this._conversationData = data;
-      this._showInternalMessages = data.show_internal_messages || false;
+      this._conversationTitle = convInfo.title || 'Conversa sem título';
+      this._conversationData = {
+        id: convInfo.id,
+        title: convInfo.title,
+        model: convInfo.model,
+        show_internal_messages: convInfo.show_internal_messages,
+        threads: rootMessages
+      };
+      this._showInternalMessages = convInfo.show_internal_messages || false;
       
-      // Extrai mensagens flat dos threads
-      this._messages = this._extractMessagesFromThreads(data.threads);
+      // Extrai mensagens flat das raízes
+      this._messages = this._extractMessagesFromThreads(rootMessages);
       
       this._dispatchEvent('conversationLoaded', {
         conversationId: this._conversationId,
         title: this._conversationTitle,
         messages: this._messages,
-        model: data.model || defaultModel
+        model: convInfo.model || defaultModel
       });
       
       return true;
@@ -311,17 +318,17 @@ class MessageService extends EventTarget {
   }
   
   /**
-   * Carrega filhos de uma mensagem (threads)
+   * Carrega filhos de uma mensagem (lazy loading)
    * @param {number} messageId - ID da mensagem pai
-   * @returns {Promise<Array>}
+   * @returns {Promise<Array>} MessageNodes dos filhos
    */
   async loadChildren(messageId) {
     await this.ready();
     
-    if (!GetMessageChildren) return [];
+    if (!GetMessages) return [];
     
     try {
-      const children = await GetMessageChildren(messageId);
+      const children = await GetMessages(0, messageId);
       this._dispatchEvent('childrenLoaded', { messageId, children });
       return children;
     } catch (error) {
@@ -331,15 +338,23 @@ class MessageService extends EventTarget {
   }
   
   /**
-   * Recarrega mensagens do banco de dados
+   * Recarrega mensagens raiz do banco de dados
    */
   async reload() {
     if (!this._conversationId) return false;
     
     try {
-      const data = await GetConversationWithThreads(this._conversationId);
-      this._conversationData = data;
-      this._messages = this._extractMessagesFromThreads(data.threads);
+      // Recarrega metadados
+      const convInfo = await GetConversationInfo(this._conversationId);
+      
+      // Recarrega mensagens raiz
+      const rootMessages = await GetMessages(this._conversationId, null);
+      
+      this._conversationData = {
+        ...this._conversationData,
+        threads: rootMessages
+      };
+      this._messages = this._extractMessagesFromThreads(rootMessages);
       
       this._dispatchEvent('messagesReloaded', {
         messages: this._messages
@@ -461,64 +476,6 @@ class MessageService extends EventTarget {
     return result;
   }
   
-  /**
-   * Organiza mensagens em estrutura de threads
-   * @param {Array} msgs - Array de mensagens flat
-   * @returns {Array} - Array de nodes com children
-   */
-  organizeMessagesIntoThreads(msgs) {
-    const allMessagesById = {};
-    const msgIndexById = {};
-    
-    for (let i = 0; i < msgs.length; i++) {
-      const msg = msgs[i];
-      if (msg.id) {
-        allMessagesById[msg.id] = msg;
-        msgIndexById[msg.id] = i;
-      }
-    }
-    
-    const rootNodes = [];
-    const childrenByParent = {};
-    
-    // Agrupa filhos por parent
-    for (const msg of msgs) {
-      if (msg.parentId) {
-        if (!childrenByParent[msg.parentId]) {
-          childrenByParent[msg.parentId] = [];
-        }
-        childrenByParent[msg.parentId].push(msg);
-      } else {
-        rootNodes.push({
-          message: msg,
-          level: 0,
-          children: [],
-          hasLoadedChildren: true
-        });
-      }
-    }
-    
-    // Adiciona filhos recursivamente
-    const addChildren = (node, level) => {
-      const children = childrenByParent[node.message.id] || [];
-      node.children = children.map(child => {
-        const childNode = {
-          message: child,
-          level: level + 1,
-          children: [],
-          hasLoadedChildren: true
-        };
-        addChildren(childNode, level + 1);
-        return childNode;
-      });
-    };
-    
-    for (const node of rootNodes) {
-      addChildren(node, 0);
-    }
-    
-    return rootNodes;
-  }
   
   /**
    * Atualiza mensagens threaded (força recálculo)

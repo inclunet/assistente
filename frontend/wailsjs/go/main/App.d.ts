@@ -115,6 +115,8 @@ export function GetConfig():Promise<config.Config>;
 
 export function GetConversation(arg1:number):Promise<database.Conversation>;
 
+export function GetConversationInfo(arg1:number):Promise<database.Conversation>;
+
 export function GetConversationTokenStats(arg1:number):Promise<Record<string, number>>;
 
 export function GetConversationWithThreads(arg1:number):Promise<main.ConversationWithThreads>;
@@ -162,6 +164,8 @@ export function GetMCPResources(arg1:number):Promise<Array<main.MCPResourceInfo>
 export function GetMemoriesByCategory(arg1:string):Promise<Array<database.Memory>>;
 
 export function GetMessageChildren(arg1:number):Promise<Array<main.MessageNode>>;
+
+export function GetMessages(arg1:number,arg2:any):Promise<Array<main.MessageNode>>;
 
 export function GetModelCapability(arg1:string):Promise<database.ModelCapability>;
 

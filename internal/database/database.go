@@ -88,11 +88,22 @@ func GetConversations() ([]Conversation, error) {
 }
 
 // GetConversation retorna uma conversa com suas mensagens
+// Deprecated: Use GetConversationInfo + GetMessages for lazy loading
 func GetConversation(id uint) (*Conversation, error) {
 	var conv Conversation
 	err := db.Preload("Messages", func(db *gorm.DB) *gorm.DB {
 		return db.Order("created_at ASC")
 	}).First(&conv, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &conv, nil
+}
+
+// GetConversationInfo retorna apenas metadados da conversa (sem mensagens)
+func GetConversationInfo(id uint) (*Conversation, error) {
+	var conv Conversation
+	err := db.First(&conv, id).Error
 	if err != nil {
 		return nil, err
 	}
@@ -270,10 +281,65 @@ func UpdateMessageToolCalls(messageID uint, toolCalls string, agentName string) 
 }
 
 // GetMessageChildren retorna todas as mensagens filhas de uma mensagem
+// Deprecated: Use GetMessages instead
 func GetMessageChildren(parentID uint) ([]ChatMessage, error) {
+	return GetMessages(0, &parentID)
+}
+
+// GetMessages retorna mensagens de uma conversa com filtro opcional por parent
+// - conversationID > 0: filtra por conversa (obrigatório para raízes)
+// - parentID == nil: retorna mensagens raiz (parent_id IS NULL)
+// - parentID != nil: retorna filhos da mensagem especificada
+//
+// Exemplos:
+//   GetMessages(convID, nil)      → mensagens raiz da conversa
+//   GetMessages(0, &parentID)     → filhos de uma mensagem
+func GetMessages(conversationID uint, parentID *uint) ([]ChatMessage, error) {
 	var messages []ChatMessage
-	err := db.Where("parent_id = ?", parentID).Order("created_at ASC").Find(&messages).Error
+	query := db.Order("created_at ASC")
+
+	if parentID != nil {
+		// Busca filhos de uma mensagem específica
+		query = query.Where("parent_id = ?", *parentID)
+	} else {
+		// Busca mensagens raiz de uma conversa
+		if conversationID == 0 {
+			return nil, fmt.Errorf("conversationID é obrigatório para buscar mensagens raiz")
+		}
+		query = query.Where("conversation_id = ? AND parent_id IS NULL", conversationID)
+	}
+
+	err := query.Find(&messages).Error
 	return messages, err
+}
+
+// CountChildren retorna a contagem de filhos para cada mensagem
+func CountChildren(messageIDs []uint) (map[uint]int, error) {
+	if len(messageIDs) == 0 {
+		return make(map[uint]int), nil
+	}
+
+	type countResult struct {
+		ParentID uint
+		Count    int
+	}
+
+	var results []countResult
+	err := db.Model(&ChatMessage{}).
+		Select("parent_id, COUNT(*) as count").
+		Where("parent_id IN ?", messageIDs).
+		Group("parent_id").
+		Scan(&results).Error
+
+	if err != nil {
+		return nil, err
+	}
+
+	counts := make(map[uint]int)
+	for _, r := range results {
+		counts[r.ParentID] = r.Count
+	}
+	return counts, nil
 }
 
 // GetMessageTree retorna uma mensagem com todos os seus descendentes

@@ -218,6 +218,10 @@ export function GetConversation(arg1) {
   return window['go']['main']['App']['GetConversation'](arg1);
 }
 
+export function GetConversationInfo(arg1) {
+  return window['go']['main']['App']['GetConversationInfo'](arg1);
+}
+
 export function GetConversationTokenStats(arg1) {
   return window['go']['main']['App']['GetConversationTokenStats'](arg1);
 }
@@ -312,6 +316,10 @@ export function GetMemoriesByCategory(arg1) {
 
 export function GetMessageChildren(arg1) {
   return window['go']['main']['App']['GetMessageChildren'](arg1);
+}
+
+export function GetMessages(arg1, arg2) {
+  return window['go']['main']['App']['GetMessages'](arg1, arg2);
 }
 
 export function GetModelCapability(arg1) {
