@@ -43,7 +43,7 @@
 <script>
   import { createEventDispatcher, tick } from 'svelte';
   import { ContextMenu } from './contextmenu';
-  import { ALL_ACCEPTED_TYPES } from '../lib/media-detector.js';
+  import { ALL_ACCEPTED_TYPES } from '../lib/chat/media-service.js';
   
   const dispatch = createEventDispatcher();
   

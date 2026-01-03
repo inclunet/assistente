@@ -7,23 +7,44 @@
   import VoiceButton from './VoiceButton.svelte';
   import { Toolbar } from '../../components/toolbar';
   import { ModelPicker, VoicePicker, STTProviderPicker, VOICE_DISABLED, STT_WEBSPEECH, STT_WHISPER } from '../../components/pickers';
-  import { ttsService, TTS_PROVIDERS, AudioRecorder } from '../../lib/speech/index.js';
+  import { ttsService, TTSService, TTS_PROVIDERS } from '../../lib/speech/index.js';
+  import { playSound, SOUND_TYPES } from '../../lib/audio-feedback.js';
   import { ContextMenu, ContextMenuTrigger } from '../../components/contextmenu';
   import MediaMenu, { RECORDING_MODES, MENU_ACTIONS } from './MediaMenu.svelte';
-  import { detectMediaType, MEDIA_CATEGORIES, getCategoryIcon, getCategoryLabel, ALL_ACCEPTED_TYPES } from '../../lib/media-detector.js';
   import { 
+    detectMediaType, 
+    MEDIA_CATEGORIES, 
+    getCategoryIcon, 
+    getCategoryLabel, 
+    ALL_ACCEPTED_TYPES,
     processMediaFile, 
     fileToBase64,
     captureScreen as captureScreenService, 
     captureWebcam as captureWebcamService,
     supportsScreenCapture,
-    supportsWebcam
+    supportsWebcam,
+    copyImageToClipboard,
+    copyTextToClipboard,
+    downloadImage
   } from '../../lib/chat/media-service.js';
   import ChatContainer from '../../components/chat/wrappers/ChatContainer.svelte';
   import ChatInput from '../../components/chat/core/input/ChatInput.svelte';
   import SendButton from '../../components/chat/core/input/SendButton.svelte';
   import { VoiceSettingsPanel } from '../../components/speech';
-  import { messageService } from '../../lib/chat/index.js';
+  import { 
+    messageService,
+    conversationId,
+    conversationTitle,
+    conversationData,
+    messages,
+    showInternalMessages,
+    isStreaming,
+    executingTools,
+    toolsMessage,
+    parseToolCalls,
+    formatAgentName,
+    convertMessageNode
+  } from '../../lib/chat/index.js';
 
   export let hasApiKey = false;
   export let conversation = null;
@@ -32,20 +53,10 @@
 
   const dispatch = createEventDispatcher();
 
-  // Conversa atual
-  let currentConversationId = null;
-  let conversationTitle = '';
-
-  // Mensagens do chat - NOVA ARQUITETURA
-  let conversationData = null; // ConversationWithThreads do backend
-  let messages = [];           // Array flat para compatibilidade
+  // Estado local da UI (não vem dos stores)
   let inputMessage = '';
   let isLoading = false;
   let error = '';
-  
-  // Streaming - NOVA ARQUITETURA
-  let streamingMessageId = null;  // ID da mensagem sendo streamada
-  let streamingContent = '';      // Conteúdo acumulado do streaming
   
 
   // Reage a mudanças na conversa passada como prop
@@ -59,10 +70,7 @@
   let temperature = defaultChatParams.temperature || 0.7;
   let useTools = true; // Usar ferramentas (FAQ) por padrão
   let showSettings = false;
-  let executingTools = false; // Indica quando ferramentas estão sendo executadas
-  let toolsMessage = '';
   let maxTokensInput; // Referência para focar no modal de ajustes
-  let showInternalMessages = false; // Exibir mensagens internas (tool calls, debug)
   
   // Voice/Speech
   let voiceButtonComponent;
@@ -180,7 +188,7 @@
     }
     // F2: Editar mensagem focada (se for do usuário)
     else if (event.key === 'F2') {
-      if (focusedMessageIndex >= 0 && messages[focusedMessageIndex]?.role === 'user') {
+      if (focusedMessageIndex >= 0 && $messages[focusedMessageIndex]?.role === 'user') {
         event.preventDefault();
         startEditMessage(focusedMessageIndex);
       }
@@ -212,15 +220,7 @@
   let expandedPaths = {};  // { [path]: true }
   let loadingPaths = {};   // { [path]: true } - paths que estão carregando filhos
   
-  // Estado legado para compatibilidade durante transição
-  let expandedThreads = {};  // { [index]: true } - DEPRECATED
-  let expandedAgentThreads = {}; // { [key]: true } - DEPRECATED
-  
-  // Estado de foco dentro de threads
-  let focusedThreadLevel = 0; // 0 = mensagem raiz, 1 = agente, 2 = tool result
-  let focusedAgentIndex = -1; // Índice do agente focado (nível 1)
-  let focusedToolIndex = -1;  // Índice do tool result focado (nível 2)
-  let focusedParentIndex = -1; // Índice da mensagem pai quando navegando em thread
+  // Estado de threads gerenciado pelo ChatContainer
   
   // ==================== FUNÇÕES UNIFICADAS DE EXPANSÃO ====================
   
@@ -481,83 +481,13 @@
    * Recarrega a conversa do backend usando GetConversationWithThreads.
    * Retorna a conversa já organizada em árvore.
    */
-  async function reloadConversation() {
-    if (!currentConversationId) return;
-    
-    const success = await messageService.reload();
-    if (success) {
-      syncFromMessageService();
-      scrollToBottom();
-    }
-  }
-  
-  /**
-   * Atualiza o conteúdo de uma mensagem específica durante streaming.
-   */
-  function updateMessageContent(messageId, content) {
-    messageService.updateMessageContent(messageId, content);
-    // Sincroniza estado local
-    conversationData = messageService.conversationData;
-    messages = messageService.messages;
-  }
-  
-  /**
-   * Converte MessageNode do backend para formato do frontend.
-   * Backend já envia estrutura correta, apenas normaliza campos.
-   */
-  function convertMessageNode(node, index = 0) {
-    const m = node.message || node.Message || {};
-    
-    // Parseia tool_calls se for string
-    let toolCalls = null;
-    const rawToolCalls = m.tool_calls || m.ToolCalls;
-    if (rawToolCalls) {
-      try {
-        toolCalls = typeof rawToolCalls === 'string' ? JSON.parse(rawToolCalls) : rawToolCalls;
-      } catch (e) { /* ignore */ }
-    }
-    
-    // Extrai toolName
-    let toolName = '';
-    if (toolCalls && toolCalls.length > 0) {
-      toolName = toolCalls[0].function?.name || toolCalls[0].Function?.Name || '';
-    }
-    
-    return {
-      message: {
-        id: m.id || m.ID,
-        parentId: m.parent_id || m.ParentID,
-        role: m.role || m.Role,
-        content: m.content || m.Content || '',
-        toolCalls: toolCalls,
-        toolCallId: m.tool_call_id || m.ToolCallID,
-        agentName: m.agent_name || m.AgentName,
-        toolName: toolName,
-        internal: (m.parent_id || m.ParentID) != null,
-        model: m.model || m.Model,
-        promptTokens: m.prompt_tokens || m.PromptTokens,
-        completionTokens: m.completion_tokens || m.CompletionTokens,
-        totalTokens: m.total_tokens || m.TotalTokens,
-        // Preserva estado de streaming
-        isStreaming: m.isStreaming || false,
-        toolsInfo: m.toolsInfo || null,
-      },
-      agentName: m.agent_name || m.AgentName,
-      toolName: toolName,
-      level: node.level ?? node.Level ?? 0,
-      originalIndex: node.originalIndex ?? index,
-      children: node.children || [], // Preserva filhos se existirem
-      childCount: node.child_count ?? node.ChildCount ?? node.childCount ?? 0
-    };
-  }
-  
   // Mensagens organizadas em threads - converte do backend para formato do frontend
-  $: threadedMessages = (conversationData?.threads || []).map((node, i) => convertMessageNode(node, i));
+  $: threadedMessages = ($conversationData?.threads || []).map((node, i) => convertMessageNode(node, i));
   
   // Filtra mensagens visíveis (fallback para modo não-threaded)
-  $: visibleMessages = showInternalMessages 
-    ? messages 
-    : messages.filter(m => !m.internal);
+  $: visibleMessages = $showInternalMessages 
+    ? $messages 
+    : $messages.filter(m => !m.internal);
   
   // Cache de filhos carregados (messageId -> children)
   let childrenCache = {};
@@ -618,28 +548,6 @@
     }
   }
   
-  function parseToolCalls(toolCalls) {
-    if (!toolCalls) return null;
-    if (typeof toolCalls === 'string') {
-      try {
-        return JSON.parse(toolCalls);
-      } catch (e) {
-        return null;
-      }
-    }
-    return toolCalls;
-  }
-  
-  // Funções de renderização de threads movidas para ThreadNode.svelte
-  
-  function formatAgentName(name) {
-    if (!name) return 'Agente';
-    // Converte snake_case para Title Case
-    return name.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ');
-  }
-  
   /**
    * Anuncia mensagem para leitores de tela (usa aria-live assertive)
    * Força a atualização limpando e depois setando o valor
@@ -651,35 +559,6 @@
     setTimeout(() => {
       navigationAnnouncement = message;
     }, 50);
-  }
-  
-  /**
-   * Foca um elemento de forma que leitores de tela reconheçam
-   * - Garante que o elemento está visível
-   * - Usa tabindex=-1 temporariamente se necessário
-   * - Força atualização do cursor virtual do leitor
-   */
-  function focusElement(element) {
-    if (!element) return false;
-    
-    // Garante que o elemento pode receber foco
-    if (element.getAttribute('tabindex') === null) {
-      element.setAttribute('tabindex', '-1');
-    }
-    
-    // Scroll para o elemento ficar visível
-    element.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-    
-    // Pequeno delay para garantir scroll completou
-    setTimeout(() => {
-      // Foca o elemento
-      element.focus({ preventScroll: true });
-      
-      // Dispara evento para alguns leitores que precisam
-      element.dispatchEvent(new Event('focus', { bubbles: true }));
-    }, 50);
-    
-    return true;
   }
   
   /**
@@ -705,10 +584,6 @@
       
       const childCount = node.children?.length || node.childCount || 0;
       announce(`Thread expandida. ${childCount} interação(ões).`);
-      
-      focusedThreadLevel = 1;
-      focusedAgentIndex = 0;
-      focusedParentIndex = index;
     }
   }
   
@@ -754,7 +629,6 @@
   function openMessageDetailForMessage(message) {
     if (!message) return;
     
-    messageDetailIndex = -1; // Indica que não é pelo índice
     messageDetailContent = formatContentForDetail(message.content || '');
     messageDetailRole = message.role === 'user' ? 'Você' : (message.role === 'tool' ? 'Tool' : 'Agente');
     messageDetailMedia = message.media || [];
@@ -763,85 +637,7 @@
     announce(`Navegação detalhada. Use as setas para navegar pelo conteúdo.`);
   }
   
-  // Audio context para sons de feedback
-  let audioContext;
-  
-  function getAudioContext() {
-    if (!audioContext) {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    return audioContext;
-  }
-  
-  function playSound(type) {
-    try {
-      const ctx = getAudioContext();
-      const oscillator = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(ctx.destination);
-      
-      if (type === 'send') {
-        // Som de envio: "tum di" - grave depois agudo
-        // Primeiro tom (grave)
-        oscillator.frequency.setValueAtTime(330, ctx.currentTime);
-        gainNode.gain.setValueAtTime(0.25, ctx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.06);
-        oscillator.start(ctx.currentTime);
-        oscillator.stop(ctx.currentTime + 0.06);
-        
-        // Segundo tom (agudo) - usa outro oscillator
-        const osc2 = ctx.createOscillator();
-        const gain2 = ctx.createGain();
-        osc2.connect(gain2);
-        gain2.connect(ctx.destination);
-        osc2.frequency.setValueAtTime(660, ctx.currentTime + 0.07);
-        gain2.gain.setValueAtTime(0, ctx.currentTime);
-        gain2.gain.setValueAtTime(0.25, ctx.currentTime + 0.07);
-        gain2.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.13);
-        osc2.start(ctx.currentTime + 0.07);
-        osc2.stop(ctx.currentTime + 0.13);
-      } else if (type === 'receive') {
-        // Som de recebimento: "ti dum" - agudo depois grave
-        // Primeiro tom (agudo)
-        oscillator.frequency.setValueAtTime(660, ctx.currentTime);
-        gainNode.gain.setValueAtTime(0.25, ctx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.06);
-        oscillator.start(ctx.currentTime);
-        oscillator.stop(ctx.currentTime + 0.06);
-        
-        // Segundo tom (grave) - usa outro oscillator
-        const osc2 = ctx.createOscillator();
-        const gain2 = ctx.createGain();
-        osc2.connect(gain2);
-        gain2.connect(ctx.destination);
-        osc2.frequency.setValueAtTime(330, ctx.currentTime + 0.07);
-        gain2.gain.setValueAtTime(0, ctx.currentTime);
-        gain2.gain.setValueAtTime(0.25, ctx.currentTime + 0.07);
-        gain2.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.13);
-        osc2.start(ctx.currentTime + 0.07);
-        osc2.stop(ctx.currentTime + 0.13);
-      } else if (type === 'error') {
-        // Som de erro: tom grave longo
-        oscillator.frequency.setValueAtTime(220, ctx.currentTime);
-        gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
-        oscillator.start(ctx.currentTime);
-        oscillator.stop(ctx.currentTime + 0.2);
-      } else if (type === 'clear') {
-        // Som de nova conversa: tom suave descendente
-        oscillator.frequency.setValueAtTime(520, ctx.currentTime);
-        oscillator.frequency.linearRampToValueAtTime(400, ctx.currentTime + 0.1);
-        gainNode.gain.setValueAtTime(0.15, ctx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.12);
-        oscillator.start(ctx.currentTime);
-        oscillator.stop(ctx.currentTime + 0.12);
-      }
-    } catch (e) {
-      // Ignora erros de áudio silenciosamente
-    }
-  }
+  // Sons de feedback importados de audio-feedback.js
 
   // Referência para cleanup de eventos
   let unsubscribeGlobalHotkey;
@@ -874,11 +670,11 @@
     messageService.addComponentListener(COMPONENT_ID, 'streamingEnded', handleServiceStreamingEnded);
     messageService.addComponentListener(COMPONENT_ID, 'toolsExecution', handleServiceToolsExecution);
     messageService.addComponentListener(COMPONENT_ID, 'toolResults', handleServiceToolResults);
-    messageService.addComponentListener(COMPONENT_ID, 'error', handleServiceError);
-    messageService.addComponentListener(COMPONENT_ID, 'conversationCreated', handleServiceConversationCreated);
-    messageService.addComponentListener(COMPONENT_ID, 'messagesReady', handleServiceMessagesReady);
+    messageService.addComponentListener(COMPONENT_ID, 'error', (e) => { error = e.detail.message; isLoading = false; playSound('error'); });
+    messageService.addComponentListener(COMPONENT_ID, 'conversationCreated', () => dispatch('conversationUpdated'));
+    messageService.addComponentListener(COMPONENT_ID, 'messagesReady', () => { isLoading = true; });
     messageService.addComponentListener(COMPONENT_ID, 'agentMessage', handleServiceAgentMessage);
-    messageService.addComponentListener(COMPONENT_ID, 'chatDone', handleServiceChatDone);
+    messageService.addComponentListener(COMPONENT_ID, 'chatDone', () => { isLoading = false; });
     
     // Listener para hotkey global (Ctrl+Shift+A de qualquer janela)
     unsubscribeGlobalHotkey = EventsOn('global:hotkey:voice', handleGlobalHotkeyVoice);
@@ -926,33 +722,15 @@
     ttsService.stop();
   });
 
-  // === Handlers do MessageService ===
+  // === Handlers do MessageService (lógica de UI após atualizações) ===
   
   async function handleMessagesUpdated(event) {
-    const { messages: newMessages, threads } = event.detail;
+    // Os stores já são atualizados pelo messageService - aqui só tratamos lógica de UI
     
     // Salva o elemento focado e seu path para restaurar depois
     const activeElement = document.activeElement;
     const focusedPath = activeElement?.dataset?.messagePath;
-    const focusedLevel = parseInt(activeElement?.dataset?.level || '0', 10);
     const wasFocusedInMessages = activeElement?.closest('.messages-list') !== null;
-    
-    // Se o usuário está navegando em níveis internos (>0) durante streaming,
-    // adia a atualização da UI para não interromper a navegação
-    if (wasFocusedInMessages && focusedLevel > 0 && messageService.isStreaming) {
-      // Apenas atualiza messages sem forçar re-render dos threads
-      messages = newMessages;
-      return;
-    }
-    
-    messages = newMessages;
-    
-    // Atualiza conversationData para triggerar reatividade do threadedMessages
-    if (threads) {
-      conversationData = { ...conversationData, threads };
-    } else {
-      conversationData = { ...messageService.conversationData };
-    }
     
     // Restaura o foco após o DOM atualizar
     if (wasFocusedInMessages && focusedPath) {
@@ -988,9 +766,9 @@
       playSound('receive');
     } else if (autoSpeak && content) {
       // TTS ativo: fala o texto e o som será tocado quando TTS terminar (handleTTSSpeakEnd)
-      const textToSpeak = cleanMarkdownForSpeech(content);
+      const textToSpeak = TTSService.cleanTextForSpeech(content);
       if (textToSpeak) {
-        speakText(textToSpeak);
+        ttsService.speak(textToSpeak);
       } else {
         // Se não há texto para falar (ex: resposta vazia), toca som agora
         playSound('receive');
@@ -1013,9 +791,8 @@
   }
   
   function handleServiceToolsExecution(event) {
-    const { message, executing } = event.detail;
-    executingTools = executing;
-    toolsMessage = message;
+    // Os stores (executingTools, toolsMessage) já são atualizados pelo messageService
+    const { message } = event.detail;
     
     playSound('send');
     
@@ -1025,9 +802,8 @@
   }
   
   function handleServiceToolResults(event) {
+    // Os stores já são atualizados pelo messageService
     const { count } = event.detail;
-    executingTools = false;
-    toolsMessage = '';
     
     if (count > 0) {
       if (isTTSDisabled) {
@@ -1035,24 +811,6 @@
       }
       playSound('receive');
     }
-  }
-  
-  function handleServiceError(event) {
-    const { message } = event.detail;
-    error = message;
-    isLoading = false;
-    playSound('error');
-  }
-  
-  function handleServiceConversationCreated(event) {
-    const { conversationId, title } = event.detail;
-    currentConversationId = conversationId;
-    conversationTitle = title;
-    dispatch('conversationUpdated');
-  }
-  
-  function handleServiceMessagesReady(event) {
-    isLoading = true;
   }
   
   function handleServiceAgentMessage(event) {
@@ -1071,10 +829,6 @@
     }
   }
   
-  function handleServiceChatDone(event) {
-    isLoading = false;
-  }
-
   async function scrollToBottom() {
     await tick();
     if (messagesContainer) {
@@ -1176,7 +930,7 @@
     // NOTA: O backend agora salva a mensagem do usuário automaticamente
 
     // Prepara array de mensagens para a API
-    let apiMessages = await Promise.all(messages.map(async (m) => {
+    let apiMessages = await Promise.all($messages.map(async (m) => {
       // Se a mensagem tem mídia, formata no padrão multimodal do LiteLLM
       if (m.media && m.media.length > 0) {
         const content = [];
@@ -1338,16 +1092,10 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
 
     isLoading = true;
     
-    // NOVA ARQUITETURA: Não criamos placeholders locais
-    // O backend cria as mensagens e emite chat:messages_ready
-    // O frontend recarrega a conversa para ter os IDs corretos
-    streamingContent = '';
-    streamingMessageId = null;
-    
     try {
       // Prepara mídia para enviar ao backend
       const mediaJson = mediaToSave.length > 0 ? JSON.stringify(mediaToSave) : '';
-      await SendMessage(currentConversationId || 0, announceText, mediaJson, params);
+      await SendMessage($conversationId || 0, announceText, mediaJson, params);
     } catch (err) {
       handleError(err.toString());
       isLoading = false;
@@ -1360,7 +1108,8 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     // Escape cancela modo de gravação de áudio
     if (event.key === 'Escape' && mediaMode === 'record_audio') {
       event.preventDefault();
-      cancelRecordAudioMode();
+      mediaMode = 'normal';
+      if (inputElement) inputElement.placeholder = 'Digite ou segure 🎤 para falar...';
       return;
     }
     
@@ -1398,7 +1147,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   
   // Estado para modal de navegação detalhada da mensagem
   let messageDetailModalOpen = false;
-  let messageDetailIndex = -1;
   let messageDetailContent = '';
   let messageDetailRole = '';
   let messageDetailMedia = [];
@@ -1416,46 +1164,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   /**
    * Fecha modal de imagem
    */
-  function closeImageModal() {
-    imageModalVisible = false;
-    imageModalSrc = '';
-    imageModalAlt = '';
-  }
-  
-  /**
-   * Abre modal de navegação detalhada da mensagem
-   */
-  function openMessageDetailModal(index) {
-    const message = messages[index];
-    if (!message) return;
-    
-    messageDetailIndex = index;
-    messageDetailContent = message.content || '';
-    messageDetailRole = message.role === 'user' ? 'Você' : 'Assistente';
-    messageDetailMedia = message.media || [];
-    messageDetailModalOpen = true;
-    
-    announce(`Navegação detalhada. Use as setas para navegar pelo conteúdo.`);
-  }
-  
-  /**
-   * Fecha modal de navegação detalhada e retorna foco
-   */
-  async function closeMessageDetailModal() {
-    const indexToFocus = messageDetailIndex;
-    
-    messageDetailModalOpen = false;
-    messageDetailIndex = -1;
-    messageDetailContent = '';
-    messageDetailRole = '';
-    messageDetailMedia = [];
-    
-    // Retorna foco para a mensagem (o Modal já restaura o foco anterior,
-    // mas garantimos que focusedMessageIndex está correto)
-    if (indexToFocus >= 0) {
-      focusedMessageIndex = indexToFocus;
-    }
-  }
   
   
   // ========================================
@@ -1478,41 +1186,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    * Handlers para o slot customizado (ChatInput direto)
    * Necessários porque o slot não usa a lógica do ChatContainer
    */
-  function handleInputDragEnter(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    if (event.dataTransfer?.types?.includes('Files')) {
-      isDragging = true;
-    }
-  }
-  
-  function handleInputDragOver(event) {
-    event.preventDefault();
-    event.stopPropagation();
-  }
-  
-  function handleInputDragLeave(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    const rect = event.currentTarget?.getBoundingClientRect();
-    if (!rect) return;
-    const x = event.clientX;
-    const y = event.clientY;
-    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
-      isDragging = false;
-    }
-  }
-  
-  async function handleInputDrop(event) {
-    event.preventDefault();
-    event.stopPropagation();
-    isDragging = false;
-    const files = event.dataTransfer?.files;
-    if (files && files.length > 0) {
-      await handleFilesDropped(Array.from(files), 'drop');
-    }
-  }
-  
   async function handleInputPaste(event) {
     const clipboardData = event.clipboardData;
     if (!clipboardData) return;
@@ -1549,10 +1222,8 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   }
 
   function clearChat() {
-    messages = [];
+    messageService.clear();
     error = '';
-    currentConversationId = null;
-    conversationTitle = '';
     
     // Feedback sonoro e verbal
     playSound('clear');
@@ -1571,15 +1242,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    * Recarrega as mensagens do banco para ter os IDs corretos.
    * Usado após o streaming terminar para sincronizar com o banco.
    */
-  /**
-   * @deprecated Use reloadConversation() instead
-   */
-  async function reloadMessagesFromDB() {
-    // Redireciona para a nova função
-    return reloadConversation();
-  }
-  
-  // _legacyReloadMessagesFromDB removida - agora usa messageService.reload()
   async function loadConversation(conv) {
     if (!conv || !conv.id) return;
     
@@ -1591,53 +1253,14 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
         throw new Error('Conversa não encontrada');
       }
       
-      // Sincroniza estado local com o serviço
-      syncFromMessageService();
+      // Sincroniza modelo local com a conversa carregada
+      if ($conversationData?.model) {
+        selectedModel = $conversationData.model;
+      }
       
       scrollToBottom();
     } catch (err) {
       error = 'Erro ao carregar conversa: ' + err;
-    }
-  }
-  
-  /**
-   * Sincroniza estado local com messageService
-   */
-  function syncFromMessageService() {
-    currentConversationId = messageService.conversationId;
-    conversationTitle = messageService.conversationTitle;
-    conversationData = messageService.conversationData;
-    messages = messageService.messages;
-    showInternalMessages = messageService.showInternalMessages;
-    
-    // Usa o modelo da conversa se disponível
-    if (conversationData?.model) {
-      selectedModel = conversationData.model;
-    }
-  }
-
-  async function saveMessage(role, content, toolCalls = '', toolResults = '', tokenInfo = null, media = null) {
-    const success = await messageService.saveMessage(role, content, {
-      toolCalls,
-      toolResults,
-      tokenInfo,
-      media,
-      model: selectedModel
-    });
-    
-    if (success) {
-      // Sincroniza IDs caso tenha criado conversa
-      if (messageService.conversationId !== currentConversationId) {
-        currentConversationId = messageService.conversationId;
-        conversationTitle = messageService.conversationTitle;
-      }
-      dispatch('conversationUpdated');
-    }
-  }
-
-  async function updateModel() {
-    if (currentConversationId && selectedModel) {
-      await messageService.updateModel(selectedModel);
     }
   }
 
@@ -1651,36 +1274,18 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     }
   }
 
-  function toggleVoiceSettings() {
-    showVoiceSettings = !showVoiceSettings;
-    // O VoiceSettingsPanel foca automaticamente no primeiro input
-  }
-
-  // Sincroniza estado local de volume (ttsService já foi atualizado pelo VoiceSettingsPanel)
-  function applyVoiceVolume(volume) {
-    voiceVolume = volume;
-  }
-
-  // Sincroniza estado local de velocidade (ttsService já foi atualizado pelo VoiceSettingsPanel)
-  function applyVoiceRate(rate) {
-    voiceRate = rate;
-  }
-
   function handleModelChange(event) {
     selectedModel = event.detail;
-    updateModel();
+    // Atualiza modelo na conversa atual
+    if ($conversationId && selectedModel) {
+      messageService.updateModel(selectedModel);
+    }
     SetDefaultModel(selectedModel).catch(console.error);
   }
 
   /**
    * Salva a preferência de exibir mensagens internas na conversa
    */
-  async function handleShowInternalMessagesChange() {
-    if (currentConversationId) {
-      await messageService.updateSettings(showInternalMessages);
-    }
-  }
-
   function handleVoiceChange(event) {
     selectedVoice = event.detail;
     
@@ -1721,136 +1326,26 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     };
     liveMessage = `Transcrição alterada para ${providerNames[selectedSTTProvider] || selectedSTTProvider}`;
   }
-
-  // Formata o label da voz para exibição amigável
-  function getVoiceLabel(voice) {
-    if (!voice || voice === VOICE_DISABLED) {
-      return '🔇 Desativada';
-    }
-    // Remove prefixos comuns para exibição mais limpa
-    if (voice.startsWith('openai:')) {
-      return '✨ ' + voice.substring(7); // Remove "openai:" e adiciona emoji
-    }
-    return voice
-      .replace('Microsoft ', '')
-      .replace(' Desktop', '')
-      .replace(' Online (Natural)', '');
-  }
-
-  function handlePickerAnnounce(event) {
-    liveMessage = event.detail.message;
-  }
-
   // ==================== Imagens Geradas (DALL-E) ====================
-  
-  /**
-   * Verifica se o conteúdo contém uma imagem gerada
-   */
-  function hasGeneratedImage(content) {
-    return content && content.includes('[GENERATED_IMAGE:');
-  }
-  
-  /**
-   * Extrai dados de imagem gerada do conteúdo
-   * Formato: [GENERATED_IMAGE:alt_base64:image_base64]
-   * @returns {Object|null} { altText, imageBase64, textBefore, textAfter }
-   */
-  function extractGeneratedImage(content) {
-    if (!content) return null;
-    
-    const match = content.match(/\[GENERATED_IMAGE:([^:]+):([^\]]+)\]/);
-    if (!match) return null;
-    
-    const altTextBase64 = match[1];
-    const imageBase64 = match[2];
-    
-    // Decodifica alt-text
-    let altText = 'Imagem gerada';
-    try {
-      altText = atob(altTextBase64);
-    } catch (e) {
-      console.warn('Erro ao decodificar alt-text:', e);
-    }
-    
-    // Extrai texto antes e depois da imagem
-    const fullMatch = match[0];
-    const startIndex = content.indexOf(fullMatch);
-    const textBefore = content.substring(0, startIndex).trim();
-    const textAfter = content.substring(startIndex + fullMatch.length).trim();
-    
-    return {
-      altText,
-      imageBase64,
-      imageUrl: `data:image/png;base64,${imageBase64}`,
-      textBefore,
-      textAfter,
-      id: Date.now()
-    };
-  }
   
   /**
    * Download de imagem gerada
    */
   function downloadGeneratedImage(imageData) {
-    const link = document.createElement('a');
-    link.href = imageData.imageUrl;
-    link.download = `imagem-gerada-${Date.now()}.png`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    liveMessage = 'Imagem baixada com sucesso.';
-    playSound('success');
+    const success = downloadImage(imageData.imageUrl, `imagem-gerada-${Date.now()}.png`);
+    liveMessage = success ? 'Imagem baixada com sucesso.' : 'Erro ao baixar imagem.';
+    playSound(success ? 'success' : 'error');
   }
   
-  /**
-   * Copia imagem para clipboard
-   */
   async function copyGeneratedImage(imageData) {
-    try {
-      // Converte base64 para blob
-      const response = await fetch(imageData.imageUrl);
-      const blob = await response.blob();
-      
-      await navigator.clipboard.write([
-        new ClipboardItem({ 'image/png': blob })
-      ]);
-      
-      liveMessage = 'Imagem copiada para a área de transferência.';
-      playSound('success');
-    } catch (err) {
-      console.error('Erro ao copiar imagem:', err);
-      liveMessage = 'Não foi possível copiar a imagem.';
-      playSound('error');
-    }
+    const success = await copyImageToClipboard(imageData.imageUrl);
+    liveMessage = success ? 'Imagem copiada para a área de transferência.' : 'Não foi possível copiar a imagem.';
+    playSound(success ? 'success' : 'error');
   }
   
   // ==================== Fim Imagens Geradas ====================
   
   // Limpa markdown para fala mais natural
-  function cleanMarkdownForSpeech(text) {
-    return text
-      .replace(/```[\s\S]*?```/g, ' código omitido ')  // Remove blocos de código
-      .replace(/`[^`]+`/g, '')  // Remove inline code
-      .replace(/\*\*([^*]+)\*\*/g, '$1')  // Remove bold
-      .replace(/\*([^*]+)\*/g, '$1')  // Remove italic
-      .replace(/#{1,6}\s/g, '')  // Remove headers
-      .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1')  // Links: mantém texto
-      .replace(/[-*+]\s/g, '')  // Remove bullets
-      .replace(/\n+/g, '. ')  // Quebras de linha viram pausas
-      .trim();
-  }
-
-  // Sintetiza texto usando o ttsService (delega ao provider configurado)
-  async function speakText(text) {
-    if (!text) return;
-    await ttsService.speak(text);
-  }
-
-  // Para a síntese de voz atual
-  async function stopSpeaking() {
-    await ttsService.stop();
-  }
-
   // Handler para hotkey global (Ctrl+Shift+A de qualquer janela)
   // Sempre usa modo VAD_ACTIVITY para hands-free
   let savedModeBeforeHotkey = null;
@@ -1972,26 +1467,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   /**
    * Handler para arquivos recebidos do MediaMenu
    */
-  async function handleMediaFiles(event) {
-    const { files, source } = event.detail;
-    for (const file of files) {
-      await addMediaFileAuto(file, source);
-    }
-  }
-  
-  /**
-   * Handler de seleção de arquivo - usa detecção automática de tipo
-   */
-  async function handleFileSelect(event) {
-    const files = event.target.files;
-    if (files && files.length > 0) {
-      for (const file of files) {
-        await addMediaFileAuto(file);
-      }
-    }
-    event.target.value = '';
-  }
-  
   /**
    * Adiciona um arquivo de mídia à lista de pendentes com detecção automática de tipo
    * @param {File} file - Arquivo para adicionar
@@ -2037,14 +1512,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       mediaError = `Erro ao processar ${file.name}: ${err.message}`;
       playSound('error');
     }
-  }
-  
-  /**
-   * Legacy: mantém compatibilidade com código existente
-   * @deprecated Use addMediaFileAuto
-   */
-  async function addMediaFile(type, file) {
-    await addMediaFileAuto(file, type);
   }
   
   /**
@@ -2117,176 +1584,10 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   /**
    * Remove mídia pendente
    */
-  function removeMedia(index) {
-    pendingMedia = pendingMedia.filter((_, i) => i !== index);
-    if (pendingMedia.length === 0) {
-      mediaMode = 'normal';
-    }
-  }
-  
-  /**
-   * Cancela modo de gravação de áudio
-   */
-  function cancelRecordAudioMode() {
-    mediaMode = 'normal';
-    if (inputElement) {
-      inputElement.placeholder = 'Digite ou segure 🎤 para falar...';
-    }
-  }
-  
   /**
    * Handler para áudio gravado (quando em modo record_audio)
    */
-  async function handleAudioFile(event) {
-    const { file } = event.detail;
-    await addMediaFile('audio', file);
-    mediaMode = 'normal';
-  }
-
-  function handleHistoryKeyDown(event, nodeIndex, originalIndex) {
-    // Se estamos editando uma mensagem, não intercepta os eventos de teclado
-    // para permitir navegação normal no textarea
-    if (editingMessageIndex >= 0) {
-      return;
-    }
-    
-    // Usa > para pegar apenas filhos diretos, não li's dentro do markdown
-    const items = document.querySelectorAll('.messages-list > li');
-    let newNodeIndex = nodeIndex;
-    
-    // Tab/Shift+Tab: sai da lista normalmente (não previne o default)
-    if (event.key === 'Tab') {
-      focusedMessageIndex = -1;  // Reset para quando voltar
-      return;  // Deixa o comportamento padrão
-    }
-    
-    if (event.key === 'ArrowDown') {
-      event.preventDefault();
-      // Reset estado de thread ao navegar
-      focusedThreadLevel = 0;
-      focusedAgentIndex = -1;
-      focusedToolIndex = -1;
-      
-      if (nodeIndex === items.length - 1) {
-        // Última mensagem + seta para baixo = vai para campo de texto
-        focusedMessageIndex = -1;
-        if (inputElement) {
-          inputElement.focus();
-        }
-        announce('Campo de entrada de mensagem');
-        return;
-      }
-      newNodeIndex = nodeIndex + 1;
-    } else if (event.key === 'ArrowUp') {
-      event.preventDefault();
-      // Reset estado de thread ao navegar
-      focusedThreadLevel = 0;
-      focusedAgentIndex = -1;
-      focusedToolIndex = -1;
-      
-      if (nodeIndex === 0) {
-        announce('Primeira mensagem da conversa');
-        return;
-      }
-      newNodeIndex = nodeIndex - 1;
-    } else if (event.key === 'ArrowRight' && showInternalMessages) {
-      // Seta direita: expande thread ou navega para filho
-      event.preventDefault();
-      handleThreadExpand(originalIndex);
-      return;
-    } else if (event.key === 'ArrowLeft' && showInternalMessages) {
-      // Seta esquerda: recolhe thread ou volta para pai
-      event.preventDefault();
-      handleThreadCollapse(originalIndex);
-      return;
-    } else if (event.key === 'Home') {
-      event.preventDefault();
-      newNodeIndex = 0;
-      // Reset foco de thread
-      focusedThreadLevel = 0;
-      focusedAgentIndex = -1;
-      focusedToolIndex = -1;
-    } else if (event.key === 'End') {
-      event.preventDefault();
-      newNodeIndex = items.length - 1;
-      // Reset foco de thread
-      focusedThreadLevel = 0;
-      focusedAgentIndex = -1;
-      focusedToolIndex = -1;
-    } else if (event.key === 'Escape') {
-      event.preventDefault();
-      focusedMessageIndex = -1;
-      if (inputElement) {
-        inputElement.focus();
-      }
-      return;
-    } else if (event.key === ' ') {
-      // Espaço: ouvir mensagem (só se TTS habilitado)
-      event.preventDefault();
-      if (!isTTSDisabled) {
-        speakMessage(index);
-      } else {
-        liveMessage = 'Nenhuma voz selecionada. Selecione uma voz na barra de ferramentas.';
-      }
-      return;
-    } else if (event.key === 'Delete') {
-      // Delete: excluir mensagem
-      event.preventDefault();
-      deleteMessage(index);
-      return;
-    } else if (event.key === 'c' && (event.ctrlKey || event.metaKey)) {
-      // Ctrl+C: copiar mensagem
-      event.preventDefault();
-      copyMessage(index, event.shiftKey);
-      return;
-    } else if (event.key === 'ContextMenu' || (event.key === 'F10' && event.shiftKey)) {
-      // Tecla Applications ou Shift+F10: abrir menu de contexto
-      event.preventDefault();
-      event.stopPropagation();
-      const items = getMessageMenuItems(index);
-      messageMenuItems = items;
-      messageMenuIndex = index;
-      // Posiciona o menu próximo ao elemento focado
-      const target = event.currentTarget;
-      const rect = target.getBoundingClientRect();
-      messageContextMenu?.open(rect.right - 100, rect.top + 20);
-      return;
-    } else if (event.key === 'Enter') {
-      // Enter: abre modal de navegação detalhada da mensagem
-      event.preventDefault();
-      // Usa a mensagem do node atual em vez de buscar por índice
-      const displayedMessages = showInternalMessages ? threadedMessages : visibleMessages.map((m, i) => ({ message: m, originalIndex: i }));
-      const currentNode = displayedMessages[nodeIndex];
-      if (currentNode?.message) {
-        openMessageDetailForMessage(currentNode.message);
-      }
-      return;
-    } else if (event.key === 'F2') {
-      // F2: editar mensagem (só para mensagens do usuário)
-      const message = messages[index];
-      if (message?.role === 'user') {
-        event.preventDefault();
-        startEditMessage(index);
-        return;
-      }
-    }
-    
-    if (newNodeIndex !== nodeIndex && items[newNodeIndex]) {
-      focusedMessageIndex = newNodeIndex;
-      items[newNodeIndex].focus();
-      
-      // Anuncia o conteúdo da mensagem para o leitor de telas
-      const displayedMessages = showInternalMessages ? threadedMessages : visibleMessages.map((m, i) => ({ message: m, originalIndex: i }));
-      const targetNode = displayedMessages[newNodeIndex];
-      if (targetNode?.message) {
-        const role = targetNode.message.role === 'user' ? 'Você' : 'Assistente';
-        const content = targetNode.message.content?.substring(0, 150) || '';
-        const hasThread = targetNode.children?.length > 0;
-        const threadInfo = hasThread ? `. ${targetNode.children.length} interação(ões) interna(s). Pressione seta direita para expandir.` : '';
-        announce(`${role}: ${content}${threadInfo}`);
-      }
-    }
-  }
+  // Navegação por teclado no histórico gerenciada pelo MessageNode.svelte
   
   // Estado para hover nas mensagens
   let hoveredMessageIndex = -1;
@@ -2295,11 +1596,11 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    * Copia o conteúdo de uma mensagem
    */
   async function copyMessage(index, asMarkdown = false) {
-    const message = messages[index];
+    const message = $messages[index];
     if (!message) return;
     
     try {
-      const text = asMarkdown ? message.content : cleanMarkdownForSpeech(message.content);
+      const text = asMarkdown ? message.content : TTSService.cleanTextForSpeech(message.content);
       await navigator.clipboard.writeText(text);
       liveMessage = 'Mensagem copiada.';
       playSound('send');
@@ -2318,12 +1619,12 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       return;
     }
     
-    const message = messages[index];
+    const message = $messages[index];
     if (!message || !message.content) return;
     
-    const textToSpeak = cleanMarkdownForSpeech(message.content);
+    const textToSpeak = TTSService.cleanTextForSpeech(message.content);
     if (textToSpeak) {
-      speakText(textToSpeak);
+      ttsService.speak(textToSpeak);
     }
   }
   
@@ -2331,7 +1632,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    * Reenvia a mensagem do usuário
    */
   function resendMessage(index) {
-    const message = messages[index];
+    const message = $messages[index];
     if (!message || message.role !== 'user') return;
     
     inputMessage = message.content || '';
@@ -2345,20 +1646,20 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    * Exclui uma mensagem do histórico
    */
   function deleteMessage(index) {
-    if (index < 0 || index >= messages.length) return;
+    if (index < 0 || index >= $messages.length) return;
     
-    const deletedRole = messages[index].role;
-    messages = messages.filter((_, i) => i !== index);
+    const deletedRole = $messages[index].role;
+    $messages = $messages.filter((_, i) => i !== index);
     
     liveMessage = `Mensagem ${deletedRole === 'user' ? 'do usuário' : 'do assistente'} excluída.`;
     playSound('clear');
     
     // Ajusta foco
-    if (messages.length === 0) {
+    if ($messages.length === 0) {
       focusedMessageIndex = -1;
       if (inputElement) inputElement.focus();
-    } else if (focusedMessageIndex >= messages.length) {
-      focusedMessageIndex = messages.length - 1;
+    } else if (focusedMessageIndex >= $messages.length) {
+      focusedMessageIndex = $messages.length - 1;
     }
   }
   
@@ -2444,30 +1745,11 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   /**
    * Abre um link no navegador padrão
    */
-  function openLink(url) {
-    window.open(url, '_blank', 'noopener,noreferrer');
-    liveMessage = 'Abrindo link.';
-  }
-  
-  /**
-   * Copia um link para a área de transferência
-   */
-  async function copyLink(url) {
-    try {
-      await navigator.clipboard.writeText(url);
-      liveMessage = 'Link copiado.';
-      playSound('send');
-    } catch (err) {
-      console.error('Erro ao copiar link:', err);
-      liveMessage = 'Erro ao copiar link.';
-    }
-  }
-  
   /**
    * Inicia a edição de uma mensagem
    */
   async function startEditMessage(index) {
-    const message = messages[index];
+    const message = $messages[index];
     if (!message || message.role !== 'user') return;
     
     editingMessageIndex = index;
@@ -2491,8 +1773,8 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     
     const indexToFocus = editingMessageIndex;
     
-    messages[editingMessageIndex].content = editingMessageContent.trim();
-    messages = [...messages];
+    $messages[editingMessageIndex].content = editingMessageContent.trim();
+    $messages = [...$messages];
     
     liveMessage = 'Mensagem editada.';
     playSound('send');
@@ -2549,12 +1831,12 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    * Fixa ou desfixa uma mensagem
    */
   function togglePinMessage(index) {
-    if (index < 0 || index >= messages.length) return;
+    if (index < 0 || index >= $messages.length) return;
     
-    messages[index].pinned = !messages[index].pinned;
-    messages = [...messages]; // Trigger reatividade
+    $messages[index].pinned = !$messages[index].pinned;
+    $messages = [...$messages]; // Trigger reatividade
     
-    const action = messages[index].pinned ? 'fixada' : 'desfixada';
+    const action = $messages[index].pinned ? 'fixada' : 'desfixada';
     liveMessage = `Mensagem ${action}.`;
     playSound('send');
   }
@@ -2563,7 +1845,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    * Retorna mensagens fixadas formatadas para o contexto do LLM
    */
   function getPinnedMessagesContext() {
-    const pinned = messages.filter(m => m.pinned);
+    const pinned = $messages.filter(m => m.pinned);
     if (pinned.length === 0) return '';
     
     return '\n\n## Mensagens Fixadas (importantes para esta conversa):\n' +
@@ -2574,96 +1856,37 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       }).join('\n');
   }
   
-  /**
-   * Copia uma imagem para a área de transferência
-   */
-  async function copyImage(base64Url) {
-    try {
-      // Converte base64 para blob
-      const response = await fetch(base64Url);
-      const blob = await response.blob();
-      
-      // Copia para clipboard
-      await navigator.clipboard.write([
-        new ClipboardItem({ [blob.type]: blob })
-      ]);
-      
-      liveMessage = 'Imagem copiada.';
-      playSound('send');
-    } catch (err) {
-      console.error('Erro ao copiar imagem:', err);
-      liveMessage = 'Erro ao copiar imagem.';
-    }
-  }
-  
-  /**
-   * Salva uma imagem como arquivo
-   */
-  function saveImage(base64Url, filename = 'imagem.png') {
-    try {
-      const link = document.createElement('a');
-      link.href = base64Url;
-      link.download = filename;
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
-      
-      liveMessage = 'Imagem salva.';
-      playSound('send');
-    } catch (err) {
-      console.error('Erro ao salvar imagem:', err);
-      liveMessage = 'Erro ao salvar imagem.';
-    }
-  }
   
   /**
    * Copia tabela em formato específico
    */
   async function copyTable(tableMarkdown, format = 'text') {
-    try {
-      let output = '';
-      
-      // Parse a tabela markdown
-      const lines = tableMarkdown.trim().split('\n').filter(l => l.trim());
-      const rows = lines.filter(l => !l.match(/^\|[-:\s|]+\|$/)); // Remove linha de separação
-      
-      if (format === 'text') {
-        // Texto tabulado
-        output = rows.map(row => {
-          const cells = row.split('|').filter(c => c.trim()).map(c => c.trim());
-          return cells.join('\t');
-        }).join('\n');
-      } else if (format === 'csv') {
-        // CSV
-        output = rows.map(row => {
-          const cells = row.split('|').filter(c => c.trim()).map(c => `"${c.trim().replace(/"/g, '""')}"`);
-          return cells.join(',');
-        }).join('\n');
-      } else if (format === 'markdown') {
-        output = tableMarkdown;
-      }
-      
-      await navigator.clipboard.writeText(output);
-      liveMessage = `Tabela copiada como ${format === 'csv' ? 'CSV' : format === 'markdown' ? 'Markdown' : 'texto'}.`;
-      playSound('send');
-    } catch (err) {
-      console.error('Erro ao copiar tabela:', err);
-      liveMessage = 'Erro ao copiar tabela.';
+    // Parse a tabela markdown
+    const lines = tableMarkdown.trim().split('\n').filter(l => l.trim());
+    const rows = lines.filter(l => !l.match(/^\|[-:\s|]+\|$/)); // Remove linha de separação
+    
+    let output = '';
+    if (format === 'text') {
+      output = rows.map(row => row.split('|').filter(c => c.trim()).map(c => c.trim()).join('\t')).join('\n');
+    } else if (format === 'csv') {
+      output = rows.map(row => row.split('|').filter(c => c.trim()).map(c => `"${c.trim().replace(/"/g, '""')}"`).join(',')).join('\n');
+    } else {
+      output = tableMarkdown;
     }
+    
+    const ok = await copyTextToClipboard(output);
+    const formatLabel = format === 'csv' ? 'CSV' : format === 'markdown' ? 'Markdown' : 'texto';
+    liveMessage = ok ? `Tabela copiada como ${formatLabel}.` : 'Erro ao copiar tabela.';
+    playSound(ok ? 'send' : 'error');
   }
   
   /**
    * Copia bloco de código
    */
   async function copyCodeBlock(code, language) {
-    try {
-      await navigator.clipboard.writeText(code);
-      liveMessage = `Código ${language} copiado.`;
-      playSound('send');
-    } catch (err) {
-      console.error('Erro ao copiar código:', err);
-      liveMessage = 'Erro ao copiar código.';
-    }
+    const ok = await copyTextToClipboard(code);
+    liveMessage = ok ? `Código ${language} copiado.` : 'Erro ao copiar código.';
+    playSound(ok ? 'send' : 'error');
   }
   
   /**
@@ -2675,7 +1898,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    */
   function getMessageMenuItems(index, options = {}) {
     const { message: optMessage, level = 0 } = options;
-    const message = optMessage || messages[index];
+    const message = optMessage || $messages[index];
     const isUser = message?.role === 'user';
     const isRootLevel = level === 0;  // level > 0 significa mensagem interna
     const content = message?.content || '';
@@ -2688,7 +1911,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       if (index !== null && index !== undefined) {
         copyMessage(index, asMarkdown);
       } else {
-        const text = asMarkdown ? content : cleanMarkdownForSpeech(content);
+        const text = asMarkdown ? content : TTSService.cleanTextForSpeech(content);
         navigator.clipboard.writeText(text).then(() => {
           liveMessage = 'Mensagem copiada.';
           playSound('send');
@@ -2734,7 +1957,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
           if (index !== null && index !== undefined) {
             speakMessage(index);
           } else if (content) {
-            speakText(cleanMarkdownForSpeech(content));
+            ttsService.speak(TTSService.cleanTextForSpeech(content));
           }
         }
       });
@@ -2870,8 +2093,8 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
           icon: '🖼️',
           submenu: [
             { id: 'img-view', label: 'Ver em tamanho maior', icon: '🔍', action: () => openImageModal(img.preview, img.altText || imgName) },
-            { id: 'img-copy', label: 'Copiar imagem', icon: '📋', action: () => copyImage(img.preview) },
-            { id: 'img-save', label: 'Salvar imagem', icon: '💾', action: () => saveImage(img.preview, imgName) }
+            { id: 'img-copy', label: 'Copiar imagem', icon: '📋', action: async () => { const ok = await copyImageToClipboard(img.preview); liveMessage = ok ? 'Imagem copiada.' : 'Erro ao copiar.'; playSound(ok ? 'send' : 'error'); } },
+            { id: 'img-save', label: 'Salvar imagem', icon: '💾', action: () => { const ok = downloadImage(img.preview, imgName); liveMessage = ok ? 'Imagem salva.' : 'Erro ao salvar.'; playSound(ok ? 'send' : 'error'); } }
           ]
         });
       } else if (images.length > 1) {
@@ -2883,8 +2106,8 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
             icon: '🖼️',
             submenu: [
               { id: `img-${i}-view`, label: 'Ver em tamanho maior', icon: '🔍', action: () => openImageModal(img.preview, img.altText || imgName) },
-              { id: `img-${i}-copy`, label: 'Copiar imagem', icon: '📋', action: () => copyImage(img.preview) },
-              { id: `img-${i}-save`, label: 'Salvar imagem', icon: '💾', action: () => saveImage(img.preview, imgName) }
+              { id: `img-${i}-copy`, label: 'Copiar imagem', icon: '📋', action: async () => { const ok = await copyImageToClipboard(img.preview); liveMessage = ok ? 'Imagem copiada.' : 'Erro ao copiar.'; playSound(ok ? 'send' : 'error'); } },
+              { id: `img-${i}-save`, label: 'Salvar imagem', icon: '💾', action: () => { const ok = downloadImage(img.preview, imgName); liveMessage = ok ? 'Imagem salva.' : 'Erro ao salvar.'; playSound(ok ? 'send' : 'error'); } }
             ]
           });
         });
@@ -2901,8 +2124,8 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
           label: `Link: ${link.text.substring(0, 25)}${link.text.length > 25 ? '...' : ''}`, 
           icon: '🔗',
           submenu: [
-            { id: 'link-open', label: 'Abrir no navegador', icon: '🌐', action: () => openLink(link.url) },
-            { id: 'link-copy', label: 'Copiar URL', icon: '📋', action: () => copyLink(link.url) }
+            { id: 'link-open', label: 'Abrir no navegador', icon: '🌐', action: () => { window.open(link.url, '_blank', 'noopener,noreferrer'); liveMessage = 'Abrindo link.'; } },
+            { id: 'link-copy', label: 'Copiar URL', icon: '📋', action: async () => { const ok = await copyTextToClipboard(link.url); liveMessage = ok ? 'Link copiado.' : 'Erro ao copiar.'; playSound(ok ? 'send' : 'error'); } }
           ]
         });
       } else {
@@ -2913,8 +2136,8 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
             label: `Link: ${link.text.substring(0, 20)}${link.text.length > 20 ? '...' : ''}`, 
             icon: '🔗',
             submenu: [
-              { id: `link-${i}-open`, label: 'Abrir no navegador', icon: '🌐', action: () => openLink(link.url) },
-              { id: `link-${i}-copy`, label: 'Copiar URL', icon: '📋', action: () => copyLink(link.url) }
+              { id: `link-${i}-open`, label: 'Abrir no navegador', icon: '🌐', action: () => { window.open(link.url, '_blank', 'noopener,noreferrer'); liveMessage = 'Abrindo link.'; } },
+              { id: `link-${i}-copy`, label: 'Copiar URL', icon: '📋', action: async () => { const ok = await copyTextToClipboard(link.url); liveMessage = ok ? 'Link copiado.' : 'Erro ao copiar.'; playSound(ok ? 'send' : 'error'); } }
             ]
           });
         });
@@ -2952,7 +2175,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
 
 <section class="chat-container" aria-labelledby="chat-heading">
   <div class="chat-header">
-    <h2 id="chat-heading">{conversationTitle || 'Nova conversa'}</h2>
+    <h2 id="chat-heading">{$conversationTitle || 'Nova conversa'}</h2>
   </div>
   
   <!-- Barra de ferramentas com navegação por setas -->
@@ -2976,7 +2199,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
         label="Modelo"
         disabled={isLoading}
         on:change={handleModelChange}
-        on:announce={handlePickerAnnounce}
+        on:announce={(e) => liveMessage = e.detail.message}
       />
       
       <!-- Seletor de Provedor STT -->
@@ -2987,7 +2210,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
           label="Transcrição"
           disabled={isLoading}
           on:change={handleSTTProviderChange}
-          on:announce={handlePickerAnnounce}
+          on:announce={(e) => liveMessage = e.detail.message}
         />
       {/if}
       
@@ -3000,12 +2223,12 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
           disabled={isLoading}
           language="pt"
           on:change={handleVoiceChange}
-          on:announce={handlePickerAnnounce}
+          on:announce={(e) => liveMessage = e.detail.message}
         />
         
         <button 
           class="toolbar-btn"
-          on:click={toggleVoiceSettings}
+          on:click={() => showVoiceSettings = !showVoiceSettings}
           aria-expanded={showVoiceSettings}
           aria-label="Configurações de voz"
           title="Configurações de voz"
@@ -3089,8 +2312,8 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       <label class="toggle-label">
         <input
           type="checkbox"
-          bind:checked={showInternalMessages}
-          on:change={handleShowInternalMessagesChange}
+          bind:checked={$showInternalMessages}
+          on:change={async () => { if ($conversationId) await messageService.updateSettings($showInternalMessages); }}
           aria-describedby="internal-messages-description"
         />
         Mostrar Mensagens Internas
@@ -3109,8 +2332,8 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       bind:autoSpeak={autoSpeak}
       selectedVoice={selectedVoice}
       voiceSource={selectedVoiceSource}
-      on:volumeChange={(e) => applyVoiceVolume(e.detail.volume)}
-      on:rateChange={(e) => applyVoiceRate(e.detail.rate)}
+      on:volumeChange={(e) => voiceVolume = e.detail.volume}
+      on:rateChange={(e) => voiceRate = e.detail.rate}
     />
   </Modal>
 
@@ -3125,10 +2348,10 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   {:else}
     <ChatContainer
       bind:this={chatContainerRef}
-      {messages}
+      messages={$messages}
       {threadedMessages}
       config={{
-        showInternalMessages,
+        showInternalMessages: $showInternalMessages,
         enableTTS: !isTTSDisabled,
         enableEditing: true,
         enableDeleting: false,
@@ -3204,7 +2427,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       on:keydown={(e) => handleKeyDown(e.detail?.event || e)}
       on:filesDropped={(e) => handleFilesDropped(e.detail.files, e.detail.source)}
       on:dragStateChange={(e) => isDragging = e.detail.isDragging}
-      on:removeMedia={(e) => removeMedia(e.detail?.index ?? e.detail)}
+      on:removeMedia={(e) => { const idx = e.detail?.index ?? e.detail; pendingMedia = pendingMedia.filter((_, i) => i !== idx); if (pendingMedia.length === 0) mediaMode = 'normal'; }}
       on:clearMediaError={() => mediaError = ''}
     >
       <!-- Slot input-area: área de input customizada com ContextMenuTrigger -->
@@ -3233,11 +2456,11 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
               on:submit={handleSubmit}
               on:keydown={(e) => handleKeyDown(e.detail?.event || e)}
               on:paste={(e) => handleInputPaste(e.detail?.event || e)}
-              on:dragenter={(e) => handleInputDragEnter(e.detail?.event || e)}
-              on:dragover={(e) => handleInputDragOver(e.detail?.event || e)}
-              on:dragleave={(e) => handleInputDragLeave(e.detail?.event || e)}
-              on:drop={(e) => handleInputDrop(e.detail?.event || e)}
-              on:removeMedia={(e) => removeMedia(e.detail?.index ?? e.detail)}
+              on:dragenter|preventDefault|stopPropagation={(e) => { const ev = e.detail?.event || e; if (ev.dataTransfer?.types?.includes('Files')) isDragging = true; }}
+              on:dragover|preventDefault|stopPropagation
+              on:dragleave|preventDefault|stopPropagation={(e) => { const ev = e.detail?.event || e; const rect = ev.currentTarget?.getBoundingClientRect(); if (rect && (ev.clientX < rect.left || ev.clientX > rect.right || ev.clientY < rect.top || ev.clientY > rect.bottom)) isDragging = false; }}
+              on:drop|preventDefault|stopPropagation={async (e) => { const ev = e.detail?.event || e; isDragging = false; const files = ev.dataTransfer?.files; if (files?.length > 0) await handleFilesDropped(Array.from(files), 'drop'); }}
+              on:removeMedia={(e) => { const idx = e.detail?.index ?? e.detail; pendingMedia = pendingMedia.filter((_, i) => i !== idx); if (pendingMedia.length === 0) mediaMode = 'normal'; }}
               on:clearMediaError={() => mediaError = ''}
             >
               <!-- Botão de anexar mídia -->
@@ -3261,11 +2484,11 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
                         disabled={!selectedModel}
                         mode="record_audio"
                         sttProvider={selectedSTTProvider}
-                        on:audiofile={handleAudioFile}
+                        on:audiofile={async (e) => { await addMediaFileAuto(e.detail.file, 'audio'); mediaMode = 'normal'; }}
                       />
                       <button 
                         class="cancel-mode-btn"
-                        on:click={cancelRecordAudioMode}
+                        on:click={() => { mediaMode = 'normal'; if (inputElement) inputElement.placeholder = 'Digite ou segure 🎤 para falar...'; }}
                         aria-label="Cancelar gravação de áudio"
                         title="Cancelar (Esc)"
                       >✕</button>
@@ -3303,7 +2526,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   bind:this={fileInputRef}
   type="file"
   class="visually-hidden"
-  on:change={handleFileSelect}
+  on:change={async (e) => { const files = e.target.files; if (files?.length > 0) for (const f of files) await addMediaFileAuto(f); e.target.value = ''; }}
   multiple
   aria-hidden="true"
   tabindex="-1"
@@ -3314,14 +2537,14 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   open={imageModalVisible}
   src={imageModalSrc}
   alt={imageModalAlt}
-  on:close={closeImageModal}
+  on:close={() => { imageModalVisible = false; imageModalSrc = ''; imageModalAlt = ''; }}
 />
 
 <!-- Modal para navegação detalhada da mensagem -->
 <Modal 
   title={messageDetailRole}
   open={messageDetailModalOpen}
-  on:close={closeMessageDetailModal}
+  on:close={() => { messageDetailModalOpen = false; messageDetailContent = ''; messageDetailRole = ''; messageDetailMedia = []; }}
 >
   <div class="message-detail-content">
     <!-- Imagens anexadas -->

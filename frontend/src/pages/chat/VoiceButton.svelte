@@ -12,6 +12,7 @@
   import { onMount, onDestroy, createEventDispatcher } from 'svelte';
   import { sttService, STT_PROVIDERS, RECORDING_MODES, STT_STATES } from '../../lib/speech/index.js';
   import { VoiceRecordButton } from '../../components/chat';
+  import { playSound } from '../../lib/audio-feedback.js';
 
   const dispatch = createEventDispatcher();
 
@@ -33,9 +34,6 @@
   
   // Acessibilidade
   let liveMessage = '';
-  
-  // Audio feedback
-  let audioContext = null;
 
   // Sincroniza configurações com o serviço
   $: {
@@ -161,64 +159,7 @@
   }
 
   // === Audio Feedback ===
-  
-  function getAudioContext() {
-    if (!audioContext) {
-      audioContext = new (window.AudioContext || window.webkitAudioContext)();
-    }
-    return audioContext;
-  }
-
-  function playSound(type) {
-    try {
-      const ctx = getAudioContext();
-      const oscillator = ctx.createOscillator();
-      const gainNode = ctx.createGain();
-      
-      oscillator.connect(gainNode);
-      gainNode.connect(ctx.destination);
-      
-      switch (type) {
-        case 'start':
-          oscillator.frequency.setValueAtTime(440, ctx.currentTime);
-          oscillator.frequency.setValueAtTime(880, ctx.currentTime + 0.1);
-          gainNode.gain.setValueAtTime(0.2, ctx.currentTime);
-          gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.15);
-          oscillator.start(ctx.currentTime);
-          oscillator.stop(ctx.currentTime + 0.15);
-          break;
-          
-        case 'end':
-          oscillator.frequency.setValueAtTime(660, ctx.currentTime);
-          oscillator.frequency.linearRampToValueAtTime(440, ctx.currentTime + 0.1);
-          gainNode.gain.setValueAtTime(0.2, ctx.currentTime);
-          gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.15);
-          oscillator.start(ctx.currentTime);
-          oscillator.stop(ctx.currentTime + 0.15);
-          break;
-          
-        case 'error':
-          oscillator.frequency.setValueAtTime(200, ctx.currentTime);
-          gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
-          gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.3);
-          oscillator.start(ctx.currentTime);
-          oscillator.stop(ctx.currentTime + 0.3);
-          break;
-          
-        case 'listening':
-          oscillator.frequency.setValueAtTime(330, ctx.currentTime);
-          oscillator.frequency.setValueAtTime(440, ctx.currentTime + 0.05);
-          oscillator.frequency.setValueAtTime(550, ctx.currentTime + 0.1);
-          gainNode.gain.setValueAtTime(0.15, ctx.currentTime);
-          gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
-          oscillator.start(ctx.currentTime);
-          oscillator.stop(ctx.currentTime + 0.2);
-          break;
-      }
-    } catch (e) {
-      // Ignora erros de áudio
-    }
-  }
+  // Importado de audio-feedback.js
 
   // Suporte
   $: isSupported = sttService.isSupported;
