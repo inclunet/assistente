@@ -111,6 +111,137 @@
   $: effectiveFocusedIndex = focusedMessageIndex !== undefined && focusedMessageIndex !== -1 ? focusedMessageIndex : _focusedIndex;
   $: effectiveEditingIndex = editingMessageIndex !== undefined && editingMessageIndex !== -1 ? editingMessageIndex : _editingIndex;
   $: effectiveEditContent = editingMessageContent !== undefined ? editingMessageContent : _editContent;
+
+  // ========================================
+  // Funções de Navegação de Threads (Agnósticas)
+  // ========================================
+
+  /**
+   * Verifica se um path está expandido
+   * @param {string} path - Ex: "0", "0-1", "0-1-2"
+   * @returns {boolean}
+   */
+  function isPathExpanded(path) {
+    return !!effectiveExpandedPaths[path];
+  }
+
+  /**
+   * Toggle expansão de um path
+   * @param {string} path
+   * @param {boolean} [shouldExpand] - Se não passado, inverte o estado atual
+   */
+  function togglePath(path, shouldExpand) {
+    if (typeof shouldExpand === 'undefined') {
+      shouldExpand = !effectiveExpandedPaths[path];
+    }
+    
+    if (expandedPaths !== undefined) {
+      // Controlado externamente - dispara evento
+      dispatch('pathToggle', { path, expand: shouldExpand });
+    } else {
+      // Controlado internamente
+      if (shouldExpand) {
+        _expandedPaths[path] = true;
+      } else {
+        delete _expandedPaths[path];
+      }
+      _expandedPaths = { ..._expandedPaths };
+    }
+  }
+
+  /**
+   * Encontra um node na árvore pelo path
+   * Ex: "0" = primeiro root, "0-1" = segundo filho do primeiro root
+   * @param {string} path
+   * @returns {object|null}
+   */
+  function findNodeByPath(path) {
+    const msgs = threadedMessages.length > 0 ? threadedMessages : messages;
+    if (!path || !msgs?.length) return null;
+    
+    const indices = path.split('-').map(Number);
+    let current = msgs[indices[0]];
+    
+    for (let i = 1; i < indices.length && current; i++) {
+      current = current?.children?.[indices[i]];
+    }
+    
+    return current;
+  }
+
+  /**
+   * Handler genérico de expansão de thread
+   * @param {string} path
+   * @param {boolean} shouldExpand
+   */
+  async function handleNodeExpand(path, shouldExpand) {
+    const node = findNodeByPath(path);
+    
+    if (shouldExpand && node) {
+      // Verifica se precisa carregar filhos (lazy loading)
+      const needsLoading = node.message?.id && 
+                          node.childCount > 0 && 
+                          (!node.children || node.children.length === 0);
+      
+      if (needsLoading) {
+        // Marca como carregando
+        if (loadingPaths !== undefined) {
+          dispatch('loadingChange', { path, loading: true });
+        } else {
+          _loadingPaths[path] = true;
+          _loadingPaths = { ..._loadingPaths };
+        }
+        
+        // Dispara evento para o host carregar os filhos
+        dispatch('loadChildren', { 
+          messageId: node.message.id, 
+          path,
+          node
+        });
+        return; // O host vai chamar completeChildrenLoad quando terminar
+      }
+    }
+    
+    togglePath(path, shouldExpand);
+    
+    // Foca no primeiro filho após expandir
+    if (shouldExpand) {
+      await tick();
+      const firstChildPath = `${path}-0`;
+      const firstChild = document.querySelector(`[data-message-path="${firstChildPath}"]`);
+      if (firstChild) {
+        firstChild.focus();
+      }
+    }
+  }
+
+  /**
+   * Chamado pelo host após carregar filhos com sucesso
+   * @param {string} path
+   * @param {boolean} success
+   */
+  export function completeChildrenLoad(path, success = true) {
+    // Remove do loading
+    if (loadingPaths !== undefined) {
+      dispatch('loadingChange', { path, loading: false });
+    } else {
+      delete _loadingPaths[path];
+      _loadingPaths = { ..._loadingPaths };
+    }
+    
+    if (success) {
+      togglePath(path, true);
+      
+      // Foca no primeiro filho
+      tick().then(() => {
+        const firstChildPath = `${path}-0`;
+        const firstChild = document.querySelector(`[data-message-path="${firstChildPath}"]`);
+        if (firstChild) {
+          firstChild.focus();
+        }
+      });
+    }
+  }
   
   // Menu de contexto e modais - 100% externos, apenas propagamos eventos
   
@@ -189,42 +320,40 @@
   }
   
   // --- Toggle (expandir/recolher) ---
-  function handleToggle(event) {
+  async function handleToggle(event) {
     const { path, expand } = event.detail;
     
-    if (expand) {
-      expandedPaths = { ...expandedPaths, [path]: true };
-    } else {
-      expandedPaths = { ...expandedPaths };
-      delete expandedPaths[path];
-    }
+    // Usa lógica interna de navegação de threads
+    await handleNodeExpand(path, expand);
     
+    // Propaga evento para quem quiser ouvir
     dispatch('toggle', event.detail);
   }
   
   // --- Load Children (lazy loading) ---
+  // NOTA: Este evento agora é tratado internamente via handleNodeExpand
+  // O evento on:loadChildren é disparado automaticamente quando lazy loading é necessário
   async function handleLoadChildren(event) {
-    const { messageId, path } = event.detail;
+    const { messageId, path, node } = event.detail;
     
-    if (!finalHandlers.onLoadChildren) {
-      dispatch('loadChildren', event.detail);
+    // Se tem handler externo, usa ele
+    if (finalHandlers.onLoadChildren) {
+      try {
+        const children = await finalHandlers.onLoadChildren(messageId, node);
+        dispatch('childrenLoaded', { messageId, path, children });
+        completeChildrenLoad(path, true);
+      } catch (err) {
+        console.error('Erro ao carregar filhos:', err);
+        completeChildrenLoad(path, false);
+        if (finalHandlers.onError) {
+          finalHandlers.onError(err);
+        }
+      }
       return;
     }
     
-    loadingPaths = { ...loadingPaths, [path]: true };
-    
-    try {
-      const children = await finalHandlers.onLoadChildren(messageId);
-      dispatch('childrenLoaded', { messageId, path, children });
-    } catch (err) {
-      console.error('Erro ao carregar filhos:', err);
-      if (finalHandlers.onError) {
-        finalHandlers.onError(err);
-      }
-    } finally {
-      loadingPaths = { ...loadingPaths };
-      delete loadingPaths[path];
-    }
+    // Caso contrário, apenas propaga o evento para o host tratar
+    dispatch('loadChildren', event.detail);
   }
   
   // --- Speak (TTS) ---
@@ -435,6 +564,66 @@
     // Foca no input
     const input = document.querySelector('#message-input');
     if (input) input.focus();
+  }
+
+  /**
+   * Expande uma thread pelo índice (nível 0)
+   * @param {number} index
+   */
+  export async function expandThread(index) {
+    const path = String(index);
+    if (!isPathExpanded(path)) {
+      await handleNodeExpand(path, true);
+    }
+  }
+
+  /**
+   * Recolhe uma thread pelo índice (nível 0)
+   * @param {number} index
+   */
+  export function collapseThread(index) {
+    const path = String(index);
+    if (isPathExpanded(path)) {
+      togglePath(path, false);
+    }
+  }
+
+  /**
+   * Verifica se uma thread está expandida
+   * @param {number} index
+   * @returns {boolean}
+   */
+  export function isThreadExpanded(index) {
+    return isPathExpanded(String(index));
+  }
+
+  /**
+   * Expande um path específico
+   * @param {string} path
+   */
+  export async function expandPath(path) {
+    if (!isPathExpanded(path)) {
+      await handleNodeExpand(path, true);
+    }
+  }
+
+  /**
+   * Recolhe um path específico
+   * @param {string} path
+   */
+  export function collapsePath(path) {
+    if (isPathExpanded(path)) {
+      togglePath(path, false);
+    }
+  }
+
+  /**
+   * Encontra um node pelo path (exposição pública)
+   * @param {string} path
+   * @returns {object|null}
+   */
+  export function getNodeByPath(path) {
+    return findNodeByPath(path);
   }
 </script>
 

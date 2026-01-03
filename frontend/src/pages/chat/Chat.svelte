@@ -133,6 +133,7 @@
   // Acessibilidade
   let messagesContainer;
   let inputElement;
+  let chatContainerRef;
   let liveMessage = '';
   let navigationAnnouncement = ''; // Anúncios de navegação (sempre ativo)
   let focusedMessageIndex = -1;  // Índice da mensagem com foco (-1 = nenhuma)
@@ -285,36 +286,7 @@
     }
   }
   
-  /**
-   * Handler de expansão para o componente MessageNode
-   * Carrega filhos via lazy loading se necessário
-   */
-  async function handleNodeExpand(path, shouldExpand) {
-    
-    if (shouldExpand) {
-      // Encontra o node pelo path
-      const node = findNodeByPath(path);
-      
-      if (node && node.message?.id && node.childCount > 0 && (!node.children || node.children.length === 0)) {
-        // Lazy load necessário
-        const children = await loadChildrenForNode(node.message.id, path);
-        node.children = children;
-        threadedMessages = [...threadedMessages]; // Trigger reactivity
-      }
-    }
-    
-    await togglePath(path, shouldExpand);
-    
-    // Foca no primeiro filho após expandir
-    if (shouldExpand) {
-      await tick();
-      const firstChildPath = `${path}-0`;
-      const firstChild = document.querySelector(`[data-path="${firstChildPath}"]`);
-      if (firstChild) {
-        firstChild.focus();
-      }
-    }
-  }
+  // handleNodeExpand removida - agora o ChatContainer gerencia expansão internamente
   
   /**
    * Encontra um node na árvore pelo path
@@ -438,66 +410,50 @@
   }
   
   /**
-   * Handler de toggle vindo do componente MessageNode (qualquer nível)
+   * Handler de toggle vindo do ChatContainer
+   * O ChatContainer agora gerencia expansão internamente
+   * Aqui apenas sincronizamos estado local se necessário
    */
-  async function handleMessageToggle(event) {
+  function handleMessageToggle(event) {
     const { path, expand } = event.detail;
     
+    // O ChatContainer já gerencia expandedPaths internamente
+    // Aqui apenas atualizamos estado local para compatibilidade
     if (expand) {
-      const node = findNodeByPath(path);
-      
-      if (node && node.message?.id && node.childCount > 0 && (!node.children || node.children.length === 0)) {
-        await loadChildrenForPath(node.message.id, path);
-      }
+      expandedPaths = { ...expandedPaths, [path]: true };
+    } else {
+      delete expandedPaths[path];
+      expandedPaths = { ...expandedPaths };
     }
-    
-    await togglePath(path, expand);
-    threadedMessages = [...threadedMessages]; // Força reatividade
-  }
-  
-  /**
-   * Handler de toggle vindo do componente ThreadNode (legado, mantido para compatibilidade)
-   */
-  async function handleThreadToggle(event) {
-    const { path, expand } = event.detail;
-    
-    if (expand) {
-      // Encontra o node e carrega filhos se necessário
-      const node = findNodeByPath(path);
-      if (node && node.message?.id && node.childCount > 0 && (!node.children || node.children.length === 0)) {
-        await loadChildrenForPath(node.message.id, path);
-      }
-    }
-    
-    await togglePath(path, expand);
   }
   
   /**
    * Carrega filhos para um path específico e atualiza o node
    */
-  async function loadChildrenForPath(messageId, path) {
-    const children = await loadChildrenForNode(messageId, path);
-    
-    // Encontra o node e atualiza
-    const node = findNodeByPath(path);
-    if (node) {
-      node.children = children;
-      threadedMessages = [...threadedMessages]; // Trigger reactivity
-    }
-    
-    return children;
-  }
-  
   /**
-   * Handler de lazy loading vindo do ThreadNode
+   * Handler de lazy loading vindo do ChatContainer
+   * Carrega filhos via MessageService e notifica o ChatContainer quando terminar
    */
-  async function handleThreadLoadChildren(messageId, path) {
-    loadingPaths = { ...loadingPaths, [path]: true };
+  async function handleThreadLoadChildren(messageId, path, node) {
     try {
-      await loadChildrenForPath(messageId, path);
-    } finally {
-      loadingPaths = { ...loadingPaths };
-      delete loadingPaths[path];
+      const children = await loadChildrenForNode(messageId, path);
+      
+      // Encontra o node e atualiza
+      const targetNode = node || findNodeByPath(path);
+      if (targetNode) {
+        targetNode.children = children;
+        threadedMessages = [...threadedMessages]; // Trigger reactivity
+      }
+      
+      // Notifica o ChatContainer que o carregamento terminou
+      if (chatContainerRef?.completeChildrenLoad) {
+        chatContainerRef.completeChildrenLoad(path, true);
+      }
+    } catch (err) {
+      console.error(`[LAZY] Erro ao carregar filhos:`, err);
+      if (chatContainerRef?.completeChildrenLoad) {
+        chatContainerRef.completeChildrenLoad(path, false);
+      }
     }
   }
   
@@ -598,29 +554,7 @@
   // Cache de filhos carregados (messageId -> children)
   let childrenCache = {};
   
-  async function toggleThread(index) {
-    const path = String(index);
-    const isCurrentlyExpanded = isPathExpanded(path);
-    
-    if (isCurrentlyExpanded) {
-      await togglePath(path, false);
-    } else {
-      // Lazy loading: carrega filhos se ainda não carregados
-      const node = threadedMessages.find(n => n.originalIndex === index);
-      if (node && node.message?.id && (!node.children || node.children.length === 0) && node.childCount > 0) {
-        await loadChildren(node, index);
-      }
-      // Marca como expandido DEPOIS de carregar filhos para garantir que o template veja ambos
-      await togglePath(path, true);
-      // Força mais uma atualização de reatividade
-      threadedMessages = [...threadedMessages];
-    }
-    
-    // Mantém compatibilidade com estado legado durante transição
-    expandedThreads = { ...expandedThreads, [index]: !isCurrentlyExpanded };
-  }
-  
-  // toggleAgentThread removida - agora usa ThreadNode com paths
+  // toggleThread e toggleAgentThread removidas - agora o ChatContainer gerencia expansão
   
   /**
    * Carrega filhos de uma mensagem via messageService (lazy loading)
@@ -742,10 +676,9 @@
   
   /**
    * Expande thread ou navega para mensagem filha (seta direita)
-   * Agora usa sistema de paths unificado
+   * Delega ao ChatContainer que agora gerencia expansão internamente
    */
   async function handleThreadExpand(index) {
-    // Encontra o node correspondente
     const node = threadedMessages.find(n => n.originalIndex === index);
     if (!node) return;
     
@@ -757,55 +690,27 @@
       return;
     }
     
-    const path = String(index);
-    
-    if (!isPathExpanded(path)) {
-      // Thread não expandida - expande e carrega filhos (lazy loading)
+    // Delega ao ChatContainer
+    if (chatContainerRef?.expandThread) {
       announce(`Carregando ${node.childCount || 0} interação(ões)...`);
-      await toggleThread(index);
-      
-      // Aguarda o Svelte renderizar os novos elementos
-      await tick();
+      await chatContainerRef.expandThread(index);
       
       const childCount = node.children?.length || node.childCount || 0;
       announce(`Thread expandida. ${childCount} interação(ões).`);
       
-      // Delay para garantir renderização
-      setTimeout(async () => {
-        await tick();
-        
-        const firstChildPath = `${index}-0`;
-        const firstAgent = document.querySelector(`[data-message-path="${firstChildPath}"]`);
-        
-        if (firstAgent) {
-          focusedThreadLevel = 1;
-          focusedAgentIndex = 0;
-          focusedParentIndex = index;
-          focusElement(firstAgent);
-        }
-      }, 100);
-    } else {
-      // Já expandida - navega para primeiro filho
-      const firstChildPath = `${index}-0`;
-      const firstAgent = document.querySelector(`[data-message-path="${firstChildPath}"]`);
-      
-      if (firstAgent) {
-        focusedThreadLevel = 1;
-        focusedAgentIndex = 0;
-        focusedParentIndex = index;
-        focusElement(firstAgent);
-      }
+      focusedThreadLevel = 1;
+      focusedAgentIndex = 0;
+      focusedParentIndex = index;
     }
   }
   
   /**
    * Recolhe thread (seta esquerda no nível 0)
-   * Navegação dentro de threads agora é gerenciada pelo ThreadNode
+   * Delega ao ChatContainer
    */
   function handleThreadCollapse(index) {
-    const path = String(index);
-    if (isPathExpanded(path)) {
-      toggleThread(index);
+    if (chatContainerRef?.isThreadExpanded?.(index)) {
+      chatContainerRef.collapseThread(index);
       const node = threadedMessages.find(n => n.originalIndex === index);
       const content = node?.message?.content?.substring(0, 100) || 'Mensagem';
       announce(`Thread recolhida. Assistente: ${content}`);
@@ -3302,6 +3207,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     </div>
   {:else}
     <ChatContainer
+      bind:this={chatContainerRef}
       {messages}
       {threadedMessages}
       config={{
@@ -3341,7 +3247,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       }}
       on:focus={(e) => focusedMessageIndex = e.detail.index}
       on:boundary={handleMessageBoundary}
-      on:loadChildren={(e) => handleThreadLoadChildren(e.detail.messageId, e.detail.path)}
+      on:loadChildren={(e) => handleThreadLoadChildren(e.detail.messageId, e.detail.path, e.detail.node)}
       on:detail={(e) => openMessageDetailForMessage(e.detail.message)}
       on:announce={(e) => announce(e.detail.message)}
       on:keyAction={handleKeyAction}
