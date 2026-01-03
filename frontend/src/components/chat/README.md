@@ -657,6 +657,112 @@ interface ExtraMenuItem {
 | `getTableMenuItems()` | Itens para tabela (com submenu de formatos) |
 | `getImageMenuItems()` | Itens para imagem (zoom, copiar, download) |
 
+## Drag & Drop de Arquivos
+
+O `ChatContainer` gerencia drag & drop internamente e dispara eventos para o host processar os arquivos.
+
+### Eventos
+
+| Evento | Payload | Descrição |
+|--------|---------|-----------|
+| `filesDropped` | `{ files: File[], source?: string }` | Arquivos foram soltos ou colados |
+| `dragStateChange` | `{ isDragging: boolean }` | Estado de drag mudou |
+
+### Exemplo
+
+```svelte
+<ChatContainer
+  on:filesDropped={(e) => {
+    for (const file of e.detail.files) {
+      await processMediaFile(file, e.detail.source);
+    }
+  }}
+  on:dragStateChange={(e) => {
+    // Atualiza UI se necessário
+    isDragging = e.detail.isDragging;
+  }}
+/>
+```
+
+### Com slot customizado
+
+Se você usar o slot `input-area`, precisará lidar com drag & drop manualmente:
+
+```svelte
+<ChatContainer>
+  <svelte:fragment slot="input-area">
+    <div
+      on:dragenter={handleDragEnter}
+      on:dragover={handleDragOver}
+      on:dragleave={handleDragLeave}
+      on:drop={handleDrop}
+    >
+      <ChatInput ... />
+    </div>
+  </svelte:fragment>
+</ChatContainer>
+```
+
+## Navegação de Threads
+
+O `ChatContainer` gerencia expansão de threads internamente e expõe métodos públicos.
+
+### Métodos Públicos
+
+```javascript
+let chatContainerRef;
+
+// Expansão por índice (nível 0)
+await chatContainerRef.expandThread(0);    // Expande primeira thread
+chatContainerRef.collapseThread(0);         // Recolhe primeira thread
+chatContainerRef.isThreadExpanded(0);       // Verifica se está expandida
+
+// Expansão por path (qualquer nível)
+await chatContainerRef.expandPath('0-1');   // Expande segundo filho da primeira thread
+chatContainerRef.collapsePath('0-1');        // Recolhe
+
+// Utilitários
+chatContainerRef.getNodeByPath('0-1-2');    // Encontra node pelo path
+
+// Lazy loading
+chatContainerRef.completeChildrenLoad(path, success); // Notifica fim do carregamento
+```
+
+### Lazy Loading
+
+Quando uma thread precisa carregar filhos do backend:
+
+```svelte
+<ChatContainer
+  bind:this={chatContainerRef}
+  on:loadChildren={async (e) => {
+    const { messageId, path, node } = e.detail;
+    
+    try {
+      // Carrega do seu backend
+      const children = await api.getMessageChildren(messageId);
+      
+      // Atualiza o node
+      node.children = children;
+      threadedMessages = [...threadedMessages];
+      
+      // Notifica o container que terminou
+      chatContainerRef.completeChildrenLoad(path, true);
+    } catch (err) {
+      chatContainerRef.completeChildrenLoad(path, false);
+    }
+  }}
+/>
+```
+
+### Eventos de Toggle
+
+| Evento | Payload | Descrição |
+|--------|---------|-----------|
+| `toggle` | `{ path, expand }` | Thread foi expandida/recolhida |
+| `loadChildren` | `{ messageId, path, node }` | Precisa carregar filhos |
+| `pathToggle` | `{ path, expand }` | Path foi alterado (quando controlado externamente) |
+
 ## Sistema de Handlers
 
 O `ChatContainer` aceita um objeto `handlers` com callbacks:
