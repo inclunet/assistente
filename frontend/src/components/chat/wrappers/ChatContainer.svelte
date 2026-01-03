@@ -101,6 +101,7 @@
   let _focusedIndex = -1;
   let _editingIndex = -1;
   let _editContent = '';
+  let _isDragging = false;
   
   // Use external props if provided, otherwise use internal state
   $: effectiveInputValue = inputMessage !== undefined ? inputMessage : _inputValue;
@@ -111,6 +112,106 @@
   $: effectiveFocusedIndex = focusedMessageIndex !== undefined && focusedMessageIndex !== -1 ? focusedMessageIndex : _focusedIndex;
   $: effectiveEditingIndex = editingMessageIndex !== undefined && editingMessageIndex !== -1 ? editingMessageIndex : _editingIndex;
   $: effectiveEditContent = editingMessageContent !== undefined ? editingMessageContent : _editContent;
+  $: effectiveIsDragging = isDragging !== undefined && isDragging !== false ? isDragging : _isDragging;
+
+  // ========================================
+  // Funções de Drag & Drop (Agnósticas)
+  // ========================================
+
+  /**
+   * Handler para drag enter - ativa estado de dragging
+   */
+  function handleDragEnter(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Verifica se tem arquivos sendo arrastados
+    if (event.dataTransfer?.types?.includes('Files')) {
+      if (isDragging !== undefined) {
+        dispatch('dragStateChange', { isDragging: true });
+      } else {
+        _isDragging = true;
+      }
+    }
+  }
+
+  /**
+   * Handler para drag over (necessário para permitir drop)
+   */
+  function handleDragOver(event) {
+    event.preventDefault();
+    event.stopPropagation();
+  }
+
+  /**
+   * Handler para drag leave - desativa estado de dragging
+   */
+  function handleDragLeave(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Só desativa se saiu da área de input (não de um filho)
+    const rect = event.currentTarget?.getBoundingClientRect();
+    if (!rect) return;
+    
+    const x = event.clientX;
+    const y = event.clientY;
+    
+    if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
+      if (isDragging !== undefined) {
+        dispatch('dragStateChange', { isDragging: false });
+      } else {
+        _isDragging = false;
+      }
+    }
+  }
+
+  /**
+   * Handler para drop de arquivos
+   * Extrai os arquivos e dispara evento para o host processar
+   */
+  async function handleFileDrop(event) {
+    event.preventDefault();
+    event.stopPropagation();
+    
+    // Desativa dragging
+    if (isDragging !== undefined) {
+      dispatch('dragStateChange', { isDragging: false });
+    } else {
+      _isDragging = false;
+    }
+    
+    const files = event.dataTransfer?.files;
+    if (!files || files.length === 0) return;
+    
+    // Converte FileList para Array
+    const fileArray = Array.from(files);
+    
+    // Dispara evento com os arquivos para o host processar
+    dispatch('filesDropped', { files: fileArray });
+  }
+
+  /**
+   * Handler para paste de imagens/arquivos
+   * Extrai os arquivos e dispara evento para o host processar
+   */
+  function handleFilePaste(event) {
+    const items = event.clipboardData?.items;
+    if (!items) return;
+    
+    const files = [];
+    for (const item of items) {
+      if (item.kind === 'file') {
+        const file = item.getAsFile();
+        if (file) files.push(file);
+      }
+    }
+    
+    if (files.length > 0) {
+      event.preventDefault();
+      dispatch('filesDropped', { files, source: 'paste' });
+    }
+  }
 
   // ========================================
   // Funções de Navegação de Threads (Agnósticas)
@@ -730,7 +831,7 @@
     {isLoading}
     {isGeneratingAltText}
     {canSendMessage}
-    {isDragging}
+    isDragging={effectiveIsDragging}
     {mediaMode}
     {voiceEnabled}
     {showVoiceButton}
@@ -741,6 +842,11 @@
     {hintText}
     onSubmit={handleSubmit}
     onMediaRemove={handleMediaRemove}
+    onDragEnter={handleDragEnter}
+    onDragOver={handleDragOver}
+    onDragLeave={handleDragLeave}
+    onFileDrop={handleFileDrop}
+    onFilePaste={handleFilePaste}
   >
     <!-- Default: usa ChatInput interno -->
     <div class="input-wrapper">
@@ -753,7 +859,7 @@
         {isLoading}
         {isGeneratingAltText}
         {canSendMessage}
-        {isDragging}
+        isDragging={effectiveIsDragging}
         {mediaMode}
         {voiceEnabled}
         {showVoiceButton}
@@ -762,11 +868,11 @@
         {hintText}
         on:submit={handleSubmit}
         on:keydown
-        on:paste
-        on:dragenter
-        on:dragover
-        on:dragleave
-        on:drop
+        on:paste={(e) => handleFilePaste(e.detail?.event || e)}
+        on:dragenter={(e) => handleDragEnter(e.detail?.event || e)}
+        on:dragover={(e) => handleDragOver(e.detail?.event || e)}
+        on:dragleave={(e) => handleDragLeave(e.detail?.event || e)}
+        on:drop={(e) => handleFileDrop(e.detail?.event || e)}
         on:removeMedia={handleMediaRemove}
         on:clearMediaError={() => dispatch('clearMediaError')}
         on:typing={(e) => {

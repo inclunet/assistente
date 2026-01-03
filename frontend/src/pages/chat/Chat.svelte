@@ -1368,43 +1368,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     // NOTA: Navegação ↑ para última mensagem agora é tratada internamente via Context API
   }
   
-  /**
-   * Handler para colar arquivos (Ctrl+V) - detecta tipo automaticamente
-   */
-  async function handlePaste(event) {
-    const clipboardData = event.clipboardData;
-    if (!clipboardData) return;
-    
-    // Tenta files primeiro (mais confiável)
-    if (clipboardData.files?.length > 0) {
-      for (const file of clipboardData.files) {
-        const detection = detectMediaType(file);
-        if (detection.isSupported) {
-          event.preventDefault();
-          await addMediaFileAuto(file);
-          return;
-        }
-      }
-    }
-    
-    // Fallback para items (navegadores mais antigos)
-    if (clipboardData.items) {
-      for (const item of clipboardData.items) {
-        if (item.kind === 'file') {
-          const file = item.getAsFile();
-          if (file) {
-            const detection = detectMediaType(file);
-            if (detection.isSupported) {
-              event.preventDefault();
-              await addMediaFileAuto(file);
-              return;
-            }
-          }
-        }
-      }
-    }
-    // Se não for arquivo suportado, deixa o paste normal de texto acontecer
-  }
+  // handlePaste removida - agora usa handleInputPaste ou on:filesDropped do ChatContainer
   
   // Estado para drag & drop
   let isDragging = false;
@@ -1486,61 +1450,94 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   }
   
   
+  // ========================================
+  // Handlers de Drag & Drop para slot customizado
+  // ========================================
+  
   /**
-   * Handler para drag enter na área de input
+   * Handler unificado para arquivos dropados/colados
+   * Recebe arquivos do ChatContainer ou do slot customizado
    */
-  function handleDragEnter(event) {
+  async function handleFilesDropped(files, source = 'drop') {
+    if (!files || files.length === 0) return;
+    
+    for (const file of files) {
+      await addMediaFileAuto(file, source === 'paste' ? 'paste' : null);
+    }
+  }
+  
+  /**
+   * Handlers para o slot customizado (ChatInput direto)
+   * Necessários porque o slot não usa a lógica do ChatContainer
+   */
+  function handleInputDragEnter(event) {
     event.preventDefault();
     event.stopPropagation();
-    
-    // Verifica se tem arquivos sendo arrastados
     if (event.dataTransfer?.types?.includes('Files')) {
       isDragging = true;
     }
   }
   
-  /**
-   * Handler para drag over (necessário para permitir drop)
-   */
-  function handleDragOver(event) {
+  function handleInputDragOver(event) {
     event.preventDefault();
     event.stopPropagation();
   }
   
-  /**
-   * Handler para drag leave
-   */
-  function handleDragLeave(event) {
+  function handleInputDragLeave(event) {
     event.preventDefault();
     event.stopPropagation();
-    
-    // Só desativa se saiu da área de input (não de um filho)
-    const rect = event.currentTarget.getBoundingClientRect();
+    const rect = event.currentTarget?.getBoundingClientRect();
+    if (!rect) return;
     const x = event.clientX;
     const y = event.clientY;
-    
     if (x < rect.left || x > rect.right || y < rect.top || y > rect.bottom) {
       isDragging = false;
     }
   }
   
-  /**
-   * Handler para drop de arquivos
-   */
-  /**
-   * Handler para drop de arquivos - detecta tipo automaticamente
-   */
-  async function handleDrop(event) {
+  async function handleInputDrop(event) {
     event.preventDefault();
     event.stopPropagation();
     isDragging = false;
-    
     const files = event.dataTransfer?.files;
-    if (!files || files.length === 0) return;
-    
-    for (const file of files) {
-      await addMediaFileAuto(file);
+    if (files && files.length > 0) {
+      await handleFilesDropped(Array.from(files), 'drop');
     }
+  }
+  
+  async function handleInputPaste(event) {
+    const clipboardData = event.clipboardData;
+    if (!clipboardData) return;
+    
+    // Tenta files primeiro (mais confiável)
+    if (clipboardData.files?.length > 0) {
+      for (const file of clipboardData.files) {
+        const detection = detectMediaType(file);
+        if (detection.isSupported) {
+          event.preventDefault();
+          await handleFilesDropped([file], 'paste');
+          return;
+        }
+      }
+    }
+    
+    // Fallback para items (navegadores mais antigos)
+    if (clipboardData.items) {
+      for (const item of clipboardData.items) {
+        if (item.kind === 'file') {
+          const file = item.getAsFile();
+          if (file) {
+            const detection = detectMediaType(file);
+            if (detection.isSupported) {
+              event.preventDefault();
+              await handleFilesDropped([file], 'paste');
+              return;
+            }
+          }
+        }
+      }
+    }
+    // Se não for arquivo suportado, deixa o paste normal de texto acontecer
   }
 
   function clearChat() {
@@ -3285,11 +3282,8 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       on:clearError={() => { error = ''; inputElement?.focus(); }}
       on:submit={handleSubmit}
       on:keydown={(e) => handleKeyDown(e.detail?.event || e)}
-      on:paste={(e) => handlePaste(e.detail?.event || e)}
-      on:dragenter={(e) => handleDragEnter(e.detail?.event || e)}
-      on:dragover={(e) => handleDragOver(e.detail?.event || e)}
-      on:dragleave={(e) => handleDragLeave(e.detail?.event || e)}
-      on:drop={(e) => handleDrop(e.detail?.event || e)}
+      on:filesDropped={(e) => handleFilesDropped(e.detail.files, e.detail.source)}
+      on:dragStateChange={(e) => isDragging = e.detail.isDragging}
       on:removeMedia={(e) => removeMedia(e.detail?.index ?? e.detail)}
       on:clearMediaError={() => mediaError = ''}
     >
@@ -3318,11 +3312,11 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
               hintText={getInputHintText()}
               on:submit={handleSubmit}
               on:keydown={(e) => handleKeyDown(e.detail?.event || e)}
-              on:paste={(e) => handlePaste(e.detail?.event || e)}
-              on:dragenter={(e) => handleDragEnter(e.detail?.event || e)}
-              on:dragover={(e) => handleDragOver(e.detail?.event || e)}
-              on:dragleave={(e) => handleDragLeave(e.detail?.event || e)}
-              on:drop={(e) => handleDrop(e.detail?.event || e)}
+              on:paste={(e) => handleInputPaste(e.detail?.event || e)}
+              on:dragenter={(e) => handleInputDragEnter(e.detail?.event || e)}
+              on:dragover={(e) => handleInputDragOver(e.detail?.event || e)}
+              on:dragleave={(e) => handleInputDragLeave(e.detail?.event || e)}
+              on:drop={(e) => handleInputDrop(e.detail?.event || e)}
               on:removeMedia={(e) => removeMedia(e.detail?.index ?? e.detail)}
               on:clearMediaError={() => mediaError = ''}
             >
