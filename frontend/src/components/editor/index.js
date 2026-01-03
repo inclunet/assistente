@@ -14,3 +14,5 @@ export { default as TemplateEditor } from './TemplateEditor.svelte';
 // Alias para compatibilidade
 export { default as MonacoTemplate } from './TemplateEditor.svelte';
 
+
+

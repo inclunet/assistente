@@ -461,3 +461,5 @@ export const ttsService = new TTSService();
 // Exporta classe para quem quiser criar instâncias próprias
 export { TTSService };
 
+
+

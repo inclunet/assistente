@@ -131,3 +131,5 @@ lib/speech/
 - Toggle usa checkbox nativo com label clicável
 - Focus management quando usado em modal
 
+
+

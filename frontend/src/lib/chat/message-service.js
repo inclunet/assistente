@@ -84,9 +84,80 @@ class MessageService extends EventTarget {
     this._eventUnsubscribers = [];
     this._boundToBackend = false;
     
+    // Listeners por componente (para remoção segura)
+    // Map<componentId, Map<eventType, handler>>
+    this._componentListeners = new Map();
+    
+    // Debounce para messagesUpdated durante streaming (evita re-renders excessivos)
+    this._messagesUpdateDebounceTimer = null;
+    this._pendingMessagesUpdate = null;
+    
     // Inicialização
     this._initialized = false;
     this._initPromise = this._init();
+  }
+  
+  /**
+   * Dispara messagesUpdated com debounce durante streaming
+   * Isso evita re-renders excessivos quando muitas mensagens de agente chegam rapidamente
+   */
+  _dispatchMessagesUpdatedDebounced(data) {
+    this._pendingMessagesUpdate = data;
+    
+    // Se streaming ativo, usa debounce maior para reduzir re-renders
+    if (this._isStreaming) {
+      if (this._messagesUpdateDebounceTimer) {
+        clearTimeout(this._messagesUpdateDebounceTimer);
+      }
+      this._messagesUpdateDebounceTimer = setTimeout(() => {
+        if (this._pendingMessagesUpdate) {
+          this._dispatchEvent('messagesUpdated', this._pendingMessagesUpdate);
+          this._pendingMessagesUpdate = null;
+        }
+        this._messagesUpdateDebounceTimer = null;
+      }, 500); // 500ms de debounce durante streaming para permitir navegação fluida
+    } else {
+      // Sem streaming, dispara imediatamente
+      this._dispatchEvent('messagesUpdated', data);
+      this._pendingMessagesUpdate = null;
+    }
+  }
+  
+  /**
+   * Adiciona listener associado a um componente específico
+   * Isso permite remover todos os listeners de um componente de uma vez
+   */
+  addComponentListener(componentId, eventType, handler) {
+    if (!this._componentListeners.has(componentId)) {
+      this._componentListeners.set(componentId, new Map());
+    }
+    
+    const componentMap = this._componentListeners.get(componentId);
+    
+    // Remove listener anterior do mesmo tipo se existir
+    if (componentMap.has(eventType)) {
+      const oldHandler = componentMap.get(eventType);
+      this.removeEventListener(eventType, oldHandler);
+    }
+    
+    // Adiciona novo listener
+    componentMap.set(eventType, handler);
+    this.addEventListener(eventType, handler);
+  }
+  
+  /**
+   * Remove todos os listeners de um componente específico
+   */
+  removeComponentListeners(componentId) {
+    const componentMap = this._componentListeners.get(componentId);
+    if (!componentMap) return;
+    
+    for (const [eventType, handler] of componentMap) {
+      this.removeEventListener(eventType, handler);
+    }
+    
+    this._componentListeners.delete(componentId);
+    console.log('[MessageService] Removed all listeners for component:', componentId);
   }
   
   async _init() {
@@ -103,19 +174,22 @@ class MessageService extends EventTarget {
   /**
    * Conecta aos eventos do backend (Wails)
    * Deve ser chamado uma vez no onMount do componente principal
+   * Suporta hot reload: se já está bound, faz unbind primeiro
    */
   bindBackendEvents() {
-    if (this._boundToBackend || !EventsOn) {
-      console.warn('[MessageService] Backend events already bound or EventsOn not available');
+    if (!EventsOn) {
+      console.warn('[MessageService] EventsOn not available');
       return;
     }
     
-    // Streaming de chunks
-    this._eventUnsubscribers.push(
-      EventsOn('chat:chunk', (chunk) => this._handleChunk(chunk))
-    );
+    // Se já está bound, faz unbind primeiro (suporta hot reload)
+    if (this._boundToBackend) {
+      console.log('[MessageService] Already bound, rebinding...');
+      this.unbindBackendEvents();
+    }
     
-    // Novo sistema de streaming unificado
+    // Sistema de streaming unificado (chat:stream é emitido pelo backend)
+    // NOTA: chat:chunk era o sistema antigo, removido para evitar duplicação
     this._eventUnsubscribers.push(
       EventsOn('chat:stream', (event) => this._handleStreamEvent(event))
     );
@@ -161,7 +235,7 @@ class MessageService extends EventTarget {
     );
     
     this._boundToBackend = true;
-    console.log('[MessageService] Backend events bound');
+    console.log('[MessageService] Backend events bound successfully');
   }
   
   /**
@@ -181,45 +255,16 @@ class MessageService extends EventTarget {
   
   // === Backend Event Handlers ===
   
-  _handleChunk(chunk) {
-    if (chunk.done) {
-      // Streaming finalizado
-      const fullResponse = chunk.fullResponse || this._streamingContent;
-      
-      // Atualiza mensagem de streaming
-      this._updateStreamingMessage(fullResponse, false);
-      
-      // Finaliza streaming
-      this._isStreaming = false;
-      const messageId = this._streamingMessageId;
-      this._streamingMessageId = null;
-      this._streamingContent = '';
-      
-      // Recarrega conversa para obter dados salvos
-      this.reload();
-      
-      // Emite evento para UI reagir (sons, TTS, etc.)
-      this._dispatchEvent('streamingEnded', { 
-        messageId, 
-        content: fullResponse,
-        toolCalls: chunk.toolCalls || null
-      });
-    } else {
-      // Recebendo chunk
-      this._streamingContent += chunk.content;
-      this._updateStreamingMessage(this._streamingContent, true);
-      
-      this._dispatchEvent('streamingChunk', { 
-        messageId: this._streamingMessageId,
-        chunk: chunk.content,
-        content: this._streamingContent
-      });
-    }
-  }
-  
   _handleStreamEvent(event) {
     // Sistema unificado de streaming
-    const { messageId, content, done } = event;
+    // NOTA: O backend Go envia campos em PascalCase (Content, Done)
+    // e o Content JÁ vem ACUMULADO, não precisamos acumular aqui
+    
+    const content = event.Content ?? event.content ?? '';
+    const done = event.Done ?? event.done ?? false;
+    const messageId = event.MessageId ?? event.messageId;
+    
+    // Log de streaming removido para reduzir ruído no console
     
     if (messageId && !this._streamingMessageId) {
       // Inicia streaming com ID do backend
@@ -228,19 +273,38 @@ class MessageService extends EventTarget {
       this._dispatchEvent('streamingStarted', { messageId });
     }
     
-    if (content) {
-      this._streamingContent += content;
+    if (content && !done) {
+      // IMPORTANTE: content já vem acumulado do backend, NÃO acumular de novo!
+      this._streamingContent = content;
       this._updateStreamingMessage(this._streamingContent, true);
       
       this._dispatchEvent('streamingChunk', { 
         messageId: this._streamingMessageId,
-        chunk: content,
         content: this._streamingContent
       });
     }
     
     if (done) {
-      this._handleChunk({ done: true, fullResponse: event.fullResponse });
+      // Streaming finalizado
+      const fullResponse = event.FullResponse ?? event.fullResponse ?? this._streamingContent;
+      
+      // Atualiza mensagem final
+      this._updateStreamingMessage(fullResponse, false);
+      
+      // Limpa estado
+      this._isStreaming = false;
+      const finalMessageId = this._streamingMessageId;
+      this._streamingMessageId = null;
+      this._streamingContent = '';
+      
+      // Recarrega conversa para obter dados salvos do banco
+      this.reload();
+      
+      // Emite evento para UI reagir (sons, TTS, etc.)
+      this._dispatchEvent('streamingEnded', { 
+        messageId: finalMessageId, 
+        content: fullResponse
+      });
     }
   }
   
@@ -302,7 +366,6 @@ class MessageService extends EventTarget {
   }
   
   _handleConversationCreated(data) {
-    console.log('[MessageService] Conversa criada:', data);
     this._conversationId = data.conversationId;
     this._conversationTitle = data.title || 'Nova conversa';
     
@@ -313,11 +376,37 @@ class MessageService extends EventTarget {
   }
   
   async _handleMessagesReady(data) {
-    console.log('[MessageService] Mensagens prontas:', data);
-    
     // Atualiza conversa se necessário
     if (data.conversationId && data.conversationId !== this._conversationId) {
       this._conversationId = data.conversationId;
+    }
+    
+    // IMPORTANTE: Atualiza o ID da mensagem do usuário local com o ID real do backend
+    // Isso é necessário para que mensagens internas (tool calls) possam encontrar o parent
+    if (data.userMessageId) {
+      // Encontra a última mensagem do usuário que ainda não tem ID (placeholder local)
+      // Procura de trás para frente para pegar a mais recente
+      for (let i = this._messages.length - 1; i >= 0; i--) {
+        const m = this._messages[i];
+        if (m.role === 'user' && (m.id === null || m.id === undefined)) {
+          this._messages[i].id = data.userMessageId;
+          this._messages[i].ID = data.userMessageId;
+          break;
+        }
+      }
+      
+      // Atualiza também nos threads
+      if (this._conversationData?.threads) {
+        // Procura de trás para frente
+        for (let i = this._conversationData.threads.length - 1; i >= 0; i--) {
+          const t = this._conversationData.threads[i];
+          if (t.message?.role === 'user' && (t.message?.id === null || t.message?.id === undefined)) {
+            t.message.id = data.userMessageId;
+            t.message.ID = data.userMessageId;
+            break;
+          }
+        }
+      }
     }
     
     // Adiciona mensagem placeholder de streaming
@@ -328,42 +417,112 @@ class MessageService extends EventTarget {
   }
   
   _handleInternalMessage(data) {
-    console.log('[MessageService] Mensagem interna:', data);
-    
     const internalMsg = {
       id: data.id,
+      ID: data.id,
       role: data.role,
       content: data.content || '',
       internal: true,
       agentName: data.agentName || '',
+      agent_name: data.agentName || '',
       toolCallId: data.toolCallId || '',
       toolName: data.toolName || '',
       toolCalls: data.toolCalls || null
     };
     
+    // Adiciona ao array flat
     this._messages = [...this._messages, internalMsg];
     
-    this._dispatchEvent('internalMessage', { message: internalMsg });
-    this._dispatchEvent('messagesUpdated', { messages: this._messages });
+    // Encontra o node pai nas threads e adiciona como filho
+    const parentId = data.parentId;
+    
+    if (parentId && this._conversationData?.threads) {
+      const parentNode = this._findNodeById(this._conversationData.threads, parentId);
+      if (parentNode) {
+        // Cria node filho
+        const childNode = {
+          message: internalMsg,
+          level: (parentNode.level || 0) + 1,
+          children: [],
+          childCount: 0
+        };
+        
+        // Adiciona como filho
+        if (!parentNode.children) parentNode.children = [];
+        parentNode.children = [...parentNode.children, childNode];
+        
+        // Atualiza childCount
+        parentNode.childCount = parentNode.children.length;
+        
+        // Força atualização dos threads
+        this._conversationData = { ...this._conversationData };
+      }
+    }
+    
+    this._dispatchEvent('internalMessage', { message: internalMsg, parentId });
+    // Usa debounce durante streaming para evitar re-renders excessivos
+    this._dispatchMessagesUpdatedDebounced({ 
+      messages: this._messages,
+      threads: this._conversationData?.threads
+    });
+  }
+  
+  /**
+   * Encontra um node na árvore de threads pelo ID da mensagem
+   */
+  _findNodeById(threads, messageId) {
+    for (const node of threads) {
+      if (node.message?.id === messageId || node.message?.ID === messageId) {
+        return node;
+      }
+      if (node.children?.length > 0) {
+        const found = this._findNodeById(node.children, messageId);
+        if (found) return found;
+      }
+    }
+    return null;
   }
   
   _handleAgentMessage(data) {
-    console.log('[MessageService] Mensagem de agente:', data);
+    const agentMsg = {
+      id: data.id,
+      ID: data.id,
+      parentId: data.parentId,
+      role: data.role,
+      content: data.content || '',
+      internal: true,
+      agentName: data.agentName || '',
+      agent_name: data.agentName || '',
+      toolCallId: data.toolCallId || '',
+      toolCalls: data.toolCalls || null
+    };
     
-    // Armazena se mensagens internas estiverem habilitadas
-    if (this._showInternalMessages) {
-      const agentMsg = {
-        id: data.id,
-        parentId: data.parentId,
-        role: data.role,
-        content: data.content || '',
-        internal: true,
-        agentName: data.agentName || '',
-        toolCallId: data.toolCallId || '',
-        toolCalls: data.toolCalls || null
-      };
-      this._messages = [...this._messages, agentMsg];
-      this._dispatchEvent('messagesUpdated', { messages: this._messages });
+    // Adiciona ao array flat
+    this._messages = [...this._messages, agentMsg];
+    
+    // Encontra o node pai nas threads e adiciona como filho (nível 2)
+    const parentId = data.parentId;
+    if (parentId && this._conversationData?.threads) {
+      const parentNode = this._findNodeById(this._conversationData.threads, parentId);
+      if (parentNode) {
+        // Cria node filho
+        const childNode = {
+          message: agentMsg,
+          level: (parentNode.level || 0) + 1,
+          children: [],
+          childCount: 0
+        };
+        
+        // Adiciona como filho
+        if (!parentNode.children) parentNode.children = [];
+        parentNode.children = [...parentNode.children, childNode];
+        
+        // Atualiza childCount
+        parentNode.childCount = parentNode.children.length;
+        
+        // Força atualização dos threads
+        this._conversationData = { ...this._conversationData };
+      }
     }
     
     this._dispatchEvent('agentMessage', { 
@@ -372,37 +531,144 @@ class MessageService extends EventTarget {
       content: data.content,
       toolCalls: data.toolCalls
     });
+    
+    // Usa debounce durante streaming para evitar re-renders excessivos
+    this._dispatchMessagesUpdatedDebounced({ 
+      messages: this._messages,
+      threads: this._conversationData?.threads
+    });
   }
   
   // === Streaming Helpers ===
   
+  /**
+   * Adiciona mensagens locais (placeholders) para feedback imediato
+   * Chamado pelo Chat.svelte antes de enviar ao backend
+   */
+  addLocalMessages(userMessage, assistantPlaceholder) {
+    
+    // Adiciona ao array flat
+    this._messages = [...this._messages, userMessage, assistantPlaceholder];
+    
+    // Adiciona aos threads
+    const userNode = {
+      message: userMessage,
+      level: 0,
+      originalIndex: this._messages.length - 2,
+      children: [],
+      childCount: 0
+    };
+    const assistantNode = {
+      message: assistantPlaceholder,
+      level: 0,
+      originalIndex: this._messages.length - 1,
+      children: [],
+      childCount: 0
+    };
+    
+    if (!this._conversationData) {
+      this._conversationData = { threads: [] };
+    }
+    this._conversationData.threads = [...(this._conversationData.threads || []), userNode, assistantNode];
+    
+    this._isStreaming = true;
+    
+    // IMPORTANTE: Dispara evento para atualizar UI imediatamente
+    this._dispatchEvent('messagesUpdated', { 
+      messages: this._messages,
+      threads: this._conversationData.threads
+    });
+  }
+  
   _addStreamingPlaceholder() {
+    // Verifica se já existe um placeholder de streaming
+    const existingIdx = this._messages.findIndex(m => m.role === 'assistant' && m.isStreaming);
+    if (existingIdx >= 0) {
+      // Já existe, não adiciona outro
+      return;
+    }
+    
     const placeholder = {
       id: null, // Sem ID ainda
       role: 'assistant',
       content: '',
       isStreaming: true
     };
+    
+    // Adiciona ao array flat
     this._messages = [...this._messages, placeholder];
-    this._dispatchEvent('messagesUpdated', { messages: this._messages });
+    
+    // Adiciona também aos threads para renderização
+    const threadNode = {
+      message: placeholder,
+      level: 0,
+      originalIndex: this._messages.length - 1,
+      children: [],
+      childCount: 0
+    };
+    
+    if (!this._conversationData) {
+      this._conversationData = { threads: [] };
+    }
+    this._conversationData.threads = [...(this._conversationData.threads || []), threadNode];
+    
+    this._dispatchEvent('messagesUpdated', { 
+      messages: this._messages,
+      threads: this._conversationData.threads
+    });
   }
   
   _updateStreamingMessage(content, isStreaming) {
+    // IMPORTANTE: Buscar ANTES de atualizar, pois procuramos por isStreaming === true
+    // Busca no array flat
     const idx = this._messages.findIndex(m => m.role === 'assistant' && m.isStreaming);
+    
+    // Busca nos threads ANTES de atualizar o flat (para evitar dessincronização)
+    let threadIdx = -1;
+    if (this._conversationData?.threads) {
+      threadIdx = this._conversationData.threads.findIndex(
+        t => t.message?.role === 'assistant' && t.message?.isStreaming
+      );
+    }
+    
+    // Agora atualiza o flat array
     if (idx >= 0) {
       this._messages[idx].content = content;
       this._messages[idx].isStreaming = isStreaming;
       this._messages = [...this._messages];
-      this._dispatchEvent('messagesUpdated', { messages: this._messages });
     }
+    
+    // Atualiza nos threads
+    if (threadIdx >= 0) {
+      this._conversationData.threads[threadIdx].message.content = content;
+      this._conversationData.threads[threadIdx].message.isStreaming = isStreaming;
+      this._conversationData.threads = [...this._conversationData.threads];
+    }
+    
+    this._dispatchEvent('messagesUpdated', { 
+      messages: this._messages,
+      threads: this._conversationData?.threads
+    });
   }
   
   _removeStreamingMessage() {
+    // Remove do array flat
     const idx = this._messages.findIndex(m => m.isStreaming);
     if (idx >= 0) {
       this._messages = this._messages.filter((_, i) => i !== idx);
-      this._dispatchEvent('messagesUpdated', { messages: this._messages });
     }
+    
+    // Remove dos threads
+    if (this._conversationData?.threads) {
+      this._conversationData.threads = this._conversationData.threads.filter(
+        t => !t.message?.isStreaming
+      );
+    }
+    
+    this._dispatchEvent('messagesUpdated', { 
+      messages: this._messages,
+      threads: this._conversationData?.threads
+    });
   }
   
   // === Getters ===
@@ -667,7 +933,7 @@ class MessageService extends EventTarget {
   }
   
   /**
-   * Recarrega mensagens raiz do banco de dados
+   * Recarrega mensagens raiz do banco de dados, preservando filhos já carregados
    */
   async reload() {
     if (!this._conversationId) return false;
@@ -679,11 +945,21 @@ class MessageService extends EventTarget {
       // Recarrega mensagens raiz
       const rootMessages = await GetMessages(this._conversationId, null);
       
+      // Preserva os children já carregados dos threads existentes
+      const oldThreads = this._conversationData?.threads || [];
+      const mergedThreads = this._mergeThreadsPreservingChildren(rootMessages, oldThreads);
+      
       this._conversationData = {
         ...this._conversationData,
-        threads: rootMessages
+        threads: mergedThreads
       };
-      this._messages = this._extractMessagesFromThreads(rootMessages);
+      this._messages = this._extractMessagesFromThreads(mergedThreads);
+      
+      // Dispara messagesUpdated para atualizar a UI (além de messagesReloaded)
+      this._dispatchEvent('messagesUpdated', {
+        messages: this._messages,
+        threads: mergedThreads
+      });
       
       this._dispatchEvent('messagesReloaded', {
         messages: this._messages
@@ -696,6 +972,49 @@ class MessageService extends EventTarget {
     }
   }
   
+  /**
+   * Mescla threads novos com antigos, preservando children já carregados
+   */
+  _mergeThreadsPreservingChildren(newThreads, oldThreads) {
+    if (!oldThreads || oldThreads.length === 0) return newThreads;
+    
+    // Cria mapa de threads antigos por ID
+    const oldThreadsMap = new Map();
+    const buildMap = (threads) => {
+      for (const t of threads) {
+        const id = t.message?.id || t.message?.ID || t.ID || t.id;
+        if (id) {
+          oldThreadsMap.set(id, t);
+        }
+        if (t.children?.length > 0) {
+          buildMap(t.children);
+        }
+      }
+    };
+    buildMap(oldThreads);
+    
+    // Mescla preservando children
+    const merge = (threads) => {
+      return threads.map(newThread => {
+        const id = newThread.message?.id || newThread.message?.ID || newThread.ID || newThread.id;
+        const oldThread = id ? oldThreadsMap.get(id) : null;
+        
+        // Se o thread antigo tinha children carregados, preserva
+        if (oldThread?.children?.length > 0) {
+          return {
+            ...newThread,
+            children: oldThread.children,
+            childCount: Math.max(newThread.childCount || 0, oldThread.children.length)
+          };
+        }
+        
+        return newThread;
+      });
+    };
+    
+    return merge(newThreads);
+  }
+  
   // === Streaming ===
   
   /**
@@ -706,37 +1025,6 @@ class MessageService extends EventTarget {
     this._streamingMessageId = messageId;
     this._streamingContent = '';
     this._dispatchEvent('streamingStarted', { messageId });
-  }
-  
-  /**
-   * Adiciona conteúdo ao streaming
-   * @param {string} chunk - Chunk de conteúdo
-   */
-  appendStreamingContent(chunk) {
-    this._streamingContent += chunk;
-    
-    if (this._streamingMessageId) {
-      this.updateMessageContent(this._streamingMessageId, this._streamingContent);
-    }
-    
-    this._dispatchEvent('streamingChunk', { 
-      messageId: this._streamingMessageId,
-      chunk,
-      content: this._streamingContent
-    });
-  }
-  
-  /**
-   * Finaliza streaming
-   */
-  endStreaming() {
-    const messageId = this._streamingMessageId;
-    const content = this._streamingContent;
-    
-    this._streamingMessageId = null;
-    this._streamingContent = '';
-    
-    this._dispatchEvent('streamingEnded', { messageId, content });
   }
   
   // === Transformações ===

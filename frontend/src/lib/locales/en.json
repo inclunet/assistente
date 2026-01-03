@@ -16,7 +16,7 @@
     
     "expand": "Expand",
     "collapse": "Collapse",
-    "interactions": "{count, plural, =0 {No interactions} =1 {1 interaction} other {# interactions}}",
+    "interactions": "interactions",
     "level": "level",
     
     "placeholder": "Type your message...",
@@ -52,6 +52,7 @@
     
     "you": "You",
     "assistant": "Assistant",
+    "generatingResponse": "Generating response",
     "agent": "Agent",
     "tool": "Tool",
     "system": "System",

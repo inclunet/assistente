@@ -130,11 +130,11 @@ func (a *App) GetMessageChildren(messageID uint) ([]MessageNode, error) {
 // Mensagens com ParentID apontam para seu pai
 func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 	fmt.Printf("🌳 [TREE] Construindo árvore com %d mensagens\n", len(messages))
-	
+
 	// Passo 1: Cria mapa de filhos (parentID -> lista de mensagens filhas)
 	childrenMap := make(map[uint][]database.ChatMessage)
 	var rootMessages []database.ChatMessage
-	
+
 	for _, msg := range messages {
 		if msg.ParentID == nil {
 			rootMessages = append(rootMessages, msg)
@@ -142,7 +142,7 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 			childrenMap[*msg.ParentID] = append(childrenMap[*msg.ParentID], msg)
 		}
 	}
-	
+
 	// Passo 2: Ordena raízes e filhos por ID
 	sort.Slice(rootMessages, func(i, j int) bool {
 		return rootMessages[i].ID < rootMessages[j].ID
@@ -152,7 +152,7 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 			return childrenMap[parentID][i].ID < childrenMap[parentID][j].ID
 		})
 	}
-	
+
 	// Passo 3: Função recursiva para construir nó com todos os descendentes
 	var buildNode func(msg database.ChatMessage, level int) MessageNode
 	buildNode = func(msg database.ChatMessage, level int) MessageNode {
@@ -161,30 +161,30 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 			Children: []MessageNode{},
 			Level:    level,
 		}
-		
+
 		// Adiciona filhos recursivamente
 		children := childrenMap[msg.ID]
 		for _, child := range children {
 			childNode := buildNode(child, level+1)
 			node.Children = append(node.Children, childNode)
 		}
-		
+
 		return node
 	}
-	
+
 	// Passo 4: Constrói árvore a partir das raízes
 	result := make([]MessageNode, 0, len(rootMessages))
 	for _, rootMsg := range rootMessages {
 		node := buildNode(rootMsg, 0)
 		result = append(result, node)
 	}
-	
+
 	// Log do resultado
 	fmt.Printf("🌳 [TREE] Resultado: %d raízes\n", len(result))
 	var logTree func(nodes []MessageNode, indent string)
 	logTree = func(nodes []MessageNode, indent string) {
 		for _, n := range nodes {
-			fmt.Printf("🌳 [TREE] %sID=%d, role=%s, children=%d\n", 
+			fmt.Printf("🌳 [TREE] %sID=%d, role=%s, children=%d\n",
 				indent, n.Message.ID, n.Message.Role, len(n.Children))
 			if len(n.Children) > 0 {
 				logTree(n.Children, indent+"  ")

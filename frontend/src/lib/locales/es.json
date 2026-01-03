@@ -16,7 +16,7 @@
     
     "expand": "Expandir",
     "collapse": "Contraer",
-    "interactions": "{count, plural, =0 {Sin interacciones} =1 {1 interacción} other {# interacciones}}",
+    "interactions": "interacciones",
     "level": "nivel",
     
     "placeholder": "Escribe tu mensaje...",
@@ -52,6 +52,7 @@
     
     "you": "Tú",
     "assistant": "Asistente",
+    "generatingResponse": "Generando respuesta",
     "agent": "Agente",
     "tool": "Herramienta",
     "system": "Sistema",

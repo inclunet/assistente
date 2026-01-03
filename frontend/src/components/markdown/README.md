@@ -253,3 +253,5 @@ O conteúdo é sanitizado com DOMPurify:
 - Atributos são filtrados (href, src, alt, class, etc.)
 - Links externos são forçados a abrir em nova aba
 
+
+

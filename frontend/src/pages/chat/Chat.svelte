@@ -248,8 +248,6 @@
     }
     
     try {
-      console.log(`[LAZY] Carregando filhos de mensagem ${messageId} (path: ${path})...`);
-      
       // Usa messageService para carregar filhos
       const children = await messageService.loadChildren(messageId);
       
@@ -280,7 +278,6 @@
       // Salva no cache
       childrenCache[messageId] = convertedChildren;
       
-      console.log(`[LAZY] Carregados ${convertedChildren.length} filhos para mensagem ${messageId}`);
       return convertedChildren;
     } catch (err) {
       console.error(`[LAZY] Erro ao carregar filhos de ${messageId}:`, err);
@@ -293,7 +290,6 @@
    * Carrega filhos via lazy loading se necessário
    */
   async function handleNodeExpand(path, shouldExpand) {
-    console.log(`[NODE] handleNodeExpand: path=${path}, shouldExpand=${shouldExpand}`);
     
     if (shouldExpand) {
       // Encontra o node pelo path
@@ -343,7 +339,6 @@
    */
   function handleMessageBoundary(event) {
     const { edge, level, path } = event.detail;
-    console.log(`[BOUNDARY] edge=${edge}, level=${level}, path=${path}`);
     
     // NOTA: Navegação para input agora é tratada internamente via Context API
     // Aqui só fazemos anúncios de acessibilidade adicionais
@@ -447,10 +442,10 @@
    */
   async function handleMessageToggle(event) {
     const { path, expand } = event.detail;
-    console.log(`[MESSAGE] Toggle: path=${path}, expand=${expand}`);
     
     if (expand) {
       const node = findNodeByPath(path);
+      
       if (node && node.message?.id && node.childCount > 0 && (!node.children || node.children.length === 0)) {
         await loadChildrenForPath(node.message.id, path);
       }
@@ -465,7 +460,6 @@
    */
   async function handleThreadToggle(event) {
     const { path, expand } = event.detail;
-    console.log(`[THREAD] Toggle: path=${path}, expand=${expand}`);
     
     if (expand) {
       // Encontra o node e carrega filhos se necessário
@@ -498,7 +492,6 @@
    * Handler de lazy loading vindo do ThreadNode
    */
   async function handleThreadLoadChildren(messageId, path) {
-    console.log(`[THREAD] LoadChildren: messageId=${messageId}, path=${path}`);
     loadingPaths = { ...loadingPaths, [path]: true };
     try {
       await loadChildrenForPath(messageId, path);
@@ -581,13 +574,16 @@
         promptTokens: m.prompt_tokens || m.PromptTokens,
         completionTokens: m.completion_tokens || m.CompletionTokens,
         totalTokens: m.total_tokens || m.TotalTokens,
+        // Preserva estado de streaming
+        isStreaming: m.isStreaming || false,
+        toolsInfo: m.toolsInfo || null,
       },
       agentName: m.agent_name || m.AgentName,
       toolName: toolName,
       level: node.level ?? node.Level ?? 0,
-      originalIndex: index,
-      children: [], // Lazy loading - filhos são carregados sob demanda
-      childCount: node.child_count ?? node.ChildCount ?? 0
+      originalIndex: node.originalIndex ?? index,
+      children: node.children || [], // Preserva filhos se existirem
+      childCount: node.child_count ?? node.ChildCount ?? node.childCount ?? 0
     };
   }
   
@@ -640,8 +636,6 @@
     }
     
     try {
-      console.log(`[LAZY] Carregando filhos de mensagem ${messageId}...`);
-      
       // Usa messageService para carregar filhos
       const children = await messageService.loadChildren(messageId);
       
@@ -675,12 +669,10 @@
       // Atualiza o node
       node.children = convertedChildren;
       
-      console.log(`[LAZY] Carregados ${convertedChildren.length} filhos para mensagem ${messageId}`);
-      
       // Força reatividade
       threadedMessages = [...threadedMessages];
     } catch (err) {
-      console.error(`[LAZY] Erro ao carregar filhos de ${messageId}:`, err);
+      console.error('Erro ao carregar filhos:', err);
     }
   }
   
@@ -778,37 +770,24 @@
       const childCount = node.children?.length || node.childCount || 0;
       announce(`Thread expandida. ${childCount} interação(ões).`);
       
-      console.log(`[FOCUS] Tentando focar no primeiro filho. path=${path}, index=${index}, children=${node.children?.length}`);
-      console.log(`[FOCUS] expandedPaths:`, expandedPaths);
-      
-      // Delay maior para garantir renderização
+      // Delay para garantir renderização
       setTimeout(async () => {
-        // Força outra atualização de tick
         await tick();
         
-        // Usa novo seletor baseado em path
         const firstChildPath = `${index}-0`;
         const firstAgent = document.querySelector(`[data-message-path="${firstChildPath}"]`);
-        
-        console.log(`[FOCUS] Buscando seletor [data-message-path="${firstChildPath}"], encontrou:`, !!firstAgent);
         
         if (firstAgent) {
           focusedThreadLevel = 1;
           focusedAgentIndex = 0;
           focusedParentIndex = index;
           focusElement(firstAgent);
-        } else {
-          // Lista todos os elementos com data-message-path para debug
-          const allPaths = document.querySelectorAll('[data-message-path]');
-          console.log(`[FOCUS] Elementos com data-message-path encontrados:`, allPaths.length);
-          allPaths.forEach(el => console.log(`[FOCUS]   - ${el.getAttribute('data-message-path')}`));
         }
-      }, 200);
+      }, 100);
     } else {
       // Já expandida - navega para primeiro filho
       const firstChildPath = `${index}-0`;
       const firstAgent = document.querySelector(`[data-message-path="${firstChildPath}"]`);
-      console.log(`[FOCUS] Thread já expandida. Buscando [data-message-path="${firstChildPath}"], encontrou:`, !!firstAgent);
       
       if (firstAgent) {
         focusedThreadLevel = 1;
@@ -834,13 +813,36 @@
   }
   
   /**
+   * Formata conteúdo para exibição no modal de detalhes
+   * Se for JSON, formata com indentação legível
+   */
+  function formatContentForDetail(content) {
+    if (!content) return '';
+    
+    // Tenta detectar e formatar JSON
+    const trimmed = content.trim();
+    if ((trimmed.startsWith('{') && trimmed.endsWith('}')) || 
+        (trimmed.startsWith('[') && trimmed.endsWith(']'))) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        // Retorna como bloco de código JSON formatado
+        return '```json\n' + JSON.stringify(parsed, null, 2) + '\n```';
+      } catch (e) {
+        // Não é JSON válido, retorna como está
+      }
+    }
+    
+    return content;
+  }
+  
+  /**
    * Abre modal de detalhes para uma mensagem específica (não pelo índice)
    */
   function openMessageDetailForMessage(message) {
     if (!message) return;
     
     messageDetailIndex = -1; // Indica que não é pelo índice
-    messageDetailContent = message.content || '';
+    messageDetailContent = formatContentForDetail(message.content || '');
     messageDetailRole = message.role === 'user' ? 'Você' : (message.role === 'tool' ? 'Tool' : 'Agente');
     messageDetailMedia = message.media || [];
     messageDetailModalOpen = true;
@@ -868,31 +870,56 @@
       gainNode.connect(ctx.destination);
       
       if (type === 'send') {
-        // Som de envio: tom curto ascendente
-        oscillator.frequency.setValueAtTime(440, ctx.currentTime);
-        oscillator.frequency.linearRampToValueAtTime(880, ctx.currentTime + 0.1);
-        gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1);
+        // Som de envio: "tum di" - grave depois agudo
+        // Primeiro tom (grave)
+        oscillator.frequency.setValueAtTime(330, ctx.currentTime);
+        gainNode.gain.setValueAtTime(0.25, ctx.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.06);
         oscillator.start(ctx.currentTime);
-        oscillator.stop(ctx.currentTime + 0.1);
+        oscillator.stop(ctx.currentTime + 0.06);
+        
+        // Segundo tom (agudo) - usa outro oscillator
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.connect(gain2);
+        gain2.connect(ctx.destination);
+        osc2.frequency.setValueAtTime(660, ctx.currentTime + 0.07);
+        gain2.gain.setValueAtTime(0, ctx.currentTime);
+        gain2.gain.setValueAtTime(0.25, ctx.currentTime + 0.07);
+        gain2.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.13);
+        osc2.start(ctx.currentTime + 0.07);
+        osc2.stop(ctx.currentTime + 0.13);
       } else if (type === 'receive') {
-        // Som de recebimento: dois tons curtos
+        // Som de recebimento: "ti dum" - agudo depois grave
+        // Primeiro tom (agudo)
         oscillator.frequency.setValueAtTime(660, ctx.currentTime);
-        gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
-        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.15);
+        gainNode.gain.setValueAtTime(0.25, ctx.currentTime);
+        gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.06);
         oscillator.start(ctx.currentTime);
-        oscillator.stop(ctx.currentTime + 0.15);
+        oscillator.stop(ctx.currentTime + 0.06);
+        
+        // Segundo tom (grave) - usa outro oscillator
+        const osc2 = ctx.createOscillator();
+        const gain2 = ctx.createGain();
+        osc2.connect(gain2);
+        gain2.connect(ctx.destination);
+        osc2.frequency.setValueAtTime(330, ctx.currentTime + 0.07);
+        gain2.gain.setValueAtTime(0, ctx.currentTime);
+        gain2.gain.setValueAtTime(0.25, ctx.currentTime + 0.07);
+        gain2.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.13);
+        osc2.start(ctx.currentTime + 0.07);
+        osc2.stop(ctx.currentTime + 0.13);
       } else if (type === 'error') {
-        // Som de erro: tom grave
+        // Som de erro: tom grave longo
         oscillator.frequency.setValueAtTime(220, ctx.currentTime);
         gainNode.gain.setValueAtTime(0.3, ctx.currentTime);
         gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.2);
         oscillator.start(ctx.currentTime);
         oscillator.stop(ctx.currentTime + 0.2);
       } else if (type === 'clear') {
-        // Som de nova conversa: tom suave e discreto
+        // Som de nova conversa: tom suave descendente
         oscillator.frequency.setValueAtTime(520, ctx.currentTime);
-        oscillator.frequency.linearRampToValueAtTime(440, ctx.currentTime + 0.1);
+        oscillator.frequency.linearRampToValueAtTime(400, ctx.currentTime + 0.1);
         gainNode.gain.setValueAtTime(0.15, ctx.currentTime);
         gainNode.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.12);
         oscillator.start(ctx.currentTime);
@@ -906,7 +933,7 @@
   // Referência para cleanup de eventos
   let unsubscribeGlobalHotkey;
 
-  onMount(() => {
+  onMount(async () => {
     // Carrega modo de gravação salvo
     try {
       const savedMode = localStorage.getItem('recording_mode');
@@ -918,19 +945,27 @@
     }
     
     // === BIND MESSAGESERVICE AOS EVENTOS DO BACKEND ===
+    // Aguarda inicialização do messageService (carrega EventsOn/EventsOff)
+    await messageService.ready();
     messageService.bindBackendEvents();
     
+    // Remove listeners antigos primeiro (proteção contra hot reload)
+    // Usa sistema de listeners por componente para garantir remoção correta
+    const COMPONENT_ID = 'chat-page';
+    messageService.removeComponentListeners(COMPONENT_ID);
+    ttsService.removeEventListener('speakEnd', handleTTSSpeakEnd);
+    
     // Listeners do messageService para atualizar estado local
-    messageService.addEventListener('messagesUpdated', handleMessagesUpdated);
-    messageService.addEventListener('streamingChunk', handleServiceStreamingChunk);
-    messageService.addEventListener('streamingEnded', handleServiceStreamingEnded);
-    messageService.addEventListener('toolsExecution', handleServiceToolsExecution);
-    messageService.addEventListener('toolResults', handleServiceToolResults);
-    messageService.addEventListener('error', handleServiceError);
-    messageService.addEventListener('conversationCreated', handleServiceConversationCreated);
-    messageService.addEventListener('messagesReady', handleServiceMessagesReady);
-    messageService.addEventListener('agentMessage', handleServiceAgentMessage);
-    messageService.addEventListener('chatDone', handleServiceChatDone);
+    messageService.addComponentListener(COMPONENT_ID, 'messagesUpdated', handleMessagesUpdated);
+    messageService.addComponentListener(COMPONENT_ID, 'streamingChunk', handleServiceStreamingChunk);
+    messageService.addComponentListener(COMPONENT_ID, 'streamingEnded', handleServiceStreamingEnded);
+    messageService.addComponentListener(COMPONENT_ID, 'toolsExecution', handleServiceToolsExecution);
+    messageService.addComponentListener(COMPONENT_ID, 'toolResults', handleServiceToolResults);
+    messageService.addComponentListener(COMPONENT_ID, 'error', handleServiceError);
+    messageService.addComponentListener(COMPONENT_ID, 'conversationCreated', handleServiceConversationCreated);
+    messageService.addComponentListener(COMPONENT_ID, 'messagesReady', handleServiceMessagesReady);
+    messageService.addComponentListener(COMPONENT_ID, 'agentMessage', handleServiceAgentMessage);
+    messageService.addComponentListener(COMPONENT_ID, 'chatDone', handleServiceChatDone);
     
     // Listener para hotkey global (Ctrl+Shift+A de qualquer janela)
     unsubscribeGlobalHotkey = EventsOn('global:hotkey:voice', handleGlobalHotkeyVoice);
@@ -966,16 +1001,7 @@
   onDestroy(() => {
     // Unbind do messageService
     messageService.unbindBackendEvents();
-    messageService.removeEventListener('messagesUpdated', handleMessagesUpdated);
-    messageService.removeEventListener('streamingChunk', handleServiceStreamingChunk);
-    messageService.removeEventListener('streamingEnded', handleServiceStreamingEnded);
-    messageService.removeEventListener('toolsExecution', handleServiceToolsExecution);
-    messageService.removeEventListener('toolResults', handleServiceToolResults);
-    messageService.removeEventListener('error', handleServiceError);
-    messageService.removeEventListener('conversationCreated', handleServiceConversationCreated);
-    messageService.removeEventListener('messagesReady', handleServiceMessagesReady);
-    messageService.removeEventListener('agentMessage', handleServiceAgentMessage);
-    messageService.removeEventListener('chatDone', handleServiceChatDone);
+    messageService.removeComponentListeners('chat-page');
     
     // Outros listeners
     if (unsubscribeGlobalHotkey) EventsOff('global:hotkey:voice');
@@ -989,37 +1015,88 @@
 
   // === Handlers do MessageService ===
   
-  function handleMessagesUpdated(event) {
-    const { messages: newMessages } = event.detail;
+  async function handleMessagesUpdated(event) {
+    const { messages: newMessages, threads } = event.detail;
+    
+    // Salva o elemento focado e seu path para restaurar depois
+    const activeElement = document.activeElement;
+    const focusedPath = activeElement?.dataset?.messagePath;
+    const focusedLevel = parseInt(activeElement?.dataset?.level || '0', 10);
+    const wasFocusedInMessages = activeElement?.closest('.messages-list') !== null;
+    
+    // Se o usuário está navegando em níveis internos (>0) durante streaming,
+    // adia a atualização da UI para não interromper a navegação
+    if (wasFocusedInMessages && focusedLevel > 0 && messageService.isStreaming) {
+      // Apenas atualiza messages sem forçar re-render dos threads
+      messages = newMessages;
+      return;
+    }
+    
     messages = newMessages;
-    conversationData = messageService.conversationData;
+    
+    // Atualiza conversationData para triggerar reatividade do threadedMessages
+    if (threads) {
+      conversationData = { ...conversationData, threads };
+    } else {
+      conversationData = { ...messageService.conversationData };
+    }
+    
+    // Restaura o foco após o DOM atualizar
+    if (wasFocusedInMessages && focusedPath) {
+      await tick();
+      const elementToFocus = document.querySelector(`[data-message-path="${focusedPath}"]`);
+      if (elementToFocus && document.activeElement !== elementToFocus) {
+        elementToFocus.focus({ preventScroll: true });
+      }
+    } else {
+      // Só faz scroll se não estava focado em uma mensagem
+      scrollToBottom();
+    }
   }
   
   function handleServiceStreamingChunk(event) {
-    scrollToBottom();
+    // Só faz scroll se não há foco em uma mensagem (para não atrapalhar navegação)
+    const activeElement = document.activeElement;
+    const isFocusedInMessages = activeElement?.closest('.messages-list') !== null;
+    if (!isFocusedInMessages) {
+      scrollToBottom();
+    }
   }
   
   function handleServiceStreamingEnded(event) {
     const { content, toolCalls } = event.detail;
     
     isLoading = false;
-    playSound('receive');
     
     // Lógica de leitura da resposta
     if (isTTSDisabled) {
+      // TTS desativado: usa leitor de telas e toca som agora
       liveMessage = 'Assistente: ' + content;
+      playSound('receive');
     } else if (autoSpeak && content) {
+      // TTS ativo: fala o texto e o som será tocado quando TTS terminar (handleTTSSpeakEnd)
       const textToSpeak = cleanMarkdownForSpeech(content);
       if (textToSpeak) {
         speakText(textToSpeak);
+      } else {
+        // Se não há texto para falar (ex: resposta vazia), toca som agora
+        playSound('receive');
       }
+    } else {
+      // TTS ativo mas autoSpeak desligado: toca som agora
+      playSound('receive');
     }
     
     if (toolCalls && toolCalls.length > 0) {
       console.log('Tool calls executadas:', toolCalls.map(tc => tc.function?.name));
     }
     
-    scrollToBottom();
+    // Só faz scroll se não há foco em uma mensagem
+    const activeElement = document.activeElement;
+    const isFocusedInMessages = activeElement?.closest('.messages-list') !== null;
+    if (!isFocusedInMessages) {
+      scrollToBottom();
+    }
   }
   
   function handleServiceToolsExecution(event) {
@@ -1136,10 +1213,31 @@
     const mediaToSend = [...pendingMedia];
     pendingMedia = [];
 
-    // NOVA ARQUITETURA: Não criamos placeholder local
-    // O backend cria a mensagem do usuário e emite chat:messages_ready
-    // Apenas tocamos o som de envio
+    // Adiciona mensagem do usuário localmente para feedback imediato
+    const userMsgPlaceholder = {
+      id: null,
+      role: 'user',
+      content: userMessage,
+      media: mediaToSend.length > 0 ? mediaToSend : undefined
+    };
+    
+    // Adiciona placeholder do assistente para streaming
+    const assistantPlaceholder = {
+      id: null,
+      role: 'assistant',
+      content: '',
+      isStreaming: true
+    };
+    
+    // Sincroniza com o messageService (dispara evento messagesUpdated internamente)
+    messageService.addLocalMessages(userMsgPlaceholder, assistantPlaceholder);
+    // NOTA: Não precisamos atualizar messages/conversationData manualmente aqui
+    // porque addLocalMessages dispara o evento 'messagesUpdated' que é tratado
+    // por handleMessagesUpdated, que atualiza as variáveis com reatividade correta
+    
+    isLoading = true;
     playSound('send');
+    scrollToBottom();
     
     // Monta texto para anúncio e salvamento
     let announceText = userMessage;
@@ -3355,7 +3453,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
                       <VoiceButton
                         bind:this={voiceButtonComponent}
                         disabled={!selectedModel}
-                        {autoSpeak}
                         mode={recordingMode}
                         sttProvider={selectedSTTProvider}
                         on:transcript={handleVoiceTranscript}

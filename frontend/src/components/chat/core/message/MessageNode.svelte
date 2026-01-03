@@ -46,32 +46,38 @@
   $: isExpanded = !!expandedPaths[path];
   $: isLoading = !!loadingPaths[path];
   
-  // Formata nome do agente (snake_case -> Title Case)
-  function formatAgentName(name) {
-    if (!name) return t('chat.agent');
-    return name.split('_').map(word => 
-      word.charAt(0).toUpperCase() + word.slice(1)
-    ).join(' ');
+  // Trunca conteúdo para aria-label (evita lentidão no NVDA com textos longos)
+  function truncateForLabel(text, maxLength = 200) {
+    if (!text || text.length <= maxLength) return text;
+    return text.substring(0, maxLength) + '...';
   }
   
-  // Gera label para acessibilidade - conteúdo completo para leitores de tela
-  function getLabel() {
+  // Label reativo para acessibilidade - recalcula quando conteúdo ou estado muda
+  $: messageLabel = (() => {
+    // Dependências explícitas para forçar recálculo
+    const rawContent = message.content || '';
     const role = message.role;
     const agentName = message.agent_name || message.agentName || t('chat.agent');
-    const content = message.content || '';
-    const position = `${siblingIndex + 1} ${t('chat.messageOf').replace('{n}', siblingIndex + 1).replace('{total}', siblingCount)}`;
+    const isStreaming = message.isStreaming;
+    const position = `${siblingIndex + 1} de ${siblingCount}`;
+    
+    // Prefixo de streaming para indicar que a mensagem está sendo gerada
+    const streamingPrefix = isStreaming ? `${t('chat.generatingResponse') || 'Gerando resposta'}: ` : '';
     
     if (level === 0) {
+      // Nível 0: conteúdo completo (mensagens principais)
       if (role === 'user') {
-        return `${t('chat.you')}: ${content}. ${position}.${hasChildren ? ` ${childCount} ${t('chat.interactions', { values: { count: childCount } })}.` : ''}`;
+        return `${t('chat.you')}: ${rawContent}. ${position}.${hasChildren ? ` ${childCount} ${t('chat.interactions')}.` : ''}`;
       }
-      return `${t('chat.assistant')}: ${content}. ${position}.${hasChildren ? ` ${childCount} ${t('chat.interactions', { values: { count: childCount } })}.` : ''}`;
+      return `${streamingPrefix}${t('chat.assistant')}: ${rawContent}. ${position}.${hasChildren ? ` ${childCount} ${t('chat.interactions')}.` : ''}`;
     }
     
-    // Níveis internos
+    // Níveis internos: trunca conteúdo para evitar lentidão no NVDA
+    const content = truncateForLabel(rawContent);
+    
     if (role === 'assistant') {
-      const label = `${t('chat.assistant')} → ${formatAgentName(agentName)}: ${content}. ${position}.`;
-      return hasChildren ? `${label} ${childCount} ${t('chat.interactions', { values: { count: childCount } })}.` : label;
+      const label = `${streamingPrefix}${t('chat.assistant')} → ${formatAgentName(agentName)}: ${content}. ${position}.`;
+      return hasChildren ? `${label} ${childCount} ${t('chat.interactions')}.` : label;
     }
     if (role === 'agent') {
       return `${formatAgentName(agentName)}: ${content}. ${position}.`;
@@ -81,6 +87,14 @@
       return `${t('chat.tool')} ${formatAgentName(toolName)}: ${content}. ${position}.`;
     }
     return `${position}. ${content}`;
+  })();
+  
+  // Formata nome do agente (snake_case -> Title Case)
+  function formatAgentName(name) {
+    if (!name) return t('chat.agent');
+    return name.split('_').map(word => 
+      word.charAt(0).toUpperCase() + word.slice(1)
+    ).join(' ');
   }
   
   // Ícone baseado no role e nível
@@ -264,6 +278,10 @@
     // === Ações - dispara evento genérico por tecla ===
     // O app decide o que fazer com cada tecla
     
+    // IMPORTANTE: Para propagação de eventos, precisamos parar o bubbling aqui
+    // senão o evento vai subir para os MessageNodes pais e disparar múltiplos keyAction
+    event.stopPropagation();
+    
     // Monta o identificador da tecla (ex: "Ctrl+C", "Shift+Enter", "Space", "e")
     const keyId = getKeyIdentifier(event);
     
@@ -305,7 +323,23 @@
     return parts.join('+') || keyName;
   }
   
+  // Referência ao próprio elemento LI
+  let selfElement;
+  
   function focusSibling(idx) {
+    // Otimização: navega pelo DOM relativo em vez de buscar em todo o documento
+    if (selfElement) {
+      const parent = selfElement.parentElement;
+      if (parent) {
+        const siblings = parent.children;
+        if (siblings[idx]) {
+          siblings[idx].focus();
+          return;
+        }
+      }
+    }
+    
+    // Fallback: busca global (mais lento, mas garantido)
     const siblingPath = level === 0 ? String(idx) : (() => {
       const parts = path.split('-');
       parts[parts.length - 1] = idx.toString();
@@ -317,6 +351,20 @@
   }
   
   function focusParent() {
+    // Otimização: navega pelo DOM relativo (pai da ul é o li pai)
+    if (selfElement && level > 0) {
+      // Estrutura: li > ul > li (filho) - então o pai é ul.parentElement
+      const parentUl = selfElement.parentElement;
+      if (parentUl) {
+        const parentLi = parentUl.parentElement;
+        if (parentLi && parentLi.tagName === 'LI') {
+          parentLi.focus();
+          return;
+        }
+      }
+    }
+    
+    // Fallback: busca global
     if (parentPath) {
       const parentEl = document.querySelector(`[data-message-path="${parentPath}"]`);
       if (parentEl) {
@@ -324,6 +372,7 @@
         return;
       }
     }
+    // Saindo para a raiz
     dispatch('focusRoot');
   }
   
@@ -331,8 +380,6 @@
     if (!hasChildren) return;
     
     if (!isExpanded) {
-      emitAnnounce(`${t('chat.loading')} ${childCount} ${t('chat.interactions', { values: { count: childCount } })}...`);
-      
       // Solicita carregamento de filhos se necessário
       if (children.length === 0 && childCount > 0) {
         emitLoadChildren();
@@ -341,14 +388,33 @@
       dispatch('toggle', { path, expand: true });
       
       await tick();
-      setTimeout(() => {
+      
+      // Usa requestAnimationFrame para garantir que o DOM foi atualizado
+      requestAnimationFrame(() => {
+        // Otimização: busca a lista de filhos diretamente no elemento atual
+        if (selfElement) {
+          const childList = selfElement.querySelector(':scope > ul.node-children');
+          if (childList && childList.children[0]) {
+            childList.children[0].focus();
+            return;
+          }
+        }
+        // Fallback: busca global
         const firstChildPath = `${path}-0`;
         const firstChild = document.querySelector(`[data-message-path="${firstChildPath}"]`);
-        if (firstChild) {
-          firstChild.focus();
-        }
-      }, 150);
+        if (firstChild) firstChild.focus();
+      });
     } else {
+      // Já expandido, apenas foca no primeiro filho
+      // Otimização: busca a lista de filhos diretamente no elemento atual
+      if (selfElement) {
+        const childList = selfElement.querySelector(':scope > ul.node-children');
+        if (childList && childList.children[0]) {
+          childList.children[0].focus();
+          return;
+        }
+      }
+      // Fallback: busca global
       const firstChildPath = `${path}-0`;
       const firstChild = document.querySelector(`[data-message-path="${firstChildPath}"]`);
       if (firstChild) firstChild.focus();
@@ -428,18 +494,18 @@
 
 {#if node}
 <li 
+  bind:this={selfElement}
   class={cssClasses}
   tabindex={isFocused ? 0 : -1}
   role="listitem"
-  aria-label={getLabel()}
+  aria-label={messageLabel}
   data-message-path={path}
-  data-level={level}
   aria-hidden={!isTTSDisabled && message.isStreaming ? 'true' : undefined}
   on:keydown={handleKeyDown}
   on:contextmenu={handleContextMenuEvent}
   on:mouseenter={() => level === 0 && dispatch('hover', { index: siblingIndex, hovered: true })}
   on:mouseleave={() => level === 0 && dispatch('hover', { index: siblingIndex, hovered: false })}
-  on:focus={() => dispatch('focus', { index: siblingIndex, path })}
+  on:focus={() => level === 0 && dispatch('focus', { index: siblingIndex, path })}
 >
   <!-- Slot: avatar (customização do avatar) -->
   <slot name="avatar">
@@ -534,7 +600,7 @@
   
   <!-- Filhos (recursivo) -->
   {#if isExpanded && children.length > 0}
-    <ul class="node-children" role="list" aria-label={`${$_('chat.interactions', { values: { count: children.length } })} ${$_('chat.level')} ${level + 1}`}>
+    <ul class="node-children" role="list">
       {#each children as child, childIdx (child.message?.id || child.message?.ID || childIdx)}
         <svelte:self
           node={child}
@@ -555,6 +621,7 @@
           on:boundary
           on:hover
           on:focus
+          on:keyAction
           on:speak
           on:copy
           on:delete

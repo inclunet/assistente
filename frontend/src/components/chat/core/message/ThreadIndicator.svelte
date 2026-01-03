@@ -34,7 +34,7 @@
     {:else}
       <span class="expand-arrow" class:expanded={isExpanded}>▶</span>
     {/if}
-    <span class="child-count">{$_('chat.interactions', { values: { count: childCount } })}</span>
+    <span class="child-count">{childCount} {$_('chat.interactions')}</span>
   </button>
 {/if}
 

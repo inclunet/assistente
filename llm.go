@@ -174,6 +174,17 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 			fmt.Printf("✅ Delegação salva: ID=%d, parentID=%d, agente=%s (nível 1)\n", msg.ID, h.userMessageID, agentName)
 			// Define no App para os agentes usarem como ParentID (nível 2)
 			h.app.currentDelegationID = msg.ID
+			
+			// Emite evento para o frontend mostrar mensagem interna em tempo real
+			runtime.EventsEmit(h.app.ctx, "chat:internal_message", map[string]interface{}{
+				"id":        msg.ID,
+				"parentId":  h.userMessageID,
+				"role":      "assistant",
+				"content":   content,
+				"agentName": agentName,
+				"toolCalls": string(toolCallsJSON),
+				"internal":  true,
+			})
 		}
 
 		// Emite evento de streaming
@@ -232,6 +243,17 @@ func (h *appStreamHandler) OnToolResults(results []string, usage llm.Usage, mode
 			} else {
 				fmt.Printf("✅ Resposta do agente salva: ID=%d, parentID=%d, agent=%s (nível 1)\n",
 					msg.ID, h.userMessageID, agentName)
+				
+				// Emite evento para o frontend mostrar resposta do agente em tempo real
+				runtime.EventsEmit(h.app.ctx, "chat:internal_message", map[string]interface{}{
+					"id":         msg.ID,
+					"parentId":   h.userMessageID,
+					"role":       "agent",
+					"content":    result,
+					"agentName":  agentName,
+					"toolCallId": toolCallID,
+					"internal":   true,
+				})
 			}
 		}
 	}

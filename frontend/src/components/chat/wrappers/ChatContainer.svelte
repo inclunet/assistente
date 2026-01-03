@@ -383,11 +383,11 @@
   
   // --- Hover/Focus ---
   function handleHover(event) {
-    hoveredIndex = event.detail.hovered ? event.detail.index : -1;
+    hoveredMessageIndex = event.detail.hovered ? event.detail.index : -1;
   }
   
   function handleFocus(event) {
-    focusedIndex = event.detail.index;
+    focusedMessageIndex = event.detail.index;
   }
   
   // --- Boundary (navegação atingiu limite) ---

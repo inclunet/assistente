@@ -292,8 +292,9 @@ func GetMessageChildren(parentID uint) ([]ChatMessage, error) {
 // - parentID != nil: retorna filhos da mensagem especificada
 //
 // Exemplos:
-//   GetMessages(convID, nil)      → mensagens raiz da conversa
-//   GetMessages(0, &parentID)     → filhos de uma mensagem
+//
+//	GetMessages(convID, nil)      → mensagens raiz da conversa
+//	GetMessages(0, &parentID)     → filhos de uma mensagem
 func GetMessages(conversationID uint, parentID *uint) ([]ChatMessage, error) {
 	var messages []ChatMessage
 	query := db.Order("created_at ASC")
