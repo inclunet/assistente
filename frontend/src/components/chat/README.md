@@ -763,6 +763,85 @@ Quando uma thread precisa carregar filhos do backend:
 | `loadChildren` | `{ messageId, path, node }` | Precisa carregar filhos |
 | `pathToggle` | `{ path, expand }` | Path foi alterado (quando controlado externamente) |
 
+## Media Service
+
+O pacote inclui um serviço agnóstico para processamento de mídia em `lib/chat/media-service.js`.
+
+### Importação
+
+```javascript
+import { 
+  processMediaFile,
+  processMediaFiles,
+  fileToBase64,
+  createImagePreview,
+  captureScreen,
+  captureWebcam,
+  supportsScreenCapture,
+  supportsWebcam,
+  MEDIA_CATEGORIES
+} from './lib/chat/media-service.js';
+```
+
+### Processamento de Arquivos
+
+```javascript
+// Processa um arquivo (detecta tipo, gera preview)
+const processed = await processMediaFile(file, { source: 'drop' });
+
+if (processed.isSupported) {
+  // {
+  //   file,              // Arquivo original
+  //   type,              // Tipo/fonte
+  //   category,          // 'image', 'audio', 'document', etc.
+  //   preview,           // base64 (imagem) ou URL (áudio/vídeo)
+  //   altText,           // Nome do arquivo
+  //   icon,              // Emoji da categoria
+  //   sizeFormatted,     // "1.5 MB"
+  //   isSupported,       // true
+  //   error              // null
+  // }
+  pendingMedia = [...pendingMedia, processed];
+} else {
+  showError(processed.error);
+}
+
+// Processa múltiplos arquivos
+const allProcessed = await processMediaFiles(files);
+const supported = filterSupported(allProcessed);
+const unsupported = filterUnsupported(allProcessed);
+```
+
+### Captura de Tela e Webcam
+
+```javascript
+// Captura screenshot
+if (supportsScreenCapture()) {
+  const file = await captureScreen();
+  await processAndAdd(file, 'screenshot');
+}
+
+// Captura webcam
+if (supportsWebcam()) {
+  const file = await captureWebcam({ 
+    facingMode: 'user',  // ou 'environment'
+    delay: 500,
+    quality: 0.9 
+  });
+  await processAndAdd(file, 'webcam');
+}
+```
+
+### Utilitários
+
+```javascript
+// Converte arquivo para base64
+const base64 = await fileToBase64(file);
+
+// Cria preview de imagem
+const preview = await createImagePreview(imageFile);
+```
+
 ## Sistema de Handlers
 
 O `ChatContainer` aceita um objeto `handlers` com callbacks:

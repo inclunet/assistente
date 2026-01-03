@@ -11,6 +11,14 @@
   import { ContextMenu, ContextMenuTrigger } from '../../components/contextmenu';
   import MediaMenu, { RECORDING_MODES, MENU_ACTIONS } from './MediaMenu.svelte';
   import { detectMediaType, MEDIA_CATEGORIES, getCategoryIcon, getCategoryLabel, ALL_ACCEPTED_TYPES } from '../../lib/media-detector.js';
+  import { 
+    processMediaFile, 
+    fileToBase64,
+    captureScreen as captureScreenService, 
+    captureWebcam as captureWebcamService,
+    supportsScreenCapture,
+    supportsWebcam
+  } from '../../lib/chat/media-service.js';
   import ChatContainer from '../../components/chat/wrappers/ChatContainer.svelte';
   import ChatInput from '../../components/chat/core/input/ChatInput.svelte';
   import SendButton from '../../components/chat/core/input/SendButton.svelte';
@@ -1991,63 +1999,29 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    */
   async function addMediaFileAuto(file, source = null) {
     try {
-      // Detecta o tipo automaticamente
-      const detection = detectMediaType(file);
-      const { category, isSupported, fileSizeFormatted } = detection;
+      // Usa MediaService para processar o arquivo
+      const processed = await processMediaFile(file, { source });
       
       // Se não suportado, avisa
-      if (!isSupported) {
-        mediaError = `Tipo de arquivo não suportado: ${file.name}`;
+      if (!processed.isSupported) {
+        mediaError = processed.error || `Tipo de arquivo não suportado: ${file.name}`;
         playSound('error');
         return;
       }
       
-      let preview = null;
-      let altText = file.name; // Fallback para o nome do arquivo
-      const type = source || category; // Usa source se fornecido (screenshot, webcam)
+      // Para imagens, gera alt text via IA
+      const needsAltText = processed.category === MEDIA_CATEGORIES.IMAGE;
+      const mediaIndex = pendingMedia.length;
       
-      // Gera preview baseado no tipo
-      if (category === MEDIA_CATEGORIES.IMAGE) {
-        preview = await createImagePreview(file);
-        
-        // Adiciona a imagem imediatamente com alt text provisório
-        const mediaIndex = pendingMedia.length;
-        pendingMedia = [...pendingMedia, { 
-          type, 
-          category,
-          file, 
-          preview, 
-          altText, 
-          generatingAlt: true,
-          icon: getCategoryIcon(category),
-          sizeFormatted: fileSizeFormatted
-        }];
-        
-        // Gera alt text via LLM em background
-        generateAltText(preview, mediaIndex);
-      } else if (category === MEDIA_CATEGORIES.AUDIO) {
-        // Áudio: cria URL para preview/player
-        preview = URL.createObjectURL(file);
-        pendingMedia = [...pendingMedia, { 
-          type, 
-          category,
-          file, 
-          preview, 
-          altText,
-          icon: getCategoryIcon(category),
-          sizeFormatted: fileSizeFormatted
-        }];
-      } else {
-        // Documentos, dados e outros
-        pendingMedia = [...pendingMedia, { 
-          type, 
-          category,
-          file, 
-          preview: null, 
-          altText,
-          icon: getCategoryIcon(category),
-          sizeFormatted: fileSizeFormatted
-        }];
+      // Adiciona à lista de mídia pendente
+      pendingMedia = [...pendingMedia, { 
+        ...processed,
+        generatingAlt: needsAltText,
+      }];
+      
+      // Gera alt text via LLM em background (específico desta app)
+      if (needsAltText && processed.preview) {
+        generateAltText(processed.preview, mediaIndex);
       }
       
       await tick();
@@ -2055,9 +2029,9 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
         inputElement.focus();
       }
       
-      // Feedback sonoro
+      // Feedback sonoro e acessibilidade (específico desta app)
       playSound('success');
-      liveMessage = `${getCategoryLabel(category)} adicionado: ${file.name}`;
+      liveMessage = `${getCategoryLabel(processed.category)} adicionado: ${file.name}`;
     } catch (err) {
       console.error('Erro ao processar mídia:', err);
       mediaError = `Erro ao processar ${file.name}: ${err.message}`;
@@ -2111,88 +2085,34 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   }
   
   /**
-   * Captura tela
+   * Captura tela - usa MediaService
    */
   async function captureScreen() {
     try {
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: { mediaSource: 'screen' }
-      });
-      
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      await video.play();
-      await new Promise(resolve => setTimeout(resolve, 100));
-      
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
-      
-      stream.getTracks().forEach(track => track.stop());
-      
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/png'));
-      const file = new File([blob], `screenshot-${Date.now()}.png`, { type: 'image/png' });
-      
-      await addMediaFile('screenshot', file);
+      const file = await captureScreenService();
+      await addMediaFileAuto(file, 'screenshot');
     } catch (error) {
       console.error('Erro ao capturar tela:', error);
       mediaError = error.message || 'Erro ao capturar tela';
+      playSound('error');
     }
   }
   
   /**
-   * Captura webcam
+   * Captura webcam - usa MediaService
    */
   async function captureWebcam() {
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
-      
-      const video = document.createElement('video');
-      video.srcObject = stream;
-      await video.play();
-      await new Promise(resolve => setTimeout(resolve, 500));
-      
-      const canvas = document.createElement('canvas');
-      canvas.width = video.videoWidth;
-      canvas.height = video.videoHeight;
-      canvas.getContext('2d').drawImage(video, 0, 0);
-      
-      stream.getTracks().forEach(track => track.stop());
-      
-      const blob = await new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', 0.9));
-      const file = new File([blob], `webcam-${Date.now()}.jpg`, { type: 'image/jpeg' });
-      
-      await addMediaFile('webcam', file);
+      const file = await captureWebcamService();
+      await addMediaFileAuto(file, 'webcam');
     } catch (error) {
       console.error('Erro ao capturar webcam:', error);
       mediaError = error.message || 'Erro ao acessar webcam';
+      playSound('error');
     }
   }
   
-  /**
-   * Cria preview base64 de uma imagem
-   */
-  function createImagePreview(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
-  
-  /**
-   * Converte um arquivo para base64 data URL
-   */
-  function fileToBase64(file) {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onload = () => resolve(reader.result);
-      reader.onerror = reject;
-      reader.readAsDataURL(file);
-    });
-  }
+  // createImagePreview e fileToBase64 movidos para media-service.js
   
   /**
    * Remove mídia pendente
