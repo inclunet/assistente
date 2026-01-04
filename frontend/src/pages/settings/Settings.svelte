@@ -276,23 +276,28 @@
     }
   }
 
-  async function handleTest() {
+  async function handleTestAndSave() {
     if (!apiKey.trim()) {
       showMessage('error', 'Configure a chave de API antes de testar.');
       return;
     }
 
-    // Primeiro salva as configurações (silenciosamente, sem navegar)
-    await handleSave(true);
-    if (message.type === 'error') return;
-
     testing = true;
     message = { type: '', text: '' };
 
     try {
+      // Primeiro salva as configurações (silenciosamente)
+      await handleSave(true);
+      if (message.type === 'error') {
+        return;
+      }
+
+      // Testa a conexão
       const result = await TestConnection();
       if (result) {
-        showMessage('success', 'Conexão bem-sucedida! A API está funcionando e os modelos foram carregados.');
+        showMessage('success', 'Conexão bem-sucedida! Configurações salvas.');
+        saveOriginalValues();
+        dispatch('saved');
       }
     } catch (error) {
       showMessage('error', 'Falha na conexão: ' + error);
@@ -307,14 +312,16 @@
       return;
     }
 
-    // Primeiro salva as configurações (silenciosamente, sem navegar)
-    await handleSave(true);
-    if (message.type === 'error') return;
-
     testingEmbeddings = true;
     message = { type: '', text: '' };
 
     try {
+      // Primeiro salva as configurações (silenciosamente)
+      await handleSave(true);
+      if (message.type === 'error') {
+        return;
+      }
+
       const result = await TestEmbeddings();
       showMessage('success', result);
     } catch (error) {
@@ -422,16 +429,16 @@
           <div class="button-row">
             <button
               type="button"
-              class="btn-secondary"
-              on:click={handleTest}
-              disabled={testing || saving}
+              class="btn-primary"
+              on:click={handleTestAndSave}
+              disabled={testing || saving || !apiKey.trim()}
               aria-busy={testing}
             >
               {#if testing}
                 <span class="loading-spinner" aria-hidden="true"></span>
                 Testando...
               {:else}
-                🔌 Testar Conexão
+                🔌 Testar e Salvar
               {/if}
             </button>
           </div>
