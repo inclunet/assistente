@@ -399,9 +399,13 @@ O componente implementa o padrão WAI-ARIA Tabs com suporte completo a leitores 
 
 O componente anuncia automaticamente:
 
-- **Ao selecionar aba**: "Chat 1, aba 2 de 5 selecionada"
+- **Ao selecionar aba**: "Chat 1 selecionada"
 - **Ao fechar aba**: "Aba Chat 1 fechada. 4 abas restantes."
-- **Ao focar em aba**: "Chat 1, aba 2 de 5, fechável, pressione Delete para fechar"
+- **Ao focar em aba**: "Chat 1" (apenas o nome)
+
+Notas:
+- A posição (aba X de Y) é fornecida automaticamente pelo NVDA através dos atributos `aria-posinset` e `aria-setsize`
+- A dica de fechamento ("Pressione Delete para fechar") usa `aria-describedby`, sendo lida apenas sob demanda (NVDA+D) respeitando as preferências do usuário
 
 ### Labels Acessíveis
 
@@ -465,10 +469,11 @@ Cada aba tem um `aria-label` completo que inclui:
 ### Comportamento com Leitores de Tela
 
 1. **Tab** para entrar na lista de abas → foca na aba ativa
-2. Screen reader anuncia: "Chat 1, aba 2 de 5, selecionada, fechável..."
-3. **Setas** para navegar → anuncia cada aba com posição
-4. **Delete** para fechar → anuncia "Aba fechada, X abas restantes"
-5. **Ctrl+Tab** para alternar → anuncia nova aba selecionada
+2. Screen reader anuncia: "Chat 1, aba 1 de 3" (posição via ARIA automático)
+3. **NVDA+D** para ouvir descrição → "Pressione Delete para fechar"
+4. **Setas** para navegar → anuncia cada aba
+5. **Delete** para fechar → anuncia "Aba fechada, X abas restantes"
+6. **Ctrl+Tab** para alternar → anuncia nova aba selecionada
 6. **Tab** para sair → foco vai para o conteúdo do painel
 
 ## Migração

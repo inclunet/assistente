@@ -1,13 +1,11 @@
 /**
  * MessageService - Serviço de gerenciamento de mensagens de chat
  * 
- * Responsabilidades:
- * - CRUD de mensagens (save, load, update)
- * - Transformação de dados (threads, flat)
- * - Gerenciamento de streaming
- * - Stores reativos Svelte
+ * ARQUITETURA MULTI-INSTÂNCIA:
+ * Cada instância gerencia sua própria conversa com stores isolados.
+ * Isso permite múltiplas guias de chat abertas simultaneamente.
  * 
- * Uso com Svelte Stores (recomendado):
+ * Uso com instância única (singleton):
  *   import { 
  *     messages, 
  *     conversationId, 
@@ -18,62 +16,21 @@
  *   // No template - reativo automático!
  *   {#each $messages as msg}...{/each}
  *   {#if $isStreaming}Loading...{/if}
+ * 
+ * Uso com múltiplas instâncias (guias):
+ *   import { createMessageService } from '$lib/chat/message-service.js';
  *   
- *   // Ações
- *   await messageService.loadConversation(conv);
- *   await messageService.saveMessage('user', 'Olá!');
+ *   const service = createMessageService();
+ *   const { messages, isStreaming } = service.stores;
+ *   
+ *   // No template
+ *   {#each $messages as msg}...{/each}
  */
 
 import { writable, derived, get } from 'svelte/store';
 
 // ========================================
-// Svelte Stores (estado reativo)
-// ========================================
-
-/** ID da conversa atual */
-export const conversationId = writable(null);
-
-/** Título da conversa atual */
-export const conversationTitle = writable('');
-
-/** Dados completos da conversa (com threads) */
-export const conversationData = writable(null);
-
-/** Mensagens flat para compatibilidade */
-export const messages = writable([]);
-
-/** Mensagens organizadas em threads */
-export const threadedMessages = writable([]);
-
-/** Exibir mensagens internas (tool calls, agent) */
-export const showInternalMessages = writable(false);
-
-/** ID da mensagem sendo streamada */
-export const streamingMessageId = writable(null);
-
-/** Conteúdo acumulado do streaming */
-export const streamingContent = writable('');
-
-/** Indica se está em streaming */
-export const isStreaming = writable(false);
-
-/** Indica se está executando tools */
-export const executingTools = writable(false);
-
-/** Mensagem de status das tools */
-export const toolsMessage = writable('');
-
-/** Indica se há uma conversa carregada */
-export const hasConversation = derived(conversationId, $id => $id !== null);
-
-/** Indica se a conversa está vazia */
-export const isEmpty = derived(messages, $msgs => $msgs.length === 0);
-
-/** Contagem de mensagens */
-export const messageCount = derived(messages, $msgs => $msgs.length);
-
-// ========================================
-// Imports dinâmicos do Wails
+// Imports dinâmicos do Wails (compartilhados)
 // ========================================
 let CreateConversation = null;
 let AddMessage = null;
@@ -88,42 +45,198 @@ let SetLastConversation = null;
 let EventsOn = null;
 let EventsOff = null;
 
+let _wailsLoaded = false;
+let _wailsLoadPromise = null;
+
 async function loadWailsFunctions() {
-  try {
-    const wails = await import('../../../wailsjs/go/main/App.js');
-    CreateConversation = wails.CreateConversation;
-    AddMessage = wails.AddMessage;
-    AddMessageWithTokens = wails.AddMessageWithTokens;
-    AddMessageWithMedia = wails.AddMessageWithMedia;
-    AddMessageWithTokensAndMedia = wails.AddMessageWithTokensAndMedia;
-    GetConversationInfo = wails.GetConversationInfo;
-    GetMessages = wails.GetMessages;
-    UpdateConversationModel = wails.UpdateConversationModel;
-    UpdateConversationSettings = wails.UpdateConversationSettings;
-    SetLastConversation = wails.SetLastConversation;
-  } catch (e) {
-    console.warn('Wails functions not available:', e.message);
+  if (_wailsLoaded) return;
+  if (_wailsLoadPromise) return _wailsLoadPromise;
+  
+  _wailsLoadPromise = (async () => {
+    try {
+      const wails = await import('../../../wailsjs/go/main/App.js');
+      CreateConversation = wails.CreateConversation;
+      AddMessage = wails.AddMessage;
+      AddMessageWithTokens = wails.AddMessageWithTokens;
+      AddMessageWithMedia = wails.AddMessageWithMedia;
+      AddMessageWithTokensAndMedia = wails.AddMessageWithTokensAndMedia;
+      GetConversationInfo = wails.GetConversationInfo;
+      GetMessages = wails.GetMessages;
+      UpdateConversationModel = wails.UpdateConversationModel;
+      UpdateConversationSettings = wails.UpdateConversationSettings;
+      SetLastConversation = wails.SetLastConversation;
+    } catch (e) {
+      console.warn('Wails functions not available:', e.message);
+    }
+    
+    // Carrega runtime events
+    try {
+      const runtime = await import('../../../wailsjs/runtime/runtime.js');
+      EventsOn = runtime.EventsOn;
+      EventsOff = runtime.EventsOff;
+    } catch (e) {
+      console.warn('Wails runtime not available:', e.message);
+    }
+    
+    _wailsLoaded = true;
+  })();
+  
+  return _wailsLoadPromise;
+}
+
+// ========================================
+// Funções utilitárias de mensagens
+// ========================================
+
+/**
+ * Parseia tool_calls de uma mensagem
+ * Aceita string JSON ou objeto
+ */
+export function parseToolCalls(toolCalls) {
+  if (!toolCalls) return null;
+  if (typeof toolCalls === 'string') {
+    try {
+      return JSON.parse(toolCalls);
+    } catch (e) {
+      return null;
+    }
+  }
+  return toolCalls;
+}
+
+/**
+ * Formata nome de agente para exibição
+ * Converte snake_case para Title Case
+ */
+export function formatAgentName(name) {
+  if (!name) return 'Agente';
+  return name.split('_').map(word => 
+    word.charAt(0).toUpperCase() + word.slice(1)
+  ).join(' ');
+}
+
+/**
+ * Converte MessageNode do backend para formato do frontend
+ * Normaliza campos PascalCase → camelCase
+ */
+export function convertMessageNode(node, index = 0) {
+  const m = node.message || node.Message || {};
+  
+  // Parseia tool_calls se for string
+  let toolCalls = null;
+  const rawToolCalls = m.tool_calls || m.ToolCalls;
+  if (rawToolCalls) {
+    try {
+      toolCalls = typeof rawToolCalls === 'string' ? JSON.parse(rawToolCalls) : rawToolCalls;
+    } catch (e) { /* ignore */ }
   }
   
-  // Carrega runtime events
-  try {
-    const runtime = await import('../../../wailsjs/runtime/runtime.js');
-    EventsOn = runtime.EventsOn;
-    EventsOff = runtime.EventsOff;
-  } catch (e) {
-    console.warn('Wails runtime not available:', e.message);
+  // Extrai toolName
+  let toolName = '';
+  if (toolCalls && toolCalls.length > 0) {
+    toolName = toolCalls[0].function?.name || toolCalls[0].Function?.Name || '';
   }
+  
+  return {
+    message: {
+      id: m.id || m.ID,
+      parentId: m.parent_id || m.ParentID,
+      role: m.role || m.Role,
+      content: m.content || m.Content || '',
+      toolCalls: toolCalls,
+      toolCallId: m.tool_call_id || m.ToolCallID,
+      agentName: m.agent_name || m.AgentName,
+      toolName: toolName,
+      internal: (m.parent_id || m.ParentID) != null,
+      model: m.model || m.Model,
+      promptTokens: m.prompt_tokens || m.PromptTokens,
+      completionTokens: m.completion_tokens || m.CompletionTokens,
+      totalTokens: m.total_tokens || m.TotalTokens,
+      isStreaming: m.isStreaming || false,
+      toolsInfo: m.toolsInfo || null,
+    },
+    agentName: m.agent_name || m.AgentName,
+    toolName: toolName,
+    level: node.level ?? node.Level ?? 0,
+    originalIndex: node.originalIndex ?? index,
+    children: node.children || [],
+    childCount: node.child_count ?? node.ChildCount ?? node.childCount ?? 0
+  };
+}
+
+// ========================================
+// Factory para criar instâncias isoladas
+// ========================================
+
+/**
+ * Cria uma nova instância do MessageService com stores isolados.
+ * Use esta função para múltiplas guias de chat.
+ * 
+ * @param {string} [instanceId] - ID opcional para identificar a instância
+ * @returns {MessageService} Nova instância com stores isolados
+ */
+export function createMessageService(instanceId = null) {
+  // Cria stores isolados para esta instância
+  const stores = {
+    /** ID da conversa atual */
+    conversationId: writable(null),
+    
+    /** Título da conversa atual */
+    conversationTitle: writable(''),
+    
+    /** Dados completos da conversa (com threads) */
+    conversationData: writable(null),
+    
+    /** Mensagens flat para compatibilidade */
+    messages: writable([]),
+    
+    /** Mensagens organizadas em threads */
+    threadedMessages: writable([]),
+    
+    /** Exibir mensagens internas (tool calls, agent) */
+    showInternalMessages: writable(false),
+    
+    /** ID da mensagem sendo streamada */
+    streamingMessageId: writable(null),
+    
+    /** Conteúdo acumulado do streaming */
+    streamingContent: writable(''),
+    
+    /** Indica se está em streaming */
+    isStreaming: writable(false),
+    
+    /** Indica se está executando tools */
+    executingTools: writable(false),
+    
+    /** Mensagem de status das tools */
+    toolsMessage: writable(''),
+  };
+  
+  // Stores derivados
+  stores.hasConversation = derived(stores.conversationId, $id => $id !== null);
+  stores.isEmpty = derived(stores.messages, $msgs => $msgs.length === 0);
+  stores.messageCount = derived(stores.messages, $msgs => $msgs.length);
+  
+  return new MessageService(stores, instanceId);
 }
 
 /**
  * Serviço de mensagens de chat
+ * Suporta múltiplas instâncias com stores isolados
  */
 class MessageService extends EventTarget {
-  constructor() {
+  /**
+   * @param {Object} stores - Stores Svelte para esta instância
+   * @param {string|null} instanceId - ID opcional da instância
+   */
+  constructor(stores, instanceId = null) {
     super();
     
-    // Stores são exportados como módulo-level
-    // O serviço usa get() para ler e .set() para atualizar
+    // Stores desta instância
+    this._stores = stores;
+    
+    // ID da instância (para roteamento de eventos)
+    this._instanceId = instanceId || crypto.randomUUID();
     
     // Event subscriptions
     this._eventUnsubscribers = [];
@@ -143,6 +256,21 @@ class MessageService extends EventTarget {
   }
   
   /**
+   * Retorna os stores desta instância.
+   * Use para subscrever em componentes Svelte.
+   */
+  get stores() {
+    return this._stores;
+  }
+  
+  /**
+   * ID único desta instância
+   */
+  get instanceId() {
+    return this._instanceId;
+  }
+  
+  /**
    * Dispara messagesUpdated com debounce durante streaming
    * Isso evita re-renders excessivos quando muitas mensagens de agente chegam rapidamente
    */
@@ -150,7 +278,7 @@ class MessageService extends EventTarget {
     this._pendingMessagesUpdate = data;
     
     // Se streaming ativo, usa debounce maior para reduzir re-renders
-    if (get(isStreaming)) {
+    if (get(this._stores.isStreaming)) {
       if (this._messagesUpdateDebounceTimer) {
         clearTimeout(this._messagesUpdateDebounceTimer);
       }
@@ -280,7 +408,7 @@ class MessageService extends EventTarget {
     );
     
     this._boundToBackend = true;
-    console.log('[MessageService] Backend events bound successfully');
+    console.log('[MessageService] Backend events bound successfully, instance:', this._instanceId);
   }
   
   /**
@@ -295,12 +423,50 @@ class MessageService extends EventTarget {
     }
     this._eventUnsubscribers = [];
     this._boundToBackend = false;
-    console.log('[MessageService] Backend events unbound');
+    console.log('[MessageService] Backend events unbound, instance:', this._instanceId);
+  }
+  
+  /**
+   * Limpa todos os recursos da instância
+   * Deve ser chamado quando a guia/componente é destruído
+   */
+  destroy() {
+    this.unbindBackendEvents();
+    this._componentListeners.clear();
+    
+    if (this._messagesUpdateDebounceTimer) {
+      clearTimeout(this._messagesUpdateDebounceTimer);
+    }
+    
+    // Limpa stores
+    this._stores.conversationId.set(null);
+    this._stores.messages.set([]);
+    this._stores.conversationData.set(null);
+    
+    console.log('[MessageService] Instance destroyed:', this._instanceId);
   }
   
   // === Backend Event Handlers ===
   
+  /**
+   * Verifica se o evento pertence a esta instância
+   * Baseado no conversationId do evento vs conversa atual
+   */
+  _isEventForThisInstance(eventConversationId) {
+    // Se não temos conversa ou evento não tem ID, aceita (pode ser nova conversa)
+    if (!eventConversationId) return true;
+    
+    const currentConvId = get(this._stores.conversationId);
+    if (!currentConvId) return true; // Nova conversa, aceita
+    
+    return eventConversationId === currentConvId;
+  }
+  
   _handleStreamEvent(event) {
+    // Verifica se o evento pertence a esta instância
+    const eventConvId = event.ConversationId ?? event.conversationId;
+    if (!this._isEventForThisInstance(eventConvId)) return;
+    
     // Sistema unificado de streaming
     // NOTA: O backend Go envia campos em PascalCase (Content, Done)
     // e o Content JÁ vem ACUMULADO, não precisamos acumular aqui
@@ -309,38 +475,36 @@ class MessageService extends EventTarget {
     const done = event.Done ?? event.done ?? false;
     const messageId = event.MessageId ?? event.messageId;
     
-    // Log de streaming removido para reduzir ruído no console
-    
-    if (messageId && !get(streamingMessageId)) {
+    if (messageId && !get(this._stores.streamingMessageId)) {
       // Inicia streaming com ID do backend
-      streamingMessageId.set(messageId);
-      isStreaming.set(true);
+      this._stores.streamingMessageId.set(messageId);
+      this._stores.isStreaming.set(true);
       this._dispatchEvent('streamingStarted', { messageId });
     }
     
     if (content && !done) {
       // IMPORTANTE: content já vem acumulado do backend, NÃO acumular de novo!
-      streamingContent.set(content);
-      this._updateStreamingMessage(get(streamingContent), true);
+      this._stores.streamingContent.set(content);
+      this._updateStreamingMessage(get(this._stores.streamingContent), true);
       
       this._dispatchEvent('streamingChunk', { 
-        messageId: get(streamingMessageId),
-        content: get(streamingContent)
+        messageId: get(this._stores.streamingMessageId),
+        content: get(this._stores.streamingContent)
       });
     }
     
     if (done) {
       // Streaming finalizado
-      const fullResponse = event.FullResponse ?? event.fullResponse ?? get(streamingContent);
+      const fullResponse = event.FullResponse ?? event.fullResponse ?? get(this._stores.streamingContent);
       
       // Atualiza mensagem final
       this._updateStreamingMessage(fullResponse, false);
       
       // Limpa estado
-      isStreaming.set(false);
-      const finalMessageId = get(streamingMessageId);
-      streamingMessageId.set(null);
-      streamingContent.set('');
+      this._stores.isStreaming.set(false);
+      const finalMessageId = get(this._stores.streamingMessageId);
+      this._stores.streamingMessageId.set(null);
+      this._stores.streamingContent.set('');
       
       // Recarrega conversa para obter dados salvos do banco
       this.reload();
@@ -354,58 +518,70 @@ class MessageService extends EventTarget {
   }
   
   _handleDone(data) {
+    // Verifica se o evento pertence a esta instância
+    const eventConvId = data.conversationId ?? data.ConversationId;
+    if (!this._isEventForThisInstance(eventConvId)) return;
+    
     // Chat finalizado completamente
-    isStreaming.set(false);
-    executingTools.set(false);
+    this._stores.isStreaming.set(false);
+    this._stores.executingTools.set(false);
     this.reload();
     
     this._dispatchEvent('chatDone', { 
-      conversationId: get(conversationId),
+      conversationId: get(this._stores.conversationId),
       ...data
     });
   }
   
   _handleError(errorMessage) {
-    isStreaming.set(false);
-    executingTools.set(false);
+    this._stores.isStreaming.set(false);
+    this._stores.executingTools.set(false);
     
     // Remove mensagem de streaming se existir
-    if (get(streamingMessageId)) {
+    if (get(this._stores.streamingMessageId)) {
       this._removeStreamingMessage();
     }
     
-    streamingMessageId.set(null);
-    streamingContent.set('');
+    this._stores.streamingMessageId.set(null);
+    this._stores.streamingContent.set('');
     
     this._dispatchEvent('error', { message: errorMessage });
   }
   
   _handleToolsExecution(data) {
-    executingTools.set(true);
-    toolsMessage.set(data.message || 'Executando ferramentas...');
+    // Verifica se o evento pertence a esta instância
+    const eventConvId = data.conversationId ?? data.ConversationId;
+    if (!this._isEventForThisInstance(eventConvId)) return;
+    
+    this._stores.executingTools.set(true);
+    this._stores.toolsMessage.set(data.message || 'Executando ferramentas...');
     
     // Atualiza mensagem de streaming para mostrar tools
-    const currentMessages = get(messages);
+    const currentMessages = get(this._stores.messages);
     if (currentMessages.length > 0) {
       const lastIdx = currentMessages.length - 1;
       const lastMsg = currentMessages[lastIdx];
       if (lastMsg.role === 'assistant') {
         const newMessages = [...currentMessages];
-        newMessages[lastIdx] = { ...lastMsg, toolsInfo: `🔧 ${get(toolsMessage)}` };
-        messages.set(newMessages);
+        newMessages[lastIdx] = { ...lastMsg, toolsInfo: `🔧 ${get(this._stores.toolsMessage)}` };
+        this._stores.messages.set(newMessages);
         this._dispatchEvent('messagesUpdated', { messages: newMessages });
       }
     }
     
     this._dispatchEvent('toolsExecution', { 
-      message: get(toolsMessage),
+      message: get(this._stores.toolsMessage),
       executing: true 
     });
   }
   
   _handleToolResults(data) {
-    executingTools.set(false);
-    toolsMessage.set('');
+    // Verifica se o evento pertence a esta instância
+    const eventConvId = data.conversationId ?? data.ConversationId;
+    if (!this._isEventForThisInstance(eventConvId)) return;
+    
+    this._stores.executingTools.set(false);
+    this._stores.toolsMessage.set('');
     
     this._dispatchEvent('toolResults', { 
       results: data.results,
@@ -414,19 +590,31 @@ class MessageService extends EventTarget {
   }
   
   _handleConversationCreated(data) {
-    conversationId.set(data.conversationId);
-    conversationTitle.set(data.title || 'Nova conversa');
+    // Verifica se o evento pertence a esta instância
+    // Para criação, verificamos se esta instância estava esperando uma nova conversa
+    const currentConvId = get(this._stores.conversationId);
+    if (currentConvId !== null) return; // Já tem conversa, ignora
+    
+    // Backend envia 'id', não 'conversationId'
+    const conversationId = data.id ?? data.conversationId;
+    
+    this._stores.conversationId.set(conversationId);
+    this._stores.conversationTitle.set(data.title || 'Nova conversa');
     
     this._dispatchEvent('conversationCreated', {
-      conversationId: data.conversationId,
-      title: get(conversationTitle)
+      conversationId: conversationId,
+      title: get(this._stores.conversationTitle)
     });
   }
   
   async _handleMessagesReady(data) {
+    // Verifica se o evento pertence a esta instância
+    const eventConvId = data.conversationId ?? data.ConversationId;
+    if (!this._isEventForThisInstance(eventConvId)) return;
+    
     // Atualiza conversa se necessário
-    if (data.conversationId && data.conversationId !== get(conversationId)) {
-      conversationId.set(data.conversationId);
+    if (data.conversationId && data.conversationId !== get(this._stores.conversationId)) {
+      this._stores.conversationId.set(data.conversationId);
     }
     
     // IMPORTANTE: Atualiza o ID da mensagem do usuário local com o ID real do backend
@@ -434,7 +622,7 @@ class MessageService extends EventTarget {
     if (data.userMessageId) {
       // Encontra a última mensagem do usuário que ainda não tem ID (placeholder local)
       // Procura de trás para frente para pegar a mais recente
-      const currentMessages = get(messages);
+      const currentMessages = get(this._stores.messages);
       let messageUpdated = false;
       const newMessages = currentMessages.map((m, i) => {
         if (!messageUpdated && m.role === 'user' && (m.id === null || m.id === undefined)) {
@@ -451,11 +639,11 @@ class MessageService extends EventTarget {
         return m;
       });
       if (messageUpdated) {
-        messages.set(newMessages);
+        this._stores.messages.set(newMessages);
       }
       
       // Atualiza também nos threads
-      const currentData = get(conversationData);
+      const currentData = get(this._stores.conversationData);
       if (currentData?.threads) {
         let threadUpdated = false;
         const newThreads = currentData.threads.map((t, i) => {
@@ -474,19 +662,23 @@ class MessageService extends EventTarget {
           return t;
         });
         if (threadUpdated) {
-          conversationData.set({ ...currentData, threads: newThreads });
+          this._stores.conversationData.set({ ...currentData, threads: newThreads });
         }
       }
     }
     
     // Adiciona mensagem placeholder de streaming
     this._addStreamingPlaceholder();
-    isStreaming.set(true);
+    this._stores.isStreaming.set(true);
     
     this._dispatchEvent('messagesReady', data);
   }
   
   _handleInternalMessage(data) {
+    // Verifica se o evento pertence a esta instância
+    const eventConvId = data.conversationId ?? data.ConversationId;
+    if (!this._isEventForThisInstance(eventConvId)) return;
+    
     const internalMsg = {
       id: data.id,
       ID: data.id,
@@ -501,13 +693,13 @@ class MessageService extends EventTarget {
     };
     
     // Adiciona ao array flat
-    messages.set([...get(messages), internalMsg]);
+    this._stores.messages.set([...get(this._stores.messages), internalMsg]);
     
     // Encontra o node pai nas threads e adiciona como filho
     const parentId = data.parentId;
     
-    if (parentId && get(conversationData)?.threads) {
-      const parentNode = this._findNodeById(get(conversationData).threads, parentId);
+    if (parentId && get(this._stores.conversationData)?.threads) {
+      const parentNode = this._findNodeById(get(this._stores.conversationData).threads, parentId);
       if (parentNode) {
         // Cria node filho
         const childNode = {
@@ -525,15 +717,15 @@ class MessageService extends EventTarget {
         parentNode.childCount = parentNode.children.length;
         
         // Força atualização dos threads
-        conversationData.set({ ...get(conversationData) });
+        this._stores.conversationData.set({ ...get(this._stores.conversationData) });
       }
     }
     
     this._dispatchEvent('internalMessage', { message: internalMsg, parentId });
     // Usa debounce durante streaming para evitar re-renders excessivos
     this._dispatchMessagesUpdatedDebounced({ 
-      messages: get(messages),
-      threads: get(conversationData)?.threads
+      messages: get(this._stores.messages),
+      threads: get(this._stores.conversationData)?.threads
     });
   }
   
@@ -554,6 +746,10 @@ class MessageService extends EventTarget {
   }
   
   _handleAgentMessage(data) {
+    // Verifica se o evento pertence a esta instância
+    const eventConvId = data.conversationId ?? data.ConversationId;
+    if (!this._isEventForThisInstance(eventConvId)) return;
+    
     const agentMsg = {
       id: data.id,
       ID: data.id,
@@ -568,12 +764,12 @@ class MessageService extends EventTarget {
     };
     
     // Adiciona ao array flat
-    messages.set([...get(messages), agentMsg]);
+    this._stores.messages.set([...get(this._stores.messages), agentMsg]);
     
     // Encontra o node pai nas threads e adiciona como filho (nível 2)
     const parentId = data.parentId;
-    if (parentId && get(conversationData)?.threads) {
-      const parentNode = this._findNodeById(get(conversationData).threads, parentId);
+    if (parentId && get(this._stores.conversationData)?.threads) {
+      const parentNode = this._findNodeById(get(this._stores.conversationData).threads, parentId);
       if (parentNode) {
         // Cria node filho
         const childNode = {
@@ -591,7 +787,7 @@ class MessageService extends EventTarget {
         parentNode.childCount = parentNode.children.length;
         
         // Força atualização dos threads
-        conversationData.set({ ...get(conversationData) });
+        this._stores.conversationData.set({ ...get(this._stores.conversationData) });
       }
     }
     
@@ -604,8 +800,8 @@ class MessageService extends EventTarget {
     
     // Usa debounce durante streaming para evitar re-renders excessivos
     this._dispatchMessagesUpdatedDebounced({ 
-      messages: get(messages),
-      threads: get(conversationData)?.threads
+      messages: get(this._stores.messages),
+      threads: get(this._stores.conversationData)?.threads
     });
   }
   
@@ -618,40 +814,40 @@ class MessageService extends EventTarget {
   addLocalMessages(userMessage, assistantPlaceholder) {
     
     // Adiciona ao array flat
-    messages.set([...get(messages), userMessage, assistantPlaceholder]);
+    this._stores.messages.set([...get(this._stores.messages), userMessage, assistantPlaceholder]);
     
     // Adiciona aos threads
     const userNode = {
       message: userMessage,
       level: 0,
-      originalIndex: get(messages).length - 2,
+      originalIndex: get(this._stores.messages).length - 2,
       children: [],
       childCount: 0
     };
     const assistantNode = {
       message: assistantPlaceholder,
       level: 0,
-      originalIndex: get(messages).length - 1,
+      originalIndex: get(this._stores.messages).length - 1,
       children: [],
       childCount: 0
     };
     
-    const currentData = get(conversationData) || { threads: [] };
+    const currentData = get(this._stores.conversationData) || { threads: [] };
     const newThreads = [...(currentData.threads || []), userNode, assistantNode];
-    conversationData.set({ ...currentData, threads: newThreads });
+    this._stores.conversationData.set({ ...currentData, threads: newThreads });
     
-    isStreaming.set(true);
+    this._stores.isStreaming.set(true);
     
     // IMPORTANTE: Dispara evento para atualizar UI imediatamente
     this._dispatchEvent('messagesUpdated', { 
-      messages: get(messages),
+      messages: get(this._stores.messages),
       threads: newThreads
     });
   }
   
   _addStreamingPlaceholder() {
     // Verifica se já existe um placeholder de streaming
-    const existingIdx = get(messages).findIndex(m => m.role === 'assistant' && m.isStreaming);
+    const existingIdx = get(this._stores.messages).findIndex(m => m.role === 'assistant' && m.isStreaming);
     if (existingIdx >= 0) {
       // Já existe, não adiciona outro
       return;
@@ -665,115 +861,115 @@ class MessageService extends EventTarget {
     };
     
     // Adiciona ao array flat
-    messages.set([...get(messages), placeholder]);
+    this._stores.messages.set([...get(this._stores.messages), placeholder]);
     
     // Adiciona também aos threads para renderização
     const threadNode = {
       message: placeholder,
       level: 0,
-      originalIndex: get(messages).length - 1,
+      originalIndex: get(this._stores.messages).length - 1,
       children: [],
       childCount: 0
     };
     
-    const currentData = get(conversationData) || { threads: [] };
+    const currentData = get(this._stores.conversationData) || { threads: [] };
     const newThreads = [...(currentData.threads || []), threadNode];
-    conversationData.set({ ...currentData, threads: newThreads });
+    this._stores.conversationData.set({ ...currentData, threads: newThreads });
     
     this._dispatchEvent('messagesUpdated', { 
-      messages: get(messages),
+      messages: get(this._stores.messages),
       threads: newThreads
     });
   }
   
-  _updateStreamingMessage(content, isStreaming) {
+  _updateStreamingMessage(content, isStreamingFlag) {
     // IMPORTANTE: Buscar ANTES de atualizar, pois procuramos por isStreaming === true
     // Busca no array flat
-    const idx = get(messages).findIndex(m => m.role === 'assistant' && m.isStreaming);
+    const idx = get(this._stores.messages).findIndex(m => m.role === 'assistant' && m.isStreaming);
     
     // Busca nos threads ANTES de atualizar o flat (para evitar dessincronização)
     let threadIdx = -1;
-    if (get(conversationData)?.threads) {
-      threadIdx = get(conversationData).threads.findIndex(
+    if (get(this._stores.conversationData)?.threads) {
+      threadIdx = get(this._stores.conversationData).threads.findIndex(
         t => t.message?.role === 'assistant' && t.message?.isStreaming
       );
     }
     
     // Agora atualiza o flat array
     if (idx >= 0) {
-      const currentMessages = get(messages);
+      const currentMessages = get(this._stores.messages);
       const newMessages = [...currentMessages];
-      newMessages[idx] = { ...newMessages[idx], content, isStreaming };
-      messages.set(newMessages);
+      newMessages[idx] = { ...newMessages[idx], content, isStreaming: isStreamingFlag };
+      this._stores.messages.set(newMessages);
     }
     
     // Atualiza nos threads
-    if (threadIdx >= 0 && get(conversationData)?.threads) {
-      const currentData = get(conversationData);
+    if (threadIdx >= 0 && get(this._stores.conversationData)?.threads) {
+      const currentData = get(this._stores.conversationData);
       const newThreads = [...currentData.threads];
       newThreads[threadIdx] = {
         ...newThreads[threadIdx],
         message: {
           ...newThreads[threadIdx].message,
           content,
-          isStreaming
+          isStreaming: isStreamingFlag
         }
       };
-      conversationData.set({ ...currentData, threads: newThreads });
+      this._stores.conversationData.set({ ...currentData, threads: newThreads });
     }
     
     this._dispatchEvent('messagesUpdated', { 
-      messages: get(messages),
-      threads: get(conversationData)?.threads
+      messages: get(this._stores.messages),
+      threads: get(this._stores.conversationData)?.threads
     });
   }
   
   _removeStreamingMessage() {
     // Remove do array flat
-    const idx = get(messages).findIndex(m => m.isStreaming);
+    const idx = get(this._stores.messages).findIndex(m => m.isStreaming);
     if (idx >= 0) {
-      messages.set(get(messages).filter((_, i) => i !== idx));
+      this._stores.messages.set(get(this._stores.messages).filter((_, i) => i !== idx));
     }
     
     // Remove dos threads
-    if (get(conversationData)?.threads) {
-      const currentData = get(conversationData);
+    if (get(this._stores.conversationData)?.threads) {
+      const currentData = get(this._stores.conversationData);
       const newThreads = currentData.threads.filter(
         t => !t.message?.isStreaming
       );
-      conversationData.set({ ...currentData, threads: newThreads });
+      this._stores.conversationData.set({ ...currentData, threads: newThreads });
     }
     
     this._dispatchEvent('messagesUpdated', { 
-      messages: get(messages),
-      threads: get(conversationData)?.threads
+      messages: get(this._stores.messages),
+      threads: get(this._stores.conversationData)?.threads
     });
   }
   
   // === Getters (lê dos stores) ===
   
-  get conversationId() { return get(conversationId); }
-  get conversationTitle() { return get(conversationTitle); }
-  get conversationData() { return get(conversationData); }
-  get messages() { return get(messages); }
-  get showInternalMessages() { return get(showInternalMessages); }
-  get streamingMessageId() { return get(streamingMessageId); }
-  get streamingContent() { return get(streamingContent); }
-  get isStreaming() { return get(isStreaming); }
-  get executingTools() { return get(executingTools); }
-  get toolsMessage() { return get(toolsMessage); }
+  get conversationId() { return get(this._stores.conversationId); }
+  get conversationTitle() { return get(this._stores.conversationTitle); }
+  get conversationData() { return get(this._stores.conversationData); }
+  get messages() { return get(this._stores.messages); }
+  get showInternalMessages() { return get(this._stores.showInternalMessages); }
+  get streamingMessageId() { return get(this._stores.streamingMessageId); }
+  get streamingContent() { return get(this._stores.streamingContent); }
+  get isStreaming() { return get(this._stores.isStreaming); }
+  get executingTools() { return get(this._stores.executingTools); }
+  get toolsMessage() { return get(this._stores.toolsMessage); }
   get isBoundToBackend() { return this._boundToBackend; }
   
-  get hasConversation() { return get(conversationId) !== null; }
-  get isEmpty() { return get(messages).length === 0; }
-  get messageCount() { return get(messages).length; }
+  get hasConversation() { return get(this._stores.conversationId) !== null; }
+  get isEmpty() { return get(this._stores.messages).length === 0; }
+  get messageCount() { return get(this._stores.messages).length; }
   
   // === Setters ===
   
   setShowInternalMessages(value) {
-    showInternalMessages.set(value);
+    this._stores.showInternalMessages.set(value);
     // Reorganiza threads se tiver dados
-    if (get(conversationData)) {
+    if (get(this._stores.conversationData)) {
       this._updateThreadedMessages();
     }
   }
@@ -801,24 +997,24 @@ class MessageService extends EventTarget {
       // Carrega mensagens raiz (lazy loading)
       const rootMessages = await GetMessages(conversation.id, null);
       
-      conversationId.set(conversation.id);
-      conversationTitle.set(convInfo.title || 'Conversa sem título');
-      conversationData.set({
+      this._stores.conversationId.set(conversation.id);
+      this._stores.conversationTitle.set(convInfo.title || 'Conversa sem título');
+      this._stores.conversationData.set({
         id: convInfo.id,
         title: convInfo.title,
         model: convInfo.model,
         show_internal_messages: convInfo.show_internal_messages,
         threads: rootMessages
       });
-      showInternalMessages.set(convInfo.show_internal_messages || false);
+      this._stores.showInternalMessages.set(convInfo.show_internal_messages || false);
       
       // Extrai mensagens flat das raízes
-      messages.set(this._extractMessagesFromThreads(rootMessages));
+      this._stores.messages.set(this._extractMessagesFromThreads(rootMessages));
       
       this._dispatchEvent('conversationLoaded', {
-        conversationId: get(conversationId),
-        title: get(conversationTitle),
-        messages: get(messages),
+        conversationId: get(this._stores.conversationId),
+        title: get(this._stores.conversationTitle),
+        messages: get(this._stores.messages),
         model: convInfo.model || defaultModel
       });
       
@@ -846,10 +1042,10 @@ class MessageService extends EventTarget {
     
     try {
       const conv = await CreateConversation(title, model);
-      conversationId.set(conv.id);
-      conversationTitle.set(title);
-      conversationData.set({ threads: [] });
-      messages.set([]);
+      this._stores.conversationId.set(conv.id);
+      this._stores.conversationTitle.set(title);
+      this._stores.conversationData.set({ threads: [] });
+      this._stores.messages.set([]);
       
       // Salva como última conversa
       try {
@@ -859,8 +1055,8 @@ class MessageService extends EventTarget {
       }
       
       this._dispatchEvent('conversationCreated', {
-        conversationId: get(conversationId),
-        title: get(conversationTitle)
+        conversationId: get(this._stores.conversationId),
+        title: get(this._stores.conversationTitle)
       });
       
       return conv.id;
@@ -875,12 +1071,12 @@ class MessageService extends EventTarget {
    * Limpa a conversa atual
    */
   clear() {
-    conversationId.set(null);
-    conversationTitle.set('');
-    conversationData.set(null);
-    messages.set([]);
-    streamingMessageId.set(null);
-    streamingContent.set('');
+    this._stores.conversationId.set(null);
+    this._stores.conversationTitle.set('');
+    this._stores.conversationData.set(null);
+    this._stores.messages.set([]);
+    this._stores.streamingMessageId.set(null);
+    this._stores.streamingContent.set('');
     
     this._dispatchEvent('conversationCleared', {});
   }
@@ -906,7 +1102,7 @@ class MessageService extends EventTarget {
     } = options;
     
     // Cria conversa se não existir
-    if (!get(conversationId)) {
+    if (!get(this._stores.conversationId)) {
       const title = role === 'user' ? content.substring(0, 50) : 'Nova conversa';
       const convId = await this.createConversation(title, model);
       if (!convId) return false;
@@ -918,7 +1114,7 @@ class MessageService extends EventTarget {
     try {
       if (tokenInfo && tokenInfo.totalTokens > 0) {
         await AddMessageWithTokensAndMedia(
-          get(conversationId),
+          get(this._stores.conversationId),
           role,
           content,
           mediaJson,
@@ -930,10 +1126,10 @@ class MessageService extends EventTarget {
           tokenInfo.model
         );
       } else if (mediaJson) {
-        await AddMessageWithMedia(get(conversationId), role, content, mediaJson, toolCalls, toolResults);
+        await AddMessageWithMedia(get(this._stores.conversationId), role, content, mediaJson, toolCalls, toolResults);
       } else if (tokenInfo) {
         await AddMessageWithTokens(
-          get(conversationId),
+          get(this._stores.conversationId),
           role,
           content,
           toolCalls,
@@ -944,7 +1140,7 @@ class MessageService extends EventTarget {
           tokenInfo.model || ''
         );
       } else {
-        await AddMessage(get(conversationId), role, content, toolCalls, toolResults);
+        await AddMessage(get(this._stores.conversationId), role, content, toolCalls, toolResults);
       }
       
       this._dispatchEvent('messageSaved', { role, content });
@@ -963,18 +1159,18 @@ class MessageService extends EventTarget {
    */
   updateMessageContent(messageId, content) {
     // Atualiza nos threads
-    if (get(conversationData)?.threads) {
-      this._updateInThreads(get(conversationData).threads, messageId, content);
-      conversationData.set({ ...get(conversationData) });
+    if (get(this._stores.conversationData)?.threads) {
+      this._updateInThreads(get(this._stores.conversationData).threads, messageId, content);
+      this._stores.conversationData.set({ ...get(this._stores.conversationData) });
     }
     
     // Atualiza no array flat
-    const currentMessages = get(messages);
+    const currentMessages = get(this._stores.messages);
     const idx = currentMessages.findIndex(m => m.id === messageId);
     if (idx >= 0) {
       const newMessages = [...currentMessages];
       newMessages[idx] = { ...newMessages[idx], content };
-      messages.set(newMessages);
+      this._stores.messages.set(newMessages);
     }
     
     this._dispatchEvent('messageUpdated', { messageId, content });
@@ -1017,33 +1213,33 @@ class MessageService extends EventTarget {
    * Recarrega mensagens raiz do banco de dados, preservando filhos já carregados
    */
   async reload() {
-    if (!get(conversationId)) return false;
+    if (!get(this._stores.conversationId)) return false;
     
     try {
       // Recarrega metadados
-      const convInfo = await GetConversationInfo(get(conversationId));
+      const convInfo = await GetConversationInfo(get(this._stores.conversationId));
       
       // Recarrega mensagens raiz
-      const rootMessages = await GetMessages(get(conversationId), null);
+      const rootMessages = await GetMessages(get(this._stores.conversationId), null);
       
       // Preserva os children já carregados dos threads existentes
-      const oldThreads = get(conversationData)?.threads || [];
+      const oldThreads = get(this._stores.conversationData)?.threads || [];
       const mergedThreads = this._mergeThreadsPreservingChildren(rootMessages, oldThreads);
       
-      conversationData.set({
-        ...get(conversationData),
+      this._stores.conversationData.set({
+        ...get(this._stores.conversationData),
         threads: mergedThreads
       });
-      messages.set(this._extractMessagesFromThreads(mergedThreads));
+      this._stores.messages.set(this._extractMessagesFromThreads(mergedThreads));
       
       // Dispara messagesUpdated para atualizar a UI (além de messagesReloaded)
       this._dispatchEvent('messagesUpdated', {
-        messages: get(messages),
+        messages: get(this._stores.messages),
         threads: mergedThreads
       });
       
       this._dispatchEvent('messagesReloaded', {
-        messages: get(messages)
+        messages: get(this._stores.messages)
       });
       
       return true;
@@ -1103,8 +1299,8 @@ class MessageService extends EventTarget {
    * @param {number} messageId - ID da mensagem sendo streamada
    */
   startStreaming(messageId) {
-    streamingMessageId.set(messageId);
-    streamingContent.set('');
+    this._stores.streamingMessageId.set(messageId);
+    this._stores.streamingContent.set('');
     this._dispatchEvent('streamingStarted', { messageId });
   }
   
@@ -1179,9 +1375,9 @@ class MessageService extends EventTarget {
    * Atualiza mensagens threaded (força recálculo)
    */
   _updateThreadedMessages() {
-    if (get(conversationData)?.threads) {
-      messages.set(this._extractMessagesFromThreads(get(conversationData).threads));
-      this._dispatchEvent('messagesUpdated', { messages: get(messages) });
+    if (get(this._stores.conversationData)?.threads) {
+      this._stores.messages.set(this._extractMessagesFromThreads(get(this._stores.conversationData).threads));
+      this._dispatchEvent('messagesUpdated', { messages: get(this._stores.messages) });
     }
   }
   
@@ -1190,12 +1386,12 @@ class MessageService extends EventTarget {
   /**
    * Atualiza configurações da conversa
    */
-  async updateSettings(showInternalMessages) {
-    if (!get(conversationId) || !UpdateConversationSettings) return false;
+  async updateSettings(showInternalMessagesValue) {
+    if (!get(this._stores.conversationId) || !UpdateConversationSettings) return false;
     
     try {
-      await UpdateConversationSettings(get(conversationId), showInternalMessages);
-      showInternalMessages.set(showInternalMessages);
+      await UpdateConversationSettings(get(this._stores.conversationId), showInternalMessagesValue);
+      this._stores.showInternalMessages.set(showInternalMessagesValue);
       this._updateThreadedMessages();
       return true;
     } catch (error) {
@@ -1208,10 +1404,10 @@ class MessageService extends EventTarget {
    * Atualiza modelo da conversa
    */
   async updateModel(model) {
-    if (!get(conversationId) || !UpdateConversationModel) return false;
+    if (!get(this._stores.conversationId) || !UpdateConversationModel) return false;
     
     try {
-      await UpdateConversationModel(get(conversationId), model);
+      await UpdateConversationModel(get(this._stores.conversationId), model);
       return true;
     } catch (error) {
       console.error('Erro ao atualizar modelo:', error);
@@ -1225,28 +1421,28 @@ class MessageService extends EventTarget {
    * Encontra uma mensagem por ID
    */
   findMessage(messageId) {
-    return get(messages).find(m => m.id === messageId);
+    return get(this._stores.messages).find(m => m.id === messageId);
   }
   
   /**
    * Encontra índice de uma mensagem
    */
   findMessageIndex(messageId) {
-    return get(messages).findIndex(m => m.id === messageId);
+    return get(this._stores.messages).findIndex(m => m.id === messageId);
   }
   
   /**
    * Retorna a última mensagem
    */
   getLastMessage() {
-    return get(messages)[get(messages).length - 1];
+    return get(this._stores.messages)[get(this._stores.messages).length - 1];
   }
   
   /**
    * Retorna mensagens de um role específico
    */
   getMessagesByRole(role) {
-    return get(messages).filter(m => m.role === role);
+    return get(this._stores.messages).filter(m => m.role === role);
   }
   
   // === Eventos ===
@@ -1257,88 +1453,30 @@ class MessageService extends EventTarget {
 }
 
 // ========================================
-// Funções utilitárias de mensagens
+// Singleton padrão (para retrocompatibilidade)
 // ========================================
 
-/**
- * Parseia tool_calls de uma mensagem
- * Aceita string JSON ou objeto
- */
-export function parseToolCalls(toolCalls) {
-  if (!toolCalls) return null;
-  if (typeof toolCalls === 'string') {
-    try {
-      return JSON.parse(toolCalls);
-    } catch (e) {
-      return null;
-    }
-  }
-  return toolCalls;
-}
-
-/**
- * Formata nome de agente para exibição
- * Converte snake_case para Title Case
- */
-export function formatAgentName(name) {
-  if (!name) return 'Agente';
-  return name.split('_').map(word => 
-    word.charAt(0).toUpperCase() + word.slice(1)
-  ).join(' ');
-}
-
-/**
- * Converte MessageNode do backend para formato do frontend
- * Normaliza campos PascalCase → camelCase
- */
-export function convertMessageNode(node, index = 0) {
-  const m = node.message || node.Message || {};
-  
-  // Parseia tool_calls se for string
-  let toolCalls = null;
-  const rawToolCalls = m.tool_calls || m.ToolCalls;
-  if (rawToolCalls) {
-    try {
-      toolCalls = typeof rawToolCalls === 'string' ? JSON.parse(rawToolCalls) : rawToolCalls;
-    } catch (e) { /* ignore */ }
-  }
-  
-  // Extrai toolName
-  let toolName = '';
-  if (toolCalls && toolCalls.length > 0) {
-    toolName = toolCalls[0].function?.name || toolCalls[0].Function?.Name || '';
-  }
-  
-  return {
-    message: {
-      id: m.id || m.ID,
-      parentId: m.parent_id || m.ParentID,
-      role: m.role || m.Role,
-      content: m.content || m.Content || '',
-      toolCalls: toolCalls,
-      toolCallId: m.tool_call_id || m.ToolCallID,
-      agentName: m.agent_name || m.AgentName,
-      toolName: toolName,
-      internal: (m.parent_id || m.ParentID) != null,
-      model: m.model || m.Model,
-      promptTokens: m.prompt_tokens || m.PromptTokens,
-      completionTokens: m.completion_tokens || m.CompletionTokens,
-      totalTokens: m.total_tokens || m.TotalTokens,
-      isStreaming: m.isStreaming || false,
-      toolsInfo: m.toolsInfo || null,
-    },
-    agentName: m.agent_name || m.AgentName,
-    toolName: toolName,
-    level: node.level ?? node.Level ?? 0,
-    originalIndex: node.originalIndex ?? index,
-    children: node.children || [],
-    childCount: node.child_count ?? node.ChildCount ?? node.childCount ?? 0
-  };
-}
+// Cria instância singleton com stores próprios
+const defaultMessageService = createMessageService('default');
 
 // Exporta instância singleton
-export const messageService = new MessageService();
+export const messageService = defaultMessageService;
+
+// Exporta stores do singleton para retrocompatibilidade
+export const conversationId = defaultMessageService.stores.conversationId;
+export const conversationTitle = defaultMessageService.stores.conversationTitle;
+export const conversationData = defaultMessageService.stores.conversationData;
+export const messages = defaultMessageService.stores.messages;
+export const threadedMessages = defaultMessageService.stores.threadedMessages;
+export const showInternalMessages = defaultMessageService.stores.showInternalMessages;
+export const streamingMessageId = defaultMessageService.stores.streamingMessageId;
+export const streamingContent = defaultMessageService.stores.streamingContent;
+export const isStreaming = defaultMessageService.stores.isStreaming;
+export const executingTools = defaultMessageService.stores.executingTools;
+export const toolsMessage = defaultMessageService.stores.toolsMessage;
+export const hasConversation = defaultMessageService.stores.hasConversation;
+export const isEmpty = defaultMessageService.stores.isEmpty;
+export const messageCount = defaultMessageService.stores.messageCount;
 
 // Exporta classe para instâncias customizadas
 export { MessageService };
-

@@ -1,20 +1,20 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, tick } from 'svelte';
   import { Layout } from './components/layout';
-  import { Chat } from './pages/chat';
+  import { ChatTabsContainer } from './pages/chat';
   import { Settings } from './pages/settings';
   import { ConversationList } from './pages/history';
   import { FAQManager } from './pages/faq';
   import { MemoryManager } from './pages/memory';
   import { AgentManager } from './pages/agents';
   import { OAuthManager } from './pages/oauth';
-  import { GetConfig, GetConversation } from '../wailsjs/go/main/App.js';
+  import { GetConfig } from '../wailsjs/go/main/App.js';
 
   // ========================================
   // Mapa de páginas (roteamento idiomático)
   // ========================================
   const pages = {
-    chat: { component: Chat, fullWidth: true },
+    chat: { component: ChatTabsContainer, fullWidth: true },
     history: { component: ConversationList },
     faq: { component: FAQManager },
     memories: { component: MemoryManager },
@@ -31,10 +31,15 @@
   let defaultModel = '';
   let defaultChatParams = { temperature: 0.7, max_tokens: 4096, top_p: 1.0 };
   let currentPage = 'chat';
-  let currentConversation = null;
+  
+  // ID da última conversa (para migração de guias)
+  let initialConversationId = null;
   
   // Ref do componente atual (para métodos como focusList, refresh, etc.)
   let currentComponent;
+  
+  // Ref específica para o ChatTabsContainer
+  let chatTabsRef;
 
   // ========================================
   // Props dinâmicas por página
@@ -44,10 +49,10 @@
       hasApiKey,
       defaultModel,
       defaultChatParams,
-      conversation: currentConversation
+      initialConversationId
     },
     history: {
-      currentConversationId: currentConversation?.id
+      currentConversationId: null // Agora gerenciado pelo ChatTabsContainer
     },
     faq: {},
     memories: {},
@@ -63,7 +68,12 @@
   // de refresh explícito quando conversas são atualizadas no Chat.
   const pageEvents = {
     history: {
-      select: (e) => { currentConversation = e.detail; currentPage = 'chat'; },
+      select: async (e) => { 
+        currentPage = 'chat';
+        // Aguarda transição e abre no container de guias
+        await tick();
+        chatTabsRef?.openConversation(e.detail);
+      },
       new: () => startNewConversation()
     },
     settings: {
@@ -90,9 +100,8 @@
   }
 
   function startNewConversation() {
-    currentConversation = null;
     currentPage = 'chat';
-    setTimeout(() => currentComponent?.startNewConversation?.(), 0);
+    setTimeout(() => chatTabsRef?.startNewConversation?.(), 0);
   }
 
   // ========================================
@@ -115,19 +124,15 @@
         defaultModel = config.default_model || '';
       }
       
+      // Guarda ID da última conversa para migração (o ChatTabsContainer usa)
+      if (config.last_conversation_id) {
+        initialConversationId = config.last_conversation_id;
+      }
+      
       configLoaded = true;
       
       if (!hasApiKey) {
         currentPage = 'settings';
-      } else if (config.last_conversation_id) {
-        try {
-          const lastConv = await GetConversation(config.last_conversation_id);
-          if (lastConv) {
-            currentConversation = lastConv;
-          }
-        } catch (e) {
-          // Conversa não existe mais, ignora
-        }
       }
     } catch (error) {
       configLoaded = true;
@@ -154,10 +159,10 @@
     {@const pageConfig = pages[currentPage]}
     
     {#if pageConfig.fullWidth}
-      <!-- Páginas full-width (chat) -->
+      <!-- Páginas full-width (chat com guias) -->
       <svelte:component
         this={pageConfig.component}
-        bind:this={currentComponent}
+        bind:this={chatTabsRef}
         {...pageProps[currentPage]}
       />
     {:else if pageConfig.wrapper === 'settings'}

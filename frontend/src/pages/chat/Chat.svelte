@@ -31,16 +31,17 @@
   import ChatInput from '../../components/chat/core/input/ChatInput.svelte';
   import SendButton from '../../components/chat/core/input/SendButton.svelte';
   import { VoiceSettingsPanel } from '../../components/speech';
+  import { derived } from 'svelte/store';
   import { 
-    messageService,
-    conversationId,
-    conversationTitle,
-    conversationData,
-    messages,
-    showInternalMessages,
-    isStreaming,
-    executingTools,
-    toolsMessage,
+    messageService as defaultMessageService,
+    conversationId as defaultConversationId,
+    conversationTitle as defaultConversationTitle,
+    conversationData as defaultConversationData,
+    messages as defaultMessages,
+    showInternalMessages as defaultShowInternalMessages,
+    isStreaming as defaultIsStreaming,
+    executingTools as defaultExecutingTools,
+    toolsMessage as defaultToolsMessage,
     parseToolCalls,
     formatAgentName,
     convertMessageNode
@@ -50,6 +51,46 @@
   export let conversation = null;
   export let defaultModel = '';
   export let defaultChatParams = { temperature: 0.7, max_tokens: 4096, top_p: 1.0 };
+  
+  /** 
+   * MessageService externo (para uso com múltiplas guias).
+   * Se não fornecido, usa o singleton padrão.
+   * @type {import('../../lib/chat/message-service.js').MessageService|null}
+   */
+  export let externalMessageService = null;
+  
+  /**
+   * Callback para criar nova aba (quando usado com múltiplas guias).
+   * Se fornecido, mostra botão "Nova Aba" na toolbar.
+   * @type {(() => void)|null}
+   */
+  export let onNewTab = null;
+  
+  /**
+   * Indica se esta instância do Chat está ativa (visível na aba atual).
+   * Quando false, os atalhos de teclado globais são ignorados.
+   * @type {boolean}
+   */
+  export let isActive = true;
+  
+  // ========================================
+  // Seleção do MessageService (externo ou singleton)
+  // ========================================
+  
+  // Serviço ativo (externo se fornecido, senão singleton)
+  // NOTA: Usamos getter para que seja reavaliado quando externalMessageService muda
+  $: messageService = externalMessageService || defaultMessageService;
+  
+  // Stores do serviço ativo
+  // Usamos os stores do serviço externo quando fornecido
+  $: conversationId = externalMessageService?.stores?.conversationId || defaultConversationId;
+  $: conversationTitle = externalMessageService?.stores?.conversationTitle || defaultConversationTitle;
+  $: conversationData = externalMessageService?.stores?.conversationData || defaultConversationData;
+  $: messages = externalMessageService?.stores?.messages || defaultMessages;
+  $: showInternalMessages = externalMessageService?.stores?.showInternalMessages || defaultShowInternalMessages;
+  $: isStreaming = externalMessageService?.stores?.isStreaming || defaultIsStreaming;
+  $: executingTools = externalMessageService?.stores?.executingTools || defaultExecutingTools;
+  $: toolsMessage = externalMessageService?.stores?.toolsMessage || defaultToolsMessage;
 
   const dispatch = createEventDispatcher();
 
@@ -156,6 +197,9 @@
   
   // Atalhos de teclado do chat
   function handleChatKeyDown(event) {
+    // Ignora atalhos se este Chat não está ativo (outra aba está selecionada)
+    if (!isActive) return;
+    
     // Ctrl+N: Nova conversa (local)
     if (event.ctrlKey && event.key.toLowerCase() === 'n') {
       event.preventDefault();
@@ -671,7 +715,13 @@
     messageService.addComponentListener(COMPONENT_ID, 'toolsExecution', handleServiceToolsExecution);
     messageService.addComponentListener(COMPONENT_ID, 'toolResults', handleServiceToolResults);
     messageService.addComponentListener(COMPONENT_ID, 'error', (e) => { error = e.detail.message; isLoading = false; playSound('error'); });
-    messageService.addComponentListener(COMPONENT_ID, 'conversationCreated', () => dispatch('conversationUpdated'));
+    messageService.addComponentListener(COMPONENT_ID, 'conversationCreated', (e) => {
+      dispatch('conversationCreated', e.detail);
+      dispatch('conversationUpdated', e.detail);
+    });
+    messageService.addComponentListener(COMPONENT_ID, 'conversationLoaded', (e) => {
+      dispatch('titleChanged', { title: e.detail.title });
+    });
     messageService.addComponentListener(COMPONENT_ID, 'messagesReady', () => { isLoading = true; });
     messageService.addComponentListener(COMPONENT_ID, 'agentMessage', handleServiceAgentMessage);
     messageService.addComponentListener(COMPONENT_ID, 'chatDone', () => { isLoading = false; });
@@ -694,18 +744,8 @@
     playSound('receive');
   }
   
-  // Foco automático no input quando disponível
-  $: if (inputElement && hasApiKey && selectedModel) {
-    // Usa tick para garantir que o DOM foi atualizado
-    tick().then(() => {
-      // Só foca se nenhum elemento dentro do chat já estiver focado
-      const activeElement = document.activeElement;
-      const isInsideChat = activeElement?.closest('.chat-container');
-      if (!isInsideChat || activeElement === document.body) {
-        inputElement?.focus();
-      }
-    });
-  }
+  // Nota: Foco automático removido para evitar conflitos com navegação por teclado nas guias.
+  // O foco é gerenciado explicitamente pelo ChatTabsContainer.focusInput() quando apropriado.
 
   onDestroy(() => {
     // Unbind do messageService
@@ -2173,7 +2213,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   }
 </script>
 
-<section class="chat-container" aria-labelledby="chat-heading">
+<div class="chat-container">
   <div class="chat-header">
     <h2 id="chat-heading">{$conversationTitle || 'Nova conversa'}</h2>
   </div>
@@ -2188,6 +2228,17 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     >
       <span aria-hidden="true">➕</span> Nova
     </button>
+    
+    {#if onNewTab}
+      <button 
+        class="toolbar-btn"
+        on:click={onNewTab}
+        aria-label="Nova aba, Ctrl+T"
+        title="Nova aba (Ctrl+T)"
+      >
+        <span aria-hidden="true">📑</span> Nova Aba
+      </button>
+    {/if}
     
     <div class="toolbar-separator" aria-hidden="true"></div>
     
@@ -2456,10 +2507,10 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
               on:submit={handleSubmit}
               on:keydown={(e) => handleKeyDown(e.detail?.event || e)}
               on:paste={(e) => handleInputPaste(e.detail?.event || e)}
-              on:dragenter|preventDefault|stopPropagation={(e) => { const ev = e.detail?.event || e; if (ev.dataTransfer?.types?.includes('Files')) isDragging = true; }}
-              on:dragover|preventDefault|stopPropagation
-              on:dragleave|preventDefault|stopPropagation={(e) => { const ev = e.detail?.event || e; const rect = ev.currentTarget?.getBoundingClientRect(); if (rect && (ev.clientX < rect.left || ev.clientX > rect.right || ev.clientY < rect.top || ev.clientY > rect.bottom)) isDragging = false; }}
-              on:drop|preventDefault|stopPropagation={async (e) => { const ev = e.detail?.event || e; isDragging = false; const files = ev.dataTransfer?.files; if (files?.length > 0) await handleFilesDropped(Array.from(files), 'drop'); }}
+              on:dragenter={(e) => { const ev = e.detail?.event || e; ev?.preventDefault?.(); ev?.stopPropagation?.(); if (ev.dataTransfer?.types?.includes('Files')) isDragging = true; }}
+              on:dragover={(e) => { const ev = e.detail?.event || e; ev?.preventDefault?.(); ev?.stopPropagation?.(); }}
+              on:dragleave={(e) => { const ev = e.detail?.event || e; ev?.preventDefault?.(); ev?.stopPropagation?.(); const rect = ev.currentTarget?.getBoundingClientRect(); if (rect && (ev.clientX < rect.left || ev.clientX > rect.right || ev.clientY < rect.top || ev.clientY > rect.bottom)) isDragging = false; }}
+              on:drop={async (e) => { const ev = e.detail?.event || e; ev?.preventDefault?.(); ev?.stopPropagation?.(); isDragging = false; const files = ev.dataTransfer?.files; if (files?.length > 0) await handleFilesDropped(Array.from(files), 'drop'); }}
               on:removeMedia={(e) => { const idx = e.detail?.index ?? e.detail; pendingMedia = pendingMedia.filter((_, i) => i !== idx); if (pendingMedia.length === 0) mediaMode = 'normal'; }}
               on:clearMediaError={() => mediaError = ''}
             >
@@ -2519,7 +2570,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       </svelte:fragment>
     </ChatContainer>
   {/if}
-</section>
+</div>
 
 <!-- Input oculto para seleção de arquivos (fora do fluxo visual) -->
 <input

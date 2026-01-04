@@ -41,9 +41,12 @@
   /** @type {string} Variante visual: 'default' | 'pills' | 'underline' */
   export let variant = 'default';
   
-  /** @type {string} Label acessível para a lista de abas (lido por screen readers) */
-  export let ariaLabel = 'Abas';
+/** @type {string} Label acessível para a lista de abas (opcional, o role já identifica) */
+  export let ariaLabel = '';
   
+  /** @type {boolean} Se mantém o conteúdo das abas montado mesmo quando não ativas (evita remontagem) */
+  export let keepMounted = false;
+
   const dispatch = createEventDispatcher();
   
   // Referências para elementos
@@ -83,6 +86,8 @@
       
       if (nextTab) {
         selectTab(nextTab, false); // Não mover foco para a aba
+        // Dispara evento para que o pai possa mover o foco para o conteúdo
+        dispatch('tabSwitch', { tabId: nextTab.id, tab: nextTab, source: 'keyboard' });
       }
       return;
     }
@@ -161,9 +166,9 @@
         source: 'reactive' // Indica que veio de mudança reativa
       });
       
-      // Anuncia para screen readers
-      const position = getTabPosition(activeTab);
-      announce(`${changedTab.label}, aba ${position} de ${tabs.length} selecionada`);
+      // Nota: Não anunciamos seleção de aba via aria-live.
+      // O NVDA já lê a aba quando ela recebe foco (via aria-label)
+      // e anuncia o estado "selecionada" (via aria-selected).
     }
     
     previousActiveTab = activeTab;
@@ -187,19 +192,12 @@
   }
   
   /**
-   * Gera o label acessível completo para uma aba
-   * Inclui: nome, posição, estado fechável
+   * Gera o label acessível para uma aba
+   * Nota: Posição é fornecida pelo NVDA via aria-posinset/aria-setsize
+   * Nota: Dica de fechamento usa aria-describedby (lido sob demanda)
    */
-  function getTabAriaLabel(tab, position, total) {
+  function getTabAriaLabel(tab) {
     let label = tab.label;
-    
-    // Adiciona posição (ex: "Chat 1, aba 2 de 5")
-    label += `, aba ${position} de ${total}`;
-    
-    // Indica se é fechável
-    if (closableTabs && tab.closable !== false) {
-      label += ', fechável, pressione Delete para fechar';
-    }
     
     // Indica se está desabilitada
     if (tab.disabled) {
@@ -208,6 +206,11 @@
     
     return label;
   }
+  
+  /**
+   * ID do elemento de descrição para abas fecháveis
+   */
+  const closeHintId = `${panelId}-close-hint`;
   
   /**
    * Anuncia mensagem para screen readers via live region
@@ -453,6 +456,13 @@
     {liveAnnouncement}
   </div>
   
+  <!-- Dica de fechamento (lida sob demanda via aria-describedby) -->
+  {#if closableTabs}
+    <div id={closeHintId} class="sr-only">
+      Pressione Delete para fechar
+    </div>
+  {/if}
+  
   <!-- Toolbar contendo lista de abas e botão adicionar -->
   <div class="tab-toolbar">
     <!-- Lista de abas -->
@@ -460,7 +470,7 @@
       bind:this={tabListElement}
       class={tabListClass}
       role="tablist"
-      aria-label={ariaLabel}
+      aria-label={ariaLabel || undefined}
       aria-orientation={orientation}
     >
       {#each tabs as tab, index (tab.id)}
@@ -485,7 +495,8 @@
           aria-controls={getPanelContentId(tab.id)}
           aria-posinset={position}
           aria-setsize={total}
-          aria-label={getTabAriaLabel(tab, position, total)}
+          aria-label={getTabAriaLabel(tab)}
+          aria-describedby={isClosable ? closeHintId : undefined}
           disabled={tab.disabled || undefined}
           draggable={reorderable}
           on:click={() => selectTab(tab)}
@@ -537,11 +548,11 @@
         class:tab-pane--active={isActive}
         role="tabpanel"
         aria-labelledby={getTabId(tab.id)}
-        tabindex="0"
+        tabindex="-1"
         hidden={!isActive}
         aria-hidden={!isActive ? 'true' : undefined}
       >
-        {#if isActive}
+        {#if keepMounted || isActive}
           <slot name="tab-content" {tab} tabId={tab.id} />
         {/if}
       </div>
