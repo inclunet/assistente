@@ -464,9 +464,25 @@ func (a *App) SaveSettings(input SettingsInput) error {
 				Model:       input.ChatParams.Model,
 				Temperature: input.ChatParams.Temperature,
 				MaxTokens:   input.ChatParams.MaxTokens,
+				TopP:        input.ChatParams.TopP,
 			},
 			EmbeddingsParams: config.EmbeddingsParams{
-				Model: input.EmbeddingsParams.Model,
+				Model:      input.EmbeddingsParams.Model,
+				Dimensions: input.EmbeddingsParams.Dimensions,
+			},
+			VoiceParams: config.VoiceParams{
+				Voice:     input.VoiceParams.Voice,
+				AutoSpeak: input.VoiceParams.AutoSpeak,
+				Volume:    input.VoiceParams.Volume,
+				Rate:      input.VoiceParams.Rate,
+			},
+			STTParams: config.STTParams{
+				Provider:      input.STTParams.Provider,
+				RecordingMode: input.STTParams.RecordingMode,
+			},
+			ChatDefaults: config.ChatDefaults{
+				UseTools:             input.ChatDefaults.UseTools,
+				ShowInternalMessages: input.ChatDefaults.ShowInternalMessages,
 			},
 			LastConversationID: existing.LastConversationID,
 		}

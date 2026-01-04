@@ -27,6 +27,19 @@
   // Região para anúncios
   let announcement = '';
 
+  // Helper para extrair modelo das preferências
+  function getModelFromConversation(conv) {
+    if (!conv.preferences) return null;
+    try {
+      const prefs = typeof conv.preferences === 'string' 
+        ? JSON.parse(conv.preferences) 
+        : conv.preferences;
+      return prefs?.model || null;
+    } catch (e) {
+      return null;
+    }
+  }
+
   // Definição das colunas
   const columns = [
     { 
@@ -36,10 +49,10 @@
       format: (value) => value || 'Sem título'
     },
     { 
-      key: 'model', 
+      key: 'preferences', 
       label: 'Modelo',
       width: '150px',
-      format: (value) => value || 'Padrão'
+      format: (value, item) => getModelFromConversation(item) || 'Padrão'
     },
     { 
       key: 'updated_at', 

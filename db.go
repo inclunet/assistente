@@ -11,6 +11,7 @@ import (
 // Re-exporta tipos do pacote database para manter compatibilidade
 type Conversation = database.Conversation
 type ChatMessage = database.ChatMessage
+type ChatPreferences = database.ChatPreferences
 type Memory = database.Memory
 type FAQ = database.FAQ
 type AgentConfig = database.AgentConfig
@@ -111,11 +112,10 @@ func (a *App) GetConversationWithThreads(id uint) (*ConversationWithThreads, err
 	}
 
 	return &ConversationWithThreads{
-		ID:                   conv.ID,
-		Title:                conv.Title,
-		Model:                conv.Model,
-		ShowInternalMessages: conv.ShowInternalMessages,
-		Threads:              threads,
+		ID:          conv.ID,
+		Title:       conv.Title,
+		Preferences: conv.GetPreferences(),
+		Threads:     threads,
 	}, nil
 }
 
@@ -210,6 +210,16 @@ func (a *App) UpdateConversationModel(id uint, model string) error {
 
 func (a *App) UpdateConversationSettings(id uint, showInternalMessages bool) error {
 	return database.UpdateConversationSettings(id, showInternalMessages)
+}
+
+// UpdateConversationPreferences atualiza as preferências locais de uma conversa
+func (a *App) UpdateConversationPreferences(id uint, prefs *ChatPreferences) error {
+	return database.UpdateConversationPreferences(id, prefs)
+}
+
+// GetConversationPreferences retorna as preferências de uma conversa
+func (a *App) GetConversationPreferences(id uint) (*ChatPreferences, error) {
+	return database.GetConversationPreferences(id)
 }
 
 // ==================== ChatMessage ====================

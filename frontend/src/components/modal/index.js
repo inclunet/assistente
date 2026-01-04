@@ -13,12 +13,14 @@
 // Componentes:
 //   - Modal: Modal genérico com título e conteúdo customizável
 //   - ImageModal: Modal otimizado para visualização de imagens
+//   - ConfigModal: Modal de configurações com Aplicar/Salvar/Cancelar
 // 
 // Uso:
-//   import { Modal, ImageModal } from './components/modal';
+//   import { Modal, ImageModal, ConfigModal } from './components/modal';
 //
 
 export { default as Modal } from './Modal.svelte';
 export { default as ImageModal } from './ImageModal.svelte';
+export { default as ConfigModal } from './ConfigModal.svelte';
 
 

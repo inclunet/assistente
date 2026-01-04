@@ -1,6 +1,7 @@
 package database
 
 import (
+	"encoding/json"
 	"fmt"
 	"path/filepath"
 	"strings"
@@ -51,7 +52,7 @@ func Init() error {
 	db.Exec("PRAGMA synchronous=NORMAL")
 
 	// Auto migrate
-	return db.AutoMigrate(
+	if err := db.AutoMigrate(
 		&Conversation{},
 		&ChatMessage{},
 		&FAQ{},
@@ -63,7 +64,11 @@ func Init() error {
 		&OAuthConnection{},
 		&ModelCapability{},
 		&FileAgentAuthorizedPath{},
-	)
+	); err != nil {
+		return err
+	}
+
+	return nil
 }
 
 // ==================== Conversation ====================
@@ -72,8 +77,29 @@ func Init() error {
 func CreateConversation(title, model string) (*Conversation, error) {
 	conv := &Conversation{
 		Title: title,
-		Model: model,
 	}
+	
+	// Se modelo fornecido, salva nas preferências
+	if model != "" {
+		conv.SetPreferences(&ChatPreferences{Model: model})
+	}
+	
+	if err := db.Create(conv).Error; err != nil {
+		return nil, err
+	}
+	return conv, nil
+}
+
+// CreateConversationWithPreferences cria uma nova conversa com preferências iniciais
+func CreateConversationWithPreferences(title string, prefs *ChatPreferences) (*Conversation, error) {
+	conv := &Conversation{
+		Title: title,
+	}
+	
+	if prefs != nil {
+		conv.SetPreferences(prefs)
+	}
+	
 	if err := db.Create(conv).Error; err != nil {
 		return nil, err
 	}
@@ -112,11 +138,27 @@ func GetConversationInfo(id uint) (*Conversation, error) {
 
 // UpdateConversation atualiza título e modelo da conversa
 func UpdateConversation(id uint, title, model string) error {
-	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
+	updates := map[string]interface{}{
 		"title":      title,
-		"model":      model,
 		"updated_at": time.Now(),
-	}).Error
+	}
+	
+	// Se modelo fornecido, atualiza nas preferências
+	if model != "" {
+		conv, err := GetConversationInfo(id)
+		if err == nil {
+			prefs := conv.GetPreferences()
+			if prefs == nil {
+				prefs = &ChatPreferences{}
+			}
+			prefs.Model = model
+			if prefsJSON, err := json.Marshal(prefs); err == nil {
+				updates["preferences"] = string(prefsJSON)
+			}
+		}
+	}
+	
+	return db.Model(&Conversation{}).Where("id = ?", id).Updates(updates).Error
 }
 
 // DeleteConversation deleta uma conversa e suas mensagens
@@ -127,20 +169,62 @@ func DeleteConversation(id uint) error {
 	return db.Delete(&Conversation{}, id).Error
 }
 
-// UpdateConversationModel atualiza apenas o modelo da conversa
+// UpdateConversationModel atualiza apenas o modelo da conversa (via preferências)
 func UpdateConversationModel(id uint, model string) error {
+	conv, err := GetConversationInfo(id)
+	if err != nil {
+		return err
+	}
+	
+	prefs := conv.GetPreferences()
+	if prefs == nil {
+		prefs = &ChatPreferences{}
+	}
+	prefs.Model = model
+	
+	return UpdateConversationPreferences(id, prefs)
+}
+
+// UpdateConversationSettings atualiza showInternalMessages (via preferências)
+func UpdateConversationSettings(id uint, showInternalMessages bool) error {
+	conv, err := GetConversationInfo(id)
+	if err != nil {
+		return err
+	}
+	
+	prefs := conv.GetPreferences()
+	if prefs == nil {
+		prefs = &ChatPreferences{}
+	}
+	prefs.ShowInternalMessages = &showInternalMessages
+	
+	return UpdateConversationPreferences(id, prefs)
+}
+
+// UpdateConversationPreferences atualiza as preferências locais de uma conversa
+func UpdateConversationPreferences(id uint, prefs *ChatPreferences) error {
+	var prefsJSON string
+	if prefs != nil {
+		data, err := json.Marshal(prefs)
+		if err != nil {
+			return err
+		}
+		prefsJSON = string(data)
+	}
+	
 	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"model":      model,
-		"updated_at": time.Now(),
+		"preferences": prefsJSON,
+		"updated_at":  time.Now(),
 	}).Error
 }
 
-// UpdateConversationSettings atualiza as configurações de exibição da conversa
-func UpdateConversationSettings(id uint, showInternalMessages bool) error {
-	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"show_internal_messages": showInternalMessages,
-		"updated_at":             time.Now(),
-	}).Error
+// GetConversationPreferences retorna as preferências de uma conversa
+func GetConversationPreferences(id uint) (*ChatPreferences, error) {
+	conv, err := GetConversationInfo(id)
+	if err != nil {
+		return nil, err
+	}
+	return conv.GetPreferences(), nil
 }
 
 // ==================== ChatMessage ====================

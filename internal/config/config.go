@@ -24,6 +24,26 @@ type EmbeddingsParams struct {
 	Dimensions int    `json:"dimensions,omitempty"` // Dimensões do vetor (se suportado pelo modelo)
 }
 
+// VoiceParams representa os parâmetros de voz TTS
+type VoiceParams struct {
+	Voice     string `json:"voice,omitempty"`      // ID da voz (ou "disabled")
+	AutoSpeak bool   `json:"auto_speak,omitempty"` // Falar respostas automaticamente
+	Volume    int    `json:"volume,omitempty"`     // 0-100
+	Rate      int    `json:"rate,omitempty"`       // -10 a 10
+}
+
+// STTParams representa os parâmetros de transcrição
+type STTParams struct {
+	Provider      string `json:"provider,omitempty"`       // "webspeech" ou "whisper"
+	RecordingMode string `json:"recording_mode,omitempty"` // "ptt", "toggle", "vad_silence", "vad_activity"
+}
+
+// ChatDefaults representa as preferências padrão do chat
+type ChatDefaults struct {
+	UseTools             bool `json:"use_tools,omitempty"`              // Usar agentes/ferramentas
+	ShowInternalMessages bool `json:"show_internal_messages,omitempty"` // Mostrar mensagens internas
+}
+
 // Config representa a configuração da aplicação
 type Config struct {
 	APIKey             string           `json:"api_key"`
@@ -33,6 +53,9 @@ type Config struct {
 	ImageModel         string           `json:"image_model,omitempty"`         // Modelo auxiliar para processar imagens (fallback)
 	ChatParams         ModelParams      `json:"chat_params,omitempty"`         // Parâmetros do modelo de chat
 	EmbeddingsParams   EmbeddingsParams `json:"embeddings_params,omitempty"`   // Parâmetros do modelo de embeddings
+	VoiceParams        VoiceParams      `json:"voice_params,omitempty"`        // Parâmetros de voz TTS
+	STTParams          STTParams        `json:"stt_params,omitempty"`          // Parâmetros de transcrição
+	ChatDefaults       ChatDefaults     `json:"chat_defaults,omitempty"`       // Preferências padrão do chat
 	LastConversationID uint             `json:"last_conversation_id,omitempty"`
 }
 
@@ -50,6 +73,20 @@ func DefaultConfig() *Config {
 		EmbeddingsParams: EmbeddingsParams{
 			Model:      "",
 			Dimensions: 0, // Usa o padrão do modelo
+		},
+		VoiceParams: VoiceParams{
+			Voice:     "disabled", // Desabilitado por padrão (usa leitor de telas)
+			AutoSpeak: true,
+			Volume:    100,
+			Rate:      0,
+		},
+		STTParams: STTParams{
+			Provider:      "webspeech",
+			RecordingMode: "ptt",
+		},
+		ChatDefaults: ChatDefaults{
+			UseTools:             true,
+			ShowInternalMessages: false,
 		},
 	}
 }

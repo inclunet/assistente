@@ -222,6 +222,10 @@ export function GetConversationInfo(arg1) {
   return window['go']['main']['App']['GetConversationInfo'](arg1);
 }
 
+export function GetConversationPreferences(arg1) {
+  return window['go']['main']['App']['GetConversationPreferences'](arg1);
+}
+
 export function GetConversationTokenStats(arg1) {
   return window['go']['main']['App']['GetConversationTokenStats'](arg1);
 }
@@ -572,6 +576,10 @@ export function UpdateConversation(arg1, arg2, arg3) {
 
 export function UpdateConversationModel(arg1, arg2) {
   return window['go']['main']['App']['UpdateConversationModel'](arg1, arg2);
+}
+
+export function UpdateConversationPreferences(arg1, arg2) {
+  return window['go']['main']['App']['UpdateConversationPreferences'](arg1, arg2);
 }
 
 export function UpdateConversationSettings(arg1, arg2) {

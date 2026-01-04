@@ -17,6 +17,52 @@ export namespace agents {
 
 export namespace config {
 	
+	export class ChatDefaults {
+	    use_tools?: boolean;
+	    show_internal_messages?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatDefaults(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.use_tools = source["use_tools"];
+	        this.show_internal_messages = source["show_internal_messages"];
+	    }
+	}
+	export class STTParams {
+	    provider?: string;
+	    recording_mode?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new STTParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.recording_mode = source["recording_mode"];
+	    }
+	}
+	export class VoiceParams {
+	    voice?: string;
+	    auto_speak?: boolean;
+	    volume?: number;
+	    rate?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.voice = source["voice"];
+	        this.auto_speak = source["auto_speak"];
+	        this.volume = source["volume"];
+	        this.rate = source["rate"];
+	    }
+	}
 	export class EmbeddingsParams {
 	    model?: string;
 	    dimensions?: number;
@@ -57,6 +103,9 @@ export namespace config {
 	    image_model?: string;
 	    chat_params?: ModelParams;
 	    embeddings_params?: EmbeddingsParams;
+	    voice_params?: VoiceParams;
+	    stt_params?: STTParams;
+	    chat_defaults?: ChatDefaults;
 	    last_conversation_id?: number;
 	
 	    static createFrom(source: any = {}) {
@@ -72,6 +121,9 @@ export namespace config {
 	        this.image_model = source["image_model"];
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.embeddings_params = this.convertValues(source["embeddings_params"], EmbeddingsParams);
+	        this.voice_params = this.convertValues(source["voice_params"], VoiceParams);
+	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
+	        this.chat_defaults = this.convertValues(source["chat_defaults"], ChatDefaults);
 	        this.last_conversation_id = source["last_conversation_id"];
 	    }
 	
@@ -93,6 +145,8 @@ export namespace config {
 		    return a;
 		}
 	}
+	
+	
 	
 
 }
@@ -207,11 +261,44 @@ export namespace database {
 		    return a;
 		}
 	}
+	export class ChatPreferences {
+	    model?: string;
+	    temperature?: number;
+	    max_tokens?: number;
+	    top_p?: number;
+	    use_tools?: boolean;
+	    show_internal_messages?: boolean;
+	    voice?: string;
+	    auto_speak?: boolean;
+	    voice_volume?: number;
+	    voice_rate?: number;
+	    stt_provider?: string;
+	    recording_mode?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatPreferences(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.model = source["model"];
+	        this.temperature = source["temperature"];
+	        this.max_tokens = source["max_tokens"];
+	        this.top_p = source["top_p"];
+	        this.use_tools = source["use_tools"];
+	        this.show_internal_messages = source["show_internal_messages"];
+	        this.voice = source["voice"];
+	        this.auto_speak = source["auto_speak"];
+	        this.voice_volume = source["voice_volume"];
+	        this.voice_rate = source["voice_rate"];
+	        this.stt_provider = source["stt_provider"];
+	        this.recording_mode = source["recording_mode"];
+	    }
+	}
 	export class Conversation {
 	    id: number;
 	    title: string;
-	    model: string;
-	    show_internal_messages: boolean;
+	    preferences?: string;
 	    created_at: time.Time;
 	    updated_at: time.Time;
 	    messages?: ChatMessage[];
@@ -224,8 +311,7 @@ export namespace database {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
-	        this.model = source["model"];
-	        this.show_internal_messages = source["show_internal_messages"];
+	        this.preferences = source["preferences"];
 	        this.created_at = this.convertValues(source["created_at"], time.Time);
 	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
@@ -607,6 +693,20 @@ export namespace database {
 
 export namespace llm {
 	
+	export class ChatDefaults {
+	    use_tools?: boolean;
+	    show_internal_messages?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatDefaults(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.use_tools = source["use_tools"];
+	        this.show_internal_messages = source["show_internal_messages"];
+	    }
+	}
 	export class ChatParams {
 	    model: string;
 	    maxTokens: number;
@@ -627,6 +727,7 @@ export namespace llm {
 	}
 	export class EmbeddingsParams {
 	    model: string;
+	    dimensions?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new EmbeddingsParams(source);
@@ -635,6 +736,7 @@ export namespace llm {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.model = source["model"];
+	        this.dimensions = source["dimensions"];
 	    }
 	}
 	export class FunctionCall {
@@ -725,6 +827,7 @@ export namespace llm {
 	    model: string;
 	    max_tokens: number;
 	    temperature: number;
+	    top_p?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ModelParams(source);
@@ -735,6 +838,39 @@ export namespace llm {
 	        this.model = source["model"];
 	        this.max_tokens = source["max_tokens"];
 	        this.temperature = source["temperature"];
+	        this.top_p = source["top_p"];
+	    }
+	}
+	export class STTParams {
+	    provider?: string;
+	    recording_mode?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new STTParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.recording_mode = source["recording_mode"];
+	    }
+	}
+	export class VoiceParams {
+	    voice?: string;
+	    auto_speak?: boolean;
+	    volume?: number;
+	    rate?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceParams(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.voice = source["voice"];
+	        this.auto_speak = source["auto_speak"];
+	        this.volume = source["volume"];
+	        this.rate = source["rate"];
 	    }
 	}
 	export class SettingsInput {
@@ -743,6 +879,9 @@ export namespace llm {
 	    chat_params: ModelParams;
 	    embeddings_params: EmbeddingsParams;
 	    image_model?: string;
+	    voice_params?: VoiceParams;
+	    stt_params?: STTParams;
+	    chat_defaults?: ChatDefaults;
 	
 	    static createFrom(source: any = {}) {
 	        return new SettingsInput(source);
@@ -755,6 +894,9 @@ export namespace llm {
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.embeddings_params = this.convertValues(source["embeddings_params"], EmbeddingsParams);
 	        this.image_model = source["image_model"];
+	        this.voice_params = this.convertValues(source["voice_params"], VoiceParams);
+	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
+	        this.chat_defaults = this.convertValues(source["chat_defaults"], ChatDefaults);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -824,6 +966,7 @@ export namespace llm {
 		}
 	}
 	
+	
 
 }
 
@@ -892,8 +1035,7 @@ export namespace main {
 	export class ConversationWithThreads {
 	    id: number;
 	    title: string;
-	    model: string;
-	    show_internal_messages: boolean;
+	    preferences?: database.ChatPreferences;
 	    threads: MessageNode[];
 	
 	    static createFrom(source: any = {}) {
@@ -904,8 +1046,7 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
-	        this.model = source["model"];
-	        this.show_internal_messages = source["show_internal_messages"];
+	        this.preferences = this.convertValues(source["preferences"], database.ChatPreferences);
 	        this.threads = this.convertValues(source["threads"], MessageNode);
 	    }
 	

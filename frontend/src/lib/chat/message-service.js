@@ -997,16 +997,32 @@ class MessageService extends EventTarget {
       // Carrega mensagens raiz (lazy loading)
       const rootMessages = await GetMessages(conversation.id, null);
       
-      this._stores.conversationId.set(conversation.id);
-      this._stores.conversationTitle.set(convInfo.title || 'Conversa sem título');
-      this._stores.conversationData.set({
+      // Extrai preferências do campo JSON
+      let preferences = null;
+      if (convInfo.preferences) {
+        try {
+          preferences = typeof convInfo.preferences === 'string' 
+            ? JSON.parse(convInfo.preferences) 
+            : convInfo.preferences;
+        } catch (e) {
+          console.warn('Erro ao parsear preferences:', e);
+        }
+      }
+      
+      // Monta dados da conversa (usa defaults se não tiver preferências)
+      const conversationData = {
         id: convInfo.id,
         title: convInfo.title,
-        model: convInfo.model,
-        show_internal_messages: convInfo.show_internal_messages,
+        model: preferences?.model || defaultModel,
+        show_internal_messages: preferences?.show_internal_messages ?? false,
+        preferences: preferences,
         threads: rootMessages
-      });
-      this._stores.showInternalMessages.set(convInfo.show_internal_messages || false);
+      };
+      
+      this._stores.conversationId.set(conversation.id);
+      this._stores.conversationTitle.set(convInfo.title || 'Conversa sem título');
+      this._stores.conversationData.set(conversationData);
+      this._stores.showInternalMessages.set(conversationData.show_internal_messages);
       
       // Extrai mensagens flat das raízes
       this._stores.messages.set(this._extractMessagesFromThreads(rootMessages));
@@ -1015,7 +1031,8 @@ class MessageService extends EventTarget {
         conversationId: get(this._stores.conversationId),
         title: get(this._stores.conversationTitle),
         messages: get(this._stores.messages),
-        model: convInfo.model || defaultModel
+        model: conversationData.model,
+        preferences: preferences
       });
       
       return true;

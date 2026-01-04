@@ -7,15 +7,58 @@ import (
 
 // ==================== Conversation & Messages ====================
 
+// ChatPreferences representa as preferências locais de uma conversa
+type ChatPreferences struct {
+	// Chat
+	Model                string  `json:"model,omitempty"`
+	Temperature          float64 `json:"temperature,omitempty"`
+	MaxTokens            int     `json:"max_tokens,omitempty"`
+	TopP                 float64 `json:"top_p,omitempty"`
+	UseTools             *bool   `json:"use_tools,omitempty"`
+	ShowInternalMessages *bool   `json:"show_internal_messages,omitempty"`
+	// Voz TTS
+	Voice       string `json:"voice,omitempty"`
+	AutoSpeak   *bool  `json:"auto_speak,omitempty"`
+	VoiceVolume int    `json:"voice_volume,omitempty"`
+	VoiceRate   int    `json:"voice_rate,omitempty"`
+	// STT/Transcrição
+	STTProvider   string `json:"stt_provider,omitempty"`
+	RecordingMode string `json:"recording_mode,omitempty"`
+}
+
 // Conversation representa uma conversa
 type Conversation struct {
-	ID                   uint          `json:"id" gorm:"primaryKey"`
-	Title                string        `json:"title"`
-	Model                string        `json:"model"`
-	ShowInternalMessages bool          `json:"show_internal_messages" gorm:"default:false"` // Exibir mensagens internas (tool calls, debug)
-	CreatedAt            time.Time     `json:"created_at"`
-	UpdatedAt            time.Time     `json:"updated_at"`
-	Messages             []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
+	ID          uint          `json:"id" gorm:"primaryKey"`
+	Title       string        `json:"title"`
+	Preferences string        `json:"preferences,omitempty" gorm:"type:text"` // JSON das preferências locais
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt             time.Time     `json:"updated_at"`
+	Messages    []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
+}
+
+// GetPreferences retorna as preferências da conversa deserializadas
+func (c *Conversation) GetPreferences() *ChatPreferences {
+	if c.Preferences == "" {
+		return nil
+	}
+	var prefs ChatPreferences
+	if err := json.Unmarshal([]byte(c.Preferences), &prefs); err != nil {
+		return nil
+	}
+	return &prefs
+}
+
+// SetPreferences define as preferências da conversa
+func (c *Conversation) SetPreferences(prefs *ChatPreferences) {
+	if prefs == nil {
+		c.Preferences = ""
+		return
+	}
+	data, err := json.Marshal(prefs)
+	if err != nil {
+		return
+	}
+	c.Preferences = string(data)
 }
 
 // ChatMessage representa uma mensagem na conversa

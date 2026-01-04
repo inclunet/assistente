@@ -175,11 +175,14 @@ type ChatParams struct {
 
 // SettingsInput representa os parâmetros de entrada para salvar configurações
 type SettingsInput struct {
-	APIKey           string             `json:"api_key"`
-	APIBaseURL       string             `json:"api_base_url"`
-	ChatParams       ModelParams        `json:"chat_params"`
-	EmbeddingsParams EmbeddingsParams   `json:"embeddings_params"`
-	ImageModel       string             `json:"image_model,omitempty"`
+	APIKey           string           `json:"api_key"`
+	APIBaseURL       string           `json:"api_base_url"`
+	ChatParams       ModelParams      `json:"chat_params"`
+	EmbeddingsParams EmbeddingsParams `json:"embeddings_params"`
+	ImageModel       string           `json:"image_model,omitempty"`
+	VoiceParams      VoiceParams      `json:"voice_params,omitempty"`
+	STTParams        STTParams        `json:"stt_params,omitempty"`
+	ChatDefaults     ChatDefaults     `json:"chat_defaults,omitempty"`
 }
 
 // ModelParams representa parâmetros do modelo de chat
@@ -187,11 +190,33 @@ type ModelParams struct {
 	Model       string  `json:"model"`
 	MaxTokens   int     `json:"max_tokens"`
 	Temperature float64 `json:"temperature"`
+	TopP        float64 `json:"top_p,omitempty"`
 }
 
 // EmbeddingsParams representa parâmetros do modelo de embeddings
 type EmbeddingsParams struct {
-	Model string `json:"model"`
+	Model      string `json:"model"`
+	Dimensions int    `json:"dimensions,omitempty"`
+}
+
+// VoiceParams representa parâmetros de voz TTS
+type VoiceParams struct {
+	Voice     string `json:"voice,omitempty"`
+	AutoSpeak bool   `json:"auto_speak,omitempty"`
+	Volume    int    `json:"volume,omitempty"`
+	Rate      int    `json:"rate,omitempty"`
+}
+
+// STTParams representa parâmetros de transcrição
+type STTParams struct {
+	Provider      string `json:"provider,omitempty"`
+	RecordingMode string `json:"recording_mode,omitempty"`
+}
+
+// ChatDefaults representa preferências padrão do chat
+type ChatDefaults struct {
+	UseTools             bool `json:"use_tools,omitempty"`
+	ShowInternalMessages bool `json:"show_internal_messages,omitempty"`
 }
 
 // ==================== Helper Functions ====================

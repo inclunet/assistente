@@ -117,6 +117,8 @@ export function GetConversation(arg1:number):Promise<database.Conversation>;
 
 export function GetConversationInfo(arg1:number):Promise<database.Conversation>;
 
+export function GetConversationPreferences(arg1:number):Promise<database.ChatPreferences>;
+
 export function GetConversationTokenStats(arg1:number):Promise<Record<string, number>>;
 
 export function GetConversationWithThreads(arg1:number):Promise<main.ConversationWithThreads>;
@@ -292,6 +294,8 @@ export function UpdateAgentConfig(arg1:number,arg2:string,arg3:string,arg4:strin
 export function UpdateConversation(arg1:number,arg2:string,arg3:string):Promise<void>;
 
 export function UpdateConversationModel(arg1:number,arg2:string):Promise<void>;
+
+export function UpdateConversationPreferences(arg1:number,arg2:database.ChatPreferences):Promise<void>;
 
 export function UpdateConversationSettings(arg1:number,arg2:boolean):Promise<void>;
 

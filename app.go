@@ -47,11 +47,10 @@ type MessageNode struct {
 
 // ConversationWithThreads representa uma conversa com mensagens organizadas em árvore
 type ConversationWithThreads struct {
-	ID                   uint          `json:"id"`
-	Title                string        `json:"title"`
-	Model                string        `json:"model"`
-	ShowInternalMessages bool          `json:"show_internal_messages"`
-	Threads              []MessageNode `json:"threads"`
+	ID          uint                       `json:"id"`
+	Title       string                     `json:"title"`
+	Preferences *database.ChatPreferences  `json:"preferences,omitempty"`
+	Threads     []MessageNode              `json:"threads"`
 }
 
 // StreamEvent representa um evento de streaming simplificado

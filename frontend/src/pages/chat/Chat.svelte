@@ -2,7 +2,9 @@
   import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
   import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime.js';
   import { SendMessage, GetModels, SetDefaultModel, GetCoreMemories, GenerateImageDescription } from '../../../wailsjs/go/main/App.js';
-  import { Modal, ImageModal } from '../../components/modal';
+  import { Modal, ImageModal, ConfigModal } from '../../components/modal';
+  import { ChatPreferences } from '../../components/preferences';
+  import { UpdateConversationPreferences, GetConversationPreferences } from '../../../wailsjs/go/main/App.js';
   import { Markdown } from '../../components/markdown';
   import VoiceButton from './VoiceButton.svelte';
   import { Toolbar } from '../../components/toolbar';
@@ -109,9 +111,18 @@
   let selectedModel = defaultModel || '';
   let maxTokens = defaultChatParams.max_tokens || 4096;
   let temperature = defaultChatParams.temperature || 0.7;
+  let topP = defaultChatParams.top_p || 1.0;
   let useTools = true; // Usar ferramentas (FAQ) por padrão
   let showSettings = false;
   let maxTokensInput; // Referência para focar no modal de ajustes
+  
+  // ==================== Modal de Preferências ====================
+  let chatPreferencesComponent; // Referência ao ChatPreferences
+  let applyingPrefs = false;
+  let savingPrefs = false;
+  let prefsHaveChanges = false;
+  // Cópia dos valores originais para detectar mudanças
+  let originalPrefs = {};
   
   // Voice/Speech
   let voiceButtonComponent;
@@ -1315,9 +1326,27 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
         throw new Error('Conversa não encontrada');
       }
       
-      // Sincroniza modelo local com a conversa carregada
-      if ($conversationData?.model) {
-        selectedModel = $conversationData.model;
+      // Sincroniza preferências locais com a conversa carregada
+      const convData = $conversationData;
+      const prefs = convData?.preferences;
+      
+      // Carrega preferências da conversa (novo campo) ou valores legacy
+      if (prefs) {
+        // Usa preferências do novo campo
+        if (prefs.model) selectedModel = prefs.model;
+        if (prefs.temperature !== undefined) temperature = prefs.temperature;
+        if (prefs.max_tokens !== undefined) maxTokens = prefs.max_tokens;
+        if (prefs.top_p !== undefined) topP = prefs.top_p;
+        if (prefs.use_tools !== undefined) useTools = prefs.use_tools;
+        if (prefs.voice !== undefined) selectedVoice = prefs.voice;
+        if (prefs.auto_speak !== undefined) autoSpeak = prefs.auto_speak;
+        if (prefs.voice_volume !== undefined) voiceVolume = prefs.voice_volume;
+        if (prefs.voice_rate !== undefined) voiceRate = prefs.voice_rate;
+        if (prefs.stt_provider !== undefined) selectedSTTProvider = prefs.stt_provider;
+        if (prefs.recording_mode !== undefined) recordingMode = prefs.recording_mode;
+      } else if (convData?.model) {
+        // Fallback para campo legacy
+        selectedModel = convData.model;
       }
       
       scrollToBottom();
@@ -1329,11 +1358,136 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   function toggleSettings() {
     showSettings = !showSettings;
     if (showSettings) {
-      // Foca no primeiro input após o modal abrir
-      setTimeout(() => {
-        maxTokensInput?.focus();
-      }, 50);
+      // Salva valores originais para detectar mudanças
+      originalPrefs = {
+        model: selectedModel,
+        temperature,
+        maxTokens,
+        topP,
+        useTools,
+        showInternalMessages: $showInternalMessages,
+        voice: selectedVoice,
+        autoSpeak,
+        voiceVolume,
+        voiceRate,
+        sttProvider: selectedSTTProvider,
+        recordingMode
+      };
+      prefsHaveChanges = false;
     }
+  }
+  
+  function handlePreferencesChange(event) {
+    // Verifica se há mudanças comparando com os originais
+    const prefs = chatPreferencesComponent?.getPreferences?.() || event.detail.preferences;
+    prefsHaveChanges = 
+      prefs.model !== originalPrefs.model ||
+      prefs.temperature !== originalPrefs.temperature ||
+      prefs.maxTokens !== originalPrefs.maxTokens ||
+      prefs.topP !== originalPrefs.topP ||
+      prefs.useTools !== originalPrefs.useTools ||
+      prefs.showInternalMessages !== originalPrefs.showInternalMessages ||
+      prefs.voice !== originalPrefs.voice ||
+      prefs.autoSpeak !== originalPrefs.autoSpeak ||
+      prefs.voiceVolume !== originalPrefs.voiceVolume ||
+      prefs.voiceRate !== originalPrefs.voiceRate ||
+      prefs.sttProvider !== originalPrefs.sttProvider ||
+      prefs.recordingMode !== originalPrefs.recordingMode;
+  }
+  
+  async function applyPreferences() {
+    const prefs = chatPreferencesComponent?.getPreferences?.();
+    if (!prefs) return;
+    
+    applyingPrefs = true;
+    try {
+      // Atualiza os valores locais
+      selectedModel = prefs.model;
+      temperature = prefs.temperature;
+      maxTokens = prefs.maxTokens;
+      topP = prefs.topP;
+      useTools = prefs.useTools;
+      
+      // Atualiza showInternalMessages no store
+      if (prefs.showInternalMessages !== $showInternalMessages) {
+        messageService.setShowInternalMessages(prefs.showInternalMessages);
+        if ($conversationId) {
+          await messageService.updateSettings(prefs.showInternalMessages);
+        }
+      }
+      
+      // Atualiza voz
+      if (prefs.voice !== selectedVoice) {
+        selectedVoice = prefs.voice;
+        // Atualiza TTS provider
+        if (selectedVoice === VOICE_DISABLED) {
+          ttsService.setProvider(TTS_PROVIDERS.DISABLED);
+        }
+      }
+      autoSpeak = prefs.autoSpeak;
+      voiceVolume = prefs.voiceVolume;
+      voiceRate = prefs.voiceRate;
+      
+      // Atualiza STT
+      selectedSTTProvider = prefs.sttProvider;
+      recordingMode = prefs.recordingMode;
+      
+      // Persiste na conversa atual se existir
+      if ($conversationId) {
+        await UpdateConversationPreferences($conversationId, {
+          model: prefs.model,
+          temperature: prefs.temperature,
+          max_tokens: prefs.maxTokens,
+          top_p: prefs.topP,
+          use_tools: prefs.useTools,
+          show_internal_messages: prefs.showInternalMessages,
+          voice: prefs.voice,
+          auto_speak: prefs.autoSpeak,
+          voice_volume: prefs.voiceVolume,
+          voice_rate: prefs.voiceRate,
+          stt_provider: prefs.sttProvider,
+          recording_mode: prefs.recordingMode
+        });
+      }
+      
+      // Atualiza originais
+      originalPrefs = { ...prefs };
+      prefsHaveChanges = false;
+      
+      liveMessage = 'Preferências aplicadas';
+    } catch (error) {
+      console.error('Erro ao aplicar preferências:', error);
+      liveMessage = 'Erro ao aplicar preferências';
+    } finally {
+      applyingPrefs = false;
+    }
+  }
+  
+  async function savePreferences() {
+    await applyPreferences();
+    showSettings = false;
+  }
+  
+  function cancelPreferences() {
+    // Restaura valores originais
+    selectedModel = originalPrefs.model;
+    temperature = originalPrefs.temperature;
+    maxTokens = originalPrefs.maxTokens;
+    topP = originalPrefs.topP;
+    useTools = originalPrefs.useTools;
+    selectedVoice = originalPrefs.voice;
+    autoSpeak = originalPrefs.autoSpeak;
+    voiceVolume = originalPrefs.voiceVolume;
+    voiceRate = originalPrefs.voiceRate;
+    selectedSTTProvider = originalPrefs.sttProvider;
+    recordingMode = originalPrefs.recordingMode;
+    
+    // Restaura showInternalMessages se mudou
+    if (originalPrefs.showInternalMessages !== $showInternalMessages) {
+      messageService.setShowInternalMessages(originalPrefs.showInternalMessages);
+    }
+    
+    showSettings = false;
   }
 
   function handleModelChange(event) {
@@ -2343,79 +2497,34 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     {/if}
   </Toolbar>
 
-  <Modal title="Configurações do Chat" open={showSettings} on:close={() => showSettings = false} autoFocus={false}>
-    <div class="param-group">
-      <label for="max-tokens">Máximo de Tokens: <strong>{maxTokens}</strong></label>
-      <p class="param-description">Limite de tokens na resposta. Valores maiores permitem respostas mais longas.</p>
-      <input
-        id="max-tokens"
-        type="range"
-        bind:this={maxTokensInput}
-        bind:value={maxTokens}
-        min="100"
-        max="16000"
-        step="100"
-        aria-valuemin="100"
-        aria-valuemax="16000"
-        aria-valuenow={maxTokens}
-      />
-      <div class="range-labels" aria-hidden="true">
-        <span>100</span>
-        <span>16000</span>
-      </div>
-    </div>
-    
-    <div class="param-group">
-      <label for="temperature">Temperatura: <strong>{temperature}</strong></label>
-      <p class="param-description">Controla a criatividade. Valores menores são mais precisos, maiores são mais criativos.</p>
-      <input
-        id="temperature"
-        type="range"
-        bind:value={temperature}
-        min="0"
-        max="2"
-        step="0.1"
-        aria-valuemin="0"
-        aria-valuemax="2"
-        aria-valuenow={temperature}
-      />
-      <div class="range-labels" aria-hidden="true">
-        <span>Preciso (0)</span>
-        <span>Criativo (2)</span>
-      </div>
-    </div>
-    
-    <div class="param-group">
-      <label class="toggle-label">
-        <input
-          type="checkbox"
-          bind:checked={useTools}
-          aria-describedby="tools-description"
-        />
-        Usar Agentes e Ferramentas
-      </label>
-      <p id="tools-description" class="param-description">
-        Permite que o assistente delegue tarefas para agentes especializados (FAQ, memória, arquivos, geração de imagens).
-      </p>
-    </div>
-    
-    <hr class="param-separator" />
-    
-    <div class="param-group">
-      <label class="toggle-label">
-        <input
-          type="checkbox"
-          bind:checked={$showInternalMessages}
-          on:change={async () => { if ($conversationId) await messageService.updateSettings($showInternalMessages); }}
-          aria-describedby="internal-messages-description"
-        />
-        Mostrar Mensagens Internas
-      </label>
-      <p id="internal-messages-description" class="param-description">
-        Exibe mensagens de debug: chamadas de agentes, tool calls e resultados. Útil para entender o que o assistente está fazendo internamente.
-      </p>
-    </div>
-  </Modal>
+  <!-- Modal de Preferências da Conversa -->
+  <ConfigModal 
+    title="Preferências da Conversa" 
+    open={showSettings}
+    hasChanges={prefsHaveChanges}
+    applying={applyingPrefs}
+    saving={savingPrefs}
+    on:apply={applyPreferences}
+    on:save={savePreferences}
+    on:cancel={cancelPreferences}
+  >
+    <ChatPreferences
+      bind:this={chatPreferencesComponent}
+      bind:model={selectedModel}
+      bind:temperature={temperature}
+      bind:maxTokens={maxTokens}
+      bind:topP={topP}
+      bind:useTools={useTools}
+      bind:showInternalMessages={$showInternalMessages}
+      bind:voice={selectedVoice}
+      bind:autoSpeak={autoSpeak}
+      bind:voiceVolume={voiceVolume}
+      bind:voiceRate={voiceRate}
+      bind:sttProvider={selectedSTTProvider}
+      bind:recordingMode={recordingMode}
+      on:change={handlePreferencesChange}
+    />
+  </ConfigModal>
 
   <!-- Modal de Configurações de Voz -->
   <Modal title="Configurações de Voz" open={showVoiceSettings} on:close={() => showVoiceSettings = false} autoFocus={false}>

@@ -76,11 +76,10 @@ func (a *App) GetConversationWithThreads(id uint) (*ConversationWithThreads, err
     threads := buildMessageTree(conv.Messages)
     
     return &ConversationWithThreads{
-        ID:                   conv.ID,
-        Title:                conv.Title,
-        Model:                conv.Model,
-        ShowInternalMessages: conv.ShowInternalMessages,
-        Threads:              threads,
+        ID:          conv.ID,
+        Title:       conv.Title,
+        Preferences: conv.GetPreferences(), // JSON com model, show_internal_messages, etc.
+        Threads:     threads,
     }, nil
 }
 ```
