@@ -10,6 +10,7 @@ export {
   STT_GOOGLE,
   STT_REALTIME
 } from './STTProviderPicker.svelte';
+export { default as ConversationPicker } from './ConversationPicker.svelte';
 
 
 

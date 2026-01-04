@@ -312,6 +312,28 @@
       updateTabTitle(tabId, title);
     }
   }
+  
+  /**
+   * Quando uma conversa é selecionada via picker de histórico
+   * Carrega a conversa na aba atual
+   */
+  async function handleConversationSelected(tabId, event) {
+    const { conversationId, conversation } = event.detail || {};
+    if (conversationId && conversation) {
+      // Atualiza a aba com os dados da conversa
+      updateTabConversation(tabId, conversationId, conversation.title);
+      
+      // Carrega a conversa no messageService da aba
+      const service = serviceMap.get(tabId);
+      if (service) {
+        try {
+          await service.loadConversation(conversation, defaultModel);
+        } catch (e) {
+          console.error('[ChatTabs] Erro ao carregar conversa selecionada:', e);
+        }
+      }
+    }
+  }
 
   // ========================================
   // Migração do sistema antigo
@@ -375,28 +397,12 @@
       await migrateFromSingleChat();
     }
     
-    // Adiciona listener de teclado para Ctrl+T
-    window.addEventListener('keydown', handleKeyDown);
-    
     // Foca no input após inicialização
     await tick();
     focusInput();
   });
   
-  // Handler de teclado para atalhos globais
-  function handleKeyDown(event) {
-    // Ctrl+T: Nova aba
-    if (event.ctrlKey && event.key.toLowerCase() === 't') {
-      event.preventDefault();
-      event.stopPropagation();
-      handleAddTab();
-    }
-  }
-  
   onDestroy(() => {
-    // Remove listener de teclado
-    window.removeEventListener('keydown', handleKeyDown);
-    
     // Salva estado final
     saveTabsState();
     
@@ -447,6 +453,7 @@
           on:conversationCreated={(e) => handleConversationCreated(tabId, e)}
           on:conversationUpdated={(e) => handleConversationCreated(tabId, e)}
           on:titleChanged={(e) => handleTitleChanged(tabId, e)}
+          on:conversationSelected={(e) => handleConversationSelected(tabId, e)}
         />
       {/if}
     </svelte:fragment>

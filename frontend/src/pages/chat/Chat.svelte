@@ -6,7 +6,7 @@
   import { Markdown } from '../../components/markdown';
   import VoiceButton from './VoiceButton.svelte';
   import { Toolbar } from '../../components/toolbar';
-  import { ModelPicker, VoicePicker, STTProviderPicker, VOICE_DISABLED, STT_WEBSPEECH, STT_WHISPER } from '../../components/pickers';
+  import { ModelPicker, VoicePicker, STTProviderPicker, ConversationPicker, VOICE_DISABLED, STT_WEBSPEECH, STT_WHISPER } from '../../components/pickers';
   import { ttsService, TTSService, TTS_PROVIDERS } from '../../lib/speech/index.js';
   import { playSound, SOUND_TYPES } from '../../lib/audio-feedback.js';
   import { ContextMenu, ContextMenuTrigger } from '../../components/contextmenu';
@@ -125,6 +125,7 @@
   let voicePickerComponent;
   let modelPickerComponent;
   let sttPickerComponent;
+  let conversationPickerComponent;
   
   // Configurações de voz
   let showVoiceSettings = false;
@@ -212,11 +213,32 @@
         modelPickerComponent.open();
       }
     }
-    // Ctrl+P: Abrir configurações do modelo
+    // Ctrl+P: Abrir preferências
     else if (event.ctrlKey && event.key.toLowerCase() === 'p') {
       event.preventDefault();
       if (hasApiKey) {
         toggleSettings();
+      }
+    }
+    // Ctrl+H: Abrir histórico de conversas
+    else if (event.ctrlKey && event.key.toLowerCase() === 'h') {
+      event.preventDefault();
+      if (conversationPickerComponent) {
+        conversationPickerComponent.open();
+      }
+    }
+    // Ctrl+S: Abrir seletor de transcrição (Speech to Text)
+    else if (event.ctrlKey && event.key.toLowerCase() === 's') {
+      event.preventDefault();
+      if (hasApiKey && voiceEnabled && sttPickerComponent) {
+        sttPickerComponent.open();
+      }
+    }
+    // Ctrl+T: Abrir seletor de voz TTS
+    else if (event.ctrlKey && event.key.toLowerCase() === 't') {
+      event.preventDefault();
+      if (hasApiKey && voiceEnabled && voicePickerComponent) {
+        voicePickerComponent.open();
       }
     }
     // Alt+M: Ativar microfone
@@ -1322,6 +1344,16 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     }
     SetDefaultModel(selectedModel).catch(console.error);
   }
+  
+  /**
+   * Quando uma conversa é selecionada no picker de histórico
+   */
+  function handleConversationSelect(event) {
+    const { conversationId, conversation } = event.detail;
+    if (conversationId && conversation) {
+      dispatch('conversationSelected', { conversationId, conversation });
+    }
+  }
 
   /**
    * Salva a preferência de exibir mensagens internas na conversa
@@ -2233,47 +2265,57 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       <button 
         class="toolbar-btn"
         on:click={onNewTab}
-        aria-label="Nova aba, Ctrl+T"
-        title="Nova aba (Ctrl+T)"
+        aria-label="Nova aba"
+        title="Nova aba"
       >
         <span aria-hidden="true">📑</span> Nova Aba
       </button>
     {/if}
     
+    <!-- Seletor de Histórico (Ctrl+H) -->
+    <ConversationPicker
+      bind:this={conversationPickerComponent}
+      label="Histórico (Ctrl+H)"
+      icon="📂"
+      disabled={isLoading}
+      on:select={handleConversationSelect}
+      on:announce={(e) => liveMessage = e.detail.message}
+    />
+    
     <div class="toolbar-separator" aria-hidden="true"></div>
     
     {#if hasApiKey}
-      <!-- Seletor de Modelo -->
+      <!-- Seletor de Modelo (Ctrl+O) -->
       <ModelPicker
         bind:this={modelPickerComponent}
         bind:value={selectedModel}
-        label="Modelo"
+        label="Modelo (Ctrl+O)"
         disabled={isLoading}
         on:change={handleModelChange}
         on:announce={(e) => liveMessage = e.detail.message}
       />
       
-      <!-- Seletor de Provedor STT -->
-      {#if voiceEnabled}
-        <STTProviderPicker
-          bind:this={sttPickerComponent}
-          bind:value={selectedSTTProvider}
-          label="Transcrição"
-          disabled={isLoading}
-          on:change={handleSTTProviderChange}
-          on:announce={(e) => liveMessage = e.detail.message}
-        />
-      {/if}
-      
-      <!-- Seletor de Voz TTS -->
+      <!-- Seletor de Voz TTS (Ctrl+T) -->
       {#if voiceEnabled}
         <VoicePicker
           bind:this={voicePickerComponent}
           bind:value={selectedVoice}
-          label="Voz"
+          label="Voz (Ctrl+T)"
           disabled={isLoading}
           language="pt"
           on:change={handleVoiceChange}
+          on:announce={(e) => liveMessage = e.detail.message}
+        />
+      {/if}
+      
+      <!-- Seletor de Provedor STT (Ctrl+S) -->
+      {#if voiceEnabled}
+        <STTProviderPicker
+          bind:this={sttPickerComponent}
+          bind:value={selectedSTTProvider}
+          label="Transcrição (Ctrl+S)"
+          disabled={isLoading}
+          on:change={handleSTTProviderChange}
           on:announce={(e) => liveMessage = e.detail.message}
         />
         
@@ -2293,10 +2335,10 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
         class="toolbar-btn"
         on:click={toggleSettings}
         aria-expanded={showSettings}
-        aria-label="Parâmetros do modelo, Ctrl+P"
-        title="Parâmetros (Ctrl+P)"
+        aria-label="Preferências, Ctrl+P"
+        title="Preferências (Ctrl+P)"
       >
-        <span aria-hidden="true">⚙️</span> Parâmetros
+        <span aria-hidden="true">⚙️</span> Preferências
       </button>
     {/if}
   </Toolbar>
