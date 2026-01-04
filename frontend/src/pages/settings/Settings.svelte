@@ -226,11 +226,11 @@
     }
   }
 
-  // silent = true evita disparar o evento 'saved' (usado durante testes)
+  // Retorna true se salvar com sucesso, false se falhar
   async function handleSave(silent = false) {
     if (!apiKey.trim()) {
       showMessage('error', 'A chave de API é obrigatória.');
-      return;
+      return false;
     }
 
     saving = true;
@@ -269,8 +269,10 @@
         saveOriginalValues();
         dispatch('saved');
       }
+      return true;
     } catch (error) {
       showMessage('error', 'Erro ao salvar: ' + error);
+      return false;
     } finally {
       saving = false;
     }
@@ -287,8 +289,8 @@
 
     try {
       // Primeiro salva as configurações (silenciosamente)
-      await handleSave(true);
-      if (message.type === 'error') {
+      const saved = await handleSave(true);
+      if (!saved) {
         return;
       }
 
@@ -317,8 +319,8 @@
 
     try {
       // Primeiro salva as configurações (silenciosamente)
-      await handleSave(true);
-      if (message.type === 'error') {
+      const saved = await handleSave(true);
+      if (!saved) {
         return;
       }
 
