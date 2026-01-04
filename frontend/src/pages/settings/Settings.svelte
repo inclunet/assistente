@@ -226,7 +226,8 @@
     }
   }
 
-  async function handleSave() {
+  // silent = true evita disparar o evento 'saved' (usado durante testes)
+  async function handleSave(silent = false) {
     if (!apiKey.trim()) {
       showMessage('error', 'A chave de API é obrigatória.');
       return;
@@ -263,9 +264,13 @@
           show_internal_messages: showInternalMessages
         }
       });
-      showMessage('success', 'Configurações salvas com sucesso!');
+      if (!silent) {
+        showMessage('success', 'Configurações salvas com sucesso!');
+      }
       saveOriginalValues();
-      dispatch('saved');
+      if (!silent) {
+        dispatch('saved');
+      }
     } catch (error) {
       showMessage('error', 'Erro ao salvar: ' + error);
     } finally {
@@ -279,8 +284,8 @@
       return;
     }
 
-    // Primeiro salva as configurações
-    await handleSave();
+    // Primeiro salva as configurações (silenciosamente, sem navegar)
+    await handleSave(true);
     if (message.type === 'error') return;
 
     testing = true;
@@ -304,8 +309,8 @@
       return;
     }
 
-    // Primeiro salva as configurações
-    await handleSave();
+    // Primeiro salva as configurações (silenciosamente, sem navegar)
+    await handleSave(true);
     if (message.type === 'error') return;
 
     testingEmbeddings = true;
