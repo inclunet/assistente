@@ -266,9 +266,7 @@
       });
       if (!silent) {
         showMessage('success', 'Configurações salvas com sucesso!');
-      }
-      saveOriginalValues();
-      if (!silent) {
+        saveOriginalValues();
         dispatch('saved');
       }
     } catch (error) {
