@@ -33,6 +33,20 @@ func DB() *gorm.DB {
 	return db
 }
 
+// Close fecha a conexão com o banco de dados
+func Close() error {
+	if db == nil {
+		return nil
+	}
+	
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	
+	return sqlDB.Close()
+}
+
 // Init inicializa o banco de dados
 func Init() error {
 	configPath, err := config.GetConfigPath()

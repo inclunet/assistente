@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"assistente/internal/config"
 	"assistente/internal/database"
@@ -640,6 +641,14 @@ func (a *App) ResetDatabase() error {
 	}
 
 	dbPath := filepath.Join(filepath.Dir(configPath), "conversations.db")
+
+	// Fecha a conexão com o banco de dados antes de deletar
+	if err := database.Close(); err != nil {
+		return fmt.Errorf("erro ao fechar banco de dados: %v", err)
+	}
+
+	// Aguarda um momento para garantir que o arquivo foi liberado
+	time.Sleep(100 * time.Millisecond)
 
 	// Verifica se o arquivo existe
 	if _, err := os.Stat(dbPath); err == nil {
