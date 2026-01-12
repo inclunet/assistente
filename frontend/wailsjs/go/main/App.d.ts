@@ -229,6 +229,10 @@ export function RegenerateSingleFAQEmbedding(arg1:number):Promise<void>;
 
 export function ReloadLLMClient():Promise<void>;
 
+export function ResetConfig():Promise<void>;
+
+export function ResetDatabase():Promise<void>;
+
 export function SaveOrUpdateAgentConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:boolean):Promise<database.AgentConfig>;
 
 export function SaveSettings(arg1:llm.SettingsInput):Promise<void>;
@@ -278,6 +282,8 @@ export function SynthesizeOpenAIWithVoice(arg1:string,arg2:string):Promise<main.
 export function TestAgent(arg1:string,arg2:string):Promise<string>;
 
 export function TestConnection():Promise<boolean>;
+
+export function TestConnectionWithModels():Promise<Array<string>>;
 
 export function TestEmbeddings():Promise<string>;
 

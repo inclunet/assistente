@@ -77,7 +77,26 @@
       new: () => startNewConversation()
     },
     settings: {
-      saved: () => { hasApiKey = true; currentPage = 'chat'; }
+      saved: async () => { 
+        // Recarrega configuração para atualizar hasApiKey e defaultModel
+        try {
+          const config = await GetConfig();
+          hasApiKey = config && config.api_key && config.api_key.length > 0;
+          
+          if (config.chat_params && config.chat_params.model) {
+            defaultModel = config.chat_params.model;
+          } else {
+            defaultModel = config.default_model || '';
+          }
+          
+          // Só navega para chat se tiver API key e modelo
+          if (hasApiKey && defaultModel) {
+            currentPage = 'chat';
+          }
+        } catch (error) {
+          console.error('Erro ao recarregar configuração:', error);
+        }
+      }
     }
   };
 
@@ -85,6 +104,13 @@
   // Navegação
   // ========================================
   function navigateTo(page) {
+    // Bloqueia acesso ao chat se não houver modelo configurado
+    if (page === 'chat' && (!hasApiKey || !defaultModel)) {
+      showBlockedMessage();
+      currentPage = 'settings';
+      return;
+    }
+
     currentPage = page;
     
     // Foca no grid quando navegar para listas
@@ -100,8 +126,19 @@
   }
 
   function startNewConversation() {
+    // Bloqueia se não houver modelo configurado
+    if (!hasApiKey || !defaultModel) {
+      showBlockedMessage();
+      currentPage = 'settings';
+      return;
+    }
+
     currentPage = 'chat';
     setTimeout(() => chatTabsRef?.startNewConversation?.(), 0);
+  }
+
+  function showBlockedMessage() {
+    alert('Você precisa configurar a API e selecionar um modelo LLM padrão antes de acessar o chat. Por favor, complete a configuração primeiro.');
   }
 
   // ========================================
@@ -131,7 +168,7 @@
       
       configLoaded = true;
       
-      if (!hasApiKey) {
+      if (!hasApiKey || !defaultModel) {
         currentPage = 'settings';
       }
     } catch (error) {

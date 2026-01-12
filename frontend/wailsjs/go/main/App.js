@@ -446,6 +446,14 @@ export function ReloadLLMClient() {
   return window['go']['main']['App']['ReloadLLMClient']();
 }
 
+export function ResetConfig() {
+  return window['go']['main']['App']['ResetConfig']();
+}
+
+export function ResetDatabase() {
+  return window['go']['main']['App']['ResetDatabase']();
+}
+
 export function SaveOrUpdateAgentConfig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
   return window['go']['main']['App']['SaveOrUpdateAgentConfig'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
@@ -544,6 +552,10 @@ export function TestAgent(arg1, arg2) {
 
 export function TestConnection() {
   return window['go']['main']['App']['TestConnection']();
+}
+
+export function TestConnectionWithModels() {
+  return window['go']['main']['App']['TestConnectionWithModels']();
 }
 
 export function TestEmbeddings() {

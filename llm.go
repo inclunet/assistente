@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 
 	"assistente/internal/config"
@@ -45,11 +47,11 @@ var strPtr = llm.StrPtr
 // - n2: interações do agente com tools (parentID=agentMessageID)
 type appStreamHandler struct {
 	app                *App
-	conversationID     uint            // ID da conversa
-	userMessageID      uint            // ID da mensagem do usuário (raiz da thread)
-	accumulatedContent string          // Conteúdo acumulado durante streaming
-	accumulatedCalls   []llm.ToolCall  // Acumula tool calls
-	accumulatedResults []string        // Acumula resultados de tools
+	conversationID     uint           // ID da conversa
+	userMessageID      uint           // ID da mensagem do usuário (raiz da thread)
+	accumulatedContent string         // Conteúdo acumulado durante streaming
+	accumulatedCalls   []llm.ToolCall // Acumula tool calls
+	accumulatedResults []string       // Acumula resultados de tools
 }
 
 func (h *appStreamHandler) OnChunk(content string) {
@@ -128,10 +130,10 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 			} else {
 				agentName = name
 			}
-			
+
 			// Guarda argumentos completos para debug
 			allArgs = tc.Function.Arguments
-			
+
 			// Extrai a tarefa dos argumentos
 			var args map[string]interface{}
 			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
@@ -174,7 +176,7 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 			fmt.Printf("✅ Delegação salva: ID=%d, parentID=%d, agente=%s (nível 1)\n", msg.ID, h.userMessageID, agentName)
 			// Define no App para os agentes usarem como ParentID (nível 2)
 			h.app.currentDelegationID = msg.ID
-			
+
 			// Emite evento para o frontend mostrar mensagem interna em tempo real
 			runtime.EventsEmit(h.app.ctx, "chat:internal_message", map[string]interface{}{
 				"id":        msg.ID,
@@ -217,7 +219,7 @@ func (h *appStreamHandler) OnToolResults(results []string, usage llm.Usage, mode
 				tc := h.accumulatedCalls[callIndex]
 				toolCallID = tc.ID
 				toolName := tc.Function.Name
-				
+
 				// Extrai nome do agente
 				if strings.HasPrefix(toolName, "delegate_to_") {
 					agentName = strings.TrimPrefix(toolName, "delegate_to_")
@@ -243,7 +245,7 @@ func (h *appStreamHandler) OnToolResults(results []string, usage llm.Usage, mode
 			} else {
 				fmt.Printf("✅ Resposta do agente salva: ID=%d, parentID=%d, agent=%s (nível 1)\n",
 					msg.ID, h.userMessageID, agentName)
-				
+
 				// Emite evento para o frontend mostrar resposta do agente em tempo real
 				runtime.EventsEmit(h.app.ctx, "chat:internal_message", map[string]interface{}{
 					"id":         msg.ID,
@@ -272,10 +274,10 @@ func (h *appStreamHandler) ExecuteTool(tc llm.ToolCall) (string, error) {
 	// Define o contexto no App para os agentes poderem salvar mensagens
 	h.app.currentConversationID = h.conversationID
 	// currentDelegationID é definido em OnToolCalls (nível 1 → nível 2)
-	
+
 	fmt.Printf("🔧 [EXECUTE] Tool: %s, conversationID=%d, delegationID=%d\n",
 		tc.Function.Name, h.conversationID, h.app.currentDelegationID)
-	
+
 	return h.app.ExecuteTool(tc)
 }
 
@@ -532,6 +534,18 @@ func (a *App) TestConnection() (bool, error) {
 	return false, fmt.Errorf("nenhum modelo encontrado")
 }
 
+// TestConnectionWithModels testa a conexão e retorna os modelos disponíveis
+func (a *App) TestConnectionWithModels() ([]string, error) {
+	models, err := a.GetModels()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao conectar com a API: %v", err)
+	}
+	if len(models) == 0 {
+		return nil, fmt.Errorf("nenhum modelo encontrado na API")
+	}
+	return models, nil
+}
+
 // TestEmbeddings testa se o modelo de embeddings está funcionando
 func (a *App) TestEmbeddings() (string, error) {
 	if a.embeddingsService == nil {
@@ -598,4 +612,47 @@ func (a *App) GenerateImageDescription(imageBase64 string, model string) (string
 	}
 
 	return llm.GenerateImageDescription(cfg, imageBase64, model, a.GetModels)
+}
+
+// ResetConfig apaga o arquivo de configuração, resetando ao estado padrão
+func (a *App) ResetConfig() error {
+	configPath, err := config.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("erro ao obter caminho da configuração: %v", err)
+	}
+
+	// Verifica se o arquivo existe
+	if _, err := os.Stat(configPath); err == nil {
+		// Remove o arquivo
+		if err := os.Remove(configPath); err != nil {
+			return fmt.Errorf("erro ao remover arquivo de configuração: %v", err)
+		}
+	}
+
+	return nil
+}
+
+// ResetDatabase apaga o banco de dados, resetando ao estado inicial
+func (a *App) ResetDatabase() error {
+	configPath, err := config.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("erro ao obter caminho do banco de dados: %v", err)
+	}
+
+	dbPath := filepath.Join(filepath.Dir(configPath), "conversations.db")
+
+	// Verifica se o arquivo existe
+	if _, err := os.Stat(dbPath); err == nil {
+		// Remove o banco de dados
+		if err := os.Remove(dbPath); err != nil {
+			return fmt.Errorf("erro ao remover banco de dados: %v", err)
+		}
+
+		// Remove arquivos auxiliares do SQLite (WAL e SHM)
+		os.Remove(dbPath + "-wal")
+		os.Remove(dbPath + "-shm")
+	}
+
+	// Reinicializa o banco de dados
+	return database.Init()
 }

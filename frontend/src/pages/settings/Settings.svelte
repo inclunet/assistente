@@ -1,6 +1,7 @@
 <script>
   import { onMount, createEventDispatcher } from 'svelte';
-  import { GetConfig, SaveSettings, TestConnection, TestEmbeddings } from '../../../wailsjs/go/main/App.js';
+  import { GetConfig, SaveSettings, TestConnection, TestEmbeddings, ResetConfig, ResetDatabase } from '../../../wailsjs/go/main/App.js';
+  import { llm } from '../../../wailsjs/go/models';
   import { TabPanel } from '../../components/tabs';
   import { ModelPicker, ImageModelPicker } from '../../components/pickers';
   import { ChatPreferences } from '../../components/preferences';
@@ -42,10 +43,13 @@
   let saving = false;
   let testing = false;
   let testingEmbeddings = false;
+  let resettingConfig = false;
+  let resettingDatabase = false;
   let message = { type: '', text: '' };
   let showApiKey = false;
   let showAdvanced = false;
   let hasChanges = false;
+  let showResetButtons = false;
   
   // Guias da página de configurações
   let activeTab = 'connection';
@@ -233,37 +237,14 @@
       return false;
     }
 
+    if (!chatModel.trim()) {
+      showMessage('error', 'Você deve selecionar um modelo LLM padrão para o chat antes de salvar.');
+      return false;
+    }
+
     saving = true;
     try {
-      await SaveSettings({
-        api_key: apiKey,
-        api_base_url: apiBaseURL,
-        chat_params: {
-          model: chatModel,
-          temperature: chatTemperature,
-          max_tokens: chatMaxTokens,
-          top_p: chatTopP
-        },
-        embeddings_params: {
-          model: embeddingsModel,
-          dimensions: embeddingsDimensions
-        },
-        image_model: imageModel,
-        voice_params: {
-          voice: voice,
-          auto_speak: autoSpeak,
-          volume: voiceVolume,
-          rate: voiceRate
-        },
-        stt_params: {
-          provider: sttProvider,
-          recording_mode: recordingMode
-        },
-        chat_defaults: {
-          use_tools: useTools,
-          show_internal_messages: showInternalMessages
-        }
-      });
+      await SaveSettings(createSettingsInput());
       if (!silent) {
         showMessage('success', 'Configurações salvas com sucesso!');
         saveOriginalValues();
@@ -278,9 +259,14 @@
     }
   }
 
-  async function handleTestAndSave() {
+  async function handleTestConnection() {
     if (!apiKey.trim()) {
       showMessage('error', 'Configure a chave de API antes de testar.');
+      return;
+    }
+
+    if (!apiBaseURL.trim()) {
+      showMessage('error', 'Configure a URL base da API antes de testar.');
       return;
     }
 
@@ -288,18 +274,26 @@
     message = { type: '', text: '' };
 
     try {
-      // Primeiro salva as configurações (silenciosamente)
-      const saved = await handleSave(true);
-      if (!saved) {
-        return;
-      }
+      // Cria uma instância temporária do client para testar
+      // Nota: precisamos salvar temporariamente para que GetModels funcione
+      const originalConfig = await GetConfig();
+      
+      // Salva temporariamente só para testar
+      await SaveSettings(new llm.SettingsInput({
+        api_key: apiKey,
+        api_base_url: apiBaseURL,
+        chat_params: { model: chatModel || '', temperature: chatTemperature, max_tokens: chatMaxTokens, top_p: chatTopP },
+        embeddings_params: { model: embeddingsModel, dimensions: embeddingsDimensions },
+        image_model: imageModel,
+        voice_params: { voice: voice, auto_speak: autoSpeak, volume: voiceVolume, rate: voiceRate },
+        stt_params: { provider: sttProvider, recording_mode: recordingMode },
+        chat_defaults: { use_tools: useTools, show_internal_messages: showInternalMessages }
+      }));
 
       // Testa a conexão
       const result = await TestConnection();
       if (result) {
-        showMessage('success', 'Conexão bem-sucedida! Configurações salvas.');
-        saveOriginalValues();
-        dispatch('saved');
+        showMessage('success', 'Conexão bem-sucedida! Agora selecione o modelo na aba Chat e salve.');
       }
     } catch (error) {
       showMessage('error', 'Falha na conexão: ' + error);
@@ -314,15 +308,17 @@
       return;
     }
 
+    if (!embeddingsModel.trim()) {
+      showMessage('error', 'Configure o modelo de embeddings antes de testar.');
+      return;
+    }
+
     testingEmbeddings = true;
     message = { type: '', text: '' };
 
     try {
-      // Primeiro salva as configurações (silenciosamente)
-      const saved = await handleSave(true);
-      if (!saved) {
-        return;
-      }
+      // Salva temporariamente para testar
+      await SaveSettings(createSettingsInput());
 
       const result = await TestEmbeddings();
       showMessage('success', result);
@@ -335,6 +331,78 @@
 
   function toggleShowApiKey() {
     showApiKey = !showApiKey;
+  }
+
+  function createSettingsInput() {
+    return new llm.SettingsInput({
+      api_key: apiKey,
+      api_base_url: apiBaseURL,
+      chat_params: {
+        model: chatModel,
+        temperature: chatTemperature,
+        max_tokens: chatMaxTokens,
+        top_p: chatTopP
+      },
+      embeddings_params: {
+        model: embeddingsModel,
+        dimensions: embeddingsDimensions
+      },
+      image_model: imageModel,
+      voice_params: {
+        voice: voice,
+        auto_speak: autoSpeak,
+        volume: voiceVolume,
+        rate: voiceRate
+      },
+      stt_params: {
+        provider: sttProvider,
+        recording_mode: recordingMode
+      },
+      chat_defaults: {
+        use_tools: useTools,
+        show_internal_messages: showInternalMessages
+      }
+    });
+  }
+
+  async function handleResetConfig() {
+    if (!confirm('Tem certeza que deseja apagar todas as configurações? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+
+    resettingConfig = true;
+    try {
+      await ResetConfig();
+      showMessage('success', 'Configurações resetadas com sucesso. Recarregue a página.');
+      
+      // Limpa os campos
+      apiKey = '';
+      apiBaseURL = 'https://api.openai.com/v1';
+      chatModel = '';
+      embeddingsModel = '';
+      imageModel = '';
+      saveOriginalValues();
+    } catch (error) {
+      showMessage('error', 'Erro ao resetar configurações: ' + error);
+    } finally {
+      resettingConfig = false;
+    }
+  }
+
+  async function handleResetDatabase() {
+    if (!confirm('Tem certeza que deseja apagar todo o banco de dados (conversas, FAQs, memórias, etc.)? Esta ação não pode ser desfeita.')) {
+      return;
+    }
+
+    resettingDatabase = true;
+    try {
+      await ResetDatabase();
+      showMessage('success', 'Banco de dados resetado com sucesso. Recarregue a página.');
+    } catch (error) {
+      showMessage('error', 'Erro ao resetar banco de dados: ' + error);
+    } finally {
+      resettingDatabase = false;
+    }
   }
 </script>
 
@@ -431,26 +499,80 @@
           <div class="button-row">
             <button
               type="button"
-              class="btn-primary"
-              on:click={handleTestAndSave}
-              disabled={testing || saving || !apiKey.trim()}
+              class="btn-test"
+              on:click={handleTestConnection}
+              disabled={testing || saving || !apiKey.trim() || !apiBaseURL.trim()}
               aria-busy={testing}
             >
               {#if testing}
                 <span class="loading-spinner" aria-hidden="true"></span>
                 Testando...
               {:else}
-                🔌 Testar e Salvar
+                🧪 Testar Conexão
               {/if}
             </button>
+          </div>
+
+          <div class="info-box" role="note">
+            <strong>💡 Próximo passo:</strong> Após testar a conexão, vá para a aba "Chat" e selecione o modelo LLM padrão antes de salvar.
+          </div>
+
+          <div class="reset-section">
+            <button
+              type="button"
+              class="toggle-advanced"
+              on:click={() => showResetButtons = !showResetButtons}
+            >
+              {showResetButtons ? '▼' : '▶'} Opções Avançadas (Reset)
+            </button>
+
+            {#if showResetButtons}
+              <div class="reset-buttons">
+                <p class="warning-text">⚠️ <strong>Atenção:</strong> Estas ações são irreversíveis!</p>
+                
+                <button
+                  type="button"
+                  class="btn-danger"
+                  on:click={handleResetConfig}
+                  disabled={resettingConfig}
+                  aria-busy={resettingConfig}
+                >
+                  {#if resettingConfig}
+                    <span class="loading-spinner" aria-hidden="true"></span>
+                    Resetando...
+                  {:else}
+                    🗑️ Apagar Configurações (config.json)
+                  {/if}
+                </button>
+
+                <button
+                  type="button"
+                  class="btn-danger"
+                  on:click={handleResetDatabase}
+                  disabled={resettingDatabase}
+                  aria-busy={resettingDatabase}
+                >
+                  {#if resettingDatabase}
+                    <span class="loading-spinner" aria-hidden="true"></span>
+                    Resetando...
+                  {:else}
+                    🗑️ Apagar Banco de Dados (conversas, FAQs, memórias)
+                  {/if}
+                </button>
+              </div>
+            {/if}
           </div>
         </div>
         
       {:else if tab.id === 'chat'}
         <!-- ==================== ABA: CHAT ==================== -->
         <div class="settings-section">
+          <div class="info-box" role="note">
+            <strong>⚠️ Campo obrigatório:</strong> Você deve selecionar um modelo LLM antes de salvar as configurações.
+          </div>
+
           <fieldset>
-            <legend>Modelo de Chat (LLM)</legend>
+            <legend>Modelo de Chat (LLM) <span class="required" aria-hidden="true">*</span></legend>
 
             <div class="form-group">
               <ModelPicker 
@@ -636,7 +758,7 @@
       <button
         type="button"
         class="btn-primary"
-        on:click={handleSave}
+        on:click={() => handleSave()}
         disabled={saving || testing || !hasChanges}
         aria-busy={saving}
       >
@@ -967,5 +1089,55 @@
     clip: rect(0, 0, 0, 0);
     white-space: nowrap;
     border: 0;
+  }
+
+  .reset-section {
+    margin-top: var(--spacing-lg);
+    padding-top: var(--spacing-lg);
+    border-top: 2px solid var(--color-border);
+  }
+
+  .reset-buttons {
+    margin-top: var(--spacing-md);
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-sm);
+  }
+
+  .warning-text {
+    color: var(--color-error, #dc3545);
+    margin-bottom: var(--spacing-sm);
+  }
+
+  .btn-danger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    padding: 0.75rem 1.5rem;
+    min-height: 44px;
+    font-size: 1rem;
+    font-weight: 500;
+    border-radius: var(--border-radius);
+    cursor: pointer;
+    transition: all 0.2s;
+    background: var(--color-error-bg, rgba(220, 53, 69, 0.15));
+    border: 1px solid var(--color-error, #dc3545);
+    color: var(--color-error, #dc3545);
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    background: var(--color-error, #dc3545);
+    color: white;
+  }
+
+  .btn-danger:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-danger:focus-visible {
+    outline: 2px solid var(--color-error, #dc3545);
+    outline-offset: 2px;
   }
 </style>

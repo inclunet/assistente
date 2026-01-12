@@ -69,7 +69,7 @@ func (a *App) ExecuteTool(toolCall llm.ToolCall) (string, error) {
 		if a.currentConversationID > 0 && a.currentDelegationID > 0 {
 			a.registry.SetAgentConversationContext(agentName, a.currentConversationID, a.createAgentMessageSaver())
 		} else {
-			fmt.Printf("⚠️ [ORQUESTRADOR] Saver não criado: conversationID=%d, delegationID=%d\n", 
+			fmt.Printf("⚠️ [ORQUESTRADOR] Saver não criado: conversationID=%d, delegationID=%d\n",
 				a.currentConversationID, a.currentDelegationID)
 		}
 
@@ -103,15 +103,15 @@ func (a *App) ExecuteTool(toolCall llm.ToolCall) (string, error) {
 func (a *App) createAgentMessageSaver() llm.MessageSaver {
 	// NÃO captura parentID aqui - usa sempre o valor atual de currentDelegationID
 	// Isso garante que múltiplas interações usem o parentID correto
-	
+
 	fmt.Printf("📝 [SAVER CRIADO] delegationID atual: %d\n", a.currentDelegationID)
 
 	return func(msg llm.AgentMessage) error {
 		// Usa o valor ATUAL de currentDelegationID (não capturado)
 		parentID := a.currentDelegationID
-		
+
 		if a.currentConversationID == 0 || parentID == 0 {
-			fmt.Printf("⚠️ [AGENT SAVER] Sem contexto: conversationID=%d, delegationID=%d\n", 
+			fmt.Printf("⚠️ [AGENT SAVER] Sem contexto: conversationID=%d, delegationID=%d\n",
 				a.currentConversationID, parentID)
 			return nil
 		}
@@ -124,7 +124,7 @@ func (a *App) createAgentMessageSaver() llm.MessageSaver {
 			}
 		}
 
-		// Para mensagens de tool_calls (agente chamando tools), 
+		// Para mensagens de tool_calls (agente chamando tools),
 		// enriquece o conteúdo com os parâmetros para facilitar debug
 		content := msg.Content
 		if len(msg.ToolCalls) > 0 && content == "" {
@@ -525,7 +525,7 @@ func (a *App) TestHTTPEndpoint(httpAgentID uint, endpointName string, paramsJSON
 	}
 
 	if resp.Error != "" {
-		return "", fmt.Errorf(resp.Error)
+		return "", fmt.Errorf("%s", resp.Error)
 	}
 
 	// Formata resposta
