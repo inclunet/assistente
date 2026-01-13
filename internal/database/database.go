@@ -38,12 +38,12 @@ func Close() error {
 	if db == nil {
 		return nil
 	}
-	
+
 	sqlDB, err := db.DB()
 	if err != nil {
 		return err
 	}
-	
+
 	return sqlDB.Close()
 }
 
@@ -92,12 +92,12 @@ func CreateConversation(title, model string) (*Conversation, error) {
 	conv := &Conversation{
 		Title: title,
 	}
-	
+
 	// Se modelo fornecido, salva nas preferências
 	if model != "" {
 		conv.SetPreferences(&ChatPreferences{Model: model})
 	}
-	
+
 	if err := db.Create(conv).Error; err != nil {
 		return nil, err
 	}
@@ -109,11 +109,11 @@ func CreateConversationWithPreferences(title string, prefs *ChatPreferences) (*C
 	conv := &Conversation{
 		Title: title,
 	}
-	
+
 	if prefs != nil {
 		conv.SetPreferences(prefs)
 	}
-	
+
 	if err := db.Create(conv).Error; err != nil {
 		return nil, err
 	}
@@ -156,7 +156,7 @@ func UpdateConversation(id uint, title, model string) error {
 		"title":      title,
 		"updated_at": time.Now(),
 	}
-	
+
 	// Se modelo fornecido, atualiza nas preferências
 	if model != "" {
 		conv, err := GetConversationInfo(id)
@@ -171,7 +171,7 @@ func UpdateConversation(id uint, title, model string) error {
 			}
 		}
 	}
-	
+
 	return db.Model(&Conversation{}).Where("id = ?", id).Updates(updates).Error
 }
 
@@ -189,13 +189,13 @@ func UpdateConversationModel(id uint, model string) error {
 	if err != nil {
 		return err
 	}
-	
+
 	prefs := conv.GetPreferences()
 	if prefs == nil {
 		prefs = &ChatPreferences{}
 	}
 	prefs.Model = model
-	
+
 	return UpdateConversationPreferences(id, prefs)
 }
 
@@ -205,13 +205,13 @@ func UpdateConversationSettings(id uint, showInternalMessages bool) error {
 	if err != nil {
 		return err
 	}
-	
+
 	prefs := conv.GetPreferences()
 	if prefs == nil {
 		prefs = &ChatPreferences{}
 	}
 	prefs.ShowInternalMessages = &showInternalMessages
-	
+
 	return UpdateConversationPreferences(id, prefs)
 }
 
@@ -225,7 +225,7 @@ func UpdateConversationPreferences(id uint, prefs *ChatPreferences) error {
 		}
 		prefsJSON = string(data)
 	}
-	
+
 	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
 		"preferences": prefsJSON,
 		"updated_at":  time.Now(),

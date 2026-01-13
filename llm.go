@@ -662,6 +662,14 @@ func (a *App) ResetDatabase() error {
 		os.Remove(dbPath + "-shm")
 	}
 
+	// Limpa referências de conversas no config
+	if err := config.Update(func(cfg *config.Config) *config.Config {
+		cfg.LastConversationID = 0
+		return cfg
+	}); err != nil {
+		return fmt.Errorf("erro ao limpar referências de conversas no config: %v", err)
+	}
+
 	// Reinicializa o banco de dados
 	return database.Init()
 }
