@@ -1,46 +1,35 @@
 /**
  * Chat Module - Serviços de chat
  * 
- * Services:
- *   - messageService: Gerenciamento de mensagens (singleton)
- *   - createMessageService: Factory para criar instâncias isoladas (multi-guias)
+ * ARQUITETURA V2:
+ *   - createChatStores: Factory de stores isoladas (top-level, compatível com Svelte)
+ *   - MessageController: Controller stateless para operações de chat
+ *   - Utilities: Funções helper para processamento de mensagens
  * 
- * Svelte Stores (estado reativo do singleton):
- *   - conversationId, conversationTitle, conversationData
- *   - messages, threadedMessages
- *   - isStreaming, executingTools, toolsMessage
- *   - showInternalMessages
- *   - hasConversation, isEmpty, messageCount (derived)
+ * Uso:
+ *   const stores = createChatStores();
+ *   const controller = new MessageController(stores, 'my-instance-id');
+ *   await controller.init();
+ *   controller.bindBackendEvents();
  * 
- * Uso com múltiplas guias:
- *   import { createMessageService } from '$lib/chat';
- *   const service = createMessageService();
- *   const { messages, isStreaming } = service.stores;
+ *   // Em componente Svelte:
+ *   $: console.log('Messages:', $stores.messages);
  */
 
-// Serviço singleton e factory
-export { messageService, MessageService, createMessageService } from './message-service.js';
+// === STORES ===
+export { createChatStores } from './stores.js';
 
-// Svelte Stores (estado reativo do singleton para retrocompatibilidade)
-export {
-  conversationId,
-  conversationTitle,
-  conversationData,
-  messages,
-  threadedMessages,
-  showInternalMessages,
-  streamingMessageId,
-  streamingContent,
-  isStreaming,
-  executingTools,
-  toolsMessage,
-  hasConversation,
-  isEmpty,
-  messageCount
-} from './message-service.js';
+// === CONTROLLER ===
+export { MessageController } from './message-controller.js';
 
-// Funções utilitárias
-export { parseToolCalls, formatAgentName, convertMessageNode } from './message-service.js';
+// === UTILITIES ===
+export { 
+  parseToolCalls, 
+  formatAgentName, 
+  convertMessageNode,
+  extractMessagesFromThreads,
+  normalizeThreads
+} from './utils.js';
 
 
 

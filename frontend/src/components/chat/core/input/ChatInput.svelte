@@ -1,5 +1,5 @@
 <script>
-  import { createEventDispatcher, getContext, onDestroy } from 'svelte';
+  import { createEventDispatcher, getContext, onDestroy, onMount } from 'svelte';
   import MediaPreview from './MediaPreview.svelte';
   import { _ } from 'svelte-i18n';
   import { CHAT_NAVIGATION_KEY } from '../../context/navigation.js';
@@ -31,6 +31,7 @@
   export let placeholderRecordAudio = '';
   export let placeholderWithMedia = '';
   export let hintText = '';
+  export let autoFocus = false; // Se true, foca automaticamente ao montar
   
   const dispatch = createEventDispatcher();
   
@@ -66,6 +67,10 @@
   function handleSubmit(event) {
     event.preventDefault();
     dispatch('submit');
+    // Garante limpeza imediata do campo após envio
+    inputMessage = '';
+    // Atualiza estado de digitação para hosts que dependem dessa flag
+    dispatch('typing', { isTyping: false });
   }
   
   function handleKeyDown(event) {
@@ -130,6 +135,38 @@
     }
   }
   
+  // Método público para focar no input
+  export function focus() {
+    if (inputElement) {
+      inputElement.focus();
+    }
+  }
+  
+  // AutoFocus no mount
+  onMount(() => {
+    if (autoFocus && inputElement) {
+      // Tenta focar imediatamente
+      if (inputElement.offsetParent !== null) {
+        inputElement.focus();
+      } else {
+        // Usa IntersectionObserver para detectar quando fica visível
+        const observer = new IntersectionObserver((entries) => {
+          entries.forEach(entry => {
+            if (entry.isIntersecting && entry.intersectionRatio > 0) {
+              inputElement.focus();
+              observer.disconnect(); // Para de observar após focar
+            }
+          });
+        }, { threshold: 0.1 });
+        
+        observer.observe(inputElement);
+        
+        // Cleanup ao desmontar
+        return () => observer.disconnect();
+      }
+    }
+  });
+  
   // Expor métodos públicos se necessário
   export { startRecording, stopRecording, cancelRecording, toggleRecording };
 </script>
@@ -172,6 +209,7 @@
       id="message-input"
       bind:this={inputElement}
       bind:value={inputMessage}
+      autofocus={autoFocus}
       on:keydown={handleKeyDown}
       on:paste={handlePaste}
       on:focus={() => dispatch('focus')}

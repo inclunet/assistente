@@ -20,9 +20,7 @@
     }
   }
 
-  let agents = [];
-  let httpAgents = [];
-  let mcpAgents = [];
+  let allAgents = []; // Lista unificada de todos os agentes
   let loading = true;
   let error = '';
   
@@ -69,13 +67,21 @@
     'claude-3-haiku-20240307'
   ];
 
-  // Grid
+  // Grid unificado
   let agentGridComponent;
-  let httpGridComponent;
-  let mcpGridComponent;
 
-  // Colunas para agentes internos
+  // Colunas unificadas para todos os agentes
   const agentColumns = [
+    { 
+      key: 'type_icon', 
+      label: 'Tipo',
+      width: '60px',
+      format: (value, item) => {
+        if (item.agent_type === 'http') return '🌐';
+        if (item.agent_type === 'mcp') return '🔌';
+        return '⚙️';
+      }
+    },
     { 
       key: 'display_name', 
       label: 'Nome',
@@ -185,14 +191,16 @@
       label: 'Editar',
       width: '80px',
       action: true,
-      actionIcon: '⚙️'
+      actionIcon: '⚙️',
+      disabled: (item) => item.agent_type === 'internal' && !['faq', 'memory', 'file_manager'].includes(item.name)
     },
     { 
       key: 'delete', 
       label: 'Excluir',
       width: '80px',
       action: true,
-      actionIcon: '🗑️'
+      actionIcon: '🗑️',
+      showIf: (item) => item.agent_type === 'http' || item.agent_type === 'mcp'
     }
   ];
 
@@ -215,42 +223,87 @@
     loading = true;
     error = '';
     try {
-      agents = await GetRegisteredAgents() || [];
+      // Lista unificada de todos os agentes
+      allAgents = [];
+      
+      // 1. Carrega agentes internos (sistema)
+      const internalAgents = await GetRegisteredAgents() || [];
       
       try {
         const configs = await GetAllAgentConfigs() || [];
-        agents = agents.map(agent => {
+        const mappedInternals = internalAgents.map(agent => {
           const savedConfig = configs.find(c => c.name === agent.name);
           if (savedConfig) {
             return {
               ...agent,
+              agent_type: 'internal',
               display_name: savedConfig.display_name || agent.display_name,
               description: savedConfig.description || agent.description,
               model: savedConfig.model || agent.model,
               system_prompt: savedConfig.system_prompt || agent.system_prompt,
               enabled: savedConfig.enabled,
-              id: savedConfig.id
+              id: savedConfig.id,
+              _config_id: savedConfig.id
             };
           }
-          return agent;
+          return {
+            ...agent,
+            agent_type: 'internal'
+          };
         });
+        allAgents = [...allAgents, ...mappedInternals];
       } catch (e) {
-        console.log('Usando configurações padrão dos agentes');
+        console.log('Usando configurações padrão dos agentes internos');
+        allAgents = [...allAgents, ...internalAgents.map(a => ({ ...a, agent_type: 'internal' }))];
       }
       
+      // 2. Carrega HTTP agents
       try {
-        httpAgents = await GetAllHTTPAgentsFull() || [];
+        const httpAgents = await GetAllHTTPAgentsFull() || [];
+        const mappedHTTP = httpAgents.map(agent => ({
+          ...agent,
+          agent_type: 'http',
+          _http_agent_id: agent.http_agent_id
+        }));
+        allAgents = [...allAgents, ...mappedHTTP];
       } catch (e) {
-        httpAgents = [];
+        console.log('Nenhum HTTP agent encontrado');
       }
       
+      // 3. Carrega MCP agents
       try {
-        mcpAgents = await GetAllMCPAgentsFull() || [];
+        const mcpAgents = await GetAllMCPAgentsFull() || [];
         console.log('MCP Agents carregados:', mcpAgents);
+        const mappedMCP = mcpAgents.map(agent => ({
+          ...agent,
+          agent_type: 'mcp',
+          // Normaliza os campos do agent_config para o nível superior
+          id: agent.agent_config?.id || agent.id,
+          name: agent.agent_config?.name || agent.name,
+          display_name: agent.agent_config?.display_name || agent.agent_config?.name || agent.name,
+          description: agent.agent_config?.description || '',
+          model: agent.agent_config?.model || 'gpt-4o-mini',
+          enabled: agent.agent_config?.enabled !== false,
+          _mcp_agent_id: agent.id,
+          _config_id: agent.agent_config?.id
+        }));
+        allAgents = [...allAgents, ...mappedMCP];
       } catch (e) {
         console.error('Erro ao carregar MCP Agents:', e);
-        mcpAgents = [];
       }
+      
+      // Ordena: internos primeiro, depois HTTP, depois MCP
+      allAgents.sort((a, b) => {
+        const typeOrder = { internal: 0, http: 1, mcp: 2 };
+        const typeCompare = typeOrder[a.agent_type] - typeOrder[b.agent_type];
+        if (typeCompare !== 0) return typeCompare;
+        
+        // Dentro do mesmo tipo, ordena por nome
+        const nameA = (a.display_name || a.name || '').toLowerCase();
+        const nameB = (b.display_name || b.name || '').toLowerCase();
+        return nameA.localeCompare(nameB);
+      });
+      
     } catch (err) {
       error = 'Erro ao carregar agentes: ' + (err.message || err);
     } finally {
@@ -280,15 +333,16 @@
     formError = '';
 
     try {
-      await SaveOrUpdateAgentConfig({
-        name: editingAgent.name,
-        display_name: formDisplayName,
-        description: formDescription,
-        type: editingAgent.agent_type || 'internal',
-        model: formModel,
-        system_prompt: formSystemPrompt,
-        enabled: formEnabled
-      });
+      await SaveOrUpdateAgentConfig(
+        editingAgent.name,
+        formDisplayName,
+        formDescription,
+        editingAgent.agent_type || 'internal',
+        formModel,
+        formSystemPrompt,
+        '', // config
+        formEnabled
+      );
       
       closeForm();
       await loadAgents();
@@ -376,7 +430,7 @@
     const { item, column } = event.detail;
     
     if (column.key === 'test') {
-      if (item.enabled !== false) {
+      if (item.enabled !== false && item.agent_type === 'internal') {
         openPlayground(item);
       }
     } else if (column.key === 'config') {
@@ -385,39 +439,51 @@
         showFileAgentConfig = true;
       }
     } else if (column.key === 'edit') {
-      openEditForm(item);
+      // Roteamento baseado no tipo
+      if (item.agent_type === 'http') {
+        openHTTPAgentEditor(item.id);
+      } else if (item.agent_type === 'mcp') {
+        openMCPAgentEditor(item._mcp_agent_id || item.id);
+      } else if (item.agent_type === 'internal') {
+        openEditForm(item);
+      }
+    } else if (column.key === 'delete') {
+      // Apenas HTTP e MCP podem ser deletados
+      if (item.agent_type === 'mcp') {
+        deleteMCPAgent(item._mcp_agent_id || item.id);
+      } else if (item.agent_type === 'http') {
+        deleteHTTPAgent(item.id);
+      }
     }
   }
 
   function handleAgentActivate(event) {
-    openEditForm(event.detail.item);
-  }
-
-  function handleHTTPCellAction(event) {
-    const { item, column } = event.detail;
+    const item = event.detail.item;
     
-    if (column.key === 'edit') {
+    // Duplo clique: abre o editor apropriado
+    if (item.agent_type === 'http') {
       openHTTPAgentEditor(item.id);
+    } else if (item.agent_type === 'mcp') {
+      openMCPAgentEditor(item._mcp_agent_id || item.id);
+    } else if (item.agent_type === 'internal') {
+      openEditForm(item);
     }
   }
 
-  function handleHTTPActivate(event) {
-    openHTTPAgentEditor(event.detail.item.id);
-  }
-
-  function handleMCPCellAction(event) {
-    const { item, column } = event.detail;
+  async function deleteHTTPAgent(agentId) {
+    if (!confirm('Tem certeza que deseja excluir este HTTP Agent?')) {
+      return;
+    }
     
-    if (column.key === 'edit') {
-      openMCPAgentEditor(item.id);
-    } else if (column.key === 'delete') {
-      deleteMCPAgent(item.id);
+    try {
+      const { DeleteHTTPAgentFull } = await import('../../../wailsjs/go/main/App.js');
+      await DeleteHTTPAgentFull(agentId);
+      await loadAgents();
+    } catch (err) {
+      error = 'Erro ao excluir HTTP Agent: ' + (err.message || err);
     }
   }
 
-  function handleMCPActivate(event) {
-    openMCPAgentEditor(event.detail.item.id);
-  }
 </script>
 
 <div class="agent-manager">
@@ -448,66 +514,26 @@
       <span class="loading-spinner" aria-hidden="true"></span>
       Carregando agentes...
     </div>
-  {:else if agents.length === 0 && httpAgents.length === 0 && mcpAgents.length === 0}
+  {:else if allAgents.length === 0}
     <p class="empty">Nenhum agente registrado.</p>
   {:else}
-    <!-- Agentes Internos -->
-    {#if agents.length > 0}
-      <section aria-labelledby="internal-agents-heading">
-        <h3 id="internal-agents-heading" class="section-label">Agentes Internos</h3>
-        
-        <p class="sr-only">
-          Use setas verticais para navegar entre agentes e setas horizontais para navegar entre os campos.
-        </p>
-        
-        <DataGrid
-          bind:this={agentGridComponent}
-          items={agents}
-          columns={agentColumns}
-          label="Agentes internos do sistema"
-          getItemId={(a) => a.name}
-          multiSelect={false}
-          on:activate={handleAgentActivate}
-          on:cellAction={handleAgentCellAction}
-        />
-      </section>
-    {/if}
-    
-    <!-- HTTP Agents -->
-    {#if httpAgents.length > 0}
-      <section aria-labelledby="http-agents-heading">
-        <h3 id="http-agents-heading" class="section-label">HTTP Agents</h3>
-        
-        <DataGrid
-          bind:this={httpGridComponent}
-          items={httpAgents}
-          columns={httpColumns}
-          label="Agentes HTTP configurados"
-          getItemId={(a) => a.id}
-          multiSelect={false}
-          on:activate={handleHTTPActivate}
-          on:cellAction={handleHTTPCellAction}
-        />
-      </section>
-    {/if}
-    
-    <!-- MCP Agents -->
-    {#if mcpAgents.length > 0}
-      <section aria-labelledby="mcp-agents-heading">
-        <h3 id="mcp-agents-heading" class="section-label">MCP Agents (Model Context Protocol)</h3>
-        
-        <DataGrid
-          bind:this={mcpGridComponent}
-          items={mcpAgents}
-          columns={mcpColumns}
-          label="Agentes MCP configurados"
-          getItemId={(a) => a.id}
-          multiSelect={false}
-          on:activate={handleMCPActivate}
-          on:cellAction={handleMCPCellAction}
-        />
-      </section>
-    {/if}
+    <!-- Grid Unificado de Agentes -->
+    <section aria-labelledby="all-agents-heading">
+      <p class="sr-only" id="all-agents-heading">
+        Todos os agentes. Use setas verticais para navegar entre agentes e setas horizontais para navegar entre os campos.
+      </p>
+      
+      <DataGrid
+        bind:this={agentGridComponent}
+        items={allAgents}
+        columns={agentColumns}
+        label="Todos os agentes do sistema"
+        getItemId={(a) => `${a.agent_type}-${a.id || a.name}`}
+        multiSelect={false}
+        on:activate={handleAgentActivate}
+        on:cellAction={handleAgentCellAction}
+      />
+    </section>
   {/if}
 </div>
 
@@ -540,7 +566,6 @@
   title="📁 Configuração do File Manager" 
   open={showFileAgentConfig} 
   on:close={() => showFileAgentConfig = false}
-  size="large"
 >
   <FileAgentConfig />
 </Modal>
@@ -707,15 +732,6 @@
     margin: var(--spacing-xs) 0 0;
     font-size: var(--font-size-sm);
     color: var(--color-text-muted);
-  }
-
-  .section-label {
-    font-size: var(--font-size-sm);
-    font-weight: 500;
-    color: var(--color-text-muted);
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-    margin: var(--spacing-md) 0 var(--spacing-sm);
   }
 
   .btn-primary {

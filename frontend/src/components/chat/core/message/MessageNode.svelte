@@ -35,6 +35,7 @@
   export let isPinned = false;          // Mensagem fixada
   export let isTTSDisabled = true;      // TTS desativado
   export let truncateContent = 0;       // Truncar conteúdo (0 = não truncar)
+  export let lazyLoadChildren = true;   // Permitir lazy load de filhos
   
   const dispatch = createEventDispatcher();
   
@@ -42,7 +43,7 @@
   $: message = node?.message || {};
   $: children = node?.children || [];
   $: childCount = node?.childCount || children.length || 0;
-  $: hasChildren = childCount > 0;
+  $: hasChildren = (childCount > 0) || (lazyLoadChildren && !!(message?.id || message?.ID));
   $: isExpanded = !!expandedPaths[path];
   $: isLoading = !!loadingPaths[path];
   
@@ -52,10 +53,39 @@
     return text.substring(0, maxLength) + '...';
   }
   
+  // Remove sintaxe markdown para leitores de tela
+  function stripMarkdown(text) {
+    if (!text) return '';
+    return text
+      // Remove headers (###, ##, #)
+      .replace(/^#{1,6}\s+/gm, '')
+      // Remove bold/italic (**text**, __text__, *text*, _text_)
+      .replace(/(\*\*|__)(.*?)\1/g, '$2')
+      .replace(/(\*|_)(.*?)\1/g, '$2')
+      // Remove code blocks (```code```)
+      .replace(/```[\s\S]*?```/g, '')
+      // Remove inline code (`code`)
+      .replace(/`([^`]+)`/g, '$1')
+      // Remove links [text](url)
+      .replace(/\[([^\]]+)\]\([^\)]+\)/g, '$1')
+      // Remove imagens ![alt](url)
+      .replace(/!\[([^\]]*)\]\([^\)]+\)/g, '$1')
+      // Remove blockquotes (> text)
+      .replace(/^>\s+/gm, '')
+      // Remove horizontal rules (---, ___, ***)
+      .replace(/^(\-{3,}|\_{3,}|\*{3,})$/gm, '')
+      // Remove listas (* item, - item, 1. item)
+      .replace(/^[\*\-\+]\s+/gm, '')
+      .replace(/^\d+\.\s+/gm, '')
+      // Remove múltiplos espaços/quebras de linha
+      .replace(/\s+/g, ' ')
+      .trim();
+  }
+  
   // Label reativo para acessibilidade - recalcula quando conteúdo ou estado muda
   $: messageLabel = (() => {
     // Dependências explícitas para forçar recálculo
-    const rawContent = message.content || '';
+    const rawContent = stripMarkdown(message.content || '');
     const role = message.role;
     const agentName = message.agent_name || message.agentName || t('chat.agent');
     const isStreaming = message.isStreaming;
@@ -381,7 +411,7 @@
     
     if (!isExpanded) {
       // Solicita carregamento de filhos se necessário
-      if (children.length === 0 && childCount > 0) {
+      if (children.length === 0 && lazyLoadChildren && (message.id || message.ID)) {
         emitLoadChildren();
       }
       
@@ -424,7 +454,7 @@
   async function handleToggleClick() {
     if (!hasChildren) return;
     
-    if (!isExpanded && children.length === 0 && childCount > 0) {
+    if (!isExpanded && children.length === 0 && lazyLoadChildren && (message.id || message.ID)) {
       emitLoadChildren();
     }
     

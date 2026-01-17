@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
-
-	"assistente/internal/importers"
 )
 
 // ==================== Import API (OpenAPI/Postman) ====================
@@ -36,13 +34,12 @@ type ImportedEndpoint struct {
 
 // ParseOpenAPISpec analisa uma especificação OpenAPI/Swagger e retorna os dados para preview
 func (a *App) ParseOpenAPISpec(content string) (*OpenAPIImportResult, error) {
-	parser := importers.NewOpenAPIParser()
-	result, err := parser.Parse(content)
+	result, err := a.agentManager.ParseOpenAPISpec(content)
 	if err != nil {
 		return nil, err
 	}
 
-	// Converte para o tipo exportado
+	// Converte para o tipo exportado (main package)
 	endpoints := make([]ImportedEndpoint, 0, len(result.Endpoints))
 	for _, ep := range result.Endpoints {
 		endpoints = append(endpoints, ImportedEndpoint{
@@ -71,13 +68,12 @@ func (a *App) ParseOpenAPISpec(content string) (*OpenAPIImportResult, error) {
 
 // ParsePostmanCollection analisa uma coleção Postman e retorna os dados para preview
 func (a *App) ParsePostmanCollection(content string) (*OpenAPIImportResult, error) {
-	parser := importers.NewPostmanParser()
-	result, err := parser.Parse(content)
+	result, err := a.agentManager.ParsePostmanCollection(content)
 	if err != nil {
 		return nil, err
 	}
 
-	// Converte para o tipo exportado (reutilizamos OpenAPIImportResult)
+	// Converte para o tipo exportado (main package)
 	endpoints := make([]ImportedEndpoint, 0, len(result.Endpoints))
 	for _, ep := range result.Endpoints {
 		endpoints = append(endpoints, ImportedEndpoint{

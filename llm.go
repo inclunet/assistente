@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,16 +62,18 @@ func (h *appStreamHandler) OnChunk(content string) {
 
 	// Emite evento de streaming (sem messageId fixo - será criado no OnDone)
 	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
-		Content: h.accumulatedContent,
-		Done:    false,
+		Content:        h.accumulatedContent,
+		Done:           false,
+		ConversationId: h.conversationID,
 	})
 }
 
 func (h *appStreamHandler) OnError(err string) {
 	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
-		Content: h.accumulatedContent,
-		Done:    true,
-		Error:   err,
+		Content:        h.accumulatedContent,
+		Done:           true,
+		Error:          err,
+		ConversationId: h.conversationID,
 	})
 }
 
@@ -101,8 +104,10 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Emite evento final de streaming
 	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
-		Content: finalContent,
-		Done:    true,
+		Content:        finalContent,
+		Done:           true,
+		ConversationId: h.conversationID,
+		FullResponse:   finalContent,
 	})
 
 	// Emite evento para frontend recarregar a conversa
@@ -192,8 +197,9 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 
 		// Emite evento de streaming
 		runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
-			Content: fmt.Sprintf("🤖 Consultando %s...", agentName),
-			Done:    false,
+			Content:        fmt.Sprintf("🤖 Consultando %s...", agentName),
+			Done:           false,
+			ConversationId: h.conversationID,
 		})
 	}
 }
@@ -318,19 +324,20 @@ func (a *App) GetModels() ([]string, error) {
 // 1. Cria mensagens no banco ANTES de streamar
 // 2. Emite evento único com IDs das mensagens criadas
 // 3. Streaming emite eventos com messageId
-func (a *App) SendMessage(conversationID uint, userContent string, userMedia string, params ChatParams) error {
+func (a *App) SendMessage(conversationID uint, userContent string, userMedia string, params ChatParams) (uint, error) {
 	cfg, err := config.Load()
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao carregar configuração: "+err.Error())
-		return err
+		return 0, err
 	}
 
 	if cfg.APIKey == "" {
 		runtime.EventsEmit(a.ctx, "chat:error", "API Key não configurada. Por favor, configure sua API Key nas configurações.")
-		return fmt.Errorf("API Key não configurada")
+		return 0, fmt.Errorf("API Key não configurada")
 	}
 
 	// Se não tem conversationID, cria uma nova conversa
+	createdNew := false
 	if conversationID == 0 {
 		title := userContent
 		if len(title) > 50 {
@@ -339,10 +346,26 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		conv, err := database.CreateConversation(title, params.Model)
 		if err != nil {
 			runtime.EventsEmit(a.ctx, "chat:error", "Erro ao criar conversa: "+err.Error())
-			return err
+			return 0, err
 		}
 		conversationID = conv.ID
-		// Emite evento com ID da nova conversa
+		createdNew = true
+		fmt.Printf("✅ Nova conversa criada: ID=%d, título=%s\n", conversationID, title)
+		
+		// Atualiza a tab ativa com o novo conversation_id
+		activeTab, err := database.GetActiveTab()
+		if err == nil && activeTab != nil {
+			err = database.LoadConversationInTab(activeTab.ID, conversationID)
+			if err != nil {
+				fmt.Printf("⚠️ Erro ao vincular conversa à tab: %v\n", err)
+			} else {
+				fmt.Printf("✅ Conversa %d vinculada à tab %d\n", conversationID, activeTab.ID)
+				// Emite evento para atualizar tabs no frontend
+				a.emitTabsUpdatedEvent()
+			}
+		}
+		
+		// Emite evento de criação para atualizar UI
 		runtime.EventsEmit(a.ctx, "chat:conversation_created", map[string]interface{}{
 			"id":    conversationID,
 			"title": title,
@@ -353,7 +376,7 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 	userMsg, err := database.AddMessageWithMedia(conversationID, "user", userContent, userMedia, "", "")
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao salvar mensagem: "+err.Error())
-		return err
+		return 0, err
 	}
 	fmt.Printf("✅ Mensagem do usuário salva: ID=%d\n", userMsg.ID)
 
@@ -361,13 +384,14 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 	runtime.EventsEmit(a.ctx, "chat:messages_ready", map[string]interface{}{
 		"conversationId": conversationID,
 		"userMessageId":  userMsg.ID,
+		"createdNew":     createdNew,
 	})
 
 	// 3. Carrega histórico da conversa para contexto
 	messages, err := a.loadConversationHistory(conversationID)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao carregar histórico: "+err.Error())
-		return err
+		return 0, err
 	}
 
 	// 4. Processa com LLM - userMessageID é a raiz da thread
@@ -377,7 +401,7 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		userMessageID:  userMsg.ID, // Raiz da thread para interações com agentes
 	}
 	go llm.StreamChat(a.ctx, cfg, messages, params, handler)
-	return nil
+	return conversationID, nil
 }
 
 // loadConversationHistory carrega o histórico de mensagens de uma conversa
@@ -487,7 +511,6 @@ func (a *App) SaveSettings(input SettingsInput) error {
 				UseTools:             input.ChatDefaults.UseTools,
 				ShowInternalMessages: input.ChatDefaults.ShowInternalMessages,
 			},
-			LastConversationID: existing.LastConversationID,
 		}
 	})
 	if err != nil {
@@ -511,14 +534,6 @@ func (a *App) SaveSettings(input SettingsInput) error {
 func (a *App) SetDefaultModel(model string) error {
 	return config.Update(func(cfg *config.Config) *config.Config {
 		cfg.DefaultModel = model
-		return cfg
-	})
-}
-
-// SetLastConversation salva a última conversa aberta
-func (a *App) SetLastConversation(conversationID uint) error {
-	return config.Update(func(cfg *config.Config) *config.Config {
-		cfg.LastConversationID = conversationID
 		return cfg
 	})
 }
@@ -662,14 +677,15 @@ func (a *App) ResetDatabase() error {
 		os.Remove(dbPath + "-shm")
 	}
 
-	// Limpa referências de conversas no config
-	if err := config.Update(func(cfg *config.Config) *config.Config {
-		cfg.LastConversationID = 0
-		return cfg
-	}); err != nil {
-		return fmt.Errorf("erro ao limpar referências de conversas no config: %v", err)
+	// Reinicializa o banco de dados
+	if err := database.Init(); err != nil {
+		return fmt.Errorf("erro ao reinicializar banco: %v", err)
 	}
 
-	// Reinicializa o banco de dados
-	return database.Init()
+	log.Println("[ResetDatabase] Banco resetado com sucesso")
+	
+	// Emite evento para o frontend limpar o estado
+	runtime.EventsEmit(a.ctx, "database:reset")
+
+	return nil
 }

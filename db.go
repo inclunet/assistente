@@ -5,7 +5,10 @@ import (
 	"sort"
 	"time"
 
+	"assistente/internal/agentmanager"
 	"assistente/internal/database"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Re-exporta tipos do pacote database para manter compatibilidade
@@ -75,12 +78,13 @@ func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, e
 	// Converte para MessageNode
 	result := make([]MessageNode, 0, len(messages))
 	for _, msg := range messages {
-		result = append(result, MessageNode{
-			Message:    msg,
-			Children:   nil, // Lazy loading
-			Level:      level,
-			ChildCount: childCounts[msg.ID],
-		})
+		node := MessageNode{
+			ChatMessage: msg,
+			Children:    nil, // Lazy loading
+			Level:       level,
+			ChildCount:  childCounts[msg.ID],
+		}
+		result = append(result, node)
 	}
 
 	if parentID != nil {
@@ -157,9 +161,9 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 	var buildNode func(msg database.ChatMessage, level int) MessageNode
 	buildNode = func(msg database.ChatMessage, level int) MessageNode {
 		node := MessageNode{
-			Message:  msg,
-			Children: []MessageNode{},
-			Level:    level,
+			ChatMessage: msg,
+			Children:    []MessageNode{},
+			Level:       level,
 		}
 
 		// Adiciona filhos recursivamente
@@ -185,7 +189,7 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 	logTree = func(nodes []MessageNode, indent string) {
 		for _, n := range nodes {
 			fmt.Printf("🌳 [TREE] %sID=%d, role=%s, children=%d\n",
-				indent, n.Message.ID, n.Message.Role, len(n.Children))
+				indent, n.ID, n.Role, len(n.Children))
 			if len(n.Children) > 0 {
 				logTree(n.Children, indent+"  ")
 			}
@@ -201,7 +205,28 @@ func (a *App) UpdateConversation(id uint, title, model string) error {
 }
 
 func (a *App) DeleteConversation(id uint) error {
-	return database.DeleteConversation(id)
+	// Antes de deletar, limpa as abas que referenciam essa conversa
+	tabs, err := database.GetAllTabs()
+	if err == nil {
+		for _, tab := range tabs {
+			if tab.ConversationID != nil && *tab.ConversationID == id {
+				database.ClearTab(tab.ID)
+			}
+		}
+	}
+
+	// Deleta conversa normalmente
+	if err := database.DeleteConversation(id); err != nil {
+		return err
+	}
+
+	// Emite eventos
+	a.emitTabsUpdatedEvent()
+	runtime.EventsEmit(a.ctx, "conversation:deleted", map[string]interface{}{
+		"conversation_id": id,
+	})
+
+	return nil
 }
 
 func (a *App) UpdateConversationModel(id uint, model string) error {
@@ -435,23 +460,141 @@ func (a *App) DeleteHTTPAgent(id uint) error {
 // ==================== HTTPEndpoint ====================
 
 func (a *App) CreateHTTPEndpoint(httpAgentID uint, name, description, method, pathTemplate, queryTemplate, headersJSON, bodyTemplate, parameters, responseTemplate string) (*HTTPEndpoint, error) {
-	return database.CreateHTTPEndpoint(httpAgentID, name, description, method, pathTemplate, queryTemplate, headersJSON, bodyTemplate, parameters, responseTemplate)
+	req := agentmanager.CreateEndpointRequest{
+		Name:             name,
+		Description:      description,
+		Method:           method,
+		PathTemplate:     pathTemplate,
+		QueryTemplate:    queryTemplate,
+		HeadersJSON:      headersJSON,
+		BodyTemplate:     bodyTemplate,
+		Parameters:       parameters,
+		ResponseTemplate: responseTemplate,
+	}
+	data, err := a.agentManager.CreateHTTPEndpoint(httpAgentID, req)
+	if err != nil {
+		return nil, err
+	}
+	// Converte para tipo UI
+	return &HTTPEndpoint{
+		ID:               data.ID,
+		HTTPAgentID:      data.HTTPAgentID,
+		Name:             data.Name,
+		Description:      data.Description,
+		Method:           data.Method,
+		PathTemplate:     data.PathTemplate,
+		QueryTemplate:    data.QueryTemplate,
+		HeadersJSON:      data.HeadersJSON,
+		BodyTemplate:     data.BodyTemplate,
+		Parameters:       data.Parameters,
+		ResponseTemplate: data.ResponseTemplate,
+	}, nil
 }
 
 func (a *App) GetHTTPEndpoint(id uint) (*HTTPEndpoint, error) {
-	return database.GetHTTPEndpoint(id)
+	data, err := a.agentManager.GetHTTPEndpoint(id)
+	if err != nil {
+		return nil, err
+	}
+	return &HTTPEndpoint{
+		ID:               data.ID,
+		HTTPAgentID:      data.HTTPAgentID,
+		Name:             data.Name,
+		Description:      data.Description,
+		Method:           data.Method,
+		PathTemplate:     data.PathTemplate,
+		QueryTemplate:    data.QueryTemplate,
+		HeadersJSON:      data.HeadersJSON,
+		BodyTemplate:     data.BodyTemplate,
+		Parameters:       data.Parameters,
+		ResponseTemplate: data.ResponseTemplate,
+	}, nil
 }
 
 func (a *App) GetHTTPEndpointsByAgentID(httpAgentID uint) ([]HTTPEndpoint, error) {
-	return database.GetHTTPEndpointsByAgentID(httpAgentID)
+	data, err := a.agentManager.GetHTTPEndpointsByAgentID(httpAgentID)
+	if err != nil {
+		return nil, err
+	}
+	result := make([]HTTPEndpoint, 0, len(data))
+	for _, d := range data {
+		result = append(result, HTTPEndpoint{
+			ID:               d.ID,
+			HTTPAgentID:      d.HTTPAgentID,
+			Name:             d.Name,
+			Description:      d.Description,
+			Method:           d.Method,
+			PathTemplate:     d.PathTemplate,
+			QueryTemplate:    d.QueryTemplate,
+			HeadersJSON:      d.HeadersJSON,
+			BodyTemplate:     d.BodyTemplate,
+			Parameters:       d.Parameters,
+			ResponseTemplate: d.ResponseTemplate,
+		})
+	}
+	return result, nil
 }
 
 func (a *App) UpdateHTTPEndpoint(id uint, name, description, method, pathTemplate, queryTemplate, headersJSON, bodyTemplate, parameters, responseTemplate string) (*HTTPEndpoint, error) {
-	return database.UpdateHTTPEndpoint(id, name, description, method, pathTemplate, queryTemplate, headersJSON, bodyTemplate, parameters, responseTemplate)
+	req := agentmanager.CreateEndpointRequest{
+		Name:             name,
+		Description:      description,
+		Method:           method,
+		PathTemplate:     pathTemplate,
+		QueryTemplate:    queryTemplate,
+		HeadersJSON:      headersJSON,
+		BodyTemplate:     bodyTemplate,
+		Parameters:       parameters,
+		ResponseTemplate: responseTemplate,
+	}
+	data, err := a.agentManager.UpdateHTTPEndpoint(id, req)
+	if err != nil {
+		return nil, err
+	}
+	endpoint := &HTTPEndpoint{
+		ID:               data.ID,
+		HTTPAgentID:      data.HTTPAgentID,
+		Name:             data.Name,
+		Description:      data.Description,
+		Method:           data.Method,
+		PathTemplate:     data.PathTemplate,
+		QueryTemplate:    data.QueryTemplate,
+		HeadersJSON:      data.HeadersJSON,
+		BodyTemplate:     data.BodyTemplate,
+		Parameters:       data.Parameters,
+		ResponseTemplate: data.ResponseTemplate,
+	}
+
+	// Hot reload: recarrega o agente pai no registry
+	go func() {
+		// Busca o HTTP agent para pegar o AgentConfigID
+		httpAgent, err := a.agentManager.GetHTTPAgent(data.HTTPAgentID)
+		if err == nil && httpAgent.AgentConfigID > 0 {
+			a.ReloadHTTPAgent(httpAgent.AgentConfigID)
+		}
+	}()
+
+	return endpoint, nil
 }
 
 func (a *App) DeleteHTTPEndpoint(id uint) error {
-	return database.DeleteHTTPEndpoint(id)
+	// Busca o endpoint para saber qual agente recarregar
+	endpoint, err := a.agentManager.GetHTTPEndpoint(id)
+	if err == nil && endpoint.HTTPAgentID > 0 {
+		// Deleta
+		if err := a.agentManager.DeleteHTTPEndpoint(id); err != nil {
+			return err
+		}
+		// Hot reload: recarrega o agente pai no registry
+		go func() {
+			httpAgent, err := a.agentManager.GetHTTPAgent(endpoint.HTTPAgentID)
+			if err == nil && httpAgent.AgentConfigID > 0 {
+				a.ReloadHTTPAgent(httpAgent.AgentConfigID)
+			}
+		}()
+		return nil
+	}
+	return a.agentManager.DeleteHTTPEndpoint(id)
 }
 
 // ==================== MCPAgentDB ====================
@@ -478,6 +621,143 @@ func (a *App) UpdateMCPAgent(id uint, transportType, serverCommand, serverArgs, 
 
 func (a *App) DeleteMCPAgent(id uint) error {
 	return database.DeleteMCPAgent(id)
+}
+
+// ==================== Chat Tabs ====================
+
+type TabsResponse struct {
+	Tabs        []database.ChatTab `json:"tabs"`
+	ActiveTabId uint               `json:"active_tab_id"`
+}
+
+// GetTabs retorna todas as abas de chat
+func (a *App) GetTabs() (TabsResponse, error) {
+	tabs, err := database.GetAllTabs()
+	if err != nil {
+		return TabsResponse{}, err
+	}
+
+	// Se não há abas, cria uma padrão
+	if len(tabs) == 0 {
+		if err := database.InitializeDefaultTab(); err != nil {
+			return TabsResponse{}, err
+		}
+		tabs, err = database.GetAllTabs()
+		if err != nil {
+			return TabsResponse{}, err
+		}
+	}
+
+	// Encontra aba ativa
+	var activeId uint
+	for _, tab := range tabs {
+		if tab.IsActive {
+			activeId = tab.ID
+			break
+		}
+	}
+
+	return TabsResponse{
+		Tabs:        tabs,
+		ActiveTabId: activeId,
+	}, nil
+}
+
+// GetActiveTab retorna a aba ativa
+func (a *App) GetActiveTab() (*database.ChatTab, error) {
+	return database.GetActiveTab()
+}
+
+// CreateTab cria uma nova aba de chat
+func (a *App) CreateTab(title, icon string) (*database.ChatTab, error) {
+	tab, err := database.CreateTab(title, icon, true)
+	if err != nil {
+		return nil, err
+	}
+
+	a.emitTabsUpdatedEvent()
+	return tab, nil
+}
+
+// CloseTab fecha uma aba de chat
+func (a *App) CloseTab(id uint) error {
+	if err := database.CloseTab(id); err != nil {
+		return err
+	}
+
+	a.emitTabsUpdatedEvent()
+	return nil
+}
+
+// SetActiveTab define a aba ativa
+func (a *App) SetActiveTab(id uint) error {
+	if err := database.SetActiveTab(id); err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "tabs:activated", map[string]interface{}{
+		"tab_id": id,
+	})
+
+	return nil
+}
+
+// UpdateTabTitle atualiza o título de uma aba
+func (a *App) UpdateTabTitle(id uint, title string) error {
+	if err := database.UpdateTabTitle(id, title); err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "tabs:title_updated", map[string]interface{}{
+		"tab_id": id,
+		"title":  title,
+	})
+
+	return nil
+}
+
+// LoadConversationInTab carrega uma conversa em uma aba
+func (a *App) LoadConversationInTab(tabId, conversationId uint) error {
+	if err := database.LoadConversationInTab(tabId, conversationId); err != nil {
+		return err
+	}
+
+	a.emitTabsUpdatedEvent()
+	return nil
+}
+
+// ClearTab limpa uma aba (nova conversa)
+func (a *App) ClearTab(id uint) error {
+	if err := database.ClearTab(id); err != nil {
+		return err
+	}
+
+	a.emitTabsUpdatedEvent()
+	return nil
+}
+
+// ReorderTabs reordena as abas
+func (a *App) ReorderTabs(orderedIds []uint) error {
+	if err := database.ReorderTabs(orderedIds); err != nil {
+		return err
+	}
+
+	a.emitTabsUpdatedEvent()
+	return nil
+}
+
+// emitTabsUpdatedEvent emite evento de atualização de abas
+func (a *App) emitTabsUpdatedEvent() {
+	tabs, err := a.GetTabs()
+	if err != nil {
+		return
+	}
+
+	// Converte para map[string]interface{} para garantir serialização correta
+	runtime.EventsEmit(a.ctx, "tabs:updated", map[string]interface{}{
+		"tabs":          tabs.Tabs,
+		"active_tab_id": tabs.ActiveTabId,
+	})
 }
 
 func (a *App) GetAllMCPAgentsFull() ([]map[string]interface{}, error) {

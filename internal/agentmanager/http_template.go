@@ -1,4 +1,4 @@
-package agents
+package agentmanager
 
 import (
 	"bytes"
@@ -61,13 +61,13 @@ var TemplateFuncs = template.FuncMap{
 	"base64Decode": base64Decode,
 
 	// Strings
-	"lower":   strings.ToLower,
-	"upper":   strings.ToUpper,
-	"trim":    strings.TrimSpace,
-	"replace": strings.ReplaceAll,
-	"split":   strings.Split,
-	"join":    strings.Join,
-	"contains": strings.Contains,
+	"lower":     strings.ToLower,
+	"upper":     strings.ToUpper,
+	"trim":      strings.TrimSpace,
+	"replace":   strings.ReplaceAll,
+	"split":     strings.Split,
+	"join":      strings.Join,
+	"contains":  strings.Contains,
 	"hasPrefix": strings.HasPrefix,
 	"hasSuffix": strings.HasSuffix,
 
@@ -349,11 +349,11 @@ func (e *TemplateEngine) ExtractVariables(templateStr string) []string {
 	// Regex simples para extrair {{.variavel}}
 	// Para uma implementação mais robusta, usar AST do template
 	var variables []string
-	
+
 	// Procura por padrões {{.nome}} ou {{.nome | func}}
 	inVar := false
 	varStart := 0
-	
+
 	for i := 0; i < len(templateStr)-1; i++ {
 		if templateStr[i] == '{' && templateStr[i+1] == '{' {
 			inVar = true
@@ -361,20 +361,20 @@ func (e *TemplateEngine) ExtractVariables(templateStr string) []string {
 		} else if inVar && templateStr[i] == '}' && i > 0 && templateStr[i-1] != '}' {
 			if i+1 < len(templateStr) && templateStr[i+1] == '}' {
 				varContent := strings.TrimSpace(templateStr[varStart:i])
-				
+
 				// Remove pipes e funções
 				if pipeIdx := strings.Index(varContent, "|"); pipeIdx > 0 {
 					varContent = strings.TrimSpace(varContent[:pipeIdx])
 				}
-				
+
 				// Extrai o nome da variável (depois do .)
 				if strings.HasPrefix(varContent, ".") {
 					varName := varContent[1:]
 					// Ignora variáveis especiais (env, agent, etc.)
-					if !strings.HasPrefix(varName, "env.") && 
-					   !strings.HasPrefix(varName, "agent.") &&
-					   varName != "request_id" && 
-					   varName != "timestamp" {
+					if !strings.HasPrefix(varName, "env.") &&
+						!strings.HasPrefix(varName, "agent.") &&
+						varName != "request_id" &&
+						varName != "timestamp" {
 						// Pega apenas a primeira parte se for nested
 						if dotIdx := strings.Index(varName, "."); dotIdx > 0 {
 							varName = varName[:dotIdx]
@@ -382,12 +382,12 @@ func (e *TemplateEngine) ExtractVariables(templateStr string) []string {
 						variables = append(variables, varName)
 					}
 				}
-				
+
 				inVar = false
 			}
 		}
 	}
-	
+
 	// Remove duplicatas
 	seen := make(map[string]bool)
 	unique := []string{}
@@ -397,9 +397,6 @@ func (e *TemplateEngine) ExtractVariables(templateStr string) []string {
 			unique = append(unique, v)
 		}
 	}
-	
+
 	return unique
 }
-
-
-

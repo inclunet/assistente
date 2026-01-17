@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 
+	"assistente/internal/agentmanager"
 	"assistente/internal/agents"
 	"assistente/internal/config"
 	"assistente/internal/database"
@@ -29,6 +30,7 @@ type App struct {
 	embeddingsService     *llm.EmbeddingsService
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
+	agentManager          agentmanager.Manager // NOVO - Manager para agentes HTTP/MCP
 	voiceHotkeyID         int
 	InitialWorkDir        string // Diretório de trabalho inicial (passado via --workdir ou pwd)
 	currentConversationID uint   // ID da conversa atual (para passar aos agentes)
@@ -39,26 +41,28 @@ type App struct {
 
 // MessageNode representa uma mensagem com seus filhos na hierarquia
 type MessageNode struct {
-	Message    database.ChatMessage `json:"message"`
-	Children   []MessageNode        `json:"children,omitempty"`
-	Level      int                  `json:"level"`
-	ChildCount int                  `json:"child_count"` // Para lazy loading
+	database.ChatMessage        // Embedded - campos serão inline no JSON
+	Children   []MessageNode `json:"children,omitempty"`
+	Level      int           `json:"level"`
+	ChildCount int           `json:"child_count"` // Para lazy loading
 }
 
 // ConversationWithThreads representa uma conversa com mensagens organizadas em árvore
 type ConversationWithThreads struct {
-	ID          uint                       `json:"id"`
-	Title       string                     `json:"title"`
-	Preferences *database.ChatPreferences  `json:"preferences,omitempty"`
-	Threads     []MessageNode              `json:"threads"`
+	ID          uint                      `json:"id"`
+	Title       string                    `json:"title"`
+	Preferences *database.ChatPreferences `json:"preferences,omitempty"`
+	Threads     []MessageNode             `json:"threads"`
 }
 
 // StreamEvent representa um evento de streaming simplificado
 type StreamEvent struct {
-	MessageID uint   `json:"messageId"`
-	Content   string `json:"content"`
-	Done      bool   `json:"done"`
-	Error     string `json:"error,omitempty"`
+	MessageID      uint   `json:"messageId"`
+	ConversationId uint   `json:"conversationId"`
+	Content        string `json:"content"`
+	Done           bool   `json:"done"`
+	FullResponse   string `json:"fullResponse,omitempty"`
+	Error          string `json:"error,omitempty"`
 }
 
 // NewApp creates a new App application struct
@@ -127,6 +131,9 @@ func (a *App) initAgents() {
 	// Modelo padrão para agentes (mais barato que o principal)
 	agentModel := "gpt-4o-mini"
 
+	// Criar AgentManager (como faqStore, memoryStore)
+	a.agentManager = agentmanager.New(database.DB())
+
 	// Agente FAQ
 	faqStore := faq.NewStore()
 	faqAgent := agents.NewFAQAgent(faqStore, a.llmClient, agentModel)
@@ -163,10 +170,52 @@ func (a *App) initAgents() {
 	a.configureFileAgentGoogleDocs(fileAgent)
 	a.registry.Register(fileAgent)
 
-	// Carrega MCP Agents salvos no banco
+	// Agente Builder (Cria e gerencia HTTP e MCP Agents)
+	builderAgent := agents.NewBuilderAgent(a.agentManager, a.llmClient, agentModel)
+	a.applyAgentConfig(builderAgent)
+	// Configurar callbacks de hot reload
+	builderAgent.SetReloadCallbacks(
+		func(agentConfigID uint) error {
+			return a.ReloadHTTPAgent(agentConfigID)
+		},
+		func(mcpAgentID uint) error {
+			return a.ReloadMCPAgent(mcpAgentID)
+		},
+	)
+	a.registry.Register(builderAgent)
+
+	// Carrega agentes personalizados salvos no banco
+	a.loadSavedHTTPAgents()
 	a.loadSavedMCPAgents()
 
 	log.Printf("Agentes registrados: %d", len(a.registry.GetAll()))
+}
+
+// loadSavedHTTPAgents carrega e registra HTTP Agents salvos no banco
+func (a *App) loadSavedHTTPAgents() {
+	httpAgents, err := a.GetAllHTTPAgentsFull()
+	if err != nil {
+		log.Printf("Erro ao carregar HTTP Agents do banco: %v", err)
+		return
+	}
+
+	for _, httpFull := range httpAgents {
+		// Só carrega se estiver habilitado
+		if !httpFull.Enabled {
+			log.Printf("HTTP Agent %s desabilitado, pulando", httpFull.Name)
+			continue
+		}
+
+		// Registra em background para não bloquear a inicialização
+		go func(hf HTTPAgentFullConfig) {
+			log.Printf("Registrando HTTP Agent: %s", hf.Name)
+			if err := a.registerHTTPAgentInRegistry(&hf); err != nil {
+				log.Printf("Erro ao registrar HTTP Agent %s: %v", hf.Name, err)
+			} else {
+				log.Printf("HTTP Agent %s registrado com sucesso", hf.Name)
+			}
+		}(httpFull)
+	}
 }
 
 // loadSavedMCPAgents carrega e conecta MCP Agents salvos no banco
@@ -242,25 +291,25 @@ func (a *App) configureFileAgentGoogleDocs(fileAgent *agents.FileAgent) {
 	tokenProvider := func() (string, error) {
 		return a.GetOAuthAccessTokenForProvider("google")
 	}
-	
+
 	// Verifica se há uma conexão ativa do Google
 	conn, err := a.GetActiveOAuthConnectionForProvider("google")
 	if err != nil || conn == nil {
 		log.Printf("FileAgent: Google Docs não configurado (sem conexão OAuth ativa)")
 		return
 	}
-	
+
 	// Verifica se a conexão tem os scopes necessários para Drive/Docs
 	scopes := conn.Scopes
-	hasAccess := strings.Contains(scopes, "drive") || 
-	             strings.Contains(scopes, "documents") || 
-	             strings.Contains(scopes, "spreadsheets")
-	
+	hasAccess := strings.Contains(scopes, "drive") ||
+		strings.Contains(scopes, "documents") ||
+		strings.Contains(scopes, "spreadsheets")
+
 	if !hasAccess {
 		log.Printf("FileAgent: Conexão Google existe mas não tem scopes de Drive/Docs")
 		return
 	}
-	
+
 	fileAgent.SetGoogleTokenProvider(tokenProvider)
 	log.Printf("FileAgent: Google Docs habilitado (conta: %s)", conn.UserEmail)
 }
@@ -1104,6 +1153,74 @@ func (a *App) registerMCPAgentInRegistry(agentConfig *AgentConfig, mcpAgentDB *M
 
 	// Registra e conecta
 	return a.registry.RegisterMCPAgent(agent)
+}
+
+// registerHTTPAgentInRegistry cria e registra um HTTP Agent no registry
+func (a *App) registerHTTPAgentInRegistry(httpFull *HTTPAgentFullConfig) error {
+	// Parse auth config
+	var authConfig map[string]string
+	if httpFull.AuthConfig != "" {
+		if err := json.Unmarshal([]byte(httpFull.AuthConfig), &authConfig); err != nil {
+			authConfig = map[string]string{}
+		}
+	}
+
+	// Parse default headers
+	var defaultHeaders map[string]string
+	if httpFull.DefaultHeaders != "" {
+		if err := json.Unmarshal([]byte(httpFull.DefaultHeaders), &defaultHeaders); err != nil {
+			defaultHeaders = map[string]string{}
+		}
+	}
+
+	// Converte endpoints
+	endpoints := make([]agents.HTTPEndpointConfig, 0, len(httpFull.Endpoints))
+	for _, ep := range httpFull.Endpoints {
+		// Parse parameters JSON Schema
+		var params map[string]interface{}
+		if ep.Parameters != "" {
+			if err := json.Unmarshal([]byte(ep.Parameters), &params); err != nil {
+				params = map[string]interface{}{}
+			}
+		}
+
+		endpoints = append(endpoints, agents.HTTPEndpointConfig{
+			ID:               ep.ID,
+			Name:             ep.Name,
+			Description:      ep.Description,
+			Method:           ep.Method,
+			PathTemplate:     ep.PathTemplate,
+			QueryTemplate:    ep.QueryTemplate,
+			HeadersJSON:      ep.HeadersJSON,
+			BodyTemplate:     ep.BodyTemplate,
+			Parameters:       params,
+			ResponseTemplate: ep.ResponseTemplate,
+		})
+	}
+
+	// Cria o HTTP Agent
+	config := agents.HTTPAgentConfig{
+		ID:             httpFull.ID,
+		Name:           httpFull.Name,
+		DisplayName:    httpFull.DisplayName,
+		Description:    httpFull.Description,
+		Model:          httpFull.Model,
+		SystemPrompt:   httpFull.SystemPrompt,
+		Enabled:        httpFull.Enabled,
+		BaseURL:        httpFull.BaseURL,
+		AuthType:       httpFull.AuthType,
+		AuthConfig:     authConfig,
+		DefaultHeaders: defaultHeaders,
+		TimeoutSeconds: httpFull.TimeoutSeconds,
+		RetryCount:     httpFull.RetryCount,
+		Endpoints:      endpoints,
+	}
+
+	agent := agents.NewHTTPAgent(config, a.llmClient)
+
+	// Registra o agente
+	a.registry.Register(agent)
+	return nil
 }
 
 // ============================================================================

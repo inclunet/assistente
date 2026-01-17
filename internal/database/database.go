@@ -69,6 +69,7 @@ func Init() error {
 	if err := db.AutoMigrate(
 		&Conversation{},
 		&ChatMessage{},
+		&ChatTab{},
 		&FAQ{},
 		&Memory{},
 		&AgentConfig{},

@@ -46,17 +46,16 @@ type ChatDefaults struct {
 
 // Config representa a configuração da aplicação
 type Config struct {
-	APIKey             string           `json:"api_key"`
-	APIBaseURL         string           `json:"api_base_url"`
-	DefaultModel       string           `json:"default_model,omitempty"`       // Deprecated: use ChatParams.Model
-	EmbeddingsModel    string           `json:"embeddings_model,omitempty"`    // Deprecated: use EmbeddingsParams.Model
-	ImageModel         string           `json:"image_model,omitempty"`         // Modelo auxiliar para processar imagens (fallback)
-	ChatParams         ModelParams      `json:"chat_params,omitempty"`         // Parâmetros do modelo de chat
-	EmbeddingsParams   EmbeddingsParams `json:"embeddings_params,omitempty"`   // Parâmetros do modelo de embeddings
-	VoiceParams        VoiceParams      `json:"voice_params,omitempty"`        // Parâmetros de voz TTS
-	STTParams          STTParams        `json:"stt_params,omitempty"`          // Parâmetros de transcrição
-	ChatDefaults       ChatDefaults     `json:"chat_defaults,omitempty"`       // Preferências padrão do chat
-	LastConversationID uint             `json:"last_conversation_id,omitempty"`
+	APIKey           string           `json:"api_key"`
+	APIBaseURL       string           `json:"api_base_url"`
+	DefaultModel     string           `json:"default_model,omitempty"`
+	EmbeddingsModel  string           `json:"embeddings_model,omitempty"`
+	ImageModel       string           `json:"image_model,omitempty"`
+	ChatParams       ModelParams      `json:"chat_params,omitempty"`
+	EmbeddingsParams EmbeddingsParams `json:"embeddings_params,omitempty"`
+	VoiceParams      VoiceParams      `json:"voice_params,omitempty"`
+	STTParams        STTParams        `json:"stt_params,omitempty"`
+	ChatDefaults     ChatDefaults     `json:"chat_defaults,omitempty"`
 }
 
 // DefaultConfig retorna a configuração padrão

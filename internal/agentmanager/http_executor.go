@@ -1,4 +1,4 @@
-package agents
+package agentmanager
 
 import (
 	"context"

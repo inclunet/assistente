@@ -12,6 +12,7 @@
   export let messages = [];
   export let threadedMessages = [];
   export let showInternalMessages = false;
+  
   export let expandedPaths = {};
   export let loadingPaths = {};
   export let selectedModel = '';
@@ -34,6 +35,7 @@
   $: speakable = config.speakable ?? true;
   $: showHoverActions = config.showHoverActions ?? true;
   $: autoScroll = config.autoScroll ?? true;
+  $: lazyLoadChildren = config.lazyLoadChildren ?? true;
   
   // Referência do container
   let messagesContainer = null;
@@ -87,10 +89,47 @@
     }
   }
   
+  const toNode = (message, index, level = 0) => ({
+    message,
+    children: [],
+    childCount: 0,
+    level,
+    originalIndex: index
+  });
+
+  const ensureNode = (node, index, level = 0) => {
+    if (!node) return null;
+    if (node.message) {
+      const normalizedChildren = Array.isArray(node.children)
+        ? node.children
+            .map((child, childIndex) => ensureNode(child, childIndex, level + 1))
+            .filter(Boolean)
+        : [];
+      return {
+        ...node,
+        level: node.level ?? level,
+        originalIndex: node.originalIndex ?? index,
+        children: normalizedChildren,
+        childCount: node.childCount ?? normalizedChildren.length
+      };
+    }
+    return toNode(node, index, level);
+  };
+
+  $: normalizedThreads = Array.isArray(threadedMessages)
+    ? threadedMessages
+        .map((node, index) => ensureNode(node, index))
+        .filter(Boolean)
+    : [];
+
+  $: baseNodes = normalizedThreads.length > 0
+    ? normalizedThreads
+    : (messages || []).map((message, index) => ensureNode(message, index) || toNode(message, index));
+
   // Lista de nodes a exibir
   $: displayNodes = showInternalMessages 
-    ? threadedMessages 
-    : threadedMessages.filter(n => !n.message?.internal);
+    ? baseNodes 
+    : baseNodes.filter(n => !n.message?.internal);
   
   // Verifica se está vazio
   $: isEmpty = displayNodes.length === 0 && !isLoading;
@@ -135,6 +174,7 @@
           {expandedPaths}
           {loadingPaths}
           {showHoverActions}
+          lazyLoadChildren={lazyLoadChildren}
           editable={editable && node.message?.role === 'user'}
           {deletable}
           {pinnable}

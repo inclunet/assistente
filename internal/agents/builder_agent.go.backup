@@ -1,0 +1,1308 @@
+package agents
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"assistente/internal/agentmanager"
+)
+
+// BuilderAgent é um agente inteligente que cria e gerencia HTTP e MCP Agents
+type BuilderAgent struct {
+	BaseAgent
+	manager agentmanager.Manager
+}
+
+// NewBuilderAgent cria um novo BuilderAgent inteligente
+func NewBuilderAgent(manager agentmanager.Manager, llmClient LLMClient, model string) *BuilderAgent {
+	if model == "" {
+		model = "gpt-4o-mini" // Modelo padrão para agentes
+	}
+
+	return &BuilderAgent{
+		BaseAgent: BaseAgent{
+			Name:        "builder",
+			DisplayName: "Agent Builder",
+			Description: "Cria e gerencia agentes HTTP e MCP. Use para criar agentes a partir de OpenAPI, Postman, ou instruções naturais. Também gerencia endpoints e testa integrações.",
+			AgentType:   "internal",
+			Model:       model,
+			SystemPrompt: `Você é um especialista em criar e gerenciar agentes HTTP e MCP.
+
+## Suas capacidades:
+
+### HTTP Agents:
+- builder_create_http_agent: Criar agente HTTP completo com base_url, autenticação, etc.
+- builder_get_http_agent: Obter detalhes de um agente HTTP por ID
+- builder_list_http_agents: Listar todos os agentes HTTP
+- builder_update_http_agent: Atualizar configuração de agente HTTP
+- builder_delete_http_agent: Deletar agente HTTP
+- builder_create_endpoint: Criar endpoint em agente HTTP existente
+- builder_update_endpoint: Atualizar endpoint existente
+- builder_delete_endpoint: Deletar endpoint
+- builder_test_endpoint: Testar endpoint com parâmetros
+- builder_import_openapi: Importar agente completo de especificação OpenAPI
+- builder_import_postman: Importar agente de coleção Postman
+
+### MCP Agents:
+- builder_create_mcp_agent: Criar agente MCP (stdio ou http)
+- builder_list_mcp_agents: Listar todos os agentes MCP
+- builder_update_mcp_agent: Atualizar configuração de agente MCP
+- builder_delete_mcp_agent: Deletar agente MCP
+
+## Estratégia de Criação:
+
+### Para criar HTTP Agent a partir de descrição natural:
+1. Extraia: nome, URL base, tipo de autenticação (bearer/api-key/basic/none)
+2. Pergunte ao usuário se algo estiver faltando
+3. Crie o agente com builder_create_http_agent
+4. Se houver endpoints mencionados, crie-os com builder_create_endpoint
+
+### Para importar OpenAPI:
+1. Use builder_import_openapi com o conteúdo YAML/JSON
+2. Especifique nome e modelo (opcional)
+3. O sistema criará automaticamente todos os endpoints
+
+### Para importar Postman:
+1. Use builder_import_postman com o JSON da coleção
+2. Especifique nome e modelo (opcional)
+3. O sistema criará automaticamente todos os endpoints
+
+### Para criar MCP Agent:
+1. stdio: Requer server_command (caminho do executável), server_args (opcional), server_env (opcional)
+2. http: Requer server_url, opcionalmente auth_type/auth_value/http_headers
+
+## Instruções:
+1. Analise a tarefa do usuário
+2. Identifique se é HTTP ou MCP, criação nova ou import
+3. Execute as tools necessárias na ordem correta
+4. Forneça feedback claro sobre o que foi criado
+5. Se testar endpoint, interprete e explique os resultados
+
+Seja claro e direto. Quando criar agente, confirme o ID criado para referência futura.`,
+			Enabled: true,
+			LLM:     llmClient,
+		},
+		manager: manager,
+	}
+}
+
+// Execute recebe uma tarefa em linguagem natural e usa o LLM para decidir como resolver
+func (a *BuilderAgent) Execute(ctx context.Context, task string) (string, error) {
+	if a.LLM == nil {
+		return "", fmt.Errorf("LLM client não configurado para o agente %s", a.Name)
+	}
+
+	fmt.Printf("🔨 [Builder Agent] Recebeu tarefa: %s\n", task)
+
+	// Usa o método com saver se disponível
+	var result string
+	var err error
+	if a.MessageSaver != nil {
+		result, err = a.LLM.ChatWithToolsAndSaver(
+			ctx,
+			a.Model,
+			a.SystemPrompt,
+			task,
+			a.GetTools(),
+			a.ExecuteTool,
+			a.Name,
+			a.MessageSaver,
+		)
+	} else {
+		result, err = a.LLM.ChatWithTools(
+			ctx,
+			a.Model,
+			a.SystemPrompt,
+			task,
+			a.GetTools(),
+			a.ExecuteTool,
+			a.Name,
+		)
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("erro na execução do Builder Agent: %w", err)
+	}
+
+	return result, nil
+}
+
+// GetTools retorna as ferramentas disponíveis para o agente
+func (a *BuilderAgent) GetTools() []Tool {
+	return []Tool{
+		// HTTP Agent CRUD
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_create_http_agent",
+				Description: "Cria um novo agente HTTP com configurações básicas (base_url, auth, timeout, retry)",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"name", "display_name", "base_url"},
+					Properties: map[string]Property{
+						"name": {
+							Type:        "string",
+							Description: "Nome interno do agente (snake_case, ex: github_api)",
+						},
+						"display_name": {
+							Type:        "string",
+							Description: "Nome de exibição do agente (ex: GitHub API)",
+						},
+						"description": {
+							Type:        "string",
+							Description: "Descrição do que o agente faz",
+						},
+						"model": {
+							Type:        "string",
+							Description: "Modelo LLM a usar (padrão: gpt-4o-mini)",
+						},
+						"base_url": {
+							Type:        "string",
+							Description: "URL base da API (ex: https://api.github.com)",
+						},
+						"auth_type": {
+							Type:        "string",
+							Description: "Tipo de autenticação: bearer, api-key, basic, none (padrão: none)",
+							Enum:        []string{"bearer", "api-key", "basic", "none"},
+						},
+						"auth_config": {
+							Type:        "string",
+							Description: "JSON com config de auth (ex: {\"token\": \"ENV:GITHUB_TOKEN\"})",
+						},
+						"default_headers": {
+							Type:        "string",
+							Description: "JSON com headers padrão (ex: {\"Accept\": \"application/json\"})",
+						},
+						"timeout_seconds": {
+							Type:        "integer",
+							Description: "Timeout em segundos (padrão: 30)",
+						},
+						"retry_count": {
+							Type:        "integer",
+							Description: "Número de tentativas em caso de erro (padrão: 3)",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_get_http_agent",
+				Description: "Obtém detalhes completos de um agente HTTP incluindo endpoints",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"agent_id"},
+					Properties: map[string]Property{
+						"agent_id": {
+							Type:        "integer",
+							Description: "ID do agente HTTP",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_list_http_agents",
+				Description: "Lista todos os agentes HTTP cadastrados com informações básicas",
+				Parameters: Parameters{
+					Type:       "object",
+					Required:   []string{},
+					Properties: map[string]Property{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_update_http_agent",
+				Description: "Atualiza configurações de um agente HTTP existente",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"agent_id"},
+					Properties: map[string]Property{
+						"agent_id": {
+							Type:        "integer",
+							Description: "ID do agente HTTP",
+						},
+						"display_name": {
+							Type:        "string",
+							Description: "Novo nome de exibição",
+						},
+						"description": {
+							Type:        "string",
+							Description: "Nova descrição",
+						},
+						"model": {
+							Type:        "string",
+							Description: "Novo modelo LLM",
+						},
+						"base_url": {
+							Type:        "string",
+							Description: "Nova URL base",
+						},
+						"auth_type": {
+							Type:        "string",
+							Description: "Novo tipo de autenticação",
+						},
+						"auth_config": {
+							Type:        "string",
+							Description: "Nova config de autenticação",
+						},
+						"default_headers": {
+							Type:        "string",
+							Description: "Novos headers padrão",
+						},
+						"timeout_seconds": {
+							Type:        "integer",
+							Description: "Novo timeout",
+						},
+						"retry_count": {
+							Type:        "integer",
+							Description: "Novo retry count",
+						},
+						"enabled": {
+							Type:        "boolean",
+							Description: "Se o agente está habilitado",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_delete_http_agent",
+				Description: "Deleta um agente HTTP e todos os seus endpoints (irreversível)",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"agent_id"},
+					Properties: map[string]Property{
+						"agent_id": {
+							Type:        "integer",
+							Description: "ID do agente HTTP a deletar",
+						},
+					},
+				},
+			},
+		},
+
+		// HTTP Endpoints
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_create_endpoint",
+				Description: "Cria um endpoint em um agente HTTP existente",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"agent_id", "name", "method", "path_template"},
+					Properties: map[string]Property{
+						"agent_id": {
+							Type:        "integer",
+							Description: "ID do agente HTTP (usar o http_agent_id, não o agent_config_id)",
+						},
+						"name": {
+							Type:        "string",
+							Description: "Nome do endpoint (ex: list_repos)",
+						},
+						"description": {
+							Type:        "string",
+							Description: "Descrição do que o endpoint faz",
+						},
+						"method": {
+							Type:        "string",
+							Description: "Método HTTP (GET, POST, PUT, DELETE, PATCH)",
+							Enum:        []string{"GET", "POST", "PUT", "DELETE", "PATCH"},
+						},
+						"path_template": {
+							Type:        "string",
+							Description: "Template do path (ex: /users/{{username}}/repos)",
+						},
+						"query_template": {
+							Type:        "string",
+							Description: "Template de query params (ex: page={{page}}&per_page={{per_page}})",
+						},
+						"headers_json": {
+							Type:        "string",
+							Description: "JSON com headers específicos do endpoint",
+						},
+						"body_template": {
+							Type:        "string",
+							Description: "Template do body para POST/PUT",
+						},
+						"parameters": {
+							Type:        "string",
+							Description: "JSON Schema dos parâmetros aceitos pelo endpoint",
+						},
+						"response_template": {
+							Type:        "string",
+							Description: "Template Go para formatar a resposta",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_update_endpoint",
+				Description: "Atualiza um endpoint existente",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"endpoint_id"},
+					Properties: map[string]Property{
+						"endpoint_id": {
+							Type:        "integer",
+							Description: "ID do endpoint a atualizar",
+						},
+						"name": {
+							Type:        "string",
+							Description: "Novo nome do endpoint",
+						},
+						"description": {
+							Type:        "string",
+							Description: "Nova descrição",
+						},
+						"method": {
+							Type:        "string",
+							Description: "Novo método HTTP",
+						},
+						"path_template": {
+							Type:        "string",
+							Description: "Novo template de path",
+						},
+						"query_template": {
+							Type:        "string",
+							Description: "Novo template de query",
+						},
+						"headers_json": {
+							Type:        "string",
+							Description: "Novos headers",
+						},
+						"body_template": {
+							Type:        "string",
+							Description: "Novo template de body",
+						},
+						"parameters": {
+							Type:        "string",
+							Description: "Novo JSON Schema de parâmetros",
+						},
+						"response_template": {
+							Type:        "string",
+							Description: "Novo template de resposta",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_delete_endpoint",
+				Description: "Deleta um endpoint (irreversível)",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"endpoint_id"},
+					Properties: map[string]Property{
+						"endpoint_id": {
+							Type:        "integer",
+							Description: "ID do endpoint a deletar",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_test_endpoint",
+				Description: "Testa um endpoint HTTP com parâmetros específicos",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"agent_id", "endpoint_name"},
+					Properties: map[string]Property{
+						"agent_id": {
+							Type:        "integer",
+							Description: "ID do agente HTTP (http_agent_id)",
+						},
+						"endpoint_name": {
+							Type:        "string",
+							Description: "Nome do endpoint a testar",
+						},
+						"params_json": {
+							Type:        "string",
+							Description: "JSON com parâmetros para o teste (ex: {\"username\": \"octocat\"})",
+						},
+					},
+				},
+			},
+		},
+
+		// Import
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_import_openapi",
+				Description: "Importa um agente HTTP completo de especificação OpenAPI (YAML ou JSON)",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"content", "name"},
+					Properties: map[string]Property{
+						"content": {
+							Type:        "string",
+							Description: "Conteúdo YAML ou JSON da especificação OpenAPI",
+						},
+						"name": {
+							Type:        "string",
+							Description: "Nome para o agente (será convertido para snake_case)",
+						},
+						"model": {
+							Type:        "string",
+							Description: "Modelo LLM (padrão: gpt-4o-mini)",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_import_postman",
+				Description: "Importa um agente HTTP de coleção Postman (JSON)",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"content", "name"},
+					Properties: map[string]Property{
+						"content": {
+							Type:        "string",
+							Description: "Conteúdo JSON da coleção Postman",
+						},
+						"name": {
+							Type:        "string",
+							Description: "Nome para o agente",
+						},
+						"model": {
+							Type:        "string",
+							Description: "Modelo LLM (padrão: gpt-4o-mini)",
+						},
+					},
+				},
+			},
+		},
+
+		// MCP Agents
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_create_mcp_agent",
+				Description: "Cria um agente MCP (Model Context Protocol) via stdio ou http",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"name", "display_name", "transport_type"},
+					Properties: map[string]Property{
+						"name": {
+							Type:        "string",
+							Description: "Nome interno do agente (snake_case)",
+						},
+						"display_name": {
+							Type:        "string",
+							Description: "Nome de exibição do agente",
+						},
+						"description": {
+							Type:        "string",
+							Description: "Descrição do que o agente faz",
+						},
+						"model": {
+							Type:        "string",
+							Description: "Modelo LLM (padrão: gpt-4o-mini)",
+						},
+						"transport_type": {
+							Type:        "string",
+							Description: "Tipo de transporte: stdio (local) ou http (remoto)",
+							Enum:        []string{"stdio", "http"},
+						},
+						"server_command": {
+							Type:        "string",
+							Description: "Para stdio: comando/path do servidor MCP",
+						},
+						"server_args": {
+							Type:        "string",
+							Description: "Para stdio: argumentos do comando (JSON array de strings)",
+						},
+						"server_env": {
+							Type:        "string",
+							Description: "Para stdio: variáveis de ambiente (JSON object)",
+						},
+						"working_dir": {
+							Type:        "string",
+							Description: "Para stdio: diretório de trabalho",
+						},
+						"server_url": {
+							Type:        "string",
+							Description: "Para http: URL do servidor MCP",
+						},
+						"auth_type": {
+							Type:        "string",
+							Description: "Para http: tipo de auth (bearer, basic, none)",
+						},
+						"auth_value": {
+							Type:        "string",
+							Description: "Para http: valor de autenticação",
+						},
+						"http_headers": {
+							Type:        "string",
+							Description: "Para http: headers HTTP (JSON object)",
+						},
+						"auto_connect": {
+							Type:        "boolean",
+							Description: "Se deve conectar automaticamente ao iniciar",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_list_mcp_agents",
+				Description: "Lista todos os agentes MCP cadastrados",
+				Parameters: Parameters{
+					Type:       "object",
+					Required:   []string{},
+					Properties: map[string]Property{},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_update_mcp_agent",
+				Description: "Atualiza configurações de um agente MCP",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"agent_id"},
+					Properties: map[string]Property{
+						"agent_id": {
+							Type:        "integer",
+							Description: "ID do agente MCP",
+						},
+						"display_name": {
+							Type:        "string",
+							Description: "Novo nome de exibição",
+						},
+						"description": {
+							Type:        "string",
+							Description: "Nova descrição",
+						},
+						"model": {
+							Type:        "string",
+							Description: "Novo modelo LLM",
+						},
+						"server_command": {
+							Type:        "string",
+							Description: "Novo comando do servidor",
+						},
+						"server_args": {
+							Type:        "string",
+							Description: "Novos argumentos",
+						},
+						"server_env": {
+							Type:        "string",
+							Description: "Novas variáveis de ambiente",
+						},
+						"working_dir": {
+							Type:        "string",
+							Description: "Novo diretório de trabalho",
+						},
+						"server_url": {
+							Type:        "string",
+							Description: "Nova URL do servidor",
+						},
+						"auth_type": {
+							Type:        "string",
+							Description: "Novo tipo de auth",
+						},
+						"auth_value": {
+							Type:        "string",
+							Description: "Novo valor de auth",
+						},
+						"http_headers": {
+							Type:        "string",
+							Description: "Novos headers HTTP",
+						},
+						"auto_connect": {
+							Type:        "boolean",
+							Description: "Novo valor de auto_connect",
+						},
+						"enabled": {
+							Type:        "boolean",
+							Description: "Se o agente está habilitado",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDef{
+				Name:        "builder_delete_mcp_agent",
+				Description: "Deleta um agente MCP (irreversível)",
+				Parameters: Parameters{
+					Type:     "object",
+					Required: []string{"agent_id"},
+					Properties: map[string]Property{
+						"agent_id": {
+							Type:        "integer",
+							Description: "ID do agente MCP a deletar",
+						},
+					},
+				},
+			},
+		},
+	}
+}
+
+// ExecuteTool executa uma ferramenta específica
+func (a *BuilderAgent) ExecuteTool(ctx context.Context, toolName string, args map[string]interface{}) (string, error) {
+	fmt.Printf("🔨 [Builder Agent] Executando tool: %s\n", toolName)
+
+	switch toolName {
+	// HTTP Agent CRUD
+	case "builder_create_http_agent":
+		return a.createHTTPAgent(args)
+	case "builder_get_http_agent":
+		return a.getHTTPAgent(args)
+	case "builder_list_http_agents":
+		return a.listHTTPAgents(args)
+	case "builder_update_http_agent":
+		return a.updateHTTPAgent(args)
+	case "builder_delete_http_agent":
+		return a.deleteHTTPAgent(args)
+
+	// HTTP Endpoints
+	case "builder_create_endpoint":
+		return a.createEndpoint(args)
+	case "builder_update_endpoint":
+		return a.updateEndpoint(args)
+	case "builder_delete_endpoint":
+		return a.deleteEndpoint(args)
+	case "builder_test_endpoint":
+		return a.testEndpoint(args)
+
+	// Import
+	case "builder_import_openapi":
+		return a.importOpenAPI(args)
+	case "builder_import_postman":
+		return a.importPostman(args)
+
+	// MCP Agents
+	case "builder_create_mcp_agent":
+		return a.createMCPAgent(args)
+	case "builder_list_mcp_agents":
+		return a.listMCPAgents(args)
+	case "builder_update_mcp_agent":
+		return a.updateMCPAgent(args)
+	case "builder_delete_mcp_agent":
+		return a.deleteMCPAgent(args)
+
+	default:
+		return "", fmt.Errorf("ferramenta desconhecida: %s", toolName)
+	}
+}
+
+// ==================== HTTP Agent CRUD ====================
+
+func (a *BuilderAgent) createHTTPAgent(args map[string]interface{}) (string, error) {
+	name := getStringArg(args, "name", "")
+	displayName := getStringArg(args, "display_name", "")
+	description := getStringArg(args, "description", "")
+	model := getStringArg(args, "model", "gpt-4o-mini")
+	baseURL := getStringArg(args, "base_url", "")
+	authType := getStringArg(args, "auth_type", "none")
+	authConfig := getStringArg(args, "auth_config", "")
+	defaultHeaders := getStringArg(args, "default_headers", "")
+	timeoutSeconds := getIntArg(args, "timeout_seconds", 30)
+	retryCount := getIntArg(args, "retry_count", 3)
+
+	if name == "" || displayName == "" || baseURL == "" {
+		return "", fmt.Errorf("name, display_name e base_url são obrigatórios")
+	}
+
+	systemPrompt := fmt.Sprintf("Você é um agente HTTP que acessa %s. Use os endpoints disponíveis para ajudar o usuário.", displayName)
+
+	req := agentmanager.CreateHTTPAgentRequest{
+		Name:           name,
+		DisplayName:    displayName,
+		Description:    description,
+		Model:          model,
+		SystemPrompt:   systemPrompt,
+		Enabled:        true,
+		BaseURL:        baseURL,
+		AuthType:       authType,
+		AuthConfig:     authConfig,
+		DefaultHeaders: defaultHeaders,
+		TimeoutSeconds: timeoutSeconds,
+		RetryCount:     retryCount,
+	}
+
+	agentData, httpData, err := a.manager.CreateHTTPAgent(req)
+	if err != nil {
+		return "", fmt.Errorf("erro ao criar agente: %w", err)
+	}
+
+	result := fmt.Sprintf(`✅ Agente HTTP criado com sucesso!
+
+**ID do Agente**: %d
+**ID HTTP Agent**: %d (use este para criar endpoints)
+**Nome**: %s
+**Display Name**: %s
+**Base URL**: %s
+**Auth Type**: %s
+**Timeout**: %d segundos
+**Retry**: %d tentativas
+
+O agente está pronto para uso. Você pode adicionar endpoints com builder_create_endpoint.`,
+		agentData.ID, httpData.ID, name, displayName, baseURL, authType, timeoutSeconds, retryCount)
+
+	return result, nil
+}
+
+func (a *BuilderAgent) getHTTPAgent(args map[string]interface{}) (string, error) {
+	agentID := getIntArg(args, "agent_id", 0)
+	if agentID == 0 {
+		return "", fmt.Errorf("agent_id é obrigatório")
+	}
+
+	agentData, err := a.manager.GetAgentByID(uint(agentID))
+	if err != nil {
+		return "", fmt.Errorf("erro ao buscar agente: %w", err)
+	}
+
+	httpData, err := a.manager.GetHTTPAgent(uint(agentID))
+	if err != nil {
+		return "", fmt.Errorf("erro ao buscar dados HTTP: %w", err)
+	}
+
+	result := fmt.Sprintf(`📋 **%s** (ID: %d)
+**Tipo**: HTTP Agent
+**Descrição**: %s
+**Modelo**: %s
+**Base URL**: %s
+**Auth**: %s
+**Timeout**: %d seg | **Retry**: %d
+**Habilitado**: %v
+**HTTP Agent ID**: %d
+
+**Endpoints** (%d):`,
+		agentData.DisplayName, agentData.ID, agentData.Description, agentData.Model,
+		httpData.BaseURL, httpData.AuthType, httpData.TimeoutSeconds, httpData.RetryCount,
+		agentData.Enabled, httpData.ID, len(httpData.Endpoints))
+
+	if len(httpData.Endpoints) == 0 {
+		result += "\n(Nenhum endpoint cadastrado)"
+	} else {
+		for _, ep := range httpData.Endpoints {
+			result += fmt.Sprintf("\n- **%s** (%s %s) - %s",
+				ep.Name, ep.Method, ep.PathTemplate, ep.Description)
+		}
+	}
+
+	return result, nil
+}
+
+func (a *BuilderAgent) listHTTPAgents(args map[string]interface{}) (string, error) {
+	agents, err := a.manager.GetAllAgents()
+	if err != nil {
+		return "", fmt.Errorf("erro ao listar agentes: %w", err)
+	}
+
+	httpAgents := []agentmanager.AgentData{}
+	for _, agent := range agents {
+		if agent.AgentType == "http" {
+			httpAgents = append(httpAgents, agent)
+		}
+	}
+
+	if len(httpAgents) == 0 {
+		return "Nenhum agente HTTP cadastrado.", nil
+	}
+
+	result := fmt.Sprintf("📋 **%d Agentes HTTP**:\n\n", len(httpAgents))
+	for _, agent := range httpAgents {
+		status := "✅"
+		if !agent.Enabled {
+			status = "❌"
+		}
+		result += fmt.Sprintf("%s **%s** (ID: %d)\n   %s\n\n", status, agent.DisplayName, agent.ID, agent.Description)
+	}
+
+	return result, nil
+}
+
+func (a *BuilderAgent) updateHTTPAgent(args map[string]interface{}) (string, error) {
+	agentID := getIntArg(args, "agent_id", 0)
+	if agentID == 0 {
+		return "", fmt.Errorf("agent_id é obrigatório")
+	}
+
+	// Busca valores atuais primeiro
+	current, err := a.manager.GetAgentByID(uint(agentID))
+	if err != nil {
+		return "", fmt.Errorf("agente não encontrado: %w", err)
+	}
+
+	httpCurrent, _ := a.manager.GetHTTPAgent(uint(agentID))
+
+	req := agentmanager.UpdateAgentRequest{
+		DisplayName:    getStringArg(args, "display_name", current.DisplayName),
+		Description:    getStringArg(args, "description", current.Description),
+		Model:          getStringArg(args, "model", current.Model),
+		SystemPrompt:   current.SystemPrompt,
+		Enabled:        getBoolArg(args, "enabled", current.Enabled),
+		BaseURL:        getStringArg(args, "base_url", httpCurrent.BaseURL),
+		AuthType:       getStringArg(args, "auth_type", httpCurrent.AuthType),
+		AuthConfig:     getStringArg(args, "auth_config", httpCurrent.AuthConfig),
+		DefaultHeaders: getStringArg(args, "default_headers", httpCurrent.DefaultHeaders),
+		TimeoutSeconds: getIntArg(args, "timeout_seconds", httpCurrent.TimeoutSeconds),
+		RetryCount:     getIntArg(args, "retry_count", httpCurrent.RetryCount),
+	}
+
+	agentData, err := a.manager.UpdateAgent(uint(agentID), req)
+	if err != nil {
+		return "", fmt.Errorf("erro ao atualizar agente: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Agente **%s** (ID: %d) atualizado com sucesso!", agentData.DisplayName, agentData.ID), nil
+}
+
+func (a *BuilderAgent) deleteHTTPAgent(args map[string]interface{}) (string, error) {
+	agentID := getIntArg(args, "agent_id", 0)
+	if agentID == 0 {
+		return "", fmt.Errorf("agent_id é obrigatório")
+	}
+
+	// Busca nome antes de deletar
+	agent, _ := a.manager.GetAgentByID(uint(agentID))
+	name := "Agente"
+	if agent != nil {
+		name = agent.DisplayName
+	}
+
+	if err := a.manager.DeleteAgent(uint(agentID)); err != nil {
+		return "", fmt.Errorf("erro ao deletar agente: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Agente **%s** (ID: %d) deletado com sucesso!", name, agentID), nil
+}
+
+// ==================== HTTP Endpoints ====================
+
+func (a *BuilderAgent) createEndpoint(args map[string]interface{}) (string, error) {
+	agentID := getIntArg(args, "agent_id", 0)
+	name := getStringArg(args, "name", "")
+	method := getStringArg(args, "method", "GET")
+	pathTemplate := getStringArg(args, "path_template", "")
+
+	if agentID == 0 || name == "" || pathTemplate == "" {
+		return "", fmt.Errorf("agent_id, name e path_template são obrigatórios")
+	}
+
+	req := agentmanager.CreateEndpointRequest{
+		Name:             name,
+		Description:      getStringArg(args, "description", ""),
+		Method:           method,
+		PathTemplate:     pathTemplate,
+		QueryTemplate:    getStringArg(args, "query_template", ""),
+		HeadersJSON:      getStringArg(args, "headers_json", ""),
+		BodyTemplate:     getStringArg(args, "body_template", ""),
+		Parameters:       getStringArg(args, "parameters", ""),
+		ResponseTemplate: getStringArg(args, "response_template", ""),
+	}
+
+	endpointData, err := a.manager.CreateHTTPEndpoint(uint(agentID), req)
+	if err != nil {
+		return "", fmt.Errorf("erro ao criar endpoint: %w", err)
+	}
+
+	result := fmt.Sprintf(`✅ Endpoint criado com sucesso!
+
+**ID**: %d
+**Nome**: %s
+**Método**: %s %s
+**Descrição**: %s
+
+O endpoint está pronto para uso no agente HTTP.`,
+		endpointData.ID, name, method, pathTemplate, endpointData.Description)
+
+	return result, nil
+}
+
+func (a *BuilderAgent) updateEndpoint(args map[string]interface{}) (string, error) {
+	endpointID := getIntArg(args, "endpoint_id", 0)
+	if endpointID == 0 {
+		return "", fmt.Errorf("endpoint_id é obrigatório")
+	}
+
+	// Busca valores atuais
+	current, err := a.manager.GetHTTPEndpoint(uint(endpointID))
+	if err != nil {
+		return "", fmt.Errorf("endpoint não encontrado: %w", err)
+	}
+
+	req := agentmanager.CreateEndpointRequest{
+		Name:             getStringArg(args, "name", current.Name),
+		Description:      getStringArg(args, "description", current.Description),
+		Method:           getStringArg(args, "method", current.Method),
+		PathTemplate:     getStringArg(args, "path_template", current.PathTemplate),
+		QueryTemplate:    getStringArg(args, "query_template", current.QueryTemplate),
+		HeadersJSON:      getStringArg(args, "headers_json", current.HeadersJSON),
+		BodyTemplate:     getStringArg(args, "body_template", current.BodyTemplate),
+		Parameters:       getStringArg(args, "parameters", current.Parameters),
+		ResponseTemplate: getStringArg(args, "response_template", current.ResponseTemplate),
+	}
+
+	endpointData, err := a.manager.UpdateHTTPEndpoint(uint(endpointID), req)
+	if err != nil {
+		return "", fmt.Errorf("erro ao atualizar endpoint: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Endpoint **%s** (ID: %d) atualizado com sucesso!", endpointData.Name, endpointData.ID), nil
+}
+
+func (a *BuilderAgent) deleteEndpoint(args map[string]interface{}) (string, error) {
+	endpointID := getIntArg(args, "endpoint_id", 0)
+	if endpointID == 0 {
+		return "", fmt.Errorf("endpoint_id é obrigatório")
+	}
+
+	// Busca nome antes de deletar
+	endpoint, _ := a.manager.GetHTTPEndpoint(uint(endpointID))
+	name := "Endpoint"
+	if endpoint != nil {
+		name = endpoint.Name
+	}
+
+	if err := a.manager.DeleteHTTPEndpoint(uint(endpointID)); err != nil {
+		return "", fmt.Errorf("erro ao deletar endpoint: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Endpoint **%s** (ID: %d) deletado com sucesso!", name, endpointID), nil
+}
+
+func (a *BuilderAgent) testEndpoint(args map[string]interface{}) (string, error) {
+	agentID := getIntArg(args, "agent_id", 0)
+	endpointName := getStringArg(args, "endpoint_name", "")
+	paramsJSON := getStringArg(args, "params_json", "{}")
+
+	if agentID == 0 || endpointName == "" {
+		return "", fmt.Errorf("agent_id e endpoint_name são obrigatórios")
+	}
+
+	result, err := a.manager.TestHTTPEndpoint(uint(agentID), endpointName, paramsJSON)
+	if err != nil {
+		return "", fmt.Errorf("erro ao testar endpoint: %w", err)
+	}
+
+	return fmt.Sprintf(`✅ **Teste do Endpoint: %s**
+
+**Resultado**:
+%s`, endpointName, result), nil
+}
+
+// ==================== Import ====================
+
+func (a *BuilderAgent) importOpenAPI(args map[string]interface{}) (string, error) {
+	content := getStringArg(args, "content", "")
+	name := getStringArg(args, "name", "")
+	model := getStringArg(args, "model", "gpt-4o-mini")
+
+	if content == "" || name == "" {
+		return "", fmt.Errorf("content e name são obrigatórios")
+	}
+
+	agentData, httpData, err := a.manager.ImportOpenAPIAgent(content, name, model)
+	if err != nil {
+		return "", fmt.Errorf("erro ao importar OpenAPI: %w", err)
+	}
+
+	result := fmt.Sprintf(`✅ **Agente importado do OpenAPI com sucesso!**
+
+**ID do Agente**: %d
+**HTTP Agent ID**: %d
+**Nome**: %s
+**Display Name**: %s
+**Base URL**: %s
+**Endpoints criados**: %d
+
+O agente está pronto para uso!`,
+		agentData.ID, httpData.ID, agentData.Name, agentData.DisplayName,
+		httpData.BaseURL, len(httpData.Endpoints))
+
+	if len(httpData.Endpoints) > 0 {
+		result += "\n\n**Endpoints**:"
+		for i, ep := range httpData.Endpoints {
+			if i < 10 { // Limita a 10 para não ficar muito longo
+				result += fmt.Sprintf("\n- %s %s", ep.Method, ep.PathTemplate)
+			}
+		}
+		if len(httpData.Endpoints) > 10 {
+			result += fmt.Sprintf("\n- ... e mais %d endpoints", len(httpData.Endpoints)-10)
+		}
+	}
+
+	return result, nil
+}
+
+func (a *BuilderAgent) importPostman(args map[string]interface{}) (string, error) {
+	content := getStringArg(args, "content", "")
+	name := getStringArg(args, "name", "")
+	model := getStringArg(args, "model", "gpt-4o-mini")
+
+	if content == "" || name == "" {
+		return "", fmt.Errorf("content e name são obrigatórios")
+	}
+
+	agentData, httpData, err := a.manager.ImportPostmanAgent(content, name, model)
+	if err != nil {
+		return "", fmt.Errorf("erro ao importar Postman: %w", err)
+	}
+
+	result := fmt.Sprintf(`✅ **Agente importado do Postman com sucesso!**
+
+**ID do Agente**: %d
+**HTTP Agent ID**: %d
+**Nome**: %s
+**Display Name**: %s
+**Base URL**: %s
+**Endpoints criados**: %d
+
+O agente está pronto para uso!`,
+		agentData.ID, httpData.ID, agentData.Name, agentData.DisplayName,
+		httpData.BaseURL, len(httpData.Endpoints))
+
+	if len(httpData.Endpoints) > 0 {
+		result += "\n\n**Endpoints**:"
+		for i, ep := range httpData.Endpoints {
+			if i < 10 {
+				result += fmt.Sprintf("\n- %s %s", ep.Method, ep.PathTemplate)
+			}
+		}
+		if len(httpData.Endpoints) > 10 {
+			result += fmt.Sprintf("\n- ... e mais %d endpoints", len(httpData.Endpoints)-10)
+		}
+	}
+
+	return result, nil
+}
+
+// ==================== MCP Agents ====================
+
+func (a *BuilderAgent) createMCPAgent(args map[string]interface{}) (string, error) {
+	name := getStringArg(args, "name", "")
+	displayName := getStringArg(args, "display_name", "")
+	transportType := getStringArg(args, "transport_type", "")
+
+	if name == "" || displayName == "" || transportType == "" {
+		return "", fmt.Errorf("name, display_name e transport_type são obrigatórios")
+	}
+
+	description := getStringArg(args, "description", "")
+	model := getStringArg(args, "model", "gpt-4o-mini")
+
+	systemPrompt := fmt.Sprintf("Você é um agente MCP que conecta com %s. Use as ferramentas disponíveis para ajudar o usuário.", displayName)
+
+	req := agentmanager.CreateMCPAgentRequest{
+		Name:          name,
+		DisplayName:   displayName,
+		Description:   description,
+		Model:         model,
+		SystemPrompt:  systemPrompt,
+		Enabled:       true,
+		TransportType: transportType,
+		ServerCommand: getStringArg(args, "server_command", ""),
+		ServerArgs:    getStringArg(args, "server_args", ""),
+		ServerEnv:     getStringArg(args, "server_env", ""),
+		WorkingDir:    getStringArg(args, "working_dir", ""),
+		ServerURL:     getStringArg(args, "server_url", ""),
+		AuthType:      getStringArg(args, "auth_type", ""),
+		AuthValue:     getStringArg(args, "auth_value", ""),
+		HTTPHeaders:   getStringArg(args, "http_headers", ""),
+		ExecutionMode: "sync",
+		AutoConnect:   getBoolArg(args, "auto_connect", false),
+	}
+
+	agentData, mcpData, err := a.manager.CreateMCPAgent(req)
+	if err != nil {
+		return "", fmt.Errorf("erro ao criar agente MCP: %w", err)
+	}
+
+	result := fmt.Sprintf(`✅ **Agente MCP criado com sucesso!**
+
+**ID do Agente**: %d
+**MCP Agent ID**: %d
+**Nome**: %s
+**Display Name**: %s
+**Transport**: %s`,
+		agentData.ID, mcpData.ID, name, displayName, transportType)
+
+	if transportType == "stdio" {
+		result += fmt.Sprintf("\n**Comando**: %s", mcpData.ServerCommand)
+	} else {
+		result += fmt.Sprintf("\n**URL**: %s", mcpData.ServerURL)
+	}
+
+	result += "\n\nO agente está pronto para uso!"
+
+	return result, nil
+}
+
+func (a *BuilderAgent) listMCPAgents(args map[string]interface{}) (string, error) {
+	agents, err := a.manager.GetAllMCPAgents()
+	if err != nil {
+		return "", fmt.Errorf("erro ao listar agentes MCP: %w", err)
+	}
+
+	if len(agents) == 0 {
+		return "Nenhum agente MCP cadastrado.", nil
+	}
+
+	result := fmt.Sprintf("📋 **%d Agentes MCP**:\n\n", len(agents))
+	for _, mcp := range agents {
+		// Busca AgentConfig para pegar status
+		agentData, _ := a.manager.GetAgentByID(mcp.AgentConfigID)
+		status := "✅"
+		if agentData != nil && !agentData.Enabled {
+			status = "❌"
+		}
+
+		result += fmt.Sprintf("%s **%s** (ID Config: %d, MCP ID: %d)\n", status, mcp.TransportType, mcp.AgentConfigID, mcp.ID)
+		if mcp.TransportType == "stdio" {
+			result += fmt.Sprintf("   Command: %s\n", mcp.ServerCommand)
+		} else {
+			result += fmt.Sprintf("   URL: %s\n", mcp.ServerURL)
+		}
+		result += "\n"
+	}
+
+	return result, nil
+}
+
+func (a *BuilderAgent) updateMCPAgent(args map[string]interface{}) (string, error) {
+	agentID := getIntArg(args, "agent_id", 0)
+	if agentID == 0 {
+		return "", fmt.Errorf("agent_id é obrigatório")
+	}
+
+	// Busca valores atuais
+	current, err := a.manager.GetAgentByID(uint(agentID))
+	if err != nil {
+		return "", fmt.Errorf("agente não encontrado: %w", err)
+	}
+
+	mcpCurrent, _ := a.manager.GetMCPAgent(uint(agentID))
+
+	req := agentmanager.UpdateAgentRequest{
+		DisplayName:  getStringArg(args, "display_name", current.DisplayName),
+		Description:  getStringArg(args, "description", current.Description),
+		Model:        getStringArg(args, "model", current.Model),
+		SystemPrompt: current.SystemPrompt,
+		Enabled:      getBoolArg(args, "enabled", current.Enabled),
+	}
+
+	agentData, err := a.manager.UpdateAgent(uint(agentID), req)
+	if err != nil {
+		return "", fmt.Errorf("erro ao atualizar agente: %w", err)
+	}
+
+	// Atualiza também dados MCP
+	if mcpCurrent != nil {
+		mcpReq := agentmanager.CreateMCPAgentRequest{
+			Name:          current.Name,
+			DisplayName:   req.DisplayName,
+			Description:   req.Description,
+			Model:         req.Model,
+			SystemPrompt:  req.SystemPrompt,
+			Enabled:       req.Enabled,
+			TransportType: mcpCurrent.TransportType,
+			ServerCommand: getStringArg(args, "server_command", mcpCurrent.ServerCommand),
+			ServerArgs:    getStringArg(args, "server_args", mcpCurrent.ServerArgs),
+			ServerEnv:     getStringArg(args, "server_env", mcpCurrent.ServerEnv),
+			WorkingDir:    getStringArg(args, "working_dir", mcpCurrent.WorkingDir),
+			ServerURL:     getStringArg(args, "server_url", mcpCurrent.ServerURL),
+			AuthType:      getStringArg(args, "auth_type", mcpCurrent.AuthType),
+			AuthValue:     getStringArg(args, "auth_value", mcpCurrent.AuthValue),
+			HTTPHeaders:   getStringArg(args, "http_headers", mcpCurrent.HTTPHeaders),
+			ExecutionMode: mcpCurrent.ExecutionMode,
+			AutoConnect:   getBoolArg(args, "auto_connect", mcpCurrent.AutoConnect),
+		}
+		a.manager.UpdateMCPAgent(mcpCurrent.ID, mcpReq)
+	}
+
+	return fmt.Sprintf("✅ Agente MCP **%s** (ID: %d) atualizado com sucesso!", agentData.DisplayName, agentData.ID), nil
+}
+
+func (a *BuilderAgent) deleteMCPAgent(args map[string]interface{}) (string, error) {
+	agentID := getIntArg(args, "agent_id", 0)
+	if agentID == 0 {
+		return "", fmt.Errorf("agent_id é obrigatório")
+	}
+
+	// Busca nome antes de deletar
+	agent, _ := a.manager.GetAgentByID(uint(agentID))
+	name := "Agente MCP"
+	if agent != nil {
+		name = agent.DisplayName
+	}
+
+	if err := a.manager.DeleteAgent(uint(agentID)); err != nil {
+		return "", fmt.Errorf("erro ao deletar agente MCP: %w", err)
+	}
+
+	return fmt.Sprintf("✅ Agente MCP **%s** (ID: %d) deletado com sucesso!", name, agentID), nil
+}
+
+// ==================== Helper Functions ====================
+
+func getStringArg(args map[string]interface{}, key, defaultValue string) string {
+	if val, ok := args[key]; ok {
+		if str, ok := val.(string); ok {
+			return str
+		}
+	}
+	return defaultValue
+}
+
+func getIntArg(args map[string]interface{}, key string, defaultValue int) int {
+	if val, ok := args[key]; ok {
+		switch v := val.(type) {
+		case int:
+			return v
+		case float64:
+			return int(v)
+		case int64:
+			return int(v)
+		}
+	}
+	return defaultValue
+}
+
+func getBoolArg(args map[string]interface{}, key string, defaultValue bool) bool {
+	if val, ok := args[key]; ok {
+		if b, ok := val.(bool); ok {
+			return b
+		}
+	}
+	return defaultValue
+}
+
+// JSON helper para serializar dados
+func toJSON(data interface{}) string {
+	bytes, err := json.MarshalIndent(data, "", "  ")
+	if err != nil {
+		return fmt.Sprintf("Erro ao serializar: %v", err)
+	}
+	return string(bytes)
+}

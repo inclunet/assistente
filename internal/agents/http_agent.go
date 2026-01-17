@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"assistente/internal/agentmanager"
 )
 
 // HTTPAgentConfig configuração de um HTTP Agent
@@ -44,7 +46,7 @@ type HTTPEndpointConfig struct {
 type HTTPAgent struct {
 	BaseAgent
 	config   HTTPAgentConfig
-	executor *HTTPExecutor
+	executor *agentmanager.HTTPExecutor
 	envVars  map[string]string
 }
 
@@ -71,7 +73,7 @@ func NewHTTPAgent(config HTTPAgentConfig, llm LLMClient) *HTTPAgent {
 			LLM:          llm,
 		},
 		config: config,
-		executor: NewHTTPExecutor(HTTPExecutorConfig{
+		executor: agentmanager.NewHTTPExecutor(agentmanager.HTTPExecutorConfig{
 			TimeoutSeconds: config.TimeoutSeconds,
 			RetryCount:     config.RetryCount,
 		}),
@@ -200,7 +202,7 @@ func (a *HTTPAgent) buildSystemPrompt() string {
 // executeEndpoint executa um endpoint HTTP
 func (a *HTTPAgent) executeEndpoint(ctx context.Context, endpoint *HTTPEndpointConfig, params map[string]interface{}) (string, error) {
 	// Constrói a requisição
-	req := HTTPRequest{
+	req := agentmanager.HTTPRequest{
 		Method:         endpoint.Method,
 		BaseURL:        a.config.BaseURL,
 		PathTemplate:   endpoint.PathTemplate,
@@ -271,13 +273,10 @@ func (a *HTTPAgent) UpdateConfig(config HTTPAgentConfig) {
 	a.BaseAgent.Model = config.Model
 	a.BaseAgent.SystemPrompt = config.SystemPrompt
 	a.BaseAgent.Enabled = config.Enabled
-	
+
 	// Recria o executor com novos timeouts
-	a.executor = NewHTTPExecutor(HTTPExecutorConfig{
+	a.executor = agentmanager.NewHTTPExecutor(agentmanager.HTTPExecutorConfig{
 		TimeoutSeconds: config.TimeoutSeconds,
 		RetryCount:     config.RetryCount,
 	})
 }
-
-
-

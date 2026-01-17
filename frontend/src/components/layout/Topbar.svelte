@@ -2,7 +2,6 @@
   import { createEventDispatcher, tick, onMount, onDestroy } from 'svelte';
   
   export let currentPage = 'chat';
-  export let hasApiKey = false;
   
   const dispatch = createEventDispatcher();
   
@@ -28,27 +27,27 @@
       navigate('chat');
     }
     // Alt+2: Histórico
-    else if (key === '2' && hasApiKey) {
+    else if (key === '2') {
       event.preventDefault();
       navigate('history');
     }
     // Alt+3: FAQ
-    else if (key === '3' && hasApiKey) {
+    else if (key === '3') {
       event.preventDefault();
       navigate('faq');
     }
     // Alt+4: Memórias
-    else if (key === '4' && hasApiKey) {
+    else if (key === '4') {
       event.preventDefault();
       navigate('memories');
     }
     // Alt+5: Agentes
-    else if (key === '5' && hasApiKey) {
+    else if (key === '5') {
       event.preventDefault();
       navigate('agents');
     }
     // Alt+6: Conexões OAuth
-    else if (key === '6' && hasApiKey) {
+    else if (key === '6') {
       event.preventDefault();
       navigate('oauth');
     }
@@ -68,16 +67,16 @@
   });
   
   const menuItems = [
-    { id: 'chat', label: 'Chat', icon: '💬', shortcut: 'Alt+1', requiresAuth: false },
-    { id: 'history', label: 'Histórico', icon: '📜', shortcut: 'Alt+2', requiresAuth: true },
-    { id: 'faq', label: 'FAQ', icon: '❓', shortcut: 'Alt+3', requiresAuth: true },
-    { id: 'memories', label: 'Memórias', icon: '🧠', shortcut: 'Alt+4', requiresAuth: true },
-    { id: 'agents', label: 'Agentes', icon: '🤖', shortcut: 'Alt+5', requiresAuth: true },
-    { id: 'oauth', label: 'Conexões', icon: '🔐', shortcut: 'Alt+6', requiresAuth: true },
-    { id: 'settings', label: 'Configurações', icon: '⚙️', shortcut: 'Alt+7', requiresAuth: false }
+    { id: 'chat', label: 'Chat', icon: '💬', shortcut: 'Alt+1' },
+    { id: 'history', label: 'Histórico', icon: '📜', shortcut: 'Alt+2' },
+    { id: 'faq', label: 'FAQ', icon: '❓', shortcut: 'Alt+3' },
+    { id: 'memories', label: 'Memórias', icon: '🧠', shortcut: 'Alt+4' },
+    { id: 'agents', label: 'Agentes', icon: '🤖', shortcut: 'Alt+5' },
+    { id: 'oauth', label: 'Conexões', icon: '🔐', shortcut: 'Alt+6' },
+    { id: 'settings', label: 'Configurações', icon: '⚙️', shortcut: 'Alt+7' }
   ];
   
-  $: availableItems = menuItems.filter(item => !item.requiresAuth || hasApiKey);
+  $: availableItems = menuItems;
   $: currentItem = menuItems.find(m => m.id === currentPage);
   
   async function toggleMenu() {

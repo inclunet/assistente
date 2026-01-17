@@ -106,7 +106,6 @@ export namespace config {
 	    voice_params?: VoiceParams;
 	    stt_params?: STTParams;
 	    chat_defaults?: ChatDefaults;
-	    last_conversation_id?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -124,7 +123,6 @@ export namespace config {
 	        this.voice_params = this.convertValues(source["voice_params"], VoiceParams);
 	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
 	        this.chat_defaults = this.convertValues(source["chat_defaults"], ChatDefaults);
-	        this.last_conversation_id = source["last_conversation_id"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -335,6 +333,53 @@ export namespace database {
 		    return a;
 		}
 	}
+	export class ChatTab {
+	    id: number;
+	    conversation_id?: number;
+	    title: string;
+	    icon: string;
+	    position: number;
+	    is_active: boolean;
+	    created_at: time.Time;
+	    updated_at: time.Time;
+	    conversation?: Conversation;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatTab(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.conversation_id = source["conversation_id"];
+	        this.title = source["title"];
+	        this.icon = source["icon"];
+	        this.position = source["position"];
+	        this.is_active = source["is_active"];
+	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
+	        this.conversation = this.convertValues(source["conversation"], Conversation);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class FAQ {
 	    id: number;
 	    question: string;
@@ -997,7 +1042,21 @@ export namespace main {
 	    }
 	}
 	export class MessageNode {
-	    message: database.ChatMessage;
+	    id: number;
+	    conversation_id: number;
+	    parent_id?: number;
+	    role: string;
+	    content: string;
+	    media?: string;
+	    tool_calls?: string;
+	    tool_results?: string;
+	    tool_call_id?: string;
+	    agent_name?: string;
+	    prompt_tokens?: number;
+	    completion_tokens?: number;
+	    total_tokens?: number;
+	    model?: string;
+	    created_at: time.Time;
 	    children?: MessageNode[];
 	    level: number;
 	    child_count: number;
@@ -1008,7 +1067,21 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.message = this.convertValues(source["message"], database.ChatMessage);
+	        this.id = source["id"];
+	        this.conversation_id = source["conversation_id"];
+	        this.parent_id = source["parent_id"];
+	        this.role = source["role"];
+	        this.content = source["content"];
+	        this.media = source["media"];
+	        this.tool_calls = source["tool_calls"];
+	        this.tool_results = source["tool_results"];
+	        this.tool_call_id = source["tool_call_id"];
+	        this.agent_name = source["agent_name"];
+	        this.prompt_tokens = source["prompt_tokens"];
+	        this.completion_tokens = source["completion_tokens"];
+	        this.total_tokens = source["total_tokens"];
+	        this.model = source["model"];
+	        this.created_at = this.convertValues(source["created_at"], time.Time);
 	        this.children = this.convertValues(source["children"], MessageNode);
 	        this.level = source["level"];
 	        this.child_count = source["child_count"];
@@ -1615,6 +1688,38 @@ export namespace main {
 	        this.format = source["format"];
 	        this.provider = source["provider"];
 	    }
+	}
+	export class TabsResponse {
+	    tabs: database.ChatTab[];
+	    active_tab_id: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TabsResponse(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tabs = this.convertValues(source["tabs"], database.ChatTab);
+	        this.active_tab_id = source["active_tab_id"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class TranscriptionResultInfo {
 	    text: string;

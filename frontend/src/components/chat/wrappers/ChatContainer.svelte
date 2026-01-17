@@ -42,6 +42,7 @@
   // ========================================
   
   export let config = {};
+  export let autoFocusInput = false; // Prop para foco automático
   
   // Desestrutura config com defaults
   $: enableTTS = config.enableTTS ?? false;
@@ -281,7 +282,6 @@
     if (shouldExpand && node) {
       // Verifica se precisa carregar filhos (lazy loading)
       const needsLoading = node.message?.id && 
-                          node.childCount > 0 && 
                           (!node.children || node.children.length === 0);
       
       if (needsLoading) {
@@ -333,13 +333,17 @@
     if (success) {
       togglePath(path, true);
       
-      // Foca no primeiro filho
+      // Foca no primeiro filho - usa múltiplos frames para garantir renderização
       tick().then(() => {
-        const firstChildPath = `${path}-0`;
-        const firstChild = document.querySelector(`[data-message-path="${firstChildPath}"]`);
-        if (firstChild) {
-          firstChild.focus();
-        }
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => {
+            const firstChildPath = `${path}-0`;
+            const firstChild = document.querySelector(`[data-message-path="${firstChildPath}"]`);
+            if (firstChild) {
+              firstChild.focus();
+            }
+          });
+        });
       });
     }
   }
@@ -348,6 +352,7 @@
   
   // Referências
   let chatHistoryRef;
+  let chatInputRef;
   let liveRegion;
   
   // ========================================
@@ -362,6 +367,8 @@
     showHoverActions: true,
     autoScroll,
   };
+
+  // Removido: clones e logs temporários; reatividade agora depende dos stores unificados
   
   // ========================================
   // Handlers Padrão (Ações Locais)
@@ -662,9 +669,10 @@
   }
   
   export function focusInput() {
-    // Foca no input
-    const input = document.querySelector('#message-input');
-    if (input) input.focus();
+    // Foca no input usando a referência do componente
+    if (chatInputRef?.focus) {
+      chatInputRef.focus();
+    }
   }
 
   /**
@@ -760,8 +768,8 @@
   
   <!-- Histórico de Mensagens - Pode ser substituído via slot -->
   <slot name="messages-area"
-    {messages}
-    threadedMessages={threadedMessages.length > 0 ? threadedMessages : messages}
+    messages={messages}
+    threadedMessages={threadedMessages}
     {showInternalMessages}
     expandedPaths={effectiveExpandedPaths}
     loadingPaths={effectiveLoadingPaths}
@@ -775,7 +783,7 @@
     <ChatHistory
       bind:this={chatHistoryRef}
       messages={messages}
-      threadedMessages={threadedMessages.length > 0 ? threadedMessages : messages}
+      threadedMessages={threadedMessages}
       {showInternalMessages}
       expandedPaths={effectiveExpandedPaths}
       loadingPaths={effectiveLoadingPaths}
@@ -851,6 +859,8 @@
     <!-- Default: usa ChatInput interno -->
     <div class="input-wrapper">
       <ChatInput
+        bind:this={chatInputRef}
+        autoFocus={autoFocusInput}
         inputMessage={effectiveInputValue}
         pendingMedia={effectivePendingMedia}
         {mediaError}

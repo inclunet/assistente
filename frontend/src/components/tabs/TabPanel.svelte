@@ -65,8 +65,10 @@
    * Funciona de qualquer lugar dentro do componente
    */
   function handleGlobalKeyDown(event) {
-    // Ctrl+Tab ou Ctrl+Shift+Tab para alternar abas
-    if (event.ctrlKey && event.key === 'Tab') {
+    // Ctrl+PageDown/PageUp para alternar abas (fallback, já que Ctrl+Tab é bloqueado pelo browser)
+    const isTabSwitch = event.ctrlKey && (event.key === 'PageDown' || event.key === 'PageUp');
+    
+    if (isTabSwitch) {
       event.preventDefault();
       event.stopPropagation();
       
@@ -76,11 +78,13 @@
       const currentEnabledIndex = enabledTabs.findIndex(t => t.id === activeTab);
       
       let nextTab;
-      if (event.shiftKey) {
-        // Ctrl+Shift+Tab: aba anterior
+      const goBack = event.key === 'PageUp';
+      
+      if (goBack) {
+        // Ctrl+PageUp: aba anterior
         nextTab = enabledTabs[(currentEnabledIndex - 1 + enabledTabs.length) % enabledTabs.length];
       } else {
-        // Ctrl+Tab: próxima aba
+        // Ctrl+PageDown: próxima aba
         nextTab = enabledTabs[(currentEnabledIndex + 1) % enabledTabs.length];
       }
       
@@ -124,12 +128,12 @@
   }
   
   onMount(() => {
-    // Adiciona listener no container para Ctrl+Tab
-    containerElement?.addEventListener('keydown', handleGlobalKeyDown);
+    // Adiciona listener no window com capture=true para pegar Ctrl+Tab antes de outros handlers
+    window.addEventListener('keydown', handleGlobalKeyDown, true);
   });
   
   onDestroy(() => {
-    containerElement?.removeEventListener('keydown', handleGlobalKeyDown);
+    window.removeEventListener('keydown', handleGlobalKeyDown, true);
   });
   
   // Rastreia aba anterior para detectar mudanças

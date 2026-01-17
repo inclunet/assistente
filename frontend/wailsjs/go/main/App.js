@@ -18,6 +18,14 @@ export function AddMessageWithTokensAndMedia(arg1, arg2, arg3, arg4, arg5, arg6,
   return window['go']['main']['App']['AddMessageWithTokensAndMedia'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
+export function ClearTab(arg1) {
+  return window['go']['main']['App']['ClearTab'](arg1);
+}
+
+export function CloseTab(arg1) {
+  return window['go']['main']['App']['CloseTab'](arg1);
+}
+
 export function CompleteOAuthFlow(arg1, arg2) {
   return window['go']['main']['App']['CompleteOAuthFlow'](arg1, arg2);
 }
@@ -72,6 +80,10 @@ export function CreateMemory(arg1, arg2, arg3) {
 
 export function CreateOAuthConnection(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
   return window['go']['main']['App']['CreateOAuthConnection'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+}
+
+export function CreateTab(arg1, arg2) {
+  return window['go']['main']['App']['CreateTab'](arg1, arg2);
 }
 
 export function DeleteAgentConfig(arg1) {
@@ -156,6 +168,10 @@ export function GenerateImageDescription(arg1, arg2) {
 
 export function GetActiveOAuthConnectionForProvider(arg1) {
   return window['go']['main']['App']['GetActiveOAuthConnectionForProvider'](arg1);
+}
+
+export function GetActiveTab() {
+  return window['go']['main']['App']['GetActiveTab']();
 }
 
 export function GetAgentConfig(arg1) {
@@ -374,6 +390,10 @@ export function GetSAPI5Voices() {
   return window['go']['main']['App']['GetSAPI5Voices']();
 }
 
+export function GetTabs() {
+  return window['go']['main']['App']['GetTabs']();
+}
+
 export function GetToolsForAPI() {
   return window['go']['main']['App']['GetToolsForAPI']();
 }
@@ -414,6 +434,10 @@ export function IsSAPI5Speaking() {
   return window['go']['main']['App']['IsSAPI5Speaking']();
 }
 
+export function LoadConversationInTab(arg1, arg2) {
+  return window['go']['main']['App']['LoadConversationInTab'](arg1, arg2);
+}
+
 export function ModelSupportsVision(arg1) {
   return window['go']['main']['App']['ModelSupportsVision'](arg1);
 }
@@ -442,8 +466,20 @@ export function RegenerateSingleFAQEmbedding(arg1) {
   return window['go']['main']['App']['RegenerateSingleFAQEmbedding'](arg1);
 }
 
+export function ReloadHTTPAgent(arg1) {
+  return window['go']['main']['App']['ReloadHTTPAgent'](arg1);
+}
+
 export function ReloadLLMClient() {
   return window['go']['main']['App']['ReloadLLMClient']();
+}
+
+export function ReloadMCPAgent(arg1) {
+  return window['go']['main']['App']['ReloadMCPAgent'](arg1);
+}
+
+export function ReorderTabs(arg1) {
+  return window['go']['main']['App']['ReorderTabs'](arg1);
 }
 
 export function ResetConfig() {
@@ -482,16 +518,16 @@ export function SendMessageSync(arg1, arg2) {
   return window['go']['main']['App']['SendMessageSync'](arg1, arg2);
 }
 
+export function SetActiveTab(arg1) {
+  return window['go']['main']['App']['SetActiveTab'](arg1);
+}
+
 export function SetDefaultModel(arg1) {
   return window['go']['main']['App']['SetDefaultModel'](arg1);
 }
 
 export function SetImageModel(arg1) {
   return window['go']['main']['App']['SetImageModel'](arg1);
-}
-
-export function SetLastConversation(arg1) {
-  return window['go']['main']['App']['SetLastConversation'](arg1);
 }
 
 export function SetModelError(arg1, arg2) {
@@ -570,6 +606,10 @@ export function TestHTTPEndpoint(arg1, arg2, arg3) {
   return window['go']['main']['App']['TestHTTPEndpoint'](arg1, arg2, arg3);
 }
 
+export function TestHotReload() {
+  return window['go']['main']['App']['TestHotReload']();
+}
+
 export function TestMCPAgent(arg1, arg2) {
   return window['go']['main']['App']['TestMCPAgent'](arg1, arg2);
 }
@@ -640,6 +680,10 @@ export function UpdateOAuthConnectionLastUsed(arg1) {
 
 export function UpdateOAuthTokens(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['UpdateOAuthTokens'](arg1, arg2, arg3, arg4);
+}
+
+export function UpdateTabTitle(arg1, arg2) {
+  return window['go']['main']['App']['UpdateTabTitle'](arg1, arg2);
 }
 
 export function ValidateTemplate(arg1) {

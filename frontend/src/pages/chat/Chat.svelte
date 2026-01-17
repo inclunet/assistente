@@ -1,7 +1,8 @@
 <script>
   import { onMount, onDestroy, createEventDispatcher, tick } from 'svelte';
+  import { get } from 'svelte/store';
   import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime.js';
-  import { SendMessage, GetModels, SetDefaultModel, GetCoreMemories, GenerateImageDescription } from '../../../wailsjs/go/main/App.js';
+  import { SendMessage, GetModels, SetDefaultModel, GetCoreMemories, GenerateImageDescription, TranscribeWhisper } from '../../../wailsjs/go/main/App.js';
   import { Modal, ImageModal, ConfigModal } from '../../components/modal';
   import { ChatPreferences } from '../../components/preferences';
   import { UpdateConversationPreferences, GetConversationPreferences } from '../../../wailsjs/go/main/App.js';
@@ -11,6 +12,7 @@
   import { ModelPicker, VoicePicker, STTProviderPicker, ConversationPicker, VOICE_DISABLED, STT_WEBSPEECH, STT_WHISPER } from '../../components/pickers';
   import { ttsService, TTSService, TTS_PROVIDERS } from '../../lib/speech/index.js';
   import { playSound, SOUND_TYPES } from '../../lib/audio-feedback.js';
+  import { createAnnouncer } from '../../lib/accessibility/announcer.js';
   import { ContextMenu, ContextMenuTrigger } from '../../components/contextmenu';
   import MediaMenu, { RECORDING_MODES, MENU_ACTIONS } from './MediaMenu.svelte';
   import { 
@@ -33,78 +35,150 @@
   import ChatInput from '../../components/chat/core/input/ChatInput.svelte';
   import SendButton from '../../components/chat/core/input/SendButton.svelte';
   import { VoiceSettingsPanel } from '../../components/speech';
-  import { derived } from 'svelte/store';
   import { 
-    messageService as defaultMessageService,
-    conversationId as defaultConversationId,
-    conversationTitle as defaultConversationTitle,
-    conversationData as defaultConversationData,
-    messages as defaultMessages,
-    showInternalMessages as defaultShowInternalMessages,
-    isStreaming as defaultIsStreaming,
-    executingTools as defaultExecutingTools,
-    toolsMessage as defaultToolsMessage,
     parseToolCalls,
     formatAgentName,
     convertMessageNode
   } from '../../lib/chat/index.js';
+  import { createChatStores } from '../../lib/chat/stores.js';
+  import { MessageController } from '../../lib/chat/message-controller.js';
 
+  const dispatch = createEventDispatcher();
+  
+  // ========================================
+  // PROPS: Configurações
+  // ========================================
+  
+  /** ID único desta guia */
+  export let tabId;
+  
+  /** ID da conversa para carregar inicialmente (opcional) */
+  export let initialConversationId = null;
+  
+  /** Props de configuração do chat */
   export let hasApiKey = false;
-  export let conversation = null;
+  
+  // DEBUG temporário
+  $: {
+    console.log('🔑 hasApiKey:', hasApiKey);
+  }
   export let defaultModel = '';
   export let defaultChatParams = { temperature: 0.7, max_tokens: 4096, top_p: 1.0 };
   
-  /** 
-   * MessageService externo (para uso com múltiplas guias).
-   * Se não fornecido, usa o singleton padrão.
-   * @type {import('../../lib/chat/message-service.js').MessageService|null}
-   */
-  export let externalMessageService = null;
-  
-  /**
-   * Callback para criar nova aba (quando usado com múltiplas guias).
-   * Se fornecido, mostra botão "Nova Aba" na toolbar.
-   * @type {(() => void)|null}
-   */
-  export let onNewTab = null;
-  
-  /**
-   * Indica se esta instância do Chat está ativa (visível na aba atual).
-   * Quando false, os atalhos de teclado globais são ignorados.
-   * @type {boolean}
-   */
+  /** Flag indicando se componente está ativo (visível) */
   export let isActive = true;
   
+  // Watcher: foca quando tab fica ativa
+  $: if (isActive) {
+    // Usa setTimeout para garantir que o DOM atualizou
+    setTimeout(() => {
+      const input = document.querySelector('.tab-content.active #message-input');
+      if (input) {
+        input.focus();
+      }
+    }, 50);
+  }
+  
+  /** Callback para nova aba */
+  export let onNewTab = null;
+  
   // ========================================
-  // Seleção do MessageService (externo ou singleton)
+  // STORES E CONTROLLER (criados aqui!)
   // ========================================
   
-  // Serviço ativo (externo se fornecido, senão singleton)
-  // NOTA: Usamos getter para que seja reavaliado quando externalMessageService muda
-  $: messageService = externalMessageService || defaultMessageService;
+  console.log(`[Chat ${tabId}] Script iniciando...`);
   
-  // Stores do serviço ativo
-  // Usamos os stores do serviço externo quando fornecido
-  $: conversationId = externalMessageService?.stores?.conversationId || defaultConversationId;
-  $: conversationTitle = externalMessageService?.stores?.conversationTitle || defaultConversationTitle;
-  $: conversationData = externalMessageService?.stores?.conversationData || defaultConversationData;
-  $: messages = externalMessageService?.stores?.messages || defaultMessages;
-  $: showInternalMessages = externalMessageService?.stores?.showInternalMessages || defaultShowInternalMessages;
-  $: isStreaming = externalMessageService?.stores?.isStreaming || defaultIsStreaming;
-  $: executingTools = externalMessageService?.stores?.executingTools || defaultExecutingTools;
-  $: toolsMessage = externalMessageService?.stores?.toolsMessage || defaultToolsMessage;
-
-  const dispatch = createEventDispatcher();
-
-  // Estado local da UI (não vem dos stores)
+  let controller;
+  let messages, conversationId, conversationTitle, isStreaming, executingTools, toolsMessage;
+  let showInternalMessagesStore, streamingMessageId, streamingContent;
+  let hasConversation, isEmpty, messageCount, threadedMessages;
+  
+  try {
+    // Cria stores isoladas para ESTE componente
+    const stores = createChatStores();
+    console.log(`[Chat ${tabId}] Stores criadas`);
+    
+    // Extrai cada store individualmente para usar com $ syntax
+    ({
+      messages,
+      conversationId,
+      conversationTitle,
+      isStreaming,
+      executingTools,
+      toolsMessage,
+      showInternalMessages: showInternalMessagesStore,
+      streamingMessageId,
+      streamingContent,
+      hasConversation,
+      isEmpty,
+      messageCount,
+      threadedMessages
+    } = stores);
+    
+    // Cria controller que gerencia ESTAS stores (passa objeto completo)
+    controller = new MessageController(stores, tabId);
+    console.log(`[Chat ${tabId}] Controller criado`);
+  } catch (err) {
+    console.error(`[Chat ${tabId}] ERRO CRÍTICO ao inicializar:`, err);
+    throw err;
+  }
+  
+  // Agora $messages, $threadedMessages, etc funcionam nativamente! ✅
+  
+  // ========================================
+  // API PÚBLICA
+  // ========================================
+  
+  /**
+   * Carrega uma conversa
+   * @param {Object} conversation - Objeto da conversa com id e title
+   */
+  export async function loadConversation(conversation) {
+    console.log(`[Chat ${tabId}] loadConversation chamado:`, conversation);
+    if (controller && conversation && conversation.id) {
+      await controller.loadConversation(conversation.id);
+    }
+  }
+  
+  /**
+   * Limpa o chat (nova conversa)
+   */
+  export function clear() {
+    console.log(`[Chat ${tabId}] clear chamado`);
+    if (controller) {
+      controller.clear();
+    }
+  }
+  
+  // ========================================
+  // ESTADO LOCAL
+  // ========================================
+  
+  // Estado local da UI (não vem das stores)
   let inputMessage = '';
   let isLoading = false;
   let error = '';
   
-
-  // Reage a mudanças na conversa passada como prop
-  $: if (conversation) {
-    loadConversation(conversation);
+  // Variável local para bind com componentes
+  // NÃO sincroniza automaticamente - evita loops
+  let showInternalMessages = false;
+  
+  // Reseta isLoading quando streaming termina
+  let wasStreaming = false;
+  $: {
+    // Detecta transição de streaming -> não streaming
+    if (wasStreaming && !$isStreaming && isLoading) {
+      isLoading = false;
+      
+      // Anúncio de conclusão
+      if ($messages.length > 0) {
+        const lastMsg = $messages[$messages.length - 1];
+        if (lastMsg.role === 'assistant' && lastMsg.content) {
+          announcer?.speakOrAnnounceAssistant?.(lastMsg.content);
+        }
+      }
+    }
+    wasStreaming = $isStreaming;
   }
   
   // Modelos e parâmetros
@@ -206,6 +280,16 @@
   let liveMessage = '';
   let navigationAnnouncement = ''; // Anúncios de navegação (sempre ativo)
   let focusedMessageIndex = -1;  // Índice da mensagem com foco (-1 = nenhuma)
+
+  // Announcer centralizado para aria-live/TTS
+  $: announcer = createAnnouncer({
+    onLive: (msg) => { liveMessage = msg; },
+    onNavigation: (msg) => { navigationAnnouncement = ''; setTimeout(() => { navigationAnnouncement = msg; }, 50); },
+    onSound: (name) => { try { playSound(name); } catch {} },
+    ttsService,
+    autoSpeak,
+    isTTSDisabled,
+  });
   
   // Atalhos de teclado do chat
   function handleChatKeyDown(event) {
@@ -216,6 +300,13 @@
     if (event.ctrlKey && event.key.toLowerCase() === 'n') {
       event.preventDefault();
       clearChat();
+    }
+    // Ctrl+T: Nova aba
+    else if (event.ctrlKey && event.key.toLowerCase() === 't') {
+      event.preventDefault();
+      if (onNewTab) {
+        onNewTab();
+      }
     }
     // Ctrl+O: Abrir seletor de modelo
     else if (event.ctrlKey && event.key.toLowerCase() === 'o') {
@@ -245,10 +336,10 @@
         sttPickerComponent.open();
       }
     }
-    // Ctrl+T: Abrir seletor de voz TTS
-    else if (event.ctrlKey && event.key.toLowerCase() === 't') {
+    // Ctrl+D: Abrir seletor de voz TTS
+    else if (event.ctrlKey && event.key.toLowerCase() === 'd') {
       event.preventDefault();
-      if (hasApiKey && voiceEnabled && voicePickerComponent) {
+      if (voiceEnabled && voicePickerComponent) {
         voicePickerComponent.open();
       }
     }
@@ -325,7 +416,7 @@
   }
   
   /**
-   * Carrega filhos de um node pelo ID da mensagem (lazy loading via messageService)
+   * Carrega filhos de um node pelo ID da mensagem (lazy loading via controller)
    */
   async function loadChildrenForNode(messageId, path) {
     // Verifica cache
@@ -334,8 +425,8 @@
     }
     
     try {
-      // Usa messageService para carregar filhos
-      const children = await messageService.loadChildren(messageId);
+      // Carrega filhos via controller
+      const children = await controller.loadChildren(messageId);
       
       // Converte para formato do frontend
       const convertedChildren = children.map((c, i) => {
@@ -378,10 +469,10 @@
    * Ex: "0" = primeiro root, "0-1" = segundo filho do primeiro root, etc.
    */
   function findNodeByPath(path) {
-    if (!path || !threadedMessages?.length) return null;
+    if (!path || !$threadedMessages?.length) return null;
     
     const indices = path.split('-').map(Number);
-    let current = threadedMessages[indices[0]];
+    let current = $threadedMessages[indices[0]];
     
     for (let i = 1; i < indices.length && current; i++) {
       current = current?.children?.[indices[i]];
@@ -434,7 +525,7 @@
         // TTS - fala a mensagem
         if (!isTTSDisabled && message?.content) {
           originalEvent?.preventDefault();
-          const idx = index ?? threadedMessages.findIndex(n => n.message?.id === message?.id);
+          const idx = index ?? $threadedMessages.findIndex(n => n.message?.id === message?.id);
           if (idx >= 0) speakMessage(idx);
         }
         break;
@@ -442,14 +533,14 @@
       case 'Ctrl+C':
         // Copia mensagem
         originalEvent?.preventDefault();
-        const copyIdx = index ?? threadedMessages.findIndex(n => n.message?.id === message?.id);
+        const copyIdx = index ?? $threadedMessages.findIndex(n => n.message?.id === message?.id);
         if (copyIdx >= 0) copyMessage(copyIdx, false);
         break;
         
       case 'Ctrl+Shift+C':
         // Copia como markdown
         originalEvent?.preventDefault();
-        const copyMdIdx = index ?? threadedMessages.findIndex(n => n.message?.id === message?.id);
+        const copyMdIdx = index ?? $threadedMessages.findIndex(n => n.message?.id === message?.id);
         if (copyMdIdx >= 0) copyMessage(copyMdIdx, true);
         break;
         
@@ -517,7 +608,7 @@
    */
   /**
    * Handler de lazy loading vindo do ChatContainer
-   * Carrega filhos via MessageService e notifica o ChatContainer quando terminar
+   * Carrega filhos via controller e notifica o ChatContainer quando terminar
    */
   async function handleThreadLoadChildren(messageId, path, node) {
     try {
@@ -527,7 +618,9 @@
       const targetNode = node || findNodeByPath(path);
       if (targetNode) {
         targetNode.children = children;
-        threadedMessages = [...threadedMessages]; // Trigger reactivity
+        
+        // Força reatividade através do store messages (writable)
+        messages.update(m => [...m]);
       }
       
       // Notifica o ChatContainer que o carregamento terminou
@@ -558,12 +651,12 @@
    * Recarrega a conversa do backend usando GetConversationWithThreads.
    * Retorna a conversa já organizada em árvore.
    */
-  // Mensagens organizadas em threads - converte do backend para formato do frontend
-  $: threadedMessages = ($conversationData?.threads || []).map((node, i) => convertMessageNode(node, i));
+  // threadedMessages já vem como prop (derived store de messages)
+  // Não precisa ser redefinida aqui!
   
   // Filtra mensagens visíveis (fallback para modo não-threaded)
-  $: visibleMessages = $showInternalMessages 
-    ? $messages 
+  $: visibleMessages = showInternalMessages
+    ? $messages
     : $messages.filter(m => !m.internal);
   
   // Cache de filhos carregados (messageId -> children)
@@ -572,7 +665,7 @@
   // toggleThread e toggleAgentThread removidas - agora o ChatContainer gerencia expansão
   
   /**
-   * Carrega filhos de uma mensagem via messageService (lazy loading)
+   * Carrega filhos de uma mensagem via controller (lazy loading)
    */
   async function loadChildren(node, parentIndex, childIndex = null) {
     const messageId = node.message.id;
@@ -580,13 +673,13 @@
     // Verifica cache
     if (childrenCache[messageId]) {
       node.children = childrenCache[messageId];
-      threadedMessages = [...threadedMessages];
+      // Reactivity automática via $stores.threadedMessages (derived store)
       return;
     }
     
     try {
-      // Usa messageService para carregar filhos
-      const children = await messageService.loadChildren(messageId);
+      // Carrega filhos via controller
+      const children = await controller.loadChildren(messageId);
       
       // Converte para formato do frontend
       const convertedChildren = children.map((c, i) => {
@@ -618,8 +711,7 @@
       // Atualiza o node
       node.children = convertedChildren;
       
-      // Força reatividade
-      threadedMessages = [...threadedMessages];
+      // Reactivity automática via $stores.threadedMessages (derived store)
     } catch (err) {
       console.error('Erro ao carregar filhos:', err);
     }
@@ -630,12 +722,7 @@
    * Força a atualização limpando e depois setando o valor
    */
   function announce(message) {
-    // Limpa primeiro para forçar o anúncio mesmo se for o mesmo texto
-    navigationAnnouncement = '';
-    // Usa setTimeout para garantir que o DOM atualize
-    setTimeout(() => {
-      navigationAnnouncement = message;
-    }, 50);
+    announcer.announceNavigation(message);
   }
   
   /**
@@ -643,7 +730,7 @@
    * Delega ao ChatContainer que agora gerencia expansão internamente
    */
   async function handleThreadExpand(index) {
-    const node = threadedMessages.find(n => n.originalIndex === index);
+    const node = $threadedMessages.find(n => n.originalIndex === index);
     if (!node) return;
     
     // Verifica se há filhos (carregados ou não)
@@ -671,7 +758,7 @@
   function handleThreadCollapse(index) {
     if (chatContainerRef?.isThreadExpanded?.(index)) {
       chatContainerRef.collapseThread(index);
-      const node = threadedMessages.find(n => n.originalIndex === index);
+      const node = $threadedMessages.find(n => n.originalIndex === index);
       const content = node?.message?.content?.substring(0, 100) || 'Mensagem';
       announce(`Thread recolhida. Assistente: ${content}`);
     }
@@ -718,8 +805,33 @@
 
   // Referência para cleanup de eventos
   let unsubscribeGlobalHotkey;
+  let storeUnsubscribers = [];
 
   onMount(async () => {
+    console.log(`[Chat ${tabId}] Montando componente...`);
+    console.log(`[Chat ${tabId}] initialConversationId recebido:`, initialConversationId);
+    
+    // Inicializa showInternalMessages da store
+    showInternalMessages = $showInternalMessagesStore;
+    
+    try {
+      // Inicializa controller (carrega Wails functions)
+      await controller.init();
+      
+      // Conecta eventos do backend
+      controller.bindBackendEvents();
+      
+      // Se tem conversa inicial, carrega
+      if (initialConversationId) {
+        console.log(`[Chat ${tabId}] Carregando conversa inicial: ${initialConversationId}`);
+        await controller.loadConversation(initialConversationId);
+      }
+      
+      console.log(`[Chat ${tabId}] Componente montado com sucesso`);
+    } catch (err) {
+      console.error(`[Chat ${tabId}] Erro ao montar:`, err);
+    }
+    
     // Carrega modo de gravação salvo
     try {
       const savedMode = localStorage.getItem('recording_mode');
@@ -730,34 +842,10 @@
       console.warn('Não foi possível carregar modo de gravação');
     }
     
-    // === BIND MESSAGESERVICE AOS EVENTOS DO BACKEND ===
-    // Aguarda inicialização do messageService (carrega EventsOn/EventsOff)
-    await messageService.ready();
-    messageService.bindBackendEvents();
-    
-    // Remove listeners antigos primeiro (proteção contra hot reload)
-    // Usa sistema de listeners por componente para garantir remoção correta
-    const COMPONENT_ID = 'chat-page';
-    messageService.removeComponentListeners(COMPONENT_ID);
-    ttsService.removeEventListener('speakEnd', handleTTSSpeakEnd);
-    
-    // Listeners do messageService para atualizar estado local
-    messageService.addComponentListener(COMPONENT_ID, 'messagesUpdated', handleMessagesUpdated);
-    messageService.addComponentListener(COMPONENT_ID, 'streamingChunk', handleServiceStreamingChunk);
-    messageService.addComponentListener(COMPONENT_ID, 'streamingEnded', handleServiceStreamingEnded);
-    messageService.addComponentListener(COMPONENT_ID, 'toolsExecution', handleServiceToolsExecution);
-    messageService.addComponentListener(COMPONENT_ID, 'toolResults', handleServiceToolResults);
-    messageService.addComponentListener(COMPONENT_ID, 'error', (e) => { error = e.detail.message; isLoading = false; playSound('error'); });
-    messageService.addComponentListener(COMPONENT_ID, 'conversationCreated', (e) => {
-      dispatch('conversationCreated', e.detail);
-      dispatch('conversationUpdated', e.detail);
-    });
-    messageService.addComponentListener(COMPONENT_ID, 'conversationLoaded', (e) => {
-      dispatch('titleChanged', { title: e.detail.title });
-    });
-    messageService.addComponentListener(COMPONENT_ID, 'messagesReady', () => { isLoading = true; });
-    messageService.addComponentListener(COMPONENT_ID, 'agentMessage', handleServiceAgentMessage);
-    messageService.addComponentListener(COMPONENT_ID, 'chatDone', () => { isLoading = false; });
+    // === NOVA ARQUITETURA V2 ===
+    // Controller e stores já vêm prontos do ChatTab.svelte
+    // Os eventos backend são gerenciados pelo controller
+    // Apenas configuramos listeners locais da UI
     
     // Listener para hotkey global (Ctrl+Shift+A de qualquer janela)
     unsubscribeGlobalHotkey = EventsOn('global:hotkey:voice', handleGlobalHotkeyVoice);
@@ -781,11 +869,12 @@
   // O foco é gerenciado explicitamente pelo ChatTabsContainer.focusInput() quando apropriado.
 
   onDestroy(() => {
-    // Unbind do messageService
-    messageService.unbindBackendEvents();
-    messageService.removeComponentListeners('chat-page');
+    console.log(`[Chat ${tabId}] Destruindo componente...`);
     
-    // Outros listeners
+    // Limpa recursos do controller (event listeners do backend)
+    controller.destroy();
+    
+    // Outros listeners locais
     if (unsubscribeGlobalHotkey) EventsOff('global:hotkey:voice');
     window.removeEventListener('keydown', handleChatKeyDown);
     window.removeEventListener('keyup', handleGlobalKeyUp);
@@ -793,12 +882,21 @@
     // Remove listener e para TTS se estiver falando
     ttsService.removeEventListener('speakEnd', handleTTSSpeakEnd);
     ttsService.stop();
+    
+    console.log(`[Chat ${tabId}] Componente destruído`);
   });
 
-  // === Handlers do MessageService (lógica de UI após atualizações) ===
+  // === Handlers do Controller (lógica de UI após atualizações) ===
   
   async function handleMessagesUpdated(event) {
-    // Os stores já são atualizados pelo messageService - aqui só tratamos lógica de UI
+    console.log('[Chat] handleMessagesUpdated chamado', {
+      messagesCount: $messages?.length,
+      threadsCount: $threadedMessages?.length,
+      isStreaming: $isStreaming
+    });
+    
+    // Os stores são reativos automaticamente via sintaxe $store
+    // As variáveis derivadas são atualizadas automaticamente
     
     // Salva o elemento focado e seu path para restaurar depois
     const activeElement = document.activeElement;
@@ -829,31 +927,9 @@
   
   function handleServiceStreamingEnded(event) {
     const { content, toolCalls } = event.detail;
-    
     isLoading = false;
-    
-    // Lógica de leitura da resposta
-    if (isTTSDisabled) {
-      // TTS desativado: usa leitor de telas e toca som agora
-      liveMessage = 'Assistente: ' + content;
-      playSound('receive');
-    } else if (autoSpeak && content) {
-      // TTS ativo: fala o texto e o som será tocado quando TTS terminar (handleTTSSpeakEnd)
-      const textToSpeak = TTSService.cleanTextForSpeech(content);
-      if (textToSpeak) {
-        ttsService.speak(textToSpeak);
-      } else {
-        // Se não há texto para falar (ex: resposta vazia), toca som agora
-        playSound('receive');
-      }
-    } else {
-      // TTS ativo mas autoSpeak desligado: toca som agora
-      playSound('receive');
-    }
-    
-    if (toolCalls && toolCalls.length > 0) {
-      console.log('Tool calls executadas:', toolCalls.map(tc => tc.function?.name));
-    }
+    announcer.speakOrAnnounceAssistant(content);
+    // Silenciado: logs de ferramentas executadas
     
     // Só faz scroll se não há foco em uma mensagem
     const activeElement = document.activeElement;
@@ -864,42 +940,18 @@
   }
   
   function handleServiceToolsExecution(event) {
-    // Os stores (executingTools, toolsMessage) já são atualizados pelo messageService
     const { message } = event.detail;
-    
-    playSound('send');
-    
-    if (isTTSDisabled) {
-      liveMessage = message;
-    }
+    announcer.announceToolsMessage(message);
   }
   
   function handleServiceToolResults(event) {
-    // Os stores já são atualizados pelo messageService
     const { count } = event.detail;
-    
-    if (count > 0) {
-      if (isTTSDisabled) {
-        liveMessage = `${count} ferramenta(s) executada(s) com sucesso.`;
-      }
-      playSound('receive');
-    }
+    announcer.announceToolResults(count);
   }
   
   function handleServiceAgentMessage(event) {
     const { agentName, role, content, toolCalls } = event.detail;
-    
-    const formattedName = formatAgentName(agentName);
-    const roleLabel = role === 'tool' ? 'Resultado' : formattedName;
-    const preview = (content || '').substring(0, 100);
-    
-    if (role === 'assistant' && toolCalls) {
-      announce(`${formattedName} chamando ferramenta`);
-    } else if (role === 'tool') {
-      announce(`Resposta de ferramenta: ${preview}`);
-    } else {
-      announce(`${roleLabel}: ${preview}`);
-    }
+    announcer.announceAgentEvent(agentName, role, content, toolCalls);
   }
   
   async function scrollToBottom() {
@@ -942,12 +994,20 @@
     const hasText = inputMessage.trim();
     const hasMedia = pendingMedia.length > 0;
     
+    console.log('[Chat] handleSubmit iniciado - conversationId:', $conversationId);
+    console.log('[Chat] Validação:', { hasText, hasMedia, isLoading, selectedModel, isGeneratingAltText });
+    
     // Bloqueia envio se não há conteúdo, está carregando, sem modelo, ou gerando alt text
-    if ((!hasText && !hasMedia) || isLoading || !selectedModel || isGeneratingAltText) return;
+    if ((!hasText && !hasMedia) || isLoading || !selectedModel || isGeneratingAltText) {
+      console.log('[Chat] Envio bloqueado');
+      return;
+    }
 
     const userMessage = inputMessage.trim();
     inputMessage = '';
     error = '';
+    
+    console.log('[Chat] Preparando envio:', userMessage);
     
     // Limpa mídia pendente
     const mediaToSend = [...pendingMedia];
@@ -969,11 +1029,10 @@
       isStreaming: true
     };
     
-    // Sincroniza com o messageService (dispara evento messagesUpdated internamente)
-    messageService.addLocalMessages(userMsgPlaceholder, assistantPlaceholder);
-    // NOTA: Não precisamos atualizar messages/conversationData manualmente aqui
-    // porque addLocalMessages dispara o evento 'messagesUpdated' que é tratado
-    // por handleMessagesUpdated, que atualiza as variáveis com reatividade correta
+    console.log('[Chat] Adicionando placeholders locais');
+    // Adiciona diretamente na store
+    messages.update(msgs => [...msgs, userMsgPlaceholder, assistantPlaceholder]);
+    console.log('[Chat] Placeholders adicionados, agora vai processar mídia...');
     
     isLoading = true;
     playSound('send');
@@ -988,10 +1047,8 @@
         : mediaDesc;
     }
     
-    // Só anuncia para aria-live se TTS estiver desativado
-    if (isTTSDisabled) {
-      liveMessage = 'Você: ' + announceText;
-    }
+    // Centraliza anúncio do envio
+    announcer.announceUserMessage(announceText);
     
     // Prepara mídia para enviar ao backend (só dados essenciais, sem File object)
     const mediaToSave = mediaToSend.map(m => ({
@@ -1002,8 +1059,12 @@
     }));
     // NOTA: O backend agora salva a mensagem do usuário automaticamente
 
+    console.log('[Chat] Preparando apiMessages, total de mensagens:', $messages.length);
+    
     // Prepara array de mensagens para a API
-    let apiMessages = await Promise.all($messages.map(async (m) => {
+    let apiMessages;
+    try {
+      apiMessages = await Promise.all($messages.map(async (m) => {
       // Se a mensagem tem mídia, formata no padrão multimodal do LiteLLM
       if (m.media && m.media.length > 0) {
         const content = [];
@@ -1096,13 +1157,22 @@
       // Mensagem simples de texto
       return { role: m.role, content: m.content };
     }));
+    console.log('[Chat] apiMessages preparado com sucesso, total:', apiMessages.length);
+    } catch (err) {
+      console.error('[Chat] ERRO ao preparar apiMessages:', err);
+      error = 'Erro ao processar mensagens: ' + err.message;
+      isLoading = false;
+      return;
+    }
 
     // Adiciona system prompt quando ferramentas estão habilitadas
     if (useTools) {
+      console.log('[Chat] useTools ativo, carregando memórias...');
       // Carrega memórias core para incluir no contexto
       let coreMemoriesText = '';
       try {
         const coreMemories = await GetCoreMemories();
+        console.log('[Chat] Memórias core carregadas:', coreMemories?.length || 0);
         if (coreMemories && coreMemories.length > 0) {
           coreMemoriesText = '\n\n## Memórias Importantes (sempre lembrar):\n' + 
             coreMemories.map(m => `- **${m.title}**: ${m.content}`).join('\n');
@@ -1111,49 +1181,34 @@
         console.error('Erro ao carregar memórias core:', e);
       }
 
+      console.log('[Chat] Construindo system prompt...');
       const systemPrompt = {
         role: 'system',
         content: `Você é um assistente pessoal útil e poderoso. Você é um ORQUESTRADOR com acesso a agentes especializados.
 
-## Seus Agentes Disponíveis:
-
-### 🔖 delegate_to_faq
-Especialista em FAQ (Perguntas Frequentes). Use para:
-- Criar, buscar, listar, atualizar ou deletar FAQs
-- Responder perguntas que podem estar no FAQ
-
-### 🧠 delegate_to_memory
-Especialista em memória persistente. Use para:
-- Salvar informações importantes sobre o usuário
-- Buscar memórias salvas
-- Lembrar preferências, projetos, contexto
-
-### 🎨 delegate_to_image_generator
-Especialista em GERAÇÃO DE IMAGENS. Use SEMPRE que o usuário pedir para:
-- **Gerar**, **criar**, **desenhar**, **produzir** uma imagem
-- Fazer ilustrações, arte, visualizações
-- "Me mostra como seria...", "Crie uma imagem de..."
-
-## Categorias de Memória:
-- **core**: Informações CRÍTICAS (nome, necessidades de acessibilidade). Aparecem sempre no contexto.
-- **usuario**, **preferencia**, **projeto**, **contexto**: Outras informações consultáveis.
-
 ## Instruções de Delegação:
 
-1. Ao delegar, descreva a tarefa em linguagem natural na prop "task".
-2. Para imagens, seja ESPECÍFICO sobre o que o usuário quer (cores, estilo, composição).
-3. O agente executa a tarefa e retorna o resultado.
+Quando precisar de uma funcionalidade específica (FAQ, memória, geração de imagens, APIs, etc.), use as ferramentas delegate_to_* disponíveis.
+
+1. Descreva a tarefa completa em linguagem natural no parâmetro "task"
+2. Para geração de imagens, seja ESPECÍFICO sobre estilo, cores, composição
+3. O agente executa e retorna o resultado
+
+## Categorias de Memória:
+- **core**: Informações CRÍTICAS do usuário (nome, preferências de acessibilidade). Aparecem sempre no contexto.
+- **usuario**, **preferencia**, **projeto**, **contexto**: Outras informações consultáveis.
 
 ## Exemplos:
-- Usuário: "Gere uma imagem de um gato astronauta"
-  → Use delegate_to_image_generator com task: "Gerar imagem de um gato astronauta na lua, estilo cartoon"
+- "Gere uma imagem de gato astronauta" → delegate_to_image_generator: "Gerar imagem de um gato astronauta na lua, estilo cartoon"
+- "Salve meu nome" → delegate_to_memory: "Salvar que o nome do usuário é João, categoria: core"
+- "Consulte o CEP 12345-678" → delegate_to_viacep: "Consultar CEP 12345-678"
 
-- Usuário: "Salve que meu nome é João"
-  → Use delegate_to_memory com task: "Salvar memória de que o nome do usuário é João, categoria: core"
+As ferramentas disponíveis e suas descrições detalhadas são fornecidas no contexto de cada mensagem.
 
 Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       };
       apiMessages = [systemPrompt, ...apiMessages];
+      console.log('[Chat] System prompt adicionado, total apiMessages:', apiMessages.length);
     }
 
     const params = {
@@ -1168,9 +1223,24 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     try {
       // Prepara mídia para enviar ao backend
       const mediaJson = mediaToSave.length > 0 ? JSON.stringify(mediaToSave) : '';
+      console.log('[Chat] Chamando SendMessage', { conversationId: $conversationId, announceText, mediaJson: mediaJson ? 'presente' : 'vazio', params });
+      console.log('[Chat] Estado antes do envio:', {
+        conversationId: $conversationId,
+        hasMessages: $messages?.length,
+        isStreaming: $isStreaming
+      });
       await SendMessage($conversationId || 0, announceText, mediaJson, params);
+      // O backend retorna o conversationId, mas o evento chat:conversation_created
+      // será disparado e o controller atualizará o ID automaticamente
+      console.log('[Chat] SendMessage completado com sucesso');
+      console.log('[Chat] Estado após envio:', {
+        conversationId: $conversationId,
+        hasMessages: $messages?.length,
+        isStreaming: $isStreaming
+      });
     } catch (err) {
-      handleError(err.toString());
+      console.error('[Chat] Erro no SendMessage:', err);
+      error = err.toString();
       isLoading = false;
     }
 
@@ -1295,7 +1365,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   }
 
   function clearChat() {
-    messageService.clear();
+    controller.clear();
     error = '';
     
     // Feedback sonoro e verbal
@@ -1315,46 +1385,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
    * Recarrega as mensagens do banco para ter os IDs corretos.
    * Usado após o streaming terminar para sincronizar com o banco.
    */
-  async function loadConversation(conv) {
-    if (!conv || !conv.id) return;
-    
-    try {
-      // Usa messageService para carregar a conversa
-      const success = await messageService.loadConversation(conv, selectedModel);
-      
-      if (!success) {
-        throw new Error('Conversa não encontrada');
-      }
-      
-      // Sincroniza preferências locais com a conversa carregada
-      const convData = $conversationData;
-      const prefs = convData?.preferences;
-      
-      // Carrega preferências da conversa (novo campo) ou valores legacy
-      if (prefs) {
-        // Usa preferências do novo campo
-        if (prefs.model) selectedModel = prefs.model;
-        if (prefs.temperature !== undefined) temperature = prefs.temperature;
-        if (prefs.max_tokens !== undefined) maxTokens = prefs.max_tokens;
-        if (prefs.top_p !== undefined) topP = prefs.top_p;
-        if (prefs.use_tools !== undefined) useTools = prefs.use_tools;
-        if (prefs.voice !== undefined) selectedVoice = prefs.voice;
-        if (prefs.auto_speak !== undefined) autoSpeak = prefs.auto_speak;
-        if (prefs.voice_volume !== undefined) voiceVolume = prefs.voice_volume;
-        if (prefs.voice_rate !== undefined) voiceRate = prefs.voice_rate;
-        if (prefs.stt_provider !== undefined) selectedSTTProvider = prefs.stt_provider;
-        if (prefs.recording_mode !== undefined) recordingMode = prefs.recording_mode;
-      } else if (convData?.model) {
-        // Fallback para campo legacy
-        selectedModel = convData.model;
-      }
-      
-      scrollToBottom();
-    } catch (err) {
-      error = 'Erro ao carregar conversa: ' + err;
-    }
-  }
-
   function toggleSettings() {
     showSettings = !showSettings;
     if (showSettings) {
@@ -1365,7 +1395,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
         maxTokens,
         topP,
         useTools,
-        showInternalMessages: $showInternalMessages,
+        showInternalMessages: showInternalMessages,
         voice: selectedVoice,
         autoSpeak,
         voiceVolume,
@@ -1409,10 +1439,11 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       useTools = prefs.useTools;
       
       // Atualiza showInternalMessages no store
-      if (prefs.showInternalMessages !== $showInternalMessages) {
-        messageService.setShowInternalMessages(prefs.showInternalMessages);
+      if (prefs.showInternalMessages !== showInternalMessages) {
+        showInternalMessages = prefs.showInternalMessages;
+        showInternalMessagesStore.set(showInternalMessages);
         if ($conversationId) {
-          await messageService.updateSettings(prefs.showInternalMessages);
+          await controller.updateSettings(prefs.showInternalMessages);
         }
       }
       
@@ -1483,8 +1514,9 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     recordingMode = originalPrefs.recordingMode;
     
     // Restaura showInternalMessages se mudou
-    if (originalPrefs.showInternalMessages !== $showInternalMessages) {
-      messageService.setShowInternalMessages(originalPrefs.showInternalMessages);
+    if (originalPrefs.showInternalMessages !== showInternalMessages) {
+      showInternalMessages = originalPrefs.showInternalMessages;
+      showInternalMessagesStore.set(showInternalMessages);
     }
     
     showSettings = false;
@@ -1494,7 +1526,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     selectedModel = event.detail;
     // Atualiza modelo na conversa atual
     if ($conversationId && selectedModel) {
-      messageService.updateModel(selectedModel);
+      controller.updateModel(selectedModel);
     }
     SetDefaultModel(selectedModel).catch(console.error);
   }
@@ -1875,7 +1907,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     if (index < 0 || index >= $messages.length) return;
     
     const deletedRole = $messages[index].role;
-    $messages = $messages.filter((_, i) => i !== index);
+    messages.update(msgs => msgs.filter((_, i) => i !== index));
     
     liveMessage = `Mensagem ${deletedRole === 'user' ? 'do usuário' : 'do assistente'} excluída.`;
     playSound('clear');
@@ -1999,8 +2031,10 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     
     const indexToFocus = editingMessageIndex;
     
-    $messages[editingMessageIndex].content = editingMessageContent.trim();
-    $messages = [...$messages];
+    messages.update(msgs => {
+      msgs[editingMessageIndex].content = editingMessageContent.trim();
+      return [...msgs];
+    });
     
     liveMessage = 'Mensagem editada.';
     playSound('send');
@@ -2059,10 +2093,13 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
   function togglePinMessage(index) {
     if (index < 0 || index >= $messages.length) return;
     
-    $messages[index].pinned = !$messages[index].pinned;
-    $messages = [...$messages]; // Trigger reatividade
+    let action;
+    messages.update(msgs => {
+      msgs[index].pinned = !msgs[index].pinned;
+      action = msgs[index].pinned ? 'fixada' : 'desfixada';
+      return [...msgs];
+    });
     
-    const action = $messages[index].pinned ? 'fixada' : 'desfixada';
     liveMessage = `Mensagem ${action}.`;
     playSound('send');
   }
@@ -2438,8 +2475,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     
     <div class="toolbar-separator" aria-hidden="true"></div>
     
-    {#if hasApiKey}
-      <!-- Seletor de Modelo (Ctrl+O) -->
+    <!-- Seletor de Modelo (Ctrl+O) -->
       <ModelPicker
         bind:this={modelPickerComponent}
         bind:value={selectedModel}
@@ -2454,7 +2490,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
         <VoicePicker
           bind:this={voicePickerComponent}
           bind:value={selectedVoice}
-          label="Voz (Ctrl+T)"
+          label="Voz (Ctrl+D)"
           disabled={isLoading}
           language="pt"
           on:change={handleVoiceChange}
@@ -2494,7 +2530,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       >
         <span aria-hidden="true">⚙️</span> Preferências
       </button>
-    {/if}
   </Toolbar>
 
   <!-- Modal de Preferências da Conversa -->
@@ -2515,7 +2550,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       bind:maxTokens={maxTokens}
       bind:topP={topP}
       bind:useTools={useTools}
-      bind:showInternalMessages={$showInternalMessages}
+      bind:showInternalMessages={showInternalMessages}
       bind:voice={selectedVoice}
       bind:autoSpeak={autoSpeak}
       bind:voiceVolume={voiceVolume}
@@ -2539,21 +2574,14 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     />
   </Modal>
 
-  {#if !hasApiKey}
-    <div class="no-api-key" role="alert">
-      <h3>⚙️ Configuração Necessária</h3>
-      <p>Para usar o chat, você precisa configurar sua chave de API.</p>
-      <button class="btn-primary" on:click={() => dispatch('openSettings')}>
-        Abrir Configurações
-      </button>
-    </div>
-  {:else}
-    <ChatContainer
+  <!-- Backend gerencia validação de API key -->
+  <ChatContainer
       bind:this={chatContainerRef}
+      autoFocusInput={isActive}
       messages={$messages}
-      {threadedMessages}
+      threadedMessages={$threadedMessages}
       config={{
-        showInternalMessages: $showInternalMessages,
+        showInternalMessages: showInternalMessages,
         enableTTS: !isTTSDisabled,
         enableEditing: true,
         enableDeleting: false,
@@ -2594,11 +2622,11 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
       on:announce={(e) => announce(e.detail.message)}
       on:keyAction={handleKeyAction}
       on:speak={(e) => {
-        const idx = e.detail.index ?? threadedMessages.findIndex(n => n.message?.id === e.detail.message?.id);
+        const idx = e.detail.index ?? $threadedMessages.findIndex(n => n.message?.id === e.detail.message?.id);
         if (idx >= 0) speakMessage(idx);
       }}
       on:copy={(e) => {
-        const idx = e.detail.index ?? threadedMessages.findIndex(n => n.message?.id === e.detail.message?.id);
+        const idx = e.detail.index ?? $threadedMessages.findIndex(n => n.message?.id === e.detail.message?.id);
         if (idx >= 0) copyMessage(idx, e.detail.format === 'markdown');
       }}
       on:editStart={(e) => startEditMessage(e.detail.index)}
@@ -2720,7 +2748,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
         </ContextMenuTrigger>
       </svelte:fragment>
     </ChatContainer>
-  {/if}
 </div>
 
 <!-- Input oculto para seleção de arquivos (fora do fluxo visual) -->
@@ -2848,15 +2875,7 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     color: var(--color-text-primary);
   }
 
-  /* Barra de ferramentas */
-  .toolbar {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-sm) var(--spacing-lg);
-    background: var(--color-bg-tertiary, #1e1e1e);
-    border-bottom: 1px solid var(--color-border);
-  }
+  /* === ESTILOS ATIVOS === */
   
   .toolbar-btn {
     display: flex;
@@ -2888,7 +2907,6 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     cursor: not-allowed;
   }
   
-  
   .toolbar-separator {
     width: 1px;
     height: 24px;
@@ -2900,1052 +2918,12 @@ Responda sempre em português.${coreMemoriesText}${getPinnedMessagesContext()}`
     font-size: var(--font-size-sm);
   }
 
-  .btn-icon {
-    padding: var(--spacing-sm);
-    min-width: 44px;
-    min-height: 44px;
-    font-size: var(--font-size-lg);
-  }
-
-  .btn-small {
-    padding: var(--spacing-xs) var(--spacing-sm);
-    font-size: var(--font-size-sm);
-    min-height: 36px;
-  }
-
-  .param-group {
-    margin-bottom: var(--spacing-lg);
-  }
-
-  .param-group label {
-    display: block;
-    margin-bottom: var(--spacing-xs);
-    font-weight: 500;
-    color: var(--color-text-primary);
-  }
-
-  .param-group strong {
-    color: var(--color-accent);
-  }
-
-  .param-description {
-    margin: 0 0 var(--spacing-sm) 0;
-    font-size: var(--font-size-sm);
-    color: var(--color-text-muted);
-  }
-  
-  .param-separator {
-    border: none;
-    border-top: 1px solid var(--color-border);
-    margin: var(--spacing-md) 0;
-  }
-
-  .param-group input[type="range"] {
-    width: 100%;
-    height: 8px;
-    border-radius: 4px;
-    background: var(--color-bg-tertiary);
-    cursor: pointer;
-    padding: 0;
-    border: none;
-  }
-
-  .param-group input[type="range"]::-webkit-slider-thumb {
-    appearance: none;
-    width: 24px;
-    height: 24px;
-    border-radius: 50%;
-    background: var(--color-accent);
-    cursor: pointer;
-    border: 2px solid var(--color-bg-primary);
-  }
-
-  .range-labels {
-    display: flex;
-    justify-content: space-between;
-    font-size: var(--font-size-sm);
-    color: var(--color-text-muted);
-    margin-top: var(--spacing-xs);
-  }
-
-  .divider {
-    border: none;
-    border-top: 1px solid var(--color-border, #333);
-    margin: var(--spacing-lg) 0;
-  }
-
-  .messages-container {
-    flex: 1;
-    overflow-y: auto;
-    padding: var(--spacing-lg);
-    scroll-behavior: smooth;
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .messages-container {
-      scroll-behavior: auto;
-    }
-  }
-
-  .empty-state-hint {
-    color: var(--color-text-muted);
-  }
-
-  .messages-list {
-    list-style: none;
-    margin: 0;
-    padding: 0;
-  }
-
-  .message {
-    margin-bottom: var(--spacing-lg);
-    padding: var(--spacing-md);
-    border-radius: var(--border-radius-lg);
-    line-height: var(--line-height);
-  }
-
-  .message.user {
-    background-color: var(--color-user-bubble);
-    color: white;
-    margin-left: 15%;
-  }
-
-  .message.assistant {
-    background-color: var(--color-assistant-bubble);
-    border: 1px solid var(--color-border);
-    margin-right: 15%;
-  }
-  
-  /* Mensagens internas (debug) - quando exibidas como órfãs */
-  .message.internal {
-    opacity: 0.7;
-    border-left: 3px solid var(--color-warning, #f59e0b);
-    font-size: var(--font-size-sm);
-  }
-  
-  .message.tool {
-    background-color: var(--color-surface-elevated, #1e1e2e);
-    border: 1px dashed var(--color-border);
-    margin-left: 10%;
-    margin-right: 10%;
-    font-family: var(--font-mono, monospace);
-    font-size: var(--font-size-sm);
-  }
-  
-  /* Oculta mensagens internas órfãs quando em modo threaded */
-  .message.orphan-internal {
-    margin-left: 2rem;
-    opacity: 0.8;
-    border-left: 2px dashed var(--color-border);
-    padding-left: 1rem;
-  }
-  
-  /* Threads aninhadas */
-  .thread-toggle {
-    margin-top: var(--spacing-sm);
-    padding-top: var(--spacing-xs);
-    border-top: 1px dashed var(--color-border-light, rgba(255,255,255,0.1));
-  }
-  
-  .thread-expand-btn {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    background: transparent;
-    border: none;
-    color: var(--color-text-muted);
-    font-size: var(--font-size-sm);
-    cursor: pointer;
-    padding: var(--spacing-xs) var(--spacing-sm);
-    border-radius: var(--border-radius-sm);
-    transition: all 0.15s ease;
-  }
-  
-  .thread-expand-btn:hover {
-    background: var(--color-surface-elevated);
-    color: var(--color-text);
-  }
-  
-  .thread-expand-btn.small {
-    font-size: var(--font-size-xs);
-    padding: 2px var(--spacing-xs);
-  }
-  
-  .thread-arrow {
-    display: inline-block;
-    transition: transform 0.2s ease;
-    font-size: 0.7em;
-  }
-  
-  .thread-arrow.expanded {
-    transform: rotate(90deg);
-  }
-  
-  .thread-count {
-    opacity: 0.8;
-  }
-  
-  .thread-children {
-    list-style: none;
-    margin: var(--spacing-sm) 0 0 0;
-    padding: 0 0 0 1.5rem;
-    border-left: 2px solid var(--color-primary, #6366f1);
-  }
-  
-  .thread-child {
-    padding: var(--spacing-sm);
-    margin-bottom: var(--spacing-xs);
-    background: var(--color-surface, rgba(0,0,0,0.2));
-    border-radius: var(--border-radius-sm);
-  }
-  
-  .thread-child.level-1 {
-    border-left: 3px solid var(--color-accent, #10b981);
-  }
-  
-  .thread-child.level-2 {
-    border-left: 3px solid var(--color-warning, #f59e0b);
-    font-size: var(--font-size-sm);
-  }
-  
-  /* Foco para navegação por teclado em threads */
-  .thread-child:focus {
-    outline: 2px solid var(--color-primary, #6366f1);
-    outline-offset: 2px;
-    background: var(--color-surface-elevated, rgba(99, 102, 241, 0.1));
-  }
-  
-  .thread-child:focus-visible {
-    outline: 2px solid var(--color-primary, #6366f1);
-    outline-offset: 2px;
-  }
-  
-  .thread-child-header {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    margin-bottom: var(--spacing-xs);
-  }
-  
-  .thread-child-header strong {
-    margin-bottom: 0;
-    display: inline;
-  }
-  
-  .agent-icon, .tool-icon {
-    font-size: 1em;
-  }
-  
-  .thread-child-content {
-    padding-left: 1.5rem;
-    font-size: var(--font-size-sm);
-    color: var(--color-text-muted);
-  }
-  
-  .thread-child-content.delegation {
-    font-style: italic;
-  }
-  
-  .tool-call-info {
-    display: inline-block;
-    background: var(--color-surface-elevated);
-    padding: 2px var(--spacing-xs);
-    border-radius: var(--border-radius-sm);
-    font-family: var(--font-mono, monospace);
-    font-size: var(--font-size-xs);
-  }
-  
-  .thread-grandchildren {
-    list-style: none;
-    margin: var(--spacing-xs) 0 0 1rem;
-    padding: 0;
-  }
-  
-  .tool-result-content {
-    margin: 0;
-    padding: var(--spacing-xs);
-    background: var(--color-background-dark, #0d0d0d);
-    border-radius: var(--border-radius-sm);
-    font-family: var(--font-mono, monospace);
-    font-size: var(--font-size-xs);
-    white-space: pre-wrap;
-    word-break: break-word;
-    max-height: 200px;
-    overflow-y: auto;
-  }
-  
-  .message.has-thread {
-    /* Indica visualmente que a mensagem tem thread */
-  }
-
-  .message strong {
-    display: block;
-    margin-bottom: var(--spacing-xs);
-  }
-
-  .message:focus {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 2px;
-  }
-
-  .message-content {
-    white-space: pre-wrap;
-    word-wrap: break-word;
-  }
-  
-  /* Imagens geradas (DALL-E) */
-  .generated-image {
-    max-width: 512px;
-    margin: var(--spacing-md) 0;
-    border-radius: var(--border-radius);
-    overflow: hidden;
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
-  }
-  
-  .generated-image__img {
-    width: 100%;
-    display: block;
-    cursor: pointer;
-    transition: opacity 0.2s;
-  }
-  
-  .generated-image__img:hover {
-    opacity: 0.95;
-  }
-  
-  .generated-image__description {
-    padding: var(--spacing-sm) var(--spacing-md);
-    font-size: var(--font-size-sm);
-    color: var(--color-text-secondary);
-    border-top: 1px solid var(--color-border);
-    background: var(--color-bg-tertiary);
-  }
-  
-  .generated-image__description summary {
-    cursor: pointer;
-    font-weight: 500;
-    color: var(--color-text-primary);
-    user-select: none;
-  }
-  
-  .generated-image__description summary:hover {
-    color: var(--color-accent);
-  }
-  
-  .generated-image__description p {
-    margin-top: var(--spacing-sm);
-    line-height: 1.5;
-    color: var(--color-text-primary);
-    white-space: pre-wrap;
-  }
-  
-  .generated-image__actions {
-    display: flex;
-    gap: var(--spacing-xs);
-    padding: var(--spacing-sm) var(--spacing-md);
-    border-top: 1px solid var(--color-border);
-    background: var(--color-bg-tertiary);
-  }
-  
-  .generated-image__actions button {
-    font-size: var(--font-size-xs);
-    padding: var(--spacing-xs) var(--spacing-sm);
-  }
-  
-  /* Mídia nas mensagens */
-  .message-media {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
-  }
-  
-  .message-image {
-    margin: 0;
-    max-width: 300px;
-    border-radius: var(--border-radius);
-    overflow: hidden;
-    cursor: pointer;
-    transition: transform 0.2s, box-shadow 0.2s;
-  }
-  
-  .message-image:hover {
-    transform: scale(1.02);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
-  }
-  
-  .message-image img {
-    display: block;
-    width: 100%;
-    height: auto;
-    max-height: 200px;
-    object-fit: cover;
-  }
-  
-  .image-caption {
-    padding: var(--spacing-xs) var(--spacing-sm);
-    font-size: var(--font-size-sm);
-    color: var(--color-text-muted);
-    background: var(--color-bg-tertiary, rgba(0, 0, 0, 0.5));
-    font-style: italic;
-    line-height: 1.3;
-  }
-  
-  /* Barra de ações das mensagens */
-  .message {
-    position: relative;
-  }
-  
-  .message-actions {
-    position: absolute;
-    top: var(--spacing-xs);
-    right: var(--spacing-xs);
-    display: flex;
-    gap: var(--spacing-xs);
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
-    border-radius: var(--border-radius);
-    padding: 2px;
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
-    z-index: 10;
-  }
-  
-  .message-actions .action-btn {
-    background: transparent;
-    border: none;
-    padding: var(--spacing-xs);
-    cursor: pointer;
-    border-radius: var(--border-radius);
-    font-size: 1rem;
-    line-height: 1;
-    transition: background-color 0.15s;
-    min-width: 28px;
-    min-height: 28px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-  }
-  
-  .message-actions .action-btn:hover {
-    background: var(--color-bg-tertiary);
-  }
-  
-  .message-actions .action-btn:focus-visible {
-    outline: 2px solid var(--color-accent);
-    outline-offset: 1px;
-  }
-  
-  .message.hovered {
-    background: var(--color-bg-tertiary);
-  }
-  
-  .message.user.hovered {
-    background: var(--color-accent-hover, rgba(59, 130, 246, 0.6));
-  }
-  
-  /* Mensagens fixadas */
-  .message.pinned {
-    border-left: 3px solid var(--color-warning, #f59e0b);
-    background: rgba(245, 158, 11, 0.1);
-  }
-  
-  .message.pinned.user {
-    border-left-color: var(--color-accent);
-    background: rgba(59, 130, 246, 0.15);
-  }
-  
-  .pin-indicator {
-    margin-right: var(--spacing-xs);
-    font-size: 0.9em;
-  }
-  
-  /* Edição de mensagens */
-  .edit-message-container {
-    display: flex;
-    flex-direction: column;
-    gap: var(--spacing-sm);
-    width: 100%;
-  }
-  
-  .edit-message-input {
-    width: 100%;
-    padding: var(--spacing-sm);
-    background: var(--color-bg-primary);
-    border: 1px solid var(--color-border);
-    border-radius: var(--border-radius);
-    color: var(--color-text-primary);
-    font-family: inherit;
-    font-size: inherit;
-    resize: vertical;
-    min-height: 60px;
-  }
-  
-  .edit-message-input:focus {
-    outline: none;
-    border-color: var(--color-accent);
-    box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.3);
-  }
-  
-  .edit-message-actions {
-    display: flex;
-    gap: var(--spacing-sm);
-    justify-content: flex-end;
-  }
-  
-  .btn-sm {
-    padding: var(--spacing-xs) var(--spacing-sm);
-    font-size: var(--font-size-sm);
-  }
-  
-  .message-audio,
-  .message-document {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    padding: var(--spacing-xs) var(--spacing-sm);
-    background: var(--color-bg-tertiary, #2d2d2d);
-    border-radius: var(--border-radius);
-    font-size: var(--font-size-sm);
-  }
-  
-  /* Modal de imagem */
-  .image-modal-overlay {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    bottom: 0;
-    background: rgba(0, 0, 0, 0.9);
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    z-index: 10000;
-    padding: var(--spacing-lg);
-  }
-  
-  .image-modal-content {
-    position: relative;
-    max-width: 90vw;
-    max-height: 90vh;
-  }
-  
-  .image-modal-content img {
-    max-width: 100%;
-    max-height: 85vh;
-    object-fit: contain;
-    border-radius: var(--border-radius);
-  }
-  
-  .image-modal-close {
-    position: absolute;
-    top: -40px;
-    right: 0;
-    width: 36px;
-    height: 36px;
-    background: var(--color-bg-secondary);
-    border: none;
-    border-radius: 50%;
-    color: white;
-    font-size: 1.25rem;
-    cursor: pointer;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    transition: background 0.2s;
-  }
-  
-  .image-modal-close:hover {
-    background: var(--color-error, #f85149);
-  }
-  
-  /* Conteúdo do modal de navegação detalhada */
-  .message-detail-content {
-    max-height: 60vh;
-    overflow-y: auto;
-  }
-  
-  .message-detail-media {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--spacing-md);
-    margin-bottom: var(--spacing-lg);
-  }
-  
-  .message-detail-image {
-    margin: 0;
-    max-width: 300px;
-  }
-  
-  .message-detail-image img {
-    width: 100%;
-    height: auto;
-    border-radius: var(--border-radius);
-    display: block;
-  }
-  
-  .message-detail-image figcaption {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    margin-top: var(--spacing-xs);
-    font-size: var(--font-size-sm);
-  }
-  
-  .message-detail-image .image-description {
-    color: var(--color-text-muted);
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-  }
-  
-  .message-detail-audio,
-  .message-detail-document {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-sm) var(--spacing-md);
-    background: var(--color-bg-tertiary);
-    border-radius: var(--border-radius);
-    font-size: var(--font-size-sm);
-  }
-  
-
-  .streaming-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    color: var(--color-accent);
-  }
-
-  .typing-indicator {
-    display: inline-flex;
-    gap: 4px;
-  }
-
-  .typing-indicator span {
-    width: 8px;
-    height: 8px;
-    background-color: var(--color-text-muted);
-    border-radius: 50%;
-    animation: typing 1.4s infinite ease-in-out;
-  }
-
-  .typing-indicator span:nth-child(2) {
-    animation-delay: 0.2s;
-  }
-
-  .typing-indicator span:nth-child(3) {
-    animation-delay: 0.4s;
-  }
-
-  @keyframes typing {
-    0%, 80%, 100% {
-      transform: scale(1);
-      opacity: 0.5;
-    }
-    40% {
-      transform: scale(1.2);
-      opacity: 1;
-    }
-  }
-
-  @media (prefers-reduced-motion: reduce) {
-    .typing-indicator span {
-      animation: none;
-      opacity: 0.7;
-    }
-  }
-
-  .tools-indicator {
-    display: inline-flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    color: var(--color-accent);
-    font-size: var(--font-size-sm);
-    padding: var(--spacing-xs) var(--spacing-sm);
-    background-color: rgba(88, 166, 255, 0.1);
-    border-radius: var(--border-radius);
-  }
-
-  .toggle-label {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    cursor: pointer;
-    font-weight: 500;
-  }
-
-  .toggle-label input[type="checkbox"] {
-    width: 18px;
-    height: 18px;
-    cursor: pointer;
-  }
-
-  .voice-info {
-    background-color: var(--color-bg-tertiary);
-    border: 1px solid var(--color-border);
-    border-left: 4px solid var(--color-accent);
-    border-radius: var(--border-radius);
-    padding: var(--spacing-md);
-    margin-top: var(--spacing-lg);
-    color: var(--color-text-secondary);
-  }
-
-  .voice-info strong {
-    color: var(--color-text-primary);
-  }
-
-  .voice-source {
-    color: var(--color-text-muted);
-    font-size: var(--font-size-sm);
-  }
-
-  .modal-actions {
-    display: flex;
-    justify-content: flex-end;
-    gap: var(--spacing-md);
-    margin-top: var(--spacing-lg);
-    padding-top: var(--spacing-md);
-    border-top: 1px solid var(--color-border);
-  }
-
-  .tools-log {
-    background-color: rgba(88, 166, 255, 0.1);
-    border: 1px solid var(--color-accent);
-    border-radius: var(--border-radius);
-    padding: var(--spacing-sm);
-    margin-top: var(--spacing-sm);
-    font-size: var(--font-size-sm);
-  }
-
-  .tools-log-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    margin-bottom: var(--spacing-xs);
-    color: var(--color-accent);
-  }
-
-  .tools-log-header .btn-icon {
-    padding: 2px 6px;
-    font-size: var(--font-size-sm);
-    background: none;
-    border: none;
-    color: var(--color-text-muted);
-    cursor: pointer;
-  }
-
-  .tools-log-content {
-    max-height: 100px;
-    overflow-y: auto;
-  }
-
-  .tools-log-entry {
-    padding: 2px 0;
-    color: var(--color-text-secondary);
-    font-family: var(--font-family-mono);
-  }
-
-  .error-message {
-    background-color: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--color-error);
-    border-radius: var(--border-radius);
-    padding: var(--spacing-md);
-    color: var(--color-error);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-    gap: var(--spacing-md);
-    flex-wrap: wrap;
-  }
-
-  .retry-btn {
-    flex-shrink: 0;
-  }
-
-  .no-api-key {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-    justify-content: center;
-    height: 100%;
-    text-align: center;
-    padding: var(--spacing-xl);
-    gap: var(--spacing-md);
-  }
-
-  .no-api-key h3 {
-    color: var(--color-text-primary);
-    margin: 0;
-  }
-
-  .no-api-key p {
-    color: var(--color-text-secondary);
-    margin: 0;
-  }
-
-  .input-area {
-    padding: var(--spacing-md) var(--spacing-lg);
-    background-color: var(--color-bg-secondary);
-    border-top: 1px solid var(--color-border);
-    transition: background-color 0.2s, border-color 0.2s;
-    position: relative;
-  }
-  
-  .input-area.dragging {
-    background-color: var(--color-accent-bg, rgba(88, 166, 255, 0.1));
-    border-color: var(--color-accent, #58a6ff);
-  }
-  
-  .input-area.dragging::after {
-    content: '📎 Solte para anexar';
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    padding: var(--spacing-md) var(--spacing-lg);
-    background: var(--color-accent, #58a6ff);
-    color: white;
-    border-radius: var(--border-radius);
-    font-weight: 600;
-    pointer-events: none;
-    z-index: 10;
-  }
-  
-  /* Mídias pendentes */
-  .pending-media {
-    display: flex;
-    flex-wrap: wrap;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
-    background: var(--color-bg-tertiary, #1a1a1a);
-    border-radius: var(--border-radius);
-  }
-  
-  .media-preview {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-    padding: var(--spacing-xs) var(--spacing-sm);
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
-    border-radius: var(--border-radius);
-    font-size: var(--font-size-sm);
-  }
-  
-  .media-thumbnail-wrapper {
-    position: relative;
-    flex-shrink: 0;
-  }
-  
-  .media-thumbnail {
-    width: 40px;
-    height: 40px;
-    object-fit: cover;
-    border-radius: 4px;
-  }
-  
-  .media-icon {
-    font-size: 1.5rem;
-    flex-shrink: 0;
-  }
-  
-  .media-info {
-    display: flex;
-    flex-direction: column;
-    gap: 2px;
-    min-width: 0;
-    flex: 1;
-  }
-  
-  .media-name {
-    max-width: 180px;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--color-text-primary);
-    font-size: var(--font-size-sm);
-  }
-  
-  .media-size {
-    font-size: var(--font-size-xs, 11px);
-    color: var(--color-text-muted);
-  }
-  
-  /* Preview de áudio */
-  .media-audio-preview {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-xs);
-  }
-  
-  .audio-mini-player {
-    height: 32px;
-    max-width: 160px;
-    border-radius: 4px;
-  }
-  
-  .audio-mini-player::-webkit-media-controls-panel {
-    background: var(--color-bg-tertiary);
-  }
-  
-  .alt-generating {
-    position: absolute;
-    top: 2px;
-    right: 2px;
-    font-size: 0.75rem;
-    animation: sparkle 1s infinite;
-  }
-  
-  @keyframes sparkle {
-    0%, 100% { opacity: 1; transform: scale(1); }
-    50% { opacity: 0.5; transform: scale(1.2); }
-  }
-  
-  .generating-indicator {
-    animation: sparkle 1s infinite;
-  }
-  
-  .send-btn:disabled {
-    opacity: 0.7;
-    cursor: not-allowed;
-  }
-  
-  .media-remove {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 20px;
-    height: 20px;
-    padding: 0;
-    margin-left: var(--spacing-xs);
-    background: transparent;
-    border: none;
-    border-radius: 50%;
-    color: var(--color-text-muted);
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  
-  .media-remove:hover {
-    background: var(--color-error, #f85149);
-    color: white;
-  }
-  
-  .media-error {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    padding: var(--spacing-sm);
-    margin-bottom: var(--spacing-sm);
-    background: rgba(248, 81, 73, 0.1);
-    border: 1px solid var(--color-error, #f85149);
-    border-radius: var(--border-radius);
-    color: var(--color-error, #f85149);
-    font-size: var(--font-size-sm);
-  }
-  
-  .media-error-close {
-    margin-left: auto;
-    padding: 2px 6px;
-    background: transparent;
-    border: none;
-    color: inherit;
-    cursor: pointer;
-  }
-  
-  .visually-hidden {
-    position: absolute !important;
-    width: 1px !important;
-    height: 1px !important;
-    padding: 0 !important;
-    margin: -1px !important;
-    overflow: hidden !important;
-    clip: rect(0, 0, 0, 0) !important;
-    white-space: nowrap !important;
-    border: 0 !important;
-  }
-  
-  .voice-btn-wrapper {
-    position: relative;
-    display: flex;
-    align-items: center;
-    gap: 4px;
-  }
-  
-  .cancel-mode-btn {
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    width: 24px;
-    height: 24px;
-    padding: 0;
-    background: var(--color-bg-tertiary, #2d2d2d);
-    border: 1px solid var(--color-border);
-    border-radius: 50%;
-    color: var(--color-text-muted);
-    font-size: 12px;
-    cursor: pointer;
-    transition: all 0.15s;
-  }
-  
-  .cancel-mode-btn:hover {
-    background: var(--color-error, #f85149);
-    color: white;
-    border-color: var(--color-error);
-  }
-
-  .input-area textarea {
-    resize: none;
-    min-height: 80px;
-  }
-
-  .input-row {
-    display: flex;
-    align-items: stretch;
-    gap: var(--spacing-sm);
-  }
-
-
-  .input-row textarea {
-    flex: 1;
-    min-height: 60px;
-    resize: none;
-  }
-
-  .send-btn {
-    min-width: 100px;
-    align-self: stretch;
-  }
-
-  /* Garantir área de toque mínima */
-  button, input[type="checkbox"] {
-    min-height: 44px;
-    min-width: 44px;
-  }
-
-  textarea {
-    min-height: 80px;
-  }
-
-  /* Dica de input (voz/texto) */
-  .input-hint {
-    display: flex;
-    justify-content: center;
-    padding-top: var(--spacing-xs);
-  }
-
-  .hint-text {
-    font-size: var(--font-size-xs, 0.75rem);
-    color: var(--color-text-muted);
-    opacity: 0.7;
-  }
-
-  /* Animação suave na troca de botões */
-  .input-row :global(.voice-btn),
-  .input-row .send-btn {
-    transition: transform 0.15s ease, opacity 0.15s ease;
-  }
+  /* === FIM DOS ESTILOS === */
 </style>
+
+
+
+
+
+
+

@@ -119,26 +119,18 @@ func (r *Registry) ExecuteDelegation(ctx context.Context, agentName, task string
 
 // SetAgentConversationContext configura o contexto de conversa para um agente
 // Isso permite que o agente salve suas mensagens internas no histórico
+// Funciona para QUALQUER agente que implemente ConversationContextSetter (todos os agentes baseados em BaseAgent)
 func (r *Registry) SetAgentConversationContext(agentName string, conversationID uint, saver llm.MessageSaver) {
 	agent := r.Get(agentName)
 	if agent == nil {
 		return
 	}
 
-	// Tenta configurar o contexto se o agente suportar
-	switch a := agent.(type) {
-	case *FileAgent:
-		a.SetConversationContext(conversationID, saver)
-	case *FAQAgent:
-		a.SetConversationContext(conversationID, saver)
-	case *MemoryAgent:
-		a.SetConversationContext(conversationID, saver)
-	case *ImageAgent:
-		a.SetConversationContext(conversationID, saver)
-	case *HTTPAgent:
-		a.SetConversationContext(conversationID, saver)
-	case *MCPAgent:
-		a.SetConversationContext(conversationID, saver)
+	// Usa type assertion para verificar se o agente suporta contexto de conversa
+	// Isso funciona automaticamente para todos os agentes que herdam BaseAgent,
+	// incluindo HTTP/MCP agents criados dinamicamente
+	if contextSetter, ok := agent.(ConversationContextSetter); ok {
+		contextSetter.SetConversationContext(conversationID, saver)
 	}
 }
 

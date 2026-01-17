@@ -80,6 +80,12 @@ type Agent interface {
 	ExecuteTool(toolCall ToolCall) (string, error)
 }
 
+// ConversationContextSetter é uma interface para agentes que suportam salvar mensagens internas
+// Todos os agentes que herdam BaseAgent automaticamente implementam essa interface
+type ConversationContextSetter interface {
+	SetConversationContext(conversationID uint, saver llm.MessageSaver)
+}
+
 // BaseAgent fornece implementação base para campos comuns
 type BaseAgent struct {
 	Name           string

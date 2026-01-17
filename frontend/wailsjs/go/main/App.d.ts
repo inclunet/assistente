@@ -15,6 +15,10 @@ export function AddMessageWithTokens(arg1:number,arg2:string,arg3:string,arg4:st
 
 export function AddMessageWithTokensAndMedia(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:number,arg8:number,arg9:number,arg10:string):Promise<database.ChatMessage>;
 
+export function ClearTab(arg1:number):Promise<void>;
+
+export function CloseTab(arg1:number):Promise<void>;
+
 export function CompleteOAuthFlow(arg1:string,arg2:number):Promise<main.OAuthConnectionInfo>;
 
 export function ConnectMCPAgent(arg1:number):Promise<void>;
@@ -42,6 +46,8 @@ export function CreateMCPMessage(arg1:number,arg2:main.MCPSamplingRequestInfo):P
 export function CreateMemory(arg1:string,arg2:string,arg3:string):Promise<database.Memory>;
 
 export function CreateOAuthConnection(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:time.Time):Promise<database.OAuthConnection>;
+
+export function CreateTab(arg1:string,arg2:string):Promise<database.ChatTab>;
 
 export function DeleteAgentConfig(arg1:number):Promise<void>;
 
@@ -84,6 +90,8 @@ export function GenerateFAQEmbedding(arg1:number):Promise<void>;
 export function GenerateImageDescription(arg1:string,arg2:string):Promise<string>;
 
 export function GetActiveOAuthConnectionForProvider(arg1:string):Promise<database.OAuthConnection>;
+
+export function GetActiveTab():Promise<database.ChatTab>;
 
 export function GetAgentConfig(arg1:string):Promise<database.AgentConfig>;
 
@@ -193,6 +201,8 @@ export function GetRegisteredAgents():Promise<Array<main.AgentInfo>>;
 
 export function GetSAPI5Voices():Promise<Array<main.SAPI5VoiceInfo>>;
 
+export function GetTabs():Promise<main.TabsResponse>;
+
 export function GetToolsForAPI():Promise<Array<llm.Tool>>;
 
 export function GetVisionCapableModels():Promise<Array<database.ModelCapability>>;
@@ -213,6 +223,8 @@ export function IsGlobalHotkeySupported():Promise<boolean>;
 
 export function IsSAPI5Speaking():Promise<boolean>;
 
+export function LoadConversationInTab(arg1:number,arg2:number):Promise<void>;
+
 export function ModelSupportsVision(arg1:string):Promise<boolean>;
 
 export function ParseOpenAPISpec(arg1:string):Promise<main.OpenAPIImportResult>;
@@ -227,7 +239,13 @@ export function RegenerateFAQEmbeddings():Promise<number>;
 
 export function RegenerateSingleFAQEmbedding(arg1:number):Promise<void>;
 
+export function ReloadHTTPAgent(arg1:number):Promise<void>;
+
 export function ReloadLLMClient():Promise<void>;
+
+export function ReloadMCPAgent(arg1:number):Promise<void>;
+
+export function ReorderTabs(arg1:Array<number>):Promise<void>;
 
 export function ResetConfig():Promise<void>;
 
@@ -243,15 +261,15 @@ export function SearchFAQSemantic(arg1:string,arg2:number,arg3:number):Promise<A
 
 export function SearchMemories(arg1:string):Promise<Array<database.Memory>>;
 
-export function SendMessage(arg1:number,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<void>;
+export function SendMessage(arg1:number,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<number>;
 
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
+
+export function SetActiveTab(arg1:number):Promise<void>;
 
 export function SetDefaultModel(arg1:string):Promise<void>;
 
 export function SetImageModel(arg1:string):Promise<void>;
-
-export function SetLastConversation(arg1:number):Promise<void>;
 
 export function SetModelError(arg1:string,arg2:string):Promise<void>;
 
@@ -291,6 +309,8 @@ export function TestFileAgent(arg1:string):Promise<string>;
 
 export function TestHTTPEndpoint(arg1:number,arg2:string,arg3:string):Promise<string>;
 
+export function TestHotReload():Promise<string>;
+
 export function TestMCPAgent(arg1:number,arg2:string):Promise<string>;
 
 export function TranscribeWhisper(arg1:string,arg2:string):Promise<main.TranscriptionResultInfo>;
@@ -326,5 +346,7 @@ export function UpdateModelCapability(arg1:string,arg2:any,arg3:any,arg4:any,arg
 export function UpdateOAuthConnectionLastUsed(arg1:number):Promise<void>;
 
 export function UpdateOAuthTokens(arg1:number,arg2:string,arg3:string,arg4:time.Time):Promise<void>;
+
+export function UpdateTabTitle(arg1:number,arg2:string):Promise<void>;
 
 export function ValidateTemplate(arg1:string):Promise<boolean|string>;

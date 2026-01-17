@@ -2,7 +2,6 @@
   import Topbar from './Topbar.svelte';
   
   export let currentPage = 'chat';
-  export let hasApiKey = false;
   
   import { createEventDispatcher } from 'svelte';
   
@@ -16,7 +15,6 @@
 <div class="layout">
   <Topbar 
     {currentPage} 
-    {hasApiKey} 
     on:navigate={handleNavigate}
   />
   

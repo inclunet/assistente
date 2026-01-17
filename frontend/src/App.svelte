@@ -1,5 +1,6 @@
 <script>
   import { onMount, tick } from 'svelte';
+  import { EventsOn } from '../wailsjs/runtime/runtime.js';
   import { Layout } from './components/layout';
   import { ChatTabsContainer } from './pages/chat';
   import { Settings } from './pages/settings';
@@ -27,13 +28,9 @@
   // Estado global
   // ========================================
   let configLoaded = false;
-  let hasApiKey = false;
   let defaultModel = '';
   let defaultChatParams = { temperature: 0.7, max_tokens: 4096, top_p: 1.0 };
   let currentPage = 'chat';
-  
-  // ID da última conversa (para migração de guias)
-  let initialConversationId = null;
   
   // Ref do componente atual (para métodos como focusList, refresh, etc.)
   let currentComponent;
@@ -46,13 +43,11 @@
   // ========================================
   $: pageProps = {
     chat: {
-      hasApiKey,
       defaultModel,
-      defaultChatParams,
-      initialConversationId
+      defaultChatParams
     },
     history: {
-      currentConversationId: null // Agora gerenciado pelo ChatTabsContainer
+      currentConversationId: null
     },
     faq: {},
     memories: {},
@@ -81,7 +76,6 @@
         // Recarrega configuração para atualizar hasApiKey e defaultModel
         try {
           const config = await GetConfig();
-          hasApiKey = config && config.api_key && config.api_key.length > 0;
           
           if (config.chat_params && config.chat_params.model) {
             defaultModel = config.chat_params.model;
@@ -89,8 +83,8 @@
             defaultModel = config.default_model || '';
           }
           
-          // Só navega para chat se tiver API key e modelo
-          if (hasApiKey && defaultModel) {
+          // Só navega para chat se tiver modelo
+          if (defaultModel) {
             currentPage = 'chat';
           }
         } catch (error) {
@@ -105,7 +99,7 @@
   // ========================================
   function navigateTo(page) {
     // Bloqueia acesso ao chat se não houver modelo configurado
-    if (page === 'chat' && (!hasApiKey || !defaultModel)) {
+    if (page === 'chat' && !defaultModel) {
       showBlockedMessage();
       currentPage = 'settings';
       return;
@@ -127,7 +121,7 @@
 
   function startNewConversation() {
     // Bloqueia se não houver modelo configurado
-    if (!hasApiKey || !defaultModel) {
+    if (!defaultModel) {
       showBlockedMessage();
       currentPage = 'settings';
       return;
@@ -147,9 +141,8 @@
   onMount(async () => {
     try {
       const config = await GetConfig();
-      hasApiKey = config && config.api_key && config.api_key.length > 0;
       
-      // Carregar modelo e parâmetros (com retrocompatibilidade)
+      // Carregar modelo e parâmetros
       if (config.chat_params && config.chat_params.model) {
         defaultModel = config.chat_params.model;
         defaultChatParams = {
@@ -161,14 +154,9 @@
         defaultModel = config.default_model || '';
       }
       
-      // Guarda ID da última conversa para migração (o ChatTabsContainer usa)
-      if (config.last_conversation_id) {
-        initialConversationId = config.last_conversation_id;
-      }
-      
       configLoaded = true;
       
-      if (!hasApiKey || !defaultModel) {
+      if (!defaultModel) {
         currentPage = 'settings';
       }
     } catch (error) {
@@ -192,7 +180,7 @@
     <p>Carregando...</p>
   </div>
 {:else}
-  <Layout {currentPage} {hasApiKey} on:navigate={handleNavigate}>
+  <Layout {currentPage} on:navigate={handleNavigate}>
     {@const pageConfig = pages[currentPage]}
     
     {#if pageConfig.fullWidth}
