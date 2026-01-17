@@ -27,6 +27,7 @@
   let unsubTabsUpdated = null;
   let unsubTabsActivated = null;
   let unsubConversationDeleted = null;
+  let unsubDatabaseReset = null;
   
   // Variável reativa para forçar atualização do TabPanel
   $: activeTabString = String(activeTabId);
@@ -71,6 +72,7 @@
     unsubTabsUpdated = EventsOn('tabs:updated', handleTabsUpdated);
     unsubTabsActivated = EventsOn('tabs:activated', handleTabActivated);
     unsubConversationDeleted = EventsOn('conversation:deleted', handleConversationDeleted);
+    unsubDatabaseReset = EventsOn('database:reset', handleDatabaseReset);
     
     // Adiciona listener de teclado global com CAPTURE=true para ter prioridade
     window.addEventListener('keydown', handleGlobalKeyDown, true);
@@ -87,6 +89,7 @@
     if (unsubTabsUpdated) unsubTabsUpdated();
     if (unsubTabsActivated) unsubTabsActivated();
     if (unsubConversationDeleted) unsubConversationDeleted();
+    if (unsubDatabaseReset) unsubDatabaseReset();
     
     window.removeEventListener('keydown', handleGlobalKeyDown, true);
   });
@@ -143,6 +146,12 @@
   
   function handleConversationDeleted(data) {
     // Backend já limpou as abas
+    loadTabs();
+  }
+  
+  function handleDatabaseReset() {
+    console.log('🗑️ [ChatTabs] Banco resetado - limpando todas as guias');
+    // Recarrega abas do backend (que serão resetadas)
     loadTabs();
   }
   

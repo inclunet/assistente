@@ -682,6 +682,9 @@ func (a *App) ResetDatabase() error {
 		return fmt.Errorf("erro ao reinicializar banco: %v", err)
 	}
 
+	// Limpa as tabs (já que todas as conversas foram deletadas)
+	a.tabManager.ClearAllTabs()
+
 	log.Println("[ResetDatabase] Banco resetado com sucesso")
 
 	// Emite evento para o frontend limpar o estado

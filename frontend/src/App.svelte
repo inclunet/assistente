@@ -28,6 +28,7 @@
   // Estado global
   // ========================================
   let configLoaded = false;
+  let hasApiKey = false;
   let defaultModel = '';
   let defaultChatParams = { temperature: 0.7, max_tokens: 4096, top_p: 1.0 };
   let currentPage = 'chat';
@@ -76,6 +77,9 @@
         // Recarrega configuração para atualizar hasApiKey e defaultModel
         try {
           const config = await GetConfig();
+          
+          // Atualizar hasApiKey
+          hasApiKey = !!(config.api_key && config.api_key.trim() !== '');
           
           if (config.chat_params && config.chat_params.model) {
             defaultModel = config.chat_params.model;
@@ -141,6 +145,9 @@
   onMount(async () => {
     try {
       const config = await GetConfig();
+      
+      // Verificar se tem API key
+      hasApiKey = !!(config.api_key && config.api_key.trim() !== '');
       
       // Carregar modelo e parâmetros
       if (config.chat_params && config.chat_params.model) {

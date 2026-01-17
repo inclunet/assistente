@@ -136,28 +136,23 @@ export class MessageController {
       
       // Atualiza mensagens - IMUTABILIDADE COMPLETA
       this.stores.messages.update(msgs => {
-        console.log(`[MessageController] ANTES update - msgs.length:`, msgs.length);
         const lastMsg = msgs[msgs.length - 1];
         
         if (lastMsg && (lastMsg.isStreaming || lastMsg.role === 'assistant')) {
           // Atualiza última mensagem - CRIA NOVO OBJETO
-          const newMsgs = msgs.map((msg, i) => 
+          return msgs.map((msg, i) => 
             i === msgs.length - 1
               ? { ...msg, content: event.content || '', isStreaming: !event.done }
               : msg
           );
-          console.log(`[MessageController] APÓS update (atualização) - newMsgs.length:`, newMsgs.length);
-          return newMsgs;
         } else {
           // Cria nova mensagem
-          const newMsgs = [...msgs, {
+          return [...msgs, {
             content: event.content || '',
             role: 'assistant',
             isStreaming: !event.done,
             id: null
           }];
-          console.log(`[MessageController] APÓS update (nova msg) - newMsgs.length:`, newMsgs.length);
-          return newMsgs;
         }
       });
     };
@@ -190,8 +185,8 @@ export class MessageController {
       this.stores.conversationId.set(event.id);
       this.stores.conversationTitle.set(event.title || 'Nova conversa');
       
-      // Recarrega conversa completa
-      await this.loadConversation(event.id);
+      // NÃO recarrega conversa aqui - as mensagens virão via chat:stream
+      // Se recarregar agora, vai sobrescrever mensagens que já estão sendo streamadas
     };
     
     EventsOn('chat:conversation_created', handleConversationCreated);
@@ -256,11 +251,11 @@ export class MessageController {
       this.stores.conversationId.set(info.id);
       this.stores.conversationTitle.set(info.title || 'Conversa');
       
-      // Busca mensagens - ÚNICA FONTE DE VERDADE
+      // Busca mensagens
       const messages = await GetMessages(conversationId);
-      console.log(`[MessageController ${this._instanceId}] Mensagens recebidas do backend:`, messages?.length);
-      console.log(`[MessageController ${this._instanceId}] Primeira mensagem:`, messages?.[0]);
-      console.log(`[MessageController ${this._instanceId}] Segunda mensagem:`, messages?.[1]);
+      console.log(`[MessageController ${this._instanceId}] Mensagens recebidas:`, messages?.length);
+      
+      // Substitui mensagens completamente
       this.stores.messages.set(messages || []);
       
       console.log(`[MessageController ${this._instanceId}] Conversa ${conversationId} carregada`);
