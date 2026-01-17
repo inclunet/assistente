@@ -41,10 +41,10 @@ type App struct {
 
 // MessageNode representa uma mensagem com seus filhos na hierarquia
 type MessageNode struct {
-	database.ChatMessage        // Embedded - campos serão inline no JSON
-	Children   []MessageNode `json:"children,omitempty"`
-	Level      int           `json:"level"`
-	ChildCount int           `json:"child_count"` // Para lazy loading
+	database.ChatMessage               // Embedded - campos serão inline no JSON
+	Children             []MessageNode `json:"children,omitempty"`
+	Level                int           `json:"level"`
+	ChildCount           int           `json:"child_count"` // Para lazy loading
 }
 
 // ConversationWithThreads representa uma conversa com mensagens organizadas em árvore

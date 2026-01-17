@@ -96,14 +96,14 @@ func GetConfigPath() (string, error) {
 	if err != nil {
 		return "", err
 	}
-	
+
 	configDir := filepath.Join(homeDir, ".assistente")
-	
+
 	// Cria o diretório se não existir
 	if err := os.MkdirAll(configDir, 0755); err != nil {
 		return "", err
 	}
-	
+
 	return filepath.Join(configDir, "config.json"), nil
 }
 
@@ -111,7 +111,7 @@ func GetConfigPath() (string, error) {
 func Load() (*Config, error) {
 	configMutex.Lock()
 	defer configMutex.Unlock()
-	
+
 	return loadUnsafe()
 }
 
@@ -121,22 +121,22 @@ func loadUnsafe() (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	// Se o arquivo não existe, retorna configuração padrão
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		return DefaultConfig(), nil
 	}
-	
+
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
 		return nil, err
 	}
-	
+
 	return &config, nil
 }
 
@@ -144,7 +144,7 @@ func loadUnsafe() (*Config, error) {
 func Save(config *Config) error {
 	configMutex.Lock()
 	defer configMutex.Unlock()
-	
+
 	return saveUnsafe(config)
 }
 
@@ -154,12 +154,12 @@ func saveUnsafe(config *Config) error {
 	if err != nil {
 		return err
 	}
-	
+
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
 	}
-	
+
 	return os.WriteFile(configPath, data, 0644)
 }
 
@@ -168,13 +168,12 @@ func saveUnsafe(config *Config) error {
 func Update(updateFn func(*Config) *Config) error {
 	configMutex.Lock()
 	defer configMutex.Unlock()
-	
+
 	config, err := loadUnsafe()
 	if err != nil {
 		return err
 	}
-	
+
 	updatedConfig := updateFn(config)
 	return saveUnsafe(updatedConfig)
 }
-

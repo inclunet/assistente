@@ -32,7 +32,7 @@ type Conversation struct {
 	Title       string        `json:"title"`
 	Preferences string        `json:"preferences,omitempty" gorm:"type:text"` // JSON das preferências locais
 	CreatedAt   time.Time     `json:"created_at"`
-	UpdatedAt             time.Time     `json:"updated_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
 	Messages    []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
 }
 

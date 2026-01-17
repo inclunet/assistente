@@ -351,7 +351,7 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		conversationID = conv.ID
 		createdNew = true
 		fmt.Printf("✅ Nova conversa criada: ID=%d, título=%s\n", conversationID, title)
-		
+
 		// Atualiza a tab ativa com o novo conversation_id
 		activeTab, err := database.GetActiveTab()
 		if err == nil && activeTab != nil {
@@ -364,7 +364,7 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 				a.emitTabsUpdatedEvent()
 			}
 		}
-		
+
 		// Emite evento de criação para atualizar UI
 		runtime.EventsEmit(a.ctx, "chat:conversation_created", map[string]interface{}{
 			"id":    conversationID,
@@ -683,7 +683,7 @@ func (a *App) ResetDatabase() error {
 	}
 
 	log.Println("[ResetDatabase] Banco resetado com sucesso")
-	
+
 	// Emite evento para o frontend limpar o estado
 	runtime.EventsEmit(a.ctx, "database:reset")
 
