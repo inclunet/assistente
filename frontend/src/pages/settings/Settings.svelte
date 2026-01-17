@@ -397,7 +397,10 @@
     resettingDatabase = true;
     try {
       await ResetDatabase();
-      showMessage('success', 'Banco de dados resetado com sucesso. Recarregue a página.');
+      showMessage('success', 'Banco de dados resetado com sucesso.');
+      
+      // Emite evento para o App.svelte navegar de volta ao chat
+      dispatch('databaseReset');
     } catch (error) {
       showMessage('error', 'Erro ao resetar banco de dados: ' + error);
     } finally {

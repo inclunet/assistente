@@ -87,12 +87,18 @@
             defaultModel = config.default_model || '';
           }
           
-          // Só navega para chat se tiver modelo
-          if (defaultModel) {
+          // Navega para chat se tiver API key E modelo
+          if (hasApiKey && defaultModel) {
             currentPage = 'chat';
           }
         } catch (error) {
           console.error('Erro ao recarregar configuração:', error);
+        }
+      },
+      databaseReset: () => {
+        // Navega para chat após reset do banco se tiver API key e modelo
+        if (hasApiKey && defaultModel) {
+          currentPage = 'chat';
         }
       }
     }
@@ -163,7 +169,8 @@
       
       configLoaded = true;
       
-      if (!defaultModel) {
+      // Redireciona para settings se não tiver API key OU modelo
+      if (!hasApiKey || !defaultModel) {
         currentPage = 'settings';
       }
     } catch (error) {
@@ -207,6 +214,7 @@
             bind:this={currentComponent}
             {...pageProps[currentPage]}
             on:saved={(e) => handlePageEvent('saved', e)}
+            on:databaseReset={(e) => handlePageEvent('databaseReset', e)}
           />
           {#if !hasApiKey}
             <p class="settings-notice">
