@@ -156,3 +156,15 @@ func InitializeDefaultTab() error {
 
 	return nil
 }
+
+// ClearAllTabs remove todas as abas e cria uma nova aba padrão
+func ClearAllTabs() error {
+	// Remove todas as abas
+	if err := db.Where("1=1").Delete(&ChatTab{}).Error; err != nil {
+		return err
+	}
+
+	// Cria uma nova aba padrão
+	_, err := CreateTab("Nova conversa", "💬", true)
+	return err
+}

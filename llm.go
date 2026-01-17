@@ -683,7 +683,9 @@ func (a *App) ResetDatabase() error {
 	}
 
 	// Limpa as tabs (já que todas as conversas foram deletadas)
-	a.tabManager.ClearAllTabs()
+	if err := database.ClearAllTabs(); err != nil {
+		log.Printf("[ResetDatabase] Erro ao limpar tabs: %v", err)
+	}
 
 	log.Println("[ResetDatabase] Banco resetado com sucesso")
 
