@@ -1,10 +1,10 @@
 # Roadmap de Acessibilidade
 
-Este documento registra as melhorias de acessibilidade planejadas e implementadas no Assistente.
+Este documento registra as melhorias de acessibilidade planejadas e implementadas no Assistente (versão React).
 
 ---
 
-## ✅ Implementado
+## ✅ Implementado (Versão Svelte Original)
 
 ### Navegação por Mensagens
 - [x] Botões de ação (Copiar, Mais ações) não interferem na leitura por setas
@@ -44,7 +44,18 @@ Este documento registra as melhorias de acessibilidade planejadas e implementada
 
 ---
 
-## 🔴 Prioridade Alta
+## 🔴 Prioridade Alta - React Migration
+
+### Componentes Base Acessíveis
+- [ ] Combobox acessível (base para pickers)
+- [ ] ModelPicker com ARIA completo
+- [ ] VoicePicker e STTProviderPicker
+- [ ] ImageModelPicker
+
+### ARIA Labels nos Componentes de Chat
+- [ ] ChatMessage: role, aria-label, aria-live para streaming
+- [ ] MessageList: role="log", aria-label, live regions
+- [ ] ChatInput: aria-label, aria-describedby para hints
 
 ### Navegação por Landmarks/Regiões
 - [ ] Adicionar `role="main"` na área de chat
@@ -168,5 +179,4 @@ Este documento registra as melhorias de acessibilidade planejadas e implementada
 
 ---
 
-*Última atualização: Dezembro 2024*
-
+*Última atualização: Janeiro 2026 (React Migration)*

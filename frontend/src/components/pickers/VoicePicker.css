@@ -1,0 +1,104 @@
+.voice-picker-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm, 8px);
+}
+
+.voice-picker-label {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs, 6px);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-primary, #333);
+}
+
+.voice-picker-icon {
+  font-size: 18px;
+}
+
+.voice-picker-toolbar {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs, 6px);
+}
+
+.voice-picker-error {
+  color: var(--error-color, #dc2626);
+}
+
+.loading-state,
+.error-state {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm, 8px);
+  padding: var(--spacing-md, 12px);
+  border: 1px solid var(--border-color, #e5e5e5);
+  border-radius: var(--border-radius, 8px);
+  background-color: var(--bg-secondary, #f9f9f9);
+}
+
+.loading-spinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-color, #e5e5e5);
+  border-top-color: var(--accent-color, #667eea);
+  border-radius: 50%;
+  animation: spin 0.6s linear infinite;
+}
+
+.error-state {
+  background-color: #fef2f2;
+  border-color: #fecaca;
+  color: var(--error-color, #dc2626);
+}
+
+.error-icon {
+  font-size: 20px;
+}
+
+.retry-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--accent-color, #667eea);
+  background: transparent;
+  border: 1px solid var(--accent-color, #667eea);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.retry-btn:hover {
+  background-color: var(--accent-color, #667eea);
+  color: white;
+}
+
+.retry-btn:focus {
+  outline: 2px solid var(--accent-color, #667eea);
+  outline-offset: 2px;
+}
+
+.help-text {
+  font-size: 13px;
+  color: var(--text-tertiary, #999);
+  margin: 0;
+}
+
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border-width: 0;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

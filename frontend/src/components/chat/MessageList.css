@@ -1,0 +1,128 @@
+.message-list {
+  flex: 1;
+  overflow-y: auto;
+  overflow-x: hidden;
+  min-height: 0;
+}
+
+.message-list__messages {
+  display: flex;
+  flex-direction: column;
+  min-height: 100%;
+}
+
+.message-list--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.message-list__empty-state {
+  text-align: center;
+  padding: 48px 24px;
+  max-width: 400px;
+}
+
+.message-list__empty-icon {
+  font-size: 64px;
+  margin-bottom: 16px;
+  opacity: 0.5;
+}
+
+.message-list__empty-title {
+  font-size: 24px;
+  font-weight: 600;
+  color: var(--text-primary, #333);
+  margin: 0 0 8px 0;
+}
+
+.message-list__empty-description {
+  font-size: 16px;
+  color: var(--text-secondary, #666);
+  margin: 0;
+  line-height: 1.5;
+}
+
+.message-list__loading {
+  padding: 16px;
+  display: flex;
+  justify-content: flex-start;
+  gap: 12px;
+}
+
+.message-list__loading-dots {
+  display: flex;
+  gap: 6px;
+  padding: 12px 16px;
+  background-color: var(--bg-secondary, #f5f5f5);
+  border-radius: 18px;
+  margin-left: 44px; /* Align with assistant avatar */
+}
+
+.message-list__loading-dots span {
+  width: 8px;
+  height: 8px;
+  background-color: var(--text-tertiary, #999);
+  border-radius: 50%;
+  animation: loadingDot 1.4s infinite ease-in-out both;
+}
+
+.message-list__loading-dots span:nth-child(1) {
+  animation-delay: -0.32s;
+}
+
+.message-list__loading-dots span:nth-child(2) {
+  animation-delay: -0.16s;
+}
+
+@keyframes loadingDot {
+  0%, 80%, 100% {
+    transform: scale(0.8);
+    opacity: 0.5;
+  }
+  40% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}
+
+/* Scrollbar styling */
+.message-list::-webkit-scrollbar {
+  width: 8px;
+}
+
+.message-list::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.message-list::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.2);
+  border-radius: 4px;
+}
+
+.message-list::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.3);
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  .message-list__empty-title {
+    color: var(--text-primary, #e0e0e0);
+  }
+
+  .message-list__empty-description {
+    color: var(--text-secondary, #b0b0b0);
+  }
+
+  .message-list__loading-dots {
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .message-list::-webkit-scrollbar-thumb {
+    background-color: rgba(255, 255, 255, 0.2);
+  }
+
+  .message-list::-webkit-scrollbar-thumb:hover {
+    background-color: rgba(255, 255, 255, 0.3);
+  }
+}

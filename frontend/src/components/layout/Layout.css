@@ -1,0 +1,12 @@
+.layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.layout__content {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--color-bg-primary, #0d0d0d);
+}

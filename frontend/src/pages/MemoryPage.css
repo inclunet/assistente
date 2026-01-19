@@ -1,0 +1,132 @@
+.memory-page {
+  padding: 2rem;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.memory-header {
+  margin-bottom: 2rem;
+}
+
+.memory-header h1 {
+  font-size: 2rem;
+  margin-bottom: 1rem;
+}
+
+.header-actions {
+  display: flex;
+  gap: 1rem;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.header-actions select {
+  padding: 0.5rem;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.memory-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1rem;
+}
+
+.memory-card {
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 1rem;
+  display: flex;
+  justify-content: space-between;
+  transition: box-shadow 0.2s;
+}
+
+.memory-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.memory-content {
+  flex: 1;
+}
+
+.memory-header-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.memory-header-card h3 {
+  font-size: 1.1rem;
+}
+
+.category-badge {
+  padding: 0.25rem 0.75rem;
+  border-radius: 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+}
+
+.category-badge.core {
+  background-color: #ff6b6b;
+  color: white;
+}
+
+.category-badge.user {
+  background-color: #4dabf7;
+  color: white;
+}
+
+.category-badge.preference {
+  background-color: #51cf66;
+  color: white;
+}
+
+.category-badge.project {
+  background-color: #ffd43b;
+  color: #333;
+}
+
+.category-badge.context {
+  background-color: #9775fa;
+  color: white;
+}
+
+.category-badge.general {
+  background-color: #ced4da;
+  color: #333;
+}
+
+.memory-content p {
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  margin-bottom: 0.5rem;
+}
+
+.memory-content small {
+  color: var(--text-tertiary);
+  font-size: 0.75rem;
+}
+
+.memory-actions {
+  display: flex;
+  gap: 0.5rem;
+  align-items: flex-start;
+}
+
+.memory-actions button {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.2rem;
+  padding: 0.25rem;
+  opacity: 0.7;
+}
+
+.memory-actions button:hover {
+  opacity: 1;
+}
+
+.memory-actions button.delete-btn:hover {
+  color: var(--danger-color);
+}

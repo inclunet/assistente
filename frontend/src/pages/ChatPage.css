@@ -1,0 +1,12 @@
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+  background-color: var(--bg-primary, #fff);
+}
+
+/* Ensure chat page takes full available space */
+.chat-page {
+  overflow: hidden;
+}
