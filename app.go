@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"strings"
+	"time"
 
 	"assistente/internal/agentmanager"
 	"assistente/internal/agents"
@@ -39,12 +40,36 @@ type App struct {
 
 // ==================== Tipos para Threads ====================
 
+// EnrichedMessage é ChatMessage + campos derivados calculados no backend
+// Todos os campos são definidos explicitamente para evitar conflitos de embedding
+type EnrichedMessage struct {
+	ID               string     `json:"id"`                        // String para JS safety (números grandes)
+	ConversationID   uint       `json:"conversationId"`
+	ParentID         *string    `json:"parentId,omitempty"`        // String para evitar undefined no TypeScript
+	Role             string     `json:"role"`
+	Content          string     `json:"content"`
+	Media            string     `json:"media,omitempty"`
+	ToolCalls        string     `json:"toolCalls,omitempty"`
+	ToolResults      string     `json:"toolResults,omitempty"`
+	ToolCallID       string     `json:"toolCallId,omitempty"`
+	AgentName        string     `json:"agentName,omitempty"`
+	PromptTokens     int        `json:"promptTokens,omitempty"`
+	CompletionTokens int        `json:"completionTokens,omitempty"`
+	TotalTokens      int        `json:"totalTokens,omitempty"`
+	Model            string     `json:"model,omitempty"`
+	CreatedAt        time.Time  `json:"createdAt"`
+	Timestamp        int64      `json:"timestamp"`         // Milliseconds desde epoch
+	IsStreaming      bool       `json:"isStreaming"`       // Sempre false do DB
+	ToolName         string     `json:"toolName,omitempty"` // Nome do tool (extraído de toolCalls)
+	Internal         bool       `json:"internal"`          // Se tem parentId (é resposta de thread)
+}
+
 // MessageNode representa uma mensagem com seus filhos na hierarquia
 type MessageNode struct {
-	database.ChatMessage               // Embedded - campos serão inline no JSON
-	Children             []MessageNode `json:"children,omitempty"`
-	Level                int           `json:"level"`
-	ChildCount           int           `json:"child_count"` // Para lazy loading
+	Message    EnrichedMessage `json:"message"`            // Mensagem enriquecida
+	Children   []MessageNode   `json:"children,omitempty"`
+	Level      int             `json:"level"`
+	ChildCount int             `json:"childCount"` // Para lazy loading
 }
 
 // ConversationWithThreads representa uma conversa com mensagens organizadas em árvore
@@ -1455,4 +1480,124 @@ func (a *App) SetOpenAITTSSpeed(rate int) {
 	if a.speechManager != nil {
 		a.speechManager.SetTTSSpeed(rate)
 	}
+}
+
+// ==================== Chat Tabs ====================
+
+// GetAllTabs retorna todas as abas de chat
+func (a *App) GetAllTabs() ([]database.ChatTab, error) {
+	return database.GetAllTabs()
+}
+
+// GetActiveTab retorna a aba ativa
+func (a *App) GetActiveTab() (*database.ChatTab, error) {
+	return database.GetActiveTab()
+}
+
+// CreateTab cria uma nova aba de chat
+func (a *App) CreateTab(title, icon string) (*database.ChatTab, error) {
+	tab, err := database.CreateTab(title, icon, true) // Sempre seta como ativa
+	if err != nil {
+		return nil, err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "tab_created", map[string]interface{}{
+		"id":       tab.ID,
+		"title":    tab.Title,
+		"icon":     tab.Icon,
+		"position": tab.Position,
+		"isActive": tab.IsActive,
+	})
+
+	return tab, nil
+}
+
+// CloseTab fecha uma aba
+func (a *App) CloseTab(id uint) error {
+	err := database.CloseTab(id)
+	if err != nil {
+		return err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "tab_closed", map[string]interface{}{
+		"id": id,
+	})
+
+	return nil
+}
+
+// SetActiveTab define a aba ativa
+func (a *App) SetActiveTab(id uint) error {
+	err := database.SetActiveTab(id)
+	if err != nil {
+		return err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "tab_activated", map[string]interface{}{
+		"id": id,
+	})
+
+	return nil
+}
+
+// UpdateTabTitle atualiza o título de uma aba
+func (a *App) UpdateTabTitle(id uint, title string) error {
+	err := database.UpdateTabTitle(id, title)
+	if err != nil {
+		return err
+	}
+
+	// Emite evento para frontend (mantém compatibilidade com código existente)
+	runtime.EventsEmit(a.ctx, "tab_title_updated", map[string]interface{}{
+		"id":    id,
+		"title": title,
+	})
+
+	return nil
+}
+
+// LoadConversationInTab carrega uma conversa em uma aba
+func (a *App) LoadConversationInTab(tabId, conversationId uint) error {
+	err := database.LoadConversationInTab(tabId, conversationId)
+	if err != nil {
+		return err
+	}
+
+	// Obtém a conversa para emitir evento completo
+	conv, err := database.GetConversation(conversationId)
+	if err != nil {
+		return err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "conversation_loaded_in_tab", map[string]interface{}{
+		"tabId":          tabId,
+		"conversationId": conv.ID,
+		"title":          conv.Title,
+	})
+
+	return nil
+}
+
+// ClearTab limpa a conversa de uma aba
+func (a *App) ClearTab(id uint) error {
+	err := database.ClearTab(id)
+	if err != nil {
+		return err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "tab_cleared", map[string]interface{}{
+		"id": id,
+	})
+
+	return nil
+}
+
+// ReorderTabs reordena as abas
+func (a *App) ReorderTabs(orderedIds []uint) error {
+	return database.ReorderTabs(orderedIds)
 }

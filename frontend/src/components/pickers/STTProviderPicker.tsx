@@ -1,6 +1,10 @@
-import React, { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Combobox, ComboboxItem } from './Combobox';
 import './STTProviderPicker.css';
+
+// Constantes de provedores STT
+export const STT_WEBSPEECH = 'webspeech';
+export const STT_WHISPER = 'whisper';
 
 export interface STTProviderPickerProps {
   value: string;
@@ -10,6 +14,7 @@ export interface STTProviderPickerProps {
   helpText?: string;
   icon?: string;
   maxWidth?: string;
+  onAnnounce?: (message: string) => void;
 }
 
 export interface STTProviderPickerRef {
@@ -20,6 +25,7 @@ interface STTProvider {
   id: string;
   name: string;
   description: string;
+  icon: string;
 }
 
 export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPickerProps>(
@@ -28,10 +34,11 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
       value,
       onChange,
       variant = 'form',
-      label = 'Provedor de STT',
+      label = 'STT',
       helpText = 'Selecione o provedor de reconhecimento de fala',
       icon = '🎤',
       maxWidth,
+      onAnnounce,
     },
     ref
   ) => {
@@ -44,15 +51,20 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
       setError(null);
 
       try {
-        // TODO: Replace with actual Wails backend call
-        // const providersList = await GetSTTProviders() || [];
-        
-        // Simulated providers for now
+        // Provedores disponíveis
         const providersList: STTProvider[] = [
-          { id: 'whisper', name: 'Whisper (Local)', description: 'OpenAI Whisper local' },
-          { id: 'azure', name: 'Azure Speech', description: 'Microsoft Azure' },
-          { id: 'google', name: 'Google Speech-to-Text', description: 'Google Cloud' },
-          { id: 'deepgram', name: 'Deepgram', description: 'Deepgram API' },
+          { 
+            id: STT_WEBSPEECH, 
+            name: 'WebSpeech', 
+            description: 'Navegador (grátis)',
+            icon: '🌐'
+          },
+          { 
+            id: STT_WHISPER, 
+            name: 'Whisper', 
+            description: 'OpenAI (premium)',
+            icon: '🤖'
+          },
         ];
         
         setProviders(providersList);
@@ -74,7 +86,7 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
 
     const items: ComboboxItem[] = providers.map((provider) => ({
       value: provider.id,
-      label: provider.name,
+      label: `${provider.icon} ${provider.name}`,
       sublabel: provider.description,
     }));
 
@@ -107,6 +119,7 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
           label={label}
           icon={icon}
           maxWidth={maxWidth}
+          onAnnounce={onAnnounce}
         />
       );
     }
@@ -139,6 +152,7 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
             onSelect={onChange}
             label={label}
             icon={icon}
+            onAnnounce={onAnnounce}
           />
         )}
         

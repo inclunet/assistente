@@ -1,11 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GetAllConversations, DeleteConversation } from '../../wailsjs/go/main/App';
+import { GetConversations, DeleteConversation } from '../../wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import './HistoryPage.css';
 
 interface Conversation {
-  id: string;
+  id: number;
   title: string;
   created_at: string;
   updated_at: string;
@@ -26,8 +26,15 @@ export default function HistoryPage() {
   const loadConversations = async () => {
     setLoading(true);
     try {
-      const result = await GetAllConversations();
-      setConversations(result || []);
+      const result = await GetConversations();
+      const mapped = result.map((c: any) => ({
+        id: c.id,
+        title: c.title,
+        created_at: c.created_at,
+        updated_at: c.updated_at,
+        message_count: c.message_count || 0
+      }));
+      setConversations(mapped || []);
     } catch (error) {
       console.error('Erro ao carregar conversas:', error);
     } finally {
@@ -35,11 +42,11 @@ export default function HistoryPage() {
     }
   };
 
-  const handleOpenConversation = (conversationId: string) => {
+  const handleOpenConversation = (conversationId: number) => {
     navigate(`/?conversation=${conversationId}`);
   };
 
-  const handleDeleteConversation = async (conversationId: string) => {
+  const handleDeleteConversation = async (conversationId: number) => {
     if (!confirm(t('history.confirmDelete'))) return;
     
     try {

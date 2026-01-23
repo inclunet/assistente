@@ -1,12 +1,10 @@
 import { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
 import { useSettingsStore } from '../store/settingsStore';
 import { useUIStore } from '../store/uiStore';
 import { Input, Select, Checkbox, Button } from '../components';
 import './SettingsPage.css';
 
 export default function SettingsPage() {
-  const { t } = useTranslation();
   const { config, setConfig } = useSettingsStore();
   const { addToast } = useUIStore();
   const [loading, setLoading] = useState(false);

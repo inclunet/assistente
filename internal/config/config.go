@@ -61,16 +61,17 @@ type Config struct {
 // DefaultConfig retorna a configuração padrão
 func DefaultConfig() *Config {
 	return &Config{
-		APIKey:     "",
-		APIBaseURL: "https://api.openai.com/v1",
+		APIKey:       "",
+		APIBaseURL:   "https://api.openai.com/v1",
+		DefaultModel: "gpt-4o-mini", // Modelo padrão
 		ChatParams: ModelParams{
-			Model:       "",
+			Model:       "gpt-4o-mini",
 			Temperature: 0.7,
 			MaxTokens:   4096,
 			TopP:        1.0,
 		},
 		EmbeddingsParams: EmbeddingsParams{
-			Model:      "",
+			Model:      "text-embedding-3-small",
 			Dimensions: 0, // Usa o padrão do modelo
 		},
 		VoiceParams: VoiceParams{

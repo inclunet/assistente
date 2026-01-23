@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -32,6 +33,51 @@ var (
 
 // ==================== Conversation ====================
 
+// enrichMessage converte ChatMessage para EnrichedMessage com campos calculados
+func (a *App) enrichMessage(msg database.ChatMessage) EnrichedMessage {
+	// Converte ParentID *uint para *string
+	var parentIDStr *string
+	if msg.ParentID != nil {
+		pidStr := fmt.Sprintf("%d", *msg.ParentID)
+		parentIDStr = &pidStr
+	}
+	
+	enriched := EnrichedMessage{
+		// Campos do ChatMessage
+		ID:               fmt.Sprintf("%d", msg.ID),
+		ConversationID:   msg.ConversationID,
+		ParentID:         parentIDStr,
+		Role:             msg.Role,
+		Content:          msg.Content,
+		Media:            msg.Media,
+		ToolCalls:        msg.ToolCalls,
+		ToolResults:      msg.ToolResults,
+		ToolCallID:       msg.ToolCallID,
+		AgentName:        msg.AgentName,
+		PromptTokens:     msg.PromptTokens,
+		CompletionTokens: msg.CompletionTokens,
+		TotalTokens:      msg.TotalTokens,
+		Model:            msg.Model,
+		CreatedAt:        msg.CreatedAt,
+		// Campos derivados
+		Timestamp:   msg.CreatedAt.UnixMilli(),
+		IsStreaming: false,
+		Internal:    msg.ParentID != nil,
+	}
+
+	// Extrai toolName do primeiro tool call se existir
+	if msg.ToolCalls != "" {
+		var toolCalls []ToolCall
+		if err := json.Unmarshal([]byte(msg.ToolCalls), &toolCalls); err == nil {
+			if len(toolCalls) > 0 {
+				enriched.ToolName = toolCalls[0].Function.Name
+			}
+		}
+	}
+
+	return enriched
+}
+
 func (a *App) CreateConversation(title, model string) (*Conversation, error) {
 	return database.CreateConversation(title, model)
 }
@@ -44,16 +90,22 @@ func (a *App) GetConversation(id uint) (*Conversation, error) {
 	return database.GetConversation(id)
 }
 
-// GetMessages retorna mensagens com filtro por parent (API unificada)
-// - conversationID > 0 e parentID == nil: mensagens raiz da conversa
-// - parentID != nil: filhos da mensagem especificada
+// GetMessages retorna mensagens com filtro por parent (API unificada com LAZY LOADING)
+// - conversationID > 0 e parentID == nil: mensagens RAIZ com childCount (não carrega filhos)
+// - parentID != nil: filhos diretos da mensagem especificada
 //
-// Retorna MessageNode com ChildCount para lazy loading
+// LAZY LOADING: Retorna apenas o nível solicitado, nunca carrega recursivamente
+// Frontend deve chamar novamente para carregar filhos quando usuário expandir thread
 func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, error) {
+	fmt.Printf("🔍 [GetMessages] conversationID=%d, parentID=%v (LAZY LOADING)\n", conversationID, parentID)
+	
+	// Busca apenas mensagens do nível solicitado (raízes OU filhos diretos)
 	messages, err := database.GetMessages(conversationID, parentID)
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Printf("📊 [GetMessages] Encontrou %d mensagens\n", len(messages))
 
 	// Coleta IDs para contar filhos
 	msgIDs := make([]uint, len(messages))
@@ -61,11 +113,11 @@ func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, e
 		msgIDs[i] = msg.ID
 	}
 
-	// Conta filhos de cada mensagem
+	// Conta filhos de cada mensagem (para mostrar indicadores)
 	childCounts, err := database.CountChildren(msgIDs)
 	if err != nil {
 		// Log mas não falha - apenas não teremos contagem
-		fmt.Printf("⚠️ Erro ao contar filhos: %v\n", err)
+		fmt.Printf("⚠️ [GetMessages] Erro ao contar filhos: %v\n", err)
 		childCounts = make(map[uint]int)
 	}
 
@@ -75,22 +127,25 @@ func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, e
 		level = 1 // Filhos são pelo menos nível 1
 	}
 
-	// Converte para MessageNode
+	// Converte para MessageNode com childCount (SEM filhos carregados - lazy loading)
 	result := make([]MessageNode, 0, len(messages))
 	for _, msg := range messages {
+		childCount := childCounts[msg.ID]
 		node := MessageNode{
-			ChatMessage: msg,
-			Children:    nil, // Lazy loading
-			Level:       level,
-			ChildCount:  childCounts[msg.ID],
+			Message:    a.enrichMessage(msg), // Usa método compartilhado
+			Children:   nil,                   // LAZY LOADING - não carrega filhos
+			Level:      level,
+			ChildCount: childCount, // Indica quantos filhos existem (para mostrar indicador)
 		}
+		fmt.Printf("📦 [GetMessages] Msg ID=%d, role=%s, childCount=%d\n",
+			msg.ID, msg.Role, childCount)
 		result = append(result, node)
 	}
 
 	if parentID != nil {
 		fmt.Printf("🌳 [LAZY] Mensagem %d: %d filhos carregados\n", *parentID, len(result))
 	} else {
-		fmt.Printf("🌳 [LAZY] Conversa %d: %d mensagens raiz\n", conversationID, len(result))
+		fmt.Printf("🌳 [LAZY] Conversa %d: %d mensagens raiz (lazy loading)\n", conversationID, len(result))
 	}
 
 	return result, nil
@@ -161,13 +216,15 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 	var buildNode func(msg database.ChatMessage, level int) MessageNode
 	buildNode = func(msg database.ChatMessage, level int) MessageNode {
 		node := MessageNode{
-			ChatMessage: msg,
-			Children:    []MessageNode{},
-			Level:       level,
+			Message:  a.enrichMessage(msg), // Usa método compartilhado
+			Children: []MessageNode{},
+			Level:    level,
 		}
 
 		// Adiciona filhos recursivamente
 		children := childrenMap[msg.ID]
+		node.ChildCount = len(children) // Define o count de filhos diretos
+		
 		for _, child := range children {
 			childNode := buildNode(child, level+1)
 			node.Children = append(node.Children, childNode)
@@ -189,7 +246,7 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 	logTree = func(nodes []MessageNode, indent string) {
 		for _, n := range nodes {
 			fmt.Printf("🌳 [TREE] %sID=%d, role=%s, children=%d\n",
-				indent, n.ID, n.Role, len(n.Children))
+				indent, n.Message.ID, n.Message.Role, len(n.Children))
 			if len(n.Children) > 0 {
 				logTree(n.Children, indent+"  ")
 			}
@@ -220,8 +277,7 @@ func (a *App) DeleteConversation(id uint) error {
 		return err
 	}
 
-	// Emite eventos
-	a.emitTabsUpdatedEvent()
+	// Emite evento
 	runtime.EventsEmit(a.ctx, "conversation:deleted", map[string]interface{}{
 		"conversation_id": id,
 	})
@@ -661,103 +717,6 @@ func (a *App) GetTabs() (TabsResponse, error) {
 		Tabs:        tabs,
 		ActiveTabId: activeId,
 	}, nil
-}
-
-// GetActiveTab retorna a aba ativa
-func (a *App) GetActiveTab() (*database.ChatTab, error) {
-	return database.GetActiveTab()
-}
-
-// CreateTab cria uma nova aba de chat
-func (a *App) CreateTab(title, icon string) (*database.ChatTab, error) {
-	tab, err := database.CreateTab(title, icon, true)
-	if err != nil {
-		return nil, err
-	}
-
-	a.emitTabsUpdatedEvent()
-	return tab, nil
-}
-
-// CloseTab fecha uma aba de chat
-func (a *App) CloseTab(id uint) error {
-	if err := database.CloseTab(id); err != nil {
-		return err
-	}
-
-	a.emitTabsUpdatedEvent()
-	return nil
-}
-
-// SetActiveTab define a aba ativa
-func (a *App) SetActiveTab(id uint) error {
-	if err := database.SetActiveTab(id); err != nil {
-		return err
-	}
-
-	runtime.EventsEmit(a.ctx, "tabs:activated", map[string]interface{}{
-		"tab_id": id,
-	})
-
-	return nil
-}
-
-// UpdateTabTitle atualiza o título de uma aba
-func (a *App) UpdateTabTitle(id uint, title string) error {
-	if err := database.UpdateTabTitle(id, title); err != nil {
-		return err
-	}
-
-	runtime.EventsEmit(a.ctx, "tabs:title_updated", map[string]interface{}{
-		"tab_id": id,
-		"title":  title,
-	})
-
-	return nil
-}
-
-// LoadConversationInTab carrega uma conversa em uma aba
-func (a *App) LoadConversationInTab(tabId, conversationId uint) error {
-	if err := database.LoadConversationInTab(tabId, conversationId); err != nil {
-		return err
-	}
-
-	a.emitTabsUpdatedEvent()
-	return nil
-}
-
-// ClearTab limpa uma aba (nova conversa)
-func (a *App) ClearTab(id uint) error {
-	if err := database.ClearTab(id); err != nil {
-		return err
-	}
-
-	a.emitTabsUpdatedEvent()
-	return nil
-}
-
-// ReorderTabs reordena as abas
-func (a *App) ReorderTabs(orderedIds []uint) error {
-	if err := database.ReorderTabs(orderedIds); err != nil {
-		return err
-	}
-
-	a.emitTabsUpdatedEvent()
-	return nil
-}
-
-// emitTabsUpdatedEvent emite evento de atualização de abas
-func (a *App) emitTabsUpdatedEvent() {
-	tabs, err := a.GetTabs()
-	if err != nil {
-		return
-	}
-
-	// Converte para map[string]interface{} para garantir serialização correta
-	runtime.EventsEmit(a.ctx, "tabs:updated", map[string]interface{}{
-		"tabs":          tabs.Tabs,
-		"active_tab_id": tabs.ActiveTabId,
-	})
 }
 
 func (a *App) GetAllMCPAgentsFull() ([]map[string]interface{}, error) {

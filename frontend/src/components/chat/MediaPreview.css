@@ -1,0 +1,130 @@
+.pending-media {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-sm);
+  padding: var(--spacing-sm);
+  background: var(--color-bg-tertiary);
+  border-radius: var(--border-radius);
+}
+
+.media-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  background: var(--color-bg-secondary);
+  border-radius: calc(var(--border-radius) * 0.5);
+  max-width: 300px;
+  transition: background-color 0.2s;
+}
+
+.media-preview:hover {
+  background: var(--color-bg-hover);
+}
+
+.media-thumbnail-wrapper {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex-shrink: 0;
+}
+
+.media-thumbnail {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: calc(var(--border-radius) * 0.5);
+}
+
+.alt-generating {
+  position: absolute;
+  top: -4px;
+  right: -4px;
+  font-size: var(--font-size-xs);
+  animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%, 100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.5;
+    transform: scale(1.1);
+  }
+}
+
+.media-audio-preview {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  flex: 1;
+}
+
+.audio-mini-player {
+  height: 24px;
+  max-width: 150px;
+  flex: 1;
+}
+
+.media-icon {
+  font-size: var(--font-size-xl);
+  flex-shrink: 0;
+  line-height: 1;
+}
+
+.media-info {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.media-name {
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--color-text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.media-size {
+  font-size: var(--font-size-xs);
+  color: var(--color-text-secondary);
+}
+
+.media-remove {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--color-text-secondary);
+  border-radius: calc(var(--border-radius) * 0.5);
+  cursor: pointer;
+  font-size: var(--font-size-md);
+  line-height: 1;
+  transition: all 0.2s;
+}
+
+.media-remove:hover {
+  background: var(--color-bg-hover);
+  color: var(--color-danger);
+}
+
+.media-remove:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+.media-remove:active {
+  transform: scale(0.95);
+}

@@ -419,6 +419,8 @@ func CountChildren(messageIDs []uint) (map[uint]int, error) {
 		return make(map[uint]int), nil
 	}
 
+	fmt.Printf("🔍 [CountChildren] Contando filhos para IDs: %v\n", messageIDs)
+
 	type countResult struct {
 		ParentID uint
 		Count    int
@@ -432,13 +434,18 @@ func CountChildren(messageIDs []uint) (map[uint]int, error) {
 		Scan(&results).Error
 
 	if err != nil {
+		fmt.Printf("❌ [CountChildren] Erro: %v\n", err)
 		return nil, err
 	}
+
+	fmt.Printf("📊 [CountChildren] Resultados SQL: %+v\n", results)
 
 	counts := make(map[uint]int)
 	for _, r := range results {
 		counts[r.ParentID] = r.Count
 	}
+	
+	fmt.Printf("✅ [CountChildren] Mapa final: %v\n", counts)
 	return counts, nil
 }
 

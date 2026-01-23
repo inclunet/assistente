@@ -40,10 +40,25 @@ export const useToolbarKeyboardNav = () => {
       // Apenas processar se o foco está dentro da toolbar
       if (!toolbar.contains(document.activeElement)) return;
 
+      const target = event.target as HTMLElement;
+      
+      // NÃO interceptar teclas se o foco está dentro de um picker aberto
+      // (input com role="combobox" ou listbox)
+      const isInsidePicker = 
+        target.matches('input[role="combobox"]') ||
+        target.closest('[role="listbox"]') !== null ||
+        target.closest('.picker-dropdown') !== null;
+      
+      if (isInsidePicker) {
+        // Deixa o picker processar suas próprias teclas
+        return;
+      }
+
       const items = getFocusableItems();
       if (items.length === 0) return;
 
       // Previne comportamento padrão para todas as teclas de navegação na toolbar
+      // (mas apenas quando NÃO estamos dentro de um picker)
       if (['ArrowRight', 'ArrowDown', 'ArrowLeft', 'ArrowUp', 'Home', 'End'].includes(event.key)) {
         event.preventDefault();
         event.stopPropagation();

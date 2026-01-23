@@ -1,5 +1,7 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
+import { VOICE_DISABLED } from '../components/pickers/VoicePicker';
+import { STT_WEBSPEECH } from '../components/pickers/STTProviderPicker';
 
 export interface AppConfig {
   apiKey: string;
@@ -36,8 +38,8 @@ const defaultConfig: AppConfig = {
   streamEnabled: true,
   theme: 'system',
   language: 'pt-BR',
-  voice: 'pt-BR-FranciscaNeural',
-  sttProvider: 'whisper',
+  voice: VOICE_DISABLED, // Desativada por padrão (usa leitor de telas)
+  sttProvider: STT_WEBSPEECH, // WebSpeech por padrão
 };
 
 export const useSettingsStore = create<SettingsState>()(

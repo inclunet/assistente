@@ -68,20 +68,20 @@ func (c *Conversation) SetPreferences(prefs *ChatPreferences) {
 //   - ParentID=ID_agente_tool: mensagem de nível 2 (tool respondendo ao agente)
 type ChatMessage struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
-	ConversationID   uint      `json:"conversation_id" gorm:"index"`
-	ParentID         *uint     `json:"parent_id,omitempty" gorm:"index"` // ID da mensagem pai (define hierarquia)
+	ConversationID   uint      `json:"conversationId" gorm:"index"`
+	ParentID         *uint     `json:"parentId,omitempty" gorm:"index"` // ID da mensagem pai (define hierarquia)
 	Role             string    `json:"role"`                             // user, assistant, tool, system
 	Content          string    `json:"content"`
 	Media            string    `json:"media,omitempty"`             // JSON com mídias (imagens, áudio, etc) em base64
-	ToolCalls        string    `json:"tool_calls,omitempty"`        // JSON serializado
-	ToolResults      string    `json:"tool_results,omitempty"`      // JSON serializado (deprecated, usar hierarquia)
-	ToolCallID       string    `json:"tool_call_id,omitempty"`      // ID da tool call (para role="tool")
-	AgentName        string    `json:"agent_name,omitempty"`        // Nome do agente que processou (file_manager, faq, etc)
-	PromptTokens     int       `json:"prompt_tokens,omitempty"`     // Tokens de entrada
-	CompletionTokens int       `json:"completion_tokens,omitempty"` // Tokens de saída
-	TotalTokens      int       `json:"total_tokens,omitempty"`      // Total de tokens
+	ToolCalls        string    `json:"toolCalls,omitempty"`        // JSON serializado
+	ToolResults      string    `json:"toolResults,omitempty"`      // JSON serializado (deprecated, usar hierarquia)
+	ToolCallID       string    `json:"toolCallId,omitempty"`      // ID da tool call (para role="tool")
+	AgentName        string    `json:"agentName,omitempty"`        // Nome do agente que processou (file_manager, faq, etc)
+	PromptTokens     int       `json:"promptTokens,omitempty"`     // Tokens de entrada
+	CompletionTokens int       `json:"completionTokens,omitempty"` // Tokens de saída
+	TotalTokens      int       `json:"totalTokens,omitempty"`      // Total de tokens
 	Model            string    `json:"model,omitempty"`             // Modelo usado
-	CreatedAt        time.Time `json:"created_at"`
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 // ==================== Chat Tabs ====================

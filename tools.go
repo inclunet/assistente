@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -127,15 +128,44 @@ func (a *App) createAgentMessageSaver() llm.MessageSaver {
 		}
 
 		// Para mensagens de tool_calls (agente chamando tools),
-		// enriquece o conteúdo com os parâmetros para facilitar debug
+		// formata conteúdo markdown com as chamadas
 		content := msg.Content
 		if len(msg.ToolCalls) > 0 && content == "" {
-			var toolDescriptions []string
-			for _, tc := range msg.ToolCalls {
-				toolDesc := fmt.Sprintf("📤 %s(%s)", tc.Function.Name, tc.Function.Arguments)
-				toolDescriptions = append(toolDescriptions, toolDesc)
+			var contentBuilder strings.Builder
+			
+			if len(msg.ToolCalls) == 1 {
+				// Uma única tool call
+				tc := msg.ToolCalls[0]
+				contentBuilder.WriteString(fmt.Sprintf("🔧 **Executando:** `%s`\n\n", tc.Function.Name))
+				contentBuilder.WriteString("**Parâmetros:**\n```json\n")
+				
+				// Formata JSON
+				var prettyArgs bytes.Buffer
+				if err := json.Indent(&prettyArgs, []byte(tc.Function.Arguments), "", "  "); err == nil {
+					contentBuilder.WriteString(prettyArgs.String())
+				} else {
+					contentBuilder.WriteString(tc.Function.Arguments)
+				}
+				contentBuilder.WriteString("\n```")
+			} else {
+				// Múltiplas tool calls
+				contentBuilder.WriteString(fmt.Sprintf("🔧 **Executando %d ferramentas:**\n\n", len(msg.ToolCalls)))
+				for i, tc := range msg.ToolCalls {
+					contentBuilder.WriteString(fmt.Sprintf("%d. **%s**\n```json\n", i+1, tc.Function.Name))
+					var prettyArgs bytes.Buffer
+					if err := json.Indent(&prettyArgs, []byte(tc.Function.Arguments), "", "  "); err == nil {
+						contentBuilder.WriteString(prettyArgs.String())
+					} else {
+						contentBuilder.WriteString(tc.Function.Arguments)
+					}
+					contentBuilder.WriteString("\n```\n")
+					if i < len(msg.ToolCalls)-1 {
+						contentBuilder.WriteString("\n")
+					}
+				}
 			}
-			content = strings.Join(toolDescriptions, "\n")
+			
+			content = contentBuilder.String()
 		}
 
 		fmt.Printf("💾 [AGENT SAVER] Salvando: role=%s, agent=%s, parentID=%d (nível 2)\n",

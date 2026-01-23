@@ -1,19 +1,27 @@
 import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef } from 'react';
 import { Button } from '../ui/Button';
+import { MediaPreview } from './MediaPreview';
+import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import './ChatInput.css';
 
 export interface ChatInputProps {
-  onSend: (message: string) => void;
+  onSend: (message: string, mediaFiles?: MediaFile[]) => void;
   disabled?: boolean;
   placeholder?: string;
+  maxFiles?: number;
+  onArrowUp?: () => void;
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
-  { onSend, disabled = false, placeholder = 'Digite sua mensagem...' },
+  { onSend, disabled = false, placeholder = 'Digite sua mensagem...', maxFiles = 5, onArrowUp },
   ref
 ) => {
   const [message, setMessage] = useState('');
+  const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
+  const [isDragging, setIsDragging] = useState(false);
+  const [isProcessing, setIsProcessing] = useState(false);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const hintId = 'chat-input-hint';
   
   // Use external ref if provided, otherwise use internal ref
@@ -34,9 +42,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
 
   const handleSend = () => {
     const trimmedMessage = message.trim();
-    if (trimmedMessage && !disabled) {
-      onSend(trimmedMessage);
+    if ((trimmedMessage || mediaFiles.length > 0) && !disabled && !isProcessing) {
+      onSend(trimmedMessage, mediaFiles.length > 0 ? mediaFiles : undefined);
       setMessage('');
+      setMediaFiles([]);
       
       // Reset textarea height
       if (textareaRef.current) {
@@ -45,24 +54,148 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     }
   };
 
+  const handleFileSelect = async (files: File[]) => {
+    if (files.length === 0 || mediaFiles.length >= maxFiles) return;
+    
+    setIsProcessing(true);
+    try {
+      const remainingSlots = maxFiles - mediaFiles.length;
+      const filesToProcess = files.slice(0, remainingSlots);
+      const processed = await processMediaFiles(filesToProcess);
+      setMediaFiles(prev => [...prev, ...processed]);
+    } catch (error) {
+      console.error('Erro ao processar arquivos:', error);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  const handleRemoveMedia = (id: string) => {
+    setMediaFiles(prev => prev.filter(m => m.id !== id));
+  };
+
+  const handleFileInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (files) {
+      handleFileSelect(Array.from(files));
+    }
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
+    }
+  };
+
+  // Drag & Drop handlers
+  const handleDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  };
+
+  const handleDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (e.currentTarget === e.target) {
+      setIsDragging(false);
+    }
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    
+    const files = Array.from(e.dataTransfer.files);
+    handleFileSelect(files);
+  };
+
+  // Paste handler para imagens
+  const handlePaste = async (e: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const items = Array.from(e.clipboardData.items);
+    const imageItems = items.filter(item => item.type.startsWith('image/'));
+    
+    if (imageItems.length > 0) {
+      e.preventDefault();
+      const files = imageItems
+        .map(item => item.getAsFile())
+        .filter((file): file is File => file !== null);
+      
+      if (files.length > 0) {
+        await handleFileSelect(files);
+      }
+    }
+  };
+
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
-      handleSend();
+      if (!disabled) {
+        handleSend();
+      }
+    }
+    
+    // ArrowUp no início do texto navega para a lista de mensagens
+    if (e.key === 'ArrowUp' && onArrowUp) {
+      const textarea = textareaRef.current;
+      if (textarea && textarea.selectionStart === 0 && textarea.selectionEnd === 0) {
+        e.preventDefault();
+        onArrowUp();
+      }
     }
   };
 
   return (
-    <div className="chat-input">
+    <div 
+      className={`chat-input ${isDragging ? 'dragging' : ''}`}
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="drag-overlay">
+          <div className="drag-overlay__content">
+            📎 Solte os arquivos aqui
+          </div>
+        </div>
+      )}
+
+      <MediaPreview media={mediaFiles} onRemove={handleRemoveMedia} />
+
       <div className="chat-input__container">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
+          onChange={handleFileInputChange}
+          style={{ display: 'none' }}
+          aria-label="Selecionar arquivos"
+        />
+        
+        <button
+          type="button"
+          className="chat-input__attach-button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={disabled || mediaFiles.length >= maxFiles}
+          aria-label="Anexar arquivo"
+          title="Anexar arquivo"
+        >
+          📎
+        </button>
+
         <textarea
           ref={textareaRef}
           className="chat-input__textarea"
           value={message}
           onChange={(e) => setMessage(e.target.value)}
           onKeyDown={handleKeyDown}
+          onPaste={handlePaste}
           placeholder={placeholder}
-          disabled={disabled}
           rows={1}
           aria-label="Digite sua mensagem"
           aria-describedby={hintId}
@@ -70,30 +203,29 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         />
         <Button
           onClick={handleSend}
-          disabled={disabled || !message.trim()}
+          disabled={disabled || (!message.trim() && mediaFiles.length === 0) || isProcessing}
           variant="primary"
           size="md"
           className="chat-input__button"
-          aria-label="Enviar mensagem"
+          aria-label={disabled ? "Aguarde o término da resposta para enviar" : "Enviar mensagem"}
         >
           <svg
             width="20"
             height="20"
-            viewBox="0 0 24 24"
+            viewBox="0 0 20 20"
             fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
+            xmlns="http://www.w3.org/2000/svg"
+            aria-hidden="true"
           >
-            <line x1="22" y1="2" x2="11" y2="13" />
-            <polygon points="22 2 15 22 11 13 2 9 22 2" />
+            <path
+              d="M18.3327 10L1.66602 1.66669L5.83268 10L1.66602 18.3334L18.3327 10Z"
+              fill="currentColor"
+            />
           </svg>
         </Button>
-      </div>
-      <div className="chat-input__hint" id={hintId}>
-        Pressione Enter para enviar, Shift+Enter para nova linha
       </div>
     </div>
   );
 });
+
+ChatInput.displayName = 'ChatInput';

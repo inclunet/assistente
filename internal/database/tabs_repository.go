@@ -97,8 +97,10 @@ func CloseTab(id uint) error {
 
 // SetActiveTab define a aba ativa
 func SetActiveTab(id uint) error {
-	// Desativa todas
-	db.Model(&ChatTab{}).Update("is_active", false)
+	// Desativa todas (WHERE 1=1 permite UPDATE global)
+	if err := db.Model(&ChatTab{}).Where("1=1").Update("is_active", false).Error; err != nil {
+		return err
+	}
 
 	// Ativa a selecionada
 	return db.Model(&ChatTab{}).Where("id = ?", id).Update("is_active", true).Error

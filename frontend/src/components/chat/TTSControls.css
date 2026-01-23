@@ -1,0 +1,48 @@
+.tts-controls {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.tts-button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px;
+  background: var(--button-background, transparent);
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 4px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  color: var(--text-color, #333);
+}
+
+.tts-button:hover {
+  background: var(--button-hover-background, rgba(0, 0, 0, 0.05));
+}
+
+.tts-button.active {
+  background: var(--button-active-background, #007bff);
+  color: var(--button-active-text, white);
+  border-color: var(--button-active-background, #007bff);
+}
+
+.tts-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.tts-button svg {
+  display: block;
+}
+
+.tts-button.stop {
+  background: var(--button-stop-background, #dc3545);
+  color: white;
+  border-color: var(--button-stop-background, #dc3545);
+}
+
+.tts-button.stop:hover {
+  background: var(--button-stop-hover-background, #c82333);
+  border-color: var(--button-stop-hover-background, #c82333);
+}

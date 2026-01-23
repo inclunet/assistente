@@ -4,10 +4,10 @@
  * TODO: Implementar ConversationController isolado por aba
  */
 
-import { useTabsStore } from '../../store/tabsStore';
+import { useChatStore } from '../../store/chatStore';
 
 export function ChatTabPanel() {
-  const { tabs, activeTabId } = useTabsStore();
+  const { tabs, activeTabId } = useChatStore();
   const activeTab = tabs.find(tab => tab.id === activeTabId);
 
   if (!activeTab) {

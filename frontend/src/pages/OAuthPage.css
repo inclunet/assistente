@@ -1,0 +1,147 @@
+.oauth-page {
+  padding: 2rem;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.oauth-header {
+  margin-bottom: 2rem;
+}
+
+.oauth-header h1 {
+  font-size: 2rem;
+  margin-bottom: 0.5rem;
+}
+
+.oauth-header .subtitle {
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+
+.services-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(350px, 1fr));
+  gap: 1.5rem;
+}
+
+.service-card {
+  border: 2px solid var(--border-color);
+  border-radius: 12px;
+  padding: 1.5rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 1rem;
+  transition: all 0.3s;
+}
+
+.service-card:hover {
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.service-card.connected {
+  border-color: #51cf66;
+  background-color: rgba(81, 207, 102, 0.05);
+}
+
+.service-icon {
+  font-size: 3rem;
+  line-height: 1;
+}
+
+.service-info {
+  flex: 1;
+}
+
+.service-info h3 {
+  font-size: 1.25rem;
+  margin-bottom: 0.5rem;
+}
+
+.connection-details {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.status {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  font-weight: 500;
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.status.connected {
+  color: #51cf66;
+}
+
+.status.connected .status-dot {
+  background-color: #51cf66;
+  box-shadow: 0 0 8px #51cf66;
+}
+
+.status.disconnected {
+  color: var(--text-secondary);
+}
+
+.status.disconnected .status-dot {
+  background-color: #868e96;
+}
+
+.account, .expiry {
+  font-size: 0.875rem;
+  color: var(--text-secondary);
+}
+
+.service-actions {
+  display: flex;
+  align-items: center;
+}
+
+.btn-connect, .btn-disconnect {
+  padding: 0.5rem 1rem;
+  border: none;
+  border-radius: 6px;
+  font-size: 0.875rem;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-connect {
+  background-color: #4dabf7;
+  color: white;
+}
+
+.btn-connect:hover {
+  background-color: #339af0;
+}
+
+.btn-disconnect {
+  background-color: transparent;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-disconnect:hover {
+  background-color: #ffdeeb;
+  color: #ff6b6b;
+  border-color: #ff6b6b;
+}
+
+.empty-state {
+  text-align: center;
+  padding: 3rem;
+  color: var(--text-secondary);
+}
+
+.loading {
+  text-align: center;
+  padding: 3rem;
+}

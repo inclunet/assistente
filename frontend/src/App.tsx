@@ -1,16 +1,17 @@
 import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
-import { useTranslation } from 'react-i18next';
 import './App.css';
 import { GetConfig } from "../wailsjs/go/main/App";
 import { useSettingsStore } from './store/settingsStore';
 import { useUIStore } from './store/uiStore';
+import { useChatStore } from './store/chatStore';
 import { ToastContainer } from './components/ui/Toast';
+import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
 
 function App() {
-    const { i18n } = useTranslation();
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
+    const { initializeTabs, isInitialized } = useChatStore();
 
     useEffect(() => {
         // Aguardar Wails estar pronto antes de carregar configuração
@@ -48,8 +49,36 @@ function App() {
         loadConfig();
     }, [setConfig, setLoading, setError, addToast]);
 
+    // Inicializa tabs do backend
+    useEffect(() => {
+        console.log('===== [App] useEffect EXECUTANDO =====');
+        console.log('[App] isInitialized:', isInitialized);
+        console.log('[App] initializeTabs:', typeof initializeTabs);
+        
+        if (!isInitialized) {
+            console.log('[App] ===== CHAMANDO initializeTabs =====');
+            initializeTabs();
+        } else {
+            console.log('[App] ===== JÁ INICIALIZADO, PULANDO =====');
+        }
+    }, [initializeTabs, isInitialized]);
+
+    // Previne menu de contexto nativo quando tecla ContextMenu for pressionada
+    useEffect(() => {
+        const preventNativeContextMenu = (e: KeyboardEvent) => {
+            if (e.key === 'ContextMenu') {
+                e.preventDefault();
+                e.stopPropagation();
+            }
+        };
+
+        document.addEventListener('keydown', preventNativeContextMenu, true);
+        return () => document.removeEventListener('keydown', preventNativeContextMenu, true);
+    }, []);
+
     return (
         <>
+            <ScreenReaderAnnouncer />
             <Outlet />
             <ToastContainer />
         </>

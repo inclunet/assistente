@@ -36,6 +36,8 @@ export const Combobox = ({
     
     const inputRef = useRef<HTMLInputElement>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
+    const containerRef = useRef<HTMLDivElement>(null);
+    const listboxRef = useRef<HTMLUListElement>(null);
     const uniqueId = useId();
 
     // Filtra items
@@ -95,6 +97,27 @@ export const Combobox = ({
         option?.scrollIntoView({ block: 'nearest' });
     };
 
+    // Detecta cliques fora do componente
+    useEffect(() => {
+        if (!isOpen) return;
+
+        const handleClickOutside = (event: MouseEvent) => {
+            if (containerRef.current && !containerRef.current.contains(event.target as Node)) {
+                close();
+            }
+        };
+
+        // Adiciona listener após um pequeno delay para evitar fechar imediatamente ao abrir
+        const timer = setTimeout(() => {
+            document.addEventListener('mousedown', handleClickOutside);
+        }, 100);
+
+        return () => {
+            clearTimeout(timer);
+            document.removeEventListener('mousedown', handleClickOutside);
+        };
+    }, [isOpen]);
+
     const handleKeyDown = (event: React.KeyboardEvent) => {
         if (event.key === 'ArrowDown') {
             event.preventDefault();
@@ -122,17 +145,22 @@ export const Combobox = ({
             event.stopPropagation();
             close();
         } else if (event.key === 'Tab') {
+            event.preventDefault();
+            event.stopPropagation();
             close();
-        }
-    };
-
-    const handleBlur = () => {
-        // Delay para permitir clique nas opções
-        setTimeout(() => {
-            if (isOpen) {
-                close();
+        } else if (event.key === 'Home') {
+            event.preventDefault();
+            event.stopPropagation();
+            if (filteredItems.length > 0) {
+                setHighlightIndex(0);
             }
-        }, 150);
+        } else if (event.key === 'End') {
+            event.preventDefault();
+            event.stopPropagation();
+            if (filteredItems.length > 0) {
+                setHighlightIndex(filteredItems.length - 1);
+            }
+        }
     };
 
     // Anunciar quando highlightIndex mudar
@@ -144,7 +172,11 @@ export const Combobox = ({
     }, [highlightIndex, isOpen]);
 
     return (
-        <div className="combobox-picker" style={{ '--max-width': maxWidth } as React.CSSProperties}>
+        <div 
+            ref={containerRef}
+            className="combobox-picker" 
+            style={{ '--max-width': maxWidth } as React.CSSProperties}
+        >
             {!isOpen ? (
                 <button
                     ref={buttonRef}
@@ -168,18 +200,20 @@ export const Combobox = ({
                         value={filter}
                         onChange={(e) => setFilter(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        onBlur={handleBlur}
                         placeholder={placeholder}
                         role="combobox"
                         aria-expanded="true"
                         aria-controls={`${uniqueId}-listbox`}
                         aria-activedescendant={highlightIndex >= 0 ? `${uniqueId}-option-${highlightIndex}` : ''}
                         aria-autocomplete="list"
+                        aria-label={`${label} - Filtrar opções`}
                     />
                     <ul
+                        ref={listboxRef}
                         id={`${uniqueId}-listbox`}
                         role="listbox"
                         aria-label={`${label} disponíveis`}
+                        tabIndex={-1}
                     >
                         {filteredItems.map((item, i) => (
                             <li
@@ -188,7 +222,10 @@ export const Combobox = ({
                                 role="option"
                                 aria-selected={i === highlightIndex}
                                 className={`${i === highlightIndex ? 'highlighted' : ''} ${item.value === selected ? 'selected' : ''}`}
-                                onClick={() => selectItem(item)}
+                                onMouseDown={(e) => {
+                                    e.preventDefault(); // Previne perda de foco do input
+                                    selectItem(item);
+                                }}
                                 onMouseEnter={() => setHighlightIndex(i)}
                             >
                                 <span className="option-label">{item.label}</span>

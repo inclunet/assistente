@@ -117,6 +117,8 @@ export function GetAllModelCapabilities():Promise<Array<database.ModelCapability
 
 export function GetAllOAuthConnections():Promise<Array<database.OAuthConnection>>;
 
+export function GetAllTabs():Promise<Array<database.ChatTab>>;
+
 export function GetAllTokenStats():Promise<Record<string, number>>;
 
 export function GetConfig():Promise<config.Config>;

@@ -9,6 +9,11 @@ export function Topbar() {
   // Determina a página atual baseada na rota
   const getCurrentPage = (): string => {
     if (location.pathname === '/settings') return 'settings';
+    if (location.pathname === '/history') return 'history';
+    if (location.pathname === '/memory') return 'memory';
+    if (location.pathname === '/faq') return 'faq';
+    if (location.pathname === '/agents') return 'agents';
+    if (location.pathname === '/oauth') return 'oauth';
     return 'chat';
   };
 
@@ -18,6 +23,36 @@ export function Topbar() {
       label: 'Chat',
       icon: '💬',
       onClick: () => navigate('/'),
+    },
+    {
+      id: 'history',
+      label: 'Histórico',
+      icon: '📜',
+      onClick: () => navigate('/history'),
+    },
+    {
+      id: 'memory',
+      label: 'Memória',
+      icon: '🧠',
+      onClick: () => navigate('/memory'),
+    },
+    {
+      id: 'faq',
+      label: 'FAQ',
+      icon: '❓',
+      onClick: () => navigate('/faq'),
+    },
+    {
+      id: 'agents',
+      label: 'Agentes',
+      icon: '🤖',
+      onClick: () => navigate('/agents'),
+    },
+    {
+      id: 'oauth',
+      label: 'OAuth',
+      icon: '🔐',
+      onClick: () => navigate('/oauth'),
     },
     {
       id: 'settings',

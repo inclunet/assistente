@@ -1,0 +1,82 @@
+.message-node {
+  position: relative;
+  outline: none;
+}
+
+.message-node:focus {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.message-node:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+.message-node__content {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.message-node__children {
+  margin-left: 2rem;
+  margin-top: 0.5rem;
+  padding-left: 1rem;
+  border-left: 2px solid var(--border);
+  position: relative;
+}
+
+.message-node--level-0 {
+  margin-bottom: 0.5rem;
+}
+
+.message-node--level-1,
+.message-node--level-2,
+.message-node--level-3 {
+  margin-bottom: 0.5rem;
+}
+
+/* Mensagens internas (tools, agents) tem visual mais sutil */
+.message-node--internal .chat-message {
+  opacity: 0.85;
+  font-size: 0.925rem;
+}
+
+.message-node--internal .chat-message__avatar-assistant,
+.message-node--internal .chat-message__avatar-tool {
+  width: 28px;
+  height: 28px;
+  font-size: 12px;
+}
+
+/* Indicador de profundidade visual */
+.message-node--level-1 .message-node__children {
+  border-left-color: var(--primary-dim, rgba(102, 126, 234, 0.3));
+}
+
+.message-node--level-2 .message-node__children {
+  border-left-color: var(--primary-dim, rgba(102, 126, 234, 0.2));
+}
+
+.message-node--level-3 .message-node__children {
+  border-left-color: var(--primary-dim, rgba(102, 126, 234, 0.1));
+}
+
+/* Animação de expansão */
+.message-node__children {
+  animation: expandIn 0.2s ease-out;
+}
+
+@keyframes expandIn {
+  from {
+    opacity: 0;
+    transform: translateY(-10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}

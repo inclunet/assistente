@@ -9,7 +9,7 @@ import { useTranslation } from 'react-i18next';
 import './MemoryPage.css';
 
 interface Memory {
-  id: string;
+  id: number;
   title: string;
   content: string;
   category: string;
@@ -35,7 +35,14 @@ export default function MemoryPage() {
     setLoading(true);
     try {
       const result = await GetAllMemories();
-      setMemories(result || []);
+      const mapped = result.map((m: any) => ({
+        id: m.id,
+        title: m.title,
+        content: m.content,
+        category: m.category || 'general',
+        created_at: m.created_at
+      }));
+      setMemories(mapped || []);
     } catch (error) {
       console.error('Erro ao carregar memórias:', error);
     } finally {
@@ -46,9 +53,9 @@ export default function MemoryPage() {
   const handleCreateOrUpdate = async (memory: Memory) => {
     try {
       if (memory.id) {
-        await UpdateMemory(memory);
+        await UpdateMemory(memory.id, memory.content, memory.category, '');
       } else {
-        await CreateMemory(memory);
+        await CreateMemory(memory.content, memory.category, '');
       }
       await loadMemories();
       setShowModal(false);
@@ -58,7 +65,7 @@ export default function MemoryPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: number) => {
     if (!confirm(t('memory.confirmDelete'))) return;
     
     try {
@@ -153,7 +160,7 @@ function MemoryModal({ memory, onSave, onClose }: MemoryModalProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave({
-      id: memory?.id || '',
+      id: memory?.id || 0,
       title,
       content,
       category,

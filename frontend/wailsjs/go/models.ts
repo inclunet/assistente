@@ -203,20 +203,20 @@ export namespace database {
 	}
 	export class ChatMessage {
 	    id: number;
-	    conversation_id: number;
-	    parent_id?: number;
+	    conversationId: number;
+	    parentId?: number;
 	    role: string;
 	    content: string;
 	    media?: string;
-	    tool_calls?: string;
-	    tool_results?: string;
-	    tool_call_id?: string;
-	    agent_name?: string;
-	    prompt_tokens?: number;
-	    completion_tokens?: number;
-	    total_tokens?: number;
+	    toolCalls?: string;
+	    toolResults?: string;
+	    toolCallId?: string;
+	    agentName?: string;
+	    promptTokens?: number;
+	    completionTokens?: number;
+	    totalTokens?: number;
 	    model?: string;
-	    created_at: time.Time;
+	    createdAt: time.Time;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatMessage(source);
@@ -225,20 +225,20 @@ export namespace database {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
-	        this.conversation_id = source["conversation_id"];
-	        this.parent_id = source["parent_id"];
+	        this.conversationId = source["conversationId"];
+	        this.parentId = source["parentId"];
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.media = source["media"];
-	        this.tool_calls = source["tool_calls"];
-	        this.tool_results = source["tool_results"];
-	        this.tool_call_id = source["tool_call_id"];
-	        this.agent_name = source["agent_name"];
-	        this.prompt_tokens = source["prompt_tokens"];
-	        this.completion_tokens = source["completion_tokens"];
-	        this.total_tokens = source["total_tokens"];
+	        this.toolCalls = source["toolCalls"];
+	        this.toolResults = source["toolResults"];
+	        this.toolCallId = source["toolCallId"];
+	        this.agentName = source["agentName"];
+	        this.promptTokens = source["promptTokens"];
+	        this.completionTokens = source["completionTokens"];
+	        this.totalTokens = source["totalTokens"];
 	        this.model = source["model"];
-	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.createdAt = this.convertValues(source["createdAt"], time.Time);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1041,25 +1041,77 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	    }
 	}
-	export class MessageNode {
-	    id: number;
-	    conversation_id: number;
-	    parent_id?: number;
+	export class EnrichedMessage {
+	    id: string;
+	    conversationId: number;
+	    parentId?: string;
 	    role: string;
 	    content: string;
 	    media?: string;
-	    tool_calls?: string;
-	    tool_results?: string;
-	    tool_call_id?: string;
-	    agent_name?: string;
-	    prompt_tokens?: number;
-	    completion_tokens?: number;
-	    total_tokens?: number;
+	    toolCalls?: string;
+	    toolResults?: string;
+	    toolCallId?: string;
+	    agentName?: string;
+	    promptTokens?: number;
+	    completionTokens?: number;
+	    totalTokens?: number;
 	    model?: string;
-	    created_at: time.Time;
+	    createdAt: time.Time;
+	    timestamp: number;
+	    isStreaming: boolean;
+	    toolName?: string;
+	    internal: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnrichedMessage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.conversationId = source["conversationId"];
+	        this.parentId = source["parentId"];
+	        this.role = source["role"];
+	        this.content = source["content"];
+	        this.media = source["media"];
+	        this.toolCalls = source["toolCalls"];
+	        this.toolResults = source["toolResults"];
+	        this.toolCallId = source["toolCallId"];
+	        this.agentName = source["agentName"];
+	        this.promptTokens = source["promptTokens"];
+	        this.completionTokens = source["completionTokens"];
+	        this.totalTokens = source["totalTokens"];
+	        this.model = source["model"];
+	        this.createdAt = this.convertValues(source["createdAt"], time.Time);
+	        this.timestamp = source["timestamp"];
+	        this.isStreaming = source["isStreaming"];
+	        this.toolName = source["toolName"];
+	        this.internal = source["internal"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MessageNode {
+	    message: EnrichedMessage;
 	    children?: MessageNode[];
 	    level: number;
-	    child_count: number;
+	    childCount: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageNode(source);
@@ -1067,24 +1119,10 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.conversation_id = source["conversation_id"];
-	        this.parent_id = source["parent_id"];
-	        this.role = source["role"];
-	        this.content = source["content"];
-	        this.media = source["media"];
-	        this.tool_calls = source["tool_calls"];
-	        this.tool_results = source["tool_results"];
-	        this.tool_call_id = source["tool_call_id"];
-	        this.agent_name = source["agent_name"];
-	        this.prompt_tokens = source["prompt_tokens"];
-	        this.completion_tokens = source["completion_tokens"];
-	        this.total_tokens = source["total_tokens"];
-	        this.model = source["model"];
-	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.message = this.convertValues(source["message"], EnrichedMessage);
 	        this.children = this.convertValues(source["children"], MessageNode);
 	        this.level = source["level"];
-	        this.child_count = source["child_count"];
+	        this.childCount = source["childCount"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1141,6 +1179,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	export class FAQEmbeddingStatus {
 	    total_faqs: number;
 	    with_embedding: number;

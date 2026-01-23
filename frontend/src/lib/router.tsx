@@ -1,4 +1,4 @@
-import { createBrowserRouter } from 'react-router-dom';
+import { createHashRouter } from 'react-router-dom';
 import App from '../App';
 import { Layout } from '../components/layout/Layout';
 import ChatPage from '../pages/ChatPage';
@@ -6,8 +6,10 @@ import SettingsPage from '../pages/SettingsPage';
 import HistoryPage from '../pages/HistoryPage';
 import FAQPage from '../pages/FAQPage';
 import MemoryPage from '../pages/MemoryPage';
+import AgentsPage from '../pages/AgentsPage';
+import OAuthPage from '../pages/OAuthPage';
 
-export const router = createBrowserRouter([
+export const router = createHashRouter([
   {
     path: '/',
     element: <App />,
@@ -34,6 +36,14 @@ export const router = createBrowserRouter([
           {
             path: 'memory',
             element: <MemoryPage />,
+          },
+          {
+            path: 'agents',
+            element: <AgentsPage />,
+          },
+          {
+            path: 'oauth',
+            element: <OAuthPage />,
           },
         ],
       },

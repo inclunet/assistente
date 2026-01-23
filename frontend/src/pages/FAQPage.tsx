@@ -11,7 +11,7 @@ import { useTranslation } from 'react-i18next';
 import './FAQPage.css';
 
 interface FAQ {
-  id: string;
+  id: number;
   question: string;
   answer: string;
   tags?: string[];
@@ -37,7 +37,15 @@ export default function FAQPage() {
     setLoading(true);
     try {
       const result = await GetAllFAQs();
-      setFaqs(result || []);
+      const mapped = result.map((f: any) => ({
+        id: f.id,
+        question: f.question,
+        answer: f.answer,
+        tags: typeof f.tags === 'string' ? f.tags.split(',').map((t: string) => t.trim()) : (f.tags || []),
+        category: f.category,
+        has_embedding: f.has_embedding
+      }));
+      setFaqs(mapped || []);
     } catch (error) {
       console.error('Erro ao carregar FAQs:', error);
     } finally {
@@ -57,9 +65,9 @@ export default function FAQPage() {
   const handleCreateOrUpdate = async (faq: FAQ) => {
     try {
       if (faq.id) {
-        await UpdateFAQ(faq);
+        await UpdateFAQ(faq.id, faq.question, faq.answer, (faq.tags || []).join(','));
       } else {
-        await CreateFAQ(faq);
+        await CreateFAQ(faq.question, faq.answer, (faq.tags || []).join(','));
       }
       await loadFAQs();
       setShowModal(false);
@@ -69,7 +77,7 @@ export default function FAQPage() {
     }
   };
 
-  const handleDelete = async (id: string) => {
+  const handleDelete = async (id: number) => {
     if (!confirm(t('faq.confirmDelete'))) return;
     
     try {
@@ -175,7 +183,7 @@ function FAQModal({ faq, onSave, onClose }: FAQModalProps) {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     onSave({
-      id: faq?.id || '',
+      id: faq?.id || 0,
       question,
       answer,
       tags: tags.split(',').map(t => t.trim()).filter(Boolean),

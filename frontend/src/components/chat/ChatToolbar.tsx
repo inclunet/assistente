@@ -1,13 +1,14 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { useChatStore } from '../../store/chatStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { ModelPicker, VoicePicker, STTProviderPicker } from '../pickers';
+import { ModelPicker, VoicePicker, STTProviderPicker, VOICE_DISABLED, STT_WEBSPEECH } from '../pickers';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { ttsService } from '../../services/tts';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
   onNewConversation?: () => void;
-  onNewTab?: () => void;
   onSettings?: () => void;
   onVoiceSettings?: () => void;
   voiceEnabled?: boolean;
@@ -15,7 +16,6 @@ export interface ChatToolbarProps {
 
 export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   onNewConversation,
-  onNewTab,
   onSettings,
   onVoiceSettings,
   voiceEnabled = false,
@@ -23,8 +23,33 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const toolbarRef = useToolbarKeyboardNav();
   const { getActiveTab, clearActiveTab, isLoading } = useChatStore();
   const { config, setConfig } = useSettingsStore();
+  const { announce } = useAnnouncer();
   const activeTab = getActiveTab();
   const conversationTitle = activeTab?.title || 'Nova conversa';
+
+  // Sincroniza a voz selecionada com o ttsService
+  useEffect(() => {
+    const voice = config?.voice;
+    if (voice && voice !== VOICE_DISABLED) {
+      // Usa API assíncrona do novo ttsService
+      const setupVoice = async () => {
+        try {
+          await ttsService.setVoice(voice);
+          await ttsService.setEnabled(true);
+          await ttsService.setAutoRead(true);
+          console.log('[ChatToolbar] TTS configurado com voz:', voice);
+        } catch (error) {
+          console.error('[ChatToolbar] Erro ao configurar TTS:', error);
+        }
+      };
+      
+      setupVoice();
+    } else {
+      // Desativa TTS quando "Desativada" é selecionada
+      ttsService.setEnabled(false);
+      ttsService.setAutoRead(false);
+    }
+  }, [config?.voice]);
 
   const handleNewConversation = () => {
     if (onNewConversation) {
@@ -73,20 +98,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
           <span className="chat-toolbar__btn-text">Nova</span>
         </button>
 
-        {onNewTab && (
-          <button
-            className="chat-toolbar__btn"
-            onClick={onNewTab}
-            aria-label="Nova aba"
-            title="Nova aba"
-            disabled={isLoading}
-            tabIndex={-1}
-          >
-            <span aria-hidden="true">📑</span>
-            <span className="chat-toolbar__btn-text">Nova Aba</span>
-          </button>
-        )}
-
         {/* TODO: ConversationPicker - Histórico de conversas */}
 
         <div className="chat-toolbar__separator" aria-hidden="true"></div>
@@ -98,25 +109,27 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             variant="toolbar"
             label="Modelo (Ctrl+M)"
             maxWidth="180px"
+            onAnnounce={announce}
           />
         )}
 
         {voiceEnabled && config && (
           <>
             <VoicePicker
-              value={config.voice || 'pt-BR-FranciscaNeural'}
+              value={config.voice || VOICE_DISABLED}
               onChange={handleVoiceChange}
               variant="toolbar"
               label="Voz (Ctrl+D)"
-              maxWidth="180px"
+              onAnnounce={announce}
             />
 
             <STTProviderPicker
-              value={config.sttProvider || 'whisper'}
+              value={config.sttProvider || STT_WEBSPEECH}
               onChange={handleSTTProviderChange}
               variant="toolbar"
               label="Transcrição (Ctrl+S)"
               maxWidth="180px"
+              onAnnounce={announce}
             />
 
             {onVoiceSettings && (

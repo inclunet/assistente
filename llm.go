@@ -124,48 +124,67 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 	if h.conversationID > 0 && h.userMessageID > 0 {
 		toolCallsJSON, _ := json.Marshal(toolCalls)
 
-		// Extrai nome do agente e a tarefa
-		agentName := ""
-		taskContent := ""
-		allArgs := ""
-		if len(toolCalls) > 0 {
+		// Formata conteúdo markdown com as tool calls
+		var contentBuilder strings.Builder
+		
+		if len(toolCalls) == 1 {
+			// Uma única tool call - formato mais simples
 			tc := toolCalls[0]
 			name := tc.Function.Name
+			displayName := name
 			if strings.HasPrefix(name, "delegate_to_") {
-				agentName = strings.TrimPrefix(name, "delegate_to_")
-			} else {
-				agentName = name
+				displayName = strings.TrimPrefix(name, "delegate_to_")
 			}
-
-			// Guarda argumentos completos para debug
-			allArgs = tc.Function.Arguments
-
-			// Extrai a tarefa dos argumentos
+			
+			// Extrai tarefa se houver
 			var args map[string]interface{}
+			taskContent := ""
 			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
 				if task, ok := args["task"].(string); ok {
 					taskContent = task
 				}
 			}
-		}
-
-		// Conteúdo é a tarefa que o assistente está delegando
-		// Se não houver task explícito, mostra os argumentos completos
-		content := taskContent
-		if content == "" && allArgs != "" {
-			// Formata JSON para legibilidade
-			var prettyArgs bytes.Buffer
-			if err := json.Indent(&prettyArgs, []byte(allArgs), "", "  "); err == nil {
-				content = fmt.Sprintf("Chamando %s:\n```json\n%s\n```", agentName, prettyArgs.String())
+			
+			if taskContent != "" {
+				contentBuilder.WriteString(fmt.Sprintf("🤖 **Consultando %s**\n\n", displayName))
+				contentBuilder.WriteString(fmt.Sprintf("**Tarefa:** %s\n\n", taskContent))
+				contentBuilder.WriteString("**Argumentos:**\n```json\n")
 			} else {
-				content = fmt.Sprintf("Chamando %s: %s", agentName, allArgs)
+				contentBuilder.WriteString(fmt.Sprintf("🔧 **Executando:** `%s`\n\n", displayName))
+				contentBuilder.WriteString("**Argumentos:**\n```json\n")
 			}
-		} else if content == "" {
-			content = fmt.Sprintf("Solicitando ajuda de %s", agentName)
+			
+			// Formata JSON
+			var prettyArgs bytes.Buffer
+			if err := json.Indent(&prettyArgs, []byte(tc.Function.Arguments), "", "  "); err == nil {
+				contentBuilder.WriteString(prettyArgs.String())
+			} else {
+				contentBuilder.WriteString(tc.Function.Arguments)
+			}
+			contentBuilder.WriteString("\n```")
+		} else {
+			// Múltiplas tool calls
+			contentBuilder.WriteString(fmt.Sprintf("🔧 **Executando %d ferramentas:**\n\n", len(toolCalls)))
+			for i, tc := range toolCalls {
+				contentBuilder.WriteString(fmt.Sprintf("%d. **%s**\n```json\n", i+1, tc.Function.Name))
+				var prettyArgs bytes.Buffer
+				if err := json.Indent(&prettyArgs, []byte(tc.Function.Arguments), "", "  "); err == nil {
+					contentBuilder.WriteString(prettyArgs.String())
+				} else {
+					contentBuilder.WriteString(tc.Function.Arguments)
+				}
+				contentBuilder.WriteString("\n```\n")
+				if i < len(toolCalls)-1 {
+					contentBuilder.WriteString("\n")
+				}
+			}
 		}
+		
+		content := contentBuilder.String()
 
 		// Salva como filho da mensagem do usuário (nível 1)
 		// role="assistant" porque é o assistente falando com o agente
+		// agentName VAZIO porque é o assistente fazendo a chamada (não o agente respondendo)
 		msg, err := database.AddChildMessage(
 			h.conversationID,
 			h.userMessageID, // ParentID = mensagem do usuário
@@ -173,13 +192,13 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 			content,
 			string(toolCallsJSON),
 			"",
-			agentName, // agentName indica qual agente está sendo chamado
+			"", // agentName VAZIO - é o assistente chamando, não o agente respondendo
 			model,
 		)
 		if err != nil {
 			fmt.Printf("❌ Erro ao salvar delegação: %v\n", err)
 		} else {
-			fmt.Printf("✅ Delegação salva: ID=%d, parentID=%d, agente=%s (nível 1)\n", msg.ID, h.userMessageID, agentName)
+			fmt.Printf("✅ Delegação salva: ID=%d, parentID=%d (nível 1)\n", msg.ID, h.userMessageID)
 			// Define no App para os agentes usarem como ParentID (nível 2)
 			h.app.currentDelegationID = msg.ID
 
@@ -189,7 +208,6 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 				"parentId":  h.userMessageID,
 				"role":      "assistant",
 				"content":   content,
-				"agentName": agentName,
 				"toolCalls": string(toolCallsJSON),
 				"internal":  true,
 			})
@@ -197,7 +215,7 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 
 		// Emite evento de streaming
 		runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
-			Content:        fmt.Sprintf("🤖 Consultando %s...", agentName),
+			Content:        "🔧 Executando ferramentas...",
 			Done:           false,
 			ConversationId: h.conversationID,
 		})
@@ -360,8 +378,6 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 				fmt.Printf("⚠️ Erro ao vincular conversa à tab: %v\n", err)
 			} else {
 				fmt.Printf("✅ Conversa %d vinculada à tab %d\n", conversationID, activeTab.ID)
-				// Emite evento para atualizar tabs no frontend
-				a.emitTabsUpdatedEvent()
 			}
 		}
 
@@ -442,8 +458,37 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 						"text": m.Content,
 					})
 				}
+				// Converte formato do banco para formato OpenAI
 				for _, mp := range mediaParts {
-					content = append(content, mp)
+					mediaType, _ := mp["type"].(string)
+					data, _ := mp["data"].(string)
+					
+					// Determina o formato correto baseado no MIME type
+					if strings.HasPrefix(mediaType, "image/") {
+						// Imagens devem usar "image_url" type com data URL
+						content = append(content, map[string]interface{}{
+							"type": "image_url",
+							"image_url": map[string]interface{}{
+								"url": fmt.Sprintf("data:%s;base64,%s", mediaType, data),
+							},
+						})
+					} else if strings.HasPrefix(mediaType, "audio/") {
+						// Áudio usa "input_audio" type
+						content = append(content, map[string]interface{}{
+							"type": "input_audio",
+							"input_audio": map[string]interface{}{
+								"data": data,
+								"format": strings.TrimPrefix(mediaType, "audio/"),
+							},
+						})
+					} else {
+						// Outros tipos de arquivo podem não ser suportados diretamente
+						// Por enquanto, adiciona como texto descritivo
+						content = append(content, map[string]interface{}{
+							"type": "text",
+							"text": fmt.Sprintf("[Arquivo: %s (%s)]", mp["name"], mediaType),
+						})
+					}
 				}
 				msg.Content = content
 			} else {

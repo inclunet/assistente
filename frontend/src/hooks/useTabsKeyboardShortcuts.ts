@@ -1,6 +1,6 @@
 /**
  * Hook para gerenciar atalhos globais de teclado das abas
- * Ctrl+T: Nova aba
+ * Ctrl+T ou Ctrl+N: Nova aba
  * Ctrl+W: Fechar aba atual
  * Ctrl+Tab: Próxima aba
  * Ctrl+Shift+Tab: Aba anterior
@@ -8,24 +8,20 @@
  */
 
 import { useEffect } from 'react';
-import { useTabsStore } from '../store/tabsStore';
+import { useChatStore } from '../store/chatStore';
+import { useAnnouncer } from './useAnnouncer';
 
 export function useTabsKeyboardShortcuts() {
-  const { tabs, activeTabId, createTab, closeTab, setActiveTab } = useTabsStore();
+  const { tabs: chatTabs, activeTabId, createTab, deleteTab, setActiveTab } = useChatStore();
+  const { announce } = useAnnouncer();
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      // Ignora se estiver em um input/textarea (exceto para Ctrl+T, Ctrl+W, Ctrl+Tab)
-      const target = event.target as HTMLElement;
-      const isInputField =
-        target.tagName === 'INPUT' ||
-        target.tagName === 'TEXTAREA' ||
-        target.isContentEditable;
-
-      // Ctrl+T: Nova aba
-      if (event.ctrlKey && event.key === 't' && !event.shiftKey && !event.altKey) {
+      // Ctrl+T ou Ctrl+N: Nova aba
+      if (event.ctrlKey && (event.key === 't' || event.key === 'n') && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         createTab();
+        announce('Nova guia criada');
         return;
       }
 
@@ -38,33 +34,42 @@ export function useTabsKeyboardShortcuts() {
         activeTabId
       ) {
         event.preventDefault();
-        closeTab(activeTabId);
+        deleteTab(activeTabId);
+        announce('Guia fechada');
         return;
       }
 
-      // Ctrl+Tab: Próxima aba
+      // Ctrl+Tab: Próxima aba (com navegação circular)
       if (event.ctrlKey && event.key === 'Tab' && !event.shiftKey) {
         event.preventDefault();
-        const currentIndex = tabs.findIndex(t => t.id === activeTabId);
-        if (currentIndex !== -1) {
-          const nextIndex = currentIndex < tabs.length - 1 ? currentIndex + 1 : 0;
-          const nextTab = tabs[nextIndex];
+        const currentIndex = chatTabs.findIndex(t => t.id === activeTabId);
+        if (currentIndex !== -1 && chatTabs.length > 1) {
+          // Navegação circular: volta ao início após o último
+          const nextIndex = currentIndex < chatTabs.length - 1 ? currentIndex + 1 : 0;
+          const nextTab = chatTabs[nextIndex];
           if (nextTab) {
             setActiveTab(nextTab.id);
+            const tabNumber = nextIndex + 1;
+            const tabTitle = nextTab.title || 'Nova conversa';
+            announce(`${tabTitle}, ${tabNumber} de ${chatTabs.length}`);
           }
         }
         return;
       }
 
-      // Ctrl+Shift+Tab: Aba anterior
+      // Ctrl+Shift+Tab: Aba anterior (com navegação circular)
       if (event.ctrlKey && event.key === 'Tab' && event.shiftKey) {
         event.preventDefault();
-        const currentIndex = tabs.findIndex(t => t.id === activeTabId);
-        if (currentIndex !== -1) {
-          const prevIndex = currentIndex > 0 ? currentIndex - 1 : tabs.length - 1;
-          const prevTab = tabs[prevIndex];
+        const currentIndex = chatTabs.findIndex(t => t.id === activeTabId);
+        if (currentIndex !== -1 && chatTabs.length > 1) {
+          // Navegação circular: volta ao final após o primeiro
+          const prevIndex = currentIndex > 0 ? currentIndex - 1 : chatTabs.length - 1;
+          const prevTab = chatTabs[prevIndex];
           if (prevTab) {
             setActiveTab(prevTab.id);
+            const tabNumber = prevIndex + 1;
+            const tabTitle = prevTab.title || 'Nova conversa';
+            announce(`${tabTitle}, ${tabNumber} de ${chatTabs.length}`);
           }
         }
         return;
@@ -75,15 +80,17 @@ export function useTabsKeyboardShortcuts() {
         const num = parseInt(event.key, 10);
         if (num >= 1 && num <= 9) {
           event.preventDefault();
-          const targetTab = tabs[num - 1];
+          const targetTab = chatTabs[num - 1];
           if (targetTab) {
             setActiveTab(targetTab.id);
+            const tabTitle = targetTab.title || 'Nova conversa';
+            announce(`${tabTitle}, ${num} de ${chatTabs.length}`);
           }
         }
       }
     };
 
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [tabs, activeTabId, createTab, closeTab, setActiveTab]);
+    window.addEventListener('keydown', handleKeyDown, true); // Use capture phase
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [chatTabs, activeTabId, createTab, deleteTab, setActiveTab, announce]);
 }

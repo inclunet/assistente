@@ -222,6 +222,10 @@ export function GetAllOAuthConnections() {
   return window['go']['main']['App']['GetAllOAuthConnections']();
 }
 
+export function GetAllTabs() {
+  return window['go']['main']['App']['GetAllTabs']();
+}
+
 export function GetAllTokenStats() {
   return window['go']['main']['App']['GetAllTokenStats']();
 }

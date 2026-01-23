@@ -103,32 +103,35 @@
   opacity: 1;
 }
 
-.chat-tabs__new-tab {
+/* Botão de nova guia como último item da lista */
+.chat-tabs__new {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 32px;
   height: 32px;
-  margin: 0 8px;
   padding: 0;
   background-color: transparent;
-  border: none;
-  border-radius: 4px;
+  border: 1px solid var(--border-color, #333);
+  border-radius: 6px;
   color: var(--text-secondary, #999);
   font-size: 1.25rem;
+  font-weight: 300;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color 0.15s, color 0.15s, border-color 0.15s;
   flex-shrink: 0;
+  margin-left: 4px;
 }
 
-.chat-tabs__new-tab:hover {
+.chat-tabs__new:hover {
   background-color: var(--bg-hover, #2a2a2a);
   color: var(--text-primary, #e0e0e0);
+  border-color: var(--accent-color, #58a6ff);
 }
 
-.chat-tabs__new-tab:focus-visible {
+.chat-tabs__new:focus-visible {
   outline: 2px solid var(--accent-color, #58a6ff);
-  outline-offset: -2px;
+  outline-offset: 2px;
 }
 
 /* Loading state */
