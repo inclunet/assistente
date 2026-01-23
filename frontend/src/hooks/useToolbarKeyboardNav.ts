@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { playBumpSound } from '../services/audioFeedback';
 
 /**
  * Hook para gerenciar navegação por teclado em uma toolbar com ARIA
@@ -71,12 +72,20 @@ export const useToolbarKeyboardNav = () => {
         case 'ArrowRight':
         case 'ArrowDown':
           // Não circular: para no último elemento
+          if (nextIndex === items.length - 1) {
+            playBumpSound(); // Bateu no limite
+            return;
+          }
           nextIndex = Math.min(nextIndex + 1, items.length - 1);
           break;
 
         case 'ArrowLeft':
         case 'ArrowUp':
           // Não circular: para no primeiro elemento
+          if (nextIndex === 0) {
+            playBumpSound(); // Bateu no limite
+            return;
+          }
           nextIndex = Math.max(nextIndex - 1, 0);
           break;
 

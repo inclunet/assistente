@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType } from '../../store/chatStore';
 import { useChatStore } from '../../store/chatStore';
+import { playBumpSound } from '../../services/audioFeedback';
 import './MessageNode.css';
 
 export interface MessageNodeProps {
@@ -158,7 +159,11 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
       } else if (level === 0 && onReachEnd) {
         // No nível principal, ao chegar no fim, vai para o input
         onReachEnd();
+      } else if (level > 0) {
+        // Em threads (level > 0), toca som ao tentar ir além
+        playBumpSound();
       }
+      // Nota: no level 0 não toca som porque vai para o input
       return;
     }
     
@@ -168,6 +173,9 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
       e.stopPropagation();
       if (siblingIndex > 0) {
         focusSibling(siblingIndex - 1);
+      } else {
+        // Bateu no primeiro irmão
+        playBumpSound();
       }
       return;
     }
@@ -197,7 +205,7 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
     }
     
     // Home: foca no primeiro irmão
-    if (key === 'Home') {
+    if (key === 'Home' && !e.ctrlKey) {
       e.preventDefault();
       e.stopPropagation();
       focusSibling(0);
@@ -205,10 +213,36 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
     }
     
     // End: foca no último irmão
-    if (key === 'End') {
+    if (key === 'End' && !e.ctrlKey) {
       e.preventDefault();
       e.stopPropagation();
       focusSibling(siblingCount - 1);
+      return;
+    }
+    
+    // Page Down: pula 10 mensagens para baixo
+    if (key === 'PageDown' && !e.ctrlKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetIndex = Math.min(siblingIndex + 10, siblingCount - 1);
+      focusSibling(targetIndex);
+      if (targetIndex === siblingCount - 1 && siblingIndex === targetIndex) {
+        // Já estava no último, toca som
+        playBumpSound();
+      }
+      return;
+    }
+    
+    // Page Up: pula 10 mensagens para cima
+    if (key === 'PageUp' && !e.ctrlKey) {
+      e.preventDefault();
+      e.stopPropagation();
+      const targetIndex = Math.max(siblingIndex - 10, 0);
+      focusSibling(targetIndex);
+      if (targetIndex === 0 && siblingIndex === 0) {
+        // Já estava no primeiro, toca som
+        playBumpSound();
+      }
       return;
     }
   };

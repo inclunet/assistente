@@ -87,7 +87,7 @@ export default function ChatPage() {
   return (
     <div className="chat-page">
       <ChatTabs />
-      <ChatToolbar voiceEnabled={true} />
+      <ChatToolbar voiceEnabled={true} inputRef={inputRef} />
       <MessageList 
         threadedMessages={threadedMessages}
         onLoadChildren={loadMessageChildren}

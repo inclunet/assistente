@@ -75,6 +75,40 @@ export function useTabsKeyboardShortcuts() {
         return;
       }
 
+      // Ctrl+Page Down: Próxima aba (redundância para Ctrl+Tab)
+      if (event.ctrlKey && event.key === 'PageDown') {
+        event.preventDefault();
+        const currentIndex = chatTabs.findIndex(t => t.id === activeTabId);
+        if (currentIndex !== -1 && chatTabs.length > 1) {
+          const nextIndex = currentIndex < chatTabs.length - 1 ? currentIndex + 1 : 0;
+          const nextTab = chatTabs[nextIndex];
+          if (nextTab) {
+            setActiveTab(nextTab.id);
+            const tabNumber = nextIndex + 1;
+            const tabTitle = nextTab.title || 'Nova conversa';
+            announce(`${tabTitle}, ${tabNumber} de ${chatTabs.length}`);
+          }
+        }
+        return;
+      }
+
+      // Ctrl+Page Up: Aba anterior (redundância para Ctrl+Shift+Tab)
+      if (event.ctrlKey && event.key === 'PageUp') {
+        event.preventDefault();
+        const currentIndex = chatTabs.findIndex(t => t.id === activeTabId);
+        if (currentIndex !== -1 && chatTabs.length > 1) {
+          const prevIndex = currentIndex > 0 ? currentIndex - 1 : chatTabs.length - 1;
+          const prevTab = chatTabs[prevIndex];
+          if (prevTab) {
+            setActiveTab(prevTab.id);
+            const tabNumber = prevIndex + 1;
+            const tabTitle = prevTab.title || 'Nova conversa';
+            announce(`${tabTitle}, ${tabNumber} de ${chatTabs.length}`);
+          }
+        }
+        return;
+      }
+
       // Ctrl+1-9: Ir para aba N
       if (event.ctrlKey && !event.shiftKey && !event.altKey) {
         const num = parseInt(event.key, 10);

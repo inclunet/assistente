@@ -12,6 +12,7 @@ export interface ChatToolbarProps {
   onSettings?: () => void;
   onVoiceSettings?: () => void;
   voiceEnabled?: boolean;
+  inputRef?: React.RefObject<HTMLTextAreaElement>;
 }
 
 export const ChatToolbar: React.FC<ChatToolbarProps> = ({
@@ -19,6 +20,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   onSettings,
   onVoiceSettings,
   voiceEnabled = false,
+  inputRef,
 }) => {
   const toolbarRef = useToolbarKeyboardNav();
   const { getActiveTab, clearActiveTab, isLoading } = useChatStore();
@@ -51,30 +53,78 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     }
   }, [config?.voice]);
 
+  // Atalhos de teclado globais
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Ctrl+N: Nova conversa
+      if (e.ctrlKey && e.key === 'n') {
+        e.preventDefault();
+        handleNewConversation();
+      }
+      // Ctrl+P: Preferências
+      else if (e.ctrlKey && e.key === 'p') {
+        e.preventDefault();
+        if (onSettings) onSettings();
+      }
+      // Ctrl+M: Focar no picker de modelo
+      else if (e.ctrlKey && e.key === 'm') {
+        e.preventDefault();
+        const modelPicker = toolbarRef.current?.querySelector('[aria-label*="Modelo"]') as HTMLElement;
+        modelPicker?.click();
+      }
+      // Ctrl+D: Focar no picker de voz
+      else if (e.ctrlKey && e.key === 'd' && voiceEnabled) {
+        e.preventDefault();
+        const voicePicker = toolbarRef.current?.querySelector('[aria-label*="Voz"]') as HTMLElement;
+        voicePicker?.click();
+      }
+      // Ctrl+S: Focar no picker de transcrição
+      else if (e.ctrlKey && e.key === 's' && voiceEnabled) {
+        e.preventDefault();
+        const sttPicker = toolbarRef.current?.querySelector('[aria-label*="Transcrição"]') as HTMLElement;
+        sttPicker?.click();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onSettings, voiceEnabled]);
+
+  const focusInput = () => {
+    // Foca o input após um pequeno delay para garantir que o picker fechou
+    setTimeout(() => {
+      inputRef?.current?.focus();
+    }, 100);
+  };
+
   const handleNewConversation = () => {
     if (onNewConversation) {
       onNewConversation();
     } else {
       clearActiveTab();
     }
+    focusInput();
   };
 
   const handleModelChange = (model: string) => {
     if (config) {
       setConfig({ ...config, defaultModel: model });
     }
+    focusInput();
   };
 
   const handleVoiceChange = (voice: string) => {
     if (config) {
       setConfig({ ...config, voice });
     }
+    focusInput();
   };
 
   const handleSTTProviderChange = (provider: string) => {
     if (config) {
       setConfig({ ...config, sttProvider: provider });
     }
+    focusInput();
   };
 
   return (

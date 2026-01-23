@@ -6,6 +6,7 @@
 import { useRef } from 'react';
 import { useChatStore } from '../../store/chatStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { playBumpSound } from '../../services/audioFeedback';
 import './ChatTabs.css';
 
 export function ChatTabs() {
@@ -27,6 +28,10 @@ export function ChatTabs() {
       case 'ArrowLeft':
       case 'ArrowUp':
         // Aba anterior (SEM navegação circular - para no primeiro)
+        if (currentIndex === 0) {
+          playBumpSound(); // Bateu no limite
+          return;
+        }
         nextIndex = Math.max(currentIndex - 1, 0);
         handled = true;
         break;
@@ -34,6 +39,10 @@ export function ChatTabs() {
       case 'ArrowRight':
       case 'ArrowDown':
         // Próxima aba (SEM navegação circular - para no último)
+        if (currentIndex === tabs.length - 1) {
+          playBumpSound(); // Bateu no limite
+          return;
+        }
         nextIndex = Math.min(currentIndex + 1, tabs.length - 1);
         handled = true;
         break;

@@ -23,6 +23,7 @@ export const SOUND_TYPES = {
   // Navegação
   FOCUS: 'focus',         // Foco em elemento
   BOUNDARY: 'boundary',   // Limite de navegação
+  BUMP: 'bump',           // Bateu no limite (som de tambor)
 } as const;
 
 export type SoundType = typeof SOUND_TYPES[keyof typeof SOUND_TYPES];
@@ -218,6 +219,33 @@ export function playSound(type: SoundType): void {
         }
         break;
         
+      case SOUND_TYPES.BUMP:
+        // Som de marimba (dual sine oscillators)
+        {
+          const duration = 0.12; // 120ms para ressonância de marimba
+
+          // Frequência fundamental (400Hz)
+          const { oscillator: osc1, gainNode: gain1 } = createTone(ctx);
+          osc1.type = 'sine';
+          osc1.frequency.setValueAtTime(400, now);
+          gain1.gain.setValueAtTime(0, now);
+          gain1.gain.linearRampToValueAtTime(0.3, now + 0.01); // Attack de 10ms
+          gain1.gain.exponentialRampToValueAtTime(0.01, now + duration);
+          osc1.start(now);
+          osc1.stop(now + duration);
+
+          // Harmônico (oitava acima - 800Hz)
+          const { oscillator: osc2, gainNode: gain2 } = createTone(ctx);
+          osc2.type = 'sine';
+          osc2.frequency.setValueAtTime(800, now);
+          gain2.gain.setValueAtTime(0, now);
+          gain2.gain.linearRampToValueAtTime(0.15, now + 0.01); // Harmônico mais suave
+          gain2.gain.exponentialRampToValueAtTime(0.01, now + duration);
+          osc2.start(now);
+          osc2.stop(now + duration);
+        }
+        break;
+        
       default:
         console.warn(`Unknown sound type: ${type}`);
     }
@@ -250,3 +278,4 @@ export const playRecordEndSound = () => playSound(SOUND_TYPES.RECORD_END);
 export const playListeningSound = () => playSound(SOUND_TYPES.LISTENING);
 export const playFocusSound = () => playSound(SOUND_TYPES.FOCUS);
 export const playBoundarySound = () => playSound(SOUND_TYPES.BOUNDARY);
+export const playBumpSound = () => playSound(SOUND_TYPES.BUMP);
