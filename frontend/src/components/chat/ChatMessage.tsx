@@ -158,7 +158,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       onKeyUp={handleKeyUp}
       onContextMenu={handleContextMenuEvent}
       onFocus={handleFocus}
-      tabIndex={!isStreaming ? 0 : -1}
+      tabIndex={-1}
     >
       <div className="chat-message__avatar" aria-hidden="true">
         {role === 'user' ? (

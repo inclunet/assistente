@@ -241,7 +241,7 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
       data-message-node
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
-      tabIndex={0}
+      tabIndex={-1}
       role="listitem"
       aria-expanded={hasChildren ? isExpanded : undefined}
     >
