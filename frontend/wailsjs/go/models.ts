@@ -300,6 +300,7 @@ export namespace database {
 	    created_at: time.Time;
 	    updated_at: time.Time;
 	    messages?: ChatMessage[];
+	    message_count: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Conversation(source);
@@ -313,6 +314,7 @@ export namespace database {
 	        this.created_at = this.convertValues(source["created_at"], time.Time);
 	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
+	        this.message_count = source["message_count"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

@@ -1,7 +1,10 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GetConversations, DeleteConversation } from '../../wailsjs/go/main/App';
+import { GetConversations, DeleteConversation, UpdateConversation } from '../../wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
+import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
+import { Toolbar } from '../components/ui/Toolbar';
+import { formatRelativeTime } from '../lib/dateUtils';
 import './HistoryPage.css';
 
 interface Conversation {
@@ -18,9 +21,23 @@ export default function HistoryPage() {
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+  const [focusFirstCell, setFocusFirstCell] = useState<(() => void) | null>(null);
 
   useEffect(() => {
     loadConversations();
+  }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.key === 'n') {
+        e.preventDefault();
+        handleNewConversation();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const loadConversations = async () => {
@@ -29,7 +46,7 @@ export default function HistoryPage() {
       const result = await GetConversations();
       const mapped = result.map((c: any) => ({
         id: c.id,
-        title: c.title,
+        title: c.title || t('history.untitled', 'Sem título'),
         created_at: c.created_at,
         updated_at: c.updated_at,
         message_count: c.message_count || 0
@@ -46,20 +63,111 @@ export default function HistoryPage() {
     navigate(`/?conversation=${conversationId}`);
   };
 
+  const handleNewConversation = () => {
+    // Navega para o chat sem ID de conversa (cria nova)
+    navigate('/');
+  };
+
   const handleDeleteConversation = async (conversationId: number) => {
-    if (!confirm(t('history.confirmDelete'))) return;
+    if (!confirm(t('history.confirmDelete', 'Tem certeza que deseja deletar esta conversa?'))) return;
     
     try {
       await DeleteConversation(conversationId);
       setConversations(prev => prev.filter(c => c.id !== conversationId));
+      setSelectedIds(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(conversationId);
+        return newSet;
+      });
     } catch (error) {
       console.error('Erro ao deletar conversa:', error);
+    }
+  };
+
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(t('history.confirmDeleteMultiple', `Tem certeza que deseja deletar ${selectedIds.size} conversa(s)?`))) return;
+
+    try {
+      await Promise.all(Array.from(selectedIds).map(id => DeleteConversation(Number(id))));
+      setConversations(prev => prev.filter(c => !selectedIds.has(c.id)));
+      setSelectedIds(new Set());
+    } catch (error) {
+      console.error('Erro ao deletar conversas:', error);
     }
   };
 
   const filteredConversations = conversations.filter(conv =>
     conv.title.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const columns: DataGridColumn<Conversation>[] = [
+    {
+      key: 'title',
+      label: t('history.title', 'Título'),
+      width: '40%',
+      editable: true,
+    },
+    {
+      key: 'message_count',
+      label: t('history.messages', 'Mensagens'),
+      width: '15%',
+      format: (value) => String(value || 0),
+    },
+    {
+      key: 'created_at',
+      label: t('history.created', 'Criada em'),
+      width: '20%',
+      format: (value) => formatRelativeTime(new Date(value).getTime()),
+    },
+    {
+      key: 'updated_at',
+      label: t('history.updated', 'Atualizada em'),
+      width: '20%',
+      format: (value) => formatRelativeTime(new Date(value).getTime()),
+    },
+    {
+      key: 'open',
+      label: '',
+      width: '2.5%',
+      action: true,
+      actionIcon: '📂',
+      actionLabel: 'Abrir conversa',
+    },
+    {
+      key: 'delete',
+      label: '',
+      width: '2.5%',
+      action: true,
+      actionIcon: '🗑️',
+      actionLabel: 'Excluir conversa',
+    },
+  ];
+
+  const handleCellAction = (item: Conversation, column: DataGridColumn<Conversation>) => {
+    if (column.key === 'open') {
+      handleOpenConversation(item.id);
+    } else if (column.key === 'delete') {
+      handleDeleteConversation(item.id);
+    }
+  };
+
+  const handleCellEdit = async (item: Conversation, column: DataGridColumn<Conversation>, newValue: string) => {
+    if (column.key === 'title') {
+      try {
+        // Atualiza no backend
+        await UpdateConversation(item.id, newValue, '');
+        // Atualiza no estado local
+        setConversations(prev => 
+          prev.map(conv => 
+            conv.id === item.id ? { ...conv, title: newValue } : conv
+          )
+        );
+      } catch (error) {
+        console.error('Erro ao atualizar título:', error);
+      }
+    }
+  };
 
   if (loading) {
     return (
@@ -71,52 +179,44 @@ export default function HistoryPage() {
 
   return (
     <div className="history-page">
-      <header className="history-header">
-        <h1>{t('history.title', 'Histórico de Conversas')}</h1>
-        <div className="search-box">
-          <input
-            type="text"
-            placeholder={t('history.search', 'Buscar conversas...')}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-          />
-        </div>
-      </header>
+      <Toolbar
+        left={<h1 className="page-toolbar__title">{t('history.pageTitle', 'Histórico de Conversas')}</h1>}
+        searchPlaceholder={t('history.search', 'Buscar conversas...')}
+        searchValue={searchTerm}
+        onSearchChange={setSearchTerm}
+        onFocusGrid={focusFirstCell}
+        actions={[
+          {
+            key: 'new-conversation',
+            label: t('history.newConversation', 'Nova Conversa'),
+            icon: '➕',
+            onClick: handleNewConversation,
+            variant: 'primary',
+            shortcut: 'Ctrl+N',
+          },
+          ...(selectedIds.size > 0
+            ? [
+                {
+                  key: 'delete-selected',
+                  label: t('history.deleteSelected', `Deletar (${selectedIds.size})`),
+                  onClick: handleDeleteSelected,
+                  variant: 'danger' as const,
+                },
+              ]
+            : []),
+        ]}
+      />
 
-      <div className="conversations-grid">
-        {filteredConversations.length === 0 ? (
-          <div className="empty-state">
-            <p>{t('history.empty', 'Nenhuma conversa encontrada')}</p>
-          </div>
-        ) : (
-          filteredConversations.map((conv) => (
-            <div key={conv.id} className="conversation-card">
-              <div className="card-content" onClick={() => handleOpenConversation(conv.id)}>
-                <h3>{conv.title || t('history.untitled', 'Sem título')}</h3>
-                <p className="meta">
-                  {t('history.messages', { count: conv.message_count })} • 
-                  {new Date(conv.updated_at).toLocaleDateString()}
-                </p>
-              </div>
-              <div className="card-actions">
-                <button
-                  onClick={() => handleOpenConversation(conv.id)}
-                  title={t('history.open', 'Abrir conversa')}
-                >
-                  📂
-                </button>
-                <button
-                  onClick={() => handleDeleteConversation(conv.id)}
-                  title={t('history.delete', 'Deletar conversa')}
-                  className="delete-btn"
-                >
-                  🗑️
-                </button>
-              </div>
-            </div>
-          ))
-        )}
-      </div>
+      <DataGrid
+        items={filteredConversations}
+        columns={columns}
+        onCellAction={handleCellAction}
+        onCellEdit={handleCellEdit}
+        selectedIds={selectedIds}
+        multiSelect={true}
+        onSelectionChange={setSelectedIds}
+        onGridReady={(fn) => setFocusFirstCell(() => fn)}
+      />
     </div>
   );
 }

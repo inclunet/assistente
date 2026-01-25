@@ -6,3 +6,5 @@ export { VoicePicker, VOICE_DISABLED } from './VoicePicker';
 export type { VoicePickerProps, VoicePickerRef } from './VoicePicker';
 export { STTProviderPicker, STT_WEBSPEECH, STT_WHISPER } from './STTProviderPicker';
 export type { STTProviderPickerProps, STTProviderPickerRef } from './STTProviderPicker';
+export { HistoryPicker } from './HistoryPicker';
+export type { HistoryPickerProps } from './HistoryPicker';

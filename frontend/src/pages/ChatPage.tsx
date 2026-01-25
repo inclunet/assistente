@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useRef, useState, useEffect } from 'react';
 import { useChatStore } from '../store/chatStore';
 import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
@@ -16,6 +16,7 @@ import './ChatPage.css';
 export default function ChatPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  const hasAutoFocusedRef = useRef(false);
   
   const {
     isLoading,
@@ -71,6 +72,27 @@ export default function ChatPage() {
 
   // Enable global keyboard shortcuts for tabs (Ctrl+T, Ctrl+W, Ctrl+Tab, etc.)
   useTabsKeyboardShortcuts();
+
+  // Auto-focus no input ao carregar a página - apenas uma vez
+  useEffect(() => {
+    // Aguarda o componente renderizar completamente
+    const checkTimer = setInterval(() => {
+      const inputElement = inputRef.current;
+      if (inputElement && !hasAutoFocusedRef.current) {
+        hasAutoFocusedRef.current = true;
+        clearInterval(checkTimer);
+        
+        // Pequeno delay para garantir que tudo está pronto
+        setTimeout(() => {
+          inputElement.focus();
+        }, 100);
+      }
+    }, 100);
+    
+    return () => {
+      clearInterval(checkTimer);
+    };
+  }, []); // Array vazio - roda apenas no mount
   
   // Usa os MessageNode[] que o backend já enviou com childCount correto
   const threadedMessages = getThreadedMessages() || [];

@@ -233,6 +233,9 @@ func executeToolsParallel(toolCalls []ToolCall, executor func(ToolCall) (string,
 		result, err := executor(tc)
 		if err != nil {
 			result = fmt.Sprintf("Erro: %v", err)
+			fmt.Printf("  ❌ [LLM] Tool falhou: %s\n", result)
+		} else {
+			fmt.Printf("  ✅ [LLM] Tool retornou: %s\n", result)
 		}
 		return []toolResult{{index: 0, toolCallID: tc.ID, result: result}}
 	}
@@ -266,4 +269,3 @@ func executeToolsParallel(toolCalls []ToolCall, executor func(ToolCall) (string,
 	wg.Wait()
 	return results
 }
-

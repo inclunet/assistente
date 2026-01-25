@@ -11,6 +11,7 @@ import {
   SetActiveTab,
   UpdateTabTitle as BackendUpdateTabTitle,
   GetMessages,
+  LoadConversationInTab,
 } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
@@ -113,6 +114,7 @@ interface ChatStore {
   addInternalMessage: (tabId: string, message: Message) => void; // Adiciona mensagem interna (tool call)
   clearMessages: (tabId: string) => void;
   clearActiveTab: () => void;
+  loadConversationInActiveTab: (conversationId: number, conversationTitle: string) => Promise<void>;
   
   // Thread management
   toggleThreadExpanded: (messageId: string) => void;
@@ -625,6 +627,91 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const { activeTabId, clearMessages } = get();
     if (activeTabId) {
       clearMessages(activeTabId);
+    }
+  },
+
+  loadConversationInActiveTab: async (conversationId, conversationTitle) => {
+    const { activeTabId, tabs, createTab } = get();
+    
+    if (!activeTabId) {
+      console.error('[Chat] Nenhuma aba ativa para carregar conversa');
+      return;
+    }
+
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    if (!activeTab || !activeTab.backendId) {
+      console.error('[Chat] Aba ativa não encontrada ou sem backendId');
+      return;
+    }
+
+    // Detecta se estamos carregando uma conversa em uma aba vazia
+    const isBlankTab = !activeTab.conversationId && activeTab.threadedMessages.length === 0;
+
+    try {
+      // Se conversationId é 0, limpa a aba (nova conversa)
+      if (conversationId === 0) {
+        console.log('[Chat] Criando nova conversa na aba ativa');
+        set((state) => ({
+          tabs: state.tabs.map((t) =>
+            t.id === activeTabId
+              ? {
+                  ...t,
+                  conversationId: undefined,
+                  threadedMessages: [],
+                  title: 'Nova Conversa',
+                  updatedAt: Date.now(),
+                }
+              : t
+          ),
+        }));
+        return;
+      }
+
+      // Carrega conversa no backend
+      console.log('[Chat] Carregando conversa', conversationId, 'na aba', activeTab.backendId);
+      await LoadConversationInTab(activeTab.backendId, conversationId);
+
+      // Carrega mensagens da conversa
+      const backendNodes = await GetMessages(conversationId, null);
+      console.log('[Chat] Mensagens carregadas:', backendNodes.length);
+
+      // Adiciona originalIndex aos nodes do backend
+      const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
+        (node as any).originalIndex = index;
+        return node;
+      });
+
+      // Atualiza a aba com a nova conversa
+      set((state) => ({
+        tabs: state.tabs.map((t) =>
+          t.id === activeTabId
+            ? {
+                ...t,
+                conversationId,
+                threadedMessages: messageNodes,
+                title: conversationTitle || 'Conversa carregada',
+                updatedAt: Date.now(),
+              }
+            : t
+        ),
+      }));
+
+      // Se era uma aba em branco, cria uma nova aba em branco para futuras conversas
+      if (isBlankTab) {
+        console.log('[Chat] Creating new blank tab after loading conversation...');
+        setTimeout(() => {
+          createTab(false).then(newTabId => {
+            console.log('[Chat] New blank tab created (not activated):', newTabId);
+          }).catch(err => {
+            console.error('[Chat] Error creating new blank tab:', err);
+          });
+        }, 100);
+      }
+
+      console.log('[Chat] ✅ Conversa carregada com sucesso na aba ativa');
+    } catch (error) {
+      console.error('[Chat] ❌ Erro ao carregar conversa na aba ativa:', error);
+      throw error;
     }
   },
 

@@ -1,93 +1,10 @@
-.chat-toolbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: var(--spacing-md, 12px) var(--spacing-lg, 16px);
-  background-color: var(--bg-secondary, #f9f9f9);
-  border-bottom: 1px solid var(--border-color, #e5e5e5);
-  gap: var(--spacing-md, 12px);
-  flex-shrink: 0;
-}
-
-.chat-toolbar__left {
-  flex: 1;
-  min-width: 0;
-}
-
+/* ChatToolbar - Estilos específicos do título de conversa */
 .chat-toolbar__title {
-  font-size: 18px;
+  font-size: 1.125rem;
   font-weight: 600;
-  color: var(--text-primary, #333);
+  color: var(--text-primary);
   margin: 0;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-}
-
-.chat-toolbar__right {
-  display: flex;
-  align-items: center;
-  gap: var(--spacing-sm, 8px);
-  flex-shrink: 0;
-}
-
-.chat-toolbar__separator {
-  width: 1px;
-  height: 24px;
-  background-color: var(--border-color, #e5e5e5);
-  margin: 0 var(--spacing-xs, 4px);
-}
-
-.chat-toolbar__btn {
-  display: inline-flex;
-  align-items: center;
-  gap: var(--spacing-xs, 6px);
-  padding: 8px 12px;
-  font-size: 14px;
-  font-weight: 500;
-  color: var(--text-primary, #333);
-  background-color: var(--bg-primary, #fff);
-  border: 1px solid var(--border-color, #e5e5e5);
-  border-radius: var(--border-radius, 8px);
-  cursor: pointer;
-  transition: all 0.2s ease;
-  white-space: nowrap;
-}
-
-.chat-toolbar__btn:hover:not(:disabled) {
-  background-color: var(--bg-hover, #f0f0f0);
-  border-color: var(--border-hover, #d0d0d0);
-}
-
-.chat-toolbar__btn:focus {
-  outline: 2px solid var(--accent-color, #667eea);
-  outline-offset: 2px;
-}
-
-.chat-toolbar__btn:active:not(:disabled) {
-  transform: scale(0.98);
-}
-
-.chat-toolbar__btn:disabled {
-  opacity: 0.5;
-  cursor: not-allowed;
-}
-
-.chat-toolbar__btn-text {
-  font-size: 14px;
-}
-
-/* Responsivo: esconder texto em telas pequenas */
-@media (max-width: 640px) {
-  .chat-toolbar__btn-text {
-    display: none;
-  }
-
-  .chat-toolbar__btn {
-    padding: 8px;
-  }
-
-  .chat-toolbar__title {
-    font-size: 16px;
-  }
 }

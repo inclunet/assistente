@@ -106,9 +106,27 @@ func SetActiveTab(id uint) error {
 	return db.Model(&ChatTab{}).Where("id = ?", id).Update("is_active", true).Error
 }
 
-// UpdateTabTitle atualiza o título de uma aba
+// UpdateTabTitle atualiza o título de uma aba e da conversa associada
 func UpdateTabTitle(id uint, title string) error {
-	return db.Model(&ChatTab{}).Where("id = ?", id).Update("title", title).Error
+	// Busca a aba para verificar se tem conversa associada
+	var tab ChatTab
+	if err := db.First(&tab, id).Error; err != nil {
+		return err
+	}
+
+	// Atualiza o título da aba
+	if err := db.Model(&ChatTab{}).Where("id = ?", id).Update("title", title).Error; err != nil {
+		return err
+	}
+
+	// Se há conversa associada, atualiza também o título dela
+	if tab.ConversationID != nil && *tab.ConversationID > 0 {
+		if err := db.Model(&Conversation{}).Where("id = ?", *tab.ConversationID).Update("title", title).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // LoadConversationInTab carrega uma conversa em uma aba

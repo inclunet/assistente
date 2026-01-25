@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect, forwardRef, useImperativeHandle } from 'react';
 import './MenuButton.css';
 
 export interface MenuItem {
@@ -15,9 +15,15 @@ interface MenuButtonProps {
   buttonLabel?: string;
 }
 
+export interface MenuButtonRef {
+  toggleMenu: () => void;
+  isOpen: boolean;
+}
+
 /**
  * Menu acessível com navegação por teclado
  * Implementa padrão ARIA Menu Button:
+ * - Alt+M: Abre/fecha menu (atalho global)
  * - Enter/Space: Abre menu
  * - Arrow Down/Up: Navega entre itens
  * - Home/End: Primeiro/último item
@@ -25,11 +31,20 @@ interface MenuButtonProps {
  * - Escape: Fecha menu
  * - Tab: Fecha menu e move foco
  */
-export function MenuButton({ items, currentItemId, buttonLabel = 'Menu de navegação' }: MenuButtonProps) {
+export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
+  function MenuButton({ items, currentItemId, buttonLabel = 'Menu de navegação' }, ref) {
   const [isOpen, setIsOpen] = useState(false);
   const [focusedIndex, setFocusedIndex] = useState(-1);
   const menuButtonRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLUListElement>(null);
+
+  // Expõe funções para o componente pai via ref
+  useImperativeHandle(ref, () => ({
+    toggleMenu: () => {
+      setIsOpen((prev) => !prev);
+    },
+    isOpen,
+  }));
 
   // Fecha menu ao clicar fora
   useEffect(() => {
@@ -199,4 +214,4 @@ export function MenuButton({ items, currentItemId, buttonLabel = 'Menu de navega
       )}
     </div>
   );
-}
+});

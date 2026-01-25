@@ -1,18 +1,80 @@
 /**
  * Componente de abas de chat
  * Implementa navegação por teclado completa e ARIA
+ * 
+ * Atalhos de teclado:
+ * - Setas Left/Right ou Up/Down: Navegar entre abas
+ * - Home: Primeira aba
+ * - End: Última aba
+ * - PageUp/PageDown: Pular 10 abas
+ * - Delete: Fechar aba atual
+ * - F2: Renomear aba atual
  */
 
-import { useRef } from 'react';
+import { useRef, useState } from 'react';
 import { useChatStore } from '../../store/chatStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playBumpSound } from '../../services/audioFeedback';
 import './ChatTabs.css';
 
 export function ChatTabs() {
-  const { tabs, activeTabId, isLoading, deleteTab, setActiveTab } = useChatStore();
+  const { tabs, activeTabId, isLoading, deleteTab, setActiveTab, updateTabTitle } = useChatStore();
   const tabListRef = useRef<HTMLDivElement>(null);
   const { announce } = useAnnouncer();
+  
+  // Estado para edição de título
+  const [editingTabId, setEditingTabId] = useState<string | null>(null);
+  const [editingTitle, setEditingTitle] = useState('');
+  const editInputRef = useRef<HTMLInputElement>(null);
+
+  /**
+   * Inicia edição do título da aba
+   */
+  const startEditingTab = (tabId: string, currentTitle: string) => {
+    setEditingTabId(tabId);
+    setEditingTitle(currentTitle);
+    // Foca no input após renderização
+    setTimeout(() => {
+      editInputRef.current?.focus();
+      editInputRef.current?.select();
+    }, 10);
+    announce('Editando título da conversa. Digite o novo título e pressione Enter para confirmar ou Escape para cancelar.');
+  };
+
+  /**
+   * Cancela edição do título
+   */
+  const cancelEditingTab = () => {
+    setEditingTabId(null);
+    setEditingTitle('');
+    announce('Edição cancelada');
+  };
+
+  /**
+   * Confirma edição do título
+   */
+  const confirmEditingTab = () => {
+    // Salva o ID antes de resetar o estado
+    const tabIdToFocus = editingTabId;
+    
+    if (editingTabId && editingTitle.trim()) {
+      updateTabTitle(editingTabId, editingTitle.trim());
+      announce(`Título alterado para: ${editingTitle.trim()}`);
+    }
+    
+    setEditingTabId(null);
+    setEditingTitle('');
+    
+    // Retorna foco para a tab
+    setTimeout(() => {
+      if (tabIdToFocus) {
+        const tabButton = tabListRef.current?.querySelector(
+          `[data-tab-id="${tabIdToFocus}"]`
+        ) as HTMLButtonElement;
+        tabButton?.focus();
+      }
+    }, 10);
+  };
 
   /**
    * Navegação por teclado entre abas
@@ -49,13 +111,41 @@ export function ChatTabs() {
 
       case 'Home':
         // Primeira aba
+        if (currentIndex === 0) {
+          playBumpSound();
+          return;
+        }
         nextIndex = 0;
         handled = true;
         break;
 
       case 'End':
         // Última aba
+        if (currentIndex === tabs.length - 1) {
+          playBumpSound();
+          return;
+        }
         nextIndex = tabs.length - 1;
+        handled = true;
+        break;
+
+      case 'PageDown':
+        // Pula 10 abas para frente (SEM navegação circular)
+        if (currentIndex === tabs.length - 1) {
+          playBumpSound();
+          return;
+        }
+        nextIndex = Math.min(currentIndex + 10, tabs.length - 1);
+        handled = true;
+        break;
+
+      case 'PageUp':
+        // Pula 10 abas para trás (SEM navegação circular)
+        if (currentIndex === 0) {
+          playBumpSound();
+          return;
+        }
+        nextIndex = Math.max(currentIndex - 10, 0);
         handled = true;
         break;
 
@@ -85,6 +175,16 @@ export function ChatTabs() {
           }
           handled = true;
         }
+        break;
+
+      case 'F2':
+        // Renomeia aba com F2
+        event.preventDefault();
+        const tab = tabs[currentIndex];
+        if (tab) {
+          startEditingTab(tab.id, tab.title || 'Nova conversa');
+        }
+        handled = true;
         break;
     }
 
@@ -144,6 +244,28 @@ export function ChatTabs() {
     setActiveTab(tabId);
   };
 
+  /**
+   * Handler para input de edição
+   */
+  const handleEditKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
+    // Para propagação de eventos de navegação e edição para permitir edição normal
+    const navigationKeys = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown', 'Home', 'End', 'Delete', 'Backspace'];
+    if (navigationKeys.includes(event.key)) {
+      event.stopPropagation();
+      return;
+    }
+
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      event.stopPropagation();
+      confirmEditingTab();
+    } else if (event.key === 'Escape') {
+      event.preventDefault();
+      event.stopPropagation();
+      cancelEditingTab();
+    }
+  };
+
   return (
     <div
       className={`chat-tabs ${isLoading ? 'chat-tabs--loading' : ''}`}
@@ -162,7 +284,7 @@ export function ChatTabs() {
             data-tab-id={tab.id}
             className={`chat-tabs__tab ${
               tab.id === activeTabId ? 'chat-tabs__tab--active' : ''
-            }`}
+            } ${editingTabId === tab.id ? 'chat-tabs__tab--editing' : ''}`}
             role="tab"
             aria-selected={tab.id === activeTabId}
             aria-controls={`tabpanel-${tab.id}`}
@@ -173,7 +295,21 @@ export function ChatTabs() {
             <span className="chat-tabs__tab-icon" aria-hidden="true">
               💬
             </span>
-            <span className="chat-tabs__tab-title">{tab.title}</span>
+            {editingTabId === tab.id ? (
+              <input
+                ref={editInputRef}
+                type="text"
+                className="chat-tabs__tab-edit"
+                value={editingTitle}
+                onChange={(e) => setEditingTitle(e.target.value)}
+                onKeyDown={handleEditKeyDown}
+                onBlur={confirmEditingTab}
+                onClick={(e) => e.stopPropagation()}
+                aria-label="Editar título da conversa"
+              />
+            ) : (
+              <span className="chat-tabs__tab-title">{tab.title}</span>
+            )}
             {tabs.length > 1 && (
               <button
                 className="chat-tabs__tab-close"

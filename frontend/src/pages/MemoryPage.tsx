@@ -6,6 +6,14 @@ import {
   DeleteMemory 
 } from '../../wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
+import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
+import { Toolbar, ToolbarAction } from '../components/ui/Toolbar';
+import { SimpleModal } from '../components/ui/SimpleModal';
+import { Input } from '../components/ui/Input';
+import { Textarea } from '../components/ui/Textarea';
+import { Select } from '../components/ui/Select';
+import { Button } from '../components/ui/Button';
+import { formatRelativeTime } from '../lib/dateUtils';
 import './MemoryPage.css';
 
 interface Memory {
@@ -13,10 +21,17 @@ interface Memory {
   title: string;
   content: string;
   category: string;
-  created_at: string;
+  created_at?: string;
 }
 
-const CATEGORIES = ['core', 'user', 'preference', 'project', 'context', 'general'];
+const CATEGORIES = [
+  { value: 'core', label: 'Core (sempre no contexto)' },
+  { value: 'usuario', label: 'Usuário' },
+  { value: 'preferencia', label: 'Preferência' },
+  { value: 'projeto', label: 'Projeto' },
+  { value: 'contexto', label: 'Contexto' },
+  { value: 'geral', label: 'Geral' }
+];
 
 export default function MemoryPage() {
   const { t } = useTranslation();
@@ -26,9 +41,29 @@ export default function MemoryPage() {
   const [filterCategory, setFilterCategory] = useState('all');
   const [showModal, setShowModal] = useState(false);
   const [editingMemory, setEditingMemory] = useState<Memory | null>(null);
+  const [saving, setSaving] = useState(false);
+  
+  // Form state
+  const [formTitle, setFormTitle] = useState('');
+  const [formContent, setFormContent] = useState('');
+  const [formCategory, setFormCategory] = useState('geral');
+  const [formError, setFormError] = useState('');
 
   useEffect(() => {
     loadMemories();
+  }, []);
+
+  // Atalho Ctrl+N para nova memória
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.ctrlKey && event.key.toLowerCase() === 'n') {
+        event.preventDefault();
+        openNewForm();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
   }, []);
 
   const loadMemories = async () => {
@@ -37,9 +72,9 @@ export default function MemoryPage() {
       const result = await GetAllMemories();
       const mapped = result.map((m: any) => ({
         id: m.id,
-        title: m.title,
+        title: m.title || 'Sem título',
         content: m.content,
-        category: m.category || 'general',
+        category: m.category || 'geral',
         created_at: m.created_at
       }));
       setMemories(mapped || []);
@@ -50,30 +85,63 @@ export default function MemoryPage() {
     }
   };
 
-  const handleCreateOrUpdate = async (memory: Memory) => {
+  const openNewForm = () => {
+    setEditingMemory(null);
+    setFormTitle('');
+    setFormContent('');
+    setFormCategory('geral');
+    setFormError('');
+    setShowModal(true);
+  };
+
+  const openEditForm = (memory: Memory) => {
+    setEditingMemory(memory);
+    setFormTitle(memory.title);
+    setFormContent(memory.content);
+    setFormCategory(memory.category);
+    setFormError('');
+    setShowModal(true);
+  };
+
+  const handleSave = async () => {
+    if (!formContent.trim()) {
+      setFormError('Conteúdo é obrigatório');
+      return;
+    }
+
+    setSaving(true);
+    setFormError('');
+
     try {
-      if (memory.id) {
-        await UpdateMemory(memory.id, memory.content, memory.category, '');
+      if (editingMemory) {
+        await UpdateMemory(editingMemory.id, formContent, formCategory, formTitle);
       } else {
-        await CreateMemory(memory.content, memory.category, '');
+        await CreateMemory(formContent, formCategory, formTitle);
       }
       await loadMemories();
       setShowModal(false);
-      setEditingMemory(null);
-    } catch (error) {
-      console.error('Erro ao salvar memória:', error);
+    } catch (error: any) {
+      setFormError('Erro ao salvar: ' + (error.message || error));
+    } finally {
+      setSaving(false);
     }
   };
 
-  const handleDelete = async (id: number) => {
-    if (!confirm(t('memory.confirmDelete'))) return;
+  const handleDelete = async (memory: Memory) => {
+    if (!confirm(t('memory.confirmDelete', 'Tem certeza que deseja excluir esta memória?'))) return;
     
     try {
-      await DeleteMemory(id);
-      setMemories(prev => prev.filter(m => m.id !== id));
+      await DeleteMemory(memory.id);
+      setMemories(prev => prev.filter(m => m.id !== memory.id));
     } catch (error) {
       console.error('Erro ao deletar memória:', error);
+      alert('Erro ao deletar memória');
     }
+  };
+
+  const getCategoryLabel = (category: string) => {
+    const cat = CATEGORIES.find(c => c.value === category);
+    return cat ? cat.label : category;
   };
 
   const filteredMemories = memories
@@ -83,132 +151,165 @@ export default function MemoryPage() {
       mem.content.toLowerCase().includes(searchTerm.toLowerCase())
     );
 
+  const columns: DataGridColumn<Memory>[] = [
+    { 
+      key: 'title', 
+      label: 'Título',
+      truncate: true,
+      width: '200px',
+    },
+    { 
+      key: 'content', 
+      label: 'Conteúdo',
+      truncate: true,
+      format: (value) => value?.length > 100 ? value.substring(0, 100) + '...' : value
+    },
+    { 
+      key: 'category', 
+      label: 'Categoria',
+      width: '180px',
+      format: (value) => getCategoryLabel(value)
+    },
+    { 
+      key: 'created_at', 
+      label: 'Criada',
+      width: '120px',
+      format: (value) => value ? formatRelativeTime(new Date(value).getTime()) : ''
+    },
+    { 
+      key: 'edit', 
+      label: 'Editar',
+      width: '80px',
+      action: true,
+      actionIcon: '✏️',
+      actionLabel: 'Editar memória',
+    },
+    { 
+      key: 'delete', 
+      label: 'Excluir',
+      width: '80px',
+      action: true,
+      actionIcon: '🗑️',
+      actionLabel: 'Excluir memória',
+    }
+  ];
+
+  const toolbarActions: ToolbarAction[] = [
+    {
+      key: 'new',
+      label: 'Nova Memória',
+      icon: '➕',
+      onClick: openNewForm,
+      variant: 'primary',
+      shortcut: 'Ctrl+N',
+    },
+  ];
+
+  if (loading) {
+    return (
+      <div className="memory-page">
+        <Toolbar left={<h1 className="page-toolbar__title">Gerenciar Memórias</h1>} />
+        <div className="page-content">
+          <div className="loading-message">Carregando memórias...</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="memory-page">
-      <header className="memory-header">
-        <h1>{t('memory.title', 'Gerenciar Memórias')}</h1>
-        <div className="header-actions">
-          <input
-            type="text"
-            placeholder={t('memory.search', 'Buscar memórias...')}
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="search-input"
-          />
-          <select value={filterCategory} onChange={(e) => setFilterCategory(e.target.value)}>
+      <Toolbar 
+        left={<h1 className="page-toolbar__title">Memórias Salvas</h1>}
+        actions={toolbarActions}
+        searchValue={searchTerm}
+        onSearchChange={setSearchTerm}
+        searchPlaceholder="Buscar memórias..."
+        center={
+          <select 
+            value={filterCategory} 
+            onChange={(e) => setFilterCategory(e.target.value)}
+            className="category-filter"
+          >
             <option value="all">Todas categorias</option>
             {CATEGORIES.map(cat => (
-              <option key={cat} value={cat}>{cat}</option>
+              <option key={cat.value} value={cat.value}>{cat.label}</option>
             ))}
           </select>
-          <button onClick={() => { setEditingMemory(null); setShowModal(true); }} className="btn-primary">
-            {t('memory.new', 'Nova Memória')}
-          </button>
-        </div>
-      </header>
+        }
+      />
 
-      {loading ? (
-        <div className="loading">Carregando memórias...</div>
-      ) : (
-        <div className="memory-grid">
-          {filteredMemories.map(memory => (
-            <div key={memory.id} className="memory-card">
-              <div className="memory-content">
-                <div className="memory-header-card">
-                  <h3>{memory.title}</h3>
-                  <span className={`category-badge ${memory.category}`}>{memory.category}</span>
-                </div>
-                <p>{memory.content.substring(0, 200)}{memory.content.length > 200 ? '...' : ''}</p>
-                <small>{new Date(memory.created_at).toLocaleDateString()}</small>
-              </div>
-              <div className="memory-actions">
-                <button onClick={() => { setEditingMemory(memory); setShowModal(true); }}>✏️</button>
-                <button onClick={() => handleDelete(memory.id)} className="delete-btn">🗑️</button>
-              </div>
-            </div>
-          ))}
-          {filteredMemories.length === 0 && (
-            <div className="empty-state">
-              <p>{t('memory.empty', 'Nenhuma memória encontrada')}</p>
-            </div>
-          )}
-        </div>
-      )}
+      <div className="page-content">
+        <DataGrid
+          items={filteredMemories}
+          columns={columns}
+          label="Lista de memórias"
+          getItemId={(memory) => memory.id}
+          onActivate={(memory) => openEditForm(memory)}
+          onDelete={(memory) => handleDelete(memory)}
+          onCellAction={(memory, column) => {
+            if (column.key === 'edit') {
+              openEditForm(memory);
+            } else if (column.key === 'delete') {
+              handleDelete(memory);
+            }
+          }}
+        />
+      </div>
 
       {showModal && (
-        <MemoryModal
-          memory={editingMemory}
-          onSave={handleCreateOrUpdate}
-          onClose={() => { setShowModal(false); setEditingMemory(null); }}
-        />
+        <SimpleModal
+          isOpen={showModal}
+          onClose={() => setShowModal(false)}
+          title={editingMemory ? 'Editar Memória' : 'Nova Memória'}
+        >
+          <div className="modal-form">
+            {formError && (
+              <div className="form-error">{formError}</div>
+            )}
+
+            <div className="form-group">
+              <label htmlFor="title">Título</label>
+              <Input
+                id="title"
+                value={formTitle}
+                onChange={(e) => setFormTitle(e.target.value)}
+                placeholder="Digite um título (opcional)..."
+                autoFocus
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="content">Conteúdo *</label>
+              <Textarea
+                id="content"
+                value={formContent}
+                onChange={(e) => setFormContent(e.target.value)}
+                placeholder="Digite o conteúdo da memória..."
+                rows={6}
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="category">Categoria *</label>
+              <Select
+                id="category"
+                value={formCategory}
+                onChange={(e) => setFormCategory(e.target.value)}
+                options={CATEGORIES}
+              />
+            </div>
+
+            <div className="modal-actions">
+              <Button variant="secondary" onClick={() => setShowModal(false)}>
+                Cancelar
+              </Button>
+              <Button variant="primary" onClick={handleSave} disabled={saving}>
+                {saving ? 'Salvando...' : 'Salvar'}
+              </Button>
+            </div>
+          </div>
+        </SimpleModal>
       )}
-    </div>
-  );
-}
-
-interface MemoryModalProps {
-  memory: Memory | null;
-  onSave: (memory: Memory) => void;
-  onClose: () => void;
-}
-
-function MemoryModal({ memory, onSave, onClose }: MemoryModalProps) {
-  const [title, setTitle] = useState(memory?.title || '');
-  const [content, setContent] = useState(memory?.content || '');
-  const [category, setCategory] = useState(memory?.category || 'general');
-
-  const handleSubmit = (e: React.FormEvent) => {
-    e.preventDefault();
-    onSave({
-      id: memory?.id || 0,
-      title,
-      content,
-      category,
-      created_at: memory?.created_at || new Date().toISOString(),
-    });
-  };
-
-  return (
-    <div className="modal-overlay" onClick={onClose}>
-      <div className="modal-content" onClick={e => e.stopPropagation()}>
-        <h2>{memory ? 'Editar Memória' : 'Nova Memória'}</h2>
-        <form onSubmit={handleSubmit}>
-          <div className="form-group">
-            <label>Título*</label>
-            <input
-              type="text"
-              value={title}
-              onChange={e => setTitle(e.target.value)}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label>Conteúdo*</label>
-            <textarea
-              value={content}
-              onChange={e => setContent(e.target.value)}
-              rows={8}
-              required
-            />
-          </div>
-          <div className="form-group">
-            <label>Categoria*</label>
-            <select value={category} onChange={e => setCategory(e.target.value)} required>
-              {CATEGORIES.map(cat => (
-                <option key={cat} value={cat}>{cat}</option>
-              ))}
-            </select>
-          </div>
-          <div className="modal-actions">
-            <button type="button" onClick={onClose} className="btn-secondary">
-              Cancelar
-            </button>
-            <button type="submit" className="btn-primary">
-              Salvar
-            </button>
-          </div>
-        </form>
-      </div>
     </div>
   );
 }

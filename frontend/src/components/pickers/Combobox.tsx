@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useId } from 'react';
+import { playBumpSound } from '../../services/audioFeedback';
 import './Combobox.css';
 
 export interface ComboboxItem {
@@ -17,6 +18,7 @@ export interface ComboboxProps {
     disabled?: boolean;
     maxWidth?: string;
     onAnnounce?: (message: string) => void;
+    onOpen?: () => void; // Callback quando o picker é aberto
 }
 
 export const Combobox = ({
@@ -28,7 +30,8 @@ export const Combobox = ({
     placeholder = 'Filtrar...',
     disabled = false,
     maxWidth = '180px',
-    onAnnounce
+    onAnnounce,
+    onOpen
 }: ComboboxProps) => {
     const [isOpen, setIsOpen] = useState(false);
     const [filter, setFilter] = useState('');
@@ -55,6 +58,11 @@ export const Combobox = ({
 
     const open = () => {
         if (disabled) return;
+
+        // Notifica que o picker foi aberto
+        if (onOpen) {
+            onOpen();
+        }
 
         setIsOpen(true);
         setFilter('');
@@ -123,14 +131,44 @@ export const Combobox = ({
             event.preventDefault();
             event.stopPropagation();
             if (filteredItems.length > 0) {
+                if (highlightIndex === filteredItems.length - 1) {
+                    playBumpSound();
+                    return;
+                }
                 const newIndex = Math.min(highlightIndex + 1, filteredItems.length - 1);
                 setHighlightIndex(newIndex);
             }
         } else if (event.key === 'ArrowUp') {
             event.preventDefault();
             event.stopPropagation();
+            if (highlightIndex === 0) {
+                playBumpSound();
+                return;
+            }
             if (highlightIndex > 0) {
                 setHighlightIndex(highlightIndex - 1);
+            }
+        } else if (event.key === 'PageDown') {
+            event.preventDefault();
+            event.stopPropagation();
+            if (filteredItems.length > 0) {
+                if (highlightIndex === filteredItems.length - 1) {
+                    playBumpSound();
+                    return;
+                }
+                const newIndex = Math.min(highlightIndex + 10, filteredItems.length - 1);
+                setHighlightIndex(newIndex);
+            }
+        } else if (event.key === 'PageUp') {
+            event.preventDefault();
+            event.stopPropagation();
+            if (highlightIndex === 0) {
+                playBumpSound();
+                return;
+            }
+            if (highlightIndex > 0) {
+                const newIndex = Math.max(highlightIndex - 10, 0);
+                setHighlightIndex(newIndex);
             }
         } else if (event.key === 'Enter') {
             event.preventDefault();
@@ -152,12 +190,20 @@ export const Combobox = ({
             event.preventDefault();
             event.stopPropagation();
             if (filteredItems.length > 0) {
+                if (highlightIndex === 0) {
+                    playBumpSound();
+                    return;
+                }
                 setHighlightIndex(0);
             }
         } else if (event.key === 'End') {
             event.preventDefault();
             event.stopPropagation();
             if (filteredItems.length > 0) {
+                if (highlightIndex === filteredItems.length - 1) {
+                    playBumpSound();
+                    return;
+                }
                 setHighlightIndex(filteredItems.length - 1);
             }
         }

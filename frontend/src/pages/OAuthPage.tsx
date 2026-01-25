@@ -1,183 +1,259 @@
 import { useState, useEffect } from 'react';
-import { useTranslation } from 'react-i18next';
+// import { useTranslation } from 'react-i18next';
 import { 
+  GetOAuthProviders,
   GetOAuthConnections, 
   StartOAuthFlow, 
-  DisconnectOAuth 
+  DisconnectOAuth,
+  RefreshOAuthConnection 
 } from '../../wailsjs/go/main/App';
+import { BrowserOpenURL } from '../../wailsjs/runtime/runtime';
+import { Toolbar } from '../components/ui/Toolbar';
 import './OAuthPage.css';
 
-interface OAuthService {
+interface OAuthProvider {
   id: string;
   name: string;
   icon: string;
-  connected: boolean;
+  is_configured: boolean;
+}
+
+interface OAuthConnection {
+  id: number;
+  provider_id: string;
+  user_email?: string;
+  user_name?: string;
+  is_expired: boolean;
   expires_at?: string;
-  account?: string;
+  provider_name?: string;
+  provider_icon?: string;
+  scopes?: string;
+  last_used_at?: string;
+  created_at?: string;
 }
 
 export default function OAuthPage() {
-  const { t } = useTranslation();
-  const [services, setServices] = useState<OAuthService[]>([]);
+  // const { t } = useTranslation();
+  const [providers, setProviders] = useState<OAuthProvider[]>([]);
+  const [connections, setConnections] = useState<OAuthConnection[]>([]);
   const [loading, setLoading] = useState(true);
+  const [authorizing, setAuthorizing] = useState(false);
+  const [_authorizingProvider, setAuthorizingProvider] = useState<string | null>(null);
+  const [error, setError] = useState('');
 
   useEffect(() => {
-    loadOAuthStatus();
+    loadData();
   }, []);
 
-  const loadOAuthStatus = async () => {
+  const loadData = async () => {
     setLoading(true);
+    setError('');
+    
     try {
-      const result = await GetOAuthConnections();
-      // Adaptar resultado do backend para nossa interface
-      const servicesMap = new Map<string, any>();
-      result.forEach((conn: any) => {
-        servicesMap.set(conn.provider, {
-          id: conn.provider,
-          name: conn.provider === 'google_docs' ? 'Google Docs' : 'Google Drive',
-          icon: conn.provider === 'google_docs' ? '📄' : '💾',
-          connected: conn.is_active,
-          expires_at: conn.expires_at,
-          account: conn.account_email,
-        });
-      });
-      
-      // Adicionar serviços padrão se não existirem
-      if (!servicesMap.has('google_docs')) {
-        servicesMap.set('google_docs', { id: 'google_docs', name: 'Google Docs', icon: '📄', connected: false });
-      }
-      if (!servicesMap.has('google_drive')) {
-        servicesMap.set('google_drive', { id: 'google_drive', name: 'Google Drive', icon: '💾', connected: false });
-      }
-      
-      setServices(Array.from(servicesMap.values()));
-    } catch (error) {
-      console.error('Erro ao carregar status OAuth:', error);
-      // Definir serviços padrão mesmo com erro
-      setServices([
-        { id: 'google_docs', name: 'Google Docs', icon: '📄', connected: false },
-        { id: 'google_drive', name: 'Google Drive', icon: '💾', connected: false },
+      const [providersData, connectionsData] = await Promise.all([
+        GetOAuthProviders(),
+        GetOAuthConnections()
       ]);
+      
+      setProviders(providersData || []);
+      setConnections(connectionsData || []);
+    } catch (err: any) {
+      setError('Erro ao carregar: ' + (err.message || err));
     } finally {
       setLoading(false);
     }
   };
 
-  const handleConnect = async (serviceId: string) => {
+  const handleConnect = async (provider: OAuthProvider) => {
+    if (!provider.is_configured) {
+      alert('Este provider ainda não está configurado no backend.');
+      return;
+    }
+
+    setAuthorizing(true);
+    setAuthorizingProvider(provider.id);
+    setError('');
+
     try {
-      const scopes = serviceId === 'google_docs' 
-        ? ['https://www.googleapis.com/auth/documents']
-        : ['https://www.googleapis.com/auth/drive'];
-      const authUrl = await StartOAuthFlow(serviceId, scopes);
-      // Abrir URL de autorização
-      window.open(authUrl, '_blank');
-      await loadOAuthStatus();
-    } catch (error) {
-      console.error('Erro ao conectar OAuth:', error);
-      alert(t('oauth.connectError', 'Erro ao conectar serviço'));
+      // Define scopes padrão baseado no provider
+      const scopes = getDefaultScopes(provider.id);
+      
+      const authURL = await StartOAuthFlow(provider.id, scopes);
+      
+      // Abre o navegador
+      BrowserOpenURL(authURL);
+      
+      // Recarrega após um tempo para verificar se conectou
+      setTimeout(async () => {
+        await loadData();
+        setAuthorizing(false);
+        setAuthorizingProvider(null);
+      }, 3000);
+      
+    } catch (err: any) {
+      setError('Erro na autorização: ' + (err.message || err));
+      setAuthorizing(false);
+      setAuthorizingProvider(null);
     }
   };
 
-  const handleDisconnect = async (serviceId: string) => {
-    if (!confirm(t('oauth.confirmDisconnect', 'Desconectar este serviço?'))) return;
+  const handleDisconnect = async (connectionId: number) => {
+    if (!confirm('Deseja desconectar esta conta?')) return;
     
     try {
-      // DisconnectOAuth espera um número (ID da conexão), não string
-      // Precisamos buscar o ID da conexão pelo provider
-      const connections = await GetOAuthConnections();
-      const conn = connections.find((c: any) => c.provider === serviceId);
-      if (conn) {
-        await DisconnectOAuth(conn.id);
-        await loadOAuthStatus();
-      }
-    } catch (error) {
-      console.error('Erro ao desconectar OAuth:', error);
+      await DisconnectOAuth(connectionId);
+      await loadData();
+    } catch (err: any) {
+      setError('Erro ao desconectar: ' + (err.message || err));
     }
   };
 
-  const formatExpiryDate = (expiresAt?: string) => {
-    if (!expiresAt) return '';
+  const handleRefresh = async (connectionId: number) => {
     try {
-      const date = new Date(expiresAt);
-      const now = new Date();
-      const diffDays = Math.ceil((date.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
-      
-      if (diffDays < 0) return 'Expirado';
-      if (diffDays === 0) return 'Expira hoje';
-      if (diffDays === 1) return 'Expira amanhã';
-      return `Expira em ${diffDays} dias`;
-    } catch {
-      return '';
+      await RefreshOAuthConnection(connectionId);
+      await loadData();
+    } catch (err: any) {
+      setError('Erro ao renovar token: ' + (err.message || err));
     }
+  };
+
+  const getDefaultScopes = (providerId: string): string[] => {
+    const scopesMap: Record<string, string[]> = {
+      google: [
+        'https://www.googleapis.com/auth/gmail.readonly',
+        'https://www.googleapis.com/auth/calendar',
+        'https://www.googleapis.com/auth/drive.file'
+      ],
+      microsoft: [
+        'Mail.Read',
+        'Calendars.ReadWrite',
+        'Files.ReadWrite.All'
+      ],
+      github: ['repo', 'gist'],
+      slack: ['channels:read', 'chat:write'],
+    };
+
+    return scopesMap[providerId] || [];
+  };
+
+  const getConnectionsForProvider = (providerId: string) => {
+    return connections.filter(c => c.provider_id === providerId);
   };
 
   if (loading) {
     return (
       <div className="oauth-page">
-        <div className="loading">Carregando serviços OAuth...</div>
+        <Toolbar left={<h1 className="page-toolbar__title">Conexões OAuth</h1>} />
+        <div className="page-content">
+          <div className="loading-message">Carregando conexões...</div>
+        </div>
       </div>
     );
   }
 
   return (
     <div className="oauth-page">
-      <header className="oauth-header">
-        <h1>{t('oauth.title', 'Integrações OAuth')}</h1>
-        <p className="subtitle">
-          {t('oauth.subtitle', 'Conecte serviços externos para expandir as capacidades do assistente')}
-        </p>
-      </header>
+      <Toolbar left={<h1 className="page-toolbar__title">Conexões OAuth</h1>} />
 
-      <div className="services-grid">
-        {services.map((service) => (
-          <div key={service.id} className={`service-card ${service.connected ? 'connected' : ''}`}>
-            <div className="service-icon">{service.icon}</div>
-            <div className="service-info">
-              <h3>{service.name}</h3>
-              {service.connected ? (
-                <div className="connection-details">
-                  <p className="status connected">
-                    <span className="status-dot"></span>
-                    Conectado
-                  </p>
-                  {service.account && <p className="account">Conta: {service.account}</p>}
-                  {service.expires_at && (
-                    <p className="expiry">{formatExpiryDate(service.expires_at)}</p>
-                  )}
-                </div>
-              ) : (
-                <p className="status disconnected">
-                  <span className="status-dot"></span>
-                  Não conectado
-                </p>
-              )}
-            </div>
-            <div className="service-actions">
-              {service.connected ? (
-                <button 
-                  onClick={() => handleDisconnect(service.id)} 
-                  className="btn-disconnect"
-                >
-                  Desconectar
-                </button>
-              ) : (
-                <button 
-                  onClick={() => handleConnect(service.id)} 
-                  className="btn-connect"
-                >
-                  Conectar
-                </button>
-              )}
+      <div className="page-content">
+        <div className="oauth-description">
+          <p>Conecte suas contas para automações avançadas e integração com serviços externos.</p>
+        </div>
+
+        {error && (
+          <div className="error-message">{error}</div>
+        )}
+
+        {authorizing && (
+          <div className="authorizing-overlay">
+            <div className="authorizing-card">
+              <div className="authorizing-spinner">⏳</div>
+              <h3>Autorizando...</h3>
+              <p>Complete a autorização no navegador.</p>
+              <p className="hint">Após autorizar, volte para esta janela.</p>
             </div>
           </div>
-        ))}
-      </div>
+        )}
 
-      {services.length === 0 && (
-        <div className="empty-state">
-          <p>{t('oauth.empty', 'Nenhum serviço OAuth disponível')}</p>
+        <div className="providers-grid">
+          {providers.map(provider => {
+            const providerConnections = getConnectionsForProvider(provider.id);
+            const hasConnection = providerConnections.length > 0;
+
+            return (
+              <div 
+                key={provider.id}
+                className={`provider-card ${!provider.is_configured ? 'disabled' : ''}`}
+              >
+                <div className="provider-header">
+                  <span className="provider-icon">{provider.icon}</span>
+                  <span className="provider-name">{provider.name}</span>
+                  {!provider.is_configured && (
+                    <span className="badge warning">Não configurado</span>
+                  )}
+                </div>
+
+                {/* Conexões existentes */}
+                {providerConnections.map(conn => (
+                  <div 
+                    key={conn.id}
+                    className={`connection-item ${conn.is_expired ? 'expired' : ''}`}
+                  >
+                    <div className="connection-info">
+                      <span className="user-email">
+                        {conn.user_email || conn.user_name || 'Conta conectada'}
+                      </span>
+                      {conn.is_expired ? (
+                        <span className="badge error">Expirado</span>
+                      ) : (
+                        <span className="badge success">Ativo</span>
+                      )}
+                    </div>
+                    <div className="connection-actions">
+                      {conn.is_expired && (
+                        <button 
+                          onClick={() => handleRefresh(conn.id)}
+                          className="btn-icon"
+                          title="Renovar token"
+                        >
+                          🔄
+                        </button>
+                      )}
+                      <button 
+                        onClick={() => handleDisconnect(conn.id)}
+                        className="btn-icon danger"
+                        title="Desconectar"
+                        aria-label="Desconectar conta"
+                      >
+                        🗑️
+                      </button>
+                    </div>
+                  </div>
+                ))}
+
+                {/* Botão de conectar */}
+                <div className="provider-actions">
+                  {provider.is_configured && (
+                    <button
+                      onClick={() => handleConnect(provider)}
+                      className="btn-connect"
+                      disabled={authorizing}
+                    >
+                      {hasConnection ? '➕ Adicionar outra conta' : '🔗 Conectar'}
+                    </button>
+                  )}
+                </div>
+              </div>
+            );
+          })}
         </div>
-      )}
+
+        {providers.length === 0 && (
+          <div className="empty-state">
+            <p>Nenhum provider OAuth configurado.</p>
+          </div>
+        )}
+      </div>
     </div>
   );
 }

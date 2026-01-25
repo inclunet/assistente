@@ -125,7 +125,18 @@ func CreateConversationWithPreferences(title string, prefs *ChatPreferences) (*C
 func GetConversations() ([]Conversation, error) {
 	var conversations []Conversation
 	err := db.Order("updated_at DESC").Find(&conversations).Error
-	return conversations, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Popula a contagem de mensagens para cada conversa
+	for i := range conversations {
+		var count int64
+		db.Model(&ChatMessage{}).Where("conversation_id = ?", conversations[i].ID).Count(&count)
+		conversations[i].MessageCount = int(count)
+	}
+
+	return conversations, nil
 }
 
 // GetConversation retorna uma conversa com suas mensagens
@@ -444,7 +455,7 @@ func CountChildren(messageIDs []uint) (map[uint]int, error) {
 	for _, r := range results {
 		counts[r.ParentID] = r.Count
 	}
-	
+
 	fmt.Printf("✅ [CountChildren] Mapa final: %v\n", counts)
 	return counts, nil
 }

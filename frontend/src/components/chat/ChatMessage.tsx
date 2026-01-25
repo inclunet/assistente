@@ -6,6 +6,7 @@ import { formatAgentName, isAgentMessage } from '../../lib/chatUtils';
 import { messageAudioService } from '../../services/messageAudio';
 import { ttsService } from '../../services/tts';
 import { stripMarkdown } from '../../lib/stripMarkdown';
+import { formatRelativeTime } from '../../lib/dateUtils';
 import './ChatMessage.css';
 
 export interface ChatMessageProps {
@@ -41,37 +42,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     });
   };
 
-  const getRelativeTime = (timestamp: number): string => {
-    const now = Date.now();
-    const diff = now - timestamp;
-    const seconds = Math.floor(diff / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
-
-    if (seconds < 60) {
-      return seconds <= 5 ? 'agora' : `há ${seconds} segundos`;
-    } else if (minutes < 2) {
-      return 'há 1 minuto';
-    } else if (minutes < 5) {
-      return `há ${minutes} minutos`;
-    } else if (minutes < 10) {
-      return 'há mais de 5 minutos';
-    } else if (minutes < 30) {
-      return 'há mais de 10 minutos';
-    } else if (minutes < 60) {
-      return 'há mais de 30 minutos';
-    } else if (hours < 2) {
-      return 'há mais de uma hora';
-    } else if (hours < 24) {
-      return `há mais de ${hours} horas`;
-    } else if (days === 1) {
-      return 'há 1 dia';
-    } else {
-      return `há ${days} dias`;
-    }
-  };
-
   const getDisplayRole = () => {
     // Usuário
     if (role === 'user') return 'Você';
@@ -97,7 +67,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
     const playHint = role === 'assistant' && !isStreaming ? ' Pressione Espaço para reproduzir áudio.' : '';
     
     // Timestamp relativo com prefixo
-    const relativeTime = getRelativeTime(timestamp);
+    const relativeTime = formatRelativeTime(timestamp);
     const timePrefix = role === 'user' ? 'enviado' : 'recebido';
     
     return `${roleLabel}: ${contentPreview}. ${timePrefix} ${relativeTime}.${playHint}`;

@@ -148,3 +148,26 @@
 .chat-tabs__tab--drop-target {
   border-left: 2px solid var(--accent-color, #58a6ff);
 }
+
+/* Edição inline de título */
+.chat-tabs__tab--editing {
+  background-color: var(--bg-primary, #252525);
+}
+
+.chat-tabs__tab-edit {
+  flex: 1;
+  padding: 4px 8px;
+  background-color: var(--bg-tertiary, #2d2d2d);
+  border: 1px solid var(--accent-color, #58a6ff);
+  border-radius: 4px;
+  color: var(--text-primary, #e0e0e0);
+  font-size: 0.875rem;
+  font-family: inherit;
+  outline: none;
+  min-width: 0;
+}
+
+.chat-tabs__tab-edit:focus {
+  border-color: var(--accent-bright, #79c0ff);
+  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+}

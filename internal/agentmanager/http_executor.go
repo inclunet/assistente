@@ -67,11 +67,15 @@ func (e *HTTPExecutor) Execute(ctx context.Context, req HTTPRequest, params map[
 	// Cria o contexto do template
 	tmplCtx := NewTemplateContext(params, req.EnvVars, agentName, displayName)
 
+	fmt.Printf("  🌐 [HTTP] Params recebidos: %+v\n", params)
+
 	// Processa a URL
 	url, err := e.buildURL(req, tmplCtx)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao construir URL: %w", err)
 	}
+
+	fmt.Printf("  🌐 [HTTP] URL construída: %s\n", url)
 
 	// Processa o body (se houver)
 	var body io.Reader
@@ -118,17 +122,22 @@ func (e *HTTPExecutor) Execute(ctx context.Context, req HTTPRequest, params map[
 	// Executa a requisição
 	resp, err := e.client.Do(httpReq)
 	if err != nil {
+		fmt.Printf("  ❌ [HTTP] Erro na requisição: %v\n", err)
 		return &HTTPResponse{
 			Error: fmt.Sprintf("erro na requisição: %v", err),
 		}, nil
 	}
 	defer resp.Body.Close()
 
+	fmt.Printf("  ✅ [HTTP] Status: %d\n", resp.StatusCode)
+
 	// Lê o body da resposta
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao ler resposta: %w", err)
 	}
+
+	fmt.Printf("  📄 [HTTP] Body: %s\n", string(respBody))
 
 	// Constrói a resposta
 	httpResp := &HTTPResponse{
@@ -297,13 +306,14 @@ func (e *HTTPExecutor) FormatResponse(resp *HTTPResponse, responseTemplate strin
 
 	// Adiciona campos da resposta
 	if resp.JSON != nil {
-		// Se a resposta é JSON, mescla os campos
+		// Sempre adiciona a variável "response" com o JSON completo
+		data["response"] = resp.JSON
+
+		// Se a resposta é JSON map, também adiciona cada campo individualmente
 		if jsonMap, ok := resp.JSON.(map[string]interface{}); ok {
 			for k, v := range jsonMap {
 				data[k] = v
 			}
-		} else {
-			data["response"] = resp.JSON
 		}
 	} else {
 		data["response"] = resp.Body

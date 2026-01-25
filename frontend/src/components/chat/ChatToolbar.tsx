@@ -1,8 +1,8 @@
 import React, { useEffect } from 'react';
 import { useChatStore } from '../../store/chatStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { ModelPicker, VoicePicker, STTProviderPicker, VOICE_DISABLED, STT_WEBSPEECH } from '../pickers';
-import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
+import { ModelPicker, VoicePicker, STTProviderPicker, HistoryPicker, VOICE_DISABLED, STT_WEBSPEECH } from '../pickers';
+import { Toolbar } from '../ui/Toolbar';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { ttsService } from '../../services/tts';
 import './ChatToolbar.css';
@@ -22,8 +22,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   voiceEnabled = false,
   inputRef,
 }) => {
-  const toolbarRef = useToolbarKeyboardNav();
-  const { getActiveTab, clearActiveTab, isLoading } = useChatStore();
+  const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab } = useChatStore();
   const { config, setConfig } = useSettingsStore();
   const { announce } = useAnnouncer();
   const activeTab = getActiveTab();
@@ -66,22 +65,28 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         e.preventDefault();
         if (onSettings) onSettings();
       }
+      // Ctrl+H: Focar no picker de histórico
+      else if (e.ctrlKey && e.key === 'h') {
+        e.preventDefault();
+        const historyPicker = document.querySelector('[aria-label*="Histórico"]') as HTMLElement;
+        historyPicker?.click();
+      }
       // Ctrl+M: Focar no picker de modelo
       else if (e.ctrlKey && e.key === 'm') {
         e.preventDefault();
-        const modelPicker = toolbarRef.current?.querySelector('[aria-label*="Modelo"]') as HTMLElement;
+        const modelPicker = document.querySelector('[aria-label*="Modelo"]') as HTMLElement;
         modelPicker?.click();
       }
       // Ctrl+D: Focar no picker de voz
       else if (e.ctrlKey && e.key === 'd' && voiceEnabled) {
         e.preventDefault();
-        const voicePicker = toolbarRef.current?.querySelector('[aria-label*="Voz"]') as HTMLElement;
+        const voicePicker = document.querySelector('[aria-label*="Voz"]') as HTMLElement;
         voicePicker?.click();
       }
       // Ctrl+S: Focar no picker de transcrição
       else if (e.ctrlKey && e.key === 's' && voiceEnabled) {
         e.preventDefault();
-        const sttPicker = toolbarRef.current?.querySelector('[aria-label*="Transcrição"]') as HTMLElement;
+        const sttPicker = document.querySelector('[aria-label*="Transcrição"]') as HTMLElement;
         sttPicker?.click();
       }
     };
@@ -127,90 +132,110 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     focusInput();
   };
 
+  const handleHistoryChange = async (conversationId: number, conversation: any) => {
+    try {
+      await loadConversationInActiveTab(conversationId, conversation.title || 'Conversa carregada');
+      announce(`Conversa carregada: ${conversation.title || 'Conversa carregada'}`);
+    } catch (error) {
+      console.error('[ChatToolbar] Erro ao carregar conversa:', error);
+      announce('Erro ao carregar conversa');
+    }
+    focusInput();
+  };
+
   return (
-    <div className="chat-toolbar" role="toolbar" aria-label="Ferramentas do chat. Use setas para navegar entre os botões" ref={toolbarRef}>
-      <div className="chat-toolbar__left">
+    <Toolbar
+      ariaLabel="Ferramentas do chat. Use setas para navegar entre os botões"
+      left={
         <h2 className="chat-toolbar__title" id="chat-heading">
           {conversationTitle}
         </h2>
-      </div>
+      }
+      right={
+        <>
+          <button
+            className="toolbar__button"
+            onClick={handleNewConversation}
+            aria-label="Nova conversa, Ctrl+N"
+            title="Nova conversa (Ctrl+N)"
+            disabled={isLoading}
+            tabIndex={0}
+          >
+            <span aria-hidden="true">➕</span>
+            <span>Nova</span>
+          </button>
 
-      <div className="chat-toolbar__right">
-        <button
-          className="chat-toolbar__btn"
-          onClick={handleNewConversation}
-          aria-label="Nova conversa, Ctrl+N"
-          title="Nova conversa (Ctrl+N)"
-          disabled={isLoading}
-          tabIndex={0}
-        >
-          <span aria-hidden="true">➕</span>
-          <span className="chat-toolbar__btn-text">Nova</span>
-        </button>
-
-        {/* TODO: ConversationPicker - Histórico de conversas */}
-
-        <div className="chat-toolbar__separator" aria-hidden="true"></div>
-
-        {config && (
-          <ModelPicker
-            value={config.defaultModel}
-            onChange={handleModelChange}
-            variant="toolbar"
-            label="Modelo (Ctrl+M)"
-            maxWidth="180px"
+          <HistoryPicker
+            value={activeTab?.conversationId}
+            onChange={handleHistoryChange}
+            label="Histórico (Ctrl+H)"
+            maxWidth="200px"
             onAnnounce={announce}
+            disabled={isLoading}
           />
-        )}
 
-        {voiceEnabled && config && (
-          <>
-            <VoicePicker
-              value={config.voice || VOICE_DISABLED}
-              onChange={handleVoiceChange}
-              variant="toolbar"
-              label="Voz (Ctrl+D)"
-              onAnnounce={announce}
-            />
+          <div className="toolbar__separator" aria-hidden="true"></div>
 
-            <STTProviderPicker
-              value={config.sttProvider || STT_WEBSPEECH}
-              onChange={handleSTTProviderChange}
+          {config && (
+            <ModelPicker
+              value={config.defaultModel}
+              onChange={handleModelChange}
               variant="toolbar"
-              label="Transcrição (Ctrl+S)"
+              label="Modelo (Ctrl+M)"
               maxWidth="180px"
               onAnnounce={announce}
             />
+          )}
 
-            {onVoiceSettings && (
-              <button
-                className="chat-toolbar__btn"
-                onClick={onVoiceSettings}
-                aria-label="Configurações de voz"
-                title="Configurações de voz"
-                disabled={isLoading}
-                tabIndex={-1}
-              >
-                <span aria-hidden="true">🔊</span>
-              </button>
-            )}
-          </>
-        )}
+          {voiceEnabled && config && (
+            <>
+              <VoicePicker
+                value={config.voice || VOICE_DISABLED}
+                onChange={handleVoiceChange}
+                variant="toolbar"
+                label="Voz (Ctrl+D)"
+                onAnnounce={announce}
+              />
 
-        {onSettings && (
-          <button
-            className="chat-toolbar__btn"
-            onClick={onSettings}
-            aria-label="Preferências, Ctrl+P"
-            title="Preferências (Ctrl+P)"
-            disabled={isLoading}
-            tabIndex={-1}
-          >
-            <span aria-hidden="true">⚙️</span>
-            <span className="chat-toolbar__btn-text">Preferências</span>
-          </button>
-        )}
-      </div>
-    </div>
+              <STTProviderPicker
+                value={config.sttProvider || STT_WEBSPEECH}
+                onChange={handleSTTProviderChange}
+                variant="toolbar"
+                label="Transcrição (Ctrl+S)"
+                maxWidth="180px"
+                onAnnounce={announce}
+              />
+
+              {onVoiceSettings && (
+                <button
+                  className="toolbar__button"
+                  onClick={onVoiceSettings}
+                  aria-label="Configurações de voz"
+                  title="Configurações de voz"
+                  disabled={isLoading}
+                  tabIndex={-1}
+                >
+                  <span aria-hidden="true">🔊</span>
+                </button>
+              )}
+            </>
+          )}
+
+          {onSettings && (
+            <button
+              className="toolbar__button"
+              onClick={onSettings}
+              aria-label="Preferências, Ctrl+P"
+              title="Preferências (Ctrl+P)"
+              disabled={isLoading}
+              tabIndex={-1}
+            >
+              <span aria-hidden="true">⚙️</span>
+              <span>Preferências</span>
+            </button>
+          )}
+        </>
+      }
+    />
   );
 };

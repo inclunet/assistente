@@ -28,12 +28,13 @@ type ChatPreferences struct {
 
 // Conversation representa uma conversa
 type Conversation struct {
-	ID          uint          `json:"id" gorm:"primaryKey"`
-	Title       string        `json:"title"`
-	Preferences string        `json:"preferences,omitempty" gorm:"type:text"` // JSON das preferências locais
-	CreatedAt   time.Time     `json:"created_at"`
-	UpdatedAt   time.Time     `json:"updated_at"`
-	Messages    []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
+	ID           uint          `json:"id" gorm:"primaryKey"`
+	Title        string        `json:"title"`
+	Preferences  string        `json:"preferences,omitempty" gorm:"type:text"` // JSON das preferências locais
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	Messages     []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
+	MessageCount int           `json:"message_count" gorm:"-"` // Campo calculado, não persiste no banco
 }
 
 // GetPreferences retorna as preferências da conversa deserializadas
@@ -70,17 +71,17 @@ type ChatMessage struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
 	ConversationID   uint      `json:"conversationId" gorm:"index"`
 	ParentID         *uint     `json:"parentId,omitempty" gorm:"index"` // ID da mensagem pai (define hierarquia)
-	Role             string    `json:"role"`                             // user, assistant, tool, system
+	Role             string    `json:"role"`                            // user, assistant, tool, system
 	Content          string    `json:"content"`
-	Media            string    `json:"media,omitempty"`             // JSON com mídias (imagens, áudio, etc) em base64
+	Media            string    `json:"media,omitempty"`            // JSON com mídias (imagens, áudio, etc) em base64
 	ToolCalls        string    `json:"toolCalls,omitempty"`        // JSON serializado
 	ToolResults      string    `json:"toolResults,omitempty"`      // JSON serializado (deprecated, usar hierarquia)
-	ToolCallID       string    `json:"toolCallId,omitempty"`      // ID da tool call (para role="tool")
+	ToolCallID       string    `json:"toolCallId,omitempty"`       // ID da tool call (para role="tool")
 	AgentName        string    `json:"agentName,omitempty"`        // Nome do agente que processou (file_manager, faq, etc)
 	PromptTokens     int       `json:"promptTokens,omitempty"`     // Tokens de entrada
 	CompletionTokens int       `json:"completionTokens,omitempty"` // Tokens de saída
 	TotalTokens      int       `json:"totalTokens,omitempty"`      // Total de tokens
-	Model            string    `json:"model,omitempty"`             // Modelo usado
+	Model            string    `json:"model,omitempty"`            // Modelo usado
 	CreatedAt        time.Time `json:"createdAt"`
 }
 
