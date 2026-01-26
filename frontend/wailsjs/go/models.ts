@@ -1327,6 +1327,26 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	    }
 	}
+	export class ImportResult {
+	    success: boolean;
+	    imported: number;
+	    skipped: number;
+	    errors?: string[];
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.imported = source["imported"];
+	        this.skipped = source["skipped"];
+	        this.errors = source["errors"];
+	        this.message = source["message"];
+	    }
+	}
 	export class ImportedEndpoint {
 	    name: string;
 	    description: string;

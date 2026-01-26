@@ -3,7 +3,9 @@ import {
   GetAllMemories, 
   CreateMemory, 
   UpdateMemory, 
-  DeleteMemory 
+  DeleteMemory,
+  ExportMemories,
+  ImportMemories
 } from '../../wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -14,6 +16,7 @@ import { Textarea } from '../components/ui/Textarea';
 import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
 import { formatRelativeTime } from '../lib/dateUtils';
+import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './MemoryPage.css';
 
 interface Memory {
@@ -42,6 +45,7 @@ export default function MemoryPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingMemory, setEditingMemory] = useState<Memory | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   
   // Form state
   const [formTitle, setFormTitle] = useState('');
@@ -139,6 +143,58 @@ export default function MemoryPage() {
     }
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(t('memory.confirmDeleteMultiple', `Tem certeza que deseja excluir ${selectedIds.size} memória(s)?`))) return;
+
+    try {
+      await Promise.all(Array.from(selectedIds).map(id => DeleteMemory(Number(id))));
+      setMemories(prev => prev.filter(m => !selectedIds.has(m.id)));
+      setSelectedIds(new Set());
+    } catch (error) {
+      console.error('Erro ao deletar memórias:', error);
+      alert('Erro ao deletar memórias');
+    }
+  };
+
+  const handleExport = async () => {
+    const idsToExport = selectedIds.size > 0 
+      ? Array.from(selectedIds).map(id => Number(id))
+      : memories.map(m => m.id);
+    
+    if (idsToExport.length === 0) {
+      alert(t('memory.noMemoriesToExport', 'Nenhuma memória para exportar'));
+      return;
+    }
+
+    try {
+      const jsonData = await ExportMemories(idsToExport);
+      const filename = generateFilename('memorias');
+      downloadJSON(jsonData, filename);
+    } catch (error) {
+      console.error('Erro ao exportar memórias:', error);
+      alert(t('memory.exportError', 'Erro ao exportar memórias'));
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const jsonData = await openFileDialog('.json');
+      const result = await ImportMemories(jsonData);
+      
+      if (result.success) {
+        alert(t('memory.importSuccess', `Importação concluída: ${result.message}`));
+        loadMemories();
+      } else {
+        alert(t('memory.importPartial', `Importação parcial: ${result.message}\nErros: ${result.errors?.join(', ')}`));
+        loadMemories();
+      }
+    } catch (error) {
+      console.error('Erro ao importar memórias:', error);
+      alert(t('memory.importError', 'Erro ao importar memórias'));
+    }
+  };
+
   const getCategoryLabel = (category: string) => {
     const cat = CATEGORIES.find(c => c.value === category);
     return cat ? cat.label : category;
@@ -203,6 +259,33 @@ export default function MemoryPage() {
       variant: 'primary',
       shortcut: 'Ctrl+N',
     },
+    {
+      key: 'export',
+      label: selectedIds.size > 0 
+        ? `Exportar (${selectedIds.size})`
+        : 'Exportar Tudo',
+      icon: '📤',
+      onClick: handleExport,
+      variant: 'secondary',
+    },
+    {
+      key: 'import',
+      label: 'Importar',
+      icon: '📥',
+      onClick: handleImport,
+      variant: 'secondary',
+    },
+    ...(selectedIds.size > 0
+      ? [
+          {
+            key: 'delete-selected',
+            label: `Deletar (${selectedIds.size})`,
+            icon: '🗑️',
+            onClick: handleDeleteSelected,
+            variant: 'danger' as const,
+          },
+        ]
+      : []),
   ];
 
   if (loading) {
@@ -253,6 +336,9 @@ export default function MemoryPage() {
               handleDelete(memory);
             }
           }}
+          multiSelect={true}
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
         />
       </div>
 

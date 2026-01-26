@@ -608,6 +608,16 @@ func GetCoreMemories() ([]Memory, error) {
 	return memories, err
 }
 
+// GetMemory retorna uma memória por ID
+func GetMemory(id uint) (*Memory, error) {
+	var memory Memory
+	err := db.First(&memory, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &memory, nil
+}
+
 // ==================== FAQ ====================
 
 // CreateFAQ cria uma nova entrada no FAQ

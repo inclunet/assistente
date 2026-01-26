@@ -5,7 +5,9 @@ import {
   UpdateFAQ, 
   DeleteFAQ,
   RegenerateFAQEmbeddings,
-  GetFAQEmbeddingStatus 
+  GetFAQEmbeddingStatus,
+  ExportFAQs,
+  ImportFAQs
 } from '../../wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -14,6 +16,7 @@ import { SimpleModal } from '../components/ui/SimpleModal';
 import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { Button } from '../components/ui/Button';
+import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './FAQPage.css';
 
 interface FAQ {
@@ -34,6 +37,7 @@ export default function FAQPage() {
   const [editingFAQ, setEditingFAQ] = useState<FAQ | null>(null);
   const [embeddingStatus, setEmbeddingStatus] = useState<any>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   
   // Form state
   const [formQuestion, setFormQuestion] = useState('');
@@ -155,6 +159,60 @@ export default function FAQPage() {
     }
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    if (!confirm(t('faq.confirmDeleteMultiple', `Tem certeza que deseja excluir ${selectedIds.size} FAQ(s)?`))) return;
+
+    try {
+      await Promise.all(Array.from(selectedIds).map(id => DeleteFAQ(Number(id))));
+      setFaqs(prev => prev.filter(f => !selectedIds.has(f.id)));
+      setSelectedIds(new Set());
+    } catch (error) {
+      console.error('Erro ao deletar FAQs:', error);
+      alert('Erro ao deletar FAQs');
+    }
+  };
+
+  const handleExport = async () => {
+    const idsToExport = selectedIds.size > 0 
+      ? Array.from(selectedIds).map(id => Number(id))
+      : faqs.map(f => f.id);
+    
+    if (idsToExport.length === 0) {
+      alert(t('faq.noFAQsToExport', 'Nenhuma FAQ para exportar'));
+      return;
+    }
+
+    try {
+      const jsonData = await ExportFAQs(idsToExport);
+      const filename = generateFilename('faqs');
+      downloadJSON(jsonData, filename);
+    } catch (error) {
+      console.error('Erro ao exportar FAQs:', error);
+      alert(t('faq.exportError', 'Erro ao exportar FAQs'));
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const jsonData = await openFileDialog('.json');
+      const result = await ImportFAQs(jsonData);
+      
+      if (result.success) {
+        alert(t('faq.importSuccess', `Importação concluída: ${result.message}`));
+        loadFAQs();
+        loadEmbeddingStatus();
+      } else {
+        alert(t('faq.importPartial', `Importação parcial: ${result.message}\nErros: ${result.errors?.join(', ')}`));
+        loadFAQs();
+        loadEmbeddingStatus();
+      }
+    } catch (error) {
+      console.error('Erro ao importar FAQs:', error);
+      alert(t('faq.importError', 'Erro ao importar FAQs'));
+    }
+  };
+
   const filteredFAQs = faqs.filter(faq =>
     faq.question.toLowerCase().includes(searchTerm.toLowerCase()) ||
     faq.answer.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -207,6 +265,22 @@ export default function FAQPage() {
       shortcut: 'Ctrl+N',
     },
     {
+      key: 'export',
+      label: selectedIds.size > 0 
+        ? `Exportar (${selectedIds.size})`
+        : 'Exportar Tudo',
+      icon: '📤',
+      onClick: handleExport,
+      variant: 'secondary',
+    },
+    {
+      key: 'import',
+      label: 'Importar',
+      icon: '📥',
+      onClick: handleImport,
+      variant: 'secondary',
+    },
+    {
       key: 'regenerate',
       label: 'Regenerar Embeddings',
       icon: '🔄',
@@ -214,6 +288,17 @@ export default function FAQPage() {
       variant: 'secondary',
       disabled: !embeddingStatus || embeddingStatus.total === 0,
     },
+    ...(selectedIds.size > 0
+      ? [
+          {
+            key: 'delete-selected',
+            label: `Deletar (${selectedIds.size})`,
+            icon: '🗑️',
+            onClick: handleDeleteSelected,
+            variant: 'danger' as const,
+          },
+        ]
+      : []),
   ];
 
   if (loading) {
@@ -258,6 +343,9 @@ export default function FAQPage() {
               handleDelete(faq);
             }
           }}
+          multiSelect={true}
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
         />
       </div>
 

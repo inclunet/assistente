@@ -81,6 +81,14 @@ export function EnableVoiceHotkey():Promise<void>;
 
 export function ExecuteTool(arg1:llm.ToolCall):Promise<string>;
 
+export function ExportAgents(arg1:Array<number>,arg2:Array<number>):Promise<string>;
+
+export function ExportConversations(arg1:Array<number>):Promise<string>;
+
+export function ExportFAQs(arg1:Array<number>):Promise<string>;
+
+export function ExportMemories(arg1:Array<number>):Promise<string>;
+
 export function ExtractTemplateVariables(arg1:string):Promise<Array<string>>;
 
 export function GenerateAllFAQEmbeddings():Promise<number>;
@@ -212,6 +220,14 @@ export function GetVisionCapableModels():Promise<Array<database.ModelCapability>
 export function HardDeleteOAuthConnection(arg1:number):Promise<void>;
 
 export function HasImages(arg1:Array<llm.Message>):Promise<boolean>;
+
+export function ImportAgents(arg1:string):Promise<main.ImportResult>;
+
+export function ImportConversations(arg1:string):Promise<main.ImportResult>;
+
+export function ImportFAQs(arg1:string):Promise<main.ImportResult>;
+
+export function ImportMemories(arg1:string):Promise<main.ImportResult>;
 
 export function ImportOpenAPIToHTTPAgent(arg1:string,arg2:string):Promise<main.HTTPAgentFullConfig>;
 

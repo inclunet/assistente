@@ -150,6 +150,22 @@ export function ExecuteTool(arg1) {
   return window['go']['main']['App']['ExecuteTool'](arg1);
 }
 
+export function ExportAgents(arg1, arg2) {
+  return window['go']['main']['App']['ExportAgents'](arg1, arg2);
+}
+
+export function ExportConversations(arg1) {
+  return window['go']['main']['App']['ExportConversations'](arg1);
+}
+
+export function ExportFAQs(arg1) {
+  return window['go']['main']['App']['ExportFAQs'](arg1);
+}
+
+export function ExportMemories(arg1) {
+  return window['go']['main']['App']['ExportMemories'](arg1);
+}
+
 export function ExtractTemplateVariables(arg1) {
   return window['go']['main']['App']['ExtractTemplateVariables'](arg1);
 }
@@ -412,6 +428,22 @@ export function HardDeleteOAuthConnection(arg1) {
 
 export function HasImages(arg1) {
   return window['go']['main']['App']['HasImages'](arg1);
+}
+
+export function ImportAgents(arg1) {
+  return window['go']['main']['App']['ImportAgents'](arg1);
+}
+
+export function ImportConversations(arg1) {
+  return window['go']['main']['App']['ImportConversations'](arg1);
+}
+
+export function ImportFAQs(arg1) {
+  return window['go']['main']['App']['ImportFAQs'](arg1);
+}
+
+export function ImportMemories(arg1) {
+  return window['go']['main']['App']['ImportMemories'](arg1);
 }
 
 export function ImportOpenAPIToHTTPAgent(arg1, arg2) {

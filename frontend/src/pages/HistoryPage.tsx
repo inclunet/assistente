@@ -1,10 +1,11 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GetConversations, DeleteConversation, UpdateConversation } from '../../wailsjs/go/main/App';
+import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations } from '../../wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { formatRelativeTime } from '../lib/dateUtils';
+import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './HistoryPage.css';
 
 interface Conversation {
@@ -94,6 +95,44 @@ export default function HistoryPage() {
       setSelectedIds(new Set());
     } catch (error) {
       console.error('Erro ao deletar conversas:', error);
+    }
+  };
+
+  const handleExport = async () => {
+    const idsToExport = selectedIds.size > 0 
+      ? Array.from(selectedIds).map(id => Number(id))
+      : conversations.map(c => c.id);
+    
+    if (idsToExport.length === 0) {
+      alert(t('history.noConversationsToExport', 'Nenhuma conversa para exportar'));
+      return;
+    }
+
+    try {
+      const jsonData = await ExportConversations(idsToExport);
+      const filename = generateFilename('conversas');
+      downloadJSON(jsonData, filename);
+    } catch (error) {
+      console.error('Erro ao exportar conversas:', error);
+      alert(t('history.exportError', 'Erro ao exportar conversas'));
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const jsonData = await openFileDialog('.json');
+      const result = await ImportConversations(jsonData);
+      
+      if (result.success) {
+        alert(t('history.importSuccess', `Importação concluída: ${result.message}`));
+        loadConversations();
+      } else {
+        alert(t('history.importPartial', `Importação parcial: ${result.message}\nErros: ${result.errors?.join(', ')}`));
+        loadConversations();
+      }
+    } catch (error) {
+      console.error('Erro ao importar conversas:', error);
+      alert(t('history.importError', 'Erro ao importar conversas'));
     }
   };
 
@@ -193,6 +232,22 @@ export default function HistoryPage() {
             onClick: handleNewConversation,
             variant: 'primary',
             shortcut: 'Ctrl+N',
+          },
+          {
+            key: 'export',
+            label: selectedIds.size > 0 
+              ? t('history.exportSelected', `Exportar (${selectedIds.size})`)
+              : t('history.exportAll', 'Exportar Tudo'),
+            icon: '📤',
+            onClick: handleExport,
+            variant: 'secondary',
+          },
+          {
+            key: 'import',
+            label: t('history.import', 'Importar'),
+            icon: '📥',
+            onClick: handleImport,
+            variant: 'secondary',
           },
           ...(selectedIds.size > 0
             ? [

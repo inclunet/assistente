@@ -6,7 +6,11 @@ import {
   SaveOrUpdateAgentConfig, 
   // DeleteAgentConfig,
   GetAllHTTPAgentsFull,
-  GetAllMCPAgentsFull
+  GetAllMCPAgentsFull,
+  ExportAgents,
+  ImportAgents,
+  DeleteHTTPAgentFull,
+  DeleteMCPAgentFull
 } from '../../wailsjs/go/main/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar, ToolbarAction } from '../components/ui/Toolbar';
@@ -21,6 +25,7 @@ import { HTTPAgentEditor } from '../components/agents/HTTPAgentEditor';
 import { MCPAgentEditor } from '../components/agents/MCPAgentEditor';
 import { AgentTestChat } from '../components/agents/AgentTestChat';
 import { AgentDiagnostic } from '../components/agents/AgentDiagnostic';
+import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './AgentsPage.css';
 
 interface Agent {
@@ -53,6 +58,7 @@ export default function AgentsPage() {
   const [showModal, setShowModal] = useState(false);
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [saving, setSaving] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   
   // HTTP Agent Editor
   const [showHTTPEditor, setShowHTTPEditor] = useState(false);
@@ -258,6 +264,105 @@ export default function AgentsPage() {
     }
   };
 
+  const handleDeleteSelected = async () => {
+    if (selectedIds.size === 0) return;
+    
+    // Filtra apenas agentes HTTP e MCP (internos não podem ser deletados)
+    const selectedAgents = agents.filter(a => 
+      selectedIds.has(a.id) || selectedIds.has(a.name)
+    );
+    const httpAgents = selectedAgents.filter(a => a.agent_type === 'http');
+    const mcpAgents = selectedAgents.filter(a => a.agent_type === 'mcp');
+    
+    if (httpAgents.length === 0 && mcpAgents.length === 0) {
+      alert('Apenas agentes HTTP e MCP podem ser deletados. Agentes internos são embutidos no sistema.');
+      return;
+    }
+    
+    if (!confirm(`Tem certeza que deseja excluir ${httpAgents.length + mcpAgents.length} agente(s)?`)) return;
+
+    try {
+      // Deleta HTTP agents (usa agent.id que é o agentConfigID)
+      for (const agent of httpAgents) {
+        if (agent.id && agent.id > 0) {
+          await DeleteHTTPAgentFull(agent.id);
+        }
+      }
+      // Deleta MCP agents (usa agent.id que é o mcp_agent.id)
+      for (const agent of mcpAgents) {
+        if (agent.id && agent.id > 0) {
+          await DeleteMCPAgentFull(agent.id);
+        }
+      }
+      await loadAgents();
+      setSelectedIds(new Set());
+    } catch (error) {
+      console.error('Erro ao deletar agentes:', error);
+      alert('Erro ao deletar agentes');
+    }
+  };
+
+  const handleExport = async () => {
+    // Se há seleção, exporta apenas os selecionados
+    // Se não há seleção, exporta todos os HTTP e MCP (internos não são exportáveis)
+    let agentsToExport = agents;
+    
+    if (selectedIds.size > 0) {
+      agentsToExport = agents.filter(a => 
+        selectedIds.has(a.id) || selectedIds.has(a.name)
+      );
+    }
+    
+    // Filtra apenas HTTP e MCP
+    const httpAgents = agentsToExport.filter(a => a.agent_type === 'http');
+    const mcpAgents = agentsToExport.filter(a => a.agent_type === 'mcp');
+    
+    if (httpAgents.length === 0 && mcpAgents.length === 0) {
+      alert('Nenhum agente HTTP ou MCP para exportar. Agentes internos não são exportáveis.');
+      return;
+    }
+    
+    try {
+      // Extrai os IDs dos HTTP Agents (http_agent_id do config)
+      const httpAgentIds = httpAgents
+        .map(a => a.config?.http_agent_id as number)
+        .filter((id): id is number => id !== undefined && id > 0);
+      
+      // Para MCP, usa o config.id que é o mcp_agent.id
+      const mcpAgentIds = mcpAgents
+        .map(a => a.config?.id as number)
+        .filter((id): id is number => id !== undefined && id > 0);
+      
+      console.log('Exportando HTTP Agents IDs:', httpAgentIds);
+      console.log('Exportando MCP Agents IDs:', mcpAgentIds);
+      
+      const jsonData = await ExportAgents(httpAgentIds, mcpAgentIds);
+      const filename = generateFilename('agentes');
+      downloadJSON(jsonData, filename);
+    } catch (error) {
+      console.error('Erro ao exportar agentes:', error);
+      alert('Erro ao exportar agentes');
+    }
+  };
+
+  const handleImport = async () => {
+    try {
+      const jsonData = await openFileDialog('.json');
+      const result = await ImportAgents(jsonData);
+      
+      if (result.success) {
+        alert(`Importação concluída: ${result.message}`);
+        loadAgents();
+      } else {
+        alert(`Importação parcial: ${result.message}\nErros: ${result.errors?.join(', ')}`);
+        loadAgents();
+      }
+    } catch (error) {
+      console.error('Erro ao importar agentes:', error);
+      alert('Erro ao importar agentes');
+    }
+  };
+
   const getTypeIcon = (type: string) => {
     switch (type) {
       case 'http': return '🌐';
@@ -331,6 +436,14 @@ export default function AgentsPage() {
     }
   ];
 
+  // Conta agentes exportáveis selecionados
+  const selectedExportableCount = selectedIds.size > 0 
+    ? agents.filter(a => 
+        (selectedIds.has(a.id) || selectedIds.has(a.name)) && 
+        (a.agent_type === 'http' || a.agent_type === 'mcp')
+      ).length
+    : agents.filter(a => a.agent_type === 'http' || a.agent_type === 'mcp').length;
+
   const toolbarActions: ToolbarAction[] = [
     {
       key: 'new-http',
@@ -347,12 +460,40 @@ export default function AgentsPage() {
       variant: 'primary',
     },
     {
+      key: 'export',
+      label: selectedIds.size > 0 
+        ? `Exportar (${selectedExportableCount})`
+        : 'Exportar Tudo',
+      icon: '📤',
+      onClick: handleExport,
+      variant: 'secondary',
+      disabled: selectedExportableCount === 0,
+    },
+    {
+      key: 'import',
+      label: 'Importar',
+      icon: '📥',
+      onClick: handleImport,
+      variant: 'secondary',
+    },
+    {
       key: 'refresh',
       label: 'Atualizar',
       icon: '🔄',
       onClick: loadAgents,
       variant: 'secondary',
     },
+    ...(selectedIds.size > 0 && selectedExportableCount > 0
+      ? [
+          {
+            key: 'delete-selected',
+            label: `Deletar (${selectedExportableCount})`,
+            icon: '🗑️',
+            onClick: handleDeleteSelected,
+            variant: 'danger' as const,
+          },
+        ]
+      : []),
   ];
 
   if (loading) {
@@ -409,6 +550,9 @@ export default function AgentsPage() {
               openEditForm(agent);
             }
           }}
+          multiSelect={true}
+          selectedIds={selectedIds}
+          onSelectionChange={setSelectedIds}
         />
       </div>
 
