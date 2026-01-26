@@ -1,10 +1,81 @@
 /**
- * Message Audio Service - Serviço simples de reprodução de áudio
+ * Message Audio Service - Serviço de reprodução de áudio com cache
+ * 
+ * O cache evita re-sintetizar mensagens já reproduzidas, economizando
+ * chamadas à API e melhorando a experiência do usuário.
  */
 
 // Player global único
 let currentPlayer: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
+
+// Cache de áudio por mensagem (messageId → Blob)
+const audioCache = new Map<string, { blob: Blob; lastAccess: number }>();
+const MAX_CACHE_SIZE = 50; // Máximo de mensagens em cache
+const CACHE_TTL_MS = 30 * 60 * 1000; // 30 minutos de TTL
+
+/**
+ * Limpa entradas antigas do cache (LRU + TTL)
+ */
+function pruneCache(): void {
+  const now = Date.now();
+  
+  // Remove entradas expiradas
+  for (const [key, entry] of audioCache.entries()) {
+    if (now - entry.lastAccess > CACHE_TTL_MS) {
+      audioCache.delete(key);
+    }
+  }
+  
+  // Se ainda excede o limite, remove as mais antigas
+  if (audioCache.size > MAX_CACHE_SIZE) {
+    const entries = Array.from(audioCache.entries())
+      .sort((a, b) => a[1].lastAccess - b[1].lastAccess);
+    
+    const toRemove = entries.slice(0, audioCache.size - MAX_CACHE_SIZE);
+    for (const [key] of toRemove) {
+      audioCache.delete(key);
+    }
+  }
+}
+
+/**
+ * Obtém áudio do cache
+ */
+function getCachedAudio(messageId: string): Blob | null {
+  const entry = audioCache.get(messageId);
+  if (entry) {
+    // Atualiza último acesso
+    entry.lastAccess = Date.now();
+    console.log('[MessageAudio] Cache hit para mensagem:', messageId);
+    return entry.blob;
+  }
+  return null;
+}
+
+/**
+ * Armazena áudio no cache
+ */
+function cacheAudio(messageId: string, blob: Blob): void {
+  pruneCache();
+  audioCache.set(messageId, { blob, lastAccess: Date.now() });
+  console.log('[MessageAudio] Áudio cacheado para mensagem:', messageId, '- Cache size:', audioCache.size);
+}
+
+/**
+ * Verifica se mensagem tem áudio em cache
+ */
+function hasCachedAudio(messageId: string): boolean {
+  return audioCache.has(messageId);
+}
+
+/**
+ * Limpa todo o cache
+ */
+function clearCache(): void {
+  audioCache.clear();
+  console.log('[MessageAudio] Cache limpo');
+}
 
 /**
  * Para qualquer áudio em reprodução
@@ -76,10 +147,17 @@ function downloadAudioBlob(blob: Blob, filename: string): void {
 
 // Export
 export const messageAudioService = {
+  // Reprodução
   playAudioBlob,
   stopCurrentAudio,
   isCurrentlyPlaying,
   downloadAudioBlob,
+  
+  // Cache
+  getCachedAudio,
+  cacheAudio,
+  hasCachedAudio,
+  clearCache,
   
   // Aliases
   stopAll: stopCurrentAudio,

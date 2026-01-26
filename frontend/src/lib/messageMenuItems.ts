@@ -280,26 +280,38 @@ export function getMessageMenuItems(
       action: () => onSpeak?.(message),
     });
     
-    // 2.1 Baixar áudio desta mensagem (apenas para providers que suportam síntese)
+    // 2.1 Baixar áudio desta mensagem (usa cache se disponível)
     items.push({
       id: 'download-audio',
       label: 'Baixar áudio desta mensagem',
       icon: '💾',
-      ariaLabel: 'Sintetizar e baixar áudio desta mensagem',
+      ariaLabel: 'Baixar áudio desta mensagem',
       action: async () => {
-        if (!message.content) {
+        if (!message.content || !message.id) {
           onAnnounce?.('Mensagem sem conteúdo');
           return;
         }
         
-        onAnnounce?.('Sintetizando áudio...');
-        
         try {
-          // Remove markdown do texto
-          const cleanText = stripMarkdown(message.content);
+          let audioBlob: Blob | null = null;
           
-          // Sintetiza o áudio sob demanda (funciona mesmo com TTS desabilitado)
-          const audioBlob = await ttsService.synthesizeOnDemand(cleanText);
+          // Verifica cache primeiro
+          audioBlob = messageAudioService.getCachedAudio(message.id);
+          
+          if (audioBlob) {
+            onAnnounce?.('Baixando do cache...');
+          } else {
+            // Não está em cache - sintetiza
+            onAnnounce?.('Sintetizando áudio...');
+            
+            const cleanText = stripMarkdown(message.content);
+            audioBlob = await ttsService.synthesizeOnDemand(cleanText);
+            
+            if (audioBlob) {
+              // Guarda no cache
+              messageAudioService.cacheAudio(message.id, audioBlob);
+            }
+          }
           
           if (!audioBlob) {
             onAnnounce?.('Não foi possível sintetizar o áudio. Verifique se há um perfil de voz com provider que suporte síntese (OpenAI ou SAPI5).');

@@ -3,6 +3,7 @@ import { Message } from '../store/chatStore';
 import { MenuItem } from '../components/ui/ContextMenu';
 import { getMessageMenuItems, MenuItemsOptions } from '../lib/messageMenuItems';
 import { ttsService } from '../services/tts';
+import { messageAudioService } from '../services/messageAudio';
 import { stripMarkdown } from '../lib/stripMarkdown';
 
 export interface UseContextMenuResult {
@@ -92,11 +93,34 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
   );
 
   const speakMessage = useCallback(
-    (message: Message) => {
-      if (!message.content) return;
+    async (message: Message) => {
+      if (!message.content || !message.id) return;
+      
       const text = stripMarkdown(message.content);
-      // Usa speakOnDemand para funcionar mesmo com TTS desabilitado para leitura automática
-      ttsService.speakOnDemand(text);
+      
+      // Verifica cache primeiro
+      const cachedBlob = messageAudioService.getCachedAudio(message.id);
+      if (cachedBlob) {
+        // Reproduz do cache (sem nova síntese!)
+        const volume = ttsService.getVolume();
+        await messageAudioService.playAudioBlob(cachedBlob, volume);
+        return;
+      }
+      
+      // Não está em cache - sintetiza
+      const audioBlob = await ttsService.synthesizeOnDemand(text);
+      
+      if (audioBlob) {
+        // Guarda no cache para próxima vez
+        messageAudioService.cacheAudio(message.id, audioBlob);
+        
+        // Reproduz
+        const volume = ttsService.getVolume();
+        await messageAudioService.playAudioBlob(audioBlob, volume);
+      } else {
+        // Fallback para speakOnDemand (providers que não suportam synthesize)
+        ttsService.speakOnDemand(text);
+      }
     },
     []
   );
