@@ -128,6 +128,29 @@ type AgentsExportFile struct {
 	MCPAgents  []MCPAgentExport  `json:"mcp_agents,omitempty"`
 }
 
+// VoiceProfileExport representa um perfil de voz exportado
+type VoiceProfileExport struct {
+	ID              uint      `json:"id"`
+	Name            string    `json:"name"`
+	Description     string    `json:"description,omitempty"`
+	Provider        string    `json:"provider"`
+	VoiceID         string    `json:"voice_id"`
+	Rate            float64   `json:"rate"`
+	Pitch           float64   `json:"pitch"`
+	Volume          float64   `json:"volume"`
+	EnabledForAgent bool      `json:"enabled_for_agent"`
+	EnabledForUser  bool      `json:"enabled_for_user"`
+	IsDefault       bool      `json:"is_default"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// VoiceProfilesExportFile representa o arquivo de exportação de perfis de voz
+type VoiceProfilesExportFile struct {
+	Metadata      ExportMetadata       `json:"metadata"`
+	VoiceProfiles []VoiceProfileExport `json:"voice_profiles"`
+}
+
 // ImportResult representa o resultado de uma importação
 type ImportResult struct {
 	Success   bool     `json:"success"`
@@ -601,6 +624,109 @@ func (a *App) ImportAgents(jsonData string) (*ImportResult, error) {
 	}
 
 	result.Message = fmt.Sprintf("Importados %d agentes, %d ignorados", result.Imported, result.Skipped)
+	if len(result.Errors) > 0 {
+		result.Success = false
+	}
+
+	return result, nil
+}
+
+// ExportVoiceProfiles exporta perfis de voz selecionados
+func (a *App) ExportVoiceProfiles(ids []uint) (string, error) {
+	profiles := make([]VoiceProfileExport, 0, len(ids))
+
+	for _, id := range ids {
+		profile, err := database.GetVoiceProfile(id)
+		if err != nil {
+			return "", fmt.Errorf("erro ao buscar perfil de voz %d: %w", id, err)
+		}
+
+		profiles = append(profiles, VoiceProfileExport{
+			ID:              profile.ID,
+			Name:            profile.Name,
+			Description:     profile.Description,
+			Provider:        profile.Provider,
+			VoiceID:         profile.VoiceID,
+			Rate:            profile.Rate,
+			Pitch:           profile.Pitch,
+			Volume:          profile.Volume,
+			EnabledForAgent: profile.EnabledForAgent,
+			EnabledForUser:  profile.EnabledForUser,
+			IsDefault:       profile.IsDefault,
+			CreatedAt:       profile.CreatedAt,
+			UpdatedAt:       profile.UpdatedAt,
+		})
+	}
+
+	exportFile := VoiceProfilesExportFile{
+		Metadata: ExportMetadata{
+			Version:    "1.0",
+			ExportedAt: time.Now(),
+			Type:       "voice_profiles",
+			Count:      len(profiles),
+		},
+		VoiceProfiles: profiles,
+	}
+
+	jsonData, err := json.MarshalIndent(exportFile, "", "  ")
+	if err != nil {
+		return "", fmt.Errorf("erro ao serializar JSON: %w", err)
+	}
+
+	return string(jsonData), nil
+}
+
+// ImportVoiceProfiles importa perfis de voz de um JSON
+func (a *App) ImportVoiceProfiles(jsonData string) (*ImportResult, error) {
+	var exportFile VoiceProfilesExportFile
+	if err := json.Unmarshal([]byte(jsonData), &exportFile); err != nil {
+		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
+	}
+
+	result := &ImportResult{
+		Success: true,
+		Errors:  make([]string, 0),
+	}
+
+	for _, profileExport := range exportFile.VoiceProfiles {
+		// Verifica se já existe um perfil com esse nome
+		existing, _ := database.GetVoiceProfileByName(profileExport.Name)
+		name := profileExport.Name
+		if existing != nil {
+			// Gera nome único
+			name = fmt.Sprintf("%s_imported_%d", profileExport.Name, time.Now().Unix())
+		}
+
+		// Não importa como default se já existe um default
+		isDefault := profileExport.IsDefault
+		if isDefault {
+			existingDefault, _ := database.GetDefaultVoiceProfile()
+			if existingDefault != nil {
+				isDefault = false // Não sobrescreve o default existente
+			}
+		}
+
+		_, err := database.CreateVoiceProfileFull(database.VoiceProfileOptions{
+			Name:            name,
+			Description:     profileExport.Description,
+			Provider:        profileExport.Provider,
+			VoiceID:         profileExport.VoiceID,
+			Rate:            profileExport.Rate,
+			Pitch:           profileExport.Pitch,
+			Volume:          profileExport.Volume,
+			EnabledForAgent: profileExport.EnabledForAgent,
+			EnabledForUser:  profileExport.EnabledForUser,
+			IsDefault:       isDefault,
+		})
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Erro ao criar perfil '%s': %v", profileExport.Name, err))
+			result.Skipped++
+			continue
+		}
+		result.Imported++
+	}
+
+	result.Message = fmt.Sprintf("Importados %d perfis de voz, %d ignorados", result.Imported, result.Skipped)
 	if len(result.Errors) > 0 {
 		result.Success = false
 	}

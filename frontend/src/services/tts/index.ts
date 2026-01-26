@@ -90,8 +90,18 @@ class TTSService {
   
   /**
    * Detecta o provider de uma voz pelo nome
+   * Suporta formato "provider:voiceId" ou nome de voz direto
    */
   private detectProviderFromVoice(voiceName: string): TTSProvider {
+    // Formato provider:voiceId (ex: "openai:alloy", "sapi5:Microsoft David")
+    if (voiceName.includes(':')) {
+      const [provider] = voiceName.split(':');
+      if (provider === 'openai') return TTSProvider.OPENAI;
+      if (provider === 'sapi5') return TTSProvider.SAPI5;
+      if (provider === 'webspeech') return TTSProvider.WEBSPEECH;
+    }
+    
+    // Formato legado - detecta pelo nome da voz
     if (voiceName.includes('Microsoft') || voiceName.includes('SAPI')) {
       return TTSProvider.SAPI5;
     }
@@ -102,7 +112,17 @@ class TTSService {
   }
   
   /**
-   * Fala um texto
+   * Extrai apenas o ID da voz (remove prefixo provider:)
+   */
+  private extractVoiceId(voiceName: string): string {
+    if (voiceName.includes(':')) {
+      return voiceName.split(':').slice(1).join(':');
+    }
+    return voiceName;
+  }
+  
+  /**
+   * Fala um texto (somente se TTS estiver habilitado para leitura automática)
    */
   async speak(text: string): Promise<void> {
     if (!this.config.enabled || !this.currentProvider) return;
@@ -110,7 +130,20 @@ class TTSService {
   }
 
   /**
-   * Sintetiza texto em áudio SEM tocar
+   * Fala um texto sob demanda (ignora config.enabled)
+   * Usado para ações explícitas do usuário como "Ouvir mensagem" ou tecla Espaço
+   */
+  async speakOnDemand(text: string): Promise<void> {
+    if (!this.currentProvider) {
+      console.warn('[TTSService] Nenhum provider configurado para fala sob demanda');
+      return;
+    }
+    console.log('[TTSService] Fala sob demanda:', text.substring(0, 50) + '...');
+    await this.currentProvider.speak(text);
+  }
+
+  /**
+   * Sintetiza texto em áudio SEM tocar (somente se TTS estiver habilitado)
    * Retorna Blob para uso com sistema de audio por mensagem
    */
   async synthesizeForMessage(text: string): Promise<Blob | null> {
@@ -123,6 +156,31 @@ class TTSService {
       return await this.currentProvider.synthesize(text);
     } catch (error) {
       console.error('[TTSService] Erro ao sintetizar:', error);
+      return null;
+    }
+  }
+
+  /**
+   * Sintetiza texto em áudio sob demanda (ignora config.enabled)
+   * Usado para ações explícitas do usuário como "Baixar áudio"
+   */
+  async synthesizeOnDemand(text: string): Promise<Blob | null> {
+    if (!this.currentProvider) {
+      console.warn('[TTSService] Nenhum provider configurado para síntese sob demanda');
+      return null;
+    }
+
+    // Verifica se provider suporta synthesize
+    if (!this.currentProvider.synthesize) {
+      console.warn('[TTSService] Provider não suporta síntese:', this.config.provider);
+      return null;
+    }
+
+    try {
+      console.log('[TTSService] Síntese sob demanda:', text.substring(0, 50) + '...');
+      return await this.currentProvider.synthesize(text);
+    } catch (error) {
+      console.error('[TTSService] Erro ao sintetizar sob demanda:', error);
       return null;
     }
   }
@@ -246,6 +304,7 @@ class TTSService {
   
   /**
    * Define a voz (detecta provider automaticamente)
+   * Aceita formato "provider:voiceId" ou nome de voz direto
    */
   async setVoice(voiceName: string): Promise<void> {
     this.config.voiceName = voiceName;
@@ -253,15 +312,20 @@ class TTSService {
     // Detecta provider da voz
     const detectedProvider = this.detectProviderFromVoice(voiceName);
     
+    // Extrai apenas o ID da voz (remove prefixo provider:)
+    const voiceId = this.extractVoiceId(voiceName);
+    
+    console.log('[TTSService] setVoice:', { voiceName, detectedProvider, voiceId });
+    
     // Troca de provider se necessário
     if (detectedProvider !== this.config.provider) {
       this.config.provider = detectedProvider;
       await this.selectProvider(detectedProvider);
     }
     
-    // Define a voz no provider
+    // Define a voz no provider (usa o ID limpo, sem prefixo)
     if (this.currentProvider) {
-      await this.currentProvider.setVoice(voiceName);
+      await this.currentProvider.setVoice(voiceId);
     }
     
     this.emit('configChanged', this.config);

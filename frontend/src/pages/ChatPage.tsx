@@ -1,5 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { useChatStore } from '../store/chatStore';
+import { useSettingsStore } from '../store/settingsStore';
 import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
 import { ChatToolbar } from '../components/chat/ChatToolbar';
@@ -24,6 +25,11 @@ export default function ChatPage() {
     getThreadedMessages,
     loadMessageChildren,
   } = useChatStore();
+
+  const { config } = useSettingsStore();
+
+  // TTS está desabilitado se não há voz configurada ou se a voz é "disabled"
+  const isTTSDisabled = !config?.voice || config.voice === 'disabled' || config.voice.includes('disabled');
 
   // Estado do modal de detalhes
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -60,7 +66,7 @@ export default function ChatPage() {
       console.log('Fixar/desafixar mensagem:', message);
       // TODO: Implementar pin
     },
-    isTTSDisabled: false, // TODO: Pegar do store de configurações
+    isTTSDisabled,
   });
 
   // Enable keyboard navigation for chat messages
@@ -121,6 +127,7 @@ export default function ChatPage() {
           setDetailMessage(message);
           setDetailModalOpen(true);
         }}
+        onSpeak={speakMessage}
       />
       <ChatInput 
         onSend={handleSendMessage} 

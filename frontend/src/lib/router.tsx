@@ -8,6 +8,7 @@ import FAQPage from '../pages/FAQPage';
 import MemoryPage from '../pages/MemoryPage';
 import AgentsPage from '../pages/AgentsPage';
 import OAuthPage from '../pages/OAuthPage';
+import VoiceProfilesPage from '../pages/VoiceProfilesPage';
 
 export const router = createHashRouter([
   {
@@ -44,6 +45,10 @@ export const router = createHashRouter([
           {
             path: 'oauth',
             element: <OAuthPage />,
+          },
+          {
+            path: 'voice-profiles',
+            element: <VoiceProfilesPage />,
           },
         ],
       },

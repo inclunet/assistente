@@ -29,6 +29,7 @@ export function Topbar() {
     if (location.pathname === '/faq') return 'faq';
     if (location.pathname === '/agents') return 'agents';
     if (location.pathname === '/oauth') return 'oauth';
+    if (location.pathname === '/voice-profiles') return 'voice-profiles';
     return 'chat';
   };
 
@@ -62,6 +63,12 @@ export function Topbar() {
       label: 'Agentes',
       icon: '🤖',
       onClick: () => navigate('/agents'),
+    },
+    {
+      id: 'voice-profiles',
+      label: 'Perfis de Voz',
+      icon: '🔊',
+      onClick: () => navigate('/voice-profiles'),
     },
     {
       id: 'oauth',

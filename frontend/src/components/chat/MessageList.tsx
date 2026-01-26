@@ -14,10 +14,11 @@ export interface MessageListProps {
   // Callbacks de ações
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
   onOpenDetail?: (message: Message) => void;
+  onSpeak?: (message: Message) => void;
 }
 
 export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
-  { isLoading = false, threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onOpenDetail },
+  { isLoading = false, threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onOpenDetail, onSpeak },
   ref
 ) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -94,6 +95,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
               onReachEnd={onReachEnd}
               onContextMenu={onContextMenu}
               onOpenDetail={onOpenDetail}
+              onSpeak={onSpeak}
             />
           ))}
         </div>

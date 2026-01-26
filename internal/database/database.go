@@ -79,10 +79,51 @@ func Init() error {
 		&OAuthConnection{},
 		&ModelCapability{},
 		&FileAgentAuthorizedPath{},
+		&VoiceProfile{},
 	); err != nil {
 		return err
 	}
 
+	// Seed: cria perfil de voz padrão "Desativado" se não existir
+	if err := seedDefaultVoiceProfile(); err != nil {
+		fmt.Printf("Aviso: erro ao criar perfil de voz padrão: %v\n", err)
+	}
+
+	return nil
+}
+
+// seedDefaultVoiceProfile cria o perfil de voz padrão "Desativado" se não existir
+func seedDefaultVoiceProfile() error {
+	// Verifica se já existe um perfil padrão
+	var count int64
+	if err := db.Model(&VoiceProfile{}).Where("is_default = ?", true).Count(&count).Error; err != nil {
+		return err
+	}
+
+	if count > 0 {
+		// Já existe um perfil padrão
+		return nil
+	}
+
+	// Cria o perfil padrão "Desativado"
+	profile := &VoiceProfile{
+		Name:            "Desativado",
+		Description:     "Perfil padrão sem síntese de voz. Usa aria-live para leitores de tela.",
+		Provider:        "disabled",
+		VoiceID:         "",
+		Rate:            1.0,
+		Pitch:           1.0,
+		Volume:          1.0,
+		EnabledForAgent: false,
+		EnabledForUser:  false,
+		IsDefault:       true,
+	}
+
+	if err := db.Create(profile).Error; err != nil {
+		return err
+	}
+
+	fmt.Println("[Database] Perfil de voz padrão 'Desativado' criado com sucesso")
 	return nil
 }
 
@@ -1481,4 +1522,197 @@ func sqrtFloat64(x float64) float64 {
 		z = z - (z*z-x)/(2*z)
 	}
 	return z
+}
+
+// ==================== VoiceProfile ====================
+
+// CreateVoiceProfile cria um novo perfil de voz
+// VoiceProfileOptions contém opções para criar/atualizar um perfil de voz
+type VoiceProfileOptions struct {
+	Name            string
+	Description     string
+	Provider        string
+	VoiceID         string
+	Rate            float64
+	Pitch           float64
+	Volume          float64
+	EnabledForAgent bool
+	EnabledForUser  bool
+	IsDefault       bool
+}
+
+// CreateVoiceProfile cria um novo perfil de voz (versão simplificada para compatibilidade)
+func CreateVoiceProfile(name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
+	return CreateVoiceProfileFull(VoiceProfileOptions{
+		Name:            name,
+		Description:     description,
+		Provider:        provider,
+		VoiceID:         voiceID,
+		Rate:            rate,
+		Pitch:           pitch,
+		Volume:          volume,
+		EnabledForAgent: provider != "disabled",
+		EnabledForUser:  false,
+		IsDefault:       isDefault,
+	})
+}
+
+// CreateVoiceProfileFull cria um novo perfil de voz com todas as opções
+func CreateVoiceProfileFull(opts VoiceProfileOptions) (*VoiceProfile, error) {
+	profile := &VoiceProfile{
+		Name:            opts.Name,
+		Description:     opts.Description,
+		Provider:        opts.Provider,
+		VoiceID:         opts.VoiceID,
+		Rate:            opts.Rate,
+		Pitch:           opts.Pitch,
+		Volume:          opts.Volume,
+		EnabledForAgent: opts.EnabledForAgent,
+		EnabledForUser:  opts.EnabledForUser,
+		IsDefault:       opts.IsDefault,
+	}
+
+	// Valida o perfil
+	if err := profile.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Se marcado como default, remove o default anterior
+	if opts.IsDefault {
+		if err := db.Model(&VoiceProfile{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	if err := db.Create(profile).Error; err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
+// GetVoiceProfile retorna um perfil de voz por ID
+func GetVoiceProfile(id uint) (*VoiceProfile, error) {
+	var profile VoiceProfile
+	err := db.First(&profile, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// GetVoiceProfileByName retorna um perfil de voz por nome
+func GetVoiceProfileByName(name string) (*VoiceProfile, error) {
+	var profile VoiceProfile
+	err := db.Where("name = ?", name).First(&profile).Error
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// GetAllVoiceProfiles retorna todos os perfis de voz
+func GetAllVoiceProfiles() ([]VoiceProfile, error) {
+	var profiles []VoiceProfile
+	err := db.Order("name ASC").Find(&profiles).Error
+	return profiles, err
+}
+
+// GetDefaultVoiceProfile retorna o perfil de voz padrão
+func GetDefaultVoiceProfile() (*VoiceProfile, error) {
+	var profile VoiceProfile
+	err := db.Where("is_default = ?", true).First(&profile).Error
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// UpdateVoiceProfile atualiza um perfil de voz
+// UpdateVoiceProfile atualiza um perfil de voz (versão simplificada para compatibilidade)
+func UpdateVoiceProfile(id uint, name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
+	// Busca o perfil existente para manter os valores dos novos campos
+	var existing VoiceProfile
+	if err := db.First(&existing, id).Error; err != nil {
+		return nil, err
+	}
+
+	return UpdateVoiceProfileFull(id, VoiceProfileOptions{
+		Name:            name,
+		Description:     description,
+		Provider:        provider,
+		VoiceID:         voiceID,
+		Rate:            rate,
+		Pitch:           pitch,
+		Volume:          volume,
+		EnabledForAgent: existing.EnabledForAgent,
+		EnabledForUser:  existing.EnabledForUser,
+		IsDefault:       isDefault,
+	})
+}
+
+// UpdateVoiceProfileFull atualiza um perfil de voz com todas as opções
+func UpdateVoiceProfileFull(id uint, opts VoiceProfileOptions) (*VoiceProfile, error) {
+	var profile VoiceProfile
+	if err := db.First(&profile, id).Error; err != nil {
+		return nil, err
+	}
+
+	profile.Name = opts.Name
+	profile.Description = opts.Description
+	profile.Provider = opts.Provider
+	profile.VoiceID = opts.VoiceID
+	profile.Rate = opts.Rate
+	profile.Pitch = opts.Pitch
+	profile.Volume = opts.Volume
+	profile.EnabledForAgent = opts.EnabledForAgent
+	profile.EnabledForUser = opts.EnabledForUser
+	profile.UpdatedAt = time.Now()
+
+	// Valida o perfil
+	if err := profile.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Se marcado como default, remove o default anterior
+	if opts.IsDefault && !profile.IsDefault {
+		if err := db.Model(&VoiceProfile{}).Where("is_default = ? AND id != ?", true, id).Update("is_default", false).Error; err != nil {
+			return nil, err
+		}
+	}
+	profile.IsDefault = opts.IsDefault
+
+	if err := db.Save(&profile).Error; err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// DeleteVoiceProfile deleta um perfil de voz
+func DeleteVoiceProfile(id uint) error {
+	return db.Delete(&VoiceProfile{}, id).Error
+}
+
+// SetDefaultVoiceProfile define um perfil como padrão
+func SetDefaultVoiceProfile(id uint) error {
+	// Remove default anterior
+	if err := db.Model(&VoiceProfile{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+		return err
+	}
+	// Define o novo default
+	return db.Model(&VoiceProfile{}).Where("id = ?", id).Update("is_default", true).Error
+}
+
+// SearchVoiceProfiles busca perfis por nome ou descrição
+func SearchVoiceProfiles(query string) ([]VoiceProfile, error) {
+	var profiles []VoiceProfile
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return GetAllVoiceProfiles()
+	}
+	searchTerm := "%" + query + "%"
+	err := db.Where(
+		"LOWER(name) LIKE ? OR LOWER(description) LIKE ? OR LOWER(provider) LIKE ?",
+		searchTerm, searchTerm, searchTerm,
+	).Order("name ASC").Find(&profiles).Error
+	return profiles, err
 }

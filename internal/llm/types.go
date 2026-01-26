@@ -174,13 +174,13 @@ type ChatParams struct {
 }
 
 // SettingsInput representa os parâmetros de entrada para salvar configurações
+// Nota: Configurações de voz TTS foram movidas para VoiceProfiles no banco de dados
 type SettingsInput struct {
 	APIKey           string           `json:"api_key"`
 	APIBaseURL       string           `json:"api_base_url"`
 	ChatParams       ModelParams      `json:"chat_params"`
 	EmbeddingsParams EmbeddingsParams `json:"embeddings_params"`
 	ImageModel       string           `json:"image_model,omitempty"`
-	VoiceParams      VoiceParams      `json:"voice_params,omitempty"`
 	STTParams        STTParams        `json:"stt_params,omitempty"`
 	ChatDefaults     ChatDefaults     `json:"chat_defaults,omitempty"`
 }
@@ -197,14 +197,6 @@ type ModelParams struct {
 type EmbeddingsParams struct {
 	Model      string `json:"model"`
 	Dimensions int    `json:"dimensions,omitempty"`
-}
-
-// VoiceParams representa parâmetros de voz TTS
-type VoiceParams struct {
-	Voice     string `json:"voice,omitempty"`
-	AutoSpeak bool   `json:"auto_speak,omitempty"`
-	Volume    int    `json:"volume,omitempty"`
-	Rate      int    `json:"rate,omitempty"`
 }
 
 // STTParams representa parâmetros de transcrição

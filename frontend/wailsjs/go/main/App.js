@@ -86,6 +86,14 @@ export function CreateTab(arg1, arg2) {
   return window['go']['main']['App']['CreateTab'](arg1, arg2);
 }
 
+export function CreateVoiceProfile(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['main']['App']['CreateVoiceProfile'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+}
+
+export function CreateVoiceProfileFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
+  return window['go']['main']['App']['CreateVoiceProfileFull'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+}
+
 export function DeleteAgentConfig(arg1) {
   return window['go']['main']['App']['DeleteAgentConfig'](arg1);
 }
@@ -130,6 +138,10 @@ export function DeleteOAuthConnection(arg1) {
   return window['go']['main']['App']['DeleteOAuthConnection'](arg1);
 }
 
+export function DeleteVoiceProfile(arg1) {
+  return window['go']['main']['App']['DeleteVoiceProfile'](arg1);
+}
+
 export function DisableVoiceHotkey() {
   return window['go']['main']['App']['DisableVoiceHotkey']();
 }
@@ -164,6 +176,10 @@ export function ExportFAQs(arg1) {
 
 export function ExportMemories(arg1) {
   return window['go']['main']['App']['ExportMemories'](arg1);
+}
+
+export function ExportVoiceProfiles(arg1) {
+  return window['go']['main']['App']['ExportVoiceProfiles'](arg1);
 }
 
 export function ExtractTemplateVariables(arg1) {
@@ -246,6 +262,10 @@ export function GetAllTokenStats() {
   return window['go']['main']['App']['GetAllTokenStats']();
 }
 
+export function GetAllVoiceProfiles() {
+  return window['go']['main']['App']['GetAllVoiceProfiles']();
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
@@ -276,6 +296,14 @@ export function GetConversations() {
 
 export function GetCoreMemories() {
   return window['go']['main']['App']['GetCoreMemories']();
+}
+
+export function GetDefaultVoiceProfile() {
+  return window['go']['main']['App']['GetDefaultVoiceProfile']();
+}
+
+export function GetEffectiveVoiceProfile(arg1) {
+  return window['go']['main']['App']['GetEffectiveVoiceProfile'](arg1);
 }
 
 export function GetFAQ(arg1) {
@@ -422,6 +450,14 @@ export function GetVisionCapableModels() {
   return window['go']['main']['App']['GetVisionCapableModels']();
 }
 
+export function GetVoiceProfile(arg1) {
+  return window['go']['main']['App']['GetVoiceProfile'](arg1);
+}
+
+export function GetVoiceProfileByName(arg1) {
+  return window['go']['main']['App']['GetVoiceProfileByName'](arg1);
+}
+
 export function HardDeleteOAuthConnection(arg1) {
   return window['go']['main']['App']['HardDeleteOAuthConnection'](arg1);
 }
@@ -454,6 +490,10 @@ export function ImportPostmanToHTTPAgent(arg1, arg2) {
   return window['go']['main']['App']['ImportPostmanToHTTPAgent'](arg1, arg2);
 }
 
+export function ImportVoiceProfiles(arg1) {
+  return window['go']['main']['App']['ImportVoiceProfiles'](arg1);
+}
+
 export function IncrementModelUsage(arg1) {
   return window['go']['main']['App']['IncrementModelUsage'](arg1);
 }
@@ -484,6 +524,14 @@ export function ParseOpenAPISpec(arg1) {
 
 export function ParsePostmanCollection(arg1) {
   return window['go']['main']['App']['ParsePostmanCollection'](arg1);
+}
+
+export function PreviewVoiceProfile(arg1, arg2) {
+  return window['go']['main']['App']['PreviewVoiceProfile'](arg1, arg2);
+}
+
+export function PreviewVoiceSettings(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['PreviewVoiceSettings'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function ReadMCPResource(arg1, arg2) {
@@ -546,6 +594,10 @@ export function SearchMemories(arg1) {
   return window['go']['main']['App']['SearchMemories'](arg1);
 }
 
+export function SearchVoiceProfiles(arg1) {
+  return window['go']['main']['App']['SearchVoiceProfiles'](arg1);
+}
+
 export function SendMessage(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3, arg4);
 }
@@ -558,8 +610,16 @@ export function SetActiveTab(arg1) {
   return window['go']['main']['App']['SetActiveTab'](arg1);
 }
 
+export function SetConversationVoiceProfile(arg1, arg2) {
+  return window['go']['main']['App']['SetConversationVoiceProfile'](arg1, arg2);
+}
+
 export function SetDefaultModel(arg1) {
   return window['go']['main']['App']['SetDefaultModel'](arg1);
+}
+
+export function SetDefaultVoiceProfile(arg1) {
+  return window['go']['main']['App']['SetDefaultVoiceProfile'](arg1);
 }
 
 export function SetImageModel(arg1) {
@@ -720,6 +780,14 @@ export function UpdateOAuthTokens(arg1, arg2, arg3, arg4) {
 
 export function UpdateTabTitle(arg1, arg2) {
   return window['go']['main']['App']['UpdateTabTitle'](arg1, arg2);
+}
+
+export function UpdateVoiceProfile(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
+  return window['go']['main']['App']['UpdateVoiceProfile'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+}
+
+export function UpdateVoiceProfileFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
+  return window['go']['main']['App']['UpdateVoiceProfileFull'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
 }
 
 export function ValidateTemplate(arg1) {

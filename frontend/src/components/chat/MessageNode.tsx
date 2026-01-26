@@ -14,6 +14,7 @@ export interface MessageNodeProps {
   onReachEnd?: () => void; // Chamado quando tenta ir além do último item no level 0
   onContextMenu?: (e: React.MouseEvent, message: any) => void;
   onOpenDetail?: (message: any) => void;
+  onSpeak?: (message: any) => void;
 }
 
 export const MessageNode: React.FC<MessageNodeProps> = ({
@@ -25,6 +26,7 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
   onReachEnd,
   onContextMenu,
   onOpenDetail,
+  onSpeak,
 }) => {
   const nodeRef = React.useRef<HTMLDivElement>(null);
   const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
@@ -145,6 +147,16 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
   const handleKeyDown = async (e: React.KeyboardEvent) => {
     const key = e.key;
     
+    // Espaço: reproduz TTS da mensagem
+    if (key === ' ' && !node.message.isStreaming) {
+      e.preventDefault();
+      e.stopPropagation();
+      if (onSpeak) {
+        onSpeak(node.message);
+      }
+      return;
+    }
+    
     // Enter abre modal de detalhes (delega para o handler)
     if (key === 'Enter' && !node.message.internal) {
       e.preventDefault();
@@ -252,9 +264,9 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
     }
   };
 
-  // Handler para onKeyUp - captura ContextMenu key
+  // Handler para onKeyUp - captura ContextMenu key ou Shift+F10
   const handleKeyUp = (e: React.KeyboardEvent) => {
-    if (e.key === 'ContextMenu' && !node.message.internal) {
+    if ((e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) && !node.message.internal) {
       e.preventDefault();
       e.stopPropagation();
       if (onContextMenu && nodeRef.current) {
@@ -265,6 +277,8 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
           stopPropagation: () => {},
           clientX: rect.left + rect.width / 2,
           clientY: rect.top + rect.height / 2,
+          currentTarget: nodeRef.current, // Para restaurar foco após fechar menu
+          target: nodeRef.current,
         } as React.MouseEvent;
         onContextMenu(syntheticEvent, node.message);
       }
@@ -291,8 +305,11 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
           threadChildCount={node.childCount || children.length}
           isThreadExpanded={isExpanded}
           isThreadLoading={isLoading}
-          onThreadToggle={handleToggle}          onContextMenu={onContextMenu}
-          onOpenDetail={onOpenDetail}        />
+          onThreadToggle={handleToggle}
+          onContextMenu={onContextMenu}
+          onOpenDetail={onOpenDetail}
+          onSpeak={onSpeak}
+        />
       </div>
 
       {isExpanded && children.length > 0 && (
@@ -307,6 +324,7 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
               onLoadChildren={onLoadChildren}
               onContextMenu={onContextMenu}
               onOpenDetail={onOpenDetail}
+              onSpeak={onSpeak}
               // Não passa onReachEnd para threads internas
             />
           ))}

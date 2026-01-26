@@ -24,14 +24,6 @@ type EmbeddingsParams struct {
 	Dimensions int    `json:"dimensions,omitempty"` // Dimensões do vetor (se suportado pelo modelo)
 }
 
-// VoiceParams representa os parâmetros de voz TTS
-type VoiceParams struct {
-	Voice     string `json:"voice,omitempty"`      // ID da voz (ou "disabled")
-	AutoSpeak bool   `json:"auto_speak,omitempty"` // Falar respostas automaticamente
-	Volume    int    `json:"volume,omitempty"`     // 0-100
-	Rate      int    `json:"rate,omitempty"`       // -10 a 10
-}
-
 // STTParams representa os parâmetros de transcrição
 type STTParams struct {
 	Provider      string `json:"provider,omitempty"`       // "webspeech" ou "whisper"
@@ -45,6 +37,7 @@ type ChatDefaults struct {
 }
 
 // Config representa a configuração da aplicação
+// Nota: Configurações de voz TTS foram movidas para VoiceProfiles no banco de dados
 type Config struct {
 	APIKey           string           `json:"api_key"`
 	APIBaseURL       string           `json:"api_base_url"`
@@ -53,12 +46,12 @@ type Config struct {
 	ImageModel       string           `json:"image_model,omitempty"`
 	ChatParams       ModelParams      `json:"chat_params,omitempty"`
 	EmbeddingsParams EmbeddingsParams `json:"embeddings_params,omitempty"`
-	VoiceParams      VoiceParams      `json:"voice_params,omitempty"`
 	STTParams        STTParams        `json:"stt_params,omitempty"`
 	ChatDefaults     ChatDefaults     `json:"chat_defaults,omitempty"`
 }
 
 // DefaultConfig retorna a configuração padrão
+// Nota: Configurações de voz TTS são gerenciadas via VoiceProfiles no banco de dados
 func DefaultConfig() *Config {
 	return &Config{
 		APIKey:       "",
@@ -73,12 +66,6 @@ func DefaultConfig() *Config {
 		EmbeddingsParams: EmbeddingsParams{
 			Model:      "text-embedding-3-small",
 			Dimensions: 0, // Usa o padrão do modelo
-		},
-		VoiceParams: VoiceParams{
-			Voice:     "disabled", // Desabilitado por padrão (usa leitor de telas)
-			AutoSpeak: true,
-			Volume:    100,
-			Rate:      0,
 		},
 		STTParams: STTParams{
 			Provider:      "webspeech",

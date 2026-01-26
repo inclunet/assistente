@@ -63,10 +63,10 @@ function App() {
         }
     }, [initializeTabs, isInitialized]);
 
-    // Previne menu de contexto nativo quando tecla ContextMenu for pressionada
+    // Previne menu de contexto nativo quando tecla ContextMenu ou Shift+F10 for pressionada
     useEffect(() => {
         const preventNativeContextMenu = (e: KeyboardEvent) => {
-            if (e.key === 'ContextMenu') {
+            if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
                 e.preventDefault();
                 e.stopPropagation();
             }

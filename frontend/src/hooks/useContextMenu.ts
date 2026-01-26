@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { Message } from '../store/chatStore';
 import { MenuItem } from '../components/ui/ContextMenu';
 import { getMessageMenuItems, MenuItemsOptions } from '../lib/messageMenuItems';
@@ -17,10 +17,15 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
   const [menuVisible, setMenuVisible] = useState(false);
   const [menuPosition, setMenuPosition] = useState({ x: 0, y: 0 });
   const [menuItems, setMenuItems] = useState<MenuItem[]>([]);
+  // Guarda referência ao elemento que abriu o menu para restaurar foco
+  const triggerElementRef = useRef<HTMLElement | null>(null);
 
   const showMenu = useCallback(
     (event: React.MouseEvent, message: Message, isUser: boolean) => {
       event.preventDefault();
+      
+      // Guarda o elemento que abriu o menu (ou o target do evento)
+      triggerElementRef.current = (event.currentTarget as HTMLElement) || (event.target as HTMLElement);
       
       const items = getMessageMenuItems(message, {
         ...options,
@@ -37,6 +42,14 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
 
   const hideMenu = useCallback(() => {
     setMenuVisible(false);
+    
+    // Restaura foco ao elemento que abriu o menu
+    setTimeout(() => {
+      if (triggerElementRef.current) {
+        triggerElementRef.current.focus();
+        triggerElementRef.current = null;
+      }
+    }, 10);
   }, []);
 
   // Fecha o menu quando clicar fora (já tratado no ContextMenu, mas como fallback)
@@ -82,7 +95,8 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
     (message: Message) => {
       if (!message.content) return;
       const text = stripMarkdown(message.content);
-      ttsService.speak(text);
+      // Usa speakOnDemand para funcionar mesmo com TTS desabilitado para leitura automática
+      ttsService.speakOnDemand(text);
     },
     []
   );

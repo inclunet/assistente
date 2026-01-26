@@ -49,6 +49,10 @@ export function CreateOAuthConnection(arg1:string,arg2:string,arg3:string,arg4:s
 
 export function CreateTab(arg1:string,arg2:string):Promise<database.ChatTab>;
 
+export function CreateVoiceProfile(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:number,arg7:number,arg8:boolean):Promise<database.VoiceProfile>;
+
+export function CreateVoiceProfileFull(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:number,arg7:number,arg8:boolean,arg9:boolean,arg10:boolean):Promise<database.VoiceProfile>;
+
 export function DeleteAgentConfig(arg1:number):Promise<void>;
 
 export function DeleteConversation(arg1:number):Promise<void>;
@@ -71,6 +75,8 @@ export function DeleteMemory(arg1:number):Promise<void>;
 
 export function DeleteOAuthConnection(arg1:number):Promise<void>;
 
+export function DeleteVoiceProfile(arg1:number):Promise<void>;
+
 export function DisableVoiceHotkey():Promise<void>;
 
 export function DisconnectMCPAgent(arg1:number):Promise<void>;
@@ -88,6 +94,8 @@ export function ExportConversations(arg1:Array<number>):Promise<string>;
 export function ExportFAQs(arg1:Array<number>):Promise<string>;
 
 export function ExportMemories(arg1:Array<number>):Promise<string>;
+
+export function ExportVoiceProfiles(arg1:Array<number>):Promise<string>;
 
 export function ExtractTemplateVariables(arg1:string):Promise<Array<string>>;
 
@@ -129,6 +137,8 @@ export function GetAllTabs():Promise<Array<database.ChatTab>>;
 
 export function GetAllTokenStats():Promise<Record<string, number>>;
 
+export function GetAllVoiceProfiles():Promise<Array<database.VoiceProfile>>;
+
 export function GetConfig():Promise<config.Config>;
 
 export function GetConversation(arg1:number):Promise<database.Conversation>;
@@ -144,6 +154,10 @@ export function GetConversationWithThreads(arg1:number):Promise<main.Conversatio
 export function GetConversations():Promise<Array<database.Conversation>>;
 
 export function GetCoreMemories():Promise<Array<database.Memory>>;
+
+export function GetDefaultVoiceProfile():Promise<database.VoiceProfile>;
+
+export function GetEffectiveVoiceProfile(arg1:number):Promise<database.VoiceProfile>;
 
 export function GetFAQ(arg1:number):Promise<database.FAQ>;
 
@@ -217,6 +231,10 @@ export function GetToolsForAPI():Promise<Array<llm.Tool>>;
 
 export function GetVisionCapableModels():Promise<Array<database.ModelCapability>>;
 
+export function GetVoiceProfile(arg1:number):Promise<database.VoiceProfile>;
+
+export function GetVoiceProfileByName(arg1:string):Promise<database.VoiceProfile>;
+
 export function HardDeleteOAuthConnection(arg1:number):Promise<void>;
 
 export function HasImages(arg1:Array<llm.Message>):Promise<boolean>;
@@ -233,6 +251,8 @@ export function ImportOpenAPIToHTTPAgent(arg1:string,arg2:string):Promise<main.H
 
 export function ImportPostmanToHTTPAgent(arg1:string,arg2:string):Promise<main.HTTPAgentFullConfig>;
 
+export function ImportVoiceProfiles(arg1:string):Promise<main.ImportResult>;
+
 export function IncrementModelUsage(arg1:string):Promise<void>;
 
 export function InitSpeechManager(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
@@ -248,6 +268,10 @@ export function ModelSupportsVision(arg1:string):Promise<boolean>;
 export function ParseOpenAPISpec(arg1:string):Promise<main.OpenAPIImportResult>;
 
 export function ParsePostmanCollection(arg1:string):Promise<main.OpenAPIImportResult>;
+
+export function PreviewVoiceProfile(arg1:number,arg2:string):Promise<void>;
+
+export function PreviewVoiceSettings(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number,arg6:string):Promise<void>;
 
 export function ReadMCPResource(arg1:number,arg2:string):Promise<main.MCPResourceContentInfo>;
 
@@ -279,13 +303,19 @@ export function SearchFAQSemantic(arg1:string,arg2:number,arg3:number):Promise<A
 
 export function SearchMemories(arg1:string):Promise<Array<database.Memory>>;
 
+export function SearchVoiceProfiles(arg1:string):Promise<Array<database.VoiceProfile>>;
+
 export function SendMessage(arg1:number,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<number>;
 
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
 
 export function SetActiveTab(arg1:number):Promise<void>;
 
+export function SetConversationVoiceProfile(arg1:number,arg2:number):Promise<void>;
+
 export function SetDefaultModel(arg1:string):Promise<void>;
+
+export function SetDefaultVoiceProfile(arg1:number):Promise<void>;
 
 export function SetImageModel(arg1:string):Promise<void>;
 
@@ -366,5 +396,9 @@ export function UpdateOAuthConnectionLastUsed(arg1:number):Promise<void>;
 export function UpdateOAuthTokens(arg1:number,arg2:string,arg3:string,arg4:time.Time):Promise<void>;
 
 export function UpdateTabTitle(arg1:number,arg2:string):Promise<void>;
+
+export function UpdateVoiceProfile(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:number,arg8:number,arg9:boolean):Promise<database.VoiceProfile>;
+
+export function UpdateVoiceProfileFull(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:number,arg8:number,arg9:boolean,arg10:boolean,arg11:boolean):Promise<database.VoiceProfile>;
 
 export function ValidateTemplate(arg1:string):Promise<boolean|string>;

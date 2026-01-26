@@ -486,20 +486,34 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       ),
     }));
 
-    // Anuncia mensagem para leitores de tela
+    // Anuncia mensagem para leitores de tela e TTS
+    const settings = useSettingsStore.getState();
+    const isActiveTab = get().activeTabId === tabId;
+    
     if (message.role === 'user') {
       // Mensagem do usuário
-      const cleanContent = stripMarkdown(message.content);
-      const preview = cleanContent.slice(0, 150);
-      announce(`Você: ${preview}${cleanContent.length > 150 ? '...' : ''}`);
-      
-      // Toca som de envio
       playSendSound();
+      
+      // Verifica se TTS do usuário está ativo
+      const ttsEnabledForUser = settings.config?.ttsEnabledForUser;
+      const useAriaLiveForUser = settings.config?.useAriaLiveForUser !== false; // true por padrão
+      
+      if (ttsEnabledForUser && settings.config?.voice) {
+        // TTS para mensagem do usuário - sintetiza e reproduz
+        const cleanContent = stripMarkdown(message.content);
+        ttsService.synthesizeForMessage(cleanContent).then((audioBlob) => {
+          if (!audioBlob) return;
+          const volume = ttsService.getVolume();
+          messageAudioService.playAudioBlob(audioBlob, volume).catch(console.error);
+        }).catch(console.error);
+      } else if (useAriaLiveForUser) {
+        // Anuncia via aria-live se TTS não estiver ativo
+        const cleanContent = stripMarkdown(message.content);
+        const preview = cleanContent.slice(0, 150);
+        announce(`Você: ${preview}${cleanContent.length > 150 ? '...' : ''}`);
+      }
     } else if (message.role === 'assistant' && !message.isStreaming) {
       // Mensagem do assistente completa (não streaming)
-      
-      // Verifica se esta é a aba ativa
-      const isActiveTab = get().activeTabId === tabId;
       
       // Toca som de recebimento (apenas na aba ativa)
       if (isActiveTab) {
@@ -507,13 +521,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
       
       // Verifica se TTS vai ler a mensagem
-      const settings = useSettingsStore.getState();
       const voiceEnabled = settings.config?.voice && settings.config.voice !== VOICE_DISABLED;
       const willUseTTS = voiceEnabled && ttsService.isAutoReadEnabled();
+      const useAriaLiveForAgent = settings.config?.useAriaLiveForAgent !== false; // true por padrão
       
       // Só anuncia via aria-live se TTS NÃO estiver ativo
       // (evita conflito entre TTS e leitor de tela)
-      if (!willUseTTS && isActiveTab) {
+      if (!willUseTTS && useAriaLiveForAgent && isActiveTab) {
         const cleanContent = stripMarkdown(message.content);
         const preview = cleanContent.slice(0, 150);
         announce(`Assistente: ${preview}${cleanContent.length > 150 ? '...' : ''}`);
@@ -1131,6 +1145,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 const settings = useSettingsStore.getState();
                 const voiceEnabled = settings.config?.voice && settings.config.voice !== VOICE_DISABLED;
                 const willUseTTS = voiceEnabled && ttsService.isAutoReadEnabled();
+                const useAriaLiveForAgent = settings.config?.useAriaLiveForAgent !== false; // true por padrão
                 
                 // Sintetiza e reproduz áudio para esta mensagem
                 if (willUseTTS && isActiveTab && !cleanupExecuted) {
@@ -1151,9 +1166,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   }).catch(console.error);
                 }
                 
-                // Só anuncia via aria-live se TTS NÃO estiver ativo
+                // Só anuncia via aria-live se TTS NÃO estiver ativo E aria-live está habilitado
                 // (evita conflito entre TTS e leitor de tela)
-                if (!willUseTTS && isActiveTab) {
+                if (!willUseTTS && useAriaLiveForAgent && isActiveTab) {
                   const cleanContent = stripMarkdown(finalMessage.content);
                   const preview = cleanContent.slice(0, 150);
                   announce(`Assistente: ${preview}${cleanContent.length > 150 ? '...' : ''}`);

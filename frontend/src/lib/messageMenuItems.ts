@@ -298,11 +298,11 @@ export function getMessageMenuItems(
           // Remove markdown do texto
           const cleanText = stripMarkdown(message.content);
           
-          // Sintetiza o áudio
-          const audioBlob = await ttsService.synthesizeForMessage(cleanText);
+          // Sintetiza o áudio sob demanda (funciona mesmo com TTS desabilitado)
+          const audioBlob = await ttsService.synthesizeOnDemand(cleanText);
           
           if (!audioBlob) {
-            onAnnounce?.('Não foi possível sintetizar o áudio. Verifique se o TTS está configurado corretamente.');
+            onAnnounce?.('Não foi possível sintetizar o áudio. Verifique se há um perfil de voz com provider que suporte síntese (OpenAI ou SAPI5).');
             return;
           }
           

@@ -46,7 +46,7 @@ async function playAudioBlob(audioBlob: Blob, volume: number = 1.0): Promise<voi
       resolve();
     };
     
-    currentPlayer.onerror = (e) => {
+    currentPlayer.onerror = () => {
       stopCurrentAudio();
       reject(new Error('Erro ao reproduzir áudio'));
     };

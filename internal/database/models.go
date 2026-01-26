@@ -2,6 +2,7 @@ package database
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -17,10 +18,11 @@ type ChatPreferences struct {
 	UseTools             *bool   `json:"use_tools,omitempty"`
 	ShowInternalMessages *bool   `json:"show_internal_messages,omitempty"`
 	// Voz TTS
-	Voice       string `json:"voice,omitempty"`
-	AutoSpeak   *bool  `json:"auto_speak,omitempty"`
-	VoiceVolume int    `json:"voice_volume,omitempty"`
-	VoiceRate   int    `json:"voice_rate,omitempty"`
+	Voice          string `json:"voice,omitempty"`
+	AutoSpeak      *bool  `json:"auto_speak,omitempty"`
+	VoiceVolume    int    `json:"voice_volume,omitempty"`
+	VoiceRate      int    `json:"voice_rate,omitempty"`
+	VoiceProfileID *uint  `json:"voice_profile_id,omitempty"` // ID do perfil de voz (nil = usar padrão)
 	// STT/Transcrição
 	STTProvider   string `json:"stt_provider,omitempty"`
 	RecordingMode string `json:"recording_mode,omitempty"`
@@ -294,4 +296,75 @@ type FileAgentAuthorizedPath struct {
 	Recursive   bool      `json:"recursive" gorm:"default:true"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// ==================== Voice Profile ====================
+
+// VoiceProfile representa um perfil de configuração de voz TTS
+type VoiceProfile struct {
+	ID              uint      `json:"id" gorm:"primaryKey"`
+	Name            string    `json:"name" gorm:"uniqueIndex;not null"`
+	Description     string    `json:"description" gorm:"type:text"`
+	Provider        string    `json:"provider" gorm:"type:text;not null"`        // disabled, webspeech, sapi5, openai
+	VoiceID         string    `json:"voice_id" gorm:"type:text"`                 // ID da voz (ex: nova, alloy, Microsoft Maria) - vazio se disabled
+	Rate            float64   `json:"rate" gorm:"default:1.0"`                   // Velocidade (0.25-4.0 para OpenAI, -10 a 10 para SAPI5)
+	Pitch           float64   `json:"pitch" gorm:"default:1.0"`                  // Tom (apenas WebSpeech)
+	Volume          float64   `json:"volume" gorm:"default:1.0"`                 // Volume (0-1)
+	EnabledForAgent bool      `json:"enabled_for_agent" gorm:"default:false"`    // Ativa TTS para mensagens do assistente
+	EnabledForUser  bool      `json:"enabled_for_user" gorm:"default:false"`     // Ativa TTS para mensagens do usuário (lê mensagens enviadas)
+	IsDefault       bool      `json:"is_default" gorm:"default:false"`           // Se é o perfil padrão
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// ShouldUseAriaLiveForAgent retorna se deve usar aria-live para mensagens do assistente
+// (quando TTS do assistente está desativado)
+func (v *VoiceProfile) ShouldUseAriaLiveForAgent() bool {
+	return v.Provider == "disabled" || !v.EnabledForAgent
+}
+
+// ShouldUseAriaLiveForUser retorna se deve usar aria-live para mensagens do usuário
+// (quando TTS do usuário está desativado)
+func (v *VoiceProfile) ShouldUseAriaLiveForUser() bool {
+	return v.Provider == "disabled" || !v.EnabledForUser
+}
+
+// Validate valida os campos do perfil de voz
+func (v *VoiceProfile) Validate() error {
+	if v.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if v.Provider == "" {
+		return fmt.Errorf("provider is required")
+	}
+	validProviders := []string{"disabled", "webspeech", "sapi5", "openai"}
+	isValidProvider := false
+	for _, p := range validProviders {
+		if v.Provider == p {
+			isValidProvider = true
+			break
+		}
+	}
+	if !isValidProvider {
+		return fmt.Errorf("provider must be one of: disabled, webspeech, sapi5, openai")
+	}
+	// VoiceID é obrigatório quando TTS está ativado para assistente ou usuário
+	if v.Provider != "disabled" && v.VoiceID == "" && (v.EnabledForAgent || v.EnabledForUser) {
+		return fmt.Errorf("voice_id is required when TTS is enabled for agent or user")
+	}
+	if v.Rate < 0.25 || v.Rate > 4.0 {
+		return fmt.Errorf("rate must be between 0.25 and 4.0")
+	}
+	if v.Pitch < 0.5 || v.Pitch > 2.0 {
+		return fmt.Errorf("pitch must be between 0.5 and 2.0")
+	}
+	if v.Volume < 0 || v.Volume > 1 {
+		return fmt.Errorf("volume must be between 0 and 1")
+	}
+	return nil
+}
+
+// IsDisabled retorna true se o perfil não usa TTS
+func (v *VoiceProfile) IsDisabled() bool {
+	return v.Provider == "disabled" || (!v.EnabledForAgent && !v.EnabledForUser)
 }

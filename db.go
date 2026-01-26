@@ -3,10 +3,12 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"time"
 
 	"assistente/internal/agentmanager"
+	"assistente/internal/config"
 	"assistente/internal/database"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -24,6 +26,7 @@ type HTTPEndpoint = database.HTTPEndpoint
 type MCPAgentDB = database.MCPAgentDB
 type ModelCapability = database.ModelCapability
 type OAuthConnection = database.OAuthConnection
+type VoiceProfile = database.VoiceProfile
 
 // Re-exporta funções que não dependem de App
 var (
@@ -801,4 +804,215 @@ func (a *App) HardDeleteOAuthConnection(id uint) error {
 
 func (a *App) GetActiveOAuthConnectionForProvider(providerID string) (*OAuthConnection, error) {
 	return database.GetActiveOAuthConnectionForProvider(providerID)
+}
+
+// ==================== VoiceProfile ====================
+
+// CreateVoiceProfile cria um novo perfil de voz
+func (a *App) CreateVoiceProfile(name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
+	return database.CreateVoiceProfile(name, description, provider, voiceID, rate, pitch, volume, isDefault)
+}
+
+// CreateVoiceProfileFull cria um novo perfil de voz com todas as opções
+func (a *App) CreateVoiceProfileFull(name, description, provider, voiceID string, rate, pitch, volume float64, enabledForAgent, enabledForUser, isDefault bool) (*VoiceProfile, error) {
+	return database.CreateVoiceProfileFull(database.VoiceProfileOptions{
+		Name:            name,
+		Description:     description,
+		Provider:        provider,
+		VoiceID:         voiceID,
+		Rate:            rate,
+		Pitch:           pitch,
+		Volume:          volume,
+		EnabledForAgent: enabledForAgent,
+		EnabledForUser:  enabledForUser,
+		IsDefault:       isDefault,
+	})
+}
+
+// GetVoiceProfile retorna um perfil de voz por ID
+func (a *App) GetVoiceProfile(id uint) (*VoiceProfile, error) {
+	return database.GetVoiceProfile(id)
+}
+
+// GetVoiceProfileByName retorna um perfil de voz por nome
+func (a *App) GetVoiceProfileByName(name string) (*VoiceProfile, error) {
+	return database.GetVoiceProfileByName(name)
+}
+
+// GetAllVoiceProfiles retorna todos os perfis de voz
+func (a *App) GetAllVoiceProfiles() ([]VoiceProfile, error) {
+	return database.GetAllVoiceProfiles()
+}
+
+// GetDefaultVoiceProfile retorna o perfil de voz padrão
+func (a *App) GetDefaultVoiceProfile() (*VoiceProfile, error) {
+	return database.GetDefaultVoiceProfile()
+}
+
+// UpdateVoiceProfile atualiza um perfil de voz
+func (a *App) UpdateVoiceProfile(id uint, name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
+	return database.UpdateVoiceProfile(id, name, description, provider, voiceID, rate, pitch, volume, isDefault)
+}
+
+// UpdateVoiceProfileFull atualiza um perfil de voz com todas as opções
+func (a *App) UpdateVoiceProfileFull(id uint, name, description, provider, voiceID string, rate, pitch, volume float64, enabledForAgent, enabledForUser, isDefault bool) (*VoiceProfile, error) {
+	return database.UpdateVoiceProfileFull(id, database.VoiceProfileOptions{
+		Name:            name,
+		Description:     description,
+		Provider:        provider,
+		VoiceID:         voiceID,
+		Rate:            rate,
+		Pitch:           pitch,
+		Volume:          volume,
+		EnabledForAgent: enabledForAgent,
+		EnabledForUser:  enabledForUser,
+		IsDefault:       isDefault,
+	})
+}
+
+// DeleteVoiceProfile deleta um perfil de voz
+func (a *App) DeleteVoiceProfile(id uint) error {
+	return database.DeleteVoiceProfile(id)
+}
+
+// SetDefaultVoiceProfile define um perfil como padrão
+func (a *App) SetDefaultVoiceProfile(id uint) error {
+	return database.SetDefaultVoiceProfile(id)
+}
+
+// SearchVoiceProfiles busca perfis por nome ou descrição
+func (a *App) SearchVoiceProfiles(query string) ([]VoiceProfile, error) {
+	return database.SearchVoiceProfiles(query)
+}
+
+// PreviewVoiceProfile reproduz um texto de teste com as configurações de um perfil
+func (a *App) PreviewVoiceProfile(id uint, sampleText string) error {
+	profile, err := database.GetVoiceProfile(id)
+	if err != nil {
+		return fmt.Errorf("perfil não encontrado: %w", err)
+	}
+
+	if sampleText == "" {
+		sampleText = "Este é um teste do perfil de voz " + profile.Name
+	}
+
+	// Usa o SpeechManager para sintetizar
+	if a.speechManager == nil {
+		return fmt.Errorf("speech manager não configurado")
+	}
+
+	// Configura as opções do perfil temporariamente
+	if profile.Provider == "openai" {
+		a.speechManager.SetTTSVoice(profile.VoiceID)
+		// Converte rate para escala SAPI5 para o manager
+		var sapi5Rate int
+		if profile.Rate < 1 {
+			sapi5Rate = int((profile.Rate - 1) / 0.075)
+		} else {
+			sapi5Rate = int((profile.Rate - 1) / 0.3)
+		}
+		a.speechManager.SetTTSSpeed(sapi5Rate)
+	}
+
+	// Sintetiza e retorna (o frontend vai tocar)
+	result, err := a.speechManager.Synthesize(sampleText)
+	if err != nil {
+		return fmt.Errorf("erro ao sintetizar: %w", err)
+	}
+
+	// Emite evento com o áudio para o frontend tocar
+	runtime.EventsEmit(a.ctx, "voice_profile:preview", map[string]interface{}{
+		"audio_base64": result.AudioBase64,
+		"format":       result.Format,
+	})
+
+	return nil
+}
+
+// GetEffectiveVoiceProfile retorna o perfil de voz efetivo para uma conversa
+// Respeita fallback: perfil da conversa -> perfil padrão -> nil
+func (a *App) GetEffectiveVoiceProfile(conversationID uint) (*VoiceProfile, error) {
+	// Primeiro, tenta obter o perfil configurado na conversa
+	prefs, err := database.GetConversationPreferences(conversationID)
+	if err == nil && prefs != nil && prefs.VoiceProfileID != nil {
+		// Tenta carregar o perfil específico
+		profile, err := database.GetVoiceProfile(*prefs.VoiceProfileID)
+		if err == nil {
+			return profile, nil
+		}
+		// Se falhou (perfil foi deletado?), cai para o padrão
+		fmt.Printf("[GetEffectiveVoiceProfile] Perfil %d não encontrado, usando padrão\n", *prefs.VoiceProfileID)
+	}
+
+	// Tenta obter o perfil padrão
+	defaultProfile, err := database.GetDefaultVoiceProfile()
+	if err == nil {
+		return defaultProfile, nil
+	}
+
+	// Sem perfil configurado
+	return nil, nil
+}
+
+// SetConversationVoiceProfile define o perfil de voz de uma conversa
+func (a *App) SetConversationVoiceProfile(conversationID uint, profileID uint) error {
+	prefs, err := database.GetConversationPreferences(conversationID)
+	if err != nil {
+		// Se não existe preferências, cria uma nova
+		prefs = &database.ChatPreferences{}
+	}
+	if prefs == nil {
+		prefs = &database.ChatPreferences{}
+	}
+
+	prefs.VoiceProfileID = &profileID
+	return database.UpdateConversationPreferences(conversationID, prefs)
+}
+
+// PreviewVoiceSettings reproduz um texto de teste com configurações ad-hoc (sem salvar perfil)
+func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume float64, sampleText string) error {
+	if sampleText == "" {
+		sampleText = "Este é um teste das configurações de voz"
+	}
+
+	log.Printf("[PreviewVoiceSettings] provider=%s, voiceID=%s, rate=%.2f", provider, voiceID, rate)
+
+	// Inicializa speechManager se necessário
+	if a.speechManager == nil {
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("erro ao carregar config: %w", err)
+		}
+		if cfg.APIKey == "" {
+			return fmt.Errorf("API key não configurada")
+		}
+		log.Printf("[PreviewVoiceSettings] Inicializando speechManager...")
+		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voiceID, "tts-1")
+	}
+
+	// Configura as opções temporariamente
+	if provider == "openai" {
+		a.speechManager.SetTTSVoice(voiceID)
+		// OpenAI TTS usa rate diretamente (0.25 a 4.0), não precisa converter
+		log.Printf("[PreviewVoiceSettings] Configurando voz OpenAI: %s, rate=%.2f", voiceID, rate)
+	}
+
+	// Sintetiza usando a voz específica
+	log.Printf("[PreviewVoiceSettings] Sintetizando texto: %s", sampleText[:min(50, len(sampleText))])
+	result, err := a.speechManager.SynthesizeWithVoice(sampleText, voiceID)
+	if err != nil {
+		log.Printf("[PreviewVoiceSettings] Erro ao sintetizar: %v", err)
+		return fmt.Errorf("erro ao sintetizar: %w", err)
+	}
+
+	log.Printf("[PreviewVoiceSettings] Áudio gerado, emitindo evento...")
+
+	// Emite evento com o áudio para o frontend tocar
+	runtime.EventsEmit(a.ctx, "voice_profile:preview", map[string]interface{}{
+		"audio_base64": result.AudioBase64,
+		"format":       result.Format,
+	})
+
+	log.Printf("[PreviewVoiceSettings] Evento emitido com sucesso")
+	return nil
 }

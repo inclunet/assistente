@@ -542,12 +542,6 @@ func (a *App) SaveSettings(input SettingsInput) error {
 				Model:      input.EmbeddingsParams.Model,
 				Dimensions: input.EmbeddingsParams.Dimensions,
 			},
-			VoiceParams: config.VoiceParams{
-				Voice:     input.VoiceParams.Voice,
-				AutoSpeak: input.VoiceParams.AutoSpeak,
-				Volume:    input.VoiceParams.Volume,
-				Rate:      input.VoiceParams.Rate,
-			},
 			STTParams: config.STTParams{
 				Provider:      input.STTParams.Provider,
 				RecordingMode: input.STTParams.RecordingMode,

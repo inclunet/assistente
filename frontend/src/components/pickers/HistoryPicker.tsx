@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { Combobox, ComboboxItem } from './Combobox';
 import { GetConversations } from '../../../wailsjs/go/main/App';
 import { database } from '../../../wailsjs/go/models';
@@ -13,16 +13,19 @@ export interface HistoryPickerProps {
   onAnnounce?: (message: string) => void;
 }
 
-const NEW_CONVERSATION_VALUE = 'new';
+export interface HistoryPickerRef {
+  reload: () => Promise<void>;
+  getSelectedConversation: () => database.Conversation | undefined;
+}
 
-export const HistoryPicker = ({
+export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   value,
   onChange,
   label = 'Histórico (Ctrl+H)',
   disabled = false,
   maxWidth = '200px',
   onAnnounce
-}: HistoryPickerProps) => {
+}, ref) => {
   const [conversations, setConversations] = useState<database.Conversation[]>([]);
   const [isLoading, setIsLoading] = useState(true);
 
@@ -86,6 +89,11 @@ export const HistoryPicker = ({
     loadConversations();
   }, [loadConversations]);
 
+  useImperativeHandle(ref, () => ({
+    reload: loadConversations,
+    getSelectedConversation: () => conversations.find(c => c.id === value),
+  }));
+
   // Formata data para exibição
   const formatDate = (dateValue: any): string => {
     const date = new Date(dateValue);
@@ -107,33 +115,21 @@ export const HistoryPicker = ({
     });
   };
 
-  // Converte conversas para items do Combobox
-  const items: ComboboxItem[] = [
-    {
-      value: NEW_CONVERSATION_VALUE,
-      label: '➕ Nova conversa',
-      sublabel: 'Criar conversa em branco'
-    },
-    ...conversations.map(conv => ({
-      value: conv.id.toString(),
-      label: conv.title || 'Sem título',
-      sublabel: `${conv.message_count || 0} msgs • ${formatDate(conv.updated_at)}`
-    }))
-  ];
+  // Converte conversas para items do Combobox (apenas conversas, sem opções especiais)
+  const items: ComboboxItem[] = conversations.map(conv => ({
+    value: conv.id.toString(),
+    label: conv.title || 'Sem título',
+    sublabel: `${conv.message_count || 0} msgs • ${formatDate(conv.updated_at)}`
+  }));
 
-  // Valor selecionado
-  const selectedValue = value ? value.toString() : NEW_CONVERSATION_VALUE;
+  // Valor selecionado (string vazia se não houver conversa selecionada)
+  const selectedValue = value ? value.toString() : '';
 
-  const handleSelect = (selectedValue: string, _item: ComboboxItem) => {
-    if (selectedValue === NEW_CONVERSATION_VALUE) {
-      // Nova conversa - chama onChange com ID 0 (convenção para nova conversa)
-      onChange(0, {} as database.Conversation);
-    } else {
-      const conversationId = parseInt(selectedValue, 10);
-      const conversation = conversations.find(c => c.id === conversationId);
-      if (conversation) {
-        onChange(conversationId, conversation);
-      }
+  const handleSelect = (selectedValue: string) => {
+    const conversationId = parseInt(selectedValue, 10);
+    const conversation = conversations.find(c => c.id === conversationId);
+    if (conversation) {
+      onChange(conversationId, conversation);
     }
   };
 
@@ -151,4 +147,6 @@ export const HistoryPicker = ({
       onOpen={handleOpen}
     />
   );
-};
+});
+
+HistoryPicker.displayName = 'HistoryPicker';

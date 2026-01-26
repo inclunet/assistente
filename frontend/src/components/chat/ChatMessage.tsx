@@ -18,6 +18,7 @@ export interface ChatMessageProps {
   // Event handlers
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
   onOpenDetail?: (message: Message) => void;
+  onSpeak?: (message: Message) => void;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = ({ 
@@ -29,6 +30,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   onThreadToggle,
   onContextMenu,
   onOpenDetail,
+  onSpeak,
 }) => {
   const { role, content, timestamp, isStreaming, agentName, toolName } = message;
 
@@ -72,11 +74,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Spacebar - funcionalidade de replay desativada na v4
-    // (o sistema agora usa reprodução direta sem cache)
-    if (e.key === ' ' && role === 'assistant' && !isStreaming) {
+    // Spacebar - reproduz TTS da mensagem (assistente ou usuário)
+    if (e.key === ' ' && !isStreaming) {
       e.preventDefault();
-      // TODO: Implementar re-síntese sob demanda se necessário
+      if (onSpeak) {
+        onSpeak(message);
+      }
     }
     
     // Enter abre modal de detalhes
@@ -89,9 +92,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   };
   
   const handleKeyUp = (e: React.KeyboardEvent) => {
-    // Tecla ContextMenu/Application (Windows) abre menu de contexto
+    // Tecla ContextMenu/Application (Windows) ou Shift+F10 abre menu de contexto
     // Usa onKeyUp para prevenir menu nativo do navegador
-    if (e.key === 'ContextMenu') {
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault();
       e.stopPropagation();
       if (onContextMenu) {
@@ -102,6 +105,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
           stopPropagation: () => {},
           clientX: rect.left + rect.width / 2,
           clientY: rect.top + rect.height / 2,
+          currentTarget: e.currentTarget, // Para restaurar foco após fechar menu
+          target: e.currentTarget,
         } as React.MouseEvent;
         onContextMenu(syntheticEvent, message);
       }

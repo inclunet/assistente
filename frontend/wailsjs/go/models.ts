@@ -45,24 +45,6 @@ export namespace config {
 	        this.recording_mode = source["recording_mode"];
 	    }
 	}
-	export class VoiceParams {
-	    voice?: string;
-	    auto_speak?: boolean;
-	    volume?: number;
-	    rate?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new VoiceParams(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.voice = source["voice"];
-	        this.auto_speak = source["auto_speak"];
-	        this.volume = source["volume"];
-	        this.rate = source["rate"];
-	    }
-	}
 	export class EmbeddingsParams {
 	    model?: string;
 	    dimensions?: number;
@@ -103,7 +85,6 @@ export namespace config {
 	    image_model?: string;
 	    chat_params?: ModelParams;
 	    embeddings_params?: EmbeddingsParams;
-	    voice_params?: VoiceParams;
 	    stt_params?: STTParams;
 	    chat_defaults?: ChatDefaults;
 	
@@ -120,7 +101,6 @@ export namespace config {
 	        this.image_model = source["image_model"];
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.embeddings_params = this.convertValues(source["embeddings_params"], EmbeddingsParams);
-	        this.voice_params = this.convertValues(source["voice_params"], VoiceParams);
 	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
 	        this.chat_defaults = this.convertValues(source["chat_defaults"], ChatDefaults);
 	    }
@@ -143,7 +123,6 @@ export namespace config {
 		    return a;
 		}
 	}
-	
 	
 	
 
@@ -270,6 +249,7 @@ export namespace database {
 	    auto_speak?: boolean;
 	    voice_volume?: number;
 	    voice_rate?: number;
+	    voice_profile_id?: number;
 	    stt_provider?: string;
 	    recording_mode?: string;
 	
@@ -289,6 +269,7 @@ export namespace database {
 	        this.auto_speak = source["auto_speak"];
 	        this.voice_volume = source["voice_volume"];
 	        this.voice_rate = source["voice_rate"];
+	        this.voice_profile_id = source["voice_profile_id"];
 	        this.stt_provider = source["stt_provider"];
 	        this.recording_mode = source["recording_mode"];
 	    }
@@ -735,6 +716,60 @@ export namespace database {
 		    return a;
 		}
 	}
+	export class VoiceProfile {
+	    id: number;
+	    name: string;
+	    description: string;
+	    provider: string;
+	    voice_id: string;
+	    rate: number;
+	    pitch: number;
+	    volume: number;
+	    enabled_for_agent: boolean;
+	    enabled_for_user: boolean;
+	    is_default: boolean;
+	    created_at: time.Time;
+	    updated_at: time.Time;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.provider = source["provider"];
+	        this.voice_id = source["voice_id"];
+	        this.rate = source["rate"];
+	        this.pitch = source["pitch"];
+	        this.volume = source["volume"];
+	        this.enabled_for_agent = source["enabled_for_agent"];
+	        this.enabled_for_user = source["enabled_for_user"];
+	        this.is_default = source["is_default"];
+	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 
@@ -902,31 +937,12 @@ export namespace llm {
 	        this.recording_mode = source["recording_mode"];
 	    }
 	}
-	export class VoiceParams {
-	    voice?: string;
-	    auto_speak?: boolean;
-	    volume?: number;
-	    rate?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new VoiceParams(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.voice = source["voice"];
-	        this.auto_speak = source["auto_speak"];
-	        this.volume = source["volume"];
-	        this.rate = source["rate"];
-	    }
-	}
 	export class SettingsInput {
 	    api_key: string;
 	    api_base_url: string;
 	    chat_params: ModelParams;
 	    embeddings_params: EmbeddingsParams;
 	    image_model?: string;
-	    voice_params?: VoiceParams;
 	    stt_params?: STTParams;
 	    chat_defaults?: ChatDefaults;
 	
@@ -941,7 +957,6 @@ export namespace llm {
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.embeddings_params = this.convertValues(source["embeddings_params"], EmbeddingsParams);
 	        this.image_model = source["image_model"];
-	        this.voice_params = this.convertValues(source["voice_params"], VoiceParams);
 	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
 	        this.chat_defaults = this.convertValues(source["chat_defaults"], ChatDefaults);
 	    }
@@ -1012,7 +1027,6 @@ export namespace llm {
 		    return a;
 		}
 	}
-	
 	
 
 }
