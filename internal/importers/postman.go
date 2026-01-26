@@ -594,3 +594,4 @@ func (p *PostmanParser) extractPropertiesFromJSON(obj map[string]interface{}, pr
 
 
 
+
