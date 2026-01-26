@@ -279,7 +279,7 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
           clientY: rect.top + rect.height / 2,
           currentTarget: nodeRef.current, // Para restaurar foco após fechar menu
           target: nodeRef.current,
-        } as React.MouseEvent;
+        } as unknown as React.MouseEvent;
         onContextMenu(syntheticEvent, node.message);
       }
     }

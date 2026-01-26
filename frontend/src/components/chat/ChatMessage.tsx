@@ -107,7 +107,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
           clientY: rect.top + rect.height / 2,
           currentTarget: e.currentTarget, // Para restaurar foco após fechar menu
           target: e.currentTarget,
-        } as React.MouseEvent;
+        } as unknown as React.MouseEvent;
         onContextMenu(syntheticEvent, message);
       }
     }

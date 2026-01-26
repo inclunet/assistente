@@ -45,7 +45,7 @@ export const VoiceProfilePicker = forwardRef<VoiceProfilePickerRef, VoiceProfile
     {
       value,
       onChange,
-      variant = 'form',
+      variant: _variant = 'form', // eslint-disable-line @typescript-eslint/no-unused-vars
       label = 'Perfil de Voz',
       icon = '🔊',
       maxWidth,
