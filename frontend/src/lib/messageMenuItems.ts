@@ -5,6 +5,9 @@ import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
 import { visit } from 'unist-util-visit';
 import type { Code, Link, Table } from 'mdast';
+import { messageAudioService } from '../services/messageAudio';
+import { ttsService } from '../services/tts';
+import { stripMarkdown } from './stripMarkdown';
 
 export interface MenuItemsOptions {
   onCopy?: (message: Message, asMarkdown: boolean) => void;
@@ -275,6 +278,46 @@ export function getMessageMenuItems(
       ariaLabel: 'Ouvir mensagem',
       shortcut: 'Espaço',
       action: () => onSpeak?.(message),
+    });
+    
+    // 2.1 Baixar áudio desta mensagem (apenas para providers que suportam síntese)
+    items.push({
+      id: 'download-audio',
+      label: 'Baixar áudio desta mensagem',
+      icon: '💾',
+      ariaLabel: 'Sintetizar e baixar áudio desta mensagem',
+      action: async () => {
+        if (!message.content) {
+          onAnnounce?.('Mensagem sem conteúdo');
+          return;
+        }
+        
+        onAnnounce?.('Sintetizando áudio...');
+        
+        try {
+          // Remove markdown do texto
+          const cleanText = stripMarkdown(message.content);
+          
+          // Sintetiza o áudio
+          const audioBlob = await ttsService.synthesizeForMessage(cleanText);
+          
+          if (!audioBlob) {
+            onAnnounce?.('Não foi possível sintetizar o áudio. Verifique se o TTS está configurado corretamente.');
+            return;
+          }
+          
+          // Gera nome do arquivo com timestamp
+          const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+          const filename = `mensagem-${timestamp}.mp3`;
+          
+          // Baixa o arquivo
+          messageAudioService.downloadAudioBlob(audioBlob, filename);
+          onAnnounce?.('Áudio baixado com sucesso');
+        } catch (error) {
+          console.error('Erro ao baixar áudio:', error);
+          onAnnounce?.('Erro ao sintetizar áudio');
+        }
+      },
     });
   }
 

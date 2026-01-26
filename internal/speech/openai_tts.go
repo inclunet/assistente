@@ -97,6 +97,9 @@ func NewTTSClient(config TTSConfig) *TTSClient {
 		config: config,
 		httpClient: &http.Client{
 			Timeout: 60 * time.Second,
+			Transport: &http.Transport{
+				DisableKeepAlives: true,
+			},
 		},
 	}
 }

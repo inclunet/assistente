@@ -3,8 +3,6 @@ import { Message } from '../../store/chatStore';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { formatAgentName, isAgentMessage } from '../../lib/chatUtils';
-import { messageAudioService } from '../../services/messageAudio';
-import { ttsService } from '../../services/tts';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import './ChatMessage.css';
@@ -32,7 +30,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   onContextMenu,
   onOpenDetail,
 }) => {
-  const { id, role, content, timestamp, isStreaming, agentName, toolName } = message;
+  const { role, content, timestamp, isStreaming, agentName, toolName } = message;
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -74,11 +72,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    // Spacebar reproduz áudio - Lock global previne duplicação
+    // Spacebar - funcionalidade de replay desativada na v4
+    // (o sistema agora usa reprodução direta sem cache)
     if (e.key === ' ' && role === 'assistant' && !isStreaming) {
       e.preventDefault();
-      const volume = ttsService.getVolume();
-      messageAudioService.playMessage(id, volume);
+      // TODO: Implementar re-síntese sob demanda se necessário
     }
     
     // Enter abre modal de detalhes

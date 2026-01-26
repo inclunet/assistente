@@ -1,6 +1,3 @@
-console.log('🟡🟡🟡 [chatStore.ts] MÓDULO SENDO CARREGADO 🟡🟡🟡');
-console.log('🟡 Timestamp:', new Date().toISOString());
-
 import { create } from 'zustand';
 import { 
   SendMessage, 
@@ -176,10 +173,7 @@ const backendTabToFrontend = (backendTab: database.ChatTab): ChatTab => {
 };
 
 export const useChatStore = create<ChatStore>()((set, get) => {
-  console.log('🟢🟢🟢 [chatStore] CRIANDO STORE 🟢🟢🟢');
-  console.log('🟢 Estado inicial: tabs=[], isInitialized=false');
-  
-  // FORCE RESET - Remove qualquer estado persistido
+  // Limpa localStorage relacionado ao chat na inicialização
   if (typeof window !== 'undefined') {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -188,10 +182,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         keysToRemove.push(key);
       }
     }
-    keysToRemove.forEach(key => {
-      console.log('🔥 Removendo localStorage:', key);
-      localStorage.removeItem(key);
-    });
+    keysToRemove.forEach(key => localStorage.removeItem(key));
   }
   
   return {
@@ -203,9 +194,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     expandedThreads: new Set<string>(),
 
     initializeTabs: async () => {
-      console.log('========================================');
-      console.log('===== [initializeTabs] INICIANDO =====');
-      console.log('========================================');
     try {
       console.log('[Chat] Initializing tabs from backend...');
       const backendTabs = await GetAllTabs();
@@ -1144,34 +1132,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 const voiceEnabled = settings.config?.voice && settings.config.voice !== VOICE_DISABLED;
                 const willUseTTS = voiceEnabled && ttsService.isAutoReadEnabled();
                 
-                // Sintetiza áudio para esta mensagem (não toca ainda)
-                // IMPORTANTE: Verifica se este listener ainda é válido ANTES de sintetizar
-                if (willUseTTS && isActiveTab && cleanupExecuted === false) {
-                  // Sintetiza de forma assíncrona (não bloqueia)
+                // Sintetiza e reproduz áudio para esta mensagem
+                if (willUseTTS && isActiveTab && !cleanupExecuted) {
+                  // Para qualquer áudio anterior
+                  messageAudioService.stopAll();
+                  ttsService.stop();
+                  
+                  // Sintetiza e reproduz
                   ttsService.synthesizeForMessage(finalMessage.content).then((audioBlob) => {
-                    if (audioBlob) {
-                      // Cria player para esta mensagem
-                      messageAudioService.createAudioForMessage(
-                        assistantMessageId,
-                        audioBlob
-                      );
-                      
-                      // Toca automaticamente se ainda for a aba ativa
-                      const currentActiveTabId = get().activeTabId;
-                      const isStillActive = currentTabId === currentActiveTabId;
-                      
-                      if (isStillActive) {
-                        const volume = ttsService.getVolume();
-                        ttsService.stop();
-                        
-                        messageAudioService.playMessage(assistantMessageId, volume).catch((error) => {
-                          console.error('[Chat] ❌ Erro ao reproduzir áudio:', error);
-                        });
-                      }
-                    }
-                  }).catch((error) => {
-                    console.error('[Chat] ❌ Erro ao sintetizar TTS:', error);
-                  });
+                    if (!audioBlob) return;
+                    
+                    // Verifica se tab ainda está ativa
+                    const currentActiveTabId = get().activeTabId;
+                    if (currentTabId !== currentActiveTabId) return;
+                    
+                    const volume = ttsService.getVolume();
+                    messageAudioService.playAudioBlob(audioBlob, volume).catch(console.error);
+                  }).catch(console.error);
                 }
                 
                 // Só anuncia via aria-live se TTS NÃO estiver ativo

@@ -34,23 +34,15 @@ class TTSService {
   }
   
   private async init(): Promise<void> {
-    if (this.initialized) {
-      return;
-    }
-    
-    console.log('[TTSService] Initializing...');
+    if (this.initialized) return;
     
     // Inicializa factory de provedores
     await ttsFactory.initialize();
-    
-    // Carrega configurações salvas
-    this.loadConfig();
     
     // Seleciona provider inicial
     await this.selectProvider(this.config.provider);
     
     this.initialized = true;
-    console.log('[TTSService] Initialized with provider:', this.config.provider);
   }
   
   private async selectProvider(type: TTSProvider): Promise<void> {
@@ -66,8 +58,6 @@ class TTSService {
       console.error('[TTSService] No provider available');
       return;
     }
-    
-    console.log('[TTSService] Selected provider:', this.currentProvider.name);
     
     // Aplica configurações ao novo provider
     if (this.config.voiceName) {
@@ -98,35 +88,10 @@ class TTSService {
     });
   }
   
-  private loadConfig(): void {
-    try {
-      const saved = localStorage.getItem('tts_config');
-      if (saved) {
-        const config = JSON.parse(saved);
-        this.config = { 
-          ...this.config, 
-          ...config,
-          provider: config.provider || TTSProvider.WEBSPEECH 
-        };
-      }
-    } catch (error) {
-      console.error('[TTSService] Error loading config:', error);
-    }
-  }
-  
-  private saveConfig(): void {
-    try {
-      localStorage.setItem('tts_config', JSON.stringify(this.config));
-    } catch (error) {
-      console.error('[TTSService] Error saving config:', error);
-    }
-  }
-  
   /**
    * Detecta o provider de uma voz pelo nome
    */
   private detectProviderFromVoice(voiceName: string): TTSProvider {
-    // Padrões conhecidos
     if (voiceName.includes('Microsoft') || voiceName.includes('SAPI')) {
       return TTSProvider.SAPI5;
     }
@@ -140,10 +105,7 @@ class TTSService {
    * Fala um texto
    */
   async speak(text: string): Promise<void> {
-    if (!this.config.enabled || !this.currentProvider) {
-      return;
-    }
-    
+    if (!this.config.enabled || !this.currentProvider) return;
     await this.currentProvider.speak(text);
   }
 
@@ -152,30 +114,15 @@ class TTSService {
    * Retorna Blob para uso com sistema de audio por mensagem
    */
   async synthesizeForMessage(text: string): Promise<Blob | null> {
-    console.log('[TTSService] 🎤 synthesizeForMessage chamado:', {
-      enabled: this.config.enabled,
-      hasProvider: !!this.currentProvider,
-      providerName: this.currentProvider?.name
-    });
-    
-    if (!this.config.enabled || !this.currentProvider) {
-      console.log('[TTSService] ❌ TTS desabilitado ou sem provider');
-      return null;
-    }
+    if (!this.config.enabled || !this.currentProvider) return null;
 
     // Verifica se provider suporta synthesize
-    if (!this.currentProvider.synthesize) {
-      console.warn(`[TTSService] ❌ Provider ${this.currentProvider.name} não suporta synthesize`);
-      return null;
-    }
+    if (!this.currentProvider.synthesize) return null;
 
     try {
-      console.log('[TTSService] 🎤 Chamando provider.synthesize...');
-      const blob = await this.currentProvider.synthesize(text);
-      console.log('[TTSService] ✅ Blob recebido do provider:', blob?.size, 'bytes');
-      return blob;
+      return await this.currentProvider.synthesize(text);
     } catch (error) {
-      console.error('[TTSService] ❌ Erro ao sintetizar:', error);
+      console.error('[TTSService] Erro ao sintetizar:', error);
       return null;
     }
   }
@@ -233,7 +180,6 @@ class TTSService {
    */
   setEnabled(enabled: boolean): void {
     this.config.enabled = enabled;
-    this.saveConfig();
     this.emit('configChanged', this.config);
     
     if (!enabled) {
@@ -246,7 +192,6 @@ class TTSService {
    */
   setAutoRead(autoRead: boolean): void {
     this.config.autoRead = autoRead;
-    this.saveConfig();
     this.emit('configChanged', this.config);
   }
   
@@ -256,7 +201,6 @@ class TTSService {
   async setProvider(provider: TTSProvider): Promise<void> {
     this.config.provider = provider;
     await this.selectProvider(provider);
-    this.saveConfig();
     this.emit('configChanged', this.config);
   }
   
@@ -268,7 +212,6 @@ class TTSService {
     if (this.currentProvider) {
       await this.currentProvider.setRate(rate);
     }
-    this.saveConfig();
     this.emit('configChanged', this.config);
   }
   
@@ -277,11 +220,9 @@ class TTSService {
    */
   setPitch(pitch: number): void {
     this.config.pitch = pitch;
-    // Pitch só funciona com WebSpeech
     if (this.currentProvider?.name === TTSProvider.WEBSPEECH) {
       (this.currentProvider as any).setPitch?.(pitch);
     }
-    this.saveConfig();
     this.emit('configChanged', this.config);
   }
   
@@ -293,7 +234,6 @@ class TTSService {
     if (this.currentProvider) {
       await this.currentProvider.setVolume(volume);
     }
-    this.saveConfig();
     this.emit('configChanged', this.config);
   }
 
@@ -308,8 +248,6 @@ class TTSService {
    * Define a voz (detecta provider automaticamente)
    */
   async setVoice(voiceName: string): Promise<void> {
-    console.log('[TTSService] Definindo voz:', voiceName);
-    
     this.config.voiceName = voiceName;
     
     // Detecta provider da voz
@@ -317,7 +255,6 @@ class TTSService {
     
     // Troca de provider se necessário
     if (detectedProvider !== this.config.provider) {
-      console.log('[TTSService] Trocando provider para:', detectedProvider);
       this.config.provider = detectedProvider;
       await this.selectProvider(detectedProvider);
     }
@@ -327,7 +264,6 @@ class TTSService {
       await this.currentProvider.setVoice(voiceName);
     }
     
-    this.saveConfig();
     this.emit('configChanged', this.config);
   }
   
@@ -358,8 +294,6 @@ class TTSService {
    * Retorna vozes de um provider específico (compatibilidade)
    */
   getVoicesByProvider(provider: TTSProvider): SpeechSynthesisVoice[] {
-    // Apenas para compatibilidade com código antigo que espera SpeechSynthesisVoice[]
-    // Só funciona com WebSpeech
     if (provider === TTSProvider.WEBSPEECH && this.currentProvider?.name === TTSProvider.WEBSPEECH) {
       return (this.currentProvider as any).synth?.getVoices() || [];
     }
