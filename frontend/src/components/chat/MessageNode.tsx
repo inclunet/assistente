@@ -30,11 +30,15 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
   const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
   const isThreadExpanded = useChatStore(state => state.isThreadExpanded);
   const [isLoading, setIsLoading] = useState(false);
-  const [loadedChildren, setLoadedChildren] = useState<MessageNodeType[]>([]);
   
-  // Usa APENAS o estado da store (não node.isExpanded) para garantir reatividade
+  // Usa APENAS o estado da store para garantir reatividade
   const isExpanded = isThreadExpanded(node.message.id);
-  const children = loadedChildren.length > 0 ? loadedChildren : (node.children || []);
+  
+  // SIMPLIFICADO: Usa apenas node.children da store
+  // - loadMessageChildren atualiza node.children na store
+  // - addInternalMessage também atualiza node.children na store
+  // - Não precisamos de estado local duplicado
+  const children = node.children || [];
 
   const hasChildren = node.childCount > 0 || children.length > 0;
 
@@ -63,14 +67,15 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
     const nowExpanded = isThreadExpanded(node.message.id);
     console.log('[MessageNode] ✅ After toggle:', { wasExpanded, nowExpanded });
     
-    // Se estava fechado e tem filhos para carregar
-    if (!wasExpanded && children.length === 0 && onLoadChildren) {
+    // Se estava fechado e tem filhos para carregar (childCount > 0 mas children.length === 0)
+    // Isso acontece quando os filhos ainda não foram carregados do banco
+    if (!wasExpanded && children.length === 0 && node.childCount > 0 && onLoadChildren) {
       console.log('[MessageNode] 📥 Loading children for:', node.message.id);
       setIsLoading(true);
       try {
-        const newChildren = await onLoadChildren(node.message.id);
-        console.log('[MessageNode] ✅ Loaded children:', newChildren.length);
-        setLoadedChildren(newChildren);
+        // onLoadChildren atualiza node.children na store, causando re-render automático
+        await onLoadChildren(node.message.id);
+        console.log('[MessageNode] ✅ Children loaded (store updated)');
       } catch (error) {
         console.error('[MessageNode] ❌ Error loading children:', error);
       } finally {

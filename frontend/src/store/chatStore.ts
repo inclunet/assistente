@@ -573,22 +573,148 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   },
   
   // Adiciona mensagem interna (filho de uma mensagem raiz, ex: tool calls)
+  // 
+  // ARQUITETURA DE THREADS EM TEMPO REAL:
+  // - SEMPRE adiciona mensagem à árvore no lugar correto (para manter hierarquia)
+  // - SEMPRE incrementa childCount do pai (para contador de interações)
+  // - A RENDERIZAÇÃO (MessageNode) controla o que mostra baseado no estado de expansão
+  // 
+  // Isso garante que:
+  // 1. Mensagens de nível 2+ encontrem seus pais na árvore
+  // 2. Contador de interações esteja sempre correto
+  // 3. UI só mostra threads expandidas (comportamento existente)
   addInternalMessage: (tabId, message) => {
-    console.log('[Chat] Adding internal message:', { tabId, message });
+    const parentId = message.parentId?.toString();
+    console.log('[Chat] 📨 Adding internal message:', { 
+      tabId, 
+      messageId: message.id,
+      parentId,
+      role: message.role,
+      agentName: message.agentName 
+    });
     
     set((state) => {
       const tab = state.tabs.find(t => t.id === tabId);
       if (!tab) return state;
       
-      // Verifica se a mensagem já existe na árvore
-      const exists = flattenThreadedMessages(tab.threadedMessages).some(m => m.id === message.id);
-      if (exists) {
-        console.log('[Chat] Message already exists, skipping:', message.id);
-        return state;
+      // Se não tem parentId, é uma mensagem raiz - adiciona normalmente
+      if (!parentId) {
+        console.log('[Chat] No parentId, adding as root message');
+        const newNode = new main.MessageNode({
+          message,
+          children: [],
+          level: 0,
+          childCount: 0,
+        });
+        return {
+          tabs: state.tabs.map((t) =>
+            t.id === tabId
+              ? { ...t, threadedMessages: [...t.threadedMessages, newNode] }
+              : t
+          ),
+        };
       }
       
-      // TODO: Implementar inserção correta na árvore baseado no parentId
-      // Por enquanto, apenas adiciona como nó raiz
+      // Função recursiva para encontrar o nó pai e adicionar como filho
+      // SEMPRE adiciona, independente do estado de expansão da thread
+      const addToTree = (nodes: MessageNode[], targetParentId: string, level: number): { nodes: MessageNode[], found: boolean } => {
+        let found = false;
+        const updatedNodes = nodes.map(node => {
+          // Encontrou o nó pai
+          if (node.message.id === targetParentId) {
+            found = true;
+            
+            // Verifica se a mensagem já existe como filho
+            const existsInChildren = (node.children || []).some(child => child.message.id === message.id);
+            if (existsInChildren) {
+              console.log('[Chat] Message already exists in children, skipping:', message.id);
+              return node;
+            }
+            
+            // SEMPRE adiciona como filho E incrementa contador
+            // A renderização (MessageNode) é que decide se mostra ou não baseado no isExpanded
+            console.log('[Chat] ✅ Adding message as child of:', targetParentId);
+            const newChildNode = new main.MessageNode({
+              message,
+              children: [],
+              level: level + 1,
+              childCount: 0,
+            });
+            
+            return new main.MessageNode({
+              ...node,
+              children: [...(node.children || []), newChildNode],
+              childCount: (node.childCount || 0) + 1,
+            });
+          }
+          
+          // Procura recursivamente nos filhos
+          if (node.children && node.children.length > 0) {
+            const result = addToTree(node.children, targetParentId, level + 1);
+            if (result.found) {
+              found = true;
+              return new main.MessageNode({
+                ...node,
+                children: result.nodes,
+              });
+            }
+          }
+          
+          return node;
+        });
+        
+        return { nodes: updatedNodes, found };
+      };
+      
+      // Tenta encontrar o pai e adicionar à árvore
+      const result = addToTree(tab.threadedMessages, parentId, 0);
+      
+      if (result.found) {
+        console.log('[Chat] ✅ Message added to tree under parent:', parentId);
+        return {
+          tabs: state.tabs.map((t) =>
+            t.id === tabId
+              ? { ...t, threadedMessages: result.nodes }
+              : t
+          ),
+        };
+      }
+      
+      // Pai não encontrado na árvore
+      // Razões possíveis:
+      // 1. Evento chegou antes do chat:messages_ready (ID da mensagem do usuário ainda é local)
+      // 2. É uma mensagem de nível 2+ e o pai de nível 1 ainda não chegou
+      console.log('[Chat] ⚠️ Parent not found by ID:', parentId);
+      
+      // Fallback: procura a última mensagem do usuário (ancestral de todas as mensagens)
+      const findLastUserMessage = (nodes: MessageNode[]): MessageNode | null => {
+        for (let i = nodes.length - 1; i >= 0; i--) {
+          if (nodes[i].message.role === 'user') {
+            return nodes[i];
+          }
+        }
+        return null;
+      };
+      
+      const lastUserMessage = findLastUserMessage(tab.threadedMessages);
+      
+      if (lastUserMessage) {
+        console.log('[Chat] 🔄 Fallback: adding under last user message:', lastUserMessage.message.id);
+        const fallbackResult = addToTree(tab.threadedMessages, lastUserMessage.message.id, 0);
+        
+        if (fallbackResult.found) {
+          return {
+            tabs: state.tabs.map((t) =>
+              t.id === tabId
+                ? { ...t, threadedMessages: fallbackResult.nodes }
+                : t
+            ),
+          };
+        }
+      }
+      
+      // Último recurso: adiciona como nó raiz
+      console.log('[Chat] ⚠️ All fallbacks failed, adding as root');
       const newNode = new main.MessageNode({
         message,
         children: [],
@@ -599,16 +725,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return {
         tabs: state.tabs.map((t) =>
           t.id === tabId
-            ? {
-                ...t,
-                threadedMessages: [...t.threadedMessages, newNode],
-              }
+            ? { ...t, threadedMessages: [...t.threadedMessages, newNode] }
             : t
         ),
-        // Auto-expande a thread da mensagem pai quando uma mensagem interna chega
-        expandedThreads: message.parentId 
-          ? new Set([...state.expandedThreads, message.parentId.toString()])
-          : state.expandedThreads,
       };
     });
   },
@@ -730,7 +849,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           return;
         }
         
-        addMessage(currentTabId, {
+        const userMessageId = addMessage(currentTabId, {
           role: 'user',
           content,
         });
@@ -799,6 +918,50 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   : t
               ),
             }));
+          }
+        });
+
+        // Listen for messages_ready - atualiza IDs das mensagens para IDs reais do banco
+        // CRÍTICO: Isso permite que mensagens internas (com parentId do banco) encontrem o pai correto
+        const unsubscribeMessagesReady = EventsOn('chat:messages_ready', (data: any) => {
+          console.log('[Chat] 🔄 Messages ready event received:', data);
+          
+          if (data.userMessageId) {
+            const backendUserId = data.userMessageId.toString();
+            console.log('[Chat] 🔄 Updating user message ID from', userMessageId, 'to', backendUserId);
+            
+            // Atualiza o ID da mensagem do usuário para o ID real do banco
+            set((state) => {
+              const tab = state.tabs.find(t => t.id === currentTabId);
+              if (!tab) return state;
+              
+              // Encontra e atualiza a mensagem do usuário
+              const updateMessageId = (nodes: MessageNode[]): MessageNode[] => {
+                return nodes.map(node => {
+                  if (node.message.id === userMessageId) {
+                    console.log('[Chat] ✅ Found user message, updating ID to:', backendUserId);
+                    // Cria novo nó com ID atualizado
+                    const updatedMessage = new main.EnrichedMessage({
+                      ...node.message,
+                      id: backendUserId,
+                    });
+                    return new main.MessageNode({
+                      ...node,
+                      message: updatedMessage,
+                    });
+                  }
+                  return node;
+                });
+              };
+              
+              return {
+                tabs: state.tabs.map((t) =>
+                  t.id === currentTabId
+                    ? { ...t, threadedMessages: updateMessageId(t.threadedMessages) }
+                    : t
+                ),
+              };
+            });
           }
         });
 
@@ -1074,15 +1237,40 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             console.log('[Chat] Tool results:', event);
           });
 
-          // Listen for agent messages
+          // Listen for agent messages (nível 2: agente ↔ tools)
+          // IMPORTANTE: Este evento é emitido pelo backend para mensagens dos agentes
+          // enquanto chat:internal_message é para mensagens de nível 1 (assistente ↔ agentes)
           const unsubscribeAgentMessage = EventsOn('chat:agent_message', (event: any) => {
             if (!activeListeners.has(currentTabId!)) return;
             
-            console.log('[Chat] Agent message:', event);
+            console.log('[Chat] Agent message received (level 2):', event);
+            
+            // IMPORTANTE: Converte parentId para string para garantir compatibilidade
+            const parentIdRaw = event.parentId ?? event.parent_id;
+            const parentIdStr = parentIdRaw ? parentIdRaw.toString() : undefined;
+            
+            // Cria instância de EnrichedMessage para mensagem do agente
+            const agentMessage = new main.EnrichedMessage({
+              id: event.id?.toString() || generateId(),
+              conversationId: 0,
+              parentId: parentIdStr,
+              role: event.role || 'assistant', // Agentes podem ter role 'assistant' ou 'tool'
+              content: event.content || '',
+              toolCallId: event.toolCallId || event.tool_call_id,
+              agentName: event.agentName || event.agent_name,
+              toolName: event.toolName || event.tool_name,
+              internal: true,
+              timestamp: Date.now(),
+              isStreaming: false,
+              createdAt: new Date(),
+            });
+            
+            // Adiciona mensagem do agente à árvore (mesma lógica de internal_message)
+            get().addInternalMessage(currentTabId!, agentMessage);
             
             // Anuncia atividade do agente
-            if (event.agentName) {
-              const agentDisplay = event.agentName.split('_').map((w: string) => 
+            if (agentMessage.agentName) {
+              const agentDisplay = agentMessage.agentName.split('_').map((w: string) => 
                 w.charAt(0).toUpperCase() + w.slice(1)
               ).join(' ');
               announce(`${agentDisplay} está processando`, 'polite');
@@ -1095,11 +1283,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             
             console.log('[Chat] Internal message received:', event);
             
+            // IMPORTANTE: Converte parentId para string para garantir compatibilidade
+            // O backend envia como número, mas a árvore usa strings como IDs
+            const parentIdRaw = event.parentId ?? event.parent_id;
+            const parentIdStr = parentIdRaw ? parentIdRaw.toString() : undefined;
+            
             // Cria instância de EnrichedMessage para mensagem interna
             const internalMessage = new main.EnrichedMessage({
               id: event.id?.toString() || generateId(),
               conversationId: 0,
-              parentId: event.parentId || event.parent_id,
+              parentId: parentIdStr,
               role: event.role || 'tool',
               content: event.content || '',
               toolCallId: event.toolCallId || event.tool_call_id,
@@ -1144,6 +1337,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             cleanup();
             if (unsubscribeConvCreated) unsubscribeConvCreated();
             if (unsubscribeConvLoaded) unsubscribeConvLoaded();
+            if (unsubscribeMessagesReady) unsubscribeMessagesReady();
           };
           
           // Note: DO NOT cleanup here - listeners need to stay active for streaming events
