@@ -173,16 +173,16 @@ func CreateConversationWithPreferences(title string, prefs *ChatPreferences) (*C
 // GetConversations retorna todas as conversas ordenadas por data
 func GetConversations() ([]Conversation, error) {
 	var conversations []Conversation
-	err := db.Order("updated_at DESC").Find(&conversations).Error
+
+	// Usa subquery para contar mensagens em uma única query (evita N+1)
+	err := db.Table("conversations").
+		Select("conversations.*, COALESCE(msg_counts.count, 0) as message_count").
+		Joins("LEFT JOIN (SELECT conversation_id, COUNT(*) as count FROM chat_messages GROUP BY conversation_id) as msg_counts ON msg_counts.conversation_id = conversations.id").
+		Order("conversations.updated_at DESC").
+		Find(&conversations).Error
+
 	if err != nil {
 		return nil, err
-	}
-
-	// Popula a contagem de mensagens para cada conversa
-	for i := range conversations {
-		var count int64
-		db.Model(&ChatMessage{}).Where("conversation_id = ?", conversations[i].ID).Count(&count)
-		conversations[i].MessageCount = int(count)
 	}
 
 	return conversations, nil
@@ -1876,10 +1876,10 @@ func seedDefaultInteractionProfile() error {
 		VADSilenceDuration:  1500,
 	})
 	db.Create(&InteractionTrigger{
-		ProfileID: wakewordProfile.ID,
-		Type:      TriggerTypeButtonToggle,
-		Enabled:   true,
-		AutoStop:  true,
+		ProfileID:          wakewordProfile.ID,
+		Type:               TriggerTypeButtonToggle,
+		Enabled:            true,
+		AutoStop:           true,
 		VADSilenceDuration: 1500,
 	})
 

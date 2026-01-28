@@ -21,7 +21,7 @@ export interface ChatMessageProps {
   onSpeak?: (message: Message) => void;
 }
 
-export const ChatMessage: React.FC<ChatMessageProps> = ({ 
+export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({ 
   message,
   hasThreadIndicator = false,
   threadChildCount = 0,
@@ -172,4 +172,4 @@ export const ChatMessage: React.FC<ChatMessageProps> = ({
       </div>
     </div>
   );
-};
+});

@@ -21,6 +21,10 @@ import { VOICE_DISABLED } from '../components/pickers/VoicePicker';
 import { useSettingsStore } from './settingsStore';
 import { stripMarkdown } from '../lib/stripMarkdown';
 
+// Constantes de validação de input (devem corresponder ao backend)
+const MAX_MESSAGE_CONTENT_SIZE = 500 * 1024; // 500KB
+const MAX_MEDIA_SIZE = 10 * 1024 * 1024; // 10MB
+
 interface MediaData {
   name: string;
   type: string;
@@ -838,6 +842,27 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
   sendMessage: async (content, mediaFiles) => {
         const { activeTabId, addMessage, createTab, updateTabTitle, tabs } = get();
+
+        // Validação de tamanho do conteúdo
+        if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
+          const errorMsg = `Mensagem muito grande (${content.length} bytes). Máximo permitido: ${MAX_MESSAGE_CONTENT_SIZE} bytes (500KB)`;
+          console.error('[Chat]', errorMsg);
+          announce(errorMsg);
+          return;
+        }
+
+        // Validação de tamanho total dos arquivos de mídia
+        if (mediaFiles && mediaFiles.length > 0) {
+          const totalSize = mediaFiles.reduce((acc, f) => acc + f.file.size, 0);
+          // Base64 aumenta o tamanho em ~33%
+          const estimatedBase64Size = Math.ceil(totalSize * 1.37);
+          if (estimatedBase64Size > MAX_MEDIA_SIZE) {
+            const errorMsg = `Arquivos de mídia muito grandes (~${Math.round(estimatedBase64Size / 1024 / 1024)}MB). Máximo permitido: 10MB`;
+            console.error('[Chat]', errorMsg);
+            announce(errorMsg);
+            return;
+          }
+        }
         
         // Ensure we have an active tab
         let currentTabId = activeTabId;

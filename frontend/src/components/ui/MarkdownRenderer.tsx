@@ -52,7 +52,7 @@ function initMermaid() {
   mermaid.initialize({
     startOnLoad: false,
     theme: 'dark',
-    securityLevel: 'loose',
+    securityLevel: 'strict', // 'strict' previne execução de código malicioso em diagramas
     fontFamily: 'inherit'
   });
   mermaidInitialized = true;

@@ -126,7 +126,7 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 
 		// Formata conteúdo markdown com as tool calls
 		var contentBuilder strings.Builder
-		
+
 		if len(toolCalls) == 1 {
 			// Uma única tool call - formato mais simples
 			tc := toolCalls[0]
@@ -135,7 +135,7 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 			if strings.HasPrefix(name, "delegate_to_") {
 				displayName = strings.TrimPrefix(name, "delegate_to_")
 			}
-			
+
 			// Extrai tarefa se houver
 			var args map[string]interface{}
 			taskContent := ""
@@ -144,7 +144,7 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 					taskContent = task
 				}
 			}
-			
+
 			if taskContent != "" {
 				contentBuilder.WriteString(fmt.Sprintf("🤖 **Consultando %s**\n\n", displayName))
 				contentBuilder.WriteString(fmt.Sprintf("**Tarefa:** %s\n\n", taskContent))
@@ -153,7 +153,7 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 				contentBuilder.WriteString(fmt.Sprintf("🔧 **Executando:** `%s`\n\n", displayName))
 				contentBuilder.WriteString("**Argumentos:**\n```json\n")
 			}
-			
+
 			// Formata JSON
 			var prettyArgs bytes.Buffer
 			if err := json.Indent(&prettyArgs, []byte(tc.Function.Arguments), "", "  "); err == nil {
@@ -179,7 +179,7 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 				}
 			}
 		}
-		
+
 		content := contentBuilder.String()
 
 		// Salva como filho da mensagem do usuário (nível 1)
@@ -337,12 +337,34 @@ func (a *App) GetModels() ([]string, error) {
 	return llm.GetModels(cfg)
 }
 
+// Constantes de validação de input
+const (
+	// MaxMessageContentSize é o tamanho máximo permitido para o conteúdo de uma mensagem (500KB)
+	MaxMessageContentSize = 500 * 1024
+	// MaxMediaSize é o tamanho máximo permitido para mídia em base64 (10MB)
+	MaxMediaSize = 10 * 1024 * 1024
+)
+
 // SendMessage envia uma mensagem para a API com streaming
 // NOVA ARQUITETURA: Backend gerencia todo o estado
 // 1. Cria mensagens no banco ANTES de streamar
 // 2. Emite evento único com IDs das mensagens criadas
 // 3. Streaming emite eventos com messageId
 func (a *App) SendMessage(conversationID uint, userContent string, userMedia string, params ChatParams) (uint, error) {
+	// Validação de tamanho do conteúdo
+	if len(userContent) > MaxMessageContentSize {
+		errMsg := fmt.Sprintf("Mensagem muito grande (%d bytes). Máximo permitido: %d bytes", len(userContent), MaxMessageContentSize)
+		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		return 0, fmt.Errorf("%s", errMsg)
+	}
+
+	// Validação de tamanho da mídia
+	if len(userMedia) > MaxMediaSize {
+		errMsg := fmt.Sprintf("Mídia muito grande (%d bytes). Máximo permitido: %d bytes", len(userMedia), MaxMediaSize)
+		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		return 0, fmt.Errorf("%s", errMsg)
+	}
+
 	cfg, err := config.Load()
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao carregar configuração: "+err.Error())
@@ -462,7 +484,7 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 				for _, mp := range mediaParts {
 					mediaType, _ := mp["type"].(string)
 					data, _ := mp["data"].(string)
-					
+
 					// Determina o formato correto baseado no MIME type
 					if strings.HasPrefix(mediaType, "image/") {
 						// Imagens devem usar "image_url" type com data URL
@@ -477,7 +499,7 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 						content = append(content, map[string]interface{}{
 							"type": "input_audio",
 							"input_audio": map[string]interface{}{
-								"data": data,
+								"data":   data,
 								"format": strings.TrimPrefix(mediaType, "audio/"),
 							},
 						})

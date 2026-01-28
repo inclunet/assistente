@@ -17,7 +17,7 @@ export interface MessageNodeProps {
   onSpeak?: (message: any) => void;
 }
 
-export const MessageNode: React.FC<MessageNodeProps> = ({
+export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   node,
   level = 0,
   siblingIndex = 0,
@@ -332,4 +332,4 @@ export const MessageNode: React.FC<MessageNodeProps> = ({
       )}
     </div>
   );
-};
+});
