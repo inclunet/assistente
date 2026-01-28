@@ -201,10 +201,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       let tabs = backendTabs.map(backendTabToFrontend);
       
-      // Se não houver tabs, cria uma aba em branco
+      // Se não houver tabs, cria uma aba em branco (ativa)
       if (tabs.length === 0) {
         console.log('[Chat] No tabs found, creating default tab...');
-        const newBackendTab = await CreateTab('Nova Conversa', '💬');
+        const newBackendTab = await CreateTab('Nova Conversa', '💬', true);
         tabs = [backendTabToFrontend(newBackendTab)];
       }
       
@@ -291,8 +291,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
   createTab: async (activate = true) => {
     try {
-      console.log('[Chat] Creating new tab in backend...');
-      const backendTab = await CreateTab('Nova Conversa', '💬');
+      console.log('[Chat] Creating new tab in backend...', { activate });
+      const backendTab = await CreateTab('Nova Conversa', '💬', activate);
       const newTab = backendTabToFrontend(backendTab);
       
       set((state) => ({

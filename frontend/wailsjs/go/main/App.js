@@ -90,8 +90,8 @@ export function CreateOAuthConnection(arg1, arg2, arg3, arg4, arg5, arg6, arg7, 
   return window['go']['main']['App']['CreateOAuthConnection'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
-export function CreateTab(arg1, arg2) {
-  return window['go']['main']['App']['CreateTab'](arg1, arg2);
+export function CreateTab(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreateTab'](arg1, arg2, arg3);
 }
 
 export function CreateVoiceProfile(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {

@@ -1885,8 +1885,9 @@ func (a *App) GetActiveTab() (*database.ChatTab, error) {
 }
 
 // CreateTab cria uma nova aba de chat
-func (a *App) CreateTab(title, icon string) (*database.ChatTab, error) {
-	tab, err := database.CreateTab(title, icon, true) // Sempre seta como ativa
+// setAsActive: se true, marca a nova aba como ativa; se false, mantém a aba atual ativa
+func (a *App) CreateTab(title, icon string, setAsActive bool) (*database.ChatTab, error) {
+	tab, err := database.CreateTab(title, icon, setAsActive)
 	if err != nil {
 		return nil, err
 	}

@@ -1778,11 +1778,12 @@ func seedDefaultInteractionProfile() error {
 		return nil
 	}
 
-	// Cria perfil PTT (padrão de fábrica)
+	// Cria perfil PTT (padrão de fábrica e ativo por padrão)
 	pttProfile := InteractionProfile{
 		Name:           "PTT (Push-to-Talk)",
 		Description:    "Segure o botão para gravar. Modo padrão de fábrica.",
 		IsDefault:      true,
+		IsActive:       true, // Perfil ativo inicial
 		STTProvider:    "webspeech",
 		Language:       "pt-BR",
 		FeedbackSounds: true,

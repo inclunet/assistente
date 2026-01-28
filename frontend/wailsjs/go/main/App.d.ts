@@ -51,7 +51,7 @@ export function CreateMemory(arg1:string,arg2:string,arg3:string):Promise<databa
 
 export function CreateOAuthConnection(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:time.Time):Promise<database.OAuthConnection>;
 
-export function CreateTab(arg1:string,arg2:string):Promise<database.ChatTab>;
+export function CreateTab(arg1:string,arg2:string,arg3:boolean):Promise<database.ChatTab>;
 
 export function CreateVoiceProfile(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:number,arg7:number,arg8:boolean):Promise<database.VoiceProfile>;
 

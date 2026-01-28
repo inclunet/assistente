@@ -120,7 +120,22 @@ export const useInteractionProfileStore = create<InteractionProfileState>()(
           const profiles = await GetInteractionProfiles();
           
           // Busca o perfil ativo do backend (persistido no banco)
-          const activeProfile = await GetActiveInteractionProfile();
+          let activeProfile = await GetActiveInteractionProfile();
+          
+          // Se não há perfil ativo, usa o perfil padrão
+          if (!activeProfile && profiles.length > 0) {
+            const defaultProfile = profiles.find(p => p.is_default) || profiles[0];
+            console.log('[InteractionProfileStore] Nenhum perfil ativo, usando padrão:', defaultProfile.name);
+            activeProfile = defaultProfile;
+            
+            // Persiste no banco
+            try {
+              await SetActiveInteractionProfile(defaultProfile.id);
+            } catch (err) {
+              console.error('[InteractionProfileStore] Erro ao definir perfil padrão como ativo:', err);
+            }
+          }
+          
           const activeId = activeProfile?.id || null;
           
           set({ 
