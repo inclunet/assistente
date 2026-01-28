@@ -206,8 +206,19 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 		return
 	}
 
+	// Usa modelo padrão se não especificado
+	model := params.Model
+	if model == "" {
+		model = cfg.DefaultModel
+		if model == "" {
+			handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
+			return
+		}
+		fmt.Printf("🔧 [DEBUG] Usando modelo padrão: %s\n", model)
+	}
+
 	reqBody := ChatRequest{
-		Model:       params.Model,
+		Model:       model,
 		Messages:    messages,
 		MaxTokens:   params.MaxTokens,
 		Temperature: params.Temperature,

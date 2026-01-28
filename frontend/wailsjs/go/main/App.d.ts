@@ -37,6 +37,10 @@ export function CreateHTTPAgentFull(arg1:string,arg2:string,arg3:string,arg4:str
 
 export function CreateHTTPEndpoint(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:string):Promise<database.HTTPEndpoint>;
 
+export function CreateInteractionProfile(arg1:database.InteractionProfile):Promise<database.InteractionProfile>;
+
+export function CreateInteractionTrigger(arg1:database.InteractionTrigger):Promise<database.InteractionTrigger>;
+
 export function CreateMCPAgent(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:string,arg11:string,arg12:boolean):Promise<database.MCPAgentDB>;
 
 export function CreateMCPAgentFull(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:string,arg11:string,arg12:string,arg13:string,arg14:string,arg15:string,arg16:boolean,arg17:boolean):Promise<Record<string, any>>;
@@ -47,7 +51,11 @@ export function CreateMemory(arg1:string,arg2:string,arg3:string):Promise<databa
 
 export function CreateOAuthConnection(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:time.Time):Promise<database.OAuthConnection>;
 
-export function CreateTab(arg1:string,arg2:string):Promise<database.ChatTab>;
+export function CreateTab(arg1:string,arg2:string,arg3:boolean):Promise<database.ChatTab>;
+
+export function CreateVoiceProfile(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:number,arg7:number,arg8:boolean):Promise<database.VoiceProfile>;
+
+export function CreateVoiceProfileFull(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:number,arg7:number,arg8:boolean,arg9:boolean,arg10:boolean):Promise<database.VoiceProfile>;
 
 export function DeleteAgentConfig(arg1:number):Promise<void>;
 
@@ -63,6 +71,10 @@ export function DeleteHTTPAgentFull(arg1:number):Promise<void>;
 
 export function DeleteHTTPEndpoint(arg1:number):Promise<void>;
 
+export function DeleteInteractionProfile(arg1:number):Promise<void>;
+
+export function DeleteInteractionTrigger(arg1:number):Promise<void>;
+
 export function DeleteMCPAgent(arg1:number):Promise<void>;
 
 export function DeleteMCPAgentFull(arg1:number):Promise<void>;
@@ -70,6 +82,8 @@ export function DeleteMCPAgentFull(arg1:number):Promise<void>;
 export function DeleteMemory(arg1:number):Promise<void>;
 
 export function DeleteOAuthConnection(arg1:number):Promise<void>;
+
+export function DeleteVoiceProfile(arg1:number):Promise<void>;
 
 export function DisableVoiceHotkey():Promise<void>;
 
@@ -81,6 +95,16 @@ export function EnableVoiceHotkey():Promise<void>;
 
 export function ExecuteTool(arg1:llm.ToolCall):Promise<string>;
 
+export function ExportAgents(arg1:Array<number>,arg2:Array<number>):Promise<string>;
+
+export function ExportConversations(arg1:Array<number>):Promise<string>;
+
+export function ExportFAQs(arg1:Array<number>):Promise<string>;
+
+export function ExportMemories(arg1:Array<number>):Promise<string>;
+
+export function ExportVoiceProfiles(arg1:Array<number>):Promise<string>;
+
 export function ExtractTemplateVariables(arg1:string):Promise<Array<string>>;
 
 export function GenerateAllFAQEmbeddings():Promise<number>;
@@ -89,7 +113,11 @@ export function GenerateFAQEmbedding(arg1:number):Promise<void>;
 
 export function GenerateImageDescription(arg1:string,arg2:string):Promise<string>;
 
+export function GetActiveInteractionProfile():Promise<database.InteractionProfile>;
+
 export function GetActiveOAuthConnectionForProvider(arg1:string):Promise<database.OAuthConnection>;
+
+export function GetActiveProfileHotkeys(arg1:number):Promise<Array<Record<string, any>>>;
 
 export function GetActiveTab():Promise<database.ChatTab>;
 
@@ -117,7 +145,11 @@ export function GetAllModelCapabilities():Promise<Array<database.ModelCapability
 
 export function GetAllOAuthConnections():Promise<Array<database.OAuthConnection>>;
 
+export function GetAllTabs():Promise<Array<database.ChatTab>>;
+
 export function GetAllTokenStats():Promise<Record<string, number>>;
+
+export function GetAllVoiceProfiles():Promise<Array<database.VoiceProfile>>;
 
 export function GetConfig():Promise<config.Config>;
 
@@ -134,6 +166,12 @@ export function GetConversationWithThreads(arg1:number):Promise<main.Conversatio
 export function GetConversations():Promise<Array<database.Conversation>>;
 
 export function GetCoreMemories():Promise<Array<database.Memory>>;
+
+export function GetDefaultInteractionProfile():Promise<database.InteractionProfile>;
+
+export function GetDefaultVoiceProfile():Promise<database.VoiceProfile>;
+
+export function GetEffectiveVoiceProfile(arg1:number):Promise<database.VoiceProfile>;
 
 export function GetFAQ(arg1:number):Promise<database.FAQ>;
 
@@ -156,6 +194,12 @@ export function GetHTTPEndpoint(arg1:number):Promise<database.HTTPEndpoint>;
 export function GetHTTPEndpointsByAgentID(arg1:number):Promise<Array<database.HTTPEndpoint>>;
 
 export function GetImageModel():Promise<string>;
+
+export function GetInteractionProfile(arg1:number):Promise<database.InteractionProfile>;
+
+export function GetInteractionProfiles():Promise<Array<database.InteractionProfile>>;
+
+export function GetInteractionTrigger(arg1:number):Promise<database.InteractionTrigger>;
 
 export function GetMCPAgent(arg1:number):Promise<database.MCPAgentDB>;
 
@@ -205,15 +249,31 @@ export function GetTabs():Promise<main.TabsResponse>;
 
 export function GetToolsForAPI():Promise<Array<llm.Tool>>;
 
+export function GetTriggersByProfile(arg1:number):Promise<Array<database.InteractionTrigger>>;
+
 export function GetVisionCapableModels():Promise<Array<database.ModelCapability>>;
+
+export function GetVoiceProfile(arg1:number):Promise<database.VoiceProfile>;
+
+export function GetVoiceProfileByName(arg1:string):Promise<database.VoiceProfile>;
 
 export function HardDeleteOAuthConnection(arg1:number):Promise<void>;
 
 export function HasImages(arg1:Array<llm.Message>):Promise<boolean>;
 
+export function ImportAgents(arg1:string):Promise<main.ImportResult>;
+
+export function ImportConversations(arg1:string):Promise<main.ImportResult>;
+
+export function ImportFAQs(arg1:string):Promise<main.ImportResult>;
+
+export function ImportMemories(arg1:string):Promise<main.ImportResult>;
+
 export function ImportOpenAPIToHTTPAgent(arg1:string,arg2:string):Promise<main.HTTPAgentFullConfig>;
 
 export function ImportPostmanToHTTPAgent(arg1:string,arg2:string):Promise<main.HTTPAgentFullConfig>;
+
+export function ImportVoiceProfiles(arg1:string):Promise<main.ImportResult>;
 
 export function IncrementModelUsage(arg1:string):Promise<void>;
 
@@ -231,6 +291,10 @@ export function ParseOpenAPISpec(arg1:string):Promise<main.OpenAPIImportResult>;
 
 export function ParsePostmanCollection(arg1:string):Promise<main.OpenAPIImportResult>;
 
+export function PreviewVoiceProfile(arg1:number,arg2:string):Promise<void>;
+
+export function PreviewVoiceSettings(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number,arg6:string):Promise<void>;
+
 export function ReadMCPResource(arg1:number,arg2:string):Promise<main.MCPResourceContentInfo>;
 
 export function RefreshOAuthConnection(arg1:number):Promise<void>;
@@ -238,6 +302,8 @@ export function RefreshOAuthConnection(arg1:number):Promise<void>;
 export function RegenerateFAQEmbeddings():Promise<number>;
 
 export function RegenerateSingleFAQEmbedding(arg1:number):Promise<void>;
+
+export function RegisterInteractionProfileHotkeys(arg1:number):Promise<void>;
 
 export function ReloadHTTPAgent(arg1:number):Promise<void>;
 
@@ -259,15 +325,27 @@ export function SearchFAQ(arg1:string):Promise<Array<database.FAQ>>;
 
 export function SearchFAQSemantic(arg1:string,arg2:number,arg3:number):Promise<Array<database.FAQ>>;
 
+export function SearchInteractionProfiles(arg1:string):Promise<Array<database.InteractionProfile>>;
+
 export function SearchMemories(arg1:string):Promise<Array<database.Memory>>;
+
+export function SearchVoiceProfiles(arg1:string):Promise<Array<database.VoiceProfile>>;
 
 export function SendMessage(arg1:number,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<number>;
 
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
 
+export function SetActiveInteractionProfile(arg1:number):Promise<void>;
+
 export function SetActiveTab(arg1:number):Promise<void>;
 
+export function SetConversationVoiceProfile(arg1:number,arg2:number):Promise<void>;
+
+export function SetDefaultInteractionProfile(arg1:number):Promise<void>;
+
 export function SetDefaultModel(arg1:string):Promise<void>;
+
+export function SetDefaultVoiceProfile(arg1:number):Promise<void>;
 
 export function SetImageModel(arg1:string):Promise<void>;
 
@@ -315,6 +393,8 @@ export function TestMCPAgent(arg1:number,arg2:string):Promise<string>;
 
 export function TranscribeWhisper(arg1:string,arg2:string):Promise<main.TranscriptionResultInfo>;
 
+export function UnregisterInteractionProfileHotkeys(arg1:number):Promise<void>;
+
 export function UpdateAgentConfig(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:boolean):Promise<database.AgentConfig>;
 
 export function UpdateConversation(arg1:number,arg2:string,arg3:string):Promise<void>;
@@ -335,6 +415,10 @@ export function UpdateHTTPAgentFull(arg1:number,arg2:string,arg3:string,arg4:str
 
 export function UpdateHTTPEndpoint(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:string):Promise<database.HTTPEndpoint>;
 
+export function UpdateInteractionProfile(arg1:number,arg2:database.InteractionProfile):Promise<database.InteractionProfile>;
+
+export function UpdateInteractionTrigger(arg1:number,arg2:database.InteractionTrigger):Promise<database.InteractionTrigger>;
+
 export function UpdateMCPAgent(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:string,arg11:string,arg12:boolean):Promise<database.MCPAgentDB>;
 
 export function UpdateMCPAgentFull(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:string,arg11:string,arg12:string,arg13:string,arg14:string,arg15:string,arg16:boolean,arg17:boolean):Promise<Record<string, any>>;
@@ -348,5 +432,9 @@ export function UpdateOAuthConnectionLastUsed(arg1:number):Promise<void>;
 export function UpdateOAuthTokens(arg1:number,arg2:string,arg3:string,arg4:time.Time):Promise<void>;
 
 export function UpdateTabTitle(arg1:number,arg2:string):Promise<void>;
+
+export function UpdateVoiceProfile(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:number,arg8:number,arg9:boolean):Promise<database.VoiceProfile>;
+
+export function UpdateVoiceProfileFull(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:number,arg8:number,arg9:boolean,arg10:boolean,arg11:boolean):Promise<database.VoiceProfile>;
 
 export function ValidateTemplate(arg1:string):Promise<boolean|string>;

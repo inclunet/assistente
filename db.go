@@ -1,11 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"fmt"
+	"log"
 	"sort"
 	"time"
 
 	"assistente/internal/agentmanager"
+	"assistente/internal/config"
 	"assistente/internal/database"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -23,6 +26,7 @@ type HTTPEndpoint = database.HTTPEndpoint
 type MCPAgentDB = database.MCPAgentDB
 type ModelCapability = database.ModelCapability
 type OAuthConnection = database.OAuthConnection
+type VoiceProfile = database.VoiceProfile
 
 // Re-exporta funções que não dependem de App
 var (
@@ -31,6 +35,51 @@ var (
 )
 
 // ==================== Conversation ====================
+
+// enrichMessage converte ChatMessage para EnrichedMessage com campos calculados
+func (a *App) enrichMessage(msg database.ChatMessage) EnrichedMessage {
+	// Converte ParentID *uint para *string
+	var parentIDStr *string
+	if msg.ParentID != nil {
+		pidStr := fmt.Sprintf("%d", *msg.ParentID)
+		parentIDStr = &pidStr
+	}
+	
+	enriched := EnrichedMessage{
+		// Campos do ChatMessage
+		ID:               fmt.Sprintf("%d", msg.ID),
+		ConversationID:   msg.ConversationID,
+		ParentID:         parentIDStr,
+		Role:             msg.Role,
+		Content:          msg.Content,
+		Media:            msg.Media,
+		ToolCalls:        msg.ToolCalls,
+		ToolResults:      msg.ToolResults,
+		ToolCallID:       msg.ToolCallID,
+		AgentName:        msg.AgentName,
+		PromptTokens:     msg.PromptTokens,
+		CompletionTokens: msg.CompletionTokens,
+		TotalTokens:      msg.TotalTokens,
+		Model:            msg.Model,
+		CreatedAt:        msg.CreatedAt,
+		// Campos derivados
+		Timestamp:   msg.CreatedAt.UnixMilli(),
+		IsStreaming: false,
+		Internal:    msg.ParentID != nil,
+	}
+
+	// Extrai toolName do primeiro tool call se existir
+	if msg.ToolCalls != "" {
+		var toolCalls []ToolCall
+		if err := json.Unmarshal([]byte(msg.ToolCalls), &toolCalls); err == nil {
+			if len(toolCalls) > 0 {
+				enriched.ToolName = toolCalls[0].Function.Name
+			}
+		}
+	}
+
+	return enriched
+}
 
 func (a *App) CreateConversation(title, model string) (*Conversation, error) {
 	return database.CreateConversation(title, model)
@@ -44,16 +93,22 @@ func (a *App) GetConversation(id uint) (*Conversation, error) {
 	return database.GetConversation(id)
 }
 
-// GetMessages retorna mensagens com filtro por parent (API unificada)
-// - conversationID > 0 e parentID == nil: mensagens raiz da conversa
-// - parentID != nil: filhos da mensagem especificada
+// GetMessages retorna mensagens com filtro por parent (API unificada com LAZY LOADING)
+// - conversationID > 0 e parentID == nil: mensagens RAIZ com childCount (não carrega filhos)
+// - parentID != nil: filhos diretos da mensagem especificada
 //
-// Retorna MessageNode com ChildCount para lazy loading
+// LAZY LOADING: Retorna apenas o nível solicitado, nunca carrega recursivamente
+// Frontend deve chamar novamente para carregar filhos quando usuário expandir thread
 func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, error) {
+	fmt.Printf("🔍 [GetMessages] conversationID=%d, parentID=%v (LAZY LOADING)\n", conversationID, parentID)
+	
+	// Busca apenas mensagens do nível solicitado (raízes OU filhos diretos)
 	messages, err := database.GetMessages(conversationID, parentID)
 	if err != nil {
 		return nil, err
 	}
+
+	fmt.Printf("📊 [GetMessages] Encontrou %d mensagens\n", len(messages))
 
 	// Coleta IDs para contar filhos
 	msgIDs := make([]uint, len(messages))
@@ -61,11 +116,11 @@ func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, e
 		msgIDs[i] = msg.ID
 	}
 
-	// Conta filhos de cada mensagem
+	// Conta filhos de cada mensagem (para mostrar indicadores)
 	childCounts, err := database.CountChildren(msgIDs)
 	if err != nil {
 		// Log mas não falha - apenas não teremos contagem
-		fmt.Printf("⚠️ Erro ao contar filhos: %v\n", err)
+		fmt.Printf("⚠️ [GetMessages] Erro ao contar filhos: %v\n", err)
 		childCounts = make(map[uint]int)
 	}
 
@@ -75,22 +130,25 @@ func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, e
 		level = 1 // Filhos são pelo menos nível 1
 	}
 
-	// Converte para MessageNode
+	// Converte para MessageNode com childCount (SEM filhos carregados - lazy loading)
 	result := make([]MessageNode, 0, len(messages))
 	for _, msg := range messages {
+		childCount := childCounts[msg.ID]
 		node := MessageNode{
-			ChatMessage: msg,
-			Children:    nil, // Lazy loading
-			Level:       level,
-			ChildCount:  childCounts[msg.ID],
+			Message:    a.enrichMessage(msg), // Usa método compartilhado
+			Children:   nil,                   // LAZY LOADING - não carrega filhos
+			Level:      level,
+			ChildCount: childCount, // Indica quantos filhos existem (para mostrar indicador)
 		}
+		fmt.Printf("📦 [GetMessages] Msg ID=%d, role=%s, childCount=%d\n",
+			msg.ID, msg.Role, childCount)
 		result = append(result, node)
 	}
 
 	if parentID != nil {
 		fmt.Printf("🌳 [LAZY] Mensagem %d: %d filhos carregados\n", *parentID, len(result))
 	} else {
-		fmt.Printf("🌳 [LAZY] Conversa %d: %d mensagens raiz\n", conversationID, len(result))
+		fmt.Printf("🌳 [LAZY] Conversa %d: %d mensagens raiz (lazy loading)\n", conversationID, len(result))
 	}
 
 	return result, nil
@@ -161,13 +219,15 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 	var buildNode func(msg database.ChatMessage, level int) MessageNode
 	buildNode = func(msg database.ChatMessage, level int) MessageNode {
 		node := MessageNode{
-			ChatMessage: msg,
-			Children:    []MessageNode{},
-			Level:       level,
+			Message:  a.enrichMessage(msg), // Usa método compartilhado
+			Children: []MessageNode{},
+			Level:    level,
 		}
 
 		// Adiciona filhos recursivamente
 		children := childrenMap[msg.ID]
+		node.ChildCount = len(children) // Define o count de filhos diretos
+		
 		for _, child := range children {
 			childNode := buildNode(child, level+1)
 			node.Children = append(node.Children, childNode)
@@ -189,7 +249,7 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 	logTree = func(nodes []MessageNode, indent string) {
 		for _, n := range nodes {
 			fmt.Printf("🌳 [TREE] %sID=%d, role=%s, children=%d\n",
-				indent, n.ID, n.Role, len(n.Children))
+				indent, n.Message.ID, n.Message.Role, len(n.Children))
 			if len(n.Children) > 0 {
 				logTree(n.Children, indent+"  ")
 			}
@@ -220,8 +280,7 @@ func (a *App) DeleteConversation(id uint) error {
 		return err
 	}
 
-	// Emite eventos
-	a.emitTabsUpdatedEvent()
+	// Emite evento
 	runtime.EventsEmit(a.ctx, "conversation:deleted", map[string]interface{}{
 		"conversation_id": id,
 	})
@@ -663,103 +722,6 @@ func (a *App) GetTabs() (TabsResponse, error) {
 	}, nil
 }
 
-// GetActiveTab retorna a aba ativa
-func (a *App) GetActiveTab() (*database.ChatTab, error) {
-	return database.GetActiveTab()
-}
-
-// CreateTab cria uma nova aba de chat
-func (a *App) CreateTab(title, icon string) (*database.ChatTab, error) {
-	tab, err := database.CreateTab(title, icon, true)
-	if err != nil {
-		return nil, err
-	}
-
-	a.emitTabsUpdatedEvent()
-	return tab, nil
-}
-
-// CloseTab fecha uma aba de chat
-func (a *App) CloseTab(id uint) error {
-	if err := database.CloseTab(id); err != nil {
-		return err
-	}
-
-	a.emitTabsUpdatedEvent()
-	return nil
-}
-
-// SetActiveTab define a aba ativa
-func (a *App) SetActiveTab(id uint) error {
-	if err := database.SetActiveTab(id); err != nil {
-		return err
-	}
-
-	runtime.EventsEmit(a.ctx, "tabs:activated", map[string]interface{}{
-		"tab_id": id,
-	})
-
-	return nil
-}
-
-// UpdateTabTitle atualiza o título de uma aba
-func (a *App) UpdateTabTitle(id uint, title string) error {
-	if err := database.UpdateTabTitle(id, title); err != nil {
-		return err
-	}
-
-	runtime.EventsEmit(a.ctx, "tabs:title_updated", map[string]interface{}{
-		"tab_id": id,
-		"title":  title,
-	})
-
-	return nil
-}
-
-// LoadConversationInTab carrega uma conversa em uma aba
-func (a *App) LoadConversationInTab(tabId, conversationId uint) error {
-	if err := database.LoadConversationInTab(tabId, conversationId); err != nil {
-		return err
-	}
-
-	a.emitTabsUpdatedEvent()
-	return nil
-}
-
-// ClearTab limpa uma aba (nova conversa)
-func (a *App) ClearTab(id uint) error {
-	if err := database.ClearTab(id); err != nil {
-		return err
-	}
-
-	a.emitTabsUpdatedEvent()
-	return nil
-}
-
-// ReorderTabs reordena as abas
-func (a *App) ReorderTabs(orderedIds []uint) error {
-	if err := database.ReorderTabs(orderedIds); err != nil {
-		return err
-	}
-
-	a.emitTabsUpdatedEvent()
-	return nil
-}
-
-// emitTabsUpdatedEvent emite evento de atualização de abas
-func (a *App) emitTabsUpdatedEvent() {
-	tabs, err := a.GetTabs()
-	if err != nil {
-		return
-	}
-
-	// Converte para map[string]interface{} para garantir serialização correta
-	runtime.EventsEmit(a.ctx, "tabs:updated", map[string]interface{}{
-		"tabs":          tabs.Tabs,
-		"active_tab_id": tabs.ActiveTabId,
-	})
-}
-
 func (a *App) GetAllMCPAgentsFull() ([]map[string]interface{}, error) {
 	return database.GetAllMCPAgentsFull()
 }
@@ -842,4 +804,215 @@ func (a *App) HardDeleteOAuthConnection(id uint) error {
 
 func (a *App) GetActiveOAuthConnectionForProvider(providerID string) (*OAuthConnection, error) {
 	return database.GetActiveOAuthConnectionForProvider(providerID)
+}
+
+// ==================== VoiceProfile ====================
+
+// CreateVoiceProfile cria um novo perfil de voz
+func (a *App) CreateVoiceProfile(name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
+	return database.CreateVoiceProfile(name, description, provider, voiceID, rate, pitch, volume, isDefault)
+}
+
+// CreateVoiceProfileFull cria um novo perfil de voz com todas as opções
+func (a *App) CreateVoiceProfileFull(name, description, provider, voiceID string, rate, pitch, volume float64, enabledForAgent, enabledForUser, isDefault bool) (*VoiceProfile, error) {
+	return database.CreateVoiceProfileFull(database.VoiceProfileOptions{
+		Name:            name,
+		Description:     description,
+		Provider:        provider,
+		VoiceID:         voiceID,
+		Rate:            rate,
+		Pitch:           pitch,
+		Volume:          volume,
+		EnabledForAgent: enabledForAgent,
+		EnabledForUser:  enabledForUser,
+		IsDefault:       isDefault,
+	})
+}
+
+// GetVoiceProfile retorna um perfil de voz por ID
+func (a *App) GetVoiceProfile(id uint) (*VoiceProfile, error) {
+	return database.GetVoiceProfile(id)
+}
+
+// GetVoiceProfileByName retorna um perfil de voz por nome
+func (a *App) GetVoiceProfileByName(name string) (*VoiceProfile, error) {
+	return database.GetVoiceProfileByName(name)
+}
+
+// GetAllVoiceProfiles retorna todos os perfis de voz
+func (a *App) GetAllVoiceProfiles() ([]VoiceProfile, error) {
+	return database.GetAllVoiceProfiles()
+}
+
+// GetDefaultVoiceProfile retorna o perfil de voz padrão
+func (a *App) GetDefaultVoiceProfile() (*VoiceProfile, error) {
+	return database.GetDefaultVoiceProfile()
+}
+
+// UpdateVoiceProfile atualiza um perfil de voz
+func (a *App) UpdateVoiceProfile(id uint, name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
+	return database.UpdateVoiceProfile(id, name, description, provider, voiceID, rate, pitch, volume, isDefault)
+}
+
+// UpdateVoiceProfileFull atualiza um perfil de voz com todas as opções
+func (a *App) UpdateVoiceProfileFull(id uint, name, description, provider, voiceID string, rate, pitch, volume float64, enabledForAgent, enabledForUser, isDefault bool) (*VoiceProfile, error) {
+	return database.UpdateVoiceProfileFull(id, database.VoiceProfileOptions{
+		Name:            name,
+		Description:     description,
+		Provider:        provider,
+		VoiceID:         voiceID,
+		Rate:            rate,
+		Pitch:           pitch,
+		Volume:          volume,
+		EnabledForAgent: enabledForAgent,
+		EnabledForUser:  enabledForUser,
+		IsDefault:       isDefault,
+	})
+}
+
+// DeleteVoiceProfile deleta um perfil de voz
+func (a *App) DeleteVoiceProfile(id uint) error {
+	return database.DeleteVoiceProfile(id)
+}
+
+// SetDefaultVoiceProfile define um perfil como padrão
+func (a *App) SetDefaultVoiceProfile(id uint) error {
+	return database.SetDefaultVoiceProfile(id)
+}
+
+// SearchVoiceProfiles busca perfis por nome ou descrição
+func (a *App) SearchVoiceProfiles(query string) ([]VoiceProfile, error) {
+	return database.SearchVoiceProfiles(query)
+}
+
+// PreviewVoiceProfile reproduz um texto de teste com as configurações de um perfil
+func (a *App) PreviewVoiceProfile(id uint, sampleText string) error {
+	profile, err := database.GetVoiceProfile(id)
+	if err != nil {
+		return fmt.Errorf("perfil não encontrado: %w", err)
+	}
+
+	if sampleText == "" {
+		sampleText = "Este é um teste do perfil de voz " + profile.Name
+	}
+
+	// Usa o SpeechManager para sintetizar
+	if a.speechManager == nil {
+		return fmt.Errorf("speech manager não configurado")
+	}
+
+	// Configura as opções do perfil temporariamente
+	if profile.Provider == "openai" {
+		a.speechManager.SetTTSVoice(profile.VoiceID)
+		// Converte rate para escala SAPI5 para o manager
+		var sapi5Rate int
+		if profile.Rate < 1 {
+			sapi5Rate = int((profile.Rate - 1) / 0.075)
+		} else {
+			sapi5Rate = int((profile.Rate - 1) / 0.3)
+		}
+		a.speechManager.SetTTSSpeed(sapi5Rate)
+	}
+
+	// Sintetiza e retorna (o frontend vai tocar)
+	result, err := a.speechManager.Synthesize(sampleText)
+	if err != nil {
+		return fmt.Errorf("erro ao sintetizar: %w", err)
+	}
+
+	// Emite evento com o áudio para o frontend tocar
+	runtime.EventsEmit(a.ctx, "voice_profile:preview", map[string]interface{}{
+		"audio_base64": result.AudioBase64,
+		"format":       result.Format,
+	})
+
+	return nil
+}
+
+// GetEffectiveVoiceProfile retorna o perfil de voz efetivo para uma conversa
+// Respeita fallback: perfil da conversa -> perfil padrão -> nil
+func (a *App) GetEffectiveVoiceProfile(conversationID uint) (*VoiceProfile, error) {
+	// Primeiro, tenta obter o perfil configurado na conversa
+	prefs, err := database.GetConversationPreferences(conversationID)
+	if err == nil && prefs != nil && prefs.VoiceProfileID != nil {
+		// Tenta carregar o perfil específico
+		profile, err := database.GetVoiceProfile(*prefs.VoiceProfileID)
+		if err == nil {
+			return profile, nil
+		}
+		// Se falhou (perfil foi deletado?), cai para o padrão
+		fmt.Printf("[GetEffectiveVoiceProfile] Perfil %d não encontrado, usando padrão\n", *prefs.VoiceProfileID)
+	}
+
+	// Tenta obter o perfil padrão
+	defaultProfile, err := database.GetDefaultVoiceProfile()
+	if err == nil {
+		return defaultProfile, nil
+	}
+
+	// Sem perfil configurado
+	return nil, nil
+}
+
+// SetConversationVoiceProfile define o perfil de voz de uma conversa
+func (a *App) SetConversationVoiceProfile(conversationID uint, profileID uint) error {
+	prefs, err := database.GetConversationPreferences(conversationID)
+	if err != nil {
+		// Se não existe preferências, cria uma nova
+		prefs = &database.ChatPreferences{}
+	}
+	if prefs == nil {
+		prefs = &database.ChatPreferences{}
+	}
+
+	prefs.VoiceProfileID = &profileID
+	return database.UpdateConversationPreferences(conversationID, prefs)
+}
+
+// PreviewVoiceSettings reproduz um texto de teste com configurações ad-hoc (sem salvar perfil)
+func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume float64, sampleText string) error {
+	if sampleText == "" {
+		sampleText = "Este é um teste das configurações de voz"
+	}
+
+	log.Printf("[PreviewVoiceSettings] provider=%s, voiceID=%s, rate=%.2f", provider, voiceID, rate)
+
+	// Inicializa speechManager se necessário
+	if a.speechManager == nil {
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("erro ao carregar config: %w", err)
+		}
+		if cfg.APIKey == "" {
+			return fmt.Errorf("API key não configurada")
+		}
+		log.Printf("[PreviewVoiceSettings] Inicializando speechManager...")
+		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voiceID, "tts-1")
+	}
+
+	// Configura as opções temporariamente
+	if provider == "openai" {
+		a.speechManager.SetTTSVoice(voiceID)
+		// OpenAI TTS usa rate diretamente (0.25 a 4.0), não precisa converter
+		log.Printf("[PreviewVoiceSettings] Configurando voz OpenAI: %s, rate=%.2f", voiceID, rate)
+	}
+
+	// Sintetiza usando a voz específica
+	log.Printf("[PreviewVoiceSettings] Sintetizando texto: %s", sampleText[:min(50, len(sampleText))])
+	result, err := a.speechManager.SynthesizeWithVoice(sampleText, voiceID)
+	if err != nil {
+		log.Printf("[PreviewVoiceSettings] Erro ao sintetizar: %v", err)
+		return fmt.Errorf("erro ao sintetizar: %w", err)
+	}
+
+	log.Printf("[PreviewVoiceSettings] Áudio gerado, emitindo evento...")
+
+	// Emite evento com o áudio para o frontend tocar
+	runtime.EventsEmit(a.ctx, "voice_profile:preview", map[string]interface{}{
+		"audio_base64": result.AudioBase64,
+		"format":       result.Format,
+	})
+
+	log.Printf("[PreviewVoiceSettings] Evento emitido com sucesso")
+	return nil
 }

@@ -2,6 +2,7 @@ package database
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -17,10 +18,11 @@ type ChatPreferences struct {
 	UseTools             *bool   `json:"use_tools,omitempty"`
 	ShowInternalMessages *bool   `json:"show_internal_messages,omitempty"`
 	// Voz TTS
-	Voice       string `json:"voice,omitempty"`
-	AutoSpeak   *bool  `json:"auto_speak,omitempty"`
-	VoiceVolume int    `json:"voice_volume,omitempty"`
-	VoiceRate   int    `json:"voice_rate,omitempty"`
+	Voice          string `json:"voice,omitempty"`
+	AutoSpeak      *bool  `json:"auto_speak,omitempty"`
+	VoiceVolume    int    `json:"voice_volume,omitempty"`
+	VoiceRate      int    `json:"voice_rate,omitempty"`
+	VoiceProfileID *uint  `json:"voice_profile_id,omitempty"` // ID do perfil de voz (nil = usar padrão)
 	// STT/Transcrição
 	STTProvider   string `json:"stt_provider,omitempty"`
 	RecordingMode string `json:"recording_mode,omitempty"`
@@ -28,12 +30,13 @@ type ChatPreferences struct {
 
 // Conversation representa uma conversa
 type Conversation struct {
-	ID          uint          `json:"id" gorm:"primaryKey"`
-	Title       string        `json:"title"`
-	Preferences string        `json:"preferences,omitempty" gorm:"type:text"` // JSON das preferências locais
-	CreatedAt   time.Time     `json:"created_at"`
-	UpdatedAt   time.Time     `json:"updated_at"`
-	Messages    []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
+	ID           uint          `json:"id" gorm:"primaryKey"`
+	Title        string        `json:"title"`
+	Preferences  string        `json:"preferences,omitempty" gorm:"type:text"` // JSON das preferências locais
+	CreatedAt    time.Time     `json:"created_at"`
+	UpdatedAt    time.Time     `json:"updated_at"`
+	Messages     []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
+	MessageCount int           `json:"message_count" gorm:"-"` // Campo calculado, não persiste no banco
 }
 
 // GetPreferences retorna as preferências da conversa deserializadas
@@ -68,20 +71,20 @@ func (c *Conversation) SetPreferences(prefs *ChatPreferences) {
 //   - ParentID=ID_agente_tool: mensagem de nível 2 (tool respondendo ao agente)
 type ChatMessage struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
-	ConversationID   uint      `json:"conversation_id" gorm:"index"`
-	ParentID         *uint     `json:"parent_id,omitempty" gorm:"index"` // ID da mensagem pai (define hierarquia)
-	Role             string    `json:"role"`                             // user, assistant, tool, system
+	ConversationID   uint      `json:"conversationId" gorm:"index"`
+	ParentID         *uint     `json:"parentId,omitempty" gorm:"index"` // ID da mensagem pai (define hierarquia)
+	Role             string    `json:"role"`                            // user, assistant, tool, system
 	Content          string    `json:"content"`
-	Media            string    `json:"media,omitempty"`             // JSON com mídias (imagens, áudio, etc) em base64
-	ToolCalls        string    `json:"tool_calls,omitempty"`        // JSON serializado
-	ToolResults      string    `json:"tool_results,omitempty"`      // JSON serializado (deprecated, usar hierarquia)
-	ToolCallID       string    `json:"tool_call_id,omitempty"`      // ID da tool call (para role="tool")
-	AgentName        string    `json:"agent_name,omitempty"`        // Nome do agente que processou (file_manager, faq, etc)
-	PromptTokens     int       `json:"prompt_tokens,omitempty"`     // Tokens de entrada
-	CompletionTokens int       `json:"completion_tokens,omitempty"` // Tokens de saída
-	TotalTokens      int       `json:"total_tokens,omitempty"`      // Total de tokens
-	Model            string    `json:"model,omitempty"`             // Modelo usado
-	CreatedAt        time.Time `json:"created_at"`
+	Media            string    `json:"media,omitempty"`            // JSON com mídias (imagens, áudio, etc) em base64
+	ToolCalls        string    `json:"toolCalls,omitempty"`        // JSON serializado
+	ToolResults      string    `json:"toolResults,omitempty"`      // JSON serializado (deprecated, usar hierarquia)
+	ToolCallID       string    `json:"toolCallId,omitempty"`       // ID da tool call (para role="tool")
+	AgentName        string    `json:"agentName,omitempty"`        // Nome do agente que processou (file_manager, faq, etc)
+	PromptTokens     int       `json:"promptTokens,omitempty"`     // Tokens de entrada
+	CompletionTokens int       `json:"completionTokens,omitempty"` // Tokens de saída
+	TotalTokens      int       `json:"totalTokens,omitempty"`      // Total de tokens
+	Model            string    `json:"model,omitempty"`            // Modelo usado
+	CreatedAt        time.Time `json:"createdAt"`
 }
 
 // ==================== Chat Tabs ====================
@@ -293,4 +296,198 @@ type FileAgentAuthorizedPath struct {
 	Recursive   bool      `json:"recursive" gorm:"default:true"`
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// ==================== Voice Profile ====================
+
+// VoiceProfile representa um perfil de configuração de voz TTS
+type VoiceProfile struct {
+	ID              uint      `json:"id" gorm:"primaryKey"`
+	Name            string    `json:"name" gorm:"uniqueIndex;not null"`
+	Description     string    `json:"description" gorm:"type:text"`
+	Provider        string    `json:"provider" gorm:"type:text;not null"`        // disabled, webspeech, sapi5, openai
+	VoiceID         string    `json:"voice_id" gorm:"type:text"`                 // ID da voz (ex: nova, alloy, Microsoft Maria) - vazio se disabled
+	Rate            float64   `json:"rate" gorm:"default:1.0"`                   // Velocidade (0.25-4.0 para OpenAI, -10 a 10 para SAPI5)
+	Pitch           float64   `json:"pitch" gorm:"default:1.0"`                  // Tom (apenas WebSpeech)
+	Volume          float64   `json:"volume" gorm:"default:1.0"`                 // Volume (0-1)
+	EnabledForAgent bool      `json:"enabled_for_agent" gorm:"default:false"`    // Ativa TTS para mensagens do assistente
+	EnabledForUser  bool      `json:"enabled_for_user" gorm:"default:false"`     // Ativa TTS para mensagens do usuário (lê mensagens enviadas)
+	IsDefault       bool      `json:"is_default" gorm:"default:false"`           // Se é o perfil padrão
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
+}
+
+// ShouldUseAriaLiveForAgent retorna se deve usar aria-live para mensagens do assistente
+// (quando TTS do assistente está desativado)
+func (v *VoiceProfile) ShouldUseAriaLiveForAgent() bool {
+	return v.Provider == "disabled" || !v.EnabledForAgent
+}
+
+// ShouldUseAriaLiveForUser retorna se deve usar aria-live para mensagens do usuário
+// (quando TTS do usuário está desativado)
+func (v *VoiceProfile) ShouldUseAriaLiveForUser() bool {
+	return v.Provider == "disabled" || !v.EnabledForUser
+}
+
+// Validate valida os campos do perfil de voz
+func (v *VoiceProfile) Validate() error {
+	if v.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if v.Provider == "" {
+		return fmt.Errorf("provider is required")
+	}
+	validProviders := []string{"disabled", "webspeech", "sapi5", "openai"}
+	isValidProvider := false
+	for _, p := range validProviders {
+		if v.Provider == p {
+			isValidProvider = true
+			break
+		}
+	}
+	if !isValidProvider {
+		return fmt.Errorf("provider must be one of: disabled, webspeech, sapi5, openai")
+	}
+	// VoiceID é obrigatório quando TTS está ativado para assistente ou usuário
+	if v.Provider != "disabled" && v.VoiceID == "" && (v.EnabledForAgent || v.EnabledForUser) {
+		return fmt.Errorf("voice_id is required when TTS is enabled for agent or user")
+	}
+	if v.Rate < 0.25 || v.Rate > 4.0 {
+		return fmt.Errorf("rate must be between 0.25 and 4.0")
+	}
+	if v.Pitch < 0.5 || v.Pitch > 2.0 {
+		return fmt.Errorf("pitch must be between 0.5 and 2.0")
+	}
+	if v.Volume < 0 || v.Volume > 1 {
+		return fmt.Errorf("volume must be between 0 and 1")
+	}
+	return nil
+}
+
+// IsDisabled retorna true se o perfil não usa TTS
+func (v *VoiceProfile) IsDisabled() bool {
+	return v.Provider == "disabled" || (!v.EnabledForAgent && !v.EnabledForUser)
+}
+
+// ==================== Interaction Profile ====================
+
+// InteractionProfile representa um perfil de interação por voz
+// Define configurações comuns compartilhadas por todos os triggers do perfil
+type InteractionProfile struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	Name        string    `json:"name" gorm:"uniqueIndex;not null"`
+	Description string    `json:"description" gorm:"type:text"`
+	IsDefault   bool      `json:"is_default" gorm:"default:false"`
+	IsActive    bool      `json:"is_active" gorm:"default:false"` // Perfil atualmente ativo (persistido)
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+
+	// Configurações comuns
+	STTProvider    string `json:"stt_provider" gorm:"type:text;default:'webspeech'"` // webspeech, whisper_api
+	Language       string `json:"language" gorm:"type:text;default:'pt-BR'"`         // Idioma do reconhecimento
+	FeedbackSounds bool   `json:"feedback_sounds" gorm:"default:true"`               // Sons de início/fim
+
+	// Relacionamento com triggers (1:N)
+	Triggers []InteractionTrigger `json:"triggers,omitempty" gorm:"foreignKey:ProfileID;constraint:OnDelete:CASCADE"`
+}
+
+// Validate valida os campos do perfil de interação
+func (p *InteractionProfile) Validate() error {
+	if p.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+
+	// Valida STT provider
+	validSTTProviders := []string{"webspeech", "whisper_api"}
+	if p.STTProvider != "" && !contains(validSTTProviders, p.STTProvider) {
+		return fmt.Errorf("stt_provider must be one of: webspeech, whisper_api")
+	}
+
+	return nil
+}
+
+// ==================== Interaction Trigger ====================
+
+// TriggerType define os tipos possíveis de trigger
+const (
+	TriggerTypeHotkey       = "hotkey"        // Atalho de teclado (toggle)
+	TriggerTypeButtonPTT    = "button_ptt"    // Botão push-to-talk
+	TriggerTypeButtonToggle = "button_toggle" // Botão toggle
+	TriggerTypeWakeword     = "wakeword"      // Palavra de ativação
+	TriggerTypeVAD          = "vad"           // Detecção contínua de voz
+)
+
+// InteractionTrigger representa uma forma de ativar um perfil de interação
+// Um perfil pode ter múltiplos triggers (hotkey, wakeword, button, etc.)
+type InteractionTrigger struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	ProfileID uint      `json:"profile_id" gorm:"not null;index"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Tipo: hotkey, button_ptt, button_toggle, wakeword, vad
+	Type    string `json:"type" gorm:"type:text;not null"`
+	Enabled bool   `json:"enabled" gorm:"default:true"`
+
+	// Como terminar gravação: true=VAD automático, false=manual
+	// Aplicável para hotkey e button_toggle
+	AutoStop bool `json:"auto_stop" gorm:"default:false"`
+
+	// === Hotkey ===
+	// Para type=hotkey: tecla que ACIONA gravação
+	// Para type=wakeword/vad: tecla que LIGA/DESLIGA a escuta
+	Hotkey            string `json:"hotkey" gorm:"type:text"`                   // Ex: "Ctrl+Shift+Space"
+	HotkeyGlobal      bool   `json:"hotkey_global" gorm:"default:true"`         // Global ou local
+	HotkeyBringToFront bool   `json:"hotkey_bring_to_front" gorm:"default:true"` // Trazer janela (se global)
+
+	// === Wakeword ===
+	WakewordKeyword     string  `json:"wakeword_keyword" gorm:"type:text"`       // Ex: "assistente"
+	WakewordProvider    string  `json:"wakeword_provider" gorm:"type:text"`      // webspeech (por enquanto só este)
+	WakewordSensitivity float64 `json:"wakeword_sensitivity" gorm:"default:0.5"` // 0.0 - 1.0
+
+	// === VAD Config ===
+	// Usado quando auto_stop=true, type=wakeword ou type=vad
+	VADSilenceThreshold  float64 `json:"vad_silence_threshold" gorm:"default:0.01"`  // 0-1
+	VADSilenceDuration   int     `json:"vad_silence_duration" gorm:"default:1500"`   // ms
+	VADActivityThreshold float64 `json:"vad_activity_threshold" gorm:"default:0.02"` // 0-1
+	VADActivityDuration  int     `json:"vad_activity_duration" gorm:"default:200"`   // ms
+}
+
+// Validate valida os campos do trigger
+func (t *InteractionTrigger) Validate() error {
+	// Valida tipo
+	validTypes := []string{TriggerTypeHotkey, TriggerTypeButtonPTT, TriggerTypeButtonToggle, TriggerTypeWakeword, TriggerTypeVAD}
+	if !contains(validTypes, t.Type) {
+		return fmt.Errorf("type must be one of: hotkey, button_ptt, button_toggle, wakeword, vad")
+	}
+
+	// Valida hotkey para tipo hotkey
+	if t.Type == TriggerTypeHotkey && t.Hotkey == "" {
+		return fmt.Errorf("hotkey is required for type hotkey")
+	}
+
+	// Valida wakeword para tipo wakeword
+	if t.Type == TriggerTypeWakeword && t.WakewordKeyword == "" {
+		return fmt.Errorf("wakeword_keyword is required for type wakeword")
+	}
+
+	// Valida provider wakeword
+	if t.Type == TriggerTypeWakeword && t.WakewordProvider != "" {
+		validProviders := []string{"webspeech"}
+		if !contains(validProviders, t.WakewordProvider) {
+			return fmt.Errorf("wakeword_provider must be: webspeech")
+		}
+	}
+
+	return nil
+}
+
+// helper function
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
 }

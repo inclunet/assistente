@@ -1,0 +1,57 @@
+.thread-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: var(--text);
+  cursor: pointer;
+  margin-left: auto;
+  transition: background-color 0.15s ease;
+  font-family: inherit;
+}
+
+.thread-indicator:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.thread-indicator:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.thread-indicator:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.thread-indicator__arrow {
+  transition: transform 0.15s ease;
+  display: inline-block;
+  font-size: 0.75rem;
+}
+
+.thread-indicator__arrow.expanded {
+  transform: rotate(90deg);
+}
+
+.thread-indicator__spinner {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.thread-indicator__count {
+  color: var(--text-muted);
+}

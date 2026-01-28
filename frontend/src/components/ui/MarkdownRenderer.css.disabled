@@ -1,0 +1,141 @@
+.markdown-renderer {
+  line-height: 1.6;
+  color: #e4e4e7;
+}
+
+.markdown-renderer h1,
+.markdown-renderer h2,
+.markdown-renderer h3,
+.markdown-renderer h4,
+.markdown-renderer h5,
+.markdown-renderer h6 {
+  margin-top: 1.5em;
+  margin-bottom: 0.5em;
+  font-weight: 600;
+  line-height: 1.25;
+}
+
+.markdown-renderer h1 {
+  font-size: 2em;
+  border-bottom: 1px solid #3f3f46;
+  padding-bottom: 0.3em;
+}
+
+.markdown-renderer h2 {
+  font-size: 1.5em;
+  border-bottom: 1px solid #3f3f46;
+  padding-bottom: 0.3em;
+}
+
+.markdown-renderer h3 {
+  font-size: 1.25em;
+}
+
+.markdown-renderer p {
+  margin-top: 0;
+  margin-bottom: 1em;
+}
+
+.markdown-renderer ul,
+.markdown-renderer ol {
+  margin-top: 0;
+  margin-bottom: 1em;
+  padding-left: 2em;
+}
+
+.markdown-renderer li {
+  margin-top: 0.25em;
+}
+
+.markdown-renderer a {
+  color: #60a5fa;
+  text-decoration: none;
+}
+
+.markdown-renderer a:hover {
+  text-decoration: underline;
+}
+
+.markdown-renderer blockquote {
+  margin: 0 0 1em;
+  padding: 0 1em;
+  border-left: 4px solid #3f3f46;
+  color: #a1a1aa;
+}
+
+.markdown-renderer table {
+  border-collapse: collapse;
+  width: 100%;
+  margin-bottom: 1em;
+}
+
+.markdown-renderer th,
+.markdown-renderer td {
+  border: 1px solid #3f3f46;
+  padding: 0.5em 0.75em;
+  text-align: left;
+}
+
+.markdown-renderer th {
+  background: #27272a;
+  font-weight: 600;
+}
+
+.markdown-renderer tr:nth-child(even) {
+  background: #18181b;
+}
+
+.code-inline {
+  background: #27272a;
+  padding: 0.2em 0.4em;
+  border-radius: 4px;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+}
+
+.code-block {
+  position: relative;
+  margin: 1em 0;
+  background: #1e1e1e;
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.code-block__language {
+  position: absolute;
+  top: 0.5rem;
+  right: 0.5rem;
+  padding: 0.25rem 0.5rem;
+  background: #3f3f46;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  color: #a1a1aa;
+  text-transform: uppercase;
+  font-weight: 600;
+  z-index: 1;
+}
+
+.code-block code {
+  display: block;
+  padding: 1rem;
+  overflow-x: auto;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 0.9em;
+  line-height: 1.5;
+}
+
+.markdown-renderer pre {
+  margin: 0;
+}
+
+.markdown-renderer hr {
+  border: none;
+  border-top: 1px solid #3f3f46;
+  margin: 2em 0;
+}
+
+.markdown-renderer img {
+  max-width: 100%;
+  height: auto;
+  border-radius: 8px;
+}

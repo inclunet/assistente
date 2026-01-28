@@ -228,17 +228,27 @@ func (a *HTTPAgent) executeEndpoint(ctx context.Context, endpoint *HTTPEndpointC
 
 	// Formata a resposta se houver template
 	if endpoint.ResponseTemplate != "" {
-		return a.executor.FormatResponse(resp, endpoint.ResponseTemplate, params, a.Name, a.DisplayName)
+		fmt.Printf("  📝 [HTTP Agent] ResponseTemplate: %q\n", endpoint.ResponseTemplate)
+		result, err := a.executor.FormatResponse(resp, endpoint.ResponseTemplate, params, a.Name, a.DisplayName)
+		if err != nil {
+			fmt.Printf("  ❌ [HTTP Agent] Erro ao formatar resposta: %v\n", err)
+			return "", err
+		}
+		fmt.Printf("  📤 [HTTP Agent] Retornando para LLM (template): %s\n", result)
+		return result, nil
 	}
 
 	// Retorna o JSON formatado ou o body raw
 	if resp.JSON != nil {
 		jsonBytes, err := json.MarshalIndent(resp.JSON, "", "  ")
 		if err == nil {
-			return string(jsonBytes), nil
+			result := string(jsonBytes)
+			fmt.Printf("  📤 [HTTP Agent] Retornando para LLM: %s\n", result)
+			return result, nil
 		}
 	}
 
+	fmt.Printf("  📤 [HTTP Agent] Retornando para LLM (raw): %s\n", resp.Body)
 	return resp.Body, nil
 }
 

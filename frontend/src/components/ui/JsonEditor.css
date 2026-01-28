@@ -1,0 +1,35 @@
+.json-editor {
+  position: relative;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 6px;
+  overflow: hidden;
+  background: #1e1e1e;
+}
+
+.json-editor .monaco-editor {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+.json-editor-placeholder {
+  position: absolute;
+  top: 10px;
+  left: 60px;
+  color: #666;
+  pointer-events: none;
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  white-space: pre;
+  z-index: 1;
+  opacity: 0.6;
+}
+
+/* Dark mode adjustments */
+@media (prefers-color-scheme: dark) {
+  .json-editor {
+    border-color: var(--border-color-dark, #3a3a3a);
+  }
+  
+  .json-editor-placeholder {
+    color: #555;
+  }
+}

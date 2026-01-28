@@ -271,3 +271,143 @@ func ParseKeyString(key string) (hotkey.Key, error) {
 	return 0, fmt.Errorf("unknown key: %s", key)
 }
 
+// ParseCombination converte uma string de combinação para modifiers e key
+// Exemplo: "Ctrl+Shift+A" -> ([]Modifier{ModCtrl, ModShift}, KeyA)
+func ParseCombination(combination string) ([]hotkey.Modifier, hotkey.Key, error) {
+	if combination == "" {
+		return nil, 0, fmt.Errorf("combination string is empty")
+	}
+
+	parts := strings.Split(combination, "+")
+	if len(parts) == 0 {
+		return nil, 0, fmt.Errorf("invalid combination: %s", combination)
+	}
+
+	// O último elemento é a tecla, os anteriores são modificadores
+	keyPart := strings.TrimSpace(parts[len(parts)-1])
+	modParts := parts[:len(parts)-1]
+
+	// Parse key
+	key, err := ParseKeyString(keyPart)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	// Parse modifiers
+	var modifiers []hotkey.Modifier
+	for _, mod := range modParts {
+		modLower := strings.ToLower(strings.TrimSpace(mod))
+		switch modLower {
+		case "ctrl", "control":
+			modifiers = append(modifiers, hotkey.ModCtrl)
+		case "shift":
+			modifiers = append(modifiers, hotkey.ModShift)
+		case "alt", "option":
+			modifiers = append(modifiers, hotkey.ModAlt)
+		case "win", "super", "cmd", "command", "meta":
+			modifiers = append(modifiers, hotkey.ModWin)
+		}
+	}
+
+	return modifiers, key, nil
+}
+
+// RegisteredProfileHotkey representa um hotkey registrado para um perfil de interação
+type RegisteredProfileHotkey struct {
+	ProfileID     int
+	IsPrimary     bool   // true para hotkey principal, false para secundário
+	Combination   string // A combinação original (ex: "Ctrl+Shift+A")
+	BringToFront  bool   // Se deve trazer janela para frente
+	HotkeyID      int    // ID do hotkey registrado no Manager
+}
+
+// profileHotkeys guarda o mapeamento de perfis para hotkeys
+var profileHotkeys = make(map[int][]*RegisteredProfileHotkey)
+var profileHotkeysMu sync.Mutex
+
+// RegisterProfileHotkey registra um hotkey para um perfil de interação
+func (m *Manager) RegisterProfileHotkey(profileID int, combination string, isPrimary bool, bringToFront bool, callback HotkeyCallback) (int, error) {
+	if combination == "" {
+		return 0, fmt.Errorf("combination is empty")
+	}
+
+	modifiers, key, err := ParseCombination(combination)
+	if err != nil {
+		return 0, fmt.Errorf("invalid combination %s: %w", combination, err)
+	}
+
+	// Registra o hotkey
+	hotkeyID, err := m.Register(modifiers, key, callback)
+	if err != nil {
+		return 0, err
+	}
+
+	// Guarda referência para o perfil
+	profileHotkeysMu.Lock()
+	profileHotkeys[profileID] = append(profileHotkeys[profileID], &RegisteredProfileHotkey{
+		ProfileID:    profileID,
+		IsPrimary:    isPrimary,
+		Combination:  combination,
+		BringToFront: bringToFront,
+		HotkeyID:     hotkeyID,
+	})
+	profileHotkeysMu.Unlock()
+
+	log.Printf("Profile hotkey registrado: ProfileID=%d, Combination=%s, Primary=%v, BringToFront=%v, HotkeyID=%d",
+		profileID, combination, isPrimary, bringToFront, hotkeyID)
+
+	return hotkeyID, nil
+}
+
+// UnregisterProfileHotkeys remove todos os hotkeys de um perfil
+func (m *Manager) UnregisterProfileHotkeys(profileID int) error {
+	profileHotkeysMu.Lock()
+	hotkeys, exists := profileHotkeys[profileID]
+	if !exists {
+		profileHotkeysMu.Unlock()
+		return nil
+	}
+	delete(profileHotkeys, profileID)
+	profileHotkeysMu.Unlock()
+
+	var lastErr error
+	for _, hk := range hotkeys {
+		if err := m.Unregister(hk.HotkeyID); err != nil {
+			log.Printf("Warning: failed to unregister hotkey %d for profile %d: %v", hk.HotkeyID, profileID, err)
+			lastErr = err
+		}
+	}
+
+	return lastErr
+}
+
+// GetProfileHotkeys retorna os hotkeys registrados para um perfil
+func GetProfileHotkeys(profileID int) []*RegisteredProfileHotkey {
+	profileHotkeysMu.Lock()
+	defer profileHotkeysMu.Unlock()
+
+	hotkeys, exists := profileHotkeys[profileID]
+	if !exists {
+		return nil
+	}
+
+	// Retorna cópia para evitar race conditions
+	result := make([]*RegisteredProfileHotkey, len(hotkeys))
+	copy(result, hotkeys)
+	return result
+}
+
+// UnregisterAllProfileHotkeys remove todos os hotkeys de todos os perfis
+func (m *Manager) UnregisterAllProfileHotkeys() {
+	profileHotkeysMu.Lock()
+	allProfiles := make([]int, 0, len(profileHotkeys))
+	for pid := range profileHotkeys {
+		allProfiles = append(allProfiles, pid)
+	}
+	profileHotkeysMu.Unlock()
+
+	for _, pid := range allProfiles {
+		m.UnregisterProfileHotkeys(pid)
+	}
+}
+

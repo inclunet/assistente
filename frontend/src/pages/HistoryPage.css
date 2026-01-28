@@ -1,0 +1,27 @@
+.history-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--background);
+}
+
+.history-page .loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .history-page {
+    background-color: var(--background-dark, #1a1a1a);
+  }
+  
+  .history-page .loading {
+    color: var(--text-secondary-dark, #aaa);
+  }
+}

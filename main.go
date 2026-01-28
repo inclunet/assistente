@@ -50,6 +50,9 @@ func main() {
 		Bind: []interface{}{
 			app,
 		},
+		Debug: options.Debug{
+			OpenInspectorOnStartup: false, // Não abre automaticamente
+		},
 	})
 
 	if err != nil {

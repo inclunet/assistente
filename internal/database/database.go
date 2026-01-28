@@ -3,6 +3,7 @@ package database
 import (
 	"encoding/json"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -79,10 +80,58 @@ func Init() error {
 		&OAuthConnection{},
 		&ModelCapability{},
 		&FileAgentAuthorizedPath{},
+		&VoiceProfile{},
+		&InteractionProfile{},
+		&InteractionTrigger{},
 	); err != nil {
 		return err
 	}
 
+	// Seed: cria perfil de voz padrão "Desativado" se não existir
+	if err := seedDefaultVoiceProfile(); err != nil {
+		fmt.Printf("Aviso: erro ao criar perfil de voz padrão: %v\n", err)
+	}
+
+	// Seed: cria perfil de interação padrão "Manual" se não existir
+	if err := seedDefaultInteractionProfile(); err != nil {
+		fmt.Printf("Aviso: erro ao criar perfil de interação padrão: %v\n", err)
+	}
+
+	return nil
+}
+
+// seedDefaultVoiceProfile cria o perfil de voz padrão "Desativado" se não existir
+func seedDefaultVoiceProfile() error {
+	// Verifica se já existe um perfil padrão
+	var count int64
+	if err := db.Model(&VoiceProfile{}).Where("is_default = ?", true).Count(&count).Error; err != nil {
+		return err
+	}
+
+	if count > 0 {
+		// Já existe um perfil padrão
+		return nil
+	}
+
+	// Cria o perfil padrão "Desativado"
+	profile := &VoiceProfile{
+		Name:            "Desativado",
+		Description:     "Perfil padrão sem síntese de voz. Usa aria-live para leitores de tela.",
+		Provider:        "disabled",
+		VoiceID:         "",
+		Rate:            1.0,
+		Pitch:           1.0,
+		Volume:          1.0,
+		EnabledForAgent: false,
+		EnabledForUser:  false,
+		IsDefault:       true,
+	}
+
+	if err := db.Create(profile).Error; err != nil {
+		return err
+	}
+
+	fmt.Println("[Database] Perfil de voz padrão 'Desativado' criado com sucesso")
 	return nil
 }
 
@@ -125,7 +174,18 @@ func CreateConversationWithPreferences(title string, prefs *ChatPreferences) (*C
 func GetConversations() ([]Conversation, error) {
 	var conversations []Conversation
 	err := db.Order("updated_at DESC").Find(&conversations).Error
-	return conversations, err
+	if err != nil {
+		return nil, err
+	}
+
+	// Popula a contagem de mensagens para cada conversa
+	for i := range conversations {
+		var count int64
+		db.Model(&ChatMessage{}).Where("conversation_id = ?", conversations[i].ID).Count(&count)
+		conversations[i].MessageCount = int(count)
+	}
+
+	return conversations, nil
 }
 
 // GetConversation retorna uma conversa com suas mensagens
@@ -419,6 +479,8 @@ func CountChildren(messageIDs []uint) (map[uint]int, error) {
 		return make(map[uint]int), nil
 	}
 
+	fmt.Printf("🔍 [CountChildren] Contando filhos para IDs: %v\n", messageIDs)
+
 	type countResult struct {
 		ParentID uint
 		Count    int
@@ -432,13 +494,18 @@ func CountChildren(messageIDs []uint) (map[uint]int, error) {
 		Scan(&results).Error
 
 	if err != nil {
+		fmt.Printf("❌ [CountChildren] Erro: %v\n", err)
 		return nil, err
 	}
+
+	fmt.Printf("📊 [CountChildren] Resultados SQL: %+v\n", results)
 
 	counts := make(map[uint]int)
 	for _, r := range results {
 		counts[r.ParentID] = r.Count
 	}
+
+	fmt.Printf("✅ [CountChildren] Mapa final: %v\n", counts)
 	return counts, nil
 }
 
@@ -588,6 +655,16 @@ func GetCoreMemories() ([]Memory, error) {
 	var memories []Memory
 	err := db.Where("LOWER(category) = ?", "core").Order("created_at ASC").Find(&memories).Error
 	return memories, err
+}
+
+// GetMemory retorna uma memória por ID
+func GetMemory(id uint) (*Memory, error) {
+	var memory Memory
+	err := db.First(&memory, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &memory, nil
 }
 
 // ==================== FAQ ====================
@@ -1453,4 +1530,564 @@ func sqrtFloat64(x float64) float64 {
 		z = z - (z*z-x)/(2*z)
 	}
 	return z
+}
+
+// ==================== VoiceProfile ====================
+
+// CreateVoiceProfile cria um novo perfil de voz
+// VoiceProfileOptions contém opções para criar/atualizar um perfil de voz
+type VoiceProfileOptions struct {
+	Name            string
+	Description     string
+	Provider        string
+	VoiceID         string
+	Rate            float64
+	Pitch           float64
+	Volume          float64
+	EnabledForAgent bool
+	EnabledForUser  bool
+	IsDefault       bool
+}
+
+// CreateVoiceProfile cria um novo perfil de voz (versão simplificada para compatibilidade)
+func CreateVoiceProfile(name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
+	return CreateVoiceProfileFull(VoiceProfileOptions{
+		Name:            name,
+		Description:     description,
+		Provider:        provider,
+		VoiceID:         voiceID,
+		Rate:            rate,
+		Pitch:           pitch,
+		Volume:          volume,
+		EnabledForAgent: provider != "disabled",
+		EnabledForUser:  false,
+		IsDefault:       isDefault,
+	})
+}
+
+// CreateVoiceProfileFull cria um novo perfil de voz com todas as opções
+func CreateVoiceProfileFull(opts VoiceProfileOptions) (*VoiceProfile, error) {
+	profile := &VoiceProfile{
+		Name:            opts.Name,
+		Description:     opts.Description,
+		Provider:        opts.Provider,
+		VoiceID:         opts.VoiceID,
+		Rate:            opts.Rate,
+		Pitch:           opts.Pitch,
+		Volume:          opts.Volume,
+		EnabledForAgent: opts.EnabledForAgent,
+		EnabledForUser:  opts.EnabledForUser,
+		IsDefault:       opts.IsDefault,
+	}
+
+	// Valida o perfil
+	if err := profile.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Se marcado como default, remove o default anterior
+	if opts.IsDefault {
+		if err := db.Model(&VoiceProfile{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+			return nil, err
+		}
+	}
+
+	if err := db.Create(profile).Error; err != nil {
+		return nil, err
+	}
+	return profile, nil
+}
+
+// GetVoiceProfile retorna um perfil de voz por ID
+func GetVoiceProfile(id uint) (*VoiceProfile, error) {
+	var profile VoiceProfile
+	err := db.First(&profile, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// GetVoiceProfileByName retorna um perfil de voz por nome
+func GetVoiceProfileByName(name string) (*VoiceProfile, error) {
+	var profile VoiceProfile
+	err := db.Where("name = ?", name).First(&profile).Error
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// GetAllVoiceProfiles retorna todos os perfis de voz
+func GetAllVoiceProfiles() ([]VoiceProfile, error) {
+	var profiles []VoiceProfile
+	err := db.Order("name ASC").Find(&profiles).Error
+	return profiles, err
+}
+
+// GetDefaultVoiceProfile retorna o perfil de voz padrão
+func GetDefaultVoiceProfile() (*VoiceProfile, error) {
+	var profile VoiceProfile
+	err := db.Where("is_default = ?", true).First(&profile).Error
+	if err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// UpdateVoiceProfile atualiza um perfil de voz
+// UpdateVoiceProfile atualiza um perfil de voz (versão simplificada para compatibilidade)
+func UpdateVoiceProfile(id uint, name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
+	// Busca o perfil existente para manter os valores dos novos campos
+	var existing VoiceProfile
+	if err := db.First(&existing, id).Error; err != nil {
+		return nil, err
+	}
+
+	return UpdateVoiceProfileFull(id, VoiceProfileOptions{
+		Name:            name,
+		Description:     description,
+		Provider:        provider,
+		VoiceID:         voiceID,
+		Rate:            rate,
+		Pitch:           pitch,
+		Volume:          volume,
+		EnabledForAgent: existing.EnabledForAgent,
+		EnabledForUser:  existing.EnabledForUser,
+		IsDefault:       isDefault,
+	})
+}
+
+// UpdateVoiceProfileFull atualiza um perfil de voz com todas as opções
+func UpdateVoiceProfileFull(id uint, opts VoiceProfileOptions) (*VoiceProfile, error) {
+	var profile VoiceProfile
+	if err := db.First(&profile, id).Error; err != nil {
+		return nil, err
+	}
+
+	profile.Name = opts.Name
+	profile.Description = opts.Description
+	profile.Provider = opts.Provider
+	profile.VoiceID = opts.VoiceID
+	profile.Rate = opts.Rate
+	profile.Pitch = opts.Pitch
+	profile.Volume = opts.Volume
+	profile.EnabledForAgent = opts.EnabledForAgent
+	profile.EnabledForUser = opts.EnabledForUser
+	profile.UpdatedAt = time.Now()
+
+	// Valida o perfil
+	if err := profile.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Se marcado como default, remove o default anterior
+	if opts.IsDefault && !profile.IsDefault {
+		if err := db.Model(&VoiceProfile{}).Where("is_default = ? AND id != ?", true, id).Update("is_default", false).Error; err != nil {
+			return nil, err
+		}
+	}
+	profile.IsDefault = opts.IsDefault
+
+	if err := db.Save(&profile).Error; err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// DeleteVoiceProfile deleta um perfil de voz
+func DeleteVoiceProfile(id uint) error {
+	return db.Delete(&VoiceProfile{}, id).Error
+}
+
+// SetDefaultVoiceProfile define um perfil como padrão
+func SetDefaultVoiceProfile(id uint) error {
+	// Remove default anterior
+	if err := db.Model(&VoiceProfile{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+		return err
+	}
+	// Define o novo default
+	return db.Model(&VoiceProfile{}).Where("id = ?", id).Update("is_default", true).Error
+}
+
+// SearchVoiceProfiles busca perfis por nome ou descrição
+func SearchVoiceProfiles(query string) ([]VoiceProfile, error) {
+	var profiles []VoiceProfile
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return GetAllVoiceProfiles()
+	}
+	searchTerm := "%" + query + "%"
+	err := db.Where(
+		"LOWER(name) LIKE ? OR LOWER(description) LIKE ? OR LOWER(provider) LIKE ?",
+		searchTerm, searchTerm, searchTerm,
+	).Order("name ASC").Find(&profiles).Error
+	return profiles, err
+}
+
+// ==================== Interaction Profile CRUD ====================
+
+// migrateInteractionProfilesToTriggers migra perfis antigos para a nova estrutura com triggers
+func migrateInteractionProfilesToTriggers() error {
+	// Verifica se existem perfis sem triggers
+	var profiles []InteractionProfile
+	if err := db.Find(&profiles).Error; err != nil {
+		return err
+	}
+
+	for _, profile := range profiles {
+		// Verifica se o perfil tem triggers
+		var triggerCount int64
+		if err := db.Model(&InteractionTrigger{}).Where("profile_id = ?", profile.ID).Count(&triggerCount).Error; err != nil {
+			continue
+		}
+
+		if triggerCount == 0 {
+			// Perfil sem triggers - cria trigger padrão PTT (push-to-talk)
+			log.Printf("[Database] Migrando perfil '%s' (ID: %d) - criando trigger PTT padrão", profile.Name, profile.ID)
+			trigger := InteractionTrigger{
+				ProfileID: profile.ID,
+				Type:      TriggerTypeButtonPTT,
+				Enabled:   true,
+				AutoStop:  false, // PTT não usa VAD
+			}
+			if err := db.Create(&trigger).Error; err != nil {
+				log.Printf("[Database] Erro ao criar trigger para perfil %d: %v", profile.ID, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// seedDefaultInteractionProfile cria os perfis de interação padrão
+func seedDefaultInteractionProfile() error {
+	// Primeiro, migra perfis existentes para a nova estrutura
+	if err := migrateInteractionProfilesToTriggers(); err != nil {
+		log.Printf("[Database] Erro na migração de triggers: %v", err)
+	}
+
+	// Verifica se já existe algum perfil
+	var count int64
+	if err := db.Model(&InteractionProfile{}).Count(&count).Error; err != nil {
+		return err
+	}
+
+	if count > 0 {
+		// Já existem perfis (possivelmente migrados)
+		return nil
+	}
+
+	// Cria perfil PTT (padrão de fábrica e ativo por padrão)
+	pttProfile := InteractionProfile{
+		Name:           "PTT (Push-to-Talk)",
+		Description:    "Segure o botão para gravar. Modo padrão de fábrica.",
+		IsDefault:      true,
+		IsActive:       true, // Perfil ativo inicial
+		STTProvider:    "webspeech",
+		Language:       "pt-BR",
+		FeedbackSounds: true,
+	}
+	if err := db.Create(&pttProfile).Error; err != nil {
+		return err
+	}
+	// Adiciona trigger button_ptt
+	db.Create(&InteractionTrigger{
+		ProfileID: pttProfile.ID,
+		Type:      TriggerTypeButtonPTT,
+		Enabled:   true,
+		AutoStop:  false, // PTT não usa VAD, solta o botão para parar
+	})
+
+	// Cria perfil Toggle (clique para iniciar/parar)
+	toggleProfile := InteractionProfile{
+		Name:           "Toggle",
+		Description:    "Clique para iniciar, clique novamente para parar.",
+		IsDefault:      false,
+		STTProvider:    "webspeech",
+		Language:       "pt-BR",
+		FeedbackSounds: true,
+	}
+	if err := db.Create(&toggleProfile).Error; err != nil {
+		return err
+	}
+	// Adiciona trigger button_toggle
+	db.Create(&InteractionTrigger{
+		ProfileID: toggleProfile.ID,
+		Type:      TriggerTypeButtonToggle,
+		Enabled:   true,
+		AutoStop:  false,
+	})
+
+	// Cria perfil Desktop Rápido (com hotkey)
+	desktopProfile := InteractionProfile{
+		Name:           "Desktop Rápido",
+		Description:    "Atalho Ctrl+Shift+Space traz janela e ativa gravação com VAD.",
+		IsDefault:      false,
+		STTProvider:    "webspeech",
+		Language:       "pt-BR",
+		FeedbackSounds: true,
+	}
+	if err := db.Create(&desktopProfile).Error; err != nil {
+		return err
+	}
+	// Adiciona triggers
+	db.Create(&InteractionTrigger{
+		ProfileID:          desktopProfile.ID,
+		Type:               TriggerTypeHotkey,
+		Enabled:            true,
+		AutoStop:           true,
+		Hotkey:             "Ctrl+Shift+Space",
+		HotkeyGlobal:       true,
+		HotkeyBringToFront: true,
+		VADSilenceDuration: 1500,
+	})
+	db.Create(&InteractionTrigger{
+		ProfileID:          desktopProfile.ID,
+		Type:               TriggerTypeButtonToggle,
+		Enabled:            true,
+		AutoStop:           true,
+		VADSilenceDuration: 1500,
+	})
+
+	// Cria perfil Conversa com Wake Word
+	wakewordProfile := InteractionProfile{
+		Name:           "Conversa por Voz",
+		Description:    "Diga 'assistente' para iniciar. Ctrl+W liga/desliga escuta.",
+		IsDefault:      false,
+		STTProvider:    "webspeech",
+		Language:       "pt-BR",
+		FeedbackSounds: true,
+	}
+	if err := db.Create(&wakewordProfile).Error; err != nil {
+		return err
+	}
+	// Adiciona triggers
+	db.Create(&InteractionTrigger{
+		ProfileID:           wakewordProfile.ID,
+		Type:                TriggerTypeWakeword,
+		Enabled:             true,
+		WakewordKeyword:     "assistente",
+		WakewordProvider:    "webspeech",
+		WakewordSensitivity: 0.5,
+		Hotkey:              "Ctrl+W",
+		HotkeyGlobal:        true,
+		HotkeyBringToFront:  false,
+		VADSilenceDuration:  1500,
+	})
+	db.Create(&InteractionTrigger{
+		ProfileID: wakewordProfile.ID,
+		Type:      TriggerTypeButtonToggle,
+		Enabled:   true,
+		AutoStop:  true,
+		VADSilenceDuration: 1500,
+	})
+
+	return nil
+}
+
+// CreateInteractionProfile cria um novo perfil de interação
+func CreateInteractionProfile(profile *InteractionProfile) (*InteractionProfile, error) {
+	if err := profile.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Se é default, remove default anterior
+	if profile.IsDefault {
+		db.Model(&InteractionProfile{}).Where("is_default = ?", true).Update("is_default", false)
+	}
+
+	if err := db.Create(profile).Error; err != nil {
+		return nil, err
+	}
+
+	return profile, nil
+}
+
+// GetInteractionProfile retorna um perfil por ID com seus triggers
+func GetInteractionProfile(id uint) (*InteractionProfile, error) {
+	var profile InteractionProfile
+	if err := db.Preload("Triggers").First(&profile, id).Error; err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// GetInteractionProfileByName retorna um perfil por nome
+func GetInteractionProfileByName(name string) (*InteractionProfile, error) {
+	var profile InteractionProfile
+	if err := db.Preload("Triggers").Where("name = ?", name).First(&profile).Error; err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// GetAllInteractionProfiles retorna todos os perfis de interação com triggers
+func GetAllInteractionProfiles() ([]InteractionProfile, error) {
+	var profiles []InteractionProfile
+	err := db.Preload("Triggers").Order("name ASC").Find(&profiles).Error
+	return profiles, err
+}
+
+// GetDefaultInteractionProfile retorna o perfil de interação padrão
+func GetDefaultInteractionProfile() (*InteractionProfile, error) {
+	var profile InteractionProfile
+	if err := db.Preload("Triggers").Where("is_default = ?", true).First(&profile).Error; err != nil {
+		// Se não encontrou, retorna o primeiro
+		if err := db.Preload("Triggers").First(&profile).Error; err != nil {
+			return nil, err
+		}
+	}
+	return &profile, nil
+}
+
+// GetActiveInteractionProfile retorna o perfil de interação atualmente ativo
+func GetActiveInteractionProfile() (*InteractionProfile, error) {
+	var profile InteractionProfile
+	if err := db.Preload("Triggers").Where("is_active = ?", true).First(&profile).Error; err != nil {
+		// Se não encontrou perfil ativo, retorna nil sem erro
+		return nil, nil
+	}
+	return &profile, nil
+}
+
+// SetActiveInteractionProfile define qual perfil está ativo (persiste no banco)
+func SetActiveInteractionProfile(profileID uint) error {
+	// Desativa todos os perfis
+	if err := db.Model(&InteractionProfile{}).Where("is_active = ?", true).Update("is_active", false).Error; err != nil {
+		return err
+	}
+
+	// Ativa o perfil selecionado (0 = nenhum perfil ativo)
+	if profileID > 0 {
+		if err := db.Model(&InteractionProfile{}).Where("id = ?", profileID).Update("is_active", true).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// UpdateInteractionProfile atualiza um perfil de interação
+func UpdateInteractionProfile(id uint, profile *InteractionProfile) (*InteractionProfile, error) {
+	if err := profile.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Busca o perfil existente
+	var existing InteractionProfile
+	if err := db.First(&existing, id).Error; err != nil {
+		return nil, err
+	}
+
+	// Se está se tornando default, remove default anterior
+	if profile.IsDefault && !existing.IsDefault {
+		db.Model(&InteractionProfile{}).Where("is_default = ?", true).Update("is_default", false)
+	}
+
+	// Atualiza todos os campos
+	profile.ID = id
+	profile.CreatedAt = existing.CreatedAt
+
+	if err := db.Save(profile).Error; err != nil {
+		return nil, err
+	}
+
+	// Retorna com triggers
+	return GetInteractionProfile(id)
+}
+
+// DeleteInteractionProfile deleta um perfil de interação (triggers são deletados em cascata)
+func DeleteInteractionProfile(id uint) error {
+	return db.Delete(&InteractionProfile{}, id).Error
+}
+
+// SetDefaultInteractionProfile define um perfil como padrão
+func SetDefaultInteractionProfile(id uint) error {
+	// Remove default anterior
+	if err := db.Model(&InteractionProfile{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+		return err
+	}
+	// Define o novo default
+	return db.Model(&InteractionProfile{}).Where("id = ?", id).Update("is_default", true).Error
+}
+
+// SearchInteractionProfiles busca perfis por nome ou descrição
+func SearchInteractionProfiles(query string) ([]InteractionProfile, error) {
+	var profiles []InteractionProfile
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return GetAllInteractionProfiles()
+	}
+	searchTerm := "%" + query + "%"
+	err := db.Preload("Triggers").Where(
+		"LOWER(name) LIKE ? OR LOWER(description) LIKE ?",
+		searchTerm, searchTerm,
+	).Order("name ASC").Find(&profiles).Error
+	return profiles, err
+}
+
+// ==================== Interaction Trigger CRUD ====================
+
+// CreateInteractionTrigger cria um novo trigger
+func CreateInteractionTrigger(trigger *InteractionTrigger) (*InteractionTrigger, error) {
+	if err := trigger.Validate(); err != nil {
+		return nil, err
+	}
+
+	if err := db.Create(trigger).Error; err != nil {
+		return nil, err
+	}
+
+	return trigger, nil
+}
+
+// GetInteractionTrigger retorna um trigger por ID
+func GetInteractionTrigger(id uint) (*InteractionTrigger, error) {
+	var trigger InteractionTrigger
+	if err := db.First(&trigger, id).Error; err != nil {
+		return nil, err
+	}
+	return &trigger, nil
+}
+
+// GetTriggersByProfile retorna todos os triggers de um perfil
+func GetTriggersByProfile(profileID uint) ([]InteractionTrigger, error) {
+	var triggers []InteractionTrigger
+	err := db.Where("profile_id = ?", profileID).Find(&triggers).Error
+	return triggers, err
+}
+
+// UpdateInteractionTrigger atualiza um trigger
+func UpdateInteractionTrigger(id uint, trigger *InteractionTrigger) (*InteractionTrigger, error) {
+	if err := trigger.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Busca o trigger existente
+	var existing InteractionTrigger
+	if err := db.First(&existing, id).Error; err != nil {
+		return nil, err
+	}
+
+	// Atualiza todos os campos
+	trigger.ID = id
+	trigger.ProfileID = existing.ProfileID
+	trigger.CreatedAt = existing.CreatedAt
+
+	if err := db.Save(trigger).Error; err != nil {
+		return nil, err
+	}
+
+	return trigger, nil
+}
+
+// DeleteInteractionTrigger deleta um trigger
+func DeleteInteractionTrigger(id uint) error {
+	return db.Delete(&InteractionTrigger{}, id).Error
+}
+
+// DeleteTriggersByProfile deleta todos os triggers de um perfil
+func DeleteTriggersByProfile(profileID uint) error {
+	return db.Where("profile_id = ?", profileID).Delete(&InteractionTrigger{}).Error
 }

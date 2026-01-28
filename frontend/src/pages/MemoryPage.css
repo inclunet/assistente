@@ -1,0 +1,98 @@
+.memory-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-primary, #fafafa);
+}
+
+.page-content {
+  flex: 1;
+  padding: 24px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.loading-message {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 200px;
+  color: var(--text-secondary, #666);
+  font-size: 1.1em;
+}
+
+.category-filter {
+  padding: 8px 16px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 6px;
+  font-size: 0.95em;
+  background: var(--bg-primary, #ffffff);
+  color: var(--text-primary, #000000);
+  cursor: pointer;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.category-filter:focus {
+  border-color: var(--accent-color, #007bff);
+  box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
+}
+
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.form-group label {
+  font-weight: 600;
+  font-size: 0.95em;
+  color: var(--text-primary, #000);
+}
+
+.form-error {
+  padding: 12px 16px;
+  background: #fee;
+  border: 1px solid #fcc;
+  border-radius: 6px;
+  color: #c00;
+  font-size: 0.95em;
+}
+
+.modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+  .memory-page {
+    background: var(--bg-primary-dark, #1a1a1a);
+  }
+
+  .category-filter {
+    background: var(--bg-secondary-dark, #2a2a2a);
+    border-color: var(--border-color-dark, #3a3a3a);
+    color: var(--text-primary-dark, #e0e0e0);
+  }
+
+  .form-group label {
+    color: var(--text-primary-dark, #e0e0e0);
+  }
+
+  .form-error {
+    background: #422;
+    border-color: #844;
+    color: #faa;
+  }
+}

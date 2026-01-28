@@ -1,0 +1,40 @@
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import rehypeHighlight from 'rehype-highlight';
+import 'highlight.js/styles/github-dark.css';
+import './MarkdownRenderer.css';
+
+interface MarkdownRendererProps {
+  content: string;
+  className?: string;
+}
+
+export function MarkdownRenderer({ content, className = '' }: MarkdownRendererProps) {
+  return (
+    <div className={`markdown-renderer ${className}`}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        rehypePlugins={[rehypeHighlight]}
+        components={{
+          code({ inline, className, children, ...props }: any) {
+            const match = /language-(\w+)/.exec(className || '');
+            return !inline ? (
+              <div className="code-block">
+                {match && <div className="code-block__language">{match[1]}</div>}
+                <code className={className} {...props}>
+                  {children}
+                </code>
+              </div>
+            ) : (
+              <code className="code-inline" {...props}>
+                {children}
+              </code>
+            );
+          },
+        }}
+      >
+        {content}
+      </ReactMarkdown>
+    </div>
+  );
+}

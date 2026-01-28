@@ -45,24 +45,6 @@ export namespace config {
 	        this.recording_mode = source["recording_mode"];
 	    }
 	}
-	export class VoiceParams {
-	    voice?: string;
-	    auto_speak?: boolean;
-	    volume?: number;
-	    rate?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new VoiceParams(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.voice = source["voice"];
-	        this.auto_speak = source["auto_speak"];
-	        this.volume = source["volume"];
-	        this.rate = source["rate"];
-	    }
-	}
 	export class EmbeddingsParams {
 	    model?: string;
 	    dimensions?: number;
@@ -103,7 +85,6 @@ export namespace config {
 	    image_model?: string;
 	    chat_params?: ModelParams;
 	    embeddings_params?: EmbeddingsParams;
-	    voice_params?: VoiceParams;
 	    stt_params?: STTParams;
 	    chat_defaults?: ChatDefaults;
 	
@@ -120,7 +101,6 @@ export namespace config {
 	        this.image_model = source["image_model"];
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.embeddings_params = this.convertValues(source["embeddings_params"], EmbeddingsParams);
-	        this.voice_params = this.convertValues(source["voice_params"], VoiceParams);
 	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
 	        this.chat_defaults = this.convertValues(source["chat_defaults"], ChatDefaults);
 	    }
@@ -143,7 +123,6 @@ export namespace config {
 		    return a;
 		}
 	}
-	
 	
 	
 
@@ -203,20 +182,20 @@ export namespace database {
 	}
 	export class ChatMessage {
 	    id: number;
-	    conversation_id: number;
-	    parent_id?: number;
+	    conversationId: number;
+	    parentId?: number;
 	    role: string;
 	    content: string;
 	    media?: string;
-	    tool_calls?: string;
-	    tool_results?: string;
-	    tool_call_id?: string;
-	    agent_name?: string;
-	    prompt_tokens?: number;
-	    completion_tokens?: number;
-	    total_tokens?: number;
+	    toolCalls?: string;
+	    toolResults?: string;
+	    toolCallId?: string;
+	    agentName?: string;
+	    promptTokens?: number;
+	    completionTokens?: number;
+	    totalTokens?: number;
 	    model?: string;
-	    created_at: time.Time;
+	    createdAt: time.Time;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatMessage(source);
@@ -225,20 +204,20 @@ export namespace database {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
-	        this.conversation_id = source["conversation_id"];
-	        this.parent_id = source["parent_id"];
+	        this.conversationId = source["conversationId"];
+	        this.parentId = source["parentId"];
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.media = source["media"];
-	        this.tool_calls = source["tool_calls"];
-	        this.tool_results = source["tool_results"];
-	        this.tool_call_id = source["tool_call_id"];
-	        this.agent_name = source["agent_name"];
-	        this.prompt_tokens = source["prompt_tokens"];
-	        this.completion_tokens = source["completion_tokens"];
-	        this.total_tokens = source["total_tokens"];
+	        this.toolCalls = source["toolCalls"];
+	        this.toolResults = source["toolResults"];
+	        this.toolCallId = source["toolCallId"];
+	        this.agentName = source["agentName"];
+	        this.promptTokens = source["promptTokens"];
+	        this.completionTokens = source["completionTokens"];
+	        this.totalTokens = source["totalTokens"];
 	        this.model = source["model"];
-	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.createdAt = this.convertValues(source["createdAt"], time.Time);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -270,6 +249,7 @@ export namespace database {
 	    auto_speak?: boolean;
 	    voice_volume?: number;
 	    voice_rate?: number;
+	    voice_profile_id?: number;
 	    stt_provider?: string;
 	    recording_mode?: string;
 	
@@ -289,6 +269,7 @@ export namespace database {
 	        this.auto_speak = source["auto_speak"];
 	        this.voice_volume = source["voice_volume"];
 	        this.voice_rate = source["voice_rate"];
+	        this.voice_profile_id = source["voice_profile_id"];
 	        this.stt_provider = source["stt_provider"];
 	        this.recording_mode = source["recording_mode"];
 	    }
@@ -300,6 +281,7 @@ export namespace database {
 	    created_at: time.Time;
 	    updated_at: time.Time;
 	    messages?: ChatMessage[];
+	    message_count: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Conversation(source);
@@ -313,6 +295,7 @@ export namespace database {
 	        this.created_at = this.convertValues(source["created_at"], time.Time);
 	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
+	        this.message_count = source["message_count"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -504,6 +487,119 @@ export namespace database {
 	        this.created_at = this.convertValues(source["created_at"], time.Time);
 	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
 	        this.endpoints = this.convertValues(source["endpoints"], HTTPEndpoint);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class InteractionTrigger {
+	    id: number;
+	    profile_id: number;
+	    created_at: time.Time;
+	    updated_at: time.Time;
+	    type: string;
+	    enabled: boolean;
+	    auto_stop: boolean;
+	    hotkey: string;
+	    hotkey_global: boolean;
+	    hotkey_bring_to_front: boolean;
+	    wakeword_keyword: string;
+	    wakeword_provider: string;
+	    wakeword_sensitivity: number;
+	    vad_silence_threshold: number;
+	    vad_silence_duration: number;
+	    vad_activity_threshold: number;
+	    vad_activity_duration: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new InteractionTrigger(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.profile_id = source["profile_id"];
+	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
+	        this.type = source["type"];
+	        this.enabled = source["enabled"];
+	        this.auto_stop = source["auto_stop"];
+	        this.hotkey = source["hotkey"];
+	        this.hotkey_global = source["hotkey_global"];
+	        this.hotkey_bring_to_front = source["hotkey_bring_to_front"];
+	        this.wakeword_keyword = source["wakeword_keyword"];
+	        this.wakeword_provider = source["wakeword_provider"];
+	        this.wakeword_sensitivity = source["wakeword_sensitivity"];
+	        this.vad_silence_threshold = source["vad_silence_threshold"];
+	        this.vad_silence_duration = source["vad_silence_duration"];
+	        this.vad_activity_threshold = source["vad_activity_threshold"];
+	        this.vad_activity_duration = source["vad_activity_duration"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class InteractionProfile {
+	    id: number;
+	    name: string;
+	    description: string;
+	    is_default: boolean;
+	    is_active: boolean;
+	    created_at: time.Time;
+	    updated_at: time.Time;
+	    stt_provider: string;
+	    language: string;
+	    feedback_sounds: boolean;
+	    triggers?: InteractionTrigger[];
+	
+	    static createFrom(source: any = {}) {
+	        return new InteractionProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.is_default = source["is_default"];
+	        this.is_active = source["is_active"];
+	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
+	        this.stt_provider = source["stt_provider"];
+	        this.language = source["language"];
+	        this.feedback_sounds = source["feedback_sounds"];
+	        this.triggers = this.convertValues(source["triggers"], InteractionTrigger);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -733,6 +829,60 @@ export namespace database {
 		    return a;
 		}
 	}
+	export class VoiceProfile {
+	    id: number;
+	    name: string;
+	    description: string;
+	    provider: string;
+	    voice_id: string;
+	    rate: number;
+	    pitch: number;
+	    volume: number;
+	    enabled_for_agent: boolean;
+	    enabled_for_user: boolean;
+	    is_default: boolean;
+	    created_at: time.Time;
+	    updated_at: time.Time;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.provider = source["provider"];
+	        this.voice_id = source["voice_id"];
+	        this.rate = source["rate"];
+	        this.pitch = source["pitch"];
+	        this.volume = source["volume"];
+	        this.enabled_for_agent = source["enabled_for_agent"];
+	        this.enabled_for_user = source["enabled_for_user"];
+	        this.is_default = source["is_default"];
+	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 
@@ -900,31 +1050,12 @@ export namespace llm {
 	        this.recording_mode = source["recording_mode"];
 	    }
 	}
-	export class VoiceParams {
-	    voice?: string;
-	    auto_speak?: boolean;
-	    volume?: number;
-	    rate?: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new VoiceParams(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.voice = source["voice"];
-	        this.auto_speak = source["auto_speak"];
-	        this.volume = source["volume"];
-	        this.rate = source["rate"];
-	    }
-	}
 	export class SettingsInput {
 	    api_key: string;
 	    api_base_url: string;
 	    chat_params: ModelParams;
 	    embeddings_params: EmbeddingsParams;
 	    image_model?: string;
-	    voice_params?: VoiceParams;
 	    stt_params?: STTParams;
 	    chat_defaults?: ChatDefaults;
 	
@@ -939,7 +1070,6 @@ export namespace llm {
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.embeddings_params = this.convertValues(source["embeddings_params"], EmbeddingsParams);
 	        this.image_model = source["image_model"];
-	        this.voice_params = this.convertValues(source["voice_params"], VoiceParams);
 	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
 	        this.chat_defaults = this.convertValues(source["chat_defaults"], ChatDefaults);
 	    }
@@ -1011,7 +1141,6 @@ export namespace llm {
 		}
 	}
 	
-	
 
 }
 
@@ -1041,25 +1170,77 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	    }
 	}
-	export class MessageNode {
-	    id: number;
-	    conversation_id: number;
-	    parent_id?: number;
+	export class EnrichedMessage {
+	    id: string;
+	    conversationId: number;
+	    parentId?: string;
 	    role: string;
 	    content: string;
 	    media?: string;
-	    tool_calls?: string;
-	    tool_results?: string;
-	    tool_call_id?: string;
-	    agent_name?: string;
-	    prompt_tokens?: number;
-	    completion_tokens?: number;
-	    total_tokens?: number;
+	    toolCalls?: string;
+	    toolResults?: string;
+	    toolCallId?: string;
+	    agentName?: string;
+	    promptTokens?: number;
+	    completionTokens?: number;
+	    totalTokens?: number;
 	    model?: string;
-	    created_at: time.Time;
+	    createdAt: time.Time;
+	    timestamp: number;
+	    isStreaming: boolean;
+	    toolName?: string;
+	    internal: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new EnrichedMessage(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.conversationId = source["conversationId"];
+	        this.parentId = source["parentId"];
+	        this.role = source["role"];
+	        this.content = source["content"];
+	        this.media = source["media"];
+	        this.toolCalls = source["toolCalls"];
+	        this.toolResults = source["toolResults"];
+	        this.toolCallId = source["toolCallId"];
+	        this.agentName = source["agentName"];
+	        this.promptTokens = source["promptTokens"];
+	        this.completionTokens = source["completionTokens"];
+	        this.totalTokens = source["totalTokens"];
+	        this.model = source["model"];
+	        this.createdAt = this.convertValues(source["createdAt"], time.Time);
+	        this.timestamp = source["timestamp"];
+	        this.isStreaming = source["isStreaming"];
+	        this.toolName = source["toolName"];
+	        this.internal = source["internal"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MessageNode {
+	    message: EnrichedMessage;
 	    children?: MessageNode[];
 	    level: number;
-	    child_count: number;
+	    childCount: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new MessageNode(source);
@@ -1067,24 +1248,10 @@ export namespace main {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.conversation_id = source["conversation_id"];
-	        this.parent_id = source["parent_id"];
-	        this.role = source["role"];
-	        this.content = source["content"];
-	        this.media = source["media"];
-	        this.tool_calls = source["tool_calls"];
-	        this.tool_results = source["tool_results"];
-	        this.tool_call_id = source["tool_call_id"];
-	        this.agent_name = source["agent_name"];
-	        this.prompt_tokens = source["prompt_tokens"];
-	        this.completion_tokens = source["completion_tokens"];
-	        this.total_tokens = source["total_tokens"];
-	        this.model = source["model"];
-	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.message = this.convertValues(source["message"], EnrichedMessage);
 	        this.children = this.convertValues(source["children"], MessageNode);
 	        this.level = source["level"];
-	        this.child_count = source["child_count"];
+	        this.childCount = source["childCount"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1141,6 +1308,7 @@ export namespace main {
 		    return a;
 		}
 	}
+	
 	export class FAQEmbeddingStatus {
 	    total_faqs: number;
 	    with_embedding: number;
@@ -1284,6 +1452,26 @@ export namespace main {
 	        this.key = source["key"];
 	        this.description = source["description"];
 	        this.enabled = source["enabled"];
+	    }
+	}
+	export class ImportResult {
+	    success: boolean;
+	    imported: number;
+	    skipped: number;
+	    errors?: string[];
+	    message: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ImportResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.imported = source["imported"];
+	        this.skipped = source["skipped"];
+	        this.errors = source["errors"];
+	        this.message = source["message"];
 	    }
 	}
 	export class ImportedEndpoint {

@@ -62,6 +62,14 @@ export function CreateHTTPEndpoint(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg
   return window['go']['main']['App']['CreateHTTPEndpoint'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
+export function CreateInteractionProfile(arg1) {
+  return window['go']['main']['App']['CreateInteractionProfile'](arg1);
+}
+
+export function CreateInteractionTrigger(arg1) {
+  return window['go']['main']['App']['CreateInteractionTrigger'](arg1);
+}
+
 export function CreateMCPAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12) {
   return window['go']['main']['App']['CreateMCPAgent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
 }
@@ -82,8 +90,16 @@ export function CreateOAuthConnection(arg1, arg2, arg3, arg4, arg5, arg6, arg7, 
   return window['go']['main']['App']['CreateOAuthConnection'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
-export function CreateTab(arg1, arg2) {
-  return window['go']['main']['App']['CreateTab'](arg1, arg2);
+export function CreateTab(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreateTab'](arg1, arg2, arg3);
+}
+
+export function CreateVoiceProfile(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
+  return window['go']['main']['App']['CreateVoiceProfile'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+}
+
+export function CreateVoiceProfileFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
+  return window['go']['main']['App']['CreateVoiceProfileFull'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
 export function DeleteAgentConfig(arg1) {
@@ -114,6 +130,14 @@ export function DeleteHTTPEndpoint(arg1) {
   return window['go']['main']['App']['DeleteHTTPEndpoint'](arg1);
 }
 
+export function DeleteInteractionProfile(arg1) {
+  return window['go']['main']['App']['DeleteInteractionProfile'](arg1);
+}
+
+export function DeleteInteractionTrigger(arg1) {
+  return window['go']['main']['App']['DeleteInteractionTrigger'](arg1);
+}
+
 export function DeleteMCPAgent(arg1) {
   return window['go']['main']['App']['DeleteMCPAgent'](arg1);
 }
@@ -128,6 +152,10 @@ export function DeleteMemory(arg1) {
 
 export function DeleteOAuthConnection(arg1) {
   return window['go']['main']['App']['DeleteOAuthConnection'](arg1);
+}
+
+export function DeleteVoiceProfile(arg1) {
+  return window['go']['main']['App']['DeleteVoiceProfile'](arg1);
 }
 
 export function DisableVoiceHotkey() {
@@ -150,6 +178,26 @@ export function ExecuteTool(arg1) {
   return window['go']['main']['App']['ExecuteTool'](arg1);
 }
 
+export function ExportAgents(arg1, arg2) {
+  return window['go']['main']['App']['ExportAgents'](arg1, arg2);
+}
+
+export function ExportConversations(arg1) {
+  return window['go']['main']['App']['ExportConversations'](arg1);
+}
+
+export function ExportFAQs(arg1) {
+  return window['go']['main']['App']['ExportFAQs'](arg1);
+}
+
+export function ExportMemories(arg1) {
+  return window['go']['main']['App']['ExportMemories'](arg1);
+}
+
+export function ExportVoiceProfiles(arg1) {
+  return window['go']['main']['App']['ExportVoiceProfiles'](arg1);
+}
+
 export function ExtractTemplateVariables(arg1) {
   return window['go']['main']['App']['ExtractTemplateVariables'](arg1);
 }
@@ -166,8 +214,16 @@ export function GenerateImageDescription(arg1, arg2) {
   return window['go']['main']['App']['GenerateImageDescription'](arg1, arg2);
 }
 
+export function GetActiveInteractionProfile() {
+  return window['go']['main']['App']['GetActiveInteractionProfile']();
+}
+
 export function GetActiveOAuthConnectionForProvider(arg1) {
   return window['go']['main']['App']['GetActiveOAuthConnectionForProvider'](arg1);
+}
+
+export function GetActiveProfileHotkeys(arg1) {
+  return window['go']['main']['App']['GetActiveProfileHotkeys'](arg1);
 }
 
 export function GetActiveTab() {
@@ -222,8 +278,16 @@ export function GetAllOAuthConnections() {
   return window['go']['main']['App']['GetAllOAuthConnections']();
 }
 
+export function GetAllTabs() {
+  return window['go']['main']['App']['GetAllTabs']();
+}
+
 export function GetAllTokenStats() {
   return window['go']['main']['App']['GetAllTokenStats']();
+}
+
+export function GetAllVoiceProfiles() {
+  return window['go']['main']['App']['GetAllVoiceProfiles']();
 }
 
 export function GetConfig() {
@@ -256,6 +320,18 @@ export function GetConversations() {
 
 export function GetCoreMemories() {
   return window['go']['main']['App']['GetCoreMemories']();
+}
+
+export function GetDefaultInteractionProfile() {
+  return window['go']['main']['App']['GetDefaultInteractionProfile']();
+}
+
+export function GetDefaultVoiceProfile() {
+  return window['go']['main']['App']['GetDefaultVoiceProfile']();
+}
+
+export function GetEffectiveVoiceProfile(arg1) {
+  return window['go']['main']['App']['GetEffectiveVoiceProfile'](arg1);
 }
 
 export function GetFAQ(arg1) {
@@ -300,6 +376,18 @@ export function GetHTTPEndpointsByAgentID(arg1) {
 
 export function GetImageModel() {
   return window['go']['main']['App']['GetImageModel']();
+}
+
+export function GetInteractionProfile(arg1) {
+  return window['go']['main']['App']['GetInteractionProfile'](arg1);
+}
+
+export function GetInteractionProfiles() {
+  return window['go']['main']['App']['GetInteractionProfiles']();
+}
+
+export function GetInteractionTrigger(arg1) {
+  return window['go']['main']['App']['GetInteractionTrigger'](arg1);
 }
 
 export function GetMCPAgent(arg1) {
@@ -398,8 +486,20 @@ export function GetToolsForAPI() {
   return window['go']['main']['App']['GetToolsForAPI']();
 }
 
+export function GetTriggersByProfile(arg1) {
+  return window['go']['main']['App']['GetTriggersByProfile'](arg1);
+}
+
 export function GetVisionCapableModels() {
   return window['go']['main']['App']['GetVisionCapableModels']();
+}
+
+export function GetVoiceProfile(arg1) {
+  return window['go']['main']['App']['GetVoiceProfile'](arg1);
+}
+
+export function GetVoiceProfileByName(arg1) {
+  return window['go']['main']['App']['GetVoiceProfileByName'](arg1);
 }
 
 export function HardDeleteOAuthConnection(arg1) {
@@ -410,12 +510,32 @@ export function HasImages(arg1) {
   return window['go']['main']['App']['HasImages'](arg1);
 }
 
+export function ImportAgents(arg1) {
+  return window['go']['main']['App']['ImportAgents'](arg1);
+}
+
+export function ImportConversations(arg1) {
+  return window['go']['main']['App']['ImportConversations'](arg1);
+}
+
+export function ImportFAQs(arg1) {
+  return window['go']['main']['App']['ImportFAQs'](arg1);
+}
+
+export function ImportMemories(arg1) {
+  return window['go']['main']['App']['ImportMemories'](arg1);
+}
+
 export function ImportOpenAPIToHTTPAgent(arg1, arg2) {
   return window['go']['main']['App']['ImportOpenAPIToHTTPAgent'](arg1, arg2);
 }
 
 export function ImportPostmanToHTTPAgent(arg1, arg2) {
   return window['go']['main']['App']['ImportPostmanToHTTPAgent'](arg1, arg2);
+}
+
+export function ImportVoiceProfiles(arg1) {
+  return window['go']['main']['App']['ImportVoiceProfiles'](arg1);
 }
 
 export function IncrementModelUsage(arg1) {
@@ -450,6 +570,14 @@ export function ParsePostmanCollection(arg1) {
   return window['go']['main']['App']['ParsePostmanCollection'](arg1);
 }
 
+export function PreviewVoiceProfile(arg1, arg2) {
+  return window['go']['main']['App']['PreviewVoiceProfile'](arg1, arg2);
+}
+
+export function PreviewVoiceSettings(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['PreviewVoiceSettings'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
 export function ReadMCPResource(arg1, arg2) {
   return window['go']['main']['App']['ReadMCPResource'](arg1, arg2);
 }
@@ -464,6 +592,10 @@ export function RegenerateFAQEmbeddings() {
 
 export function RegenerateSingleFAQEmbedding(arg1) {
   return window['go']['main']['App']['RegenerateSingleFAQEmbedding'](arg1);
+}
+
+export function RegisterInteractionProfileHotkeys(arg1) {
+  return window['go']['main']['App']['RegisterInteractionProfileHotkeys'](arg1);
 }
 
 export function ReloadHTTPAgent(arg1) {
@@ -506,8 +638,16 @@ export function SearchFAQSemantic(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchFAQSemantic'](arg1, arg2, arg3);
 }
 
+export function SearchInteractionProfiles(arg1) {
+  return window['go']['main']['App']['SearchInteractionProfiles'](arg1);
+}
+
 export function SearchMemories(arg1) {
   return window['go']['main']['App']['SearchMemories'](arg1);
+}
+
+export function SearchVoiceProfiles(arg1) {
+  return window['go']['main']['App']['SearchVoiceProfiles'](arg1);
 }
 
 export function SendMessage(arg1, arg2, arg3, arg4) {
@@ -518,12 +658,28 @@ export function SendMessageSync(arg1, arg2) {
   return window['go']['main']['App']['SendMessageSync'](arg1, arg2);
 }
 
+export function SetActiveInteractionProfile(arg1) {
+  return window['go']['main']['App']['SetActiveInteractionProfile'](arg1);
+}
+
 export function SetActiveTab(arg1) {
   return window['go']['main']['App']['SetActiveTab'](arg1);
 }
 
+export function SetConversationVoiceProfile(arg1, arg2) {
+  return window['go']['main']['App']['SetConversationVoiceProfile'](arg1, arg2);
+}
+
+export function SetDefaultInteractionProfile(arg1) {
+  return window['go']['main']['App']['SetDefaultInteractionProfile'](arg1);
+}
+
 export function SetDefaultModel(arg1) {
   return window['go']['main']['App']['SetDefaultModel'](arg1);
+}
+
+export function SetDefaultVoiceProfile(arg1) {
+  return window['go']['main']['App']['SetDefaultVoiceProfile'](arg1);
 }
 
 export function SetImageModel(arg1) {
@@ -618,6 +774,10 @@ export function TranscribeWhisper(arg1, arg2) {
   return window['go']['main']['App']['TranscribeWhisper'](arg1, arg2);
 }
 
+export function UnregisterInteractionProfileHotkeys(arg1) {
+  return window['go']['main']['App']['UnregisterInteractionProfileHotkeys'](arg1);
+}
+
 export function UpdateAgentConfig(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['main']['App']['UpdateAgentConfig'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
 }
@@ -658,6 +818,14 @@ export function UpdateHTTPEndpoint(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg
   return window['go']['main']['App']['UpdateHTTPEndpoint'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
+export function UpdateInteractionProfile(arg1, arg2) {
+  return window['go']['main']['App']['UpdateInteractionProfile'](arg1, arg2);
+}
+
+export function UpdateInteractionTrigger(arg1, arg2) {
+  return window['go']['main']['App']['UpdateInteractionTrigger'](arg1, arg2);
+}
+
 export function UpdateMCPAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12) {
   return window['go']['main']['App']['UpdateMCPAgent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
 }
@@ -684,6 +852,14 @@ export function UpdateOAuthTokens(arg1, arg2, arg3, arg4) {
 
 export function UpdateTabTitle(arg1, arg2) {
   return window['go']['main']['App']['UpdateTabTitle'](arg1, arg2);
+}
+
+export function UpdateVoiceProfile(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
+  return window['go']['main']['App']['UpdateVoiceProfile'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+}
+
+export function UpdateVoiceProfileFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
+  return window['go']['main']['App']['UpdateVoiceProfileFull'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
 }
 
 export function ValidateTemplate(arg1) {
