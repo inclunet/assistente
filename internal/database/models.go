@@ -368,3 +368,126 @@ func (v *VoiceProfile) Validate() error {
 func (v *VoiceProfile) IsDisabled() bool {
 	return v.Provider == "disabled" || (!v.EnabledForAgent && !v.EnabledForUser)
 }
+
+// ==================== Interaction Profile ====================
+
+// InteractionProfile representa um perfil de interação por voz
+// Define configurações comuns compartilhadas por todos os triggers do perfil
+type InteractionProfile struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	Name        string    `json:"name" gorm:"uniqueIndex;not null"`
+	Description string    `json:"description" gorm:"type:text"`
+	IsDefault   bool      `json:"is_default" gorm:"default:false"`
+	IsActive    bool      `json:"is_active" gorm:"default:false"` // Perfil atualmente ativo (persistido)
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+
+	// Configurações comuns
+	STTProvider    string `json:"stt_provider" gorm:"type:text;default:'webspeech'"` // webspeech, whisper_api, vosk
+	Language       string `json:"language" gorm:"type:text;default:'pt-BR'"`         // Idioma do reconhecimento
+	FeedbackSounds bool   `json:"feedback_sounds" gorm:"default:true"`               // Sons de início/fim
+
+	// Relacionamento com triggers (1:N)
+	Triggers []InteractionTrigger `json:"triggers,omitempty" gorm:"foreignKey:ProfileID;constraint:OnDelete:CASCADE"`
+}
+
+// Validate valida os campos do perfil de interação
+func (p *InteractionProfile) Validate() error {
+	if p.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+
+	// Valida STT provider
+	validSTTProviders := []string{"webspeech", "whisper_api", "vosk"}
+	if p.STTProvider != "" && !contains(validSTTProviders, p.STTProvider) {
+		return fmt.Errorf("stt_provider must be one of: webspeech, whisper_api, vosk")
+	}
+
+	return nil
+}
+
+// ==================== Interaction Trigger ====================
+
+// TriggerType define os tipos possíveis de trigger
+const (
+	TriggerTypeHotkey       = "hotkey"        // Atalho de teclado (toggle)
+	TriggerTypeButtonPTT    = "button_ptt"    // Botão push-to-talk
+	TriggerTypeButtonToggle = "button_toggle" // Botão toggle
+	TriggerTypeWakeword     = "wakeword"      // Palavra de ativação
+	TriggerTypeVAD          = "vad"           // Detecção contínua de voz
+)
+
+// InteractionTrigger representa uma forma de ativar um perfil de interação
+// Um perfil pode ter múltiplos triggers (hotkey, wakeword, button, etc.)
+type InteractionTrigger struct {
+	ID        uint      `json:"id" gorm:"primaryKey"`
+	ProfileID uint      `json:"profile_id" gorm:"not null;index"`
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
+
+	// Tipo: hotkey, button_ptt, button_toggle, wakeword, vad
+	Type    string `json:"type" gorm:"type:text;not null"`
+	Enabled bool   `json:"enabled" gorm:"default:true"`
+
+	// Como terminar gravação: true=VAD automático, false=manual
+	// Aplicável para hotkey e button_toggle
+	AutoStop bool `json:"auto_stop" gorm:"default:false"`
+
+	// === Hotkey ===
+	// Para type=hotkey: tecla que ACIONA gravação
+	// Para type=wakeword/vad: tecla que LIGA/DESLIGA a escuta
+	Hotkey            string `json:"hotkey" gorm:"type:text"`                   // Ex: "Ctrl+Shift+Space"
+	HotkeyGlobal      bool   `json:"hotkey_global" gorm:"default:true"`         // Global ou local
+	HotkeyBringToFront bool   `json:"hotkey_bring_to_front" gorm:"default:true"` // Trazer janela (se global)
+
+	// === Wakeword ===
+	WakewordKeyword     string  `json:"wakeword_keyword" gorm:"type:text"`       // Ex: "assistente"
+	WakewordProvider    string  `json:"wakeword_provider" gorm:"type:text"`      // vosk, webspeech
+	WakewordSensitivity float64 `json:"wakeword_sensitivity" gorm:"default:0.5"` // 0.0 - 1.0
+
+	// === VAD Config ===
+	// Usado quando auto_stop=true, type=wakeword ou type=vad
+	VADSilenceThreshold  float64 `json:"vad_silence_threshold" gorm:"default:0.01"`  // 0-1
+	VADSilenceDuration   int     `json:"vad_silence_duration" gorm:"default:1500"`   // ms
+	VADActivityThreshold float64 `json:"vad_activity_threshold" gorm:"default:0.02"` // 0-1
+	VADActivityDuration  int     `json:"vad_activity_duration" gorm:"default:200"`   // ms
+}
+
+// Validate valida os campos do trigger
+func (t *InteractionTrigger) Validate() error {
+	// Valida tipo
+	validTypes := []string{TriggerTypeHotkey, TriggerTypeButtonPTT, TriggerTypeButtonToggle, TriggerTypeWakeword, TriggerTypeVAD}
+	if !contains(validTypes, t.Type) {
+		return fmt.Errorf("type must be one of: hotkey, button_ptt, button_toggle, wakeword, vad")
+	}
+
+	// Valida hotkey para tipo hotkey
+	if t.Type == TriggerTypeHotkey && t.Hotkey == "" {
+		return fmt.Errorf("hotkey is required for type hotkey")
+	}
+
+	// Valida wakeword para tipo wakeword
+	if t.Type == TriggerTypeWakeword && t.WakewordKeyword == "" {
+		return fmt.Errorf("wakeword_keyword is required for type wakeword")
+	}
+
+	// Valida provider wakeword
+	if t.Type == TriggerTypeWakeword && t.WakewordProvider != "" {
+		validProviders := []string{"vosk", "webspeech"}
+		if !contains(validProviders, t.WakewordProvider) {
+			return fmt.Errorf("wakeword_provider must be one of: vosk, webspeech")
+		}
+	}
+
+	return nil
+}
+
+// helper function
+func contains(slice []string, item string) bool {
+	for _, s := range slice {
+		if s == item {
+			return true
+		}
+	}
+	return false
+}

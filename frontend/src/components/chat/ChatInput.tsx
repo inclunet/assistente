@@ -1,6 +1,7 @@
 import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef } from 'react';
 import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
+import { VoiceButton } from './VoiceButton';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import './ChatInput.css';
 
@@ -10,10 +11,12 @@ export interface ChatInputProps {
   placeholder?: string;
   maxFiles?: number;
   onArrowUp?: () => void;
+  /** Se o controle de voz está habilitado */
+  voiceEnabled?: boolean;
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
-  { onSend, disabled = false, placeholder = 'Digite sua mensagem...', maxFiles = 5, onArrowUp },
+  { onSend, disabled = false, placeholder = 'Digite sua mensagem...', maxFiles = 5, onArrowUp, voiceEnabled = false },
   ref
 ) => {
   const [message, setMessage] = useState('');
@@ -26,6 +29,15 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   
   // Use external ref if provided, otherwise use internal ref
   const textareaRef = (ref as React.RefObject<HTMLTextAreaElement>) || internalTextareaRef;
+
+  // Handler para transcrição de voz
+  const handleVoiceTranscription = (text: string) => {
+    if (text.trim()) {
+      // Envia diretamente o texto transcrito
+      onSend(text.trim(), mediaFiles.length > 0 ? mediaFiles : undefined);
+      setMediaFiles([]);
+    }
+  };
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -201,28 +213,41 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           aria-describedby={hintId}
           aria-multiline="true"
         />
-        <Button
-          onClick={handleSend}
-          disabled={disabled || (!message.trim() && mediaFiles.length === 0) || isProcessing}
-          variant="primary"
-          size="md"
-          className="chat-input__button"
-          aria-label={disabled ? "Aguarde o término da resposta para enviar" : "Enviar mensagem"}
-        >
-          <svg
-            width="20"
-            height="20"
-            viewBox="0 0 20 20"
-            fill="none"
-            xmlns="http://www.w3.org/2000/svg"
-            aria-hidden="true"
+        {/* #region agent log */}
+        {(() => { const showVoice = voiceEnabled && !message.trim() && mediaFiles.length === 0; fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInput.tsx:render',message:'Button render decision',data:{showVoice,voiceEnabled,messageEmpty:!message.trim(),noMedia:mediaFiles.length===0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{}); return null; })()}
+        {/* #endregion */}
+        {/* Mostra botão de voz quando input vazio, senão botão de enviar */}
+        {voiceEnabled && !message.trim() && mediaFiles.length === 0 ? (
+          <VoiceButton
+            onTranscription={handleVoiceTranscription}
+            disabled={disabled}
+            className="chat-input__voice-button"
+            textareaRef={textareaRef}
+          />
+        ) : (
+          <Button
+            onClick={handleSend}
+            disabled={disabled || (!message.trim() && mediaFiles.length === 0) || isProcessing}
+            variant="primary"
+            size="md"
+            className="chat-input__button"
+            aria-label={disabled ? "Aguarde o término da resposta para enviar" : "Enviar mensagem"}
           >
-            <path
-              d="M18.3327 10L1.66602 1.66669L5.83268 10L1.66602 18.3334L18.3327 10Z"
-              fill="currentColor"
-            />
-          </svg>
-        </Button>
+            <svg
+              width="20"
+              height="20"
+              viewBox="0 0 20 20"
+              fill="none"
+              xmlns="http://www.w3.org/2000/svg"
+              aria-hidden="true"
+            >
+              <path
+                d="M18.3327 10L1.66602 1.66669L5.83268 10L1.66602 18.3334L18.3327 10Z"
+                fill="currentColor"
+              />
+            </svg>
+          </Button>
+        )}
       </div>
     </div>
   );

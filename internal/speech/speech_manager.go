@@ -12,6 +12,7 @@ type STTProvider string
 const (
 	STTProviderWebSpeech STTProvider = "webspeech"
 	STTProviderWhisper   STTProvider = "whisper"
+	// STTProviderVosk é definido em vosk_types.go
 )
 
 // TTSProvider tipos de provedores de TTS
@@ -27,20 +28,20 @@ const (
 type SpeechConfig struct {
 	// STT
 	STTProvider STTProvider `json:"sttProvider"`
-	
+
 	// TTS
 	TTSProvider TTSProvider `json:"ttsProvider"`
 	TTSVoice    string      `json:"ttsVoice"`
 	TTSVolume   int         `json:"ttsVolume"` // 0-100
 	TTSRate     int         `json:"ttsRate"`   // -10 a 10 (SAPI5) ou 0.25-4.0 mapeado (OpenAI)
-	
+
 	// OpenAI API
 	OpenAIAPIKey     string `json:"openaiApiKey"`
 	OpenAIAPIBaseURL string `json:"openaiApiBaseUrl"`
 	WhisperModel     string `json:"whisperModel"`
 	WhisperLanguage  string `json:"whisperLanguage"`
 	TTSModel         string `json:"ttsModel"` // tts-1 ou tts-1-hd
-	
+
 	// Comportamento
 	AutoSpeak bool `json:"autoSpeak"`
 }
@@ -317,4 +318,3 @@ func (sm *SpeechManager) SetTTSSpeed(rate int) {
 		sm.ttsClient.SetSpeed(sm.rateToSpeed(rate))
 	}
 }
-

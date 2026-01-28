@@ -10,3 +10,5 @@ export { STTProviderPicker, STT_WEBSPEECH, STT_WHISPER } from './STTProviderPick
 export type { STTProviderPickerProps, STTProviderPickerRef } from './STTProviderPicker';
 export { HistoryPicker } from './HistoryPicker';
 export type { HistoryPickerProps, HistoryPickerRef } from './HistoryPicker';
+export { InteractionProfilePicker } from './InteractionProfilePicker';
+export type { InteractionProfilePickerProps, InteractionProfilePickerRef } from './InteractionProfilePicker';

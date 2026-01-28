@@ -133,6 +133,7 @@ export default function ChatPage() {
         onSend={handleSendMessage} 
         disabled={isLoading}
         ref={inputRef}
+        voiceEnabled={true}
         onArrowUp={() => {
           const container = messagesContainerRef.current;
           if (container) {

@@ -9,6 +9,7 @@ import MemoryPage from '../pages/MemoryPage';
 import AgentsPage from '../pages/AgentsPage';
 import OAuthPage from '../pages/OAuthPage';
 import VoiceProfilesPage from '../pages/VoiceProfilesPage';
+import InteractionProfilesPage from '../pages/InteractionProfilesPage';
 
 export const router = createHashRouter([
   {
@@ -49,6 +50,10 @@ export const router = createHashRouter([
           {
             path: 'voice-profiles',
             element: <VoiceProfilesPage />,
+          },
+          {
+            path: 'interaction-profiles',
+            element: <InteractionProfilesPage />,
           },
         ],
       },

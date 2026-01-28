@@ -1,1 +1,57 @@
-.thread-indicator {\n  display: inline-flex;\n  align-items: center;\n  gap: 0.5rem;\n  padding: 0.25rem 0.75rem;\n  background: var(--bg-secondary);\n  border: 1px solid var(--border);\n  border-radius: 0.375rem;\n  font-size: 0.875rem;\n  color: var(--text);\n  cursor: pointer;\n  margin-left: auto;\n  transition: background-color 0.15s ease;\n  font-family: inherit;\n}\n\n.thread-indicator:hover:not(:disabled) {\n  background: var(--bg-hover);\n}\n\n.thread-indicator:focus-visible {\n  outline: 2px solid var(--primary);\n  outline-offset: 2px;\n}\n\n.thread-indicator:disabled {\n  opacity: 0.6;\n  cursor: wait;\n}\n\n.thread-indicator__arrow {\n  transition: transform 0.15s ease;\n  display: inline-block;\n  font-size: 0.75rem;\n}\n\n.thread-indicator__arrow.expanded {\n  transform: rotate(90deg);\n}\n\n.thread-indicator__spinner {\n  animation: spin 1s linear infinite;\n  display: inline-block;\n}\n\n@keyframes spin {\n  from {\n    transform: rotate(0deg);\n  }\n  to {\n    transform: rotate(360deg);\n  }\n}\n\n.thread-indicator__count {\n  color: var(--text-muted);\n}\n
+.thread-indicator {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.25rem 0.75rem;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 0.375rem;
+  font-size: 0.875rem;
+  color: var(--text);
+  cursor: pointer;
+  margin-left: auto;
+  transition: background-color 0.15s ease;
+  font-family: inherit;
+}
+
+.thread-indicator:hover:not(:disabled) {
+  background: var(--bg-hover);
+}
+
+.thread-indicator:focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+
+.thread-indicator:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+
+.thread-indicator__arrow {
+  transition: transform 0.15s ease;
+  display: inline-block;
+  font-size: 0.75rem;
+}
+
+.thread-indicator__arrow.expanded {
+  transform: rotate(90deg);
+}
+
+.thread-indicator__spinner {
+  animation: spin 1s linear infinite;
+  display: inline-block;
+}
+
+@keyframes spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.thread-indicator__count {
+  color: var(--text-muted);
+}

@@ -1,0 +1,265 @@
+/* VoiceButton - Estilos do Botão de Gravação por Voz */
+
+.voice-button-container {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+}
+
+.voice-button {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--bg-tertiary, #374151);
+  color: var(--text-primary, #f9fafb);
+  cursor: pointer;
+  transition: all 0.2s ease;
+  overflow: visible;
+  touch-action: none; /* Importante para pointer events */
+  user-select: none;
+}
+
+.voice-button:hover:not(:disabled) {
+  background: var(--bg-hover, #4b5563);
+  transform: scale(1.05);
+}
+
+.voice-button:focus-visible {
+  outline: 2px solid var(--focus-ring, #3b82f6);
+  outline-offset: 2px;
+}
+
+.voice-button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Estado de gravação */
+.voice-button--recording {
+  background: var(--color-danger, #ef4444);
+  animation: pulse-recording 1.5s ease-in-out infinite;
+}
+
+.voice-button--recording:hover:not(:disabled) {
+  background: var(--color-danger-hover, #dc2626);
+}
+
+@keyframes pulse-recording {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 12px rgba(239, 68, 68, 0);
+  }
+}
+
+/* Estado de escuta (VAD/Wakeword aguardando fala) */
+.voice-button--listening {
+  background: var(--color-success, #22c55e);
+  animation: pulse-listening 2s ease-in-out infinite;
+}
+
+.voice-button--listening:hover:not(:disabled) {
+  background: var(--color-success-hover, #16a34a);
+}
+
+@keyframes pulse-listening {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+  }
+  50% {
+    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+  }
+}
+
+/* Estado de processamento */
+.voice-button--processing {
+  background: var(--color-warning, #f59e0b);
+  cursor: wait;
+}
+
+/* Modo PTT - visual diferenciado */
+.voice-button--ptt {
+  border: 2px dashed var(--border-color, #4b5563);
+}
+
+.voice-button--ptt.voice-button--recording {
+  border: 2px solid var(--color-danger, #ef4444);
+}
+
+/* Modo VAD - visual com ondas */
+.voice-button--vad {
+  border: 2px solid var(--color-info, #3b82f6);
+}
+
+.voice-button--vad.voice-button--listening {
+  border-color: var(--color-success, #22c55e);
+}
+
+.voice-button--vad.voice-button--recording {
+  border-color: var(--color-danger, #ef4444);
+}
+
+/* Modo Wakeword - visual com indicador de palavra */
+.voice-button--wakeword {
+  border: 2px solid var(--color-purple, #8b5cf6);
+}
+
+.voice-button--wakeword.voice-button--listening {
+  border-color: var(--color-success, #22c55e);
+}
+
+.voice-button--wakeword.voice-button--recording {
+  border-color: var(--color-danger, #ef4444);
+}
+
+/* Indicador de volume */
+.voice-button__volume-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(239, 68, 68, 0.3);
+  transform: translate(-50%, -50%) scale(1);
+  transform-origin: center;
+  pointer-events: none;
+  transition: transform 0.1s ease;
+  z-index: -1;
+}
+
+/* Ícone */
+.voice-button__icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1;
+}
+
+.voice-button__icon svg {
+  width: 24px;
+  height: 24px;
+}
+
+/* Label de modo (PTT) */
+.voice-button__mode-label {
+  position: absolute;
+  bottom: -2px;
+  right: -2px;
+  font-size: 8px;
+  font-weight: 700;
+  background: var(--bg-secondary, #1f2937);
+  color: var(--text-muted, #9ca3af);
+  padding: 1px 3px;
+  border-radius: 3px;
+  line-height: 1;
+}
+
+.voice-button--recording .voice-button__mode-label {
+  background: var(--color-danger-dark, #991b1b);
+  color: white;
+}
+
+/* Dica visual (Segure) */
+.voice-button__hint {
+  font-size: 10px;
+  color: var(--text-muted, #9ca3af);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Texto interim (preview da transcrição) */
+.voice-button__interim {
+  position: absolute;
+  bottom: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin-bottom: 8px;
+  padding: 8px 12px;
+  background: var(--bg-secondary, #1f2937);
+  border: 1px solid var(--border-color, #374151);
+  border-radius: 8px;
+  color: var(--text-primary, #f9fafb);
+  font-size: 14px;
+  max-width: 300px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+  animation: fadeIn 0.2s ease;
+}
+
+.voice-button__interim::after {
+  content: '';
+  position: absolute;
+  top: 100%;
+  left: 50%;
+  transform: translateX(-50%);
+  border: 6px solid transparent;
+  border-top-color: var(--bg-secondary, #1f2937);
+}
+
+@keyframes fadeIn {
+  from {
+    opacity: 0;
+    transform: translateX(-50%) translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+  }
+}
+
+/* Responsivo - botão menor em telas pequenas */
+@media (max-width: 480px) {
+  .voice-button {
+    width: 40px;
+    height: 40px;
+  }
+  
+  .voice-button__icon svg {
+    width: 20px;
+    height: 20px;
+  }
+  
+  .voice-button__interim {
+    max-width: 200px;
+    font-size: 12px;
+  }
+}
+
+/* Alta contraste / Acessibilidade */
+@media (prefers-contrast: high) {
+  .voice-button {
+    border: 2px solid currentColor;
+  }
+  
+  .voice-button--recording {
+    border-color: var(--color-danger, #ef4444);
+  }
+}
+
+/* Reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  .voice-button--recording {
+    animation: none;
+  }
+  
+  .voice-button__volume-indicator {
+    transition: none;
+  }
+  
+  .voice-button__interim {
+    animation: none;
+  }
+}

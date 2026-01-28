@@ -2,7 +2,9 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../store/chatStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { ModelPicker, VoiceProfilePicker, VoiceProfilePickerRef, STTProviderPicker, HistoryPicker, HistoryPickerRef, STT_WEBSPEECH, VoiceProfile } from '../pickers';
+import { ModelPicker, VoiceProfilePicker, VoiceProfilePickerRef, HistoryPicker, HistoryPickerRef, VoiceProfile } from '../pickers';
+import { InteractionProfilePicker, InteractionProfilePickerRef } from '../pickers/InteractionProfilePicker';
+import { useInteractionProfileStore } from '../../store/interactionProfileStore';
 import { Toolbar } from '../ui/Toolbar';
 import { ContextMenu, MenuItem } from '../ui/ContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -39,6 +41,11 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   // Refs para os pickers
   const voiceProfilePickerRef = useRef<VoiceProfilePickerRef>(null);
   const historyPickerRef = useRef<HistoryPickerRef>(null);
+  const interactionProfilePickerRef = useRef<InteractionProfilePickerRef>(null);
+  
+  // Interaction profile store
+  const { activeProfileId, setActiveProfile, loadProfiles } = useInteractionProfileStore();
+  const [selectedInteractionProfileId, setSelectedInteractionProfileId] = useState<number>(activeProfileId || 1);
 
   // Estado do menu de contexto
   const [contextMenu, setContextMenu] = useState<{
@@ -100,6 +107,34 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     },
   ], []);
 
+  // Itens do menu de InteractionProfile
+  const getInteractionProfileMenuItems = useCallback((): MenuItem[] => [
+    {
+      id: 'edit-interaction-profile',
+      label: 'Editar perfil atual',
+      icon: '✏️',
+      action: () => {
+        navigate(`/interaction-profiles?edit=${selectedInteractionProfileId}`);
+      },
+    },
+    {
+      id: 'new-interaction-profile',
+      label: 'Novo perfil',
+      icon: '➕',
+      action: () => {
+        navigate('/interaction-profiles?new=true');
+      },
+    },
+    {
+      id: 'manage-interaction-profiles',
+      label: 'Gerenciar perfis',
+      icon: '⚙️',
+      action: () => {
+        navigate('/interaction-profiles');
+      },
+    },
+  ], [navigate, selectedInteractionProfileId]);
+
   // Abre menu de contexto numa posição (mouse ou teclado)
   const openContextMenu = useCallback((
     x: number,
@@ -148,7 +183,30 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     }
   }, [openContextMenu, getHistoryMenuItems]);
 
+  // Handler de menu de contexto para InteractionProfilePicker (mouse)
+  const handleInteractionProfileContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    openContextMenu(e.clientX, e.clientY, getInteractionProfileMenuItems(), 'Menu de opções do perfil de interação');
+  }, [openContextMenu, getInteractionProfileMenuItems]);
+
+  // Handler de teclado para InteractionProfilePicker (Applications key ou Shift+F10)
+  const handleInteractionProfileKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
+    // ContextMenu key ou Shift+F10
+    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+      e.preventDefault();
+      const rect = e.currentTarget.getBoundingClientRect();
+      openContextMenu(rect.left, rect.bottom, getInteractionProfileMenuItems(), 'Menu de opções do perfil de interação');
+    }
+  }, [openContextMenu, getInteractionProfileMenuItems]);
+
+  // Ref para config atual (evita loop infinito no useEffect)
+  const configRef = useRef(config);
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
+
   // Aplica as configurações de um perfil de voz ao ttsService
+  // Usa ref para config para evitar dependência e loop infinito
   const applyVoiceProfile = useCallback(async (profile: VoiceProfile) => {
     try {
       // Verifica se TTS está habilitado para o assistente
@@ -180,10 +238,11 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         console.log('[ChatToolbar] TTS desativado, aria-live para assistente:', useAriaLiveForAgent);
       }
 
-      // Atualiza o config local
-      if (config) {
+      // Atualiza o config local usando ref para evitar loop
+      const currentConfig = configRef.current;
+      if (currentConfig) {
         setConfig({ 
-          ...config, 
+          ...currentConfig, 
           voice: isTTSEnabledForAgent ? `${profile.provider}:${profile.voice_id}` : undefined,
           voiceProfileId: profile.id,
           // Armazena configurações separadas para assistente e usuário
@@ -195,7 +254,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     } catch (error) {
       console.error('[ChatToolbar] Erro ao aplicar perfil de voz:', error);
     }
-  }, [config, setConfig]);
+  }, [setConfig]); // Não depende de config, usa configRef
 
   // Handler para mudança de perfil de voz
   const handleVoiceProfileChange = useCallback(async (profileId: number) => {
@@ -283,11 +342,11 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         const modelPicker = document.querySelector('[aria-label*="Modelo"]') as HTMLElement;
         modelPicker?.click();
       }
-      // Ctrl+S: Focar no picker de transcrição
-      else if (e.ctrlKey && e.key === 's' && voiceEnabled) {
+      // Ctrl+I: Focar no picker de interação
+      else if (e.ctrlKey && e.key === 'i' && voiceEnabled) {
         e.preventDefault();
-        const sttPicker = document.querySelector('[aria-label*="Transcrição"]') as HTMLElement;
-        sttPicker?.click();
+        const interactionPicker = document.querySelector('[aria-label*="Interação"]') as HTMLElement;
+        interactionPicker?.click();
       }
     };
 
@@ -295,12 +354,12 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onSettings, voiceEnabled]);
 
-  const focusInput = () => {
+  const focusInput = useCallback(() => {
     // Foca o input após um pequeno delay para garantir que o picker fechou
     setTimeout(() => {
       inputRef?.current?.focus();
     }, 100);
-  };
+  }, [inputRef]);
 
   const handleNewConversation = () => {
     if (onNewConversation) {
@@ -318,12 +377,17 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     focusInput();
   };
 
-  const handleSTTProviderChange = (provider: string) => {
-    if (config) {
-      setConfig({ ...config, sttProvider: provider });
-    }
+  // Handler para mudança de perfil de interação
+  const handleInteractionProfileChange = useCallback((profileId: number) => {
+    setSelectedInteractionProfileId(profileId);
+    setActiveProfile(profileId);
     focusInput();
-  };
+  }, [setActiveProfile, focusInput]);
+  
+  // Carrega perfis de interação ao montar
+  useEffect(() => {
+    loadProfiles();
+  }, [loadProfiles]);
 
   const handleHistoryChange = async (conversationId: number, conversation: any) => {
     try {
@@ -405,14 +469,21 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 />
               </div>
 
-              <STTProviderPicker
-                value={config.sttProvider || STT_WEBSPEECH}
-                onChange={handleSTTProviderChange}
-                variant="toolbar"
-                label="Transcrição (Ctrl+S)"
-                maxWidth="180px"
-                onAnnounce={announce}
-              />
+              <div
+                onContextMenu={handleInteractionProfileContextMenu}
+                onKeyDown={handleInteractionProfileKeyDown}
+              >
+                <InteractionProfilePicker
+                  ref={interactionProfilePickerRef}
+                  value={selectedInteractionProfileId}
+                  onChange={handleInteractionProfileChange}
+                  variant="toolbar"
+                  label="Interação (Ctrl+I)"
+                  icon="🎙️"
+                  maxWidth="180px"
+                  onAnnounce={announce}
+                />
+              </div>
 
               {onVoiceSettings && (
                 <button

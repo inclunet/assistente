@@ -123,6 +123,15 @@
   cursor: not-allowed;
 }
 
+/* Voice Button no ChatInput */
+.chat-input__voice-button {
+  flex-shrink: 0;
+}
+
+.chat-input__voice-button .voice-button {
+  border-radius: 12px;
+}
+
 .chat-input__hint {
   margin-top: 8px;
   font-size: 12px;

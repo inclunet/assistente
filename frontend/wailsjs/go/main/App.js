@@ -62,6 +62,14 @@ export function CreateHTTPEndpoint(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg
   return window['go']['main']['App']['CreateHTTPEndpoint'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
+export function CreateInteractionProfile(arg1) {
+  return window['go']['main']['App']['CreateInteractionProfile'](arg1);
+}
+
+export function CreateInteractionTrigger(arg1) {
+  return window['go']['main']['App']['CreateInteractionTrigger'](arg1);
+}
+
 export function CreateMCPAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12) {
   return window['go']['main']['App']['CreateMCPAgent'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12);
 }
@@ -122,6 +130,14 @@ export function DeleteHTTPEndpoint(arg1) {
   return window['go']['main']['App']['DeleteHTTPEndpoint'](arg1);
 }
 
+export function DeleteInteractionProfile(arg1) {
+  return window['go']['main']['App']['DeleteInteractionProfile'](arg1);
+}
+
+export function DeleteInteractionTrigger(arg1) {
+  return window['go']['main']['App']['DeleteInteractionTrigger'](arg1);
+}
+
 export function DeleteMCPAgent(arg1) {
   return window['go']['main']['App']['DeleteMCPAgent'](arg1);
 }
@@ -142,6 +158,10 @@ export function DeleteVoiceProfile(arg1) {
   return window['go']['main']['App']['DeleteVoiceProfile'](arg1);
 }
 
+export function DeleteVoskModel(arg1) {
+  return window['go']['main']['App']['DeleteVoskModel'](arg1);
+}
+
 export function DisableVoiceHotkey() {
   return window['go']['main']['App']['DisableVoiceHotkey']();
 }
@@ -152,6 +172,10 @@ export function DisconnectMCPAgent(arg1) {
 
 export function DisconnectOAuth(arg1) {
   return window['go']['main']['App']['DisconnectOAuth'](arg1);
+}
+
+export function DownloadVoskModel(arg1) {
+  return window['go']['main']['App']['DownloadVoskModel'](arg1);
 }
 
 export function EnableVoiceHotkey() {
@@ -198,8 +222,16 @@ export function GenerateImageDescription(arg1, arg2) {
   return window['go']['main']['App']['GenerateImageDescription'](arg1, arg2);
 }
 
+export function GetActiveInteractionProfile() {
+  return window['go']['main']['App']['GetActiveInteractionProfile']();
+}
+
 export function GetActiveOAuthConnectionForProvider(arg1) {
   return window['go']['main']['App']['GetActiveOAuthConnectionForProvider'](arg1);
+}
+
+export function GetActiveProfileHotkeys(arg1) {
+  return window['go']['main']['App']['GetActiveProfileHotkeys'](arg1);
 }
 
 export function GetActiveTab() {
@@ -298,6 +330,10 @@ export function GetCoreMemories() {
   return window['go']['main']['App']['GetCoreMemories']();
 }
 
+export function GetDefaultInteractionProfile() {
+  return window['go']['main']['App']['GetDefaultInteractionProfile']();
+}
+
 export function GetDefaultVoiceProfile() {
   return window['go']['main']['App']['GetDefaultVoiceProfile']();
 }
@@ -348,6 +384,18 @@ export function GetHTTPEndpointsByAgentID(arg1) {
 
 export function GetImageModel() {
   return window['go']['main']['App']['GetImageModel']();
+}
+
+export function GetInteractionProfile(arg1) {
+  return window['go']['main']['App']['GetInteractionProfile'](arg1);
+}
+
+export function GetInteractionProfiles() {
+  return window['go']['main']['App']['GetInteractionProfiles']();
+}
+
+export function GetInteractionTrigger(arg1) {
+  return window['go']['main']['App']['GetInteractionTrigger'](arg1);
 }
 
 export function GetMCPAgent(arg1) {
@@ -446,6 +494,10 @@ export function GetToolsForAPI() {
   return window['go']['main']['App']['GetToolsForAPI']();
 }
 
+export function GetTriggersByProfile(arg1) {
+  return window['go']['main']['App']['GetTriggersByProfile'](arg1);
+}
+
 export function GetVisionCapableModels() {
   return window['go']['main']['App']['GetVisionCapableModels']();
 }
@@ -456,6 +508,10 @@ export function GetVoiceProfile(arg1) {
 
 export function GetVoiceProfileByName(arg1) {
   return window['go']['main']['App']['GetVoiceProfileByName'](arg1);
+}
+
+export function GetVoskModels() {
+  return window['go']['main']['App']['GetVoskModels']();
 }
 
 export function HardDeleteOAuthConnection(arg1) {
@@ -502,6 +558,10 @@ export function InitSpeechManager(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['InitSpeechManager'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function InitVoskManager() {
+  return window['go']['main']['App']['InitVoskManager']();
+}
+
 export function IsGlobalHotkeySupported() {
   return window['go']['main']['App']['IsGlobalHotkeySupported']();
 }
@@ -510,8 +570,24 @@ export function IsSAPI5Speaking() {
   return window['go']['main']['App']['IsSAPI5Speaking']();
 }
 
+export function IsVoskAvailable() {
+  return window['go']['main']['App']['IsVoskAvailable']();
+}
+
+export function IsVoskListening() {
+  return window['go']['main']['App']['IsVoskListening']();
+}
+
+export function IsVoskModelInstalled(arg1) {
+  return window['go']['main']['App']['IsVoskModelInstalled'](arg1);
+}
+
 export function LoadConversationInTab(arg1, arg2) {
   return window['go']['main']['App']['LoadConversationInTab'](arg1, arg2);
+}
+
+export function LoadVoskModel(arg1) {
+  return window['go']['main']['App']['LoadVoskModel'](arg1);
 }
 
 export function ModelSupportsVision(arg1) {
@@ -548,6 +624,10 @@ export function RegenerateFAQEmbeddings() {
 
 export function RegenerateSingleFAQEmbedding(arg1) {
   return window['go']['main']['App']['RegenerateSingleFAQEmbedding'](arg1);
+}
+
+export function RegisterInteractionProfileHotkeys(arg1) {
+  return window['go']['main']['App']['RegisterInteractionProfileHotkeys'](arg1);
 }
 
 export function ReloadHTTPAgent(arg1) {
@@ -590,6 +670,10 @@ export function SearchFAQSemantic(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchFAQSemantic'](arg1, arg2, arg3);
 }
 
+export function SearchInteractionProfiles(arg1) {
+  return window['go']['main']['App']['SearchInteractionProfiles'](arg1);
+}
+
 export function SearchMemories(arg1) {
   return window['go']['main']['App']['SearchMemories'](arg1);
 }
@@ -606,12 +690,20 @@ export function SendMessageSync(arg1, arg2) {
   return window['go']['main']['App']['SendMessageSync'](arg1, arg2);
 }
 
+export function SetActiveInteractionProfile(arg1) {
+  return window['go']['main']['App']['SetActiveInteractionProfile'](arg1);
+}
+
 export function SetActiveTab(arg1) {
   return window['go']['main']['App']['SetActiveTab'](arg1);
 }
 
 export function SetConversationVoiceProfile(arg1, arg2) {
   return window['go']['main']['App']['SetConversationVoiceProfile'](arg1, arg2);
+}
+
+export function SetDefaultInteractionProfile(arg1) {
+  return window['go']['main']['App']['SetDefaultInteractionProfile'](arg1);
 }
 
 export function SetDefaultModel(arg1) {
@@ -666,8 +758,16 @@ export function StartOAuthFlow(arg1, arg2) {
   return window['go']['main']['App']['StartOAuthFlow'](arg1, arg2);
 }
 
+export function StartVoskWakeWord(arg1) {
+  return window['go']['main']['App']['StartVoskWakeWord'](arg1);
+}
+
 export function StopSAPI5() {
   return window['go']['main']['App']['StopSAPI5']();
+}
+
+export function StopVoskWakeWord() {
+  return window['go']['main']['App']['StopVoskWakeWord']();
 }
 
 export function SynthesizeOpenAI(arg1) {
@@ -710,8 +810,16 @@ export function TestMCPAgent(arg1, arg2) {
   return window['go']['main']['App']['TestMCPAgent'](arg1, arg2);
 }
 
+export function TranscribeVosk(arg1) {
+  return window['go']['main']['App']['TranscribeVosk'](arg1);
+}
+
 export function TranscribeWhisper(arg1, arg2) {
   return window['go']['main']['App']['TranscribeWhisper'](arg1, arg2);
+}
+
+export function UnregisterInteractionProfileHotkeys(arg1) {
+  return window['go']['main']['App']['UnregisterInteractionProfileHotkeys'](arg1);
 }
 
 export function UpdateAgentConfig(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
@@ -752,6 +860,14 @@ export function UpdateHTTPAgentFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7, ar
 
 export function UpdateHTTPEndpoint(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
   return window['go']['main']['App']['UpdateHTTPEndpoint'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
+}
+
+export function UpdateInteractionProfile(arg1, arg2) {
+  return window['go']['main']['App']['UpdateInteractionProfile'](arg1, arg2);
+}
+
+export function UpdateInteractionTrigger(arg1, arg2) {
+  return window['go']['main']['App']['UpdateInteractionTrigger'](arg1, arg2);
 }
 
 export function UpdateMCPAgent(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11, arg12) {

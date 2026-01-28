@@ -508,6 +508,119 @@ export namespace database {
 		}
 	}
 	
+	export class InteractionTrigger {
+	    id: number;
+	    profile_id: number;
+	    created_at: time.Time;
+	    updated_at: time.Time;
+	    type: string;
+	    enabled: boolean;
+	    auto_stop: boolean;
+	    hotkey: string;
+	    hotkey_global: boolean;
+	    hotkey_bring_to_front: boolean;
+	    wakeword_keyword: string;
+	    wakeword_provider: string;
+	    wakeword_sensitivity: number;
+	    vad_silence_threshold: number;
+	    vad_silence_duration: number;
+	    vad_activity_threshold: number;
+	    vad_activity_duration: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new InteractionTrigger(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.profile_id = source["profile_id"];
+	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
+	        this.type = source["type"];
+	        this.enabled = source["enabled"];
+	        this.auto_stop = source["auto_stop"];
+	        this.hotkey = source["hotkey"];
+	        this.hotkey_global = source["hotkey_global"];
+	        this.hotkey_bring_to_front = source["hotkey_bring_to_front"];
+	        this.wakeword_keyword = source["wakeword_keyword"];
+	        this.wakeword_provider = source["wakeword_provider"];
+	        this.wakeword_sensitivity = source["wakeword_sensitivity"];
+	        this.vad_silence_threshold = source["vad_silence_threshold"];
+	        this.vad_silence_duration = source["vad_silence_duration"];
+	        this.vad_activity_threshold = source["vad_activity_threshold"];
+	        this.vad_activity_duration = source["vad_activity_duration"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class InteractionProfile {
+	    id: number;
+	    name: string;
+	    description: string;
+	    is_default: boolean;
+	    is_active: boolean;
+	    created_at: time.Time;
+	    updated_at: time.Time;
+	    stt_provider: string;
+	    language: string;
+	    feedback_sounds: boolean;
+	    triggers?: InteractionTrigger[];
+	
+	    static createFrom(source: any = {}) {
+	        return new InteractionProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.is_default = source["is_default"];
+	        this.is_active = source["is_active"];
+	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
+	        this.stt_provider = source["stt_provider"];
+	        this.language = source["language"];
+	        this.feedback_sounds = source["feedback_sounds"];
+	        this.triggers = this.convertValues(source["triggers"], InteractionTrigger);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	export class MCPAgentDB {
 	    id: number;
 	    agent_config_id: number;
@@ -1812,6 +1925,30 @@ export namespace main {
 	        this.language = source["language"];
 	        this.duration = source["duration"];
 	        this.provider = source["provider"];
+	    }
+	}
+	export class VoskModelInfoResult {
+	    id: string;
+	    name: string;
+	    language: string;
+	    size: number;
+	    downloadUrl: string;
+	    isInstalled: boolean;
+	    localPath?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoskModelInfoResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.language = source["language"];
+	        this.size = source["size"];
+	        this.downloadUrl = source["downloadUrl"];
+	        this.isInstalled = source["isInstalled"];
+	        this.localPath = source["localPath"];
 	    }
 	}
 
