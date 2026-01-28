@@ -213,9 +213,6 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           aria-describedby={hintId}
           aria-multiline="true"
         />
-        {/* #region agent log */}
-        {(() => { const showVoice = voiceEnabled && !message.trim() && mediaFiles.length === 0; fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatInput.tsx:render',message:'Button render decision',data:{showVoice,voiceEnabled,messageEmpty:!message.trim(),noMedia:mediaFiles.length===0},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'C'})}).catch(()=>{}); return null; })()}
-        {/* #endregion */}
         {/* Mostra botão de voz quando input vazio, senão botão de enviar */}
         {voiceEnabled && !message.trim() && mediaFiles.length === 0 ? (
           <VoiceButton

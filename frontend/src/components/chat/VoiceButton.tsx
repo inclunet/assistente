@@ -172,9 +172,6 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const handleKeyUp = useCallback((e: React.KeyboardEvent) => {
     if (mode === 'ptt' && isPTTActive && (e.key === ' ' || e.key === 'Enter')) {
       e.preventDefault();
-      // #region agent log
-      fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'VoiceButton.tsx:handleKeyUp',message:'PTT keyUp triggered',data:{key:e.key,activeElement:document.activeElement?.tagName,activeId:document.activeElement?.id,activeClass:document.activeElement?.className},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'B'})}).catch(()=>{});
-      // #endregion
       setIsPTTActive(false);
       stopInteraction();
       
@@ -191,16 +188,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
 
   // Cleanup timeout on unmount
   useEffect(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'VoiceButton.tsx:mount',message:'VoiceButton mounted',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
-    const focusHandler = (e: FocusEvent) => { fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'VoiceButton.tsx:focusChange',message:'Focus changed',data:{newFocus:(e.target as HTMLElement)?.tagName,newClass:(e.target as HTMLElement)?.className?.slice(0,100),newId:(e.target as HTMLElement)?.id},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'D'})}).catch(()=>{}); };
-    document.addEventListener('focusin', focusHandler);
-    // #endregion
     return () => {
-      // #region agent log
-      document.removeEventListener('focusin', focusHandler);
-      fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'VoiceButton.tsx:unmount',message:'VoiceButton unmounting',data:{},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'E'})}).catch(()=>{});
-      // #endregion
       if (pttTimeoutRef.current) {
         clearTimeout(pttTimeoutRef.current);
       }
@@ -213,12 +201,6 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   // Estado visual
   const isRecordingState = isActive || isRecording || isPTTActive;
   const isProcessingState = isProcessing;
-
-  // #region agent log
-  useEffect(() => {
-    fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'VoiceButton.tsx:stateChange',message:'State changed',data:{isProcessingState,isRecordingState,disabled,activeElement:document.activeElement?.tagName,activeClass:document.activeElement?.className},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
-  }, [isProcessingState, isRecordingState, disabled]);
-  // #endregion
 
   // Labels e descrições por modo
   const modeLabels: Record<InteractionMode, { short: string; idle: string; active: string; hint: string }> = {

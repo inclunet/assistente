@@ -308,9 +308,6 @@ export function useSTT(options: UseSTTOptions = {}): UseSTTReturn {
 
   // Para gravação
   const stopRecording = useCallback(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useSTT:stopRecording',message:'stopRecording called',data:{hasRef:!!sttRef.current,isInitialized},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
     sttRef.current?.stopRecording();
   }, [isInitialized]);
 

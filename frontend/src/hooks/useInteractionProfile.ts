@@ -495,10 +495,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   const startInteraction = useCallback(async () => {
     if (isActive) return;
     
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useInteractionProfile:startInteraction',message:'startInteraction called',data:{hasProfile:!!activeProfile,feedbackSounds:activeProfile?.feedback_sounds,profileId:activeProfile?.id,sttInitialized,sttInitializing},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'H'})}).catch(()=>{});
-    // #endregion
-    
     // Garante que o STT está inicializado (initSTT já verifica internamente se já está inicializado)
     if (!sttInitialized) {
       console.log('[useInteractionProfile] STT não inicializado, inicializando...');
@@ -524,9 +520,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
 
   // Para interação
   const stopInteraction = useCallback(() => {
-    // #region agent log
-    fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'useInteractionProfile:stopInteraction',message:'stopInteraction called',data:{isActive,sttRecording},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'G'})}).catch(()=>{});
-    // #endregion
     stopRecording();
     // isActive será setado para false quando onTranscription for chamado
   }, [stopRecording, isActive, sttRecording]);
