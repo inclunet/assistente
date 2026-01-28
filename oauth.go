@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"assistente/internal/oauth"
@@ -37,6 +38,7 @@ type OAuthConnectionInfo struct {
 
 // Gerenciador de fluxo OAuth global
 var oauthFlowManager *oauth.FlowManager
+var pendingOAuthScopes []string // Armazena scopes do fluxo OAuth em andamento
 
 // GetOAuthProviders retorna todos os providers OAuth disponíveis
 func (a *App) GetOAuthProviders() []OAuthProviderInfo {
@@ -96,6 +98,16 @@ func (a *App) StartOAuthFlow(providerID string, scopes []string) (string, error)
 		oauthFlowManager = oauth.NewFlowManager()
 	}
 
+	// Armazena scopes para uso posterior em CompleteOAuthFlow
+	provider := oauth.GetProvider(providerID)
+	if provider != nil {
+		// Combina scopes padrão com os solicitados
+		pendingOAuthScopes = append([]string{}, provider.DefaultScopes...)
+		pendingOAuthScopes = append(pendingOAuthScopes, scopes...)
+	} else {
+		pendingOAuthScopes = scopes
+	}
+
 	authURL, err := oauthFlowManager.StartAuthorizationFlow(providerID, scopes)
 	if err != nil {
 		return "", err
@@ -138,7 +150,8 @@ func (a *App) CompleteOAuthFlow(providerID string, timeoutSeconds int) (*OAuthCo
 		}
 	}
 
-	// Salva a conexão
+	// Salva a conexão com os scopes usados
+	scopesStr := strings.Join(pendingOAuthScopes, " ")
 	conn, err := a.CreateOAuthConnection(
 		providerID,
 		provider.Name,
@@ -148,9 +161,11 @@ func (a *App) CompleteOAuthFlow(providerID string, timeoutSeconds int) (*OAuthCo
 		token.AccessToken,
 		token.RefreshToken,
 		token.TokenType,
-		"", // TODO: salvar scopes
+		scopesStr,
 		token.ExpiresAt,
 	)
+	// Limpa scopes pendentes após uso
+	pendingOAuthScopes = nil
 	if err != nil {
 		return nil, fmt.Errorf("erro ao salvar conexão: %w", err)
 	}

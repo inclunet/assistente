@@ -439,6 +439,22 @@ func UpdateMessageToolCalls(messageID uint, toolCalls string, agentName string) 
 	}).Error
 }
 
+// DeleteMessage exclui uma mensagem e todas as suas filhas (respostas)
+func DeleteMessage(messageID uint) error {
+	// Primeiro, exclui recursivamente todas as mensagens filhas
+	var childIDs []uint
+	if err := db.Model(&ChatMessage{}).Where("parent_id = ?", messageID).Pluck("id", &childIDs).Error; err != nil {
+		return err
+	}
+	for _, childID := range childIDs {
+		if err := DeleteMessage(childID); err != nil {
+			return err
+		}
+	}
+	// Exclui a mensagem em si
+	return db.Delete(&ChatMessage{}, messageID).Error
+}
+
 // GetMessageChildren retorna todas as mensagens filhas de uma mensagem
 // Deprecated: Use GetMessages instead
 func GetMessageChildren(parentID uint) ([]ChatMessage, error) {

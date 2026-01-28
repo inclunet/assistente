@@ -44,7 +44,7 @@ func (a *App) enrichMessage(msg database.ChatMessage) EnrichedMessage {
 		pidStr := fmt.Sprintf("%d", *msg.ParentID)
 		parentIDStr = &pidStr
 	}
-	
+
 	enriched := EnrichedMessage{
 		// Campos do ChatMessage
 		ID:               fmt.Sprintf("%d", msg.ID),
@@ -101,7 +101,7 @@ func (a *App) GetConversation(id uint) (*Conversation, error) {
 // Frontend deve chamar novamente para carregar filhos quando usuário expandir thread
 func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, error) {
 	fmt.Printf("🔍 [GetMessages] conversationID=%d, parentID=%v (LAZY LOADING)\n", conversationID, parentID)
-	
+
 	// Busca apenas mensagens do nível solicitado (raízes OU filhos diretos)
 	messages, err := database.GetMessages(conversationID, parentID)
 	if err != nil {
@@ -136,7 +136,7 @@ func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, e
 		childCount := childCounts[msg.ID]
 		node := MessageNode{
 			Message:    a.enrichMessage(msg), // Usa método compartilhado
-			Children:   nil,                   // LAZY LOADING - não carrega filhos
+			Children:   nil,                  // LAZY LOADING - não carrega filhos
 			Level:      level,
 			ChildCount: childCount, // Indica quantos filhos existem (para mostrar indicador)
 		}
@@ -227,7 +227,7 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 		// Adiciona filhos recursivamente
 		children := childrenMap[msg.ID]
 		node.ChildCount = len(children) // Define o count de filhos diretos
-		
+
 		for _, child := range children {
 			childNode := buildNode(child, level+1)
 			node.Children = append(node.Children, childNode)
@@ -283,6 +283,20 @@ func (a *App) DeleteConversation(id uint) error {
 	// Emite evento
 	runtime.EventsEmit(a.ctx, "conversation:deleted", map[string]interface{}{
 		"conversation_id": id,
+	})
+
+	return nil
+}
+
+// DeleteMessage exclui uma mensagem e todas as suas filhas (respostas)
+func (a *App) DeleteMessage(messageID uint) error {
+	if err := database.DeleteMessage(messageID); err != nil {
+		return err
+	}
+
+	// Emite evento para o frontend atualizar a UI
+	runtime.EventsEmit(a.ctx, "message:deleted", map[string]interface{}{
+		"message_id": messageID,
 	})
 
 	return nil

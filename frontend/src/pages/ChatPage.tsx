@@ -12,6 +12,8 @@ import { useTabsKeyboardShortcuts } from '../hooks/useTabsKeyboardShortcuts';
 import { useContextMenu, useMessageActions } from '../hooks/useContextMenu';
 import { Message } from '../store/chatStore';
 import { MediaFile } from '../services/mediaService';
+import { DeleteMessage } from '../../wailsjs/go/main/App';
+import { announce } from '../hooks/useAnnouncer';
 import './ChatPage.css';
 
 export default function ChatPage() {
@@ -24,6 +26,7 @@ export default function ChatPage() {
     sendMessage,
     getThreadedMessages,
     loadMessageChildren,
+    getActiveTab,
   } = useChatStore();
 
   const { config } = useSettingsStore();
@@ -49,22 +52,46 @@ export default function ChatPage() {
     },
     onSpeak: speakMessage,
     onEdit: (message) => {
-      console.log('Editar mensagem:', message);
-      // TODO: Implementar edição
+      // Edição de mensagem requer UI adicional (modal de edição)
+      // Por enquanto, copia o conteúdo para o input para o usuário editar manualmente
+      if (inputRef.current && message.content) {
+        inputRef.current.value = message.content;
+        inputRef.current.focus();
+        announce('Conteúdo da mensagem copiado para edição');
+      }
     },
-    onResend: (message) => {
-      console.log('Reenviar mensagem:', message);
-      // TODO: Implementar reenvio
+    onResend: async (message) => {
+      if (message.content) {
+        await sendMessage(message.content);
+        announce('Mensagem reenviada');
+      }
     },
-    onDelete: (message) => {
-      if (confirm('Excluir esta mensagem?')) {
-        console.log('Excluir mensagem:', message);
-        // TODO: Implementar exclusão
+    onDelete: async (message) => {
+      if (confirm('Excluir esta mensagem e todas as suas respostas?')) {
+        try {
+          const messageId = parseInt(message.id, 10);
+          if (!isNaN(messageId)) {
+            await DeleteMessage(messageId);
+            announce('Mensagem excluída');
+            // A UI será atualizada via evento 'message:deleted' ou reload
+            // Por simplicidade, recarrega a conversa atual
+            const activeTab = getActiveTab();
+            if (activeTab?.conversationId) {
+              // Força reload da conversa
+              window.location.reload();
+            }
+          }
+        } catch (error) {
+          console.error('Erro ao excluir mensagem:', error);
+          announce('Erro ao excluir mensagem');
+        }
       }
     },
     onPin: (message) => {
+      // Pin requer campo adicional no modelo ChatMessage
+      // Deixar para implementação futura
       console.log('Fixar/desafixar mensagem:', message);
-      // TODO: Implementar pin
+      announce('Funcionalidade de fixar mensagem será implementada em breve');
     },
     isTTSDisabled,
   });
