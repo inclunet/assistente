@@ -36,12 +36,10 @@ const TRIGGER_TYPES = [
 const STT_PROVIDERS = [
   { value: 'webspeech', label: 'WebSpeech' },
   { value: 'whisper_api', label: 'Whisper API' },
-  { value: 'vosk', label: 'Vosk (offline)' },
 ];
 
 // Providers Wakeword
 const WAKEWORD_PROVIDERS = [
-  { value: 'vosk', label: 'Vosk' },
   { value: 'webspeech', label: 'WebSpeech' },
 ];
 
@@ -78,7 +76,7 @@ export default function InteractionProfilesPage() {
   const [triggerHotkeyGlobal, setTriggerHotkeyGlobal] = useState(true);
   const [triggerBringToFront, setTriggerBringToFront] = useState(true);
   const [triggerWakeword, setTriggerWakeword] = useState('assistente');
-  const [triggerWakewordProvider, setTriggerWakewordProvider] = useState('vosk');
+  const [triggerWakewordProvider, setTriggerWakewordProvider] = useState('webspeech');
   const [triggerWakewordSensitivity, setTriggerWakewordSensitivity] = useState(0.5);
   const [triggerVadSilenceThreshold, setTriggerVadSilenceThreshold] = useState(0.01);
   const [triggerVadSilenceDuration, setTriggerVadSilenceDuration] = useState(1500);
@@ -238,7 +236,7 @@ export default function InteractionProfilesPage() {
     setTriggerHotkeyGlobal(true);
     setTriggerBringToFront(true);
     setTriggerWakeword('assistente');
-    setTriggerWakewordProvider('vosk');
+    setTriggerWakewordProvider('webspeech');
     setTriggerWakewordSensitivity(0.5);
     setTriggerVadSilenceThreshold(0.01);
     setTriggerVadSilenceDuration(1500);
@@ -258,7 +256,7 @@ export default function InteractionProfilesPage() {
     setTriggerHotkeyGlobal(trigger.hotkey_global ?? true);
     setTriggerBringToFront(trigger.hotkey_bring_to_front ?? true);
     setTriggerWakeword(trigger.wakeword_keyword || 'assistente');
-    setTriggerWakewordProvider(trigger.wakeword_provider || 'vosk');
+    setTriggerWakewordProvider(trigger.wakeword_provider || 'webspeech');
     setTriggerWakewordSensitivity(trigger.wakeword_sensitivity ?? 0.5);
     setTriggerVadSilenceThreshold(trigger.vad_silence_threshold ?? 0.01);
     setTriggerVadSilenceDuration(trigger.vad_silence_duration ?? 1500);

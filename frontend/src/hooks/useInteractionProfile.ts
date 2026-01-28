@@ -35,6 +35,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSTT } from './useSTT';
+import { useWakewordDetection } from './useWakewordDetection';
 import { 
   useInteractionProfileStore, 
   InteractionProfile,
@@ -116,7 +117,7 @@ export interface UseInteractionProfileReturn {
   profiles: InteractionProfile[];
   
   // Estados de interação
-  isActive: boolean;        // Se está em modo ativo (gravando ou ouvindo)
+  isActive: boolean;        // Se está em modo ativo (gravando ou ouvindo wakeword)
   isListening: boolean;     // Se está ouvindo (VAD/wakeword)
   isRecording: boolean;     // Se está gravando
   isProcessing: boolean;    // Se está processando transcrição
@@ -134,6 +135,12 @@ export interface UseInteractionProfileReturn {
   // Gestão de perfis
   setActiveProfile: (profileId: number) => Promise<void>;
   loadProfiles: () => Promise<void>;
+  
+  // Wakeword específico
+  startWakewordListening: () => void;
+  stopWakewordListening: () => void;
+  toggleWakewordListening: () => void;
+  isWakewordListening: boolean;
   
   // Estados de carregamento
   isLoading: boolean;
@@ -161,7 +168,7 @@ function getVADConfigFromTriggers(triggers?: InteractionTrigger[]): {
 
   // Procura por um trigger que tenha configurações VAD
   const vadTrigger = triggers.find(t => 
-    t.enabled && (t.auto_stop || t.type === 'wakeword' || t.type === 'vad')
+    t.enabled && (t.auto_stop || t.type === 'vad')
   );
 
   if (!vadTrigger) {
@@ -192,6 +199,34 @@ function getVADConfigFromTriggers(triggers?: InteractionTrigger[]): {
   };
 }
 
+// Extrai configuração de wakeword dos triggers
+function getWakewordConfigFromTriggers(triggers?: InteractionTrigger[]): {
+  hasWakeword: boolean;
+  keyword: string;
+  sensitivity: number;
+  autoStop: boolean;
+  vadConfig: {
+    silenceDuration: number;
+    silenceThreshold: number;
+  };
+} | null {
+  if (!triggers) return null;
+  
+  const wakewordTrigger = triggers.find(t => t.enabled && t.type === 'wakeword');
+  if (!wakewordTrigger) return null;
+  
+  return {
+    hasWakeword: true,
+    keyword: wakewordTrigger.wakeword_keyword || 'assistente',
+    sensitivity: wakewordTrigger.wakeword_sensitivity || 0.5,
+    autoStop: wakewordTrigger.auto_stop || false,
+    vadConfig: {
+      silenceDuration: wakewordTrigger.vad_silence_duration || 1500,
+      silenceThreshold: wakewordTrigger.vad_silence_threshold || 0.01,
+    },
+  };
+}
+
 export function useInteractionProfile(options: UseInteractionProfileOptions = {}): UseInteractionProfileReturn {
   const {
     onTranscription,
@@ -219,6 +254,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   // Estado local
   const [isActive, setIsActive] = useState(false);
   const [interimText, setInterimText] = useState('');
+  // Nota: isWakewordListening vem do hook useWakewordDetection (não precisa de estado local)
   
   // Refs para callbacks
   const callbacksRef = useRef({
@@ -232,6 +268,8 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
 
   // Ref para toggle interaction (será populada depois que a função for criada)
   const toggleInteractionRef = useRef<(() => void) | null>(null);
+  // Ref para controle de wakeword (indica se deve reiniciar escuta após gravação)
+  const shouldRestartWakewordRef = useRef(false);
 
   useEffect(() => {
     callbacksRef.current = {
@@ -248,13 +286,15 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   const activeProfile = getActiveProfile();
 
   // Mapeia STT provider do perfil para o formato do useSTT
-  const mapSTTProvider = (provider: string | undefined): 'webspeech' | 'whisper_api' | 'vosk' => {
-    if (provider === 'whisper_api' || provider === 'vosk') return provider;
+  const mapSTTProvider = (provider: string | undefined): 'webspeech' | 'whisper_api' => {
+    if (provider === 'whisper_api') return provider;
     return 'webspeech';
   };
 
   // Extrai configurações dos triggers
   const vadConfig = getVADConfigFromTriggers(activeProfile?.triggers);
+  const wakewordConfig = getWakewordConfigFromTriggers(activeProfile?.triggers);
+  const hasWakewordTrigger = wakewordConfig?.hasWakeword || false;
 
   // Hook de STT
   const {
@@ -291,6 +331,14 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       }
       
       callbacksRef.current.onTranscription?.(text, provider);
+      
+      // Se estava em modo wakeword, reinicia escuta após transcrição
+      if (shouldRestartWakewordRef.current) {
+        console.log('[useInteractionProfile] Reiniciando escuta de wakeword após transcrição');
+        setTimeout(() => {
+          startWakewordListeningRef.current?.();
+        }, 500); // Pequeno delay para evitar capturar eco do TTS
+      }
     },
     
     onInterimResult: (text) => {
@@ -330,6 +378,58 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     },
   });
 
+  // Ref para startWakewordListening (para usar no callback de onTranscription)
+  const startWakewordListeningRef = useRef<(() => void) | null>(null);
+
+  // Hook de detecção de wakeword
+  const {
+    isListening: wakewordIsListening,
+    startListening: wakewordStartListening,
+    stopListening: wakewordStopListening,
+    lastRecognizedText: wakewordLastText,
+  } = useWakewordDetection({
+    keyword: wakewordConfig?.keyword || 'assistente',
+    language: activeProfile?.language || 'pt-BR',
+    sensitivity: wakewordConfig?.sensitivity || 0.5,
+    onDetected: async (keyword, fullText) => {
+      console.log('[useInteractionProfile] 🎯 Wakeword detected:', keyword, 'in:', fullText);
+      
+      // Para a escuta de wakeword temporariamente
+      wakewordStopListening();
+      
+      // Notifica callback
+      callbacksRef.current.onWakeWordDetected?.(keyword);
+      
+      // Feedback sonoro
+      if (activeProfile?.feedback_sounds) {
+        playSound(SOUND_TYPES.RECORD_START);
+      }
+      
+      // Inicia gravação real
+      setIsActive(true);
+      setRecording(true);
+      
+      // Garante que STT está inicializado
+      if (!sttInitialized) {
+        console.log('[useInteractionProfile] STT não inicializado, inicializando...');
+        const success = await initSTT();
+        if (!success) {
+          console.error('[useInteractionProfile] Falha ao inicializar STT');
+          callbacksRef.current.onError?.('Falha ao inicializar reconhecimento de voz');
+          setIsActive(false);
+          setRecording(false);
+          return;
+        }
+      }
+      
+      await startRecording();
+    },
+    onError: (message) => {
+      console.error('[useInteractionProfile] Wakeword error:', message);
+      callbacksRef.current.onError?.(message);
+    },
+  });
+
   // Atualiza config quando perfil muda
   useEffect(() => {
     if (activeProfile) {
@@ -345,11 +445,51 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     }
   }, [activeProfile, setProvider, setMode, updateConfig]);
 
+  // Sincroniza estado de wakeword listening com a store
+  useEffect(() => {
+    setListening(wakewordIsListening);
+  }, [wakewordIsListening, setListening]);
+
   // Sincroniza estado
   useEffect(() => {
     setRecording(sttRecording);
     setProcessing(sttProcessing);
   }, [sttRecording, sttProcessing, setRecording, setProcessing]);
+
+  // Funções de controle de wakeword
+  const startWakewordListening = useCallback(() => {
+    console.log('[useInteractionProfile] Starting wakeword listening');
+    shouldRestartWakewordRef.current = true;
+    wakewordStartListening();
+    
+    if (activeProfile?.feedback_sounds) {
+      playSound(SOUND_TYPES.RECORD_START);
+    }
+  }, [wakewordStartListening, activeProfile]);
+
+  const stopWakewordListening = useCallback(() => {
+    console.log('[useInteractionProfile] Stopping wakeword listening');
+    shouldRestartWakewordRef.current = false;
+    wakewordStopListening();
+    
+    if (activeProfile?.feedback_sounds) {
+      playSound(SOUND_TYPES.RECORD_END);
+    }
+  }, [wakewordStopListening, activeProfile]);
+
+  const toggleWakewordListening = useCallback(() => {
+    console.log('[useInteractionProfile] Toggle wakeword:', { isListening: wakewordIsListening });
+    if (wakewordIsListening) {
+      stopWakewordListening();
+    } else {
+      startWakewordListening();
+    }
+  }, [wakewordIsListening, startWakewordListening, stopWakewordListening]);
+
+  // Atualiza ref para uso no callback de onTranscription
+  useEffect(() => {
+    startWakewordListeningRef.current = startWakewordListening;
+  }, [startWakewordListening]);
 
   // Inicia interação
   const startInteraction = useCallback(async () => {
@@ -404,14 +544,28 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   }, [cancelRecording, activeProfile, setRecording]);
 
   // Toggle interação - usa sttRecording (estado real) em vez de isActive (estado local)
+  // Para modo wakeword, faz toggle da escuta de wakeword (não da gravação)
   const toggleInteraction = useCallback(() => {
-    console.log('[useInteractionProfile] Toggle:', { isActive, sttRecording });
+    console.log('[useInteractionProfile] Toggle:', { 
+      isActive, 
+      sttRecording, 
+      hasWakewordTrigger, 
+      wakewordIsListening 
+    });
+    
+    // Se tem trigger de wakeword, faz toggle da escuta de wakeword
+    if (hasWakewordTrigger) {
+      toggleWakewordListening();
+      return;
+    }
+    
+    // Para outros modos, faz toggle da gravação
     if (sttRecording) {
       stopInteraction();
     } else {
       startInteraction();
     }
-  }, [sttRecording, startInteraction, stopInteraction]);
+  }, [sttRecording, hasWakewordTrigger, wakewordIsListening, startInteraction, stopInteraction, toggleWakewordListening]);
 
   // Atualiza ref com a versão mais atual de toggleInteraction (evita closure stale em eventos)
   useEffect(() => {
@@ -453,33 +607,14 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     };
   }, []); // Registra uma vez por instância
 
-  // Escuta eventos de wake word
+  // Para escuta de wakeword quando perfil muda ou componente desmonta
   useEffect(() => {
-    let cleanup: (() => void) | undefined;
-
-    const setupEvents = async () => {
-      await loadWailsFunctions();
-      
-      if (EventsOn) {
-        cleanup = EventsOn('interaction:wakeword:detected', (data) => {
-          const eventData = data as { triggerId: number; keyword: string };
-          console.log('[useInteractionProfile] Wake word detected:', eventData.keyword);
-          
-          setListening(false);
-          callbacksRef.current.onWakeWordDetected?.(eventData.keyword);
-          
-          // Inicia interação
-          startInteraction();
-        });
+    return () => {
+      if (wakewordIsListening) {
+        wakewordStopListening();
       }
     };
-
-    setupEvents();
-
-    return () => {
-      cleanup?.();
-    };
-  }, [startInteraction, setListening]);
+  }, [wakewordIsListening, wakewordStopListening]);
 
   // Carrega perfis ao montar
   useEffect(() => {
@@ -492,14 +627,14 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     profiles,
     
     // Estados
-    isActive,
-    isListening: sttListening || useInteractionProfileStore.getState().isListening,
+    isActive: isActive || wakewordIsListening,
+    isListening: sttListening || wakewordIsListening || useInteractionProfileStore.getState().isListening,
     isRecording: sttRecording,
     isProcessing: sttProcessing,
     
     // Dados
     volume,
-    interimText: interimText || sttInterimText,
+    interimText: interimText || sttInterimText || (wakewordIsListening ? wakewordLastText : ''),
     
     // Ações
     startInteraction,
@@ -508,6 +643,12 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     toggleInteraction,
     setActiveProfile,
     loadProfiles,
+    
+    // Wakeword específico
+    startWakewordListening,
+    stopWakewordListening,
+    toggleWakewordListening,
+    isWakewordListening: wakewordIsListening,
     
     // Estados de carregamento
     isLoading: storeLoading,

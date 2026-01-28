@@ -2,7 +2,6 @@ package main
 
 import (
 	"context"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"log"
@@ -30,7 +29,6 @@ type App struct {
 	llmClient             *llm.SyncClient
 	embeddingsService     *llm.EmbeddingsService
 	speechManager         *speech.SpeechManager
-	voskManager           *speech.VoskManager // Manager Vosk para wake word e STT offline
 	hotkeyManager         *hotkey.Manager
 	agentManager          agentmanager.Manager // NOVO - Manager para agentes HTTP/MCP
 	voiceHotkeyID         int
@@ -1574,150 +1572,6 @@ func (a *App) SetOpenAITTSSpeed(rate int) {
 	if a.speechManager != nil {
 		a.speechManager.SetTTSSpeed(rate)
 	}
-}
-
-// ==================== Vosk (Wake Word + STT Offline) ====================
-
-// VoskModelInfoResult informações de modelo Vosk para o frontend
-type VoskModelInfoResult struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Language    string `json:"language"`
-	Size        int64  `json:"size"`
-	DownloadURL string `json:"downloadUrl"`
-	IsInstalled bool   `json:"isInstalled"`
-	LocalPath   string `json:"localPath,omitempty"`
-}
-
-// InitVoskManager inicializa o gerenciador Vosk
-func (a *App) InitVoskManager() error {
-	if a.voskManager == nil {
-		a.voskManager = speech.NewVoskManager(speech.DefaultVoskConfig)
-	}
-	return nil
-}
-
-// IsVoskAvailable verifica se Vosk está disponível
-func (a *App) IsVoskAvailable() bool {
-	if a.voskManager == nil {
-		a.InitVoskManager()
-	}
-	return a.voskManager.IsAvailable()
-}
-
-// GetVoskModels retorna os modelos Vosk disponíveis
-func (a *App) GetVoskModels() []VoskModelInfoResult {
-	if a.voskManager == nil {
-		a.InitVoskManager()
-	}
-
-	models := a.voskManager.GetAvailableModels()
-	result := make([]VoskModelInfoResult, len(models))
-
-	for i, m := range models {
-		result[i] = VoskModelInfoResult{
-			ID:          m.ID,
-			Name:        m.Name,
-			Language:    m.Language,
-			Size:        m.Size,
-			DownloadURL: m.DownloadURL,
-			IsInstalled: m.IsInstalled,
-			LocalPath:   m.LocalPath,
-		}
-	}
-
-	return result
-}
-
-// IsVoskModelInstalled verifica se um modelo está instalado
-func (a *App) IsVoskModelInstalled(modelID string) bool {
-	if a.voskManager == nil {
-		a.InitVoskManager()
-	}
-	return a.voskManager.IsModelInstalled(modelID)
-}
-
-// DownloadVoskModel baixa um modelo Vosk
-func (a *App) DownloadVoskModel(modelID string) error {
-	if a.voskManager == nil {
-		a.InitVoskManager()
-	}
-
-	return a.voskManager.DownloadModel(modelID, func(percent int) {
-		// Emite progresso para o frontend
-		runtime.EventsEmit(a.ctx, "vosk:model:download:progress", map[string]interface{}{
-			"modelId": modelID,
-			"percent": percent,
-		})
-	})
-}
-
-// DeleteVoskModel remove um modelo Vosk
-func (a *App) DeleteVoskModel(modelID string) error {
-	if a.voskManager == nil {
-		a.InitVoskManager()
-	}
-	return a.voskManager.DeleteModel(modelID)
-}
-
-// LoadVoskModel carrega um modelo para uso
-func (a *App) LoadVoskModel(modelID string) error {
-	if a.voskManager == nil {
-		a.InitVoskManager()
-	}
-	return a.voskManager.LoadModel(modelID)
-}
-
-// StartVoskWakeWord inicia escuta de wake word
-func (a *App) StartVoskWakeWord(keyword string) error {
-	if a.voskManager == nil {
-		a.InitVoskManager()
-	}
-
-	return a.voskManager.StartWakeWordListening(keyword, func() {
-		// Emite evento quando wake word é detectado
-		runtime.EventsEmit(a.ctx, "vosk:wakeword:detected", map[string]interface{}{
-			"keyword": keyword,
-		})
-	})
-}
-
-// StopVoskWakeWord para escuta de wake word
-func (a *App) StopVoskWakeWord() {
-	if a.voskManager != nil {
-		a.voskManager.StopWakeWordListening()
-	}
-}
-
-// IsVoskListening verifica se está ouvindo wake word
-func (a *App) IsVoskListening() bool {
-	if a.voskManager == nil {
-		return false
-	}
-	return a.voskManager.IsListening()
-}
-
-// TranscribeVosk transcreve áudio usando Vosk
-func (a *App) TranscribeVosk(audioBase64 string) (*TranscriptionResultInfo, error) {
-	if a.voskManager == nil {
-		a.InitVoskManager()
-	}
-
-	// Decodifica base64
-	audioData, err := base64.StdEncoding.DecodeString(audioBase64)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao decodificar áudio: %w", err)
-	}
-
-	result, err := a.voskManager.TranscribeAudio(audioData)
-	if err != nil {
-		return nil, err
-	}
-
-	return &TranscriptionResultInfo{
-		Text:     result.Text,
-		Provider: result.Provider,
-	}, nil
 }
 
 // ==================== Interaction Profiles ====================

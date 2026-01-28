@@ -383,7 +383,7 @@ type InteractionProfile struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 
 	// Configurações comuns
-	STTProvider    string `json:"stt_provider" gorm:"type:text;default:'webspeech'"` // webspeech, whisper_api, vosk
+	STTProvider    string `json:"stt_provider" gorm:"type:text;default:'webspeech'"` // webspeech, whisper_api
 	Language       string `json:"language" gorm:"type:text;default:'pt-BR'"`         // Idioma do reconhecimento
 	FeedbackSounds bool   `json:"feedback_sounds" gorm:"default:true"`               // Sons de início/fim
 
@@ -398,9 +398,9 @@ func (p *InteractionProfile) Validate() error {
 	}
 
 	// Valida STT provider
-	validSTTProviders := []string{"webspeech", "whisper_api", "vosk"}
+	validSTTProviders := []string{"webspeech", "whisper_api"}
 	if p.STTProvider != "" && !contains(validSTTProviders, p.STTProvider) {
-		return fmt.Errorf("stt_provider must be one of: webspeech, whisper_api, vosk")
+		return fmt.Errorf("stt_provider must be one of: webspeech, whisper_api")
 	}
 
 	return nil
@@ -442,7 +442,7 @@ type InteractionTrigger struct {
 
 	// === Wakeword ===
 	WakewordKeyword     string  `json:"wakeword_keyword" gorm:"type:text"`       // Ex: "assistente"
-	WakewordProvider    string  `json:"wakeword_provider" gorm:"type:text"`      // vosk, webspeech
+	WakewordProvider    string  `json:"wakeword_provider" gorm:"type:text"`      // webspeech (por enquanto só este)
 	WakewordSensitivity float64 `json:"wakeword_sensitivity" gorm:"default:0.5"` // 0.0 - 1.0
 
 	// === VAD Config ===
@@ -473,9 +473,9 @@ func (t *InteractionTrigger) Validate() error {
 
 	// Valida provider wakeword
 	if t.Type == TriggerTypeWakeword && t.WakewordProvider != "" {
-		validProviders := []string{"vosk", "webspeech"}
+		validProviders := []string{"webspeech"}
 		if !contains(validProviders, t.WakewordProvider) {
-			return fmt.Errorf("wakeword_provider must be one of: vosk, webspeech")
+			return fmt.Errorf("wakeword_provider must be: webspeech")
 		}
 	}
 

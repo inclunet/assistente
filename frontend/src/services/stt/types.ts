@@ -10,7 +10,6 @@
 export const STT_PROVIDERS = {
   WEBSPEECH: 'webspeech',
   WHISPER_API: 'whisper_api',
-  VOSK: 'vosk',
 } as const;
 
 export type STTProvider = typeof STT_PROVIDERS[keyof typeof STT_PROVIDERS];

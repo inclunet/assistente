@@ -85,15 +85,11 @@ export function DeleteOAuthConnection(arg1:number):Promise<void>;
 
 export function DeleteVoiceProfile(arg1:number):Promise<void>;
 
-export function DeleteVoskModel(arg1:string):Promise<void>;
-
 export function DisableVoiceHotkey():Promise<void>;
 
 export function DisconnectMCPAgent(arg1:number):Promise<void>;
 
 export function DisconnectOAuth(arg1:number):Promise<void>;
-
-export function DownloadVoskModel(arg1:string):Promise<void>;
 
 export function EnableVoiceHotkey():Promise<void>;
 
@@ -261,8 +257,6 @@ export function GetVoiceProfile(arg1:number):Promise<database.VoiceProfile>;
 
 export function GetVoiceProfileByName(arg1:string):Promise<database.VoiceProfile>;
 
-export function GetVoskModels():Promise<Array<main.VoskModelInfoResult>>;
-
 export function HardDeleteOAuthConnection(arg1:number):Promise<void>;
 
 export function HasImages(arg1:Array<llm.Message>):Promise<boolean>;
@@ -285,21 +279,11 @@ export function IncrementModelUsage(arg1:string):Promise<void>;
 
 export function InitSpeechManager(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
-export function InitVoskManager():Promise<void>;
-
 export function IsGlobalHotkeySupported():Promise<boolean>;
 
 export function IsSAPI5Speaking():Promise<boolean>;
 
-export function IsVoskAvailable():Promise<boolean>;
-
-export function IsVoskListening():Promise<boolean>;
-
-export function IsVoskModelInstalled(arg1:string):Promise<boolean>;
-
 export function LoadConversationInTab(arg1:number,arg2:number):Promise<void>;
-
-export function LoadVoskModel(arg1:string):Promise<void>;
 
 export function ModelSupportsVision(arg1:string):Promise<boolean>;
 
@@ -385,11 +369,7 @@ export function SpeakSAPI5(arg1:string,arg2:string):Promise<void>;
 
 export function StartOAuthFlow(arg1:string,arg2:Array<string>):Promise<string>;
 
-export function StartVoskWakeWord(arg1:string):Promise<void>;
-
 export function StopSAPI5():Promise<void>;
-
-export function StopVoskWakeWord():Promise<void>;
 
 export function SynthesizeOpenAI(arg1:string):Promise<main.SynthesisResultInfo>;
 
@@ -410,8 +390,6 @@ export function TestHTTPEndpoint(arg1:number,arg2:string,arg3:string):Promise<st
 export function TestHotReload():Promise<string>;
 
 export function TestMCPAgent(arg1:number,arg2:string):Promise<string>;
-
-export function TranscribeVosk(arg1:string):Promise<main.TranscriptionResultInfo>;
 
 export function TranscribeWhisper(arg1:string,arg2:string):Promise<main.TranscriptionResultInfo>;
 

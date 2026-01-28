@@ -158,10 +158,6 @@ export function DeleteVoiceProfile(arg1) {
   return window['go']['main']['App']['DeleteVoiceProfile'](arg1);
 }
 
-export function DeleteVoskModel(arg1) {
-  return window['go']['main']['App']['DeleteVoskModel'](arg1);
-}
-
 export function DisableVoiceHotkey() {
   return window['go']['main']['App']['DisableVoiceHotkey']();
 }
@@ -172,10 +168,6 @@ export function DisconnectMCPAgent(arg1) {
 
 export function DisconnectOAuth(arg1) {
   return window['go']['main']['App']['DisconnectOAuth'](arg1);
-}
-
-export function DownloadVoskModel(arg1) {
-  return window['go']['main']['App']['DownloadVoskModel'](arg1);
 }
 
 export function EnableVoiceHotkey() {
@@ -510,10 +502,6 @@ export function GetVoiceProfileByName(arg1) {
   return window['go']['main']['App']['GetVoiceProfileByName'](arg1);
 }
 
-export function GetVoskModels() {
-  return window['go']['main']['App']['GetVoskModels']();
-}
-
 export function HardDeleteOAuthConnection(arg1) {
   return window['go']['main']['App']['HardDeleteOAuthConnection'](arg1);
 }
@@ -558,10 +546,6 @@ export function InitSpeechManager(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['InitSpeechManager'](arg1, arg2, arg3, arg4, arg5);
 }
 
-export function InitVoskManager() {
-  return window['go']['main']['App']['InitVoskManager']();
-}
-
 export function IsGlobalHotkeySupported() {
   return window['go']['main']['App']['IsGlobalHotkeySupported']();
 }
@@ -570,24 +554,8 @@ export function IsSAPI5Speaking() {
   return window['go']['main']['App']['IsSAPI5Speaking']();
 }
 
-export function IsVoskAvailable() {
-  return window['go']['main']['App']['IsVoskAvailable']();
-}
-
-export function IsVoskListening() {
-  return window['go']['main']['App']['IsVoskListening']();
-}
-
-export function IsVoskModelInstalled(arg1) {
-  return window['go']['main']['App']['IsVoskModelInstalled'](arg1);
-}
-
 export function LoadConversationInTab(arg1, arg2) {
   return window['go']['main']['App']['LoadConversationInTab'](arg1, arg2);
-}
-
-export function LoadVoskModel(arg1) {
-  return window['go']['main']['App']['LoadVoskModel'](arg1);
 }
 
 export function ModelSupportsVision(arg1) {
@@ -758,16 +726,8 @@ export function StartOAuthFlow(arg1, arg2) {
   return window['go']['main']['App']['StartOAuthFlow'](arg1, arg2);
 }
 
-export function StartVoskWakeWord(arg1) {
-  return window['go']['main']['App']['StartVoskWakeWord'](arg1);
-}
-
 export function StopSAPI5() {
   return window['go']['main']['App']['StopSAPI5']();
-}
-
-export function StopVoskWakeWord() {
-  return window['go']['main']['App']['StopVoskWakeWord']();
 }
 
 export function SynthesizeOpenAI(arg1) {
@@ -808,10 +768,6 @@ export function TestHotReload() {
 
 export function TestMCPAgent(arg1, arg2) {
   return window['go']['main']['App']['TestMCPAgent'](arg1, arg2);
-}
-
-export function TranscribeVosk(arg1) {
-  return window['go']['main']['App']['TranscribeVosk'](arg1);
 }
 
 export function TranscribeWhisper(arg1, arg2) {

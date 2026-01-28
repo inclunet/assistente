@@ -31,8 +31,8 @@ export type InteractionTrigger = database.InteractionTrigger;
 export type TriggerType = 'hotkey' | 'button_ptt' | 'button_toggle' | 'wakeword' | 'vad';
 
 // Tipos de provider
-export type STTProvider = 'webspeech' | 'whisper_api' | 'vosk';
-export type WakeWordProvider = 'vosk' | 'webspeech';
+export type STTProvider = 'webspeech' | 'whisper_api';
+export type WakeWordProvider = 'webspeech';
 
 // Constantes de tipos de trigger
 export const TRIGGER_TYPES: { value: TriggerType; label: string; description: string }[] = [
@@ -47,7 +47,6 @@ export const TRIGGER_TYPES: { value: TriggerType; label: string; description: st
 export const STT_PROVIDERS: { value: STTProvider; label: string; description: string }[] = [
   { value: 'webspeech', label: 'WebSpeech', description: 'API do navegador (online, gratuito)' },
   { value: 'whisper_api', label: 'Whisper API', description: 'OpenAI (online, melhor qualidade)' },
-  { value: 'vosk', label: 'Vosk', description: 'Offline (privado, qualidade básica)' },
 ];
 
 export interface InteractionProfileState {
@@ -325,7 +324,7 @@ export const useInteractionProfileStore = create<InteractionProfileState>()(
             hotkey_global: trigger.hotkey_global ?? true,
             hotkey_bring_to_front: trigger.hotkey_bring_to_front ?? true,
             wakeword_keyword: trigger.wakeword_keyword || '',
-            wakeword_provider: trigger.wakeword_provider || 'vosk',
+            wakeword_provider: trigger.wakeword_provider || 'webspeech',
             wakeword_sensitivity: trigger.wakeword_sensitivity ?? 0.5,
             vad_silence_threshold: trigger.vad_silence_threshold ?? 0.01,
             vad_silence_duration: trigger.vad_silence_duration ?? 1500,

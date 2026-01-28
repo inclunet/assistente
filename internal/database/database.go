@@ -1868,7 +1868,7 @@ func seedDefaultInteractionProfile() error {
 		Type:                TriggerTypeWakeword,
 		Enabled:             true,
 		WakewordKeyword:     "assistente",
-		WakewordProvider:    "vosk",
+		WakewordProvider:    "webspeech",
 		WakewordSensitivity: 0.5,
 		Hotkey:              "Ctrl+W",
 		HotkeyGlobal:        true,

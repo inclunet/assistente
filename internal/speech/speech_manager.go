@@ -12,7 +12,6 @@ type STTProvider string
 const (
 	STTProviderWebSpeech STTProvider = "webspeech"
 	STTProviderWhisper   STTProvider = "whisper"
-	// STTProviderVosk é definido em vosk_types.go
 )
 
 // TTSProvider tipos de provedores de TTS

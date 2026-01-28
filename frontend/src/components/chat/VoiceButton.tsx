@@ -50,6 +50,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     stopInteraction,
     cancelInteraction,
     toggleInteraction,
+    isWakewordListening,
   } = useInteractionProfile({
     onTranscription: (text, _provider) => {
       onTranscription(text);
@@ -93,7 +94,8 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const mode = getInteractionMode();
   
   // Estado de escuta ativa (para VAD e Wakeword)
-  const isListeningState = isListening || (mode === 'vad' && isActive) || (mode === 'wakeword' && isActive);
+  // isWakewordListening é específico para quando está escutando a palavra de ativação
+  const isListeningState = isListening || (mode === 'vad' && isActive) || isWakewordListening;
 
   // === Handlers para modo PTT ===
   
