@@ -16,6 +16,7 @@ import { SimpleModal } from '../components/ui/SimpleModal';
 import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { Button } from '../components/ui/Button';
+import { useGridFocus } from '../hooks/useGridFocus';
 import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './FAQPage.css';
 
@@ -38,6 +39,7 @@ export default function FAQPage() {
   const [embeddingStatus, setEmbeddingStatus] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+  const { focusFirstCell, handleGridReady } = useGridFocus();
   
   // Form state
   const [formQuestion, setFormQuestion] = useState('');
@@ -320,6 +322,7 @@ export default function FAQPage() {
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Buscar FAQs..."
+        onFocusGrid={focusFirstCell}
       />
 
       <div className="page-content">
@@ -346,6 +349,7 @@ export default function FAQPage() {
           multiSelect={true}
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
+          onGridReady={handleGridReady}
         />
       </div>
 

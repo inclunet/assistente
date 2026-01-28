@@ -15,6 +15,7 @@ import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
+import { useGridFocus } from '../hooks/useGridFocus';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './MemoryPage.css';
@@ -46,6 +47,7 @@ export default function MemoryPage() {
   const [editingMemory, setEditingMemory] = useState<Memory | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+  const { focusFirstCell, handleGridReady } = useGridFocus();
   
   // Form state
   const [formTitle, setFormTitle] = useState('');
@@ -307,6 +309,7 @@ export default function MemoryPage() {
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Buscar memórias..."
+        onFocusGrid={focusFirstCell}
         center={
           <select 
             value={filterCategory} 
@@ -339,6 +342,7 @@ export default function MemoryPage() {
           multiSelect={true}
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
+          onGridReady={handleGridReady}
         />
       </div>
 

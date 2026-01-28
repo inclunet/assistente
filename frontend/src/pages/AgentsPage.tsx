@@ -25,6 +25,7 @@ import { HTTPAgentEditor } from '../components/agents/HTTPAgentEditor';
 import { MCPAgentEditor } from '../components/agents/MCPAgentEditor';
 import { AgentTestChat } from '../components/agents/AgentTestChat';
 import { AgentDiagnostic } from '../components/agents/AgentDiagnostic';
+import { useGridFocus } from '../hooks/useGridFocus';
 import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './AgentsPage.css';
 
@@ -59,6 +60,7 @@ export default function AgentsPage() {
   const [editingAgent, setEditingAgent] = useState<Agent | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+  const { focusFirstCell, handleGridReady } = useGridFocus();
   
   // HTTP Agent Editor
   const [showHTTPEditor, setShowHTTPEditor] = useState(false);
@@ -515,6 +517,7 @@ export default function AgentsPage() {
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Buscar agentes..."
+        onFocusGrid={focusFirstCell}
         center={
           <select 
             value={filterType} 
@@ -553,6 +556,7 @@ export default function AgentsPage() {
           multiSelect={true}
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
+          onGridReady={handleGridReady}
         />
       </div>
 

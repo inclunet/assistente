@@ -475,8 +475,8 @@ export function DataGrid<T = any>({
           type="button"
           className="action-button"
           aria-label={column.actionLabel || column.label}
+          tabIndex={-1}  // Não deve ser tabstop - a célula já é focável e recebe Enter/Space
           onClick={(e) => {
-            console.log('Action button clicked:', column.key);
             e.stopPropagation();
             e.preventDefault();
             onCellAction?.(item, column, rowIndex, colIndex);
@@ -513,7 +513,7 @@ export function DataGrid<T = any>({
       aria-describedby="datagrid-instructions"
       onKeyDown={handleKeyDown}
       onClick={() => {
-        // Foca a primeira célula quando o grid é clicado
+        // Foca a célula quando o grid é clicado
         if (items.length > 0 && columns.length > 0) {
           focusCell(focusedRow, focusedCol);
         }
@@ -553,7 +553,7 @@ export function DataGrid<T = any>({
         Pressione Escape para limpar a seleção.
       </div>
 
-      <div className="datagrid-header" role="row">
+      <div className="datagrid-header" role="row" aria-rowindex={0}>
         {columns.map((column, colIndex) => (
           <div
             key={column.key}
@@ -561,6 +561,7 @@ export function DataGrid<T = any>({
             role="columnheader"
             style={{ width: column.width }}
             aria-colindex={colIndex + 1}
+            tabIndex={-1}  // Headers não devem ser focáveis via Tab/setas
           >
             {column.label}
           </div>

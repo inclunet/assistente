@@ -4,6 +4,7 @@ import { GetConversations, DeleteConversation, UpdateConversation, ExportConvers
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
+import { useGridFocus } from '../hooks/useGridFocus';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './HistoryPage.css';
@@ -23,7 +24,7 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
-  const [focusFirstCell, setFocusFirstCell] = useState<(() => void) | null>(null);
+  const { focusFirstCell, handleGridReady } = useGridFocus();
 
   useEffect(() => {
     loadConversations();
@@ -270,7 +271,7 @@ export default function HistoryPage() {
         selectedIds={selectedIds}
         multiSelect={true}
         onSelectionChange={setSelectedIds}
-        onGridReady={(fn) => setFocusFirstCell(() => fn)}
+        onGridReady={handleGridReady}
       />
     </div>
   );

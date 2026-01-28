@@ -17,6 +17,7 @@ import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
+import { useGridFocus } from '../hooks/useGridFocus';
 import { ttsService } from '../services/tts';
 import { TTSVoice, TTSProvider } from '../services/tts/types';
 import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
@@ -53,6 +54,7 @@ export default function VoiceProfilesPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [availableVoices, setAvailableVoices] = useState<TTSVoice[]>([]);
   const [previewPlaying, setPreviewPlaying] = useState(false);
+  const { focusFirstCell, handleGridReady } = useGridFocus();
   
   // Form state
   const [formName, setFormName] = useState('');
@@ -492,6 +494,7 @@ export default function VoiceProfilesPage() {
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Buscar perfis..."
+        onFocusGrid={focusFirstCell}
       />
 
       <div className="page-content">
@@ -518,6 +521,7 @@ export default function VoiceProfilesPage() {
           multiSelect={true}
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
+          onGridReady={handleGridReady}
         />
 
         {profiles.length === 0 && (

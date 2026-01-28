@@ -18,6 +18,7 @@ import { Input } from '../components/ui/Input';
 import { Textarea } from '../components/ui/Textarea';
 import { Select } from '../components/ui/Select';
 import { Button } from '../components/ui/Button';
+import { useGridFocus } from '../hooks/useGridFocus';
 import './VoiceProfilesPage.css';
 
 type InteractionProfile = database.InteractionProfile;
@@ -48,6 +49,7 @@ export default function InteractionProfilesPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+  const { focusFirstCell, handleGridReady } = useGridFocus();
   
   // Modal de perfil
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -465,6 +467,7 @@ export default function InteractionProfilesPage() {
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         searchPlaceholder="Buscar perfis..."
+        onFocusGrid={focusFirstCell}
       />
 
       <div className="page-content">
@@ -491,6 +494,7 @@ export default function InteractionProfilesPage() {
           multiSelect={true}
           selectedIds={selectedIds}
           onSelectionChange={setSelectedIds}
+          onGridReady={handleGridReady}
         />
 
         {profiles.length === 0 && (
