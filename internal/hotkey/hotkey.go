@@ -410,4 +410,3 @@ func (m *Manager) UnregisterAllProfileHotkeys() {
 		m.UnregisterProfileHotkeys(pid)
 	}
 }
-

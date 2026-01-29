@@ -150,6 +150,10 @@ export function DeleteMemory(arg1) {
   return window['go']['main']['App']['DeleteMemory'](arg1);
 }
 
+export function DeleteMessage(arg1) {
+  return window['go']['main']['App']['DeleteMessage'](arg1);
+}
+
 export function DeleteOAuthConnection(arg1) {
   return window['go']['main']['App']['DeleteOAuthConnection'](arg1);
 }

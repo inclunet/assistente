@@ -81,6 +81,8 @@ export function DeleteMCPAgentFull(arg1:number):Promise<void>;
 
 export function DeleteMemory(arg1:number):Promise<void>;
 
+export function DeleteMessage(arg1:number):Promise<void>;
+
 export function DeleteOAuthConnection(arg1:number):Promise<void>;
 
 export function DeleteVoiceProfile(arg1:number):Promise<void>;
