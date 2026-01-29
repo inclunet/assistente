@@ -100,15 +100,11 @@ func (a *App) GetConversation(id uint) (*Conversation, error) {
 // LAZY LOADING: Retorna apenas o nível solicitado, nunca carrega recursivamente
 // Frontend deve chamar novamente para carregar filhos quando usuário expandir thread
 func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, error) {
-	fmt.Printf("🔍 [GetMessages] conversationID=%d, parentID=%v (LAZY LOADING)\n", conversationID, parentID)
-
 	// Busca apenas mensagens do nível solicitado (raízes OU filhos diretos)
 	messages, err := database.GetMessages(conversationID, parentID)
 	if err != nil {
 		return nil, err
 	}
-
-	fmt.Printf("📊 [GetMessages] Encontrou %d mensagens\n", len(messages))
 
 	// Coleta IDs para contar filhos
 	msgIDs := make([]uint, len(messages))
@@ -119,8 +115,6 @@ func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, e
 	// Conta filhos de cada mensagem (para mostrar indicadores)
 	childCounts, err := database.CountChildren(msgIDs)
 	if err != nil {
-		// Log mas não falha - apenas não teremos contagem
-		fmt.Printf("⚠️ [GetMessages] Erro ao contar filhos: %v\n", err)
 		childCounts = make(map[uint]int)
 	}
 
@@ -135,20 +129,12 @@ func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, e
 	for _, msg := range messages {
 		childCount := childCounts[msg.ID]
 		node := MessageNode{
-			Message:    a.enrichMessage(msg), // Usa método compartilhado
-			Children:   nil,                  // LAZY LOADING - não carrega filhos
+			Message:    a.enrichMessage(msg),
+			Children:   nil, // LAZY LOADING - não carrega filhos
 			Level:      level,
-			ChildCount: childCount, // Indica quantos filhos existem (para mostrar indicador)
+			ChildCount: childCount,
 		}
-		fmt.Printf("📦 [GetMessages] Msg ID=%d, role=%s, childCount=%d\n",
-			msg.ID, msg.Role, childCount)
 		result = append(result, node)
-	}
-
-	if parentID != nil {
-		fmt.Printf("🌳 [LAZY] Mensagem %d: %d filhos carregados\n", *parentID, len(result))
-	} else {
-		fmt.Printf("🌳 [LAZY] Conversa %d: %d mensagens raiz (lazy loading)\n", conversationID, len(result))
 	}
 
 	return result, nil

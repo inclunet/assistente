@@ -442,29 +442,33 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 	return conversationID, nil
 }
 
+// MaxContextMessages define o limite de mensagens no contexto para evitar contextos muito grandes
+const MaxContextMessages = 50
+
 // loadConversationHistory carrega o histórico de mensagens de uma conversa
-// NOVA ARQUITETURA v2: Apenas mensagens de nível 0 vão para a API
-// As interações com agentes ficam em threads (parentID != null)
+// OTIMIZADO: Busca apenas mensagens de nível 0 direto do SQL (sem carregar threads de agentes)
 func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
-	conv, err := database.GetConversation(conversationID)
+	// Busca apenas mensagens raiz (parentID IS NULL) direto do banco
+	dbMessages, err := database.GetMessages(conversationID, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	fmt.Printf("📋 [HISTORY] Carregando histórico da conversa %d (%d mensagens total)\n", conversationID, len(conv.Messages))
+	total := len(dbMessages)
 
-	var messages []Message
-	for i, m := range conv.Messages {
-		fmt.Printf("📋 [HISTORY] Msg %d: role=%s, parentID=%v, content=%s\n",
-			i, m.Role, m.ParentID, truncateStr(m.Content, 50))
+	// Limita o contexto às últimas N mensagens para evitar contextos muito grandes
+	if total > MaxContextMessages {
+		// Mantém as primeiras 2 (system prompt + contexto inicial) + últimas (MaxContextMessages-2)
+		kept := MaxContextMessages - 2
+		dbMessages = append(dbMessages[:2], dbMessages[total-kept:]...)
+		fmt.Printf("📋 [HISTORY] Conversa %d: %d msgs total, truncado para %d (limite: %d)\n",
+			conversationID, total, len(dbMessages), MaxContextMessages)
+	} else {
+		fmt.Printf("📋 [HISTORY] Conversa %d: %d mensagens carregadas\n", conversationID, total)
+	}
 
-		// Apenas mensagens de nível 0 (sem parentID) vão para a API
-		if m.ParentID != nil {
-			fmt.Printf("📋 [HISTORY]   -> IGNORADA (nível %d, parentID=%d)\n", 1, *m.ParentID)
-			continue
-		}
-		fmt.Printf("📋 [HISTORY]   -> INCLUÍDA (nível 0)\n")
-
+	messages := make([]Message, 0, len(dbMessages))
+	for _, m := range dbMessages {
 		msg := Message{
 			Role: m.Role,
 		}
@@ -487,7 +491,6 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 
 					// Determina o formato correto baseado no MIME type
 					if strings.HasPrefix(mediaType, "image/") {
-						// Imagens devem usar "image_url" type com data URL
 						content = append(content, map[string]interface{}{
 							"type": "image_url",
 							"image_url": map[string]interface{}{
@@ -495,7 +498,6 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 							},
 						})
 					} else if strings.HasPrefix(mediaType, "audio/") {
-						// Áudio usa "input_audio" type
 						content = append(content, map[string]interface{}{
 							"type": "input_audio",
 							"input_audio": map[string]interface{}{
@@ -504,8 +506,6 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 							},
 						})
 					} else {
-						// Outros tipos de arquivo podem não ser suportados diretamente
-						// Por enquanto, adiciona como texto descritivo
 						content = append(content, map[string]interface{}{
 							"type": "text",
 							"text": fmt.Sprintf("[Arquivo: %s (%s)]", mp["name"], mediaType),
