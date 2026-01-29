@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 
 	"assistente/internal/config"
 )
@@ -38,8 +39,7 @@ func GetModels(cfg *config.Config) ([]string, error) {
 
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := SharedHTTPClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("erro na conexão: %v", err)
 	}
@@ -115,8 +115,7 @@ func SendMessageSync(cfg *config.Config, messages []Message, params ChatParams) 
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := SharedHTTPClient.Do(req)
 	if err != nil {
 		return "", err
 	}
@@ -256,8 +255,7 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	req.Header.Set("Accept", "text/event-stream")
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := SharedHTTPClient.Do(req)
 	if err != nil {
 		handler.OnError("Erro na conexão: " + err.Error())
 		return
@@ -424,22 +422,57 @@ func processToolCalls(ctx context.Context, cfg *config.Config, messages []Messag
 	}
 	newMessages := append(messages, assistantMsg)
 
-	// Executa cada tool
+	// Executa tools em paralelo se houver múltiplas
 	var toolResults []string
-	for _, tc := range toolCalls {
-		fmt.Printf("🔧 [DEBUG] Executando tool: %s\n", tc.Function.Name)
+	if len(toolCalls) == 1 {
+		// Uma única tool: executa diretamente (sem overhead)
+		tc := toolCalls[0]
+		fmt.Printf("🔧 [STREAM] Executando tool: %s\n", tc.Function.Name)
 		result, err := handler.ExecuteTool(tc)
 		if err != nil {
 			result = fmt.Sprintf("Erro ao executar ferramenta: %v", err)
 		}
 		toolResults = append(toolResults, result)
-
-		toolMsg := Message{
+		newMessages = append(newMessages, Message{
 			Role:       "tool",
 			ToolCallID: tc.ID,
 			Content:    StrPtr(result),
+		})
+	} else {
+		// Múltiplas tools: executa em paralelo
+		fmt.Printf("⚡ [STREAM] Executando %d tools em paralelo\n", len(toolCalls))
+
+		type indexedResult struct {
+			index      int
+			toolCallID string
+			result     string
 		}
-		newMessages = append(newMessages, toolMsg)
+		results := make([]indexedResult, len(toolCalls))
+		var wg sync.WaitGroup
+
+		for i, tc := range toolCalls {
+			wg.Add(1)
+			go func(idx int, toolCall ToolCall) {
+				defer wg.Done()
+				fmt.Printf("  🔧 [STREAM] [%d/%d] Executando: %s\n", idx+1, len(toolCalls), toolCall.Function.Name)
+				result, err := handler.ExecuteTool(toolCall)
+				if err != nil {
+					result = fmt.Sprintf("Erro ao executar ferramenta: %v", err)
+				}
+				results[idx] = indexedResult{index: idx, toolCallID: toolCall.ID, result: result}
+			}(i, tc)
+		}
+		wg.Wait()
+
+		// Adiciona resultados na ordem original
+		for _, r := range results {
+			toolResults = append(toolResults, r.result)
+			newMessages = append(newMessages, Message{
+				Role:       "tool",
+				ToolCallID: r.toolCallID,
+				Content:    StrPtr(r.result),
+			})
+		}
 	}
 
 	handler.OnToolResults(toolResults, usage, model)
@@ -587,8 +620,7 @@ func GenerateImageDescription(cfg *config.Config, imageBase64 string, model stri
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 
-	client := &http.Client{}
-	resp, err := client.Do(req)
+	resp, err := SharedHTTPClient.Do(req)
 	if err != nil {
 		return "", fmt.Errorf("erro na requisição: %v", err)
 	}
@@ -618,4 +650,3 @@ func GenerateImageDescription(cfg *config.Config, imageBase64 string, model stri
 	description := strings.TrimSpace(result.Choices[0].Message.Content)
 	return description, nil
 }
-
