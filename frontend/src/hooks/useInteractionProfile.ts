@@ -302,7 +302,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     isRecording: sttRecording,
     isProcessing: sttProcessing,
     isInitialized: sttInitialized,
-    isInitializing: sttInitializing,
     volume,
     interimText: sttInterimText,
     startRecording,

@@ -357,9 +357,7 @@ func (m *Manager) RegisterProfileHotkey(profileID int, combination string, isPri
 		profileID, combination, isPrimary, bringToFront, hotkeyID)
 
 	return hotkeyID, nil
-}
-
-// UnregisterProfileHotkeys remove todos os hotkeys de um perfil
+}// UnregisterProfileHotkeys remove todos os hotkeys de um perfil
 func (m *Manager) UnregisterProfileHotkeys(profileID int) error {
 	profileHotkeysMu.Lock()
 	hotkeys, exists := profileHotkeys[profileID]

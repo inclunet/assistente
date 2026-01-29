@@ -281,6 +281,14 @@ func JSONSchemaInt(description string) map[string]interface{} {
 	}
 }
 
+// JSONSchemaNumber cria um schema para number (float) com descrição
+func JSONSchemaNumber(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "number",
+		"description": description,
+	}
+}
+
 // JSONSchemaBool cria um schema para boolean com descrição
 func JSONSchemaBool(description string) map[string]interface{} {
 	return map[string]interface{}{

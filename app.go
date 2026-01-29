@@ -35,10 +35,10 @@ type App struct {
 	InitialWorkDir        string // Diretório de trabalho inicial (passado via --workdir ou pwd)
 	currentConversationID uint   // ID da conversa atual (para passar aos agentes)
 	currentDelegationID   uint   // ID da mensagem de delegação atual (para ParentID)
-	
+
 	// Throttle para hotkeys - evita disparo repetido quando segura a tecla
-	hotkeyLastFired     map[uint]time.Time
-	hotkeyThrottleMs    int64 // tempo mínimo entre disparos (em ms)
+	hotkeyLastFired  map[uint]time.Time
+	hotkeyThrottleMs int64 // tempo mínimo entre disparos (em ms)
 }
 
 // ==================== Tipos para Threads ====================
@@ -96,9 +96,9 @@ type StreamEvent struct {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		registry:           agents.NewRegistry(),
-		hotkeyLastFired:    make(map[uint]time.Time),
-		hotkeyThrottleMs:   1000, // 1000ms entre disparos (1 segundo)
+		registry:         agents.NewRegistry(),
+		hotkeyLastFired:  make(map[uint]time.Time),
+		hotkeyThrottleMs: 1000, // 1000ms entre disparos (1 segundo)
 	}
 }
 
@@ -213,6 +213,26 @@ func (a *App) initAgents() {
 		},
 	)
 	a.registry.Register(builderAgent)
+
+	// Agente Profile (Gerencia Voice e Interaction Profiles)
+	profileAgent := agents.NewProfileAgent(a.llmClient, agentModel)
+	a.applyAgentConfig(profileAgent)
+	// Configurar callbacks para ativação/desativação de perfis
+	profileAgent.SetCallbacks(
+		func(profileID uint) error {
+			return a.RegisterInteractionProfileHotkeys(profileID)
+		},
+		func(profileID uint) error {
+			return a.UnregisterInteractionProfileHotkeys(profileID)
+		},
+		func(event string, data interface{}) {
+			runtime.EventsEmit(a.ctx, event, data)
+		},
+		func(conversationID, profileID uint) error {
+			return a.SetConversationVoiceProfile(conversationID, profileID)
+		},
+	)
+	a.registry.Register(profileAgent)
 
 	// Carrega agentes personalizados salvos no banco
 	a.loadSavedHTTPAgents()
@@ -556,7 +576,7 @@ func (a *App) RegisterInteractionProfileHotkeys(profileID uint) error {
 					}
 				}
 				a.hotkeyLastFired[t.ID] = now
-				
+
 				log.Printf("[Hotkey] HOTKEY ACIONADA! Trigger %d, perfil %d (throttle OK)", t.ID, profileID)
 				// Emite evento para frontend com informações do trigger
 				runtime.EventsEmit(a.ctx, "interaction:hotkey:triggered", map[string]interface{}{
@@ -606,7 +626,7 @@ func (a *App) GetActiveInteractionProfile() *database.InteractionProfile {
 // Persiste no banco, registra os hotkeys do perfil e emite evento
 func (a *App) SetActiveInteractionProfile(profileID uint) error {
 	log.Printf("[SetActiveInteractionProfile] Ativando perfil %d", profileID)
-	
+
 	// Persiste no banco
 	if err := database.SetActiveInteractionProfile(profileID); err != nil {
 		log.Printf("[SetActiveInteractionProfile] Erro ao persistir: %v", err)

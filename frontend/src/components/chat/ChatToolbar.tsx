@@ -10,6 +10,7 @@ import { ContextMenu, MenuItem } from '../ui/ContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { ttsService } from '../../services/tts';
 import { GetVoiceProfile, GetDefaultVoiceProfile, GetEffectiveVoiceProfile, SetConversationVoiceProfile } from '../../../wailsjs/go/main/App';
+import { EventsOn } from '../../../wailsjs/runtime/runtime';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
@@ -313,6 +314,97 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
     loadConversationProfile();
   }, [activeTab?.conversationId, applyVoiceProfile]); // Recarrega quando a conversa muda
+
+  // Escuta evento de mudança de perfil de voz via agente
+  useEffect(() => {
+    // Listener para mudança de perfil na conversa
+    const unsubscribeConvChanged = EventsOn('voice:profile:conversation_changed', async (data: { conversation_id: number; profile_id: number; profile?: VoiceProfile }) => {
+      // Só processa se for para a conversa ativa
+      if (data.conversation_id !== activeTab?.conversationId) {
+        console.log('[ChatToolbar] Evento de outra conversa, ignorando:', data.conversation_id);
+        return;
+      }
+
+      console.log('[ChatToolbar] Perfil de voz alterado via agente:', data);
+
+      if (data.profile_id === 0) {
+        // Removeu perfil customizado, usar padrão
+        try {
+          const defaultProfile = await GetDefaultVoiceProfile() as VoiceProfile;
+          if (defaultProfile) {
+            setSelectedProfileId(defaultProfile.id);
+            await applyVoiceProfile(defaultProfile);
+            announce(`Voltou para perfil de voz padrão: ${defaultProfile.name}`);
+          }
+        } catch (error) {
+          console.error('[ChatToolbar] Erro ao carregar perfil padrão:', error);
+        }
+      } else if (data.profile) {
+        // Aplicar perfil específico (já veio no evento)
+        setSelectedProfileId(data.profile.id);
+        await applyVoiceProfile(data.profile);
+        announce(`Perfil de voz alterado para ${data.profile.name}`);
+      } else {
+        // Carregar perfil pelo ID
+        try {
+          const profile = await GetVoiceProfile(data.profile_id) as VoiceProfile;
+          if (profile) {
+            setSelectedProfileId(profile.id);
+            await applyVoiceProfile(profile);
+            announce(`Perfil de voz alterado para ${profile.name}`);
+          }
+        } catch (error) {
+          console.error('[ChatToolbar] Erro ao carregar perfil:', error);
+        }
+      }
+    });
+
+    // Listener para quando um perfil é atualizado (ex: mudou enabled_for_user)
+    const unsubscribeProfileUpdated = EventsOn('voice:profile:updated', async (updatedProfile: VoiceProfile) => {
+      console.log('[ChatToolbar] Perfil de voz atualizado via agente:', updatedProfile);
+
+      // Se o perfil atualizado é o que está sendo usado, reaplicar
+      if (updatedProfile.id === selectedProfileId) {
+        await applyVoiceProfile(updatedProfile);
+        announce(`Perfil ${updatedProfile.name} atualizado`);
+      }
+    });
+
+    return () => {
+      unsubscribeConvChanged();
+      unsubscribeProfileUpdated();
+    };
+  }, [activeTab?.conversationId, applyVoiceProfile, announce, selectedProfileId]);
+
+  // Escuta evento de ativação de perfil de interação via agente
+  useEffect(() => {
+    const unsubscribeInteractionActivated = EventsOn('interaction:profile:activated', async (profileId: number) => {
+      console.log('[ChatToolbar] Perfil de interação ativado via agente:', profileId);
+
+      // Atualiza o store (sem chamar SetActiveInteractionProfile novamente, pois o backend já ativou)
+      // Usamos loadProfiles para recarregar todos os perfis e refletir o novo estado
+      await loadProfiles();
+      setSelectedInteractionProfileId(profileId);
+      
+      // Encontra o nome do perfil para anunciar
+      const profiles = useInteractionProfileStore.getState().profiles;
+      const profile = profiles.find(p => p.id === profileId);
+      if (profile) {
+        announce(`Perfil de interação alterado para ${profile.name}`);
+      }
+    });
+
+    const unsubscribeInteractionDeactivated = EventsOn('interaction:profile:deactivated', async () => {
+      console.log('[ChatToolbar] Perfis de interação desativados via agente');
+      await loadProfiles();
+      announce('Perfis de interação desativados');
+    });
+
+    return () => {
+      unsubscribeInteractionActivated();
+      unsubscribeInteractionDeactivated();
+    };
+  }, [activeProfileId, loadProfiles, announce]);
 
   // Atalhos de teclado globais
   useEffect(() => {

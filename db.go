@@ -979,7 +979,13 @@ func (a *App) SetConversationVoiceProfile(conversationID uint, profileID uint) e
 		prefs = &database.ChatPreferences{}
 	}
 
-	prefs.VoiceProfileID = &profileID
+	// Se profileID é 0, remove o perfil customizado (usa nil para indicar "usar padrão")
+	if profileID == 0 {
+		prefs.VoiceProfileID = nil
+	} else {
+		prefs.VoiceProfileID = &profileID
+	}
+
 	return database.UpdateConversationPreferences(conversationID, prefs)
 }
 
