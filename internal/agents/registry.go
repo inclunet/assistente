@@ -80,17 +80,20 @@ func (r *Registry) GetDelegationTools() []Tool {
 			continue
 		}
 
+		// Usa descrição otimizada para delegação se o agente implementar a interface
+		description := getDelegationDescription(agent)
+
 		tool := Tool{
 			Type: "function",
 			Function: ToolFunction{
 				Name:        fmt.Sprintf("delegate_to_%s", agent.GetName()),
-				Description: fmt.Sprintf("[%s] %s", agent.GetDisplayName(), agent.GetDescription()),
+				Description: description,
 				Parameters: map[string]interface{}{
 					"type": "object",
 					"properties": map[string]interface{}{
 						"task": map[string]interface{}{
 							"type":        "string",
-							"description": "Descrição detalhada da tarefa a ser executada pelo agente, em linguagem natural",
+							"description": "Detailed task description in natural language. Be specific about what you need the agent to do.",
 						},
 					},
 					"required": []string{"task"},
@@ -101,6 +104,17 @@ func (r *Registry) GetDelegationTools() []Tool {
 	}
 
 	return tools
+}
+
+// getDelegationDescription obtém a descrição otimizada para delegação
+// Usa DelegationDescriptionProvider se implementado, senão usa formato padrão
+func getDelegationDescription(agent Agent) string {
+	// Verifica se o agente implementa a interface de descrição de delegação
+	if provider, ok := agent.(DelegationDescriptionProvider); ok {
+		return provider.GetDelegationDescription()
+	}
+	// Fallback para formato padrão
+	return fmt.Sprintf("[%s] %s", agent.GetDisplayName(), agent.GetDescription())
 }
 
 // ExecuteDelegation executa uma delegação para um agente específico
@@ -187,13 +201,13 @@ func (r *Registry) ExecuteTool(toolCall ToolCall) (string, error) {
 func (r *Registry) RegisterMCPAgent(agent *MCPAgent) error {
 	// Registra o agente primeiro (sempre disponível como ferramenta)
 	r.Register(agent)
-	
+
 	// Tenta conectar (se falhar, o agente ainda está registrado)
 	if err := agent.Connect(); err != nil {
 		fmt.Printf("⚠️ [Registry] Erro ao conectar MCP agent %s: %v (agente registrado, conexão será tentada novamente no uso)\n", agent.GetName(), err)
 		return err // Retorna erro para logging, mas agente está registrado
 	}
-	
+
 	return nil
 }
 

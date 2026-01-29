@@ -61,16 +61,16 @@ func NewImageAgent(apiKey, apiBaseURL string, llmClient LLMClient) *ImageAgent {
 	return &ImageAgent{
 		BaseAgent: BaseAgent{
 			Name:        "image_generator",
-			DisplayName: "Gerador de Imagens",
-			Description: "Gera imagens usando DALL-E 3 a partir de descrições em texto. Use quando o usuário pedir para criar, gerar, desenhar ou produzir uma imagem.",
+			DisplayName: "Image Generator",
+			Description: imageAgentDescription(),
 			AgentType:   "internal",
-			Model:       "gpt-4o-mini", // Para decisões internas
+			Model:       "gpt-4o-mini",
 			Enabled:     true,
 			LLM:         llmClient,
 		},
 		APIKey:       apiKey,
 		APIBaseURL:   apiBaseURL,
-		VisionModel:  "gpt-4o", // Modelo com visão para gerar alt-text
+		VisionModel:  "gpt-4o",
 		ImageModel:   "dall-e-3",
 		ImageSize:    "1024x1024",
 		ImageQuality: "standard",
@@ -78,22 +78,50 @@ func NewImageAgent(apiKey, apiBaseURL string, llmClient LLMClient) *ImageAgent {
 	}
 }
 
+// imageAgentDescription retorna a descrição para delegação do orquestrador
+func imageAgentDescription() string {
+	return NewDelegationDescription("Image Generator", "Creates images from text descriptions using DALL-E 3.").
+		Capabilities(
+			"Generate images from text prompts",
+			"Support different sizes (square, portrait, landscape)",
+			"Support different styles (vivid, natural)",
+			"Automatic accessibility alt-text generation",
+		).
+		DelegateWhen(
+			"User asks to create, generate, draw, or make an image",
+			"User asks for visual content, illustration, or picture",
+			"User describes something they want to see as an image",
+			"User says 'show me', 'create a picture of', 'generate an image'",
+		).
+		DontDelegateWhen(
+			"User asks about existing images/files - use File Manager",
+			"User wants to edit or modify existing images (not supported)",
+			"Request involves prohibited content",
+		).
+		Build()
+}
+
+// GetDelegationDescription retorna descrição otimizada para o orquestrador
+func (a *ImageAgent) GetDelegationDescription() string {
+	return a.Description
+}
+
 // GetSystemPrompt retorna o system prompt do agente
 func (a *ImageAgent) GetSystemPrompt() string {
-	return `Você é um especialista em geração de imagens com DALL-E 3.
+	return `You are an image generation specialist using DALL-E 3.
 
-Sua função é:
-1. Analisar pedidos de imagem do usuário
-2. Criar prompts otimizados para DALL-E
-3. Gerar imagens de alta qualidade
+PROMPT OPTIMIZATION:
+- Enhance user's description with artistic details
+- Specify style, lighting, colors, composition
+- Be descriptive but concise (DALL-E has limits)
+- Avoid prohibited content (violence, real people, etc.)
 
-Ao criar prompts:
-- Seja específico e descritivo
-- Inclua estilo artístico se apropriado
-- Descreva cores, iluminação, composição
-- Evite conteúdo proibido
+SIZE SELECTION:
+- 1024x1024: Default, good for most uses
+- 1024x1792: Portrait orientation (people, vertical scenes)
+- 1792x1024: Landscape orientation (panoramas, wide scenes)
 
-Você tem acesso à ferramenta generate_image para criar imagens.`
+RESPONSE: After generating, briefly describe what was created.`
 }
 
 // GetTools retorna as ferramentas do agente
@@ -102,33 +130,50 @@ func (a *ImageAgent) GetTools() []Tool {
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "generate_image",
-				Description: "Gera uma imagem usando DALL-E 3 a partir de uma descrição textual",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"prompt": map[string]interface{}{
-							"type":        "string",
-							"description": "Descrição detalhada da imagem a ser gerada. Seja específico sobre estilo, cores, composição, iluminação.",
-						},
-						"size": map[string]interface{}{
-							"type":        "string",
-							"enum":        []string{"1024x1024", "1024x1792", "1792x1024"},
-							"description": "Tamanho da imagem. 1024x1024 (quadrada), 1024x1792 (retrato), 1792x1024 (paisagem)",
-						},
-						"quality": map[string]interface{}{
-							"type":        "string",
-							"enum":        []string{"standard", "hd"},
-							"description": "Qualidade da imagem. 'hd' tem mais detalhes mas é mais lento",
-						},
-						"style": map[string]interface{}{
-							"type":        "string",
-							"enum":        []string{"vivid", "natural"},
-							"description": "Estilo da imagem. 'vivid' é mais dramático, 'natural' é mais realista",
-						},
+				Name: "generate_image",
+				Description: NewToolDescription("Generates an image using DALL-E 3 from a text description. Includes automatic alt-text for accessibility.").
+					WhenToUse(
+						"User wants to create/generate a new image",
+						"User describes something visual they want to see",
+						"Creating illustrations, artwork, or visual content",
+					).
+					WhenNotToUse(
+						"User wants to edit existing images (not supported)",
+						"Request involves prohibited content (violence, real people, NSFW)",
+					).
+					Notes(
+						"Enhance the user's description with artistic details",
+						"Alt-text is automatically generated for accessibility",
+						"DALL-E may slightly modify the prompt for better results",
+					).
+					Returns("Generated image with accessibility description").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"prompt": JSONSchemaString(
+							NewParamDescription("Detailed image description for DALL-E").
+								Constraints("Be specific about style, colors, composition", "max ~1000 chars").
+								Examples(
+									"A serene mountain landscape at sunset with golden light",
+									"A friendly robot assistant in a modern office, digital art style",
+								).
+								Build(),
+						),
+						"size": JSONSchemaStringEnum(
+							"Image dimensions. 1024x1024 (square, default), 1024x1792 (portrait), 1792x1024 (landscape)",
+							[]string{"1024x1024", "1024x1792", "1792x1024"},
+						),
+						"quality": JSONSchemaStringEnum(
+							"Image quality. 'standard' (faster), 'hd' (more detail, slower)",
+							[]string{"standard", "hd"},
+						),
+						"style": JSONSchemaStringEnum(
+							"Visual style. 'vivid' (dramatic, hyper-real), 'natural' (more realistic)",
+							[]string{"vivid", "natural"},
+						),
 					},
-					"required": []string{"prompt"},
-				},
+					[]string{"prompt"},
+				),
 			},
 		},
 	}
@@ -164,7 +209,7 @@ func (a *ImageAgent) Execute(ctx context.Context, task string) (string, error) {
 	log.Printf("🎨 [IMAGE_AGENT] Execute chamado com task: %s", task)
 	log.Printf("🎨 [IMAGE_AGENT] APIKey configurada: %v", a.APIKey != "")
 	log.Printf("🎨 [IMAGE_AGENT] APIBaseURL: %s", a.APIBaseURL)
-	
+
 	if a.LLM == nil {
 		log.Printf("🎨 [IMAGE_AGENT] ERRO: LLM client não configurado!")
 		return "", fmt.Errorf("LLM client não configurado")
@@ -172,7 +217,7 @@ func (a *ImageAgent) Execute(ctx context.Context, task string) (string, error) {
 
 	tools := a.GetTools()
 	log.Printf("🎨 [IMAGE_AGENT] Tools: %d", len(tools))
-	
+
 	executor := func(tc ToolCall) (string, error) {
 		log.Printf("🎨 [IMAGE_AGENT] Executor chamado para: %s", tc.Function.Name)
 		return a.ExecuteTool(tc)
@@ -190,7 +235,7 @@ func (a *ImageAgent) Execute(ctx context.Context, task string) (string, error) {
 		log.Printf("🎨 [IMAGE_AGENT] Erro no ChatWithTools: %v", err)
 		return "", err
 	}
-	
+
 	log.Printf("🎨 [IMAGE_AGENT] Resultado: %s", result[:min(100, len(result))])
 	return result, nil
 }
@@ -286,7 +331,7 @@ func (a *ImageAgent) callDALLE(prompt, size, quality, style string) (imageBase64
 		log.Printf("🎨 [IMAGE_AGENT] Erro da API: %s", string(body))
 		return "", "", fmt.Errorf("API retornou status %d: %s", resp.StatusCode, string(body))
 	}
-	
+
 	log.Printf("🎨 [IMAGE_AGENT] Imagem gerada com sucesso!")
 
 	var imgResp ImageGenerationResponse
@@ -405,4 +450,3 @@ Descreva o que você VÊ na imagem em português:`, originalPrompt)
 
 // Verifica que ImageAgent implementa Agent
 var _ Agent = (*ImageAgent)(nil)
-

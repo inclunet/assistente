@@ -18,43 +18,97 @@ type MemoryAgent struct {
 // NewMemoryAgent cria um novo MemoryAgent inteligente
 func NewMemoryAgent(provider memory.Provider, llmClient LLMClient, model string) *MemoryAgent {
 	if model == "" {
-		model = "gpt-4o-mini" // Modelo padrão para agentes
+		model = "gpt-4o-mini"
 	}
 
 	return &MemoryAgent{
 		BaseAgent: BaseAgent{
-			Name:        "memory",
-			DisplayName: "Memory Manager",
-			Description: "Gerencia memórias persistentes sobre o usuário. Use para salvar informações importantes, preferências, contexto de projetos, ou qualquer coisa que deva ser lembrada entre conversas.",
-			AgentType:   "internal",
-			Model:       model,
-			SystemPrompt: `Você é um especialista em gerenciamento de memórias persistentes.
-
-Suas capacidades:
-- memory_save: Salvar uma nova memória com título, conteúdo e categoria
-- memory_search: Buscar memórias por termo
-- memory_list: Listar todas as memórias salvas
-- memory_delete: Deletar uma memória por ID
-
-Categorias disponíveis:
-- "core": Informações críticas (nome do usuário, necessidades de acessibilidade) - usar com moderação
-- "usuario": Informações pessoais do usuário
-- "preferencia": Preferências e configurações
-- "projeto": Informações sobre projetos em andamento
-- "contexto": Contexto geral de conversas anteriores
-
-Instruções:
-1. Analise a tarefa recebida
-2. Decida qual(is) tool(s) usar
-3. Execute as tools necessárias
-4. Retorne uma resposta clara e útil
-
-Seja conciso. Ao listar memórias, organize por categoria quando possível.`,
-			Enabled: true,
-			LLM:     llmClient,
+			Name:         "memory",
+			DisplayName:  "Memory Manager",
+			Description:  memoryAgentDescription(),
+			AgentType:    "internal",
+			Model:        model,
+			SystemPrompt: memoryAgentSystemPrompt(),
+			Enabled:      true,
+			LLM:          llmClient,
 		},
 		provider: provider,
 	}
+}
+
+// memoryAgentDescription retorna a descrição para delegação do orquestrador
+func memoryAgentDescription() string {
+	return NewDelegationDescription("Memory Manager", "Persistent memory about the USER. Check before saying 'I don't know'. Save when user reveals preferences/interests.").
+		Capabilities(
+			"Search and recall saved information about the user",
+			"Save personal info, preferences, interests, context",
+			"List all known information about the user",
+			"Update or delete outdated information",
+		).
+		DelegateWhen(
+			// === RECALL (buscar memórias) ===
+			"User asks 'do you know my...', 'what is my...', 'who is my...'",
+			"User asks 'do you remember...', 'did I tell you...'",
+			"User asks about their name, family, work, preferences",
+			"BEFORE saying 'I don't know' about personal info - CHECK MEMORY FIRST",
+			// === SAVE (salvar memórias) ===
+			"User reveals INTERESTS: 'I like...', 'I love...', 'I enjoy...', 'fascinates me'",
+			"User reveals PREFERENCES: 'I prefer...', 'I usually...', 'my favorite is...'",
+			"User shares PERSONAL INFO: name, family, job, background",
+			"User says 'remember this', 'save this', 'don't forget'",
+			"User corrects info ('actually...', 'I changed...')",
+			// === PROACTIVE ===
+			"User shares hobbies, passions, or areas of interest (save for future personalization)",
+		).
+		DontDelegateWhen(
+			"Question is about procedures/documentation - use FAQ Manager",
+			"Question is about files - use File Manager",
+			"User explicitly says 'don't save this'",
+			"Information is trivial/temporary (e.g., 'I'm tired today')",
+		).
+		Build()
+}
+
+// memoryAgentSystemPrompt returns the system prompt
+func memoryAgentSystemPrompt() string {
+	return `You manage persistent memories about the USER. These are personal, not documentation.
+
+CATEGORIES (choose appropriate one):
+- "core": Critical info (user's name, accessibility needs) - use sparingly
+- "usuario": Personal info (role, team, background)
+- "preferencia": Preferences (communication style, tools, settings)
+- "projeto": Ongoing projects, current work context
+- "contexto": General context from conversations
+
+WHEN SAVING:
+- Use clear, searchable titles
+- Include relevant keywords in content
+- Choose correct category
+- Don't duplicate - search first if similar might exist
+
+WHEN SEARCHING:
+- Try multiple keyword variations
+- Search is text-based, so use exact terms that might be in the memory
+- Try category names as search terms too
+
+RESPONSE: Be concise. Confirm what was saved/found/deleted.
+
+=== OTHER KNOWLEDGE SOURCES ===
+If memory search doesn't find relevant information, suggest checking:
+- FAQ Manager: Documented procedures, guides, and technical knowledge
+- File Manager: Documents in user's files
+- Custom Agents (HTTP/MCP): The user may have configured additional agents for:
+  * Internal knowledge bases (wikis, documentation portals)
+  * Search engines or internal search portals
+  * Internal systems with relevant data (CRMs, ERPs, databases)
+  * External APIs with useful information
+
+When responding without finding information, mention that other agents may be available.`
+}
+
+// GetDelegationDescription retorna descrição otimizada para o orquestrador
+func (a *MemoryAgent) GetDelegationDescription() string {
+	return a.Description
 }
 
 // Execute recebe uma tarefa em linguagem natural e usa o LLM para decidir como resolver
@@ -104,71 +158,129 @@ func (a *MemoryAgent) GetTools() []Tool {
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "memory_save",
-				Description: "Salva uma nova memória persistente",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"title": map[string]interface{}{
-							"type":        "string",
-							"description": "Título curto para identificar a memória",
-						},
-						"content": map[string]interface{}{
-							"type":        "string",
-							"description": "Conteúdo da memória",
-						},
-						"category": map[string]interface{}{
-							"type":        "string",
-							"description": "Categoria: core, usuario, preferencia, projeto, contexto",
-						},
+				Name: "memory_save",
+				Description: NewToolDescription("Saves information about the user for future personalization. Be PROACTIVE - save when user reveals interests/preferences.").
+					WhenToUse(
+						"User reveals INTERESTS: 'I like...', 'I love...', 'I enjoy...', 'fascinates me'",
+						"User reveals PREFERENCES: 'I prefer...', 'I usually...', 'my favorite...'",
+						"User shares PERSONAL INFO: name, family, job, background, hobbies",
+						"User says 'remember this', 'save this'",
+						"User corrects previous info ('actually...', 'I changed...')",
+						"BE PROACTIVE: Save interests/hobbies even if user doesn't ask",
+					).
+					WhenNotToUse(
+						"Information is trivial/temporary ('I'm hungry', 'it's late')",
+						"It's documentation/procedure - use FAQ instead",
+						"User explicitly says don't save",
+						"Similar memory might exist - search first to avoid duplicates",
+					).
+					Notes(
+						"PROACTIVE SAVING: When user reveals interests/hobbies → save them!",
+						"Search first if similar memory might exist",
+						"Use clear titles: 'Interest: [topic]', 'Preference: [what they prefer]'",
+						"Good categories: 'preferencia' for likes, 'usuario' for personal info",
+					).
+					Returns("JSON with success, message, id, title, category").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"title": JSONSchemaString(
+							NewParamDescription("Short, searchable title").
+								Examples("Interest: cooking", "Preference: detailed explanations", "Works at: [company name]").
+								Constraints("Include key terms", "prefix with type: Interest/Preference/Works at").
+								Build(),
+						),
+						"content": JSONSchemaString("Detailed information to remember"),
+						"category": JSONSchemaStringEnum(
+							"Category: 'preferencia' for interests/likes, 'usuario' for personal info, 'projeto' for work context",
+							[]string{"core", "usuario", "preferencia", "projeto", "contexto"},
+						),
 					},
-					"required": []string{"title", "content"},
-				},
+					[]string{"title", "content"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "memory_search",
-				Description: "Busca memórias por termo",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"query": map[string]interface{}{
-							"type":        "string",
-							"description": "Termo de busca",
-						},
+				Name: "memory_search",
+				Description: NewToolDescription("Searches saved memories about the user. ALWAYS search before saying 'I don't know' about user info.").
+					WhenToUse(
+						"User asks 'do you know my...', 'what is my...', 'who is my...'",
+						"User asks about their name, family, work, preferences",
+						"User says 'you should know this', 'I already told you'",
+						"BEFORE saying 'I don't know' - search first!",
+						"Need to recall user preference or context",
+					).
+					WhenNotToUse(
+						"Want to see ALL memories - use memory_list instead",
+					).
+					Notes(
+						"Search is TEXT-BASED - use exact words likely in memory",
+						"Try multiple searches with different terms",
+						"For family info try: 'wife', 'spouse', 'family', 'children'",
+						"For work info try: 'job', 'work', 'company', 'role'",
+						"Try category names: 'usuario', 'preferencia', 'projeto'",
+					).
+					Returns("JSON with results (array of {id, title, content, category}), count").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"query": JSONSchemaString(
+							NewParamDescription("Search keywords").
+								Constraints("Use words likely in memory title/content", "try multiple variations").
+								Examples("name", "family", "work", "preference", "interest").
+								Build(),
+						),
 					},
-					"required": []string{"query"},
-				},
+					[]string{"query"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "memory_list",
-				Description: "Lista todas as memórias salvas",
-				Parameters: map[string]interface{}{
-					"type":       "object",
-					"properties": map[string]interface{}{},
-				},
+				Name: "memory_list",
+				Description: NewToolDescription("Lists ALL saved memories, organized by category.").
+					WhenToUse(
+						"User asks 'what do you know about me?'",
+						"User asks 'list my memories', 'show everything saved'",
+						"Need overview of all stored information",
+					).
+					WhenNotToUse(
+						"Looking for specific memory - use memory_search (faster)",
+					).
+					Returns("JSON with results (all memories), count").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{}, nil),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "memory_delete",
-				Description: "Deleta uma memória por ID",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"id": map[string]interface{}{
-							"type":        "integer",
-							"description": "ID da memória a deletar",
-						},
+				Name: "memory_delete",
+				Description: NewToolDescription("Permanently deletes a memory by ID.").
+					WhenToUse(
+						"User asks to forget something specific",
+						"User says information is outdated/wrong and should be removed",
+						"Cleaning up duplicate or obsolete memories",
+					).
+					WhenNotToUse(
+						"User wants to UPDATE info - delete old + save new",
+						"Not sure which memory - search/list first",
+					).
+					Notes(
+						"Deletion is permanent",
+						"Use search or list to find the correct ID first",
+					).
+					Returns("JSON with success, message").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"id": JSONSchemaInt("The memory ID to delete (from search/list results)"),
 					},
-					"required": []string{"id"},
-				},
+					[]string{"id"},
+				),
 			},
 		},
 	}

@@ -18,7 +18,7 @@ import (
 // FileAgent é um agente inteligente para gerenciamento de arquivos
 type FileAgent struct {
 	BaseAgent
-	storage          *filemanager.StorageManager  // Gerencia local + cloud providers
+	storage          *filemanager.StorageManager // Gerencia local + cloud providers
 	security         *filemanager.SecurityValidator
 	authorizedPaths  []filemanager.AuthorizedPath
 	pendingDeletes   map[string]time.Time
@@ -41,84 +41,14 @@ func NewFileAgent(llmClient LLMClient, model string) *FileAgent {
 
 	return &FileAgent{
 		BaseAgent: BaseAgent{
-			Name:        "file_manager",
-			DisplayName: "File Manager",
-			Description: "Gerencia arquivos no sistema local. Use para ler, escrever, buscar, editar e organizar arquivos e pastas. Pode navegar diretórios, ler conteúdo de arquivos de texto, criar e editar arquivos, e fazer buscas por nome ou conteúdo.",
-			AgentType:   "internal",
-			Model:       model,
-			SystemPrompt: `Você é um especialista em gerenciamento de arquivos, tanto locais quanto na nuvem.
-
-## INTERFACE UNIFICADA
-As mesmas ferramentas funcionam para arquivos locais E na nuvem!
-O sistema detecta automaticamente pelo formato do caminho:
-
-**Caminhos locais Windows**: C:\docs\arquivo.txt, ./relativo/arquivo.txt
-**Caminhos WSL (Linux no Windows)**: \\wsl$\Ubuntu\home\..., \\wsl.localhost\Ubuntu-24.04\...
-**Google Drive**: gdrive://ID, https://docs.google.com/..., ou URLs do Drive
-
-IMPORTANTE: Caminhos WSL (\\wsl$ e \\wsl.localhost) são PERMITIDOS! São sistemas Linux rodando no Windows.
-
-## Suas capacidades:
-
-### Navegação e Diretório de Trabalho:
-- **get_working_directory**: Descobre o diretório de trabalho atual
-- **set_working_directory**: Define um novo diretório de trabalho
-- **folder_list**: Lista arquivos e pastas (local ou gdrive://)
-- **folder_create**: Cria diretórios
-
-### Leitura:
-- **file_read**: Lê conteúdo de arquivos (local, .docx, .xlsx, .pdf, Google Docs...)
-- **file_read_lines**: Lê range específico de linhas
-- **file_info**: Obtém metadados (tamanho, tipo, datas)
-
-### Escrita e Edição:
-- **file_write**: Cria ou sobrescreve arquivos
-- **file_append**: Adiciona conteúdo ao final
-- **file_replace**: Substitui texto em arquivo
-
-### Busca:
-- **file_search_name**: Busca por nome (glob para local, query para cloud)
-- **file_search_content**: Busca por conteúdo
-- **file_grep**: Busca estruturada com contexto
-
-### Exclusão:
-- **file_delete**: Exclui arquivo (requer confirmação se não autorizado)
-
-## Exemplos de uso:
-- file_read("C:\docs\relatorio.docx") → Lê documento Word local
-- file_read("\\wsl$\Ubuntu\home\user\projeto\main.go") → Lê arquivo Go no WSL
-- file_read("\\wsl.localhost\Ubuntu-24.04\var\www\app.js") → Lê arquivo JS no WSL
-- file_read("gdrive://1BxiMVs0XRA5...") → Lê documento do Google Drive
-- file_read("https://docs.google.com/document/d/...") → Lê Google Doc via URL
-- folder_list("\\wsl$\Ubuntu\home\user") → Lista pasta no WSL
-- folder_list("gdrive://") → Lista raiz do Google Drive
-- file_search_name("gdrive://", "*.pdf") → Busca PDFs no Drive
-
-## REGRAS DE SEGURANÇA (OBRIGATÓRIAS):
-
-### 🔴 Arquivos e Pastas de SISTEMA - TOTALMENTE PROIBIDOS:
-NÃO É POSSÍVEL de NENHUMA forma ler, escrever, editar ou excluir arquivos em:
-- C:\Windows, C:\Program Files, C:\ProgramData
-- .ssh, .gnupg, .aws, .azure, .kube, .docker
-- Arquivos com extensões: .dll, .sys, .exe, .bat, .cmd, .ps1, .reg, .msi
-
-Se o usuário pedir para acessar esses arquivos, RECUSE educadamente.
-
-### 🟡 Exclusão de Arquivos:
-1. Em pastas NÃO autorizadas: SEMPRE peça confirmação explícita
-2. Explique O QUE será excluído ANTES de pedir confirmação
-
-## Diretório de Trabalho:
-- Use get_working_directory para saber onde está
-- Caminhos relativos são resolvidos a partir do diretório de trabalho atual
-- Use set_working_directory para mudar de pasta
-
-## Formato de resposta:
-- Sempre retorne o caminho completo dos arquivos
-- Mostre informações relevantes: tamanho, data, tipo, provider (local/gdrive)
-- Para erros, explique claramente o que aconteceu`,
-			Enabled: true,
-			LLM:     llmClient,
+			Name:         "file_manager",
+			DisplayName:  "File Manager",
+			Description:  fileAgentDescription(),
+			AgentType:    "internal",
+			Model:        model,
+			SystemPrompt: fileAgentSystemPrompt(),
+			Enabled:      true,
+			LLM:          llmClient,
 		},
 		storage:          filemanager.NewStorageManager(),
 		security:         filemanager.NewSecurityValidator(nil),
@@ -126,6 +56,70 @@ Se o usuário pedir para acessar esses arquivos, RECUSE educadamente.
 		workingDirectory: homeDir,
 		defaultDirectory: homeDir,
 	}
+}
+
+// fileAgentDescription retorna a descrição para delegação do orquestrador
+func fileAgentDescription() string {
+	return NewDelegationDescription("File Manager", "Manages files on local filesystem, WSL, and Google Drive.").
+		Capabilities(
+			"Read files: text, documents (.docx, .xlsx, .pdf), Google Docs/Sheets",
+			"Write/edit files: create, overwrite, append, replace text",
+			"Search: by filename (glob patterns) or by content (grep-like)",
+			"Navigate: list directories, get file info, change working directory",
+			"Delete files (with confirmation for non-authorized folders)",
+		).
+		DelegateWhen(
+			"Read, write, edit, or delete files",
+			"Search files by name or content",
+			"List directory contents or navigate folders",
+			"Access Google Drive documents or local files",
+			"Get file metadata (size, type, dates)",
+			"User mentions file paths, folders, or documents",
+		).
+		DontDelegateWhen(
+			"User asks general questions about file formats (answer directly)",
+			"Task involves only explaining how files work",
+			"No file operation is actually needed",
+		).
+		Build()
+}
+
+// fileAgentSystemPrompt returns the reduced system prompt (specific instructions moved to tools)
+func fileAgentSystemPrompt() string {
+	return `You are a file management specialist. Use the available tools to help users manage files.
+
+PATH FORMATS (auto-detected):
+- Local Windows: C:\path\file.txt or ./relative/path
+- WSL paths: \\wsl$\Ubuntu\... or \\wsl.localhost\...  (ALLOWED - Linux on Windows)
+- Google Drive: gdrive://ID or https://docs.google.com/...
+
+SECURITY (enforced by tools):
+- System folders (C:\Windows, Program Files) are blocked
+- Sensitive folders (.ssh, .aws, .docker) are blocked
+- Dangerous extensions (.exe, .dll, .bat) are blocked
+- Deletions in non-authorized folders require confirmation
+
+RESPONSE FORMAT:
+- Always return full resolved paths
+- Include relevant metadata (size, type, dates)
+- Explain errors clearly
+
+=== OTHER KNOWLEDGE SOURCES ===
+If user is looking for documented information (not files), suggest checking:
+- FAQ Manager: Procedures, guides, and technical documentation
+- Memory Manager: User preferences and personal context
+- Custom Agents (HTTP/MCP): The user may have configured additional agents for:
+  * Internal knowledge bases (wikis, documentation portals)
+  * Search engines or internal search portals
+  * Internal systems with relevant data (CRMs, ERPs, databases)
+  * External APIs with useful information
+
+When responding without finding information, mention that other agents may be available.`
+}
+
+// GetDelegationDescription retorna descrição otimizada para o orquestrador decidir delegação
+func (a *FileAgent) GetDelegationDescription() string {
+	return a.Description
 }
 
 // SetAuthorizedPaths configura as pastas autorizadas
@@ -141,10 +135,10 @@ func (a *FileAgent) SetAuthorizedPaths(paths []filemanager.AuthorizedPath) {
 func (a *FileAgent) SetGoogleTokenProvider(tokenProvider func() (string, error)) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	
+
 	// Cria ou atualiza o provider do Google Drive
 	a.gdrive = filemanager.NewGoogleDriveProvider(tokenProvider)
-	
+
 	if tokenProvider != nil {
 		// Registra o provider no StorageManager
 		a.storage.RegisterProvider(a.gdrive)
@@ -254,380 +248,491 @@ func (a *FileAgent) ResolvePath(path string) string {
 
 // GetTools retorna as tools disponíveis do FileAgent
 func (a *FileAgent) GetTools() []Tool {
+	// Descrição comum para parâmetros de path
+	pathDesc := NewParamDescription("File or directory path").
+		Formats(
+			"absolute (C:\\docs\\file.txt)",
+			"relative (./file.txt) - resolved from working directory",
+			"WSL (\\\\wsl$\\Ubuntu\\... or \\\\wsl.localhost\\...)",
+			"Google Drive (gdrive://ID or https://docs.google.com/...)",
+		).Build()
+
+	pathDescLocal := NewParamDescription("File or directory path (local only)").
+		Formats(
+			"absolute (C:\\docs\\file.txt)",
+			"relative (./file.txt)",
+			"WSL (\\\\wsl$\\Ubuntu\\...)",
+		).Build()
+
 	return []Tool{
-		// Navegação
+		// ===== NAVIGATION =====
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "get_working_directory",
-				Description: "Retorna o diretório de trabalho atual. Use para saber onde o agente está operando.",
-				Parameters: map[string]interface{}{
-					"type":       "object",
-					"properties": map[string]interface{}{},
-				},
+				Name: "get_working_directory",
+				Description: NewToolDescription("Returns the current working directory where relative paths are resolved from.").
+					WhenToUse(
+						"Before using relative paths to know the base location",
+						"To verify current location before navigation",
+					).
+					Returns("JSON with working_directory (string) and is_default (boolean)").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{}, nil),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "set_working_directory",
-				Description: "Define um novo diretório de trabalho. Caminhos relativos serão resolvidos a partir deste diretório.",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho do novo diretório de trabalho",
-						},
+				Name: "set_working_directory",
+				Description: NewToolDescription("Changes the working directory. All relative paths will resolve from this location.").
+					WhenToUse(
+						"Before working with multiple files in the same folder",
+						"To simplify paths when user specifies a project folder",
+					).
+					WhenNotToUse(
+						"For one-off file operations (just use full path)",
+					).
+					Returns("JSON with success, previous_directory, new_directory").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path": JSONSchemaString(pathDescLocal),
 					},
-					"required": []string{"path"},
-				},
+					[]string{"path"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "folder_list",
-				Description: "Lista arquivos e pastas em um diretório",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho do diretório (relativo ou absoluto). Use '.' para diretório atual.",
-						},
-						"show_hidden": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Incluir arquivos ocultos. Default: false",
-						},
+				Name: "folder_list",
+				Description: NewToolDescription("Lists files and folders in a directory with metadata (size, type, dates).").
+					WhenToUse(
+						"User wants to see directory contents",
+						"Need to find files before reading them",
+						"Exploring folder structure",
+					).
+					WhenNotToUse(
+						"Looking for specific file by name - use file_search_name instead",
+						"Looking for files containing specific text - use file_search_content",
+					).
+					Returns("JSON with path, entries (array of file info), count").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path": JSONSchemaString(
+							NewParamDescription("Directory to list").
+								Formats("absolute", "relative", "WSL", "gdrive://").
+								Examples(".", "C:\\Users", "gdrive://", "\\\\wsl$\\Ubuntu\\home").
+								Default("current working directory").
+								Build(),
+						),
+						"show_hidden": JSONSchemaBool("Include hidden files (starting with dot). Default: false"),
 					},
-					"required": []string{"path"},
-				},
+					[]string{"path"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "folder_create",
-				Description: "Cria um novo diretório, incluindo diretórios intermediários",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho do diretório a criar",
-						},
+				Name: "folder_create",
+				Description: NewToolDescription("Creates a new directory, including any intermediate directories needed.").
+					WhenToUse("Creating new folder structure", "Before writing file to non-existent directory").
+					Returns("JSON with success, path, message").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path": JSONSchemaString(pathDescLocal),
 					},
-					"required": []string{"path"},
-				},
+					[]string{"path"},
+				),
 			},
 		},
-		// Leitura
+
+		// ===== READING =====
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "file_read",
-				Description: "Lê o conteúdo completo de um arquivo de texto",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho do arquivo",
-						},
+				Name: "file_read",
+				Description: NewToolDescription("Reads complete file content. Supports text files, Office documents (.docx, .xlsx, .pdf), and Google Docs.").
+					WhenToUse(
+						"Reading text files (.txt, .json, .go, .md, .yaml, .xml, etc.)",
+						"Reading Office documents (.docx, .xlsx, .pdf)",
+						"Reading Google Docs/Sheets via URL or gdrive:// prefix",
+						"File is reasonably sized (< 10MB or < 10000 lines)",
+					).
+					WhenNotToUse(
+						"Binary files (.exe, .dll, images) - use file_info to check type first",
+						"Very large files (> 10000 lines) - use file_read_lines with specific range",
+						"Just need file metadata - use file_info instead",
+					).
+					Notes(
+						"For spreadsheets, returns 'sheets' array with sheet names and data",
+						"For documents with links, returns 'links' array",
+					).
+					Returns("JSON with path, content, encoding, line_count. May include sheets, links, metadata for documents.").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path": JSONSchemaString(pathDesc),
 					},
-					"required": []string{"path"},
-				},
+					[]string{"path"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "file_read_lines",
-				Description: "Lê um range específico de linhas de um arquivo. Útil para detalhar resultados de busca.",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho do arquivo",
-						},
-						"start_line": map[string]interface{}{
-							"type":        "integer",
-							"description": "Linha inicial (1-indexed)",
-						},
+				Name: "file_read_lines",
+				Description: NewToolDescription("Reads a specific range of lines from a file. Efficient for large files or inspecting search results.").
+					WhenToUse(
+						"File is very large (> 10000 lines)",
+						"Only need to see specific section (e.g., around line from search result)",
+						"Paginating through large file",
+					).
+					WhenNotToUse(
+						"File is small enough to read entirely",
+						"Need to search content - use file_grep or file_search_content first",
+					).
+					Returns("JSON with path, start_line, end_line, total_lines, content (array with line numbers), raw_text").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path":       JSONSchemaString(pathDescLocal),
+						"start_line": JSONSchemaInt("Starting line number (1-indexed, first line is 1)"),
 						"end_line": map[string]interface{}{
 							"type":        "integer",
-							"description": "Linha final (1-indexed). Default: start_line + 20",
+							"description": "Ending line number (1-indexed, inclusive). Default: start_line + 20",
 						},
 					},
-					"required": []string{"path", "start_line"},
-				},
+					[]string{"path", "start_line"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "file_info",
-				Description: "Obtém informações detalhadas sobre um arquivo ou pasta",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho do arquivo ou pasta",
-						},
+				Name: "file_info",
+				Description: NewToolDescription("Gets detailed metadata about a file or folder without reading content.").
+					WhenToUse(
+						"Need file size, type, or dates before reading",
+						"Checking if file exists",
+						"Determining file type before deciding how to process",
+						"Getting folder statistics",
+					).
+					WhenNotToUse(
+						"Need actual file content - use file_read",
+					).
+					Returns("JSON with name, path, size, is_dir, mod_time, type, permissions").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path": JSONSchemaString(pathDesc),
 					},
-					"required": []string{"path"},
-				},
+					[]string{"path"},
+				),
 			},
 		},
-		// Escrita
+
+		// ===== WRITING =====
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "file_write",
-				Description: "Cria ou sobrescreve um arquivo com o conteúdo fornecido",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho do arquivo",
-						},
-						"content": map[string]interface{}{
-							"type":        "string",
-							"description": "Conteúdo a ser escrito",
-						},
-						"create_dirs": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Criar diretórios intermediários se não existirem. Default: true",
-						},
+				Name: "file_write",
+				Description: NewToolDescription("Creates a new file or completely overwrites existing file with provided content.").
+					WhenToUse(
+						"Creating a new file",
+						"Replacing entire file content",
+						"Writing generated content to file",
+					).
+					WhenNotToUse(
+						"Adding to existing file - use file_append instead",
+						"Replacing specific text - use file_replace instead",
+						"File is in protected/system folder (will be blocked)",
+					).
+					Notes(
+						"Creates intermediate directories by default",
+						"WARNING: Overwrites existing content without confirmation",
+					).
+					Returns("JSON with success, path, size, message").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path":        JSONSchemaString(pathDescLocal),
+						"content":     JSONSchemaString("Complete content to write to the file"),
+						"create_dirs": JSONSchemaBool("Create intermediate directories if they don't exist. Default: true"),
 					},
-					"required": []string{"path", "content"},
-				},
-			},
-		},
-		{
-			Type: "function",
-			Function: ToolFunction{
-				Name:        "file_append",
-				Description: "Adiciona conteúdo ao final de um arquivo",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho do arquivo",
-						},
-						"content": map[string]interface{}{
-							"type":        "string",
-							"description": "Conteúdo a ser adicionado",
-						},
-					},
-					"required": []string{"path", "content"},
-				},
+					[]string{"path", "content"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "file_replace",
-				Description: "Substitui texto em um arquivo",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho do arquivo",
-						},
-						"old_text": map[string]interface{}{
-							"type":        "string",
-							"description": "Texto a ser substituído",
-						},
-						"new_text": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo texto",
-						},
-						"replace_all": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Substituir todas as ocorrências. Default: false",
-						},
+				Name: "file_append",
+				Description: NewToolDescription("Adds content to the end of an existing file, or creates file if it doesn't exist.").
+					WhenToUse(
+						"Adding entries to log files",
+						"Appending items to lists",
+						"Adding content without reading the whole file first",
+					).
+					WhenNotToUse(
+						"Need to replace specific text - use file_replace",
+						"Need to insert at specific position - use file_read + file_write",
+					).
+					Returns("JSON with success, path, bytes_written, message").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path":    JSONSchemaString(pathDescLocal),
+						"content": JSONSchemaString("Content to append to end of file"),
 					},
-					"required": []string{"path", "old_text", "new_text"},
-				},
-			},
-		},
-		// Busca
-		{
-			Type: "function",
-			Function: ToolFunction{
-				Name:        "file_search_name",
-				Description: "Busca arquivos por nome usando padrões glob (ex: *.txt, report*.pdf)",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"directory": map[string]interface{}{
-							"type":        "string",
-							"description": "Diretório base para busca",
-						},
-						"pattern": map[string]interface{}{
-							"type":        "string",
-							"description": "Padrão de busca glob (ex: *.txt, **/*.go)",
-						},
-						"recursive": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Buscar em subdiretórios. Default: true",
-						},
-						"max_results": map[string]interface{}{
-							"type":        "integer",
-							"description": "Limite de resultados. Default: 100",
-						},
-					},
-					"required": []string{"directory", "pattern"},
-				},
+					[]string{"path", "content"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "file_search_content",
-				Description: "Busca arquivos que contêm determinado texto",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"directory": map[string]interface{}{
-							"type":        "string",
-							"description": "Diretório base para busca",
-						},
-						"query": map[string]interface{}{
-							"type":        "string",
-							"description": "Texto a buscar",
-						},
-						"file_pattern": map[string]interface{}{
-							"type":        "string",
-							"description": "Filtrar por tipo de arquivo (ex: *.go, *.txt). Default: todos",
-						},
-						"case_sensitive": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Busca sensível a maiúsculas. Default: false",
-						},
-						"max_results": map[string]interface{}{
-							"type":        "integer",
-							"description": "Limite de resultados. Default: 50",
-						},
+				Name: "file_replace",
+				Description: NewToolDescription("Finds and replaces text within a file. Can replace first occurrence or all occurrences.").
+					WhenToUse(
+						"Replacing specific text string in file",
+						"Updating configuration values",
+						"Renaming variables or strings",
+						"Making targeted edits without rewriting entire file",
+					).
+					WhenNotToUse(
+						"old_text doesn't exist in file (check with file_grep first)",
+						"Complex edits requiring context - read file first",
+					).
+					Notes(
+						"Returns count of replacements made",
+						"If text not found, returns success:false with message",
+					).
+					Returns("JSON with success, path, replacements (count), message").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path":        JSONSchemaString(pathDescLocal),
+						"old_text":    JSONSchemaString("Exact text to find and replace"),
+						"new_text":    JSONSchemaString("Replacement text (can be empty to delete)"),
+						"replace_all": JSONSchemaBool("Replace ALL occurrences (true) or just first (false). Default: false"),
 					},
-					"required": []string{"directory", "query"},
-				},
+					[]string{"path", "old_text", "new_text"},
+				),
+			},
+		},
+
+		// ===== SEARCH =====
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "file_search_name",
+				Description: NewToolDescription("Searches for files by name using glob patterns. Fast filename-based search.").
+					WhenToUse(
+						"Finding files by extension (*.txt, *.go, *.json)",
+						"Finding files with specific naming pattern (report*.pdf)",
+						"Locating files when you know part of the name",
+						"Finding all files of a certain type in directory tree",
+					).
+					WhenNotToUse(
+						"Looking for files containing specific text - use file_search_content",
+						"Need line numbers and context - use file_grep",
+					).
+					Notes(
+						"For Google Drive, pattern becomes a search query",
+						"Use ** for recursive matching (e.g., **/*.go)",
+					).
+					Returns("JSON with directory, pattern, results (array of file paths), count").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"directory": JSONSchemaString(
+							NewParamDescription("Base directory to search from").
+								Examples(".", "C:\\Projects", "gdrive://").
+								Build(),
+						),
+						"pattern": JSONSchemaString(
+							NewParamDescription("Glob pattern for matching filenames").
+								Examples("*.txt", "**/*.go", "report*.pdf", "config.*").
+								Build(),
+						),
+						"recursive":   JSONSchemaBool("Search in subdirectories. Default: true"),
+						"max_results": JSONSchemaInt("Maximum results to return. Default: 100"),
+					},
+					[]string{"directory", "pattern"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "file_grep",
-				Description: "Busca estruturada em arquivos retornando path, linha, coluna e contexto. Ideal para encontrar e depois editar.",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"directory": map[string]interface{}{
-							"type":        "string",
-							"description": "Diretório base para busca",
-						},
-						"query": map[string]interface{}{
-							"type":        "string",
-							"description": "Termo ou expressão a buscar",
-						},
-						"is_regex": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Tratar query como expressão regular. Default: false",
-						},
-						"file_pattern": map[string]interface{}{
-							"type":        "string",
-							"description": "Filtrar por tipo de arquivo (ex: *.go). Default: todos",
-						},
-						"context_lines": map[string]interface{}{
-							"type":        "integer",
-							"description": "Linhas de contexto antes e depois. Default: 2",
-						},
-						"max_files": map[string]interface{}{
-							"type":        "integer",
-							"description": "Limite de arquivos. Default: 50",
-						},
+				Name: "file_search_content",
+				Description: NewToolDescription("Searches for files containing specific text. Returns list of matching files.").
+					WhenToUse(
+						"Finding which files contain a specific string",
+						"Locating files by content when filename is unknown",
+						"Quick content search across many files",
+					).
+					WhenNotToUse(
+						"Need exact line numbers and context - use file_grep instead",
+						"Searching by filename - use file_search_name",
+						"Complex regex patterns - use file_grep with is_regex=true",
+					).
+					Returns("JSON with directory, query, results (array of {path, matches}), count").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"directory": JSONSchemaString(
+							NewParamDescription("Base directory to search").Build(),
+						),
+						"query": JSONSchemaString(
+							NewParamDescription("Text to search for inside files").
+								Constraints("case-insensitive by default", "plain text, not regex").
+								Build(),
+						),
+						"file_pattern":   JSONSchemaString("Filter by file type (e.g., *.go, *.txt). Default: all text files"),
+						"case_sensitive": JSONSchemaBool("Case-sensitive matching. Default: false"),
+						"max_results":    JSONSchemaInt("Maximum files to return. Default: 50"),
 					},
-					"required": []string{"directory", "query"},
-				},
-			},
-		},
-		// Exclusão
-		{
-			Type: "function",
-			Function: ToolFunction{
-				Name:        "file_delete",
-				Description: "Exclui um arquivo. Requer confirmação se a pasta não estiver autorizada.",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho do arquivo a excluir",
-						},
-						"confirm": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Confirmação explícita da exclusão",
-						},
-					},
-					"required": []string{"path"},
-				},
-			},
-		},
-		// Autorização de pastas
-		{
-			Type: "function",
-			Function: ToolFunction{
-				Name:        "authorize_folder",
-				Description: "Autoriza uma pasta para operações de exclusão sem confirmação. Útil para pastas de trabalho temporárias.",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho da pasta a autorizar",
-						},
-						"recursive": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Aplicar autorização a subpastas também. Default: true",
-						},
-					},
-					"required": []string{"path"},
-				},
+					[]string{"directory", "query"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "revoke_folder_authorization",
-				Description: "Remove autorização de uma pasta. Exclusões passarão a exigir confirmação novamente.",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"path": map[string]interface{}{
-							"type":        "string",
-							"description": "Caminho da pasta para revogar autorização",
-						},
+				Name: "file_grep",
+				Description: NewToolDescription("Structured search returning exact locations: file path, line number, column, and surrounding context. Like grep/ripgrep.").
+					WhenToUse(
+						"Need exact line numbers to use with file_read_lines",
+						"Need surrounding context to understand matches",
+						"Planning to edit found occurrences with file_replace",
+						"Using regex patterns for complex matching",
+						"Want detailed results for code navigation",
+					).
+					WhenNotToUse(
+						"Just need list of files containing text - use file_search_content (faster)",
+						"Searching by filename - use file_search_name",
+					).
+					Notes(
+						"Returns context_before and context_after for each match",
+						"Supports regex when is_regex=true",
+						"Results grouped by file with all matches per file",
+					).
+					Returns("JSON with query, directory, total_files, total_matches, results (array of {file, matches[]})").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"directory": JSONSchemaString(
+							NewParamDescription("Base directory to search").Build(),
+						),
+						"query": JSONSchemaString(
+							NewParamDescription("Search term or regex pattern").
+								Examples("TODO", "func.*Handler", "import.*fmt").
+								Build(),
+						),
+						"is_regex":      JSONSchemaBool("Treat query as regular expression. Default: false"),
+						"file_pattern":  JSONSchemaString("Filter by file type (e.g., *.go). Default: all text files"),
+						"context_lines": JSONSchemaInt("Lines of context before and after match. Default: 2"),
+						"max_files":     JSONSchemaInt("Maximum files to search. Default: 50"),
 					},
-					"required": []string{"path"},
-				},
+					[]string{"directory", "query"},
+				),
+			},
+		},
+
+		// ===== DELETE =====
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "file_delete",
+				Description: NewToolDescription("Deletes a file. Requires explicit confirmation unless folder is pre-authorized.").
+					WhenToUse(
+						"User explicitly requests file deletion",
+						"Cleaning up temporary files",
+						"Removing generated files",
+					).
+					WhenNotToUse(
+						"Deleting directories - not supported (only files)",
+						"System or protected files - will be blocked",
+					).
+					Notes(
+						"Returns requires_confirmation:true if folder not authorized",
+						"Call again with confirm:true to proceed with deletion",
+						"Use authorize_folder to pre-authorize folders for deletion",
+					).
+					Returns("JSON with success, path, message OR requires_confirmation, path, message").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path":    JSONSchemaString(pathDescLocal),
+						"confirm": JSONSchemaBool("Explicit confirmation for deletion in non-authorized folders"),
+					},
+					[]string{"path"},
+				),
+			},
+		},
+
+		// ===== AUTHORIZATION =====
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "authorize_folder",
+				Description: NewToolDescription("Pre-authorizes a folder for file deletion without per-file confirmation.").
+					WhenToUse(
+						"Setting up a workspace folder for frequent file operations",
+						"User trusts a temporary/output directory",
+						"Before batch deletion operations",
+					).
+					WhenNotToUse(
+						"Authorizing system folders - will be blocked",
+						"One-time deletion - just use confirm:true on file_delete",
+					).
+					Returns("JSON with success, path, recursive, message").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path":      JSONSchemaString(pathDescLocal),
+						"recursive": JSONSchemaBool("Apply to subdirectories too. Default: true"),
+					},
+					[]string{"path"},
+				),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "list_authorized_folders",
-				Description: "Lista todas as pastas autorizadas para operações de exclusão.",
-				Parameters: map[string]interface{}{
-					"type":       "object",
-					"properties": map[string]interface{}{},
-				},
+				Name: "revoke_folder_authorization",
+				Description: NewToolDescription("Removes deletion authorization from a folder. Deletions will require confirmation again.").
+					WhenToUse(
+						"Finishing work on a temporary folder",
+						"Increasing safety after sensitive operations",
+					).
+					Returns("JSON with success, path, message").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"path": JSONSchemaString(pathDescLocal),
+					},
+					[]string{"path"},
+				),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "list_authorized_folders",
+				Description: NewToolDescription("Lists all folders currently authorized for deletion without confirmation.").
+					WhenToUse(
+						"Checking current authorization status",
+						"Before cleanup operations",
+					).
+					Returns("JSON with count, folders (array of {path, allow_delete, allow_write, recursive, created_at})").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{}, nil),
 			},
 		},
 	}
@@ -826,7 +931,7 @@ func (a *FileAgent) executeFileRead(args map[string]interface{}) (string, error)
 		"encoding":   content.Encoding,
 		"line_count": content.LineCount,
 	}
-	
+
 	// Adiciona dados extras para documentos estruturados
 	if len(content.Sheets) > 0 {
 		result["sheets"] = content.Sheets
@@ -840,7 +945,7 @@ func (a *FileAgent) executeFileRead(args map[string]interface{}) (string, error)
 	if content.Metadata != nil {
 		result["metadata"] = content.Metadata
 	}
-	
+
 	jsonResult, _ := json.Marshal(result)
 	return string(jsonResult), nil
 }

@@ -11,12 +11,78 @@ import (
 // BuilderAgent é um agente inteligente que cria e gerencia HTTP e MCP Agents
 type BuilderAgent struct {
 	BaseAgent
-	manager agentmanager.Manager
+	manager            agentmanager.Manager
 	reloadHTTPCallback func(agentConfigID uint) error
 	reloadMCPCallback  func(mcpAgentID uint) error
 }
 
-// NewBuilderAgent cria um novo BuilderAgent inteligente
+// builderAgentDescription returns structured description for orchestrator delegation
+func builderAgentDescription() string {
+	return NewDelegationDescription("Agent Builder", "Specialist in creating and managing HTTP and MCP agents").
+		Capabilities(
+			"Create HTTP agents that connect to external REST APIs",
+			"Create MCP (Model Context Protocol) agents for tools",
+			"Import OpenAPI/Swagger specifications automatically",
+			"Import Postman collections as agents",
+			"Manage HTTP endpoints (full CRUD)",
+			"Test endpoints with real parameters",
+			"Hot reload: changes available IMMEDIATELY",
+		).
+		DelegateWhen(
+			"User wants to create a new agent for external API",
+			"User wants to connect to an MCP server",
+			"User wants to import OpenAPI, Swagger, or Postman",
+			"User wants to list, update, or delete existing agents",
+			"User wants to create or manage HTTP endpoints",
+			"User mentions 'create agent', 'connect API', 'MCP'",
+		).
+		DontDelegateWhen(
+			"Only queries about APIs (without creating agents)",
+			"User wants to USE an existing agent (delegate to that specific agent)",
+			"Questions about code or local files (use FileAgent)",
+		).
+		Build()
+}
+
+// builderAgentSystemPrompt returns the reduced system prompt
+func builderAgentSystemPrompt() string {
+	return `You are the Agent Builder, specialist in creating and managing HTTP and MCP agents.
+
+## CRITICAL RULE: AVOID DUPLICATES
+ALWAYS list existing agents BEFORE creating new ones:
+- HTTP: builder_list_http_agents → builder_get_http_agent to see endpoints
+- MCP: builder_list_mcp_agents
+
+If you find a duplicate or lack information: ASK the user.
+NEVER assume or invent URLs, commands, or configurations.
+
+## HOT RELOAD
+Created/updated agents are available IMMEDIATELY without restart.
+
+## NAMING
+- name: snake_case (e.g., github_api, weather_api)
+- display_name: readable (e.g., "GitHub API")
+- endpoint name: clear action (e.g., get_user, create_issue)
+
+## AUTH CONFIG
+- bearer: {"token": "ENV:TOKEN"}
+- api-key: {"key": "ENV:KEY", "header": "X-API-Key"}
+- basic: {"username": "user", "password": "ENV:PASS"}
+Always prefer ENV:VAR for sensitive tokens.
+
+## JSON SCHEMA FOR ENDPOINTS
+Required format:
+{"type": "object", "properties": {...}, "required": [...]}
+
+Each tool has detailed instructions on when to use.`
+}
+
+// GetDelegationDescription implements DelegationDescriptionProvider
+func (a *BuilderAgent) GetDelegationDescription() string {
+	return builderAgentDescription()
+}
+
+// NewBuilderAgent creates a new intelligent BuilderAgent
 func NewBuilderAgent(manager agentmanager.Manager, llmClient LLMClient, model string) *BuilderAgent {
 	if model == "" {
 		model = "gpt-4o-mini"
@@ -24,288 +90,14 @@ func NewBuilderAgent(manager agentmanager.Manager, llmClient LLMClient, model st
 
 	return &BuilderAgent{
 		BaseAgent: BaseAgent{
-			Name:        "builder",
-			DisplayName: "Agent Builder",
-			Description: "🔨 Especialista em criar e gerenciar agentes HTTP e MCP. Cria agentes completos a partir de especificações OpenAPI/Postman ou instruções naturais. Gerencia todo o ciclo de vida: criação, configuração de endpoints, atualização e testes. SEMPRE lista agentes existentes antes de criar novos para evitar duplicação.",
-			AgentType:   "internal",
-			Model:       model,
-			SystemPrompt: `Você é o **Agent Builder**, um especialista em criar e gerenciar agentes HTTP e MCP com suporte a hot reload.
-
-## 🎯 OBJETIVO PRINCIPAL
-Você é capaz de criar agentes inteligentes que conectam este sistema a APIs externas (HTTP) ou ferramentas MCP (Model Context Protocol). Cada agente que você cria se torna automaticamente disponível para o usuário conversar e usar.
-
-## ⚡ HOT RELOAD
-**IMPORTANTE**: Quando você cria, atualiza ou deleta um agente:
-- O agente é automaticamente recarregado no sistema SEM REINICIAR O SERVIDOR
-- As mudanças ficam disponíveis IMEDIATAMENTE para o usuário
-- Isso significa que você pode criar um agente e ele já estará pronto para uso na próxima mensagem
-- Endpoints criados/atualizados ficam disponíveis instantaneamente
-
-## ⚠️ REGRAS CRÍTICAS DE VALIDAÇÃO
-
-### 1. EVITAR DUPLICIDADE - REGRA MAIS IMPORTANTE:
-
-**ANTES DE CRIAR QUALQUER AGENTE HTTP:**
-a) Execute builder_list_http_agents para ver TODOS os agentes HTTP existentes
-b) Para cada agente relevante, use builder_get_http_agent para ver TODOS os endpoints
-c) Analise cuidadosamente se já existe:
-   - Agente com a mesma API base (mesmo base_url)
-   - Endpoint que use o mesmo caminho HTTP (mesmo path_template)
-   - Endpoint com funcionalidade similar (mesmo propósito)
-
-**ANTES DE CRIAR QUALQUER AGENTE MCP:**
-a) Execute builder_list_mcp_agents para ver TODOS os agentes MCP existentes
-b) Analise cuidadosamente se já existe:
-   - Agente conectando ao mesmo servidor MCP (mesmo command/args ou server_url)
-   - Agente com mesma finalidade ou ferramentas similares
-   - Múltiplas conexões ao mesmo servidor MCP
-
-**SE ENCONTRAR DUPLICIDADE (HTTP ou MCP):**
-- NÃO crie novo agente se já existe um para a mesma API/servidor
-- NÃO crie novo endpoint HTTP se já existe um igual ou similar
-- Em vez disso, informe ao usuário sobre o existente e pergunte se deve:
-  - Usar o existente
-  - Atualizar o existente
-  - Ou se realmente precisa de um novo (e por quê)
-
-**SE FALTAR INFORMAÇÃO PARA DECIDIR:**
-- NÃO ASSUMA ou INVENTE informações (URLs, comandos, argumentos, etc)
-- Responda ao usuário explicando:
-  - O que você encontrou (agentes/endpoints/servidores existentes)
-  - Qual informação está faltando
-  - Pergunte claramente o que o usuário deseja fazer
-
-**EXEMPLOS DE RESPOSTAS QUANDO FALTA INFORMAÇÃO:**
-
-HTTP: "Encontrei um agente 'weather_api' que já acessa a API OpenWeather com um endpoint 
-'get_weather' que busca clima atual. Você quer:
-1. Usar este endpoint existente
-2. Adicionar um novo endpoint para previsão de 5 dias
-3. Criar um agente completamente separado (preciso saber o motivo)"
-
-MCP: "Encontrei um agente MCP 'filesystem' conectado ao servidor @modelcontextprotocol/server-filesystem. 
-Você quer conectar ao mesmo servidor ou a um diferente? Se for o mesmo, já está disponível. Se for 
-diferente, me informe qual servidor MCP você quer usar."
-
-### 2. VALIDAÇÃO RIGOROSA DE JSON SCHEMA:
-Os parâmetros de endpoints DEVEM ser um JSON Schema válido.
-
-FORMATO CORRETO (exemplo):
-{
-  "type": "object",
-  "properties": {
-    "city": {"type": "string", "description": "Nome da cidade"},
-    "country_code": {"type": "string", "description": "Código do país"},
-    "units": {"type": "string", "enum": ["metric", "imperial"]}
-  },
-  "required": ["city"]
-}
-
-ERROS COMUNS A EVITAR:
-- Esquecer o campo "type": "object" no nível raiz
-- Usar array em vez de objeto para "properties"
-- Esquecer o campo "type" dentro de cada propriedade
-- Colocar "required" fora do objeto ou com formato errado
-
-### 3. REGRAS DE NOMEAÇÃO:
-- **Nome do agente** (name): snake_case, descritivo, único
-  - Bom: "github_api", "openweather_api", "crm_customer_api"
-  - Ruim: "api", "agent1", "minha_api"
-- **Display Name**: Amigável, espaços permitidos
-  - Bom: "GitHub API", "OpenWeather", "CRM Customer Management"
-- **Nome de endpoint**: snake_case, ação clara
-  - Bom: "get_weather", "create_user", "search_repos"
-  - Ruim: "endpoint1", "api_call"
-
-### 4. CONFIGURAÇÃO DE AUTENTICAÇÃO:
-- bearer: {"token": "ENV:GITHUB_TOKEN"} ou {"token": "sk-..."}
-- api-key: {"key": "ENV:API_KEY", "header": "X-API-Key"}
-- basic: {"username": "user", "password": "ENV:PASSWORD"}
-- none: {}
-
-Sempre prefira usar ENV:NOME_VAR para tokens sensíveis.
-
-## 🛠️ SUAS CAPACIDADES COMPLETAS
-
-### HTTP Agents (APIs REST):
-
-**Gestão de Agentes:**
-- builder_create_http_agent: Cria agente HTTP (base_url, auth, headers)
-- builder_get_http_agent: Obtém detalhes completos incluindo todos os endpoints
-- builder_list_http_agents: Lista TODOS os agentes HTTP existentes
-- builder_update_http_agent: Atualiza configurações (url, auth, timeout, etc)
-- builder_delete_http_agent: Remove agente e todos seus endpoints
-
-**Gestão de Endpoints (Tools):**
-- builder_create_endpoint: Adiciona novo endpoint a um agente existente
-- builder_update_endpoint: Modifica endpoint existente
-- builder_delete_endpoint: Remove endpoint
-- builder_test_endpoint: Testa endpoint com parâmetros reais
-
-**Importação Automática:**
-- builder_import_openapi: Cria agente completo a partir de especificação OpenAPI/Swagger
-- builder_import_postman: Cria agente a partir de coleção Postman
-
-### MCP Agents (Model Context Protocol):
-- builder_create_mcp_agent: Cria agente MCP (stdio ou SSE)
-- builder_list_mcp_agents: Lista todos os agentes MCP
-- builder_update_mcp_agent: Atualiza configuração
-- builder_delete_mcp_agent: Remove agente MCP
-
-## 📋 FLUXO DE TRABALHO OBRIGATÓRIO
-
-### Para Criar Novo Agente HTTP:
-1. **Listar TODOS**: Execute builder_list_http_agents
-2. **Analisar Duplicidade**: Para cada agente similar, use builder_get_http_agent
-3. **Verificar Conflitos**:
-   - Mesma API (base_url)?
-   - Endpoints duplicados?
-   - Funcionalidade já existe?
-4. **Decidir**:
-   - Se existe duplicado: PERGUNTE ao usuário o que fazer
-   - Se falta info: PERGUNTE ao usuário
-   - Se não existe: Prossiga com criação
-5. **Criar**: Use builder_create_http_agent com configurações básicas
-6. **Endpoints**: Use builder_create_endpoint para cada funcionalidade NOVA
-7. **Testar**: Use builder_test_endpoint para validar
-8. **Confirmar**: Informe ao usuário que está pronto
-
-### Para Criar Novo Agente MCP:
-1. **Listar TODOS**: Execute builder_list_mcp_agents
-2. **Analisar Duplicidade**: Verifique se já existe conexão ao mesmo servidor
-3. **Verificar Informações**:
-   - Tem o nome/pacote do servidor MCP?
-   - Sabe se é stdio ou SSE?
-   - Tem comando e argumentos (se stdio)?
-   - Tem URL do servidor (se SSE)?
-4. **Decidir**:
-   - Se existe duplicado: INFORME o usuário
-   - Se falta info: PERGUNTE ao usuário
-   - Se não existe: Prossiga com criação
-5. **Criar**: Use builder_create_mcp_agent com todas as configurações
-6. **Confirmar**: Informe ao usuário que está pronto e conectado
-
-### Para Adicionar Endpoint HTTP:
-1. **Obter Agente**: Use builder_get_http_agent para ver endpoints existentes
-2. **Verificar Duplicidade**: Compare path_template e funcionalidade
-3. **Decidir**:
-   - Se endpoint igual/similar existe: INFORME o usuário e PERGUNTE
-   - Se é realmente novo: Prossiga
-4. **Criar**: Use builder_create_endpoint
-5. **Testar**: Valide com builder_test_endpoint
-6. **Confirmar**: Avise que mudança está ativa
-
-### Para Importar OpenAPI/Postman:
-1. **Listar Existentes**: Verifique agentes atuais
-2. **Importar**: Use builder_import_openapi ou builder_import_postman
-3. **Verificar Resultado**: Use builder_get_http_agent
-4. **Analisar Duplicidade**: Compare com agentes existentes
-5. **Se houver conflito**: PERGUNTE ao usuário se deve:
-   - Manter ambos
-   - Deletar o antigo
-   - Mesclar endpoints
-6. **Testar**: Valide endpoints críticos
-7. **Confirmar**: Informe ao usuário
-
-## 💡 EXEMPLOS DE SITUAÇÕES COMUNS
-
-Exemplo 1: Usuário pede endpoint que já existe
-- Usuário: "Cria um endpoint para buscar clima"
-- Você: [lista agentes, encontra weather_api com get_weather]
-- Resposta: "Já existe um agente OpenWeather com endpoint get_weather que busca clima por 
-  cidade. Você quer usar este existente ou precisa de algo diferente? Se sim, me diga o que 
-  seria diferente."
-
-Exemplo 2: Usuário quer criar agente para API que já tem
-- Usuário: "Cria um agente para a API do GitHub"
-- Você: [lista agentes, encontra github_api]
-- Resposta: "Já existe um agente GitHub API conectado a api.github.com. Ele tem os endpoints: 
-  get_repo, list_issues, create_issue. Você quer adicionar novos endpoints neste agente ou 
-  precisa de algo específico diferente?"
-
-Exemplo 3: Falta informação crítica
-- Usuário: "Cria um agente de CRM"
-- Você: Não sabe qual CRM, qual URL, quais endpoints
-- Resposta: "Para criar o agente CRM, preciso de algumas informações:
-  1. Qual sistema CRM? (Salesforce, HubSpot, outro?)
-  2. Qual a URL base da API?
-  3. Que funcionalidades você precisa? (listar clientes, criar contatos, etc.)
-  4. Tipo de autenticação necessária?
-  Me forneça essas informações para eu criar o agente corretamente."
-
-Exemplo 4: Importação com duplicidade
-- Você: [importa OpenAPI, descobre que já existe agente similar]
-- Resposta: "Importei a especificação e ela define 15 endpoints. Porém, já existe um agente 
-  payment_api que acessa a mesma API (api.payment.com) com 8 endpoints. Você quer:
-  1. Manter os dois agentes separados
-  2. Adicionar os 7 endpoints novos ao agente existente
-  3. Substituir o agente antigo por este novo completo
-  Qual opção você prefere?"
-
-Exemplo 5: Usuário pede servidor MCP que já existe
-- Usuário: "Conecta ao servidor MCP do filesystem"
-- Você: [lista MCPs, encontra filesystem já conectado]
-- Resposta: "Já existe um agente MCP Filesystem conectado ao servidor 
-  @modelcontextprotocol/server-filesystem. Ele está ativo e as ferramentas já estão disponíveis. 
-  Você quer usar este existente ou precisa configurar um diferente?"
-
-Exemplo 6: Falta informação sobre servidor MCP
-- Usuário: "Cria um agente MCP para buscar dados do Brave"
-- Você: Não sabe qual servidor MCP usar, comando, argumentos
-- Resposta: "Para criar o agente MCP do Brave, preciso saber:
-  1. Qual servidor MCP específico? (Ex: @modelcontextprotocol/server-brave-search)
-  2. É stdio ou SSE?
-  3. Se stdio: qual o comando? (Ex: npx, node)
-  4. Quais argumentos necessários?
-  5. Precisa de API key? Se sim, qual variável de ambiente?
-  Me forneça essas informações ou indique onde posso encontrar a documentação do servidor."
-
-## 🎯 COMUNICAÇÃO COM O USUÁRIO
-
-**SEMPRE:**
-- Informe sobre agentes/endpoints/servidores existentes antes de criar novos
-- Pergunte quando houver dúvida ou falta de informação
-- Seja específico sobre o que foi encontrado
-- Apresente opções claras ao usuário
-- Confirme que mudanças estão ativas (hot reload)
-- Liste funcionalidades disponíveis após criação
-
-**NUNCA:**
-- Assuma informações que não tem (URLs, comandos, servidores MCP)
-- Crie duplicatas sem avisar o usuário
-- Invente URLs, comandos ou configurações
-- Prossiga quando houver ambiguidade
-
-## 🔍 CHECKLIST ANTES DE CRIAR
-
-Antes de criar QUALQUER agente (HTTP ou MCP) ou endpoint, responda mentalmente:
-
-**Para HTTP Agents:**
-✓ Já listei TODOS os agentes HTTP existentes?
-✓ Verifiquei os endpoints de agentes similares?
-✓ Confirmei que não existe agente com mesmo base_url?
-✓ Confirmei que não existe endpoint com mesmo path_template?
-✓ Se existe similar, perguntei ao usuário?
-
-**Para MCP Agents:**
-✓ Já listei TODOS os agentes MCP existentes?
-✓ Confirmei que não existe conexão ao mesmo servidor MCP?
-✓ Tenho o nome/pacote correto do servidor MCP?
-✓ Sei se é stdio ou SSE?
-✓ Tenho comando/argumentos (stdio) ou URL (SSE)?
-✓ Se existe similar, perguntei ao usuário?
-
-**Para Ambos:**
-✓ Tenho TODAS as informações necessárias?
-✓ Se falta informação, perguntei ao usuário?
-✓ O JSON Schema está correto (HTTP endpoints)?
-✓ Os nomes são descritivos e únicos?
-
-Se alguma resposta for NÃO: PARE e pergunte ao usuário.
-
-Você tem autonomia para criar e gerenciar agentes, MAS deve sempre evitar duplicidade e pedir informações quando necessário. Seja proativo em verificar, mas conservador em assumir.`,
-			Enabled: true,
-			LLM:     llmClient,
+			Name:         "builder",
+			DisplayName:  "Agent Builder",
+			Description:  "Specialist in creating and managing HTTP and MCP agents. Creates agents from OpenAPI/Postman or natural instructions. ALWAYS checks for duplicates before creating.",
+			AgentType:    "internal",
+			Model:        model,
+			SystemPrompt: builderAgentSystemPrompt(),
+			Enabled:      true,
+			LLM:          llmClient,
 		},
 		manager: manager,
 	}
@@ -362,532 +154,534 @@ func (a *BuilderAgent) CanHandle(toolName string) bool {
 	return false
 }
 
-// GetTools retorna as ferramentas disponíveis para o agente
+// GetTools returns the available tools for the agent
 func (a *BuilderAgent) GetTools() []Tool {
 	return []Tool{
-		// HTTP Agent CRUD
+		// ==================== HTTP Agent CRUD ====================
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_create_http_agent",
-				Description: "Cria um novo agente HTTP. ATENÇÃO: Use builder_list_http_agents PRIMEIRO para verificar se já existe agente para a mesma API (mesmo base_url). Se existir, adicione endpoints ao agente existente em vez de criar duplicado.",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"name": map[string]interface{}{
-							"type":        "string",
-							"description": "Nome interno do agente (snake_case, ex: github_api)",
-						},
-						"display_name": map[string]interface{}{
-							"type":        "string",
-							"description": "Nome de exibição (ex: GitHub API)",
-						},
-						"description": map[string]interface{}{
-							"type":        "string",
-							"description": "Descrição do que o agente faz",
-						},
-						"model": map[string]interface{}{
-							"type":        "string",
-							"description": "Modelo LLM (padrão: gpt-4o-mini)",
-						},
-						"base_url": map[string]interface{}{
-							"type":        "string",
-							"description": "URL base da API (ex: https://api.github.com)",
-						},
-						"auth_type": map[string]interface{}{
-							"type":        "string",
-							"description": "Tipo de auth: bearer, api-key, basic, none",
-							"enum":        []string{"bearer", "api-key", "basic", "none"},
-						},
-						"auth_config": map[string]interface{}{
-							"type":        "string",
-							"description": "JSON com config de auth (ex: {\"token\": \"ENV:TOKEN\"})",
-						},
-						"default_headers": map[string]interface{}{
-							"type":        "string",
-							"description": "JSON com headers padrão",
-						},
-						"timeout_seconds": map[string]interface{}{
-							"type":        "integer",
-							"description": "Timeout em segundos (padrão: 30)",
-						},
-						"retry_count": map[string]interface{}{
-							"type":        "integer",
-							"description": "Tentativas em erro (padrão: 3)",
-						},
-					},
-					"required": []string{"name", "display_name", "base_url"},
-				},
+				Name: "builder_list_http_agents",
+				Description: NewToolDescription("Lists all HTTP agents registered in the system").
+					WhenToUse(
+						"ALWAYS as FIRST STEP before creating any HTTP agent",
+						"To check if an agent for a specific API already exists",
+						"To find the ID of an existing agent",
+						"To see which APIs are already connected",
+					).
+					WhenNotToUse(
+						"If already listed recently in the same conversation",
+					).
+					Returns("List of HTTP agents with ID, name, description, and status (enabled/disabled)").
+					Notes(
+						"Use this list to avoid creating duplicate agents",
+						"After listing, use builder_get_http_agent to see endpoints of specific agents",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{}, nil),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_get_http_agent",
-				Description: "Obtém detalhes completos de um agente HTTP incluindo endpoints",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"agent_id": map[string]interface{}{
-							"type":        "integer",
-							"description": "ID do agente HTTP",
-						},
-					},
-					"required": []string{"agent_id"},
-				},
+				Name: "builder_get_http_agent",
+				Description: NewToolDescription("Gets complete details of an HTTP agent including all its endpoints").
+					WhenToUse(
+						"Before creating endpoint, to see existing endpoints",
+						"To check if a specific endpoint already exists",
+						"To see current configuration (base_url, auth, etc)",
+						"To identify duplicate functionality",
+					).
+					Returns("Agent details: name, base_url, auth, and list of all endpoints with path_template").
+					Notes(
+						"ALWAYS use this tool before builder_create_endpoint",
+						"Check path_template to avoid duplicate endpoints",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"agent_id": JSONSchemaInt(
+						NewParamDescription("HTTP agent ID (obtained via builder_list_http_agents)").
+							Examples("1", "5", "12").Build(),
+					),
+				}, []string{"agent_id"}),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_list_http_agents",
-				Description: "Lista todos os agentes HTTP cadastrados",
-				Parameters: map[string]interface{}{
-					"type":       "object",
-					"properties": map[string]interface{}{},
-				},
+				Name: "builder_create_http_agent",
+				Description: NewToolDescription("Creates a new HTTP agent to connect to an external REST API").
+					WhenToUse(
+						"After confirming with builder_list_http_agents that no similar agent exists",
+						"When user provided the API base_url",
+						"When you have sufficient information (URL, auth if needed)",
+					).
+					WhenNotToUse(
+						"NEVER use without first listing existing agents",
+						"If an agent with the same base_url exists - add endpoints to the existing one",
+						"If critical information is missing (URL, auth type) - ask user first",
+					).
+					Returns("Created agent ID and hot reload confirmation").
+					Notes(
+						"After creating, use builder_create_endpoint to add functionality",
+						"Agent becomes available IMMEDIATELY (hot reload)",
+						"name must be unique snake_case (e.g., github_api, weather_api)",
+						"Use ENV:VAR for sensitive tokens in auth_config",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"name": JSONSchemaString(
+						NewParamDescription("Unique internal agent name").
+							Formats("snake_case").
+							Examples("github_api", "openweather_api", "stripe_payments").Build(),
+					),
+					"display_name": JSONSchemaString(
+						NewParamDescription("User-friendly display name").
+							Examples("GitHub API", "OpenWeather", "Stripe Payments").Build(),
+					),
+					"description": JSONSchemaString(
+						NewParamDescription("Description of what the agent does").Build(),
+					),
+					"base_url": JSONSchemaString(
+						NewParamDescription("API base URL (without trailing slash)").
+							Formats("https://...").
+							Examples("https://api.github.com", "https://api.openweathermap.org").Build(),
+					),
+					"auth_type": JSONSchemaStringEnum(
+						NewParamDescription("Authentication type").
+							Default("none").Build(),
+						[]string{"bearer", "api-key", "basic", "none"},
+					),
+					"auth_config": JSONSchemaString(
+						NewParamDescription("JSON with auth configuration").
+							Examples(
+								`{"token": "ENV:GITHUB_TOKEN"}`,
+								`{"key": "ENV:API_KEY", "header": "X-API-Key"}`,
+								`{"username": "user", "password": "ENV:PASS"}`,
+							).Build(),
+					),
+					"default_headers": JSONSchemaString(
+						NewParamDescription("JSON with default headers for all requests").
+							Examples(`{"Accept": "application/json"}`).Build(),
+					),
+					"model": JSONSchemaString(
+						NewParamDescription("LLM model for the agent").Default("gpt-4o-mini").Build(),
+					),
+					"timeout_seconds": JSONSchemaInt(
+						NewParamDescription("Request timeout in seconds").Default("30").Build(),
+					),
+					"retry_count": JSONSchemaInt(
+						NewParamDescription("Number of retries on error").Default("3").Build(),
+					),
+				}, []string{"name", "display_name", "base_url"}),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_update_http_agent",
-				Description: "Atualiza configurações de um agente HTTP existente",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"agent_id": map[string]interface{}{
-							"type":        "integer",
-							"description": "ID do agente HTTP",
-						},
-						"display_name": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo nome de exibição",
-						},
-						"description": map[string]interface{}{
-							"type":        "string",
-							"description": "Nova descrição",
-						},
-						"model": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo modelo LLM",
-						},
-						"base_url": map[string]interface{}{
-							"type":        "string",
-							"description": "Nova URL base",
-						},
-						"auth_type": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo tipo de auth",
-						},
-						"auth_config": map[string]interface{}{
-							"type":        "string",
-							"description": "Nova config de auth (JSON)",
-						},
-						"default_headers": map[string]interface{}{
-							"type":        "string",
-							"description": "Novos headers padrão (JSON)",
-						},
-						"timeout_seconds": map[string]interface{}{
-							"type":        "integer",
-							"description": "Novo timeout",
-						},
-						"retry_count": map[string]interface{}{
-							"type":        "integer",
-							"description": "Novo retry count",
-						},
-						"enabled": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Habilitar/desabilitar",
-						},
-					},
-					"required": []string{"agent_id"},
-				},
+				Name: "builder_update_http_agent",
+				Description: NewToolDescription("Updates configuration of an existing HTTP agent").
+					WhenToUse(
+						"To change base_url, auth, or headers of existing agent",
+						"To enable/disable an agent",
+						"To fix authentication configuration",
+					).
+					Returns("Update confirmation and hot reload").
+					Notes(
+						"Changes become active IMMEDIATELY",
+						"Only pass fields you want to change",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"agent_id": JSONSchemaInt(
+						NewParamDescription("ID of HTTP agent to update").Build(),
+					),
+					"display_name":    JSONSchemaString(NewParamDescription("New display name").Build()),
+					"description":     JSONSchemaString(NewParamDescription("New description").Build()),
+					"model":           JSONSchemaString(NewParamDescription("New LLM model").Build()),
+					"base_url":        JSONSchemaString(NewParamDescription("New base URL").Build()),
+					"auth_type":       JSONSchemaStringEnum(NewParamDescription("New auth type").Build(), []string{"bearer", "api-key", "basic", "none"}),
+					"auth_config":     JSONSchemaString(NewParamDescription("New auth config (JSON)").Build()),
+					"default_headers": JSONSchemaString(NewParamDescription("New default headers (JSON)").Build()),
+					"timeout_seconds": JSONSchemaInt(NewParamDescription("New timeout in seconds").Build()),
+					"retry_count":     JSONSchemaInt(NewParamDescription("New retry count").Build()),
+					"enabled":         JSONSchemaBool(NewParamDescription("Enable or disable the agent").Build()),
+				}, []string{"agent_id"}),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_delete_http_agent",
-				Description: "Deleta um agente HTTP",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"agent_id": map[string]interface{}{
-							"type":        "integer",
-							"description": "ID do agente HTTP",
-						},
-					},
-					"required": []string{"agent_id"},
-				},
-			},
-		},
-
-		// HTTP Endpoints
-		{
-			Type: "function",
-			Function: ToolFunction{
-				Name:        "builder_create_endpoint",
-				Description: "Cria um endpoint em agente HTTP existente. CRÍTICO: Use builder_get_http_agent PRIMEIRO para ver endpoints existentes e evitar duplicidade. NÃO crie endpoint se já existe um com mesmo path_template ou funcionalidade similar - pergunte ao usuário.",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"agent_id": map[string]interface{}{
-							"type":        "integer",
-							"description": "ID do agente HTTP",
-						},
-						"name": map[string]interface{}{
-							"type":        "string",
-							"description": "Nome do endpoint (ex: get_user)",
-						},
-						"description": map[string]interface{}{
-							"type":        "string",
-							"description": "Descrição do que o endpoint faz",
-						},
-						"method": map[string]interface{}{
-							"type":        "string",
-							"description": "Método HTTP (GET, POST, PUT, DELETE, PATCH)",
-							"enum":        []string{"GET", "POST", "PUT", "DELETE", "PATCH"},
-						},
-						"path_template": map[string]interface{}{
-							"type":        "string",
-							"description": "Template do path (ex: /users/{{.user_id}})",
-						},
-						"query_template": map[string]interface{}{
-							"type":        "string",
-							"description": "Template de query params (ex: page={{.page}})",
-						},
-						"headers_json": map[string]interface{}{
-							"type":        "string",
-							"description": "Headers específicos (JSON)",
-						},
-						"body_template": map[string]interface{}{
-							"type":        "string",
-							"description": "Template do body para POST/PUT",
-						},
-						"parameters": map[string]interface{}{
-							"type":        "string",
-							"description": "JSON Schema dos parâmetros",
-						},
-						"response_template": map[string]interface{}{
-							"type":        "string",
-							"description": "Template para formatar resposta",
-						},
-					},
-					"required": []string{"agent_id", "name", "method", "path_template"},
-				},
-			},
-		},
-		{
-			Type: "function",
-			Function: ToolFunction{
-				Name:        "builder_update_endpoint",
-				Description: "Atualiza um endpoint existente",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"endpoint_id": map[string]interface{}{
-							"type":        "integer",
-							"description": "ID do endpoint",
-						},
-						"name": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo nome",
-						},
-						"description": map[string]interface{}{
-							"type":        "string",
-							"description": "Nova descrição",
-						},
-						"method": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo método HTTP",
-						},
-						"path_template": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo path template",
-						},
-						"query_template": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo query template",
-						},
-						"headers_json": map[string]interface{}{
-							"type":        "string",
-							"description": "Novos headers",
-						},
-						"body_template": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo body template",
-						},
-						"parameters": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo JSON Schema",
-						},
-						"response_template": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo response template",
-						},
-					},
-					"required": []string{"endpoint_id"},
-				},
-			},
-		},
-		{
-			Type: "function",
-			Function: ToolFunction{
-				Name:        "builder_delete_endpoint",
-				Description: "Deleta um endpoint",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"endpoint_id": map[string]interface{}{
-							"type":        "integer",
-							"description": "ID do endpoint",
-						},
-					},
-					"required": []string{"endpoint_id"},
-				},
-			},
-		},
-		{
-			Type: "function",
-			Function: ToolFunction{
-				Name:        "builder_test_endpoint",
-				Description: "Testa um endpoint com parâmetros",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"agent_id": map[string]interface{}{
-							"type":        "integer",
-							"description": "ID do agente HTTP",
-						},
-						"endpoint_name": map[string]interface{}{
-							"type":        "string",
-							"description": "Nome do endpoint a testar",
-						},
-						"params_json": map[string]interface{}{
-							"type":        "string",
-							"description": "JSON com parâmetros (ex: {\"user_id\": 123})",
-						},
-					},
-					"required": []string{"agent_id", "endpoint_name"},
-				},
+				Name: "builder_delete_http_agent",
+				Description: NewToolDescription("Deletes an HTTP agent and all its endpoints").
+					WhenToUse(
+						"When user confirms they want to remove the agent",
+						"To clean up duplicate or unused agents",
+					).
+					WhenNotToUse(
+						"Without user confirmation - this action is irreversible",
+					).
+					Returns("Deletion confirmation").
+					Notes(
+						"IRREVERSIBLE ACTION - all endpoints are also deleted",
+						"Ask for user confirmation before executing",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"agent_id": JSONSchemaInt(NewParamDescription("ID of HTTP agent to delete").Build()),
+				}, []string{"agent_id"}),
 			},
 		},
 
-		// Import
+		// ==================== HTTP Endpoints ====================
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_import_openapi",
-				Description: "Importa agente completo de especificação OpenAPI (YAML ou JSON)",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"content": map[string]interface{}{
-							"type":        "string",
-							"description": "Conteúdo da especificação OpenAPI (YAML ou JSON)",
-						},
-						"name": map[string]interface{}{
-							"type":        "string",
-							"description": "Nome para o agente",
-						},
-						"model": map[string]interface{}{
-							"type":        "string",
-							"description": "Modelo LLM (padrão: gpt-4o-mini)",
-						},
-					},
-					"required": []string{"content", "name"},
-				},
+				Name: "builder_create_endpoint",
+				Description: NewToolDescription("Adds a new endpoint to an existing HTTP agent").
+					WhenToUse(
+						"After verifying with builder_get_http_agent that endpoint doesn't exist",
+						"When user asks for new functionality for existing API",
+						"When you have complete information (method, path, params)",
+					).
+					WhenNotToUse(
+						"NEVER use without first checking existing endpoints",
+						"If endpoint with same path_template already exists",
+						"If similar functionality is already available - ask user",
+					).
+					Returns("Created endpoint ID and confirmation").
+					Notes(
+						"path_template uses Go templates: /users/{{.user_id}}",
+						"parameters MUST be valid JSON Schema",
+						"Format: {\"type\":\"object\",\"properties\":{...},\"required\":[...]}",
+						"name must be descriptive snake_case: get_user, create_issue",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"agent_id": JSONSchemaInt(
+						NewParamDescription("ID of HTTP agent that will receive the endpoint").Build(),
+					),
+					"name": JSONSchemaString(
+						NewParamDescription("Unique endpoint name").
+							Formats("snake_case").
+							Examples("get_user", "create_issue", "search_repos", "delete_comment").Build(),
+					),
+					"description": JSONSchemaString(
+						NewParamDescription("Clear description of what the endpoint does").Build(),
+					),
+					"method": JSONSchemaStringEnum(
+						NewParamDescription("HTTP method").Build(),
+						[]string{"GET", "POST", "PUT", "DELETE", "PATCH"},
+					),
+					"path_template": JSONSchemaString(
+						NewParamDescription("Path template with variables in Go template format").
+							Examples("/users/{{.user_id}}", "/repos/{{.owner}}/{{.repo}}/issues", "/search").Build(),
+					),
+					"query_template": JSONSchemaString(
+						NewParamDescription("Query params template").
+							Examples("page={{.page}}&per_page={{.per_page}}", "q={{.query}}").Build(),
+					),
+					"headers_json": JSONSchemaString(
+						NewParamDescription("Endpoint-specific headers (JSON)").Build(),
+					),
+					"body_template": JSONSchemaString(
+						NewParamDescription("Body template for POST/PUT/PATCH (JSON with Go templates)").
+							Examples(`{"title": "{{.title}}", "body": "{{.body}}"}`).Build(),
+					),
+					"parameters": JSONSchemaString(
+						NewParamDescription("JSON Schema for accepted parameters").
+							Examples(
+								`{"type":"object","properties":{"user_id":{"type":"string","description":"User ID"}},"required":["user_id"]}`,
+							).Build(),
+					),
+					"response_template": JSONSchemaString(
+						NewParamDescription("Template to format the response").Build(),
+					),
+				}, []string{"agent_id", "name", "method", "path_template"}),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_import_postman",
-				Description: "Importa agente de coleção Postman (JSON)",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"content": map[string]interface{}{
-							"type":        "string",
-							"description": "JSON da coleção Postman",
-						},
-						"name": map[string]interface{}{
-							"type":        "string",
-							"description": "Nome para o agente",
-						},
-						"model": map[string]interface{}{
-							"type":        "string",
-							"description": "Modelo LLM (padrão: gpt-4o-mini)",
-						},
-					},
-					"required": []string{"content", "name"},
-				},
+				Name: "builder_update_endpoint",
+				Description: NewToolDescription("Updates configuration of an existing endpoint").
+					WhenToUse(
+						"To fix path_template or parameters",
+						"To improve endpoint description",
+						"To adjust body_template or query_template",
+					).
+					Returns("Update confirmation").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"endpoint_id":       JSONSchemaInt(NewParamDescription("ID of endpoint to update").Build()),
+					"name":              JSONSchemaString(NewParamDescription("New name").Build()),
+					"description":       JSONSchemaString(NewParamDescription("New description").Build()),
+					"method":            JSONSchemaStringEnum(NewParamDescription("New method").Build(), []string{"GET", "POST", "PUT", "DELETE", "PATCH"}),
+					"path_template":     JSONSchemaString(NewParamDescription("New path template").Build()),
+					"query_template":    JSONSchemaString(NewParamDescription("New query template").Build()),
+					"headers_json":      JSONSchemaString(NewParamDescription("New headers (JSON)").Build()),
+					"body_template":     JSONSchemaString(NewParamDescription("New body template").Build()),
+					"parameters":        JSONSchemaString(NewParamDescription("New parameter JSON Schema").Build()),
+					"response_template": JSONSchemaString(NewParamDescription("New response template").Build()),
+				}, []string{"endpoint_id"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "builder_delete_endpoint",
+				Description: NewToolDescription("Removes an endpoint from an HTTP agent").
+					WhenToUse(
+						"When user confirms removal",
+						"To clean up duplicate endpoints",
+					).
+					WhenNotToUse(
+						"Without user confirmation",
+					).
+					Returns("Deletion confirmation").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"endpoint_id": JSONSchemaInt(NewParamDescription("ID of endpoint to delete").Build()),
+				}, []string{"endpoint_id"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "builder_test_endpoint",
+				Description: NewToolDescription("Tests an endpoint with real parameters to validate it works").
+					WhenToUse(
+						"After creating or updating endpoint",
+						"To verify configuration is correct",
+						"To show user it works",
+					).
+					Returns("HTTP call result (success or detailed error)").
+					Notes(
+						"Provides diagnosis if there's an error",
+						"Use to validate before confirming to user",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"agent_id": JSONSchemaInt(NewParamDescription("HTTP agent ID").Build()),
+					"endpoint_name": JSONSchemaString(
+						NewParamDescription("Name of endpoint to test").
+							Examples("get_user", "search_repos").Build(),
+					),
+					"params_json": JSONSchemaString(
+						NewParamDescription("JSON with parameters for the test").
+							Examples(`{"user_id": "octocat"}`, `{"query": "rust"}`).Build(),
+					),
+				}, []string{"agent_id", "endpoint_name"}),
 			},
 		},
 
-		// MCP Agents
+		// ==================== Import ====================
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_create_mcp_agent",
-				Description: "Cria um agente MCP (stdio ou SSE). ATENÇÃO: Use builder_list_mcp_agents PRIMEIRO para verificar se já existe conexão ao mesmo servidor MCP. Não crie múltiplas conexões ao mesmo servidor sem consultar o usuário. Se faltar informação (comando, URL, args), pergunte ao usuário em vez de assumir.",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"name": map[string]interface{}{
-							"type":        "string",
-							"description": "Nome interno (snake_case)",
-						},
-						"display_name": map[string]interface{}{
-							"type":        "string",
-							"description": "Nome de exibição",
-						},
-						"description": map[string]interface{}{
-							"type":        "string",
-							"description": "Descrição",
-						},
-						"model": map[string]interface{}{
-							"type":        "string",
-							"description": "Modelo LLM",
-						},
-						"transport_type": map[string]interface{}{
-							"type":        "string",
-							"description": "Tipo de transporte: stdio ou http",
-							"enum":        []string{"stdio", "http"},
-						},
-						"server_command": map[string]interface{}{
-							"type":        "string",
-							"description": "Comando do servidor (para stdio)",
-						},
-						"server_args": map[string]interface{}{
-							"type":        "string",
-							"description": "Argumentos do servidor (JSON array)",
-						},
-						"server_env": map[string]interface{}{
-							"type":        "string",
-							"description": "Variáveis de ambiente (JSON)",
-						},
-						"working_dir": map[string]interface{}{
-							"type":        "string",
-							"description": "Diretório de trabalho",
-						},
-						"server_url": map[string]interface{}{
-							"type":        "string",
-							"description": "URL do servidor (para http)",
-						},
-						"auth_type": map[string]interface{}{
-							"type":        "string",
-							"description": "Tipo de auth para http",
-						},
-						"auth_value": map[string]interface{}{
-							"type":        "string",
-							"description": "Valor de auth",
-						},
-						"http_headers": map[string]interface{}{
-							"type":        "string",
-							"description": "Headers HTTP (JSON)",
-						},
-						"auto_connect": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Conectar automaticamente",
-						},
-					},
-					"required": []string{"name", "display_name", "transport_type"},
-				},
+				Name: "builder_import_openapi",
+				Description: NewToolDescription("Imports a complete agent from OpenAPI/Swagger specification").
+					WhenToUse(
+						"When user provides OpenAPI file (YAML or JSON)",
+						"To create agent with many endpoints quickly",
+						"To ensure fidelity to API specification",
+					).
+					WhenNotToUse(
+						"For APIs without OpenAPI spec - use builder_create_http_agent",
+					).
+					Returns("Agent created with all endpoints from specification").
+					Notes(
+						"Supports OpenAPI 2.0 (Swagger) and OpenAPI 3.x",
+						"Accepts YAML or JSON",
+						"After importing, check for duplicates with existing agents",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"content": JSONSchemaString(
+						NewParamDescription("Complete OpenAPI specification content").
+							Formats("YAML", "JSON").Build(),
+					),
+					"name": JSONSchemaString(
+						NewParamDescription("Name for created agent").
+							Formats("snake_case").Build(),
+					),
+					"model": JSONSchemaString(
+						NewParamDescription("LLM model").Default("gpt-4o-mini").Build(),
+					),
+				}, []string{"content", "name"}),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_list_mcp_agents",
-				Description: "Lista todos os agentes MCP cadastrados",
-				Parameters: map[string]interface{}{
-					"type":       "object",
-					"properties": map[string]interface{}{},
-				},
+				Name: "builder_import_postman",
+				Description: NewToolDescription("Imports an agent from Postman collection").
+					WhenToUse(
+						"When user provides Postman JSON file",
+						"To convert existing Postman collection to agent",
+					).
+					Returns("Agent created with endpoints from collection").
+					Notes(
+						"Supports Postman Collection v2.x format",
+						"Environment variables are converted to templates",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"content": JSONSchemaString(
+						NewParamDescription("Complete Postman collection JSON").Build(),
+					),
+					"name": JSONSchemaString(
+						NewParamDescription("Name for created agent").
+							Formats("snake_case").Build(),
+					),
+					"model": JSONSchemaString(
+						NewParamDescription("LLM model").Default("gpt-4o-mini").Build(),
+					),
+				}, []string{"content", "name"}),
+			},
+		},
+
+		// ==================== MCP Agents ====================
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "builder_list_mcp_agents",
+				Description: NewToolDescription("Lists all MCP agents registered").
+					WhenToUse(
+						"ALWAYS as FIRST STEP before creating MCP agent",
+						"To check if connection to desired server already exists",
+						"To find ID of existing MCP agent",
+					).
+					Returns("List of MCP agents with transport type (stdio/http) and configuration").
+					Notes(
+						"Use to avoid creating multiple connections to same server",
+						"Check server_command or server_url to identify duplicates",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{}, nil),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_update_mcp_agent",
-				Description: "Atualiza configurações de um agente MCP",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"agent_id": map[string]interface{}{
-							"type":        "integer",
-							"description": "ID do agente MCP",
-						},
-						"display_name": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo nome de exibição",
-						},
-						"description": map[string]interface{}{
-							"type":        "string",
-							"description": "Nova descrição",
-						},
-						"model": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo modelo LLM",
-						},
-						"enabled": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Habilitar/desabilitar",
-						},
-						"server_command": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo comando (stdio)",
-						},
-						"server_args": map[string]interface{}{
-							"type":        "string",
-							"description": "Novos argumentos",
-						},
-						"server_env": map[string]interface{}{
-							"type":        "string",
-							"description": "Novas variáveis de ambiente",
-						},
-						"server_url": map[string]interface{}{
-							"type":        "string",
-							"description": "Nova URL (http)",
-						},
-						"auth_type": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo tipo de auth",
-						},
-						"auth_value": map[string]interface{}{
-							"type":        "string",
-							"description": "Novo valor de auth",
-						},
-						"http_headers": map[string]interface{}{
-							"type":        "string",
-							"description": "Novos headers",
-						},
-						"auto_connect": map[string]interface{}{
-							"type":        "boolean",
-							"description": "Auto conectar",
-						},
-					},
-					"required": []string{"agent_id"},
-				},
+				Name: "builder_create_mcp_agent",
+				Description: NewToolDescription("Creates a new MCP agent to connect to a Model Context Protocol server").
+					WhenToUse(
+						"After confirming with builder_list_mcp_agents that no similar connection exists",
+						"When user provided MCP server information",
+						"When you have: type (stdio/http), command/URL, arguments if needed",
+					).
+					WhenNotToUse(
+						"NEVER use without first listing existing MCP agents",
+						"If connection to same server exists",
+						"If critical information is missing - ask user first",
+						"NEVER assume or invent MCP server commands/URLs",
+					).
+					Returns("Created agent ID and confirmation").
+					Notes(
+						"stdio: requires server_command and optionally server_args",
+						"http: requires server_url",
+						"Example stdio commands: npx, node, python",
+						"If auto_connect=true, connects immediately",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"name": JSONSchemaString(
+						NewParamDescription("Unique internal name").
+							Formats("snake_case").
+							Examples("filesystem_mcp", "brave_search_mcp", "postgres_mcp").Build(),
+					),
+					"display_name": JSONSchemaString(
+						NewParamDescription("Display name").
+							Examples("FileSystem MCP", "Brave Search", "PostgreSQL").Build(),
+					),
+					"description": JSONSchemaString(
+						NewParamDescription("Description of MCP server capabilities").Build(),
+					),
+					"transport_type": JSONSchemaStringEnum(
+						NewParamDescription("MCP server transport type").Build(),
+						[]string{"stdio", "http"},
+					),
+					"server_command": JSONSchemaString(
+						NewParamDescription("Command to start server (stdio)").
+							Examples("npx", "node", "python", "uvx").Build(),
+					),
+					"server_args": JSONSchemaString(
+						NewParamDescription("Command arguments (JSON array)").
+							Examples(
+								`["-y", "@modelcontextprotocol/server-filesystem", "/path"]`,
+								`["server.js"]`,
+							).Build(),
+					),
+					"server_env": JSONSchemaString(
+						NewParamDescription("Environment variables (JSON)").
+							Examples(`{"API_KEY": "ENV:MCP_API_KEY"}`).Build(),
+					),
+					"working_dir": JSONSchemaString(
+						NewParamDescription("Working directory for the server").Build(),
+					),
+					"server_url": JSONSchemaString(
+						NewParamDescription("Server URL (http)").
+							Examples("http://localhost:3000/mcp", "https://mcp.example.com").Build(),
+					),
+					"auth_type":    JSONSchemaString(NewParamDescription("Auth type for http").Build()),
+					"auth_value":   JSONSchemaString(NewParamDescription("Auth value").Build()),
+					"http_headers": JSONSchemaString(NewParamDescription("Additional HTTP headers (JSON)").Build()),
+					"model": JSONSchemaString(
+						NewParamDescription("LLM model").Default("gpt-4o-mini").Build(),
+					),
+					"auto_connect": JSONSchemaBool(
+						NewParamDescription("Connect automatically on creation").Default("false").Build(),
+					),
+				}, []string{"name", "display_name", "transport_type"}),
 			},
 		},
 		{
 			Type: "function",
 			Function: ToolFunction{
-				Name:        "builder_delete_mcp_agent",
-				Description: "Deleta um agente MCP",
-				Parameters: map[string]interface{}{
-					"type": "object",
-					"properties": map[string]interface{}{
-						"agent_id": map[string]interface{}{
-							"type":        "integer",
-							"description": "ID do agente MCP",
-						},
-					},
-					"required": []string{"agent_id"},
-				},
+				Name: "builder_update_mcp_agent",
+				Description: NewToolDescription("Updates configuration of an existing MCP agent").
+					WhenToUse(
+						"To change command, arguments, or server URL",
+						"To enable/disable agent",
+						"To fix configuration",
+					).
+					Returns("Update confirmation and hot reload").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"agent_id":       JSONSchemaInt(NewParamDescription("ID of MCP agent to update").Build()),
+					"display_name":   JSONSchemaString(NewParamDescription("New display name").Build()),
+					"description":    JSONSchemaString(NewParamDescription("New description").Build()),
+					"model":          JSONSchemaString(NewParamDescription("New LLM model").Build()),
+					"enabled":        JSONSchemaBool(NewParamDescription("Enable or disable").Build()),
+					"server_command": JSONSchemaString(NewParamDescription("New command (stdio)").Build()),
+					"server_args":    JSONSchemaString(NewParamDescription("New arguments (JSON array)").Build()),
+					"server_env":     JSONSchemaString(NewParamDescription("New environment variables (JSON)").Build()),
+					"server_url":     JSONSchemaString(NewParamDescription("New URL (http)").Build()),
+					"auth_type":      JSONSchemaString(NewParamDescription("New auth type").Build()),
+					"auth_value":     JSONSchemaString(NewParamDescription("New auth value").Build()),
+					"http_headers":   JSONSchemaString(NewParamDescription("New headers (JSON)").Build()),
+					"auto_connect":   JSONSchemaBool(NewParamDescription("Auto connect").Build()),
+				}, []string{"agent_id"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "builder_delete_mcp_agent",
+				Description: NewToolDescription("Removes an MCP agent from the system").
+					WhenToUse(
+						"When user confirms removal",
+						"To clean up duplicate or unused agents",
+					).
+					WhenNotToUse(
+						"Without user confirmation - irreversible action",
+					).
+					Returns("Deletion confirmation").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"agent_id": JSONSchemaInt(NewParamDescription("ID of MCP agent to delete").Build()),
+				}, []string{"agent_id"}),
 			},
 		},
 	}

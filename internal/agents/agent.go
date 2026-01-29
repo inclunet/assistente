@@ -86,6 +86,17 @@ type ConversationContextSetter interface {
 	SetConversationContext(conversationID uint, saver llm.MessageSaver)
 }
 
+// DelegationDescriptionProvider é uma interface opcional para agentes que fornecem
+// descrições otimizadas para o orquestrador decidir quando delegar.
+// Agentes que não implementam usam GetDescription() padrão.
+type DelegationDescriptionProvider interface {
+	// GetDelegationDescription retorna descrição formatada com:
+	// - CAPABILITIES: o que o agente pode fazer
+	// - DELEGATE WHEN: critérios para o orquestrador delegar
+	// - DO NOT DELEGATE: quando não delegar
+	GetDelegationDescription() string
+}
+
 // BaseAgent fornece implementação base para campos comuns
 type BaseAgent struct {
 	Name           string
