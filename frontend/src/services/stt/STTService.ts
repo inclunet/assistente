@@ -124,7 +124,7 @@ export class STTService extends EventTarget {
       });
       await this.whisperProvider.init();
 
-      // Inicializa AudioRecorder para modo RECORD_AUDIO
+      // Cria AudioRecorder (sem inicializar stream ainda - lazy init)
       this.audioRecorder = new AudioRecorder({
         onStart: () => this.handleRecordingStart(),
         onStop: (blob) => this.handleAudioBlob(blob),
@@ -133,7 +133,7 @@ export class STTService extends EventTarget {
           this.handleError(message);
         },
       });
-      await this.audioRecorder.init();
+      // NÃO inicializa o stream aqui - será feito sob demanda em startActualRecording()
 
       this._initialized = true;
       console.log('[STTService] Inicializado');
@@ -284,6 +284,9 @@ export class STTService extends EventTarget {
     this.setState(STT_STATES.IDLE);
     this._interimText = '';
     this.callbacks.onRecordingCancelled();
+    
+    // Libera o microfone após cancelar
+    this.releaseMicrophoneIfNotNeeded();
   }
 
   /**
@@ -308,9 +311,14 @@ export class STTService extends EventTarget {
 
   private async startActualRecording(): Promise<void> {
     if (this.config.mode === RECORDING_MODES.RECORD_AUDIO) {
+      // Inicializa stream do microfone se necessário (lazy init)
+      if (this.audioRecorder && !this.audioRecorder.hasActiveStream) {
+        await this.audioRecorder.init();
+      }
       this.audioRecorder?.start();
     } else if (this.config.provider === STT_PROVIDERS.WHISPER_API) {
-      this.whisperProvider?.start();
+      // WhisperProvider.start() é async para lazy init do microfone
+      await this.whisperProvider?.start();
     } else {
       this.webSpeechProvider?.start();
     }
@@ -400,6 +408,23 @@ export class STTService extends EventTarget {
     }
   }
 
+  /**
+   * Libera o microfone se o modo atual não requer escuta contínua.
+   * Modos PTT, Toggle e RECORD_AUDIO não precisam do microfone ligado o tempo todo.
+   */
+  private releaseMicrophoneIfNotNeeded(): void {
+    // Modos que NÃO precisam do microfone continuamente ligado
+    const modesWithoutContinuousListening: RecordingMode[] = [
+      RECORDING_MODES.PTT,
+      RECORDING_MODES.TOGGLE,
+      RECORDING_MODES.RECORD_AUDIO,
+    ];
+
+    if (modesWithoutContinuousListening.includes(this.config.mode)) {
+      this.audioRecorder?.releaseStream();
+    }
+  }
+
   // === Handlers ===
 
   private handleRecordingStart(): void {
@@ -439,6 +464,9 @@ export class STTService extends EventTarget {
     }
 
     this._interimText = '';
+    
+    // Libera o microfone em modos que não precisam de escuta contínua
+    this.releaseMicrophoneIfNotNeeded();
   }
 
   private handleAudioBlob(blob: Blob): void {
@@ -447,6 +475,9 @@ export class STTService extends EventTarget {
       this.callbacks.onAudioFile(file, blob);
       this.dispatchEvent(new CustomEvent('audioFile', { detail: { file, blob } }));
       this.setState(STT_STATES.IDLE);
+      
+      // Libera o microfone após gravar áudio
+      this.releaseMicrophoneIfNotNeeded();
     }
   }
 

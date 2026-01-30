@@ -213,6 +213,38 @@ export class AudioRecorder {
   }
 
   /**
+   * Libera apenas o stream do microfone, mantendo o objeto reutilizável.
+   * Útil para modos PTT/Toggle onde queremos desligar o microfone após cada gravação.
+   */
+  releaseStream(): void {
+    if (this._isRecording) {
+      console.warn('[AudioRecorder] Não é possível liberar stream durante gravação');
+      return;
+    }
+
+    if (this.stream) {
+      this.stream.getTracks().forEach(track => track.stop());
+      this.stream = null;
+      console.log('[AudioRecorder] Stream do microfone liberado');
+    }
+    
+    if (this.audioContext) {
+      this.audioContext.close();
+      this.audioContext = null;
+    }
+    
+    this.mediaRecorder = null;
+    this.analyser = null;
+  }
+
+  /**
+   * Verifica se o stream está ativo
+   */
+  get hasActiveStream(): boolean {
+    return this.stream !== null && this.stream.active;
+  }
+
+  /**
    * Libera recursos
    */
   destroy(): void {

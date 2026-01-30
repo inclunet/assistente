@@ -73,7 +73,7 @@ export class WhisperProvider implements ISTTProvider {
   }
 
   /**
-   * Inicializa o provider
+   * Inicializa o provider (sem inicializar o stream do microfone)
    */
   async init(): Promise<boolean> {
     // Carrega funções do Wails
@@ -85,7 +85,7 @@ export class WhisperProvider implements ISTTProvider {
       return false;
     }
 
-    // Inicializa o gravador de áudio
+    // Cria o gravador de áudio (sem inicializar stream ainda - lazy init)
     this.audioRecorder = new AudioRecorder({
       mimeType: 'audio/webm',
       onStart: () => {
@@ -94,6 +94,8 @@ export class WhisperProvider implements ISTTProvider {
       },
       onStop: async (blob: Blob) => {
         this._isRecording = false;
+        // Libera o microfone após parar a gravação
+        this.audioRecorder?.releaseStream();
         if (blob.size > 0) {
           await this.processAudioBlob(blob);
         }
@@ -105,20 +107,17 @@ export class WhisperProvider implements ISTTProvider {
       },
     });
 
-    const success = await this.audioRecorder.init();
-    this._isSupported = success;
+    // NÃO inicializa o stream aqui - será feito sob demanda em start()
+    this._isSupported = AudioRecorder.isSupported();
     
-    if (success) {
-      console.log('[WhisperProvider] Inicializado');
-    }
-    
-    return success;
+    console.log('[WhisperProvider] Inicializado (microfone será ativado sob demanda)');
+    return true;
   }
 
   /**
    * Inicia a gravação
    */
-  start(): boolean {
+  async start(): Promise<boolean> {
     if (!this.audioRecorder) {
       this.onError('Provider não inicializado', 'not-initialized');
       return false;
@@ -126,6 +125,15 @@ export class WhisperProvider implements ISTTProvider {
     
     if (this._isRecording || this._isProcessing) {
       return false;
+    }
+    
+    // Inicializa stream do microfone se necessário (lazy init)
+    if (!this.audioRecorder.hasActiveStream) {
+      const success = await this.audioRecorder.init();
+      if (!success) {
+        this.onError('Falha ao acessar microfone', 'microphone-error');
+        return false;
+      }
     }
     
     return this.audioRecorder.start();

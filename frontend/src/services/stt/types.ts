@@ -151,8 +151,8 @@ export interface ISTTProvider {
   /** Inicializa o provider */
   init(): Promise<boolean>;
   
-  /** Inicia a transcrição */
-  start(): boolean;
+  /** Inicia a transcrição (pode ser async para inicialização lazy do microfone) */
+  start(): boolean | Promise<boolean>;
   
   /** Para a transcrição */
   stop(): void;
