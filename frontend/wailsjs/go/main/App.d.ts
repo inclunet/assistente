@@ -109,6 +109,8 @@ export function ExportConversations(arg1:Array<number>):Promise<string>;
 
 export function ExportFAQs(arg1:Array<number>):Promise<string>;
 
+export function ExportInteractionProfiles(arg1:Array<number>):Promise<string>;
+
 export function ExportMemories(arg1:Array<number>):Promise<string>;
 
 export function ExportVoiceProfiles(arg1:Array<number>):Promise<string>;
@@ -294,6 +296,8 @@ export function ImportAgents(arg1:string):Promise<main.ImportResult>;
 export function ImportConversations(arg1:string):Promise<main.ImportResult>;
 
 export function ImportFAQs(arg1:string):Promise<main.ImportResult>;
+
+export function ImportInteractionProfiles(arg1:string):Promise<main.ImportResult>;
 
 export function ImportMemories(arg1:string):Promise<main.ImportResult>;
 

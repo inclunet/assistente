@@ -206,6 +206,10 @@ export function ExportFAQs(arg1) {
   return window['go']['main']['App']['ExportFAQs'](arg1);
 }
 
+export function ExportInteractionProfiles(arg1) {
+  return window['go']['main']['App']['ExportInteractionProfiles'](arg1);
+}
+
 export function ExportMemories(arg1) {
   return window['go']['main']['App']['ExportMemories'](arg1);
 }
@@ -576,6 +580,10 @@ export function ImportConversations(arg1) {
 
 export function ImportFAQs(arg1) {
   return window['go']['main']['App']['ImportFAQs'](arg1);
+}
+
+export function ImportInteractionProfiles(arg1) {
+  return window['go']['main']['App']['ImportInteractionProfiles'](arg1);
 }
 
 export function ImportMemories(arg1) {
