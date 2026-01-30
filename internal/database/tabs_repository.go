@@ -30,6 +30,16 @@ func GetActiveTab() (*ChatTab, error) {
 	return &tab, err
 }
 
+// GetTab retorna uma aba pelo ID
+func GetTab(id uint) (*ChatTab, error) {
+	var tab ChatTab
+	err := db.First(&tab, id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &tab, nil
+}
+
 // CreateTab cria uma nova aba
 func CreateTab(title, icon string, setActive bool) (*ChatTab, error) {
 	// Verifica limite

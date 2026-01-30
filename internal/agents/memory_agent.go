@@ -4,15 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"assistente/internal/memory"
 )
 
+// ContextSearcher define operações de busca em contexto (abas e histórico)
+type ContextSearcher interface {
+	SearchOpenTabs(query string, minSimilarity float32) ([]OpenTabResult, error)
+	SearchConversationHistory(query string, topK int, minSimilarity float32) ([]ConversationResult, error)
+}
+
 // MemoryAgent é um agente inteligente que gerencia memórias
 type MemoryAgent struct {
 	BaseAgent
-	provider memory.Provider
+	provider        memory.Provider
+	contextSearcher ContextSearcher
 }
 
 // NewMemoryAgent cria um novo MemoryAgent inteligente
@@ -36,43 +42,55 @@ func NewMemoryAgent(provider memory.Provider, llmClient LLMClient, model string)
 	}
 }
 
-// memoryAgentDescription retorna a descrição para delegação do orquestrador
+// SetContextSearcher configura o buscador de contexto (abas e histórico)
+func (a *MemoryAgent) SetContextSearcher(searcher ContextSearcher) {
+	a.contextSearcher = searcher
+}
+
+// memoryAgentDescription returns the delegation description for the orchestrator
 func memoryAgentDescription() string {
-	return NewDelegationDescription("Memory Manager", "Persistent memory about the USER. Check before saying 'I don't know'. Save when user reveals preferences/interests.").
+	return NewDelegationDescription("Memory Manager", "Persistent memory about the USER. Also searches open tabs and conversation history.").
 		Capabilities(
 			"Search and recall saved information about the user",
 			"Save personal info, preferences, interests, context",
 			"List all known information about the user",
 			"Update or delete outdated information",
+			"Search conversations in open tabs by topic",
+			"Search past conversations from history",
 		).
 		DelegateWhen(
-			// === RECALL (buscar memórias) ===
 			"User asks 'do you know my...', 'what is my...', 'who is my...'",
 			"User asks 'do you remember...', 'did I tell you...'",
 			"User asks about their name, family, work, preferences",
 			"BEFORE saying 'I don't know' about personal info - CHECK MEMORY FIRST",
-			// === SAVE (salvar memórias) ===
-			"User reveals INTERESTS: 'I like...', 'I love...', 'I enjoy...', 'fascinates me'",
+			"User reveals INTERESTS: 'I like...', 'I love...', 'I enjoy...'",
 			"User reveals PREFERENCES: 'I prefer...', 'I usually...', 'my favorite is...'",
 			"User shares PERSONAL INFO: name, family, job, background",
 			"User says 'remember this', 'save this', 'don't forget'",
 			"User corrects info ('actually...', 'I changed...')",
-			// === PROACTIVE ===
 			"User shares hobbies, passions, or areas of interest (save for future personalization)",
+			"User asks if there's an open tab about something: 'is there a tab...', 'do I have open...'",
+			"User asks about past conversations: 'we talked about...', 'remember when we discussed...'",
+			"User references a previous discussion",
 		).
 		DontDelegateWhen(
 			"Question is about procedures/documentation - use FAQ Manager",
 			"Question is about files - use File Manager",
 			"User explicitly says 'don't save this'",
 			"Information is trivial/temporary (e.g., 'I'm tired today')",
+			"User wants to NAVIGATE to a tab or open a conversation - use Chat Manager",
 		).
 		Build()
 }
 
 // memoryAgentSystemPrompt returns the system prompt
 func memoryAgentSystemPrompt() string {
-	return `You manage persistent memories about the USER. These are personal, not documentation.
+	return `You manage memories and context recall. This includes:
+1. Persistent memories (saved info about the user)
+2. Conversations in open tabs
+3. Past conversation history
 
+=== PERSISTENT MEMORIES ===
 CATEGORIES (choose appropriate one):
 - "core": Critical info (user's name, accessibility needs) - use sparingly
 - "usuario": Personal info (role, team, background)
@@ -80,30 +98,27 @@ CATEGORIES (choose appropriate one):
 - "projeto": Ongoing projects, current work context
 - "contexto": General context from conversations
 
-WHEN SAVING:
-- Use clear, searchable titles
-- Include relevant keywords in content
-- Choose correct category
-- Don't duplicate - search first if similar might exist
+WHEN SAVING: Use clear titles, include keywords, choose correct category.
+WHEN SEARCHING: Try multiple keyword variations.
 
-WHEN SEARCHING:
-- Try multiple keyword variations
-- Search is text-based, so use exact terms that might be in the memory
-- Try category names as search terms too
+=== CONTEXT SEARCH (tabs and history) ===
+You can also search for context in:
+- OPEN TABS: Use search_open_tabs when user asks "is there a tab about...", "do I have open..."
+- PAST CONVERSATIONS: Use search_conversations when user says "we talked about...", "remember when we discussed..."
 
-RESPONSE: Be concise. Confirm what was saved/found/deleted.
+IMPORTANT:
+- For user preferences/info → use memory_search first
+- For "do you remember our conversation about X" → use search_conversations
+- For "is there a tab open about X" → use search_open_tabs
+- Remember the results (tab_id, conversation_id) so Chat Manager can use them if user wants to go there
+
+RESPONSE STYLE:
+- Be conversational and natural
+- Describe what you found in a friendly way
+- If you find a relevant conversation, mention it so user can ask Chat Manager to open it
 
 === OTHER KNOWLEDGE SOURCES ===
-If memory search doesn't find relevant information, suggest checking:
-- FAQ Manager: Documented procedures, guides, and technical knowledge
-- File Manager: Documents in user's files
-- Custom Agents (HTTP/MCP): The user may have configured additional agents for:
-  * Internal knowledge bases (wikis, documentation portals)
-  * Search engines or internal search portals
-  * Internal systems with relevant data (CRMs, ERPs, databases)
-  * External APIs with useful information
-
-When responding without finding information, mention that other agents may be available.`
+If nothing found, suggest checking FAQ Manager, File Manager, or custom agents.`
 }
 
 // GetDelegationDescription retorna descrição otimizada para o orquestrador
@@ -283,12 +298,67 @@ func (a *MemoryAgent) GetTools() []Tool {
 				),
 			},
 		},
+		// === Context Search Tools ===
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "search_open_tabs",
+				Description: NewToolDescription("Searches conversations in currently open tabs by topic similarity.").
+					WhenToUse(
+						"User asks 'is there a tab about...', 'do I have a tab open...'",
+						"User asks 'where was I talking about...'",
+						"User mentions something they might have in another open tab",
+					).
+					WhenNotToUse(
+						"User wants saved personal info - use memory_search",
+						"User wants past conversations - use search_conversations",
+					).
+					Returns("List of matching open tabs with title, summary and tab_id").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"query": JSONSchemaString("Topic or keywords to search for in open tabs"),
+					},
+					[]string{"query"},
+				),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "search_conversations",
+				Description: NewToolDescription("Searches past conversations by topic. Finds discussions from history that are NOT currently open.").
+					WhenToUse(
+						"User asks 'do you remember when we talked about...'",
+						"User says 'we discussed this before', 'I told you about this...'",
+						"User wants to find a past conversation",
+						"User references a previous discussion that's not in open tabs",
+					).
+					WhenNotToUse(
+						"User wants saved personal info - use memory_search",
+						"User asks about currently open tabs - use search_open_tabs",
+					).
+					Returns("List of matching past conversations with title, summary, date and conversation_id").
+					Build(),
+				Parameters: JSONSchemaObject(
+					map[string]interface{}{
+						"query": JSONSchemaString("Topic or keywords to search for in conversation history"),
+					},
+					[]string{"query"},
+				),
+			},
+		},
 	}
 }
 
 // CanHandle verifica se o agente pode executar a tool (usado internamente)
 func (a *MemoryAgent) CanHandle(toolName string) bool {
-	return strings.HasPrefix(toolName, "memory_")
+	switch toolName {
+	case "memory_save", "memory_search", "memory_list", "memory_delete",
+		"search_open_tabs", "search_conversations":
+		return true
+	}
+	return false
 }
 
 // ExecuteTool executa uma tool do MemoryAgent
@@ -307,6 +377,10 @@ func (a *MemoryAgent) ExecuteTool(toolCall ToolCall) (string, error) {
 		return a.executeList()
 	case "memory_delete":
 		return a.executeDelete(args)
+	case "search_open_tabs":
+		return a.executeSearchOpenTabs(args)
+	case "search_conversations":
+		return a.executeSearchConversations(args)
 	default:
 		return "", fmt.Errorf("tool desconhecida: %s", toolCall.Function.Name)
 	}
@@ -417,6 +491,80 @@ func (a *MemoryAgent) executeDelete(args map[string]interface{}) (string, error)
 	result := map[string]interface{}{
 		"success": true,
 		"message": fmt.Sprintf("Memória com ID %d excluída com sucesso", int(id)),
+	}
+	jsonResult, _ := json.Marshal(result)
+	return string(jsonResult), nil
+}
+
+func (a *MemoryAgent) executeSearchOpenTabs(args map[string]interface{}) (string, error) {
+	if a.contextSearcher == nil {
+		return `{"error": "Busca em abas não configurada"}`, nil
+	}
+
+	query, _ := args["query"].(string)
+	if query == "" {
+		return `{"error": "query é obrigatório"}`, nil
+	}
+
+	results, err := a.contextSearcher.SearchOpenTabs(query, 0.5)
+	if err != nil {
+		return fmt.Sprintf(`{"error": "Erro ao buscar: %v"}`, err), nil
+	}
+
+	if len(results) == 0 {
+		return `{"results": [], "message": "Nenhuma aba aberta encontrada sobre esse assunto"}`, nil
+	}
+
+	items := make([]map[string]interface{}, len(results))
+	for i, r := range results {
+		items[i] = map[string]interface{}{
+			"tab_id":    r.TabID,
+			"title":     r.Title,
+			"summary":   r.Summary,
+			"is_active": r.IsActive,
+		}
+	}
+
+	result := map[string]interface{}{
+		"results": items,
+		"count":   len(results),
+	}
+	jsonResult, _ := json.Marshal(result)
+	return string(jsonResult), nil
+}
+
+func (a *MemoryAgent) executeSearchConversations(args map[string]interface{}) (string, error) {
+	if a.contextSearcher == nil {
+		return `{"error": "Busca em histórico não configurada"}`, nil
+	}
+
+	query, _ := args["query"].(string)
+	if query == "" {
+		return `{"error": "query é obrigatório"}`, nil
+	}
+
+	results, err := a.contextSearcher.SearchConversationHistory(query, 5, 0.5)
+	if err != nil {
+		return fmt.Sprintf(`{"error": "Erro ao buscar: %v"}`, err), nil
+	}
+
+	if len(results) == 0 {
+		return `{"results": [], "message": "Nenhuma conversa passada encontrada sobre esse assunto"}`, nil
+	}
+
+	items := make([]map[string]interface{}, len(results))
+	for i, r := range results {
+		items[i] = map[string]interface{}{
+			"conversation_id": r.ConversationID,
+			"title":           r.Title,
+			"summary":         r.Summary,
+			"date":            r.CreatedAt,
+		}
+	}
+
+	result := map[string]interface{}{
+		"results": items,
+		"count":   len(results),
 	}
 	jsonResult, _ := json.Marshal(result)
 	return string(jsonResult), nil

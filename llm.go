@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -96,6 +97,11 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 			Model:            model,
 		})
 		if err != nil {
+			// Se a conversa foi deletada ou mensagem pai não existe, aborta silenciosamente
+			if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
+				fmt.Printf("🛑 Conversa %d foi deletada/limpa - abortando processamento\n", h.conversationID)
+				return
+			}
 			fmt.Printf("❌ Erro ao salvar resposta do assistant: %v\n", err)
 		} else {
 			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", msg.ID)
@@ -196,6 +202,11 @@ func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage
 			model,
 		)
 		if err != nil {
+			// Se a conversa foi deletada ou mensagem pai não existe, aborta silenciosamente
+			if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
+				fmt.Printf("🛑 Conversa %d foi deletada/limpa - abortando processamento de tool calls\n", h.conversationID)
+				return
+			}
 			fmt.Printf("❌ Erro ao salvar delegação: %v\n", err)
 		} else {
 			fmt.Printf("✅ Delegação salva: ID=%d, parentID=%d (nível 1)\n", msg.ID, h.userMessageID)
@@ -266,6 +277,11 @@ func (h *appStreamHandler) OnToolResults(results []string, usage llm.Usage, mode
 				model,
 			)
 			if err != nil {
+				// Se a conversa foi deletada ou mensagem pai não existe, aborta silenciosamente
+				if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
+					fmt.Printf("🛑 Conversa %d foi deletada/limpa - abortando processamento de resposta do agente\n", h.conversationID)
+					return
+				}
 				fmt.Printf("❌ Erro ao salvar resposta do agente: %v\n", err)
 			} else {
 				fmt.Printf("✅ Resposta do agente salva: ID=%d, parentID=%d, agent=%s (nível 1)\n",

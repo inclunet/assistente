@@ -18,6 +18,12 @@ func (s *Store) Create(title, content, category string) (*Data, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	// Gera embedding em background
+	go func() {
+		database.GenerateMemoryEmbedding(memory.ID)
+	}()
+
 	return &Data{
 		ID:       memory.ID,
 		Title:    memory.Title,
@@ -44,9 +50,10 @@ func (s *Store) GetAll() ([]Data, error) {
 	return result, nil
 }
 
-// Search busca memórias por texto
+// Search busca memórias usando busca semântica (com fallback para textual)
 func (s *Store) Search(query string) ([]Data, error) {
-	memories, err := database.SearchMemories(query)
+	// Usa busca semântica com topK=10 e similaridade mínima de 0.5
+	memories, err := database.SearchMemorySemantic(query, 10, 0.5)
 	if err != nil {
 		return nil, err
 	}
@@ -69,11 +76,3 @@ func (s *Store) Delete(id uint) error {
 
 // Verifica que Store implementa Provider
 var _ Provider = (*Store)(nil)
-
-
-
-
-
-
-
-

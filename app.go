@@ -28,6 +28,7 @@ type App struct {
 	registry              *agents.Registry
 	llmClient             *llm.SyncClient
 	embeddingsService     *llm.EmbeddingsService
+	summaryService        *llm.SummaryService
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
 	agentManager          agentmanager.Manager // NOVO - Manager para agentes HTTP/MCP
@@ -154,6 +155,36 @@ func (a *App) initLLMClient() {
 	database.SetEmbeddingGenerator(a.embeddingsService)
 
 	log.Printf("Embeddings Service inicializado (modelo: %s)", embeddingsModel)
+
+	// Inicializa serviço de resumo (para embeddings de conversas)
+	summaryModel := "gpt-4o-mini" // Modelo rápido e barato para resumos
+	a.summaryService = llm.NewSummaryService(llm.SummaryConfig{
+		APIKey:  cfg.APIKey,
+		BaseURL: cfg.APIBaseURL,
+		Model:   summaryModel,
+	})
+
+	// Configura o gerador de resumos no database
+	database.SetSummaryGenerator(&summaryGeneratorAdapter{service: a.summaryService})
+
+	log.Printf("Summary Service inicializado (modelo: %s)", summaryModel)
+}
+
+// summaryGeneratorAdapter adapta llm.SummaryService para database.SummaryGenerator
+type summaryGeneratorAdapter struct {
+	service *llm.SummaryService
+}
+
+func (a *summaryGeneratorAdapter) GenerateSummary(messages []database.ChatMessage) (string, error) {
+	// Converte database.ChatMessage para llm.ChatMessage
+	llmMessages := make([]llm.ChatMessage, len(messages))
+	for i, msg := range messages {
+		llmMessages[i] = llm.ChatMessage{
+			Role:    msg.Role,
+			Content: msg.Content,
+		}
+	}
+	return a.service.GenerateSummary(llmMessages)
 }
 
 // initAgents registra todos os agentes disponíveis
@@ -170,11 +201,17 @@ func (a *App) initAgents() {
 	a.applyAgentConfig(faqAgent)
 	a.registry.Register(faqAgent)
 
-	// Agente Memory
+	// Agente Memory (também busca em abas e histórico)
 	memoryStore := memory.NewStore()
 	memoryAgent := agents.NewMemoryAgent(memoryStore, a.llmClient, agentModel)
+	memoryAgent.SetContextSearcher(a) // Permite buscar em abas e histórico
 	a.applyAgentConfig(memoryAgent)
 	a.registry.Register(memoryAgent)
+
+	// Agente Chat Manager (navegação, gerenciamento de abas e conversas)
+	chatManagerAgent := agents.NewChatManagerAgent(a, a.llmClient, agentModel)
+	a.applyAgentConfig(chatManagerAgent)
+	a.registry.Register(chatManagerAgent)
 
 	// Agente de Geração de Imagens (DALL-E)
 	// Usa as credenciais do llmClient
@@ -1808,18 +1845,26 @@ func (a *App) SetActiveTab(id uint) error {
 	return nil
 }
 
-// UpdateTabTitle atualiza o título de uma aba
+// UpdateTabTitle atualiza o título de uma aba e da conversa associada
 func (a *App) UpdateTabTitle(id uint, title string) error {
-	err := database.UpdateTabTitle(id, title)
+	// Busca a tab para verificar se tem conversa associada
+	tab, err := database.GetTab(id)
 	if err != nil {
 		return err
 	}
 
-	// Emite evento para frontend (mantém compatibilidade com código existente)
-	runtime.EventsEmit(a.ctx, "tab_title_updated", map[string]interface{}{
-		"id":    id,
-		"title": title,
-	})
+	err = database.UpdateTabTitle(id, title)
+	if err != nil {
+		return err
+	}
+
+	// Se há conversa associada, emite evento unificado para atualizar todas as referências
+	if tab.ConversationID != nil && *tab.ConversationID > 0 {
+		runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
+			"conversation_id": *tab.ConversationID,
+			"new_title":       title,
+		})
+	}
 
 	return nil
 }

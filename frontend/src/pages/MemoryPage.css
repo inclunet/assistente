@@ -23,6 +23,15 @@
   font-size: 1.1em;
 }
 
+.embedding-status {
+  padding: 12px 16px;
+  background: var(--bg-secondary, #f5f5f5);
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 6px;
+  font-size: 0.95em;
+  color: var(--text-secondary, #666);
+}
+
 .category-filter {
   padding: 8px 16px;
   border: 1px solid var(--border-color, #e0e0e0);
@@ -78,6 +87,12 @@
 @media (prefers-color-scheme: dark) {
   .memory-page {
     background: var(--bg-primary-dark, #1a1a1a);
+  }
+
+  .embedding-status {
+    background: var(--bg-secondary-dark, #2a2a2a);
+    border-color: var(--border-color-dark, #3a3a3a);
+    color: var(--text-secondary-dark, #999);
   }
 
   .category-filter {

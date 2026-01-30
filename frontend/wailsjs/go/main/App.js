@@ -18,6 +18,10 @@ export function AddMessageWithTokensAndMedia(arg1, arg2, arg3, arg4, arg5, arg6,
   return window['go']['main']['App']['AddMessageWithTokensAndMedia'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
 }
 
+export function ClearConversation(arg1) {
+  return window['go']['main']['App']['ClearConversation'](arg1);
+}
+
 export function ClearTab(arg1) {
   return window['go']['main']['App']['ClearTab'](arg1);
 }
@@ -84,6 +88,10 @@ export function CreateMCPMessage(arg1, arg2) {
 
 export function CreateMemory(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateMemory'](arg1, arg2, arg3);
+}
+
+export function CreateNewConversation(arg1) {
+  return window['go']['main']['App']['CreateNewConversation'](arg1);
 }
 
 export function CreateOAuthConnection(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
@@ -154,6 +162,10 @@ export function DeleteMessage(arg1) {
   return window['go']['main']['App']['DeleteMessage'](arg1);
 }
 
+export function DeleteMessages(arg1, arg2) {
+  return window['go']['main']['App']['DeleteMessages'](arg1, arg2);
+}
+
 export function DeleteOAuthConnection(arg1) {
   return window['go']['main']['App']['DeleteOAuthConnection'](arg1);
 }
@@ -206,8 +218,20 @@ export function ExtractTemplateVariables(arg1) {
   return window['go']['main']['App']['ExtractTemplateVariables'](arg1);
 }
 
+export function GenerateAllConversationEmbeddings() {
+  return window['go']['main']['App']['GenerateAllConversationEmbeddings']();
+}
+
 export function GenerateAllFAQEmbeddings() {
   return window['go']['main']['App']['GenerateAllFAQEmbeddings']();
+}
+
+export function GenerateAllMemoryEmbeddings() {
+  return window['go']['main']['App']['GenerateAllMemoryEmbeddings']();
+}
+
+export function GenerateConversationEmbedding(arg1) {
+  return window['go']['main']['App']['GenerateConversationEmbedding'](arg1);
 }
 
 export function GenerateFAQEmbedding(arg1) {
@@ -216,6 +240,10 @@ export function GenerateFAQEmbedding(arg1) {
 
 export function GenerateImageDescription(arg1, arg2) {
   return window['go']['main']['App']['GenerateImageDescription'](arg1, arg2);
+}
+
+export function GenerateMemoryEmbedding(arg1) {
+  return window['go']['main']['App']['GenerateMemoryEmbedding'](arg1);
 }
 
 export function GetActiveInteractionProfile() {
@@ -302,12 +330,20 @@ export function GetConversation(arg1) {
   return window['go']['main']['App']['GetConversation'](arg1);
 }
 
+export function GetConversationEmbeddingStatus() {
+  return window['go']['main']['App']['GetConversationEmbeddingStatus']();
+}
+
 export function GetConversationInfo(arg1) {
   return window['go']['main']['App']['GetConversationInfo'](arg1);
 }
 
 export function GetConversationPreferences(arg1) {
   return window['go']['main']['App']['GetConversationPreferences'](arg1);
+}
+
+export function GetConversationSummary(arg1) {
+  return window['go']['main']['App']['GetConversationSummary'](arg1);
 }
 
 export function GetConversationTokenStats(arg1) {
@@ -324,6 +360,14 @@ export function GetConversations() {
 
 export function GetCoreMemories() {
   return window['go']['main']['App']['GetCoreMemories']();
+}
+
+export function GetCurrentConversationID() {
+  return window['go']['main']['App']['GetCurrentConversationID']();
+}
+
+export function GetCurrentTabID() {
+  return window['go']['main']['App']['GetCurrentTabID']();
 }
 
 export function GetDefaultInteractionProfile() {
@@ -424,6 +468,14 @@ export function GetMCPResources(arg1) {
 
 export function GetMemoriesByCategory(arg1) {
   return window['go']['main']['App']['GetMemoriesByCategory'](arg1);
+}
+
+export function GetMemoriesWithoutEmbedding() {
+  return window['go']['main']['App']['GetMemoriesWithoutEmbedding']();
+}
+
+export function GetMemoryEmbeddingStatus() {
+  return window['go']['main']['App']['GetMemoryEmbeddingStatus']();
 }
 
 export function GetMessageChildren(arg1) {
@@ -566,6 +618,22 @@ export function ModelSupportsVision(arg1) {
   return window['go']['main']['App']['ModelSupportsVision'](arg1);
 }
 
+export function OnTabClosed(arg1) {
+  return window['go']['main']['App']['OnTabClosed'](arg1);
+}
+
+export function OnTabInactive(arg1) {
+  return window['go']['main']['App']['OnTabInactive'](arg1);
+}
+
+export function OpenConversationInCurrentTab(arg1) {
+  return window['go']['main']['App']['OpenConversationInCurrentTab'](arg1);
+}
+
+export function OpenConversationInNewTab(arg1) {
+  return window['go']['main']['App']['OpenConversationInNewTab'](arg1);
+}
+
 export function ParseOpenAPISpec(arg1) {
   return window['go']['main']['App']['ParseOpenAPISpec'](arg1);
 }
@@ -594,8 +662,16 @@ export function RegenerateFAQEmbeddings() {
   return window['go']['main']['App']['RegenerateFAQEmbeddings']();
 }
 
+export function RegenerateMemoryEmbeddings() {
+  return window['go']['main']['App']['RegenerateMemoryEmbeddings']();
+}
+
 export function RegenerateSingleFAQEmbedding(arg1) {
   return window['go']['main']['App']['RegenerateSingleFAQEmbedding'](arg1);
+}
+
+export function RegenerateSingleMemoryEmbedding(arg1) {
+  return window['go']['main']['App']['RegenerateSingleMemoryEmbedding'](arg1);
 }
 
 export function RegisterInteractionProfileHotkeys(arg1) {
@@ -612,6 +688,14 @@ export function ReloadLLMClient() {
 
 export function ReloadMCPAgent(arg1) {
   return window['go']['main']['App']['ReloadMCPAgent'](arg1);
+}
+
+export function RenameConversation(arg1, arg2) {
+  return window['go']['main']['App']['RenameConversation'](arg1, arg2);
+}
+
+export function RenameTab(arg1, arg2) {
+  return window['go']['main']['App']['RenameTab'](arg1, arg2);
 }
 
 export function ReorderTabs(arg1) {
@@ -634,6 +718,14 @@ export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
+export function SearchConversationHistory(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SearchConversationHistory'](arg1, arg2, arg3);
+}
+
+export function SearchConversationsSemantic(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SearchConversationsSemantic'](arg1, arg2, arg3);
+}
+
 export function SearchFAQ(arg1) {
   return window['go']['main']['App']['SearchFAQ'](arg1);
 }
@@ -648,6 +740,10 @@ export function SearchInteractionProfiles(arg1) {
 
 export function SearchMemories(arg1) {
   return window['go']['main']['App']['SearchMemories'](arg1);
+}
+
+export function SearchOpenTabs(arg1, arg2) {
+  return window['go']['main']['App']['SearchOpenTabs'](arg1, arg2);
 }
 
 export function SearchVoiceProfiles(arg1) {
@@ -732,6 +828,10 @@ export function StartOAuthFlow(arg1, arg2) {
 
 export function StopSAPI5() {
   return window['go']['main']['App']['StopSAPI5']();
+}
+
+export function SwitchToTab(arg1) {
+  return window['go']['main']['App']['SwitchToTab'](arg1);
 }
 
 export function SynthesizeOpenAI(arg1) {

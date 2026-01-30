@@ -15,6 +15,8 @@ export function AddMessageWithTokens(arg1:number,arg2:string,arg3:string,arg4:st
 
 export function AddMessageWithTokensAndMedia(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:number,arg8:number,arg9:number,arg10:string):Promise<database.ChatMessage>;
 
+export function ClearConversation(arg1:number):Promise<void>;
+
 export function ClearTab(arg1:number):Promise<void>;
 
 export function CloseTab(arg1:number):Promise<void>;
@@ -48,6 +50,8 @@ export function CreateMCPAgentFull(arg1:string,arg2:string,arg3:string,arg4:stri
 export function CreateMCPMessage(arg1:number,arg2:main.MCPSamplingRequestInfo):Promise<main.MCPSamplingResultInfo>;
 
 export function CreateMemory(arg1:string,arg2:string,arg3:string):Promise<database.Memory>;
+
+export function CreateNewConversation(arg1:string):Promise<number>;
 
 export function CreateOAuthConnection(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string,arg10:time.Time):Promise<database.OAuthConnection>;
 
@@ -83,6 +87,8 @@ export function DeleteMemory(arg1:number):Promise<void>;
 
 export function DeleteMessage(arg1:number):Promise<void>;
 
+export function DeleteMessages(arg1:number,arg2:Array<number>):Promise<void>;
+
 export function DeleteOAuthConnection(arg1:number):Promise<void>;
 
 export function DeleteVoiceProfile(arg1:number):Promise<void>;
@@ -109,11 +115,19 @@ export function ExportVoiceProfiles(arg1:Array<number>):Promise<string>;
 
 export function ExtractTemplateVariables(arg1:string):Promise<Array<string>>;
 
+export function GenerateAllConversationEmbeddings():Promise<number>;
+
 export function GenerateAllFAQEmbeddings():Promise<number>;
+
+export function GenerateAllMemoryEmbeddings():Promise<number>;
+
+export function GenerateConversationEmbedding(arg1:number):Promise<void>;
 
 export function GenerateFAQEmbedding(arg1:number):Promise<void>;
 
 export function GenerateImageDescription(arg1:string,arg2:string):Promise<string>;
+
+export function GenerateMemoryEmbedding(arg1:number):Promise<void>;
 
 export function GetActiveInteractionProfile():Promise<database.InteractionProfile>;
 
@@ -157,9 +171,13 @@ export function GetConfig():Promise<config.Config>;
 
 export function GetConversation(arg1:number):Promise<database.Conversation>;
 
+export function GetConversationEmbeddingStatus():Promise<main.ConversationEmbeddingStatus>;
+
 export function GetConversationInfo(arg1:number):Promise<database.Conversation>;
 
 export function GetConversationPreferences(arg1:number):Promise<database.ChatPreferences>;
+
+export function GetConversationSummary(arg1:number):Promise<string>;
 
 export function GetConversationTokenStats(arg1:number):Promise<Record<string, number>>;
 
@@ -168,6 +186,10 @@ export function GetConversationWithThreads(arg1:number):Promise<main.Conversatio
 export function GetConversations():Promise<Array<database.Conversation>>;
 
 export function GetCoreMemories():Promise<Array<database.Memory>>;
+
+export function GetCurrentConversationID():Promise<number>;
+
+export function GetCurrentTabID():Promise<number>;
 
 export function GetDefaultInteractionProfile():Promise<database.InteractionProfile>;
 
@@ -218,6 +240,10 @@ export function GetMCPResourceTemplates(arg1:number):Promise<Array<main.MCPResou
 export function GetMCPResources(arg1:number):Promise<Array<main.MCPResourceInfo>>;
 
 export function GetMemoriesByCategory(arg1:string):Promise<Array<database.Memory>>;
+
+export function GetMemoriesWithoutEmbedding():Promise<Array<database.Memory>>;
+
+export function GetMemoryEmbeddingStatus():Promise<main.MemoryEmbeddingStatus>;
 
 export function GetMessageChildren(arg1:number):Promise<Array<main.MessageNode>>;
 
@@ -289,6 +315,14 @@ export function LoadConversationInTab(arg1:number,arg2:number):Promise<void>;
 
 export function ModelSupportsVision(arg1:string):Promise<boolean>;
 
+export function OnTabClosed(arg1:number):Promise<void>;
+
+export function OnTabInactive(arg1:number):Promise<void>;
+
+export function OpenConversationInCurrentTab(arg1:number):Promise<void>;
+
+export function OpenConversationInNewTab(arg1:number):Promise<number>;
+
 export function ParseOpenAPISpec(arg1:string):Promise<main.OpenAPIImportResult>;
 
 export function ParsePostmanCollection(arg1:string):Promise<main.OpenAPIImportResult>;
@@ -303,7 +337,11 @@ export function RefreshOAuthConnection(arg1:number):Promise<void>;
 
 export function RegenerateFAQEmbeddings():Promise<number>;
 
+export function RegenerateMemoryEmbeddings():Promise<number>;
+
 export function RegenerateSingleFAQEmbedding(arg1:number):Promise<void>;
+
+export function RegenerateSingleMemoryEmbedding(arg1:number):Promise<void>;
 
 export function RegisterInteractionProfileHotkeys(arg1:number):Promise<void>;
 
@@ -312,6 +350,10 @@ export function ReloadHTTPAgent(arg1:number):Promise<void>;
 export function ReloadLLMClient():Promise<void>;
 
 export function ReloadMCPAgent(arg1:number):Promise<void>;
+
+export function RenameConversation(arg1:number,arg2:string):Promise<void>;
+
+export function RenameTab(arg1:number,arg2:string):Promise<void>;
 
 export function ReorderTabs(arg1:Array<number>):Promise<void>;
 
@@ -323,6 +365,10 @@ export function SaveOrUpdateAgentConfig(arg1:string,arg2:string,arg3:string,arg4
 
 export function SaveSettings(arg1:llm.SettingsInput):Promise<void>;
 
+export function SearchConversationHistory(arg1:string,arg2:number,arg3:number):Promise<Array<agents.ConversationResult>>;
+
+export function SearchConversationsSemantic(arg1:string,arg2:number,arg3:number):Promise<Array<database.Conversation>>;
+
 export function SearchFAQ(arg1:string):Promise<Array<database.FAQ>>;
 
 export function SearchFAQSemantic(arg1:string,arg2:number,arg3:number):Promise<Array<database.FAQ>>;
@@ -330,6 +376,8 @@ export function SearchFAQSemantic(arg1:string,arg2:number,arg3:number):Promise<A
 export function SearchInteractionProfiles(arg1:string):Promise<Array<database.InteractionProfile>>;
 
 export function SearchMemories(arg1:string):Promise<Array<database.Memory>>;
+
+export function SearchOpenTabs(arg1:string,arg2:number):Promise<Array<agents.OpenTabResult>>;
 
 export function SearchVoiceProfiles(arg1:string):Promise<Array<database.VoiceProfile>>;
 
@@ -372,6 +420,8 @@ export function SpeakSAPI5(arg1:string,arg2:string):Promise<void>;
 export function StartOAuthFlow(arg1:string,arg2:Array<string>):Promise<string>;
 
 export function StopSAPI5():Promise<void>;
+
+export function SwitchToTab(arg1:number):Promise<void>;
 
 export function SynthesizeOpenAI(arg1:string):Promise<main.SynthesisResultInfo>;
 

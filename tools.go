@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"strings"
@@ -132,13 +133,13 @@ func (a *App) createAgentMessageSaver() llm.MessageSaver {
 		content := msg.Content
 		if len(msg.ToolCalls) > 0 && content == "" {
 			var contentBuilder strings.Builder
-			
+
 			if len(msg.ToolCalls) == 1 {
 				// Uma única tool call
 				tc := msg.ToolCalls[0]
 				contentBuilder.WriteString(fmt.Sprintf("🔧 **Executando:** `%s`\n\n", tc.Function.Name))
 				contentBuilder.WriteString("**Parâmetros:**\n```json\n")
-				
+
 				// Formata JSON
 				var prettyArgs bytes.Buffer
 				if err := json.Indent(&prettyArgs, []byte(tc.Function.Arguments), "", "  "); err == nil {
@@ -164,7 +165,7 @@ func (a *App) createAgentMessageSaver() llm.MessageSaver {
 					}
 				}
 			}
-			
+
 			content = contentBuilder.String()
 		}
 
@@ -183,6 +184,11 @@ func (a *App) createAgentMessageSaver() llm.MessageSaver {
 			msg.Model,
 		)
 		if err != nil {
+			// Se a conversa foi deletada ou mensagem pai não existe, retorna erro especial para abortar
+			if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
+				fmt.Printf("🛑 [AGENT SAVER] Conversa %d foi deletada/limpa - abortando\n", a.currentConversationID)
+				return database.ErrConversationDeleted // Retorna mesmo erro para simplificar tratamento upstream
+			}
 			fmt.Printf("❌ [AGENT SAVER] Erro ao salvar: %v\n", err)
 			return err
 		}
@@ -275,7 +281,7 @@ func (a *App) TestAgent(agentName, task string) (string, error) {
 // ReloadHTTPAgent recarrega um HTTP Agent no registry (hot reload)
 func (a *App) ReloadHTTPAgent(agentConfigID uint) error {
 	log.Printf("[ReloadHTTPAgent] 🔄 Iniciando reload do agente ID: %d", agentConfigID)
-	
+
 	// Busca a config completa
 	full, err := a.GetHTTPAgentFull(agentConfigID)
 	if err != nil {
@@ -303,14 +309,14 @@ func (a *App) ReloadHTTPAgent(agentConfigID uint) error {
 	}
 
 	log.Printf("[ReloadHTTPAgent] ✅ Agente %s recarregado com sucesso", full.Name)
-	
+
 	// Verifica se foi registrado corretamente
 	agent := a.registry.Get(full.Name)
 	if agent != nil {
 		tools := agent.GetTools()
 		log.Printf("[ReloadHTTPAgent] 🔧 Agente %s agora tem %d tools disponíveis", full.Name, len(tools))
 	}
-	
+
 	return nil
 }
 
@@ -352,9 +358,9 @@ func (a *App) ReloadMCPAgent(mcpAgentID uint) error {
 // TestHotReload cria um agente de teste temporário para validar o hot reload
 func (a *App) TestHotReload() (string, error) {
 	agentName := fmt.Sprintf("test_hotreload_%d", time.Now().Unix())
-	
+
 	log.Printf("🧪 [TestHotReload] Criando agente de teste: %s", agentName)
-	
+
 	// Cria agente de teste
 	agent, err := a.CreateHTTPAgentFull(
 		agentName,
@@ -373,9 +379,9 @@ func (a *App) TestHotReload() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("erro ao criar agente de teste: %w", err)
 	}
-	
+
 	log.Printf("✅ [TestHotReload] Agente criado com ID: %d", agent.ID)
-	
+
 	// Cria endpoint de teste
 	endpoint, err := a.CreateHTTPEndpoint(
 		agent.HTTPAgentID,
@@ -392,27 +398,27 @@ func (a *App) TestHotReload() (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("erro ao criar endpoint: %w", err)
 	}
-	
+
 	log.Printf("✅ [TestHotReload] Endpoint criado: %s", endpoint.Name)
-	
+
 	// Força reload para testar
 	time.Sleep(500 * time.Millisecond) // Aguarda propagação
-	
+
 	if err := a.ReloadHTTPAgent(agent.ID); err != nil {
 		return "", fmt.Errorf("erro no hot reload: %w", err)
 	}
-	
+
 	// Verifica se o agente está no registry
 	registeredAgent := a.registry.Get(agentName)
 	if registeredAgent == nil {
 		return "", fmt.Errorf("agente não foi registrado no registry após reload")
 	}
-	
+
 	tools := registeredAgent.GetTools()
 	if len(tools) == 0 {
 		return "", fmt.Errorf("agente registrado mas sem tools disponíveis")
 	}
-	
+
 	result := fmt.Sprintf(`✅ Hot Reload Validado com Sucesso!
 
 Agente: %s (ID: %d)
@@ -429,7 +435,7 @@ O hot reload está funcionando corretamente:
 
 Você pode deletar este agente de teste usando o Agent Builder.`,
 		agentName, agent.ID, len(tools), endpoint.Name)
-	
+
 	log.Printf("✅ [TestHotReload] Validação concluída com sucesso")
 	return result, nil
 }

@@ -2,6 +2,7 @@ import { useEffect } from 'react';
 import { Outlet } from 'react-router-dom';
 import './App.css';
 import { GetConfig } from "../wailsjs/go/main/App";
+import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
 import { useUIStore } from './store/uiStore';
 import { useChatStore } from './store/chatStore';
@@ -11,7 +12,7 @@ import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
 function App() {
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
-    const { initializeTabs, isInitialized } = useChatStore();
+    const { initializeTabs, isInitialized, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleTabClosed } = useChatStore();
 
     useEffect(() => {
         // Aguardar Wails estar pronto antes de carregar configuração
@@ -62,6 +63,50 @@ function App() {
             console.log('[App] ===== JÁ INICIALIZADO, PULANDO =====');
         }
     }, [initializeTabs, isInitialized]);
+
+    // Escuta eventos de conversa deletada/limpa para atualizar tabs
+    useEffect(() => {
+        EventsOn('conversation:deleted', (data: any) => {
+            console.log('[App] Conversation deleted event received:', data);
+            if (data.conversation_id) {
+                handleConversationDeleted(data.conversation_id);
+            }
+        });
+
+        EventsOn('conversation:cleared', (data: any) => {
+            console.log('[App] Conversation cleared event received:', data);
+            if (data.conversation_id) {
+                handleConversationCleared(data.conversation_id);
+            }
+        });
+
+        EventsOn('conversation:renamed', (data: any) => {
+            console.log('[App] Conversation renamed event received:', data);
+            if (data.conversation_id && data.new_title) {
+                handleConversationRenamed(data.conversation_id, data.new_title);
+            }
+        });
+
+        EventsOn('database:reset', () => {
+            console.log('[App] Database reset event received');
+            handleDatabaseReset();
+        });
+
+        EventsOn('tab_closed', (data: any) => {
+            console.log('[App] Tab closed event received:', data);
+            if (data.id) {
+                handleTabClosed(data.id);
+            }
+        });
+
+        return () => {
+            EventsOff('conversation:deleted');
+            EventsOff('conversation:cleared');
+            EventsOff('conversation:renamed');
+            EventsOff('database:reset');
+            EventsOff('tab_closed');
+        };
+    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleTabClosed]);
 
     // Previne menu de contexto nativo quando tecla ContextMenu ou Shift+F10 for pressionada
     useEffect(() => {

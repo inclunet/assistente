@@ -1,5 +1,49 @@
 export namespace agents {
 	
+	export class ConversationResult {
+	    conversation_id: number;
+	    title: string;
+	    summary: string;
+	    similarity: number;
+	    created_at: string;
+	    message_count: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversation_id = source["conversation_id"];
+	        this.title = source["title"];
+	        this.summary = source["summary"];
+	        this.similarity = source["similarity"];
+	        this.created_at = source["created_at"];
+	        this.message_count = source["message_count"];
+	    }
+	}
+	export class OpenTabResult {
+	    tab_id: number;
+	    conversation_id: number;
+	    title: string;
+	    summary?: string;
+	    similarity?: number;
+	    is_active: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new OpenTabResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.tab_id = source["tab_id"];
+	        this.conversation_id = source["conversation_id"];
+	        this.title = source["title"];
+	        this.summary = source["summary"];
+	        this.similarity = source["similarity"];
+	        this.is_active = source["is_active"];
+	    }
+	}
 	export class Registry {
 	
 	
@@ -282,6 +326,8 @@ export namespace database {
 	    updated_at: time.Time;
 	    messages?: ChatMessage[];
 	    message_count: number;
+	    summary?: string;
+	    embedding_message_count: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new Conversation(source);
@@ -296,6 +342,8 @@ export namespace database {
 	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
 	        this.message_count = source["message_count"];
+	        this.summary = source["summary"];
+	        this.embedding_message_count = source["embedding_message_count"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1170,6 +1218,22 @@ export namespace main {
 	        this.enabled = source["enabled"];
 	    }
 	}
+	export class ConversationEmbeddingStatus {
+	    total: number;
+	    with_embeddings: number;
+	    without_embedding: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationEmbeddingStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total = source["total"];
+	        this.with_embeddings = source["with_embeddings"];
+	        this.without_embedding = source["without_embedding"];
+	    }
+	}
 	export class EnrichedMessage {
 	    id: string;
 	    conversationId: number;
@@ -1718,6 +1782,22 @@ export namespace main {
 	        this.content = source["content"];
 	        this.model = source["model"];
 	        this.stop_reason = source["stop_reason"];
+	    }
+	}
+	export class MemoryEmbeddingStatus {
+	    total: number;
+	    with_embeddings: number;
+	    without_embedding: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new MemoryEmbeddingStatus(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total = source["total"];
+	        this.with_embeddings = source["with_embeddings"];
+	        this.without_embedding = source["without_embedding"];
 	    }
 	}
 	

@@ -2,6 +2,7 @@ package database
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"path/filepath"
@@ -16,17 +17,38 @@ import (
 
 var db *gorm.DB
 
+// ErrConversationDeleted é retornado quando se tenta salvar mensagem em conversa que foi deletada
+// Os chamadores devem verificar esse erro e abortar o processamento graciosamente
+var ErrConversationDeleted = errors.New("conversa foi deletada")
+
+// ErrParentMessageDeleted é retornado quando se tenta criar mensagem com parentId que não existe mais
+// Isso acontece quando a conversa foi limpa (clear) - as mensagens foram deletadas mas a conversa ainda existe
+var ErrParentMessageDeleted = errors.New("mensagem pai foi deletada")
+
 // EmbeddingGenerator interface para gerar embeddings
 type EmbeddingGenerator interface {
 	Generate(text string) ([]float32, error)
 }
 
+// SummaryGenerator interface para gerar resumos de conversas usando LLM
+type SummaryGenerator interface {
+	GenerateSummary(messages []ChatMessage) (string, error)
+}
+
 // embeddingGenerator é o gerador de embeddings configurado
 var embeddingGenerator EmbeddingGenerator
+
+// summaryGenerator é o gerador de resumos configurado
+var summaryGenerator SummaryGenerator
 
 // SetEmbeddingGenerator configura o gerador de embeddings
 func SetEmbeddingGenerator(gen EmbeddingGenerator) {
 	embeddingGenerator = gen
+}
+
+// SetSummaryGenerator configura o gerador de resumos
+func SetSummaryGenerator(gen SummaryGenerator) {
+	summaryGenerator = gen
 }
 
 // DB retorna a instância do banco de dados
@@ -302,6 +324,187 @@ func GetConversationPreferences(id uint) (*ChatPreferences, error) {
 	return conv.GetPreferences(), nil
 }
 
+// ==================== Conversation Embeddings ====================
+
+// GetConversationsWithEmbedding retorna conversas que têm embedding
+func GetConversationsWithEmbedding() ([]Conversation, error) {
+	var conversations []Conversation
+	err := db.Where("embedding IS NOT NULL AND embedding != ''").Find(&conversations).Error
+	return conversations, err
+}
+
+// GetConversationsWithoutEmbedding retorna conversas sem embedding
+func GetConversationsWithoutEmbedding() ([]Conversation, error) {
+	var conversations []Conversation
+	err := db.Where("embedding IS NULL OR embedding = ''").Find(&conversations).Error
+	return conversations, err
+}
+
+// UpdateConversationEmbedding atualiza o embedding e resumo de uma conversa
+func UpdateConversationEmbedding(id uint, summary, embedding string, messageCount int) error {
+	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"summary":                 summary,
+		"embedding":               embedding,
+		"embedding_message_count": messageCount,
+	}).Error
+}
+
+// GenerateConversationEmbedding gera e salva o embedding de uma conversa
+func GenerateConversationEmbedding(conversationID uint) error {
+	if embeddingGenerator == nil {
+		return fmt.Errorf("serviço de embeddings não configurado")
+	}
+
+	// Busca a conversa
+	conv, err := GetConversation(conversationID)
+	if err != nil {
+		return err
+	}
+
+	// Busca as mensagens da conversa
+	messages, err := GetAllConversationMessages(conversationID)
+	if err != nil {
+		return err
+	}
+
+	if len(messages) == 0 {
+		return fmt.Errorf("conversa sem mensagens")
+	}
+
+	// Gera o resumo usando LLM
+	if summaryGenerator == nil {
+		return fmt.Errorf("serviço de resumo não configurado")
+	}
+
+	// Prepara mensagens com título como contexto
+	messagesWithContext := make([]ChatMessage, 0, len(messages)+1)
+
+	// Adiciona o título como primeira "mensagem" de contexto
+	if conv.Title != "" && conv.Title != "Nova conversa" {
+		messagesWithContext = append(messagesWithContext, ChatMessage{
+			Role:    "system",
+			Content: fmt.Sprintf("Título da conversa: %s", conv.Title),
+		})
+	}
+
+	// Adiciona todas as mensagens
+	messagesWithContext = append(messagesWithContext, messages...)
+
+	// Usa o LLM para gerar resumo
+	summary, err := summaryGenerator.GenerateSummary(messagesWithContext)
+	if err != nil {
+		return fmt.Errorf("erro ao gerar resumo: %w", err)
+	}
+
+	if summary == "" {
+		return fmt.Errorf("não foi possível gerar resumo")
+	}
+
+	// Gera embedding do resumo
+	embedding, err := embeddingGenerator.Generate(summary)
+	if err != nil {
+		return fmt.Errorf("erro ao gerar embedding: %w", err)
+	}
+
+	// Salva
+	conv.Summary = summary
+	conv.SetEmbedding(embedding)
+	return UpdateConversationEmbedding(conversationID, summary, conv.Embedding, len(messages))
+}
+
+// GenerateAllConversationEmbeddings gera embeddings para todas as conversas que não têm
+func GenerateAllConversationEmbeddings() (int, error) {
+	if embeddingGenerator == nil {
+		return 0, fmt.Errorf("serviço de embeddings não configurado")
+	}
+
+	conversations, err := GetConversationsWithoutEmbedding()
+	if err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for _, conv := range conversations {
+		if err := GenerateConversationEmbedding(conv.ID); err != nil {
+			fmt.Printf("Erro ao gerar embedding para Conversation %d: %v\n", conv.ID, err)
+			continue
+		}
+		count++
+	}
+
+	return count, nil
+}
+
+// SearchConversationsSemantic busca conversas usando similaridade de embeddings
+func SearchConversationsSemantic(query string, topK int, minSimilarity float32) ([]Conversation, error) {
+	if embeddingGenerator == nil {
+		return nil, fmt.Errorf("serviço de embeddings não configurado")
+	}
+
+	if query == "" {
+		return nil, nil
+	}
+
+	// Gera embedding da query
+	queryEmbedding, err := embeddingGenerator.Generate(query)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao gerar embedding da query: %w", err)
+	}
+
+	// Busca conversas com embedding
+	conversations, err := GetConversationsWithEmbedding()
+	if err != nil {
+		return nil, err
+	}
+
+	if len(conversations) == 0 {
+		return nil, nil
+	}
+
+	type convWithSimilarity struct {
+		conv       Conversation
+		similarity float32
+	}
+
+	// Calcula similaridade para cada conversa
+	results := make([]convWithSimilarity, 0, len(conversations))
+	for _, conv := range conversations {
+		convEmbedding := conv.GetEmbedding()
+		if len(convEmbedding) == 0 {
+			continue
+		}
+
+		similarity := CosineSimilarity(queryEmbedding, convEmbedding)
+		if similarity >= minSimilarity {
+			results = append(results, convWithSimilarity{
+				conv:       conv,
+				similarity: similarity,
+			})
+		}
+	}
+
+	// Ordena por similaridade decrescente
+	for i := 0; i < len(results)-1; i++ {
+		for j := i + 1; j < len(results); j++ {
+			if results[j].similarity > results[i].similarity {
+				results[i], results[j] = results[j], results[i]
+			}
+		}
+	}
+
+	// Limita ao topK
+	if topK > len(results) {
+		topK = len(results)
+	}
+
+	finalResults := make([]Conversation, topK)
+	for i := 0; i < topK; i++ {
+		finalResults[i] = results[i].conv
+	}
+
+	return finalResults, nil
+}
+
 // ==================== ChatMessage ====================
 
 // MessageOptions contém opções para criar uma mensagem
@@ -322,6 +525,23 @@ type MessageOptions struct {
 
 // CreateMessage cria uma mensagem com todas as opções disponíveis
 func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
+	// Verifica se a conversa ainda existe antes de criar a mensagem
+	var conv Conversation
+	if err := db.First(&conv, opts.ConversationID).Error; err != nil {
+		// Conversa não existe (foi deletada) - retorna erro especial
+		// Os chamadores devem verificar ErrConversationDeleted e abortar graciosamente
+		return nil, fmt.Errorf("%w: conversa %d", ErrConversationDeleted, opts.ConversationID)
+	}
+
+	// Verifica se a mensagem pai existe (se parentId foi fornecido)
+	if opts.ParentID != nil && *opts.ParentID > 0 {
+		var parentMsg ChatMessage
+		if err := db.First(&parentMsg, *opts.ParentID).Error; err != nil {
+			// Mensagem pai não existe (foi deletada no clear) - retorna erro especial
+			return nil, fmt.Errorf("%w: mensagem %d", ErrParentMessageDeleted, *opts.ParentID)
+		}
+	}
+
 	msg := &ChatMessage{
 		ConversationID:   opts.ConversationID,
 		ParentID:         opts.ParentID,
@@ -455,6 +675,11 @@ func DeleteMessage(messageID uint) error {
 	return db.Delete(&ChatMessage{}, messageID).Error
 }
 
+// DeleteAllMessages remove todas as mensagens de uma conversa
+func DeleteAllMessages(conversationID uint) error {
+	return db.Where("conversation_id = ?", conversationID).Delete(&ChatMessage{}).Error
+}
+
 // GetMessageChildren retorna todas as mensagens filhas de uma mensagem
 // Deprecated: Use GetMessages instead
 func GetMessageChildren(parentID uint) ([]ChatMessage, error) {
@@ -486,6 +711,13 @@ func GetMessages(conversationID uint, parentID *uint) ([]ChatMessage, error) {
 	}
 
 	err := query.Find(&messages).Error
+	return messages, err
+}
+
+// GetAllConversationMessages retorna todas as mensagens de uma conversa (incluindo filhas)
+func GetAllConversationMessages(conversationID uint) ([]ChatMessage, error) {
+	var messages []ChatMessage
+	err := db.Where("conversation_id = ?", conversationID).Order("created_at ASC").Find(&messages).Error
 	return messages, err
 }
 
@@ -675,6 +907,147 @@ func GetMemory(id uint) (*Memory, error) {
 		return nil, err
 	}
 	return &memory, nil
+}
+
+// GetMemoriesWithEmbedding retorna memórias que têm embedding
+func GetMemoriesWithEmbedding() ([]Memory, error) {
+	var memories []Memory
+	err := db.Where("embedding IS NOT NULL AND embedding != ''").Find(&memories).Error
+	return memories, err
+}
+
+// GetMemoriesWithoutEmbedding retorna memórias sem embedding
+func GetMemoriesWithoutEmbedding() ([]Memory, error) {
+	var memories []Memory
+	err := db.Where("embedding IS NULL OR embedding = ''").Find(&memories).Error
+	return memories, err
+}
+
+// UpdateMemoryEmbedding atualiza o embedding de uma memória
+func UpdateMemoryEmbedding(id uint, embedding string) error {
+	return db.Model(&Memory{}).Where("id = ?", id).Update("embedding", embedding).Error
+}
+
+// GenerateMemoryEmbedding gera e salva o embedding de uma memória
+func GenerateMemoryEmbedding(memoryID uint) error {
+	if embeddingGenerator == nil {
+		return fmt.Errorf("serviço de embeddings não configurado")
+	}
+
+	memory, err := GetMemory(memoryID)
+	if err != nil {
+		return err
+	}
+
+	// Combina título, conteúdo e categoria para o embedding
+	text := memory.Title + " " + memory.Content
+	if memory.Category != "" {
+		text += " " + memory.Category
+	}
+
+	embedding, err := embeddingGenerator.Generate(text)
+	if err != nil {
+		return fmt.Errorf("erro ao gerar embedding: %w", err)
+	}
+
+	memory.SetEmbedding(embedding)
+	return UpdateMemoryEmbedding(memoryID, memory.Embedding)
+}
+
+// GenerateAllMemoryEmbeddings gera embeddings para todas as memórias que não têm
+func GenerateAllMemoryEmbeddings() (int, error) {
+	if embeddingGenerator == nil {
+		return 0, fmt.Errorf("serviço de embeddings não configurado")
+	}
+
+	memories, err := GetMemoriesWithoutEmbedding()
+	if err != nil {
+		return 0, err
+	}
+
+	count := 0
+	for _, memory := range memories {
+		if err := GenerateMemoryEmbedding(memory.ID); err != nil {
+			fmt.Printf("Erro ao gerar embedding para Memory %d: %v\n", memory.ID, err)
+			continue
+		}
+		count++
+	}
+
+	return count, nil
+}
+
+// SearchMemorySemantic busca memórias usando similaridade de embeddings
+func SearchMemorySemantic(query string, topK int, minSimilarity float32) ([]Memory, error) {
+	// Fallback para busca textual se embeddings não disponível
+	if embeddingGenerator == nil {
+		return SearchMemories(query)
+	}
+
+	if query == "" {
+		return nil, nil
+	}
+
+	// Gera embedding da query
+	queryEmbedding, err := embeddingGenerator.Generate(query)
+	if err != nil {
+		fmt.Printf("Erro ao gerar embedding da query, usando busca textual: %v\n", err)
+		return SearchMemories(query)
+	}
+
+	// Busca memórias com embedding
+	memories, err := GetMemoriesWithEmbedding()
+	if err != nil {
+		return nil, err
+	}
+
+	// Se não há memórias com embedding, faz fallback para busca textual
+	if len(memories) == 0 {
+		return SearchMemories(query)
+	}
+
+	type memoryWithSimilarity struct {
+		memory     Memory
+		similarity float32
+	}
+
+	// Calcula similaridade para cada memória
+	results := make([]memoryWithSimilarity, 0, len(memories))
+	for _, memory := range memories {
+		memoryEmbedding := memory.GetEmbedding()
+		if len(memoryEmbedding) == 0 {
+			continue
+		}
+
+		similarity := CosineSimilarity(queryEmbedding, memoryEmbedding)
+		if similarity >= minSimilarity {
+			results = append(results, memoryWithSimilarity{
+				memory:     memory,
+				similarity: similarity,
+			})
+		}
+	}
+
+	// Ordena por similaridade decrescente
+	for i := 0; i < len(results)-1; i++ {
+		for j := i + 1; j < len(results); j++ {
+			if results[j].similarity > results[i].similarity {
+				results[i], results[j] = results[j], results[i]
+			}
+		}
+	}
+
+	// Limita ao topK
+	if topK > len(results) {
+		topK = len(results)
+	}
+
+	finalResults := make([]Memory, topK)
+	for i := 0; i < topK; i++ {
+		finalResults[i] = results[i].memory
+	}
+
+	return finalResults, nil
 }
 
 // ==================== FAQ ====================

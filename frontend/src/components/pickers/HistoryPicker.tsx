@@ -62,8 +62,8 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
       loadConversations();
     };
 
-    const handleTabTitleUpdated = () => {
-      console.log('[HistoryPicker] Título de aba atualizado, recarregando lista...');
+    const handleConversationRenamed = () => {
+      console.log('[HistoryPicker] Conversa renomeada, recarregando lista...');
       loadConversations();
     };
 
@@ -73,12 +73,12 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
     };
 
     EventsOn('chat:conversation_created', handleConversationCreated);
-    EventsOn('tab_title_updated', handleTabTitleUpdated);
+    EventsOn('conversation:renamed', handleConversationRenamed);
     EventsOn('conversation:deleted', handleConversationDeleted);
 
     return () => {
       EventsOff('chat:conversation_created');
-      EventsOff('tab_title_updated');
+      EventsOff('conversation:renamed');
       EventsOff('conversation:deleted');
     };
   }, [loadConversations]);

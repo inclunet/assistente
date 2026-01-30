@@ -9,6 +9,8 @@ import {
   UpdateTabTitle as BackendUpdateTabTitle,
   GetMessages,
   LoadConversationInTab,
+  OnTabInactive,
+  OnTabClosed,
 } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
@@ -132,6 +134,14 @@ interface ChatStore {
   // Thread management
   getThreadedMessages: () => MessageNode[] | undefined;
   loadMessageChildren: (messageId: string) => Promise<MessageNode[]>;
+  
+  // External events
+  handleConversationDeleted: (conversationId: number) => void;
+  handleConversationCleared: (conversationId: number) => void;
+  handleConversationRenamed: (conversationId: number, newTitle: string) => void;
+  handleDatabaseReset: () => void;
+  handleTabClosed: (tabId: number) => void;
+  consolidateEmptyTabs: () => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -344,6 +354,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }
 
     try {
+      // Gera embedding da conversa antes de fechar (se houver conversa)
+      if (tab.conversationId) {
+        console.log('[Chat] Generating embedding before closing tab, conversationId:', tab.conversationId);
+        await OnTabClosed(tab.conversationId).catch(err => 
+          console.warn('[Chat] Error generating embedding on tab close:', err)
+        );
+      }
+      
       if (tab.backendId) {
         console.log('[Chat] Closing tab in backend:', tab.backendId);
         await CloseTab(tab.backendId);
@@ -385,8 +403,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
   setActiveTab: async (tabId) => {
     console.log('[Chat] 🔵 setActiveTab CHAMADO com tabId:', tabId);
-    const tab = get().tabs.find(t => t.id === tabId);
+    const state = get();
+    const tab = state.tabs.find(t => t.id === tabId);
+    const previousTab = state.tabs.find(t => t.id === state.activeTabId);
     console.log('[Chat] 🔵 Tab encontrada:', tab ? `id=${tab.id}, backendId=${tab.backendId}` : 'NÃO ENCONTRADA');
+    
+    // Dispara geração de embedding da aba anterior (em background)
+    if (previousTab && previousTab.backendId && previousTab.id !== tabId) {
+      console.log('[Chat] 🔵 Tab anterior ficando inativa, gerando embedding:', previousTab.backendId);
+      OnTabInactive(previousTab.backendId).catch(err => 
+        console.warn('[Chat] Error generating embedding on tab inactive:', err)
+      );
+    }
     
     try {
       if (tab?.backendId) {
@@ -431,6 +459,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     // Atualiza localmente (mesmo que backend falhe)
     set({ activeTabId: tabId });
+    
+    // Anuncia para acessibilidade
+    if (tab && tab.id !== state.activeTabId) {
+      const tabTitle = tab.title || 'Nova Conversa';
+      const tabIndex = state.tabs.findIndex(t => t.id === tabId) + 1;
+      announce(`${tabTitle}, conversa ${tabIndex} de ${state.tabs.length}`);
+    }
   },
 
   updateTabTitle: (tabId, title) => {
@@ -834,6 +869,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
 
       console.log('[Chat] ✅ Conversa carregada com sucesso na aba ativa');
+      
+      // Anuncia para acessibilidade
+      announce(`Conversa aberta: ${conversationTitle || 'Conversa carregada'}`);
     } catch (error) {
       console.error('[Chat] ❌ Erro ao carregar conversa na aba ativa:', error);
       throw error;
@@ -1506,6 +1544,226 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           return [];
         }
       },
+
+    // Chamado quando uma conversa é deletada pelo backend
+    handleConversationDeleted: (conversationId: number) => {
+      console.log('[Chat] Handling conversation deleted:', conversationId);
+      
+      // Anuncia para acessibilidade
+      announce('Conversa apagada permanentemente');
+      
+      const state = get();
+      const tabToClose = state.tabs.find(tab => tab.conversationId === conversationId);
+      
+      if (!tabToClose) {
+        console.log('[Chat] Tab with deleted conversation not found');
+        return;
+      }
+
+      // Se houver mais de uma aba, fecha a aba da conversa deletada
+      if (state.tabs.length > 1) {
+        console.log('[Chat] Closing tab that had deleted conversation:', tabToClose.id);
+        // Usa deleteTab para fechar corretamente
+        get().deleteTab(tabToClose.id);
+      } else {
+        // Se for a única aba, apenas limpa
+        console.log('[Chat] Only one tab, clearing instead of closing');
+        set((s) => ({
+          tabs: s.tabs.map(tab => 
+            tab.id === tabToClose.id
+              ? {
+                  ...tab,
+                  conversationId: undefined,
+                  title: 'Nova Conversa',
+                  threadedMessages: [] as MessageNode[],
+                  updatedAt: Date.now(),
+                }
+              : tab
+          ),
+        }));
+      }
+
+      // Garante que só há uma aba vazia
+      setTimeout(() => {
+        get().consolidateEmptyTabs();
+      }, 100);
+      
+      // Foca no input de mensagem após um pequeno delay
+      setTimeout(() => {
+        const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
+        if (input) {
+          input.focus();
+        }
+      }, 200);
+    },
+
+    // Chamado quando uma conversa é limpa (mensagens removidas)
+    handleConversationCleared: (conversationId: number) => {
+      console.log('[Chat] Handling conversation cleared:', conversationId);
+      
+      // Anuncia para acessibilidade
+      announce('Mensagens da conversa removidas');
+      
+      // Limpa as mensagens da aba que tinha essa conversa
+      set((state) => {
+        const updatedTabs: ChatTab[] = state.tabs.map(tab => {
+          if (tab.conversationId === conversationId) {
+            console.log('[Chat] Clearing messages from tab:', tab.id);
+            return {
+              ...tab,
+              threadedMessages: [] as MessageNode[],
+              updatedAt: Date.now(),
+            };
+          }
+          return tab;
+        });
+        return { tabs: updatedTabs };
+      });
+      
+      // Foca no input de mensagem após um pequeno delay
+      setTimeout(() => {
+        const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
+        if (input) {
+          input.focus();
+        }
+      }, 200);
+    },
+
+    // Chamado quando uma conversa é renomeada
+    handleConversationRenamed: (conversationId: number, newTitle: string) => {
+      console.log('[Chat] Handling conversation renamed:', conversationId, '->', newTitle);
+      
+      set((state) => {
+        const updatedTabs: ChatTab[] = state.tabs.map(tab => {
+          if (tab.conversationId === conversationId) {
+            console.log('[Chat] Renaming tab:', tab.id, 'to:', newTitle);
+            return {
+              ...tab,
+              title: newTitle,
+              updatedAt: Date.now(),
+            };
+          }
+          return tab;
+        });
+        return { tabs: updatedTabs };
+      });
+      
+      // Anuncia para acessibilidade
+      announce(`Conversa renomeada para ${newTitle}`);
+    },
+
+    // Chamado quando o banco de dados é resetado
+    handleDatabaseReset: () => {
+      console.log('[Chat] Handling database reset - reinitializing...');
+      
+      // Limpa todos os listeners ativos
+      activeListeners.forEach((cleanup) => cleanup());
+      activeListeners.clear();
+      
+      // Reseta o estado e reinicializa
+      set({
+        tabs: [],
+        activeTabId: null,
+        isLoading: false,
+        streamingMessageId: null,
+        isInitialized: false,
+        expandedThreads: new Set<string>(),
+      });
+      
+      // Reinicializa tabs do backend
+      get().initializeTabs();
+      
+      // Anuncia para acessibilidade
+      announce('Banco de dados resetado. Conversas reinicializadas.');
+    },
+
+    // Chamado quando uma tab é fechada externamente (via ChatManager ou outro)
+    handleTabClosed: (backendTabId: number) => {
+      console.log('[Chat] Handling tab closed externally:', backendTabId);
+      
+      const state = get();
+      const tabToClose = state.tabs.find(t => t.backendId === backendTabId);
+      
+      if (!tabToClose) {
+        console.log('[Chat] Tab not found, may have been closed locally already');
+        return;
+      }
+      
+      // Não permite fechar se for a última aba
+      if (state.tabs.length <= 1) {
+        console.log('[Chat] Cannot close last tab, clearing instead');
+        set((s) => ({
+          tabs: s.tabs.map(tab => 
+            tab.backendId === backendTabId
+              ? {
+                  ...tab,
+                  conversationId: undefined,
+                  title: 'Nova Conversa',
+                  threadedMessages: [] as MessageNode[],
+                  updatedAt: Date.now(),
+                }
+              : tab
+          ),
+        }));
+        return;
+      }
+      
+      // Limpa listeners se existirem
+      const existingCleanup = activeListeners.get(tabToClose.id);
+      if (existingCleanup) {
+        existingCleanup();
+        activeListeners.delete(tabToClose.id);
+      }
+      
+      // Define próxima aba ativa se a tab fechada era a ativa
+      let newActiveTabId = state.activeTabId;
+      if (state.activeTabId === tabToClose.id) {
+        const remainingTabs = state.tabs.filter(t => t.id !== tabToClose.id);
+        const currentIndex = state.tabs.findIndex(t => t.id === tabToClose.id);
+        const nextTab = remainingTabs[Math.min(currentIndex, remainingTabs.length - 1)];
+        newActiveTabId = nextTab?.id || null;
+      }
+      
+      // Remove a tab
+      set((s) => ({
+        tabs: s.tabs.filter(t => t.id !== tabToClose.id),
+        activeTabId: newActiveTabId,
+      }));
+      
+      // Consolida abas vazias
+      setTimeout(() => get().consolidateEmptyTabs(), 100);
+      
+      // Anuncia para acessibilidade
+      announce('Aba fechada');
+    },
+
+    // Consolida abas vazias - mantém apenas uma (a última)
+    consolidateEmptyTabs: () => {
+      const state = get();
+      
+      // Encontra todas as abas vazias (sem conversationId)
+      const emptyTabs = state.tabs.filter(tab => !tab.conversationId);
+      
+      console.log('[Chat] Empty tabs found:', emptyTabs.length);
+      
+      // Se houver mais de uma aba vazia, fecha as extras (mantém a última)
+      if (emptyTabs.length > 1) {
+        // Mantém a última aba vazia (mais recente por updatedAt)
+        const sortedEmpty = [...emptyTabs].sort((a, b) => b.updatedAt - a.updatedAt);
+        const tabsToClose = sortedEmpty.slice(1); // Fecha todas exceto a mais recente
+        
+        console.log('[Chat] Closing extra empty tabs:', tabsToClose.map(t => t.id));
+        
+        // Fecha cada aba extra (precisa fazer sequencialmente para evitar race condition)
+        for (const tab of tabsToClose) {
+          const currentState = get();
+          // Só fecha se não for a última aba total
+          if (currentState.tabs.length > 1) {
+            get().deleteTab(tab.id);
+          }
+        }
+      }
+    },
   };
 });
 

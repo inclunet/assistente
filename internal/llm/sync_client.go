@@ -166,6 +166,32 @@ func (c *SyncClient) ChatWithToolsAndSaver(
 	return "", fmt.Errorf("máximo de iterações atingido")
 }
 
+// SimpleChat envia uma mensagem simples ao LLM e retorna a resposta (sem tools)
+func (c *SyncClient) SimpleChat(ctx context.Context, model, systemPrompt, userMessage string) (string, error) {
+	sysContent := systemPrompt
+	userContent := userMessage
+
+	messages := []syncChatMessage{
+		{Role: "system", Content: &sysContent},
+		{Role: "user", Content: &userContent},
+	}
+
+	resp, err := c.sendRequest(ctx, model, messages, nil)
+	if err != nil {
+		return "", err
+	}
+
+	if len(resp.Choices) == 0 {
+		return "", fmt.Errorf("nenhuma resposta do LLM")
+	}
+
+	if resp.Choices[0].Message.Content == nil {
+		return "", fmt.Errorf("resposta vazia do LLM")
+	}
+
+	return *resp.Choices[0].Message.Content, nil
+}
+
 func (c *SyncClient) sendRequest(ctx context.Context, model string, messages []syncChatMessage, tools []Tool) (*syncChatResponse, error) {
 	reqBody := syncChatRequest{
 		Model:    model,

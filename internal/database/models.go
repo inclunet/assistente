@@ -37,6 +37,32 @@ type Conversation struct {
 	UpdatedAt    time.Time     `json:"updated_at"`
 	Messages     []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
 	MessageCount int           `json:"message_count" gorm:"-"` // Campo calculado, não persiste no banco
+
+	// Campos para busca semântica
+	Summary               string `json:"summary,omitempty" gorm:"type:text"` // Resumo gerado pelo LLM
+	Embedding             string `json:"-" gorm:"type:text"`                 // Embedding do resumo (não expõe na API)
+	EmbeddingMessageCount int    `json:"embedding_message_count"`            // Qtd de msgs quando gerou o embedding
+}
+
+// GetEmbedding retorna o embedding como slice de float32
+func (c *Conversation) GetEmbedding() []float32 {
+	if c.Embedding == "" {
+		return nil
+	}
+	var embedding []float32
+	json.Unmarshal([]byte(c.Embedding), &embedding)
+	return embedding
+}
+
+// SetEmbedding define o embedding a partir de um slice de float32
+func (c *Conversation) SetEmbedding(embedding []float32) {
+	data, _ := json.Marshal(embedding)
+	c.Embedding = string(data)
+}
+
+// NeedsEmbeddingUpdate verifica se o embedding precisa ser atualizado
+func (c *Conversation) NeedsEmbeddingUpdate() bool {
+	return c.Embedding == "" || c.EmbeddingMessageCount < c.MessageCount
 }
 
 // GetPreferences retorna as preferências da conversa deserializadas
@@ -112,6 +138,7 @@ type Memory struct {
 	Title     string    `json:"title" gorm:"type:text"`
 	Content   string    `json:"content" gorm:"type:text"`
 	Category  string    `json:"category,omitempty"`
+	Embedding string    `json:"-" gorm:"type:text"` // Embedding JSON (não expõe na API)
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
@@ -121,6 +148,22 @@ func (m *Memory) GetID() uint         { return m.ID }
 func (m *Memory) GetTitle() string    { return m.Title }
 func (m *Memory) GetContent() string  { return m.Content }
 func (m *Memory) GetCategory() string { return m.Category }
+
+// GetEmbedding retorna o embedding como slice de float32
+func (m *Memory) GetEmbedding() []float32 {
+	if m.Embedding == "" {
+		return nil
+	}
+	var embedding []float32
+	json.Unmarshal([]byte(m.Embedding), &embedding)
+	return embedding
+}
+
+// SetEmbedding define o embedding a partir de um slice de float32
+func (m *Memory) SetEmbedding(embedding []float32) {
+	data, _ := json.Marshal(embedding)
+	m.Embedding = string(data)
+}
 
 // ==================== FAQ ====================
 
@@ -305,14 +348,14 @@ type VoiceProfile struct {
 	ID              uint      `json:"id" gorm:"primaryKey"`
 	Name            string    `json:"name" gorm:"uniqueIndex;not null"`
 	Description     string    `json:"description" gorm:"type:text"`
-	Provider        string    `json:"provider" gorm:"type:text;not null"`        // disabled, webspeech, sapi5, openai
-	VoiceID         string    `json:"voice_id" gorm:"type:text"`                 // ID da voz (ex: nova, alloy, Microsoft Maria) - vazio se disabled
-	Rate            float64   `json:"rate" gorm:"default:1.0"`                   // Velocidade (0.25-4.0 para OpenAI, -10 a 10 para SAPI5)
-	Pitch           float64   `json:"pitch" gorm:"default:1.0"`                  // Tom (apenas WebSpeech)
-	Volume          float64   `json:"volume" gorm:"default:1.0"`                 // Volume (0-1)
-	EnabledForAgent bool      `json:"enabled_for_agent" gorm:"default:false"`    // Ativa TTS para mensagens do assistente
-	EnabledForUser  bool      `json:"enabled_for_user" gorm:"default:false"`     // Ativa TTS para mensagens do usuário (lê mensagens enviadas)
-	IsDefault       bool      `json:"is_default" gorm:"default:false"`           // Se é o perfil padrão
+	Provider        string    `json:"provider" gorm:"type:text;not null"`     // disabled, webspeech, sapi5, openai
+	VoiceID         string    `json:"voice_id" gorm:"type:text"`              // ID da voz (ex: nova, alloy, Microsoft Maria) - vazio se disabled
+	Rate            float64   `json:"rate" gorm:"default:1.0"`                // Velocidade (0.25-4.0 para OpenAI, -10 a 10 para SAPI5)
+	Pitch           float64   `json:"pitch" gorm:"default:1.0"`               // Tom (apenas WebSpeech)
+	Volume          float64   `json:"volume" gorm:"default:1.0"`              // Volume (0-1)
+	EnabledForAgent bool      `json:"enabled_for_agent" gorm:"default:false"` // Ativa TTS para mensagens do assistente
+	EnabledForUser  bool      `json:"enabled_for_user" gorm:"default:false"`  // Ativa TTS para mensagens do usuário (lê mensagens enviadas)
+	IsDefault       bool      `json:"is_default" gorm:"default:false"`        // Se é o perfil padrão
 	CreatedAt       time.Time `json:"created_at"`
 	UpdatedAt       time.Time `json:"updated_at"`
 }
@@ -436,8 +479,8 @@ type InteractionTrigger struct {
 	// === Hotkey ===
 	// Para type=hotkey: tecla que ACIONA gravação
 	// Para type=wakeword/vad: tecla que LIGA/DESLIGA a escuta
-	Hotkey            string `json:"hotkey" gorm:"type:text"`                   // Ex: "Ctrl+Shift+Space"
-	HotkeyGlobal      bool   `json:"hotkey_global" gorm:"default:true"`         // Global ou local
+	Hotkey             string `json:"hotkey" gorm:"type:text"`                   // Ex: "Ctrl+Shift+Space"
+	HotkeyGlobal       bool   `json:"hotkey_global" gorm:"default:true"`         // Global ou local
 	HotkeyBringToFront bool   `json:"hotkey_bring_to_front" gorm:"default:true"` // Trazer janela (se global)
 
 	// === Wakeword ===

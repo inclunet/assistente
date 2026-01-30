@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"assistente/internal/agentmanager"
+	"assistente/internal/agents"
 	"assistente/internal/config"
 	"assistente/internal/database"
 
@@ -247,7 +248,19 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 }
 
 func (a *App) UpdateConversation(id uint, title, model string) error {
-	return database.UpdateConversation(id, title, model)
+	if err := database.UpdateConversation(id, title, model); err != nil {
+		return err
+	}
+
+	// Emite evento unificado para atualizar todas as referências (tabs, etc.)
+	if title != "" {
+		runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
+			"conversation_id": id,
+			"new_title":       title,
+		})
+	}
+
+	return nil
 }
 
 func (a *App) DeleteConversation(id uint) error {
@@ -335,7 +348,17 @@ func (a *App) GetAllTokenStats() (map[string]int, error) {
 // ==================== Memory ====================
 
 func (a *App) CreateMemory(title, content, category string) (*Memory, error) {
-	return database.CreateMemory(title, content, category)
+	memory, err := database.CreateMemory(title, content, category)
+	if err != nil {
+		return nil, err
+	}
+	// Gera embedding em background
+	go func() {
+		if err := a.GenerateMemoryEmbedding(memory.ID); err != nil {
+			fmt.Printf("Aviso: erro ao gerar embedding para Memory %d: %v\n", memory.ID, err)
+		}
+	}()
+	return memory, nil
 }
 
 func (a *App) GetAllMemories() ([]Memory, error) {
@@ -351,7 +374,17 @@ func (a *App) SearchMemories(query string) ([]Memory, error) {
 }
 
 func (a *App) UpdateMemory(id uint, title, content, category string) (*Memory, error) {
-	return database.UpdateMemory(id, title, content, category)
+	memory, err := database.UpdateMemory(id, title, content, category)
+	if err != nil {
+		return nil, err
+	}
+	// Regenera embedding em background
+	go func() {
+		if err := a.GenerateMemoryEmbedding(id); err != nil {
+			fmt.Printf("Aviso: erro ao regenerar embedding para Memory %d: %v\n", id, err)
+		}
+	}()
+	return memory, nil
 }
 
 func (a *App) DeleteMemory(id uint) error {
@@ -360,6 +393,401 @@ func (a *App) DeleteMemory(id uint) error {
 
 func (a *App) GetCoreMemories() ([]Memory, error) {
 	return database.GetCoreMemories()
+}
+
+// ==================== Memory Embeddings ====================
+
+func (a *App) GenerateMemoryEmbedding(memoryID uint) error {
+	return database.GenerateMemoryEmbedding(memoryID)
+}
+
+func (a *App) GenerateAllMemoryEmbeddings() (int, error) {
+	return database.GenerateAllMemoryEmbeddings()
+}
+
+// GetMemoriesWithoutEmbedding retorna memórias que ainda não têm embedding
+func (a *App) GetMemoriesWithoutEmbedding() ([]Memory, error) {
+	return database.GetMemoriesWithoutEmbedding()
+}
+
+// RegenerateSingleMemoryEmbedding regenera o embedding de uma memória específica
+func (a *App) RegenerateSingleMemoryEmbedding(memoryID uint) error {
+	return a.GenerateMemoryEmbedding(memoryID)
+}
+
+// MemoryEmbeddingStatus representa o status dos embeddings de memórias
+type MemoryEmbeddingStatus struct {
+	Total            int `json:"total"`
+	WithEmbeddings   int `json:"with_embeddings"`
+	WithoutEmbedding int `json:"without_embedding"`
+}
+
+// GetMemoryEmbeddingStatus retorna o status dos embeddings de memórias
+func (a *App) GetMemoryEmbeddingStatus() (*MemoryEmbeddingStatus, error) {
+	memories, err := a.GetAllMemories()
+	if err != nil {
+		return nil, err
+	}
+
+	withEmb := 0
+	for _, memory := range memories {
+		if memory.Embedding != "" {
+			withEmb++
+		}
+	}
+
+	return &MemoryEmbeddingStatus{
+		Total:            len(memories),
+		WithEmbeddings:   withEmb,
+		WithoutEmbedding: len(memories) - withEmb,
+	}, nil
+}
+
+// RegenerateMemoryEmbeddings regenera embeddings de todas as memórias que não têm
+func (a *App) RegenerateMemoryEmbeddings() (int, error) {
+	return database.GenerateAllMemoryEmbeddings()
+}
+
+// ==================== Conversation Embeddings ====================
+
+// GenerateConversationEmbedding gera o embedding de uma conversa específica
+func (a *App) GenerateConversationEmbedding(conversationID uint) error {
+	return database.GenerateConversationEmbedding(conversationID)
+}
+
+// GenerateAllConversationEmbeddings gera embeddings para todas as conversas que não têm
+func (a *App) GenerateAllConversationEmbeddings() (int, error) {
+	return database.GenerateAllConversationEmbeddings()
+}
+
+// SearchConversationsSemantic busca conversas usando similaridade semântica
+func (a *App) SearchConversationsSemantic(query string, topK int, minSimilarity float32) ([]Conversation, error) {
+	return database.SearchConversationsSemantic(query, topK, minSimilarity)
+}
+
+// ConversationEmbeddingStatus representa o status dos embeddings de conversas
+type ConversationEmbeddingStatus struct {
+	Total            int `json:"total"`
+	WithEmbeddings   int `json:"with_embeddings"`
+	WithoutEmbedding int `json:"without_embedding"`
+}
+
+// GetConversationEmbeddingStatus retorna o status dos embeddings de conversas
+func (a *App) GetConversationEmbeddingStatus() (*ConversationEmbeddingStatus, error) {
+	conversations, err := database.GetConversations()
+	if err != nil {
+		return nil, err
+	}
+
+	withEmb := 0
+	for _, conv := range conversations {
+		if conv.Embedding != "" {
+			withEmb++
+		}
+	}
+
+	return &ConversationEmbeddingStatus{
+		Total:            len(conversations),
+		WithEmbeddings:   withEmb,
+		WithoutEmbedding: len(conversations) - withEmb,
+	}, nil
+}
+
+// OnTabInactive é chamado quando uma aba fica inativa
+// Gera o embedding da conversa em background se necessário
+func (a *App) OnTabInactive(tabID uint) error {
+	// Busca a aba
+	tab, err := database.GetTab(tabID)
+	if err != nil {
+		return err
+	}
+
+	// Se não tem conversa associada, ignora
+	if tab.ConversationID == nil {
+		return nil
+	}
+
+	// Gera embedding em background
+	go func() {
+		if err := database.GenerateConversationEmbedding(*tab.ConversationID); err != nil {
+			fmt.Printf("Aviso: erro ao gerar embedding para conversa %d: %v\n", *tab.ConversationID, err)
+		}
+	}()
+
+	return nil
+}
+
+// OnTabClosed é chamado quando uma aba é fechada
+// Garante que o embedding final seja gerado
+func (a *App) OnTabClosed(conversationID uint) error {
+	if conversationID == 0 {
+		return nil
+	}
+
+	// Gera embedding de forma síncrona para garantir que seja salvo
+	return database.GenerateConversationEmbedding(conversationID)
+}
+
+// ==================== Context Navigation (for agents) ====================
+
+// SearchOpenTabs busca em abas abertas usando similaridade semântica
+// Implementa agents.ContextNavigator
+func (a *App) SearchOpenTabs(query string, minSimilarity float32) ([]agents.OpenTabResult, error) {
+	if query == "" {
+		return nil, fmt.Errorf("query não pode ser vazia")
+	}
+
+	// Busca todas as abas
+	tabs, err := database.GetAllTabs()
+	if err != nil {
+		return nil, err
+	}
+
+	// Gera embedding da query
+	if a.embeddingsService == nil {
+		return nil, fmt.Errorf("serviço de embeddings não configurado")
+	}
+
+	queryEmbedding, err := a.embeddingsService.Generate(query)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao gerar embedding da query: %w", err)
+	}
+
+	var results []agents.OpenTabResult
+
+	for _, tab := range tabs {
+		if tab.ConversationID == nil {
+			continue // Aba sem conversa
+		}
+
+		// Busca a conversa para pegar o embedding
+		conv, err := database.GetConversation(*tab.ConversationID)
+		if err != nil {
+			continue
+		}
+
+		convEmbedding := conv.GetEmbedding()
+		if len(convEmbedding) == 0 {
+			continue // Sem embedding
+		}
+
+		// Calcula similaridade
+		similarity := database.CosineSimilarity(queryEmbedding, convEmbedding)
+		if similarity >= minSimilarity {
+			results = append(results, agents.OpenTabResult{
+				TabID:          tab.ID,
+				ConversationID: *tab.ConversationID,
+				Title:          tab.Title,
+				Summary:        conv.Summary,
+				Similarity:     similarity,
+				IsActive:       tab.IsActive,
+			})
+		}
+	}
+
+	// Ordena por similaridade decrescente
+	for i := 0; i < len(results)-1; i++ {
+		for j := i + 1; j < len(results); j++ {
+			if results[j].Similarity > results[i].Similarity {
+				results[i], results[j] = results[j], results[i]
+			}
+		}
+	}
+
+	return results, nil
+}
+
+// SearchConversationHistory busca em histórico de conversas (não abertas em abas)
+// Implementa agents.ContextNavigator
+func (a *App) SearchConversationHistory(query string, topK int, minSimilarity float32) ([]agents.ConversationResult, error) {
+	conversations, err := database.SearchConversationsSemantic(query, topK, minSimilarity)
+	if err != nil {
+		return nil, err
+	}
+
+	// Pega IDs das conversas abertas em abas para excluí-las
+	tabs, _ := database.GetAllTabs()
+	openConvIDs := make(map[uint]bool)
+	for _, tab := range tabs {
+		if tab.ConversationID != nil {
+			openConvIDs[*tab.ConversationID] = true
+		}
+	}
+
+	var results []agents.ConversationResult
+	for _, conv := range conversations {
+		// Exclui conversas que já estão abertas em abas
+		if openConvIDs[conv.ID] {
+			continue
+		}
+
+		results = append(results, agents.ConversationResult{
+			ConversationID: conv.ID,
+			Title:          conv.Title,
+			Summary:        conv.Summary,
+			CreatedAt:      conv.CreatedAt.Format("02/01/2006"),
+			MessageCount:   conv.MessageCount,
+		})
+	}
+
+	return results, nil
+}
+
+// SwitchToTab muda para uma aba específica
+func (a *App) SwitchToTab(tabID uint) error {
+	return database.SetActiveTab(tabID)
+}
+
+// OpenConversationInNewTab abre uma conversa do histórico em uma nova aba
+func (a *App) OpenConversationInNewTab(conversationID uint) (uint, error) {
+	// Verifica se a conversa existe
+	conv, err := database.GetConversation(conversationID)
+	if err != nil {
+		return 0, fmt.Errorf("conversa não encontrada: %w", err)
+	}
+
+	// Cria nova aba
+	tab, err := database.CreateTab(conv.Title, "💬", true)
+	if err != nil {
+		return 0, fmt.Errorf("erro ao criar aba: %w", err)
+	}
+
+	// Carrega a conversa na aba
+	if err := database.LoadConversationInTab(tab.ID, conversationID); err != nil {
+		return 0, fmt.Errorf("erro ao carregar conversa: %w", err)
+	}
+
+	return tab.ID, nil
+}
+
+// OpenConversationInCurrentTab abre uma conversa na aba atual
+func (a *App) OpenConversationInCurrentTab(conversationID uint) error {
+	// Verifica se a conversa existe
+	_, err := database.GetConversation(conversationID)
+	if err != nil {
+		return fmt.Errorf("conversa não encontrada: %w", err)
+	}
+
+	// Pega a aba ativa
+	tabs, err := database.GetAllTabs()
+	if err != nil {
+		return fmt.Errorf("erro ao obter abas: %w", err)
+	}
+
+	var activeTabID uint
+	for _, tab := range tabs {
+		if tab.IsActive {
+			activeTabID = tab.ID
+			break
+		}
+	}
+
+	if activeTabID == 0 {
+		return fmt.Errorf("nenhuma aba ativa encontrada")
+	}
+
+	// Carrega a conversa na aba ativa
+	return database.LoadConversationInTab(activeTabID, conversationID)
+}
+
+// RenameTab renomeia uma aba (usa UpdateTabTitle que emite eventos)
+func (a *App) RenameTab(tabID uint, newTitle string) error {
+	return a.UpdateTabTitle(tabID, newTitle)
+}
+
+// GetCurrentTabID retorna o ID da aba ativa
+func (a *App) GetCurrentTabID() (uint, error) {
+	tabs, err := database.GetAllTabs()
+	if err != nil {
+		return 0, err
+	}
+
+	for _, tab := range tabs {
+		if tab.IsActive {
+			return tab.ID, nil
+		}
+	}
+
+	return 0, fmt.Errorf("nenhuma aba ativa encontrada")
+}
+
+// GetCurrentConversationID retorna o ID da conversa da aba ativa
+func (a *App) GetCurrentConversationID() (uint, error) {
+	tabs, err := database.GetAllTabs()
+	if err != nil {
+		return 0, err
+	}
+
+	for _, tab := range tabs {
+		if tab.IsActive {
+			if tab.ConversationID != nil && *tab.ConversationID > 0 {
+				return *tab.ConversationID, nil
+			}
+			return 0, fmt.Errorf("aba ativa não tem conversa associada")
+		}
+	}
+
+	return 0, fmt.Errorf("nenhuma aba ativa encontrada")
+}
+
+// CreateNewConversation cria uma nova conversa e abre em nova aba
+func (a *App) CreateNewConversation(title string) (uint, error) {
+	// Cria a conversa
+	conv, err := database.CreateConversation(title, "gpt-4o-mini")
+	if err != nil {
+		return 0, fmt.Errorf("erro ao criar conversa: %w", err)
+	}
+
+	// Cria nova aba com a conversa
+	tab, err := database.CreateTab(title, "💬", true)
+	if err != nil {
+		return 0, fmt.Errorf("erro ao criar aba: %w", err)
+	}
+
+	// Carrega a conversa na aba
+	if err := database.LoadConversationInTab(tab.ID, conv.ID); err != nil {
+		return 0, fmt.Errorf("erro ao carregar conversa: %w", err)
+	}
+
+	return conv.ID, nil
+}
+
+// RenameConversation renomeia uma conversa (usa UpdateConversation que já emite o evento)
+func (a *App) RenameConversation(conversationID uint, newTitle string) error {
+	return a.UpdateConversation(conversationID, newTitle, "")
+}
+
+// ClearConversation remove todas as mensagens de uma conversa
+func (a *App) ClearConversation(conversationID uint) error {
+	if err := database.DeleteAllMessages(conversationID); err != nil {
+		return err
+	}
+
+	// Emite evento para frontend atualizar
+	runtime.EventsEmit(a.ctx, "conversation:cleared", map[string]interface{}{
+		"conversation_id": conversationID,
+	})
+
+	return nil
+}
+
+// DeleteMessages remove mensagens específicas de uma conversa
+func (a *App) DeleteMessages(conversationID uint, messageIDs []uint) error {
+	for _, msgID := range messageIDs {
+		if err := database.DeleteMessage(msgID); err != nil {
+			return fmt.Errorf("erro ao deletar mensagem %d: %w", msgID, err)
+		}
+	}
+	return nil
+}
+
+// GetConversationSummary retorna o resumo de uma conversa
+func (a *App) GetConversationSummary(conversationID uint) (string, error) {
+	conv, err := database.GetConversation(conversationID)
+	if err != nil {
+		return "", err
+	}
+	return conv.Summary, nil
 }
 
 // ==================== FAQ ====================

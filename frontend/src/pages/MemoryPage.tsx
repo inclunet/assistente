@@ -5,7 +5,9 @@ import {
   UpdateMemory, 
   DeleteMemory,
   ExportMemories,
-  ImportMemories
+  ImportMemories,
+  RegenerateMemoryEmbeddings,
+  GetMemoryEmbeddingStatus
 } from '../../wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -47,6 +49,7 @@ export default function MemoryPage() {
   const [editingMemory, setEditingMemory] = useState<Memory | null>(null);
   const [saving, setSaving] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+  const [embeddingStatus, setEmbeddingStatus] = useState<any>(null);
   const { focusFirstCell, handleGridReady } = useGridFocus();
   
   // Form state
@@ -57,7 +60,30 @@ export default function MemoryPage() {
 
   useEffect(() => {
     loadMemories();
+    loadEmbeddingStatus();
   }, []);
+
+  const loadEmbeddingStatus = async () => {
+    try {
+      const status = await GetMemoryEmbeddingStatus();
+      setEmbeddingStatus(status);
+    } catch (error) {
+      console.error('Erro ao carregar status de embeddings:', error);
+    }
+  };
+
+  const handleRegenerateEmbeddings = async () => {
+    if (!confirm('Deseja regenerar os embeddings de todas as memórias? Isso pode levar alguns minutos.')) return;
+
+    try {
+      await RegenerateMemoryEmbeddings();
+      await loadEmbeddingStatus();
+      alert(t('memory.embeddingsRegenerated', 'Embeddings regenerados com sucesso!'));
+    } catch (error) {
+      console.error('Erro ao regenerar embeddings:', error);
+      alert('Erro ao regenerar embeddings');
+    }
+  };
 
   // Atalho Ctrl+N para nova memória
   useEffect(() => {
@@ -277,6 +303,14 @@ export default function MemoryPage() {
       onClick: handleImport,
       variant: 'secondary',
     },
+    {
+      key: 'regenerate',
+      label: 'Regenerar Embeddings',
+      icon: '🔄',
+      onClick: handleRegenerateEmbeddings,
+      variant: 'secondary',
+      disabled: !embeddingStatus || embeddingStatus.total === 0,
+    },
     ...(selectedIds.size > 0
       ? [
           {
@@ -325,6 +359,12 @@ export default function MemoryPage() {
       />
 
       <div className="page-content">
+        {embeddingStatus && (
+          <div className="embedding-status">
+            <span>📊 Embeddings: {embeddingStatus.with_embeddings || 0}/{embeddingStatus.total || 0}</span>
+          </div>
+        )}
+
         <DataGrid
           items={filteredMemories}
           columns={columns}

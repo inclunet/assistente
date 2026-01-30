@@ -296,3 +296,12 @@ func JSONSchemaBool(description string) map[string]interface{} {
 		"description": description,
 	}
 }
+
+// JSONSchemaArrayInt cria um schema para array de inteiros com descrição
+func JSONSchemaArrayInt(description string) map[string]interface{} {
+	return map[string]interface{}{
+		"type":        "array",
+		"items":       map[string]interface{}{"type": "integer"},
+		"description": description,
+	}
+}
