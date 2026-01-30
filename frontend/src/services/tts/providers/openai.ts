@@ -1,6 +1,6 @@
 /**
  * OpenAI TTS Provider
- * Usa a API OpenAI TTS via backend Wails
+ * Usa a API OpenAI TTS via backend Wails com suporte a streaming
  */
 
 import { BaseTTSProvider } from './base';
@@ -8,10 +8,12 @@ import { TTSProvider, TTSVoice } from '../types';
 import { 
   GetOpenAITTSVoices,
   SynthesizeOpenAIWithVoice,
+  SynthesizeOpenAIStream,
   SetOpenAITTSSpeed,
   SetOpenAITTSVoice
 } from '../../../../wailsjs/go/main/App';
 import { main } from '../../../../wailsjs/go/models';
+import { getStreamPlayer, TTSStreamPlayer } from '../streamPlayer';
 
 interface OpenAITTSVoiceInfo {
   id: string;
@@ -33,11 +35,22 @@ export class OpenAIProvider extends BaseTTSProvider {
   readonly name = TTSProvider.OPENAI;
   private currentAudio: HTMLAudioElement | null = null;
   private _isSpeaking: boolean = false;
+  private _useStreaming: boolean = true; // Habilita streaming por padrão
+  private streamPlayer: TTSStreamPlayer | null = null;
+  private currentSessionId: string | null = null;
   
   constructor() {
     super();
     this._rate = 1.0; // OpenAI usa 0.25 a 4.0, default 1.0
     this._volume = 1.0; // 0-1 para Audio element
+  }
+  
+  /**
+   * Habilita ou desabilita streaming
+   */
+  setUseStreaming(useStreaming: boolean): void {
+    this._useStreaming = useStreaming;
+    console.log('[OpenAI] Streaming:', useStreaming ? 'enabled' : 'disabled');
   }
   
   async initialize(): Promise<void> {
@@ -208,12 +221,89 @@ export class OpenAIProvider extends BaseTTSProvider {
       await pendingSynthesis;
     }
     
-    // Cria nova Promise para esta síntese
-    const synthesisPromise = (async () => {
-      try {
-        // IMPORTANTE: Para qualquer áudio GLOBAL anterior
-      // Isso garante que mesmo se múltiplos listeners chamarem speak(),
-      // apenas um áudio tocará por vez (o mais recente)
+    // Usa streaming se habilitado
+    if (this._useStreaming) {
+      pendingSynthesis = this.speakWithStreaming(text);
+      await pendingSynthesis;
+      return;
+    }
+    
+    // Fallback: modo sem streaming (comportamento original)
+    pendingSynthesis = this.speakWithoutStreaming(text);
+    await pendingSynthesis;
+  }
+
+  /**
+   * Fala usando streaming (baixa latência)
+   */
+  private async speakWithStreaming(text: string): Promise<void> {
+    try {
+      // Para qualquer streaming anterior
+      if (this.streamPlayer) {
+        this.streamPlayer.stop();
+      }
+      
+      // Para player global não-streaming também
+      if (globalAudioPlayer) {
+        globalAudioPlayer.pause();
+        globalAudioPlayer = null;
+      }
+      
+      // Configura velocidade e voz
+      if (this._currentVoice) {
+        await SetOpenAITTSVoice(this._currentVoice);
+      }
+      await SetOpenAITTSSpeed(this.calculateBackendRate());
+      
+      // Gera ID único para esta sessão
+      this.currentSessionId = `tts-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      
+      // Obtém o stream player
+      this.streamPlayer = getStreamPlayer();
+      
+      // Promise que resolve quando o streaming termina
+      const streamPromise = new Promise<void>((resolve, reject) => {
+        this.streamPlayer!.startListening(this.currentSessionId!, {
+          onStart: () => {
+            this._isSpeaking = true;
+            this.dispatchEvent('start', { text });
+          },
+          onEnd: () => {
+            this._isSpeaking = false;
+            this.currentSessionId = null;
+            this.dispatchEvent('end', undefined);
+            resolve();
+          },
+          onError: (error) => {
+            this._isSpeaking = false;
+            this.currentSessionId = null;
+            this.dispatchEvent('error', { error });
+            reject(error);
+          }
+        });
+      });
+      
+      // Inicia a síntese no backend (isso vai disparar os eventos)
+      await SynthesizeOpenAIStream(text, this._currentVoice || 'nova', this.currentSessionId);
+      
+      // Aguarda o streaming terminar
+      await streamPromise;
+      
+    } catch (error) {
+      console.error('[OpenAI] Streaming error:', error);
+      this._isSpeaking = false;
+      this.dispatchEvent('error', { error: error as Error });
+    } finally {
+      pendingSynthesis = null;
+    }
+  }
+
+  /**
+   * Fala sem streaming (comportamento original - fallback)
+   */
+  private async speakWithoutStreaming(text: string): Promise<void> {
+    try {
+      // IMPORTANTE: Para qualquer áudio GLOBAL anterior
       if (globalAudioPlayer) {
         globalAudioPlayer.pause();
         globalAudioPlayer.onplay = null;
@@ -234,19 +324,13 @@ export class OpenAIProvider extends BaseTTSProvider {
       
       await SetOpenAITTSSpeed(this.calculateBackendRate());
       
-      console.log('[OpenAI] Sintetizando:', text.substring(0, 50), 'com voz:', this._currentVoice);
+      console.log('[OpenAI] Sintetizando (sem streaming):', text.substring(0, 50));
       
       // Chama backend para sintetizar
       const result: main.SynthesisResultInfo = await SynthesizeOpenAIWithVoice(
         text, 
         this._currentVoice || 'nova'
       );
-      
-      console.log('[OpenAI] Resposta do backend:', {
-        audioBase64Length: result.audioBase64?.length,
-        format: result.format,
-        provider: result.provider
-      });
       
       if (!result.audioBase64) {
         throw new Error('Backend retornou audio vazio');
@@ -262,15 +346,10 @@ export class OpenAIProvider extends BaseTTSProvider {
       const audioBlob = new Blob([audioArray], { type: 'audio/mpeg' });
       globalAudioUrl = URL.createObjectURL(audioBlob);
       
-      // IMPORTANTE: Usa player GLOBAL para evitar duplicação
-      // Mesmo se múltiplos listeners chamarem speak(), apenas um áudio toca
       globalAudioPlayer = new Audio(globalAudioUrl);
       globalAudioPlayer.volume = this._volume;
-      
-      // Mantém referência local para compatibilidade
       this.currentAudio = globalAudioPlayer;
       
-      // Eventos
       globalAudioPlayer.onplay = () => {
         this._isSpeaking = true;
         this.dispatchEvent('start', { text });
@@ -301,9 +380,7 @@ export class OpenAIProvider extends BaseTTSProvider {
         });
       };
       
-      // Inicia reprodução
       await globalAudioPlayer.play();
-      
       console.log('[OpenAI] Reproduzindo audio sintetizado');
       
     } catch (error) {
@@ -311,21 +388,20 @@ export class OpenAIProvider extends BaseTTSProvider {
       this._isSpeaking = false;
       this.dispatchEvent('error', { error: error as Error });
     } finally {
-      // Libera a Promise pendente quando termina (sucesso ou erro)
       pendingSynthesis = null;
     }
-    })();
-    
-    // Armazena a Promise pendente
-    pendingSynthesis = synthesisPromise;
-    
-    // Aguarda conclusão
-    await synthesisPromise;
   }
   
   stop(): void {
     // Cancela síntese pendente
     pendingSynthesis = null;
+    
+    // Para streaming se estiver ativo
+    if (this.streamPlayer) {
+      this.streamPlayer.stop();
+      this.streamPlayer = null;
+    }
+    this.currentSessionId = null;
     
     // Para o player global primeiro (prioridade)
     if (globalAudioPlayer) {
@@ -343,7 +419,6 @@ export class OpenAIProvider extends BaseTTSProvider {
     
     // Limpa referência local (pode ser a mesma que global)
     if (this.currentAudio) {
-      // Remove todos os event listeners para evitar chamadas duplicadas
       this.currentAudio.onplay = null;
       this.currentAudio.onended = null;
       this.currentAudio.onerror = null;
@@ -354,14 +429,23 @@ export class OpenAIProvider extends BaseTTSProvider {
       this.currentAudio = null;
       this._isSpeaking = false;
       
-      // Libera memória
       if (url && url.startsWith('blob:')) {
         URL.revokeObjectURL(url);
       }
     }
+    
+    this._isSpeaking = false;
   }
   
   pause(): void {
+    // Pausa streaming se ativo
+    if (this.streamPlayer && this.streamPlayer.isPlaying()) {
+      this.streamPlayer.pause();
+      this.dispatchEvent('pause', undefined);
+      return;
+    }
+    
+    // Pausa áudio tradicional
     if (this.currentAudio && !this.currentAudio.paused) {
       this.currentAudio.pause();
       this.dispatchEvent('pause', undefined);
@@ -369,6 +453,14 @@ export class OpenAIProvider extends BaseTTSProvider {
   }
   
   resume(): void {
+    // Resume streaming se ativo
+    if (this.streamPlayer && this.streamPlayer.getState() === 'paused') {
+      this.streamPlayer.resume();
+      this.dispatchEvent('resume', undefined);
+      return;
+    }
+    
+    // Resume áudio tradicional
     if (this.currentAudio && this.currentAudio.paused) {
       this.currentAudio.play()
         .then(() => {
@@ -381,10 +473,18 @@ export class OpenAIProvider extends BaseTTSProvider {
   }
   
   isSpeaking(): boolean {
+    // Verifica streaming primeiro
+    if (this.streamPlayer && this.streamPlayer.isPlaying()) {
+      return true;
+    }
     return this._isSpeaking;
   }
   
   dispose(): void {
     this.stop();
+    if (this.streamPlayer) {
+      this.streamPlayer.dispose();
+      this.streamPlayer = null;
+    }
   }
 }

@@ -429,6 +429,8 @@ export function SwitchToTab(arg1:number):Promise<void>;
 
 export function SynthesizeOpenAI(arg1:string):Promise<main.SynthesisResultInfo>;
 
+export function SynthesizeOpenAIStream(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function SynthesizeOpenAIWithVoice(arg1:string,arg2:string):Promise<main.SynthesisResultInfo>;
 
 export function TestAgent(arg1:string,arg2:string):Promise<string>;

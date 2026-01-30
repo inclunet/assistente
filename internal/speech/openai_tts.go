@@ -2,6 +2,7 @@ package speech
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -173,6 +174,118 @@ func (c *TTSClient) SynthesizeWithVoice(text string, voice TTSVoice) ([]byte, er
 	return c.Synthesize(text)
 }
 
+// TTSStreamCallbacks callbacks para streaming de áudio
+type TTSStreamCallbacks struct {
+	OnChunk func(chunk []byte) // Chamado para cada chunk de áudio recebido
+	OnDone  func()             // Chamado quando streaming termina com sucesso
+	OnError func(err error)    // Chamado em caso de erro
+}
+
+// SynthesizeStream converte texto em áudio com streaming
+// Lê chunks da resposta HTTP e chama callbacks conforme recebe
+func (c *TTSClient) SynthesizeStream(ctx context.Context, text string, callbacks TTSStreamCallbacks) error {
+	if c.config.APIKey == "" {
+		return fmt.Errorf("API key not configured")
+	}
+
+	if text == "" {
+		return fmt.Errorf("text cannot be empty")
+	}
+
+	// Limita o texto a 4096 caracteres (limite da API)
+	if len(text) > 4096 {
+		text = text[:4096]
+	}
+
+	// Cria a requisição
+	reqBody := TTSRequest{
+		Model:          string(c.config.Model),
+		Input:          text,
+		Voice:          string(c.config.Voice),
+		ResponseFormat: string(c.config.Format),
+		Speed:          c.config.Speed,
+	}
+
+	jsonBody, err := json.Marshal(reqBody)
+	if err != nil {
+		return fmt.Errorf("failed to marshal request: %w", err)
+	}
+
+	// Cria a requisição HTTP com contexto
+	url := fmt.Sprintf("%s/audio/speech", c.config.APIBaseURL)
+	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
+	if err != nil {
+		return fmt.Errorf("failed to create request: %w", err)
+	}
+
+	req.Header.Set("Authorization", "Bearer "+c.config.APIKey)
+	req.Header.Set("Content-Type", "application/json")
+
+	// Envia a requisição
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("failed to send request: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
+	}
+
+	// Lê a resposta em chunks
+	// OpenAI retorna o áudio como um stream contínuo
+	// Usamos um buffer pequeno para enviar chunks frequentemente
+	chunkSize := 8192 // 8KB por chunk - bom balanço entre latência e overhead
+	buffer := make([]byte, chunkSize)
+	totalBytes := 0
+
+	for {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+		}
+
+		n, err := resp.Body.Read(buffer)
+		if n > 0 {
+			totalBytes += n
+			// Envia cópia do chunk (o buffer será reutilizado)
+			chunk := make([]byte, n)
+			copy(chunk, buffer[:n])
+
+			if callbacks.OnChunk != nil {
+				callbacks.OnChunk(chunk)
+			}
+		}
+
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			if callbacks.OnError != nil {
+				callbacks.OnError(err)
+			}
+			return fmt.Errorf("failed to read response: %w", err)
+		}
+	}
+
+	if callbacks.OnDone != nil {
+		callbacks.OnDone()
+	}
+
+	return nil
+}
+
+// SynthesizeStreamWithVoice converte texto em áudio com streaming usando uma voz específica
+func (c *TTSClient) SynthesizeStreamWithVoice(ctx context.Context, text string, voice TTSVoice, callbacks TTSStreamCallbacks) error {
+	originalVoice := c.config.Voice
+	c.config.Voice = voice
+	defer func() { c.config.Voice = originalVoice }()
+
+	return c.SynthesizeStream(ctx, text, callbacks)
+}
+
 // SetVoice altera a voz padrão
 func (c *TTSClient) SetVoice(voice TTSVoice) {
 	c.config.Voice = voice
@@ -246,4 +359,3 @@ func GetAvailableVoices() []TTSVoiceInfo {
 		},
 	}
 }
-

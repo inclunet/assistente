@@ -1599,6 +1599,121 @@ func (a *App) SynthesizeOpenAIWithVoice(text string, voice string) (*SynthesisRe
 	}, nil
 }
 
+// TTSStreamEvent evento de streaming de TTS (interface unificada para todos os provedores)
+type TTSStreamEvent struct {
+	SessionID   string `json:"sessionId"`   // Identificador único da sessão
+	ChunkBase64 string `json:"chunkBase64"` // Chunk de áudio em base64 (apenas em tts:stream:chunk)
+	Format      string `json:"format"`      // Formato do áudio (mp3, opus, etc)
+	Done        bool   `json:"done"`        // True quando streaming terminou
+	Error       string `json:"error"`       // Mensagem de erro (apenas em tts:stream:error)
+}
+
+// SynthesizeOpenAIStream sintetiza texto usando OpenAI TTS com streaming
+// Emite eventos Wails conforme recebe chunks de áudio:
+// - "tts:stream:start"  -> { sessionId, format }
+// - "tts:stream:chunk"  -> { sessionId, chunkBase64, format }
+// - "tts:stream:done"   -> { sessionId, done: true }
+// - "tts:stream:error"  -> { sessionId, error }
+// IMPORTANTE: Este método retorna imediatamente e executa o streaming em background
+func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string) error {
+	if a.speechManager == nil {
+		cfg, err := config.Load()
+		if err != nil {
+			runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+				SessionID: sessionID,
+				Error:     "speech manager not initialized",
+			})
+			return fmt.Errorf("speech manager not initialized")
+		}
+		if cfg.APIKey == "" {
+			runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+				SessionID: sessionID,
+				Error:     "API key not configured",
+			})
+			return fmt.Errorf("API key not configured")
+		}
+		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voice, "tts-1")
+	}
+
+	// Verifica se o provedor suporta streaming
+	if !a.speechManager.SupportsStreaming() {
+		// Fallback em goroutine separada
+		go func() {
+			result, err := a.speechManager.SynthesizeWithVoice(text, voice)
+			if err != nil {
+				runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+					SessionID: sessionID,
+					Error:     err.Error(),
+				})
+				return
+			}
+
+			// Emite como streaming de um único chunk
+			runtime.EventsEmit(a.ctx, "tts:stream:start", TTSStreamEvent{
+				SessionID: sessionID,
+				Format:    result.Format,
+			})
+			runtime.EventsEmit(a.ctx, "tts:stream:chunk", TTSStreamEvent{
+				SessionID:   sessionID,
+				ChunkBase64: result.AudioBase64,
+				Format:      result.Format,
+			})
+			runtime.EventsEmit(a.ctx, "tts:stream:done", TTSStreamEvent{
+				SessionID: sessionID,
+				Done:      true,
+			})
+		}()
+		return nil
+	}
+
+	// Executa streaming em goroutine separada para não bloquear
+	go func() {
+		// Emite evento de início
+		runtime.EventsEmit(a.ctx, "tts:stream:start", TTSStreamEvent{
+			SessionID: sessionID,
+			Format:    "mp3",
+		})
+
+		// Inicia streaming com callbacks
+		callbacks := speech.StreamCallbacks{
+			OnChunk: func(chunkBase64 string) {
+				runtime.EventsEmit(a.ctx, "tts:stream:chunk", TTSStreamEvent{
+					SessionID:   sessionID,
+					ChunkBase64: chunkBase64,
+					Format:      "mp3",
+				})
+			},
+			OnDone: func() {
+				runtime.EventsEmit(a.ctx, "tts:stream:done", TTSStreamEvent{
+					SessionID: sessionID,
+					Done:      true,
+				})
+			},
+			OnError: func(err error) {
+				log.Printf("[TTS] Stream error: %v", err)
+				runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+					SessionID: sessionID,
+					Error:     err.Error(),
+				})
+			},
+		}
+
+		// Usa contexto com timeout
+		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		defer cancel()
+
+		err := a.speechManager.SynthesizeStream(ctx, text, voice, callbacks)
+		if err != nil {
+			runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+				SessionID: sessionID,
+				Error:     err.Error(),
+			})
+		}
+	}()
+
+	return nil
+}
+
 // GetOpenAITTSVoices retorna as vozes disponíveis do OpenAI TTS
 func (a *App) GetOpenAITTSVoices() []OpenAITTSVoiceInfo {
 	voices := speech.GetAvailableVoices()

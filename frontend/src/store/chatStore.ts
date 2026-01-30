@@ -538,13 +538,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const useAriaLiveForUser = settings.config?.useAriaLiveForUser !== false; // true por padrão
       
       if (ttsEnabledForUser && settings.config?.voice) {
-        // TTS para mensagem do usuário - sintetiza e reproduz
+        // TTS para mensagem do usuário - usa streaming para reprodução mais rápida
         const cleanContent = stripMarkdown(message.content);
-        ttsService.synthesizeForMessage(cleanContent).then((audioBlob) => {
-          if (!audioBlob) return;
-          const volume = ttsService.getVolume();
-          messageAudioService.playAudioBlob(audioBlob, volume).catch(console.error);
-        }).catch(console.error);
+        ttsService.speak(cleanContent).catch((err) => {
+          console.error('[Chat] TTS speak error (user):', err);
+        });
       } else if (useAriaLiveForUser) {
         // Anuncia via aria-live se TTS não estiver ativo
         const cleanContent = stripMarkdown(message.content);
@@ -573,8 +571,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
       
       // REMOVIDO: Lógica antiga de TTS que causava duplicação
-      // Agora o TTS é gerenciado exclusivamente no streamComplete via synthesizeForMessage()
-      // e messageAudioService para reprodução isolada por mensagem
+      // Agora o TTS é gerenciado exclusivamente no streamComplete via ttsService.speak()
+      // que usa streaming para menor latência
     }
 
     console.log('[Chat] Message added:', { tabId, messageId, role: message.role, contentLength: message.content.length });
@@ -1216,17 +1214,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   messageAudioService.stopAll();
                   ttsService.stop();
                   
-                  // Sintetiza e reproduz
-                  ttsService.synthesizeForMessage(finalMessage.content).then((audioBlob) => {
-                    if (!audioBlob) return;
-                    
-                    // Verifica se tab ainda está ativa
-                    const currentActiveTabId = get().activeTabId;
-                    if (currentTabId !== currentActiveTabId) return;
-                    
-                    const volume = ttsService.getVolume();
-                    messageAudioService.playAudioBlob(audioBlob, volume).catch(console.error);
-                  }).catch(console.error);
+                  // Usa speak() com streaming para reprodução mais rápida
+                  // O streaming começa a reproduzir enquanto ainda está baixando
+                  ttsService.speak(finalMessage.content).catch((err) => {
+                    console.error('[Chat] TTS speak error:', err);
+                  });
                 }
                 
                 // Só anuncia via aria-live se TTS NÃO estiver ativo E aria-live está habilitado

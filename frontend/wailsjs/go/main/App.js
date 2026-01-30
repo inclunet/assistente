@@ -846,6 +846,10 @@ export function SynthesizeOpenAI(arg1) {
   return window['go']['main']['App']['SynthesizeOpenAI'](arg1);
 }
 
+export function SynthesizeOpenAIStream(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SynthesizeOpenAIStream'](arg1, arg2, arg3);
+}
+
 export function SynthesizeOpenAIWithVoice(arg1, arg2) {
   return window['go']['main']['App']['SynthesizeOpenAIWithVoice'](arg1, arg2);
 }

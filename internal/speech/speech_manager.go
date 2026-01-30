@@ -1,6 +1,7 @@
 package speech
 
 import (
+	"context"
 	"encoding/base64"
 	"fmt"
 	"sync"
@@ -238,6 +239,77 @@ func (sm *SpeechManager) SynthesizeWithVoice(text string, voice string) (*Synthe
 		Format:      "mp3",
 		Provider:    "openai",
 	}, nil
+}
+
+// StreamCallbacks callbacks padronizados para streaming de TTS
+// Interface unificada para todos os provedores
+type StreamCallbacks struct {
+	OnChunk func(chunkBase64 string) // Chunk de áudio em base64
+	OnDone  func()                   // Streaming concluído
+	OnError func(err error)          // Erro no streaming
+}
+
+// SynthesizeStream sintetiza com streaming (OpenAI)
+func (sm *SpeechManager) SynthesizeStream(ctx context.Context, text string, voice string, callbacks StreamCallbacks) error {
+	sm.mu.RLock()
+	provider := sm.config.TTSProvider
+	client := sm.ttsClient
+	sm.mu.RUnlock()
+
+	switch provider {
+	case TTSProviderOpenAI:
+		return sm.synthesizeStreamOpenAI(ctx, text, voice, client, callbacks)
+	default:
+		return fmt.Errorf("streaming not supported for provider: %s", provider)
+	}
+}
+
+// synthesizeStreamOpenAI implementa streaming para OpenAI
+func (sm *SpeechManager) synthesizeStreamOpenAI(ctx context.Context, text string, voice string, client *TTSClient, callbacks StreamCallbacks) error {
+	if client == nil {
+		return fmt.Errorf("TTS client not configured")
+	}
+
+	// Callbacks internos que convertem bytes para base64
+	internalCallbacks := TTSStreamCallbacks{
+		OnChunk: func(chunk []byte) {
+			if callbacks.OnChunk != nil {
+				// Converte para base64 para enviar ao frontend
+				chunkBase64 := base64.StdEncoding.EncodeToString(chunk)
+				callbacks.OnChunk(chunkBase64)
+			}
+		},
+		OnDone: func() {
+			if callbacks.OnDone != nil {
+				callbacks.OnDone()
+			}
+		},
+		OnError: func(err error) {
+			if callbacks.OnError != nil {
+				callbacks.OnError(err)
+			}
+		},
+	}
+
+	// Usa a voz especificada ou a padrão
+	if voice != "" {
+		return client.SynthesizeStreamWithVoice(ctx, text, TTSVoice(voice), internalCallbacks)
+	}
+	return client.SynthesizeStream(ctx, text, internalCallbacks)
+}
+
+// SupportsStreaming retorna true se o provedor atual suporta streaming
+func (sm *SpeechManager) SupportsStreaming() bool {
+	sm.mu.RLock()
+	provider := sm.config.TTSProvider
+	sm.mu.RUnlock()
+
+	switch provider {
+	case TTSProviderOpenAI:
+		return true
+	default:
+		return false
+	}
 }
 
 // GetAvailableSTTProviders retorna os provedores de STT disponíveis
