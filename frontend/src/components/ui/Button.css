@@ -62,12 +62,24 @@
 
 .btn--ghost {
   background: transparent;
-  color: #374151;
-  border: 1px solid #d1d5db;
+  color: #a1a1aa;
+  border: 1px solid #3f3f46;
 }
 
 .btn--ghost:hover:not(:disabled) {
-  background: #f3f4f6;
+  background: #27272a;
+  color: #e4e4e7;
+}
+
+.btn--outline {
+  background: transparent;
+  color: #e4e4e7;
+  border: 1px solid #3f3f46;
+}
+
+.btn--outline:hover:not(:disabled) {
+  background: #27272a;
+  border-color: #52525b;
 }
 
 /* Full width */
