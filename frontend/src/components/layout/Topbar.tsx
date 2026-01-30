@@ -8,18 +8,23 @@ export function Topbar() {
   const location = useLocation();
   const menuButtonRef = useRef<MenuButtonRef>(null);
 
-  // Atalho Alt+M para abrir/fechar o menu
+  // Atalho Alt+M para abrir/fechar o menu e F1 para ajuda
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.altKey && event.key.toLowerCase() === 'm') {
         event.preventDefault();
         menuButtonRef.current?.toggleMenu();
       }
+      // F1 abre a página de ajuda
+      if (event.key === 'F1') {
+        event.preventDefault();
+        navigate('/help');
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [navigate]);
 
   // Determina a página atual baseada na rota
   const getCurrentPage = (): string => {
@@ -31,6 +36,7 @@ export function Topbar() {
     if (location.pathname === '/oauth') return 'oauth';
     if (location.pathname === '/voice-profiles') return 'voice-profiles';
     if (location.pathname === '/interaction-profiles') return 'interaction-profiles';
+    if (location.pathname === '/help') return 'help';
     return 'chat';
   };
 
@@ -88,6 +94,13 @@ export function Topbar() {
       label: 'Configurações',
       icon: '⚙️',
       onClick: () => navigate('/settings'),
+    },
+    {
+      id: 'help',
+      label: 'Ajuda',
+      icon: '📚',
+      shortcut: 'F1',
+      onClick: () => navigate('/help'),
     },
   ];
 
