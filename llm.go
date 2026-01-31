@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"assistente/internal/config"
@@ -55,13 +56,61 @@ type appStreamHandler struct {
 	accumulatedContent string         // Conteúdo acumulado durante streaming
 	accumulatedCalls   []llm.ToolCall // Acumula tool calls
 	accumulatedResults []string       // Acumula resultados de tools
+
+	// Throttling para eventos de streaming
+	mu              sync.Mutex    // Protege accumulatedContent durante throttling
+	lastEmitTime    time.Time     // Última vez que um evento foi emitido
+	throttleTimer   *time.Timer   // Timer para throttling
+	pendingEmit     bool          // Flag indicando se há emissão pendente
 }
 
 func (h *appStreamHandler) OnChunk(content string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
 	// Acumula o conteúdo
 	h.accumulatedContent += content
 
-	// Emite evento de streaming (sem messageId fixo - será criado no OnDone)
+	// Throttling: emite eventos apenas a cada 50ms
+	const throttleInterval = 50 * time.Millisecond
+	now := time.Now()
+
+	// Se já passou tempo suficiente desde última emissão, emite imediatamente
+	if now.Sub(h.lastEmitTime) >= throttleInterval {
+		h.emitStreamEvent()
+		h.lastEmitTime = now
+		h.pendingEmit = false
+
+		// Cancela timer pendente se houver
+		if h.throttleTimer != nil {
+			h.throttleTimer.Stop()
+			h.throttleTimer = nil
+		}
+		return
+	}
+
+	// Caso contrário, agenda emissão se ainda não há uma pendente
+	if !h.pendingEmit {
+		h.pendingEmit = true
+
+		// Calcula tempo restante até próxima emissão permitida
+		remainingTime := throttleInterval - now.Sub(h.lastEmitTime)
+
+		h.throttleTimer = time.AfterFunc(remainingTime, func() {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+
+			if h.pendingEmit {
+				h.emitStreamEvent()
+				h.lastEmitTime = time.Now()
+				h.pendingEmit = false
+			}
+		})
+	}
+}
+
+// emitStreamEvent emite o evento de streaming (deve ser chamado com mutex locked)
+func (h *appStreamHandler) emitStreamEvent() {
 	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
 		Content:        h.accumulatedContent,
 		Done:           false,
@@ -70,8 +119,19 @@ func (h *appStreamHandler) OnChunk(content string) {
 }
 
 func (h *appStreamHandler) OnError(err string) {
+	h.mu.Lock()
+	// Cancela qualquer timer pendente
+	if h.throttleTimer != nil {
+		h.throttleTimer.Stop()
+		h.throttleTimer = nil
+	}
+	h.pendingEmit = false
+	content := h.accumulatedContent
+	h.mu.Unlock()
+
+	// Emite evento final de erro (sempre emite, sem throttling)
 	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
-		Content:        h.accumulatedContent,
+		Content:        content,
 		Done:           true,
 		Error:          err,
 		ConversationId: h.conversationID,
@@ -79,10 +139,20 @@ func (h *appStreamHandler) OnError(err string) {
 }
 
 func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
+	// Cancela qualquer timer pendente e obtém conteúdo acumulado
+	h.mu.Lock()
+	if h.throttleTimer != nil {
+		h.throttleTimer.Stop()
+		h.throttleTimer = nil
+	}
+	h.pendingEmit = false
+	accumulatedContent := h.accumulatedContent
+	h.mu.Unlock()
+
 	// Usa o conteúdo acumulado ou o fullResponse
 	finalContent := fullResponse
 	if finalContent == "" {
-		finalContent = h.accumulatedContent
+		finalContent = accumulatedContent
 	}
 
 	// Salva resposta final do assistant no nível 0 (sem parentID)
@@ -567,6 +637,7 @@ func (a *App) SaveSettings(input SettingsInput) error {
 		return &config.Config{
 			APIKey:          input.APIKey,
 			APIBaseURL:      input.APIBaseURL,
+			BraveAPIKey:     input.BraveAPIKey,
 			DefaultModel:    input.ChatParams.Model,
 			EmbeddingsModel: input.EmbeddingsParams.Model,
 			ImageModel:      input.ImageModel,

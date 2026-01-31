@@ -27,6 +27,9 @@ import { stripMarkdown } from '../lib/stripMarkdown';
 const MAX_MESSAGE_CONTENT_SIZE = 500 * 1024; // 500KB
 const MAX_MEDIA_SIZE = 10 * 1024 * 1024; // 10MB
 
+// Constantes de performance para streaming
+const STREAM_UPDATE_DEBOUNCE_MS = 16; // ~60fps - debounce para atualizações de streaming
+
 interface MediaData {
   name: string;
   type: string;
@@ -152,6 +155,10 @@ const activeListeners = new Map<string, () => void>();
 // Contador global de listeners para debug
 let activeListenerCount = 0;
 
+// Debouncing para atualizações de streaming (reduz re-renders)
+const streamUpdateTimers = new Map<string, NodeJS.Timeout>();
+const pendingStreamUpdates = new Map<string, { tabId: string; messageId: string; content: string }>();
+
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -174,7 +181,7 @@ const backendTabToFrontend = (backendTab: database.ChatTab): ChatTab => {
     title: backendTab.title,
     is_active: backendTab.is_active
   });
-  
+
   return {
     id: backendTab.id?.toString() || generateId(),
     backendId: backendTab.id,
@@ -184,6 +191,60 @@ const backendTabToFrontend = (backendTab: database.ChatTab): ChatTab => {
     createdAt: backendTab.created_at ? Date.parse(backendTab.created_at as any) : Date.now(),
     updatedAt: backendTab.updated_at ? Date.parse(backendTab.updated_at as any) : Date.now(),
   };
+};
+
+// Helper para debounced stream updates (reduz re-renders durante streaming)
+const debouncedUpdateMessage = (
+  tabId: string,
+  messageId: string,
+  content: string,
+  updateFn: (tabId: string, messageId: string, content: string) => void
+) => {
+  const key = `${tabId}-${messageId}`;
+
+  // Armazena o update pendente
+  pendingStreamUpdates.set(key, { tabId, messageId, content });
+
+  // Limpa timer anterior se existir
+  const existingTimer = streamUpdateTimers.get(key);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+  }
+
+  // Agenda novo update
+  const timer = setTimeout(() => {
+    const pending = pendingStreamUpdates.get(key);
+    if (pending) {
+      updateFn(pending.tabId, pending.messageId, pending.content);
+      pendingStreamUpdates.delete(key);
+      streamUpdateTimers.delete(key);
+    }
+  }, STREAM_UPDATE_DEBOUNCE_MS);
+
+  streamUpdateTimers.set(key, timer);
+};
+
+// Helper para forçar update imediato (usado em done/error)
+const flushPendingUpdate = (
+  tabId: string,
+  messageId: string,
+  updateFn: (tabId: string, messageId: string, content: string) => void
+) => {
+  const key = `${tabId}-${messageId}`;
+
+  // Cancela timer se existir
+  const existingTimer = streamUpdateTimers.get(key);
+  if (existingTimer) {
+    clearTimeout(existingTimer);
+    streamUpdateTimers.delete(key);
+  }
+
+  // Executa update pendente imediatamente
+  const pending = pendingStreamUpdates.get(key);
+  if (pending) {
+    updateFn(pending.tabId, pending.messageId, pending.content);
+    pendingStreamUpdates.delete(key);
+  }
 };
 
 export const useChatStore = create<ChatStore>()((set, get) => {
@@ -546,8 +607,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       } else if (useAriaLiveForUser) {
         // Anuncia via aria-live se TTS não estiver ativo
         const cleanContent = stripMarkdown(message.content);
-        const preview = cleanContent.slice(0, 150);
-        announce(`Você: ${preview}${cleanContent.length > 150 ? '...' : ''}`);
+        announce(`Você: ${cleanContent}`);
       }
     } else if (message.role === 'assistant' && !message.isStreaming) {
       // Mensagem do assistente completa (não streaming)
@@ -566,8 +626,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       // (evita conflito entre TTS e leitor de tela)
       if (!willUseTTS && useAriaLiveForAgent && isActiveTab) {
         const cleanContent = stripMarkdown(message.content);
-        const preview = cleanContent.slice(0, 150);
-        announce(`Assistente: ${preview}${cleanContent.length > 150 ? '...' : ''}`);
+        announce(`Assistente: ${cleanContent}`);
       }
       
       // REMOVIDO: Lógica antiga de TTS que causava duplicação
@@ -587,24 +646,35 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               ...tab,
               // Navega a árvore para encontrar e atualizar a mensagem
               threadedMessages: tab.threadedMessages.map((node) => {
-                // Função recursiva para atualizar em qualquer nível
-                const updateNodeContent = (n: MessageNode): MessageNode => {
+                // Função recursiva otimizada: atualiza in-place e retorna flag
+                const updateNodeContent = (n: MessageNode): boolean => {
+                  // Encontrou a mensagem? Atualiza e retorna true
                   if (n.message.id === messageId) {
                     n.message.content = content;
+                    return true;
                   }
+
+                  // Busca nos filhos se existirem
                   if (n.children && n.children.length > 0) {
-                    n.children = n.children.map(updateNodeContent);
+                    for (const child of n.children) {
+                      if (updateNodeContent(child)) {
+                        return true; // Early exit: já encontrou
+                      }
+                    }
                   }
-                  return n;
+
+                  return false;
                 };
-                return updateNodeContent(node);
+
+                updateNodeContent(node);
+                return node;
               }),
               updatedAt: Date.now(),
             }
           : tab
       ),
     }));
-    
+
     // Log apenas a cada 100 caracteres para não poluir o console
     if (content.length % 100 === 0 || content.length < 10) {
       console.log('[Chat] Message updated:', { tabId, messageId, contentLength: content.length });
@@ -1143,23 +1213,36 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               console.log('[Chat] ⚠️  Ignorando evento de listener órfão para tab:', currentTabId);
               return;
             }
-            
+
             // Log apenas eventos importantes para não poluir console
             if (event.done || event.error) {
               console.log('[Chat] Stream event:', event);
             }
-            
+
             if (event.content) {
-              // O backend já envia o conteúdo completo acumulado, não apenas o delta
-              get().updateMessage(currentTabId!, assistantMessageId, event.content);
+              // Durante streaming: usa debouncing para reduzir re-renders
+              if (!event.done && !event.error) {
+                debouncedUpdateMessage(
+                  currentTabId!,
+                  assistantMessageId,
+                  event.content,
+                  get().updateMessage
+                );
+              } else {
+                // No final (done/error): flush imediatamente para garantir conteúdo final
+                flushPendingUpdate(currentTabId!, assistantMessageId, get().updateMessage);
+                get().updateMessage(currentTabId!, assistantMessageId, event.content);
+              }
             }
-            
+
             if (event.error) {
               console.error('[Chat] Stream error:', event.error);
+              // Flush pendente antes do erro
+              flushPendingUpdate(currentTabId!, assistantMessageId, get().updateMessage);
               get().updateMessage(currentTabId!, assistantMessageId, `Erro: ${event.error}`);
               cleanup();
             }
-            
+
             // If done, mark as not streaming
             if (event.done) {
               console.log('[Chat] Stream completed');
@@ -1225,8 +1308,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 // (evita conflito entre TTS e leitor de tela)
                 if (!willUseTTS && useAriaLiveForAgent && isActiveTab) {
                   const cleanContent = stripMarkdown(finalMessage.content);
-                  const preview = cleanContent.slice(0, 150);
-                  announce(`Assistente: ${preview}${cleanContent.length > 150 ? '...' : ''}`);
+                  announce(`Assistente: ${cleanContent}`);
                 }
               }
             }
@@ -1443,18 +1525,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       
       // Alterna expansão de uma thread
       toggleThreadExpanded: (messageId) => {
-        console.log('[chatStore] 🔄 toggleThreadExpanded called for:', messageId);
         set((state) => {
           const expanded = new Set(state.expandedThreads);
-          const wasExpanded = expanded.has(messageId);
-          if (wasExpanded) {
+          if (expanded.has(messageId)) {
             expanded.delete(messageId);
-            console.log('[chatStore] ➖ Collapsed thread:', messageId);
           } else {
             expanded.add(messageId);
-            console.log('[chatStore] ➕ Expanded thread:', messageId);
           }
-          console.log('[chatStore] 📊 Current expanded threads:', Array.from(expanded));
           return { expandedThreads: expanded };
         });
       },
@@ -1539,27 +1616,31 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     // Chamado quando uma conversa é deletada pelo backend
     handleConversationDeleted: (conversationId: number) => {
-      console.log('[Chat] Handling conversation deleted:', conversationId);
+      console.log('[Chat] 🗑️ handleConversationDeleted CHAMADO para conversationId:', conversationId);
       
       // Anuncia para acessibilidade
       announce('Conversa apagada permanentemente');
       
       const state = get();
+      console.log('[Chat] 🗑️ Tabs atuais:', state.tabs.map(t => ({ id: t.id, conversationId: t.conversationId })));
+      
       const tabToClose = state.tabs.find(tab => tab.conversationId === conversationId);
       
       if (!tabToClose) {
-        console.log('[Chat] Tab with deleted conversation not found');
+        console.log('[Chat] 🗑️ Tab com conversa deletada NÃO ENCONTRADA');
         return;
       }
+      
+      console.log('[Chat] 🗑️ Tab encontrada para fechar:', { id: tabToClose.id, backendId: tabToClose.backendId });
 
       // Se houver mais de uma aba, fecha a aba da conversa deletada
       if (state.tabs.length > 1) {
-        console.log('[Chat] Closing tab that had deleted conversation:', tabToClose.id);
+        console.log('[Chat] 🗑️ Fechando tab (mais de uma aba existe):', tabToClose.id);
         // Usa deleteTab para fechar corretamente
         get().deleteTab(tabToClose.id);
       } else {
         // Se for a única aba, apenas limpa
-        console.log('[Chat] Only one tab, clearing instead of closing');
+        console.log('[Chat] 🗑️ Única aba - limpando em vez de fechar');
         set((s) => ({
           tabs: s.tabs.map(tab => 
             tab.id === tabToClose.id
@@ -1585,13 +1666,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
         if (input) {
           input.focus();
+          console.log('[Chat] 🗑️ Foco movido para input');
         }
       }, 200);
     },
 
     // Chamado quando uma conversa é limpa (mensagens removidas)
     handleConversationCleared: (conversationId: number) => {
-      console.log('[Chat] Handling conversation cleared:', conversationId);
+      console.log('[Chat] 🧹 handleConversationCleared CHAMADO para conversationId:', conversationId);
+      
+      const state = get();
+      const tabToUpdate = state.tabs.find(tab => tab.conversationId === conversationId);
+      console.log('[Chat] 🧹 Tab encontrada:', tabToUpdate ? `id=${tabToUpdate.id}, backendId=${tabToUpdate.backendId}` : 'NENHUMA');
       
       // Anuncia para acessibilidade
       announce('Mensagens da conversa removidas');
@@ -1600,15 +1686,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => {
         const updatedTabs: ChatTab[] = state.tabs.map(tab => {
           if (tab.conversationId === conversationId) {
-            console.log('[Chat] Clearing messages from tab:', tab.id);
+            console.log('[Chat] 🧹 Limpando mensagens da tab:', tab.id);
             return {
               ...tab,
               threadedMessages: [] as MessageNode[],
+              title: 'Conversa limpa',
               updatedAt: Date.now(),
             };
           }
           return tab;
         });
+        console.log('[Chat] 🧹 Tabs atualizadas:', updatedTabs.length);
         return { tabs: updatedTabs };
       });
       
@@ -1617,6 +1705,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
         if (input) {
           input.focus();
+          console.log('[Chat] 🧹 Foco movido para input');
         }
       }, 200);
     },

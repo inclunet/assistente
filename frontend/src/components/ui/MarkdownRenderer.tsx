@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useMemo } from 'react';
 
 import MarkdownIt from 'markdown-it';
 import DOMPurify from 'dompurify';
@@ -115,12 +115,10 @@ function renderMarkdown(text: string): string {
 
 export function MarkdownRenderer({ content, className = '', interactiveButtons = false }: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const [html, setHtml] = useState('');
   const editorsRef = useRef<Map<string, monaco.editor.IStandaloneCodeEditor>>(new Map());
 
-  useEffect(() => {
-    setHtml(renderMarkdown(content));
-  }, [content]);
+  // Cache de markdown: só re-processa quando content muda (useMemo ao invés de useEffect)
+  const html = useMemo(() => renderMarkdown(content), [content]);
 
   useEffect(() => {
     if (!containerRef.current || !html) return;

@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useCallback } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType } from '../../store/chatStore';
 import { useChatStore } from '../../store/chatStore';
@@ -30,11 +30,14 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 }) => {
   const nodeRef = React.useRef<HTMLDivElement>(null);
   const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
-  const isThreadExpanded = useChatStore(state => state.isThreadExpanded);
   const [isLoading, setIsLoading] = useState(false);
   
-  // Usa APENAS o estado da store para garantir reatividade
-  const isExpanded = isThreadExpanded(node.message.id);
+  // OTIMIZADO: Seletor que retorna apenas o valor booleano para este nó específico
+  // Evita re-renders quando outras threads são expandidas/colapsadas
+  const messageId = node.message.id;
+  const isExpanded = useChatStore(
+    useCallback(state => state.expandedThreads.has(messageId), [messageId])
+  );
   
   // SIMPLIFICADO: Usa apenas node.children da store
   // - loadMessageChildren atualiza node.children na store
@@ -44,47 +47,31 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 
   const hasChildren = node.childCount > 0 || children.length > 0;
 
-  const handleToggle = async () => {
-    console.log('[MessageNode] 🔵 Toggle clicked for:', node.message.id, { 
-      hasChildren, 
-      isExpanded, 
-      currentChildren: children.length,
-      childCount: node.childCount 
-    });
-    
-    if (!hasChildren) {
-      console.log('[MessageNode] ⚠️ No children to toggle');
-      return;
-    }
+  const handleToggle = useCallback(async () => {
+    if (!hasChildren) return;
 
     const wasExpanded = isExpanded;
     
     // Alterna expansão na store
-    console.log('[MessageNode] 🔄 Toggling thread expanded state...');
     toggleThreadExpanded(node.message.id);
     
     // Aguarda um tick para garantir atualização do estado
     await new Promise(resolve => setTimeout(resolve, 0));
     
-    const nowExpanded = isThreadExpanded(node.message.id);
-    console.log('[MessageNode] ✅ After toggle:', { wasExpanded, nowExpanded });
-    
     // Se estava fechado e tem filhos para carregar (childCount > 0 mas children.length === 0)
     // Isso acontece quando os filhos ainda não foram carregados do banco
     if (!wasExpanded && children.length === 0 && node.childCount > 0 && onLoadChildren) {
-      console.log('[MessageNode] 📥 Loading children for:', node.message.id);
       setIsLoading(true);
       try {
         // onLoadChildren atualiza node.children na store, causando re-render automático
         await onLoadChildren(node.message.id);
-        console.log('[MessageNode] ✅ Children loaded (store updated)');
       } catch (error) {
-        console.error('[MessageNode] ❌ Error loading children:', error);
+        console.error('[MessageNode] Error loading children:', error);
       } finally {
         setIsLoading(false);
       }
     }
-  };
+  }, [hasChildren, isExpanded, toggleThreadExpanded, node.message.id, node.childCount, children.length, onLoadChildren]);
 
   const isInternal = node.message.internal || level > 0;
   
