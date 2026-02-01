@@ -13,6 +13,7 @@ import './SettingsPage.css';
 interface FormData {
   apiKey: string;
   apiBaseURL: string;
+  braveApiKey: string;
   chatModel: string;
   chatTemperature: number;
   chatMaxTokens: number;
@@ -46,6 +47,7 @@ export default function SettingsPage() {
   const [formData, setFormData] = useState<FormData>({
     apiKey: '',
     apiBaseURL: 'https://api.openai.com/v1',
+    braveApiKey: '',
     chatModel: 'gpt-4o-mini',
     chatTemperature: 0.7,
     chatMaxTokens: 4096,
@@ -77,6 +79,7 @@ export default function SettingsPage() {
         setFormData({
           apiKey: config.api_key || '',
           apiBaseURL: config.api_base_url || 'https://api.openai.com/v1',
+          braveApiKey: config.brave_api_key || '',
           chatModel: config.chat_params?.model || 'gpt-4o-mini',
           chatTemperature: config.chat_params?.temperature || 0.7,
           chatMaxTokens: config.chat_params?.max_tokens || 4096,
@@ -114,6 +117,7 @@ export default function SettingsPage() {
       const settings = llm.SettingsInput.createFrom({
         api_key: formData.apiKey,
         api_base_url: formData.apiBaseURL,
+        brave_api_key: formData.braveApiKey,
         chat_params: {
           model: formData.chatModel,
           temperature: formData.chatTemperature,
@@ -364,6 +368,32 @@ export default function SettingsPage() {
               ]}
               fullWidth
             />
+          </div>
+        </section>
+
+        {/* Web Search Section */}
+        <section className="settings-section">
+          <h2>🔍 Busca na Web</h2>
+          <p className="settings-section-description">
+            Configure a API do Brave Search para buscas na web. 
+            <a href="https://api-dashboard.search.brave.com/" target="_blank" rel="noopener noreferrer" style={{ marginLeft: '4px' }}>
+              Obter API Key (gratuito)
+            </a>
+          </p>
+          <div className="settings-fields">
+            <Input
+              label="Brave Search API Key"
+              type="password"
+              value={formData.braveApiKey}
+              onChange={(e) => handleChange('braveApiKey', e.target.value)}
+              placeholder="BSA-..."
+              fullWidth
+            />
+            <p className="settings-field-hint">
+              {formData.braveApiKey 
+                ? '✅ Configurada - Buscas usarão Brave Search API' 
+                : '⚠️ Não configurada - Buscas usarão DuckDuckGo (menos confiável)'}
+            </p>
           </div>
         </section>
 

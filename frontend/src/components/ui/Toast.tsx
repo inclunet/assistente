@@ -1,45 +1,39 @@
 import { useEffect } from 'react';
-import { useUIStore } from '../../store/uiStore';
 import './Toast.css';
 
-export function ToastContainer() {
-  const { toasts, removeToast } = useUIStore();
-
-  return (
-    <div className="toast-container">
-      {toasts.map((toast) => (
-        <Toast key={toast.id} {...toast} onClose={() => removeToast(toast.id)} />
-      ))}
-    </div>
-  );
-}
-
-interface ToastProps {
-  id: string;
+export interface ToastProps {
   message: string;
-  type: 'success' | 'error' | 'warning' | 'info';
+  variant?: 'success' | 'error' | 'warning' | 'info';
+  duration?: number;
   onClose: () => void;
 }
 
-function Toast({ message, type, onClose }: ToastProps) {
+export function Toast({ message, variant = 'info', duration = 3000, onClose }: ToastProps) {
   useEffect(() => {
-    const timer = setTimeout(onClose, 5000);
+    const timer = setTimeout(onClose, duration);
     return () => clearTimeout(timer);
-  }, [onClose]);
-
-  const icons = {
-    success: '✓',
-    error: '✕',
-    warning: '⚠',
-    info: 'ℹ',
-  };
+  }, [duration, onClose]);
 
   return (
-    <div className={`toast toast--${type}`}>
-      <span className="toast__icon">{icons[type]}</span>
-      <span className="toast__message">{message}</span>
-      <button className="toast__close" onClick={onClose}>
-        ×
+    <div
+      className={`toast toast--${variant}`}
+      role="alert"
+      aria-live="assertive"
+      aria-atomic="true"
+    >
+      <div className="toast__icon">
+        {variant === 'success' && '✓'}
+        {variant === 'error' && '✕'}
+        {variant === 'warning' && '⚠'}
+        {variant === 'info' && 'ℹ'}
+      </div>
+      <div className="toast__message">{message}</div>
+      <button
+        className="toast__close"
+        onClick={onClose}
+        aria-label="Fechar notificação"
+      >
+        ✕
       </button>
     </div>
   );

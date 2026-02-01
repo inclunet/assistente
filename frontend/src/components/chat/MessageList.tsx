@@ -5,6 +5,7 @@ import './MessageList.css';
 
 export interface MessageListProps {
   isLoading?: boolean;
+  loadingText?: string; // Optional custom loading text
   // Estrutura hierárquica de mensagens (threads)
   threadedMessages: MessageNode[];
   // Callback para carregar filhos de uma mensagem
@@ -18,7 +19,7 @@ export interface MessageListProps {
 }
 
 export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
-  { isLoading = false, threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onOpenDetail, onSpeak },
+  { isLoading = false, loadingText = 'Assistente está digitando', threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onOpenDetail, onSpeak },
   ref
 ) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -100,16 +101,17 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
           ))}
         </div>
         {isLoading && (
-          <div 
+          <div
             className="message-list__loading"
             role="status"
-            aria-label="Assistente está digitando"
+            aria-label={loadingText}
           >
             <div className="message-list__loading-dots" aria-hidden="true">
               <span></span>
               <span></span>
               <span></span>
             </div>
+            <span className="message-list__loading-text">{loadingText}...</span>
           </div>
         )}
         <div ref={messagesEndRef} />

@@ -6,7 +6,6 @@ import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
 import { useUIStore } from './store/uiStore';
 import { useChatStore } from './store/chatStore';
-import { ToastContainer } from './components/ui/Toast';
 import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
 
 function App() {
@@ -66,17 +65,25 @@ function App() {
 
     // Escuta eventos de conversa deletada/limpa para atualizar tabs
     useEffect(() => {
+        console.log('[App] 📡 Registrando listeners de eventos de conversa...');
+        
         EventsOn('conversation:deleted', (data: any) => {
-            console.log('[App] Conversation deleted event received:', data);
+            console.log('[App] 🗑️ EVENTO conversation:deleted RECEBIDO:', data);
             if (data.conversation_id) {
+                console.log('[App] 🗑️ Chamando handleConversationDeleted com:', data.conversation_id);
                 handleConversationDeleted(data.conversation_id);
+            } else {
+                console.log('[App] 🗑️ ERRO: conversation_id não encontrado no evento!');
             }
         });
 
         EventsOn('conversation:cleared', (data: any) => {
-            console.log('[App] Conversation cleared event received:', data);
+            console.log('[App] 🧹 EVENTO conversation:cleared RECEBIDO:', data);
             if (data.conversation_id) {
+                console.log('[App] 🧹 Chamando handleConversationCleared com:', data.conversation_id);
                 handleConversationCleared(data.conversation_id);
+            } else {
+                console.log('[App] 🧹 ERRO: conversation_id não encontrado no evento!');
             }
         });
 
@@ -125,7 +132,6 @@ function App() {
         <>
             <ScreenReaderAnnouncer />
             <Outlet />
-            <ToastContainer />
         </>
     )
 }

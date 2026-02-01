@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npm run generate:*)",
+      "Bash(wails generate:*)",
+      "Bash(npm run build:*)"
+    ]
+  }
+}

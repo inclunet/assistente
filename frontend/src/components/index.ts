@@ -17,8 +17,6 @@ export type { CheckboxProps } from './ui/Checkbox';
 export { Modal, ModalActions } from './ui/Modal';
 export type { ModalProps } from './ui/Modal';
 
-export { ToastContainer } from './ui/Toast';
-
 // Chat Components
 export { ChatMessage } from './chat/ChatMessage';
 export type { ChatMessageProps } from './chat/ChatMessage';

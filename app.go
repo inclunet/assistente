@@ -237,6 +237,15 @@ func (a *App) initAgents() {
 	a.configureFileAgentGoogleDocs(fileAgent)
 	a.registry.Register(fileAgent)
 
+	// Agente de Navegação Web
+	webAgentCfg := agents.WebAgentConfig{}
+	if cfg, err := config.Load(); err == nil && cfg.BraveAPIKey != "" {
+		webAgentCfg.BraveAPIKey = cfg.BraveAPIKey
+	}
+	webAgent := agents.NewWebAgentWithConfig(a.llmClient, agentModel, webAgentCfg)
+	a.applyAgentConfig(webAgent)
+	a.registry.Register(webAgent)
+
 	// Agente Builder (Cria e gerencia HTTP e MCP Agents)
 	builderAgent := agents.NewBuilderAgent(a.agentManager, a.llmClient, agentModel)
 	a.applyAgentConfig(builderAgent)

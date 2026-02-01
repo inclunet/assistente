@@ -483,6 +483,8 @@ export function UpdateMCPAgentFull(arg1:number,arg2:string,arg3:string,arg4:stri
 
 export function UpdateMemory(arg1:number,arg2:string,arg3:string,arg4:string):Promise<database.Memory>;
 
+export function UpdateMessage(arg1:number,arg2:string):Promise<void>;
+
 export function UpdateModelCapability(arg1:string,arg2:any,arg3:any,arg4:any,arg5:any,arg6:any,arg7:any,arg8:any):Promise<database.ModelCapability>;
 
 export function UpdateOAuthConnectionLastUsed(arg1:number):Promise<void>;

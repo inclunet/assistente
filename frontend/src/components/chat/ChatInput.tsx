@@ -3,6 +3,7 @@ import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
+import { DIMENSIONS } from '../../constants/chat';
 import './ChatInput.css';
 
 export interface ChatInputProps {
@@ -25,7 +26,6 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [isProcessing, setIsProcessing] = useState(false);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
-  const hintId = 'chat-input-hint';
   
   // Use external ref if provided, otherwise use internal ref
   const textareaRef = (ref as React.RefObject<HTMLTextAreaElement>) || internalTextareaRef;
@@ -43,7 +43,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
     const textarea = textareaRef.current;
     if (textarea) {
       textarea.style.height = 'auto';
-      const newHeight = Math.min(textarea.scrollHeight, 200); // Max 200px
+      const newHeight = Math.min(textarea.scrollHeight, DIMENSIONS.TEXTAREA_MAX_HEIGHT);
       textarea.style.height = `${newHeight}px`;
     }
   };
@@ -58,10 +58,14 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       onSend(trimmedMessage, mediaFiles.length > 0 ? mediaFiles : undefined);
       setMessage('');
       setMediaFiles([]);
-      
-      // Reset textarea height
+
+      // Reset textarea height and restore focus
       if (textareaRef.current) {
         textareaRef.current.style.height = 'auto';
+        // Ensure focus returns to textarea after send
+        requestAnimationFrame(() => {
+          textareaRef.current?.focus();
+        });
       }
     }
   };
@@ -209,9 +213,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           onPaste={handlePaste}
           placeholder={placeholder}
           rows={1}
-          aria-label="Digite sua mensagem"
-          aria-describedby={hintId}
-          aria-multiline="true"
+          aria-label="Mensagem"
         />
         {/* Mostra botão de voz quando input vazio, senão botão de enviar */}
         {voiceEnabled && !message.trim() && mediaFiles.length === 0 ? (

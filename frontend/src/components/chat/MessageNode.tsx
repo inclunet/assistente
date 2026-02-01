@@ -3,6 +3,9 @@ import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType } from '../../store/chatStore';
 import { useChatStore } from '../../store/chatStore';
 import { playBumpSound } from '../../services/audioFeedback';
+import { UpdateMessage } from '../../../wailsjs/go/main/App';
+import { announce } from '../../hooks/useAnnouncer';
+import { handleError, ErrorSeverity } from '../../utils/errorHandler';
 import './MessageNode.css';
 
 export interface MessageNodeProps {
@@ -31,6 +34,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   const nodeRef = React.useRef<HTMLDivElement>(null);
   const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
   const [isLoading, setIsLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(node.message.content);
   
   // OTIMIZADO: Seletor que retorna apenas o valor booleano para este nó específico
   // Evita re-renders quando outras threads são expandidas/colapsadas
@@ -74,7 +79,41 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   }, [hasChildren, isExpanded, toggleThreadExpanded, node.message.id, node.childCount, children.length, onLoadChildren]);
 
   const isInternal = node.message.internal || level > 0;
-  
+
+  // Handlers de edição
+  const handleSaveEdit = async () => {
+    if (!editContent.trim()) return;
+
+    try {
+      const messageId = Number(node.message.id);
+      await UpdateMessage(messageId, editContent);
+      announce('Mensagem editada com sucesso');
+      setIsEditing(false);
+      
+      // Restaura o foco para a mensagem após salvar
+      requestAnimationFrame(() => {
+        nodeRef.current?.focus();
+      });
+    } catch (error) {
+      handleError(error, {
+        source: 'MessageNode.handleSaveEdit',
+        userMessage: 'Falha ao salvar edição. Tente novamente.',
+        severity: ErrorSeverity.RECOVERABLE,
+      });
+    }
+  };
+
+  const handleCancelEdit = () => {
+    setEditContent(node.message.content);
+    setIsEditing(false);
+    announce('Edição cancelada');
+    
+    // Restaura o foco para a mensagem após cancelar
+    requestAnimationFrame(() => {
+      nodeRef.current?.focus();
+    });
+  };
+
   // Funções de navegação por DOM (como no Svelte)
   const focusSibling = (idx: number) => {
     if (!nodeRef.current) return;
@@ -133,7 +172,20 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   // Navegação por teclado (como no Svelte)
   const handleKeyDown = async (e: React.KeyboardEvent) => {
     const key = e.key;
-    
+
+    // Se está editando, deixar o editor tratar todas as teclas
+    // Verifica também se o foco está em um textarea ou button (editor)
+    const activeElement = document.activeElement;
+    const isInEditor = activeElement?.tagName === 'TEXTAREA' ||
+                       (activeElement?.tagName === 'BUTTON' && isEditing);
+
+    if (isEditing || isInEditor) {
+      // Parar a propagação para que outros handlers não capturem o evento
+      e.stopPropagation();
+      // Não prevenir default para deixar o textarea processar normalmente
+      return;
+    }
+
     // Espaço: reproduz TTS da mensagem
     if (key === ' ' && !node.message.isStreaming) {
       e.preventDefault();
@@ -153,7 +205,17 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       }
       return;
     }
-    
+
+    // F2: edita mensagem (somente mensagens do usuário)
+    if (key === 'F2' && node.message.role === 'user' && !node.message.internal && !node.message.isStreaming) {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsEditing(true);
+      setEditContent(node.message.content);
+      announce('Editando mensagem');
+      return;
+    }
+
     // ArrowDown: navega para próximo irmão
     if (key === 'ArrowDown') {
       e.preventDefault();
@@ -279,6 +341,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       data-level={level}
       data-sibling-index={siblingIndex}
       data-message-node
+      data-message-id={node.message.id}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
       tabIndex={-1}
@@ -286,7 +349,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       aria-expanded={hasChildren ? isExpanded : undefined}
     >
       <div className="message-node__content">
-        <ChatMessage 
+        <ChatMessage
           message={node.message}
           hasThreadIndicator={hasChildren}
           threadChildCount={node.childCount || children.length}
@@ -296,6 +359,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onContextMenu={onContextMenu}
           onOpenDetail={onOpenDetail}
           onSpeak={onSpeak}
+          isEditing={isEditing}
+          editContent={editContent}
+          onEditContentChange={setEditContent}
+          onSaveEdit={handleSaveEdit}
+          onCancelEdit={handleCancelEdit}
         />
       </div>
 

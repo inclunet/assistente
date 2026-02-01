@@ -124,6 +124,7 @@ export namespace config {
 	export class Config {
 	    api_key: string;
 	    api_base_url: string;
+	    brave_api_key?: string;
 	    default_model?: string;
 	    embeddings_model?: string;
 	    image_model?: string;
@@ -140,6 +141,7 @@ export namespace config {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.api_key = source["api_key"];
 	        this.api_base_url = source["api_base_url"];
+	        this.brave_api_key = source["brave_api_key"];
 	        this.default_model = source["default_model"];
 	        this.embeddings_model = source["embeddings_model"];
 	        this.image_model = source["image_model"];
@@ -1101,6 +1103,7 @@ export namespace llm {
 	export class SettingsInput {
 	    api_key: string;
 	    api_base_url: string;
+	    brave_api_key?: string;
 	    chat_params: ModelParams;
 	    embeddings_params: EmbeddingsParams;
 	    image_model?: string;
@@ -1115,6 +1118,7 @@ export namespace llm {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.api_key = source["api_key"];
 	        this.api_base_url = source["api_base_url"];
+	        this.brave_api_key = source["brave_api_key"];
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.embeddings_params = this.convertValues(source["embeddings_params"], EmbeddingsParams);
 	        this.image_model = source["image_model"];

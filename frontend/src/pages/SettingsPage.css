@@ -84,6 +84,23 @@
   line-height: 1.5;
 }
 
+.settings-section-description a {
+  color: #60a5fa;
+  text-decoration: none;
+}
+
+.settings-section-description a:hover {
+  text-decoration: underline;
+}
+
+/* Field hint */
+.settings-field-hint {
+  color: #a1a1aa;
+  font-size: 0.8rem;
+  margin-top: -0.5rem;
+  line-height: 1.4;
+}
+
 /* Profiles section */
 .settings-profiles-grid {
   display: grid;

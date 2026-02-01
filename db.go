@@ -264,11 +264,14 @@ func (a *App) UpdateConversation(id uint, title, model string) error {
 }
 
 func (a *App) DeleteConversation(id uint) error {
+	fmt.Printf("🗑️ [DeleteConversation] Iniciando deleção da conversa %d...\n", id)
+
 	// Antes de deletar, limpa as abas que referenciam essa conversa
 	tabs, err := database.GetAllTabs()
 	if err == nil {
 		for _, tab := range tabs {
 			if tab.ConversationID != nil && *tab.ConversationID == id {
+				fmt.Printf("🗑️ [DeleteConversation] Limpando tab %d que referencia conversa %d\n", tab.ID, id)
 				database.ClearTab(tab.ID)
 			}
 		}
@@ -276,13 +279,18 @@ func (a *App) DeleteConversation(id uint) error {
 
 	// Deleta conversa normalmente
 	if err := database.DeleteConversation(id); err != nil {
+		fmt.Printf("🗑️ [DeleteConversation] ERRO ao deletar: %v\n", err)
 		return err
 	}
+
+	fmt.Printf("🗑️ [DeleteConversation] Conversa deletada, emitindo evento...\n")
 
 	// Emite evento
 	runtime.EventsEmit(a.ctx, "conversation:deleted", map[string]interface{}{
 		"conversation_id": id,
 	})
+
+	fmt.Printf("🗑️ [DeleteConversation] Evento 'conversation:deleted' emitido para conversa %d\n", id)
 
 	return nil
 }
@@ -296,6 +304,30 @@ func (a *App) DeleteMessage(messageID uint) error {
 	// Emite evento para o frontend atualizar a UI
 	runtime.EventsEmit(a.ctx, "message:deleted", map[string]interface{}{
 		"message_id": messageID,
+	})
+
+	return nil
+}
+
+// UpdateMessage atualiza o conteúdo de uma mensagem existente
+func (a *App) UpdateMessage(messageID uint, newContent string) error {
+	// Atualiza apenas o conteúdo, mantendo tokens como 0
+	// (tokens não são críticos para mensagens editadas manualmente)
+	if err := database.UpdateMessageContent(
+		messageID,
+		newContent,
+		0, // prompt_tokens
+		0, // completion_tokens
+		0, // total_tokens
+		"", // model (mantém o original)
+	); err != nil {
+		return err
+	}
+
+	// Emite evento para o frontend atualizar a UI
+	runtime.EventsEmit(a.ctx, "message:updated", map[string]interface{}{
+		"message_id": messageID,
+		"content":    newContent,
 	})
 
 	return nil
@@ -759,14 +791,21 @@ func (a *App) RenameConversation(conversationID uint, newTitle string) error {
 
 // ClearConversation remove todas as mensagens de uma conversa
 func (a *App) ClearConversation(conversationID uint) error {
+	fmt.Printf("🧹 [ClearConversation] Limpando conversa %d...\n", conversationID)
+
 	if err := database.DeleteAllMessages(conversationID); err != nil {
+		fmt.Printf("🧹 [ClearConversation] ERRO ao limpar: %v\n", err)
 		return err
 	}
+
+	fmt.Printf("🧹 [ClearConversation] Mensagens deletadas, emitindo evento...\n")
 
 	// Emite evento para frontend atualizar
 	runtime.EventsEmit(a.ctx, "conversation:cleared", map[string]interface{}{
 		"conversation_id": conversationID,
 	})
+
+	fmt.Printf("🧹 [ClearConversation] Evento 'conversation:cleared' emitido para conversa %d\n", conversationID)
 
 	return nil
 }

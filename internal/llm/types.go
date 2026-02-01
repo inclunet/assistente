@@ -178,6 +178,7 @@ type ChatParams struct {
 type SettingsInput struct {
 	APIKey           string           `json:"api_key"`
 	APIBaseURL       string           `json:"api_base_url"`
+	BraveAPIKey      string           `json:"brave_api_key,omitempty"`
 	ChatParams       ModelParams      `json:"chat_params"`
 	EmbeddingsParams EmbeddingsParams `json:"embeddings_params"`
 	ImageModel       string           `json:"image_model,omitempty"`
@@ -242,4 +243,3 @@ func HasImages(messages []Message) bool {
 	}
 	return false
 }
-

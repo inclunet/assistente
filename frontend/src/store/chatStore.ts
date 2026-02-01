@@ -1171,6 +1171,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           let unsubscribeStream: (() => void) | null = null;
           let unsubscribeComplete: (() => void) | null = null;
           let cleanupExecuted = false; // Flag para evitar cleanup duplicado
+          let streamingAnnounced = false; // Flag para anunciar início do streaming apenas uma vez
 
           const cleanup = () => {
             // Previne execução múltipla do cleanup (backend pode emitir chat:done várias vezes)
@@ -1220,6 +1221,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }
 
             if (event.content) {
+              // Anuncia início do streaming apenas uma vez
+              if (!streamingAnnounced && !event.done && !event.error) {
+                streamingAnnounced = true;
+                announce('Assistente está respondendo', 'polite');
+              }
+
               // Durante streaming: usa debouncing para reduzir re-renders
               if (!event.done && !event.error) {
                 debouncedUpdateMessage(

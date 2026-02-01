@@ -954,6 +954,10 @@ export function UpdateMemory(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['UpdateMemory'](arg1, arg2, arg3, arg4);
 }
 
+export function UpdateMessage(arg1, arg2) {
+  return window['go']['main']['App']['UpdateMessage'](arg1, arg2);
+}
+
 export function UpdateModelCapability(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
   return window['go']['main']['App']['UpdateModelCapability'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }

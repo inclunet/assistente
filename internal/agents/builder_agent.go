@@ -56,6 +56,26 @@ ALWAYS list existing agents BEFORE creating new ones:
 If you find a duplicate or lack information: ASK the user.
 NEVER assume or invent URLs, commands, or configurations.
 
+## COMPLETE AGENT CREATION WORKFLOW
+When creating a new agent, ALWAYS follow this complete workflow:
+1. First: Create the agent (builder_create_http_agent or builder_create_mcp_agent)
+2. Immediately after: Create all necessary endpoints/tools (builder_create_endpoint)
+3. An agent WITHOUT endpoints is USELESS - always create both together!
+
+Example: If user asks "create an agent for weather API with get_weather endpoint":
+- Step 1: builder_create_http_agent (name, base_url, etc)
+- Step 2: builder_create_endpoint (using the agent_id from step 1)
+
+## DELEGATION DESCRIPTION (IMPORTANT)
+Each agent has a "description" field that is used by the orchestrator for delegation.
+This description tells the orchestrator WHEN to delegate tasks to this agent.
+Write clear descriptions that specify:
+- What the agent does
+- When it should be used
+- What types of requests it handles
+
+Example: "Handles weather data requests including current conditions, forecasts, and historical data for any location"
+
 ## HOT RELOAD
 Created/updated agents are available IMMEDIATELY without restart.
 
@@ -223,9 +243,11 @@ func (a *BuilderAgent) GetTools() []Tool {
 					).
 					Returns("Created agent ID and hot reload confirmation").
 					Notes(
-						"After creating, use builder_create_endpoint to add functionality",
+						"CRITICAL: After creating agent, IMMEDIATELY create endpoints with builder_create_endpoint",
+						"An agent without endpoints is USELESS - always create both!",
 						"Agent becomes available IMMEDIATELY (hot reload)",
 						"name must be unique snake_case (e.g., github_api, weather_api)",
+						"description field is used for orchestrator delegation - write clear capability descriptions",
 						"Use ENV:VAR for sensitive tokens in auth_config",
 					).
 					Build(),
@@ -340,6 +362,7 @@ func (a *BuilderAgent) GetTools() []Tool {
 				Name: "builder_create_endpoint",
 				Description: NewToolDescription("Adds a new endpoint to an existing HTTP agent").
 					WhenToUse(
+						"IMMEDIATELY after creating an agent with builder_create_http_agent",
 						"After verifying with builder_get_http_agent that endpoint doesn't exist",
 						"When user asks for new functionality for existing API",
 						"When you have complete information (method, path, params)",
@@ -351,6 +374,7 @@ func (a *BuilderAgent) GetTools() []Tool {
 					).
 					Returns("Created endpoint ID and confirmation").
 					Notes(
+						"ALWAYS create endpoints immediately after creating an agent - agent without endpoints is useless!",
 						"path_template uses Go templates: /users/{{.user_id}}",
 						"parameters MUST be valid JSON Schema",
 						"Format: {\"type\":\"object\",\"properties\":{...},\"required\":[...]}",
@@ -583,6 +607,8 @@ func (a *BuilderAgent) GetTools() []Tool {
 						"http: requires server_url",
 						"Example stdio commands: npx, node, python",
 						"If auto_connect=true, connects immediately",
+						"description field is used for orchestrator delegation - write clear capability descriptions",
+						"MCP agents get their tools from the MCP server, not created manually",
 					).
 					Build(),
 				Parameters: JSONSchemaObject(map[string]interface{}{

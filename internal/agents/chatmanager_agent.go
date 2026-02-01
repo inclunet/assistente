@@ -97,15 +97,36 @@ When you receive a task:
 2. CALL THE TOOL IMMEDIATELY
 3. Report the result
 
-TOOL MAPPING:
-- "delete conversation" / "apagar conversa" → call delete_conversation (NO conversation_id needed, uses current)
-- "clear conversation" / "limpar conversa" → call clear_conversation (NO conversation_id needed, uses current)
-- "close tab" / "fechar aba" → call close_tab
-- "switch to tab" / "ir para aba" → call switch_to_tab
-- "new conversation" / "nova conversa" → call new_conversation
-- "rename" → call rename_tab or rename_conversation
-- "open conversation" → call open_conversation
-- "summarize" / "resumir" → call summarize_conversation
+## CRITICAL DISTINCTION - "APAGAR" in Portuguese:
+
+When "APAGAR" is followed by "CONVERSA" → use delete_conversation (PERMANENT deletion)
+When "APAGAR" is followed by "MENSAGENS" → use clear_conversation (only clears messages)
+
+Examples that mean DELETE (use delete_conversation):
+- "apagar essa conversa" → delete_conversation
+- "apagar esta conversa" → delete_conversation  
+- "apagar a conversa" → delete_conversation
+- "apaga essa conversa" → delete_conversation
+- "pode apagar" (when talking about conversation) → delete_conversation
+- "quero apagar" (when talking about conversation) → delete_conversation
+- "deletar conversa" → delete_conversation
+- "excluir conversa" → delete_conversation
+
+Examples that mean CLEAR (use clear_conversation):
+- "limpar conversa" → clear_conversation
+- "apagar as mensagens" → clear_conversation
+- "limpar mensagens" → clear_conversation
+
+## OTHER TOOLS:
+- "fechar aba" / "close tab" → close_tab
+- "ir para aba" / "switch to tab" → switch_to_tab
+- "nova conversa" / "new conversation" → new_conversation
+- "renomear" / "rename" → rename_tab or rename_conversation
+- "abrir conversa" / "open conversation" → open_conversation
+- "resumir" / "summarize" → summarize_conversation
+
+⚠️ NEVER use clear_conversation + new_conversation when user wants to DELETE a conversation!
+⚠️ When in doubt about "apagar", if it's about a conversation, use delete_conversation.
 
 NEVER ask "are you sure?" or "do you confirm?" - just EXECUTE.
 
@@ -291,14 +312,20 @@ func (a *ChatManagerAgent) GetTools() []Tool {
 			Type: "function",
 			Function: ToolFunction{
 				Name: "delete_conversation",
-				Description: NewToolDescription("DELETES the current conversation permanently. Just call it - no parameters needed.").
+				Description: NewToolDescription("PERMANENTLY DELETES the conversation from the database. The conversation and all its messages are gone forever.").
 					WhenToUse(
-						"User wants to delete: 'apaga', 'delete', 'remove', 'exclui'",
-						"User confirmed: 'sim', 'yes', 'confirmo', 'pode'",
+						"User says: 'apagar conversa', 'deletar conversa', 'excluir conversa', 'remover conversa'",
+						"User wants conversation GONE PERMANENTLY",
+						"User confirmed deletion: 'sim', 'yes', 'pode', 'confirmo'",
+					).
+					WhenNotToUse(
+						"If user only wants to clear messages but keep conversation - use clear_conversation instead",
 					).
 					Notes(
 						"JUST CALL THIS TOOL - no confirmation parameter needed",
 						"Deletes the current conversation automatically",
+						"This is IRREVERSIBLE - conversation is permanently deleted",
+						"Use THIS tool when user says 'apagar conversa' - do NOT use clear_conversation + new_conversation",
 					).
 					Returns("Success or error message").
 					Build(),
@@ -316,12 +343,17 @@ func (a *ChatManagerAgent) GetTools() []Tool {
 				Name: "clear_conversation",
 				Description: NewToolDescription("CLEARS all messages but keeps the conversation. Like erasing a whiteboard.").
 					WhenToUse(
-						"User says 'limpa', 'clear', 'limpar mensagens', 'apagar mensagens'",
+						"User says 'limpar conversa', 'limpar mensagens', 'apagar mensagens'",
 						"User wants to remove messages but keep the conversation",
+					).
+					WhenNotToUse(
+						"NEVER use when user says 'apagar conversa', 'apagar essa conversa', 'deletar conversa' - use delete_conversation instead!",
+						"NEVER combine with new_conversation to simulate deletion - use delete_conversation!",
 					).
 					Notes(
 						"Messages are deleted, but conversation stays",
 						"Different from delete_conversation which removes everything",
+						"'apagar conversa' = delete_conversation, NOT clear_conversation!",
 					).
 					Returns("Success message").
 					Build(),
