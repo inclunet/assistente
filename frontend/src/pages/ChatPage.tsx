@@ -56,6 +56,9 @@ export default function ChatPage() {
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
 
+  // Edição de mensagem via store (acionado pelo menu de contexto)
+  const startEditing = useChatStore(state => state.startEditing);
+
   // Ações de mensagem
   const { copyMessage, speakMessage } = useMessageActions({
     onAnnounce: (msg) => console.log('Anúncio:', msg),
@@ -69,6 +72,10 @@ export default function ChatPage() {
       setDetailModalOpen(true);
     },
     onSpeak: speakMessage,
+    onEdit: (message) => {
+      // Aciona a edição via store - também marca para pular restauração de foco
+      startEditing(message.id);
+    },
     onResend: async (message) => {
       if (message.content) {
         await sendMessage(message.content);

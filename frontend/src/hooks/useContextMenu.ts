@@ -1,5 +1,5 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
-import { Message } from '../store/chatStore';
+import { Message, useChatStore } from '../store/chatStore';
 import { MenuItem } from '../components/ui/ContextMenu';
 import { getMessageMenuItems, MenuItemsOptions } from '../lib/messageMenuItems';
 import { ttsService } from '../services/tts';
@@ -44,8 +44,15 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
   const hideMenu = useCallback(() => {
     setMenuVisible(false);
     
-    // Restaura foco ao elemento que abriu o menu
+    // Restaura foco ao elemento que abriu o menu (exceto se edição foi iniciada)
     setTimeout(() => {
+      // Verifica se deve pular a restauração de foco (ex: edição iniciada)
+      const shouldSkip = useChatStore.getState().consumeSkipFocusRestore();
+      if (shouldSkip) {
+        triggerElementRef.current = null;
+        return;
+      }
+      
       if (triggerElementRef.current) {
         triggerElementRef.current.focus();
         triggerElementRef.current = null;

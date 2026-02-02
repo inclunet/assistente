@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType } from '../../store/chatStore';
 import { useChatStore } from '../../store/chatStore';
@@ -33,6 +33,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 }) => {
   const nodeRef = React.useRef<HTMLDivElement>(null);
   const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
+  const editingMessageId = useChatStore(state => state.editingMessageId);
+  const setEditingMessageId = useChatStore(state => state.setEditingMessageId);
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(node.message.content);
@@ -49,6 +51,20 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   // - addInternalMessage também atualiza node.children na store
   // - Não precisamos de estado local duplicado
   const children = node.children || [];
+
+  // Detecta edição acionada externamente (pelo menu de contexto)
+  useEffect(() => {
+    if (editingMessageId === node.message.id && !isEditing) {
+      // Só permite editar mensagens do usuário
+      if (node.message.role === 'user' && !node.message.internal && !node.message.isStreaming) {
+        setIsEditing(true);
+        setEditContent(node.message.content);
+        announce('Editando mensagem');
+      }
+      // Limpa o estado na store
+      setEditingMessageId(null);
+    }
+  }, [editingMessageId, node.message.id, node.message.role, node.message.internal, node.message.isStreaming, node.message.content, isEditing, setEditingMessageId]);
 
   const hasChildren = node.childCount > 0 || children.length > 0;
 

@@ -104,9 +104,16 @@ interface ChatStore {
   streamingMessageId: string | null;
   isInitialized: boolean;
   expandedThreads: Set<string>; // IDs de mensagens com threads expandidas
+  editingMessageId: string | null; // ID da mensagem sendo editada (acionado por F2 ou menu)
+  skipFocusRestore: boolean; // Flag para pular restauração de foco após fechar menu
 
   // Initialization
   initializeTabs: () => Promise<void>;
+  
+  // Editing
+  setEditingMessageId: (id: string | null) => void;
+  startEditing: (id: string) => void; // Inicia edição e marca para pular restauração de foco
+  consumeSkipFocusRestore: () => boolean; // Consome o flag e retorna se deve pular
 
   // Tab management
   createTab: (activate?: boolean) => Promise<string>;
@@ -267,6 +274,25 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     streamingMessageId: null,
     isInitialized: false,
     expandedThreads: new Set<string>(),
+    editingMessageId: null,
+    skipFocusRestore: false,
+    
+    setEditingMessageId: (id: string | null) => {
+      set({ editingMessageId: id });
+    },
+    
+    startEditing: (id: string) => {
+      // Marca para pular restauração de foco E inicia edição
+      set({ editingMessageId: id, skipFocusRestore: true });
+    },
+    
+    consumeSkipFocusRestore: () => {
+      const shouldSkip = get().skipFocusRestore;
+      if (shouldSkip) {
+        set({ skipFocusRestore: false });
+      }
+      return shouldSkip;
+    },
 
     initializeTabs: async () => {
     try {
