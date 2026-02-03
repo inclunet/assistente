@@ -100,6 +100,7 @@ type ChatRequest struct {
 	Messages      []Message      `json:"messages"`
 	MaxTokens     int            `json:"max_tokens,omitempty"`
 	Temperature   float64        `json:"temperature,omitempty"`
+	TopP          float64        `json:"top_p,omitempty"`
 	Stream        bool           `json:"stream"`
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	Tools         []Tool         `json:"tools,omitempty"`
@@ -170,6 +171,7 @@ type ChatParams struct {
 	Model       string  `json:"model"`
 	MaxTokens   int     `json:"maxTokens"`
 	Temperature float64 `json:"temperature"`
+	TopP        float64 `json:"topP,omitempty"`
 	UseTools    bool    `json:"useTools"`
 }
 

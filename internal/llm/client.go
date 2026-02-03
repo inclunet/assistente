@@ -221,6 +221,7 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 		Messages:    messages,
 		MaxTokens:   params.MaxTokens,
 		Temperature: params.Temperature,
+		TopP:        params.TopP,
 		Stream:      true,
 		StreamOptions: &StreamOptions{
 			IncludeUsage: true,

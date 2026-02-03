@@ -1024,6 +1024,7 @@ export namespace llm {
 	    model: string;
 	    maxTokens: number;
 	    temperature: number;
+	    topP?: number;
 	    useTools: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -1035,6 +1036,7 @@ export namespace llm {
 	        this.model = source["model"];
 	        this.maxTokens = source["maxTokens"];
 	        this.temperature = source["temperature"];
+	        this.topP = source["topP"];
 	        this.useTools = source["useTools"];
 	    }
 	}

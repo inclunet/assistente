@@ -57,6 +57,9 @@ type appStreamHandler struct {
 	accumulatedCalls   []llm.ToolCall // Acumula tool calls
 	accumulatedResults []string       // Acumula resultados de tools
 
+	// Chat Profile - tools filtradas
+	filteredTools []llm.Tool // Lista de tools filtradas pelo perfil
+
 	// Throttling para eventos de streaming
 	mu            sync.Mutex  // Protege accumulatedContent durante throttling
 	lastEmitTime  time.Time   // Última vez que um evento foi emitido
@@ -378,6 +381,11 @@ func (h *appStreamHandler) OnToolResults(results []string, usage llm.Usage, mode
 }
 
 func (h *appStreamHandler) GetTools() []llm.Tool {
+	// Se há tools filtradas pelo perfil, usa elas
+	if h.filteredTools != nil {
+		return h.filteredTools
+	}
+	// Fallback: retorna todas as tools
 	return h.app.GetToolsForAPI()
 }
 
@@ -462,23 +470,6 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		return 0, fmt.Errorf("API Key não configurada")
 	}
 
-	// Se o modelo não foi especificado, usa o modelo da conversa ou o padrão
-	if params.Model == "" {
-		if conversationID > 0 {
-			// Tenta obter o modelo da conversa
-			effectiveModel, err := a.GetEffectiveModel(conversationID)
-			if err == nil && effectiveModel != "" {
-				params.Model = effectiveModel
-				log.Printf("[SendMessage] Usando modelo da conversa: %s", params.Model)
-			}
-		}
-		// Se ainda não tem modelo, usa o padrão do config
-		if params.Model == "" {
-			params.Model = cfg.DefaultModel
-			log.Printf("[SendMessage] Usando modelo padrão: %s", params.Model)
-		}
-	}
-
 	// Se não tem conversationID, cria uma nova conversa
 	createdNew := false
 	if conversationID == 0 {
@@ -513,6 +504,85 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		})
 	}
 
+	// Obtém o perfil de conversa efetivo (da conversa ou padrão)
+	chatProfile, err := database.GetEffectiveChatProfile(conversationID)
+	if err != nil {
+		log.Printf("[SendMessage] Erro ao obter perfil de conversa: %v (usando defaults)", err)
+	}
+
+	// Aplica configurações do perfil se disponível
+	var filteredTools []llm.Tool
+	var profileSystemPrompt string
+	var systemPromptPosition string
+
+	if chatProfile != nil {
+		log.Printf("[SendMessage] Usando perfil de conversa: %s (ID=%d)", chatProfile.Name, chatProfile.ID)
+
+		// 1. Aplica modelo do perfil (se não especificado nos params e perfil tem modelo)
+		if params.Model == "" && chatProfile.Model != "" {
+			params.Model = chatProfile.Model
+			log.Printf("[SendMessage] Modelo do perfil: %s", params.Model)
+		}
+
+		// 2. Aplica parâmetros do perfil (sobrescreve defaults)
+		if chatProfile.Temperature > 0 {
+			params.Temperature = chatProfile.Temperature
+		}
+		if chatProfile.MaxTokens > 0 {
+			params.MaxTokens = chatProfile.MaxTokens
+		}
+		if chatProfile.TopP > 0 {
+			params.TopP = chatProfile.TopP
+		}
+
+		// 3. Aplica configuração de tools
+		params.UseTools = chatProfile.UseTools
+
+		// 4. Filtra tools baseado no perfil
+		if chatProfile.UseTools {
+			allowedTools := chatProfile.GetToolsList()
+			if len(allowedTools) > 0 {
+				// Filtra tools para apenas as permitidas
+				allTools := a.GetToolsForAPI()
+				filteredTools = make([]llm.Tool, 0)
+				for _, tool := range allTools {
+					for _, allowed := range allowedTools {
+						if tool.Function.Name == allowed || strings.HasSuffix(tool.Function.Name, "_"+allowed) || strings.HasPrefix(tool.Function.Name, "delegate_to_"+allowed) {
+							filteredTools = append(filteredTools, tool)
+							break
+						}
+					}
+				}
+				log.Printf("[SendMessage] Tools filtradas: %d de %d", len(filteredTools), len(allTools))
+			} else {
+				// Lista vazia = todas as tools
+				filteredTools = a.GetToolsForAPI()
+			}
+		}
+
+		// 5. System prompt do perfil
+		profileSystemPrompt = chatProfile.SystemPrompt
+		systemPromptPosition = chatProfile.SystemPromptPosition
+		if systemPromptPosition == "" {
+			systemPromptPosition = "before"
+		}
+	}
+
+	// Se ainda não tem modelo, tenta obter da conversa ou usa o padrão
+	if params.Model == "" {
+		if conversationID > 0 {
+			effectiveModel, err := a.GetEffectiveModel(conversationID)
+			if err == nil && effectiveModel != "" {
+				params.Model = effectiveModel
+				log.Printf("[SendMessage] Usando modelo da conversa: %s", params.Model)
+			}
+		}
+		if params.Model == "" {
+			params.Model = cfg.DefaultModel
+			log.Printf("[SendMessage] Usando modelo padrão: %s", params.Model)
+		}
+	}
+
 	// 1. Salva mensagem do usuário no banco
 	userMsg, err := database.AddMessageWithMedia(conversationID, "user", userContent, userMedia, "", "")
 	if err != nil {
@@ -535,14 +605,72 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		return 0, err
 	}
 
-	// 4. Processa com LLM - userMessageID é a raiz da thread
+	// 4. Compõe system prompt com o perfil (se houver)
+	if profileSystemPrompt != "" {
+		messages = a.composeSystemPrompt(messages, profileSystemPrompt, systemPromptPosition)
+	}
+
+	// 5. Processa com LLM - userMessageID é a raiz da thread
 	handler := &appStreamHandler{
 		app:            a,
 		conversationID: conversationID,
 		userMessageID:  userMsg.ID, // Raiz da thread para interações com agentes
+		filteredTools:  filteredTools,
 	}
 	go llm.StreamChat(a.ctx, cfg, messages, params, handler)
 	return conversationID, nil
+}
+
+// composeSystemPrompt adiciona o system prompt do perfil às mensagens
+func (a *App) composeSystemPrompt(messages []Message, profilePrompt string, position string) []Message {
+	if profilePrompt == "" {
+		return messages
+	}
+
+	// Verifica se já existe uma mensagem system
+	hasSystem := false
+	systemIndex := -1
+	for i, msg := range messages {
+		if msg.Role == "system" {
+			hasSystem = true
+			systemIndex = i
+			break
+		}
+	}
+
+	if !hasSystem {
+		// Não tem system prompt, adiciona o do perfil no início
+		systemMsg := Message{
+			Role:    "system",
+			Content: profilePrompt,
+		}
+		return append([]Message{systemMsg}, messages...)
+	}
+
+	// Já tem system prompt, combina baseado na posição
+	existingContent := ""
+	switch content := messages[systemIndex].Content.(type) {
+	case string:
+		existingContent = content
+	default:
+		// Se não é string, mantém como está
+		return messages
+	}
+
+	var combinedContent string
+	if position == "after" {
+		combinedContent = existingContent + "\n\n" + profilePrompt
+	} else {
+		// "before" é o padrão
+		combinedContent = profilePrompt + "\n\n" + existingContent
+	}
+
+	// Cria nova slice para não modificar a original
+	newMessages := make([]Message, len(messages))
+	copy(newMessages, messages)
+	newMessages[systemIndex].Content = combinedContent
+
+	return newMessages
 }
 
 // MaxContextMessages define o limite de mensagens no contexto para evitar contextos muito grandes
