@@ -280,7 +280,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     expandedThreads: new Set<string>(),
     editingMessageId: null,
     skipFocusRestore: false,
-    useTools: useSettingsStore.getState().config?.chatDefaults?.useTools ?? true,
+    useTools: true, // Valor padrão, pode ser alterado via toggle na toolbar
     
     setEditingMessageId: (id: string | null) => {
       set({ editingMessageId: id });
