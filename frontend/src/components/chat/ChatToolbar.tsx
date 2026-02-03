@@ -32,7 +32,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   inputRef,
 }) => {
   const navigate = useNavigate();
-  const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab } = useChatStore();
+  const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab, useTools, setUseTools } = useChatStore();
   const { config, setConfig } = useSettingsStore();
   const { announce } = useAnnouncer();
   const activeTab = getActiveTab();
@@ -584,6 +584,22 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
               onAnnounce={announce}
             />
           )}
+
+          <button
+            className={`toolbar__button toolbar__toggle ${useTools ? 'toolbar__toggle--active' : ''}`}
+            onClick={() => {
+              setUseTools(!useTools);
+              announce(useTools ? 'Ferramentas desativadas' : 'Ferramentas ativadas');
+            }}
+            aria-label={useTools ? 'Ferramentas ativadas, clique para desativar' : 'Ferramentas desativadas, clique para ativar'}
+            aria-pressed={useTools}
+            title={useTools ? 'Ferramentas ativadas' : 'Ferramentas desativadas'}
+            disabled={isLoading}
+            tabIndex={0}
+          >
+            <span aria-hidden="true">{useTools ? '🔧' : '🚫'}</span>
+            <span>Tools</span>
+          </button>
 
           {voiceEnabled && config && (
             <>

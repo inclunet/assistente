@@ -11,7 +11,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"time"
 
 	"assistente/internal/config"
 )
@@ -236,11 +235,6 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 
 	fmt.Printf("🔧 [DEBUG] Enviando %d mensagens para a API\n", len(messages))
 
-	// #region agent log
-	startTime := time.Now()
-	fmt.Printf("🔧 [CLIENT] %v - Preparando requisição...\n", startTime.Format("15:04:05"))
-	// #endregion
-
 	jsonBody, err := json.Marshal(reqBody)
 	if err != nil {
 		handler.OnError("Erro ao preparar requisição: " + err.Error())
@@ -261,21 +255,8 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	req.Header.Set("Accept", "text/event-stream")
 
-	// #region agent log
-	fmt.Printf("🔧 [CLIENT] %v - Fazendo requisição HTTP (timeout: %v)...\n", time.Now().Format("15:04:05"), GetResponseHeaderTimeout())
-	// #endregion
-
 	resp, err := SharedHTTPClient.Do(req)
-
-	// #region agent log
-	elapsed := time.Since(startTime)
-	fmt.Printf("🔧 [CLIENT] %v - Requisição retornou após %v\n", time.Now().Format("15:04:05"), elapsed)
-	// #endregion
-
 	if err != nil {
-		// #region agent log
-		fmt.Printf("🔧 [CLIENT] ERRO: %v (após %v)\n", err, elapsed)
-		// #endregion
 		handler.OnError("Erro na conexão: " + err.Error())
 		return
 	}

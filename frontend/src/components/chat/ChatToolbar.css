@@ -8,3 +8,17 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+
+/* Toggle button para tools */
+.toolbar__toggle {
+  opacity: 0.6;
+  transition: opacity 0.2s ease;
+}
+
+.toolbar__toggle--active {
+  opacity: 1;
+}
+
+.toolbar__toggle:hover {
+  opacity: 0.9;
+}

@@ -1,7 +1,6 @@
 package llm
 
 import (
-	"fmt"
 	"net"
 	"net/http"
 	"time"
@@ -25,16 +24,10 @@ func init() {
 
 // initTransport inicializa o transport com o timeout especificado
 func initTransport(timeoutSeconds int) {
-	// #region agent log
-	fmt.Printf("🔧 [HTTP_POOL] initTransport chamado - input=%d\n", timeoutSeconds)
-	// #endregion
 	if timeoutSeconds <= 0 {
 		timeoutSeconds = 180
 	}
 	responseHeaderTimeout = time.Duration(timeoutSeconds) * time.Second
-	// #region agent log
-	fmt.Printf("🔧 [HTTP_POOL] ResponseHeaderTimeout definido para %v\n", responseHeaderTimeout)
-	// #endregion
 
 	sharedTransport = &http.Transport{
 		// Connection pooling
@@ -70,9 +63,6 @@ func initTransport(timeoutSeconds int) {
 // ConfigureResponseTimeout configura o timeout de resposta em segundos
 // Deve ser chamado durante a inicialização da aplicação após carregar a config
 func ConfigureResponseTimeout(timeoutSeconds int) {
-	// #region agent log
-	fmt.Printf("🔧 [HTTP_POOL] ConfigureResponseTimeout chamado com %d segundos\n", timeoutSeconds)
-	// #endregion
 	initTransport(timeoutSeconds)
 }
 

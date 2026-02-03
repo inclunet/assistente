@@ -106,6 +106,7 @@ interface ChatStore {
   expandedThreads: Set<string>; // IDs de mensagens com threads expandidas
   editingMessageId: string | null; // ID da mensagem sendo editada (acionado por F2 ou menu)
   skipFocusRestore: boolean; // Flag para pular restauração de foco após fechar menu
+  useTools: boolean; // Flag para habilitar/desabilitar ferramentas
 
   // Initialization
   initializeTabs: () => Promise<void>;
@@ -114,6 +115,9 @@ interface ChatStore {
   setEditingMessageId: (id: string | null) => void;
   startEditing: (id: string) => void; // Inicia edição e marca para pular restauração de foco
   consumeSkipFocusRestore: () => boolean; // Consome o flag e retorna se deve pular
+
+  // Tools
+  setUseTools: (value: boolean) => void;
 
   // Tab management
   createTab: (activate?: boolean) => Promise<string>;
@@ -276,6 +280,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     expandedThreads: new Set<string>(),
     editingMessageId: null,
     skipFocusRestore: false,
+    useTools: useSettingsStore.getState().config?.chatDefaults?.useTools ?? true,
     
     setEditingMessageId: (id: string | null) => {
       set({ editingMessageId: id });
@@ -292,6 +297,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         set({ skipFocusRestore: false });
       }
       return shouldSkip;
+    },
+
+    setUseTools: (value: boolean) => {
+      set({ useTools: value });
     },
 
     initializeTabs: async () => {
@@ -1189,7 +1198,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               model: '',
               temperature: 0.7,
               maxTokens: 4096,
-              useTools: true,
+              useTools: get().useTools,
             });
           }
 
