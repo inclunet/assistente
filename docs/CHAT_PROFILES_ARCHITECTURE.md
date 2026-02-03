@@ -633,19 +633,109 @@ O agente `profile_manager` será estendido para gerenciar perfis de conversa:
 
 ### Fase 3: Limpar Código Legado
 
-1. Remover campos de modelo de `config.json`
-2. Remover ModelPicker da toolbar (substituir por ChatProfilePicker)
-3. Remover toggle de Tools (agora no perfil)
-4. Atualizar Settings page (remover seção de modelo)
+1. **config.json** - Remover campos que migram para ChatProfile:
+   - `default_model`
+   - `chat_params` (model, temperature, max_tokens, top_p)
+   - `chat_defaults` (use_tools, show_internal_messages)
+
+2. **ChatToolbar** - Substituir controles atuais:
+   - Remover ModelPicker → usar ChatProfilePicker
+   - Remover toggle de Tools → controlado pelo perfil
+
+3. **SettingsPage** - Simplificar para apenas pickers de perfis:
+   - Remover seção "Modelo de Chat" inteira
+   - Remover seção "Padrões do Chat" inteira
+   - Adicionar ChatProfilePicker na seção de "Perfis Padrão"
+
+---
+
+## Tela de Configurações (Após Migração)
+
+A tela de Settings ficará mais limpa, delegando configurações específicas para cada página de perfil:
+
+```
+┌─────────────────────────────────────────────────────────────────────┐
+│  Configurações                                                       │
+├─────────────────────────────────────────────────────────────────────┤
+│                                                                      │
+│  ═══════════════════════════════════════════════════════════════    │
+│  🔑 API                                                              │
+│  ═══════════════════════════════════════════════════════════════    │
+│                                                                      │
+│  API Key: [sk-...                                            ]      │
+│  Base URL: [https://api.openai.com/v1                        ]      │
+│  Timeout de Resposta: [180    ] segundos                            │
+│                                                        [Testar]     │
+│                                                                      │
+│  ═══════════════════════════════════════════════════════════════    │
+│  🔍 Busca na Web                                                     │
+│  ═══════════════════════════════════════════════════════════════    │
+│                                                                      │
+│  Brave Search API Key: [BSA-...                              ]      │
+│                                                                      │
+│  ═══════════════════════════════════════════════════════════════    │
+│  🧠 Embeddings                                                       │
+│  ═══════════════════════════════════════════════════════════════    │
+│                                                                      │
+│  Modelo: [text-embedding-3-small                           ▼]       │
+│  Dimensões: [0        ] (0 = padrão do modelo)                      │
+│                                                                      │
+│  ═══════════════════════════════════════════════════════════════    │
+│  🎨 Geração de Imagens                                               │
+│  ═══════════════════════════════════════════════════════════════    │
+│                                                                      │
+│  Modelo: [dall-e-3                                         ▼]       │
+│                                                                      │
+│  ═══════════════════════════════════════════════════════════════    │
+│  🎭 Perfis Padrão                                                    │
+│  ═══════════════════════════════════════════════════════════════    │
+│                                                                      │
+│  Perfil de Conversa:  [💬 Padrão                           ▼]       │
+│  Perfil de Voz:       [🔊 Silencioso                       ▼]       │
+│  Perfil de Interação: [🎙️ Conversa Rápida                  ▼]       │
+│                                                                      │
+│  ═══════════════════════════════════════════════════════════════    │
+│  ⚠️ Zona de Perigo                                                   │
+│  ═══════════════════════════════════════════════════════════════    │
+│                                                                      │
+│  [Resetar Config]  [Apagar Banco de Dados]                          │
+│                                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Removido da Settings (migra para ChatProfile):**
+- Seção "Modelo de Chat" (modelo, temperature, max_tokens, top_p)
+- Seção "Padrões do Chat" (use_tools, show_internal_messages)
+
+**Cada perfil é editado em sua própria página:**
+- `/chat-profiles` - Perfis de Conversa
+- `/voice-profiles` - Perfis de Voz  
+- `/interaction-profiles` - Perfis de Interação
 
 ---
 
 ## Considerações de Acessibilidade
 
-- ChatProfilePicker deve seguir padrão ARIA de combobox
+### ChatProfilePicker
+- Seguir padrão ARIA de combobox (igual aos outros pickers)
 - Anunciar mudança de perfil via aria-live
-- Atalho de teclado: Ctrl+P para abrir picker (conflito com Voz? avaliar)
-- Labels descritivos: "Perfil de conversa: Programação, modelo gpt-4o"
+- Label descritivo: "Perfil de conversa: Programação, modelo gpt-4o"
+
+### Grid de Ferramentas (na página de edição)
+- `role="grid"` com `aria-label="Ferramentas disponíveis"`
+- Cada linha é `role="row"` com checkbox
+- Navegação por setas (up/down)
+- Espaço/Enter para marcar/desmarcar
+- Ctrl+A para selecionar todas
+- Ctrl+Shift+A para desmarcar todas
+- Anunciar quantidade selecionada: "3 de 7 ferramentas selecionadas"
+
+### Atalhos de Teclado
+| Atalho | Contexto | Ação |
+|--------|----------|------|
+| Ctrl+M | Toolbar | Abrir ChatProfilePicker |
+| Ctrl+P | Toolbar | Abrir VoiceProfilePicker |
+| Ctrl+I | Toolbar | Abrir InteractionProfilePicker |
 
 ---
 
