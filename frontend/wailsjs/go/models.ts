@@ -128,6 +128,7 @@ export namespace config {
 	    default_model?: string;
 	    embeddings_model?: string;
 	    image_model?: string;
+	    response_timeout?: number;
 	    chat_params?: ModelParams;
 	    embeddings_params?: EmbeddingsParams;
 	    stt_params?: STTParams;
@@ -145,6 +146,7 @@ export namespace config {
 	        this.default_model = source["default_model"];
 	        this.embeddings_model = source["embeddings_model"];
 	        this.image_model = source["image_model"];
+	        this.response_timeout = source["response_timeout"];
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.embeddings_params = this.convertValues(source["embeddings_params"], EmbeddingsParams);
 	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
@@ -1104,6 +1106,7 @@ export namespace llm {
 	    api_key: string;
 	    api_base_url: string;
 	    brave_api_key?: string;
+	    response_timeout?: number;
 	    chat_params: ModelParams;
 	    embeddings_params: EmbeddingsParams;
 	    image_model?: string;
@@ -1119,6 +1122,7 @@ export namespace llm {
 	        this.api_key = source["api_key"];
 	        this.api_base_url = source["api_base_url"];
 	        this.brave_api_key = source["brave_api_key"];
+	        this.response_timeout = source["response_timeout"];
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.embeddings_params = this.convertValues(source["embeddings_params"], EmbeddingsParams);
 	        this.image_model = source["image_model"];

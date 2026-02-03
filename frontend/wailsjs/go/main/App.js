@@ -342,6 +342,10 @@ export function GetConversationInfo(arg1) {
   return window['go']['main']['App']['GetConversationInfo'](arg1);
 }
 
+export function GetConversationModel(arg1) {
+  return window['go']['main']['App']['GetConversationModel'](arg1);
+}
+
 export function GetConversationPreferences(arg1) {
   return window['go']['main']['App']['GetConversationPreferences'](arg1);
 }
@@ -380,6 +384,10 @@ export function GetDefaultInteractionProfile() {
 
 export function GetDefaultVoiceProfile() {
   return window['go']['main']['App']['GetDefaultVoiceProfile']();
+}
+
+export function GetEffectiveModel(arg1) {
+  return window['go']['main']['App']['GetEffectiveModel'](arg1);
 }
 
 export function GetEffectiveVoiceProfile(arg1) {
@@ -726,22 +734,6 @@ export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
-export function SetChatModel(arg1) {
-  return window['go']['main']['App']['SetChatModel'](arg1);
-}
-
-export function SetConversationModel(arg1, arg2) {
-  return window['go']['main']['App']['SetConversationModel'](arg1, arg2);
-}
-
-export function GetConversationModel(arg1) {
-  return window['go']['main']['App']['GetConversationModel'](arg1);
-}
-
-export function GetEffectiveModel(arg1) {
-  return window['go']['main']['App']['GetEffectiveModel'](arg1);
-}
-
 export function SearchConversationHistory(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchConversationHistory'](arg1, arg2, arg3);
 }
@@ -788,6 +780,14 @@ export function SetActiveInteractionProfile(arg1) {
 
 export function SetActiveTab(arg1) {
   return window['go']['main']['App']['SetActiveTab'](arg1);
+}
+
+export function SetChatModel(arg1) {
+  return window['go']['main']['App']['SetChatModel'](arg1);
+}
+
+export function SetConversationModel(arg1, arg2) {
+  return window['go']['main']['App']['SetConversationModel'](arg1, arg2);
 }
 
 export function SetConversationVoiceProfile(arg1, arg2) {

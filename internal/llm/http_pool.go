@@ -6,10 +6,30 @@ import (
 	"time"
 )
 
-// SharedHTTPClient é um cliente HTTP otimizado para reutilização de conexões
-// Deve ser usado por todos os componentes que fazem requisições HTTP
-var SharedHTTPClient = &http.Client{
-	Transport: &http.Transport{
+var (
+	// sharedTransport é o transport compartilhado para reutilização de conexões
+	sharedTransport *http.Transport
+
+	// SharedHTTPClient é um cliente HTTP otimizado para reutilização de conexões
+	// Deve ser usado por todos os componentes que fazem requisições HTTP
+	SharedHTTPClient *http.Client
+
+	// responseHeaderTimeout armazena o timeout configurado (padrão: 180s)
+	responseHeaderTimeout = 180 * time.Second
+)
+
+func init() {
+	initTransport(180) // Inicializa com valor padrão
+}
+
+// initTransport inicializa o transport com o timeout especificado
+func initTransport(timeoutSeconds int) {
+	if timeoutSeconds <= 0 {
+		timeoutSeconds = 180
+	}
+	responseHeaderTimeout = time.Duration(timeoutSeconds) * time.Second
+
+	sharedTransport = &http.Transport{
 		// Connection pooling
 		MaxIdleConns:        100,              // Máximo de conexões idle no pool
 		MaxIdleConnsPerHost: 20,               // Máximo por host (importante para APIs LLM)
@@ -26,34 +46,41 @@ var SharedHTTPClient = &http.Client{
 		TLSHandshakeTimeout: 10 * time.Second,
 
 		// Timeouts de resposta
-		ResponseHeaderTimeout: 60 * time.Second, // Tempo máximo para receber headers
+		ResponseHeaderTimeout: responseHeaderTimeout, // Tempo máximo para receber headers
 		ExpectContinueTimeout: 1 * time.Second,
 
 		// Compressão
 		DisableCompression: false, // Permite gzip para respostas menores
-	},
-	// Nota: Timeout global não é definido aqui para permitir
-	// que cada chamada defina seu próprio timeout via context
+	}
+
+	SharedHTTPClient = &http.Client{
+		Transport: sharedTransport,
+		// Nota: Timeout global não é definido aqui para permitir
+		// que cada chamada defina seu próprio timeout via context
+	}
+}
+
+// ConfigureResponseTimeout configura o timeout de resposta em segundos
+// Deve ser chamado durante a inicialização da aplicação após carregar a config
+func ConfigureResponseTimeout(timeoutSeconds int) {
+	initTransport(timeoutSeconds)
 }
 
 // NewHTTPClientWithTimeout cria um cliente que usa o transport compartilhado
 // mas com um timeout específico (para casos que precisam de timeout diferente)
 func NewHTTPClientWithTimeout(timeout time.Duration) *http.Client {
 	return &http.Client{
-		Transport: SharedHTTPClient.Transport,
+		Transport: sharedTransport,
 		Timeout:   timeout,
 	}
 }
 
 // GetSharedTransport retorna o transport compartilhado para uso em clientes customizados
 func GetSharedTransport() http.RoundTripper {
-	return SharedHTTPClient.Transport
+	return sharedTransport
 }
 
-
-
-
-
-
-
-
+// GetResponseHeaderTimeout retorna o timeout configurado para receber headers
+func GetResponseHeaderTimeout() time.Duration {
+	return responseHeaderTimeout
+}

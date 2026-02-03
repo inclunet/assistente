@@ -177,6 +177,8 @@ export function GetConversationEmbeddingStatus():Promise<main.ConversationEmbedd
 
 export function GetConversationInfo(arg1:number):Promise<database.Conversation>;
 
+export function GetConversationModel(arg1:number):Promise<string>;
+
 export function GetConversationPreferences(arg1:number):Promise<database.ChatPreferences>;
 
 export function GetConversationSummary(arg1:number):Promise<string>;
@@ -196,6 +198,8 @@ export function GetCurrentTabID():Promise<number>;
 export function GetDefaultInteractionProfile():Promise<database.InteractionProfile>;
 
 export function GetDefaultVoiceProfile():Promise<database.VoiceProfile>;
+
+export function GetEffectiveModel(arg1:number):Promise<string>;
 
 export function GetEffectiveVoiceProfile(arg1:number):Promise<database.VoiceProfile>;
 
@@ -369,14 +373,6 @@ export function SaveOrUpdateAgentConfig(arg1:string,arg2:string,arg3:string,arg4
 
 export function SaveSettings(arg1:llm.SettingsInput):Promise<void>;
 
-export function SetChatModel(arg1:string):Promise<void>;
-
-export function SetConversationModel(arg1:number,arg2:string):Promise<void>;
-
-export function GetConversationModel(arg1:number):Promise<string>;
-
-export function GetEffectiveModel(arg1:number):Promise<string>;
-
 export function SearchConversationHistory(arg1:string,arg2:number,arg3:number):Promise<Array<agents.ConversationResult>>;
 
 export function SearchConversationsSemantic(arg1:string,arg2:number,arg3:number):Promise<Array<database.Conversation>>;
@@ -400,6 +396,10 @@ export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Pro
 export function SetActiveInteractionProfile(arg1:number):Promise<void>;
 
 export function SetActiveTab(arg1:number):Promise<void>;
+
+export function SetChatModel(arg1:string):Promise<void>;
+
+export function SetConversationModel(arg1:number,arg2:string):Promise<void>;
 
 export function SetConversationVoiceProfile(arg1:number,arg2:number):Promise<void>;
 

@@ -668,6 +668,12 @@ func (a *App) SetChatModel(model string) error {
 
 // SaveSettings salva as configurações
 func (a *App) SaveSettings(input SettingsInput) error {
+	// Aplica timeout padrão se não especificado
+	responseTimeout := input.ResponseTimeout
+	if responseTimeout <= 0 {
+		responseTimeout = 180
+	}
+
 	err := config.Update(func(existing *config.Config) *config.Config {
 		return &config.Config{
 			APIKey:          input.APIKey,
@@ -676,6 +682,7 @@ func (a *App) SaveSettings(input SettingsInput) error {
 			DefaultModel:    input.ChatParams.Model,
 			EmbeddingsModel: input.EmbeddingsParams.Model,
 			ImageModel:      input.ImageModel,
+			ResponseTimeout: responseTimeout,
 			ChatParams: config.ModelParams{
 				Model:       input.ChatParams.Model,
 				Temperature: input.ChatParams.Temperature,
@@ -699,6 +706,9 @@ func (a *App) SaveSettings(input SettingsInput) error {
 	if err != nil {
 		return err
 	}
+
+	// Atualiza o timeout do HTTP client
+	llm.ConfigureResponseTimeout(responseTimeout)
 
 	// Reinicializa o embeddings service
 	embeddingsModel := input.EmbeddingsParams.Model

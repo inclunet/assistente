@@ -131,6 +131,10 @@ func (a *App) initLLMClient() {
 		return
 	}
 
+	// Configura o timeout de resposta HTTP baseado na config
+	llm.ConfigureResponseTimeout(cfg.GetResponseTimeout())
+	log.Printf("HTTP Response Timeout configurado para %d segundos", cfg.GetResponseTimeout())
+
 	if cfg.APIKey == "" {
 		log.Printf("API Key não configurada - agentes não poderão usar LLM")
 		return

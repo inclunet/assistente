@@ -14,6 +14,7 @@ interface FormData {
   apiKey: string;
   apiBaseURL: string;
   braveApiKey: string;
+  responseTimeout: number;
   chatModel: string;
   chatTemperature: number;
   chatMaxTokens: number;
@@ -48,6 +49,7 @@ export default function SettingsPage() {
     apiKey: '',
     apiBaseURL: 'https://api.openai.com/v1',
     braveApiKey: '',
+    responseTimeout: 180,
     chatModel: 'gpt-4o-mini',
     chatTemperature: 0.7,
     chatMaxTokens: 4096,
@@ -80,6 +82,7 @@ export default function SettingsPage() {
           apiKey: config.api_key || '',
           apiBaseURL: config.api_base_url || 'https://api.openai.com/v1',
           braveApiKey: config.brave_api_key || '',
+          responseTimeout: config.response_timeout || 180,
           chatModel: config.chat_params?.model || 'gpt-4o-mini',
           chatTemperature: config.chat_params?.temperature || 0.7,
           chatMaxTokens: config.chat_params?.max_tokens || 4096,
@@ -118,6 +121,7 @@ export default function SettingsPage() {
         api_key: formData.apiKey,
         api_base_url: formData.apiBaseURL,
         brave_api_key: formData.braveApiKey,
+        response_timeout: formData.responseTimeout,
         chat_params: {
           model: formData.chatModel,
           temperature: formData.chatTemperature,
@@ -267,6 +271,21 @@ export default function SettingsPage() {
             >
               Testar Conexão
             </Button>
+
+            <Input
+              label="Timeout de Resposta (segundos)"
+              type="number"
+              min="30"
+              max="600"
+              step="10"
+              value={formData.responseTimeout}
+              onChange={(e) => handleChange('responseTimeout', parseInt(e.target.value) || 180)}
+              fullWidth
+            />
+            <p className="settings-field-hint">
+              Tempo máximo para aguardar o início da resposta do modelo. 
+              Aumente para modelos locais mais lentos (padrão: 180s).
+            </p>
           </div>
         </section>
 

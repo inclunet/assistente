@@ -45,6 +45,7 @@ type Config struct {
 	DefaultModel     string           `json:"default_model,omitempty"`
 	EmbeddingsModel  string           `json:"embeddings_model,omitempty"`
 	ImageModel       string           `json:"image_model,omitempty"`
+	ResponseTimeout  int              `json:"response_timeout,omitempty"` // Timeout em segundos para aguardar resposta da API (padrão: 180)
 	ChatParams       ModelParams      `json:"chat_params,omitempty"`
 	EmbeddingsParams EmbeddingsParams `json:"embeddings_params,omitempty"`
 	STTParams        STTParams        `json:"stt_params,omitempty"`
@@ -55,9 +56,10 @@ type Config struct {
 // Nota: Configurações de voz TTS são gerenciadas via VoiceProfiles no banco de dados
 func DefaultConfig() *Config {
 	return &Config{
-		APIKey:       "",
-		APIBaseURL:   "https://api.openai.com/v1",
-		DefaultModel: "gpt-4o-mini", // Modelo padrão
+		APIKey:          "",
+		APIBaseURL:      "https://api.openai.com/v1",
+		DefaultModel:    "gpt-4o-mini", // Modelo padrão
+		ResponseTimeout: 180,           // 3 minutos por padrão (bom para modelos locais)
 		ChatParams: ModelParams{
 			Model:       "gpt-4o-mini",
 			Temperature: 0.7,
@@ -165,4 +167,12 @@ func Update(updateFn func(*Config) *Config) error {
 
 	updatedConfig := updateFn(config)
 	return saveUnsafe(updatedConfig)
+}
+
+// GetResponseTimeout retorna o timeout de resposta em segundos (padrão: 180)
+func (c *Config) GetResponseTimeout() int {
+	if c.ResponseTimeout <= 0 {
+		return 180 // Padrão de 3 minutos
+	}
+	return c.ResponseTimeout
 }
