@@ -12,3 +12,5 @@ export { HistoryPicker } from './HistoryPicker';
 export type { HistoryPickerProps, HistoryPickerRef } from './HistoryPicker';
 export { InteractionProfilePicker } from './InteractionProfilePicker';
 export type { InteractionProfilePickerProps, InteractionProfilePickerRef } from './InteractionProfilePicker';
+export { ChatProfilePicker } from './ChatProfilePicker';
+export type { ChatProfilePickerProps, ChatProfilePickerRef } from './ChatProfilePicker';
