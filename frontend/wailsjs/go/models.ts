@@ -322,9 +322,72 @@ export namespace database {
 	        this.recording_mode = source["recording_mode"];
 	    }
 	}
+	export class ChatProfile {
+	    id: number;
+	    name: string;
+	    description: string;
+	    icon: string;
+	    is_default: boolean;
+	    created_at: time.Time;
+	    updated_at: time.Time;
+	    model: string;
+	    temperature: number;
+	    max_tokens: number;
+	    top_p: number;
+	    response_timeout: number;
+	    use_tools: boolean;
+	    tools_list: string;
+	    system_prompt: string;
+	    system_prompt_position: string;
+	    show_internal_messages: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatProfile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.icon = source["icon"];
+	        this.is_default = source["is_default"];
+	        this.created_at = this.convertValues(source["created_at"], time.Time);
+	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
+	        this.model = source["model"];
+	        this.temperature = source["temperature"];
+	        this.max_tokens = source["max_tokens"];
+	        this.top_p = source["top_p"];
+	        this.response_timeout = source["response_timeout"];
+	        this.use_tools = source["use_tools"];
+	        this.tools_list = source["tools_list"];
+	        this.system_prompt = source["system_prompt"];
+	        this.system_prompt_position = source["system_prompt_position"];
+	        this.show_internal_messages = source["show_internal_messages"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Conversation {
 	    id: number;
 	    title: string;
+	    chat_profile_id?: number;
 	    preferences?: string;
 	    created_at: time.Time;
 	    updated_at: time.Time;
@@ -332,6 +395,7 @@ export namespace database {
 	    message_count: number;
 	    summary?: string;
 	    embedding_message_count: number;
+	    chat_profile?: ChatProfile;
 	
 	    static createFrom(source: any = {}) {
 	        return new Conversation(source);
@@ -341,6 +405,7 @@ export namespace database {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
+	        this.chat_profile_id = source["chat_profile_id"];
 	        this.preferences = source["preferences"];
 	        this.created_at = this.convertValues(source["created_at"], time.Time);
 	        this.updated_at = this.convertValues(source["updated_at"], time.Time);
@@ -348,6 +413,7 @@ export namespace database {
 	        this.message_count = source["message_count"];
 	        this.summary = source["summary"];
 	        this.embedding_message_count = source["embedding_message_count"];
+	        this.chat_profile = this.convertValues(source["chat_profile"], ChatProfile);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

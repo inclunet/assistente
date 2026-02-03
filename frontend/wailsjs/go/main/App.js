@@ -22,6 +22,10 @@ export function ClearConversation(arg1) {
   return window['go']['main']['App']['ClearConversation'](arg1);
 }
 
+export function ClearConversationChatProfile(arg1) {
+  return window['go']['main']['App']['ClearConversationChatProfile'](arg1);
+}
+
 export function ClearTab(arg1) {
   return window['go']['main']['App']['ClearTab'](arg1);
 }
@@ -40,6 +44,10 @@ export function ConnectMCPAgent(arg1) {
 
 export function CreateAgentConfig(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
   return window['go']['main']['App']['CreateAgentConfig'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
+}
+
+export function CreateChatProfile(arg1) {
+  return window['go']['main']['App']['CreateChatProfile'](arg1);
 }
 
 export function CreateConversation(arg1, arg2) {
@@ -112,6 +120,10 @@ export function CreateVoiceProfileFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7,
 
 export function DeleteAgentConfig(arg1) {
   return window['go']['main']['App']['DeleteAgentConfig'](arg1);
+}
+
+export function DeleteChatProfile(arg1) {
+  return window['go']['main']['App']['DeleteChatProfile'](arg1);
 }
 
 export function DeleteConversation(arg1) {
@@ -326,6 +338,14 @@ export function GetAllVoiceProfiles() {
   return window['go']['main']['App']['GetAllVoiceProfiles']();
 }
 
+export function GetChatProfile(arg1) {
+  return window['go']['main']['App']['GetChatProfile'](arg1);
+}
+
+export function GetChatProfiles() {
+  return window['go']['main']['App']['GetChatProfiles']();
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
@@ -378,12 +398,20 @@ export function GetCurrentTabID() {
   return window['go']['main']['App']['GetCurrentTabID']();
 }
 
+export function GetDefaultChatProfile() {
+  return window['go']['main']['App']['GetDefaultChatProfile']();
+}
+
 export function GetDefaultInteractionProfile() {
   return window['go']['main']['App']['GetDefaultInteractionProfile']();
 }
 
 export function GetDefaultVoiceProfile() {
   return window['go']['main']['App']['GetDefaultVoiceProfile']();
+}
+
+export function GetEffectiveChatProfile(arg1) {
+  return window['go']['main']['App']['GetEffectiveChatProfile'](arg1);
 }
 
 export function GetEffectiveModel(arg1) {
@@ -786,12 +814,20 @@ export function SetChatModel(arg1) {
   return window['go']['main']['App']['SetChatModel'](arg1);
 }
 
+export function SetConversationChatProfile(arg1, arg2) {
+  return window['go']['main']['App']['SetConversationChatProfile'](arg1, arg2);
+}
+
 export function SetConversationModel(arg1, arg2) {
   return window['go']['main']['App']['SetConversationModel'](arg1, arg2);
 }
 
 export function SetConversationVoiceProfile(arg1, arg2) {
   return window['go']['main']['App']['SetConversationVoiceProfile'](arg1, arg2);
+}
+
+export function SetDefaultChatProfile(arg1) {
+  return window['go']['main']['App']['SetDefaultChatProfile'](arg1);
 }
 
 export function SetDefaultInteractionProfile(arg1) {
@@ -912,6 +948,10 @@ export function UnregisterInteractionProfileHotkeys(arg1) {
 
 export function UpdateAgentConfig(arg1, arg2, arg3, arg4, arg5, arg6, arg7) {
   return window['go']['main']['App']['UpdateAgentConfig'](arg1, arg2, arg3, arg4, arg5, arg6, arg7);
+}
+
+export function UpdateChatProfile(arg1, arg2) {
+  return window['go']['main']['App']['UpdateChatProfile'](arg1, arg2);
 }
 
 export function UpdateConversation(arg1, arg2, arg3) {

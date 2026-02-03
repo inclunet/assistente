@@ -30,18 +30,22 @@ type ChatPreferences struct {
 
 // Conversation representa uma conversa
 type Conversation struct {
-	ID           uint          `json:"id" gorm:"primaryKey"`
-	Title        string        `json:"title"`
-	Preferences  string        `json:"preferences,omitempty" gorm:"type:text"` // JSON das preferências locais
-	CreatedAt    time.Time     `json:"created_at"`
-	UpdatedAt    time.Time     `json:"updated_at"`
-	Messages     []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
-	MessageCount int           `json:"message_count" gorm:"-"` // Campo calculado, não persiste no banco
+	ID            uint          `json:"id" gorm:"primaryKey"`
+	Title         string        `json:"title"`
+	ChatProfileID *uint         `json:"chat_profile_id,omitempty" gorm:"index"` // FK → ChatProfile (nil = usar padrão)
+	Preferences   string        `json:"preferences,omitempty" gorm:"type:text"` // JSON das preferências locais (override)
+	CreatedAt     time.Time     `json:"created_at"`
+	UpdatedAt     time.Time     `json:"updated_at"`
+	Messages      []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
+	MessageCount  int           `json:"message_count" gorm:"-"` // Campo calculado, não persiste no banco
 
 	// Campos para busca semântica
 	Summary               string `json:"summary,omitempty" gorm:"type:text"` // Resumo gerado pelo LLM
 	Embedding             string `json:"-" gorm:"type:text"`                 // Embedding do resumo (não expõe na API)
 	EmbeddingMessageCount int    `json:"embedding_message_count"`            // Qtd de msgs quando gerou o embedding
+
+	// Relacionamento
+	ChatProfile *ChatProfile `json:"chat_profile,omitempty" gorm:"foreignKey:ChatProfileID"`
 }
 
 // GetEmbedding retorna o embedding como slice de float32
@@ -529,6 +533,101 @@ func (t *InteractionTrigger) Validate() error {
 func contains(slice []string, item string) bool {
 	for _, s := range slice {
 		if s == item {
+			return true
+		}
+	}
+	return false
+}
+
+// ==================== Chat Profile ====================
+
+// ChatProfile representa um perfil de configuração de conversa
+// Define modelo, parâmetros, ferramentas disponíveis e system prompt
+type ChatProfile struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	Name        string    `json:"name" gorm:"uniqueIndex;not null"`
+	Description string    `json:"description" gorm:"type:text"`
+	Icon        string    `json:"icon" gorm:"type:text;default:'💬'"`
+	IsDefault   bool      `json:"is_default" gorm:"default:false"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+
+	// Configurações do Modelo
+	Model           string  `json:"model" gorm:"type:text"`           // Nome do modelo (gpt-4o, gpt-oss, etc.)
+	Temperature     float64 `json:"temperature" gorm:"default:0.7"`   // 0.0 a 2.0
+	MaxTokens       int     `json:"max_tokens" gorm:"default:4096"`   // Limite de tokens
+	TopP            float64 `json:"top_p" gorm:"default:1.0"`         // 0.0 a 1.0
+	ResponseTimeout int     `json:"response_timeout" gorm:"default:180"` // Timeout em segundos
+
+	// Ferramentas/Agentes
+	UseTools  bool   `json:"use_tools" gorm:"default:true"`     // Habilitar ferramentas
+	ToolsList string `json:"tools_list" gorm:"type:text"`       // JSON array de agentes selecionados
+
+	// System Prompt
+	SystemPrompt         string `json:"system_prompt" gorm:"type:text"`                    // Prompt customizado
+	SystemPromptPosition string `json:"system_prompt_position" gorm:"default:'before'"` // "before" ou "after"
+
+	// UI
+	ShowInternalMessages bool `json:"show_internal_messages" gorm:"default:false"` // Mostrar tool calls
+}
+
+// Validate valida os campos do perfil de conversa
+func (p *ChatProfile) Validate() error {
+	if p.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if p.Temperature < 0 || p.Temperature > 2 {
+		return fmt.Errorf("temperature must be between 0 and 2")
+	}
+	if p.MaxTokens < 1 {
+		return fmt.Errorf("max_tokens must be at least 1")
+	}
+	if p.TopP < 0 || p.TopP > 1 {
+		return fmt.Errorf("top_p must be between 0 and 1")
+	}
+	if p.ResponseTimeout < 10 {
+		return fmt.Errorf("response_timeout must be at least 10 seconds")
+	}
+	if p.SystemPromptPosition != "" && p.SystemPromptPosition != "before" && p.SystemPromptPosition != "after" {
+		return fmt.Errorf("system_prompt_position must be 'before' or 'after'")
+	}
+	return nil
+}
+
+// GetToolsList retorna a lista de ferramentas como slice
+func (p *ChatProfile) GetToolsList() []string {
+	if p.ToolsList == "" || p.ToolsList == "[]" {
+		return []string{}
+	}
+	var tools []string
+	if err := json.Unmarshal([]byte(p.ToolsList), &tools); err != nil {
+		return []string{}
+	}
+	return tools
+}
+
+// SetToolsList define a lista de ferramentas a partir de um slice
+func (p *ChatProfile) SetToolsList(tools []string) {
+	if len(tools) == 0 {
+		p.ToolsList = "[]"
+		return
+	}
+	data, err := json.Marshal(tools)
+	if err != nil {
+		p.ToolsList = "[]"
+		return
+	}
+	p.ToolsList = string(data)
+}
+
+// HasTool verifica se uma ferramenta está na lista
+func (p *ChatProfile) HasTool(toolName string) bool {
+	if !p.UseTools {
+		return false
+	}
+	tools := p.GetToolsList()
+	for _, t := range tools {
+		if t == toolName {
 			return true
 		}
 	}

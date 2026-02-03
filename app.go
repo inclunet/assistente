@@ -1911,6 +1911,112 @@ func (a *App) DeleteInteractionTrigger(id uint) error {
 	return nil
 }
 
+// ==================== Chat Profiles ====================
+
+// GetChatProfiles retorna todos os perfis de conversa
+func (a *App) GetChatProfiles() ([]database.ChatProfile, error) {
+	return database.GetAllChatProfiles()
+}
+
+// GetChatProfile retorna um perfil de conversa por ID
+func (a *App) GetChatProfile(id uint) (*database.ChatProfile, error) {
+	return database.GetChatProfile(id)
+}
+
+// GetDefaultChatProfile retorna o perfil de conversa padrão
+func (a *App) GetDefaultChatProfile() (*database.ChatProfile, error) {
+	return database.GetDefaultChatProfile()
+}
+
+// CreateChatProfile cria um novo perfil de conversa
+func (a *App) CreateChatProfile(profile database.ChatProfile) (*database.ChatProfile, error) {
+	created, err := database.CreateChatProfile(&profile)
+	if err != nil {
+		return nil, err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "chat:profile:created", created)
+
+	return created, nil
+}
+
+// UpdateChatProfile atualiza um perfil de conversa
+func (a *App) UpdateChatProfile(id uint, profile database.ChatProfile) (*database.ChatProfile, error) {
+	updated, err := database.UpdateChatProfile(id, &profile)
+	if err != nil {
+		return nil, err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "chat:profile:updated", updated)
+
+	return updated, nil
+}
+
+// DeleteChatProfile deleta um perfil de conversa
+func (a *App) DeleteChatProfile(id uint) error {
+	err := database.DeleteChatProfile(id)
+	if err != nil {
+		return err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "chat:profile:deleted", id)
+
+	return nil
+}
+
+// SetDefaultChatProfile define um perfil como padrão
+func (a *App) SetDefaultChatProfile(id uint) error {
+	err := database.SetDefaultChatProfile(id)
+	if err != nil {
+		return err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "chat:profile:default_changed", id)
+
+	return nil
+}
+
+// SetConversationChatProfile define o perfil de conversa para uma conversa
+func (a *App) SetConversationChatProfile(conversationID uint, profileID uint) error {
+	err := database.SetConversationChatProfile(conversationID, profileID)
+	if err != nil {
+		return err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "chat:profile:conversation_changed", map[string]interface{}{
+		"conversation_id": conversationID,
+		"profile_id":      profileID,
+	})
+
+	return nil
+}
+
+// ClearConversationChatProfile remove o perfil customizado de uma conversa
+func (a *App) ClearConversationChatProfile(conversationID uint) error {
+	err := database.ClearConversationChatProfile(conversationID)
+	if err != nil {
+		return err
+	}
+
+	// Emite evento para frontend
+	runtime.EventsEmit(a.ctx, "chat:profile:conversation_changed", map[string]interface{}{
+		"conversation_id": conversationID,
+		"profile_id":      0, // 0 indica usar padrão
+	})
+
+	return nil
+}
+
+// GetEffectiveChatProfile retorna o perfil efetivo de uma conversa
+func (a *App) GetEffectiveChatProfile(conversationID uint) (*database.ChatProfile, error) {
+	return database.GetEffectiveChatProfile(conversationID)
+}
+
 // ==================== Chat Tabs ====================
 
 // GetAllTabs retorna todas as abas de chat

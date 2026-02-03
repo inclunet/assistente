@@ -17,6 +17,8 @@ export function AddMessageWithTokensAndMedia(arg1:number,arg2:string,arg3:string
 
 export function ClearConversation(arg1:number):Promise<void>;
 
+export function ClearConversationChatProfile(arg1:number):Promise<void>;
+
 export function ClearTab(arg1:number):Promise<void>;
 
 export function CloseTab(arg1:number):Promise<void>;
@@ -26,6 +28,8 @@ export function CompleteOAuthFlow(arg1:string,arg2:number):Promise<main.OAuthCon
 export function ConnectMCPAgent(arg1:number):Promise<void>;
 
 export function CreateAgentConfig(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:boolean):Promise<database.AgentConfig>;
+
+export function CreateChatProfile(arg1:database.ChatProfile):Promise<database.ChatProfile>;
 
 export function CreateConversation(arg1:string,arg2:string):Promise<database.Conversation>;
 
@@ -62,6 +66,8 @@ export function CreateVoiceProfile(arg1:string,arg2:string,arg3:string,arg4:stri
 export function CreateVoiceProfileFull(arg1:string,arg2:string,arg3:string,arg4:string,arg5:number,arg6:number,arg7:number,arg8:boolean,arg9:boolean,arg10:boolean):Promise<database.VoiceProfile>;
 
 export function DeleteAgentConfig(arg1:number):Promise<void>;
+
+export function DeleteChatProfile(arg1:number):Promise<void>;
 
 export function DeleteConversation(arg1:number):Promise<void>;
 
@@ -169,6 +175,10 @@ export function GetAllTokenStats():Promise<Record<string, number>>;
 
 export function GetAllVoiceProfiles():Promise<Array<database.VoiceProfile>>;
 
+export function GetChatProfile(arg1:number):Promise<database.ChatProfile>;
+
+export function GetChatProfiles():Promise<Array<database.ChatProfile>>;
+
 export function GetConfig():Promise<config.Config>;
 
 export function GetConversation(arg1:number):Promise<database.Conversation>;
@@ -195,9 +205,13 @@ export function GetCurrentConversationID():Promise<number>;
 
 export function GetCurrentTabID():Promise<number>;
 
+export function GetDefaultChatProfile():Promise<database.ChatProfile>;
+
 export function GetDefaultInteractionProfile():Promise<database.InteractionProfile>;
 
 export function GetDefaultVoiceProfile():Promise<database.VoiceProfile>;
+
+export function GetEffectiveChatProfile(arg1:number):Promise<database.ChatProfile>;
 
 export function GetEffectiveModel(arg1:number):Promise<string>;
 
@@ -399,9 +413,13 @@ export function SetActiveTab(arg1:number):Promise<void>;
 
 export function SetChatModel(arg1:string):Promise<void>;
 
+export function SetConversationChatProfile(arg1:number,arg2:number):Promise<void>;
+
 export function SetConversationModel(arg1:number,arg2:string):Promise<void>;
 
 export function SetConversationVoiceProfile(arg1:number,arg2:number):Promise<void>;
+
+export function SetDefaultChatProfile(arg1:number):Promise<void>;
 
 export function SetDefaultInteractionProfile(arg1:number):Promise<void>;
 
@@ -462,6 +480,8 @@ export function TranscribeWhisper(arg1:string,arg2:string):Promise<main.Transcri
 export function UnregisterInteractionProfileHotkeys(arg1:number):Promise<void>;
 
 export function UpdateAgentConfig(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:boolean):Promise<database.AgentConfig>;
+
+export function UpdateChatProfile(arg1:number,arg2:database.ChatProfile):Promise<database.ChatProfile>;
 
 export function UpdateConversation(arg1:number,arg2:string,arg3:string):Promise<void>;
 

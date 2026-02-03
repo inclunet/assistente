@@ -105,6 +105,7 @@ func Init() error {
 		&VoiceProfile{},
 		&InteractionProfile{},
 		&InteractionTrigger{},
+		&ChatProfile{},
 	); err != nil {
 		return err
 	}
@@ -117,6 +118,11 @@ func Init() error {
 	// Seed: cria perfil de interação padrão "Manual" se não existir
 	if err := seedDefaultInteractionProfile(); err != nil {
 		fmt.Printf("Aviso: erro ao criar perfil de interação padrão: %v\n", err)
+	}
+
+	// Seed: cria perfis de conversa padrão se não existirem
+	if err := seedDefaultChatProfiles(); err != nil {
+		fmt.Printf("Aviso: erro ao criar perfis de conversa padrão: %v\n", err)
 	}
 
 	return nil
@@ -2269,6 +2275,89 @@ func seedDefaultInteractionProfile() error {
 	return nil
 }
 
+// seedDefaultChatProfiles cria os perfis de conversa padrão
+func seedDefaultChatProfiles() error {
+	// Verifica se já existe algum perfil
+	var count int64
+	if err := db.Model(&ChatProfile{}).Count(&count).Error; err != nil {
+		return err
+	}
+
+	if count > 0 {
+		// Já existem perfis
+		return nil
+	}
+
+	// Lista de todas as ferramentas disponíveis por padrão
+	allTools := `["file_manager","web_search","memory","faq","voice_profile","interaction_profile","chat_profile"]`
+
+	// 1. Perfil "Padrão" - todas as ferramentas
+	defaultProfile := ChatProfile{
+		Name:                 "Padrão",
+		Description:          "Configuração padrão com todas as ferramentas habilitadas.",
+		Icon:                 "💬",
+		IsDefault:            true,
+		Model:                "", // Será definido automaticamente ao configurar API
+		Temperature:          0.7,
+		MaxTokens:            4096,
+		TopP:                 1.0,
+		ResponseTimeout:      180,
+		UseTools:             true,
+		ToolsList:            allTools,
+		SystemPromptPosition: "before",
+		ShowInternalMessages: false,
+	}
+	if err := db.Create(&defaultProfile).Error; err != nil {
+		return err
+	}
+	fmt.Println("[Database] Perfil de conversa 'Padrão' criado com sucesso")
+
+	// 2. Perfil "Modelo Local" - sem ferramentas (para gpt-oss, llama, etc.)
+	localProfile := ChatProfile{
+		Name:                 "Modelo Local",
+		Description:          "Para modelos locais que não suportam ferramentas (Ollama, LM Studio, etc.).",
+		Icon:                 "🏠",
+		IsDefault:            false,
+		Model:                "",
+		Temperature:          0.7,
+		MaxTokens:            4096,
+		TopP:                 1.0,
+		ResponseTimeout:      300, // Modelos locais podem ser mais lentos
+		UseTools:             false,
+		ToolsList:            "[]",
+		SystemPromptPosition: "before",
+		ShowInternalMessages: false,
+	}
+	if err := db.Create(&localProfile).Error; err != nil {
+		return err
+	}
+	fmt.Println("[Database] Perfil de conversa 'Modelo Local' criado com sucesso")
+
+	// 3. Perfil "Programação" - focado em código
+	codeProfile := ChatProfile{
+		Name:                 "Programação",
+		Description:          "Otimizado para tarefas de desenvolvimento de software.",
+		Icon:                 "💻",
+		IsDefault:            false,
+		Model:                "",
+		Temperature:          0.3, // Mais determinístico para código
+		MaxTokens:            8192,
+		TopP:                 1.0,
+		ResponseTimeout:      180,
+		UseTools:             true,
+		ToolsList:            `["file_manager"]`,
+		SystemPrompt:         "Você é um assistente especializado em programação. Sempre forneça exemplos de código quando relevante. Use markdown para formatar código. Prefira soluções simples e idiomáticas.",
+		SystemPromptPosition: "before",
+		ShowInternalMessages: false,
+	}
+	if err := db.Create(&codeProfile).Error; err != nil {
+		return err
+	}
+	fmt.Println("[Database] Perfil de conversa 'Programação' criado com sucesso")
+
+	return nil
+}
+
 // CreateInteractionProfile cria um novo perfil de interação
 func CreateInteractionProfile(profile *InteractionProfile) (*InteractionProfile, error) {
 	if err := profile.Validate(); err != nil {
@@ -2473,4 +2562,161 @@ func DeleteInteractionTrigger(id uint) error {
 // DeleteTriggersByProfile deleta todos os triggers de um perfil
 func DeleteTriggersByProfile(profileID uint) error {
 	return db.Where("profile_id = ?", profileID).Delete(&InteractionTrigger{}).Error
+}
+
+// ==================== Chat Profile CRUD ====================
+
+// CreateChatProfile cria um novo perfil de conversa
+func CreateChatProfile(profile *ChatProfile) (*ChatProfile, error) {
+	if err := profile.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Se é default, remove default anterior
+	if profile.IsDefault {
+		db.Model(&ChatProfile{}).Where("is_default = ?", true).Update("is_default", false)
+	}
+
+	if err := db.Create(profile).Error; err != nil {
+		return nil, err
+	}
+
+	return profile, nil
+}
+
+// GetChatProfile retorna um perfil de conversa por ID
+func GetChatProfile(id uint) (*ChatProfile, error) {
+	var profile ChatProfile
+	if err := db.First(&profile, id).Error; err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// GetAllChatProfiles retorna todos os perfis de conversa
+func GetAllChatProfiles() ([]ChatProfile, error) {
+	var profiles []ChatProfile
+	err := db.Order("is_default DESC, name ASC").Find(&profiles).Error
+	return profiles, err
+}
+
+// GetDefaultChatProfile retorna o perfil de conversa padrão
+func GetDefaultChatProfile() (*ChatProfile, error) {
+	var profile ChatProfile
+	if err := db.Where("is_default = ?", true).First(&profile).Error; err != nil {
+		return nil, err
+	}
+	return &profile, nil
+}
+
+// UpdateChatProfile atualiza um perfil de conversa
+func UpdateChatProfile(id uint, profile *ChatProfile) (*ChatProfile, error) {
+	if err := profile.Validate(); err != nil {
+		return nil, err
+	}
+
+	// Busca o perfil existente
+	var existing ChatProfile
+	if err := db.First(&existing, id).Error; err != nil {
+		return nil, err
+	}
+
+	// Se está se tornando default, remove default anterior
+	if profile.IsDefault && !existing.IsDefault {
+		db.Model(&ChatProfile{}).Where("is_default = ?", true).Update("is_default", false)
+	}
+
+	// Atualiza todos os campos
+	profile.ID = id
+	profile.CreatedAt = existing.CreatedAt
+
+	if err := db.Save(profile).Error; err != nil {
+		return nil, err
+	}
+
+	return GetChatProfile(id)
+}
+
+// DeleteChatProfile deleta um perfil de conversa
+func DeleteChatProfile(id uint) error {
+	// Não permite deletar o perfil padrão
+	var profile ChatProfile
+	if err := db.First(&profile, id).Error; err != nil {
+		return err
+	}
+	if profile.IsDefault {
+		return fmt.Errorf("não é possível deletar o perfil padrão")
+	}
+
+	// Remove referências em conversas
+	db.Model(&Conversation{}).Where("chat_profile_id = ?", id).Update("chat_profile_id", nil)
+
+	return db.Delete(&ChatProfile{}, id).Error
+}
+
+// SetDefaultChatProfile define um perfil como padrão
+func SetDefaultChatProfile(id uint) error {
+	// Remove default anterior
+	if err := db.Model(&ChatProfile{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+		return err
+	}
+	// Define o novo default
+	return db.Model(&ChatProfile{}).Where("id = ?", id).Update("is_default", true).Error
+}
+
+// SearchChatProfiles busca perfis por nome ou descrição
+func SearchChatProfiles(query string) ([]ChatProfile, error) {
+	var profiles []ChatProfile
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return GetAllChatProfiles()
+	}
+	searchTerm := "%" + query + "%"
+	err := db.Where(
+		"LOWER(name) LIKE ? OR LOWER(description) LIKE ?",
+		searchTerm, searchTerm,
+	).Order("is_default DESC, name ASC").Find(&profiles).Error
+	return profiles, err
+}
+
+// ==================== Chat Profile - Conversation Integration ====================
+
+// SetConversationChatProfile define o perfil de conversa para uma conversa
+func SetConversationChatProfile(conversationID uint, profileID uint) error {
+	return db.Model(&Conversation{}).Where("id = ?", conversationID).Update("chat_profile_id", profileID).Error
+}
+
+// ClearConversationChatProfile remove o perfil customizado de uma conversa (usa padrão)
+func ClearConversationChatProfile(conversationID uint) error {
+	return db.Model(&Conversation{}).Where("id = ?", conversationID).Update("chat_profile_id", nil).Error
+}
+
+// GetConversationChatProfile retorna o perfil de conversa de uma conversa (ou nil se usar padrão)
+func GetConversationChatProfile(conversationID uint) (*ChatProfile, error) {
+	var conversation Conversation
+	if err := db.First(&conversation, conversationID).Error; err != nil {
+		return nil, err
+	}
+
+	if conversation.ChatProfileID == nil {
+		return nil, nil // Usa perfil padrão
+	}
+
+	return GetChatProfile(*conversation.ChatProfileID)
+}
+
+// GetEffectiveChatProfile retorna o perfil efetivo de uma conversa (da conversa ou padrão)
+func GetEffectiveChatProfile(conversationID uint) (*ChatProfile, error) {
+	// Tenta obter perfil da conversa
+	profile, err := GetConversationChatProfile(conversationID)
+	if err != nil {
+		return nil, err
+	}
+
+	if profile != nil {
+		return profile, nil
+	}
+
+	// Usa perfil padrão
+	return GetDefaultChatProfile()
 }
