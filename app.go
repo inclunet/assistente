@@ -132,6 +132,9 @@ func (a *App) initLLMClient() {
 	}
 
 	// Configura o timeout de resposta HTTP baseado na config
+	// #region agent log
+	log.Printf("🔧 [INIT] Config carregada - ResponseTimeout raw: %d, GetResponseTimeout(): %d", cfg.ResponseTimeout, cfg.GetResponseTimeout())
+	// #endregion
 	llm.ConfigureResponseTimeout(cfg.GetResponseTimeout())
 	log.Printf("HTTP Response Timeout configurado para %d segundos", cfg.GetResponseTimeout())
 

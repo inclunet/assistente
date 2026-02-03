@@ -255,8 +255,15 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 	req.Header.Set("Accept", "text/event-stream")
 
+	// #region agent log
+	fmt.Printf("🔧 [CLIENT] Fazendo requisição - ResponseHeaderTimeout atual: %v\n", GetResponseHeaderTimeout())
+	// #endregion
+
 	resp, err := SharedHTTPClient.Do(req)
 	if err != nil {
+		// #region agent log
+		fmt.Printf("🔧 [CLIENT] ERRO na requisição: %v\n", err)
+		// #endregion
 		handler.OnError("Erro na conexão: " + err.Error())
 		return
 	}
