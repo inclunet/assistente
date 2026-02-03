@@ -58,10 +58,10 @@ type appStreamHandler struct {
 	accumulatedResults []string       // Acumula resultados de tools
 
 	// Throttling para eventos de streaming
-	mu              sync.Mutex    // Protege accumulatedContent durante throttling
-	lastEmitTime    time.Time     // Última vez que um evento foi emitido
-	throttleTimer   *time.Timer   // Timer para throttling
-	pendingEmit     bool          // Flag indicando se há emissão pendente
+	mu            sync.Mutex  // Protege accumulatedContent durante throttling
+	lastEmitTime  time.Time   // Última vez que um evento foi emitido
+	throttleTimer *time.Timer // Timer para throttling
+	pendingEmit   bool        // Flag indicando se há emissão pendente
 }
 
 func (h *appStreamHandler) OnChunk(content string) {
@@ -462,6 +462,23 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		return 0, fmt.Errorf("API Key não configurada")
 	}
 
+	// Se o modelo não foi especificado, usa o modelo da conversa ou o padrão
+	if params.Model == "" {
+		if conversationID > 0 {
+			// Tenta obter o modelo da conversa
+			effectiveModel, err := a.GetEffectiveModel(conversationID)
+			if err == nil && effectiveModel != "" {
+				params.Model = effectiveModel
+				log.Printf("[SendMessage] Usando modelo da conversa: %s", params.Model)
+			}
+		}
+		// Se ainda não tem modelo, usa o padrão do config
+		if params.Model == "" {
+			params.Model = cfg.DefaultModel
+			log.Printf("[SendMessage] Usando modelo padrão: %s", params.Model)
+		}
+	}
+
 	// Se não tem conversationID, cria uma nova conversa
 	createdNew := false
 	if conversationID == 0 {
@@ -629,6 +646,24 @@ func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, er
 // GetConfig retorna a configuração atual
 func (a *App) GetConfig() (*config.Config, error) {
 	return config.Load()
+}
+
+// SetChatModel atualiza apenas o modelo de chat na configuração
+func (a *App) SetChatModel(model string) error {
+	err := config.Update(func(existing *config.Config) *config.Config {
+		existing.DefaultModel = model
+		existing.ChatParams.Model = model
+		return existing
+	})
+	if err != nil {
+		return err
+	}
+
+	// Recarrega o cliente LLM para usar o novo modelo
+	a.initLLMClient()
+
+	log.Printf("[SetChatModel] Modelo atualizado para: %s", model)
+	return nil
 }
 
 // SaveSettings salva as configurações

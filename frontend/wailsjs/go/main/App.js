@@ -726,6 +726,22 @@ export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
+export function SetChatModel(arg1) {
+  return window['go']['main']['App']['SetChatModel'](arg1);
+}
+
+export function SetConversationModel(arg1, arg2) {
+  return window['go']['main']['App']['SetConversationModel'](arg1, arg2);
+}
+
+export function GetConversationModel(arg1) {
+  return window['go']['main']['App']['GetConversationModel'](arg1);
+}
+
+export function GetEffectiveModel(arg1) {
+  return window['go']['main']['App']['GetEffectiveModel'](arg1);
+}
+
 export function SearchConversationHistory(arg1, arg2, arg3) {
   return window['go']['main']['App']['SearchConversationHistory'](arg1, arg2, arg3);
 }

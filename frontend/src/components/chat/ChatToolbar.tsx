@@ -9,7 +9,7 @@ import { Toolbar } from '../ui/Toolbar';
 import { ContextMenu, MenuItem } from '../ui/ContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { ttsService } from '../../services/tts';
-import { GetVoiceProfile, GetDefaultVoiceProfile, GetEffectiveVoiceProfile, SetConversationVoiceProfile } from '../../../wailsjs/go/main/App';
+import { GetVoiceProfile, GetDefaultVoiceProfile, GetEffectiveVoiceProfile, SetConversationVoiceProfile, SetConversationModel, GetEffectiveModel } from '../../../wailsjs/go/main/App';
 import { EventsOn } from '../../../wailsjs/runtime/runtime';
 import './ChatToolbar.css';
 
@@ -38,6 +38,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const activeTab = getActiveTab();
   const conversationTitle = activeTab?.title || 'Nova conversa';
   const [selectedProfileId, setSelectedProfileId] = useState<number>(DEFAULT_PROFILE_ID);
+  const [selectedModel, setSelectedModel] = useState<string>(config?.defaultModel || '');
 
   // Refs para os pickers
   const voiceProfilePickerRef = useRef<VoiceProfilePickerRef>(null);
@@ -315,6 +316,37 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     loadConversationProfile();
   }, [activeTab?.conversationId, applyVoiceProfile]); // Recarrega quando a conversa muda
 
+  // Carrega o modelo efetivo quando a conversa muda
+  useEffect(() => {
+    const loadConversationModel = async () => {
+      try {
+        const conversationId = activeTab?.conversationId;
+        
+        let model: string = '';
+        
+        if (conversationId) {
+          // Conversa existente - carrega modelo efetivo (da conversa ou padrão)
+          model = await GetEffectiveModel(conversationId).catch(() => '') || '';
+          console.log('[ChatToolbar] Modelo efetivo da conversa:', conversationId, model);
+        }
+        
+        // Se não encontrou modelo (nova conversa ou erro), usa o padrão do config
+        if (!model && config?.defaultModel) {
+          model = config.defaultModel;
+          console.log('[ChatToolbar] Usando modelo padrão:', model);
+        }
+        
+        if (model) {
+          setSelectedModel(model);
+        }
+      } catch (error) {
+        console.error('[ChatToolbar] Erro ao carregar modelo:', error);
+      }
+    };
+
+    loadConversationModel();
+  }, [activeTab?.conversationId, config?.defaultModel]); // Recarrega quando a conversa muda
+
   // Escuta evento de mudança de perfil de voz via agente
   useEffect(() => {
     // Listener para mudança de perfil na conversa
@@ -462,9 +494,19 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     focusInput();
   };
 
-  const handleModelChange = (model: string) => {
-    if (config) {
-      setConfig({ ...config, defaultModel: model });
+  const handleModelChange = async (model: string) => {
+    try {
+      const conversationId = activeTab?.conversationId;
+      if (conversationId) {
+        // Salva na conversa atual
+        await SetConversationModel(conversationId, model);
+      }
+      // Atualiza o estado local
+      setSelectedModel(model);
+      announce(`Modelo alterado para ${model}`);
+    } catch (error) {
+      console.error('[ChatToolbar] Erro ao alterar modelo:', error);
+      announce('Erro ao alterar modelo');
     }
     focusInput();
   };
@@ -534,7 +576,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
           {config && (
             <ModelPicker
-              value={config.defaultModel}
+              value={selectedModel || config.defaultModel}
               onChange={handleModelChange}
               variant="toolbar"
               label="Modelo (Ctrl+M)"

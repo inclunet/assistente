@@ -369,6 +369,14 @@ export function SaveOrUpdateAgentConfig(arg1:string,arg2:string,arg3:string,arg4
 
 export function SaveSettings(arg1:llm.SettingsInput):Promise<void>;
 
+export function SetChatModel(arg1:string):Promise<void>;
+
+export function SetConversationModel(arg1:number,arg2:string):Promise<void>;
+
+export function GetConversationModel(arg1:number):Promise<string>;
+
+export function GetEffectiveModel(arg1:number):Promise<string>;
+
 export function SearchConversationHistory(arg1:string,arg2:number,arg3:number):Promise<Array<agents.ConversationResult>>;
 
 export function SearchConversationsSemantic(arg1:string,arg2:number,arg3:number):Promise<Array<database.Conversation>>;

@@ -316,9 +316,9 @@ func (a *App) UpdateMessage(messageID uint, newContent string) error {
 	if err := database.UpdateMessageContent(
 		messageID,
 		newContent,
-		0, // prompt_tokens
-		0, // completion_tokens
-		0, // total_tokens
+		0,  // prompt_tokens
+		0,  // completion_tokens
+		0,  // total_tokens
 		"", // model (mantém o original)
 	); err != nil {
 		return err
@@ -1419,6 +1419,50 @@ func (a *App) GetEffectiveVoiceProfile(conversationID uint) (*VoiceProfile, erro
 
 	// Sem perfil configurado
 	return nil, nil
+}
+
+// SetConversationModel define o modelo de uma conversa
+func (a *App) SetConversationModel(conversationID uint, model string) error {
+	prefs, err := database.GetConversationPreferences(conversationID)
+	if err != nil {
+		prefs = &database.ChatPreferences{}
+	}
+	if prefs == nil {
+		prefs = &database.ChatPreferences{}
+	}
+
+	// Se model é vazio, remove o modelo customizado (usa o padrão)
+	prefs.Model = model
+
+	return database.UpdateConversationPreferences(conversationID, prefs)
+}
+
+// GetConversationModel retorna o modelo de uma conversa (ou vazio se não definido)
+func (a *App) GetConversationModel(conversationID uint) (string, error) {
+	prefs, err := database.GetConversationPreferences(conversationID)
+	if err != nil {
+		return "", nil // Sem preferências = usar padrão
+	}
+	if prefs == nil {
+		return "", nil
+	}
+	return prefs.Model, nil
+}
+
+// GetEffectiveModel retorna o modelo efetivo de uma conversa (da conversa ou padrão)
+func (a *App) GetEffectiveModel(conversationID uint) (string, error) {
+	// Primeiro tenta obter da conversa
+	model, _ := a.GetConversationModel(conversationID)
+	if model != "" {
+		return model, nil
+	}
+
+	// Se não tem na conversa, usa o padrão do config
+	cfg, err := config.Load()
+	if err != nil {
+		return "", err
+	}
+	return cfg.DefaultModel, nil
 }
 
 // SetConversationVoiceProfile define o perfil de voz de uma conversa
