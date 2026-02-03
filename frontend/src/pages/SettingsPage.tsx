@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GetConfig, SaveSettings, ResetConfig, ResetDatabase, TestConnectionWithModels, GetDefaultVoiceProfile, GetDefaultInteractionProfile, SetDefaultVoiceProfile, SetDefaultInteractionProfile } from '../../wailsjs/go/main/App';
+import { GetConfig, SaveSettings, ResetConfig, ResetDatabase, TestConnectionWithModels, GetDefaultVoiceProfile, GetDefaultInteractionProfile, GetDefaultChatProfile, SetDefaultVoiceProfile, SetDefaultInteractionProfile, SetDefaultChatProfile } from '../../wailsjs/go/main/App';
 import { llm } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
-import { Input, Select, Checkbox, Button } from '../components';
-import { VoiceProfilePicker, VoiceProfilePickerRef } from '../components/pickers';
+import { Input, Select, Button } from '../components';
+import { VoiceProfilePicker, VoiceProfilePickerRef, ChatProfilePicker, ChatProfilePickerRef } from '../components/pickers';
 import { InteractionProfilePicker, InteractionProfilePickerRef } from '../components/pickers/InteractionProfilePicker';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import './SettingsPage.css';
@@ -15,14 +15,8 @@ interface FormData {
   apiBaseURL: string;
   braveApiKey: string;
   responseTimeout: number;
-  chatModel: string;
-  chatTemperature: number;
-  chatMaxTokens: number;
-  chatTopP: number;
   embeddingsModel: string;
   embeddingsDimensions: number;
-  useTools: boolean;
-  showInternalMessages: boolean;
   imageModel: string;
 }
 
@@ -40,24 +34,20 @@ export default function SettingsPage() {
   // Refs para os pickers de perfis
   const voiceProfilePickerRef = useRef<VoiceProfilePickerRef>(null);
   const interactionProfilePickerRef = useRef<InteractionProfilePickerRef>(null);
+  const chatProfilePickerRef = useRef<ChatProfilePickerRef>(null);
   
   // Estados dos perfis padrão
   const [defaultVoiceProfileId, setDefaultVoiceProfileId] = useState<number>(0);
   const [defaultInteractionProfileId, setDefaultInteractionProfileId] = useState<number>(0);
+  const [defaultChatProfileId, setDefaultChatProfileId] = useState<number>(0);
   
   const [formData, setFormData] = useState<FormData>({
     apiKey: '',
     apiBaseURL: 'https://api.openai.com/v1',
     braveApiKey: '',
     responseTimeout: 180,
-    chatModel: 'gpt-4o-mini',
-    chatTemperature: 0.7,
-    chatMaxTokens: 4096,
-    chatTopP: 1.0,
     embeddingsModel: 'text-embedding-3-small',
     embeddingsDimensions: 0,
-    useTools: true,
-    showInternalMessages: false,
     imageModel: 'dall-e-3',
   });
 
@@ -71,10 +61,11 @@ export default function SettingsPage() {
       setLoading(true);
       
       // Carrega configuração e perfis padrão em paralelo
-      const [config, defaultVoiceProfile, defaultInteractionProfile] = await Promise.all([
+      const [config, defaultVoiceProfile, defaultInteractionProfile, defaultChatProfile] = await Promise.all([
         GetConfig(),
         GetDefaultVoiceProfile().catch(() => null),
         GetDefaultInteractionProfile().catch(() => null),
+        GetDefaultChatProfile().catch(() => null),
       ]);
       
       if (config) {
@@ -83,14 +74,8 @@ export default function SettingsPage() {
           apiBaseURL: config.api_base_url || 'https://api.openai.com/v1',
           braveApiKey: config.brave_api_key || '',
           responseTimeout: config.response_timeout || 180,
-          chatModel: config.chat_params?.model || 'gpt-4o-mini',
-          chatTemperature: config.chat_params?.temperature || 0.7,
-          chatMaxTokens: config.chat_params?.max_tokens || 4096,
-          chatTopP: config.chat_params?.top_p || 1.0,
           embeddingsModel: config.embeddings_params?.model || 'text-embedding-3-small',
           embeddingsDimensions: config.embeddings_params?.dimensions || 0,
-          useTools: config.chat_defaults?.use_tools ?? true,
-          showInternalMessages: config.chat_defaults?.show_internal_messages ?? false,
           imageModel: config.image_model || 'dall-e-3',
         });
       }
@@ -101,6 +86,9 @@ export default function SettingsPage() {
       }
       if (defaultInteractionProfile) {
         setDefaultInteractionProfileId(defaultInteractionProfile.id);
+      }
+      if (defaultChatProfile) {
+        setDefaultChatProfileId(defaultChatProfile.id);
       }
     } catch (error) {
       console.error('Erro ao carregar configuração:', error);
@@ -122,19 +110,20 @@ export default function SettingsPage() {
         api_base_url: formData.apiBaseURL,
         brave_api_key: formData.braveApiKey,
         response_timeout: formData.responseTimeout,
+        // chat_params agora vem do ChatProfile, mas mantemos para compatibilidade
         chat_params: {
-          model: formData.chatModel,
-          temperature: formData.chatTemperature,
-          max_tokens: formData.chatMaxTokens,
-          top_p: formData.chatTopP,
+          model: '',
+          temperature: 0.7,
+          max_tokens: 4096,
+          top_p: 1.0,
         },
         embeddings_params: {
           model: formData.embeddingsModel,
           dimensions: formData.embeddingsDimensions,
         },
         chat_defaults: {
-          use_tools: formData.useTools,
-          show_internal_messages: formData.showInternalMessages,
+          use_tools: true,
+          show_internal_messages: false,
         },
         image_model: formData.imageModel,
       });
@@ -146,6 +135,18 @@ export default function SettingsPage() {
       addToast(error.message || 'Erro ao salvar configurações', 'error');
     } finally {
       setSaving(false);
+    }
+  };
+
+  const handleChatProfileChange = async (profileId: number) => {
+    try {
+      await SetDefaultChatProfile(profileId);
+      setDefaultChatProfileId(profileId);
+      addToast('Perfil de conversa padrão atualizado!', 'success');
+      announce('Perfil de conversa padrão atualizado');
+    } catch (error: any) {
+      console.error('Erro ao definir perfil de conversa padrão:', error);
+      addToast(error.message || 'Erro ao definir perfil de conversa padrão', 'error');
     }
   };
 
@@ -206,7 +207,7 @@ export default function SettingsPage() {
   };
 
   const handleResetDatabase = async () => {
-    if (!confirm('⚠️ ATENÇÃO: Tem certeza que deseja apagar o banco de dados?\n\nIsso irá REMOVER PERMANENTEMENTE:\n- Todas as conversas\n- Todas as memórias\n- Todos os FAQs\n- Todos os perfis de voz\n- Todos os perfis de interação\n- Todas as conexões OAuth\n\nEsta ação NÃO pode ser desfeita!')) {
+    if (!confirm('⚠️ ATENÇÃO: Tem certeza que deseja apagar o banco de dados?\n\nIsso irá REMOVER PERMANENTEMENTE:\n- Todas as conversas\n- Todas as memórias\n- Todos os FAQs\n- Todos os perfis\n- Todas as conexões OAuth\n\nEsta ação NÃO pode ser desfeita!')) {
       return;
     }
     
@@ -271,6 +272,12 @@ export default function SettingsPage() {
             >
               Testar Conexão
             </Button>
+            
+            {availableModels.length > 0 && (
+              <p className="settings-field-hint">
+                ✅ {availableModels.length} modelos disponíveis na API
+              </p>
+            )}
 
             <Input
               label="Timeout de Resposta (segundos)"
@@ -283,71 +290,92 @@ export default function SettingsPage() {
               fullWidth
             />
             <p className="settings-field-hint">
-              Tempo máximo para aguardar o início da resposta do modelo. 
-              Aumente para modelos locais mais lentos (padrão: 180s).
+              Tempo máximo para aguardar o início da resposta do modelo (padrão: 180s).
             </p>
           </div>
         </section>
 
-        {/* Chat Model Section */}
+        {/* Default Profiles Section */}
         <section className="settings-section">
-          <h2>💬 Modelo de Chat</h2>
-          <div className="settings-fields">
-            {availableModels.length > 0 ? (
-              <Select
-                label="Modelo Padrão"
-                value={formData.chatModel}
-                onChange={(e) => handleChange('chatModel', e.target.value)}
-                options={availableModels.map(m => ({ value: m, label: m }))}
-                fullWidth
-              />
-            ) : (
-              <Input
-                label="Modelo Padrão"
-                value={formData.chatModel}
-                onChange={(e) => handleChange('chatModel', e.target.value)}
-                placeholder="gpt-4o-mini"
-                fullWidth
-              />
-            )}
-
-            <div className="settings-row">
-              <Input
-                label="Temperature"
-                type="number"
-                min="0"
-                max="2"
-                step="0.1"
-                value={formData.chatTemperature}
-                onChange={(e) => handleChange('chatTemperature', parseFloat(e.target.value) || 0)}
-              />
-
-              <Input
-                label="Max Tokens"
-                type="number"
-                min="1"
-                max="128000"
-                step="100"
-                value={formData.chatMaxTokens}
-                onChange={(e) => handleChange('chatMaxTokens', parseInt(e.target.value) || 4096)}
+          <h2>🎭 Perfis Padrão</h2>
+          <p className="settings-section-description">
+            Defina os perfis que serão usados por padrão em novas conversas.
+            Configure modelo, temperatura, ferramentas e mais nos perfis de conversa.
+          </p>
+          <div className="settings-fields settings-profiles-grid">
+            <div className="settings-profile-item">
+              <label className="settings-label">Perfil de Conversa</label>
+              <p className="settings-field-hint">Modelo, parâmetros e ferramentas</p>
+              <ChatProfilePicker
+                ref={chatProfilePickerRef}
+                value={defaultChatProfileId}
+                onChange={handleChatProfileChange}
+                label="Perfil de Conversa Padrão"
+                maxWidth="100%"
+                onAnnounce={announce}
               />
             </div>
+            
+            <div className="settings-profile-item">
+              <label className="settings-label">Perfil de Voz</label>
+              <p className="settings-field-hint">Síntese de voz (TTS)</p>
+              <VoiceProfilePicker
+                ref={voiceProfilePickerRef}
+                value={defaultVoiceProfileId}
+                onChange={handleVoiceProfileChange}
+                label="Perfil de Voz Padrão"
+                maxWidth="100%"
+                onAnnounce={announce}
+              />
+            </div>
+            
+            <div className="settings-profile-item">
+              <label className="settings-label">Perfil de Interação</label>
+              <p className="settings-field-hint">Reconhecimento de voz (STT)</p>
+              <InteractionProfilePicker
+                ref={interactionProfilePickerRef}
+                value={defaultInteractionProfileId}
+                onChange={handleInteractionProfileChange}
+                label="Perfil de Interação Padrão"
+                maxWidth="100%"
+                onAnnounce={announce}
+              />
+            </div>
+          </div>
+        </section>
 
+        {/* Web Search Section */}
+        <section className="settings-section">
+          <h2>🔍 Busca na Web</h2>
+          <p className="settings-section-description">
+            Configure a API do Brave Search para buscas na web. 
+            <a href="https://api-dashboard.search.brave.com/" target="_blank" rel="noopener noreferrer" style={{ marginLeft: '4px' }}>
+              Obter API Key (gratuito)
+            </a>
+          </p>
+          <div className="settings-fields">
             <Input
-              label="Top P"
-              type="number"
-              min="0"
-              max="1"
-              step="0.05"
-              value={formData.chatTopP}
-              onChange={(e) => handleChange('chatTopP', parseFloat(e.target.value) || 1)}
+              label="Brave Search API Key"
+              type="password"
+              value={formData.braveApiKey}
+              onChange={(e) => handleChange('braveApiKey', e.target.value)}
+              placeholder="BSA-..."
+              fullWidth
             />
+            <p className="settings-field-hint">
+              {formData.braveApiKey 
+                ? '✅ Configurada - Buscas usarão Brave Search API' 
+                : '⚠️ Não configurada - Buscas usarão DuckDuckGo (menos confiável)'}
+            </p>
           </div>
         </section>
 
         {/* Embeddings Section */}
         <section className="settings-section">
           <h2>🧠 Embeddings</h2>
+          <p className="settings-section-description">
+            Modelo usado para busca semântica em memórias e conversas.
+          </p>
           <div className="settings-fields">
             <Select
               label="Modelo de Embeddings"
@@ -390,83 +418,6 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Web Search Section */}
-        <section className="settings-section">
-          <h2>🔍 Busca na Web</h2>
-          <p className="settings-section-description">
-            Configure a API do Brave Search para buscas na web. 
-            <a href="https://api-dashboard.search.brave.com/" target="_blank" rel="noopener noreferrer" style={{ marginLeft: '4px' }}>
-              Obter API Key (gratuito)
-            </a>
-          </p>
-          <div className="settings-fields">
-            <Input
-              label="Brave Search API Key"
-              type="password"
-              value={formData.braveApiKey}
-              onChange={(e) => handleChange('braveApiKey', e.target.value)}
-              placeholder="BSA-..."
-              fullWidth
-            />
-            <p className="settings-field-hint">
-              {formData.braveApiKey 
-                ? '✅ Configurada - Buscas usarão Brave Search API' 
-                : '⚠️ Não configurada - Buscas usarão DuckDuckGo (menos confiável)'}
-            </p>
-          </div>
-        </section>
-
-        {/* Default Profiles Section */}
-        <section className="settings-section">
-          <h2>🎭 Perfis Padrão</h2>
-          <p className="settings-section-description">
-            Defina os perfis que serão usados por padrão em novas conversas.
-          </p>
-          <div className="settings-fields settings-profiles-grid">
-            <div className="settings-profile-item">
-              <label className="settings-label">Perfil de Voz</label>
-              <VoiceProfilePicker
-                ref={voiceProfilePickerRef}
-                value={defaultVoiceProfileId}
-                onChange={handleVoiceProfileChange}
-                label="Perfil de Voz Padrão"
-                maxWidth="100%"
-                onAnnounce={announce}
-              />
-            </div>
-            
-            <div className="settings-profile-item">
-              <label className="settings-label">Perfil de Interação</label>
-              <InteractionProfilePicker
-                ref={interactionProfilePickerRef}
-                value={defaultInteractionProfileId}
-                onChange={handleInteractionProfileChange}
-                label="Perfil de Interação Padrão"
-                maxWidth="100%"
-                onAnnounce={announce}
-              />
-            </div>
-          </div>
-        </section>
-
-        {/* Chat Defaults Section */}
-        <section className="settings-section">
-          <h2>⚙️ Padrões do Chat</h2>
-          <div className="settings-fields">
-            <Checkbox
-              label="Usar agentes e ferramentas por padrão"
-              checked={formData.useTools}
-              onChange={(e) => handleChange('useTools', e.target.checked)}
-            />
-
-            <Checkbox
-              label="Mostrar mensagens internas (tool calls) por padrão"
-              checked={formData.showInternalMessages}
-              onChange={(e) => handleChange('showInternalMessages', e.target.checked)}
-            />
-          </div>
-        </section>
-
         {/* Danger Zone */}
         <section className="settings-section settings-danger">
           <h2>⚠️ Zona de Perigo</h2>
@@ -487,7 +438,7 @@ export default function SettingsPage() {
             <div className="settings-danger-item">
               <div>
                 <strong>Apagar Banco de Dados</strong>
-                <p>Remove permanentemente todas as conversas, memórias, FAQs, perfis e conexões.</p>
+                <p>Remove permanentemente todas as conversas, memórias, FAQs e perfis.</p>
               </div>
               <Button variant="danger" onClick={handleResetDatabase}>
                 Apagar Tudo
