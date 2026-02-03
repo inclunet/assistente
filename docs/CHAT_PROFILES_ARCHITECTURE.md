@@ -80,8 +80,7 @@ Este sistema substitui a configuração de modelo dispersa em `config.json` e na
 | `response_timeout` | int | N | 180 | Timeout em segundos |
 | **Ferramentas** |||||
 | `use_tools` | bool | N | true | Habilitar ferramentas |
-| `tools_mode` | string | N | "all" | "all" ou "selected" |
-| `tools_list` | string | S | "" | JSON array de agentes selecionados (se mode="selected") |
+| `tools_list` | string | S | "[]" | JSON array de agentes selecionados |
 | **System Prompt** |||||
 | `system_prompt` | string | S | "" | Prompt customizado (concatenado com sistema) |
 | `system_prompt_position` | string | N | "before" | "before" ou "after" do prompt do sistema |
@@ -154,18 +153,18 @@ func GetEffectiveConfig(conversation *Conversation) *EffectiveConfig {
 ### Lógica de Seleção
 
 ```
-use_tools = false  →  Nenhuma ferramenta (desativado)
-use_tools = true   →  Verifica tools_mode:
-                      ├─ "all"      →  Todas as ferramentas
-                      └─ "selected" →  Apenas as listadas em tools_list
+use_tools = false  →  Nenhuma ferramenta (toggle desativado)
+use_tools = true   →  Usa tools_list para determinar quais
 ```
 
-| `use_tools` | `tools_mode` | `tools_list` | Resultado |
-|-------------|--------------|--------------|-----------|
-| `false` | (ignorado) | (ignorado) | Nenhuma ferramenta |
-| `true` | `"all"` | (ignorado) | Todas as ferramentas |
-| `true` | `"selected"` | `["file_manager"]` | Apenas file_manager |
-| `true` | `"selected"` | `[]` | Nenhuma ferramenta |
+| `use_tools` | `tools_list` | Resultado |
+|-------------|--------------|-----------|
+| `false` | (ignorado) | Nenhuma ferramenta |
+| `true` | `[]` | Nenhuma ferramenta |
+| `true` | `["file_manager"]` | Apenas file_manager |
+| `true` | `["file_manager", "web_search", ...]` | Todas as listadas |
+
+**Nota**: A lista é preenchida na criação do perfil. Novos agentes adicionados ao sistema não são automaticamente incluídos em perfis existentes.
 
 ### Agentes Disponíveis
 
@@ -192,24 +191,16 @@ func (p *ChatProfile) GetAllowedTools(allTools []Tool) []Tool {
         return nil
     }
     
-    // Todas as ferramentas
-    if p.ToolsMode == "all" || p.ToolsMode == "" {
-        return allTools
+    // Obtém lista de ferramentas selecionadas
+    var selected []string
+    json.Unmarshal([]byte(p.ToolsList), &selected)
+    
+    if len(selected) == 0 {
+        return nil
     }
     
-    // Apenas as selecionadas
-    if p.ToolsMode == "selected" {
-        var selected []string
-        json.Unmarshal([]byte(p.ToolsList), &selected)
-        
-        if len(selected) == 0 {
-            return nil
-        }
-        
-        return filterToolsByName(allTools, selected)
-    }
-    
-    return allTools
+    // Filtra apenas as ferramentas que existem e estão na lista
+    return filterToolsByName(allTools, selected)
 }
 ```
 
@@ -291,7 +282,7 @@ Na primeira execução, criar perfis iniciais via migration:
   "temperature": 0.7,
   "max_tokens": 4096,
   "use_tools": true,
-  "tools_mode": "all",
+  "tools_list": "[\"file_manager\",\"web_search\",\"memory\",\"faq\",\"voice_profile\",\"interaction_profile\",\"chat_profile\"]",
   "show_internal_messages": false
 }
 ```
@@ -307,7 +298,7 @@ Na primeira execução, criar perfis iniciais via migration:
   "temperature": 0.7,
   "max_tokens": 4096,
   "use_tools": false,
-  "tools_mode": "all",
+  "tools_list": "[]",
   "show_internal_messages": false
 }
 ```
@@ -323,7 +314,6 @@ Na primeira execução, criar perfis iniciais via migration:
   "temperature": 0.3,
   "max_tokens": 8192,
   "use_tools": true,
-  "tools_mode": "whitelist",
   "tools_list": "[\"file_manager\"]",
   "system_prompt": "Você é um assistente especializado em programação...",
   "system_prompt_position": "before"
@@ -510,20 +500,19 @@ type EffectiveConfig struct {
 │                                                                      │
 │  [✓] Habilitar ferramentas                                          │
 │                                                                      │
-│  Quais ferramentas?                                                 │
-│  (•) Todas as ferramentas disponíveis                               │
-│  ( ) Apenas as selecionadas abaixo                                  │
-│                                                                      │
+│  Ferramentas disponíveis:              [Ctrl+A: todas] [Ctrl+Shift+A: nenhuma]
 │  ┌───────────────────────────────────────────────────────────────┐ │
-│  │ [✓] file_manager - Gerenciamento de arquivos                  │ │
-│  │ [ ] web_search - Busca na web                                 │ │
-│  │ [ ] memory - Memórias do usuário                              │ │
-│  │ [ ] faq - Perguntas frequentes                                │ │
-│  │ [ ] voice_profile - Perfis de voz                             │ │
-│  │ [ ] interaction_profile - Perfis de interação                 │ │
-│  │ [ ] chat_profile - Perfis de conversa                         │ │
+│  │ Nome                    │ Descrição                           │ │
+│  ├─────────────────────────┼─────────────────────────────────────┤ │
+│  │ [✓] file_manager        │ Gerenciamento de arquivos           │ │
+│  │ [ ] web_search          │ Busca na web                        │ │
+│  │ [ ] memory              │ Memórias do usuário                 │ │
+│  │ [ ] faq                 │ Perguntas frequentes                │ │
+│  │ [ ] voice_profile       │ Perfis de voz                       │ │
+│  │ [ ] interaction_profile │ Perfis de interação                 │ │
+│  │ [ ] chat_profile        │ Perfis de conversa                  │ │
 │  └───────────────────────────────────────────────────────────────┘ │
-│  (Lista só aparece quando "Apenas as selecionadas" está marcado)    │
+│  (Grid navegável com setas, Espaço/Enter para marcar/desmarcar)     │
 │                                                                      │
 │  ═══════════════════════════════════════════════════════════════    │
 │  SYSTEM PROMPT                                                      │
