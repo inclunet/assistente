@@ -80,8 +80,8 @@ Este sistema substitui a configuração de modelo dispersa em `config.json` e na
 | `response_timeout` | int | N | 180 | Timeout em segundos |
 | **Ferramentas** |||||
 | `use_tools` | bool | N | true | Habilitar ferramentas |
-| `tools_mode` | string | N | "all" | "all", "whitelist", "blacklist" |
-| `tools_list` | string | S | "" | JSON array de nomes de agentes |
+| `tools_mode` | string | N | "all" | "all" ou "selected" |
+| `tools_list` | string | S | "" | JSON array de agentes selecionados (se mode="selected") |
 | **System Prompt** |||||
 | `system_prompt` | string | S | "" | Prompt customizado (concatenado com sistema) |
 | `system_prompt_position` | string | N | "before" | "before" ou "after" do prompt do sistema |
@@ -151,13 +151,21 @@ func GetEffectiveConfig(conversation *Conversation) *EffectiveConfig {
 
 ## Ferramentas/Agentes
 
-### Modos de Seleção
+### Lógica de Seleção
 
-| Modo | Descrição | `tools_list` |
-|------|-----------|--------------|
-| `all` | Todas as ferramentas disponíveis | Ignorado |
-| `whitelist` | Apenas as ferramentas listadas | `["file_manager", "web_search"]` |
-| `blacklist` | Todas exceto as listadas | `["memory", "faq"]` |
+```
+use_tools = false  →  Nenhuma ferramenta (desativado)
+use_tools = true   →  Verifica tools_mode:
+                      ├─ "all"      →  Todas as ferramentas
+                      └─ "selected" →  Apenas as listadas em tools_list
+```
+
+| `use_tools` | `tools_mode` | `tools_list` | Resultado |
+|-------------|--------------|--------------|-----------|
+| `false` | (ignorado) | (ignorado) | Nenhuma ferramenta |
+| `true` | `"all"` | (ignorado) | Todas as ferramentas |
+| `true` | `"selected"` | `["file_manager"]` | Apenas file_manager |
+| `true` | `"selected"` | `[]` | Nenhuma ferramenta |
 
 ### Agentes Disponíveis
 
@@ -179,23 +187,26 @@ Lista de agentes que podem ser incluídos/excluídos:
 
 ```go
 func (p *ChatProfile) GetAllowedTools(allTools []Tool) []Tool {
+    // Ferramentas desativadas
     if !p.UseTools {
         return nil
     }
     
-    switch p.ToolsMode {
-    case "all":
+    // Todas as ferramentas
+    if p.ToolsMode == "all" || p.ToolsMode == "" {
         return allTools
+    }
+    
+    // Apenas as selecionadas
+    if p.ToolsMode == "selected" {
+        var selected []string
+        json.Unmarshal([]byte(p.ToolsList), &selected)
         
-    case "whitelist":
-        var allowed []string
-        json.Unmarshal([]byte(p.ToolsList), &allowed)
-        return filterTools(allTools, allowed, true)
+        if len(selected) == 0 {
+            return nil
+        }
         
-    case "blacklist":
-        var blocked []string
-        json.Unmarshal([]byte(p.ToolsList), &blocked)
-        return filterTools(allTools, blocked, false)
+        return filterToolsByName(allTools, selected)
     }
     
     return allTools
@@ -499,9 +510,9 @@ type EffectiveConfig struct {
 │                                                                      │
 │  [✓] Habilitar ferramentas                                          │
 │                                                                      │
-│  Modo: ( ) Todas as ferramentas                                     │
-│        (•) Apenas selecionadas (whitelist)                          │
-│        ( ) Todas exceto selecionadas (blacklist)                    │
+│  Quais ferramentas?                                                 │
+│  (•) Todas as ferramentas disponíveis                               │
+│  ( ) Apenas as selecionadas abaixo                                  │
 │                                                                      │
 │  ┌───────────────────────────────────────────────────────────────┐ │
 │  │ [✓] file_manager - Gerenciamento de arquivos                  │ │
@@ -510,7 +521,9 @@ type EffectiveConfig struct {
 │  │ [ ] faq - Perguntas frequentes                                │ │
 │  │ [ ] voice_profile - Perfis de voz                             │ │
 │  │ [ ] interaction_profile - Perfis de interação                 │ │
+│  │ [ ] chat_profile - Perfis de conversa                         │ │
 │  └───────────────────────────────────────────────────────────────┘ │
+│  (Lista só aparece quando "Apenas as selecionadas" está marcado)    │
 │                                                                      │
 │  ═══════════════════════════════════════════════════════════════    │
 │  SYSTEM PROMPT                                                      │
