@@ -36,6 +36,7 @@ export function Topbar() {
     if (location.pathname === '/oauth') return 'oauth';
     if (location.pathname === '/voice-profiles') return 'voice-profiles';
     if (location.pathname === '/interaction-profiles') return 'interaction-profiles';
+    if (location.pathname === '/chat-profiles') return 'chat-profiles';
     if (location.pathname === '/help') return 'help';
     return 'chat';
   };
@@ -82,6 +83,12 @@ export function Topbar() {
       label: 'Perfis de Interação',
       icon: '🎙️',
       onClick: () => navigate('/interaction-profiles'),
+    },
+    {
+      id: 'chat-profiles',
+      label: 'Perfis de Conversa',
+      icon: '💬',
+      onClick: () => navigate('/chat-profiles'),
     },
     {
       id: 'oauth',
