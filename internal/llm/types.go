@@ -100,7 +100,7 @@ type ChatRequest struct {
 	Messages      []Message      `json:"messages"`
 	MaxTokens     int            `json:"max_tokens,omitempty"`
 	Temperature   float64        `json:"temperature,omitempty"`
-	TopP          float64        `json:"top_p,omitempty"`
+	TopP          *float64       `json:"top_p,omitempty"` // Ponteiro para omitir quando nil
 	Stream        bool           `json:"stream"`
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	Tools         []Tool         `json:"tools,omitempty"`

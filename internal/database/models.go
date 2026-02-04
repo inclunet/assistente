@@ -553,19 +553,27 @@ type ChatProfile struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 
 	// Configurações do Modelo
-	Model           string  `json:"model" gorm:"type:text"`           // Nome do modelo (gpt-4o, gpt-oss, etc.)
-	Temperature     float64 `json:"temperature" gorm:"default:0.7"`   // 0.0 a 2.0
-	MaxTokens       int     `json:"max_tokens" gorm:"default:4096"`   // Limite de tokens
-	TopP            float64 `json:"top_p" gorm:"default:1.0"`         // 0.0 a 1.0
+	Model           string  `json:"model" gorm:"type:text"`              // Nome do modelo (gpt-4o, gpt-oss, etc.)
+	Temperature     float64 `json:"temperature" gorm:"default:0.7"`      // 0.0 a 2.0
+	MaxTokens       int     `json:"max_tokens" gorm:"default:4096"`      // Limite de tokens
+	TopP            float64 `json:"top_p" gorm:"default:1.0"`            // 0.0 a 1.0
 	ResponseTimeout int     `json:"response_timeout" gorm:"default:180"` // Timeout em segundos
 
 	// Ferramentas/Agentes
-	UseTools  bool   `json:"use_tools" gorm:"default:true"`     // Habilitar ferramentas
-	ToolsList string `json:"tools_list" gorm:"type:text"`       // JSON array de agentes selecionados
+	UseTools  bool   `json:"use_tools" gorm:"default:true"` // Habilitar ferramentas
+	ToolsList string `json:"tools_list" gorm:"type:text"`   // JSON array de agentes selecionados
 
 	// System Prompt
-	SystemPrompt         string `json:"system_prompt" gorm:"type:text"`                    // Prompt customizado
-	SystemPromptPosition string `json:"system_prompt_position" gorm:"default:'before'"` // "before" ou "after"
+	SystemPrompt         string `json:"system_prompt" gorm:"type:text"`                // Prompt customizado
+	SystemPromptPosition string `json:"system_prompt_position" gorm:"default:'after'"` // "before" ou "after" do prompt base
+	IncludeCoreMemories  bool   `json:"include_core_memories" gorm:"default:true"`     // Incluir memórias core no system prompt
+
+	// Embeddings
+	EmbeddingsModel      string `json:"embeddings_model" gorm:"type:text;default:'text-embedding-3-small'"` // Modelo de embeddings
+	EmbeddingsDimensions int    `json:"embeddings_dimensions" gorm:"default:0"`                             // 0 = padrão do modelo
+
+	// Geração de Imagens
+	ImageModel string `json:"image_model" gorm:"type:text;default:'dall-e-3'"` // Modelo de imagens (dall-e-3, dall-e-2, gpt-image-1)
 
 	// UI
 	ShowInternalMessages bool `json:"show_internal_messages" gorm:"default:false"` // Mostrar tool calls

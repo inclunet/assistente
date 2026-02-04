@@ -605,10 +605,12 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		return 0, err
 	}
 
-	// 4. Compõe system prompt com o perfil (se houver)
-	if profileSystemPrompt != "" {
-		messages = a.composeSystemPrompt(messages, profileSystemPrompt, systemPromptPosition)
+	// 4. Compõe system prompt completo
+	includeCoreMemories := true // default
+	if chatProfile != nil {
+		includeCoreMemories = chatProfile.IncludeCoreMemories
 	}
+	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, includeCoreMemories)
 
 	// 5. Processa com LLM - userMessageID é a raiz da thread
 	handler := &appStreamHandler{
@@ -621,51 +623,90 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 	return conversationID, nil
 }
 
-// composeSystemPrompt adiciona o system prompt do perfil às mensagens
-func (a *App) composeSystemPrompt(messages []Message, profilePrompt string, position string) []Message {
-	if profilePrompt == "" {
-		return messages
+// DefaultSystemPrompt is the base system prompt used when no custom prompt is provided
+const DefaultSystemPrompt = `You are a helpful, intelligent assistant. You provide accurate, thoughtful responses and assist users with various tasks.
+
+Key behaviors:
+- Be concise but thorough
+- When uncertain, acknowledge limitations
+- Use markdown formatting for better readability
+- Adapt your communication style to the user's needs`
+
+// buildFullSystemPrompt composes the complete system prompt with base prompt, custom prompt, and core memories
+func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, includeCoreMemories bool) []Message {
+	// Build the system prompt parts
+	var parts []string
+
+	// 1. Base prompt (custom or default)
+	basePrompt := customPrompt
+	if basePrompt == "" {
+		basePrompt = DefaultSystemPrompt
+	}
+	parts = append(parts, basePrompt)
+
+	// 2. Core memories section (if enabled)
+	if includeCoreMemories {
+		coreMemories, err := database.GetCoreMemories()
+		if err != nil {
+			log.Printf("[SystemPrompt] Error loading core memories: %v", err)
+		} else if len(coreMemories) > 0 {
+			var memoriesSection strings.Builder
+			memoriesSection.WriteString("\n\n## Core Information About the User\n")
+			for _, mem := range coreMemories {
+				if mem.Title != "" {
+					memoriesSection.WriteString(fmt.Sprintf("- **%s**: %s\n", mem.Title, mem.Content))
+				} else {
+					memoriesSection.WriteString(fmt.Sprintf("- %s\n", mem.Content))
+				}
+			}
+			parts = append(parts, memoriesSection.String())
+		}
 	}
 
-	// Verifica se já existe uma mensagem system
-	hasSystem := false
+	// Combine all parts
+	fullSystemPrompt := strings.Join(parts, "")
+
+	// Find existing system message or create new one
 	systemIndex := -1
 	for i, msg := range messages {
 		if msg.Role == "system" {
-			hasSystem = true
 			systemIndex = i
 			break
 		}
 	}
 
-	if !hasSystem {
-		// Não tem system prompt, adiciona o do perfil no início
+	if systemIndex == -1 {
+		// No existing system message, add at the beginning
 		systemMsg := Message{
 			Role:    "system",
-			Content: profilePrompt,
+			Content: fullSystemPrompt,
 		}
 		return append([]Message{systemMsg}, messages...)
 	}
 
-	// Já tem system prompt, combina baseado na posição
+	// Existing system message found - combine based on position
 	existingContent := ""
 	switch content := messages[systemIndex].Content.(type) {
 	case string:
 		existingContent = content
 	default:
-		// Se não é string, mantém como está
-		return messages
+		// If not a string, replace entirely
+		newMessages := make([]Message, len(messages))
+		copy(newMessages, messages)
+		newMessages[systemIndex].Content = fullSystemPrompt
+		return newMessages
 	}
 
 	var combinedContent string
-	if position == "after" {
-		combinedContent = existingContent + "\n\n" + profilePrompt
+	if customPosition == "after" {
+		// Custom prompt goes after existing content
+		combinedContent = existingContent + "\n\n" + fullSystemPrompt
 	} else {
-		// "before" é o padrão
-		combinedContent = profilePrompt + "\n\n" + existingContent
+		// "before" is the default - custom prompt goes before existing content
+		combinedContent = fullSystemPrompt + "\n\n" + existingContent
 	}
 
-	// Cria nova slice para não modificar a original
+	// Create new slice to avoid modifying the original
 	newMessages := make([]Message, len(messages))
 	copy(newMessages, messages)
 	newMessages[systemIndex].Content = combinedContent

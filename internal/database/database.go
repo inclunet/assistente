@@ -2304,7 +2304,8 @@ func seedDefaultChatProfiles() error {
 		ResponseTimeout:      180,
 		UseTools:             true,
 		ToolsList:            allTools,
-		SystemPromptPosition: "before",
+		SystemPromptPosition: "after",
+		IncludeCoreMemories:  true,
 		ShowInternalMessages: false,
 	}
 	if err := db.Create(&defaultProfile).Error; err != nil {
@@ -2325,7 +2326,8 @@ func seedDefaultChatProfiles() error {
 		ResponseTimeout:      300, // Modelos locais podem ser mais lentos
 		UseTools:             false,
 		ToolsList:            "[]",
-		SystemPromptPosition: "before",
+		SystemPromptPosition: "after",
+		IncludeCoreMemories:  true,
 		ShowInternalMessages: false,
 	}
 	if err := db.Create(&localProfile).Error; err != nil {
@@ -2346,8 +2348,9 @@ func seedDefaultChatProfiles() error {
 		ResponseTimeout:      180,
 		UseTools:             true,
 		ToolsList:            `["file_manager"]`,
-		SystemPrompt:         "Você é um assistente especializado em programação. Sempre forneça exemplos de código quando relevante. Use markdown para formatar código. Prefira soluções simples e idiomáticas.",
-		SystemPromptPosition: "before",
+		SystemPrompt:         "You are a programming assistant. Always provide code examples when relevant. Use markdown to format code. Prefer simple and idiomatic solutions.",
+		SystemPromptPosition: "after",
+		IncludeCoreMemories:  true,
 		ShowInternalMessages: false,
 	}
 	if err := db.Create(&codeProfile).Error; err != nil {

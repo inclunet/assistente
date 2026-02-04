@@ -741,36 +741,37 @@ A tela de Settings ficará mais limpa, delegando configurações específicas pa
 
 ## Plano de Implementação
 
-### Sprint 1: Backend Base
-- [ ] Criar modelo `ChatProfile` no banco
-- [ ] Migration para criar tabela e seed
-- [ ] CRUD de ChatProfile
-- [ ] Funções de perfil efetivo
+### Sprint 1: Backend Base ✅
+- [x] Criar modelo `ChatProfile` no banco
+- [x] Migration para criar tabela e seed
+- [x] CRUD de ChatProfile
+- [x] Funções de perfil efetivo
 
-### Sprint 2: Integração com Chat
-- [ ] Modificar `SendMessage` para usar perfil
-- [ ] Filtrar tools baseado no perfil
-- [ ] Compor system prompt com perfil
+### Sprint 2: Integração com Chat ✅
+- [x] Modificar `SendMessage` para usar perfil
+- [x] Filtrar tools baseado no perfil
+- [x] Compor system prompt com perfil
 
-### Sprint 3: Frontend - Página de Perfis
-- [ ] Criar `ChatProfilesPage`
-- [ ] Componente de listagem
-- [ ] Modal de edição
-- [ ] Seletor de ferramentas
+### Sprint 3: Frontend - Página de Perfis ✅
+- [x] Criar `ChatProfilesPage`
+- [x] Componente de listagem
+- [x] Modal de edição
+- [x] Seletor de ferramentas
 
-### Sprint 4: Frontend - Toolbar
-- [ ] Criar `ChatProfilePicker`
-- [ ] Substituir ModelPicker + Tools toggle
-- [ ] Persistir perfil por conversa
+### Sprint 4: Frontend - Toolbar ✅
+- [x] Criar `ChatProfilePicker`
+- [x] Substituir ModelPicker + Tools toggle
+- [x] Persistir perfil por conversa
 
-### Sprint 5: Profile Manager
-- [ ] Adicionar ferramentas ao agente
-- [ ] Testes de integração
+### Sprint 5: Profile Manager ✅
+- [x] Adicionar ferramentas ao agente (chat_profile_*)
+- [x] Atualizar descrição e system prompt do ProfileAgent
 
-### Sprint 6: Migração e Limpeza
-- [ ] Script de migração de dados
-- [ ] Remover código legado
-- [ ] Atualizar documentação
+### Sprint 6: Migração e Limpeza ✅
+- [x] SettingsPage simplificada (removidas seções de modelo/chat)
+- [x] ChatToolbar usa apenas ChatProfilePicker (ModelPicker removido)
+- [x] Campos legados mantidos no config.json por compatibilidade
+- [x] Atualizar documentação
 
 ---
 

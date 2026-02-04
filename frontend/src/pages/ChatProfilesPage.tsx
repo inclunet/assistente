@@ -21,8 +21,15 @@ import './ChatProfilesPage.css';
 
 type ChatProfile = database.ChatProfile;
 
+// Tipo para tools disponíveis
+interface AvailableTool {
+  id: string;
+  name: string;
+  description: string;
+}
+
 // Lista de agentes/tools disponíveis no sistema
-const AVAILABLE_TOOLS = [
+const AVAILABLE_TOOLS: AvailableTool[] = [
   { id: 'faq', name: 'FAQ', description: 'Perguntas frequentes e respostas pré-configuradas' },
   { id: 'memory', name: 'Memória', description: 'Lembranças e informações persistentes' },
   { id: 'chat_manager', name: 'Chat Manager', description: 'Navegação e gerenciamento de conversas' },
@@ -32,6 +39,7 @@ const AVAILABLE_TOOLS = [
   { id: 'builder', name: 'Builder', description: 'Criação de agentes HTTP e MCP' },
   { id: 'profile', name: 'Perfis', description: 'Gerenciamento de perfis de voz e interação' },
 ];
+
 
 const ICONS = [
   { value: '💬', label: '💬 Chat' },
@@ -69,9 +77,13 @@ export default function ChatProfilesPage() {
   const [formUseTools, setFormUseTools] = useState(true);
   const [formToolsList, setFormToolsList] = useState<string[]>([]);
   const [formSystemPrompt, setFormSystemPrompt] = useState('');
-  const [formSystemPromptPosition, setFormSystemPromptPosition] = useState('before');
+  const [formSystemPromptPosition, setFormSystemPromptPosition] = useState('after');
+  const [formIncludeCoreMemories, setFormIncludeCoreMemories] = useState(true);
   const [formShowInternalMessages, setFormShowInternalMessages] = useState(false);
   const [formIsDefault, setFormIsDefault] = useState(false);
+  const [formEmbeddingsModel, setFormEmbeddingsModel] = useState('text-embedding-3-small');
+  const [formEmbeddingsDimensions, setFormEmbeddingsDimensions] = useState(0);
+  const [formImageModel, setFormImageModel] = useState('dall-e-3');
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
@@ -152,9 +164,13 @@ export default function ChatProfilesPage() {
     setFormUseTools(true);
     setFormToolsList([]);
     setFormSystemPrompt('');
-    setFormSystemPromptPosition('before');
+    setFormSystemPromptPosition('after');
+    setFormIncludeCoreMemories(true);
     setFormShowInternalMessages(false);
     setFormIsDefault(false);
+    setFormEmbeddingsModel('text-embedding-3-small');
+    setFormEmbeddingsDimensions(0);
+    setFormImageModel('dall-e-3');
     setFormError('');
     setShowModal(true);
   };
@@ -172,9 +188,13 @@ export default function ChatProfilesPage() {
     setFormUseTools(profile.use_tools);
     setFormToolsList(parseToolsList(profile.tools_list));
     setFormSystemPrompt(profile.system_prompt || '');
-    setFormSystemPromptPosition(profile.system_prompt_position || 'before');
+    setFormSystemPromptPosition(profile.system_prompt_position || 'after');
+    setFormIncludeCoreMemories(profile.include_core_memories !== false);
     setFormShowInternalMessages(profile.show_internal_messages);
     setFormIsDefault(profile.is_default);
+    setFormEmbeddingsModel(profile.embeddings_model || 'text-embedding-3-small');
+    setFormEmbeddingsDimensions(profile.embeddings_dimensions || 0);
+    setFormImageModel(profile.image_model || 'dall-e-3');
     setFormError('');
     setShowModal(true);
   };
@@ -202,8 +222,12 @@ export default function ChatProfilesPage() {
         tools_list: JSON.stringify(formToolsList),
         system_prompt: formSystemPrompt.trim(),
         system_prompt_position: formSystemPromptPosition,
+        include_core_memories: formIncludeCoreMemories,
         show_internal_messages: formShowInternalMessages,
         is_default: formIsDefault,
+        embeddings_model: formEmbeddingsModel,
+        embeddings_dimensions: formEmbeddingsDimensions,
+        image_model: formImageModel,
       };
 
       if (editingProfile) {
@@ -266,16 +290,6 @@ export default function ChatProfilesPage() {
       console.error('Erro ao deletar perfis:', error);
       alert('Erro ao deletar perfis');
     }
-  };
-
-  const toggleTool = (toolId: string) => {
-    setFormToolsList(prev => {
-      if (prev.includes(toolId)) {
-        return prev.filter(t => t !== toolId);
-      } else {
-        return [...prev, toolId];
-      }
-    });
   };
 
   const selectAllTools = () => {
@@ -425,7 +439,7 @@ export default function ChatProfilesPage() {
           isOpen={showModal}
           onClose={() => setShowModal(false)}
           title={editingProfile ? 'Editar Perfil de Conversa' : 'Novo Perfil de Conversa'}
-          size="large"
+          size="xl"
         >
           <div className="modal-form chat-profile-form">
             {formError && (
@@ -563,42 +577,57 @@ export default function ChatProfilesPage() {
               {formUseTools && (
                 <div className="tools-section">
                   <div className="tools-actions">
-                    <Button variant="secondary" size="small" onClick={selectAllTools}>
+                    <Button variant="secondary" size="sm" onClick={selectAllTools}>
                       Selecionar Todas
                     </Button>
-                    <Button variant="secondary" size="small" onClick={clearAllTools}>
+                    <Button variant="secondary" size="sm" onClick={clearAllTools}>
                       Limpar Seleção
                     </Button>
-                    <span className="tools-count">
+                    <span className="tools-count" aria-live="polite">
                       {formToolsList.length} de {AVAILABLE_TOOLS.length} selecionadas
                     </span>
                   </div>
                   
                   <div 
-                    className="tools-grid" 
-                    role="group" 
-                    aria-label="Ferramentas disponíveis. Use Espaço para selecionar."
+                    className="tools-checkbox-list"
+                    role="group"
+                    aria-label={`Ferramentas disponíveis. ${formToolsList.length} de ${AVAILABLE_TOOLS.length} selecionadas`}
                   >
-                    {AVAILABLE_TOOLS.map(tool => (
-                      <label 
-                        key={tool.id} 
-                        className={`tool-item ${formToolsList.includes(tool.id) ? 'selected' : ''}`}
-                      >
-                        <input
-                          type="checkbox"
-                          checked={formToolsList.includes(tool.id)}
-                          onChange={() => toggleTool(tool.id)}
-                        />
-                        <span className="tool-info">
-                          <span className="tool-name">{tool.name}</span>
-                          <span className="tool-description">{tool.description}</span>
-                        </span>
-                      </label>
-                    ))}
+                    {AVAILABLE_TOOLS.map((tool) => {
+                      const isChecked = formToolsList.includes(tool.id);
+                      const checkboxId = `tool-${tool.id}`;
+                      const descId = `tool-desc-${tool.id}`;
+                      
+                      return (
+                        <div key={tool.id} className="tool-checkbox-item">
+                          <input
+                            type="checkbox"
+                            id={checkboxId}
+                            checked={isChecked}
+                            onChange={() => {
+                              setFormToolsList(prev => 
+                                prev.includes(tool.id) 
+                                  ? prev.filter(t => t !== tool.id)
+                                  : [...prev, tool.id]
+                              );
+                            }}
+                            aria-describedby={descId}
+                          />
+                          <div className="tool-checkbox-content">
+                            <label htmlFor={checkboxId} className="tool-checkbox-name">
+                              {tool.name}
+                            </label>
+                            <span id={descId} className="tool-checkbox-description">
+                              {tool.description}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                   
                   <p className="form-hint">
-                    Lista vazia = todas as ferramentas habilitadas
+                    Lista vazia = todas as ferramentas habilitadas.
                   </p>
                 </div>
               )}
@@ -606,43 +635,110 @@ export default function ChatProfilesPage() {
 
             {/* Seção: System Prompt */}
             <fieldset className="form-fieldset">
-              <legend>System Prompt Personalizado</legend>
+              <legend>System Prompt</legend>
               
               <div className="form-group">
-                <label htmlFor="systemPrompt">Instruções adicionais para o modelo</label>
+                <label htmlFor="systemPrompt">Custom system prompt (leave empty to use default)</label>
                 <Textarea
                   id="systemPrompt"
                   value={formSystemPrompt}
                   onChange={(e) => setFormSystemPrompt(e.target.value)}
-                  placeholder="Ex: Você é um especialista em Python. Sempre forneça exemplos de código..."
+                  placeholder="Leave empty for the default assistant prompt, or customize it here..."
                   rows={4}
                 />
               </div>
 
               <div className="form-row">
                 <div className="form-group">
-                  <label htmlFor="promptPosition">Posição do prompt</label>
+                  <label htmlFor="promptPosition">Custom prompt position</label>
                   <Select
                     id="promptPosition"
                     value={formSystemPromptPosition}
                     onChange={(e) => setFormSystemPromptPosition(e.target.value)}
                     options={[
-                      { value: 'before', label: 'Antes do system prompt padrão' },
-                      { value: 'after', label: 'Depois do system prompt padrão' },
+                      { value: 'before', label: 'Before (override default)' },
+                      { value: 'after', label: 'After (extend default)' },
                     ]}
                   />
                 </div>
+              </div>
 
-                <div className="form-group checkbox-group" style={{ alignSelf: 'flex-end' }}>
-                  <label>
-                    <input
-                      type="checkbox"
-                      checked={formShowInternalMessages}
-                      onChange={(e) => setFormShowInternalMessages(e.target.checked)}
-                    />
-                    <span>Mostrar mensagens internas (tool calls)</span>
-                  </label>
+              <div className="form-group checkbox-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={formIncludeCoreMemories}
+                    onChange={(e) => setFormIncludeCoreMemories(e.target.checked)}
+                  />
+                  <span>Include core memories in system prompt</span>
+                </label>
+                <p className="form-hint">
+                  When enabled, memories with category "core" will be included in the system prompt.
+                </p>
+              </div>
+            </fieldset>
+
+            {/* Seção: Embeddings e Imagens */}
+            <fieldset className="form-fieldset">
+              <legend>Embeddings e Imagens</legend>
+              
+              <div className="form-row">
+                <div className="form-group">
+                  <label htmlFor="embeddingsModel">Modelo de Embeddings</label>
+                  <Select
+                    id="embeddingsModel"
+                    value={formEmbeddingsModel}
+                    onChange={(e) => setFormEmbeddingsModel(e.target.value)}
+                    options={[
+                      { value: 'text-embedding-3-small', label: 'text-embedding-3-small (recomendado)' },
+                      { value: 'text-embedding-3-large', label: 'text-embedding-3-large' },
+                      { value: 'text-embedding-ada-002', label: 'text-embedding-ada-002 (legado)' },
+                    ]}
+                  />
+                  <p className="form-hint">Usado para busca semântica em memórias e conversas</p>
                 </div>
+
+                <div className="form-group">
+                  <label htmlFor="embeddingsDimensions">Dimensões (0 = padrão)</label>
+                  <Input
+                    id="embeddingsDimensions"
+                    type="number"
+                    value={formEmbeddingsDimensions}
+                    onChange={(e) => setFormEmbeddingsDimensions(Number(e.target.value))}
+                    min={0}
+                    max={3072}
+                  />
+                </div>
+              </div>
+
+              <div className="form-group">
+                <label htmlFor="imageModel">Modelo de Imagens</label>
+                <Select
+                  id="imageModel"
+                  value={formImageModel}
+                  onChange={(e) => setFormImageModel(e.target.value)}
+                  options={[
+                    { value: 'dall-e-3', label: 'DALL-E 3 (recomendado)' },
+                    { value: 'dall-e-2', label: 'DALL-E 2' },
+                    { value: 'gpt-image-1', label: 'GPT Image 1' },
+                  ]}
+                />
+                <p className="form-hint">Usado pelo agente de geração de imagens</p>
+              </div>
+            </fieldset>
+
+            {/* Seção: Interface */}
+            <fieldset className="form-fieldset">
+              <legend>Interface</legend>
+              <div className="form-group checkbox-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={formShowInternalMessages}
+                    onChange={(e) => setFormShowInternalMessages(e.target.checked)}
+                  />
+                  <span>Show internal messages (tool calls)</span>
+                </label>
               </div>
             </fieldset>
 

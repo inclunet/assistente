@@ -20,41 +20,53 @@ type ProfileAgent struct {
 
 // profileAgentDescription returns structured description for orchestrator delegation
 func profileAgentDescription() string {
-	return NewDelegationDescription("Profile Manager", "Specialist in managing Voice (TTS) and Interaction (STT) profiles").
+	return NewDelegationDescription("Profile Manager", "Specialist in managing Chat, Voice (TTS) and Interaction (STT) profiles").
 		Capabilities(
+			"Create, update, delete Chat Profiles (model, parameters, tools, system prompt)",
+			"Configure which model, temperature, max_tokens, tools are used",
+			"Apply chat profile to the current conversation",
 			"Create, update, delete Voice Profiles (text-to-speech configuration)",
 			"Configure TTS provider (OpenAI, WebSpeech, SAPI5), voice, speed, volume",
 			"Apply voice profile to the current conversation",
 			"Create, update, delete Interaction Profiles (speech-to-text configuration)",
 			"Configure STT triggers: hotkeys, wakewords, push-to-talk, VAD",
 			"Set default profiles and activate interaction profiles",
-			"List available voices for each provider",
 		).
 		DelegateWhen(
+			"User wants to configure chat profile, model settings, or tools",
+			"User mentions 'chat profile', 'perfil de conversa', 'model profile'",
+			"User wants to enable/disable tools or change temperature/max_tokens",
+			"User wants to apply a chat profile to this conversation",
 			"User wants to configure how the assistant speaks (TTS/voice)",
 			"User wants to apply a voice profile to this conversation",
 			"User wants to configure how to interact by voice (STT/microphone)",
 			"User mentions 'voice profile', 'speech settings', 'TTS', 'text-to-speech'",
 			"User mentions 'interaction profile', 'hotkey', 'wakeword', 'push-to-talk', 'VAD'",
-			"User wants to change voice speed, volume, or voice selection",
-			"User wants to set up keyboard shortcuts for voice interaction",
-			"User says 'activate voice', 'use OpenAI voice', 'speak with this voice'",
 		).
 		DontDelegateWhen(
-			"User just wants to use voice features (not configure them)",
-			"Questions about general settings unrelated to voice",
-			"User wants to configure LLM models or API keys",
+			"User just wants to use features (not configure profiles)",
+			"Questions about general settings unrelated to profiles",
+			"User wants to configure API keys (use Settings page)",
 		).
 		Build()
 }
 
 // profileAgentSystemPrompt returns the system prompt for the agent
 func profileAgentSystemPrompt() string {
-	return `You are the Profile Manager, specialist in configuring Voice and Interaction profiles.
+	return `You are the Profile Manager, specialist in configuring Chat, Voice and Interaction profiles.
 
-## YOUR TWO DOMAINS
+## YOUR THREE DOMAINS
 
-### DOMAIN 1: Voice Profiles (TTS - How the ASSISTANT speaks)
+### DOMAIN 1: Chat Profiles (Model & Tools Configuration)
+Controls which model, parameters, and tools are used for conversations.
+- Model selection (e.g., gpt-4o, gpt-4o-mini, local models)
+- Parameters: temperature, max_tokens, top_p, response_timeout
+- Tools: enable/disable tools, select specific tools
+- System prompt: custom system prompt before/after default
+- Show internal messages: whether to show tool calls to user
+Tools: chat_profile_*
+
+### DOMAIN 2: Voice Profiles (TTS - How the ASSISTANT speaks)
 Controls text-to-speech synthesis for assistant responses.
 - Provider: openai (high quality), webspeech (free), sapi5 (Windows offline), disabled
 - Voice selection, speed (rate), pitch, volume
@@ -62,7 +74,7 @@ Controls text-to-speech synthesis for assistant responses.
 - Whether to read user messages aloud (enabled_for_user)
 Tools: voice_profile_*
 
-### DOMAIN 2: Interaction Profiles (STT - How the USER speaks)
+### DOMAIN 3: Interaction Profiles (STT - How the USER speaks)
 Controls speech recognition and activation methods.
 - STT Provider: webspeech (free, real-time) or whisper_api (high accuracy)
 - Language setting for recognition
@@ -74,6 +86,25 @@ Tools: interaction_profile_*
 - If essential information is missing: ASK the user
 - NEVER invent values for parameters the user didn't provide
 - When in doubt, present available options and ask for preference
+
+## CHAT PROFILE CREATION/UPDATE FLOW
+1. List existing profiles with chat_profile_list
+2. Ask or confirm:
+   - Which model? (e.g., gpt-4o, gpt-4o-mini)
+   - Temperature? (0.0-2.0, default 0.7)
+   - Enable tools? Which tools?
+   - Custom system prompt?
+3. Only execute chat_profile_create when you have required info
+
+## APPLYING CHAT PROFILE TO CONVERSATION
+When user wants to USE a chat profile for THIS conversation:
+1. First, list profiles with chat_profile_list
+2. Use chat_profile_apply_to_conversation with the profile_id
+3. This ONLY affects the current conversation
+
+IMPORTANT: If user says "use programming profile" or "apply profile X":
+- This means APPLY to current conversation
+- Use chat_profile_apply_to_conversation
 
 ## VOICE PROFILE CREATION FLOW
 1. Ask or confirm:
@@ -248,6 +279,241 @@ func (a *ProfileAgent) CanHandle(toolName string) bool {
 // GetTools returns the available tools for the agent
 func (a *ProfileAgent) GetTools() []Tool {
 	return []Tool{
+		// ==================== Chat Profile Tools ====================
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "chat_profile_list",
+				Description: NewToolDescription("Lists all chat profiles (model, parameters, tools configuration)").
+					WhenToUse(
+						"ALWAYS as FIRST STEP before creating any chat profile",
+						"To check which chat profiles exist",
+						"To find the ID of an existing profile",
+						"To see which model/tools configurations are available",
+					).
+					Returns("List of chat profiles with ID, name, model, tools status, default status").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{}, nil),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "chat_profile_get",
+				Description: NewToolDescription("Gets complete details of a specific chat profile").
+					WhenToUse(
+						"To see all settings of a specific profile",
+						"Before updating, to see current values",
+						"When user asks about a specific profile",
+					).
+					Returns("Full profile details: model, temperature, max_tokens, top_p, tools, system_prompt").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"profile_id": JSONSchemaInt(
+						NewParamDescription("Chat profile ID").Build(),
+					),
+					"name": JSONSchemaString(
+						NewParamDescription("Chat profile name (alternative to ID)").Build(),
+					),
+				}, nil),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "chat_profile_create",
+				Description: NewToolDescription("Creates a new chat profile").
+					WhenToUse(
+						"When user wants to create a new chat configuration",
+						"After confirming settings with user",
+					).
+					WhenNotToUse(
+						"If user didn't specify any settings → ASK first",
+						"If a similar profile already exists → suggest updating instead",
+					).
+					Returns("Created profile ID and confirmation").
+					Notes(
+						"use_tools: whether tools are enabled for this profile",
+						"tools_list: JSON array of tool names (e.g., [\"web_agent\", \"profile\"])",
+						"system_prompt_position: 'before' or 'after' the default system prompt",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"name": JSONSchemaString(
+						NewParamDescription("Unique profile name").
+							Examples("Programação", "Criativo", "Sem Ferramentas").Build(),
+					),
+					"description": JSONSchemaString(
+						NewParamDescription("Profile description").Build(),
+					),
+					"icon": JSONSchemaString(
+						NewParamDescription("Emoji icon for the profile").
+							Default("💬").Build(),
+					),
+					"model": JSONSchemaString(
+						NewParamDescription("Model to use").
+							Examples("gpt-4o", "gpt-4o-mini", "llama3.2").Build(),
+					),
+					"temperature": JSONSchemaNumber(
+						NewParamDescription("Temperature (0.0-2.0)").
+							Default("0.7").Build(),
+					),
+					"max_tokens": JSONSchemaInt(
+						NewParamDescription("Maximum tokens in response").
+							Default("4096").Build(),
+					),
+					"top_p": JSONSchemaNumber(
+						NewParamDescription("Top-p sampling (0.0-1.0)").
+							Default("1.0").Build(),
+					),
+					"response_timeout": JSONSchemaInt(
+						NewParamDescription("Response timeout in seconds").
+							Default("120").Build(),
+					),
+					"use_tools": JSONSchemaBool(
+						NewParamDescription("Enable tools/agents").
+							Default("true").Build(),
+					),
+					"tools_list": JSONSchemaString(
+						NewParamDescription("JSON array of tool names to enable").
+							Examples(`["web_agent","profile"]`, `[]`).Build(),
+					),
+					"system_prompt": JSONSchemaString(
+						NewParamDescription("Custom system prompt text (leave empty for default)").Build(),
+					),
+					"system_prompt_position": JSONSchemaStringEnum(
+						NewParamDescription("Where to place custom system prompt").
+							Default("after").Build(),
+						[]string{"before", "after"},
+					),
+					"include_core_memories": JSONSchemaBool(
+						NewParamDescription("Include core memories in system prompt").
+							Default("true").Build(),
+					),
+					"show_internal_messages": JSONSchemaBool(
+						NewParamDescription("Show tool calls to user").
+							Default("true").Build(),
+					),
+					"is_default": JSONSchemaBool(
+						NewParamDescription("Set as default profile").
+							Default("false").Build(),
+					),
+					"embeddings_model": JSONSchemaString(
+						NewParamDescription("Embeddings model for semantic search").
+							Default("text-embedding-3-small").
+							Examples("text-embedding-3-small", "text-embedding-3-large").Build(),
+					),
+					"embeddings_dimensions": JSONSchemaInt(
+						NewParamDescription("Embeddings dimensions (0 = model default)").
+							Default("0").Build(),
+					),
+					"image_model": JSONSchemaString(
+						NewParamDescription("Image generation model").
+							Default("dall-e-3").
+							Examples("dall-e-3", "dall-e-2", "gpt-image-1").Build(),
+					),
+				}, []string{"name"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "chat_profile_update",
+				Description: NewToolDescription("Updates an existing chat profile").
+					WhenToUse(
+						"To change model, temperature, tools, or other settings",
+						"After confirming changes with user",
+					).
+					Returns("Update confirmation").
+					Notes(
+						"Only pass fields you want to change",
+						"Use chat_profile_get first to see current values",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"profile_id":             JSONSchemaInt(NewParamDescription("Profile ID to update").Build()),
+					"name":                   JSONSchemaString(NewParamDescription("New name").Build()),
+					"description":            JSONSchemaString(NewParamDescription("New description").Build()),
+					"icon":                   JSONSchemaString(NewParamDescription("New icon").Build()),
+					"model":                  JSONSchemaString(NewParamDescription("New model").Build()),
+					"temperature":            JSONSchemaNumber(NewParamDescription("New temperature").Build()),
+					"max_tokens":             JSONSchemaInt(NewParamDescription("New max tokens").Build()),
+					"top_p":                  JSONSchemaNumber(NewParamDescription("New top_p").Build()),
+					"response_timeout":       JSONSchemaInt(NewParamDescription("New timeout").Build()),
+					"use_tools":              JSONSchemaBool(NewParamDescription("Enable tools").Build()),
+					"tools_list":             JSONSchemaString(NewParamDescription("New tools list JSON").Build()),
+					"system_prompt":          JSONSchemaString(NewParamDescription("New system prompt").Build()),
+					"system_prompt_position": JSONSchemaStringEnum(NewParamDescription("System prompt position").Build(), []string{"before", "after"}),
+					"include_core_memories":  JSONSchemaBool(NewParamDescription("Include core memories in system prompt").Build()),
+					"show_internal_messages": JSONSchemaBool(NewParamDescription("Show internal messages").Build()),
+					"is_default":             JSONSchemaBool(NewParamDescription("Set as default").Build()),
+					"embeddings_model":       JSONSchemaString(NewParamDescription("New embeddings model").Build()),
+					"embeddings_dimensions":  JSONSchemaInt(NewParamDescription("New embeddings dimensions").Build()),
+					"image_model":            JSONSchemaString(NewParamDescription("New image model").Build()),
+				}, []string{"profile_id"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "chat_profile_delete",
+				Description: NewToolDescription("Deletes a chat profile").
+					WhenToUse(
+						"When user confirms deletion",
+						"To remove unused profiles",
+					).
+					WhenNotToUse(
+						"Without user confirmation - this is irreversible",
+						"If it's the default profile",
+					).
+					Returns("Deletion confirmation").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"profile_id": JSONSchemaInt(NewParamDescription("Profile ID to delete").Build()),
+				}, []string{"profile_id"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "chat_profile_set_default",
+				Description: NewToolDescription("Sets a chat profile as the default").
+					WhenToUse(
+						"When user wants to change the default chat profile",
+					).
+					Returns("Confirmation of new default").
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"profile_id": JSONSchemaInt(NewParamDescription("Profile ID to set as default").Build()),
+				}, []string{"profile_id"}),
+			},
+		},
+		{
+			Type: "function",
+			Function: ToolFunction{
+				Name: "chat_profile_apply_to_conversation",
+				Description: NewToolDescription("Applies a chat profile to the current conversation").
+					WhenToUse(
+						"When user wants to use a specific chat profile for THIS conversation",
+						"When user says 'use profile X' or 'apply programming profile'",
+					).
+					WhenNotToUse(
+						"If user wants to change the global default - use chat_profile_set_default",
+					).
+					Returns("Confirmation that profile was applied").
+					Notes(
+						"This only affects the current conversation",
+						"Use profile_id=0 to remove custom profile (use default)",
+					).
+					Build(),
+				Parameters: JSONSchemaObject(map[string]interface{}{
+					"profile_id": JSONSchemaInt(
+						NewParamDescription("Chat profile ID to apply (0 to use default)").Build(),
+					),
+				}, []string{"profile_id"}),
+			},
+		},
+
 		// ==================== Voice Profile Tools ====================
 		{
 			Type: "function",
@@ -768,6 +1034,22 @@ func (a *ProfileAgent) ExecuteTool(toolCall ToolCall) (string, error) {
 	toolName := toolCall.Function.Name
 
 	switch toolName {
+	// Chat Profile
+	case "chat_profile_list":
+		return a.listChatProfiles(args)
+	case "chat_profile_get":
+		return a.getChatProfile(args)
+	case "chat_profile_create":
+		return a.createChatProfile(args)
+	case "chat_profile_update":
+		return a.updateChatProfile(args)
+	case "chat_profile_delete":
+		return a.deleteChatProfile(args)
+	case "chat_profile_set_default":
+		return a.setDefaultChatProfile(args)
+	case "chat_profile_apply_to_conversation":
+		return a.applyChatProfileToConversation(args)
+
 	// Voice Profile
 	case "voice_profile_list":
 		return a.listVoiceProfiles(args)
@@ -813,6 +1095,350 @@ func (a *ProfileAgent) ExecuteTool(toolCall ToolCall) (string, error) {
 	default:
 		return "", fmt.Errorf("unknown tool: %s", toolName)
 	}
+}
+
+// ==================== Chat Profile Implementation ====================
+
+func (a *ProfileAgent) listChatProfiles(args map[string]interface{}) (string, error) {
+	profiles, err := database.GetAllChatProfiles()
+	if err != nil {
+		return "", fmt.Errorf("error listing chat profiles: %w", err)
+	}
+
+	if len(profiles) == 0 {
+		return "No chat profiles found.", nil
+	}
+
+	result := fmt.Sprintf("💬 **%d Chat Profile(s)**:\n\n", len(profiles))
+	for _, p := range profiles {
+		status := ""
+		if p.IsDefault {
+			status = " ⭐ DEFAULT"
+		}
+		toolsStatus := "disabled"
+		if p.UseTools {
+			tools := p.GetToolsList()
+			if len(tools) == 0 {
+				toolsStatus = "ALL tools"
+			} else {
+				toolsStatus = fmt.Sprintf("%d tools", len(tools))
+			}
+		}
+
+		result += fmt.Sprintf("**%s %s** (ID: %d)%s\n", p.Icon, p.Name, p.ID, status)
+		result += fmt.Sprintf("   Model: %s | Temp: %.1f | Tools: %s\n\n",
+			p.Model, p.Temperature, toolsStatus)
+	}
+
+	return result, nil
+}
+
+func (a *ProfileAgent) getChatProfile(args map[string]interface{}) (string, error) {
+	profileID := getIntArg(args, "profile_id", 0)
+	name := getStringArg(args, "name", "")
+
+	var profile *database.ChatProfile
+	var err error
+
+	if profileID > 0 {
+		profile, err = database.GetChatProfile(uint(profileID))
+	} else if name != "" {
+		// Search by name
+		profiles, searchErr := database.GetAllChatProfiles()
+		if searchErr != nil {
+			return "", fmt.Errorf("error searching profiles: %w", searchErr)
+		}
+		for _, p := range profiles {
+			if strings.EqualFold(p.Name, name) {
+				profile = &p
+				break
+			}
+		}
+		if profile == nil {
+			return "", fmt.Errorf("profile not found with name: %s", name)
+		}
+	} else {
+		return "", fmt.Errorf("profile_id or name is required")
+	}
+
+	if err != nil {
+		return "", fmt.Errorf("error getting chat profile: %w", err)
+	}
+
+	status := ""
+	if profile.IsDefault {
+		status = " ⭐ DEFAULT"
+	}
+
+	toolsInfo := "Disabled"
+	if profile.UseTools {
+		tools := profile.GetToolsList()
+		if len(tools) == 0 {
+			toolsInfo = "ALL tools enabled"
+		} else {
+			toolsInfo = fmt.Sprintf("Specific tools: %s", strings.Join(tools, ", "))
+		}
+	}
+
+	result := fmt.Sprintf(`💬 **%s %s** (ID: %d)%s
+
+**Model**: %s
+**Temperature**: %.2f
+**Max Tokens**: %d
+**Top P**: %.2f
+**Response Timeout**: %ds
+**Tools**: %s
+**System Prompt Position**: %s
+**Show Internal Messages**: %v
+**Description**: %s`,
+		profile.Icon, profile.Name, profile.ID, status,
+		profile.Model, profile.Temperature, profile.MaxTokens, profile.TopP,
+		profile.ResponseTimeout, toolsInfo, profile.SystemPromptPosition,
+		profile.ShowInternalMessages, profile.Description)
+
+	if profile.SystemPrompt != "" {
+		result += fmt.Sprintf("\n**System Prompt**: %s", profile.SystemPrompt)
+	}
+
+	return result, nil
+}
+
+func (a *ProfileAgent) createChatProfile(args map[string]interface{}) (string, error) {
+	name := getStringArg(args, "name", "")
+	if name == "" {
+		return `⚠️ **Required information**: What name should this profile have?
+
+Please provide a unique name for the chat profile.`, nil
+	}
+
+	profile := &database.ChatProfile{
+		Name:                 name,
+		Description:          getStringArg(args, "description", ""),
+		Icon:                 getStringArg(args, "icon", "💬"),
+		Model:                getStringArg(args, "model", ""),
+		Temperature:          getFloatArg(args, "temperature", 0.7),
+		MaxTokens:            getIntArg(args, "max_tokens", 4096),
+		TopP:                 getFloatArg(args, "top_p", 1.0),
+		ResponseTimeout:      getIntArg(args, "response_timeout", 120),
+		UseTools:             getBoolArg(args, "use_tools", true),
+		SystemPrompt:         getStringArg(args, "system_prompt", ""),
+		SystemPromptPosition: getStringArg(args, "system_prompt_position", "after"),
+		IncludeCoreMemories:  getBoolArg(args, "include_core_memories", true),
+		ShowInternalMessages: getBoolArg(args, "show_internal_messages", true),
+		IsDefault:            getBoolArg(args, "is_default", false),
+		EmbeddingsModel:      getStringArg(args, "embeddings_model", "text-embedding-3-small"),
+		EmbeddingsDimensions: getIntArg(args, "embeddings_dimensions", 0),
+		ImageModel:           getStringArg(args, "image_model", "dall-e-3"),
+	}
+
+	// Handle tools list
+	toolsListJSON := getStringArg(args, "tools_list", "")
+	if toolsListJSON != "" {
+		var tools []string
+		if err := json.Unmarshal([]byte(toolsListJSON), &tools); err == nil {
+			profile.SetToolsList(tools)
+		}
+	}
+
+	created, err := database.CreateChatProfile(profile)
+	if err != nil {
+		return "", fmt.Errorf("error creating chat profile: %w", err)
+	}
+
+	// Emit event for frontend update
+	if a.emitEventCallback != nil {
+		a.emitEventCallback("chat:profile:created", created)
+	}
+
+	result := fmt.Sprintf(`✅ **Chat Profile Created!**
+
+**ID**: %d
+**Name**: %s %s
+**Model**: %s
+**Temperature**: %.1f
+**Tools**: %v`,
+		created.ID, created.Icon, created.Name, created.Model,
+		created.Temperature, created.UseTools)
+
+	if created.IsDefault {
+		result += "\n\n⭐ Set as default profile"
+	}
+
+	return result, nil
+}
+
+func (a *ProfileAgent) updateChatProfile(args map[string]interface{}) (string, error) {
+	profileID := getIntArg(args, "profile_id", 0)
+	if profileID == 0 {
+		return "", fmt.Errorf("profile_id is required")
+	}
+
+	current, err := database.GetChatProfile(uint(profileID))
+	if err != nil {
+		return "", fmt.Errorf("profile not found: %w", err)
+	}
+
+	// Build updated profile
+	updated := &database.ChatProfile{
+		Name:                 getStringArgOrDefault(args, "name", current.Name),
+		Description:          getStringArgOrDefault(args, "description", current.Description),
+		Icon:                 getStringArgOrDefault(args, "icon", current.Icon),
+		Model:                getStringArgOrDefault(args, "model", current.Model),
+		Temperature:          getFloatArgOrDefault(args, "temperature", current.Temperature),
+		MaxTokens:            getIntArgOrDefault(args, "max_tokens", current.MaxTokens),
+		TopP:                 getFloatArgOrDefault(args, "top_p", current.TopP),
+		ResponseTimeout:      getIntArgOrDefault(args, "response_timeout", current.ResponseTimeout),
+		UseTools:             getBoolArgOrDefault(args, "use_tools", current.UseTools),
+		SystemPrompt:         getStringArgOrDefault(args, "system_prompt", current.SystemPrompt),
+		SystemPromptPosition: getStringArgOrDefault(args, "system_prompt_position", current.SystemPromptPosition),
+		IncludeCoreMemories:  getBoolArgOrDefault(args, "include_core_memories", current.IncludeCoreMemories),
+		ShowInternalMessages: getBoolArgOrDefault(args, "show_internal_messages", current.ShowInternalMessages),
+		IsDefault:            getBoolArgOrDefault(args, "is_default", current.IsDefault),
+		ToolsList:            current.ToolsList,
+		EmbeddingsModel:      getStringArgOrDefault(args, "embeddings_model", current.EmbeddingsModel),
+		EmbeddingsDimensions: getIntArgOrDefault(args, "embeddings_dimensions", current.EmbeddingsDimensions),
+		ImageModel:           getStringArgOrDefault(args, "image_model", current.ImageModel),
+	}
+
+	// Handle tools list update
+	if toolsListJSON := getStringArg(args, "tools_list", ""); toolsListJSON != "" {
+		var tools []string
+		if err := json.Unmarshal([]byte(toolsListJSON), &tools); err == nil {
+			updated.SetToolsList(tools)
+		}
+	}
+
+	profile, err := database.UpdateChatProfile(uint(profileID), updated)
+	if err != nil {
+		return "", fmt.Errorf("error updating chat profile: %w", err)
+	}
+
+	// Emit event
+	if a.emitEventCallback != nil {
+		a.emitEventCallback("chat:profile:updated", profile)
+	}
+
+	return fmt.Sprintf("✅ Chat profile **%s** (ID: %d) updated successfully!", profile.Name, profile.ID), nil
+}
+
+func (a *ProfileAgent) deleteChatProfile(args map[string]interface{}) (string, error) {
+	profileID := getIntArg(args, "profile_id", 0)
+	if profileID == 0 {
+		return "", fmt.Errorf("profile_id is required")
+	}
+
+	// Get profile name before deleting
+	profile, _ := database.GetChatProfile(uint(profileID))
+	name := "Chat Profile"
+	if profile != nil {
+		name = profile.Name
+		if profile.IsDefault {
+			return "", fmt.Errorf("cannot delete the default profile")
+		}
+	}
+
+	if err := database.DeleteChatProfile(uint(profileID)); err != nil {
+		return "", fmt.Errorf("error deleting chat profile: %w", err)
+	}
+
+	// Emit event
+	if a.emitEventCallback != nil {
+		a.emitEventCallback("chat:profile:deleted", profileID)
+	}
+
+	return fmt.Sprintf("✅ Chat profile **%s** (ID: %d) deleted successfully!", name, profileID), nil
+}
+
+func (a *ProfileAgent) setDefaultChatProfile(args map[string]interface{}) (string, error) {
+	profileID := getIntArg(args, "profile_id", 0)
+	if profileID == 0 {
+		return "", fmt.Errorf("profile_id is required")
+	}
+
+	if err := database.SetDefaultChatProfile(uint(profileID)); err != nil {
+		return "", fmt.Errorf("error setting default: %w", err)
+	}
+
+	profile, _ := database.GetChatProfile(uint(profileID))
+	name := fmt.Sprintf("ID %d", profileID)
+	if profile != nil {
+		name = profile.Name
+	}
+
+	// Emit event
+	if a.emitEventCallback != nil {
+		a.emitEventCallback("chat:profile:default_changed", profileID)
+	}
+
+	return fmt.Sprintf("✅ **%s** is now the default chat profile!", name), nil
+}
+
+func (a *ProfileAgent) applyChatProfileToConversation(args map[string]interface{}) (string, error) {
+	profileID := getIntArg(args, "profile_id", 0)
+
+	// Check if we have the conversation ID
+	if a.ConversationID == 0 {
+		return "", fmt.Errorf("no active conversation to apply profile to")
+	}
+
+	// If profileID is 0, we're removing the custom profile (will use default)
+	if profileID == 0 {
+		if err := database.ClearConversationChatProfile(a.ConversationID); err != nil {
+			return "", fmt.Errorf("error removing profile from conversation: %w", err)
+		}
+
+		// Emit event
+		if a.emitEventCallback != nil {
+			a.emitEventCallback("chat:profile:conversation_changed", map[string]interface{}{
+				"conversation_id": a.ConversationID,
+				"profile_id":      0,
+			})
+		}
+
+		return "✅ Chat profile removed from this conversation. It will now use the default profile.", nil
+	}
+
+	// Verify the profile exists
+	profile, err := database.GetChatProfile(uint(profileID))
+	if err != nil {
+		return "", fmt.Errorf("chat profile not found: %w", err)
+	}
+
+	// Apply to conversation
+	if err := database.SetConversationChatProfile(a.ConversationID, uint(profileID)); err != nil {
+		return "", fmt.Errorf("error applying profile to conversation: %w", err)
+	}
+
+	// Emit event
+	if a.emitEventCallback != nil {
+		a.emitEventCallback("chat:profile:conversation_changed", map[string]interface{}{
+			"conversation_id": a.ConversationID,
+			"profile_id":      profileID,
+			"profile":         profile,
+		})
+	}
+
+	toolsInfo := "Disabled"
+	if profile.UseTools {
+		tools := profile.GetToolsList()
+		if len(tools) == 0 {
+			toolsInfo = "ALL enabled"
+		} else {
+			toolsInfo = fmt.Sprintf("%d specific tools", len(tools))
+		}
+	}
+
+	result := fmt.Sprintf(`✅ **Chat profile applied to this conversation!**
+
+**Profile**: %s %s (ID: %d)
+**Model**: %s
+**Temperature**: %.1f
+**Tools**: %s
+
+This conversation will now use this configuration.`,
+		profile.Icon, profile.Name, profile.ID, profile.Model, profile.Temperature, toolsInfo)
+
+	return result, nil
 }
 
 // ==================== Voice Profile Implementation ====================

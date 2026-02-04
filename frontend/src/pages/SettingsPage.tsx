@@ -4,7 +4,7 @@ import { GetConfig, SaveSettings, ResetConfig, ResetDatabase, TestConnectionWith
 import { llm } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
-import { Input, Select, Button } from '../components';
+import { Input, Button } from '../components';
 import { VoiceProfilePicker, VoiceProfilePickerRef, ChatProfilePicker, ChatProfilePickerRef } from '../components/pickers';
 import { InteractionProfilePicker, InteractionProfilePickerRef } from '../components/pickers/InteractionProfilePicker';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -13,11 +13,7 @@ import './SettingsPage.css';
 interface FormData {
   apiKey: string;
   apiBaseURL: string;
-  braveApiKey: string;
   responseTimeout: number;
-  embeddingsModel: string;
-  embeddingsDimensions: number;
-  imageModel: string;
 }
 
 export default function SettingsPage() {
@@ -44,11 +40,7 @@ export default function SettingsPage() {
   const [formData, setFormData] = useState<FormData>({
     apiKey: '',
     apiBaseURL: 'https://api.openai.com/v1',
-    braveApiKey: '',
     responseTimeout: 180,
-    embeddingsModel: 'text-embedding-3-small',
-    embeddingsDimensions: 0,
-    imageModel: 'dall-e-3',
   });
 
   // Carrega configuração do backend
@@ -72,11 +64,7 @@ export default function SettingsPage() {
         setFormData({
           apiKey: config.api_key || '',
           apiBaseURL: config.api_base_url || 'https://api.openai.com/v1',
-          braveApiKey: config.brave_api_key || '',
           responseTimeout: config.response_timeout || 180,
-          embeddingsModel: config.embeddings_params?.model || 'text-embedding-3-small',
-          embeddingsDimensions: config.embeddings_params?.dimensions || 0,
-          imageModel: config.image_model || 'dall-e-3',
         });
       }
       
@@ -108,24 +96,7 @@ export default function SettingsPage() {
       const settings = llm.SettingsInput.createFrom({
         api_key: formData.apiKey,
         api_base_url: formData.apiBaseURL,
-        brave_api_key: formData.braveApiKey,
         response_timeout: formData.responseTimeout,
-        // chat_params agora vem do ChatProfile, mas mantemos para compatibilidade
-        chat_params: {
-          model: '',
-          temperature: 0.7,
-          max_tokens: 4096,
-          top_p: 1.0,
-        },
-        embeddings_params: {
-          model: formData.embeddingsModel,
-          dimensions: formData.embeddingsDimensions,
-        },
-        chat_defaults: {
-          use_tools: true,
-          show_internal_messages: false,
-        },
-        image_model: formData.imageModel,
       });
       await SaveSettings(settings);
       addToast('Configurações salvas com sucesso!', 'success');
@@ -341,80 +312,6 @@ export default function SettingsPage() {
                 onAnnounce={announce}
               />
             </div>
-          </div>
-        </section>
-
-        {/* Web Search Section */}
-        <section className="settings-section">
-          <h2>🔍 Busca na Web</h2>
-          <p className="settings-section-description">
-            Configure a API do Brave Search para buscas na web. 
-            <a href="https://api-dashboard.search.brave.com/" target="_blank" rel="noopener noreferrer" style={{ marginLeft: '4px' }}>
-              Obter API Key (gratuito)
-            </a>
-          </p>
-          <div className="settings-fields">
-            <Input
-              label="Brave Search API Key"
-              type="password"
-              value={formData.braveApiKey}
-              onChange={(e) => handleChange('braveApiKey', e.target.value)}
-              placeholder="BSA-..."
-              fullWidth
-            />
-            <p className="settings-field-hint">
-              {formData.braveApiKey 
-                ? '✅ Configurada - Buscas usarão Brave Search API' 
-                : '⚠️ Não configurada - Buscas usarão DuckDuckGo (menos confiável)'}
-            </p>
-          </div>
-        </section>
-
-        {/* Embeddings Section */}
-        <section className="settings-section">
-          <h2>🧠 Embeddings</h2>
-          <p className="settings-section-description">
-            Modelo usado para busca semântica em memórias e conversas.
-          </p>
-          <div className="settings-fields">
-            <Select
-              label="Modelo de Embeddings"
-              value={formData.embeddingsModel}
-              onChange={(e) => handleChange('embeddingsModel', e.target.value)}
-              options={[
-                { value: 'text-embedding-3-small', label: 'text-embedding-3-small (recomendado)' },
-                { value: 'text-embedding-3-large', label: 'text-embedding-3-large' },
-                { value: 'text-embedding-ada-002', label: 'text-embedding-ada-002 (legado)' },
-              ]}
-              fullWidth
-            />
-
-            <Input
-              label="Dimensões (0 = padrão do modelo)"
-              type="number"
-              min="0"
-              max="3072"
-              value={formData.embeddingsDimensions}
-              onChange={(e) => handleChange('embeddingsDimensions', parseInt(e.target.value) || 0)}
-            />
-          </div>
-        </section>
-
-        {/* Image Model Section */}
-        <section className="settings-section">
-          <h2>🎨 Geração de Imagens</h2>
-          <div className="settings-fields">
-            <Select
-              label="Modelo de Imagens"
-              value={formData.imageModel}
-              onChange={(e) => handleChange('imageModel', e.target.value)}
-              options={[
-                { value: 'dall-e-3', label: 'DALL-E 3 (recomendado)' },
-                { value: 'dall-e-2', label: 'DALL-E 2' },
-                { value: 'gpt-image-1', label: 'GPT Image 1' },
-              ]}
-              fullWidth
-            />
           </div>
         </section>
 

@@ -2,14 +2,14 @@ import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../store/chatStore';
 import { useSettingsStore } from '../../store/settingsStore';
-import { ModelPicker, VoiceProfilePicker, VoiceProfilePickerRef, HistoryPicker, HistoryPickerRef, VoiceProfile, ChatProfilePicker, ChatProfilePickerRef } from '../pickers';
+import { VoiceProfilePicker, VoiceProfilePickerRef, HistoryPicker, HistoryPickerRef, VoiceProfile, ChatProfilePicker, ChatProfilePickerRef } from '../pickers';
 import { InteractionProfilePicker, InteractionProfilePickerRef } from '../pickers/InteractionProfilePicker';
 import { useInteractionProfileStore } from '../../store/interactionProfileStore';
 import { Toolbar } from '../ui/Toolbar';
 import { ContextMenu, MenuItem } from '../ui/ContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { ttsService } from '../../services/tts';
-import { GetVoiceProfile, GetDefaultVoiceProfile, GetEffectiveVoiceProfile, SetConversationVoiceProfile, SetConversationModel, GetEffectiveModel, GetEffectiveChatProfile, SetConversationChatProfile, GetDefaultChatProfile } from '../../../wailsjs/go/main/App';
+import { GetVoiceProfile, GetDefaultVoiceProfile, GetEffectiveVoiceProfile, SetConversationVoiceProfile, GetEffectiveChatProfile, SetConversationChatProfile, GetDefaultChatProfile } from '../../../wailsjs/go/main/App';
 import { EventsOn } from '../../../wailsjs/runtime/runtime';
 import { database } from '../../../wailsjs/go/models';
 import './ChatToolbar.css';
@@ -35,13 +35,12 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   inputRef,
 }) => {
   const navigate = useNavigate();
-  const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab, useTools, setUseTools } = useChatStore();
+  const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab, setUseTools } = useChatStore();
   const { config, setConfig } = useSettingsStore();
   const { announce } = useAnnouncer();
   const activeTab = getActiveTab();
   const conversationTitle = activeTab?.title || 'Nova conversa';
   const [selectedProfileId, setSelectedProfileId] = useState<number>(DEFAULT_PROFILE_ID);
-  const [selectedModel, setSelectedModel] = useState<string>(config?.defaultModel || '');
 
   // Refs para os pickers
   const voiceProfilePickerRef = useRef<VoiceProfilePickerRef>(null);
@@ -367,37 +366,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     loadConversationProfile();
   }, [activeTab?.conversationId, applyVoiceProfile]); // Recarrega quando a conversa muda
 
-  // Carrega o modelo efetivo quando a conversa muda
-  useEffect(() => {
-    const loadConversationModel = async () => {
-      try {
-        const conversationId = activeTab?.conversationId;
-        
-        let model: string = '';
-        
-        if (conversationId) {
-          // Conversa existente - carrega modelo efetivo (da conversa ou padrão)
-          model = await GetEffectiveModel(conversationId).catch(() => '') || '';
-          console.log('[ChatToolbar] Modelo efetivo da conversa:', conversationId, model);
-        }
-        
-        // Se não encontrou modelo (nova conversa ou erro), usa o padrão do config
-        if (!model && config?.defaultModel) {
-          model = config.defaultModel;
-          console.log('[ChatToolbar] Usando modelo padrão:', model);
-        }
-        
-        if (model) {
-          setSelectedModel(model);
-        }
-      } catch (error) {
-        console.error('[ChatToolbar] Erro ao carregar modelo:', error);
-      }
-    };
-
-    loadConversationModel();
-  }, [activeTab?.conversationId, config?.defaultModel]); // Recarrega quando a conversa muda
-
   // Escuta evento de mudança de perfil de voz via agente
   useEffect(() => {
     // Listener para mudança de perfil na conversa
@@ -511,12 +479,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         const historyPicker = document.querySelector('[aria-label*="Histórico"]') as HTMLElement;
         historyPicker?.click();
       }
-      // Ctrl+M: Focar no picker de modelo
-      else if (e.ctrlKey && e.key === 'm') {
-        e.preventDefault();
-        const modelPicker = document.querySelector('[aria-label*="Modelo"]') as HTMLElement;
-        modelPicker?.click();
-      }
       // Ctrl+I: Focar no picker de interação
       else if (e.ctrlKey && e.key === 'i' && voiceEnabled) {
         e.preventDefault();
@@ -541,23 +503,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       onNewConversation();
     } else {
       clearActiveTab();
-    }
-    focusInput();
-  };
-
-  const handleModelChange = async (model: string) => {
-    try {
-      const conversationId = activeTab?.conversationId;
-      if (conversationId) {
-        // Salva na conversa atual
-        await SetConversationModel(conversationId, model);
-      }
-      // Atualiza o estado local
-      setSelectedModel(model);
-      announce(`Modelo alterado para ${model}`);
-    } catch (error) {
-      console.error('[ChatToolbar] Erro ao alterar modelo:', error);
-      announce('Erro ao alterar modelo');
     }
     focusInput();
   };
@@ -725,17 +670,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
           </div>
 
           <div className="toolbar__separator" aria-hidden="true"></div>
-
-          {config && (
-            <ModelPicker
-              value={selectedModel || config.defaultModel}
-              onChange={handleModelChange}
-              variant="toolbar"
-              label="Modelo (Ctrl+M)"
-              maxWidth="180px"
-              onAnnounce={announce}
-            />
-          )}
 
           <div
             onContextMenu={handleChatProfileContextMenu}

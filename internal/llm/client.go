@@ -221,11 +221,15 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 		Messages:    messages,
 		MaxTokens:   params.MaxTokens,
 		Temperature: params.Temperature,
-		TopP:        params.TopP,
 		Stream:      true,
 		StreamOptions: &StreamOptions{
 			IncludeUsage: true,
 		},
+	}
+
+	// Só inclui top_p se for diferente do padrão (1.0) para evitar erros com alguns modelos/proxies
+	if params.TopP > 0 && params.TopP != 1.0 {
+		reqBody.TopP = &params.TopP
 	}
 
 	// Adiciona tools se habilitado

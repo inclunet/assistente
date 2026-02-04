@@ -183,58 +183,62 @@
   margin-left: auto;
 }
 
-.tools-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
-  gap: 8px;
+/* Lista de checkboxes para ferramentas */
+.tools-checkbox-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--border-color, #e0e0e0);
+  border-radius: 8px;
+  background: var(--bg-secondary, #f8f8f8);
 }
 
-.tool-item {
+.tool-checkbox-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
-  background: var(--bg-secondary, #f5f5f5);
-  border: 2px solid transparent;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.15s ease;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--bg-primary, #fff);
+  transition: background 0.15s ease;
 }
 
-.tool-item:hover {
-  background: var(--bg-tertiary, #eee);
+.tool-checkbox-item:hover {
+  background: var(--bg-tertiary, #f0f0f0);
 }
 
-.tool-item.selected {
-  background: var(--accent-bg, #e3f2fd);
-  border-color: var(--accent-color, #007bff);
+.tool-checkbox-item:focus-within {
+  outline: 2px solid var(--accent-color, #007bff);
+  outline-offset: -2px;
 }
 
-.tool-item input[type="checkbox"] {
-  width: 18px;
-  height: 18px;
+.tool-checkbox-item input[type="checkbox"] {
+  width: 20px;
+  height: 20px;
   margin-top: 2px;
   flex-shrink: 0;
+  cursor: pointer;
+  accent-color: var(--accent-color, #007bff);
 }
 
-.tool-item:focus-within {
-  outline: 2px solid var(--accent-color, #007bff);
-  outline-offset: 2px;
-}
-
-.tool-info {
+.tool-checkbox-content {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  min-width: 0;
 }
 
-.tool-name {
+.tool-checkbox-name {
   font-weight: 600;
   font-size: 0.95em;
   color: var(--text-primary, #000);
+  cursor: pointer;
 }
 
-.tool-description {
+.tool-checkbox-description {
   font-size: 0.85em;
   color: var(--text-secondary, #666);
 }
@@ -292,24 +296,24 @@
     color: var(--text-secondary-dark, #a0a0a0);
   }
 
-  .tool-item {
+  .tools-checkbox-list {
+    background: var(--bg-tertiary-dark, #1a1a1a);
+    border-color: var(--border-color-dark, #3a3a3a);
+  }
+
+  .tool-checkbox-item {
     background: var(--bg-secondary-dark, #2a2a2a);
   }
 
-  .tool-item:hover {
+  .tool-checkbox-item:hover {
     background: var(--bg-tertiary-dark, #3a3a3a);
   }
 
-  .tool-item.selected {
-    background: rgba(0, 123, 255, 0.2);
-    border-color: var(--accent-color, #007bff);
-  }
-
-  .tool-name {
+  .tool-checkbox-name {
     color: var(--text-primary-dark, #e0e0e0);
   }
 
-  .tool-description {
+  .tool-checkbox-description {
     color: var(--text-secondary-dark, #a0a0a0);
   }
 

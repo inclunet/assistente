@@ -339,6 +339,10 @@ export namespace database {
 	    tools_list: string;
 	    system_prompt: string;
 	    system_prompt_position: string;
+	    include_core_memories: boolean;
+	    embeddings_model: string;
+	    embeddings_dimensions: number;
+	    image_model: string;
 	    show_internal_messages: boolean;
 	
 	    static createFrom(source: any = {}) {
@@ -363,6 +367,10 @@ export namespace database {
 	        this.tools_list = source["tools_list"];
 	        this.system_prompt = source["system_prompt"];
 	        this.system_prompt_position = source["system_prompt_position"];
+	        this.include_core_memories = source["include_core_memories"];
+	        this.embeddings_model = source["embeddings_model"];
+	        this.embeddings_dimensions = source["embeddings_dimensions"];
+	        this.image_model = source["image_model"];
 	        this.show_internal_messages = source["show_internal_messages"];
 	    }
 	
