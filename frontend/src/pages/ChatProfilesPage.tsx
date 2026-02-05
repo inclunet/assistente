@@ -5,7 +5,8 @@ import {
   UpdateChatProfile,
   DeleteChatProfile,
   SetDefaultChatProfile,
-  GetModels
+  GetModels,
+  GetRegisteredAgents
 } from '../../wailsjs/go/main/App';
 import { database } from '../../wailsjs/go/models';
 import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
@@ -21,24 +22,13 @@ import './ChatProfilesPage.css';
 
 type ChatProfile = database.ChatProfile;
 
-// Tipo para tools disponíveis
+// Tipo para tools disponíveis (carregado dinamicamente do backend)
 interface AvailableTool {
   id: string;
   name: string;
   description: string;
+  agentType?: string;
 }
-
-// Lista de agentes/tools disponíveis no sistema
-const AVAILABLE_TOOLS: AvailableTool[] = [
-  { id: 'faq', name: 'FAQ', description: 'Perguntas frequentes e respostas pré-configuradas' },
-  { id: 'memory', name: 'Memória', description: 'Lembranças e informações persistentes' },
-  { id: 'chat_manager', name: 'Chat Manager', description: 'Navegação e gerenciamento de conversas' },
-  { id: 'image', name: 'Imagens', description: 'Geração de imagens com DALL-E' },
-  { id: 'file_manager', name: 'Arquivos', description: 'Leitura e escrita de arquivos' },
-  { id: 'web', name: 'Web/Busca', description: 'Busca na web e navegação' },
-  { id: 'builder', name: 'Builder', description: 'Criação de agentes HTTP e MCP' },
-  { id: 'profile', name: 'Perfis', description: 'Gerenciamento de perfis de voz e interação' },
-];
 
 
 const ICONS = [
@@ -57,6 +47,7 @@ const ICONS = [
 export default function ChatProfilesPage() {
   const [profiles, setProfiles] = useState<ChatProfile[]>([]);
   const [models, setModels] = useState<string[]>([]);
+  const [availableTools, setAvailableTools] = useState<AvailableTool[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -84,11 +75,13 @@ export default function ChatProfilesPage() {
   const [formEmbeddingsModel, setFormEmbeddingsModel] = useState('text-embedding-3-small');
   const [formEmbeddingsDimensions, setFormEmbeddingsDimensions] = useState(0);
   const [formImageModel, setFormImageModel] = useState('dall-e-3');
+  const [formEnableThinking, setFormEnableThinking] = useState(false);
   const [formError, setFormError] = useState('');
 
   useEffect(() => {
     loadProfiles();
     loadModels();
+    loadAvailableTools();
   }, []);
 
   // Escuta eventos de atualização
@@ -142,6 +135,32 @@ export default function ChatProfilesPage() {
     }
   };
 
+  // #region agent log - carrega agentes dinamicamente do registry
+  const loadAvailableTools = async () => {
+    try {
+      const agents = await GetRegisteredAgents();
+      fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatProfilesPage.tsx:loadAvailableTools',message:'Agentes carregados do backend',data:{count:agents?.length,agents:agents?.map(a=>({name:a.name,displayName:a.display_name,type:a.agent_type,enabled:a.enabled}))},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+      
+      // Converte para o formato AvailableTool
+      const tools: AvailableTool[] = (agents || [])
+        .filter(agent => agent.enabled) // Apenas agentes habilitados
+        .map(agent => ({
+          id: agent.name,
+          name: agent.display_name || agent.name,
+          description: agent.description || '',
+          agentType: agent.agent_type
+        }));
+      
+      fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatProfilesPage.tsx:loadAvailableTools',message:'Tools convertidas',data:{count:tools.length,tools:tools.map(t=>t.id)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+      
+      setAvailableTools(tools);
+    } catch (error) {
+      console.error('Erro ao carregar agentes disponíveis:', error);
+      fetch('http://127.0.0.1:7242/ingest/c14faa4a-a682-41c0-9f93-65632102ad3e',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'ChatProfilesPage.tsx:loadAvailableTools',message:'ERRO ao carregar agentes',data:{error:String(error)},timestamp:Date.now(),sessionId:'debug-session',hypothesisId:'A'})}).catch(()=>{});
+    }
+  };
+  // #endregion
+
   const parseToolsList = (toolsJson: string): string[] => {
     if (!toolsJson || toolsJson === '[]') return [];
     try {
@@ -171,6 +190,7 @@ export default function ChatProfilesPage() {
     setFormEmbeddingsModel('text-embedding-3-small');
     setFormEmbeddingsDimensions(0);
     setFormImageModel('dall-e-3');
+    setFormEnableThinking(false);
     setFormError('');
     setShowModal(true);
   };
@@ -195,6 +215,7 @@ export default function ChatProfilesPage() {
     setFormEmbeddingsModel(profile.embeddings_model || 'text-embedding-3-small');
     setFormEmbeddingsDimensions(profile.embeddings_dimensions || 0);
     setFormImageModel(profile.image_model || 'dall-e-3');
+    setFormEnableThinking(profile.enable_thinking || false);
     setFormError('');
     setShowModal(true);
   };
@@ -228,6 +249,7 @@ export default function ChatProfilesPage() {
         embeddings_model: formEmbeddingsModel,
         embeddings_dimensions: formEmbeddingsDimensions,
         image_model: formImageModel,
+        enable_thinking: formEnableThinking,
       };
 
       if (editingProfile) {
@@ -293,7 +315,7 @@ export default function ChatProfilesPage() {
   };
 
   const selectAllTools = () => {
-    setFormToolsList(AVAILABLE_TOOLS.map(t => t.id));
+    setFormToolsList(availableTools.map(t => t.id));
   };
 
   const clearAllTools = () => {
@@ -557,6 +579,21 @@ export default function ChatProfilesPage() {
                   />
                 </div>
               </div>
+
+              <div className="form-group checkbox-group">
+                <label>
+                  <input
+                    type="checkbox"
+                    checked={formEnableThinking}
+                    onChange={(e) => setFormEnableThinking(e.target.checked)}
+                  />
+                  <span>Habilitar reasoning/thinking (Ollama)</span>
+                </label>
+                <p className="form-hint">
+                  Envia parâmetro <code>think=true</code> para modelos que suportam (Ollama, QwQ, etc). 
+                  Exibe a cadeia de pensamento do modelo antes da resposta final.
+                </p>
+              </div>
             </fieldset>
 
             {/* Seção: Ferramentas/Agentes */}
@@ -584,16 +621,16 @@ export default function ChatProfilesPage() {
                       Limpar Seleção
                     </Button>
                     <span className="tools-count" aria-live="polite">
-                      {formToolsList.length} de {AVAILABLE_TOOLS.length} selecionadas
+                      {formToolsList.length} de {availableTools.length} selecionadas
                     </span>
                   </div>
                   
                   <div 
                     className="tools-checkbox-list"
                     role="group"
-                    aria-label={`Ferramentas disponíveis. ${formToolsList.length} de ${AVAILABLE_TOOLS.length} selecionadas`}
+                    aria-label={`Ferramentas disponíveis. ${formToolsList.length} de ${availableTools.length} selecionadas`}
                   >
-                    {AVAILABLE_TOOLS.map((tool) => {
+                    {availableTools.map((tool) => {
                       const isChecked = formToolsList.includes(tool.id);
                       const checkboxId = `tool-${tool.id}`;
                       const descId = `tool-desc-${tool.id}`;

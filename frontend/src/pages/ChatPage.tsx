@@ -34,6 +34,8 @@ export default function ChatPage() {
     getActiveTab,
     loadConversationInActiveTab,
     updateMessage,
+    toggleReasoningExpanded,
+    isReasoningExpanded,
   } = useChatStore();
 
   const { config } = useSettingsStore();
@@ -92,6 +94,12 @@ export default function ChatPage() {
       console.log('Fixar/desafixar mensagem:', message);
       announce('Funcionalidade de fixar mensagem será implementada em breve');
     },
+    onToggleReasoning: (message) => {
+      toggleReasoningExpanded(message.id);
+      const isExpanded = isReasoningExpanded(message.id);
+      announce(isExpanded ? 'Raciocínio ocultado' : 'Raciocínio exibido');
+    },
+    isReasoningExpanded: (messageId: string) => isReasoningExpanded(messageId),
     isTTSDisabled,
   });
 

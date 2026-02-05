@@ -41,7 +41,8 @@ type ChatDefaults struct {
 type Config struct {
 	APIKey           string           `json:"api_key"`
 	APIBaseURL       string           `json:"api_base_url"`
-	BraveAPIKey      string           `json:"brave_api_key,omitempty"` // API key para Brave Search
+	BraveAPIKey      string           `json:"brave_api_key,omitempty"`    // DEPRECATED: API key para Brave Search (não mais usado)
+	WebSearchModel   string           `json:"web_search_model,omitempty"` // Modelo para busca web (gpt-4o-search-preview, gpt-5-search-api)
 	DefaultModel     string           `json:"default_model,omitempty"`
 	EmbeddingsModel  string           `json:"embeddings_model,omitempty"`
 	ImageModel       string           `json:"image_model,omitempty"`

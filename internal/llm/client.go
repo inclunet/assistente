@@ -142,6 +142,10 @@ func SendMessageSync(cfg *config.Config, messages []Message, params ChatParams) 
 type StreamHandler interface {
 	// OnChunk é chamado quando um chunk de conteúdo é recebido
 	OnChunk(content string)
+	// OnThinking é chamado quando um chunk de reasoning/thinking é recebido
+	OnThinking(content string)
+	// OnThinkingDone é chamado quando o reasoning termina
+	OnThinkingDone(fullReasoning string)
 	// OnError é chamado quando ocorre um erro
 	OnError(err string)
 	// OnDone é chamado quando o streaming termina
@@ -232,6 +236,12 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 		reqBody.TopP = &params.TopP
 	}
 
+	// Habilita thinking se configurado no perfil (necessário para Ollama)
+	if params.EnableThinking {
+		reqBody.Think = BoolPtr(true)
+		fmt.Printf("🧠 [DEBUG] EnableThinking ativado pelo perfil\n")
+	}
+
 	// Adiciona tools se habilitado
 	if params.UseTools {
 		reqBody.Tools = handler.GetTools()
@@ -300,11 +310,14 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 
 	reader := bufio.NewReader(resp.Body)
 	var fullResponse strings.Builder
+	var fullReasoning strings.Builder // Acumula reasoning/thinking
 	var lastUsage Usage
 	var lastModel string
 	var toolCalls []ToolCall
 	var currentToolCall *ToolCall
 	var finishReason string
+	var isThinking bool                // Estado para detectar thinking em tags
+	var thinkingBuffer strings.Builder // Buffer para conteúdo dentro de <thinking>
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -333,7 +346,12 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 				currentToolCall = nil
 			}
 
-			fmt.Printf("🔧 [DEBUG] Stream [DONE] - finishReason=%s, toolCalls=%d\n", finishReason, len(toolCalls))
+			// Notifica fim do reasoning se houver
+			if fullReasoning.Len() > 0 {
+				handler.OnThinkingDone(fullReasoning.String())
+			}
+
+			fmt.Printf("🔧 [DEBUG] Stream [DONE] - finishReason=%s, toolCalls=%d, reasoning=%d chars\n", finishReason, len(toolCalls), fullReasoning.Len())
 
 			hasToolCalls := len(toolCalls) > 0
 			isToolFinish := finishReason == "tool_calls" || finishReason == "function_call"
@@ -393,11 +411,42 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 				}
 			}
 
+			// Processa reasoning_content (DeepSeek, Qwen, etc)
+			if choice.Delta.ReasoningContent != "" {
+				reasoning := choice.Delta.ReasoningContent
+				fullReasoning.WriteString(reasoning)
+				handler.OnThinking(reasoning)
+			}
+
+			// Processa thinking do Ollama
+			if choice.Delta.Thinking != "" {
+				thinking := choice.Delta.Thinking
+				fullReasoning.WriteString(thinking)
+				handler.OnThinking(thinking)
+			}
+
+			// Processa thinking na mensagem completa (Ollama non-streaming ou chunk final)
+			if choice.Message.Thinking != "" {
+				thinking := choice.Message.Thinking
+				// Só adiciona se não foi processado via Delta
+				if !strings.Contains(fullReasoning.String(), thinking) {
+					fullReasoning.WriteString(thinking)
+					handler.OnThinking(thinking)
+				}
+			}
+
 			// Processa conteúdo
 			if choice.Delta.Content != "" {
 				content := choice.Delta.Content
-				fullResponse.WriteString(content)
-				handler.OnChunk(content)
+
+				// Detecta tags <thinking> no conteúdo (Claude via OpenRouter, etc)
+				content = processThinkingTags(content, &isThinking, &thinkingBuffer, &fullReasoning, handler)
+
+				// Se ainda sobrou conteúdo após extrair thinking
+				if content != "" {
+					fullResponse.WriteString(content)
+					handler.OnChunk(content)
+				}
 			}
 		}
 	}
@@ -405,6 +454,53 @@ func streamChatWithTools(ctx context.Context, cfg *config.Config, messages []Mes
 	if currentToolCall != nil {
 		toolCalls = append(toolCalls, *currentToolCall)
 	}
+}
+
+// processThinkingTags detecta e extrai conteúdo de tags <thinking> do streaming
+// Retorna o conteúdo que NÃO é thinking para ser processado normalmente
+func processThinkingTags(content string, isThinking *bool, thinkingBuffer, fullReasoning *strings.Builder, handler StreamHandler) string {
+	var result strings.Builder
+	i := 0
+
+	for i < len(content) {
+		if *isThinking {
+			// Procura pelo fim da tag </thinking>
+			endIdx := strings.Index(content[i:], "</thinking>")
+			if endIdx != -1 {
+				// Adiciona conteúdo até o fim da tag ao buffer de thinking
+				thinkingContent := content[i : i+endIdx]
+				thinkingBuffer.WriteString(thinkingContent)
+				fullReasoning.WriteString(thinkingContent)
+				handler.OnThinking(thinkingContent)
+
+				*isThinking = false
+				i += endIdx + len("</thinking>")
+			} else {
+				// Tag ainda não fechou, todo o resto é thinking
+				thinkingContent := content[i:]
+				thinkingBuffer.WriteString(thinkingContent)
+				fullReasoning.WriteString(thinkingContent)
+				handler.OnThinking(thinkingContent)
+				return result.String()
+			}
+		} else {
+			// Procura pelo início da tag <thinking>
+			startIdx := strings.Index(content[i:], "<thinking>")
+			if startIdx != -1 {
+				// Adiciona conteúdo antes da tag ao resultado
+				result.WriteString(content[i : i+startIdx])
+				*isThinking = true
+				thinkingBuffer.Reset()
+				i += startIdx + len("<thinking>")
+			} else {
+				// Sem mais tags, adiciona o resto ao resultado
+				result.WriteString(content[i:])
+				break
+			}
+		}
+	}
+
+	return result.String()
 }
 
 // processToolCalls processa as chamadas de ferramentas

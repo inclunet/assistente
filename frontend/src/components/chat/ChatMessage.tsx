@@ -2,6 +2,7 @@ import React, { useRef, useEffect } from 'react';
 import { Message } from '../../store/chatStore';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
+import { ReasoningSection } from './ReasoningSection';
 import { formatAgentName, isAgentMessage } from '../../lib/chatUtils';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { formatRelativeTime } from '../../lib/dateUtils';
@@ -25,6 +26,11 @@ export interface ChatMessageProps {
   onEditContentChange?: (content: string) => void;
   onSaveEdit?: () => void;
   onCancelEdit?: () => void;
+  // Reasoning/Thinking props
+  streamingReasoning?: string; // Reasoning durante streaming
+  isThinking?: boolean; // Se está recebendo reasoning
+  isReasoningExpanded?: boolean; // Se o reasoning está expandido
+  onToggleReasoning?: () => void; // Callback para toggle do reasoning
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
@@ -42,8 +48,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   onEditContentChange,
   onSaveEdit,
   onCancelEdit,
+  streamingReasoning,
+  isThinking = false,
+  isReasoningExpanded = false,
+  onToggleReasoning,
 }) => {
-  const { role, content, timestamp, isStreaming, agentName, toolName } = message;
+  const { role, content, timestamp, isStreaming, agentName, toolName, reasoning } = message;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Usa editContent externo se está editando
@@ -85,7 +95,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     const relativeTime = formatRelativeTime(timestamp);
     const timePrefix = role === 'user' ? 'enviado' : 'recebido';
 
-    return `${roleLabel}: ${contentPreview}. ${timePrefix} ${relativeTime}.${playHint}`;
+    // Inclui reasoning no aria-label quando expandido
+    const reasoningText = reasoning || streamingReasoning;
+    const reasoningLabel = (isReasoningExpanded && reasoningText) 
+      ? ` Raciocínio: ${stripMarkdown(reasoningText)}.` 
+      : '';
+
+    return `${roleLabel}: ${contentPreview}.${reasoningLabel} ${timePrefix} ${relativeTime}.${playHint}`;
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -236,6 +252,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             />
           )}
         </div>
+
+        {/* Seção de Reasoning/Thinking - exibe cadeia de pensamento do modelo */}
+        {role === 'assistant' && (streamingReasoning || reasoning) && (
+          <ReasoningSection 
+            reasoning={streamingReasoning || reasoning || ''} 
+            isStreaming={isThinking}
+            isExpanded={isThinking || isReasoningExpanded} // Expandido durante streaming ou por toggle
+            onToggle={onToggleReasoning}
+          />
+        )}
 
         <div className="chat-message__text">
           {isEditing ? (

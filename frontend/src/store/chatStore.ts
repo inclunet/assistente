@@ -107,6 +107,11 @@ interface ChatStore {
   editingMessageId: string | null; // ID da mensagem sendo editada (acionado por F2 ou menu)
   skipFocusRestore: boolean; // Flag para pular restauração de foco após fechar menu
   useTools: boolean; // Flag para habilitar/desabilitar ferramentas
+  
+  // Reasoning/Thinking - cadeia de pensamento do modelo durante streaming
+  streamingReasoning: string | null; // Reasoning acumulado durante streaming
+  isThinking: boolean; // Se está recebendo reasoning do modelo
+  expandedReasonings: Set<string>; // IDs de mensagens com reasoning expandido
 
   // Initialization
   initializeTabs: () => Promise<void>;
@@ -128,6 +133,7 @@ interface ChatStore {
   // Message management
   addMessage: (tabId: string, message: NewMessageData) => string;
   updateMessage: (tabId: string, messageId: string, content: string) => void;
+  updateMessageReasoning: (tabId: string, messageId: string, reasoning: string) => void; // Atualiza reasoning
   addInternalMessage: (tabId: string, message: Message) => void; // Adiciona mensagem interna (tool call)
   clearMessages: (tabId: string) => void;
   clearActiveTab: () => void;
@@ -136,6 +142,10 @@ interface ChatStore {
   // Thread management
   toggleThreadExpanded: (messageId: string) => void;
   isThreadExpanded: (messageId: string) => boolean;
+  
+  // Reasoning management
+  toggleReasoningExpanded: (messageId: string) => void;
+  isReasoningExpanded: (messageId: string) => boolean;
 
   // Chat actions
   sendMessage: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
@@ -281,6 +291,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     editingMessageId: null,
     skipFocusRestore: false,
     useTools: true, // Valor padrão, pode ser alterado via toggle na toolbar
+    streamingReasoning: null, // Reasoning durante streaming
+    isThinking: false, // Se está recebendo reasoning
+    expandedReasonings: new Set<string>(), // IDs de mensagens com reasoning expandido
     
     setEditingMessageId: (id: string | null) => {
       set({ editingMessageId: id });
@@ -714,6 +727,38 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     if (content.length % 100 === 0 || content.length < 10) {
       console.log('[Chat] Message updated:', { tabId, messageId, contentLength: content.length });
     }
+  },
+
+  // Atualiza reasoning de uma mensagem específica
+  updateMessageReasoning: (tabId, messageId, reasoning) => {
+    set((state) => ({
+      tabs: state.tabs.map((tab) =>
+        tab.id === tabId
+          ? {
+              ...tab,
+              threadedMessages: tab.threadedMessages.map((node) => {
+                const updateNodeReasoning = (n: MessageNode): boolean => {
+                  if (n.message.id === messageId) {
+                    n.message.reasoning = reasoning;
+                    return true;
+                  }
+                  if (n.children && n.children.length > 0) {
+                    for (const child of n.children) {
+                      if (updateNodeReasoning(child)) {
+                        return true;
+                      }
+                    }
+                  }
+                  return false;
+                };
+                updateNodeReasoning(node);
+                return node;
+              }),
+              updatedAt: Date.now(),
+            }
+          : tab
+      ),
+    }));
   },
   
   // Adiciona mensagem interna (filho de uma mensagem raiz, ex: tool calls)
@@ -1227,7 +1272,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               unsubscribeComplete = null;
             }
             activeListeners.delete(currentTabId!);
-            set({ isLoading: false, streamingMessageId: null });
+            set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false });
           };
 
           // Limpa listeners antigos desta tab se existirem
@@ -1353,6 +1398,32 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   announce(`Assistente: ${cleanContent}`);
                 }
               }
+            }
+          });
+
+          // Listen for thinking/reasoning events from model (DeepSeek, Claude, o1, etc)
+          let unsubscribeThinking: (() => void) | null = null;
+          unsubscribeThinking = EventsOn('chat:thinking', (event: any) => {
+            if (!activeListeners.has(currentTabId!)) {
+              console.log('[Chat] Ignorando chat:thinking de listener órfão para tab:', currentTabId);
+              return;
+            }
+
+            // Atualiza estado de thinking
+            if (event.started) {
+              // Início do thinking
+              set({ isThinking: true, streamingReasoning: event.content || '' });
+              announce('O modelo está pensando...', 'polite');
+            } else if (event.done) {
+              // Fim do thinking - salva o reasoning na mensagem
+              set({ isThinking: false });
+              if (event.content) {
+                get().updateMessageReasoning(currentTabId!, assistantMessageId, event.content);
+              }
+              console.log('[Chat] Thinking completed:', event.content?.length, 'chars');
+            } else {
+              // Atualização durante thinking
+              set({ streamingReasoning: event.content || '' });
             }
           });
 
@@ -1491,6 +1562,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const originalCleanup = cleanup;
           const enhancedCleanup = () => {
             originalCleanup();
+            if (unsubscribeThinking) unsubscribeThinking();
             if (unsubscribeTools) unsubscribeTools();
             if (unsubscribeToolResults) unsubscribeToolResults();
             if (unsubscribeAgentMessage) unsubscribeAgentMessage();
@@ -1581,6 +1653,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       // Verifica se uma thread está expandida
       isThreadExpanded: (messageId) => {
         return get().expandedThreads.has(messageId);
+      },
+      
+      // Alterna expansão de reasoning de uma mensagem
+      toggleReasoningExpanded: (messageId) => {
+        set((state) => {
+          const expanded = new Set(state.expandedReasonings);
+          if (expanded.has(messageId)) {
+            expanded.delete(messageId);
+          } else {
+            expanded.add(messageId);
+          }
+          return { expandedReasonings: expanded };
+        });
+      },
+      
+      // Verifica se o reasoning de uma mensagem está expandido
+      isReasoningExpanded: (messageId) => {
+        return get().expandedReasonings.has(messageId);
       },
       
       // Retorna os MessageNode[] que o backend já enviou prontos
@@ -1791,6 +1881,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         streamingMessageId: null,
         isInitialized: false,
         expandedThreads: new Set<string>(),
+        expandedReasonings: new Set<string>(),
+        streamingReasoning: null,
+        isThinking: false,
       });
       
       // Reinicializa tabs do backend

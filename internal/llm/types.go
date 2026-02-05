@@ -13,6 +13,7 @@ type Message struct {
 	Content    interface{} `json:"content,omitempty"` // Pode ser string ou []ContentPart
 	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
 	ToolCallID string      `json:"tool_call_id,omitempty"`
+	Thinking   string      `json:"thinking,omitempty"` // Ollama thinking/reasoning
 }
 
 // ContentPart representa uma parte do conteúdo multimodal
@@ -104,6 +105,7 @@ type ChatRequest struct {
 	Stream        bool           `json:"stream"`
 	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
 	Tools         []Tool         `json:"tools,omitempty"`
+	Think         *bool          `json:"think,omitempty"` // Ollama: habilita reasoning/thinking
 }
 
 // ChatChoice representa uma escolha na resposta
@@ -116,9 +118,11 @@ type ChatChoice struct {
 
 // Delta representa um delta no streaming
 type Delta struct {
-	Role      string     `json:"role,omitempty"`
-	Content   string     `json:"content,omitempty"`
-	ToolCalls []ToolCall `json:"tool_calls,omitempty"`
+	Role             string     `json:"role,omitempty"`
+	Content          string     `json:"content,omitempty"`
+	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
+	ReasoningContent string     `json:"reasoning_content,omitempty"` // DeepSeek, Qwen reasoning
+	Thinking         string     `json:"thinking,omitempty"`          // Ollama thinking/reasoning
 }
 
 // Usage representa o uso de tokens
@@ -168,11 +172,12 @@ type ModelsResponse struct {
 
 // ChatParams contém os parâmetros para uma requisição de chat
 type ChatParams struct {
-	Model       string  `json:"model"`
-	MaxTokens   int     `json:"maxTokens"`
-	Temperature float64 `json:"temperature"`
-	TopP        float64 `json:"topP,omitempty"`
-	UseTools    bool    `json:"useTools"`
+	Model          string  `json:"model"`
+	MaxTokens      int     `json:"maxTokens"`
+	Temperature    float64 `json:"temperature"`
+	TopP           float64 `json:"topP,omitempty"`
+	UseTools       bool    `json:"useTools"`
+	EnableThinking bool    `json:"enableThinking,omitempty"` // Habilita reasoning/thinking (Ollama: think=true)
 }
 
 // SettingsInput representa os parâmetros de entrada para salvar configurações
@@ -220,6 +225,11 @@ type ChatDefaults struct {
 // StrPtr retorna um ponteiro para uma string
 func StrPtr(s string) *string {
 	return &s
+}
+
+// BoolPtr retorna um ponteiro para um bool
+func BoolPtr(b bool) *bool {
+	return &b
 }
 
 // BuildEndpoint constrói o endpoint completo a partir da URL base

@@ -1,20 +1,5 @@
 package web
 
-// SearchResult represents a single search result from web search.
-type SearchResult struct {
-	Title    string `json:"title"`
-	URL      string `json:"url"`
-	Snippet  string `json:"snippet"`
-	Position int    `json:"position"`
-}
-
-// SearchResults represents a collection of search results.
-type SearchResults struct {
-	Query        string         `json:"query"`
-	Results      []SearchResult `json:"results"`
-	TotalResults int            `json:"total_results"`
-}
-
 // Link represents a hyperlink extracted from a page.
 type Link struct {
 	URL      string `json:"url"`

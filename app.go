@@ -52,6 +52,7 @@ type EnrichedMessage struct {
 	ParentID         *string   `json:"parentId,omitempty"` // String para evitar undefined no TypeScript
 	Role             string    `json:"role"`
 	Content          string    `json:"content"`
+	Reasoning        string    `json:"reasoning,omitempty"` // Reasoning/thinking do modelo (DeepSeek, Claude, o1)
 	Media            string    `json:"media,omitempty"`
 	ToolCalls        string    `json:"toolCalls,omitempty"`
 	ToolResults      string    `json:"toolResults,omitempty"`
@@ -243,12 +244,21 @@ func (a *App) initAgents() {
 
 	// Agente de Navegação Web
 	webAgentCfg := agents.WebAgentConfig{}
-	if cfg, err := config.Load(); err == nil && cfg.BraveAPIKey != "" {
-		webAgentCfg.BraveAPIKey = cfg.BraveAPIKey
-	}
 	webAgent := agents.NewWebAgentWithConfig(a.llmClient, agentModel, webAgentCfg)
 	a.applyAgentConfig(webAgent)
 	a.registry.Register(webAgent)
+
+	// Agente de Busca Web (usa modelos de busca da OpenAI)
+	if cfg, err := config.Load(); err == nil && cfg.APIKey != "" {
+		webSearchCfg := agents.WebSearchAgentConfig{
+			APIKey:     cfg.APIKey,
+			APIBaseURL: cfg.APIBaseURL,
+			Model:      cfg.WebSearchModel, // Modelo de busca configurável
+		}
+		webSearchAgent := agents.NewWebSearchAgent(a.llmClient, webSearchCfg)
+		a.applyAgentConfig(webSearchAgent)
+		a.registry.Register(webSearchAgent)
+	}
 
 	// Agente Builder (Cria e gerencia HTTP e MCP Agents)
 	builderAgent := agents.NewBuilderAgent(a.agentManager, a.llmClient, agentModel)

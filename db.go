@@ -53,6 +53,7 @@ func (a *App) enrichMessage(msg database.ChatMessage) EnrichedMessage {
 		ParentID:         parentIDStr,
 		Role:             msg.Role,
 		Content:          msg.Content,
+		Reasoning:        msg.Reasoning,
 		Media:            msg.Media,
 		ToolCalls:        msg.ToolCalls,
 		ToolResults:      msg.ToolResults,
@@ -235,7 +236,7 @@ func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
 	var logTree func(nodes []MessageNode, indent string)
 	logTree = func(nodes []MessageNode, indent string) {
 		for _, n := range nodes {
-			fmt.Printf("🌳 [TREE] %sID=%d, role=%s, children=%d\n",
+			fmt.Printf("🌳 [TREE] %sID=%s, role=%s, children=%d\n",
 				indent, n.Message.ID, n.Message.Role, len(n.Children))
 			if len(n.Children) > 0 {
 				logTree(n.Children, indent+"  ")

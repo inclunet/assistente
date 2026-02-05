@@ -21,7 +21,7 @@ type WebAgent struct {
 
 // WebAgentConfig holds configuration for the web agent.
 type WebAgentConfig struct {
-	BraveAPIKey string
+	// Configuration options can be added here if needed
 }
 
 // NewWebAgent cria um novo WebAgent
@@ -37,9 +37,7 @@ func NewWebAgentWithConfig(llmClient LLMClient, model string, cfg WebAgentConfig
 
 	fmt.Printf("🌐 [WebAgent] Criando novo WebAgent com modelo: %s\n", model)
 
-	client := web.NewClientWithConfig(web.ClientConfig{
-		BraveAPIKey: cfg.BraveAPIKey,
-	})
+	client := web.NewClient()
 	fmt.Printf("🌐 [WebAgent] Cliente web criado\n")
 
 	return &WebAgent{
@@ -787,22 +785,4 @@ func (a *WebAgent) executeWebGetPageInfo() (string, error) {
 
 	jsonBytes, _ := json.MarshalIndent(info, "", "  ")
 	return string(jsonBytes), nil
-}
-
-// Helper to format results for display
-func formatSearchResults(results *web.SearchResults) string {
-	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("Search: %s\n", results.Query))
-	sb.WriteString(fmt.Sprintf("Found: %d results\n\n", results.TotalResults))
-
-	for _, r := range results.Results {
-		sb.WriteString(fmt.Sprintf("%d. %s\n", r.Position, r.Title))
-		sb.WriteString(fmt.Sprintf("   %s\n", r.URL))
-		if r.Snippet != "" {
-			sb.WriteString(fmt.Sprintf("   %s\n", r.Snippet))
-		}
-		sb.WriteString("\n")
-	}
-
-	return sb.String()
 }

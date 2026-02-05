@@ -32,19 +32,30 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   onSpeak,
 }) => {
   const nodeRef = React.useRef<HTMLDivElement>(null);
+  
+  // IMPORTANTE: messageId deve ser definido primeiro, pois é usado em hooks abaixo
+  const messageId = node.message.id;
+  
   const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
   const editingMessageId = useChatStore(state => state.editingMessageId);
   const setEditingMessageId = useChatStore(state => state.setEditingMessageId);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isEditing, setIsEditing] = useState(false);
-  const [editContent, setEditContent] = useState(node.message.content);
+  const streamingMessageId = useChatStore(state => state.streamingMessageId);
+  const streamingReasoning = useChatStore(state => state.streamingReasoning);
+  const isThinkingGlobal = useChatStore(state => state.isThinking);
+  const toggleReasoningExpanded = useChatStore(state => state.toggleReasoningExpanded);
   
-  // OTIMIZADO: Seletor que retorna apenas o valor booleano para este nó específico
-  // Evita re-renders quando outras threads são expandidas/colapsadas
-  const messageId = node.message.id;
+  // OTIMIZADO: Seletores que retornam apenas valores booleanos para este nó específico
+  // Evita re-renders quando outras threads/reasonings são expandidas/colapsadas
   const isExpanded = useChatStore(
     useCallback(state => state.expandedThreads.has(messageId), [messageId])
   );
+  const reasoningExpanded = useChatStore(
+    useCallback(state => state.expandedReasonings.has(messageId), [messageId])
+  );
+  
+  const [isLoading, setIsLoading] = useState(false);
+  const [isEditing, setIsEditing] = useState(false);
+  const [editContent, setEditContent] = useState(node.message.content);
   
   // SIMPLIFICADO: Usa apenas node.children da store
   // - loadMessageChildren atualiza node.children na store
@@ -232,6 +243,17 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       return;
     }
 
+    // R: toggle do reasoning (somente mensagens do assistente com reasoning)
+    if ((key === 'r' || key === 'R') && node.message.role === 'assistant' && node.message.reasoning) {
+      e.preventDefault();
+      e.stopPropagation();
+      toggleReasoningExpanded(node.message.id);
+      // O estado é lido pela store, então precisamos verificar o novo estado
+      const isNowExpanded = !reasoningExpanded; // Toggle do estado atual
+      announce(isNowExpanded ? 'Raciocínio exibido' : 'Raciocínio ocultado');
+      return;
+    }
+
     // ArrowDown: navega para próximo irmão
     if (key === 'ArrowDown') {
       e.preventDefault();
@@ -380,6 +402,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onEditContentChange={setEditContent}
           onSaveEdit={handleSaveEdit}
           onCancelEdit={handleCancelEdit}
+          // Reasoning/Thinking - passa apenas para a mensagem em streaming
+          streamingReasoning={node.message.id === streamingMessageId ? (streamingReasoning || undefined) : undefined}
+          isThinking={node.message.id === streamingMessageId ? isThinkingGlobal : false}
+          isReasoningExpanded={reasoningExpanded}
+          onToggleReasoning={() => toggleReasoningExpanded(node.message.id)}
         />
       </div>
 

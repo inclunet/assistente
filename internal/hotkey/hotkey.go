@@ -393,9 +393,7 @@ func GetProfileHotkeys(profileID int) []*RegisteredProfileHotkey {
 	result := make([]*RegisteredProfileHotkey, len(hotkeys))
 	copy(result, hotkeys)
 	return result
-}
-
-// UnregisterAllProfileHotkeys remove todos os hotkeys de todos os perfis
+}// UnregisterAllProfileHotkeys remove todos os hotkeys de todos os perfis
 func (m *Manager) UnregisterAllProfileHotkeys() {
 	profileHotkeysMu.Lock()
 	allProfiles := make([]int, 0, len(profileHotkeys))

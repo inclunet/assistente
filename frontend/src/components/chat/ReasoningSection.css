@@ -1,0 +1,119 @@
+.reasoning-section {
+  margin-bottom: 8px;
+  border-radius: 8px;
+  background-color: var(--color-surface-secondary, #f5f5f5);
+  border: 1px solid var(--color-border-subtle, #e0e0e0);
+  overflow: hidden;
+  font-size: 0.9em;
+}
+
+.reasoning-section--streaming {
+  border-color: var(--color-accent, #2196f3);
+  animation: reasoning-pulse 2s ease-in-out infinite;
+}
+
+@keyframes reasoning-pulse {
+  0%, 100% {
+    border-color: var(--color-accent, #2196f3);
+  }
+  50% {
+    border-color: var(--color-accent-light, #64b5f6);
+  }
+}
+
+.reasoning-section__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 8px 12px;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  text-align: left;
+  color: var(--color-text-secondary, #666);
+  font-size: 0.85em;
+  transition: background-color 0.2s ease;
+}
+
+.reasoning-section__header:hover {
+  background-color: var(--color-surface-hover, #eee);
+}
+
+.reasoning-section__header:focus {
+  outline: 2px solid var(--color-accent, #2196f3);
+  outline-offset: -2px;
+}
+
+.reasoning-section__icon {
+  font-size: 1.1em;
+}
+
+.reasoning-section__title {
+  font-weight: 500;
+  color: var(--color-text-primary, #333);
+}
+
+.reasoning-section__summary {
+  flex: 1;
+  color: var(--color-text-tertiary, #999);
+  font-size: 0.9em;
+}
+
+.reasoning-section__chevron {
+  transition: transform 0.2s ease;
+  font-size: 0.8em;
+}
+
+.reasoning-section__chevron--expanded {
+  transform: rotate(180deg);
+}
+
+.reasoning-section__content {
+  padding: 12px;
+  padding-top: 0;
+  color: var(--color-text-secondary, #666);
+  max-height: 400px;
+  overflow-y: auto;
+  border-top: 1px solid var(--color-border-subtle, #e0e0e0);
+  background-color: var(--color-surface-tertiary, #fafafa);
+}
+
+.reasoning-section__content pre {
+  background-color: var(--color-surface-code, #f0f0f0);
+  padding: 8px;
+  border-radius: 4px;
+  overflow-x: auto;
+}
+
+.reasoning-section__cursor {
+  display: inline-block;
+  animation: blink 1s step-end infinite;
+  color: var(--color-accent, #2196f3);
+}
+
+@keyframes blink {
+  0%, 50% { opacity: 1; }
+  51%, 100% { opacity: 0; }
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  .reasoning-section {
+    background-color: var(--color-surface-secondary, #2a2a2a);
+    border-color: var(--color-border-subtle, #444);
+  }
+
+  .reasoning-section__header:hover {
+    background-color: var(--color-surface-hover, #333);
+  }
+
+  .reasoning-section__content {
+    background-color: var(--color-surface-tertiary, #252525);
+    border-color: var(--color-border-subtle, #444);
+  }
+
+  .reasoning-section__content pre {
+    background-color: var(--color-surface-code, #1e1e1e);
+  }
+}

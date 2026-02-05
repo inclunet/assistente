@@ -18,8 +18,10 @@ export interface MenuItemsOptions {
   onDelete?: (message: Message) => void;
   onPin?: (message: Message) => void;
   onAnnounce?: (text: string) => void;
+  onToggleReasoning?: (message: Message) => void; // Mostrar/ocultar reasoning
   isTTSDisabled?: boolean;
   isUser?: boolean;
+  isReasoningExpanded?: boolean | ((messageId: string) => boolean); // Estado atual ou função
 }
 
 // Extrai blocos de código do markdown usando AST
@@ -237,8 +239,10 @@ export function getMessageMenuItems(
     onDelete,
     onPin,
     onAnnounce,
+    onToggleReasoning,
     isTTSDisabled = true,
     isUser = false,
+    isReasoningExpanded = false,
   } = options;
 
   const items: MenuItem[] = [];
@@ -268,6 +272,19 @@ export function getMessageMenuItems(
     shortcut: 'Enter',
     action: () => onOpenDetail?.(message),
   });
+
+  // 1.5 Ver/Ocultar Raciocínio (se a mensagem tem reasoning)
+  const hasReasoning = !!(message as any).reasoning;
+  if (hasReasoning && onToggleReasoning) {
+    items.push({
+      id: 'toggle-reasoning',
+      label: isReasoningExpanded ? 'Ocultar raciocínio' : 'Ver raciocínio',
+      icon: '🧠',
+      ariaLabel: isReasoningExpanded ? 'Ocultar raciocínio do modelo' : 'Ver raciocínio do modelo',
+      shortcut: 'R',
+      action: () => onToggleReasoning(message),
+    });
+  }
 
   // 2. AÇÃO SECUNDÁRIA: Ouvir mensagem (se TTS estiver habilitado)
   if (!isTTSDisabled) {

@@ -125,6 +125,7 @@ export namespace config {
 	    api_key: string;
 	    api_base_url: string;
 	    brave_api_key?: string;
+	    web_search_model?: string;
 	    default_model?: string;
 	    embeddings_model?: string;
 	    image_model?: string;
@@ -143,6 +144,7 @@ export namespace config {
 	        this.api_key = source["api_key"];
 	        this.api_base_url = source["api_base_url"];
 	        this.brave_api_key = source["brave_api_key"];
+	        this.web_search_model = source["web_search_model"];
 	        this.default_model = source["default_model"];
 	        this.embeddings_model = source["embeddings_model"];
 	        this.image_model = source["image_model"];
@@ -234,6 +236,7 @@ export namespace database {
 	    parentId?: number;
 	    role: string;
 	    content: string;
+	    reasoning?: string;
 	    media?: string;
 	    toolCalls?: string;
 	    toolResults?: string;
@@ -256,6 +259,7 @@ export namespace database {
 	        this.parentId = source["parentId"];
 	        this.role = source["role"];
 	        this.content = source["content"];
+	        this.reasoning = source["reasoning"];
 	        this.media = source["media"];
 	        this.toolCalls = source["toolCalls"];
 	        this.toolResults = source["toolResults"];
@@ -335,6 +339,7 @@ export namespace database {
 	    max_tokens: number;
 	    top_p: number;
 	    response_timeout: number;
+	    enable_thinking: boolean;
 	    use_tools: boolean;
 	    tools_list: string;
 	    system_prompt: string;
@@ -363,6 +368,7 @@ export namespace database {
 	        this.max_tokens = source["max_tokens"];
 	        this.top_p = source["top_p"];
 	        this.response_timeout = source["response_timeout"];
+	        this.enable_thinking = source["enable_thinking"];
 	        this.use_tools = source["use_tools"];
 	        this.tools_list = source["tools_list"];
 	        this.system_prompt = source["system_prompt"];
@@ -1034,6 +1040,7 @@ export namespace llm {
 	    temperature: number;
 	    topP?: number;
 	    useTools: boolean;
+	    enableThinking?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatParams(source);
@@ -1046,6 +1053,7 @@ export namespace llm {
 	        this.temperature = source["temperature"];
 	        this.topP = source["topP"];
 	        this.useTools = source["useTools"];
+	        this.enableThinking = source["enableThinking"];
 	    }
 	}
 	export class EmbeddingsParams {
@@ -1115,6 +1123,7 @@ export namespace llm {
 	    content?: any;
 	    tool_calls?: ToolCall[];
 	    tool_call_id?: string;
+	    thinking?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Message(source);
@@ -1126,6 +1135,7 @@ export namespace llm {
 	        this.content = source["content"];
 	        this.tool_calls = this.convertValues(source["tool_calls"], ToolCall);
 	        this.tool_call_id = source["tool_call_id"];
+	        this.thinking = source["thinking"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -1324,6 +1334,7 @@ export namespace main {
 	    parentId?: string;
 	    role: string;
 	    content: string;
+	    reasoning?: string;
 	    media?: string;
 	    toolCalls?: string;
 	    toolResults?: string;
@@ -1350,6 +1361,7 @@ export namespace main {
 	        this.parentId = source["parentId"];
 	        this.role = source["role"];
 	        this.content = source["content"];
+	        this.reasoning = source["reasoning"];
 	        this.media = source["media"];
 	        this.toolCalls = source["toolCalls"];
 	        this.toolResults = source["toolResults"];

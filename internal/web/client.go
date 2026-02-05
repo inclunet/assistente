@@ -1,14 +1,12 @@
 package web
 
 import (
-	"context"
 	"fmt"
 	"time"
 )
 
 // ClientConfig holds configuration for the web client.
 type ClientConfig struct {
-	BraveAPIKey string
 	IdleTimeout time.Duration
 }
 
@@ -16,7 +14,6 @@ type ClientConfig struct {
 type Client struct {
 	pool       *BrowserPool
 	extractor  *ContentExtractor
-	searcher   *WebSearcher
 	actions    *Actions
 	screenshot *Screenshot
 }
@@ -38,7 +35,6 @@ func NewClientWithConfig(cfg ClientConfig) *Client {
 	return &Client{
 		pool:       pool,
 		extractor:  NewContentExtractor(),
-		searcher:   NewWebSearcherWithConfig(pool, cfg.BraveAPIKey),
 		actions:    NewActions(pool),
 		screenshot: NewScreenshot(pool),
 	}
@@ -169,13 +165,6 @@ func (c *Client) GetMetaContent(name string) (string, error) {
 	}
 
 	return c.extractor.GetMetaContent(html, name)
-}
-
-// --- Search ---
-
-// Search performs a web search.
-func (c *Client) Search(ctx context.Context, query string, maxResults int) (*SearchResults, error) {
-	return c.searcher.Search(ctx, query, maxResults)
 }
 
 // --- Actions ---

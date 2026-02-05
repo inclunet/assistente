@@ -28,10 +28,18 @@ export function useContextMenu(options: MenuItemsOptions): UseContextMenuResult 
       // Guarda o elemento que abriu o menu (ou o target do evento)
       triggerElementRef.current = (event.currentTarget as HTMLElement) || (event.target as HTMLElement);
       
+      // Verifica estado de expansão do reasoning no momento de mostrar o menu
+      const reasoningExpanded = options.isReasoningExpanded 
+        ? (typeof options.isReasoningExpanded === 'function' 
+            ? options.isReasoningExpanded(message.id) 
+            : options.isReasoningExpanded)
+        : false;
+      
       const items = getMessageMenuItems(message, {
         ...options,
         isUser,
         onAnnounce: options.onAnnounce,
+        isReasoningExpanded: reasoningExpanded,
       });
 
       setMenuItems(items);

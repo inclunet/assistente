@@ -57,6 +57,10 @@ type appStreamHandler struct {
 	accumulatedCalls   []llm.ToolCall // Acumula tool calls
 	accumulatedResults []string       // Acumula resultados de tools
 
+	// Reasoning/Thinking - chain of thought de modelos como DeepSeek, Claude, o1
+	accumulatedReasoning string // Reasoning acumulado durante streaming
+	isThinking           bool   // Flag indicando se está recebendo reasoning
+
 	// Chat Profile - tools filtradas
 	filteredTools []llm.Tool // Lista de tools filtradas pelo perfil
 
@@ -65,6 +69,11 @@ type appStreamHandler struct {
 	lastEmitTime  time.Time   // Última vez que um evento foi emitido
 	throttleTimer *time.Timer // Timer para throttling
 	pendingEmit   bool        // Flag indicando se há emissão pendente
+
+	// Throttling para eventos de thinking
+	lastThinkingEmitTime time.Time   // Última vez que um evento de thinking foi emitido
+	thinkingTimer        *time.Timer // Timer para throttling de thinking
+	pendingThinkingEmit  bool        // Flag indicando se há emissão de thinking pendente
 }
 
 func (h *appStreamHandler) OnChunk(content string) {
@@ -121,6 +130,95 @@ func (h *appStreamHandler) emitStreamEvent() {
 	})
 }
 
+// OnThinking é chamado quando um chunk de reasoning/thinking é recebido
+func (h *appStreamHandler) OnThinking(content string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+
+	// Marca que está pensando
+	if !h.isThinking {
+		h.isThinking = true
+		// Emite evento de início de thinking imediatamente
+		runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
+			"content":        content,
+			"done":           false,
+			"conversationId": h.conversationID,
+			"started":        true,
+		})
+	}
+
+	// Acumula o reasoning
+	h.accumulatedReasoning += content
+
+	// Throttling: emite eventos apenas a cada 50ms
+	const throttleInterval = 50 * time.Millisecond
+	now := time.Now()
+
+	// Se já passou tempo suficiente desde última emissão, emite imediatamente
+	if now.Sub(h.lastThinkingEmitTime) >= throttleInterval {
+		h.emitThinkingEvent()
+		h.lastThinkingEmitTime = now
+		h.pendingThinkingEmit = false
+
+		// Cancela timer pendente se houver
+		if h.thinkingTimer != nil {
+			h.thinkingTimer.Stop()
+			h.thinkingTimer = nil
+		}
+		return
+	}
+
+	// Caso contrário, agenda emissão se ainda não há uma pendente
+	if !h.pendingThinkingEmit {
+		h.pendingThinkingEmit = true
+
+		// Calcula tempo restante até próxima emissão permitida
+		remainingTime := throttleInterval - now.Sub(h.lastThinkingEmitTime)
+
+		h.thinkingTimer = time.AfterFunc(remainingTime, func() {
+			h.mu.Lock()
+			defer h.mu.Unlock()
+
+			if h.pendingThinkingEmit {
+				h.emitThinkingEvent()
+				h.lastThinkingEmitTime = time.Now()
+				h.pendingThinkingEmit = false
+			}
+		})
+	}
+}
+
+// emitThinkingEvent emite o evento de thinking (deve ser chamado com mutex locked)
+func (h *appStreamHandler) emitThinkingEvent() {
+	runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
+		"content":        h.accumulatedReasoning,
+		"done":           false,
+		"conversationId": h.conversationID,
+	})
+}
+
+// OnThinkingDone é chamado quando o reasoning termina
+func (h *appStreamHandler) OnThinkingDone(fullReasoning string) {
+	h.mu.Lock()
+	// Cancela qualquer timer pendente
+	if h.thinkingTimer != nil {
+		h.thinkingTimer.Stop()
+		h.thinkingTimer = nil
+	}
+	h.pendingThinkingEmit = false
+	h.isThinking = false
+	h.mu.Unlock()
+
+	// Emite evento final de thinking
+	runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
+		"content":        fullReasoning,
+		"done":           true,
+		"conversationId": h.conversationID,
+	})
+
+	fmt.Printf("🧠 [THINKING] Reasoning completo: %d caracteres\n", len(fullReasoning))
+}
+
 func (h *appStreamHandler) OnError(err string) {
 	h.mu.Lock()
 	// Cancela qualquer timer pendente
@@ -150,6 +248,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	}
 	h.pendingEmit = false
 	accumulatedContent := h.accumulatedContent
+	accumulatedReasoning := h.accumulatedReasoning
 	h.mu.Unlock()
 
 	// Usa o conteúdo acumulado ou o fullResponse
@@ -159,11 +258,13 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	}
 
 	// Salva resposta final do assistant no nível 0 (sem parentID)
+	// Inclui reasoning se houver
 	if h.conversationID > 0 && finalContent != "" {
 		msg, err := database.CreateMessage(database.MessageOptions{
 			ConversationID:   h.conversationID,
 			Role:             "assistant",
 			Content:          finalContent,
+			Reasoning:        accumulatedReasoning,
 			PromptTokens:     usage.PromptTokens,
 			CompletionTokens: usage.CompletionTokens,
 			TotalTokens:      usage.TotalTokens,
@@ -177,7 +278,11 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 			}
 			fmt.Printf("❌ Erro ao salvar resposta do assistant: %v\n", err)
 		} else {
-			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", msg.ID)
+			if accumulatedReasoning != "" {
+				fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0) com %d chars de reasoning\n", msg.ID, len(accumulatedReasoning))
+			} else {
+				fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", msg.ID)
+			}
 		}
 	}
 
@@ -538,7 +643,10 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		// 3. Aplica configuração de tools
 		params.UseTools = chatProfile.UseTools
 
-		// 4. Filtra tools baseado no perfil
+		// 4. Aplica configuração de thinking/reasoning
+		params.EnableThinking = chatProfile.EnableThinking
+
+		// 5. Filtra tools baseado no perfil
 		if chatProfile.UseTools {
 			allowedTools := chatProfile.GetToolsList()
 			if len(allowedTools) > 0 {
@@ -560,7 +668,7 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 			}
 		}
 
-		// 5. System prompt do perfil
+		// 6. System prompt do perfil
 		profileSystemPrompt = chatProfile.SystemPrompt
 		systemPromptPosition = chatProfile.SystemPromptPosition
 		if systemPromptPosition == "" {

@@ -105,6 +105,7 @@ type ChatMessage struct {
 	ParentID         *uint     `json:"parentId,omitempty" gorm:"index"` // ID da mensagem pai (define hierarquia)
 	Role             string    `json:"role"`                            // user, assistant, tool, system
 	Content          string    `json:"content"`
+	Reasoning        string    `json:"reasoning,omitempty"`        // Reasoning/thinking do modelo (DeepSeek, Claude, o1, etc)
 	Media            string    `json:"media,omitempty"`            // JSON com mídias (imagens, áudio, etc) em base64
 	ToolCalls        string    `json:"toolCalls,omitempty"`        // JSON serializado
 	ToolResults      string    `json:"toolResults,omitempty"`      // JSON serializado (deprecated, usar hierarquia)
@@ -553,11 +554,12 @@ type ChatProfile struct {
 	UpdatedAt   time.Time `json:"updated_at"`
 
 	// Configurações do Modelo
-	Model           string  `json:"model" gorm:"type:text"`              // Nome do modelo (gpt-4o, gpt-oss, etc.)
-	Temperature     float64 `json:"temperature" gorm:"default:0.7"`      // 0.0 a 2.0
-	MaxTokens       int     `json:"max_tokens" gorm:"default:4096"`      // Limite de tokens
-	TopP            float64 `json:"top_p" gorm:"default:1.0"`            // 0.0 a 1.0
-	ResponseTimeout int     `json:"response_timeout" gorm:"default:180"` // Timeout em segundos
+	Model           string  `json:"model" gorm:"type:text"`               // Nome do modelo (gpt-4o, gpt-oss, etc.)
+	Temperature     float64 `json:"temperature" gorm:"default:0.7"`       // 0.0 a 2.0
+	MaxTokens       int     `json:"max_tokens" gorm:"default:4096"`       // Limite de tokens
+	TopP            float64 `json:"top_p" gorm:"default:1.0"`             // 0.0 a 1.0
+	ResponseTimeout int     `json:"response_timeout" gorm:"default:180"`  // Timeout em segundos
+	EnableThinking  bool    `json:"enable_thinking" gorm:"default:false"` // Habilita reasoning/thinking (Ollama: think=true)
 
 	// Ferramentas/Agentes
 	UseTools  bool   `json:"use_tools" gorm:"default:true"` // Habilitar ferramentas

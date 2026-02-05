@@ -519,6 +519,7 @@ type MessageOptions struct {
 	ParentID         *uint  // ID da mensagem pai (define hierarquia)
 	Role             string // user, assistant, tool
 	Content          string
+	Reasoning        string // Reasoning/thinking do modelo
 	Media            string // JSON com mídias
 	ToolCalls        string // JSON com tool calls
 	ToolCallID       string // ID da tool call (para role="tool")
@@ -553,6 +554,7 @@ func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 		ParentID:         opts.ParentID,
 		Role:             opts.Role,
 		Content:          opts.Content,
+		Reasoning:        opts.Reasoning,
 		Media:            opts.Media,
 		ToolCalls:        opts.ToolCalls,
 		ToolCallID:       opts.ToolCallID,
