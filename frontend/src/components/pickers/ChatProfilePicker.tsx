@@ -1,14 +1,20 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Combobox, ComboboxItem } from './Combobox';
-import { GetChatProfiles } from '../../../wailsjs/go/main/App';
-import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime';
-import { database } from '../../../wailsjs/go/models';
+import { GetProfiles, GetActiveProfileName, SetActiveProfile } from '../../../wailsjs/go/main/App';
 
-type ChatProfile = database.ChatProfile;
+interface UnifiedProfile {
+  name: string;
+  description?: string;
+  icon?: string;
+  chat: {
+    model?: string;
+    use_tools?: boolean;
+  };
+}
 
 export interface ChatProfilePickerProps {
-  value: number;
-  onChange: (profileId: number) => void;
+  value: number; // Mantido para compatibilidade, mas ignorado internamente
+  onChange: (profileId: number) => void; // Mantido para compatibilidade
   variant?: 'toolbar' | 'form';
   label?: string;
   icon?: string;
@@ -18,23 +24,23 @@ export interface ChatProfilePickerProps {
 
 export interface ChatProfilePickerRef {
   reload: () => Promise<void>;
-  getSelectedProfile: () => ChatProfile | undefined;
+  getSelectedProfile: () => any;
 }
 
 export const ChatProfilePicker = forwardRef<ChatProfilePickerRef, ChatProfilePickerProps>(
   (
     {
-      value,
-      onChange,
-      variant: _variant = 'form', // eslint-disable-line @typescript-eslint/no-unused-vars
-      label = 'Perfil de Conversa',
+      onChange: _onChange,
+      variant: _variant = 'form',
+      label = 'Perfil',
       icon = '💬',
       maxWidth,
       onAnnounce,
     },
     ref
   ) => {
-    const [profiles, setProfiles] = useState<ChatProfile[]>([]);
+    const [profiles, setProfiles] = useState<UnifiedProfile[]>([]);
+    const [activeProfileName, setActiveProfileName] = useState<string>('');
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -43,9 +49,11 @@ export const ChatProfilePicker = forwardRef<ChatProfilePickerRef, ChatProfilePic
       setError(null);
 
       try {
-        const allProfiles = await GetChatProfiles();
+        const allProfiles = await GetProfiles();
+        const activeName = await GetActiveProfileName();
         setProfiles(allProfiles || []);
-        console.log('[ChatProfilePicker] Loaded', allProfiles?.length || 0, 'profiles');
+        setActiveProfileName(activeName || '');
+        console.log('[ChatProfilePicker] Loaded', allProfiles?.length || 0, 'profiles, active:', activeName);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Erro ao carregar perfis');
         console.error('[ChatProfilePicker] Failed to load profiles:', err);
@@ -58,51 +66,32 @@ export const ChatProfilePicker = forwardRef<ChatProfilePickerRef, ChatProfilePic
       loadProfiles();
     }, []);
 
-    // Escuta eventos de atualização de perfis
-    useEffect(() => {
-      const handleCreated = () => loadProfiles();
-      const handleUpdated = () => loadProfiles();
-      const handleDeleted = () => loadProfiles();
-
-      EventsOn('chat:profile:created', handleCreated);
-      EventsOn('chat:profile:updated', handleUpdated);
-      EventsOn('chat:profile:deleted', handleDeleted);
-
-      return () => {
-        EventsOff('chat:profile:created');
-        EventsOff('chat:profile:updated');
-        EventsOff('chat:profile:deleted');
-      };
-    }, []);
-
     useImperativeHandle(ref, () => ({
       reload: loadProfiles,
-      getSelectedProfile: () => profiles.find(p => p.id === value),
+      getSelectedProfile: () => profiles.find(p => p.name === activeProfileName),
     }));
 
-    // Constrói itens do combobox
     const buildItems = (): ComboboxItem[] => {
       return profiles.map(profile => {
-        const defaultMark = profile.is_default ? ' ⭐' : '';
-        const toolsIndicator = profile.use_tools ? '🔧' : '';
+        const toolsIndicator = profile.chat?.use_tools ? '🔧' : '';
         return {
-          value: profile.id.toString(),
-          label: `${profile.icon || '💬'} ${profile.name}${defaultMark} ${toolsIndicator}`.trim(),
-          sublabel: profile.description || profile.model || undefined,
+          value: profile.name,
+          label: `${profile.icon || '💬'} ${profile.name} ${toolsIndicator}`.trim(),
+          sublabel: profile.description || profile.chat?.model || undefined,
         };
       });
     };
 
-    const handleSelect = (newValue: string) => {
-      const profileId = parseInt(newValue, 10);
-      if (!isNaN(profileId)) {
-        const profile = profiles.find(p => p.id === profileId);
-        onChange(profileId);
-        onAnnounce?.(`Perfil de conversa alterado para ${profile?.name || profileId}`);
+    const handleSelect = async (newValue: string) => {
+      try {
+        await SetActiveProfile(newValue);
+        setActiveProfileName(newValue);
+        onAnnounce?.(`Perfil alterado para ${newValue}`);
+      } catch (err) {
+        console.error('[ChatProfilePicker] Error setting profile:', err);
       }
     };
 
-    // Loading state
     if (loading) {
       return (
         <div className="voice-picker voice-picker--loading" role="status" aria-live="polite">
@@ -112,7 +101,6 @@ export const ChatProfilePicker = forwardRef<ChatProfilePickerRef, ChatProfilePic
       );
     }
 
-    // Error state
     if (error) {
       return (
         <div className="voice-picker voice-picker--error" role="alert" aria-live="assertive">
@@ -122,7 +110,6 @@ export const ChatProfilePicker = forwardRef<ChatProfilePickerRef, ChatProfilePic
       );
     }
 
-    // Empty state
     if (profiles.length === 0) {
       return (
         <div className="voice-picker voice-picker--empty">
@@ -135,7 +122,7 @@ export const ChatProfilePicker = forwardRef<ChatProfilePickerRef, ChatProfilePic
     return (
       <div className="voice-picker" data-picker="chat-profile">
         <Combobox
-          selected={value.toString()}
+          selected={activeProfileName}
           onSelect={handleSelect}
           items={buildItems()}
           label={label}

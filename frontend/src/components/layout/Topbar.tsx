@@ -30,6 +30,7 @@ export function Topbar() {
   const getCurrentPage = (): string => {
     if (location.pathname === '/settings') return 'settings';
     if (location.pathname === '/history') return 'history';
+    if (location.pathname === '/skills') return 'skills';
     if (location.pathname === '/agents') return 'agents';
     if (location.pathname === '/oauth') return 'oauth';
     if (location.pathname === '/help') return 'help';
@@ -48,6 +49,12 @@ export function Topbar() {
       label: 'Histórico',
       icon: '📜',
       onClick: () => navigate('/history'),
+    },
+    {
+      id: 'skills',
+      label: 'Skills',
+      icon: '📚',
+      onClick: () => navigate('/skills'),
     },
     {
       id: 'agents',

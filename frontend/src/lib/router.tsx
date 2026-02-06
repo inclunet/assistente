@@ -5,6 +5,7 @@ import ChatPage from '../pages/ChatPage';
 import SettingsPage from '../pages/SettingsPage';
 import HistoryPage from '../pages/HistoryPage';
 import AgentsPage from '../pages/AgentsPage';
+import SkillsPage from '../pages/SkillsPage';
 import OAuthPage from '../pages/OAuthPage';
 import HelpPage from '../pages/HelpPage';
 
@@ -27,6 +28,10 @@ export const router = createHashRouter([
           {
             path: 'history',
             element: <HistoryPage />,
+          },
+          {
+            path: 'skills',
+            element: <SkillsPage />,
           },
           {
             path: 'agents',

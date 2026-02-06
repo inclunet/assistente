@@ -1041,3 +1041,45 @@ export function UpdateVoiceProfileFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7,
 export function ValidateTemplate(arg1) {
   return window['go']['main']['App']['ValidateTemplate'](arg1);
 }
+
+// Skills bindings
+export function GetSkills() {
+  return window['go']['main']['App']['GetSkills']();
+}
+
+export function GetSkillContent(arg1) {
+  return window['go']['main']['App']['GetSkillContent'](arg1);
+}
+
+export function ReloadSkills() {
+  return window['go']['main']['App']['ReloadSkills']();
+}
+
+// Profile bindings (unified)
+export function GetProfiles() {
+  return window['go']['main']['App']['GetProfiles']();
+}
+
+export function GetActiveProfile() {
+  return window['go']['main']['App']['GetActiveProfile']();
+}
+
+export function GetActiveProfileName() {
+  return window['go']['main']['App']['GetActiveProfileName']();
+}
+
+export function SetActiveProfile(arg1) {
+  return window['go']['main']['App']['SetActiveProfile'](arg1);
+}
+
+export function SaveProfile(arg1) {
+  return window['go']['main']['App']['SaveProfile'](arg1);
+}
+
+export function DeleteProfile(arg1) {
+  return window['go']['main']['App']['DeleteProfile'](arg1);
+}
+
+export function ReloadProfiles() {
+  return window['go']['main']['App']['ReloadProfiles']();
+}

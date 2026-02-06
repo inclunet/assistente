@@ -526,3 +526,25 @@ export function UpdateVoiceProfile(arg1:number,arg2:string,arg3:string,arg4:stri
 export function UpdateVoiceProfileFull(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:number,arg7:number,arg8:number,arg9:boolean,arg10:boolean,arg11:boolean):Promise<database.VoiceProfile>;
 
 export function ValidateTemplate(arg1:string):Promise<boolean|string>;
+
+// Skills bindings
+export function GetSkills():Promise<Array<any>>;
+
+export function GetSkillContent(arg1:string):Promise<string>;
+
+export function ReloadSkills():Promise<void>;
+
+// Profile bindings (unified)
+export function GetProfiles():Promise<Array<any>>;
+
+export function GetActiveProfile():Promise<any>;
+
+export function GetActiveProfileName():Promise<string>;
+
+export function SetActiveProfile(arg1:string):Promise<void>;
+
+export function SaveProfile(arg1:any):Promise<void>;
+
+export function DeleteProfile(arg1:string):Promise<void>;
+
+export function ReloadProfiles():Promise<void>;
