@@ -26,11 +26,14 @@ type ToolResult struct {
 	Content    string `json:"content"`
 }
 
-// GetToolsForAPI retorna as tools de delegação para o orquestrador
+// GetToolsForAPI retorna todas as tools disponíveis para o orquestrador
 func (a *App) GetToolsForAPI() []llm.Tool {
 	var result []llm.Tool
 
-	// Tools de delegação dos agentes
+	// 1. Tools genéricas (executadas diretamente, sem sub-LLMs)
+	result = append(result, a.getGenericTools()...)
+
+	// 2. Tools de delegação dos agentes (legado — durante transição)
 	if a.registry != nil {
 		agentTools := a.registry.GetDelegationTools()
 		for _, t := range agentTools {
@@ -45,7 +48,7 @@ func (a *App) GetToolsForAPI() []llm.Tool {
 		}
 	}
 
-	// Tool genérica: skill_read — permite ao LLM ler instruções de uma skill sob demanda
+	// 3. Tool: skill_read — permite ao LLM ler instruções de uma skill sob demanda
 	if a.skillsRegistry != nil && a.skillsRegistry.Count() > 0 {
 		result = append(result, llm.Tool{
 			Type: "function",
@@ -72,6 +75,11 @@ func (a *App) GetToolsForAPI() []llm.Tool {
 // ExecuteTool executa uma tool de delegação
 func (a *App) ExecuteTool(toolCall llm.ToolCall) (string, error) {
 	toolName := toolCall.Function.Name
+
+	// Tools genéricas (executadas diretamente, sem sub-LLMs)
+	if result, handled, err := a.executeGenericTool(toolCall); handled {
+		return result, err
+	}
 
 	// Tool genérica: skill_read
 	if toolName == "skill_read" {
