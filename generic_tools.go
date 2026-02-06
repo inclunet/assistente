@@ -482,6 +482,62 @@ func (a *App) getGenericTools() []llm.Tool {
 			},
 		},
 
+		// === Chat/Conversation Management Tools (ex-ChatManager Agent) ===
+		{
+			Type: "function",
+			Function: llm.ToolFunction{
+				Name:        "new_conversation",
+				Description: "Create a new conversation and open it in a new tab.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"title": map[string]interface{}{
+							"type":        "string",
+							"description": "Title for the new conversation (optional)",
+						},
+					},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: llm.ToolFunction{
+				Name:        "rename_conversation",
+				Description: "Rename a conversation.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"conversation_id": map[string]interface{}{
+							"type":        "integer",
+							"description": "ID of the conversation (optional, defaults to current)",
+						},
+						"new_title": map[string]interface{}{
+							"type":        "string",
+							"description": "New title for the conversation",
+						},
+					},
+					"required": []string{"new_title"},
+				},
+			},
+		},
+		{
+			Type: "function",
+			Function: llm.ToolFunction{
+				Name:        "switch_to_tab",
+				Description: "Switch to a specific open tab.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"tab_id": map[string]interface{}{
+							"type":        "integer",
+							"description": "ID of the tab to switch to",
+						},
+					},
+					"required": []string{"tab_id"},
+				},
+			},
+		},
+
 		// === HTTP Request Tool ===
 		{
 			Type: "function",
@@ -568,6 +624,11 @@ func (a *App) executeGenericTool(toolCall llm.ToolCall) (string, bool, error) {
 		"generate_image": true, "image_generate": true,
 	}
 
+	chatManagerToolNames := map[string]bool{
+		"new_conversation": true, "rename_conversation": true,
+		"switch_to_tab": true,
+	}
+
 	// File tools → FileAgent.ExecuteTool (sem sub-LLM)
 	if fileToolNames[toolName] {
 		result, err := a.routeToAgentTool("file_manager", toolCall)
@@ -587,6 +648,12 @@ func (a *App) executeGenericTool(toolCall llm.ToolCall) (string, bool, error) {
 			toolCall.Function.Name = "generate_image"
 		}
 		result, err := a.routeToAgentTool("image", toolCall)
+		return result, true, err
+	}
+
+	// Chat Manager tools → ChatManagerAgent.ExecuteTool
+	if chatManagerToolNames[toolName] {
+		result, err := a.routeToAgentTool("chat_manager", toolCall)
 		return result, true, err
 	}
 

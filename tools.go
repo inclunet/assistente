@@ -33,18 +33,22 @@ func (a *App) GetToolsForAPI() []llm.Tool {
 	// 1. Tools genéricas (executadas diretamente, sem sub-LLMs)
 	result = append(result, a.getGenericTools()...)
 
-	// 2. Tools de delegação dos agentes (legado — durante transição)
+	// 2. Tools de delegação dos agentes MCP (mantido para MCP agents que expõem tools nativas)
 	if a.registry != nil {
 		agentTools := a.registry.GetDelegationTools()
 		for _, t := range agentTools {
-			result = append(result, llm.Tool{
-				Type: t.Type,
-				Function: llm.ToolFunction{
-					Name:        t.Function.Name,
-					Description: t.Function.Description,
-					Parameters:  t.Function.Parameters,
-				},
-			})
+			// Filtra: só mantém delegation tools de agentes MCP
+			name := t.Function.Name
+			if strings.HasPrefix(name, "delegate_to_mcp_") || strings.HasPrefix(name, "delegate_to_websearch") {
+				result = append(result, llm.Tool{
+					Type: t.Type,
+					Function: llm.ToolFunction{
+						Name:        t.Function.Name,
+						Description: t.Function.Description,
+						Parameters:  t.Function.Parameters,
+					},
+				})
+			}
 		}
 	}
 
