@@ -17,6 +17,7 @@ import (
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
 	"assistente/internal/memory"
+	"assistente/internal/skills"
 	"assistente/internal/speech"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -26,6 +27,7 @@ import (
 type App struct {
 	ctx                   context.Context
 	registry              *agents.Registry
+	skillsRegistry        *skills.Registry // Registry de skills declarativas
 	llmClient             *llm.SyncClient
 	embeddingsService     *llm.EmbeddingsService
 	summaryService        *llm.SummaryService
@@ -99,6 +101,7 @@ type StreamEvent struct {
 func NewApp() *App {
 	return &App{
 		registry:         agents.NewRegistry(),
+		skillsRegistry:   skills.NewRegistry(),
 		hotkeyLastFired:  make(map[uint]time.Time),
 		hotkeyThrottleMs: 1000, // 1000ms entre disparos (1 segundo)
 	}
@@ -119,6 +122,9 @@ func (a *App) startup(ctx context.Context) {
 
 	// Inicializa os agentes
 	a.initAgents()
+
+	// Carrega skills declarativas
+	a.loadSkills()
 
 	// Inicializa hotkeys globais
 	a.initGlobalHotkeys()
@@ -190,6 +196,38 @@ func (a *summaryGeneratorAdapter) GenerateSummary(messages []database.ChatMessag
 		}
 	}
 	return a.service.GenerateSummary(llmMessages)
+}
+
+// loadSkills carrega skills declarativas do diretório ~/.assistente/skills/
+func (a *App) loadSkills() {
+	dir, err := skills.GetSkillsDir()
+	if err != nil {
+		log.Printf("[Skills] Erro ao obter diretório de skills: %v", err)
+		return
+	}
+
+	if err := a.skillsRegistry.LoadFromDir(dir); err != nil {
+		log.Printf("[Skills] Erro ao carregar skills: %v", err)
+	}
+}
+
+// GetSkills retorna todas as skills carregadas (binding para frontend)
+func (a *App) GetSkills() []*skills.Skill {
+	return a.skillsRegistry.GetAll()
+}
+
+// GetSkillContent retorna o conteúdo de uma skill pelo nome (binding para frontend)
+func (a *App) GetSkillContent(name string) (string, error) {
+	skill := a.skillsRegistry.Get(name)
+	if skill == nil {
+		return "", fmt.Errorf("skill não encontrada: %s", name)
+	}
+	return skill.Content, nil
+}
+
+// ReloadSkills recarrega as skills do filesystem (binding para frontend)
+func (a *App) ReloadSkills() error {
+	return a.skillsRegistry.Reload()
 }
 
 // initAgents registra todos os agentes disponíveis

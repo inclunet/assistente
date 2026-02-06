@@ -28,28 +28,67 @@ type ToolResult struct {
 
 // GetToolsForAPI retorna as tools de delegação para o orquestrador
 func (a *App) GetToolsForAPI() []llm.Tool {
-	if a.registry == nil {
-		return []llm.Tool{}
-	}
-	// Converte agents.Tool para llm.Tool
-	agentTools := a.registry.GetDelegationTools()
-	result := make([]llm.Tool, len(agentTools))
-	for i, t := range agentTools {
-		result[i] = llm.Tool{
-			Type: t.Type,
-			Function: llm.ToolFunction{
-				Name:        t.Function.Name,
-				Description: t.Function.Description,
-				Parameters:  t.Function.Parameters,
-			},
+	var result []llm.Tool
+
+	// Tools de delegação dos agentes
+	if a.registry != nil {
+		agentTools := a.registry.GetDelegationTools()
+		for _, t := range agentTools {
+			result = append(result, llm.Tool{
+				Type: t.Type,
+				Function: llm.ToolFunction{
+					Name:        t.Function.Name,
+					Description: t.Function.Description,
+					Parameters:  t.Function.Parameters,
+				},
+			})
 		}
 	}
+
+	// Tool genérica: skill_read — permite ao LLM ler instruções de uma skill sob demanda
+	if a.skillsRegistry != nil && a.skillsRegistry.Count() > 0 {
+		result = append(result, llm.Tool{
+			Type: "function",
+			Function: llm.ToolFunction{
+				Name:        "skill_read",
+				Description: "Read the full instructions of a skill by name. Use this to learn how to perform a specific task described in the skills catalog.",
+				Parameters: map[string]interface{}{
+					"type": "object",
+					"properties": map[string]interface{}{
+						"name": map[string]interface{}{
+							"type":        "string",
+							"description": "The skill name as listed in the Available Skills catalog.",
+						},
+					},
+					"required": []string{"name"},
+				},
+			},
+		})
+	}
+
 	return result
 }
 
 // ExecuteTool executa uma tool de delegação
 func (a *App) ExecuteTool(toolCall llm.ToolCall) (string, error) {
 	toolName := toolCall.Function.Name
+
+	// Tool genérica: skill_read
+	if toolName == "skill_read" {
+		var args map[string]interface{}
+		if err := json.Unmarshal([]byte(toolCall.Function.Arguments), &args); err != nil {
+			return "", fmt.Errorf("erro ao parsear argumentos: %v", err)
+		}
+		name, _ := args["name"].(string)
+		if name == "" {
+			return "", fmt.Errorf("nome da skill não especificado")
+		}
+		content, err := a.GetSkillContent(name)
+		if err != nil {
+			return "", err
+		}
+		return content, nil
+	}
 
 	// Verifica se é uma tool de delegação (delegate_to_*)
 	if strings.HasPrefix(toolName, "delegate_to_") {

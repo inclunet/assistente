@@ -771,6 +771,14 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 		}
 	}
 
+	// 3. Skills catalog + auto-load content
+	if a.skillsRegistry != nil {
+		skillsPrompt := a.skillsRegistry.GetCatalogPrompt()
+		if skillsPrompt != "" {
+			parts = append(parts, skillsPrompt)
+		}
+	}
+
 	// Combine all parts
 	fullSystemPrompt := strings.Join(parts, "")
 
