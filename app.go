@@ -348,25 +348,10 @@ func (a *App) initAgents() {
 		a.registry.Register(webSearchAgent)
 	}
 
-	// Agente Builder (Cria e gerencia HTTP e MCP Agents)
-	builderAgent := agents.NewBuilderAgent(a.agentManager, a.llmClient, agentModel)
-	a.applyAgentConfig(builderAgent)
-	// Configurar callbacks de hot reload
-	builderAgent.SetReloadCallbacks(
-		func(agentConfigID uint) error {
-			return a.ReloadHTTPAgent(agentConfigID)
-		},
-		func(mcpAgentID uint) error {
-			return a.ReloadMCPAgent(mcpAgentID)
-		},
-	)
-	a.registry.Register(builderAgent)
-
+	// REMOVIDO: Builder Agent — substituído por skills + http_request tool
 	// REMOVIDO: Profile Agent — substituído por profiles unificados em YAML
-	// Profiles são gerenciados pelo profileManager (global, não por conversa)
 
-	// Carrega agentes personalizados salvos no banco
-	a.loadSavedHTTPAgents()
+	// Carrega agentes MCP salvos no banco (HTTP Agents foram substituídos por skills)
 	a.loadSavedMCPAgents()
 
 	log.Printf("Agentes registrados: %d", len(a.registry.GetAll()))
