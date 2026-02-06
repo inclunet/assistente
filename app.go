@@ -12,11 +12,9 @@ import (
 	"assistente/internal/agents"
 	"assistente/internal/config"
 	"assistente/internal/database"
-	"assistente/internal/faq"
 	"assistente/internal/filemanager"
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
-	"assistente/internal/memory"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
 
@@ -122,6 +120,11 @@ func (a *App) startup(ctx context.Context) {
 
 	// Inicializa os agentes
 	a.initAgents()
+
+	// Executa migrações (Memory/FAQ → arquivos, Profiles → YAML)
+	if err := a.RunMemoryMigration(); err != nil {
+		log.Printf("Aviso: erro na migração de memória: %v", err)
+	}
 
 	// Carrega skills declarativas
 	a.loadSkills()
@@ -238,18 +241,8 @@ func (a *App) initAgents() {
 	// Criar AgentManager (como faqStore, memoryStore)
 	a.agentManager = agentmanager.New(database.DB())
 
-	// Agente FAQ
-	faqStore := faq.NewStore()
-	faqAgent := agents.NewFAQAgent(faqStore, a.llmClient, agentModel)
-	a.applyAgentConfig(faqAgent)
-	a.registry.Register(faqAgent)
-
-	// Agente Memory (também busca em abas e histórico)
-	memoryStore := memory.NewStore()
-	memoryAgent := agents.NewMemoryAgent(memoryStore, a.llmClient, agentModel)
-	memoryAgent.SetContextSearcher(a) // Permite buscar em abas e histórico
-	a.applyAgentConfig(memoryAgent)
-	a.registry.Register(memoryAgent)
+	// REMOVIDO: FAQ Agent e Memory Agent — substituídos por skill "memory" + tools genéricas
+	// As memórias e FAQs agora são arquivos Markdown em ~/.assistente/memory/
 
 	// Agente Chat Manager (navegação, gerenciamento de abas e conversas)
 	chatManagerAgent := agents.NewChatManagerAgent(a, a.llmClient, agentModel)

@@ -30,13 +30,8 @@ export function Topbar() {
   const getCurrentPage = (): string => {
     if (location.pathname === '/settings') return 'settings';
     if (location.pathname === '/history') return 'history';
-    if (location.pathname === '/memory') return 'memory';
-    if (location.pathname === '/faq') return 'faq';
     if (location.pathname === '/agents') return 'agents';
     if (location.pathname === '/oauth') return 'oauth';
-    if (location.pathname === '/voice-profiles') return 'voice-profiles';
-    if (location.pathname === '/interaction-profiles') return 'interaction-profiles';
-    if (location.pathname === '/chat-profiles') return 'chat-profiles';
     if (location.pathname === '/help') return 'help';
     return 'chat';
   };
@@ -55,40 +50,10 @@ export function Topbar() {
       onClick: () => navigate('/history'),
     },
     {
-      id: 'memory',
-      label: 'Memória',
-      icon: '🧠',
-      onClick: () => navigate('/memory'),
-    },
-    {
-      id: 'faq',
-      label: 'FAQ',
-      icon: '❓',
-      onClick: () => navigate('/faq'),
-    },
-    {
       id: 'agents',
       label: 'Agentes',
       icon: '🤖',
       onClick: () => navigate('/agents'),
-    },
-    {
-      id: 'voice-profiles',
-      label: 'Perfis de Voz',
-      icon: '🔊',
-      onClick: () => navigate('/voice-profiles'),
-    },
-    {
-      id: 'interaction-profiles',
-      label: 'Perfis de Interação',
-      icon: '🎙️',
-      onClick: () => navigate('/interaction-profiles'),
-    },
-    {
-      id: 'chat-profiles',
-      label: 'Perfis de Conversa',
-      icon: '💬',
-      onClick: () => navigate('/chat-profiles'),
     },
     {
       id: 'oauth',
