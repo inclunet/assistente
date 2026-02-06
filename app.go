@@ -131,6 +131,9 @@ func (a *App) startup(ctx context.Context) {
 	if _, err := a.MigrateProfilesToFiles(); err != nil {
 		log.Printf("Aviso: erro na migração de profiles: %v", err)
 	}
+	if _, err := a.MigrateMCPToFile(); err != nil {
+		log.Printf("Aviso: erro na migração de MCP: %v", err)
+	}
 
 	// Carrega profiles unificados
 	a.loadProfiles()

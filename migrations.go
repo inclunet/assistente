@@ -435,3 +435,111 @@ func (a *App) MigrateProfilesToFiles() (int, error) {
 
 	return count, nil
 }
+
+// ==================== MCP Migration (Fase 7) ====================
+
+// MCPServerConfig representa a configuração de um servidor MCP em YAML
+type MCPServerConfig struct {
+	Name          string            `yaml:"name"`
+	Description   string            `yaml:"description,omitempty"`
+	Enabled       bool              `yaml:"enabled"`
+	TransportType string            `yaml:"transport_type"` // stdio, sse, streamable-http
+	ServerCommand string            `yaml:"server_command,omitempty"`
+	ServerArgs    []string          `yaml:"server_args,omitempty"`
+	ServerEnv     map[string]string `yaml:"server_env,omitempty"`
+	WorkingDir    string            `yaml:"working_dir,omitempty"`
+	ServerURL     string            `yaml:"server_url,omitempty"`
+	AuthType      string            `yaml:"auth_type,omitempty"`
+	AuthValue     string            `yaml:"auth_value,omitempty"`
+	HTTPHeaders   map[string]string `yaml:"http_headers,omitempty"`
+	ExecutionMode string            `yaml:"execution_mode"` // convert, native
+	AutoConnect   bool              `yaml:"auto_connect"`
+}
+
+// MCPServersFile representa o arquivo YAML com todos os servidores MCP
+type MCPServersFile struct {
+	Servers []MCPServerConfig `yaml:"servers"`
+}
+
+// MigrateMCPToFile exporta configurações MCP do banco para ~/.assistente/mcp/servers.yaml
+func (a *App) MigrateMCPToFile() (int, error) {
+	mcpAgents, err := database.GetAllMCPAgentsFull()
+	if err != nil {
+		return 0, fmt.Errorf("erro ao buscar MCP agents: %w", err)
+	}
+
+	if len(mcpAgents) == 0 {
+		log.Println("[Migration] Nenhum MCP agent para migrar")
+		return 0, nil
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return 0, fmt.Errorf("erro ao obter home dir: %w", err)
+	}
+
+	mcpDir := filepath.Join(homeDir, ".assistente", "mcp")
+	if err := os.MkdirAll(mcpDir, 0755); err != nil {
+		return 0, fmt.Errorf("erro ao criar diretório: %w", err)
+	}
+
+	filePath := filepath.Join(mcpDir, "servers.yaml")
+
+	// Se já existe, não sobrescreve
+	if _, err := os.Stat(filePath); err == nil {
+		log.Println("[Migration] servers.yaml já existe, pulando migração MCP")
+		return 0, nil
+	}
+
+	var servers []MCPServerConfig
+	for _, agent := range mcpAgents {
+		serverConfig := MCPServerConfig{
+			Name:          fmt.Sprintf("%v", agent["name"]),
+			Description:   fmt.Sprintf("%v", agent["description"]),
+			Enabled:       agent["enabled"] == true,
+			AutoConnect:   agent["auto_connect"] == true,
+			ExecutionMode: "convert",
+		}
+
+		if v, ok := agent["transport_type"].(string); ok {
+			serverConfig.TransportType = v
+		}
+		if v, ok := agent["server_command"].(string); ok {
+			serverConfig.ServerCommand = v
+		}
+		if v, ok := agent["server_url"].(string); ok {
+			serverConfig.ServerURL = v
+		}
+		if v, ok := agent["working_dir"].(string); ok {
+			serverConfig.WorkingDir = v
+		}
+		if v, ok := agent["execution_mode"].(string); ok {
+			serverConfig.ExecutionMode = v
+		}
+
+		// Parse server_args (pode ser JSON array ou string separada por espaço)
+		if v, ok := agent["server_args"].(string); ok && v != "" {
+			var args []string
+			if err := json.Unmarshal([]byte(v), &args); err != nil {
+				// Não é JSON, trata como string separada por espaço
+				args = strings.Fields(v)
+			}
+			serverConfig.ServerArgs = args
+		}
+
+		servers = append(servers, serverConfig)
+	}
+
+	file := MCPServersFile{Servers: servers}
+	data, err := yaml.Marshal(file)
+	if err != nil {
+		return 0, fmt.Errorf("erro ao serializar: %w", err)
+	}
+
+	if err := os.WriteFile(filePath, data, 0644); err != nil {
+		return 0, fmt.Errorf("erro ao escrever arquivo: %w", err)
+	}
+
+	log.Printf("[Migration] %d MCP agents migrados para %s", len(servers), filePath)
+	return len(servers), nil
+}
