@@ -1,16 +1,9 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { Combobox, ComboboxItem } from './Combobox';
 import { GetProfiles, GetActiveProfileName, SetActiveProfile } from '../../../wailsjs/go/main/App';
+import { profiles } from '../../../wailsjs/go/models';
 
-interface UnifiedProfile {
-  name: string;
-  description?: string;
-  icon?: string;
-  chat: {
-    model?: string;
-    use_tools?: boolean;
-  };
-}
+type UnifiedProfile = profiles.UnifiedProfile;
 
 export interface ChatProfilePickerProps {
   value: number; // Mantido para compatibilidade, mas ignorado internamente

@@ -1,19 +1,13 @@
 import { useState, useEffect } from 'react';
 import { GetSkills, ReloadSkills } from '../../wailsjs/go/main/App';
+import { skills } from '../../wailsjs/go/models';
 import { Toolbar, ToolbarAction } from '../components/ui/Toolbar';
 import './SkillsPage.css';
 
-interface Skill {
-  name: string;
-  display_name: string;
-  description: string;
-  auto_load: boolean;
-  tools: string[];
-  path: string;
-}
+type Skill = skills.Skill;
 
 export default function SkillsPage() {
-  const [skills, setSkills] = useState<Skill[]>([]);
+  const [skillsList, setSkillsList] = useState<Skill[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -24,7 +18,7 @@ export default function SkillsPage() {
     try {
       setLoading(true);
       const data = await GetSkills();
-      setSkills(data || []);
+      setSkillsList(data || []);
     } catch (error) {
       console.error('Erro ao carregar skills:', error);
     } finally {
@@ -43,7 +37,7 @@ export default function SkillsPage() {
 
   const actions: ToolbarAction[] = [
     {
-      id: 'reload',
+      key: 'reload',
       label: 'Recarregar',
       icon: '🔄',
       onClick: handleReload,
@@ -52,11 +46,11 @@ export default function SkillsPage() {
 
   return (
     <div className="skills-page">
-      <Toolbar title="Skills" actions={actions} />
+      <Toolbar left={<span style={{ fontWeight: 600, fontSize: '1.1em' }}>Skills</span>} actions={actions} />
       <div className="page-content">
         {loading ? (
           <div className="skills-loading">Carregando skills...</div>
-        ) : skills.length === 0 ? (
+        ) : skillsList.length === 0 ? (
           <div className="skills-empty">
             <div className="skills-empty-icon">📚</div>
             <h3>Nenhuma skill instalada</h3>
@@ -67,7 +61,7 @@ export default function SkillsPage() {
           </div>
         ) : (
           <div className="skills-grid">
-            {skills.map((skill) => (
+            {skillsList.map((skill) => (
               <div key={skill.name} className="skill-card">
                 <div className="skill-card-header">
                   <span className="skill-card-name">{skill.display_name || skill.name}</span>
