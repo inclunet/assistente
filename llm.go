@@ -609,52 +609,50 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		})
 	}
 
-	// Obtém o perfil de conversa efetivo (da conversa ou padrão)
-	chatProfile, err := database.GetEffectiveChatProfile(conversationID)
-	if err != nil {
-		log.Printf("[SendMessage] Erro ao obter perfil de conversa: %v (usando defaults)", err)
-	}
+	// Obtém o perfil ativo global (YAML unificado)
+	activeProfile := a.profileManager.GetActive()
 
-	// Aplica configurações do perfil se disponível
+	// Aplica configurações do perfil
 	var filteredTools []llm.Tool
 	var profileSystemPrompt string
 	var systemPromptPosition string
 
-	if chatProfile != nil {
-		log.Printf("[SendMessage] Usando perfil de conversa: %s (ID=%d)", chatProfile.Name, chatProfile.ID)
+	if activeProfile != nil {
+		log.Printf("[SendMessage] Usando perfil: %s", activeProfile.Name)
 
-		// 1. Aplica modelo do perfil (se não especificado nos params e perfil tem modelo)
-		if params.Model == "" && chatProfile.Model != "" {
-			params.Model = chatProfile.Model
+		chat := activeProfile.Chat
+
+		// 1. Aplica modelo do perfil (se não especificado nos params)
+		if params.Model == "" && chat.Model != "" {
+			params.Model = chat.Model
 			log.Printf("[SendMessage] Modelo do perfil: %s", params.Model)
 		}
 
-		// 2. Aplica parâmetros do perfil (sobrescreve defaults)
-		if chatProfile.Temperature > 0 {
-			params.Temperature = chatProfile.Temperature
+		// 2. Aplica parâmetros do perfil
+		if chat.Temperature > 0 {
+			params.Temperature = chat.Temperature
 		}
-		if chatProfile.MaxTokens > 0 {
-			params.MaxTokens = chatProfile.MaxTokens
+		if chat.MaxTokens > 0 {
+			params.MaxTokens = chat.MaxTokens
 		}
-		if chatProfile.TopP > 0 {
-			params.TopP = chatProfile.TopP
+		if chat.TopP > 0 {
+			params.TopP = chat.TopP
 		}
 
 		// 3. Aplica configuração de tools
-		params.UseTools = chatProfile.UseTools
+		params.UseTools = chat.UseTools
 
 		// 4. Aplica configuração de thinking/reasoning
-		params.EnableThinking = chatProfile.EnableThinking
+		params.EnableThinking = chat.EnableThinking
 
 		// 5. Filtra tools baseado no perfil
-		if chatProfile.UseTools {
-			allowedTools := chatProfile.GetToolsList()
-			if len(allowedTools) > 0 {
+		if chat.UseTools {
+			if len(chat.ToolsList) > 0 {
 				// Filtra tools para apenas as permitidas
 				allTools := a.GetToolsForAPI()
 				filteredTools = make([]llm.Tool, 0)
 				for _, tool := range allTools {
-					for _, allowed := range allowedTools {
+					for _, allowed := range chat.ToolsList {
 						if tool.Function.Name == allowed || strings.HasSuffix(tool.Function.Name, "_"+allowed) || strings.HasPrefix(tool.Function.Name, "delegate_to_"+allowed) {
 							filteredTools = append(filteredTools, tool)
 							break
@@ -669,26 +667,17 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		}
 
 		// 6. System prompt do perfil
-		profileSystemPrompt = chatProfile.SystemPrompt
-		systemPromptPosition = chatProfile.SystemPromptPosition
+		profileSystemPrompt = chat.SystemPrompt
+		systemPromptPosition = chat.SystemPromptPosition
 		if systemPromptPosition == "" {
 			systemPromptPosition = "before"
 		}
 	}
 
-	// Se ainda não tem modelo, tenta obter da conversa ou usa o padrão
+	// Se ainda não tem modelo, usa o padrão do config
 	if params.Model == "" {
-		if conversationID > 0 {
-			effectiveModel, err := a.GetEffectiveModel(conversationID)
-			if err == nil && effectiveModel != "" {
-				params.Model = effectiveModel
-				log.Printf("[SendMessage] Usando modelo da conversa: %s", params.Model)
-			}
-		}
-		if params.Model == "" {
-			params.Model = cfg.DefaultModel
-			log.Printf("[SendMessage] Usando modelo padrão: %s", params.Model)
-		}
+		params.Model = cfg.DefaultModel
+		log.Printf("[SendMessage] Usando modelo padrão: %s", params.Model)
 	}
 
 	// 1. Salva mensagem do usuário no banco
@@ -715,8 +704,8 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 
 	// 4. Compõe system prompt completo
 	includeCoreMemories := true // default
-	if chatProfile != nil {
-		includeCoreMemories = chatProfile.IncludeCoreMemories
+	if activeProfile != nil {
+		includeCoreMemories = activeProfile.Chat.IncludeCoreMemories
 	}
 	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, includeCoreMemories)
 

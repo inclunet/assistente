@@ -15,6 +15,7 @@ import (
 	"assistente/internal/filemanager"
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
+	"assistente/internal/profiles"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
 
@@ -25,7 +26,8 @@ import (
 type App struct {
 	ctx                   context.Context
 	registry              *agents.Registry
-	skillsRegistry        *skills.Registry // Registry de skills declarativas
+	skillsRegistry        *skills.Registry   // Registry de skills declarativas
+	profileManager        *profiles.Manager  // Manager de profiles unificados
 	llmClient             *llm.SyncClient
 	embeddingsService     *llm.EmbeddingsService
 	summaryService        *llm.SummaryService
@@ -100,6 +102,7 @@ func NewApp() *App {
 	return &App{
 		registry:         agents.NewRegistry(),
 		skillsRegistry:   skills.NewRegistry(),
+		profileManager:   profiles.NewManager(),
 		hotkeyLastFired:  make(map[uint]time.Time),
 		hotkeyThrottleMs: 1000, // 1000ms entre disparos (1 segundo)
 	}
@@ -125,6 +128,12 @@ func (a *App) startup(ctx context.Context) {
 	if err := a.RunMemoryMigration(); err != nil {
 		log.Printf("Aviso: erro na migração de memória: %v", err)
 	}
+	if _, err := a.MigrateProfilesToFiles(); err != nil {
+		log.Printf("Aviso: erro na migração de profiles: %v", err)
+	}
+
+	// Carrega profiles unificados
+	a.loadProfiles()
 
 	// Carrega skills declarativas
 	a.loadSkills()
@@ -199,6 +208,54 @@ func (a *summaryGeneratorAdapter) GenerateSummary(messages []database.ChatMessag
 		}
 	}
 	return a.service.GenerateSummary(llmMessages)
+}
+
+// loadProfiles carrega profiles unificados do diretório ~/.assistente/profiles/
+func (a *App) loadProfiles() {
+	dir, err := profiles.GetProfilesDir()
+	if err != nil {
+		log.Printf("[Profiles] Erro ao obter diretório: %v", err)
+		return
+	}
+
+	if err := a.profileManager.LoadFromDir(dir); err != nil {
+		log.Printf("[Profiles] Erro ao carregar profiles: %v", err)
+	}
+}
+
+// GetProfiles retorna todos os profiles unificados (binding para frontend)
+func (a *App) GetProfiles() []*profiles.UnifiedProfile {
+	return a.profileManager.GetAll()
+}
+
+// GetActiveProfile retorna o profile ativo (binding para frontend)
+func (a *App) GetActiveProfile() *profiles.UnifiedProfile {
+	return a.profileManager.GetActive()
+}
+
+// GetActiveProfileName retorna o nome do profile ativo (binding para frontend)
+func (a *App) GetActiveProfileName() string {
+	return a.profileManager.GetActiveName()
+}
+
+// SetActiveProfile define o profile ativo (binding para frontend)
+func (a *App) SetActiveProfile(name string) error {
+	return a.profileManager.SetActive(name)
+}
+
+// SaveProfile salva um profile (binding para frontend)
+func (a *App) SaveProfile(profile *profiles.UnifiedProfile) error {
+	return a.profileManager.Save(profile)
+}
+
+// DeleteProfile remove um profile (binding para frontend)
+func (a *App) DeleteProfile(name string) error {
+	return a.profileManager.Delete(name)
+}
+
+// ReloadProfiles recarrega profiles do filesystem (binding para frontend)
+func (a *App) ReloadProfiles() error {
+	return a.profileManager.Reload()
 }
 
 // loadSkills carrega skills declarativas do diretório ~/.assistente/skills/
@@ -305,25 +362,8 @@ func (a *App) initAgents() {
 	)
 	a.registry.Register(builderAgent)
 
-	// Agente Profile (Gerencia Voice e Interaction Profiles)
-	profileAgent := agents.NewProfileAgent(a.llmClient, agentModel)
-	a.applyAgentConfig(profileAgent)
-	// Configurar callbacks para ativação/desativação de perfis
-	profileAgent.SetCallbacks(
-		func(profileID uint) error {
-			return a.RegisterInteractionProfileHotkeys(profileID)
-		},
-		func(profileID uint) error {
-			return a.UnregisterInteractionProfileHotkeys(profileID)
-		},
-		func(event string, data interface{}) {
-			runtime.EventsEmit(a.ctx, event, data)
-		},
-		func(conversationID, profileID uint) error {
-			return a.SetConversationVoiceProfile(conversationID, profileID)
-		},
-	)
-	a.registry.Register(profileAgent)
+	// REMOVIDO: Profile Agent — substituído por profiles unificados em YAML
+	// Profiles são gerenciados pelo profileManager (global, não por conversa)
 
 	// Carrega agentes personalizados salvos no banco
 	a.loadSavedHTTPAgents()
