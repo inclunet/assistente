@@ -7,7 +7,6 @@ import (
 	"sort"
 	"time"
 
-	"assistente/internal/agentmanager"
 	"assistente/internal/agents"
 	"assistente/internal/config"
 	"assistente/internal/database"
@@ -22,8 +21,6 @@ type ChatPreferences = database.ChatPreferences
 type Memory = database.Memory
 type FAQ = database.FAQ
 type AgentConfig = database.AgentConfig
-type HTTPAgent = database.HTTPAgent
-type HTTPEndpoint = database.HTTPEndpoint
 type MCPAgentDB = database.MCPAgentDB
 type ModelCapability = database.ModelCapability
 type OAuthConnection = database.OAuthConnection
@@ -956,172 +953,6 @@ func (a *App) DeleteAgentConfig(id uint) error {
 
 func (a *App) SaveOrUpdateAgentConfig(name, displayName, description, agentType, model, systemPrompt, config string, enabled bool) (*AgentConfig, error) {
 	return database.SaveOrUpdateAgentConfig(name, displayName, description, agentType, model, systemPrompt, config, enabled)
-}
-
-// ==================== HTTPAgent ====================
-
-func (a *App) CreateHTTPAgent(agentConfigID uint, baseURL, authType, authConfig, defaultHeaders string, timeoutSeconds, retryCount int) (*HTTPAgent, error) {
-	return database.CreateHTTPAgent(agentConfigID, baseURL, authType, authConfig, defaultHeaders, timeoutSeconds, retryCount)
-}
-
-func (a *App) GetHTTPAgent(id uint) (*HTTPAgent, error) {
-	return database.GetHTTPAgent(id)
-}
-
-func (a *App) GetHTTPAgentByConfigID(agentConfigID uint) (*HTTPAgent, error) {
-	return database.GetHTTPAgentByConfigID(agentConfigID)
-}
-
-func (a *App) GetAllHTTPAgents() ([]HTTPAgent, error) {
-	return database.GetAllHTTPAgents()
-}
-
-func (a *App) UpdateHTTPAgent(id uint, baseURL, authType, authConfig, defaultHeaders string, timeoutSeconds, retryCount int) (*HTTPAgent, error) {
-	return database.UpdateHTTPAgent(id, baseURL, authType, authConfig, defaultHeaders, timeoutSeconds, retryCount)
-}
-
-func (a *App) DeleteHTTPAgent(id uint) error {
-	return database.DeleteHTTPAgent(id)
-}
-
-// ==================== HTTPEndpoint ====================
-
-func (a *App) CreateHTTPEndpoint(httpAgentID uint, name, description, method, pathTemplate, queryTemplate, headersJSON, bodyTemplate, parameters, responseTemplate string) (*HTTPEndpoint, error) {
-	req := agentmanager.CreateEndpointRequest{
-		Name:             name,
-		Description:      description,
-		Method:           method,
-		PathTemplate:     pathTemplate,
-		QueryTemplate:    queryTemplate,
-		HeadersJSON:      headersJSON,
-		BodyTemplate:     bodyTemplate,
-		Parameters:       parameters,
-		ResponseTemplate: responseTemplate,
-	}
-	data, err := a.agentManager.CreateHTTPEndpoint(httpAgentID, req)
-	if err != nil {
-		return nil, err
-	}
-	// Converte para tipo UI
-	return &HTTPEndpoint{
-		ID:               data.ID,
-		HTTPAgentID:      data.HTTPAgentID,
-		Name:             data.Name,
-		Description:      data.Description,
-		Method:           data.Method,
-		PathTemplate:     data.PathTemplate,
-		QueryTemplate:    data.QueryTemplate,
-		HeadersJSON:      data.HeadersJSON,
-		BodyTemplate:     data.BodyTemplate,
-		Parameters:       data.Parameters,
-		ResponseTemplate: data.ResponseTemplate,
-	}, nil
-}
-
-func (a *App) GetHTTPEndpoint(id uint) (*HTTPEndpoint, error) {
-	data, err := a.agentManager.GetHTTPEndpoint(id)
-	if err != nil {
-		return nil, err
-	}
-	return &HTTPEndpoint{
-		ID:               data.ID,
-		HTTPAgentID:      data.HTTPAgentID,
-		Name:             data.Name,
-		Description:      data.Description,
-		Method:           data.Method,
-		PathTemplate:     data.PathTemplate,
-		QueryTemplate:    data.QueryTemplate,
-		HeadersJSON:      data.HeadersJSON,
-		BodyTemplate:     data.BodyTemplate,
-		Parameters:       data.Parameters,
-		ResponseTemplate: data.ResponseTemplate,
-	}, nil
-}
-
-func (a *App) GetHTTPEndpointsByAgentID(httpAgentID uint) ([]HTTPEndpoint, error) {
-	data, err := a.agentManager.GetHTTPEndpointsByAgentID(httpAgentID)
-	if err != nil {
-		return nil, err
-	}
-	result := make([]HTTPEndpoint, 0, len(data))
-	for _, d := range data {
-		result = append(result, HTTPEndpoint{
-			ID:               d.ID,
-			HTTPAgentID:      d.HTTPAgentID,
-			Name:             d.Name,
-			Description:      d.Description,
-			Method:           d.Method,
-			PathTemplate:     d.PathTemplate,
-			QueryTemplate:    d.QueryTemplate,
-			HeadersJSON:      d.HeadersJSON,
-			BodyTemplate:     d.BodyTemplate,
-			Parameters:       d.Parameters,
-			ResponseTemplate: d.ResponseTemplate,
-		})
-	}
-	return result, nil
-}
-
-func (a *App) UpdateHTTPEndpoint(id uint, name, description, method, pathTemplate, queryTemplate, headersJSON, bodyTemplate, parameters, responseTemplate string) (*HTTPEndpoint, error) {
-	req := agentmanager.CreateEndpointRequest{
-		Name:             name,
-		Description:      description,
-		Method:           method,
-		PathTemplate:     pathTemplate,
-		QueryTemplate:    queryTemplate,
-		HeadersJSON:      headersJSON,
-		BodyTemplate:     bodyTemplate,
-		Parameters:       parameters,
-		ResponseTemplate: responseTemplate,
-	}
-	data, err := a.agentManager.UpdateHTTPEndpoint(id, req)
-	if err != nil {
-		return nil, err
-	}
-	endpoint := &HTTPEndpoint{
-		ID:               data.ID,
-		HTTPAgentID:      data.HTTPAgentID,
-		Name:             data.Name,
-		Description:      data.Description,
-		Method:           data.Method,
-		PathTemplate:     data.PathTemplate,
-		QueryTemplate:    data.QueryTemplate,
-		HeadersJSON:      data.HeadersJSON,
-		BodyTemplate:     data.BodyTemplate,
-		Parameters:       data.Parameters,
-		ResponseTemplate: data.ResponseTemplate,
-	}
-
-	// Hot reload: recarrega o agente pai no registry
-	go func() {
-		// Busca o HTTP agent para pegar o AgentConfigID
-		httpAgent, err := a.agentManager.GetHTTPAgent(data.HTTPAgentID)
-		if err == nil && httpAgent.AgentConfigID > 0 {
-			a.ReloadHTTPAgent(httpAgent.AgentConfigID)
-		}
-	}()
-
-	return endpoint, nil
-}
-
-func (a *App) DeleteHTTPEndpoint(id uint) error {
-	// Busca o endpoint para saber qual agente recarregar
-	endpoint, err := a.agentManager.GetHTTPEndpoint(id)
-	if err == nil && endpoint.HTTPAgentID > 0 {
-		// Deleta
-		if err := a.agentManager.DeleteHTTPEndpoint(id); err != nil {
-			return err
-		}
-		// Hot reload: recarrega o agente pai no registry
-		go func() {
-			httpAgent, err := a.agentManager.GetHTTPAgent(endpoint.HTTPAgentID)
-			if err == nil && httpAgent.AgentConfigID > 0 {
-				a.ReloadHTTPAgent(httpAgent.AgentConfigID)
-			}
-		}()
-		return nil
-	}
-	return a.agentManager.DeleteHTTPEndpoint(id)
 }
 
 // ==================== MCPAgentDB ====================

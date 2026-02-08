@@ -8,7 +8,6 @@ import (
 	"strings"
 	"time"
 
-	"assistente/internal/agentmanager"
 	"assistente/internal/agents"
 	"assistente/internal/config"
 	"assistente/internal/database"
@@ -33,7 +32,6 @@ type App struct {
 	summaryService        *llm.SummaryService
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
-	agentManager          agentmanager.Manager // NOVO - Manager para agentes HTTP/MCP
 	voiceHotkeyID         int
 	InitialWorkDir        string // Diretório de trabalho inicial (passado via --workdir ou pwd)
 	currentConversationID uint   // ID da conversa atual (para passar aos agentes)
@@ -298,9 +296,6 @@ func (a *App) initAgents() {
 	// Modelo padrão para agentes (mais barato que o principal)
 	agentModel := "gpt-4o-mini"
 
-	// Criar AgentManager (como faqStore, memoryStore)
-	a.agentManager = agentmanager.New(database.DB())
-
 	// REMOVIDO: FAQ Agent e Memory Agent — substituídos por skill "memory" + tools genéricas
 	// As memórias e FAQs agora são arquivos Markdown em ~/.assistente/memory/
 
@@ -358,33 +353,6 @@ func (a *App) initAgents() {
 	a.loadSavedMCPAgents()
 
 	log.Printf("Agentes registrados: %d", len(a.registry.GetAll()))
-}
-
-// loadSavedHTTPAgents carrega e registra HTTP Agents salvos no banco
-func (a *App) loadSavedHTTPAgents() {
-	httpAgents, err := a.GetAllHTTPAgentsFull()
-	if err != nil {
-		log.Printf("Erro ao carregar HTTP Agents do banco: %v", err)
-		return
-	}
-
-	for _, httpFull := range httpAgents {
-		// Só carrega se estiver habilitado
-		if !httpFull.Enabled {
-			log.Printf("HTTP Agent %s desabilitado, pulando", httpFull.Name)
-			continue
-		}
-
-		// Registra em background para não bloquear a inicialização
-		go func(hf HTTPAgentFullConfig) {
-			log.Printf("Registrando HTTP Agent: %s", hf.Name)
-			if err := a.registerHTTPAgentInRegistry(&hf); err != nil {
-				log.Printf("Erro ao registrar HTTP Agent %s: %v", hf.Name, err)
-			} else {
-				log.Printf("HTTP Agent %s registrado com sucesso", hf.Name)
-			}
-		}(httpFull)
-	}
 }
 
 // loadSavedMCPAgents carrega e conecta MCP Agents salvos no banco
@@ -1411,73 +1379,6 @@ func (a *App) registerMCPAgentInRegistry(agentConfig *AgentConfig, mcpAgentDB *M
 	return a.registry.RegisterMCPAgent(agent)
 }
 
-// registerHTTPAgentInRegistry cria e registra um HTTP Agent no registry
-func (a *App) registerHTTPAgentInRegistry(httpFull *HTTPAgentFullConfig) error {
-	// Parse auth config
-	var authConfig map[string]string
-	if httpFull.AuthConfig != "" {
-		if err := json.Unmarshal([]byte(httpFull.AuthConfig), &authConfig); err != nil {
-			authConfig = map[string]string{}
-		}
-	}
-
-	// Parse default headers
-	var defaultHeaders map[string]string
-	if httpFull.DefaultHeaders != "" {
-		if err := json.Unmarshal([]byte(httpFull.DefaultHeaders), &defaultHeaders); err != nil {
-			defaultHeaders = map[string]string{}
-		}
-	}
-
-	// Converte endpoints
-	endpoints := make([]agents.HTTPEndpointConfig, 0, len(httpFull.Endpoints))
-	for _, ep := range httpFull.Endpoints {
-		// Parse parameters JSON Schema
-		var params map[string]interface{}
-		if ep.Parameters != "" {
-			if err := json.Unmarshal([]byte(ep.Parameters), &params); err != nil {
-				params = map[string]interface{}{}
-			}
-		}
-
-		endpoints = append(endpoints, agents.HTTPEndpointConfig{
-			ID:               ep.ID,
-			Name:             ep.Name,
-			Description:      ep.Description,
-			Method:           ep.Method,
-			PathTemplate:     ep.PathTemplate,
-			QueryTemplate:    ep.QueryTemplate,
-			HeadersJSON:      ep.HeadersJSON,
-			BodyTemplate:     ep.BodyTemplate,
-			Parameters:       params,
-			ResponseTemplate: ep.ResponseTemplate,
-		})
-	}
-
-	// Cria o HTTP Agent
-	config := agents.HTTPAgentConfig{
-		ID:             httpFull.ID,
-		Name:           httpFull.Name,
-		DisplayName:    httpFull.DisplayName,
-		Description:    httpFull.Description,
-		Model:          httpFull.Model,
-		SystemPrompt:   httpFull.SystemPrompt,
-		Enabled:        httpFull.Enabled,
-		BaseURL:        httpFull.BaseURL,
-		AuthType:       httpFull.AuthType,
-		AuthConfig:     authConfig,
-		DefaultHeaders: defaultHeaders,
-		TimeoutSeconds: httpFull.TimeoutSeconds,
-		RetryCount:     httpFull.RetryCount,
-		Endpoints:      endpoints,
-	}
-
-	agent := agents.NewHTTPAgent(config, a.llmClient)
-
-	// Registra o agente
-	a.registry.Register(agent)
-	return nil
-}
 
 // ============================================================================
 // SAPI5 Voice Methods (Windows only)

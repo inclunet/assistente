@@ -66,38 +66,6 @@ type MemoriesExportFile struct {
 	Memories []MemoryExport `json:"memories"`
 }
 
-// HTTPAgentExport representa um HTTP Agent exportado
-type HTTPAgentExport struct {
-	// AgentConfig fields
-	Name         string `json:"name"`
-	DisplayName  string `json:"display_name"`
-	Description  string `json:"description"`
-	Model        string `json:"model"`
-	SystemPrompt string `json:"system_prompt"`
-	Enabled      bool   `json:"enabled"`
-	// HTTPAgent fields
-	BaseURL        string               `json:"base_url"`
-	AuthType       string               `json:"auth_type"`
-	AuthConfig     string               `json:"auth_config,omitempty"`
-	DefaultHeaders string               `json:"default_headers,omitempty"`
-	TimeoutSeconds int                  `json:"timeout_seconds"`
-	RetryCount     int                  `json:"retry_count"`
-	Endpoints      []HTTPEndpointExport `json:"endpoints"`
-}
-
-// HTTPEndpointExport representa um endpoint HTTP exportado
-type HTTPEndpointExport struct {
-	Name             string `json:"name"`
-	Description      string `json:"description"`
-	Method           string `json:"method"`
-	PathTemplate     string `json:"path_template"`
-	QueryTemplate    string `json:"query_template,omitempty"`
-	HeadersJSON      string `json:"headers_json,omitempty"`
-	BodyTemplate     string `json:"body_template,omitempty"`
-	Parameters       string `json:"parameters,omitempty"`
-	ResponseTemplate string `json:"response_template,omitempty"`
-}
-
 // MCPAgentExport representa um MCP Agent exportado
 type MCPAgentExport struct {
 	// AgentConfig fields
@@ -123,9 +91,8 @@ type MCPAgentExport struct {
 
 // AgentsExportFile representa o arquivo de exportação de agentes
 type AgentsExportFile struct {
-	Metadata   ExportMetadata    `json:"metadata"`
-	HTTPAgents []HTTPAgentExport `json:"http_agents,omitempty"`
-	MCPAgents  []MCPAgentExport  `json:"mcp_agents,omitempty"`
+	Metadata  ExportMetadata   `json:"metadata"`
+	MCPAgents []MCPAgentExport `json:"mcp_agents,omitempty"`
 }
 
 // VoiceProfileExport representa um perfil de voz exportado
@@ -316,62 +283,10 @@ func (a *App) ExportMemories(ids []uint) (string, error) {
 	return string(jsonData), nil
 }
 
-// ExportAgents exporta agentes selecionados (HTTP e MCP)
-func (a *App) ExportAgents(httpAgentIDs []uint, mcpAgentIDs []uint) (string, error) {
-	httpAgents := make([]HTTPAgentExport, 0)
+// ExportAgents exporta MCP Agents selecionados
+func (a *App) ExportAgents(mcpAgentIDs []uint) (string, error) {
 	mcpAgents := make([]MCPAgentExport, 0)
 
-	// Exporta HTTP Agents
-	for _, id := range httpAgentIDs {
-		httpAgent, err := database.GetHTTPAgent(id)
-		if err != nil {
-			return "", fmt.Errorf("erro ao buscar HTTP Agent %d: %w", id, err)
-		}
-
-		agentConfig, err := database.GetAgentConfigByID(httpAgent.AgentConfigID)
-		if err != nil {
-			return "", fmt.Errorf("erro ao buscar config do HTTP Agent %d: %w", id, err)
-		}
-
-		endpoints, err := a.agentManager.GetHTTPEndpointsByAgentID(id)
-		if err != nil {
-			return "", fmt.Errorf("erro ao buscar endpoints do HTTP Agent %d: %w", id, err)
-		}
-
-		exportEndpoints := make([]HTTPEndpointExport, len(endpoints))
-		for i, ep := range endpoints {
-			exportEndpoints[i] = HTTPEndpointExport{
-				Name:             ep.Name,
-				Description:      ep.Description,
-				Method:           ep.Method,
-				PathTemplate:     ep.PathTemplate,
-				QueryTemplate:    ep.QueryTemplate,
-				HeadersJSON:      ep.HeadersJSON,
-				BodyTemplate:     ep.BodyTemplate,
-				Parameters:       ep.Parameters,
-				ResponseTemplate: ep.ResponseTemplate,
-			}
-		}
-
-		export := HTTPAgentExport{
-			Name:           agentConfig.Name,
-			DisplayName:    agentConfig.DisplayName,
-			Description:    agentConfig.Description,
-			Model:          agentConfig.Model,
-			SystemPrompt:   agentConfig.SystemPrompt,
-			Enabled:        agentConfig.Enabled,
-			BaseURL:        httpAgent.BaseURL,
-			AuthType:       httpAgent.AuthType,
-			AuthConfig:     httpAgent.AuthConfig,
-			DefaultHeaders: httpAgent.DefaultHeaders,
-			TimeoutSeconds: httpAgent.TimeoutSeconds,
-			RetryCount:     httpAgent.RetryCount,
-			Endpoints:      exportEndpoints,
-		}
-		httpAgents = append(httpAgents, export)
-	}
-
-	// Exporta MCP Agents
 	for _, id := range mcpAgentIDs {
 		mcpAgent, err := database.GetMCPAgent(id)
 		if err != nil {
@@ -410,10 +325,9 @@ func (a *App) ExportAgents(httpAgentIDs []uint, mcpAgentIDs []uint) (string, err
 			Version:    "1.0",
 			ExportedAt: time.Now(),
 			Type:       "agents",
-			Count:      len(httpAgents) + len(mcpAgents),
+			Count:      len(mcpAgents),
 		},
-		HTTPAgents: httpAgents,
-		MCPAgents:  mcpAgents,
+		MCPAgents: mcpAgents,
 	}
 
 	jsonData, err := json.MarshalIndent(exportFile, "", "  ")
@@ -568,59 +482,6 @@ func (a *App) ImportAgents(jsonData string) (*ImportResult, error) {
 	result := &ImportResult{
 		Success: true,
 		Errors:  make([]string, 0),
-	}
-
-	// Importa HTTP Agents
-	for _, httpExport := range exportFile.HTTPAgents {
-		// Verifica se já existe um agente com esse nome
-		existing, _ := database.GetAgentConfig(httpExport.Name)
-		if existing != nil {
-			// Gera nome único
-			httpExport.Name = fmt.Sprintf("%s_imported_%d", httpExport.Name, time.Now().Unix())
-		}
-
-		// Cria o agente HTTP completo
-		httpFull, err := a.CreateHTTPAgentFull(
-			httpExport.Name,
-			httpExport.DisplayName,
-			httpExport.Description,
-			httpExport.Model,
-			httpExport.SystemPrompt,
-			httpExport.Enabled,
-			httpExport.BaseURL,
-			httpExport.AuthType,
-			httpExport.AuthConfig,
-			httpExport.DefaultHeaders,
-			httpExport.TimeoutSeconds,
-			httpExport.RetryCount,
-		)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("Erro ao criar HTTP Agent '%s': %v", httpExport.Name, err))
-			result.Skipped++
-			continue
-		}
-
-		// Cria os endpoints
-		httpAgentID := httpFull.HTTPAgentID
-		for _, ep := range httpExport.Endpoints {
-			_, err := a.CreateHTTPEndpoint(
-				httpAgentID,
-				ep.Name,
-				ep.Description,
-				ep.Method,
-				ep.PathTemplate,
-				ep.QueryTemplate,
-				ep.HeadersJSON,
-				ep.BodyTemplate,
-				ep.Parameters,
-				ep.ResponseTemplate,
-			)
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("Erro ao criar endpoint '%s': %v", ep.Name, err))
-			}
-		}
-
-		result.Imported++
 	}
 
 	// Importa MCP Agents

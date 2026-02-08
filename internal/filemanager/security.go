@@ -162,13 +162,25 @@ func (v *SecurityValidator) ValidatePathForOperation(path string, op Operation) 
 	}
 
 	// 5. Para operações de delete, verifica autorização
+	//    ~/.assistente/ é sempre autorizado para delete (dados do app: memórias, skills, configs)
 	if op == OpDelete {
-		if !v.isPathAuthorizedForDelete(absPath) {
+		if !isAppDataPath(absPath) && !v.isPathAuthorizedForDelete(absPath) {
 			return ErrDeleteNotAllowed
 		}
 	}
 
 	return nil
+}
+
+// isAppDataPath verifica se o caminho está dentro de ~/.assistente/ (dados do app)
+func isAppDataPath(absPath string) bool {
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return false
+	}
+	appDir := strings.ToLower(filepath.Join(home, ".assistente"))
+	lowerPath := strings.ToLower(absPath)
+	return strings.HasPrefix(lowerPath, appDir+string(os.PathSeparator)) || lowerPath == appDir
 }
 
 // isProtectedPath verifica se o caminho está em uma pasta protegida

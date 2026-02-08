@@ -238,6 +238,12 @@ func (a *FileAgent) ClearWorkingDirectory() {
 
 // ResolvePath resolve um caminho relativo usando o diretório de trabalho
 func (a *FileAgent) ResolvePath(path string) string {
+	// Expande ~ para home do usuário (ex: ~/.assistente/memory/core.md)
+	if strings.HasPrefix(path, "~/") || path == "~" {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, path[1:])
+		}
+	}
 	if filepath.IsAbs(path) {
 		return path
 	}

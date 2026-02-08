@@ -113,14 +113,14 @@ func (r *Registry) GetCatalogPrompt() string {
 
 	// Lista de skills disponíveis (catálogo)
 	sb.WriteString("\n\n## Available Skills\n")
-	sb.WriteString("You can read a skill's full instructions using the `skill_read` tool.\n\n")
+	sb.WriteString("To learn how to perform a skill, use `file_read` to read its SKILL.md file at the path shown below.\n\n")
 
 	for _, skill := range r.skills {
 		autoTag := ""
 		if skill.AutoLoad {
 			autoTag = " [auto-loaded]"
 		}
-		sb.WriteString(fmt.Sprintf("- **%s**: %s%s\n", skill.Name, skill.Description, autoTag))
+		sb.WriteString(fmt.Sprintf("- **%s**: %s%s\n  Path: `%s`\n", skill.Name, skill.Description, autoTag, skill.Path))
 	}
 
 	// Conteúdo das skills auto-load

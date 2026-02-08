@@ -768,6 +768,12 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 		}
 	}
 
+	// 4. App data directory info (memories, skills, MCP configs live here)
+	if home, err := os.UserHomeDir(); err == nil {
+		appDataDir := filepath.Join(home, ".assistente")
+		parts = append(parts, fmt.Sprintf("\n\n## App Data Directory\nYour app data (memories, skills, MCP configs) is stored at: `%s`\nUse `file_read` and `file_write` with paths under this directory to manage memories, skills, and configurations.\n", appDataDir))
+	}
+
 	// Combine all parts
 	fullSystemPrompt := strings.Join(parts, "")
 

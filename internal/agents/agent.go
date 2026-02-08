@@ -164,3 +164,11 @@ func (b *BaseAgent) SetDescription(desc string) {
 func (b *BaseAgent) SetEnabled(enabled bool) {
 	b.Enabled = enabled
 }
+
+// truncate trunca uma string para exibição em logs
+func truncate(s string, maxLen int) string {
+	if len(s) <= maxLen {
+		return s
+	}
+	return s[:maxLen] + "..."
+}
