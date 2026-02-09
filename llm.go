@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -23,10 +22,6 @@ import (
 type Message = llm.Message
 type ContentPart = llm.ContentPart
 type ImageURL = llm.ImageURL
-type ToolCall = llm.ToolCall
-type FunctionCall = llm.FunctionCall
-type Tool = llm.Tool
-type ToolFunction = llm.ToolFunction
 type StreamOptions = llm.StreamOptions
 type ChatRequest = llm.ChatRequest
 type ChatChoice = llm.ChatChoice
@@ -51,18 +46,13 @@ var strPtr = llm.StrPtr
 // - n2: interações do agente com tools (parentID=agentMessageID)
 type appStreamHandler struct {
 	app                *App
-	conversationID     uint           // ID da conversa
-	userMessageID      uint           // ID da mensagem do usuário (raiz da thread)
-	accumulatedContent string         // Conteúdo acumulado durante streaming
-	accumulatedCalls   []llm.ToolCall // Acumula tool calls
-	accumulatedResults []string       // Acumula resultados de tools
+	conversationID     uint   // ID da conversa
+	userMessageID      uint   // ID da mensagem do usuário (raiz da thread)
+	accumulatedContent string // Conteúdo acumulado durante streaming
 
 	// Reasoning/Thinking - chain of thought de modelos como DeepSeek, Claude, o1
 	accumulatedReasoning string // Reasoning acumulado durante streaming
 	isThinking           bool   // Flag indicando se está recebendo reasoning
-
-	// Chat Profile - tools filtradas
-	filteredTools []llm.Tool // Lista de tools filtradas pelo perfil
 
 	// Throttling para eventos de streaming
 	mu            sync.Mutex  // Protege accumulatedContent durante throttling
@@ -300,231 +290,6 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	})
 }
 
-func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage, model string) {
-	// Acumula as tool calls
-	h.accumulatedCalls = append(h.accumulatedCalls, toolCalls...)
-
-	// Salva mensagem do assistant com tool_calls como filha da mensagem do usuário (nível 1)
-	if h.conversationID > 0 && h.userMessageID > 0 {
-		toolCallsJSON, _ := json.Marshal(toolCalls)
-
-		// Formata conteúdo markdown com as tool calls
-		var contentBuilder strings.Builder
-
-		if len(toolCalls) == 1 {
-			// Uma única tool call - formato mais simples
-			tc := toolCalls[0]
-			name := tc.Function.Name
-			displayName := name
-			if strings.HasPrefix(name, "delegate_to_") {
-				displayName = strings.TrimPrefix(name, "delegate_to_")
-			}
-
-			// Extrai tarefa se houver
-			var args map[string]interface{}
-			taskContent := ""
-			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
-				if task, ok := args["task"].(string); ok {
-					taskContent = task
-				}
-			}
-
-			if taskContent != "" {
-				contentBuilder.WriteString(fmt.Sprintf("🤖 **Consultando %s**\n\n", displayName))
-				contentBuilder.WriteString(fmt.Sprintf("**Tarefa:** %s\n\n", taskContent))
-				contentBuilder.WriteString("**Argumentos:**\n```json\n")
-			} else {
-				contentBuilder.WriteString(fmt.Sprintf("🔧 **Executando:** `%s`\n\n", displayName))
-				contentBuilder.WriteString("**Argumentos:**\n```json\n")
-			}
-
-			// Formata JSON
-			var prettyArgs bytes.Buffer
-			if err := json.Indent(&prettyArgs, []byte(tc.Function.Arguments), "", "  "); err == nil {
-				contentBuilder.WriteString(prettyArgs.String())
-			} else {
-				contentBuilder.WriteString(tc.Function.Arguments)
-			}
-			contentBuilder.WriteString("\n```")
-		} else {
-			// Múltiplas tool calls
-			contentBuilder.WriteString(fmt.Sprintf("🔧 **Executando %d ferramentas:**\n\n", len(toolCalls)))
-			for i, tc := range toolCalls {
-				contentBuilder.WriteString(fmt.Sprintf("%d. **%s**\n```json\n", i+1, tc.Function.Name))
-				var prettyArgs bytes.Buffer
-				if err := json.Indent(&prettyArgs, []byte(tc.Function.Arguments), "", "  "); err == nil {
-					contentBuilder.WriteString(prettyArgs.String())
-				} else {
-					contentBuilder.WriteString(tc.Function.Arguments)
-				}
-				contentBuilder.WriteString("\n```\n")
-				if i < len(toolCalls)-1 {
-					contentBuilder.WriteString("\n")
-				}
-			}
-		}
-
-		content := contentBuilder.String()
-
-		// Salva como filho da mensagem do usuário (nível 1)
-		// role="assistant" porque é o assistente falando com o agente
-		// agentName VAZIO porque é o assistente fazendo a chamada (não o agente respondendo)
-		msg, err := database.AddChildMessage(
-			h.conversationID,
-			h.userMessageID, // ParentID = mensagem do usuário
-			"assistant",
-			content,
-			string(toolCallsJSON),
-			"",
-			"", // agentName VAZIO - é o assistente chamando, não o agente respondendo
-			model,
-		)
-		if err != nil {
-			// Se a conversa foi deletada ou mensagem pai não existe, aborta silenciosamente
-			if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
-				fmt.Printf("🛑 Conversa %d foi deletada/limpa - abortando processamento de tool calls\n", h.conversationID)
-				return
-			}
-			fmt.Printf("❌ Erro ao salvar delegação: %v\n", err)
-		} else {
-			fmt.Printf("✅ Delegação salva: ID=%d, parentID=%d (nível 1)\n", msg.ID, h.userMessageID)
-			// Define no App para os agentes usarem como ParentID (nível 2)
-			h.app.currentDelegationID = msg.ID
-
-			// Emite evento para o frontend mostrar mensagem interna em tempo real
-			runtime.EventsEmit(h.app.ctx, "chat:internal_message", map[string]interface{}{
-				"id":        msg.ID,
-				"parentId":  h.userMessageID,
-				"role":      "assistant",
-				"content":   content,
-				"toolCalls": string(toolCallsJSON),
-				"internal":  true,
-			})
-		}
-
-		// Emite evento de streaming
-		runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
-			Content:        "🔧 Executando ferramentas...",
-			Done:           false,
-			ConversationId: h.conversationID,
-		})
-	}
-}
-
-func (h *appStreamHandler) OnToolsExecuting(toolNames []string) {
-	runtime.EventsEmit(h.app.ctx, "chat:tools", map[string]interface{}{
-		"tools":   toolNames,
-		"message": fmt.Sprintf("Executando %d ferramenta(s): %s", len(toolNames), strings.Join(toolNames, ", ")),
-	})
-}
-
-func (h *appStreamHandler) OnToolResults(results []string, usage llm.Usage, model string) {
-	// Acumula os resultados
-	h.accumulatedResults = append(h.accumulatedResults, results...)
-
-	// Salva cada tool result como filha da mensagem do usuário (nível 1)
-	// Estas são as respostas dos agentes
-	if h.conversationID > 0 && h.userMessageID > 0 {
-		for i, result := range results {
-			var toolCallID string
-			var agentName string
-			callIndex := len(h.accumulatedCalls) - len(results) + i
-			if callIndex >= 0 && callIndex < len(h.accumulatedCalls) {
-				tc := h.accumulatedCalls[callIndex]
-				toolCallID = tc.ID
-				toolName := tc.Function.Name
-
-				// Extrai nome do agente
-				if strings.HasPrefix(toolName, "delegate_to_") {
-					agentName = strings.TrimPrefix(toolName, "delegate_to_")
-				} else {
-					agentName = toolName
-				}
-			}
-
-			// Salva como filho da mensagem do usuário (nível 1)
-			// role="agent" para indicar que é o agente respondendo (não "tool")
-			msg, err := database.AddChildMessage(
-				h.conversationID,
-				h.userMessageID, // ParentID = mensagem do usuário
-				"agent",         // role="agent" para distinguir de tool results internos
-				result,
-				"",         // toolCalls
-				toolCallID, // toolCallID
-				agentName,  // agentName identifica qual agente respondeu
-				model,
-			)
-			if err != nil {
-				// Se a conversa foi deletada ou mensagem pai não existe, aborta silenciosamente
-				if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
-					fmt.Printf("🛑 Conversa %d foi deletada/limpa - abortando processamento de resposta do agente\n", h.conversationID)
-					return
-				}
-				fmt.Printf("❌ Erro ao salvar resposta do agente: %v\n", err)
-			} else {
-				fmt.Printf("✅ Resposta do agente salva: ID=%d, parentID=%d, agent=%s (nível 1)\n",
-					msg.ID, h.userMessageID, agentName)
-
-				// Emite evento para o frontend mostrar resposta do agente em tempo real
-				runtime.EventsEmit(h.app.ctx, "chat:internal_message", map[string]interface{}{
-					"id":         msg.ID,
-					"parentId":   h.userMessageID,
-					"role":       "agent",
-					"content":    result,
-					"agentName":  agentName,
-					"toolCallId": toolCallID,
-					"internal":   true,
-				})
-			}
-		}
-	}
-
-	// Emite evento para feedback visual
-	runtime.EventsEmit(h.app.ctx, "chat:tool_results", map[string]interface{}{
-		"results": results,
-	})
-}
-
-func (h *appStreamHandler) GetTools() []llm.Tool {
-	// Se há tools filtradas pelo perfil, usa elas
-	if h.filteredTools != nil {
-		return h.filteredTools
-	}
-	// Fallback: retorna todas as tools
-	return h.app.GetToolsForAPI()
-}
-
-func (h *appStreamHandler) ExecuteTool(tc llm.ToolCall) (string, error) {
-	// Define o contexto no App para os agentes poderem salvar mensagens
-	h.app.currentConversationID = h.conversationID
-	// currentDelegationID é definido em OnToolCalls (nível 1 → nível 2)
-
-	fmt.Printf("🔧 [EXECUTE] Tool: %s, conversationID=%d, delegationID=%d\n",
-		tc.Function.Name, h.conversationID, h.app.currentDelegationID)
-
-	return h.app.ExecuteTool(tc)
-}
-
-func (h *appStreamHandler) SupportsVision(model string) (bool, error) {
-	return h.app.ModelSupportsVision(model)
-}
-
-func (h *appStreamHandler) SetVisionSupport(model string, supports bool) {
-	h.app.SetModelVisionSupport(model, supports)
-}
-
-func (h *appStreamHandler) GetImageModel() string {
-	cfg, err := config.Load()
-	if err != nil {
-		return ""
-	}
-	return cfg.ImageModel
-}
-
-func (h *appStreamHandler) GenerateImageDescription(imageBase64, model string) (string, error) {
-	return h.app.GenerateImageDescription(imageBase64, model)
-}
-
 // ==================== Wails Bindings ====================
 
 // GetModels retorna a lista de modelos disponíveis na API
@@ -609,69 +374,36 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		})
 	}
 
-	// Obtém o perfil ativo global (YAML unificado)
-	activeProfile := a.profileManager.GetActive()
+	// Obtém o perfil de chat efetivo da conversa
+	chatProfile, err := database.GetEffectiveChatProfile(conversationID)
+	if err != nil {
+		log.Printf("[SendMessage] Erro ao obter perfil de chat: %v", err)
+		// Continua com valores padrão se houver erro
+	}
 
-	// Aplica configurações do perfil
-	var filteredTools []llm.Tool
-	var profileSystemPrompt string
-	var systemPromptPosition string
-
-	if activeProfile != nil {
-		log.Printf("[SendMessage] Usando perfil: %s", activeProfile.Name)
-
-		chat := activeProfile.Chat
+	// Aplica configurações do perfil de chat
+	if chatProfile != nil {
+		log.Printf("[SendMessage] Usando perfil: %s", chatProfile.Name)
 
 		// 1. Aplica modelo do perfil (se não especificado nos params)
-		if params.Model == "" && chat.Model != "" {
-			params.Model = chat.Model
+		if params.Model == "" && chatProfile.Model != "" {
+			params.Model = chatProfile.Model
 			log.Printf("[SendMessage] Modelo do perfil: %s", params.Model)
 		}
 
 		// 2. Aplica parâmetros do perfil
-		if chat.Temperature > 0 {
-			params.Temperature = chat.Temperature
+		if chatProfile.Temperature > 0 {
+			params.Temperature = chatProfile.Temperature
 		}
-		if chat.MaxTokens > 0 {
-			params.MaxTokens = chat.MaxTokens
+		if chatProfile.MaxTokens > 0 {
+			params.MaxTokens = chatProfile.MaxTokens
 		}
-		if chat.TopP > 0 {
-			params.TopP = chat.TopP
-		}
-
-		// 3. Aplica configuração de tools
-		params.UseTools = chat.UseTools
-
-		// 4. Aplica configuração de thinking/reasoning
-		params.EnableThinking = chat.EnableThinking
-
-		// 5. Filtra tools baseado no perfil
-		if chat.UseTools {
-			if len(chat.ToolsList) > 0 {
-				// Filtra tools para apenas as permitidas
-				allTools := a.GetToolsForAPI()
-				filteredTools = make([]llm.Tool, 0)
-				for _, tool := range allTools {
-					for _, allowed := range chat.ToolsList {
-						if tool.Function.Name == allowed || strings.HasSuffix(tool.Function.Name, "_"+allowed) || strings.HasPrefix(tool.Function.Name, "delegate_to_"+allowed) {
-							filteredTools = append(filteredTools, tool)
-							break
-						}
-					}
-				}
-				log.Printf("[SendMessage] Tools filtradas: %d de %d", len(filteredTools), len(allTools))
-			} else {
-				// Lista vazia = todas as tools
-				filteredTools = a.GetToolsForAPI()
-			}
+		if chatProfile.TopP > 0 {
+			params.TopP = chatProfile.TopP
 		}
 
-		// 6. System prompt do perfil
-		profileSystemPrompt = chat.SystemPrompt
-		systemPromptPosition = chat.SystemPromptPosition
-		if systemPromptPosition == "" {
-			systemPromptPosition = "before"
-		}
+		// 3. Aplica configuração de thinking/reasoning
+		params.EnableThinking = chatProfile.EnableThinking
 	}
 
 	// Se ainda não tem modelo, usa o padrão do config
@@ -681,7 +413,7 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 	}
 
 	// 1. Salva mensagem do usuário no banco
-	userMsg, err := database.AddMessageWithMedia(conversationID, "user", userContent, userMedia, "", "")
+	userMsg, err := database.AddMessageWithMedia(conversationID, "user", userContent, userMedia)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao salvar mensagem: "+err.Error())
 		return 0, err
@@ -703,18 +435,22 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 	}
 
 	// 4. Compõe system prompt completo
-	includeCoreMemories := true // default
-	if activeProfile != nil {
-		includeCoreMemories = activeProfile.Chat.IncludeCoreMemories
+	var profileSystemPrompt string
+	var systemPromptPosition string
+	if chatProfile != nil {
+		profileSystemPrompt = chatProfile.SystemPrompt
+		systemPromptPosition = chatProfile.SystemPromptPosition
+		if systemPromptPosition == "" {
+			systemPromptPosition = "before"
+		}
 	}
-	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, includeCoreMemories)
+	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition)
 
 	// 5. Processa com LLM - userMessageID é a raiz da thread
 	handler := &appStreamHandler{
 		app:            a,
 		conversationID: conversationID,
 		userMessageID:  userMsg.ID, // Raiz da thread para interações com agentes
-		filteredTools:  filteredTools,
 	}
 	go llm.StreamChat(a.ctx, cfg, messages, params, handler)
 	return conversationID, nil
@@ -729,8 +465,8 @@ Key behaviors:
 - Use markdown formatting for better readability
 - Adapt your communication style to the user's needs`
 
-// buildFullSystemPrompt composes the complete system prompt with base prompt, custom prompt, and core memories
-func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, includeCoreMemories bool) []Message {
+// buildFullSystemPrompt composes the complete system prompt with base prompt and custom prompt
+func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string) []Message {
 	// Build the system prompt parts
 	var parts []string
 
@@ -740,39 +476,6 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 		basePrompt = DefaultSystemPrompt
 	}
 	parts = append(parts, basePrompt)
-
-	// 2. Core memories section (if enabled)
-	if includeCoreMemories {
-		coreMemories, err := database.GetCoreMemories()
-		if err != nil {
-			log.Printf("[SystemPrompt] Error loading core memories: %v", err)
-		} else if len(coreMemories) > 0 {
-			var memoriesSection strings.Builder
-			memoriesSection.WriteString("\n\n## Core Information About the User\n")
-			for _, mem := range coreMemories {
-				if mem.Title != "" {
-					memoriesSection.WriteString(fmt.Sprintf("- **%s**: %s\n", mem.Title, mem.Content))
-				} else {
-					memoriesSection.WriteString(fmt.Sprintf("- %s\n", mem.Content))
-				}
-			}
-			parts = append(parts, memoriesSection.String())
-		}
-	}
-
-	// 3. Skills catalog + auto-load content
-	if a.skillsRegistry != nil {
-		skillsPrompt := a.skillsRegistry.GetCatalogPrompt()
-		if skillsPrompt != "" {
-			parts = append(parts, skillsPrompt)
-		}
-	}
-
-	// 4. App data directory info (memories, skills, MCP configs live here)
-	if home, err := os.UserHomeDir(); err == nil {
-		appDataDir := filepath.Join(home, ".assistente")
-		parts = append(parts, fmt.Sprintf("\n\n## App Data Directory\nYour app data (memories, skills, MCP configs) is stored at: `%s`\nUse `file_read` and `file_write` with paths under this directory to manage memories, skills, and configurations.\n", appDataDir))
-	}
 
 	// Combine all parts
 	fullSystemPrompt := strings.Join(parts, "")
@@ -958,10 +661,7 @@ func (a *App) SaveSettings(input SettingsInput) error {
 		return &config.Config{
 			APIKey:          input.APIKey,
 			APIBaseURL:      input.APIBaseURL,
-			BraveAPIKey:     input.BraveAPIKey,
 			DefaultModel:    input.ChatParams.Model,
-			EmbeddingsModel: input.EmbeddingsParams.Model,
-			ImageModel:      input.ImageModel,
 			ResponseTimeout: responseTimeout,
 			ChatParams: config.ModelParams{
 				Model:       input.ChatParams.Model,
@@ -969,17 +669,9 @@ func (a *App) SaveSettings(input SettingsInput) error {
 				MaxTokens:   input.ChatParams.MaxTokens,
 				TopP:        input.ChatParams.TopP,
 			},
-			EmbeddingsParams: config.EmbeddingsParams{
-				Model:      input.EmbeddingsParams.Model,
-				Dimensions: input.EmbeddingsParams.Dimensions,
-			},
 			STTParams: config.STTParams{
 				Provider:      input.STTParams.Provider,
 				RecordingMode: input.STTParams.RecordingMode,
-			},
-			ChatDefaults: config.ChatDefaults{
-				UseTools:             input.ChatDefaults.UseTools,
-				ShowInternalMessages: input.ChatDefaults.ShowInternalMessages,
 			},
 		}
 	})
@@ -989,16 +681,6 @@ func (a *App) SaveSettings(input SettingsInput) error {
 
 	// Atualiza o timeout do HTTP client
 	llm.ConfigureResponseTimeout(responseTimeout)
-
-	// Reinicializa o embeddings service
-	embeddingsModel := input.EmbeddingsParams.Model
-	if a.embeddingsService != nil && embeddingsModel != "" {
-		a.embeddingsService = llm.NewEmbeddingsService(llm.EmbeddingsConfig{
-			APIKey:  input.APIKey,
-			BaseURL: input.APIBaseURL,
-			Model:   embeddingsModel,
-		})
-	}
 
 	return nil
 }
@@ -1033,74 +715,6 @@ func (a *App) TestConnectionWithModels() ([]string, error) {
 		return nil, fmt.Errorf("nenhum modelo encontrado na API")
 	}
 	return models, nil
-}
-
-// TestEmbeddings testa se o modelo de embeddings está funcionando
-func (a *App) TestEmbeddings() (string, error) {
-	if a.embeddingsService == nil {
-		return "", fmt.Errorf("serviço de embeddings não inicializado")
-	}
-
-	embedding, err := a.embeddingsService.Generate("teste de conexão")
-	if err != nil {
-		return "", fmt.Errorf("erro ao gerar embedding: %v", err)
-	}
-
-	return fmt.Sprintf("Sucesso! Embedding gerado com %d dimensões", len(embedding)), nil
-}
-
-// GetImageModel retorna o modelo configurado para processar imagens
-func (a *App) GetImageModel() (string, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return "", err
-	}
-
-	if cfg.ImageModel != "" {
-		return cfg.ImageModel, nil
-	}
-
-	// Tenta encontrar um modelo com suporte a visão
-	caps, err := database.GetVisionCapableModels()
-	if err == nil && len(caps) > 0 {
-		return caps[0].ModelName, nil
-	}
-
-	// Fallback: tenta encontrar por nome
-	visionModels := []string{"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "claude-3-5-sonnet", "gemini-1.5-pro"}
-	models, _ := a.GetModels()
-	for _, vm := range visionModels {
-		for _, m := range models {
-			if strings.Contains(strings.ToLower(m), strings.ToLower(vm)) {
-				return m, nil
-			}
-		}
-	}
-
-	return "", fmt.Errorf("nenhum modelo com suporte a visão encontrado")
-}
-
-// SetImageModel define o modelo auxiliar para processar imagens
-func (a *App) SetImageModel(model string) error {
-	return config.Update(func(cfg *config.Config) *config.Config {
-		cfg.ImageModel = model
-		return cfg
-	})
-}
-
-// HasImages verifica se a lista de mensagens contém imagens
-func (a *App) HasImages(messages []Message) bool {
-	return llm.HasImages(messages)
-}
-
-// GenerateImageDescription gera uma descrição acessível para uma imagem
-func (a *App) GenerateImageDescription(imageBase64 string, model string) (string, error) {
-	cfg, err := a.GetConfig()
-	if err != nil {
-		return "", fmt.Errorf("erro ao obter configuração: %v", err)
-	}
-
-	return llm.GenerateImageDescription(cfg, imageBase64, model, a.GetModels)
 }
 
 // ResetConfig apaga o arquivo de configuração, resetando ao estado padrão

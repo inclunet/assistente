@@ -14,7 +14,7 @@ import (
 type ExportMetadata struct {
 	Version    string    `json:"version"`
 	ExportedAt time.Time `json:"exported_at"`
-	Type       string    `json:"type"` // "conversations", "faqs", "memories", "agents"
+	Type       string    `json:"type"` // "conversations", "voice_profiles", "interaction_profiles"
 	Count      int       `json:"count"`
 }
 
@@ -32,67 +32,6 @@ type ConversationExport struct {
 type ConversationsExportFile struct {
 	Metadata      ExportMetadata       `json:"metadata"`
 	Conversations []ConversationExport `json:"conversations"`
-}
-
-// FAQExport representa uma FAQ exportada
-type FAQExport struct {
-	ID        uint      `json:"id"`
-	Question  string    `json:"question"`
-	Answer    string    `json:"answer"`
-	Tags      string    `json:"tags,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// FAQsExportFile representa o arquivo de exportação de FAQs
-type FAQsExportFile struct {
-	Metadata ExportMetadata `json:"metadata"`
-	FAQs     []FAQExport    `json:"faqs"`
-}
-
-// MemoryExport representa uma memória exportada
-type MemoryExport struct {
-	ID        uint      `json:"id"`
-	Title     string    `json:"title"`
-	Content   string    `json:"content"`
-	Category  string    `json:"category,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-}
-
-// MemoriesExportFile representa o arquivo de exportação de memórias
-type MemoriesExportFile struct {
-	Metadata ExportMetadata `json:"metadata"`
-	Memories []MemoryExport `json:"memories"`
-}
-
-// MCPAgentExport representa um MCP Agent exportado
-type MCPAgentExport struct {
-	// AgentConfig fields
-	Name         string `json:"name"`
-	DisplayName  string `json:"display_name"`
-	Description  string `json:"description"`
-	Model        string `json:"model"`
-	SystemPrompt string `json:"system_prompt"`
-	Enabled      bool   `json:"enabled"`
-	// MCPAgent fields
-	TransportType string `json:"transport_type"`
-	ServerCommand string `json:"server_command,omitempty"`
-	ServerArgs    string `json:"server_args,omitempty"`
-	ServerEnv     string `json:"server_env,omitempty"`
-	WorkingDir    string `json:"working_dir,omitempty"`
-	ServerURL     string `json:"server_url,omitempty"`
-	AuthType      string `json:"auth_type,omitempty"`
-	AuthValue     string `json:"auth_value,omitempty"`
-	HTTPHeaders   string `json:"http_headers,omitempty"`
-	ExecutionMode string `json:"execution_mode"`
-	AutoConnect   bool   `json:"auto_connect"`
-}
-
-// AgentsExportFile representa o arquivo de exportação de agentes
-type AgentsExportFile struct {
-	Metadata  ExportMetadata   `json:"metadata"`
-	MCPAgents []MCPAgentExport `json:"mcp_agents,omitempty"`
 }
 
 // VoiceProfileExport representa um perfil de voz exportado
@@ -205,330 +144,6 @@ func (a *App) ExportConversations(ids []uint) (string, error) {
 	return string(jsonData), nil
 }
 
-// ExportFAQs exporta FAQs selecionadas
-func (a *App) ExportFAQs(ids []uint) (string, error) {
-	faqs := make([]FAQExport, 0, len(ids))
-
-	for _, id := range ids {
-		faq, err := database.GetFAQ(id)
-		if err != nil {
-			return "", fmt.Errorf("erro ao buscar FAQ %d: %w", id, err)
-		}
-
-		export := FAQExport{
-			ID:        faq.ID,
-			Question:  faq.Question,
-			Answer:    faq.Answer,
-			Tags:      faq.Tags,
-			CreatedAt: faq.CreatedAt,
-			UpdatedAt: faq.UpdatedAt,
-		}
-		faqs = append(faqs, export)
-	}
-
-	exportFile := FAQsExportFile{
-		Metadata: ExportMetadata{
-			Version:    "1.0",
-			ExportedAt: time.Now(),
-			Type:       "faqs",
-			Count:      len(faqs),
-		},
-		FAQs: faqs,
-	}
-
-	jsonData, err := json.MarshalIndent(exportFile, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("erro ao serializar FAQs: %w", err)
-	}
-
-	return string(jsonData), nil
-}
-
-// ExportMemories exporta memórias selecionadas
-func (a *App) ExportMemories(ids []uint) (string, error) {
-	memories := make([]MemoryExport, 0, len(ids))
-
-	for _, id := range ids {
-		mem, err := database.GetMemory(id)
-		if err != nil {
-			return "", fmt.Errorf("erro ao buscar memória %d: %w", id, err)
-		}
-
-		export := MemoryExport{
-			ID:        mem.ID,
-			Title:     mem.Title,
-			Content:   mem.Content,
-			Category:  mem.Category,
-			CreatedAt: mem.CreatedAt,
-			UpdatedAt: mem.UpdatedAt,
-		}
-		memories = append(memories, export)
-	}
-
-	exportFile := MemoriesExportFile{
-		Metadata: ExportMetadata{
-			Version:    "1.0",
-			ExportedAt: time.Now(),
-			Type:       "memories",
-			Count:      len(memories),
-		},
-		Memories: memories,
-	}
-
-	jsonData, err := json.MarshalIndent(exportFile, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("erro ao serializar memórias: %w", err)
-	}
-
-	return string(jsonData), nil
-}
-
-// ExportAgents exporta MCP Agents selecionados
-func (a *App) ExportAgents(mcpAgentIDs []uint) (string, error) {
-	mcpAgents := make([]MCPAgentExport, 0)
-
-	for _, id := range mcpAgentIDs {
-		mcpAgent, err := database.GetMCPAgent(id)
-		if err != nil {
-			return "", fmt.Errorf("erro ao buscar MCP Agent %d: %w", id, err)
-		}
-
-		agentConfig, err := database.GetAgentConfigByID(mcpAgent.AgentConfigID)
-		if err != nil {
-			return "", fmt.Errorf("erro ao buscar config do MCP Agent %d: %w", id, err)
-		}
-
-		export := MCPAgentExport{
-			Name:          agentConfig.Name,
-			DisplayName:   agentConfig.DisplayName,
-			Description:   agentConfig.Description,
-			Model:         agentConfig.Model,
-			SystemPrompt:  agentConfig.SystemPrompt,
-			Enabled:       agentConfig.Enabled,
-			TransportType: mcpAgent.TransportType,
-			ServerCommand: mcpAgent.ServerCommand,
-			ServerArgs:    mcpAgent.ServerArgs,
-			ServerEnv:     mcpAgent.ServerEnv,
-			WorkingDir:    mcpAgent.WorkingDir,
-			ServerURL:     mcpAgent.ServerURL,
-			AuthType:      mcpAgent.AuthType,
-			AuthValue:     mcpAgent.AuthValue,
-			HTTPHeaders:   mcpAgent.HTTPHeaders,
-			ExecutionMode: mcpAgent.ExecutionMode,
-			AutoConnect:   mcpAgent.AutoConnect,
-		}
-		mcpAgents = append(mcpAgents, export)
-	}
-
-	exportFile := AgentsExportFile{
-		Metadata: ExportMetadata{
-			Version:    "1.0",
-			ExportedAt: time.Now(),
-			Type:       "agents",
-			Count:      len(mcpAgents),
-		},
-		MCPAgents: mcpAgents,
-	}
-
-	jsonData, err := json.MarshalIndent(exportFile, "", "  ")
-	if err != nil {
-		return "", fmt.Errorf("erro ao serializar agentes: %w", err)
-	}
-
-	return string(jsonData), nil
-}
-
-// ==================== Import Functions ====================
-
-// ImportConversations importa conversas de um JSON
-func (a *App) ImportConversations(jsonData string) (*ImportResult, error) {
-	var exportFile ConversationsExportFile
-	if err := json.Unmarshal([]byte(jsonData), &exportFile); err != nil {
-		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
-	}
-
-	result := &ImportResult{
-		Success: true,
-		Errors:  make([]string, 0),
-	}
-
-	for _, conv := range exportFile.Conversations {
-		// Cria nova conversa
-		newConv, err := database.CreateConversation(conv.Title, "")
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("Erro ao criar conversa '%s': %v", conv.Title, err))
-			result.Skipped++
-			continue
-		}
-
-		// Atualiza preferências se existirem
-		if conv.Preferences != nil {
-			database.UpdateConversationPreferences(newConv.ID, conv.Preferences)
-		}
-
-		// Mapeia IDs antigos para novos (para reconstruir hierarquia)
-		idMap := make(map[uint]uint)
-
-		// Importa mensagens mantendo a ordem e hierarquia
-		for _, msg := range conv.Messages {
-			var parentID *uint
-			if msg.ParentID != nil {
-				if newParentID, ok := idMap[*msg.ParentID]; ok {
-					parentID = &newParentID
-				}
-			}
-
-			newMsg, err := database.CreateMessage(database.MessageOptions{
-				ConversationID:   newConv.ID,
-				ParentID:         parentID,
-				Role:             msg.Role,
-				Content:          msg.Content,
-				Media:            msg.Media,
-				ToolCalls:        msg.ToolCalls,
-				ToolCallID:       msg.ToolCallID,
-				AgentName:        msg.AgentName,
-				PromptTokens:     msg.PromptTokens,
-				CompletionTokens: msg.CompletionTokens,
-				TotalTokens:      msg.TotalTokens,
-				Model:            msg.Model,
-			})
-
-			if err != nil {
-				result.Errors = append(result.Errors, fmt.Sprintf("Erro ao importar mensagem: %v", err))
-				continue
-			}
-
-			idMap[msg.ID] = newMsg.ID
-		}
-
-		result.Imported++
-	}
-
-	result.Message = fmt.Sprintf("Importadas %d conversas, %d ignoradas", result.Imported, result.Skipped)
-	if len(result.Errors) > 0 {
-		result.Success = false
-	}
-
-	return result, nil
-}
-
-// ImportFAQs importa FAQs de um JSON
-func (a *App) ImportFAQs(jsonData string) (*ImportResult, error) {
-	var exportFile FAQsExportFile
-	if err := json.Unmarshal([]byte(jsonData), &exportFile); err != nil {
-		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
-	}
-
-	result := &ImportResult{
-		Success: true,
-		Errors:  make([]string, 0),
-	}
-
-	for _, faq := range exportFile.FAQs {
-		_, err := a.CreateFAQ(faq.Question, faq.Answer, faq.Tags)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("Erro ao criar FAQ '%s': %v", faq.Question[:min(50, len(faq.Question))], err))
-			result.Skipped++
-			continue
-		}
-		result.Imported++
-	}
-
-	result.Message = fmt.Sprintf("Importadas %d FAQs, %d ignoradas", result.Imported, result.Skipped)
-	if len(result.Errors) > 0 {
-		result.Success = false
-	}
-
-	return result, nil
-}
-
-// ImportMemories importa memórias de um JSON
-func (a *App) ImportMemories(jsonData string) (*ImportResult, error) {
-	var exportFile MemoriesExportFile
-	if err := json.Unmarshal([]byte(jsonData), &exportFile); err != nil {
-		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
-	}
-
-	result := &ImportResult{
-		Success: true,
-		Errors:  make([]string, 0),
-	}
-
-	for _, mem := range exportFile.Memories {
-		_, err := database.CreateMemory(mem.Title, mem.Content, mem.Category)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("Erro ao criar memória '%s': %v", mem.Title, err))
-			result.Skipped++
-			continue
-		}
-		result.Imported++
-	}
-
-	result.Message = fmt.Sprintf("Importadas %d memórias, %d ignoradas", result.Imported, result.Skipped)
-	if len(result.Errors) > 0 {
-		result.Success = false
-	}
-
-	return result, nil
-}
-
-// ImportAgents importa agentes de um JSON
-func (a *App) ImportAgents(jsonData string) (*ImportResult, error) {
-	var exportFile AgentsExportFile
-	if err := json.Unmarshal([]byte(jsonData), &exportFile); err != nil {
-		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
-	}
-
-	result := &ImportResult{
-		Success: true,
-		Errors:  make([]string, 0),
-	}
-
-	// Importa MCP Agents
-	for _, mcpExport := range exportFile.MCPAgents {
-		// Verifica se já existe um agente com esse nome
-		existing, _ := database.GetAgentConfig(mcpExport.Name)
-		if existing != nil {
-			// Gera nome único
-			mcpExport.Name = fmt.Sprintf("%s_imported_%d", mcpExport.Name, time.Now().Unix())
-		}
-
-		_, err := a.CreateMCPAgentFull(
-			mcpExport.Name,
-			mcpExport.DisplayName,
-			mcpExport.Description,
-			mcpExport.Model,
-			mcpExport.SystemPrompt,
-			mcpExport.TransportType,
-			mcpExport.ServerCommand,
-			mcpExport.ServerArgs,
-			mcpExport.ServerEnv,
-			mcpExport.WorkingDir,
-			mcpExport.ServerURL,
-			mcpExport.AuthType,
-			mcpExport.AuthValue,
-			mcpExport.HTTPHeaders,
-			mcpExport.ExecutionMode,
-			mcpExport.AutoConnect,
-			mcpExport.Enabled,
-		)
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("Erro ao criar MCP Agent '%s': %v", mcpExport.Name, err))
-			result.Skipped++
-			continue
-		}
-
-		result.Imported++
-	}
-
-	result.Message = fmt.Sprintf("Importados %d agentes, %d ignorados", result.Imported, result.Skipped)
-	if len(result.Errors) > 0 {
-		result.Success = false
-	}
-
-	return result, nil
-}
-
 // ExportVoiceProfiles exporta perfis de voz selecionados
 func (a *App) ExportVoiceProfiles(ids []uint) (string, error) {
 	profiles := make([]VoiceProfileExport, 0, len(ids))
@@ -572,64 +187,6 @@ func (a *App) ExportVoiceProfiles(ids []uint) (string, error) {
 	}
 
 	return string(jsonData), nil
-}
-
-// ImportVoiceProfiles importa perfis de voz de um JSON
-func (a *App) ImportVoiceProfiles(jsonData string) (*ImportResult, error) {
-	var exportFile VoiceProfilesExportFile
-	if err := json.Unmarshal([]byte(jsonData), &exportFile); err != nil {
-		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
-	}
-
-	result := &ImportResult{
-		Success: true,
-		Errors:  make([]string, 0),
-	}
-
-	for _, profileExport := range exportFile.VoiceProfiles {
-		// Verifica se já existe um perfil com esse nome
-		existing, _ := database.GetVoiceProfileByName(profileExport.Name)
-		name := profileExport.Name
-		if existing != nil {
-			// Gera nome único
-			name = fmt.Sprintf("%s_imported_%d", profileExport.Name, time.Now().Unix())
-		}
-
-		// Não importa como default se já existe um default
-		isDefault := profileExport.IsDefault
-		if isDefault {
-			existingDefault, _ := database.GetDefaultVoiceProfile()
-			if existingDefault != nil {
-				isDefault = false // Não sobrescreve o default existente
-			}
-		}
-
-		_, err := database.CreateVoiceProfileFull(database.VoiceProfileOptions{
-			Name:            name,
-			Description:     profileExport.Description,
-			Provider:        profileExport.Provider,
-			VoiceID:         profileExport.VoiceID,
-			Rate:            profileExport.Rate,
-			Pitch:           profileExport.Pitch,
-			Volume:          profileExport.Volume,
-			EnabledForAgent: profileExport.EnabledForAgent,
-			EnabledForUser:  profileExport.EnabledForUser,
-			IsDefault:       isDefault,
-		})
-		if err != nil {
-			result.Errors = append(result.Errors, fmt.Sprintf("Erro ao criar perfil '%s': %v", profileExport.Name, err))
-			result.Skipped++
-			continue
-		}
-		result.Imported++
-	}
-
-	result.Message = fmt.Sprintf("Importados %d perfis de voz, %d ignorados", result.Imported, result.Skipped)
-	if len(result.Errors) > 0 {
-		result.Success = false
-	}
-
-	return result, nil
 }
 
 // ExportInteractionProfiles exporta perfis de interação selecionados
@@ -692,6 +249,135 @@ func (a *App) ExportInteractionProfiles(ids []uint) (string, error) {
 	}
 
 	return string(jsonData), nil
+}
+
+// ==================== Import Functions ====================
+
+// ImportConversations importa conversas de um JSON
+func (a *App) ImportConversations(jsonData string) (*ImportResult, error) {
+	var exportFile ConversationsExportFile
+	if err := json.Unmarshal([]byte(jsonData), &exportFile); err != nil {
+		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
+	}
+
+	result := &ImportResult{
+		Success: true,
+		Errors:  make([]string, 0),
+	}
+
+	for _, conv := range exportFile.Conversations {
+		// Cria nova conversa
+		newConv, err := database.CreateConversation(conv.Title, "")
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Erro ao criar conversa '%s': %v", conv.Title, err))
+			result.Skipped++
+			continue
+		}
+
+		// Atualiza preferências se existirem
+		if conv.Preferences != nil {
+			database.UpdateConversationPreferences(newConv.ID, conv.Preferences)
+		}
+
+		// Mapeia IDs antigos para novos (para reconstruir hierarquia)
+		idMap := make(map[uint]uint)
+
+		// Importa mensagens mantendo a ordem e hierarquia
+		for _, msg := range conv.Messages {
+			var parentID *uint
+			if msg.ParentID != nil {
+				if newParentID, ok := idMap[*msg.ParentID]; ok {
+					parentID = &newParentID
+				}
+			}
+
+			newMsg, err := database.CreateMessage(database.MessageOptions{
+				ConversationID:   newConv.ID,
+				ParentID:         parentID,
+				Role:             msg.Role,
+				Content:          msg.Content,
+				Media:            msg.Media,
+				PromptTokens:     msg.PromptTokens,
+				CompletionTokens: msg.CompletionTokens,
+				TotalTokens:      msg.TotalTokens,
+				Model:            msg.Model,
+			})
+
+			if err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("Erro ao importar mensagem: %v", err))
+				continue
+			}
+
+			idMap[msg.ID] = newMsg.ID
+		}
+
+		result.Imported++
+	}
+
+	result.Message = fmt.Sprintf("Importadas %d conversas, %d ignoradas", result.Imported, result.Skipped)
+	if len(result.Errors) > 0 {
+		result.Success = false
+	}
+
+	return result, nil
+}
+
+// ImportVoiceProfiles importa perfis de voz de um JSON
+func (a *App) ImportVoiceProfiles(jsonData string) (*ImportResult, error) {
+	var exportFile VoiceProfilesExportFile
+	if err := json.Unmarshal([]byte(jsonData), &exportFile); err != nil {
+		return nil, fmt.Errorf("erro ao parsear JSON: %w", err)
+	}
+
+	result := &ImportResult{
+		Success: true,
+		Errors:  make([]string, 0),
+	}
+
+	for _, profileExport := range exportFile.VoiceProfiles {
+		// Verifica se já existe um perfil com esse nome
+		existing, _ := database.GetVoiceProfileByName(profileExport.Name)
+		name := profileExport.Name
+		if existing != nil {
+			// Gera nome único
+			name = fmt.Sprintf("%s_imported_%d", profileExport.Name, time.Now().Unix())
+		}
+
+		// Não importa como default se já existe um default
+		isDefault := profileExport.IsDefault
+		if isDefault {
+			existingDefault, _ := database.GetDefaultVoiceProfile()
+			if existingDefault != nil {
+				isDefault = false // Não sobrescreve o default existente
+			}
+		}
+
+		_, err := database.CreateVoiceProfileFull(database.VoiceProfileOptions{
+			Name:            name,
+			Description:     profileExport.Description,
+			Provider:        profileExport.Provider,
+			VoiceID:         profileExport.VoiceID,
+			Rate:            profileExport.Rate,
+			Pitch:           profileExport.Pitch,
+			Volume:          profileExport.Volume,
+			EnabledForAgent: profileExport.EnabledForAgent,
+			EnabledForUser:  profileExport.EnabledForUser,
+			IsDefault:       isDefault,
+		})
+		if err != nil {
+			result.Errors = append(result.Errors, fmt.Sprintf("Erro ao criar perfil '%s': %v", profileExport.Name, err))
+			result.Skipped++
+			continue
+		}
+		result.Imported++
+	}
+
+	result.Message = fmt.Sprintf("Importados %d perfis de voz, %d ignorados", result.Imported, result.Skipped)
+	if len(result.Errors) > 0 {
+		result.Success = false
+	}
+
+	return result, nil
 }
 
 // ImportInteractionProfiles importa perfis de interação de um JSON
@@ -772,12 +458,4 @@ func (a *App) ImportInteractionProfiles(jsonData string) (*ImportResult, error) 
 	}
 
 	return result, nil
-}
-
-// min retorna o menor de dois inteiros
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

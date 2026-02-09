@@ -25,32 +25,6 @@ var ErrConversationDeleted = errors.New("conversa foi deletada")
 // Isso acontece quando a conversa foi limpa (clear) - as mensagens foram deletadas mas a conversa ainda existe
 var ErrParentMessageDeleted = errors.New("mensagem pai foi deletada")
 
-// EmbeddingGenerator interface para gerar embeddings
-type EmbeddingGenerator interface {
-	Generate(text string) ([]float32, error)
-}
-
-// SummaryGenerator interface para gerar resumos de conversas usando LLM
-type SummaryGenerator interface {
-	GenerateSummary(messages []ChatMessage) (string, error)
-}
-
-// embeddingGenerator é o gerador de embeddings configurado
-var embeddingGenerator EmbeddingGenerator
-
-// summaryGenerator é o gerador de resumos configurado
-var summaryGenerator SummaryGenerator
-
-// SetEmbeddingGenerator configura o gerador de embeddings
-func SetEmbeddingGenerator(gen EmbeddingGenerator) {
-	embeddingGenerator = gen
-}
-
-// SetSummaryGenerator configura o gerador de resumos
-func SetSummaryGenerator(gen SummaryGenerator) {
-	summaryGenerator = gen
-}
-
 // DB retorna a instância do banco de dados
 func DB() *gorm.DB {
 	return db
@@ -93,15 +67,6 @@ func Init() error {
 		&Conversation{},
 		&ChatMessage{},
 		&ChatTab{},
-		&FAQ{},
-		&Memory{},
-		&AgentConfig{},
-		&HTTPAgent{},
-		&HTTPEndpoint{},
-		&MCPAgentDB{},
-		&OAuthConnection{},
-		&ModelCapability{},
-		&FileAgentAuthorizedPath{},
 		&VoiceProfile{},
 		&InteractionProfile{},
 		&InteractionTrigger{},
@@ -288,22 +253,6 @@ func UpdateConversationModel(id uint, model string) error {
 	return UpdateConversationPreferences(id, prefs)
 }
 
-// UpdateConversationSettings atualiza showInternalMessages (via preferências)
-func UpdateConversationSettings(id uint, showInternalMessages bool) error {
-	conv, err := GetConversationInfo(id)
-	if err != nil {
-		return err
-	}
-
-	prefs := conv.GetPreferences()
-	if prefs == nil {
-		prefs = &ChatPreferences{}
-	}
-	prefs.ShowInternalMessages = &showInternalMessages
-
-	return UpdateConversationPreferences(id, prefs)
-}
-
 // UpdateConversationPreferences atualiza as preferências locais de uma conversa
 func UpdateConversationPreferences(id uint, prefs *ChatPreferences) error {
 	var prefsJSON string
@@ -330,200 +279,16 @@ func GetConversationPreferences(id uint) (*ChatPreferences, error) {
 	return conv.GetPreferences(), nil
 }
 
-// ==================== Conversation Embeddings ====================
-
-// GetConversationsWithEmbedding retorna conversas que têm embedding
-func GetConversationsWithEmbedding() ([]Conversation, error) {
-	var conversations []Conversation
-	err := db.Where("embedding IS NOT NULL AND embedding != ''").Find(&conversations).Error
-	return conversations, err
-}
-
-// GetConversationsWithoutEmbedding retorna conversas sem embedding
-func GetConversationsWithoutEmbedding() ([]Conversation, error) {
-	var conversations []Conversation
-	err := db.Where("embedding IS NULL OR embedding = ''").Find(&conversations).Error
-	return conversations, err
-}
-
-// UpdateConversationEmbedding atualiza o embedding e resumo de uma conversa
-func UpdateConversationEmbedding(id uint, summary, embedding string, messageCount int) error {
-	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"summary":                 summary,
-		"embedding":               embedding,
-		"embedding_message_count": messageCount,
-	}).Error
-}
-
-// GenerateConversationEmbedding gera e salva o embedding de uma conversa
-func GenerateConversationEmbedding(conversationID uint) error {
-	if embeddingGenerator == nil {
-		return fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	// Busca a conversa
-	conv, err := GetConversation(conversationID)
-	if err != nil {
-		return err
-	}
-
-	// Busca as mensagens da conversa
-	messages, err := GetAllConversationMessages(conversationID)
-	if err != nil {
-		return err
-	}
-
-	if len(messages) == 0 {
-		return fmt.Errorf("conversa sem mensagens")
-	}
-
-	// Gera o resumo usando LLM
-	if summaryGenerator == nil {
-		return fmt.Errorf("serviço de resumo não configurado")
-	}
-
-	// Prepara mensagens com título como contexto
-	messagesWithContext := make([]ChatMessage, 0, len(messages)+1)
-
-	// Adiciona o título como primeira "mensagem" de contexto
-	if conv.Title != "" && conv.Title != "Nova conversa" {
-		messagesWithContext = append(messagesWithContext, ChatMessage{
-			Role:    "system",
-			Content: fmt.Sprintf("Título da conversa: %s", conv.Title),
-		})
-	}
-
-	// Adiciona todas as mensagens
-	messagesWithContext = append(messagesWithContext, messages...)
-
-	// Usa o LLM para gerar resumo
-	summary, err := summaryGenerator.GenerateSummary(messagesWithContext)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar resumo: %w", err)
-	}
-
-	if summary == "" {
-		return fmt.Errorf("não foi possível gerar resumo")
-	}
-
-	// Gera embedding do resumo
-	embedding, err := embeddingGenerator.Generate(summary)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar embedding: %w", err)
-	}
-
-	// Salva
-	conv.Summary = summary
-	conv.SetEmbedding(embedding)
-	return UpdateConversationEmbedding(conversationID, summary, conv.Embedding, len(messages))
-}
-
-// GenerateAllConversationEmbeddings gera embeddings para todas as conversas que não têm
-func GenerateAllConversationEmbeddings() (int, error) {
-	if embeddingGenerator == nil {
-		return 0, fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	conversations, err := GetConversationsWithoutEmbedding()
-	if err != nil {
-		return 0, err
-	}
-
-	count := 0
-	for _, conv := range conversations {
-		if err := GenerateConversationEmbedding(conv.ID); err != nil {
-			fmt.Printf("Erro ao gerar embedding para Conversation %d: %v\n", conv.ID, err)
-			continue
-		}
-		count++
-	}
-
-	return count, nil
-}
-
-// SearchConversationsSemantic busca conversas usando similaridade de embeddings
-func SearchConversationsSemantic(query string, topK int, minSimilarity float32) ([]Conversation, error) {
-	if embeddingGenerator == nil {
-		return nil, fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	if query == "" {
-		return nil, nil
-	}
-
-	// Gera embedding da query
-	queryEmbedding, err := embeddingGenerator.Generate(query)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao gerar embedding da query: %w", err)
-	}
-
-	// Busca conversas com embedding
-	conversations, err := GetConversationsWithEmbedding()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(conversations) == 0 {
-		return nil, nil
-	}
-
-	type convWithSimilarity struct {
-		conv       Conversation
-		similarity float32
-	}
-
-	// Calcula similaridade para cada conversa
-	results := make([]convWithSimilarity, 0, len(conversations))
-	for _, conv := range conversations {
-		convEmbedding := conv.GetEmbedding()
-		if len(convEmbedding) == 0 {
-			continue
-		}
-
-		similarity := CosineSimilarity(queryEmbedding, convEmbedding)
-		if similarity >= minSimilarity {
-			results = append(results, convWithSimilarity{
-				conv:       conv,
-				similarity: similarity,
-			})
-		}
-	}
-
-	// Ordena por similaridade decrescente
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].similarity > results[i].similarity {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
-
-	// Limita ao topK
-	if topK > len(results) {
-		topK = len(results)
-	}
-
-	finalResults := make([]Conversation, topK)
-	for i := 0; i < topK; i++ {
-		finalResults[i] = results[i].conv
-	}
-
-	return finalResults, nil
-}
-
 // ==================== ChatMessage ====================
 
 // MessageOptions contém opções para criar uma mensagem
 type MessageOptions struct {
 	ConversationID   uint
 	ParentID         *uint  // ID da mensagem pai (define hierarquia)
-	Role             string // user, assistant, tool
+	Role             string // user, assistant, tool, system
 	Content          string
 	Reasoning        string // Reasoning/thinking do modelo
 	Media            string // JSON com mídias
-	ToolCalls        string // JSON com tool calls
-	ToolCallID       string // ID da tool call (para role="tool")
-	AgentName        string // Nome do agente
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
@@ -556,9 +321,6 @@ func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 		Content:          opts.Content,
 		Reasoning:        opts.Reasoning,
 		Media:            opts.Media,
-		ToolCalls:        opts.ToolCalls,
-		ToolCallID:       opts.ToolCallID,
-		AgentName:        opts.AgentName,
 		PromptTokens:     opts.PromptTokens,
 		CompletionTokens: opts.CompletionTokens,
 		TotalTokens:      opts.TotalTokens,
@@ -572,33 +334,30 @@ func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 }
 
 // AddMessage adiciona uma mensagem simples (sem parent - nível 0)
-func AddMessage(conversationID uint, role, content, toolCalls, toolResults string) (*ChatMessage, error) {
+func AddMessage(conversationID uint, role, content string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
-		ToolCalls:      toolCalls,
 	})
 }
 
 // AddMessageWithMedia adiciona uma mensagem com mídias (sem parent - nível 0)
-func AddMessageWithMedia(conversationID uint, role, content, media, toolCalls, toolResults string) (*ChatMessage, error) {
+func AddMessageWithMedia(conversationID uint, role, content, media string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
 		Media:          media,
-		ToolCalls:      toolCalls,
 	})
 }
 
 // AddMessageWithTokens adiciona uma mensagem com informações de tokens
-func AddMessageWithTokens(conversationID uint, role, content, toolCalls, toolResults string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
+func AddMessageWithTokens(conversationID uint, role, content string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
-		ToolCalls:        toolCalls,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      totalTokens,
@@ -607,13 +366,12 @@ func AddMessageWithTokens(conversationID uint, role, content, toolCalls, toolRes
 }
 
 // AddMessageWithTokensAndMedia adiciona uma mensagem com mídias e informações de tokens
-func AddMessageWithTokensAndMedia(conversationID uint, role, content, media, toolCalls, toolResults string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
+func AddMessageWithTokensAndMedia(conversationID uint, role, content, media string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
 		Media:            media,
-		ToolCalls:        toolCalls,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      totalTokens,
@@ -622,26 +380,22 @@ func AddMessageWithTokensAndMedia(conversationID uint, role, content, media, too
 }
 
 // AddToolMessage adiciona uma mensagem de role="tool" (resposta de tool ao orquestrador)
-func AddToolMessage(conversationID uint, content, toolCallID string) (*ChatMessage, error) {
+func AddToolMessage(conversationID uint, content string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID: conversationID,
 		Role:           "tool",
 		Content:        content,
-		ToolCallID:     toolCallID,
 	})
 }
 
 // AddChildMessage adiciona uma mensagem filha (com ParentID definido)
 // Usada para mensagens internas de agentes e tools
-func AddChildMessage(conversationID uint, parentID uint, role, content, toolCalls, toolCallID, agentName, model string) (*ChatMessage, error) {
+func AddChildMessage(conversationID uint, parentID uint, role, content, model string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID: conversationID,
 		ParentID:       &parentID,
 		Role:           role,
 		Content:        content,
-		ToolCalls:      toolCalls,
-		ToolCallID:     toolCallID,
-		AgentName:      agentName,
 		Model:          model,
 	})
 }
@@ -655,15 +409,6 @@ func UpdateMessageContent(messageID uint, content string, promptTokens, completi
 		"completion_tokens": completionTokens,
 		"total_tokens":      totalTokens,
 		"model":             model,
-	}).Error
-}
-
-// UpdateMessageToolCalls atualiza uma mensagem com tool_calls
-// Usado quando o assistant decide chamar ferramentas
-func UpdateMessageToolCalls(messageID uint, toolCalls string, agentName string) error {
-	return db.Model(&ChatMessage{}).Where("id = ?", messageID).Updates(map[string]interface{}{
-		"tool_calls": toolCalls,
-		"agent_name": agentName,
 	}).Error
 }
 
@@ -830,1056 +575,31 @@ func GetAllTokenStats() (map[string]int, error) {
 	}, nil
 }
 
-// ==================== Memory ====================
+// ==================== Chat Tab ====================
 
-// CreateMemory cria uma nova memória
-func CreateMemory(title, content, category string) (*Memory, error) {
-	memory := &Memory{
-		Title:    title,
-		Content:  content,
-		Category: category,
+// CreateChatTab cria uma nova aba de chat
+func CreateChatTab(conversationID *uint, title, icon string, position int) (*ChatTab, error) {
+	tab := &ChatTab{
+		ConversationID: conversationID,
+		Title:          title,
+		Icon:           icon,
+		Position:       position,
+		IsActive:       false,
 	}
-	if err := db.Create(memory).Error; err != nil {
+	if err := db.Create(tab).Error; err != nil {
 		return nil, err
 	}
-	return memory, nil
+	return tab, nil
 }
 
-// GetAllMemories retorna todas as memórias
-func GetAllMemories() ([]Memory, error) {
-	var memories []Memory
-	err := db.Order("updated_at DESC").Find(&memories).Error
-	return memories, err
-}
-
-// GetMemoriesByCategory retorna memórias de uma categoria
-func GetMemoriesByCategory(category string) ([]Memory, error) {
-	var memories []Memory
-	err := db.Where("LOWER(category) = LOWER(?)", category).Order("updated_at DESC").Find(&memories).Error
-	return memories, err
-}
-
-// SearchMemories busca memórias por texto
-func SearchMemories(query string) ([]Memory, error) {
-	var memories []Memory
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
-		return GetAllMemories()
-	}
-	words := strings.Fields(query)
-	tx := db.Model(&Memory{})
-	for _, word := range words {
-		searchTerm := "%" + word + "%"
-		tx = tx.Where(
-			"LOWER(title) LIKE ? OR LOWER(content) LIKE ? OR LOWER(category) LIKE ?",
-			searchTerm, searchTerm, searchTerm,
-		)
-	}
-	err := tx.Order("updated_at DESC").Find(&memories).Error
-	return memories, err
-}
-
-// UpdateMemory atualiza uma memória
-func UpdateMemory(id uint, title, content, category string) (*Memory, error) {
-	var memory Memory
-	if err := db.First(&memory, id).Error; err != nil {
-		return nil, err
-	}
-	memory.Title = title
-	memory.Content = content
-	memory.Category = category
-	memory.UpdatedAt = time.Now()
-	if err := db.Save(&memory).Error; err != nil {
-		return nil, err
-	}
-	return &memory, nil
-}
-
-// DeleteMemory deleta uma memória
-func DeleteMemory(id uint) error {
-	return db.Delete(&Memory{}, id).Error
-}
-
-// GetCoreMemories retorna memórias marcadas como "core"
-func GetCoreMemories() ([]Memory, error) {
-	var memories []Memory
-	err := db.Where("LOWER(category) = ?", "core").Order("created_at ASC").Find(&memories).Error
-	return memories, err
-}
-
-// GetMemory retorna uma memória por ID
-func GetMemory(id uint) (*Memory, error) {
-	var memory Memory
-	err := db.First(&memory, id).Error
+// GetChatTab retorna uma aba por ID
+func GetChatTab(id uint) (*ChatTab, error) {
+	var tab ChatTab
+	err := db.Preload("Conversation").First(&tab, id).Error
 	if err != nil {
 		return nil, err
 	}
-	return &memory, nil
-}
-
-// GetMemoriesWithEmbedding retorna memórias que têm embedding
-func GetMemoriesWithEmbedding() ([]Memory, error) {
-	var memories []Memory
-	err := db.Where("embedding IS NOT NULL AND embedding != ''").Find(&memories).Error
-	return memories, err
-}
-
-// GetMemoriesWithoutEmbedding retorna memórias sem embedding
-func GetMemoriesWithoutEmbedding() ([]Memory, error) {
-	var memories []Memory
-	err := db.Where("embedding IS NULL OR embedding = ''").Find(&memories).Error
-	return memories, err
-}
-
-// UpdateMemoryEmbedding atualiza o embedding de uma memória
-func UpdateMemoryEmbedding(id uint, embedding string) error {
-	return db.Model(&Memory{}).Where("id = ?", id).Update("embedding", embedding).Error
-}
-
-// GenerateMemoryEmbedding gera e salva o embedding de uma memória
-func GenerateMemoryEmbedding(memoryID uint) error {
-	if embeddingGenerator == nil {
-		return fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	memory, err := GetMemory(memoryID)
-	if err != nil {
-		return err
-	}
-
-	// Combina título, conteúdo e categoria para o embedding
-	text := memory.Title + " " + memory.Content
-	if memory.Category != "" {
-		text += " " + memory.Category
-	}
-
-	embedding, err := embeddingGenerator.Generate(text)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar embedding: %w", err)
-	}
-
-	memory.SetEmbedding(embedding)
-	return UpdateMemoryEmbedding(memoryID, memory.Embedding)
-}
-
-// GenerateAllMemoryEmbeddings gera embeddings para todas as memórias que não têm
-func GenerateAllMemoryEmbeddings() (int, error) {
-	if embeddingGenerator == nil {
-		return 0, fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	memories, err := GetMemoriesWithoutEmbedding()
-	if err != nil {
-		return 0, err
-	}
-
-	count := 0
-	for _, memory := range memories {
-		if err := GenerateMemoryEmbedding(memory.ID); err != nil {
-			fmt.Printf("Erro ao gerar embedding para Memory %d: %v\n", memory.ID, err)
-			continue
-		}
-		count++
-	}
-
-	return count, nil
-}
-
-// SearchMemorySemantic busca memórias usando similaridade de embeddings
-func SearchMemorySemantic(query string, topK int, minSimilarity float32) ([]Memory, error) {
-	// Fallback para busca textual se embeddings não disponível
-	if embeddingGenerator == nil {
-		return SearchMemories(query)
-	}
-
-	if query == "" {
-		return nil, nil
-	}
-
-	// Gera embedding da query
-	queryEmbedding, err := embeddingGenerator.Generate(query)
-	if err != nil {
-		fmt.Printf("Erro ao gerar embedding da query, usando busca textual: %v\n", err)
-		return SearchMemories(query)
-	}
-
-	// Busca memórias com embedding
-	memories, err := GetMemoriesWithEmbedding()
-	if err != nil {
-		return nil, err
-	}
-
-	// Se não há memórias com embedding, faz fallback para busca textual
-	if len(memories) == 0 {
-		return SearchMemories(query)
-	}
-
-	type memoryWithSimilarity struct {
-		memory     Memory
-		similarity float32
-	}
-
-	// Calcula similaridade para cada memória
-	results := make([]memoryWithSimilarity, 0, len(memories))
-	for _, memory := range memories {
-		memoryEmbedding := memory.GetEmbedding()
-		if len(memoryEmbedding) == 0 {
-			continue
-		}
-
-		similarity := CosineSimilarity(queryEmbedding, memoryEmbedding)
-		if similarity >= minSimilarity {
-			results = append(results, memoryWithSimilarity{
-				memory:     memory,
-				similarity: similarity,
-			})
-		}
-	}
-
-	// Ordena por similaridade decrescente
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].similarity > results[i].similarity {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
-
-	// Limita ao topK
-	if topK > len(results) {
-		topK = len(results)
-	}
-
-	finalResults := make([]Memory, topK)
-	for i := 0; i < topK; i++ {
-		finalResults[i] = results[i].memory
-	}
-
-	return finalResults, nil
-}
-
-// ==================== FAQ ====================
-
-// CreateFAQ cria uma nova entrada no FAQ
-func CreateFAQ(question, answer, tags string) (*FAQ, error) {
-	faq := &FAQ{
-		Question: question,
-		Answer:   answer,
-		Tags:     tags,
-	}
-	if err := db.Create(faq).Error; err != nil {
-		return nil, err
-	}
-	return faq, nil
-}
-
-// GetFAQ retorna uma entrada do FAQ por ID
-func GetFAQ(id uint) (*FAQ, error) {
-	var faq FAQ
-	err := db.First(&faq, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &faq, nil
-}
-
-// GetAllFAQs retorna todas as entradas do FAQ
-func GetAllFAQs() ([]FAQ, error) {
-	var faqs []FAQ
-	err := db.Order("updated_at DESC").Find(&faqs).Error
-	return faqs, err
-}
-
-// UpdateFAQ atualiza uma entrada do FAQ
-func UpdateFAQ(id uint, question, answer, tags string) (*FAQ, error) {
-	var faq FAQ
-	if err := db.First(&faq, id).Error; err != nil {
-		return nil, err
-	}
-	faq.Question = question
-	faq.Answer = answer
-	faq.Tags = tags
-	faq.UpdatedAt = time.Now()
-	if err := db.Save(&faq).Error; err != nil {
-		return nil, err
-	}
-	return &faq, nil
-}
-
-// DeleteFAQ deleta uma entrada do FAQ
-func DeleteFAQ(id uint) error {
-	return db.Delete(&FAQ{}, id).Error
-}
-
-// SearchFAQ busca FAQs por texto
-func SearchFAQ(query string) ([]FAQ, error) {
-	var faqs []FAQ
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
-		return faqs, nil
-	}
-	words := strings.Fields(query)
-	tx := db.Model(&FAQ{})
-	for _, word := range words {
-		searchTerm := "%" + word + "%"
-		tx = tx.Where(
-			"LOWER(question) LIKE ? OR LOWER(answer) LIKE ? OR LOWER(tags) LIKE ?",
-			searchTerm, searchTerm, searchTerm,
-		)
-	}
-	err := tx.Order("updated_at DESC").Find(&faqs).Error
-	return faqs, err
-}
-
-// GetFAQsWithEmbedding retorna FAQs que têm embedding
-func GetFAQsWithEmbedding() ([]FAQ, error) {
-	var faqs []FAQ
-	err := db.Where("embedding IS NOT NULL AND embedding != ''").Find(&faqs).Error
-	return faqs, err
-}
-
-// GetFAQsWithoutEmbedding retorna FAQs sem embedding
-func GetFAQsWithoutEmbedding() ([]FAQ, error) {
-	var faqs []FAQ
-	err := db.Where("embedding IS NULL OR embedding = ''").Find(&faqs).Error
-	return faqs, err
-}
-
-// UpdateFAQEmbedding atualiza o embedding de uma FAQ
-func UpdateFAQEmbedding(id uint, embedding string) error {
-	return db.Model(&FAQ{}).Where("id = ?", id).Update("embedding", embedding).Error
-}
-
-// GenerateFAQEmbedding gera e salva o embedding de uma FAQ
-func GenerateFAQEmbedding(faqID uint) error {
-	if embeddingGenerator == nil {
-		return fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	faq, err := GetFAQ(faqID)
-	if err != nil {
-		return err
-	}
-
-	text := faq.Question + " " + faq.Answer
-	if faq.Tags != "" {
-		text += " " + faq.Tags
-	}
-
-	embedding, err := embeddingGenerator.Generate(text)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar embedding: %w", err)
-	}
-
-	faq.SetEmbedding(embedding)
-	return UpdateFAQEmbedding(faqID, faq.Embedding)
-}
-
-// GenerateAllFAQEmbeddings gera embeddings para todas as FAQs que não têm
-func GenerateAllFAQEmbeddings() (int, error) {
-	if embeddingGenerator == nil {
-		return 0, fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	faqs, err := GetFAQsWithoutEmbedding()
-	if err != nil {
-		return 0, err
-	}
-
-	count := 0
-	for _, faq := range faqs {
-		if err := GenerateFAQEmbedding(faq.ID); err != nil {
-			fmt.Printf("Erro ao gerar embedding para FAQ %d: %v\n", faq.ID, err)
-			continue
-		}
-		count++
-	}
-
-	return count, nil
-}
-
-// SearchFAQSemantic busca FAQs usando similaridade de embeddings
-func SearchFAQSemantic(query string, topK int, minSimilarity float32) ([]FAQ, error) {
-	if embeddingGenerator == nil {
-		return SearchFAQ(query)
-	}
-
-	if query == "" {
-		return nil, nil
-	}
-
-	queryEmbedding, err := embeddingGenerator.Generate(query)
-	if err != nil {
-		fmt.Printf("Erro ao gerar embedding da query, usando busca textual: %v\n", err)
-		return SearchFAQ(query)
-	}
-
-	faqs, err := GetFAQsWithEmbedding()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(faqs) == 0 {
-		return SearchFAQ(query)
-	}
-
-	type faqWithSimilarity struct {
-		faq        FAQ
-		similarity float32
-	}
-
-	results := make([]faqWithSimilarity, 0, len(faqs))
-	for _, faq := range faqs {
-		faqEmbedding := faq.GetEmbedding()
-		if len(faqEmbedding) == 0 {
-			continue
-		}
-
-		similarity := CosineSimilarity(queryEmbedding, faqEmbedding)
-		if similarity >= minSimilarity {
-			results = append(results, faqWithSimilarity{
-				faq:        faq,
-				similarity: similarity,
-			})
-		}
-	}
-
-	// Ordena por similaridade decrescente
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].similarity > results[i].similarity {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
-
-	if topK > len(results) {
-		topK = len(results)
-	}
-
-	finalResults := make([]FAQ, topK)
-	for i := 0; i < topK; i++ {
-		finalResults[i] = results[i].faq
-	}
-
-	return finalResults, nil
-}
-
-// ==================== AgentConfig ====================
-
-// GetAgentConfig retorna a configuração de um agente pelo nome
-func GetAgentConfig(name string) (*AgentConfig, error) {
-	var cfg AgentConfig
-	err := db.Where("name = ?", name).First(&cfg).Error
-	if err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
-// GetAgentConfigByID retorna a configuração de um agente pelo ID
-func GetAgentConfigByID(id uint) (*AgentConfig, error) {
-	var cfg AgentConfig
-	err := db.First(&cfg, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
-// GetAllAgentConfigs retorna todas as configurações de agentes
-func GetAllAgentConfigs() ([]AgentConfig, error) {
-	var configs []AgentConfig
-	err := db.Order("name ASC").Find(&configs).Error
-	return configs, err
-}
-
-// CreateAgentConfig cria uma nova configuração de agente
-func CreateAgentConfig(name, displayName, description, agentType, model, systemPrompt, cfg string, enabled bool) (*AgentConfig, error) {
-	agentConfig := &AgentConfig{
-		Name:         name,
-		DisplayName:  displayName,
-		Description:  description,
-		AgentType:    agentType,
-		Model:        model,
-		SystemPrompt: systemPrompt,
-		Config:       cfg,
-		Enabled:      enabled,
-	}
-	if err := db.Create(agentConfig).Error; err != nil {
-		return nil, err
-	}
-	return agentConfig, nil
-}
-
-// UpdateAgentConfig atualiza a configuração de um agente
-func UpdateAgentConfig(id uint, displayName, description, model, systemPrompt, cfg string, enabled bool) (*AgentConfig, error) {
-	var agentConfig AgentConfig
-	if err := db.First(&agentConfig, id).Error; err != nil {
-		return nil, err
-	}
-	agentConfig.DisplayName = displayName
-	agentConfig.Description = description
-	agentConfig.Model = model
-	agentConfig.SystemPrompt = systemPrompt
-	agentConfig.Config = cfg
-	agentConfig.Enabled = enabled
-	agentConfig.UpdatedAt = time.Now()
-	if err := db.Save(&agentConfig).Error; err != nil {
-		return nil, err
-	}
-	return &agentConfig, nil
-}
-
-// DeleteAgentConfig deleta uma configuração de agente
-func DeleteAgentConfig(id uint) error {
-	return db.Delete(&AgentConfig{}, id).Error
-}
-
-// SaveOrUpdateAgentConfig salva ou atualiza configuração de um agente pelo nome
-func SaveOrUpdateAgentConfig(name, displayName, description, agentType, model, systemPrompt, cfg string, enabled bool) (*AgentConfig, error) {
-	var agentConfig AgentConfig
-	err := db.Where("name = ?", name).First(&agentConfig).Error
-	if err != nil {
-		return CreateAgentConfig(name, displayName, description, agentType, model, systemPrompt, cfg, enabled)
-	}
-	agentConfig.DisplayName = displayName
-	agentConfig.Description = description
-	agentConfig.AgentType = agentType
-	agentConfig.Model = model
-	agentConfig.SystemPrompt = systemPrompt
-	agentConfig.Config = cfg
-	agentConfig.Enabled = enabled
-	agentConfig.UpdatedAt = time.Now()
-	if err := db.Save(&agentConfig).Error; err != nil {
-		return nil, err
-	}
-	return &agentConfig, nil
-}
-
-// ==================== HTTPAgent ====================
-
-// CreateHTTPAgent cria um novo HTTP Agent
-func CreateHTTPAgent(agentConfigID uint, baseURL, authType, authConfig, defaultHeaders string, timeoutSeconds, retryCount int) (*HTTPAgent, error) {
-	httpAgent := &HTTPAgent{
-		AgentConfigID:  agentConfigID,
-		BaseURL:        baseURL,
-		AuthType:       authType,
-		AuthConfig:     authConfig,
-		DefaultHeaders: defaultHeaders,
-		TimeoutSeconds: timeoutSeconds,
-		RetryCount:     retryCount,
-	}
-	if err := db.Create(httpAgent).Error; err != nil {
-		return nil, err
-	}
-	return httpAgent, nil
-}
-
-// GetHTTPAgent retorna um HTTP Agent por ID
-func GetHTTPAgent(id uint) (*HTTPAgent, error) {
-	var httpAgent HTTPAgent
-	err := db.Preload("Endpoints").First(&httpAgent, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &httpAgent, nil
-}
-
-// GetHTTPAgentByConfigID retorna um HTTP Agent pelo AgentConfigID
-func GetHTTPAgentByConfigID(agentConfigID uint) (*HTTPAgent, error) {
-	var httpAgent HTTPAgent
-	err := db.Preload("Endpoints").Where("agent_config_id = ?", agentConfigID).First(&httpAgent).Error
-	if err != nil {
-		return nil, err
-	}
-	return &httpAgent, nil
-}
-
-// GetAllHTTPAgents retorna todos os HTTP Agents
-func GetAllHTTPAgents() ([]HTTPAgent, error) {
-	var httpAgents []HTTPAgent
-	err := db.Preload("Endpoints").Find(&httpAgents).Error
-	return httpAgents, err
-}
-
-// UpdateHTTPAgent atualiza um HTTP Agent
-func UpdateHTTPAgent(id uint, baseURL, authType, authConfig, defaultHeaders string, timeoutSeconds, retryCount int) (*HTTPAgent, error) {
-	var httpAgent HTTPAgent
-	if err := db.First(&httpAgent, id).Error; err != nil {
-		return nil, err
-	}
-	httpAgent.BaseURL = baseURL
-	httpAgent.AuthType = authType
-	httpAgent.AuthConfig = authConfig
-	httpAgent.DefaultHeaders = defaultHeaders
-	httpAgent.TimeoutSeconds = timeoutSeconds
-	httpAgent.RetryCount = retryCount
-	httpAgent.UpdatedAt = time.Now()
-	if err := db.Save(&httpAgent).Error; err != nil {
-		return nil, err
-	}
-	return &httpAgent, nil
-}
-
-// DeleteHTTPAgent deleta um HTTP Agent e seus endpoints
-func DeleteHTTPAgent(id uint) error {
-	if err := db.Where("http_agent_id = ?", id).Delete(&HTTPEndpoint{}).Error; err != nil {
-		return err
-	}
-	return db.Delete(&HTTPAgent{}, id).Error
-}
-
-// ==================== HTTPEndpoint ====================
-
-// CreateHTTPEndpoint cria um novo endpoint
-func CreateHTTPEndpoint(httpAgentID uint, name, description, method, pathTemplate, queryTemplate, headersJSON, bodyTemplate, parameters, responseTemplate string) (*HTTPEndpoint, error) {
-	endpoint := &HTTPEndpoint{
-		HTTPAgentID:      httpAgentID,
-		Name:             name,
-		Description:      description,
-		Method:           method,
-		PathTemplate:     pathTemplate,
-		QueryTemplate:    queryTemplate,
-		HeadersJSON:      headersJSON,
-		BodyTemplate:     bodyTemplate,
-		Parameters:       parameters,
-		ResponseTemplate: responseTemplate,
-	}
-	if err := db.Create(endpoint).Error; err != nil {
-		return nil, err
-	}
-	return endpoint, nil
-}
-
-// GetHTTPEndpoint retorna um endpoint por ID
-func GetHTTPEndpoint(id uint) (*HTTPEndpoint, error) {
-	var endpoint HTTPEndpoint
-	err := db.First(&endpoint, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &endpoint, nil
-}
-
-// GetHTTPEndpointsByAgentID retorna todos os endpoints de um agent
-func GetHTTPEndpointsByAgentID(httpAgentID uint) ([]HTTPEndpoint, error) {
-	var endpoints []HTTPEndpoint
-	err := db.Where("http_agent_id = ?", httpAgentID).Find(&endpoints).Error
-	return endpoints, err
-}
-
-// UpdateHTTPEndpoint atualiza um endpoint
-func UpdateHTTPEndpoint(id uint, name, description, method, pathTemplate, queryTemplate, headersJSON, bodyTemplate, parameters, responseTemplate string) (*HTTPEndpoint, error) {
-	var endpoint HTTPEndpoint
-	if err := db.First(&endpoint, id).Error; err != nil {
-		return nil, err
-	}
-	endpoint.Name = name
-	endpoint.Description = description
-	endpoint.Method = method
-	endpoint.PathTemplate = pathTemplate
-	endpoint.QueryTemplate = queryTemplate
-	endpoint.HeadersJSON = headersJSON
-	endpoint.BodyTemplate = bodyTemplate
-	endpoint.Parameters = parameters
-	endpoint.ResponseTemplate = responseTemplate
-	endpoint.UpdatedAt = time.Now()
-	if err := db.Save(&endpoint).Error; err != nil {
-		return nil, err
-	}
-	return &endpoint, nil
-}
-
-// DeleteHTTPEndpoint deleta um endpoint
-func DeleteHTTPEndpoint(id uint) error {
-	return db.Delete(&HTTPEndpoint{}, id).Error
-}
-
-// ==================== MCPAgentDB ====================
-
-// CreateMCPAgent cria um novo MCP Agent
-func CreateMCPAgent(agentConfigID uint, transportType, serverCommand, serverArgs, serverEnv, workingDir, serverURL, authType, authValue, httpHeaders, executionMode string, autoConnect bool) (*MCPAgentDB, error) {
-	if transportType == "" {
-		transportType = "stdio"
-	}
-	if executionMode == "" {
-		executionMode = "convert"
-	}
-	mcpAgent := &MCPAgentDB{
-		AgentConfigID: agentConfigID,
-		TransportType: transportType,
-		ServerCommand: serverCommand,
-		ServerArgs:    serverArgs,
-		ServerEnv:     serverEnv,
-		WorkingDir:    workingDir,
-		ServerURL:     serverURL,
-		AuthType:      authType,
-		AuthValue:     authValue,
-		HTTPHeaders:   httpHeaders,
-		ExecutionMode: executionMode,
-		AutoConnect:   autoConnect,
-	}
-	if err := db.Create(mcpAgent).Error; err != nil {
-		return nil, err
-	}
-	return mcpAgent, nil
-}
-
-// GetMCPAgent retorna um MCP Agent por ID
-func GetMCPAgent(id uint) (*MCPAgentDB, error) {
-	var mcpAgent MCPAgentDB
-	err := db.First(&mcpAgent, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &mcpAgent, nil
-}
-
-// GetMCPAgentByConfigID retorna um MCP Agent pelo AgentConfigID
-func GetMCPAgentByConfigID(agentConfigID uint) (*MCPAgentDB, error) {
-	var mcpAgent MCPAgentDB
-	err := db.Where("agent_config_id = ?", agentConfigID).First(&mcpAgent).Error
-	if err != nil {
-		return nil, err
-	}
-	return &mcpAgent, nil
-}
-
-// GetAllMCPAgents retorna todos os MCP Agents
-func GetAllMCPAgents() ([]MCPAgentDB, error) {
-	var mcpAgents []MCPAgentDB
-	err := db.Find(&mcpAgents).Error
-	return mcpAgents, err
-}
-
-// UpdateMCPAgent atualiza um MCP Agent
-func UpdateMCPAgent(id uint, transportType, serverCommand, serverArgs, serverEnv, workingDir, serverURL, authType, authValue, httpHeaders, executionMode string, autoConnect bool) (*MCPAgentDB, error) {
-	var mcpAgent MCPAgentDB
-	if err := db.First(&mcpAgent, id).Error; err != nil {
-		return nil, err
-	}
-	mcpAgent.TransportType = transportType
-	mcpAgent.ServerCommand = serverCommand
-	mcpAgent.ServerArgs = serverArgs
-	mcpAgent.ServerEnv = serverEnv
-	mcpAgent.WorkingDir = workingDir
-	mcpAgent.ServerURL = serverURL
-	mcpAgent.AuthType = authType
-	mcpAgent.AuthValue = authValue
-	mcpAgent.HTTPHeaders = httpHeaders
-	mcpAgent.ExecutionMode = executionMode
-	mcpAgent.AutoConnect = autoConnect
-	mcpAgent.UpdatedAt = time.Now()
-	if err := db.Save(&mcpAgent).Error; err != nil {
-		return nil, err
-	}
-	return &mcpAgent, nil
-}
-
-// DeleteMCPAgent deleta um MCP Agent
-func DeleteMCPAgent(id uint) error {
-	return db.Delete(&MCPAgentDB{}, id).Error
-}
-
-// GetAllMCPAgentsFull retorna todos os MCP Agents com suas configurações de agente
-func GetAllMCPAgentsFull() ([]map[string]interface{}, error) {
-	var mcpAgents []MCPAgentDB
-	if err := db.Find(&mcpAgents).Error; err != nil {
-		return nil, err
-	}
-	result := make([]map[string]interface{}, 0, len(mcpAgents))
-	for _, mcp := range mcpAgents {
-		var agentConfig AgentConfig
-		if err := db.First(&agentConfig, mcp.AgentConfigID).Error; err != nil {
-			continue
-		}
-		result = append(result, map[string]interface{}{
-			"id":             mcp.ID,
-			"agent_config":   agentConfig,
-			"transport_type": mcp.TransportType,
-			"server_command": mcp.ServerCommand,
-			"server_args":    mcp.ServerArgs,
-			"server_env":     mcp.ServerEnv,
-			"working_dir":    mcp.WorkingDir,
-			"server_url":     mcp.ServerURL,
-			"auth_type":      mcp.AuthType,
-			"auth_value":     mcp.AuthValue,
-			"http_headers":   mcp.HTTPHeaders,
-			"execution_mode": mcp.ExecutionMode,
-			"auto_connect":   mcp.AutoConnect,
-			"created_at":     mcp.CreatedAt,
-			"updated_at":     mcp.UpdatedAt,
-		})
-	}
-	return result, nil
-}
-
-// ==================== ModelCapability ====================
-
-// GetOrCreateModelCapability retorna ou cria capacidades para um modelo
-func GetOrCreateModelCapability(modelName string) (*ModelCapability, error) {
-	var cap ModelCapability
-	err := db.Where("model_name = ?", modelName).First(&cap).Error
-	if err == nil {
-		return &cap, nil
-	}
-	cap = ModelCapability{
-		ModelName: modelName,
-	}
-	if err := db.Create(&cap).Error; err != nil {
-		return nil, err
-	}
-	return &cap, nil
-}
-
-// GetModelCapability retorna as capacidades de um modelo
-func GetModelCapability(modelName string) (*ModelCapability, error) {
-	var cap ModelCapability
-	err := db.Where("model_name = ?", modelName).First(&cap).Error
-	if err != nil {
-		return nil, err
-	}
-	return &cap, nil
-}
-
-// GetAllModelCapabilities retorna todas as capacidades conhecidas
-func GetAllModelCapabilities() ([]ModelCapability, error) {
-	var caps []ModelCapability
-	err := db.Order("times_used DESC, model_name ASC").Find(&caps).Error
-	return caps, err
-}
-
-// UpdateModelCapability atualiza as capacidades de um modelo
-func UpdateModelCapability(modelName string, supportsVision, supportsAudio, supportsVideo, supportsDocuments, supportsTools, supportsStreaming, supportsJSON *bool) (*ModelCapability, error) {
-	cap, err := GetOrCreateModelCapability(modelName)
-	if err != nil {
-		return nil, err
-	}
-	if supportsVision != nil {
-		cap.SupportsVision = supportsVision
-	}
-	if supportsAudio != nil {
-		cap.SupportsAudio = supportsAudio
-	}
-	if supportsVideo != nil {
-		cap.SupportsVideo = supportsVideo
-	}
-	if supportsDocuments != nil {
-		cap.SupportsDocuments = supportsDocuments
-	}
-	if supportsTools != nil {
-		cap.SupportsTools = supportsTools
-	}
-	if supportsStreaming != nil {
-		cap.SupportsStreaming = supportsStreaming
-	}
-	if supportsJSON != nil {
-		cap.SupportsJSON = supportsJSON
-	}
-	cap.LastTested = time.Now()
-	cap.UpdatedAt = time.Now()
-	if err := db.Save(cap).Error; err != nil {
-		return nil, err
-	}
-	return cap, nil
-}
-
-// SetModelVisionSupport define se um modelo suporta visão
-func SetModelVisionSupport(modelName string, supported bool) error {
-	_, err := UpdateModelCapability(modelName, &supported, nil, nil, nil, nil, nil, nil)
-	return err
-}
-
-// SetModelToolsSupport define se um modelo suporta tools
-func SetModelToolsSupport(modelName string, supported bool) error {
-	_, err := UpdateModelCapability(modelName, nil, nil, nil, nil, &supported, nil, nil)
-	return err
-}
-
-// IncrementModelUsage incrementa o contador de uso de um modelo
-func IncrementModelUsage(modelName string) error {
-	cap, err := GetOrCreateModelCapability(modelName)
-	if err != nil {
-		return err
-	}
-	cap.TimesUsed++
-	return db.Model(cap).Update("times_used", cap.TimesUsed).Error
-}
-
-// SetModelError registra um erro em um modelo
-func SetModelError(modelName, errorMsg string) error {
-	cap, err := GetOrCreateModelCapability(modelName)
-	if err != nil {
-		return err
-	}
-	cap.LastError = errorMsg
-	cap.LastTested = time.Now()
-	return db.Save(cap).Error
-}
-
-// GetVisionCapableModels retorna modelos que suportam visão
-func GetVisionCapableModels() ([]ModelCapability, error) {
-	var caps []ModelCapability
-	err := db.Where("supports_vision = ?", true).Order("times_used DESC").Find(&caps).Error
-	return caps, err
-}
-
-// ModelSupportsVision verifica se um modelo suporta visão
-func ModelSupportsVision(modelName string) (bool, error) {
-	cap, err := GetModelCapability(modelName)
-	if err != nil {
-		return false, nil
-	}
-	if cap.SupportsVision == nil {
-		return false, nil
-	}
-	return *cap.SupportsVision, nil
-}
-
-// ==================== OAuthConnection ====================
-
-// CreateOAuthConnection cria uma nova conexão OAuth
-func CreateOAuthConnection(providerID, providerName, userEmail, userName, userID, accessToken, refreshToken, tokenType, scopes string, expiresAt time.Time) (*OAuthConnection, error) {
-	conn := &OAuthConnection{
-		ProviderID:   providerID,
-		ProviderName: providerName,
-		UserEmail:    userEmail,
-		UserName:     userName,
-		UserID:       userID,
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		TokenType:    tokenType,
-		Scopes:       scopes,
-		ExpiresAt:    expiresAt,
-		IsActive:     true,
-		LastUsedAt:   time.Now(),
-	}
-	if err := db.Create(conn).Error; err != nil {
-		return nil, err
-	}
-	return conn, nil
-}
-
-// GetOAuthConnection retorna uma conexão OAuth por ID
-func GetOAuthConnection(id uint) (*OAuthConnection, error) {
-	var conn OAuthConnection
-	err := db.First(&conn, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &conn, nil
-}
-
-// GetOAuthConnectionByProvider retorna conexões de um provider específico
-func GetOAuthConnectionByProvider(providerID string) ([]OAuthConnection, error) {
-	var conns []OAuthConnection
-	err := db.Where("provider_id = ? AND is_active = ?", providerID, true).
-		Order("updated_at DESC").Find(&conns).Error
-	return conns, err
-}
-
-// GetAllOAuthConnections retorna todas as conexões OAuth ativas
-func GetAllOAuthConnections() ([]OAuthConnection, error) {
-	var conns []OAuthConnection
-	err := db.Where("is_active = ?", true).Order("provider_id ASC, updated_at DESC").Find(&conns).Error
-	return conns, err
-}
-
-// UpdateOAuthTokens atualiza os tokens de uma conexão
-func UpdateOAuthTokens(id uint, accessToken, refreshToken string, expiresAt time.Time) error {
-	return db.Model(&OAuthConnection{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"expires_at":    expiresAt,
-		"last_used_at":  time.Now(),
-		"updated_at":    time.Now(),
-	}).Error
-}
-
-// UpdateOAuthConnectionLastUsed atualiza o timestamp de último uso
-func UpdateOAuthConnectionLastUsed(id uint) error {
-	return db.Model(&OAuthConnection{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"last_used_at": time.Now(),
-	}).Error
-}
-
-// DeleteOAuthConnection desativa uma conexão OAuth (soft delete)
-func DeleteOAuthConnection(id uint) error {
-	return db.Model(&OAuthConnection{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"is_active":  false,
-		"updated_at": time.Now(),
-	}).Error
-}
-
-// HardDeleteOAuthConnection remove permanentemente uma conexão
-func HardDeleteOAuthConnection(id uint) error {
-	return db.Delete(&OAuthConnection{}, id).Error
-}
-
-// GetActiveOAuthConnectionForProvider retorna a conexão ativa mais recente para um provider
-func GetActiveOAuthConnectionForProvider(providerID string) (*OAuthConnection, error) {
-	var conn OAuthConnection
-	err := db.Where("provider_id = ? AND is_active = ?", providerID, true).
-		Order("updated_at DESC").First(&conn).Error
-	if err != nil {
-		return nil, err
-	}
-	return &conn, nil
-}
-
-// ==================== FileAgentAuthorizedPath ====================
-
-// CreateFileAgentAuthorizedPath cria uma nova pasta autorizada
-func CreateFileAgentAuthorizedPath(path string, allowDelete, allowWrite, recursive bool) (*FileAgentAuthorizedPath, error) {
-	authPath := &FileAgentAuthorizedPath{
-		Path:        path,
-		AllowDelete: allowDelete,
-		AllowWrite:  allowWrite,
-		Recursive:   recursive,
-	}
-	if err := db.Create(authPath).Error; err != nil {
-		return nil, err
-	}
-	return authPath, nil
-}
-
-// GetFileAgentAuthorizedPath retorna uma pasta autorizada por ID
-func GetFileAgentAuthorizedPath(id uint) (*FileAgentAuthorizedPath, error) {
-	var authPath FileAgentAuthorizedPath
-	err := db.First(&authPath, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &authPath, nil
-}
-
-// GetAllFileAgentAuthorizedPaths retorna todas as pastas autorizadas
-func GetAllFileAgentAuthorizedPaths() ([]FileAgentAuthorizedPath, error) {
-	var authPaths []FileAgentAuthorizedPath
-	err := db.Order("path ASC").Find(&authPaths).Error
-	return authPaths, err
-}
-
-// UpdateFileAgentAuthorizedPath atualiza uma pasta autorizada
-func UpdateFileAgentAuthorizedPath(id uint, path string, allowDelete, allowWrite, recursive bool) (*FileAgentAuthorizedPath, error) {
-	var authPath FileAgentAuthorizedPath
-	if err := db.First(&authPath, id).Error; err != nil {
-		return nil, err
-	}
-	authPath.Path = path
-	authPath.AllowDelete = allowDelete
-	authPath.AllowWrite = allowWrite
-	authPath.Recursive = recursive
-	if err := db.Save(&authPath).Error; err != nil {
-		return nil, err
-	}
-	return &authPath, nil
-}
-
-// DeleteFileAgentAuthorizedPath deleta uma pasta autorizada
-func DeleteFileAgentAuthorizedPath(id uint) error {
-	return db.Delete(&FileAgentAuthorizedPath{}, id).Error
+	return &tab, nil
 }
 
 // ==================== Utilities ====================
@@ -1893,34 +613,6 @@ func GenerateTitle(content string) string {
 		return "Nova conversa"
 	}
 	return content
-}
-
-// CosineSimilarity calcula a similaridade de cosseno entre dois vetores
-func CosineSimilarity(a, b []float32) float32 {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0
-	}
-	var dotProduct, normA, normB float64
-	for i := range a {
-		dotProduct += float64(a[i]) * float64(b[i])
-		normA += float64(a[i]) * float64(a[i])
-		normB += float64(b[i]) * float64(b[i])
-	}
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-	return float32(dotProduct / (sqrtFloat64(normA) * sqrtFloat64(normB)))
-}
-
-func sqrtFloat64(x float64) float64 {
-	if x <= 0 {
-		return 0
-	}
-	z := x / 2
-	for i := 0; i < 10; i++ {
-		z = z - (z*z-x)/(2*z)
-	}
-	return z
 }
 
 // ==================== VoiceProfile ====================
@@ -2026,7 +718,6 @@ func GetDefaultVoiceProfile() (*VoiceProfile, error) {
 	return &profile, nil
 }
 
-// UpdateVoiceProfile atualiza um perfil de voz
 // UpdateVoiceProfile atualiza um perfil de voz (versão simplificada para compatibilidade)
 func UpdateVoiceProfile(id uint, name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
 	// Busca o perfil existente para manter os valores dos novos campos
@@ -2290,13 +981,10 @@ func seedDefaultChatProfiles() error {
 		return nil
 	}
 
-	// Lista de todas as ferramentas disponíveis por padrão
-	allTools := `["file_manager","web_search","memory","faq","voice_profile","interaction_profile","chat_profile"]`
-
-	// 1. Perfil "Padrão" - todas as ferramentas
+	// 1. Perfil "Padrão"
 	defaultProfile := ChatProfile{
 		Name:                 "Padrão",
-		Description:          "Configuração padrão com todas as ferramentas habilitadas.",
+		Description:          "Configuração padrão.",
 		Icon:                 "💬",
 		IsDefault:            true,
 		Model:                "", // Será definido automaticamente ao configurar API
@@ -2304,21 +992,17 @@ func seedDefaultChatProfiles() error {
 		MaxTokens:            4096,
 		TopP:                 1.0,
 		ResponseTimeout:      180,
-		UseTools:             true,
-		ToolsList:            allTools,
 		SystemPromptPosition: "after",
-		IncludeCoreMemories:  true,
-		ShowInternalMessages: false,
 	}
 	if err := db.Create(&defaultProfile).Error; err != nil {
 		return err
 	}
 	fmt.Println("[Database] Perfil de conversa 'Padrão' criado com sucesso")
 
-	// 2. Perfil "Modelo Local" - sem ferramentas (para gpt-oss, llama, etc.)
+	// 2. Perfil "Modelo Local" - para modelos locais
 	localProfile := ChatProfile{
 		Name:                 "Modelo Local",
-		Description:          "Para modelos locais que não suportam ferramentas (Ollama, LM Studio, etc.).",
+		Description:          "Para modelos locais (Ollama, LM Studio, etc.).",
 		Icon:                 "🏠",
 		IsDefault:            false,
 		Model:                "",
@@ -2326,11 +1010,7 @@ func seedDefaultChatProfiles() error {
 		MaxTokens:            4096,
 		TopP:                 1.0,
 		ResponseTimeout:      300, // Modelos locais podem ser mais lentos
-		UseTools:             false,
-		ToolsList:            "[]",
 		SystemPromptPosition: "after",
-		IncludeCoreMemories:  true,
-		ShowInternalMessages: false,
 	}
 	if err := db.Create(&localProfile).Error; err != nil {
 		return err
@@ -2348,12 +1028,8 @@ func seedDefaultChatProfiles() error {
 		MaxTokens:            8192,
 		TopP:                 1.0,
 		ResponseTimeout:      180,
-		UseTools:             true,
-		ToolsList:            `["file_manager"]`,
 		SystemPrompt:         "You are a programming assistant. Always provide code examples when relevant. Use markdown to format code. Prefer simple and idiomatic solutions.",
 		SystemPromptPosition: "after",
-		IncludeCoreMemories:  true,
-		ShowInternalMessages: false,
 	}
 	if err := db.Create(&codeProfile).Error; err != nil {
 		return err

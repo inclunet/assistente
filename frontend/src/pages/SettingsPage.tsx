@@ -271,12 +271,12 @@ export default function SettingsPage() {
           <h2>🎭 Perfis Padrão</h2>
           <p className="settings-section-description">
             Defina os perfis que serão usados por padrão em novas conversas.
-            Configure modelo, temperatura, ferramentas e mais nos perfis de conversa.
+            Configure modelo, temperatura e mais nos perfis de conversa.
           </p>
           <div className="settings-fields settings-profiles-grid">
             <div className="settings-profile-item">
               <label className="settings-label">Perfil de Conversa</label>
-              <p className="settings-field-hint">Modelo, parâmetros e ferramentas</p>
+              <p className="settings-field-hint">Modelo e parâmetros</p>
               <ChatProfilePicker
                 ref={chatProfilePickerRef}
                 value={defaultChatProfileId}

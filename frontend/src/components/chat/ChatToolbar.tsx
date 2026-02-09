@@ -35,7 +35,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   inputRef,
 }) => {
   const navigate = useNavigate();
-  const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab, setUseTools } = useChatStore();
+  const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab } = useChatStore();
   const { config, setConfig } = useSettingsStore();
   const { announce } = useAnnouncer();
   const activeTab = getActiveTab();
@@ -534,14 +534,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       }
     }
 
-    // Atualiza o estado de useTools baseado no perfil
-    const profile = chatProfilePickerRef.current?.getSelectedProfile();
-    if (profile) {
-      setUseTools(profile.use_tools);
-    }
-
     focusInput();
-  }, [activeTab?.conversationId, setUseTools, focusInput]);
+  }, [activeTab?.conversationId, focusInput]);
 
   // Carrega o perfil de conversa efetivo quando a conversa muda
   useEffect(() => {
@@ -565,7 +559,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         
         if (profile) {
           setSelectedChatProfileId(profile.id);
-          setUseTools(profile.use_tools);
         }
       } catch (error) {
         console.error('[ChatToolbar] Erro ao carregar perfil de conversa:', error);
@@ -573,7 +566,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     };
 
     loadConversationChatProfile();
-  }, [activeTab?.conversationId, setUseTools]); // Recarrega quando a conversa muda
+  }, [activeTab?.conversationId]); // Recarrega quando a conversa muda
 
   // Escuta evento de mudança de perfil de conversa via agente
   useEffect(() => {
@@ -591,7 +584,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
           const defaultProfile = await GetDefaultChatProfile() as ChatProfile;
           if (defaultProfile) {
             setSelectedChatProfileId(defaultProfile.id);
-            setUseTools(defaultProfile.use_tools);
             announce(`Voltou para perfil de conversa padrão: ${defaultProfile.name}`);
           }
         } catch (error) {
@@ -602,11 +594,10 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         chatProfilePickerRef.current?.reload();
         setSelectedChatProfileId(data.profile_id);
         
-        // Carrega perfil para atualizar useTools
+        // Carrega perfil para anunciar mudança
         try {
           const profile = await GetEffectiveChatProfile(data.conversation_id) as ChatProfile;
           if (profile) {
-            setUseTools(profile.use_tools);
             announce(`Perfil de conversa alterado para ${profile.name}`);
           }
         } catch (error) {
@@ -618,7 +609,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     return () => {
       unsubscribeChatProfileChanged();
     };
-  }, [activeTab?.conversationId, setUseTools, announce]);
+  }, [activeTab?.conversationId, announce]);
 
   const handleHistoryChange = async (conversationId: number, conversation: any) => {
     try {

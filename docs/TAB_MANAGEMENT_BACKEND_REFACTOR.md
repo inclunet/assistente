@@ -160,7 +160,7 @@ O frontend deve ser "burro" - apenas renderizar o estado que vem do backend e en
 // ==================== Chat Tabs ====================
 
 // ChatTab representa uma aba de chat aberta na interface
-// Seguindo o padrão das tabelas existentes: Conversation, ChatMessage, Memory, FAQ, AgentConfig
+// Seguindo o padrão das tabelas existentes: Conversation, ChatMessage
 // 
 // IMPORTANTE: Substitui config.LastConversationID - cada aba tem sua própria conversa ativa
 type ChatTab struct {
@@ -180,7 +180,7 @@ type ChatTab struct {
 
 **Mudanças no design**:
 - ❌ Removido `UserID` (não é multi-user ainda)
-- ✅ Nome da tabela: `chat_tabs` (plural, como `conversations`, `chat_messages`, `memories`, `faqs`)
+- ✅ Nome da tabela: `chat_tabs` (plural, como `conversations`, `chat_messages`)
 - ✅ Padrão consistente com os models existentes
 - ✅ **`IsActive` + `ConversationID` substituem `config.LastConversationID`**
   - A aba ativa (`IsActive=true`) contém a última conversa vista pelo usuário
@@ -192,8 +192,6 @@ type ChatTab struct {
 db.AutoMigrate(
 	&Conversation{},
 	&ChatMessage{},
-	&Memory{},
-	&FAQ{},
 	&ChatTab{},  // ← NOVO
 )
 ```

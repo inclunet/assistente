@@ -3,7 +3,7 @@ import { Message } from '../../store/chatStore';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
-import { formatAgentName, isAgentMessage } from '../../lib/chatUtils';
+import { isAgentMessage } from '../../lib/chatUtils';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import './ChatMessage.css';
@@ -53,7 +53,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isReasoningExpanded = false,
   onToggleReasoning,
 }) => {
-  const { role, content, timestamp, isStreaming, agentName, toolName, reasoning } = message;
+  const { role, content, timestamp, isStreaming, reasoning } = message;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Usa editContent externo se está editando
@@ -71,16 +71,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     // Usuário
     if (role === 'user') return 'Você';
 
-    // Resposta de ferramenta - usa o nome da ferramenta
-    if (role === 'tool' && toolName) {
-      return formatAgentName(toolName);
-    }
-
-    // Mensagem genérica de ferramenta sem nome específico
+    // Resposta de ferramenta
     if (role === 'tool') return 'Ferramenta';
-
-    // Agente específico (file_manager, etc)
-    if (agentName) return formatAgentName(agentName);
 
     // Assistente padrão
     return 'Assistente';

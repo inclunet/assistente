@@ -68,7 +68,7 @@ interface MessageNodeProps {
     name: string;
     avatar?: string;      // URL ou base64
     color?: string;       // Cor do autor
-    role?: string;        // 'user' | 'assistant' | 'agent' | custom
+    role?: string;        // 'user' | 'assistant' | custom
   };
   
   // Contexto
@@ -605,8 +605,6 @@ export function convertMessages(llmMessages) {
 function getAuthor(msg) {
   if (msg.role === 'user') return { id: 'user', name: 'Você', avatar: '👤' };
   if (msg.role === 'assistant') return { id: 'assistant', name: 'Assistente', avatar: '🤖' };
-  if (msg.role === 'agent') return { id: msg.agent_name, name: formatAgentName(msg.agent_name), avatar: '🔧' };
-  if (msg.role === 'tool') return { id: msg.tool_name, name: msg.tool_name, avatar: '📥' };
   return { id: 'system', name: 'Sistema', avatar: '⚙️' };
 }
 
@@ -680,8 +678,6 @@ export function convertLLMMessage(llmMessage) {
 function getAuthorName(msg) {
   if (msg.role === 'user') return 'Você';
   if (msg.role === 'assistant') return 'Assistente';
-  if (msg.role === 'agent') return formatAgentName(msg.agent_name);
-  if (msg.role === 'tool') return formatToolName(msg.tool_name);
   return 'Sistema';
 }
 ```

@@ -14,10 +14,6 @@ const PAGE_TITLES: Record<string, string> = {
   '/': 'Chat',
   '/settings': 'Configurações',
   '/history': 'Histórico',
-  '/memory': 'Memória',
-  '/faq': 'FAQ',
-  '/agents': 'Agentes',
-  '/oauth': 'OAuth',
   '/voice-profiles': 'Perfis de Voz',
   '/interaction-profiles': 'Perfis de Interação',
 };

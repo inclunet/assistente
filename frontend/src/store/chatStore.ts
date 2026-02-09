@@ -9,8 +9,6 @@ import {
   UpdateTabTitle as BackendUpdateTabTitle,
   GetMessages,
   LoadConversationInTab,
-  OnTabInactive,
-  OnTabClosed,
 } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
@@ -35,15 +33,6 @@ interface MediaData {
   type: string;
   data: string; // base64
   size: number;
-}
-
-export interface ToolCall {
-  id: string;
-  type: string;
-  function: {
-    name: string;
-    arguments: string;
-  };
 }
 
 // Usa os tipos gerados pelo Wails diretamente
@@ -82,9 +71,6 @@ export interface NewMessageData {
   content: string;
   isStreaming?: boolean;
   parentId?: string;
-  toolCallId?: string;
-  agentName?: string;
-  toolName?: string;
 }
 
 export interface ChatTab {
@@ -106,7 +92,6 @@ interface ChatStore {
   expandedThreads: Set<string>; // IDs de mensagens com threads expandidas
   editingMessageId: string | null; // ID da mensagem sendo editada (acionado por F2 ou menu)
   skipFocusRestore: boolean; // Flag para pular restauração de foco após fechar menu
-  useTools: boolean; // Flag para habilitar/desabilitar ferramentas
   
   // Reasoning/Thinking - cadeia de pensamento do modelo durante streaming
   streamingReasoning: string | null; // Reasoning acumulado durante streaming
@@ -120,9 +105,6 @@ interface ChatStore {
   setEditingMessageId: (id: string | null) => void;
   startEditing: (id: string) => void; // Inicia edição e marca para pular restauração de foco
   consumeSkipFocusRestore: () => boolean; // Consome o flag e retorna se deve pular
-
-  // Tools
-  setUseTools: (value: boolean) => void;
 
   // Tab management
   createTab: (activate?: boolean) => Promise<string>;
@@ -290,7 +272,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     expandedThreads: new Set<string>(),
     editingMessageId: null,
     skipFocusRestore: false,
-    useTools: true, // Valor padrão, pode ser alterado via toggle na toolbar
     streamingReasoning: null, // Reasoning durante streaming
     isThinking: false, // Se está recebendo reasoning
     expandedReasonings: new Set<string>(), // IDs de mensagens com reasoning expandido
@@ -310,10 +291,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         set({ skipFocusRestore: false });
       }
       return shouldSkip;
-    },
-
-    setUseTools: (value: boolean) => {
-      set({ useTools: value });
     },
 
     initializeTabs: async () => {
@@ -463,13 +440,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }
 
     try {
-      // Gera embedding da conversa antes de fechar (se houver conversa)
-      if (tab.conversationId) {
-        console.log('[Chat] Generating embedding before closing tab, conversationId:', tab.conversationId);
-        await OnTabClosed(tab.conversationId).catch(err => 
-          console.warn('[Chat] Error generating embedding on tab close:', err)
-        );
-      }
+      // Note: OnTabClosed was removed from backend - embedding generation happens automatically
       
       if (tab.backendId) {
         console.log('[Chat] Closing tab in backend:', tab.backendId);
@@ -514,16 +485,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     console.log('[Chat] 🔵 setActiveTab CHAMADO com tabId:', tabId);
     const state = get();
     const tab = state.tabs.find(t => t.id === tabId);
-    const previousTab = state.tabs.find(t => t.id === state.activeTabId);
+    // previousTab removed - no longer needed after tool-calling removal
     console.log('[Chat] 🔵 Tab encontrada:', tab ? `id=${tab.id}, backendId=${tab.backendId}` : 'NÃO ENCONTRADA');
     
-    // Dispara geração de embedding da aba anterior (em background)
-    if (previousTab && previousTab.backendId && previousTab.id !== tabId) {
-      console.log('[Chat] 🔵 Tab anterior ficando inativa, gerando embedding:', previousTab.backendId);
-      OnTabInactive(previousTab.backendId).catch(err => 
-        console.warn('[Chat] Error generating embedding on tab inactive:', err)
-      );
-    }
+    // Note: OnTabInactive was removed from backend - embedding generation happens automatically
     
     try {
       if (tab?.backendId) {
@@ -649,7 +614,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (ttsEnabledForUser && settings.config?.voice) {
         // TTS para mensagem do usuário - usa streaming para reprodução mais rápida
         const cleanContent = stripMarkdown(message.content);
-        ttsService.speak(cleanContent).catch((err) => {
+        ttsService.speak(cleanContent).catch((err: any) => {
           console.error('[Chat] TTS speak error (user):', err);
         });
       } else if (useAriaLiveForUser) {
@@ -779,7 +744,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       messageId: message.id,
       parentId,
       role: message.role,
-      agentName: message.agentName 
     });
     
     set((state) => {
@@ -1010,7 +974,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         setTimeout(() => {
           createTab(false).then(newTabId => {
             console.log('[Chat] New blank tab created (not activated):', newTabId);
-          }).catch(err => {
+          }).catch((err: any) => {
             console.error('[Chat] Error creating new blank tab:', err);
           });
         }, 100);
@@ -1210,9 +1174,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               conversationId,
               'user',
               content,
-              mediaJson,
-              '', // toolCalls
-              ''  // toolResults
+              mediaJson
             );
 
             // Update tab with conversation ID if we didn't have one
@@ -1239,11 +1201,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }
           } else {
             // Normal message without media
-            await SendMessage(conversationId, content, 'user', {
+            await SendMessage(conversationId, content, '', {
               model: '',
               temperature: 0.7,
               maxTokens: 4096,
-              useTools: get().useTools,
             });
           }
 
@@ -1386,7 +1347,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   
                   // Usa speak() com streaming para reprodução mais rápida
                   // O streaming começa a reproduzir enquanto ainda está baixando
-                  ttsService.speak(finalMessage.content).catch((err) => {
+                  ttsService.speak(finalMessage.content).catch((err: any) => {
                     console.error('[Chat] TTS speak error:', err);
                   });
                 }
@@ -1461,112 +1422,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             cleanup();
           });
 
-          // Listen for tool execution events
-          const unsubscribeTools = EventsOn('chat:tools', (event: any) => {
-            if (!activeListeners.has(currentTabId!)) return;
-            
-            console.log('[Chat] Tools executing:', event);
-            
-            // Adiciona mensagem visual de tools sendo executadas
-            const toolNames = event.tools?.join(', ') || 'ferramentas';
-            announce(`Executando ${toolNames}`, 'polite');
-          });
-
-          // Listen for tool results
-          const unsubscribeToolResults = EventsOn('chat:tool_results', (event: any) => {
-            if (!activeListeners.has(currentTabId!)) return;
-            
-            console.log('[Chat] Tool results:', event);
-          });
-
-          // Listen for agent messages (nível 2: agente ↔ tools)
-          // IMPORTANTE: Este evento é emitido pelo backend para mensagens dos agentes
-          // enquanto chat:internal_message é para mensagens de nível 1 (assistente ↔ agentes)
-          const unsubscribeAgentMessage = EventsOn('chat:agent_message', (event: any) => {
-            if (!activeListeners.has(currentTabId!)) return;
-            
-            console.log('[Chat] Agent message received (level 2):', event);
-            
-            // IMPORTANTE: Converte parentId para string para garantir compatibilidade
-            const parentIdRaw = event.parentId ?? event.parent_id;
-            const parentIdStr = parentIdRaw ? parentIdRaw.toString() : undefined;
-            
-            // Cria instância de EnrichedMessage para mensagem do agente
-            const agentMessage = new main.EnrichedMessage({
-              id: event.id?.toString() || generateId(),
-              conversationId: 0,
-              parentId: parentIdStr,
-              role: event.role || 'assistant', // Agentes podem ter role 'assistant' ou 'tool'
-              content: event.content || '',
-              toolCallId: event.toolCallId || event.tool_call_id,
-              agentName: event.agentName || event.agent_name,
-              toolName: event.toolName || event.tool_name,
-              internal: true,
-              timestamp: Date.now(),
-              isStreaming: false,
-              createdAt: new Date(),
-            });
-            
-            // Adiciona mensagem do agente à árvore (mesma lógica de internal_message)
-            get().addInternalMessage(currentTabId!, agentMessage);
-            
-            // Anuncia atividade do agente
-            if (agentMessage.agentName) {
-              const agentDisplay = agentMessage.agentName.split('_').map((w: string) => 
-                w.charAt(0).toUpperCase() + w.slice(1)
-              ).join(' ');
-              announce(`${agentDisplay} está processando`, 'polite');
-            }
-          });
-          
-          // Listen for internal messages (tool calls, agent responses)
-          const unsubscribeInternalMessage = EventsOn('chat:internal_message', (event: any) => {
-            if (!activeListeners.has(currentTabId!)) return;
-            
-            console.log('[Chat] Internal message received:', event);
-            
-            // IMPORTANTE: Converte parentId para string para garantir compatibilidade
-            // O backend envia como número, mas a árvore usa strings como IDs
-            const parentIdRaw = event.parentId ?? event.parent_id;
-            const parentIdStr = parentIdRaw ? parentIdRaw.toString() : undefined;
-            
-            // Cria instância de EnrichedMessage para mensagem interna
-            const internalMessage = new main.EnrichedMessage({
-              id: event.id?.toString() || generateId(),
-              conversationId: 0,
-              parentId: parentIdStr,
-              role: event.role || 'tool',
-              content: event.content || '',
-              toolCallId: event.toolCallId || event.tool_call_id,
-              agentName: event.agentName || event.agent_name,
-              toolName: event.toolName || event.tool_name,
-              internal: true,
-              timestamp: Date.now(),
-              isStreaming: false,
-              createdAt: new Date(),
-            });
-            
-            // Adiciona mensagem interna à tab
-            get().addInternalMessage(currentTabId!, internalMessage);
-            
-            // Anuncia execução de ferramenta/agente
-            if (internalMessage.agentName) {
-              const agentDisplay = internalMessage.agentName.split('_').map((w: string) => 
-                w.charAt(0).toUpperCase() + w.slice(1)
-              ).join(' ');
-              announce(`${agentDisplay} respondeu`, 'polite');
-            }
-          });
-
           // Atualiza cleanup para incluir novos listeners
           const originalCleanup = cleanup;
           const enhancedCleanup = () => {
             originalCleanup();
             if (unsubscribeThinking) unsubscribeThinking();
-            if (unsubscribeTools) unsubscribeTools();
-            if (unsubscribeToolResults) unsubscribeToolResults();
-            if (unsubscribeAgentMessage) unsubscribeAgentMessage();
-            if (unsubscribeInternalMessage) unsubscribeInternalMessage();
           };
 
           // CRÍTICO: Armazena cleanup no Map IMEDIATAMENTE após criar os listeners

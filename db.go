@@ -1,13 +1,10 @@
 package main
 
 import (
-	"encoding/json"
 	"fmt"
 	"log"
 	"sort"
-	"time"
 
-	"assistente/internal/agents"
 	"assistente/internal/config"
 	"assistente/internal/database"
 
@@ -18,12 +15,6 @@ import (
 type Conversation = database.Conversation
 type ChatMessage = database.ChatMessage
 type ChatPreferences = database.ChatPreferences
-type Memory = database.Memory
-type FAQ = database.FAQ
-type AgentConfig = database.AgentConfig
-type MCPAgentDB = database.MCPAgentDB
-type ModelCapability = database.ModelCapability
-type OAuthConnection = database.OAuthConnection
 type VoiceProfile = database.VoiceProfile
 
 // Re-exporta funções que não dependem de App
@@ -52,10 +43,6 @@ func (a *App) enrichMessage(msg database.ChatMessage) EnrichedMessage {
 		Content:          msg.Content,
 		Reasoning:        msg.Reasoning,
 		Media:            msg.Media,
-		ToolCalls:        msg.ToolCalls,
-		ToolResults:      msg.ToolResults,
-		ToolCallID:       msg.ToolCallID,
-		AgentName:        msg.AgentName,
 		PromptTokens:     msg.PromptTokens,
 		CompletionTokens: msg.CompletionTokens,
 		TotalTokens:      msg.TotalTokens,
@@ -65,16 +52,6 @@ func (a *App) enrichMessage(msg database.ChatMessage) EnrichedMessage {
 		Timestamp:   msg.CreatedAt.UnixMilli(),
 		IsStreaming: false,
 		Internal:    msg.ParentID != nil,
-	}
-
-	// Extrai toolName do primeiro tool call se existir
-	if msg.ToolCalls != "" {
-		var toolCalls []ToolCall
-		if err := json.Unmarshal([]byte(msg.ToolCalls), &toolCalls); err == nil {
-			if len(toolCalls) > 0 {
-				enriched.ToolName = toolCalls[0].Function.Name
-			}
-		}
 	}
 
 	return enriched
@@ -335,10 +312,6 @@ func (a *App) UpdateConversationModel(id uint, model string) error {
 	return database.UpdateConversationModel(id, model)
 }
 
-func (a *App) UpdateConversationSettings(id uint, showInternalMessages bool) error {
-	return database.UpdateConversationSettings(id, showInternalMessages)
-}
-
 // UpdateConversationPreferences atualiza as preferências locais de uma conversa
 func (a *App) UpdateConversationPreferences(id uint, prefs *ChatPreferences) error {
 	return database.UpdateConversationPreferences(id, prefs)
@@ -351,20 +324,32 @@ func (a *App) GetConversationPreferences(id uint) (*ChatPreferences, error) {
 
 // ==================== ChatMessage ====================
 
-func (a *App) AddMessage(conversationID uint, role, content, toolCalls, toolResults string) (*ChatMessage, error) {
-	return database.AddMessage(conversationID, role, content, toolCalls, toolResults)
+func (a *App) CreateMessage(conversationID uint, role, content string) (*ChatMessage, error) {
+	return database.CreateMessage(database.MessageOptions{
+		ConversationID: conversationID,
+		Role:           role,
+		Content:        content,
+	})
 }
 
-func (a *App) AddMessageWithMedia(conversationID uint, role, content, media, toolCalls, toolResults string) (*ChatMessage, error) {
-	return database.AddMessageWithMedia(conversationID, role, content, media, toolCalls, toolResults)
+func (a *App) AddMessage(conversationID uint, role, content string) (*ChatMessage, error) {
+	return database.AddMessage(conversationID, role, content)
 }
 
-func (a *App) AddMessageWithTokens(conversationID uint, role, content, toolCalls, toolResults string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
-	return database.AddMessageWithTokens(conversationID, role, content, toolCalls, toolResults, promptTokens, completionTokens, totalTokens, model)
+func (a *App) AddMessageWithMedia(conversationID uint, role, content, media string) (*ChatMessage, error) {
+	return database.AddMessageWithMedia(conversationID, role, content, media)
 }
 
-func (a *App) AddMessageWithTokensAndMedia(conversationID uint, role, content, media, toolCalls, toolResults string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
-	return database.AddMessageWithTokensAndMedia(conversationID, role, content, media, toolCalls, toolResults, promptTokens, completionTokens, totalTokens, model)
+func (a *App) AddMessageWithTokens(conversationID uint, role, content string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
+	return database.AddMessageWithTokens(conversationID, role, content, promptTokens, completionTokens, totalTokens, model)
+}
+
+func (a *App) AddMessageWithTokensAndMedia(conversationID uint, role, content, media string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
+	return database.AddMessageWithTokensAndMedia(conversationID, role, content, media, promptTokens, completionTokens, totalTokens, model)
+}
+
+func (a *App) AddChildMessage(conversationID uint, parentID uint, role, content, model string) (*ChatMessage, error) {
+	return database.AddChildMessage(conversationID, parentID, role, content, model)
 }
 
 func (a *App) GetConversationTokenStats(conversationID uint) (map[string]int, error) {
@@ -375,292 +360,44 @@ func (a *App) GetAllTokenStats() (map[string]int, error) {
 	return database.GetAllTokenStats()
 }
 
-// ==================== Memory ====================
+// ==================== Chat Tabs ====================
 
-func (a *App) CreateMemory(title, content, category string) (*Memory, error) {
-	memory, err := database.CreateMemory(title, content, category)
-	if err != nil {
-		return nil, err
-	}
-	// Gera embedding em background
-	go func() {
-		if err := a.GenerateMemoryEmbedding(memory.ID); err != nil {
-			fmt.Printf("Aviso: erro ao gerar embedding para Memory %d: %v\n", memory.ID, err)
-		}
-	}()
-	return memory, nil
+type TabsResponse struct {
+	Tabs        []database.ChatTab `json:"tabs"`
+	ActiveTabId uint               `json:"active_tab_id"`
 }
 
-func (a *App) GetAllMemories() ([]Memory, error) {
-	return database.GetAllMemories()
-}
-
-func (a *App) GetMemoriesByCategory(category string) ([]Memory, error) {
-	return database.GetMemoriesByCategory(category)
-}
-
-func (a *App) SearchMemories(query string) ([]Memory, error) {
-	return database.SearchMemories(query)
-}
-
-func (a *App) UpdateMemory(id uint, title, content, category string) (*Memory, error) {
-	memory, err := database.UpdateMemory(id, title, content, category)
-	if err != nil {
-		return nil, err
-	}
-	// Regenera embedding em background
-	go func() {
-		if err := a.GenerateMemoryEmbedding(id); err != nil {
-			fmt.Printf("Aviso: erro ao regenerar embedding para Memory %d: %v\n", id, err)
-		}
-	}()
-	return memory, nil
-}
-
-func (a *App) DeleteMemory(id uint) error {
-	return database.DeleteMemory(id)
-}
-
-func (a *App) GetCoreMemories() ([]Memory, error) {
-	return database.GetCoreMemories()
-}
-
-// ==================== Memory Embeddings ====================
-
-func (a *App) GenerateMemoryEmbedding(memoryID uint) error {
-	return database.GenerateMemoryEmbedding(memoryID)
-}
-
-func (a *App) GenerateAllMemoryEmbeddings() (int, error) {
-	return database.GenerateAllMemoryEmbeddings()
-}
-
-// GetMemoriesWithoutEmbedding retorna memórias que ainda não têm embedding
-func (a *App) GetMemoriesWithoutEmbedding() ([]Memory, error) {
-	return database.GetMemoriesWithoutEmbedding()
-}
-
-// RegenerateSingleMemoryEmbedding regenera o embedding de uma memória específica
-func (a *App) RegenerateSingleMemoryEmbedding(memoryID uint) error {
-	return a.GenerateMemoryEmbedding(memoryID)
-}
-
-// MemoryEmbeddingStatus representa o status dos embeddings de memórias
-type MemoryEmbeddingStatus struct {
-	Total            int `json:"total"`
-	WithEmbeddings   int `json:"with_embeddings"`
-	WithoutEmbedding int `json:"without_embedding"`
-}
-
-// GetMemoryEmbeddingStatus retorna o status dos embeddings de memórias
-func (a *App) GetMemoryEmbeddingStatus() (*MemoryEmbeddingStatus, error) {
-	memories, err := a.GetAllMemories()
-	if err != nil {
-		return nil, err
-	}
-
-	withEmb := 0
-	for _, memory := range memories {
-		if memory.Embedding != "" {
-			withEmb++
-		}
-	}
-
-	return &MemoryEmbeddingStatus{
-		Total:            len(memories),
-		WithEmbeddings:   withEmb,
-		WithoutEmbedding: len(memories) - withEmb,
-	}, nil
-}
-
-// RegenerateMemoryEmbeddings regenera embeddings de todas as memórias que não têm
-func (a *App) RegenerateMemoryEmbeddings() (int, error) {
-	return database.GenerateAllMemoryEmbeddings()
-}
-
-// ==================== Conversation Embeddings ====================
-
-// GenerateConversationEmbedding gera o embedding de uma conversa específica
-func (a *App) GenerateConversationEmbedding(conversationID uint) error {
-	return database.GenerateConversationEmbedding(conversationID)
-}
-
-// GenerateAllConversationEmbeddings gera embeddings para todas as conversas que não têm
-func (a *App) GenerateAllConversationEmbeddings() (int, error) {
-	return database.GenerateAllConversationEmbeddings()
-}
-
-// SearchConversationsSemantic busca conversas usando similaridade semântica
-func (a *App) SearchConversationsSemantic(query string, topK int, minSimilarity float32) ([]Conversation, error) {
-	return database.SearchConversationsSemantic(query, topK, minSimilarity)
-}
-
-// ConversationEmbeddingStatus representa o status dos embeddings de conversas
-type ConversationEmbeddingStatus struct {
-	Total            int `json:"total"`
-	WithEmbeddings   int `json:"with_embeddings"`
-	WithoutEmbedding int `json:"without_embedding"`
-}
-
-// GetConversationEmbeddingStatus retorna o status dos embeddings de conversas
-func (a *App) GetConversationEmbeddingStatus() (*ConversationEmbeddingStatus, error) {
-	conversations, err := database.GetConversations()
-	if err != nil {
-		return nil, err
-	}
-
-	withEmb := 0
-	for _, conv := range conversations {
-		if conv.Embedding != "" {
-			withEmb++
-		}
-	}
-
-	return &ConversationEmbeddingStatus{
-		Total:            len(conversations),
-		WithEmbeddings:   withEmb,
-		WithoutEmbedding: len(conversations) - withEmb,
-	}, nil
-}
-
-// OnTabInactive é chamado quando uma aba fica inativa
-// Gera o embedding da conversa em background se necessário
-func (a *App) OnTabInactive(tabID uint) error {
-	// Busca a aba
-	tab, err := database.GetTab(tabID)
-	if err != nil {
-		return err
-	}
-
-	// Se não tem conversa associada, ignora
-	if tab.ConversationID == nil {
-		return nil
-	}
-
-	// Gera embedding em background
-	go func() {
-		if err := database.GenerateConversationEmbedding(*tab.ConversationID); err != nil {
-			fmt.Printf("Aviso: erro ao gerar embedding para conversa %d: %v\n", *tab.ConversationID, err)
-		}
-	}()
-
-	return nil
-}
-
-// OnTabClosed é chamado quando uma aba é fechada
-// Garante que o embedding final seja gerado
-func (a *App) OnTabClosed(conversationID uint) error {
-	if conversationID == 0 {
-		return nil
-	}
-
-	// Gera embedding de forma síncrona para garantir que seja salvo
-	return database.GenerateConversationEmbedding(conversationID)
-}
-
-// ==================== Context Navigation (for agents) ====================
-
-// SearchOpenTabs busca em abas abertas usando similaridade semântica
-// Implementa agents.ContextNavigator
-func (a *App) SearchOpenTabs(query string, minSimilarity float32) ([]agents.OpenTabResult, error) {
-	if query == "" {
-		return nil, fmt.Errorf("query não pode ser vazia")
-	}
-
-	// Busca todas as abas
+// GetTabs retorna todas as abas de chat
+func (a *App) GetTabs() (TabsResponse, error) {
 	tabs, err := database.GetAllTabs()
 	if err != nil {
-		return nil, err
+		return TabsResponse{}, err
 	}
 
-	// Gera embedding da query
-	if a.embeddingsService == nil {
-		return nil, fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	queryEmbedding, err := a.embeddingsService.Generate(query)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao gerar embedding da query: %w", err)
-	}
-
-	var results []agents.OpenTabResult
-
-	for _, tab := range tabs {
-		if tab.ConversationID == nil {
-			continue // Aba sem conversa
+	// Se não há abas, cria uma padrão
+	if len(tabs) == 0 {
+		if err := database.InitializeDefaultTab(); err != nil {
+			return TabsResponse{}, err
 		}
-
-		// Busca a conversa para pegar o embedding
-		conv, err := database.GetConversation(*tab.ConversationID)
+		tabs, err = database.GetAllTabs()
 		if err != nil {
-			continue
-		}
-
-		convEmbedding := conv.GetEmbedding()
-		if len(convEmbedding) == 0 {
-			continue // Sem embedding
-		}
-
-		// Calcula similaridade
-		similarity := database.CosineSimilarity(queryEmbedding, convEmbedding)
-		if similarity >= minSimilarity {
-			results = append(results, agents.OpenTabResult{
-				TabID:          tab.ID,
-				ConversationID: *tab.ConversationID,
-				Title:          tab.Title,
-				Summary:        conv.Summary,
-				Similarity:     similarity,
-				IsActive:       tab.IsActive,
-			})
+			return TabsResponse{}, err
 		}
 	}
 
-	// Ordena por similaridade decrescente
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].Similarity > results[i].Similarity {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
-
-	return results, nil
-}
-
-// SearchConversationHistory busca em histórico de conversas (não abertas em abas)
-// Implementa agents.ContextNavigator
-func (a *App) SearchConversationHistory(query string, topK int, minSimilarity float32) ([]agents.ConversationResult, error) {
-	conversations, err := database.SearchConversationsSemantic(query, topK, minSimilarity)
-	if err != nil {
-		return nil, err
-	}
-
-	// Pega IDs das conversas abertas em abas para excluí-las
-	tabs, _ := database.GetAllTabs()
-	openConvIDs := make(map[uint]bool)
+	// Encontra aba ativa
+	var activeId uint
 	for _, tab := range tabs {
-		if tab.ConversationID != nil {
-			openConvIDs[*tab.ConversationID] = true
+		if tab.IsActive {
+			activeId = tab.ID
+			break
 		}
 	}
 
-	var results []agents.ConversationResult
-	for _, conv := range conversations {
-		// Exclui conversas que já estão abertas em abas
-		if openConvIDs[conv.ID] {
-			continue
-		}
-
-		results = append(results, agents.ConversationResult{
-			ConversationID: conv.ID,
-			Title:          conv.Title,
-			Summary:        conv.Summary,
-			CreatedAt:      conv.CreatedAt.Format("02/01/2006"),
-			MessageCount:   conv.MessageCount,
-		})
-	}
-
-	return results, nil
+	return TabsResponse{
+		Tabs:        tabs,
+		ActiveTabId: activeId,
+	}, nil
 }
 
 // SwitchToTab muda para uma aba específica
@@ -816,293 +553,6 @@ func (a *App) DeleteMessages(conversationID uint, messageIDs []uint) error {
 		}
 	}
 	return nil
-}
-
-// GetConversationSummary retorna o resumo de uma conversa
-func (a *App) GetConversationSummary(conversationID uint) (string, error) {
-	conv, err := database.GetConversation(conversationID)
-	if err != nil {
-		return "", err
-	}
-	return conv.Summary, nil
-}
-
-// ==================== FAQ ====================
-
-func (a *App) CreateFAQ(question, answer, tags string) (*FAQ, error) {
-	faq, err := database.CreateFAQ(question, answer, tags)
-	if err != nil {
-		return nil, err
-	}
-	// Gera embedding em background
-	go func() {
-		if err := a.GenerateFAQEmbedding(faq.ID); err != nil {
-			fmt.Printf("Aviso: erro ao gerar embedding para FAQ %d: %v\n", faq.ID, err)
-		}
-	}()
-	return faq, nil
-}
-
-func (a *App) GetFAQ(id uint) (*FAQ, error) {
-	return database.GetFAQ(id)
-}
-
-func (a *App) GetAllFAQs() ([]FAQ, error) {
-	return database.GetAllFAQs()
-}
-
-func (a *App) UpdateFAQ(id uint, question, answer, tags string) (*FAQ, error) {
-	faq, err := database.UpdateFAQ(id, question, answer, tags)
-	if err != nil {
-		return nil, err
-	}
-	// Regenera embedding em background
-	go func() {
-		if err := a.GenerateFAQEmbedding(id); err != nil {
-			fmt.Printf("Aviso: erro ao regenerar embedding para FAQ %d: %v\n", id, err)
-		}
-	}()
-	return faq, nil
-}
-
-func (a *App) DeleteFAQ(id uint) error {
-	return database.DeleteFAQ(id)
-}
-
-func (a *App) SearchFAQ(query string) ([]FAQ, error) {
-	return database.SearchFAQ(query)
-}
-
-// ==================== FAQ Embeddings ====================
-
-func (a *App) GenerateFAQEmbedding(faqID uint) error {
-	return database.GenerateFAQEmbedding(faqID)
-}
-
-func (a *App) GenerateAllFAQEmbeddings() (int, error) {
-	return database.GenerateAllFAQEmbeddings()
-}
-
-func (a *App) SearchFAQSemantic(query string, topK int, minSimilarity float32) ([]FAQ, error) {
-	return database.SearchFAQSemantic(query, topK, minSimilarity)
-}
-
-// FAQEmbeddingStatus representa o status de embeddings das FAQs
-type FAQEmbeddingStatus struct {
-	TotalFAQs        int `json:"total_faqs"`
-	WithEmbedding    int `json:"with_embedding"`
-	WithoutEmbedding int `json:"without_embedding"`
-}
-
-// GetFAQEmbeddingStatus retorna o status dos embeddings de FAQs
-func (a *App) GetFAQEmbeddingStatus() (*FAQEmbeddingStatus, error) {
-	faqs, err := a.GetAllFAQs()
-	if err != nil {
-		return nil, err
-	}
-
-	withEmb := 0
-	for _, faq := range faqs {
-		if faq.Embedding != "" {
-			withEmb++
-		}
-	}
-
-	return &FAQEmbeddingStatus{
-		TotalFAQs:        len(faqs),
-		WithEmbedding:    withEmb,
-		WithoutEmbedding: len(faqs) - withEmb,
-	}, nil
-}
-
-// RegenerateFAQEmbeddings regenera embeddings para todas as FAQs sem embedding
-func (a *App) RegenerateFAQEmbeddings() (int, error) {
-	return a.GenerateAllFAQEmbeddings()
-}
-
-// RegenerateSingleFAQEmbedding regenera o embedding de uma FAQ específica
-func (a *App) RegenerateSingleFAQEmbedding(faqID uint) error {
-	return a.GenerateFAQEmbedding(faqID)
-}
-
-// ==================== AgentConfig ====================
-
-func (a *App) GetAgentConfig(name string) (*AgentConfig, error) {
-	return database.GetAgentConfig(name)
-}
-
-func (a *App) GetAgentConfigByID(id uint) (*AgentConfig, error) {
-	return database.GetAgentConfigByID(id)
-}
-
-func (a *App) GetAllAgentConfigs() ([]AgentConfig, error) {
-	return database.GetAllAgentConfigs()
-}
-
-func (a *App) CreateAgentConfig(name, displayName, description, agentType, model, systemPrompt, config string, enabled bool) (*AgentConfig, error) {
-	return database.CreateAgentConfig(name, displayName, description, agentType, model, systemPrompt, config, enabled)
-}
-
-func (a *App) UpdateAgentConfig(id uint, displayName, description, model, systemPrompt, config string, enabled bool) (*AgentConfig, error) {
-	return database.UpdateAgentConfig(id, displayName, description, model, systemPrompt, config, enabled)
-}
-
-func (a *App) DeleteAgentConfig(id uint) error {
-	return database.DeleteAgentConfig(id)
-}
-
-func (a *App) SaveOrUpdateAgentConfig(name, displayName, description, agentType, model, systemPrompt, config string, enabled bool) (*AgentConfig, error) {
-	return database.SaveOrUpdateAgentConfig(name, displayName, description, agentType, model, systemPrompt, config, enabled)
-}
-
-// ==================== MCPAgentDB ====================
-
-func (a *App) CreateMCPAgent(agentConfigID uint, transportType, serverCommand, serverArgs, serverEnv, workingDir, serverURL, authType, authValue, httpHeaders, executionMode string, autoConnect bool) (*MCPAgentDB, error) {
-	return database.CreateMCPAgent(agentConfigID, transportType, serverCommand, serverArgs, serverEnv, workingDir, serverURL, authType, authValue, httpHeaders, executionMode, autoConnect)
-}
-
-func (a *App) GetMCPAgent(id uint) (*MCPAgentDB, error) {
-	return database.GetMCPAgent(id)
-}
-
-func (a *App) GetMCPAgentByConfigID(agentConfigID uint) (*MCPAgentDB, error) {
-	return database.GetMCPAgentByConfigID(agentConfigID)
-}
-
-func (a *App) GetAllMCPAgents() ([]MCPAgentDB, error) {
-	return database.GetAllMCPAgents()
-}
-
-func (a *App) UpdateMCPAgent(id uint, transportType, serverCommand, serverArgs, serverEnv, workingDir, serverURL, authType, authValue, httpHeaders, executionMode string, autoConnect bool) (*MCPAgentDB, error) {
-	return database.UpdateMCPAgent(id, transportType, serverCommand, serverArgs, serverEnv, workingDir, serverURL, authType, authValue, httpHeaders, executionMode, autoConnect)
-}
-
-func (a *App) DeleteMCPAgent(id uint) error {
-	return database.DeleteMCPAgent(id)
-}
-
-// ==================== Chat Tabs ====================
-
-type TabsResponse struct {
-	Tabs        []database.ChatTab `json:"tabs"`
-	ActiveTabId uint               `json:"active_tab_id"`
-}
-
-// GetTabs retorna todas as abas de chat
-func (a *App) GetTabs() (TabsResponse, error) {
-	tabs, err := database.GetAllTabs()
-	if err != nil {
-		return TabsResponse{}, err
-	}
-
-	// Se não há abas, cria uma padrão
-	if len(tabs) == 0 {
-		if err := database.InitializeDefaultTab(); err != nil {
-			return TabsResponse{}, err
-		}
-		tabs, err = database.GetAllTabs()
-		if err != nil {
-			return TabsResponse{}, err
-		}
-	}
-
-	// Encontra aba ativa
-	var activeId uint
-	for _, tab := range tabs {
-		if tab.IsActive {
-			activeId = tab.ID
-			break
-		}
-	}
-
-	return TabsResponse{
-		Tabs:        tabs,
-		ActiveTabId: activeId,
-	}, nil
-}
-
-func (a *App) GetAllMCPAgentsFull() ([]map[string]interface{}, error) {
-	return database.GetAllMCPAgentsFull()
-}
-
-// ==================== ModelCapability ====================
-
-func (a *App) GetOrCreateModelCapability(modelName string) (*ModelCapability, error) {
-	return database.GetOrCreateModelCapability(modelName)
-}
-
-func (a *App) GetModelCapability(modelName string) (*ModelCapability, error) {
-	return database.GetModelCapability(modelName)
-}
-
-func (a *App) GetAllModelCapabilities() ([]ModelCapability, error) {
-	return database.GetAllModelCapabilities()
-}
-
-func (a *App) UpdateModelCapability(modelName string, supportsVision, supportsAudio, supportsVideo, supportsDocuments, supportsTools, supportsStreaming, supportsJSON *bool) (*ModelCapability, error) {
-	return database.UpdateModelCapability(modelName, supportsVision, supportsAudio, supportsVideo, supportsDocuments, supportsTools, supportsStreaming, supportsJSON)
-}
-
-func (a *App) SetModelVisionSupport(modelName string, supported bool) error {
-	return database.SetModelVisionSupport(modelName, supported)
-}
-
-func (a *App) SetModelToolsSupport(modelName string, supported bool) error {
-	return database.SetModelToolsSupport(modelName, supported)
-}
-
-func (a *App) IncrementModelUsage(modelName string) error {
-	return database.IncrementModelUsage(modelName)
-}
-
-func (a *App) SetModelError(modelName, errorMsg string) error {
-	return database.SetModelError(modelName, errorMsg)
-}
-
-func (a *App) GetVisionCapableModels() ([]ModelCapability, error) {
-	return database.GetVisionCapableModels()
-}
-
-func (a *App) ModelSupportsVision(modelName string) (bool, error) {
-	return database.ModelSupportsVision(modelName)
-}
-
-// ==================== OAuthConnection ====================
-
-func (a *App) CreateOAuthConnection(providerID, providerName, userEmail, userName, userID, accessToken, refreshToken, tokenType, scopes string, expiresAt time.Time) (*OAuthConnection, error) {
-	return database.CreateOAuthConnection(providerID, providerName, userEmail, userName, userID, accessToken, refreshToken, tokenType, scopes, expiresAt)
-}
-
-func (a *App) GetOAuthConnection(id uint) (*OAuthConnection, error) {
-	return database.GetOAuthConnection(id)
-}
-
-func (a *App) GetOAuthConnectionByProvider(providerID string) ([]OAuthConnection, error) {
-	return database.GetOAuthConnectionByProvider(providerID)
-}
-
-func (a *App) GetAllOAuthConnections() ([]OAuthConnection, error) {
-	return database.GetAllOAuthConnections()
-}
-
-func (a *App) UpdateOAuthTokens(id uint, accessToken, refreshToken string, expiresAt time.Time) error {
-	return database.UpdateOAuthTokens(id, accessToken, refreshToken, expiresAt)
-}
-
-func (a *App) UpdateOAuthConnectionLastUsed(id uint) error {
-	return database.UpdateOAuthConnectionLastUsed(id)
-}
-
-func (a *App) DeleteOAuthConnection(id uint) error {
-	return database.DeleteOAuthConnection(id)
-}
-
-func (a *App) HardDeleteOAuthConnection(id uint) error {
-	return database.HardDeleteOAuthConnection(id)
-}
-
-func (a *App) GetActiveOAuthConnectionForProvider(providerID string) (*OAuthConnection, error) {
-	return database.GetActiveOAuthConnectionForProvider(providerID)
 }
 
 // ==================== VoiceProfile ====================
@@ -1347,7 +797,11 @@ func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume
 	}
 
 	// Sintetiza usando a voz específica
-	log.Printf("[PreviewVoiceSettings] Sintetizando texto: %s", sampleText[:min(50, len(sampleText))])
+	previewLen := len(sampleText)
+	if previewLen > 50 {
+		previewLen = 50
+	}
+	log.Printf("[PreviewVoiceSettings] Sintetizando texto: %s", sampleText[:previewLen])
 	result, err := a.speechManager.SynthesizeWithVoice(sampleText, voiceID)
 	if err != nil {
 		log.Printf("[PreviewVoiceSettings] Erro ao sintetizar: %v", err)

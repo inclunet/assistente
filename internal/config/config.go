@@ -18,39 +18,21 @@ type ModelParams struct {
 	TopP        float64 `json:"top_p,omitempty"`       // 0.0 a 1.0
 }
 
-// EmbeddingsParams representa os parâmetros para embeddings
-type EmbeddingsParams struct {
-	Model      string `json:"model,omitempty"`
-	Dimensions int    `json:"dimensions,omitempty"` // Dimensões do vetor (se suportado pelo modelo)
-}
-
 // STTParams representa os parâmetros de transcrição
 type STTParams struct {
 	Provider      string `json:"provider,omitempty"`       // "webspeech" ou "whisper"
 	RecordingMode string `json:"recording_mode,omitempty"` // "ptt", "toggle", "vad_silence", "vad_activity"
 }
 
-// ChatDefaults representa as preferências padrão do chat
-type ChatDefaults struct {
-	UseTools             bool `json:"use_tools,omitempty"`              // Usar agentes/ferramentas
-	ShowInternalMessages bool `json:"show_internal_messages,omitempty"` // Mostrar mensagens internas
-}
-
 // Config representa a configuração da aplicação
 // Nota: Configurações de voz TTS foram movidas para VoiceProfiles no banco de dados
 type Config struct {
-	APIKey           string           `json:"api_key"`
-	APIBaseURL       string           `json:"api_base_url"`
-	BraveAPIKey      string           `json:"brave_api_key,omitempty"`    // DEPRECATED: API key para Brave Search (não mais usado)
-	WebSearchModel   string           `json:"web_search_model,omitempty"` // Modelo para busca web (gpt-4o-search-preview, gpt-5-search-api)
-	DefaultModel     string           `json:"default_model,omitempty"`
-	EmbeddingsModel  string           `json:"embeddings_model,omitempty"`
-	ImageModel       string           `json:"image_model,omitempty"`
-	ResponseTimeout  int              `json:"response_timeout,omitempty"` // Timeout em segundos para aguardar resposta da API (padrão: 180)
-	ChatParams       ModelParams      `json:"chat_params,omitempty"`
-	EmbeddingsParams EmbeddingsParams `json:"embeddings_params,omitempty"`
-	STTParams        STTParams        `json:"stt_params,omitempty"`
-	ChatDefaults     ChatDefaults     `json:"chat_defaults,omitempty"`
+	APIKey          string      `json:"api_key"`
+	APIBaseURL      string      `json:"api_base_url"`
+	DefaultModel    string      `json:"default_model,omitempty"`
+	ResponseTimeout int         `json:"response_timeout,omitempty"` // Timeout em segundos para aguardar resposta da API (padrão: 180)
+	ChatParams      ModelParams `json:"chat_params,omitempty"`
+	STTParams       STTParams   `json:"stt_params,omitempty"`
 }
 
 // DefaultConfig retorna a configuração padrão
@@ -67,17 +49,9 @@ func DefaultConfig() *Config {
 			MaxTokens:   4096,
 			TopP:        1.0,
 		},
-		EmbeddingsParams: EmbeddingsParams{
-			Model:      "text-embedding-3-small",
-			Dimensions: 0, // Usa o padrão do modelo
-		},
 		STTParams: STTParams{
 			Provider:      "webspeech",
 			RecordingMode: "ptt",
-		},
-		ChatDefaults: ChatDefaults{
-			UseTools:             true,
-			ShowInternalMessages: false,
 		},
 	}
 }

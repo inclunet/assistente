@@ -21,18 +21,18 @@ Este documento define a arquitetura alvo e o plano de migração para separar co
 3. Render Tabs: para cada aba, [frontend/src/pages/chat/ChatTab.svelte](frontend/src/pages/chat/ChatTab.svelte) monta sem side-effects globais.
 4. Load Conversation (por aba): `ChatTab` instancia `ConversationController` com stores isoladas; se houver `initialConversationId`, chama `controller.loadConversation(id)`.
 5. Load Messages: o `ConversationController` executa `GetConversationInfo(id)` e `GetMessages(id)`, atualiza stores; a UI re-renderiza.
-6. Streaming/Tools: o controller conecta eventos escopados da conversa e atualiza apenas suas stores.
+6. Streaming: o controller conecta eventos escopados da conversa e atualiza apenas suas stores.
 
 ## Escopo de Eventos
 - Padrão de eventos (do backend):
-  - Legados: `chat:stream`, `chat:done`, `chat:messages_ready`, `chat:tools`, `chat:tool_results`, `chat:internal_message`.
+  - Legados: `chat:stream`, `chat:done`, `chat:messages_ready`, `chat:internal_message`.
   - Escopados: os mesmos nomes com sufixo `:<conversationId>`, por exemplo: `chat:stream:123`.
-- Consumo no frontend: controllers de conversa assinam apenas os eventos escopados da sua `conversationId` (preferencial). Eventos legados permanecem por compatibilidade, mas não devem ser usados pelos controllers por aba.
-- Benefício: nenhuma aba precisa filtrar eventos na UI; não há vazamento entre instâncias.
+  - Consumo no frontend: controllers de conversa assinam apenas os eventos escopados da sua `conversationId` (preferencial). Eventos legados permanecem por compatibilidade, mas não devem ser usados pelos controllers por aba.
+  - Benefício: nenhuma aba precisa filtrar eventos na UI; não há vazamento entre instâncias.
 
 ## Estrutura por Aba
 - `ConversationStores` (por aba):
-  - Primárias: `messages`, `conversationId`, `conversationTitle`, `isStreaming`, `executingTools`, `toolsMessage`, `streamingMessageId`, `streamingContent`.
+  - Primárias: `messages`, `conversationId`, `conversationTitle`, `isStreaming`, `streamingMessageId`, `streamingContent`.
   - Derivadas: `hasConversation`, `isEmpty`, `messageCount`, `threadedMessages` (lazy-sync a partir de `messages`).
 - `ConversationController` (por aba):
   - Métodos: `init()`, `bind()`, `loadConversation(id)`, `send({ text, media, params })`, `updateSettings(showInternal)`, `loadChildren(messageId)`, `setAsLastConversation()`, `clear()`, `destroy()`.
@@ -71,7 +71,7 @@ Este documento define a arquitetura alvo e o plano de migração para separar co
 1. Adicionar `EventRouter` + `TabsService` (sem alterar UI).
 2. Criar `ConversationStores` + `ConversationController` mantendo a interface do atual controller para uma aba “piloto”.
 3. Adaptar `ChatTab` para injetar `controller/stores` no `Chat.svelte` da aba piloto.
-4. Refatorar `Chat.svelte` para view pura na aba piloto (sem imports de runtime/backend); validar fluxo (F5, envio, streaming, tools).
+4. Refatorar `Chat.svelte` para view pura na aba piloto (sem imports de runtime/backend); validar fluxo (F5, envio, streaming).
 5. Estender para todas as abas; remover bindings globais remanescentes.
 6. Migrar/limpar `message-service` (somente helpers puros ficam).
 

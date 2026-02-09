@@ -16,7 +16,7 @@ Etapas (com critérios de aceite)
    - Aceite: envio exibe placeholder e resposta; `$messages`/threads propagam sem duplicações.
 
 2. Threads Imutáveis (MessageService)
-   - Consolidar `_applyThreads(...)` em todos os caminhos de atualização (placeholders, chunks, internal/tool/agent, reload).
+   - Consolidar `_applyThreads(...)` em todos os caminhos de atualização (placeholders, chunks, internal, reload).
    - Derivar `messages` exclusivamente de `conversationData.threads` a cada snapshot.
    - Aceite: qualquer atualização dispara novo snapshot e re-render imediato; logs não mostram "placeholder já existe" em duplicidade.
 
@@ -26,7 +26,7 @@ Etapas (com critérios de aceite)
    - Aceite: alternar entre modo threaded e plano sem oscilações; render coerente.
 
 4. Acessibilidade & Áudio (aria-live/TTS)
-   - Centralizar anúncios (mensagens novas, streamingStarted/Ended, toolsExecution/Results) em um util simples.
+   - Centralizar anúncios (mensagens novas, streamingStarted/Ended) em um util simples.
    - Garantir limpeza do input e foco pós-envio; manter sons sincronizados.
    - Aceite: leitores anunciam em português; TTS/sons não duplicam.
 
@@ -35,7 +35,7 @@ Etapas (com critérios de aceite)
    - Aceite: console limpo (sem WARN redundantes), apenas eventos relevantes.
 
 6. Validação funcional
-   - Cenários: enviar texto; enviar mídia; streaming longo; chamadas de ferramentas; multi-aba.
+   - Cenários: enviar texto; enviar mídia; streaming longo; multi-aba.
    - Aceite: histórico atualiza continuamente; input limpa; aria-live anuncia; sem travamentos.
 
 Riscos e Mitigações

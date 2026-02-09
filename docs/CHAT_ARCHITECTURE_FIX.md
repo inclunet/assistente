@@ -177,8 +177,6 @@ class MessageServiceController {
   const conversationTitle = writable('');
   const conversationData = writable(null);
   const isStreaming = writable(false);
-  const executingTools = writable([]);
-  const toolsMessage = writable(null);
   
   // MessageService agora é um controller que atualiza as stores via callbacks
   const messageService = new MessageServiceController({
@@ -186,9 +184,7 @@ class MessageServiceController {
     onConversationIdUpdate: (v) => conversationId.set(v),
     onConversationTitleUpdate: (v) => conversationTitle.set(v || ''),
     onConversationDataUpdate: (v) => conversationData.set(v),
-    onIsStreamingUpdate: (v) => isStreaming.set(v || false),
-    onExecutingToolsUpdate: (v) => executingTools.set(v || []),
-    onToolsMessageUpdate: (v) => toolsMessage.set(v)
+    onIsStreamingUpdate: (v) => isStreaming.set(v || false)
   });
   
   onMount(async () => {

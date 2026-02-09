@@ -126,8 +126,6 @@ export function createChatStores() {
   const conversationTitle = writable('');
   const conversationData = writable(null);
   const isStreaming = writable(false);
-  const executingTools = writable([]);
-  const toolsMessage = writable(null);
   
   // Stores derivadas (calculadas automaticamente)
   const hasConversation = derived(conversationId, $id => $id !== null);
@@ -145,8 +143,6 @@ export function createChatStores() {
     conversationTitle,
     conversationData,
     isStreaming,
-    executingTools,
-    toolsMessage,
     
     // Derivadas
     hasConversation,
@@ -271,7 +267,7 @@ export class MessageController {
 - ✅ Cleanup automático
 
 ### 3. `lib/chat/utils.js`
-**Propósito:** Funções utilitárias (parseToolCalls, formatAgentName, etc)
+**Propósito:** Funções utilitárias
 
 Migração das funções utilitárias do message-service.js atual.
 
@@ -338,8 +334,6 @@ Migração das funções utilitárias do message-service.js atual.
   conversationTitle={stores.conversationTitle}
   conversationData={stores.conversationData}
   isStreaming={stores.isStreaming}
-  executingTools={stores.executingTools}
-  toolsMessage={stores.toolsMessage}
   threadedMessages={stores.threadedMessages}
   
   {controller}
@@ -365,8 +359,6 @@ Migração das funções utilitárias do message-service.js atual.
   export let conversationTitle;  // writable<string>
   export let conversationData;   // writable<ConversationData|null>
   export let isStreaming;        // writable<boolean>
-  export let executingTools;     // writable<string[]>
-  export let toolsMessage;       // writable<string>
   export let threadedMessages;   // derived<MessageNode[]>
   
   // === PROPS: Controller ===
