@@ -28,6 +28,8 @@ export function Topbar() {
 
   // Determina a página atual baseada na rota
   const getCurrentPage = (): string => {
+    if (location.pathname === '/terminal') return 'terminal';
+    if (location.pathname === '/allowlists') return 'allowlists';
     if (location.pathname === '/settings') return 'settings';
     if (location.pathname === '/profiles') return 'profiles';
     if (location.pathname === '/history') return 'history';
@@ -43,6 +45,12 @@ export function Topbar() {
       onClick: () => navigate('/'),
     },
     {
+      id: 'terminal',
+      label: 'Terminal',
+      icon: '>_',
+      onClick: () => navigate('/terminal'),
+    },
+    {
       id: 'history',
       label: 'Histórico',
       icon: '📜',
@@ -53,6 +61,12 @@ export function Topbar() {
       label: 'Perfis',
       icon: '🎭',
       onClick: () => navigate('/profiles'),
+    },
+    {
+      id: 'allowlists',
+      label: 'Allowlists',
+      icon: '🛡️',
+      onClick: () => navigate('/allowlists'),
     },
     {
       id: 'settings',

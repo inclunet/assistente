@@ -1,0 +1,39 @@
+.terminal-history {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.terminal-history--loading,
+.terminal-history--empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.terminal-history__loading-text {
+  color: var(--color-text-secondary, #666);
+  font-style: italic;
+}
+
+.terminal-history__empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 12px;
+  padding: 40px;
+  text-align: center;
+}
+
+.terminal-history__empty-icon {
+  font-size: 3rem;
+  font-family: monospace;
+  color: var(--color-text-tertiary, #ccc);
+}
+
+.terminal-history__empty-text {
+  color: var(--color-text-secondary, #888);
+  font-size: 0.95rem;
+  line-height: 1.6;
+  margin: 0;
+}

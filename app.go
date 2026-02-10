@@ -7,14 +7,18 @@ import (
 	"os"
 	"time"
 
+	"assistente/internal/allowlist"
 	"assistente/internal/config"
+	"assistente/internal/confirmation"
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/speech"
+	"assistente/internal/terminal"
 	"assistente/internal/tools"
 	"assistente/internal/tools/filesystem"
+	"assistente/internal/tools/shell"
 	"assistente/internal/tools/web"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -27,8 +31,11 @@ type App struct {
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
 	profileManager        *profiles.Manager
-	toolRegistry          *tools.Registry  // Registro de ferramentas disponíveis
-	toolExecutor          *tools.Executor  // Executor de ferramentas com paralelismo e timeout
+	toolRegistry          *tools.Registry        // Registro de ferramentas disponíveis
+	toolExecutor          *tools.Executor        // Executor de ferramentas com paralelismo e timeout
+	terminalMgr           *terminal.Manager      // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
+	confirmationMgr       *confirmation.Manager  // Gerenciador de confirmações de comandos
+	allowlistMgr          *allowlist.Manager     // Gerenciador de allowlists de comandos
 	voiceHotkeyID         int
 	currentConversationID uint // ID da conversa atual
 
@@ -112,6 +119,9 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa o cliente LLM
 	a.initLLMClient()
 
+	// Inicializa managers de terminal, confirmação e allowlists
+	a.initTerminalAndAllowlists()
+
 	// Inicializa o registro de ferramentas (tool calling)
 	a.initToolRegistry()
 
@@ -147,6 +157,28 @@ func (a *App) ReloadLLMClient() {
 	a.initLLMClient()
 }
 
+// initTerminalAndAllowlists inicializa os managers de terminal, confirmação e allowlists.
+func (a *App) initTerminalAndAllowlists() {
+	// Callback para emitir eventos Wails a partir dos managers
+	emitEvent := func(event string, data any) {
+		runtime.EventsEmit(a.ctx, event, data)
+	}
+
+	// Terminal Manager (pool compartilhado LLM + usuário)
+	a.terminalMgr = terminal.NewManager(terminal.DefaultManagerConfig(), emitEvent)
+
+	// Confirmation Manager (confirmação de comandos)
+	a.confirmationMgr = confirmation.NewManager(emitEvent)
+
+	// Allowlist Manager (CRUD de allowlists)
+	a.allowlistMgr = allowlist.NewManager()
+	if err := a.allowlistMgr.EnsureDefaults(); err != nil {
+		log.Printf("[Allowlist] Erro ao garantir allowlist padrão: %v", err)
+	}
+
+	log.Printf("[Terminal] Managers de terminal, confirmação e allowlist inicializados")
+}
+
 // initToolRegistry inicializa o registro de ferramentas disponíveis
 func (a *App) initToolRegistry() {
 	a.toolRegistry = tools.NewRegistry()
@@ -170,6 +202,37 @@ func (a *App) initToolRegistry() {
 	// Registra ferramentas web
 	a.toolRegistry.MustRegister(web.NewWebFetch())
 	a.toolRegistry.MustRegister(web.NewWebSearch())
+
+	// Registra ferramenta de shell (run_command)
+	confirmFn := func(ctx context.Context, cmd, wd string) (bool, error) {
+		return a.confirmationMgr.RequestConfirmation(ctx, cmd, wd)
+	}
+	getAllowlistFn := func() *allowlist.Allowlist {
+		activeProfile, err := a.profileManager.GetActive()
+		if err != nil || activeProfile == nil {
+			// Sem perfil ativo: usa allowlist padrão
+			al, err := a.allowlistMgr.Get("padrao")
+			if err != nil {
+				return nil // sem allowlist = tudo requer confirmação
+			}
+			return al
+		}
+		if activeProfile.Chat.CommandAllowlist == "" {
+			// Perfil sem allowlist configurada: usa a padrão
+			al, err := a.allowlistMgr.Get("padrao")
+			if err != nil {
+				return nil
+			}
+			return al
+		}
+		al, err := a.allowlistMgr.Get(activeProfile.Chat.CommandAllowlist)
+		if err != nil {
+			log.Printf("[Tools] Allowlist '%s' não encontrada, usando confirmação para tudo", activeProfile.Chat.CommandAllowlist)
+			return nil
+		}
+		return al
+	}
+	a.toolRegistry.MustRegister(shell.NewRunCommand(a.terminalMgr, confirmFn, getAllowlistFn, workDir))
 
 	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
 }
@@ -203,6 +266,174 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.hotkeyManager != nil {
 		a.hotkeyManager.Stop()
 	}
+
+	// Encerra todas as sessões de terminal
+	if a.terminalMgr != nil {
+		a.terminalMgr.CloseAll()
+	}
+}
+
+// ============================================================================
+// Terminal Management API (sessões PTY compartilhadas LLM + usuário)
+// ============================================================================
+
+// ListTerminalSessions retorna todas as sessões de terminal ativas.
+func (a *App) ListTerminalSessions() []terminal.SessionInfo {
+	if a.terminalMgr == nil {
+		return []terminal.SessionInfo{}
+	}
+	return a.terminalMgr.List()
+}
+
+// CreateTerminalSession cria uma nova sessão de terminal.
+func (a *App) CreateTerminalSession(name string) (*terminal.SessionInfo, error) {
+	if a.terminalMgr == nil {
+		return nil, fmt.Errorf("terminal manager não inicializado")
+	}
+
+	workDir, _ := os.Getwd()
+	session, err := a.terminalMgr.Create(name, workDir)
+	if err != nil {
+		return nil, err
+	}
+
+	info := session.Info()
+	return &info, nil
+}
+
+// CloseTerminalSession encerra uma sessão de terminal.
+func (a *App) CloseTerminalSession(sessionID string) error {
+	if a.terminalMgr == nil {
+		return fmt.Errorf("terminal manager não inicializado")
+	}
+	return a.terminalMgr.Close(sessionID)
+}
+
+// GetTerminalHistory retorna o histórico de comandos de uma sessão.
+func (a *App) GetTerminalHistory(sessionID string) ([]terminal.HistoryEntry, error) {
+	if a.terminalMgr == nil {
+		return nil, fmt.Errorf("terminal manager não inicializado")
+	}
+	return a.terminalMgr.GetHistory(sessionID)
+}
+
+// RunTerminalCommand executa um comando com markers em uma sessão de terminal.
+// Mantido para compatibilidade — usado internamente pelo LLM.
+func (a *App) RunTerminalCommand(sessionID string, command string) error {
+	if a.terminalMgr == nil {
+		return fmt.Errorf("terminal manager não inicializado")
+	}
+
+	// Executa em goroutine para não bloquear o binding
+	go func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		_, err := a.terminalMgr.RunCommand(ctx, sessionID, command, 0, "user")
+		if err != nil {
+			log.Printf("[Terminal] Erro ao executar comando: %v", err)
+		}
+	}()
+
+	return nil
+}
+
+// SendTerminalInput envia input raw para uma sessão de terminal (modo interativo).
+// Diferente de RunTerminalCommand, não usa markers — o input vai direto ao PTY.
+// Suporta comandos interativos (wsl, python, ssh, etc.) e input para programas em execução.
+func (a *App) SendTerminalInput(sessionID string, input string) error {
+	if a.terminalMgr == nil {
+		return fmt.Errorf("terminal manager não inicializado")
+	}
+
+	_, err := a.terminalMgr.SendInput(sessionID, input)
+	if err != nil {
+		log.Printf("[Terminal] Erro ao enviar input: %v", err)
+		return err
+	}
+	return nil
+}
+
+// InterruptTerminalCommand envia Ctrl+C para uma sessão de terminal.
+func (a *App) InterruptTerminalCommand(sessionID string) error {
+	if a.terminalMgr == nil {
+		return fmt.Errorf("terminal manager não inicializado")
+	}
+	return a.terminalMgr.Interrupt(sessionID)
+}
+
+// GetTerminalStats retorna estatísticas do gerenciador de terminais.
+func (a *App) GetTerminalStats() *terminal.ManagerStats {
+	if a.terminalMgr == nil {
+		return &terminal.ManagerStats{}
+	}
+	stats := a.terminalMgr.Stats()
+	return &stats
+}
+
+// ============================================================================
+// Command Confirmation API
+// ============================================================================
+
+// RespondCommandConfirmation responde a uma solicitação de confirmação de comando.
+// Chamado pelo frontend quando o usuário aprova ou nega um comando.
+func (a *App) RespondCommandConfirmation(requestID string, approved bool) error {
+	if a.confirmationMgr == nil {
+		return fmt.Errorf("confirmation manager não inicializado")
+	}
+	return a.confirmationMgr.Respond(requestID, approved)
+}
+
+// ============================================================================
+// Allowlist Management API
+// ============================================================================
+
+// GetAllowlists retorna a lista de allowlists disponíveis.
+func (a *App) GetAllowlists() ([]allowlist.AllowlistInfo, error) {
+	if a.allowlistMgr == nil {
+		return nil, fmt.Errorf("allowlist manager não inicializado")
+	}
+	return a.allowlistMgr.List()
+}
+
+// GetAllowlist retorna uma allowlist pelo slug.
+func (a *App) GetAllowlist(slug string) (*allowlist.Allowlist, error) {
+	if a.allowlistMgr == nil {
+		return nil, fmt.Errorf("allowlist manager não inicializado")
+	}
+	return a.allowlistMgr.Get(slug)
+}
+
+// CreateAllowlist cria uma nova allowlist.
+func (a *App) CreateAllowlist(al allowlist.Allowlist) (string, error) {
+	if a.allowlistMgr == nil {
+		return "", fmt.Errorf("allowlist manager não inicializado")
+	}
+	return a.allowlistMgr.Create(&al)
+}
+
+// UpdateAllowlist atualiza uma allowlist existente.
+func (a *App) UpdateAllowlist(slug string, al allowlist.Allowlist) error {
+	if a.allowlistMgr == nil {
+		return fmt.Errorf("allowlist manager não inicializado")
+	}
+	return a.allowlistMgr.Update(slug, &al)
+}
+
+// DeleteAllowlist exclui uma allowlist.
+func (a *App) DeleteAllowlist(slug string) error {
+	if a.allowlistMgr == nil {
+		return fmt.Errorf("allowlist manager não inicializado")
+	}
+	return a.allowlistMgr.Delete(slug)
+}
+
+// GetAllowlistSearchPaths retorna os caminhos de busca de allowlists.
+func (a *App) GetAllowlistSearchPaths() []string {
+	if a.allowlistMgr == nil {
+		return []string{}
+	}
+	return a.allowlistMgr.GetSearchPaths()
 }
 
 // initGlobalHotkeys inicializa o gerenciador de hotkeys

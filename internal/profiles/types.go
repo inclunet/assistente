@@ -25,6 +25,7 @@ type ChatConfig struct {
 	SystemPrompt         string   `json:"system_prompt,omitempty"`          // Prompt customizado
 	SystemPromptPosition string   `json:"system_prompt_position,omitempty"` // "before" ou "after"
 	EnabledTools         []string `json:"enabled_tools"`                    // Ferramentas habilitadas (nil = todas)
+	CommandAllowlist     string   `json:"command_allowlist,omitempty"`       // Slug da allowlist de comandos
 }
 
 // VoiceConfig define as configurações de voz TTS

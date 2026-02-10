@@ -34,6 +34,14 @@ export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
 
+export function CloseTerminalSession(arg1) {
+  return window['go']['main']['App']['CloseTerminalSession'](arg1);
+}
+
+export function CreateAllowlist(arg1) {
+  return window['go']['main']['App']['CreateAllowlist'](arg1);
+}
+
 export function CreateConversation(arg1, arg2) {
   return window['go']['main']['App']['CreateConversation'](arg1, arg2);
 }
@@ -52,6 +60,14 @@ export function CreateProfile(arg1) {
 
 export function CreateTab(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateTab'](arg1, arg2, arg3);
+}
+
+export function CreateTerminalSession(arg1) {
+  return window['go']['main']['App']['CreateTerminalSession'](arg1);
+}
+
+export function DeleteAllowlist(arg1) {
+  return window['go']['main']['App']['DeleteAllowlist'](arg1);
 }
 
 export function DeleteConversation(arg1) {
@@ -92,6 +108,18 @@ export function GetAllTabs() {
 
 export function GetAllTokenStats() {
   return window['go']['main']['App']['GetAllTokenStats']();
+}
+
+export function GetAllowlist(arg1) {
+  return window['go']['main']['App']['GetAllowlist'](arg1);
+}
+
+export function GetAllowlistSearchPaths() {
+  return window['go']['main']['App']['GetAllowlistSearchPaths']();
+}
+
+export function GetAllowlists() {
+  return window['go']['main']['App']['GetAllowlists']();
 }
 
 export function GetAvailableTools() {
@@ -170,6 +198,14 @@ export function GetTabs() {
   return window['go']['main']['App']['GetTabs']();
 }
 
+export function GetTerminalHistory(arg1) {
+  return window['go']['main']['App']['GetTerminalHistory'](arg1);
+}
+
+export function GetTerminalStats() {
+  return window['go']['main']['App']['GetTerminalStats']();
+}
+
 export function ImportConversations(arg1) {
   return window['go']['main']['App']['ImportConversations'](arg1);
 }
@@ -178,12 +214,20 @@ export function InitSpeechManager(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['InitSpeechManager'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function InterruptTerminalCommand(arg1) {
+  return window['go']['main']['App']['InterruptTerminalCommand'](arg1);
+}
+
 export function IsGlobalHotkeySupported() {
   return window['go']['main']['App']['IsGlobalHotkeySupported']();
 }
 
 export function IsSAPI5Speaking() {
   return window['go']['main']['App']['IsSAPI5Speaking']();
+}
+
+export function ListTerminalSessions() {
+  return window['go']['main']['App']['ListTerminalSessions']();
 }
 
 export function LoadConversationInTab(arg1, arg2) {
@@ -226,6 +270,14 @@ export function ResetDatabase() {
   return window['go']['main']['App']['ResetDatabase']();
 }
 
+export function RespondCommandConfirmation(arg1, arg2) {
+  return window['go']['main']['App']['RespondCommandConfirmation'](arg1, arg2);
+}
+
+export function RunTerminalCommand(arg1, arg2) {
+  return window['go']['main']['App']['RunTerminalCommand'](arg1, arg2);
+}
+
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
 }
@@ -236,6 +288,10 @@ export function SendMessage(arg1, arg2, arg3, arg4) {
 
 export function SendMessageSync(arg1, arg2) {
   return window['go']['main']['App']['SendMessageSync'](arg1, arg2);
+}
+
+export function SendTerminalInput(arg1, arg2) {
+  return window['go']['main']['App']['SendTerminalInput'](arg1, arg2);
 }
 
 export function SetActiveProfile(arg1) {
@@ -308,6 +364,10 @@ export function TestConnectionWithModels() {
 
 export function TranscribeWhisper(arg1, arg2) {
   return window['go']['main']['App']['TranscribeWhisper'](arg1, arg2);
+}
+
+export function UpdateAllowlist(arg1, arg2) {
+  return window['go']['main']['App']['UpdateAllowlist'](arg1, arg2);
 }
 
 export function UpdateConversation(arg1, arg2, arg3) {

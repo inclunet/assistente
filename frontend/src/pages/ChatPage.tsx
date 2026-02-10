@@ -14,7 +14,7 @@ import { useTabsKeyboardShortcuts } from '../hooks/useTabsKeyboardShortcuts';
 import { useContextMenu, useMessageActions } from '../hooks/useContextMenu';
 import { Message } from '../store/chatStore';
 import { MediaFile } from '../services/mediaService';
-import { DeleteMessage } from '../../wailsjs/go/main/App';
+import { DeleteMessage, RespondCommandConfirmation } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { announce } from '../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../utils/errorHandler';
@@ -51,6 +51,10 @@ export default function ChatPage() {
 
   // Estado do painel de ajuda de atalhos
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+
+  // Estado do dialog de confirmação de comando (tool: run_command)
+  const [cmdConfirmOpen, setCmdConfirmOpen] = useState(false);
+  const [cmdConfirmData, setCmdConfirmData] = useState<{ id: string; command: string; workDir: string } | null>(null);
 
   // Estado de erro para recovery
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
@@ -226,6 +230,43 @@ export default function ChatPage() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [sendError]);
 
+  // Listener para confirmação de comandos (tool: run_command)
+  useEffect(() => {
+    const unsub = EventsOn('tool:confirm_command', (data: { id: string; command: string; workDir: string }) => {
+      setCmdConfirmData(data);
+      setCmdConfirmOpen(true);
+    });
+    return unsub;
+  }, []);
+
+  const handleConfirmCommand = async () => {
+    if (cmdConfirmData) {
+      try {
+        await RespondCommandConfirmation(cmdConfirmData.id, true);
+      } catch (err) {
+        console.error('[ChatPage] Erro ao confirmar comando:', err);
+      }
+    }
+    setCmdConfirmOpen(false);
+    setCmdConfirmData(null);
+    // Retorna foco ao input após fechar o dialog
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const handleDenyCommand = async () => {
+    if (cmdConfirmData) {
+      try {
+        await RespondCommandConfirmation(cmdConfirmData.id, false);
+      } catch (err) {
+        console.error('[ChatPage] Erro ao negar comando:', err);
+      }
+    }
+    setCmdConfirmOpen(false);
+    // Retorna foco ao input após fechar o dialog
+    requestAnimationFrame(() => inputRef.current?.focus());
+    setCmdConfirmData(null);
+  };
+
   const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
     try {
       setSendError(null); // Clear previous error
@@ -370,6 +411,18 @@ export default function ChatPage() {
         variant="danger"
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
+      />
+
+      {/* Dialog de confirmação de comando shell */}
+      <ConfirmDialog
+        isOpen={cmdConfirmOpen}
+        title="Confirmar execução de comando"
+        message={cmdConfirmData ? `O assistente quer executar:\n\n${cmdConfirmData.command}\n\nem: ${cmdConfirmData.workDir}` : ''}
+        confirmText="Permitir"
+        cancelText="Negar"
+        variant="warning"
+        onConfirm={handleConfirmCommand}
+        onCancel={handleDenyCommand}
       />
 
       {/* Painel de ajuda de atalhos de teclado */}

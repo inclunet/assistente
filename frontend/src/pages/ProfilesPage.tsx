@@ -10,8 +10,9 @@ import {
   DeleteProfile,
   GetProfileSearchPaths,
   GetAvailableTools,
+  GetAllowlists,
 } from '../../wailsjs/go/main/App';
-import { profiles, main } from '../../wailsjs/go/models';
+import { profiles, main, allowlist } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
@@ -59,6 +60,9 @@ export default function ProfilesPage() {
   // Ferramentas disponíveis (carregadas do registry do backend)
   const [availableTools, setAvailableTools] = useState<main.ToolInfo[]>([]);
 
+  // Allowlists disponíveis (carregadas do manager de allowlists)
+  const [availableAllowlists, setAvailableAllowlists] = useState<allowlist.AllowlistInfo[]>([]);
+
   // Refs for focus management
   const editorRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -98,6 +102,10 @@ export default function ProfilesPage() {
     // Carrega lista de ferramentas disponíveis do registry
     GetAvailableTools().then(setAvailableTools).catch((err) => {
       console.error('[Profiles] Erro ao carregar ferramentas:', err);
+    });
+    // Carrega allowlists disponíveis
+    GetAllowlists().then(setAvailableAllowlists).catch((err) => {
+      console.error('[Profiles] Erro ao carregar allowlists:', err);
     });
   }, [loadProfiles]);
 
@@ -704,6 +712,29 @@ export default function ProfilesPage() {
                   </fieldset>
                 </div>
               )}
+
+              {/* Allowlist de Comandos */}
+              <div className="profiles-field">
+                <label htmlFor="pf-command-allowlist" className="profiles-field__label">
+                  {t('profiles.fieldCommandAllowlist', 'Allowlist de Comandos')}
+                </label>
+                <select
+                  id="pf-command-allowlist"
+                  className="profiles-field__input"
+                  value={editingProfile.chat?.command_allowlist || ''}
+                  onChange={(e) => updateField('chat.command_allowlist', e.target.value || '')}
+                >
+                  <option value="">{t('profiles.allowlistDefault', 'Padrão')}</option>
+                  {availableAllowlists.map((al) => (
+                    <option key={al.slug} value={al.slug}>
+                      {al.name} ({al.ruleCount} regras)
+                    </option>
+                  ))}
+                </select>
+                <span className="profiles-field__hint">
+                  {t('profiles.allowlistHint', 'Define quais comandos shell são executados automaticamente, bloqueados ou pedem confirmação.')}
+                </span>
+              </div>
             </div>
           </section>
 

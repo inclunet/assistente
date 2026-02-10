@@ -1,3 +1,46 @@
+export namespace allowlist {
+	
+	export class Allowlist {
+	    name: string;
+	    description?: string;
+	    auto_approve: string[];
+	    always_deny: string[];
+	    default_action: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Allowlist(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.auto_approve = source["auto_approve"];
+	        this.always_deny = source["always_deny"];
+	        this.default_action = source["default_action"];
+	    }
+	}
+	export class AllowlistInfo {
+	    slug: string;
+	    name: string;
+	    description?: string;
+	    ruleCount: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new AllowlistInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.slug = source["slug"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.ruleCount = source["ruleCount"];
+	    }
+	}
+
+}
+
 export namespace config {
 	
 	export class STTParams {
@@ -713,6 +756,7 @@ export namespace profiles {
 	    system_prompt?: string;
 	    system_prompt_position?: string;
 	    enabled_tools: string[];
+	    command_allowlist?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatConfig(source);
@@ -729,6 +773,7 @@ export namespace profiles {
 	        this.system_prompt = source["system_prompt"];
 	        this.system_prompt_position = source["system_prompt_position"];
 	        this.enabled_tools = source["enabled_tools"];
+	        this.command_allowlist = source["command_allowlist"];
 	    }
 	}
 	export class TriggerConfig {
@@ -888,6 +933,97 @@ export namespace profiles {
 	    }
 	}
 	
+
+}
+
+export namespace terminal {
+	
+	export class HistoryEntry {
+	    id: string;
+	    command: string;
+	    output: string;
+	    exitCode: number;
+	    // Go type: time
+	    startedAt: any;
+	    // Go type: time
+	    endedAt: any;
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new HistoryEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.command = source["command"];
+	        this.output = source["output"];
+	        this.exitCode = source["exitCode"];
+	        this.startedAt = this.convertValues(source["startedAt"], null);
+	        this.endedAt = this.convertValues(source["endedAt"], null);
+	        this.source = source["source"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ManagerStats {
+	    totalSessions: number;
+	    idleSessions: number;
+	    busySessions: number;
+	    maxSessions: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ManagerStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.totalSessions = source["totalSessions"];
+	        this.idleSessions = source["idleSessions"];
+	        this.busySessions = source["busySessions"];
+	        this.maxSessions = source["maxSessions"];
+	    }
+	}
+	export class SessionInfo {
+	    id: string;
+	    name: string;
+	    cwd: string;
+	    state: string;
+	    shell: string;
+	    createdAt: string;
+	    lastUsed: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new SessionInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.cwd = source["cwd"];
+	        this.state = source["state"];
+	        this.shell = source["shell"];
+	        this.createdAt = source["createdAt"];
+	        this.lastUsed = source["lastUsed"];
+	    }
+	}
 
 }
 

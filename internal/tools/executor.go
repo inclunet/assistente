@@ -10,8 +10,11 @@ import (
 
 // Limites padrão do executor
 const (
-	// DefaultToolTimeout é o timeout padrão para execução de uma única tool
-	DefaultToolTimeout = 30 * time.Second
+	// DefaultToolTimeout é o timeout padrão para execução de uma única tool.
+	// Ferramentas como run_command podem ter seus próprios timeouts internos
+	// maiores — por isso este valor deve acomodar o timeout máximo permitido
+	// (maxTimeout de run_command = 5 min) + margem.
+	DefaultToolTimeout = 6 * time.Minute
 
 	// DefaultMaxResultSize é o tamanho máximo do resultado de uma tool (100KB)
 	DefaultMaxResultSize = 100 * 1024

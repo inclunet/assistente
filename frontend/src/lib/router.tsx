@@ -6,6 +6,8 @@ import SettingsPage from '../pages/SettingsPage';
 import ProfilesPage from '../pages/ProfilesPage';
 import HistoryPage from '../pages/HistoryPage';
 import HelpPage from '../pages/HelpPage';
+import TerminalPage from '../pages/TerminalPage';
+import AllowlistPage from '../pages/AllowlistPage';
 
 export const router = createHashRouter([
   {
@@ -18,6 +20,14 @@ export const router = createHashRouter([
           {
             index: true,
             element: <ChatPage />,
+          },
+          {
+            path: 'terminal',
+            element: <TerminalPage />,
+          },
+          {
+            path: 'allowlists',
+            element: <AllowlistPage />,
           },
           {
             path: 'settings',
