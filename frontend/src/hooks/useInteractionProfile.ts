@@ -42,6 +42,8 @@ import { useWakewordDetection } from './useWakewordDetection';
 import { GetActiveProfile } from '../../wailsjs/go/main/App';
 import { profiles } from '../../wailsjs/go/models';
 import { playSound, SOUND_TYPES } from '../services/audioFeedback';
+import { ttsService } from '../services/tts';
+import { TTSProvider } from '../services/tts/types';
 
 // Tipos re-exportados do novo sistema de perfis
 type Profile = profiles.Profile;
@@ -327,10 +329,12 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     cancelRecording,
     setMode,
     setProvider,
+    setLanguage,
     updateConfig,
     init: initSTT,
   } = useSTT({
     provider: mapSTTProvider(interactionConfig?.stt_provider),
+    language: interactionConfig?.language || 'pt-BR',
     mode: vadConfig.mode,
     silenceDuration: vadConfig.silenceDuration,
     silenceThreshold: vadConfig.silenceThreshold,
@@ -441,11 +445,12 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     },
   });
 
-  // Atualiza config quando perfil muda
+  // Atualiza config de STT quando perfil muda
   useEffect(() => {
     if (interactionConfig) {
       const config = getVADConfigFromTriggers(interactionConfig.triggers);
       setProvider(mapSTTProvider(interactionConfig.stt_provider));
+      setLanguage(interactionConfig.language || 'pt-BR');
       setMode(config.mode);
       updateConfig({
         silenceDuration: config.silenceDuration,
@@ -454,7 +459,67 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
         activityDuration: config.activityDuration,
       });
     }
-  }, [interactionConfig, setProvider, setMode, updateConfig]);
+  }, [interactionConfig, setProvider, setLanguage, setMode, updateConfig]);
+
+  // Sincroniza configurações de TTS quando o perfil ativo muda
+  // O ttsService é a única fonte de verdade para TTS — sem intermediários
+  useEffect(() => {
+    if (!activeProfile) return;
+
+    const voiceConfig = activeProfile.voice;
+    const isDisabled = !voiceConfig || voiceConfig.provider === 'disabled';
+
+    const syncTTS = async () => {
+      if (isDisabled) {
+        ttsService.setEnabled(false);
+        ttsService.setAutoRead(false);
+        ttsService.setEnabledForUser(false);
+        console.log('[useInteractionProfile] TTS desativado pelo perfil');
+        return;
+      }
+
+      // Mapeia provider do perfil para TTSProvider enum
+      const mapTTSProvider = (provider: string): TTSProvider => {
+        switch (provider) {
+          case 'webspeech': return TTSProvider.WEBSPEECH;
+          case 'sapi5': return TTSProvider.SAPI5;
+          case 'openai': return TTSProvider.OPENAI;
+          default: return TTSProvider.WEBSPEECH;
+        }
+      };
+
+      // Ativa e configura TTS
+      ttsService.setEnabled(true);
+      ttsService.setAutoRead(voiceConfig.enabled_for_agent);
+      ttsService.setEnabledForUser(voiceConfig.enabled_for_user);
+
+      // Configura provider e voz
+      const ttsProvider = mapTTSProvider(voiceConfig.provider);
+      await ttsService.setProvider(ttsProvider);
+
+      if (voiceConfig.voice_id) {
+        await ttsService.setVoice(voiceConfig.voice_id);
+      }
+
+      // Configura parâmetros
+      await ttsService.setRate(voiceConfig.rate || 1.0);
+      ttsService.setPitch(voiceConfig.pitch || 1.0);
+      await ttsService.setVolume(voiceConfig.volume || 1.0);
+
+      console.log('[useInteractionProfile] TTS sincronizado com perfil:', {
+        provider: voiceConfig.provider,
+        voiceId: voiceConfig.voice_id,
+        enabledForAgent: voiceConfig.enabled_for_agent,
+        enabledForUser: voiceConfig.enabled_for_user,
+        rate: voiceConfig.rate,
+        volume: voiceConfig.volume,
+      });
+    };
+
+    syncTTS().catch((err) => {
+      console.error('[useInteractionProfile] Erro ao sincronizar TTS:', err);
+    });
+  }, [activeProfile]);
 
   // Sincroniza estado de wakeword listening
   useEffect(() => {

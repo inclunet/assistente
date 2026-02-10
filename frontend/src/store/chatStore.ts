@@ -17,8 +17,6 @@ import { announce } from '../hooks/useAnnouncer';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
-import { VOICE_DISABLED } from '../components/pickers/VoicePicker';
-import { useSettingsStore } from './settingsStore';
 import { stripMarkdown } from '../lib/stripMarkdown';
 
 // Constantes de validação de input (devem corresponder ao backend)
@@ -600,24 +598,20 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }));
 
     // Anuncia mensagem para leitores de tela e TTS
-    const settings = useSettingsStore.getState();
+    // TTS é configurado pelo perfil global via ttsService (fonte de verdade)
     const isActiveTab = get().activeTabId === tabId;
     
     if (message.role === 'user') {
       // Mensagem do usuário
       playSendSound();
       
-      // Verifica se TTS do usuário está ativo
-      const ttsEnabledForUser = settings.config?.ttsEnabledForUser;
-      const useAriaLiveForUser = settings.config?.useAriaLiveForUser !== false; // true por padrão
-      
-      if (ttsEnabledForUser && settings.config?.voice) {
-        // TTS para mensagem do usuário - usa streaming para reprodução mais rápida
+      if (ttsService.isEnabledForUser()) {
+        // TTS para mensagem do usuário
         const cleanContent = stripMarkdown(message.content);
         ttsService.speak(cleanContent).catch((err: any) => {
           console.error('[Chat] TTS speak error (user):', err);
         });
-      } else if (useAriaLiveForUser) {
+      } else if (ttsService.shouldUseAriaLiveForUser()) {
         // Anuncia via aria-live se TTS não estiver ativo
         const cleanContent = stripMarkdown(message.content);
         announce(`Você: ${cleanContent}`);
@@ -630,21 +624,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         playReceiveSound();
       }
       
-      // Verifica se TTS vai ler a mensagem
-      const voiceEnabled = settings.config?.voice && settings.config.voice !== VOICE_DISABLED;
-      const willUseTTS = voiceEnabled && ttsService.isAutoReadEnabled();
-      const useAriaLiveForAgent = settings.config?.useAriaLiveForAgent !== false; // true por padrão
-      
       // Só anuncia via aria-live se TTS NÃO estiver ativo
       // (evita conflito entre TTS e leitor de tela)
-      if (!willUseTTS && useAriaLiveForAgent && isActiveTab) {
+      if (ttsService.shouldUseAriaLiveForAgent() && isActiveTab) {
         const cleanContent = stripMarkdown(message.content);
         announce(`Assistente: ${cleanContent}`);
       }
       
-      // REMOVIDO: Lógica antiga de TTS que causava duplicação
-      // Agora o TTS é gerenciado exclusivamente no streamComplete via ttsService.speak()
-      // que usa streaming para menor latência
+      // TTS para assistente é gerenciado no streamComplete via ttsService.speak()
     }
 
     console.log('[Chat] Message added:', { tabId, messageId, role: message.role, contentLength: message.content.length });
@@ -1152,63 +1139,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             hasMedia: !!mediaFiles && mediaFiles.length > 0,
           });
 
-          // If we have media files, use AddMessageWithMedia
-          if (mediaFiles && mediaFiles.length > 0) {
-            const mediaDataArray: MediaData[] = [];
-            
-            for (const mediaFile of mediaFiles) {
-              const base64Data = await fileToBase64(mediaFile.file);
-              mediaDataArray.push({
-                name: mediaFile.file.name,
-                type: mediaFile.file.type,
-                data: base64Data,
-                size: mediaFile.file.size,
-              });
-            }
-
-            const mediaJson = JSON.stringify(mediaDataArray);
-            console.log('[Chat] Sending message with media:', mediaDataArray.length, 'files');
-
-            // AddMessageWithMedia returns the new message (ChatMessage with id and conversation_id)
-            const newMessage = await AddMessageWithMedia(
-              conversationId,
-              'user',
-              content,
-              mediaJson
-            );
-
-            // Update tab with conversation ID if we didn't have one
-            if (!tab?.conversationId && newMessage.conversationId) {
-              set((state) => ({
-                tabs: state.tabs.map((t) =>
-                  t.id === currentTabId
-                    ? { ...t, conversationId: newMessage.conversationId }
-                    : t
-                ),
-              }));
-            }
-
-            // Update tab with conversation ID
-            const activeConvId = newMessage.conversationId || conversationId;
-            if (!tab?.conversationId && activeConvId) {
-              set((state) => ({
-                tabs: state.tabs.map((t) =>
-                  t.id === currentTabId
-                    ? { ...t, conversationId: activeConvId }
-                    : t
-                ),
-              }));
-            }
-          } else {
-            // Normal message without media
-            await SendMessage(conversationId, content, '', {
-              model: '',
-              temperature: 0.7,
-              maxTokens: 4096,
-            });
-          }
-
           // Setup completion handler that will clean up everything
+          // CRÍTICO: Registrar listeners ANTES de chamar SendMessage/AddMessageWithMedia
+          // pois o backend inicia streaming em goroutine e pode emitir eventos antes do await retornar
           let unsubscribeStream: (() => void) | null = null;
           let unsubscribeComplete: (() => void) | null = null;
           let cleanupExecuted = false; // Flag para evitar cleanup duplicado
@@ -1333,11 +1266,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   playReceiveSound();
                 }
                 
-                // Verifica se TTS deve ler a mensagem
-                const settings = useSettingsStore.getState();
-                const voiceEnabled = settings.config?.voice && settings.config.voice !== VOICE_DISABLED;
-                const willUseTTS = voiceEnabled && ttsService.isAutoReadEnabled();
-                const useAriaLiveForAgent = settings.config?.useAriaLiveForAgent !== false; // true por padrão
+                // TTS é configurado pelo perfil global via ttsService (fonte de verdade)
+                const willUseTTS = ttsService.isAutoReadEnabled();
                 
                 // Sintetiza e reproduz áudio para esta mensagem
                 if (willUseTTS && isActiveTab && !cleanupExecuted) {
@@ -1345,16 +1275,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   messageAudioService.stopAll();
                   ttsService.stop();
                   
-                  // Usa speak() com streaming para reprodução mais rápida
-                  // O streaming começa a reproduzir enquanto ainda está baixando
+                  // Usa speak() para reprodução
                   ttsService.speak(finalMessage.content).catch((err: any) => {
                     console.error('[Chat] TTS speak error:', err);
                   });
                 }
                 
-                // Só anuncia via aria-live se TTS NÃO estiver ativo E aria-live está habilitado
+                // Só anuncia via aria-live se TTS NÃO estiver ativo
                 // (evita conflito entre TTS e leitor de tela)
-                if (!willUseTTS && useAriaLiveForAgent && isActiveTab) {
+                if (ttsService.shouldUseAriaLiveForAgent() && isActiveTab) {
                   const cleanContent = stripMarkdown(finalMessage.content);
                   announce(`Assistente: ${cleanContent}`);
                 }
@@ -1442,20 +1371,78 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (unsubscribeConvLoaded) unsubscribeConvLoaded();
             if (unsubscribeMessagesReady) unsubscribeMessagesReady();
           };
+
+          // AGORA envia a mensagem — listeners já estão ativos para capturar streaming
+          if (mediaFiles && mediaFiles.length > 0) {
+            const mediaDataArray: MediaData[] = [];
+            
+            for (const mediaFile of mediaFiles) {
+              const base64Data = await fileToBase64(mediaFile.file);
+              mediaDataArray.push({
+                name: mediaFile.file.name,
+                type: mediaFile.file.type,
+                data: base64Data,
+                size: mediaFile.file.size,
+              });
+            }
+
+            const mediaJson = JSON.stringify(mediaDataArray);
+            console.log('[Chat] Sending message with media:', mediaDataArray.length, 'files');
+
+            const newMessage = await AddMessageWithMedia(
+              conversationId,
+              'user',
+              content,
+              mediaJson
+            );
+
+            // Update tab with conversation ID if we didn't have one
+            if (!tab?.conversationId && newMessage.conversationId) {
+              set((state) => ({
+                tabs: state.tabs.map((t) =>
+                  t.id === currentTabId
+                    ? { ...t, conversationId: newMessage.conversationId }
+                    : t
+                ),
+              }));
+            }
+
+            const activeConvId = newMessage.conversationId || conversationId;
+            if (!tab?.conversationId && activeConvId) {
+              set((state) => ({
+                tabs: state.tabs.map((t) =>
+                  t.id === currentTabId
+                    ? { ...t, conversationId: activeConvId }
+                    : t
+                ),
+              }));
+            }
+          } else {
+            // Normal message without media
+            console.log('[Chat] Calling SendMessage...', { conversationId, contentLength: content.length });
+            await SendMessage(conversationId, content, '', {
+              model: '',
+              temperature: 0,
+              maxTokens: 0,
+            });
+            console.log('[Chat] SendMessage returned successfully');
+          }
           
           // Note: DO NOT cleanup here - listeners need to stay active for streaming events
-        } catch (error) {
+        } catch (error: any) {
           console.error('[Chat] Error sending message:', error);
+          console.error('[Chat] Error type:', typeof error, '| message:', error?.message || String(error));
           
           // Cleanup listener if it exists
           if (unsubscribe) {
             unsubscribe();
           }
 
+          const errorMsg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
           get().updateMessage(
             currentTabId!,
             assistantMessageId,
-            `Erro ao enviar mensagem: ${error instanceof Error ? error.message : 'Erro desconhecido'}`
+            `Erro ao enviar mensagem: ${errorMsg}`
           );
 
           // Mark as not streaming

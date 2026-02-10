@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { useChatStore } from '../store/chatStore';
-import { useSettingsStore } from '../store/settingsStore';
+import { ttsService } from '../services/tts';
 import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
 import { ChatToolbar } from '../components/chat/ChatToolbar';
@@ -38,10 +38,8 @@ export default function ChatPage() {
     isReasoningExpanded,
   } = useChatStore();
 
-  const { config } = useSettingsStore();
-
-  // TTS está desabilitado se não há voz configurada ou se a voz é "disabled"
-  const isTTSDisabled = !config?.voice || config.voice === 'disabled' || config.voice.includes('disabled');
+  // TTS é controlado pelo perfil global via ttsService (fonte de verdade)
+  const isTTSDisabled = !ttsService.isEnabled();
 
   // Estado do modal de detalhes
   const [detailModalOpen, setDetailModalOpen] = useState(false);
@@ -233,7 +231,8 @@ export default function ChatPage() {
       setSendError(null); // Clear previous error
       setLastFailedMessage(null);
       await sendMessage(content, mediaFiles);
-    } catch (error) {
+    } catch (error: any) {
+      console.error('[ChatPage] sendMessage error details:', error?.message || error);
       // Store failed message for retry
       setLastFailedMessage({ content, media: mediaFiles });
       setSendError(ErrorMessages.CHAT.SEND_FAILED);

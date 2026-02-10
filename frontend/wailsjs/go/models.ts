@@ -60,6 +60,9 @@ export namespace config {
 		    if (!a) {
 		        return a;
 		    }
+		    if (!classs) {
+		        return a;
+		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -119,6 +122,9 @@ export namespace database {
 		    if (!a) {
 		        return a;
 		    }
+		    if (!classs) {
+		        return a;
+		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -159,6 +165,9 @@ export namespace database {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
+		        return a;
+		    }
+		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {
@@ -207,6 +216,9 @@ export namespace database {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
+		        return a;
+		    }
+		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {
@@ -320,6 +332,9 @@ export namespace llm {
 		    if (!a) {
 		        return a;
 		    }
+		    if (!classs) {
+		        return a;
+		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -384,6 +399,9 @@ export namespace main {
 		    if (!a) {
 		        return a;
 		    }
+		    if (!classs) {
+		        return a;
+		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -420,6 +438,9 @@ export namespace main {
 		    if (!a) {
 		        return a;
 		    }
+		    if (!classs) {
+		        return a;
+		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -452,6 +473,9 @@ export namespace main {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
+		        return a;
+		    }
+		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {
@@ -568,6 +592,9 @@ export namespace main {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
+		        return a;
+		    }
+		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {
@@ -691,6 +718,9 @@ export namespace profiles {
 		    if (!a) {
 		        return a;
 		    }
+		    if (!classs) {
+		        return a;
+		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -753,6 +783,9 @@ export namespace profiles {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
+		        return a;
+		    }
+		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {

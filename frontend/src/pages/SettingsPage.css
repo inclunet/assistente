@@ -101,28 +101,6 @@
   line-height: 1.4;
 }
 
-/* Profiles section */
-.settings-profiles-grid {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1.5rem;
-}
-
-.settings-profile-item {
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
-}
-
-.settings-label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #d4d4d8;
-}
-
-.settings-profile-item .voice-picker {
-  width: 100%;
-}
 
 /* Danger Zone Styles */
 .settings-danger {
@@ -188,10 +166,6 @@
   }
 
   .settings-row {
-    grid-template-columns: 1fr;
-  }
-
-  .settings-profiles-grid {
     grid-template-columns: 1fr;
   }
 

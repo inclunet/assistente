@@ -1,5 +1,4 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import {
   GetProfiles,
@@ -15,6 +14,9 @@ import { profiles } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
+import { ModelPicker } from '../components/pickers/ModelPicker';
+import { VoicePicker, VOICE_DISABLED } from '../components/pickers/VoicePicker';
+import { STTProviderPicker } from '../components/pickers/STTProviderPicker';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
@@ -35,7 +37,6 @@ interface ProfileRow {
 
 export default function ProfilesPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { focusFirstCell, handleGridReady } = useGridFocus();
@@ -57,6 +58,7 @@ export default function ProfilesPage() {
   // Refs for focus management
   const editorRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
+  const editorJustOpenedRef = useRef(false);
 
   const loadProfiles = useCallback(async () => {
     setLoading(true);
@@ -91,13 +93,13 @@ export default function ProfilesPage() {
     loadProfiles();
   }, [loadProfiles]);
 
-  // Focus editor when it opens, restore focus when it closes
+  // Focus editor only when it first opens (not on every field change)
   useEffect(() => {
-    if (editingProfile && editorRef.current) {
+    if (editingProfile && editorRef.current && editorJustOpenedRef.current) {
+      editorJustOpenedRef.current = false;
       previousFocusRef.current = document.activeElement as HTMLElement;
-      // Focus the first input inside the editor
       const firstInput = editorRef.current.querySelector<HTMLElement>(
-        'input, select, textarea'
+        'input, select, textarea, [tabindex]'
       );
       setTimeout(() => firstInput?.focus(), 50);
     }
@@ -123,8 +125,9 @@ export default function ProfilesPage() {
     try {
       const profile = await GetProfile(row.slug);
       setEditingSlug(row.slug);
-      setEditingProfile(profile);
       setIsNew(false);
+      editorJustOpenedRef.current = true;
+      setEditingProfile(profile);
       announce(t('profiles.editorOpened', `Editor aberto para ${row.name}`));
     } catch (error) {
       console.error('Erro ao carregar perfil:', error);
@@ -201,9 +204,10 @@ export default function ProfilesPage() {
         triggers: [],
       },
     });
-    setEditingProfile(defaultProfile);
     setEditingSlug(null);
     setIsNew(true);
+    editorJustOpenedRef.current = true;
+    setEditingProfile(defaultProfile);
     announce(t('profiles.newProfileAnnounce', 'Editor aberto para novo perfil'));
   };
 
@@ -388,13 +392,6 @@ export default function ProfilesPage() {
             onClick: handleNewProfile,
             variant: 'primary',
           },
-          {
-            key: 'back',
-            label: t('profiles.back', 'Voltar'),
-            icon: '←',
-            onClick: () => navigate('/'),
-            variant: 'secondary',
-          },
         ]}
       />
 
@@ -504,16 +501,11 @@ export default function ProfilesPage() {
             <h3 id="section-chat">{t('profiles.sectionChat', 'Chat (LLM)')}</h3>
             <div className="profiles-fields">
               <div className="profiles-field">
-                <label htmlFor="pf-model" className="profiles-field__label">
-                  {t('profiles.fieldModel', 'Modelo')}
-                </label>
-                <input
-                  id="pf-model"
-                  type="text"
-                  className="profiles-field__input"
+                <ModelPicker
                   value={editingProfile.chat?.model || ''}
-                  onChange={(e) => updateField('chat.model', e.target.value)}
-                  placeholder={t('profiles.modelPlaceholder', 'gpt-4o-mini (vazio = usa padrão)')}
+                  onChange={(value) => updateField('chat.model', value)}
+                  label={t('profiles.fieldModel', 'Modelo')}
+                  placeholder={t('profiles.modelPlaceholder', 'Filtrar modelos...')}
                 />
               </div>
               <div className="profiles-field">
@@ -632,34 +624,26 @@ export default function ProfilesPage() {
             <h3 id="section-voice">{t('profiles.sectionVoice', 'Voz (TTS)')}</h3>
             <div className="profiles-fields">
               <div className="profiles-field">
-                <label htmlFor="pf-voice-provider" className="profiles-field__label">
-                  {t('profiles.fieldVoiceProvider', 'Provedor')}
-                </label>
-                <select
-                  id="pf-voice-provider"
-                  className="profiles-field__select"
-                  value={editingProfile.voice?.provider || 'disabled'}
-                  onChange={(e) => updateField('voice.provider', e.target.value)}
-                >
-                  <option value="disabled">{t('profiles.voiceDisabled', 'Desativado')}</option>
-                  <option value="webspeech">Web Speech</option>
-                  <option value="sapi5">SAPI5 (Windows)</option>
-                  <option value="openai">OpenAI TTS</option>
-                </select>
+                <VoicePicker
+                  value={editingProfile.voice?.voice_id || VOICE_DISABLED}
+                  onChange={(voice) => {
+                    if (voice === VOICE_DISABLED) {
+                      updateField('voice.provider', 'disabled');
+                      updateField('voice.voice_id', '');
+                    } else {
+                      updateField('voice.voice_id', voice);
+                      // Provider is inferred by VoicePicker based on the selected voice
+                      if (!editingProfile.voice?.provider || editingProfile.voice.provider === 'disabled') {
+                        updateField('voice.provider', 'webspeech');
+                      }
+                    }
+                  }}
+                  variant="form"
+                  label={t('profiles.fieldVoice', 'Voz')}
+                />
               </div>
               {editingProfile.voice?.provider !== 'disabled' && (
                 <>
-                  <div className="profiles-field">
-                    <label htmlFor="pf-voice-id" className="profiles-field__label">Voice ID</label>
-                    <input
-                      id="pf-voice-id"
-                      type="text"
-                      className="profiles-field__input"
-                      value={editingProfile.voice?.voice_id || ''}
-                      onChange={(e) => updateField('voice.voice_id', e.target.value)}
-                      placeholder="alloy, nova, echo..."
-                    />
-                  </div>
                   <div className="profiles-field">
                     <label htmlFor="pf-voice-rate" className="profiles-field__label">
                       {t('profiles.fieldVoiceRate', 'Velocidade')}
@@ -734,18 +718,12 @@ export default function ProfilesPage() {
             <h3 id="section-interaction">{t('profiles.sectionInteraction', 'Interação (STT)')}</h3>
             <div className="profiles-fields">
               <div className="profiles-field">
-                <label htmlFor="pf-stt-provider" className="profiles-field__label">
-                  {t('profiles.fieldSTTProvider', 'Provedor STT')}
-                </label>
-                <select
-                  id="pf-stt-provider"
-                  className="profiles-field__select"
+                <STTProviderPicker
                   value={editingProfile.interaction?.stt_provider || 'webspeech'}
-                  onChange={(e) => updateField('interaction.stt_provider', e.target.value)}
-                >
-                  <option value="webspeech">Web Speech API</option>
-                  <option value="whisper_api">Whisper API</option>
-                </select>
+                  onChange={(provider) => updateField('interaction.stt_provider', provider)}
+                  variant="form"
+                  label={t('profiles.fieldSTTProvider', 'Provedor STT')}
+                />
               </div>
               <div className="profiles-field">
                 <label htmlFor="pf-language" className="profiles-field__label">

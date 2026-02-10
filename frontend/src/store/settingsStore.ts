@@ -1,6 +1,5 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { STT_WEBSPEECH } from '../components/pickers/STTProviderPicker';
 
 export interface AppConfig {
   apiKey: string;
@@ -11,13 +10,7 @@ export interface AppConfig {
   streamEnabled: boolean;
   theme: 'light' | 'dark' | 'system';
   language: string;
-  voice?: string;
-  voiceProfileId?: number;
-  // Configurações separadas para assistente e usuário
-  useAriaLiveForAgent?: boolean;  // Se deve usar aria-live para mensagens do assistente
-  useAriaLiveForUser?: boolean;   // Se deve usar aria-live para mensagens do usuário
-  ttsEnabledForUser?: boolean;    // Se TTS está habilitado para ler mensagens enviadas pelo usuário
-  sttProvider?: string;
+  // Nota: voz/TTS e STT agora vêm do perfil global (ttsService / useInteractionProfile)
 }
 
 interface SettingsState {
@@ -42,12 +35,7 @@ const defaultConfig: AppConfig = {
   streamEnabled: true,
   theme: 'system',
   language: 'pt-BR',
-  voice: undefined, // Gerenciado pelo perfil de voz
-  voiceProfileId: undefined, // Usa perfil padrão do banco
-  useAriaLiveForAgent: true, // Usa aria-live para assistente por padrão (TTS desativado)
-  useAriaLiveForUser: true,  // Usa aria-live para usuário por padrão (TTS desativado)
-  ttsEnabledForUser: false,  // TTS do usuário desativado por padrão
-  sttProvider: STT_WEBSPEECH, // WebSpeech por padrão
+  // Nota: voz/TTS e STT agora vêm do perfil global
 };
 
 export const useSettingsStore = create<SettingsState>()(
