@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -9,9 +10,52 @@ import (
 
 // Message representa uma mensagem no histórico do chat
 type Message struct {
-	Role     string      `json:"role"`
-	Content  interface{} `json:"content,omitempty"` // Pode ser string ou []ContentPart
-	Thinking string      `json:"thinking,omitempty"` // Ollama thinking/reasoning
+	Role       string      `json:"role"`
+	Content    interface{} `json:"content,omitempty"`      // Pode ser string ou []ContentPart
+	Thinking   string      `json:"thinking,omitempty"`     // Ollama thinking/reasoning
+	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`   // Tool calls solicitadas pelo assistant
+	ToolCallID string      `json:"tool_call_id,omitempty"` // Para role="tool": vincula ao call
+}
+
+// ToolCall representa uma chamada de ferramenta solicitada pelo LLM
+type ToolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"` // sempre "function"
+	Function FunctionCall `json:"function"`
+}
+
+// FunctionCall contém nome e argumentos de uma chamada de função
+type FunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ToolCallDelta representa um delta incremental de tool_call durante streaming.
+// O LLM envia os argumentos em fragmentos que precisam ser acumulados.
+type ToolCallDelta struct {
+	Index    int           `json:"index"`
+	ID       string        `json:"id,omitempty"`
+	Type     string        `json:"type,omitempty"`
+	Function *FunctionDelta `json:"function,omitempty"`
+}
+
+// FunctionDelta representa o delta incremental da função
+type FunctionDelta struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+// ToolDefinition define uma ferramenta para enviar ao LLM no campo "tools"
+type ToolDefinition struct {
+	Type     string             `json:"type"` // sempre "function"
+	Function FunctionDefinition `json:"function"`
+}
+
+// FunctionDefinition contém a especificação completa de uma função
+type FunctionDefinition struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
 }
 
 // ContentPart representa uma parte do conteúdo multimodal
@@ -67,14 +111,16 @@ type StreamOptions struct {
 
 // ChatRequest representa a requisição para a API da OpenAI
 type ChatRequest struct {
-	Model         string         `json:"model"`
-	Messages      []Message      `json:"messages"`
-	MaxTokens     int            `json:"max_tokens,omitempty"`
-	Temperature   float64        `json:"temperature,omitempty"`
-	TopP          *float64       `json:"top_p,omitempty"` // Ponteiro para omitir quando nil
-	Stream        bool           `json:"stream"`
-	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
-	Think         *bool          `json:"think,omitempty"` // Ollama: habilita reasoning/thinking
+	Model         string           `json:"model"`
+	Messages      []Message        `json:"messages"`
+	MaxTokens     int              `json:"max_tokens,omitempty"`
+	Temperature   float64          `json:"temperature,omitempty"`
+	TopP          *float64         `json:"top_p,omitempty"` // Ponteiro para omitir quando nil
+	Stream        bool             `json:"stream"`
+	StreamOptions *StreamOptions   `json:"stream_options,omitempty"`
+	Think         *bool            `json:"think,omitempty"`          // Ollama: habilita reasoning/thinking
+	Tools         []ToolDefinition `json:"tools,omitempty"`          // Ferramentas disponíveis para o LLM
+	ToolChoice    interface{}      `json:"tool_choice,omitempty"`    // "auto", "none", "required" ou objeto
 }
 
 // ChatChoice representa uma escolha na resposta
@@ -87,10 +133,11 @@ type ChatChoice struct {
 
 // Delta representa um delta no streaming
 type Delta struct {
-	Role             string `json:"role,omitempty"`
-	Content          string `json:"content,omitempty"`
-	ReasoningContent string `json:"reasoning_content,omitempty"` // DeepSeek, Qwen reasoning
-	Thinking         string `json:"thinking,omitempty"`          // Ollama thinking/reasoning
+	Role             string          `json:"role,omitempty"`
+	Content          string          `json:"content,omitempty"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"` // DeepSeek, Qwen reasoning
+	Thinking         string          `json:"thinking,omitempty"`          // Ollama thinking/reasoning
+	ToolCalls        []ToolCallDelta `json:"tool_calls,omitempty"`        // Tool calls incrementais
 }
 
 // Usage representa o uso de tokens

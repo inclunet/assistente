@@ -18,6 +18,7 @@ import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
 import { stripMarkdown } from '../lib/stripMarkdown';
+import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
 
 // Constantes de validação de input (devem corresponder ao backend)
 const MAX_MESSAGE_CONTENT_SIZE = 500 * 1024; // 500KB
@@ -95,6 +96,10 @@ interface ChatStore {
   streamingReasoning: string | null; // Reasoning acumulado durante streaming
   isThinking: boolean; // Se está recebendo reasoning do modelo
   expandedReasonings: Set<string>; // IDs de mensagens com reasoning expandido
+
+  // Tool calling - estado durante streaming do agentic loop
+  activeToolCalls: ToolCallStatus[]; // Tool calls em execução/concluídos durante streaming
+  hadToolCalls: boolean; // Se houve tool calls neste turno (para saber se precisa reload)
 
   // Initialization
   initializeTabs: () => Promise<void>;
@@ -273,6 +278,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     streamingReasoning: null, // Reasoning durante streaming
     isThinking: false, // Se está recebendo reasoning
     expandedReasonings: new Set<string>(), // IDs de mensagens com reasoning expandido
+    activeToolCalls: [], // Tool calls durante streaming
+    hadToolCalls: false, // Se houve tool calls neste turno
     
     setEditingMessageId: (id: string | null) => {
       set({ editingMessageId: id });
@@ -567,6 +574,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   addMessage: (tabId, message) => {
     const messageId = generateId();
     // Cria instância da classe EnrichedMessage para ter método convertValues
+    // IMPORTANTE: createdAt DEVE ser string ISO, não Date object.
+    // convertValues(source["createdAt"], null) tenta "new null(obj)" quando recebe um objeto,
+    // causando "classs is not a constructor".
     const newMessage = new main.EnrichedMessage({
       ...message,
       id: messageId,
@@ -574,7 +584,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       conversationId: 0, // Será atualizado pelo backend
       isStreaming: message.isStreaming ?? false,
       internal: false,
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
     });
 
     // Cria MessageNode para visualização hierárquica
@@ -1166,7 +1176,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               unsubscribeComplete = null;
             }
             activeListeners.delete(currentTabId!);
-            set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false });
+            set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [] });
           };
 
           // Limpa listeners antigos desta tab se existirem
@@ -1317,6 +1327,58 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }
           });
 
+          // ==================== Tool Calling Events ====================
+
+          // Listen for tool execution start
+          let unsubscribeToolStart: (() => void) | null = null;
+          unsubscribeToolStart = EventsOn('chat:tool_start', (data: any) => {
+            if (!activeListeners.has(currentTabId!)) return;
+            console.log('[Chat] 🔧 Tool start:', data.name, data.callId);
+            
+            set((state) => ({
+              hadToolCalls: true,
+              activeToolCalls: [
+                ...state.activeToolCalls,
+                {
+                  name: data.name,
+                  callId: data.callId,
+                  args: data.args,
+                  status: 'running' as const,
+                },
+              ],
+            }));
+            announce(`Executando ferramenta: ${data.name}`, 'polite');
+          });
+
+          // Listen for tool execution end
+          let unsubscribeToolEnd: (() => void) | null = null;
+          unsubscribeToolEnd = EventsOn('chat:tool_end', (data: any) => {
+            if (!activeListeners.has(currentTabId!)) return;
+            console.log('[Chat] ✅ Tool end:', data.name, data.status);
+            
+            set((state) => ({
+              activeToolCalls: state.activeToolCalls.map((tc) =>
+                tc.callId === data.callId
+                  ? { ...tc, status: (data.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: data.summary }
+                  : tc
+              ),
+            }));
+          });
+
+          // Listen for segment done (assistant text before tool calls — for verbalization)
+          let unsubscribeSegmentDone: (() => void) | null = null;
+          unsubscribeSegmentDone = EventsOn('chat:segment_done', (data: any) => {
+            if (!activeListeners.has(currentTabId!)) return;
+            console.log('[Chat] 📝 Segment done:', data.iteration, 'hasMore:', data.hasMore);
+            
+            // Verbaliza o segmento intermediário se TTS estiver ativo
+            if (data.content && ttsService.isAutoReadEnabled()) {
+              ttsService.speak(data.content).catch((err: any) => {
+                console.error('[Chat] TTS segment error:', err);
+              });
+            }
+          });
+
           // Listen for completion event - this signals end of entire chat process
           unsubscribeComplete = EventsOn('chat:done', (data: any) => {
             // IMPORTANTE: Verifica se este listener ainda é válido
@@ -1326,6 +1388,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }
             
             console.log('[Chat] Chat complete:', data);
+            const didUseTools = get().hadToolCalls;
             
             // Mark message as no longer streaming
             set((state) => {
@@ -1346,6 +1409,31 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               }
               return state;
             });
+
+            // Se houve tool calls, recarrega mensagens do backend para obter a estrutura completa
+            if (didUseTools) {
+              const tab = get().tabs.find(t => t.id === currentTabId);
+              if (tab?.conversationId) {
+                console.log('[Chat] 🔄 Recarregando mensagens após tool calling...');
+                GetMessages(tab.conversationId, null).then((backendNodes) => {
+                  const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
+                    (node as any).originalIndex = index;
+                    return node;
+                  });
+                  set((state) => ({
+                    tabs: state.tabs.map((t) =>
+                      t.id === currentTabId
+                        ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() }
+                        : t
+                    ),
+                    hadToolCalls: false,
+                  }));
+                  console.log('[Chat] ✅ Mensagens recarregadas:', backendNodes.length);
+                }).catch((err) => {
+                  console.error('[Chat] ❌ Erro ao recarregar mensagens:', err);
+                });
+              }
+            }
             
             // Cleanup listeners
             cleanup();
@@ -1356,6 +1444,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const enhancedCleanup = () => {
             originalCleanup();
             if (unsubscribeThinking) unsubscribeThinking();
+            if (unsubscribeToolStart) unsubscribeToolStart();
+            if (unsubscribeToolEnd) unsubscribeToolEnd();
+            if (unsubscribeSegmentDone) unsubscribeSegmentDone();
           };
 
           // CRÍTICO: Armazena cleanup no Map IMEDIATAMENTE após criar os listeners
@@ -1731,6 +1822,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         expandedReasonings: new Set<string>(),
         streamingReasoning: null,
         isThinking: false,
+        activeToolCalls: [],
+        hadToolCalls: false,
       });
       
       // Reinicializa tabs do backend

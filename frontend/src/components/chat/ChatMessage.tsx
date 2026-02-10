@@ -3,6 +3,7 @@ import { Message } from '../../store/chatStore';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
+import { ToolCallsSection, ToolCallStatus } from './ToolCallsSection';
 import { isAgentMessage } from '../../lib/chatUtils';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { formatRelativeTime } from '../../lib/dateUtils';
@@ -31,6 +32,8 @@ export interface ChatMessageProps {
   isThinking?: boolean; // Se está recebendo reasoning
   isReasoningExpanded?: boolean; // Se o reasoning está expandido
   onToggleReasoning?: () => void; // Callback para toggle do reasoning
+  // Tool calling props
+  activeToolCalls?: ToolCallStatus[]; // Tool calls em execução (durante streaming)
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
@@ -52,8 +55,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isThinking = false,
   isReasoningExpanded = false,
   onToggleReasoning,
+  activeToolCalls,
 }) => {
-  const { role, content, timestamp, isStreaming, reasoning } = message;
+  const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Usa editContent externo se está editando
@@ -71,8 +75,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     // Usuário
     if (role === 'user') return 'Você';
 
-    // Resposta de ferramenta
-    if (role === 'tool') return 'Ferramenta';
+    // Resposta de ferramenta — mostra ID do call
+    if (role === 'tool') return 'Resultado';
+
+    // Assistente com tool calls pendentes
+    if (role === 'assistant' && toolCalls) return 'Assistente';
 
     // Assistente padrão
     return 'Assistente';
@@ -252,6 +259,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             isStreaming={isThinking}
             isExpanded={isThinking || isReasoningExpanded} // Expandido durante streaming ou por toggle
             onToggle={onToggleReasoning}
+          />
+        )}
+
+        {/* Seção de Tool Calls - exibe ferramentas chamadas pelo assistente */}
+        {role === 'assistant' && (toolCalls || (isStreaming && activeToolCalls && activeToolCalls.length > 0)) && (
+          <ToolCallsSection
+            toolCallsJson={toolCalls}
+            activeToolCalls={isStreaming ? activeToolCalls : undefined}
           />
         )}
 

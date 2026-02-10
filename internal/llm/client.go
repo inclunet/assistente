@@ -145,14 +145,19 @@ type StreamHandler interface {
 	OnThinking(content string)
 	// OnThinkingDone é chamado quando o reasoning termina
 	OnThinkingDone(fullReasoning string)
+	// OnToolCalls é chamado quando o LLM solicita execução de ferramentas.
+	// fullResponse é o texto acumulado antes das tool calls.
+	// Chamado em vez de OnDone quando finish_reason é "tool_calls".
+	OnToolCalls(calls []ToolCall, fullResponse string, usage Usage, model string)
 	// OnError é chamado quando ocorre um erro
 	OnError(err string)
-	// OnDone é chamado quando o streaming termina
+	// OnDone é chamado quando o streaming termina (finish_reason="stop")
 	OnDone(fullResponse string, usage Usage, model string)
 }
 
-// StreamChat realiza o streaming da resposta
-func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, params ChatParams, handler StreamHandler) {
+// StreamChat realiza o streaming da resposta.
+// O parâmetro variadic tools permite enviar definições de ferramentas ao LLM (opcional).
+func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
 	// Usa modelo padrão se não especificado
 	model := params.Model
 	if model == "" {
@@ -182,6 +187,12 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 	// Habilita thinking se configurado no perfil (necessário para Ollama)
 	if params.EnableThinking {
 		reqBody.Think = BoolPtr(true)
+	}
+
+	// Adiciona ferramentas se fornecidas
+	if len(tools) > 0 {
+		reqBody.Tools = tools
+		reqBody.ToolChoice = "auto"
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -223,8 +234,12 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 	var fullReasoning strings.Builder // Acumula reasoning/thinking
 	var lastUsage Usage
 	var lastModel string
+	var lastFinishReason string
 	var isThinking bool                // Estado para detectar thinking em tags
 	var thinkingBuffer strings.Builder // Buffer para conteúdo dentro de <thinking>
+
+	// Acumula tool_calls incrementais (LLM envia argumentos em fragmentos)
+	toolCallAccumulator := make(map[int]*ToolCall) // index -> ToolCall parcial
 
 	for {
 		line, err := reader.ReadString('\n')
@@ -253,6 +268,15 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 				handler.OnThinkingDone(fullReasoning.String())
 			}
 
+			// Verifica se foi finish_reason: "tool_calls"
+			if lastFinishReason == "tool_calls" {
+				calls := buildToolCallsFromAccumulator(toolCallAccumulator)
+				if len(calls) > 0 {
+					handler.OnToolCalls(calls, fullResponse.String(), lastUsage, lastModel)
+					return
+				}
+			}
+
 			handler.OnDone(fullResponse.String(), lastUsage, lastModel)
 			return
 		}
@@ -272,6 +296,11 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 
 		if len(chatResp.Choices) > 0 {
 			choice := chatResp.Choices[0]
+
+			// Captura finish_reason
+			if choice.FinishReason != "" {
+				lastFinishReason = choice.FinishReason
+			}
 
 			// Processa reasoning_content (DeepSeek, Qwen, etc)
 			if choice.Delta.ReasoningContent != "" {
@@ -297,6 +326,45 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 				}
 			}
 
+			// Processa tool_calls incrementais no delta
+			if len(choice.Delta.ToolCalls) > 0 {
+				for _, tcDelta := range choice.Delta.ToolCalls {
+					acc, exists := toolCallAccumulator[tcDelta.Index]
+					if !exists {
+						acc = &ToolCall{Type: "function"}
+						toolCallAccumulator[tcDelta.Index] = acc
+					}
+					// Acumula ID (vem no primeiro delta do index)
+					if tcDelta.ID != "" {
+						acc.ID = tcDelta.ID
+					}
+					if tcDelta.Type != "" {
+						acc.Type = tcDelta.Type
+					}
+					// Acumula nome e argumentos (argumentos vêm em fragmentos)
+					if tcDelta.Function != nil {
+						if tcDelta.Function.Name != "" {
+							acc.Function.Name = tcDelta.Function.Name
+						}
+						acc.Function.Arguments += tcDelta.Function.Arguments
+					}
+				}
+			}
+
+			// Processa tool_calls na mensagem completa (resposta não-streaming)
+			if len(choice.Message.ToolCalls) > 0 && len(toolCallAccumulator) == 0 {
+				for i, tc := range choice.Message.ToolCalls {
+					toolCallAccumulator[i] = &ToolCall{
+						ID:   tc.ID,
+						Type: tc.Type,
+						Function: FunctionCall{
+							Name:      tc.Function.Name,
+							Arguments: tc.Function.Arguments,
+						},
+					}
+				}
+			}
+
 			// Processa conteúdo
 			if choice.Delta.Content != "" {
 				content := choice.Delta.Content
@@ -312,6 +380,31 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 			}
 		}
 	}
+}
+
+// buildToolCallsFromAccumulator converte o acumulador de deltas em tool calls finais
+func buildToolCallsFromAccumulator(acc map[int]*ToolCall) []ToolCall {
+	if len(acc) == 0 {
+		return nil
+	}
+
+	// Encontra o maior índice
+	maxIdx := 0
+	for idx := range acc {
+		if idx > maxIdx {
+			maxIdx = idx
+		}
+	}
+
+	// Monta slice ordenado por índice
+	calls := make([]ToolCall, 0, len(acc))
+	for i := 0; i <= maxIdx; i++ {
+		if tc, ok := acc[i]; ok {
+			calls = append(calls, *tc)
+		}
+	}
+
+	return calls
 }
 
 // processThinkingTags detecta e extrai conteúdo de tags <thinking> do streaming

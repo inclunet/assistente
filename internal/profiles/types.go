@@ -16,14 +16,15 @@ type Profile struct {
 
 // ChatConfig define as configurações do modelo LLM
 type ChatConfig struct {
-	Model                string  `json:"model,omitempty"`
-	Temperature          float64 `json:"temperature"`                      // 0.0 a 2.0
-	MaxTokens            int     `json:"max_tokens"`                       // Limite de tokens na resposta
-	TopP                 float64 `json:"top_p"`                            // 0.0 a 1.0
-	ResponseTimeout      int     `json:"response_timeout"`                 // Timeout em segundos
-	EnableThinking       bool    `json:"enable_thinking"`                  // Habilita reasoning/thinking
-	SystemPrompt         string  `json:"system_prompt,omitempty"`          // Prompt customizado
-	SystemPromptPosition string  `json:"system_prompt_position,omitempty"` // "before" ou "after"
+	Model                string   `json:"model,omitempty"`
+	Temperature          float64  `json:"temperature"`                      // 0.0 a 2.0
+	MaxTokens            int      `json:"max_tokens"`                       // Limite de tokens na resposta
+	TopP                 float64  `json:"top_p"`                            // 0.0 a 1.0
+	ResponseTimeout      int      `json:"response_timeout"`                 // Timeout em segundos
+	EnableThinking       bool     `json:"enable_thinking"`                  // Habilita reasoning/thinking
+	SystemPrompt         string   `json:"system_prompt,omitempty"`          // Prompt customizado
+	SystemPromptPosition string   `json:"system_prompt_position,omitempty"` // "before" ou "after"
+	EnabledTools         []string `json:"enabled_tools"`                    // Ferramentas habilitadas (nil = todas)
 }
 
 // VoiceConfig define as configurações de voz TTS

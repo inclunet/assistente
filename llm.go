@@ -14,6 +14,7 @@ import (
 	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/tools"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -227,6 +228,18 @@ func (h *appStreamHandler) OnError(err string) {
 		Error:          err,
 		ConversationId: h.conversationID,
 	})
+}
+
+// OnToolCalls é chamado quando o LLM solicita execução de ferramentas.
+// Por enquanto (antes do agentic loop), loga e emite como done.
+// Será substituído pelo agentic loop na Fase 5.
+func (h *appStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
+	fmt.Printf("🔧 [TOOL_CALLS] LLM solicitou %d ferramentas (ainda não implementado)\n", len(calls))
+	for _, call := range calls {
+		fmt.Printf("   - %s(%s)\n", call.Function.Name, call.Function.Arguments)
+	}
+	// Delega para OnDone até o agentic loop ser implementado
+	h.OnDone(fullResponse, usage, model)
 }
 
 func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
@@ -446,13 +459,48 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 	}
 	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition)
 
-	// 5. Processa com LLM - userMessageID é a raiz da thread
-	handler := &appStreamHandler{
-		app:            a,
-		conversationID: conversationID,
-		userMessageID:  userMsg.ID, // Raiz da thread para interações com agentes
+	// 5. Processa com LLM
+	// Determina quais ferramentas estão habilitadas pelo perfil ativo
+	var llmToolDefs []llm.ToolDefinition
+	if a.toolRegistry != nil && a.toolRegistry.Count() > 0 {
+		var toolDefs []tools.ToolDefinition
+
+		// Filtra ferramentas pelo perfil: nil = todas, lista = apenas as listadas
+		if activeProfile != nil && activeProfile.Chat.EnabledTools != nil {
+			toolDefs = a.toolRegistry.FilterByNames(activeProfile.Chat.EnabledTools)
+			fmt.Printf("[Tools] Perfil '%s': %d ferramenta(s) habilitada(s) de %d\n",
+				activeProfile.Name, len(toolDefs), a.toolRegistry.Count())
+		} else {
+			toolDefs = a.toolRegistry.ToDefinitions()
+			fmt.Printf("[Tools] Perfil sem restrição: todas as %d ferramentas habilitadas\n", len(toolDefs))
+		}
+
+		// Converte para formato llm.ToolDefinition
+		llmToolDefs = make([]llm.ToolDefinition, len(toolDefs))
+		for i, td := range toolDefs {
+			llmToolDefs[i] = llm.ToolDefinition{
+				Type: td.Type,
+				Function: llm.FunctionDefinition{
+					Name:        td.Function.Name,
+					Description: td.Function.Description,
+					Parameters:  td.Function.Parameters,
+				},
+			}
+		}
 	}
-	go llm.StreamChat(a.ctx, cfg, messages, params, handler)
+
+	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
+	if len(llmToolDefs) > 0 {
+		go a.runAgenticLoop(a.ctx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs)
+	} else {
+		// Sem ferramentas: streaming simples (comportamento original)
+		handler := &appStreamHandler{
+			app:            a,
+			conversationID: conversationID,
+			userMessageID:  userMsg.ID,
+		}
+		go llm.StreamChat(a.ctx, cfg, messages, params, handler)
+	}
 	return conversationID, nil
 }
 
@@ -556,7 +604,16 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 	messages := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
 		msg := Message{
-			Role: m.Role,
+			Role:       m.Role,
+			ToolCallID: m.ToolCallID,
+		}
+
+		// Reconstrói tool_calls do JSON armazenado no banco (para mensagens assistant com tool calls)
+		if m.ToolCalls != "" {
+			var toolCalls []llm.ToolCall
+			if err := json.Unmarshal([]byte(m.ToolCalls), &toolCalls); err == nil {
+				msg.ToolCalls = toolCalls
+			}
 		}
 
 		// Processa conteúdo (pode ser texto simples ou multimodal)

@@ -9,8 +9,9 @@ import {
   UpdateProfile,
   DeleteProfile,
   GetProfileSearchPaths,
+  GetAvailableTools,
 } from '../../wailsjs/go/main/App';
-import { profiles } from '../../wailsjs/go/models';
+import { profiles, main } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
@@ -55,6 +56,9 @@ export default function ProfilesPage() {
   const [isNew, setIsNew] = useState(false);
   const [saving, setSaving] = useState(false);
 
+  // Ferramentas disponíveis (carregadas do registry do backend)
+  const [availableTools, setAvailableTools] = useState<main.ToolInfo[]>([]);
+
   // Refs for focus management
   const editorRef = useRef<HTMLDivElement>(null);
   const previousFocusRef = useRef<HTMLElement | null>(null);
@@ -91,6 +95,10 @@ export default function ProfilesPage() {
 
   useEffect(() => {
     loadProfiles();
+    // Carrega lista de ferramentas disponíveis do registry
+    GetAvailableTools().then(setAvailableTools).catch((err) => {
+      console.error('[Profiles] Erro ao carregar ferramentas:', err);
+    });
   }, [loadProfiles]);
 
   // Focus editor only when it first opens (not on every field change)
@@ -616,6 +624,86 @@ export default function ProfilesPage() {
                   <option value="after">{t('profiles.promptAfter', 'Depois do prompt base')}</option>
                 </select>
               </div>
+
+              {/* Seção de Ferramentas */}
+              {availableTools.length > 0 && (
+                <div className="profiles-field">
+                  <fieldset className="profiles-field__fieldset">
+                    <legend className="profiles-field__label">
+                      {t('profiles.fieldTools', 'Ferramentas')}
+                    </legend>
+                    <p className="profiles-field__hint">
+                      {t('profiles.toolsHint', 'Selecione quais ferramentas este perfil pode usar. Nenhuma seleção = todas habilitadas.')}
+                    </p>
+                    <div className="profiles-field__tools-actions">
+                      <button
+                        type="button"
+                        className="profiles-field__tools-toggle"
+                        onClick={() => {
+                          const allNames = availableTools.map(t => t.name);
+                          const currentEnabled = editingProfile.chat?.enabled_tools;
+                          // Se todas estão selecionadas ou nenhuma (null), limpa para null (todas)
+                          // Se alguma está selecionada, seleciona todas
+                          if (!currentEnabled || currentEnabled.length === 0 || currentEnabled.length === allNames.length) {
+                            updateField('chat.enabled_tools', null);
+                          } else {
+                            updateField('chat.enabled_tools', allNames);
+                          }
+                        }}
+                      >
+                        {(!editingProfile.chat?.enabled_tools || editingProfile.chat.enabled_tools.length === 0)
+                          ? t('profiles.toolsDeselectAll', 'Desmarcar todas')
+                          : t('profiles.toolsSelectAll', 'Selecionar todas')}
+                      </button>
+                    </div>
+                    <div className="profiles-field__tools-grid">
+                      {availableTools.map((tool) => {
+                        const enabledList = editingProfile.chat?.enabled_tools;
+                        // null/vazio = todas habilitadas
+                        const isEnabled = !enabledList || enabledList.length === 0 || enabledList.includes(tool.name);
+
+                        const handleToggle = () => {
+                          const allNames = availableTools.map(t => t.name);
+
+                          if (!enabledList || enabledList.length === 0) {
+                            // Estava "todas" → remove esta (cria lista com todas menos esta)
+                            updateField('chat.enabled_tools', allNames.filter(n => n !== tool.name));
+                          } else if (isEnabled) {
+                            // Remove desta
+                            const newList = enabledList.filter((n: string) => n !== tool.name);
+                            // Se ficou vazio, volta para null (nenhuma tool)
+                            updateField('chat.enabled_tools', newList.length === 0 ? [] : newList);
+                          } else {
+                            // Adiciona esta
+                            const newList = [...enabledList, tool.name];
+                            // Se selecionou todas, volta para null
+                            if (newList.length === allNames.length) {
+                              updateField('chat.enabled_tools', null);
+                            } else {
+                              updateField('chat.enabled_tools', newList);
+                            }
+                          }
+                        };
+
+                        return (
+                          <div key={tool.name} className="profiles-field__tool-item">
+                            <input
+                              type="checkbox"
+                              id={`pf-tool-${tool.name}`}
+                              checked={isEnabled}
+                              onChange={handleToggle}
+                            />
+                            <label htmlFor={`pf-tool-${tool.name}`} className="profiles-field__tool-label">
+                              <span className="profiles-field__tool-name">{tool.name}</span>
+                              <span className="profiles-field__tool-desc">{tool.description}</span>
+                            </label>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                </div>
+              )}
             </div>
           </section>
 

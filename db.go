@@ -37,10 +37,13 @@ func (a *App) enrichMessage(msg database.ChatMessage) EnrichedMessage {
 		ID:               fmt.Sprintf("%d", msg.ID),
 		ConversationID:   msg.ConversationID,
 		ParentID:         parentIDStr,
+		TurnID:           msg.TurnID,
 		Role:             msg.Role,
 		Content:          msg.Content,
 		Reasoning:        msg.Reasoning,
 		Media:            msg.Media,
+		ToolCalls:        msg.ToolCalls,
+		ToolCallID:       msg.ToolCallID,
 		PromptTokens:     msg.PromptTokens,
 		CompletionTokens: msg.CompletionTokens,
 		TotalTokens:      msg.TotalTokens,
@@ -49,7 +52,7 @@ func (a *App) enrichMessage(msg database.ChatMessage) EnrichedMessage {
 		// Campos derivados
 		Timestamp:   msg.CreatedAt.UnixMilli(),
 		IsStreaming: false,
-		Internal:    msg.ParentID != nil,
+		Internal:    msg.ParentID != nil || msg.Role == "tool",
 	}
 
 	return enriched

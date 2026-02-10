@@ -161,10 +161,13 @@ func DeleteConversation(id uint) error {
 type MessageOptions struct {
 	ConversationID   uint
 	ParentID         *uint  // ID da mensagem pai (define hierarquia)
+	TurnID           *uint  // Agrupa mensagens de um turno (aponta para user message)
 	Role             string // user, assistant, tool, system
 	Content          string
 	Reasoning        string // Reasoning/thinking do modelo
 	Media            string // JSON com mídias
+	ToolCalls        string // JSON: [{"id":"call_x","type":"function","function":{...}}]
+	ToolCallID       string // Para role="tool": ID da chamada que este resultado responde
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
@@ -190,10 +193,13 @@ func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 	msg := &ChatMessage{
 		ConversationID:   opts.ConversationID,
 		ParentID:         opts.ParentID,
+		TurnID:           opts.TurnID,
 		Role:             opts.Role,
 		Content:          opts.Content,
 		Reasoning:        opts.Reasoning,
 		Media:            opts.Media,
+		ToolCalls:        opts.ToolCalls,
+		ToolCallID:       opts.ToolCallID,
 		PromptTokens:     opts.PromptTokens,
 		CompletionTokens: opts.CompletionTokens,
 		TotalTokens:      opts.TotalTokens,
@@ -259,6 +265,39 @@ func AddToolMessage(conversationID uint, content string) (*ChatMessage, error) {
 		Role:           "tool",
 		Content:        content,
 	})
+}
+
+// AddToolResultMessage adiciona uma mensagem de resultado de tool com TurnID e ToolCallID.
+// Usado pelo agentic loop para salvar o resultado de uma execução de ferramenta.
+func AddToolResultMessage(conversationID uint, turnID uint, content, toolCallID string) (*ChatMessage, error) {
+	return CreateMessage(MessageOptions{
+		ConversationID: conversationID,
+		TurnID:         &turnID,
+		Role:           "tool",
+		Content:        content,
+		ToolCallID:     toolCallID,
+	})
+}
+
+// AddAssistantToolMessage adiciona uma mensagem do assistente que contém tool_calls.
+// Usada quando o LLM responde com texto + pedidos de ferramentas.
+func AddAssistantToolMessage(conversationID uint, turnID uint, content, toolCalls, reasoning, model string) (*ChatMessage, error) {
+	return CreateMessage(MessageOptions{
+		ConversationID: conversationID,
+		TurnID:         &turnID,
+		Role:           "assistant",
+		Content:        content,
+		ToolCalls:      toolCalls,
+		Reasoning:      reasoning,
+		Model:          model,
+	})
+}
+
+// GetTurnMessages retorna todas as mensagens de um turno (mesmo TurnID), ordenadas por criação.
+func GetTurnMessages(turnID uint) ([]ChatMessage, error) {
+	var messages []ChatMessage
+	err := db.Where("turn_id = ?", turnID).Order("created_at ASC").Find(&messages).Error
+	return messages, err
 }
 
 // AddChildMessage adiciona uma mensagem filha (com ParentID definido)

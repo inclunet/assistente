@@ -1,0 +1,201 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"sync"
+	"time"
+)
+
+// Limites padrão do executor
+const (
+	// DefaultToolTimeout é o timeout padrão para execução de uma única tool
+	DefaultToolTimeout = 30 * time.Second
+
+	// DefaultMaxResultSize é o tamanho máximo do resultado de uma tool (100KB)
+	DefaultMaxResultSize = 100 * 1024
+
+	// DefaultMaxIterations é o número máximo de iterações do agentic loop
+	DefaultMaxIterations = 25
+)
+
+// ExecutorConfig contém configurações do executor de ferramentas.
+type ExecutorConfig struct {
+	// ToolTimeout é o timeout para execução de cada ferramenta individual
+	ToolTimeout time.Duration
+
+	// MaxResultSize é o tamanho máximo em bytes do resultado de uma tool.
+	// Resultados maiores são truncados com aviso.
+	MaxResultSize int
+
+	// MaxIterations é o número máximo de iterações do agentic loop
+	MaxIterations int
+}
+
+// DefaultExecutorConfig retorna a configuração padrão do executor.
+func DefaultExecutorConfig() ExecutorConfig {
+	return ExecutorConfig{
+		ToolTimeout:   DefaultToolTimeout,
+		MaxResultSize: DefaultMaxResultSize,
+		MaxIterations: DefaultMaxIterations,
+	}
+}
+
+// Executor orquestra a execução de ferramentas.
+// Suporta execução paralela de múltiplas tools com timeout individual.
+type Executor struct {
+	registry *Registry
+	config   ExecutorConfig
+}
+
+// NewExecutor cria um novo executor com o registry e configuração fornecidos.
+func NewExecutor(registry *Registry, config ExecutorConfig) *Executor {
+	return &Executor{
+		registry: registry,
+		config:   config,
+	}
+}
+
+// ExecuteAll executa uma lista de tool calls em paralelo.
+// Cada tool é executada com seu próprio timeout, respeitando o ctx pai.
+// Os resultados são retornados na mesma ordem dos calls recebidos.
+func (e *Executor) ExecuteAll(ctx context.Context, calls []ToolCall) []ToolExecutionResult {
+	results := make([]ToolExecutionResult, len(calls))
+	var wg sync.WaitGroup
+
+	for i, call := range calls {
+		wg.Add(1)
+		go func(idx int, tc ToolCall) {
+			defer wg.Done()
+			results[idx] = e.executeSingle(ctx, tc)
+		}(i, call)
+	}
+
+	wg.Wait()
+	return results
+}
+
+// ExecuteOne executa uma única tool call.
+func (e *Executor) ExecuteOne(ctx context.Context, call ToolCall) ToolExecutionResult {
+	return e.executeSingle(ctx, call)
+}
+
+// executeSingle executa uma única tool com timeout e tratamento de erro.
+func (e *Executor) executeSingle(ctx context.Context, call ToolCall) ToolExecutionResult {
+	toolName := call.Function.Name
+
+	// Busca a ferramenta no registry
+	tool, ok := e.registry.Get(toolName)
+	if !ok {
+		return ToolExecutionResult{
+			CallID:   call.ID,
+			ToolName: toolName,
+			Result: ToolResult{
+				Content: fmt.Sprintf("Ferramenta '%s' não encontrada", toolName),
+				IsError: true,
+			},
+		}
+	}
+
+	// Valida que os argumentos são JSON válido
+	args := json.RawMessage(call.Function.Arguments)
+	if !json.Valid(args) {
+		return ToolExecutionResult{
+			CallID:   call.ID,
+			ToolName: toolName,
+			Result: ToolResult{
+				Content: fmt.Sprintf("Argumentos inválidos para '%s': JSON malformado", toolName),
+				IsError: true,
+			},
+		}
+	}
+
+	// Cria contexto com timeout para esta execução
+	toolCtx, cancel := context.WithTimeout(ctx, e.config.ToolTimeout)
+	defer cancel()
+
+	// Executa com recover para capturar panics
+	resultCh := make(chan ToolExecutionResult, 1)
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				resultCh <- ToolExecutionResult{
+					CallID:   call.ID,
+					ToolName: toolName,
+					Result: ToolResult{
+						Content: fmt.Sprintf("Erro interno em '%s': %v", toolName, r),
+						IsError: true,
+					},
+				}
+			}
+		}()
+
+		result, err := tool.Execute(toolCtx, args)
+		if err != nil {
+			resultCh <- ToolExecutionResult{
+				CallID:   call.ID,
+				ToolName: toolName,
+				Result: ToolResult{
+					Content: fmt.Sprintf("Erro ao executar '%s': %v", toolName, err),
+					IsError: true,
+				},
+				Error: err,
+			}
+			return
+		}
+
+		// Trunca resultado se necessário
+		if len(result.Content) > e.config.MaxResultSize {
+			truncated := result.Content[:e.config.MaxResultSize]
+			result.Content = truncated + fmt.Sprintf(
+				"\n\n[TRUNCADO: resultado original tinha %d bytes, limite é %d bytes]",
+				len(result.Content)+len(truncated), e.config.MaxResultSize,
+			)
+			if result.Metadata == nil {
+				result.Metadata = make(map[string]any)
+			}
+			result.Metadata["truncated"] = true
+		}
+
+		resultCh <- ToolExecutionResult{
+			CallID:   call.ID,
+			ToolName: toolName,
+			Result:   result,
+		}
+	}()
+
+	// Aguarda resultado ou timeout/cancelamento
+	select {
+	case result := <-resultCh:
+		return result
+	case <-toolCtx.Done():
+		if ctx.Err() != nil {
+			// Contexto pai cancelado (usuário cancelou)
+			return ToolExecutionResult{
+				CallID:   call.ID,
+				ToolName: toolName,
+				Result: ToolResult{
+					Content: fmt.Sprintf("Execução de '%s' cancelada pelo usuário", toolName),
+					IsError: true,
+				},
+				Error: ctx.Err(),
+			}
+		}
+		// Timeout da tool
+		return ToolExecutionResult{
+			CallID:   call.ID,
+			ToolName: toolName,
+			Result: ToolResult{
+				Content: fmt.Sprintf("Timeout ao executar '%s' (limite: %s)", toolName, e.config.ToolTimeout),
+				IsError: true,
+			},
+			Error: context.DeadlineExceeded,
+		}
+	}
+}
+
+// Config retorna a configuração atual do executor.
+func (e *Executor) Config() ExecutorConfig {
+	return e.config
+}

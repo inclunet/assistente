@@ -60,9 +60,6 @@ export namespace config {
 		    if (!a) {
 		        return a;
 		    }
-		    if (!classs) {
-		        return a;
-		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -87,10 +84,13 @@ export namespace database {
 	    id: number;
 	    conversationId: number;
 	    parentId?: number;
+	    turnId?: number;
 	    role: string;
 	    content: string;
 	    reasoning?: string;
 	    media?: string;
+	    toolCalls?: string;
+	    toolCallId?: string;
 	    promptTokens?: number;
 	    completionTokens?: number;
 	    totalTokens?: number;
@@ -107,10 +107,13 @@ export namespace database {
 	        this.id = source["id"];
 	        this.conversationId = source["conversationId"];
 	        this.parentId = source["parentId"];
+	        this.turnId = source["turnId"];
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.reasoning = source["reasoning"];
 	        this.media = source["media"];
+	        this.toolCalls = source["toolCalls"];
+	        this.toolCallId = source["toolCallId"];
 	        this.promptTokens = source["promptTokens"];
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
@@ -120,9 +123,6 @@ export namespace database {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
-		        return a;
-		    }
-		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {
@@ -165,9 +165,6 @@ export namespace database {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
-		        return a;
-		    }
-		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {
@@ -218,9 +215,6 @@ export namespace database {
 		    if (!a) {
 		        return a;
 		    }
-		    if (!classs) {
-		        return a;
-		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -260,10 +254,60 @@ export namespace llm {
 	        this.enableThinking = source["enableThinking"];
 	    }
 	}
+	export class FunctionCall {
+	    name: string;
+	    arguments: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new FunctionCall(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.arguments = source["arguments"];
+	    }
+	}
+	export class ToolCall {
+	    id: string;
+	    type: string;
+	    function: FunctionCall;
+	
+	    static createFrom(source: any = {}) {
+	        return new ToolCall(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.type = source["type"];
+	        this.function = this.convertValues(source["function"], FunctionCall);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class Message {
 	    role: string;
 	    content?: any;
 	    thinking?: string;
+	    tool_calls?: ToolCall[];
+	    tool_call_id?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Message(source);
@@ -274,7 +318,27 @@ export namespace llm {
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.thinking = source["thinking"];
+	        this.tool_calls = this.convertValues(source["tool_calls"], ToolCall);
+	        this.tool_call_id = source["tool_call_id"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ModelParams {
 	    model: string;
@@ -332,9 +396,6 @@ export namespace llm {
 		    if (!a) {
 		        return a;
 		    }
-		    if (!classs) {
-		        return a;
-		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -358,10 +419,13 @@ export namespace main {
 	    id: string;
 	    conversationId: number;
 	    parentId?: string;
+	    turnId?: number;
 	    role: string;
 	    content: string;
 	    reasoning?: string;
 	    media?: string;
+	    toolCalls?: string;
+	    toolCallId?: string;
 	    promptTokens?: number;
 	    completionTokens?: number;
 	    totalTokens?: number;
@@ -381,10 +445,13 @@ export namespace main {
 	        this.id = source["id"];
 	        this.conversationId = source["conversationId"];
 	        this.parentId = source["parentId"];
+	        this.turnId = source["turnId"];
 	        this.role = source["role"];
 	        this.content = source["content"];
 	        this.reasoning = source["reasoning"];
 	        this.media = source["media"];
+	        this.toolCalls = source["toolCalls"];
+	        this.toolCallId = source["toolCallId"];
 	        this.promptTokens = source["promptTokens"];
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
@@ -397,9 +464,6 @@ export namespace main {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
-		        return a;
-		    }
-		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {
@@ -438,9 +502,6 @@ export namespace main {
 		    if (!a) {
 		        return a;
 		    }
-		    if (!classs) {
-		        return a;
-		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -473,9 +534,6 @@ export namespace main {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
-		        return a;
-		    }
-		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {
@@ -594,9 +652,6 @@ export namespace main {
 		    if (!a) {
 		        return a;
 		    }
-		    if (!classs) {
-		        return a;
-		    }
 		    if (a.slice && a.map) {
 		        return (a as any[]).map(elem => this.convertValues(elem, classs));
 		    } else if ("object" === typeof a) {
@@ -610,6 +665,20 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class ToolInfo {
+	    name: string;
+	    description: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ToolInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	    }
 	}
 	export class TranscriptionResultInfo {
 	    text: string;
@@ -643,6 +712,7 @@ export namespace profiles {
 	    enable_thinking: boolean;
 	    system_prompt?: string;
 	    system_prompt_position?: string;
+	    enabled_tools: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatConfig(source);
@@ -658,6 +728,7 @@ export namespace profiles {
 	        this.enable_thinking = source["enable_thinking"];
 	        this.system_prompt = source["system_prompt"];
 	        this.system_prompt_position = source["system_prompt_position"];
+	        this.enabled_tools = source["enabled_tools"];
 	    }
 	}
 	export class TriggerConfig {
@@ -716,9 +787,6 @@ export namespace profiles {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
-		        return a;
-		    }
-		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {
@@ -783,9 +851,6 @@ export namespace profiles {
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
 		    if (!a) {
-		        return a;
-		    }
-		    if (!classs) {
 		        return a;
 		    }
 		    if (a.slice && a.map) {

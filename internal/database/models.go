@@ -21,18 +21,26 @@ type Conversation struct {
 //   - ParentID=null: mensagem de nível 0 (user/assistant principal)
 //   - ParentID=ID_delegação: mensagem de nível 1 (agente respondendo ao orquestrador)
 //   - ParentID=ID_agente_tool: mensagem de nível 2 (tool respondendo ao agente)
+//
+// Tool Calling:
+//   - TurnID agrupa todas as mensagens de um turno (aponta para o user message que iniciou)
+//   - ToolCalls (JSON) armazena as chamadas de ferramentas solicitadas pelo assistant
+//   - ToolCallID vincula um resultado (role=tool) à chamada correspondente
 type ChatMessage struct {
 	ID               uint      `json:"id" gorm:"primaryKey"`
 	ConversationID   uint      `json:"conversationId" gorm:"index"`
-	ParentID         *uint     `json:"parentId,omitempty" gorm:"index"` // ID da mensagem pai (define hierarquia)
-	Role             string    `json:"role"`                            // user, assistant, tool, system
+	ParentID         *uint     `json:"parentId,omitempty" gorm:"index"`     // ID da mensagem pai (define hierarquia)
+	TurnID           *uint     `json:"turnId,omitempty" gorm:"index"`       // Agrupa mensagens de um turno (aponta para user message)
+	Role             string    `json:"role"`                                // user, assistant, tool, system
 	Content          string    `json:"content"`
-	Reasoning        string    `json:"reasoning,omitempty"`        // Reasoning/thinking do modelo (DeepSeek, Claude, o1, etc)
-	Media            string    `json:"media,omitempty"`            // JSON com mídias (imagens, áudio, etc) em base64
-	PromptTokens     int       `json:"promptTokens,omitempty"`     // Tokens de entrada
-	CompletionTokens int       `json:"completionTokens,omitempty"` // Tokens de saída
-	TotalTokens      int       `json:"totalTokens,omitempty"`      // Total de tokens
-	Model            string    `json:"model,omitempty"`            // Modelo usado
+	Reasoning        string    `json:"reasoning,omitempty"`                 // Reasoning/thinking do modelo (DeepSeek, Claude, o1, etc)
+	Media            string    `json:"media,omitempty"`                     // JSON com mídias (imagens, áudio, etc) em base64
+	ToolCalls        string    `json:"toolCalls,omitempty"`                 // JSON: [{"id":"call_x","type":"function","function":{...}}]
+	ToolCallID       string    `json:"toolCallId,omitempty"`                // Para role="tool": ID da chamada que este resultado responde
+	PromptTokens     int       `json:"promptTokens,omitempty"`             // Tokens de entrada
+	CompletionTokens int       `json:"completionTokens,omitempty"`         // Tokens de saída
+	TotalTokens      int       `json:"totalTokens,omitempty"`              // Total de tokens
+	Model            string    `json:"model,omitempty"`                    // Modelo usado
 	CreatedAt        time.Time `json:"createdAt"`
 }
 

@@ -94,6 +94,10 @@ export function GetAllTokenStats() {
   return window['go']['main']['App']['GetAllTokenStats']();
 }
 
+export function GetAvailableTools() {
+  return window['go']['main']['App']['GetAvailableTools']();
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }

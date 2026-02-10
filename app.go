@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"os"
 	"time"
 
 	"assistente/internal/config"
@@ -12,6 +13,9 @@ import (
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/speech"
+	"assistente/internal/tools"
+	"assistente/internal/tools/filesystem"
+	"assistente/internal/tools/web"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -23,6 +27,8 @@ type App struct {
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
 	profileManager        *profiles.Manager
+	toolRegistry          *tools.Registry  // Registro de ferramentas disponíveis
+	toolExecutor          *tools.Executor  // Executor de ferramentas com paralelismo e timeout
 	voiceHotkeyID         int
 	currentConversationID uint // ID da conversa atual
 
@@ -38,10 +44,13 @@ type EnrichedMessage struct {
 	ID               string    `json:"id"`
 	ConversationID   uint      `json:"conversationId"`
 	ParentID         *string   `json:"parentId,omitempty"`
+	TurnID           *uint     `json:"turnId,omitempty"`
 	Role             string    `json:"role"`
 	Content          string    `json:"content"`
 	Reasoning        string    `json:"reasoning,omitempty"`
 	Media            string    `json:"media,omitempty"`
+	ToolCalls        string    `json:"toolCalls,omitempty"`
+	ToolCallID       string    `json:"toolCallId,omitempty"`
 	PromptTokens     int       `json:"promptTokens,omitempty"`
 	CompletionTokens int       `json:"completionTokens,omitempty"`
 	TotalTokens      int       `json:"totalTokens,omitempty"`
@@ -103,6 +112,9 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa o cliente LLM
 	a.initLLMClient()
 
+	// Inicializa o registro de ferramentas (tool calling)
+	a.initToolRegistry()
+
 	// Inicializa hotkeys globais
 	a.initGlobalHotkeys()
 
@@ -133,6 +145,57 @@ func (a *App) initLLMClient() {
 // ReloadLLMClient recarrega o cliente LLM (chamado quando config muda)
 func (a *App) ReloadLLMClient() {
 	a.initLLMClient()
+}
+
+// initToolRegistry inicializa o registro de ferramentas disponíveis
+func (a *App) initToolRegistry() {
+	a.toolRegistry = tools.NewRegistry()
+	a.toolExecutor = tools.NewExecutor(a.toolRegistry, tools.DefaultExecutorConfig())
+
+	// Determina diretório de trabalho para as tools de filesystem
+	workDir, err := os.Getwd()
+	if err != nil {
+		log.Printf("[Tools] Erro ao obter diretório de trabalho: %v", err)
+		workDir = "."
+	}
+
+	// Registra ferramentas de filesystem
+	a.toolRegistry.MustRegister(filesystem.NewReadFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewListDirectory(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewSearchFiles(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewGrepSearch(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewWriteFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewEditFile(workDir))
+
+	// Registra ferramentas web
+	a.toolRegistry.MustRegister(web.NewWebFetch())
+	a.toolRegistry.MustRegister(web.NewWebSearch())
+
+	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
+}
+
+// ToolInfo é um resumo de uma ferramenta para listagem no frontend.
+type ToolInfo struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+}
+
+// GetAvailableTools retorna a lista de ferramentas registradas no registry.
+// Usado pelo frontend para exibir checkboxes no editor de perfis.
+func (a *App) GetAvailableTools() []ToolInfo {
+	if a.toolRegistry == nil {
+		return []ToolInfo{}
+	}
+
+	allTools := a.toolRegistry.All()
+	result := make([]ToolInfo, len(allTools))
+	for i, t := range allTools {
+		result[i] = ToolInfo{
+			Name:        t.Name(),
+			Description: t.Description(),
+		}
+	}
+	return result
 }
 
 // shutdown é chamado quando o app fecha
