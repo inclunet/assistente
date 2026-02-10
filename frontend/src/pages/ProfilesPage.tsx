@@ -12,6 +12,7 @@ import {
   GetAvailableTools,
   GetAllowlists,
 } from '../../wailsjs/go/main/App';
+import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { profiles, main, allowlist } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
@@ -107,6 +108,17 @@ export default function ProfilesPage() {
     GetAllowlists().then(setAvailableAllowlists).catch((err) => {
       console.error('[Profiles] Erro ao carregar allowlists:', err);
     });
+
+    // Escuta mudanças nas tools MCP para atualizar a lista de ferramentas
+    const unsubMCP = EventsOn('mcp:tools_changed', () => {
+      GetAvailableTools().then(setAvailableTools).catch((err) => {
+        console.error('[Profiles] Erro ao recarregar ferramentas após mudança MCP:', err);
+      });
+    });
+
+    return () => {
+      unsubMCP();
+    };
   }, [loadProfiles]);
 
   // Focus editor only when it first opens (not on every field change)

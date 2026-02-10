@@ -93,6 +93,19 @@ func (r *Registry) Count() int {
 	return len(r.tools)
 }
 
+// Unregister remove uma ferramenta do registro pelo nome.
+// Retorna true se a ferramenta existia e foi removida, false se não existia.
+func (r *Registry) Unregister(name string) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if _, exists := r.tools[name]; !exists {
+		return false
+	}
+	delete(r.tools, name)
+	return true
+}
+
 // Has verifica se uma ferramenta com o nome dado está registrada.
 func (r *Registry) Has(name string) bool {
 	r.mu.RLock()

@@ -6,6 +6,7 @@ import {profiles} from '../models';
 import {terminal} from '../models';
 import {main} from '../models';
 import {config} from '../models';
+import {mcp} from '../models';
 import {llm} from '../models';
 
 export function AddChildMessage(arg1:number,arg2:number,arg3:string,arg4:string,arg5:string):Promise<database.ChatMessage>;
@@ -26,6 +27,8 @@ export function CloseTab(arg1:number):Promise<void>;
 
 export function CloseTerminalSession(arg1:string):Promise<void>;
 
+export function ConnectMCPServer(arg1:string):Promise<void>;
+
 export function CreateAllowlist(arg1:allowlist.Allowlist):Promise<string>;
 
 export function CreateConversation(arg1:string,arg2:string):Promise<database.Conversation>;
@@ -44,11 +47,15 @@ export function DeleteAllowlist(arg1:string):Promise<void>;
 
 export function DeleteConversation(arg1:number):Promise<void>;
 
+export function DeleteMCPServer(arg1:string):Promise<void>;
+
 export function DeleteMessage(arg1:number):Promise<void>;
 
 export function DeleteMessages(arg1:number,arg2:Array<number>):Promise<void>;
 
 export function DeleteProfile(arg1:string):Promise<void>;
+
+export function DisconnectMCPServer(arg1:string):Promise<void>;
 
 export function ExportConversations(arg1:Array<number>):Promise<string>;
 
@@ -88,6 +95,10 @@ export function GetCurrentTabID():Promise<number>;
 
 export function GetEffectiveModel():Promise<string>;
 
+export function GetMCPServerConfig(arg1:string):Promise<mcp.ServerConfig>;
+
+export function GetMCPServerTools(arg1:string):Promise<Array<mcp.MCPToolInfo>>;
+
 export function GetMessageChildren(arg1:number):Promise<Array<main.MessageNode>>;
 
 export function GetMessages(arg1:number,arg2:any):Promise<Array<main.MessageNode>>;
@@ -120,6 +131,8 @@ export function IsGlobalHotkeySupported():Promise<boolean>;
 
 export function IsSAPI5Speaking():Promise<boolean>;
 
+export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
+
 export function ListTerminalSessions():Promise<Array<terminal.SessionInfo>>;
 
 export function LoadConversationInTab(arg1:number,arg2:number):Promise<void>;
@@ -129,6 +142,8 @@ export function OpenConversationInCurrentTab(arg1:number):Promise<void>;
 export function OpenConversationInNewTab(arg1:number):Promise<number>;
 
 export function PreviewVoiceSettings(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number,arg6:string):Promise<void>;
+
+export function ReconnectMCPServer(arg1:string):Promise<void>;
 
 export function ReloadLLMClient():Promise<void>;
 
@@ -145,6 +160,8 @@ export function ResetDatabase():Promise<void>;
 export function RespondCommandConfirmation(arg1:string,arg2:boolean):Promise<void>;
 
 export function RunTerminalCommand(arg1:string,arg2:string):Promise<void>;
+
+export function SaveMCPServer(arg1:string,arg2:mcp.ServerConfig):Promise<void>;
 
 export function SaveSettings(arg1:llm.SettingsInput):Promise<void>;
 

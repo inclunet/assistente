@@ -38,6 +38,10 @@ export function CloseTerminalSession(arg1) {
   return window['go']['main']['App']['CloseTerminalSession'](arg1);
 }
 
+export function ConnectMCPServer(arg1) {
+  return window['go']['main']['App']['ConnectMCPServer'](arg1);
+}
+
 export function CreateAllowlist(arg1) {
   return window['go']['main']['App']['CreateAllowlist'](arg1);
 }
@@ -74,6 +78,10 @@ export function DeleteConversation(arg1) {
   return window['go']['main']['App']['DeleteConversation'](arg1);
 }
 
+export function DeleteMCPServer(arg1) {
+  return window['go']['main']['App']['DeleteMCPServer'](arg1);
+}
+
 export function DeleteMessage(arg1) {
   return window['go']['main']['App']['DeleteMessage'](arg1);
 }
@@ -84,6 +92,10 @@ export function DeleteMessages(arg1, arg2) {
 
 export function DeleteProfile(arg1) {
   return window['go']['main']['App']['DeleteProfile'](arg1);
+}
+
+export function DisconnectMCPServer(arg1) {
+  return window['go']['main']['App']['DisconnectMCPServer'](arg1);
 }
 
 export function ExportConversations(arg1) {
@@ -162,6 +174,14 @@ export function GetEffectiveModel() {
   return window['go']['main']['App']['GetEffectiveModel']();
 }
 
+export function GetMCPServerConfig(arg1) {
+  return window['go']['main']['App']['GetMCPServerConfig'](arg1);
+}
+
+export function GetMCPServerTools(arg1) {
+  return window['go']['main']['App']['GetMCPServerTools'](arg1);
+}
+
 export function GetMessageChildren(arg1) {
   return window['go']['main']['App']['GetMessageChildren'](arg1);
 }
@@ -226,6 +246,10 @@ export function IsSAPI5Speaking() {
   return window['go']['main']['App']['IsSAPI5Speaking']();
 }
 
+export function ListMCPServers() {
+  return window['go']['main']['App']['ListMCPServers']();
+}
+
 export function ListTerminalSessions() {
   return window['go']['main']['App']['ListTerminalSessions']();
 }
@@ -244,6 +268,10 @@ export function OpenConversationInNewTab(arg1) {
 
 export function PreviewVoiceSettings(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['PreviewVoiceSettings'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+export function ReconnectMCPServer(arg1) {
+  return window['go']['main']['App']['ReconnectMCPServer'](arg1);
 }
 
 export function ReloadLLMClient() {
@@ -276,6 +304,10 @@ export function RespondCommandConfirmation(arg1, arg2) {
 
 export function RunTerminalCommand(arg1, arg2) {
   return window['go']['main']['App']['RunTerminalCommand'](arg1, arg2);
+}
+
+export function SaveMCPServer(arg1, arg2) {
+  return window['go']['main']['App']['SaveMCPServer'](arg1, arg2);
 }
 
 export function SaveSettings(arg1) {

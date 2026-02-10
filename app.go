@@ -13,6 +13,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
+	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/profiles"
 	"assistente/internal/speech"
 	"assistente/internal/terminal"
@@ -36,6 +37,7 @@ type App struct {
 	terminalMgr           *terminal.Manager      // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
 	confirmationMgr       *confirmation.Manager  // Gerenciador de confirmações de comandos
 	allowlistMgr          *allowlist.Manager     // Gerenciador de allowlists de comandos
+	mcpMgr                *mcpmgr.Manager       // Gerenciador de servidores MCP
 	voiceHotkeyID         int
 	currentConversationID uint // ID da conversa atual
 
@@ -125,6 +127,9 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa o registro de ferramentas (tool calling)
 	a.initToolRegistry()
 
+	// Inicializa o gerenciador de servidores MCP (após tool registry)
+	a.initMCP()
+
 	// Inicializa hotkeys globais
 	a.initGlobalHotkeys()
 
@@ -177,6 +182,23 @@ func (a *App) initTerminalAndAllowlists() {
 	}
 
 	log.Printf("[Terminal] Managers de terminal, confirmação e allowlist inicializados")
+}
+
+// initMCP inicializa o gerenciador de servidores MCP.
+// Deve ser chamado após initToolRegistry (precisa do registry para registrar tools MCP).
+func (a *App) initMCP() {
+	emitEvent := func(event string, data any) {
+		runtime.EventsEmit(a.ctx, event, data)
+	}
+
+	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, emitEvent)
+
+	// Carrega configs e auto-conecta servidores habilitados
+	if err := a.mcpMgr.LoadConfigs(); err != nil {
+		log.Printf("[MCP] Erro ao carregar configurações: %v", err)
+	}
+
+	log.Printf("[MCP] Manager inicializado")
 }
 
 // initToolRegistry inicializa o registro de ferramentas disponíveis
@@ -265,6 +287,11 @@ func (a *App) GetAvailableTools() []ToolInfo {
 func (a *App) shutdown(ctx context.Context) {
 	if a.hotkeyManager != nil {
 		a.hotkeyManager.Stop()
+	}
+
+	// Encerra todos os servidores MCP
+	if a.mcpMgr != nil {
+		a.mcpMgr.CloseAll()
 	}
 
 	// Encerra todas as sessões de terminal
@@ -434,6 +461,74 @@ func (a *App) GetAllowlistSearchPaths() []string {
 		return []string{}
 	}
 	return a.allowlistMgr.GetSearchPaths()
+}
+
+// ============================================================================
+// MCP Server Management API
+// ============================================================================
+
+// ListMCPServers retorna informações de todos os servidores MCP configurados.
+func (a *App) ListMCPServers() []mcpmgr.ServerInfo {
+	if a.mcpMgr == nil {
+		return []mcpmgr.ServerInfo{}
+	}
+	return a.mcpMgr.List()
+}
+
+// ConnectMCPServer conecta a um servidor MCP pelo slug.
+func (a *App) ConnectMCPServer(slug string) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.Connect(slug)
+}
+
+// DisconnectMCPServer desconecta de um servidor MCP.
+func (a *App) DisconnectMCPServer(slug string) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.Disconnect(slug)
+}
+
+// ReconnectMCPServer reconecta a um servidor MCP.
+func (a *App) ReconnectMCPServer(slug string) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.Reconnect(slug)
+}
+
+// SaveMCPServer salva (cria ou atualiza) a configuração de um servidor MCP.
+func (a *App) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.SaveConfig(slug, cfg)
+}
+
+// DeleteMCPServer remove a configuração de um servidor MCP.
+func (a *App) DeleteMCPServer(slug string) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.DeleteConfig(slug)
+}
+
+// GetMCPServerTools retorna as ferramentas de um servidor MCP específico.
+func (a *App) GetMCPServerTools(slug string) []mcpmgr.MCPToolInfo {
+	if a.mcpMgr == nil {
+		return []mcpmgr.MCPToolInfo{}
+	}
+	return a.mcpMgr.GetTools(slug)
+}
+
+// GetMCPServerConfig retorna a configuração de um servidor MCP.
+func (a *App) GetMCPServerConfig(slug string) (*mcpmgr.ServerConfig, error) {
+	if a.mcpMgr == nil {
+		return nil, fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.GetConfig(slug)
 }
 
 // initGlobalHotkeys inicializa o gerenciador de hotkeys
