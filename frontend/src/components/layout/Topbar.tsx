@@ -29,6 +29,7 @@ export function Topbar() {
   // Determina a página atual baseada na rota
   const getCurrentPage = (): string => {
     if (location.pathname === '/settings') return 'settings';
+    if (location.pathname === '/profiles') return 'profiles';
     if (location.pathname === '/history') return 'history';
     if (location.pathname === '/help') return 'help';
     return 'chat';
@@ -46,6 +47,12 @@ export function Topbar() {
       label: 'Histórico',
       icon: '📜',
       onClick: () => navigate('/history'),
+    },
+    {
+      id: 'profiles',
+      label: 'Perfis',
+      icon: '🎭',
+      onClick: () => navigate('/profiles'),
     },
     {
       id: 'settings',

@@ -10,6 +10,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
+	"assistente/internal/profiles"
 	"assistente/internal/speech"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -21,6 +22,7 @@ type App struct {
 	llmClient             *llm.SyncClient
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
+	profileManager        *profiles.Manager
 	voiceHotkeyID         int
 	currentConversationID uint // ID da conversa atual
 
@@ -32,39 +34,37 @@ type App struct {
 // ==================== Tipos para Threads ====================
 
 // EnrichedMessage é ChatMessage + campos derivados calculados no backend
-// Todos os campos são definidos explicitamente para evitar conflitos de embedding
 type EnrichedMessage struct {
-	ID               string    `json:"id"` // String para JS safety (números grandes)
+	ID               string    `json:"id"`
 	ConversationID   uint      `json:"conversationId"`
-	ParentID         *string   `json:"parentId,omitempty"` // String para evitar undefined no TypeScript
+	ParentID         *string   `json:"parentId,omitempty"`
 	Role             string    `json:"role"`
 	Content          string    `json:"content"`
-	Reasoning        string    `json:"reasoning,omitempty"` // Reasoning/thinking do modelo (DeepSeek, Claude, o1)
+	Reasoning        string    `json:"reasoning,omitempty"`
 	Media            string    `json:"media,omitempty"`
 	PromptTokens     int       `json:"promptTokens,omitempty"`
 	CompletionTokens int       `json:"completionTokens,omitempty"`
 	TotalTokens      int       `json:"totalTokens,omitempty"`
 	Model            string    `json:"model,omitempty"`
 	CreatedAt        time.Time `json:"createdAt"`
-	Timestamp        int64     `json:"timestamp"`   // Milliseconds desde epoch
-	IsStreaming      bool      `json:"isStreaming"`  // Sempre false do DB
-	Internal         bool      `json:"internal"`     // Se tem parentId (é resposta de thread)
+	Timestamp        int64     `json:"timestamp"`
+	IsStreaming      bool      `json:"isStreaming"`
+	Internal         bool      `json:"internal"`
 }
 
 // MessageNode representa uma mensagem com seus filhos na hierarquia
 type MessageNode struct {
-	Message    EnrichedMessage `json:"message"` // Mensagem enriquecida
+	Message    EnrichedMessage `json:"message"`
 	Children   []MessageNode   `json:"children,omitempty"`
 	Level      int             `json:"level"`
-	ChildCount int             `json:"childCount"` // Para lazy loading
+	ChildCount int             `json:"childCount"`
 }
 
 // ConversationWithThreads representa uma conversa com mensagens organizadas em árvore
 type ConversationWithThreads struct {
-	ID          uint                      `json:"id"`
-	Title       string                    `json:"title"`
-	Preferences *database.ChatPreferences `json:"preferences,omitempty"`
-	Threads     []MessageNode             `json:"threads"`
+	ID      uint          `json:"id"`
+	Title   string        `json:"title"`
+	Threads []MessageNode `json:"threads"`
 }
 
 // StreamEvent representa um evento de streaming simplificado
@@ -81,12 +81,12 @@ type StreamEvent struct {
 func NewApp() *App {
 	return &App{
 		hotkeyLastFired:  make(map[uint]time.Time),
-		hotkeyThrottleMs: 1000, // 1000ms entre disparos (1 segundo)
+		hotkeyThrottleMs: 1000,
+		profileManager:   profiles.NewManager(),
 	}
 }
 
-// startup is called when the app starts. The context is saved
-// so we can call the runtime methods
+// startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
@@ -95,11 +95,19 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("Erro ao inicializar banco de dados: %v", err)
 	}
 
+	// Garante perfis padrão em ~/.assistente/profiles/
+	if err := a.profileManager.EnsureDefaults(); err != nil {
+		log.Printf("Erro ao criar perfis padrão: %v", err)
+	}
+
 	// Inicializa o cliente LLM
 	a.initLLMClient()
 
 	// Inicializa hotkeys globais
 	a.initGlobalHotkeys()
+
+	// Registra hotkeys do perfil ativo
+	a.registerActiveProfileHotkeys()
 }
 
 // initLLMClient inicializa o cliente LLM
@@ -110,7 +118,6 @@ func (a *App) initLLMClient() {
 		return
 	}
 
-	// Configura o timeout de resposta HTTP baseado na config
 	llm.ConfigureResponseTimeout(cfg.GetResponseTimeout())
 	log.Printf("HTTP Response Timeout configurado para %d segundos", cfg.GetResponseTimeout())
 
@@ -130,14 +137,12 @@ func (a *App) ReloadLLMClient() {
 
 // shutdown é chamado quando o app fecha
 func (a *App) shutdown(ctx context.Context) {
-	// Para hotkeys globais
 	if a.hotkeyManager != nil {
 		a.hotkeyManager.Stop()
 	}
 }
 
 // initGlobalHotkeys inicializa o gerenciador de hotkeys
-// Os hotkeys são registrados pelos triggers dos perfis de interação
 func (a *App) initGlobalHotkeys() {
 	if !hotkey.IsSupported() {
 		log.Println("[Hotkey] Hotkeys globais não suportados neste sistema")
@@ -146,6 +151,73 @@ func (a *App) initGlobalHotkeys() {
 
 	a.hotkeyManager = hotkey.GetManager()
 	log.Println("[Hotkey] Manager inicializado. Hotkeys serão registrados pelos triggers dos perfis.")
+}
+
+// registerActiveProfileHotkeys registra os hotkeys do perfil ativo
+func (a *App) registerActiveProfileHotkeys() {
+	if a.hotkeyManager == nil {
+		return
+	}
+
+	activeProfile, err := a.profileManager.GetActive()
+	if err != nil {
+		log.Printf("[Hotkey] Erro ao obter perfil ativo: %v", err)
+		return
+	}
+
+	// Remove todos os hotkeys anteriores
+	a.hotkeyManager.UnregisterAllProfileHotkeys()
+
+	if activeProfile == nil || len(activeProfile.Interaction.Triggers) == 0 {
+		return
+	}
+
+	hotkeyCount := 0
+	for _, trigger := range activeProfile.Interaction.Triggers {
+		if !trigger.Enabled || trigger.Hotkey == "" {
+			continue
+		}
+		hotkeyCount++
+
+		t := trigger // Captura variável para closure
+
+		log.Printf("[Hotkey] Registrando hotkey '%s' para trigger tipo %s...", t.Hotkey, t.Type)
+		_, err := a.hotkeyManager.RegisterProfileHotkey(
+			1, // Profile ID fixo (perfil global)
+			t.Hotkey,
+			t.Type == profiles.TriggerTypeHotkey,
+			t.HotkeyBringToFront,
+			func() {
+				// Throttle: ignora se disparou recentemente
+				now := time.Now()
+				triggerKey := uint(hotkeyCount) // Usa index como key
+				if lastFired, ok := a.hotkeyLastFired[triggerKey]; ok {
+					elapsed := now.Sub(lastFired).Milliseconds()
+					if elapsed < a.hotkeyThrottleMs {
+						return
+					}
+				}
+				a.hotkeyLastFired[triggerKey] = now
+
+				log.Printf("[Hotkey] HOTKEY ACIONADA! Trigger tipo %s", t.Type)
+				runtime.EventsEmit(a.ctx, "interaction:hotkey:triggered", map[string]interface{}{
+					"triggerType":  t.Type,
+					"bringToFront": t.HotkeyBringToFront,
+				})
+
+				if t.HotkeyGlobal && t.HotkeyBringToFront {
+					runtime.WindowShow(a.ctx)
+				}
+			},
+		)
+		if err != nil {
+			log.Printf("[Hotkey] ERRO ao registrar hotkey '%s': %v", t.Hotkey, err)
+		} else {
+			log.Printf("[Hotkey] Hotkey '%s' registrada com sucesso", t.Hotkey)
+		}
+	}
+
+	log.Printf("[Hotkey] Total: %d hotkeys registradas para perfil ativo", hotkeyCount)
 }
 
 // ============================================================================
@@ -166,185 +238,6 @@ func (a *App) IsGlobalHotkeySupported() bool {
 	return hotkey.IsSupported()
 }
 
-// GetGlobalHotkeys retorna os hotkeys globais configurados
-// DEPRECATED: Use os triggers dos perfis de interação para configurar hotkeys
-func (a *App) GetGlobalHotkeys() []HotkeyInfo {
-	// Hotkeys são agora gerenciados pelos triggers dos perfis de interação
-	return []HotkeyInfo{}
-}
-
-// SetVoiceHotkey altera o hotkey de voz
-// DEPRECATED: Use os triggers dos perfis de interação para configurar hotkeys
-func (a *App) SetVoiceHotkey(modifiers string, key string) error {
-	return fmt.Errorf("deprecated: use interaction profile triggers to configure hotkeys")
-}
-
-// DisableVoiceHotkey desativa o hotkey de voz
-// DEPRECATED: Use os triggers dos perfis de interação para configurar hotkeys
-func (a *App) DisableVoiceHotkey() error {
-	return nil
-}
-
-// EnableVoiceHotkey reativa o hotkey de voz com configuração padrão
-// DEPRECATED: Use os triggers dos perfis de interação para configurar hotkeys
-func (a *App) EnableVoiceHotkey() error {
-	return fmt.Errorf("deprecated: use interaction profile triggers to configure hotkeys")
-}
-
-// ==================== Interaction Profile Hotkeys ====================
-
-// RegisterInteractionProfileHotkeys registra os hotkeys de um perfil de interação
-// Itera pelos triggers do perfil e registra hotkeys para triggers que possuem
-func (a *App) RegisterInteractionProfileHotkeys(profileID uint) error {
-	if a.hotkeyManager == nil {
-		log.Printf("[Hotkey] Manager não inicializado!")
-		return fmt.Errorf("hotkey manager not initialized")
-	}
-
-	// Busca o perfil com triggers
-	profile, err := database.GetInteractionProfile(profileID)
-	if err != nil {
-		log.Printf("[Hotkey] Perfil %d não encontrado: %v", profileID, err)
-		return fmt.Errorf("profile not found: %w", err)
-	}
-
-	log.Printf("[Hotkey] Perfil %d (%s) tem %d triggers", profileID, profile.Name, len(profile.Triggers))
-
-	// Remove hotkeys anteriores deste perfil
-	a.hotkeyManager.UnregisterProfileHotkeys(int(profileID))
-
-	// Registra hotkeys para cada trigger que possui hotkey configurada
-	hotkeyCount := 0
-	for _, trigger := range profile.Triggers {
-		log.Printf("[Hotkey] Trigger %d: type=%s, enabled=%v, hotkey='%s'", trigger.ID, trigger.Type, trigger.Enabled, trigger.Hotkey)
-		if !trigger.Enabled || trigger.Hotkey == "" {
-			log.Printf("[Hotkey] Trigger %d ignorado (enabled=%v, hotkey vazio=%v)", trigger.ID, trigger.Enabled, trigger.Hotkey == "")
-			continue
-		}
-		hotkeyCount++
-
-		// Captura variáveis para closure
-		t := trigger
-
-		log.Printf("[Hotkey] Registrando hotkey '%s' para trigger %d...", t.Hotkey, t.ID)
-		_, err := a.hotkeyManager.RegisterProfileHotkey(
-			int(profileID),
-			t.Hotkey,
-			t.Type == database.TriggerTypeHotkey, // isPrimary: só hotkey direto é "principal"
-			t.HotkeyBringToFront,
-			func() {
-				// Throttle: ignora se disparou recentemente (evita loop quando segura tecla)
-				now := time.Now()
-				if lastFired, ok := a.hotkeyLastFired[t.ID]; ok {
-					elapsed := now.Sub(lastFired).Milliseconds()
-					if elapsed < a.hotkeyThrottleMs {
-						log.Printf("[Hotkey] BLOQUEADO por throttle: trigger %d, elapsed=%dms < %dms", t.ID, elapsed, a.hotkeyThrottleMs)
-						return // Ignora - muito rápido
-					}
-				}
-				a.hotkeyLastFired[t.ID] = now
-
-				log.Printf("[Hotkey] HOTKEY ACIONADA! Trigger %d, perfil %d (throttle OK)", t.ID, profileID)
-				// Emite evento para frontend com informações do trigger
-				runtime.EventsEmit(a.ctx, "interaction:hotkey:triggered", map[string]interface{}{
-					"triggerId":    t.ID,
-					"profileId":    profileID,
-					"triggerType":  t.Type,
-					"bringToFront": t.HotkeyBringToFront,
-				})
-
-				// Se deve trazer janela para frente
-				if t.HotkeyGlobal && t.HotkeyBringToFront {
-					runtime.WindowShow(a.ctx)
-				}
-			},
-		)
-		if err != nil {
-			log.Printf("[Hotkey] ERRO ao registrar hotkey do trigger %d (perfil %d): %v", t.ID, profileID, err)
-			// Continua para os outros triggers
-		} else {
-			log.Printf("[Hotkey] Hotkey '%s' registrada com sucesso para trigger %d", t.Hotkey, t.ID)
-		}
-	}
-
-	log.Printf("[Hotkey] Total: %d hotkeys registradas para perfil %d", hotkeyCount, profileID)
-	return nil
-}
-
-// UnregisterInteractionProfileHotkeys remove os hotkeys de um perfil
-func (a *App) UnregisterInteractionProfileHotkeys(profileID uint) error {
-	if a.hotkeyManager == nil {
-		return nil
-	}
-	return a.hotkeyManager.UnregisterProfileHotkeys(int(profileID))
-}
-
-// GetActiveInteractionProfile retorna o perfil de interação atualmente ativo
-func (a *App) GetActiveInteractionProfile() *database.InteractionProfile {
-	profile, err := database.GetActiveInteractionProfile()
-	if err != nil {
-		log.Printf("[App] Erro ao buscar perfil ativo: %v", err)
-		return nil
-	}
-	return profile
-}
-
-// SetActiveInteractionProfile define e ativa um perfil de interação
-// Persiste no banco, registra os hotkeys do perfil e emite evento
-func (a *App) SetActiveInteractionProfile(profileID uint) error {
-	log.Printf("[SetActiveInteractionProfile] Ativando perfil %d", profileID)
-
-	// Persiste no banco
-	if err := database.SetActiveInteractionProfile(profileID); err != nil {
-		log.Printf("[SetActiveInteractionProfile] Erro ao persistir: %v", err)
-		return err
-	}
-
-	// Desregistra hotkeys de todos os perfis
-	if a.hotkeyManager != nil {
-		log.Printf("[SetActiveInteractionProfile] Desregistrando todas hotkeys...")
-		a.hotkeyManager.UnregisterAllProfileHotkeys()
-	} else {
-		log.Printf("[SetActiveInteractionProfile] AVISO: hotkeyManager é nil!")
-	}
-
-	// Registra hotkeys do novo perfil (se não for 0 = desativado)
-	if profileID > 0 {
-		log.Printf("[SetActiveInteractionProfile] Registrando hotkeys do perfil %d...", profileID)
-		if err := a.RegisterInteractionProfileHotkeys(profileID); err != nil {
-			log.Printf("[SetActiveInteractionProfile] Erro ao registrar hotkeys: %v", err)
-			return err
-		}
-	} else {
-		log.Printf("[SetActiveInteractionProfile] Perfil 0 = desativado, não registrando hotkeys")
-	}
-
-	// Emite evento de mudança de perfil
-	runtime.EventsEmit(a.ctx, "interaction:profile:activated", map[string]interface{}{
-		"profileId": profileID,
-	})
-
-	return nil
-}
-
-// GetActiveProfileHotkeys retorna os hotkeys registrados para um perfil
-func (a *App) GetActiveProfileHotkeys(profileID uint) []map[string]interface{} {
-	hotkeys := hotkey.GetProfileHotkeys(int(profileID))
-	result := make([]map[string]interface{}, 0, len(hotkeys))
-
-	for _, hk := range hotkeys {
-		result = append(result, map[string]interface{}{
-			"profileId":    hk.ProfileID,
-			"isPrimary":    hk.IsPrimary,
-			"combination":  hk.Combination,
-			"bringToFront": hk.BringToFront,
-			"hotkeyId":     hk.HotkeyID,
-		})
-	}
-
-	return result
-}
-
 // ============================================================================
 // SAPI5 Voice Methods (Windows only)
 // ============================================================================
@@ -362,7 +255,6 @@ type SAPI5VoiceInfo struct {
 }
 
 // GetSAPI5Voices retorna a lista de vozes SAPI5 instaladas
-// Em sistemas não-Windows, retorna lista vazia sem erro
 func (a *App) GetSAPI5Voices() ([]SAPI5VoiceInfo, error) {
 	manager := speech.GetSAPI5Manager()
 
@@ -391,7 +283,6 @@ func (a *App) GetSAPI5Voices() ([]SAPI5VoiceInfo, error) {
 }
 
 // SpeakSAPI5 sintetiza texto usando uma voz SAPI5
-// Em sistemas não-Windows, não faz nada
 func (a *App) SpeakSAPI5(text string, voiceName string) error {
 	manager := speech.GetSAPI5Manager()
 	return manager.Speak(text, voiceName)
@@ -468,11 +359,8 @@ func (a *App) InitSpeechManager(apiKey, apiBaseURL, whisperLanguage, ttsVoice, t
 }
 
 // TranscribeWhisper transcreve áudio usando OpenAI Whisper
-// audioBase64: áudio codificado em base64
-// filename: nome do arquivo com extensão (ex: "audio.webm")
 func (a *App) TranscribeWhisper(audioBase64 string, filename string) (*TranscriptionResultInfo, error) {
 	if a.speechManager == nil {
-		// Tenta inicializar com as configurações salvas
 		cfg, err := config.Load()
 		if err != nil {
 			return nil, fmt.Errorf("speech manager not initialized")
@@ -499,7 +387,6 @@ func (a *App) TranscribeWhisper(audioBase64 string, filename string) (*Transcrip
 // SynthesizeOpenAI sintetiza texto usando OpenAI TTS
 func (a *App) SynthesizeOpenAI(text string) (*SynthesisResultInfo, error) {
 	if a.speechManager == nil {
-		// Tenta inicializar com as configurações salvas
 		cfg, err := config.Load()
 		if err != nil {
 			return nil, fmt.Errorf("speech manager not initialized")
@@ -547,22 +434,16 @@ func (a *App) SynthesizeOpenAIWithVoice(text string, voice string) (*SynthesisRe
 	}, nil
 }
 
-// TTSStreamEvent evento de streaming de TTS (interface unificada para todos os provedores)
+// TTSStreamEvent evento de streaming de TTS
 type TTSStreamEvent struct {
-	SessionID   string `json:"sessionId"`   // Identificador único da sessão
-	ChunkBase64 string `json:"chunkBase64"` // Chunk de áudio em base64 (apenas em tts:stream:chunk)
-	Format      string `json:"format"`      // Formato do áudio (mp3, opus, etc)
-	Done        bool   `json:"done"`        // True quando streaming terminou
-	Error       string `json:"error"`       // Mensagem de erro (apenas em tts:stream:error)
+	SessionID   string `json:"sessionId"`
+	ChunkBase64 string `json:"chunkBase64"`
+	Format      string `json:"format"`
+	Done        bool   `json:"done"`
+	Error       string `json:"error"`
 }
 
 // SynthesizeOpenAIStream sintetiza texto usando OpenAI TTS com streaming
-// Emite eventos Wails conforme recebe chunks de áudio:
-// - "tts:stream:start"  -> { sessionId, format }
-// - "tts:stream:chunk"  -> { sessionId, chunkBase64, format }
-// - "tts:stream:done"   -> { sessionId, done: true }
-// - "tts:stream:error"  -> { sessionId, error }
-// IMPORTANTE: Este método retorna imediatamente e executa o streaming em background
 func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string) error {
 	if a.speechManager == nil {
 		cfg, err := config.Load()
@@ -583,9 +464,7 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voice, "tts-1")
 	}
 
-	// Verifica se o provedor suporta streaming
 	if !a.speechManager.SupportsStreaming() {
-		// Fallback em goroutine separada
 		go func() {
 			result, err := a.speechManager.SynthesizeWithVoice(text, voice)
 			if err != nil {
@@ -596,7 +475,6 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 				return
 			}
 
-			// Emite como streaming de um único chunk
 			runtime.EventsEmit(a.ctx, "tts:stream:start", TTSStreamEvent{
 				SessionID: sessionID,
 				Format:    result.Format,
@@ -614,15 +492,12 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 		return nil
 	}
 
-	// Executa streaming em goroutine separada para não bloquear
 	go func() {
-		// Emite evento de início
 		runtime.EventsEmit(a.ctx, "tts:stream:start", TTSStreamEvent{
 			SessionID: sessionID,
 			Format:    "mp3",
 		})
 
-		// Inicia streaming com callbacks
 		callbacks := speech.StreamCallbacks{
 			OnChunk: func(chunkBase64 string) {
 				runtime.EventsEmit(a.ctx, "tts:stream:chunk", TTSStreamEvent{
@@ -646,7 +521,6 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 			},
 		}
 
-		// Usa contexto com timeout
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
@@ -694,262 +568,138 @@ func (a *App) SetOpenAITTSSpeed(rate int) {
 	}
 }
 
-// ==================== Interaction Profiles ====================
+// ============================================================================
+// Unified Profile API (arquivo JSON via configdir)
+// ============================================================================
 
-// GetInteractionProfiles retorna todos os perfis de interação
-func (a *App) GetInteractionProfiles() ([]database.InteractionProfile, error) {
-	return database.GetAllInteractionProfiles()
+// GetProfiles retorna todos os perfis disponíveis
+func (a *App) GetProfiles() ([]profiles.ProfileInfo, error) {
+	return a.profileManager.List()
 }
 
-// GetInteractionProfile retorna um perfil de interação por ID
-func (a *App) GetInteractionProfile(id uint) (*database.InteractionProfile, error) {
-	return database.GetInteractionProfile(id)
+// GetProfile retorna um perfil pelo slug
+func (a *App) GetProfile(slug string) (*profiles.Profile, error) {
+	return a.profileManager.Get(slug)
 }
 
-// GetDefaultInteractionProfile retorna o perfil de interação padrão
-func (a *App) GetDefaultInteractionProfile() (*database.InteractionProfile, error) {
-	return database.GetDefaultInteractionProfile()
+// GetActiveProfile retorna o perfil ativo global
+func (a *App) GetActiveProfile() (*profiles.Profile, error) {
+	return a.profileManager.GetActive()
 }
 
-// CreateInteractionProfile cria um novo perfil de interação
-func (a *App) CreateInteractionProfile(profile database.InteractionProfile) (*database.InteractionProfile, error) {
-	created, err := database.CreateInteractionProfile(&profile)
-	if err != nil {
-		return nil, err
-	}
-
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "interaction:profile:created", map[string]interface{}{
-		"id":   created.ID,
-		"name": created.Name,
-	})
-
-	return created, nil
+// GetActiveProfileSlug retorna o slug do perfil ativo
+func (a *App) GetActiveProfileSlug() string {
+	return a.profileManager.GetActiveSlug()
 }
 
-// UpdateInteractionProfile atualiza um perfil de interação
-func (a *App) UpdateInteractionProfile(id uint, profile database.InteractionProfile) (*database.InteractionProfile, error) {
-	updated, err := database.UpdateInteractionProfile(id, &profile)
-	if err != nil {
-		return nil, err
-	}
-
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "interaction:profile:updated", map[string]interface{}{
-		"id":   updated.ID,
-		"name": updated.Name,
-	})
-
-	return updated, nil
-}
-
-// DeleteInteractionProfile deleta um perfil de interação
-func (a *App) DeleteInteractionProfile(id uint) error {
-	err := database.DeleteInteractionProfile(id)
-	if err != nil {
+// SetActiveProfile define o perfil ativo e re-registra hotkeys
+func (a *App) SetActiveProfile(slug string) error {
+	if err := a.profileManager.SetActive(slug); err != nil {
 		return err
 	}
 
+	// Re-registra hotkeys do novo perfil
+	a.registerActiveProfileHotkeys()
+
 	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "interaction:profile:deleted", map[string]interface{}{
-		"id": id,
+	runtime.EventsEmit(a.ctx, "profile:changed", map[string]interface{}{
+		"slug": slug,
 	})
 
 	return nil
 }
 
-// SetDefaultInteractionProfile define um perfil como padrão
-func (a *App) SetDefaultInteractionProfile(id uint) error {
-	err := database.SetDefaultInteractionProfile(id)
+// CreateProfile cria um novo perfil
+func (a *App) CreateProfile(profile profiles.Profile) (string, error) {
+	slug, err := a.profileManager.Create(&profile)
 	if err != nil {
+		return "", err
+	}
+
+	runtime.EventsEmit(a.ctx, "profile:created", map[string]interface{}{
+		"slug": slug,
+		"name": profile.Name,
+	})
+
+	return slug, nil
+}
+
+// UpdateProfile atualiza um perfil existente
+func (a *App) UpdateProfile(slug string, profile profiles.Profile) error {
+	if err := a.profileManager.Update(slug, &profile); err != nil {
 		return err
 	}
 
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "interaction:profile:default_changed", map[string]interface{}{
-		"id": id,
+	// Se for o perfil ativo, re-registra hotkeys
+	if slug == a.profileManager.GetActiveSlug() {
+		a.registerActiveProfileHotkeys()
+	}
+
+	runtime.EventsEmit(a.ctx, "profile:updated", map[string]interface{}{
+		"slug": slug,
+		"name": profile.Name,
 	})
 
 	return nil
 }
 
-// SearchInteractionProfiles busca perfis por nome ou descrição
-func (a *App) SearchInteractionProfiles(query string) ([]database.InteractionProfile, error) {
-	return database.SearchInteractionProfiles(query)
-}
-
-// ==================== Interaction Triggers ====================
-
-// GetTriggersByProfile retorna todos os triggers de um perfil
-func (a *App) GetTriggersByProfile(profileID uint) ([]database.InteractionTrigger, error) {
-	return database.GetTriggersByProfile(profileID)
-}
-
-// GetInteractionTrigger retorna um trigger por ID
-func (a *App) GetInteractionTrigger(id uint) (*database.InteractionTrigger, error) {
-	return database.GetInteractionTrigger(id)
-}
-
-// CreateInteractionTrigger cria um novo trigger
-func (a *App) CreateInteractionTrigger(trigger database.InteractionTrigger) (*database.InteractionTrigger, error) {
-	created, err := database.CreateInteractionTrigger(&trigger)
-	if err != nil {
-		return nil, err
+// DeleteProfile deleta um perfil
+func (a *App) DeleteProfile(slug string) error {
+	// Não permite deletar o perfil ativo
+	if slug == a.profileManager.GetActiveSlug() {
+		return fmt.Errorf("não é possível deletar o perfil ativo")
 	}
 
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "interaction:trigger:created", map[string]interface{}{
-		"id":        created.ID,
-		"profileId": created.ProfileID,
-		"type":      created.Type,
-	})
-
-	return created, nil
-}
-
-// UpdateInteractionTrigger atualiza um trigger
-func (a *App) UpdateInteractionTrigger(id uint, trigger database.InteractionTrigger) (*database.InteractionTrigger, error) {
-	updated, err := database.UpdateInteractionTrigger(id, &trigger)
-	if err != nil {
-		return nil, err
-	}
-
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "interaction:trigger:updated", map[string]interface{}{
-		"id":        updated.ID,
-		"profileId": updated.ProfileID,
-		"type":      updated.Type,
-	})
-
-	return updated, nil
-}
-
-// DeleteInteractionTrigger deleta um trigger
-func (a *App) DeleteInteractionTrigger(id uint) error {
-	// Busca trigger para obter profileId antes de deletar
-	trigger, err := database.GetInteractionTrigger(id)
-	if err != nil {
+	if err := a.profileManager.Delete(slug); err != nil {
 		return err
 	}
 
-	err = database.DeleteInteractionTrigger(id)
-	if err != nil {
-		return err
-	}
-
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "interaction:trigger:deleted", map[string]interface{}{
-		"id":        id,
-		"profileId": trigger.ProfileID,
+	runtime.EventsEmit(a.ctx, "profile:deleted", map[string]interface{}{
+		"slug": slug,
 	})
 
 	return nil
 }
 
-// ==================== Chat Profiles ====================
-
-// GetChatProfiles retorna todos os perfis de conversa
-func (a *App) GetChatProfiles() ([]database.ChatProfile, error) {
-	return database.GetAllChatProfiles()
+// GetProfileSearchPaths retorna os caminhos de busca dos perfis
+func (a *App) GetProfileSearchPaths() []string {
+	return a.profileManager.GetSearchPaths()
 }
 
-// GetChatProfile retorna um perfil de conversa por ID
-func (a *App) GetChatProfile(id uint) (*database.ChatProfile, error) {
-	return database.GetChatProfile(id)
-}
-
-// GetDefaultChatProfile retorna o perfil de conversa padrão
-func (a *App) GetDefaultChatProfile() (*database.ChatProfile, error) {
-	return database.GetDefaultChatProfile()
-}
-
-// CreateChatProfile cria um novo perfil de conversa
-func (a *App) CreateChatProfile(profile database.ChatProfile) (*database.ChatProfile, error) {
-	created, err := database.CreateChatProfile(&profile)
-	if err != nil {
-		return nil, err
+// PreviewVoiceSettings reproduz um texto de teste com configurações ad-hoc
+func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume float64, sampleText string) error {
+	if sampleText == "" {
+		sampleText = "Este é um teste das configurações de voz"
 	}
 
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "chat:profile:created", created)
+	log.Printf("[PreviewVoiceSettings] provider=%s, voiceID=%s, rate=%.2f", provider, voiceID, rate)
 
-	return created, nil
-}
-
-// UpdateChatProfile atualiza um perfil de conversa
-func (a *App) UpdateChatProfile(id uint, profile database.ChatProfile) (*database.ChatProfile, error) {
-	updated, err := database.UpdateChatProfile(id, &profile)
-	if err != nil {
-		return nil, err
+	if a.speechManager == nil {
+		cfg, err := config.Load()
+		if err != nil {
+			return fmt.Errorf("erro ao carregar config: %w", err)
+		}
+		if cfg.APIKey == "" {
+			return fmt.Errorf("API key não configurada")
+		}
+		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voiceID, "tts-1")
 	}
 
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "chat:profile:updated", updated)
-
-	return updated, nil
-}
-
-// DeleteChatProfile deleta um perfil de conversa
-func (a *App) DeleteChatProfile(id uint) error {
-	err := database.DeleteChatProfile(id)
-	if err != nil {
-		return err
+	if provider == "openai" {
+		a.speechManager.SetTTSVoice(voiceID)
 	}
 
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "chat:profile:deleted", id)
-
-	return nil
-}
-
-// SetDefaultChatProfile define um perfil como padrão
-func (a *App) SetDefaultChatProfile(id uint) error {
-	err := database.SetDefaultChatProfile(id)
+	result, err := a.speechManager.SynthesizeWithVoice(sampleText, voiceID)
 	if err != nil {
-		return err
+		return fmt.Errorf("erro ao sintetizar: %w", err)
 	}
 
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "chat:profile:default_changed", id)
-
-	return nil
-}
-
-// SetConversationChatProfile define o perfil de conversa para uma conversa
-func (a *App) SetConversationChatProfile(conversationID uint, profileID uint) error {
-	err := database.SetConversationChatProfile(conversationID, profileID)
-	if err != nil {
-		return err
-	}
-
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "chat:profile:conversation_changed", map[string]interface{}{
-		"conversation_id": conversationID,
-		"profile_id":      profileID,
+	runtime.EventsEmit(a.ctx, "voice_profile:preview", map[string]interface{}{
+		"audio_base64": result.AudioBase64,
+		"format":       result.Format,
 	})
 
 	return nil
-}
-
-// ClearConversationChatProfile remove o perfil customizado de uma conversa
-func (a *App) ClearConversationChatProfile(conversationID uint) error {
-	err := database.ClearConversationChatProfile(conversationID)
-	if err != nil {
-		return err
-	}
-
-	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "chat:profile:conversation_changed", map[string]interface{}{
-		"conversation_id": conversationID,
-		"profile_id":      0, // 0 indica usar padrão
-	})
-
-	return nil
-}
-
-// GetEffectiveChatProfile retorna o perfil efetivo de uma conversa
-func (a *App) GetEffectiveChatProfile(conversationID uint) (*database.ChatProfile, error) {
-	return database.GetEffectiveChatProfile(conversationID)
 }
 
 // ==================== Chat Tabs ====================
@@ -965,14 +715,12 @@ func (a *App) GetActiveTab() (*database.ChatTab, error) {
 }
 
 // CreateTab cria uma nova aba de chat
-// setAsActive: se true, marca a nova aba como ativa; se false, mantém a aba atual ativa
 func (a *App) CreateTab(title, icon string, setAsActive bool) (*database.ChatTab, error) {
 	tab, err := database.CreateTab(title, icon, setAsActive)
 	if err != nil {
 		return nil, err
 	}
 
-	// Emite evento para frontend
 	runtime.EventsEmit(a.ctx, "tab_created", map[string]interface{}{
 		"id":       tab.ID,
 		"title":    tab.Title,
@@ -991,7 +739,6 @@ func (a *App) CloseTab(id uint) error {
 		return err
 	}
 
-	// Emite evento para frontend
 	runtime.EventsEmit(a.ctx, "tab_closed", map[string]interface{}{
 		"id": id,
 	})
@@ -1006,7 +753,6 @@ func (a *App) SetActiveTab(id uint) error {
 		return err
 	}
 
-	// Emite evento para frontend
 	runtime.EventsEmit(a.ctx, "tab_activated", map[string]interface{}{
 		"id": id,
 	})
@@ -1016,7 +762,6 @@ func (a *App) SetActiveTab(id uint) error {
 
 // UpdateTabTitle atualiza o título de uma aba e da conversa associada
 func (a *App) UpdateTabTitle(id uint, title string) error {
-	// Busca a tab para verificar se tem conversa associada
 	tab, err := database.GetTab(id)
 	if err != nil {
 		return err
@@ -1027,7 +772,6 @@ func (a *App) UpdateTabTitle(id uint, title string) error {
 		return err
 	}
 
-	// Se há conversa associada, emite evento unificado para atualizar todas as referências
 	if tab.ConversationID != nil && *tab.ConversationID > 0 {
 		runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
 			"conversation_id": *tab.ConversationID,
@@ -1045,13 +789,11 @@ func (a *App) LoadConversationInTab(tabId, conversationId uint) error {
 		return err
 	}
 
-	// Obtém a conversa para emitir evento completo
 	conv, err := database.GetConversation(conversationId)
 	if err != nil {
 		return err
 	}
 
-	// Emite evento para frontend
 	runtime.EventsEmit(a.ctx, "conversation_loaded_in_tab", map[string]interface{}{
 		"tabId":          tabId,
 		"conversationId": conv.ID,
@@ -1068,7 +810,6 @@ func (a *App) ClearTab(id uint) error {
 		return err
 	}
 
-	// Emite evento para frontend
 	runtime.EventsEmit(a.ctx, "tab_cleared", map[string]interface{}{
 		"id": id,
 	})

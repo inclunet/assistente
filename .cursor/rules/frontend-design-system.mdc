@@ -1,0 +1,103 @@
+---
+description: Design system e convenções do frontend React/TypeScript. Aplica-se a componentes, páginas e estilos.
+globs: frontend/src/**/*.tsx,frontend/src/**/*.css
+alwaysApply: false
+---
+
+# Design System do Frontend
+
+Antes de criar qualquer componente, página ou estilo, **leia os arquivos existentes** para entender os padrões. NUNCA reinvente algo que já existe.
+
+## Componentes UI existentes (`components/ui/`)
+
+Use estes componentes em vez de criar novos:
+
+| Componente | Uso |
+|---|---|
+| `Button` | Botões com variantes: `primary`, `secondary`, `danger`, `ghost`, `outline` |
+| `Modal` | Diálogos modais com focus trap, ESC, aria-hidden no root |
+| `SimpleModal` | Modal leve com retorno de foco ao grid |
+| `ConfirmDialog` | Confirmações (danger, warning, info) |
+| `DataGrid` | Tabelas de dados com seleção, edição inline, ações por célula, ARIA grid |
+| `Toolbar` | Barra de ferramentas ARIA com search e ações |
+| `Input` / `Select` / `Textarea` / `Checkbox` / `Slider` | Campos de formulário com label e acessibilidade |
+| `ContextMenu` | Menu de contexto com submenus e navegação por teclado |
+| `Toast` | Notificações via `useUIStore().addToast()` |
+
+## Estrutura de Páginas
+
+Todas as páginas seguem o padrão de `HistoryPage.tsx` e `ProfilesPage.tsx`:
+
+```tsx
+// ✅ CORRETO - Estrutura padrão de página
+import { Toolbar } from '../components/ui/Toolbar';
+import { DataGrid } from '../components/ui/DataGrid';
+import { useGridFocus } from '../hooks/useGridFocus';
+import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useTranslation } from 'react-i18next';
+import './MinhaPage.css';
+
+export default function MinhaPage() {
+  const { t } = useTranslation();
+  const { announce } = useAnnouncer();
+  const { focusFirstCell, handleGridReady } = useGridFocus();
+
+  return (
+    <div className="minha-page">
+      <Toolbar left={<h1>...</h1>} actions={[...]} onFocusGrid={focusFirstCell} />
+      <DataGrid items={...} columns={...} onGridReady={handleGridReady} />
+    </div>
+  );
+}
+```
+
+```tsx
+// ❌ ERRADO - Nunca faça isso
+<div style={{ display: 'flex' }}>  {/* inline styles */}
+  <table>...</table>               {/* tabela manual em vez de DataGrid */}
+  <button>Salvar</button>          {/* botão nativo em vez de Button */}
+</div>
+```
+
+## CSS
+
+- **BEM-like**: `.bloco`, `.bloco__elemento`, `.bloco--modificador`
+- **Um arquivo CSS por página/componente**: `MinhaPage.css` importado no `.tsx`
+- **Variáveis CSS do tema**: `var(--bg-primary)`, `var(--text-primary)`, `var(--border-color)`, etc.
+- **Dark mode**: `@media (prefers-color-scheme: dark)` com variáveis `-dark`
+- **NUNCA inline styles** — use classes CSS
+- **Classe raiz**: `.nome-da-pagina-page` (ex: `history-page`, `profiles-page`)
+
+## Acessibilidade (obrigatório)
+
+- Todo `<label>` DEVE ter `htmlFor` ligado ao `id` do input
+- Todo `<input type="range">` DEVE ter `aria-valuetext` com valor formatado
+- Toda `<section>` com `<h3>` DEVE usar `aria-labelledby` ligado ao id do heading
+- Usar `role="region"` + `aria-label` em painéis de edição
+- Usar `announce()` de `useAnnouncer` para ações (salvar, excluir, abrir editor)
+- Listas e grids DEVEM usar `DataGrid` (já tem `role="grid"` e navegação por teclado)
+- Modais DEVEM usar `Modal` ou `SimpleModal` (já têm focus trap e ESC)
+- Classe `.sr-only` para textos visíveis apenas para leitores de tela
+
+## Hooks disponíveis
+
+| Hook | Quando usar |
+|---|---|
+| `useAnnouncer` | Anúncios para leitores de tela |
+| `useGridFocus` | Conectar Toolbar search → DataGrid |
+| `useToolbarKeyboardNav` | Navegação ARIA em toolbars (já usado internamente pelo Toolbar) |
+| `useContextMenu` | Menus de contexto com foco |
+| `useUIStore` | Toasts e loading global |
+
+## i18n
+
+- Sempre usar `useTranslation()` + `t('namespace.key', 'Fallback em português')`
+- Namespaces: `common`, `settings`, `chat`, `history`, `profiles`
+- Traduções ficam em `src/lib/i18n.ts`
+- NUNCA hardcode strings de UI
+
+## State Management
+
+- **Zustand** para estado global: `useChatStore`, `useSettingsStore`, `useUIStore`
+- Estado local com `useState` para dados de página (loading, search, selectedIds)
+- Backend via funções Wails: `import { ... } from '../../wailsjs/go/main/App'`

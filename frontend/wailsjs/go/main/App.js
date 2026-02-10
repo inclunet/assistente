@@ -26,10 +26,6 @@ export function ClearConversation(arg1) {
   return window['go']['main']['App']['ClearConversation'](arg1);
 }
 
-export function ClearConversationChatProfile(arg1) {
-  return window['go']['main']['App']['ClearConversationChatProfile'](arg1);
-}
-
 export function ClearTab(arg1) {
   return window['go']['main']['App']['ClearTab'](arg1);
 }
@@ -38,20 +34,8 @@ export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
 
-export function CreateChatProfile(arg1) {
-  return window['go']['main']['App']['CreateChatProfile'](arg1);
-}
-
 export function CreateConversation(arg1, arg2) {
   return window['go']['main']['App']['CreateConversation'](arg1, arg2);
-}
-
-export function CreateInteractionProfile(arg1) {
-  return window['go']['main']['App']['CreateInteractionProfile'](arg1);
-}
-
-export function CreateInteractionTrigger(arg1) {
-  return window['go']['main']['App']['CreateInteractionTrigger'](arg1);
 }
 
 export function CreateMessage(arg1, arg2, arg3) {
@@ -62,32 +46,16 @@ export function CreateNewConversation(arg1) {
   return window['go']['main']['App']['CreateNewConversation'](arg1);
 }
 
+export function CreateProfile(arg1) {
+  return window['go']['main']['App']['CreateProfile'](arg1);
+}
+
 export function CreateTab(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateTab'](arg1, arg2, arg3);
 }
 
-export function CreateVoiceProfile(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8) {
-  return window['go']['main']['App']['CreateVoiceProfile'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
-}
-
-export function CreateVoiceProfileFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10) {
-  return window['go']['main']['App']['CreateVoiceProfileFull'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10);
-}
-
-export function DeleteChatProfile(arg1) {
-  return window['go']['main']['App']['DeleteChatProfile'](arg1);
-}
-
 export function DeleteConversation(arg1) {
   return window['go']['main']['App']['DeleteConversation'](arg1);
-}
-
-export function DeleteInteractionProfile(arg1) {
-  return window['go']['main']['App']['DeleteInteractionProfile'](arg1);
-}
-
-export function DeleteInteractionTrigger(arg1) {
-  return window['go']['main']['App']['DeleteInteractionTrigger'](arg1);
 }
 
 export function DeleteMessage(arg1) {
@@ -98,36 +66,20 @@ export function DeleteMessages(arg1, arg2) {
   return window['go']['main']['App']['DeleteMessages'](arg1, arg2);
 }
 
-export function DeleteVoiceProfile(arg1) {
-  return window['go']['main']['App']['DeleteVoiceProfile'](arg1);
-}
-
-export function DisableVoiceHotkey() {
-  return window['go']['main']['App']['DisableVoiceHotkey']();
-}
-
-export function EnableVoiceHotkey() {
-  return window['go']['main']['App']['EnableVoiceHotkey']();
+export function DeleteProfile(arg1) {
+  return window['go']['main']['App']['DeleteProfile'](arg1);
 }
 
 export function ExportConversations(arg1) {
   return window['go']['main']['App']['ExportConversations'](arg1);
 }
 
-export function ExportInteractionProfiles(arg1) {
-  return window['go']['main']['App']['ExportInteractionProfiles'](arg1);
+export function GetActiveProfile() {
+  return window['go']['main']['App']['GetActiveProfile']();
 }
 
-export function ExportVoiceProfiles(arg1) {
-  return window['go']['main']['App']['ExportVoiceProfiles'](arg1);
-}
-
-export function GetActiveInteractionProfile() {
-  return window['go']['main']['App']['GetActiveInteractionProfile']();
-}
-
-export function GetActiveProfileHotkeys(arg1) {
-  return window['go']['main']['App']['GetActiveProfileHotkeys'](arg1);
+export function GetActiveProfileSlug() {
+  return window['go']['main']['App']['GetActiveProfileSlug']();
 }
 
 export function GetActiveTab() {
@@ -142,18 +94,6 @@ export function GetAllTokenStats() {
   return window['go']['main']['App']['GetAllTokenStats']();
 }
 
-export function GetAllVoiceProfiles() {
-  return window['go']['main']['App']['GetAllVoiceProfiles']();
-}
-
-export function GetChatProfile(arg1) {
-  return window['go']['main']['App']['GetChatProfile'](arg1);
-}
-
-export function GetChatProfiles() {
-  return window['go']['main']['App']['GetChatProfiles']();
-}
-
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
@@ -164,14 +104,6 @@ export function GetConversation(arg1) {
 
 export function GetConversationInfo(arg1) {
   return window['go']['main']['App']['GetConversationInfo'](arg1);
-}
-
-export function GetConversationModel(arg1) {
-  return window['go']['main']['App']['GetConversationModel'](arg1);
-}
-
-export function GetConversationPreferences(arg1) {
-  return window['go']['main']['App']['GetConversationPreferences'](arg1);
 }
 
 export function GetConversationTokenStats(arg1) {
@@ -194,44 +126,8 @@ export function GetCurrentTabID() {
   return window['go']['main']['App']['GetCurrentTabID']();
 }
 
-export function GetDefaultChatProfile() {
-  return window['go']['main']['App']['GetDefaultChatProfile']();
-}
-
-export function GetDefaultInteractionProfile() {
-  return window['go']['main']['App']['GetDefaultInteractionProfile']();
-}
-
-export function GetDefaultVoiceProfile() {
-  return window['go']['main']['App']['GetDefaultVoiceProfile']();
-}
-
-export function GetEffectiveChatProfile(arg1) {
-  return window['go']['main']['App']['GetEffectiveChatProfile'](arg1);
-}
-
-export function GetEffectiveModel(arg1) {
-  return window['go']['main']['App']['GetEffectiveModel'](arg1);
-}
-
-export function GetEffectiveVoiceProfile(arg1) {
-  return window['go']['main']['App']['GetEffectiveVoiceProfile'](arg1);
-}
-
-export function GetGlobalHotkeys() {
-  return window['go']['main']['App']['GetGlobalHotkeys']();
-}
-
-export function GetInteractionProfile(arg1) {
-  return window['go']['main']['App']['GetInteractionProfile'](arg1);
-}
-
-export function GetInteractionProfiles() {
-  return window['go']['main']['App']['GetInteractionProfiles']();
-}
-
-export function GetInteractionTrigger(arg1) {
-  return window['go']['main']['App']['GetInteractionTrigger'](arg1);
+export function GetEffectiveModel() {
+  return window['go']['main']['App']['GetEffectiveModel']();
 }
 
 export function GetMessageChildren(arg1) {
@@ -250,6 +146,18 @@ export function GetOpenAITTSVoices() {
   return window['go']['main']['App']['GetOpenAITTSVoices']();
 }
 
+export function GetProfile(arg1) {
+  return window['go']['main']['App']['GetProfile'](arg1);
+}
+
+export function GetProfileSearchPaths() {
+  return window['go']['main']['App']['GetProfileSearchPaths']();
+}
+
+export function GetProfiles() {
+  return window['go']['main']['App']['GetProfiles']();
+}
+
 export function GetSAPI5Voices() {
   return window['go']['main']['App']['GetSAPI5Voices']();
 }
@@ -258,28 +166,8 @@ export function GetTabs() {
   return window['go']['main']['App']['GetTabs']();
 }
 
-export function GetTriggersByProfile(arg1) {
-  return window['go']['main']['App']['GetTriggersByProfile'](arg1);
-}
-
-export function GetVoiceProfile(arg1) {
-  return window['go']['main']['App']['GetVoiceProfile'](arg1);
-}
-
-export function GetVoiceProfileByName(arg1) {
-  return window['go']['main']['App']['GetVoiceProfileByName'](arg1);
-}
-
 export function ImportConversations(arg1) {
   return window['go']['main']['App']['ImportConversations'](arg1);
-}
-
-export function ImportInteractionProfiles(arg1) {
-  return window['go']['main']['App']['ImportInteractionProfiles'](arg1);
-}
-
-export function ImportVoiceProfiles(arg1) {
-  return window['go']['main']['App']['ImportVoiceProfiles'](arg1);
 }
 
 export function InitSpeechManager(arg1, arg2, arg3, arg4, arg5) {
@@ -306,16 +194,8 @@ export function OpenConversationInNewTab(arg1) {
   return window['go']['main']['App']['OpenConversationInNewTab'](arg1);
 }
 
-export function PreviewVoiceProfile(arg1, arg2) {
-  return window['go']['main']['App']['PreviewVoiceProfile'](arg1, arg2);
-}
-
 export function PreviewVoiceSettings(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['PreviewVoiceSettings'](arg1, arg2, arg3, arg4, arg5, arg6);
-}
-
-export function RegisterInteractionProfileHotkeys(arg1) {
-  return window['go']['main']['App']['RegisterInteractionProfileHotkeys'](arg1);
 }
 
 export function ReloadLLMClient() {
@@ -346,14 +226,6 @@ export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
-export function SearchInteractionProfiles(arg1) {
-  return window['go']['main']['App']['SearchInteractionProfiles'](arg1);
-}
-
-export function SearchVoiceProfiles(arg1) {
-  return window['go']['main']['App']['SearchVoiceProfiles'](arg1);
-}
-
 export function SendMessage(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3, arg4);
 }
@@ -362,8 +234,8 @@ export function SendMessageSync(arg1, arg2) {
   return window['go']['main']['App']['SendMessageSync'](arg1, arg2);
 }
 
-export function SetActiveInteractionProfile(arg1) {
-  return window['go']['main']['App']['SetActiveInteractionProfile'](arg1);
+export function SetActiveProfile(arg1) {
+  return window['go']['main']['App']['SetActiveProfile'](arg1);
 }
 
 export function SetActiveTab(arg1) {
@@ -374,32 +246,12 @@ export function SetChatModel(arg1) {
   return window['go']['main']['App']['SetChatModel'](arg1);
 }
 
-export function SetConversationChatProfile(arg1, arg2) {
-  return window['go']['main']['App']['SetConversationChatProfile'](arg1, arg2);
-}
-
 export function SetConversationModel(arg1, arg2) {
   return window['go']['main']['App']['SetConversationModel'](arg1, arg2);
 }
 
-export function SetConversationVoiceProfile(arg1, arg2) {
-  return window['go']['main']['App']['SetConversationVoiceProfile'](arg1, arg2);
-}
-
-export function SetDefaultChatProfile(arg1) {
-  return window['go']['main']['App']['SetDefaultChatProfile'](arg1);
-}
-
-export function SetDefaultInteractionProfile(arg1) {
-  return window['go']['main']['App']['SetDefaultInteractionProfile'](arg1);
-}
-
 export function SetDefaultModel(arg1) {
   return window['go']['main']['App']['SetDefaultModel'](arg1);
-}
-
-export function SetDefaultVoiceProfile(arg1) {
-  return window['go']['main']['App']['SetDefaultVoiceProfile'](arg1);
 }
 
 export function SetOpenAITTSSpeed(arg1) {
@@ -416,10 +268,6 @@ export function SetSAPI5Rate(arg1) {
 
 export function SetSAPI5Volume(arg1) {
   return window['go']['main']['App']['SetSAPI5Volume'](arg1);
-}
-
-export function SetVoiceHotkey(arg1, arg2) {
-  return window['go']['main']['App']['SetVoiceHotkey'](arg1, arg2);
 }
 
 export function SpeakSAPI5(arg1, arg2) {
@@ -458,14 +306,6 @@ export function TranscribeWhisper(arg1, arg2) {
   return window['go']['main']['App']['TranscribeWhisper'](arg1, arg2);
 }
 
-export function UnregisterInteractionProfileHotkeys(arg1) {
-  return window['go']['main']['App']['UnregisterInteractionProfileHotkeys'](arg1);
-}
-
-export function UpdateChatProfile(arg1, arg2) {
-  return window['go']['main']['App']['UpdateChatProfile'](arg1, arg2);
-}
-
 export function UpdateConversation(arg1, arg2, arg3) {
   return window['go']['main']['App']['UpdateConversation'](arg1, arg2, arg3);
 }
@@ -474,30 +314,14 @@ export function UpdateConversationModel(arg1, arg2) {
   return window['go']['main']['App']['UpdateConversationModel'](arg1, arg2);
 }
 
-export function UpdateConversationPreferences(arg1, arg2) {
-  return window['go']['main']['App']['UpdateConversationPreferences'](arg1, arg2);
-}
-
-export function UpdateInteractionProfile(arg1, arg2) {
-  return window['go']['main']['App']['UpdateInteractionProfile'](arg1, arg2);
-}
-
-export function UpdateInteractionTrigger(arg1, arg2) {
-  return window['go']['main']['App']['UpdateInteractionTrigger'](arg1, arg2);
-}
-
 export function UpdateMessage(arg1, arg2) {
   return window['go']['main']['App']['UpdateMessage'](arg1, arg2);
 }
 
+export function UpdateProfile(arg1, arg2) {
+  return window['go']['main']['App']['UpdateProfile'](arg1, arg2);
+}
+
 export function UpdateTabTitle(arg1, arg2) {
   return window['go']['main']['App']['UpdateTabTitle'](arg1, arg2);
-}
-
-export function UpdateVoiceProfile(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
-  return window['go']['main']['App']['UpdateVoiceProfile'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
-}
-
-export function UpdateVoiceProfileFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11) {
-  return window['go']['main']['App']['UpdateVoiceProfileFull'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9, arg10, arg11);
 }

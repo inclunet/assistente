@@ -13,9 +13,9 @@ import { useChatStore } from '../store/chatStore';
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Chat',
   '/settings': 'Configurações',
+  '/profiles': 'Perfis',
   '/history': 'Histórico',
-  '/voice-profiles': 'Perfis de Voz',
-  '/interaction-profiles': 'Perfis de Interação',
+  '/help': 'Ajuda',
 };
 
 const APP_NAME = 'Assistente IA';

@@ -3,6 +3,7 @@ import App from '../App';
 import { Layout } from '../components/layout/Layout';
 import ChatPage from '../pages/ChatPage';
 import SettingsPage from '../pages/SettingsPage';
+import ProfilesPage from '../pages/ProfilesPage';
 import HistoryPage from '../pages/HistoryPage';
 import HelpPage from '../pages/HelpPage';
 
@@ -21,6 +22,10 @@ export const router = createHashRouter([
           {
             path: 'settings',
             element: <SettingsPage />,
+          },
+          {
+            path: 'profiles',
+            element: <ProfilesPage />,
           },
           {
             path: 'history',

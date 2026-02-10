@@ -374,36 +374,36 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		})
 	}
 
-	// Obtém o perfil de chat efetivo da conversa
-	chatProfile, err := database.GetEffectiveChatProfile(conversationID)
-	if err != nil {
-		log.Printf("[SendMessage] Erro ao obter perfil de chat: %v", err)
+	// Obtém o perfil ativo global
+	activeProfile, profileErr := a.profileManager.GetActive()
+	if profileErr != nil {
+		log.Printf("[SendMessage] Erro ao obter perfil ativo: %v", profileErr)
 		// Continua com valores padrão se houver erro
 	}
 
-	// Aplica configurações do perfil de chat
-	if chatProfile != nil {
-		log.Printf("[SendMessage] Usando perfil: %s", chatProfile.Name)
+	// Aplica configurações do perfil de chat ativo
+	if activeProfile != nil {
+		log.Printf("[SendMessage] Usando perfil: %s", activeProfile.Name)
 
 		// 1. Aplica modelo do perfil (se não especificado nos params)
-		if params.Model == "" && chatProfile.Model != "" {
-			params.Model = chatProfile.Model
+		if params.Model == "" && activeProfile.Chat.Model != "" {
+			params.Model = activeProfile.Chat.Model
 			log.Printf("[SendMessage] Modelo do perfil: %s", params.Model)
 		}
 
 		// 2. Aplica parâmetros do perfil
-		if chatProfile.Temperature > 0 {
-			params.Temperature = chatProfile.Temperature
+		if activeProfile.Chat.Temperature > 0 {
+			params.Temperature = activeProfile.Chat.Temperature
 		}
-		if chatProfile.MaxTokens > 0 {
-			params.MaxTokens = chatProfile.MaxTokens
+		if activeProfile.Chat.MaxTokens > 0 {
+			params.MaxTokens = activeProfile.Chat.MaxTokens
 		}
-		if chatProfile.TopP > 0 {
-			params.TopP = chatProfile.TopP
+		if activeProfile.Chat.TopP > 0 {
+			params.TopP = activeProfile.Chat.TopP
 		}
 
 		// 3. Aplica configuração de thinking/reasoning
-		params.EnableThinking = chatProfile.EnableThinking
+		params.EnableThinking = activeProfile.Chat.EnableThinking
 	}
 
 	// Se ainda não tem modelo, usa o padrão do config
@@ -437,9 +437,9 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 	// 4. Compõe system prompt completo
 	var profileSystemPrompt string
 	var systemPromptPosition string
-	if chatProfile != nil {
-		profileSystemPrompt = chatProfile.SystemPrompt
-		systemPromptPosition = chatProfile.SystemPromptPosition
+	if activeProfile != nil {
+		profileSystemPrompt = activeProfile.Chat.SystemPrompt
+		systemPromptPosition = activeProfile.Chat.SystemPromptPosition
 		if systemPromptPosition == "" {
 			systemPromptPosition = "before"
 		}

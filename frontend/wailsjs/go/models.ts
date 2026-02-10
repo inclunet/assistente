@@ -37,6 +37,7 @@ export namespace config {
 	    api_base_url: string;
 	    default_model?: string;
 	    response_timeout?: number;
+	    active_profile?: string;
 	    chat_params?: ModelParams;
 	    stt_params?: STTParams;
 	
@@ -50,6 +51,7 @@ export namespace config {
 	        this.api_base_url = source["api_base_url"];
 	        this.default_model = source["default_model"];
 	        this.response_timeout = source["response_timeout"];
+	        this.active_profile = source["active_profile"];
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
 	    }
@@ -131,110 +133,15 @@ export namespace database {
 		    return a;
 		}
 	}
-	export class ChatPreferences {
-	    model?: string;
-	    temperature?: number;
-	    max_tokens?: number;
-	    top_p?: number;
-	    voice?: string;
-	    auto_speak?: boolean;
-	    voice_volume?: number;
-	    voice_rate?: number;
-	    voice_profile_id?: number;
-	    stt_provider?: string;
-	    recording_mode?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ChatPreferences(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.model = source["model"];
-	        this.temperature = source["temperature"];
-	        this.max_tokens = source["max_tokens"];
-	        this.top_p = source["top_p"];
-	        this.voice = source["voice"];
-	        this.auto_speak = source["auto_speak"];
-	        this.voice_volume = source["voice_volume"];
-	        this.voice_rate = source["voice_rate"];
-	        this.voice_profile_id = source["voice_profile_id"];
-	        this.stt_provider = source["stt_provider"];
-	        this.recording_mode = source["recording_mode"];
-	    }
-	}
-	export class ChatProfile {
-	    id: number;
-	    name: string;
-	    description: string;
-	    icon: string;
-	    is_default: boolean;
-	    // Go type: time
-	    created_at: any;
-	    // Go type: time
-	    updated_at: any;
-	    model: string;
-	    temperature: number;
-	    max_tokens: number;
-	    top_p: number;
-	    response_timeout: number;
-	    enable_thinking: boolean;
-	    system_prompt: string;
-	    system_prompt_position: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new ChatProfile(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.description = source["description"];
-	        this.icon = source["icon"];
-	        this.is_default = source["is_default"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
-	        this.model = source["model"];
-	        this.temperature = source["temperature"];
-	        this.max_tokens = source["max_tokens"];
-	        this.top_p = source["top_p"];
-	        this.response_timeout = source["response_timeout"];
-	        this.enable_thinking = source["enable_thinking"];
-	        this.system_prompt = source["system_prompt"];
-	        this.system_prompt_position = source["system_prompt_position"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class Conversation {
 	    id: number;
 	    title: string;
-	    chat_profile_id?: number;
-	    preferences?: string;
 	    // Go type: time
 	    created_at: any;
 	    // Go type: time
 	    updated_at: any;
 	    messages?: ChatMessage[];
 	    message_count: number;
-	    chat_profile?: ChatProfile;
 	
 	    static createFrom(source: any = {}) {
 	        return new Conversation(source);
@@ -244,13 +151,10 @@ export namespace database {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
-	        this.chat_profile_id = source["chat_profile_id"];
-	        this.preferences = source["preferences"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
 	        this.message_count = source["message_count"];
-	        this.chat_profile = this.convertValues(source["chat_profile"], ChatProfile);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -299,180 +203,6 @@ export namespace database {
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.conversation = this.convertValues(source["conversation"], Conversation);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
-	export class InteractionTrigger {
-	    id: number;
-	    profile_id: number;
-	    // Go type: time
-	    created_at: any;
-	    // Go type: time
-	    updated_at: any;
-	    type: string;
-	    enabled: boolean;
-	    auto_stop: boolean;
-	    hotkey: string;
-	    hotkey_global: boolean;
-	    hotkey_bring_to_front: boolean;
-	    wakeword_keyword: string;
-	    wakeword_provider: string;
-	    wakeword_sensitivity: number;
-	    vad_silence_threshold: number;
-	    vad_silence_duration: number;
-	    vad_activity_threshold: number;
-	    vad_activity_duration: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new InteractionTrigger(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.profile_id = source["profile_id"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
-	        this.type = source["type"];
-	        this.enabled = source["enabled"];
-	        this.auto_stop = source["auto_stop"];
-	        this.hotkey = source["hotkey"];
-	        this.hotkey_global = source["hotkey_global"];
-	        this.hotkey_bring_to_front = source["hotkey_bring_to_front"];
-	        this.wakeword_keyword = source["wakeword_keyword"];
-	        this.wakeword_provider = source["wakeword_provider"];
-	        this.wakeword_sensitivity = source["wakeword_sensitivity"];
-	        this.vad_silence_threshold = source["vad_silence_threshold"];
-	        this.vad_silence_duration = source["vad_silence_duration"];
-	        this.vad_activity_threshold = source["vad_activity_threshold"];
-	        this.vad_activity_duration = source["vad_activity_duration"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	export class InteractionProfile {
-	    id: number;
-	    name: string;
-	    description: string;
-	    is_default: boolean;
-	    is_active: boolean;
-	    // Go type: time
-	    created_at: any;
-	    // Go type: time
-	    updated_at: any;
-	    stt_provider: string;
-	    language: string;
-	    feedback_sounds: boolean;
-	    triggers?: InteractionTrigger[];
-	
-	    static createFrom(source: any = {}) {
-	        return new InteractionProfile(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.description = source["description"];
-	        this.is_default = source["is_default"];
-	        this.is_active = source["is_active"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
-	        this.stt_provider = source["stt_provider"];
-	        this.language = source["language"];
-	        this.feedback_sounds = source["feedback_sounds"];
-	        this.triggers = this.convertValues(source["triggers"], InteractionTrigger);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
-	export class VoiceProfile {
-	    id: number;
-	    name: string;
-	    description: string;
-	    provider: string;
-	    voice_id: string;
-	    rate: number;
-	    pitch: number;
-	    volume: number;
-	    enabled_for_agent: boolean;
-	    enabled_for_user: boolean;
-	    is_default: boolean;
-	    // Go type: time
-	    created_at: any;
-	    // Go type: time
-	    updated_at: any;
-	
-	    static createFrom(source: any = {}) {
-	        return new VoiceProfile(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.description = source["description"];
-	        this.provider = source["provider"];
-	        this.voice_id = source["voice_id"];
-	        this.rate = source["rate"];
-	        this.pitch = source["pitch"];
-	        this.volume = source["volume"];
-	        this.enabled_for_agent = source["enabled_for_agent"];
-	        this.enabled_for_user = source["enabled_for_user"];
-	        this.is_default = source["is_default"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -707,7 +437,6 @@ export namespace main {
 	export class ConversationWithThreads {
 	    id: number;
 	    title: string;
-	    preferences?: database.ChatPreferences;
 	    threads: MessageNode[];
 	
 	    static createFrom(source: any = {}) {
@@ -718,7 +447,6 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
-	        this.preferences = this.convertValues(source["preferences"], database.ChatPreferences);
 	        this.threads = this.convertValues(source["threads"], MessageNode);
 	    }
 	
@@ -741,26 +469,6 @@ export namespace main {
 		}
 	}
 	
-	export class HotkeyInfo {
-	    id: number;
-	    modifiers: string;
-	    key: string;
-	    description: string;
-	    enabled: boolean;
-	
-	    static createFrom(source: any = {}) {
-	        return new HotkeyInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.modifiers = source["modifiers"];
-	        this.key = source["key"];
-	        this.description = source["description"];
-	        this.enabled = source["enabled"];
-	    }
-	}
 	export class ImportResult {
 	    success: boolean;
 	    imported: number;
@@ -894,6 +602,194 @@ export namespace main {
 	        this.provider = source["provider"];
 	    }
 	}
+
+}
+
+export namespace profiles {
+	
+	export class ChatConfig {
+	    model?: string;
+	    temperature: number;
+	    max_tokens: number;
+	    top_p: number;
+	    response_timeout: number;
+	    enable_thinking: boolean;
+	    system_prompt?: string;
+	    system_prompt_position?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.model = source["model"];
+	        this.temperature = source["temperature"];
+	        this.max_tokens = source["max_tokens"];
+	        this.top_p = source["top_p"];
+	        this.response_timeout = source["response_timeout"];
+	        this.enable_thinking = source["enable_thinking"];
+	        this.system_prompt = source["system_prompt"];
+	        this.system_prompt_position = source["system_prompt_position"];
+	    }
+	}
+	export class TriggerConfig {
+	    type: string;
+	    enabled: boolean;
+	    auto_stop?: boolean;
+	    hotkey?: string;
+	    hotkey_global?: boolean;
+	    hotkey_bring_to_front?: boolean;
+	    wakeword_keyword?: string;
+	    wakeword_provider?: string;
+	    wakeword_sensitivity?: number;
+	    vad_silence_threshold?: number;
+	    vad_silence_duration?: number;
+	    vad_activity_threshold?: number;
+	    vad_activity_duration?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new TriggerConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.enabled = source["enabled"];
+	        this.auto_stop = source["auto_stop"];
+	        this.hotkey = source["hotkey"];
+	        this.hotkey_global = source["hotkey_global"];
+	        this.hotkey_bring_to_front = source["hotkey_bring_to_front"];
+	        this.wakeword_keyword = source["wakeword_keyword"];
+	        this.wakeword_provider = source["wakeword_provider"];
+	        this.wakeword_sensitivity = source["wakeword_sensitivity"];
+	        this.vad_silence_threshold = source["vad_silence_threshold"];
+	        this.vad_silence_duration = source["vad_silence_duration"];
+	        this.vad_activity_threshold = source["vad_activity_threshold"];
+	        this.vad_activity_duration = source["vad_activity_duration"];
+	    }
+	}
+	export class InteractionConfig {
+	    stt_provider: string;
+	    language: string;
+	    feedback_sounds: boolean;
+	    triggers?: TriggerConfig[];
+	
+	    static createFrom(source: any = {}) {
+	        return new InteractionConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.stt_provider = source["stt_provider"];
+	        this.language = source["language"];
+	        this.feedback_sounds = source["feedback_sounds"];
+	        this.triggers = this.convertValues(source["triggers"], TriggerConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class VoiceConfig {
+	    provider: string;
+	    voice_id?: string;
+	    rate: number;
+	    pitch: number;
+	    volume: number;
+	    enabled_for_agent: boolean;
+	    enabled_for_user: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.provider = source["provider"];
+	        this.voice_id = source["voice_id"];
+	        this.rate = source["rate"];
+	        this.pitch = source["pitch"];
+	        this.volume = source["volume"];
+	        this.enabled_for_agent = source["enabled_for_agent"];
+	        this.enabled_for_user = source["enabled_for_user"];
+	    }
+	}
+	export class Profile {
+	    name: string;
+	    description?: string;
+	    icon?: string;
+	    chat: ChatConfig;
+	    voice: VoiceConfig;
+	    interaction: InteractionConfig;
+	
+	    static createFrom(source: any = {}) {
+	        return new Profile(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.icon = source["icon"];
+	        this.chat = this.convertValues(source["chat"], ChatConfig);
+	        this.voice = this.convertValues(source["voice"], VoiceConfig);
+	        this.interaction = this.convertValues(source["interaction"], InteractionConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ProfileInfo {
+	    name: string;
+	    slug: string;
+	    description: string;
+	    icon: string;
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProfileInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.slug = source["slug"];
+	        this.description = source["description"];
+	        this.icon = source["icon"];
+	        this.source = source["source"];
+	    }
+	}
+	
 
 }
 
