@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"assistente/internal/tools"
@@ -209,10 +208,7 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 }
 
 func (t *EditFile) resolvePath(path string) (string, error) {
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path), nil
-	}
-	return filepath.Abs(filepath.Join(t.workDir, path))
+	return resolveFilePath(path, t.workDir)
 }
 
 // findOccurrenceLines retorna os números das linhas onde old_string começa.

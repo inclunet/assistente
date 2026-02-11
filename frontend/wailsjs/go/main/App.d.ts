@@ -3,10 +3,11 @@
 import {database} from '../models';
 import {allowlist} from '../models';
 import {profiles} from '../models';
-import {terminal} from '../models';
 import {main} from '../models';
+import {terminal} from '../models';
 import {config} from '../models';
 import {mcp} from '../models';
+import {skills} from '../models';
 import {llm} from '../models';
 
 export function AddChildMessage(arg1:number,arg2:number,arg3:string,arg4:string,arg5:string):Promise<database.ChatMessage>;
@@ -39,6 +40,8 @@ export function CreateNewConversation(arg1:string):Promise<number>;
 
 export function CreateProfile(arg1:profiles.Profile):Promise<string>;
 
+export function CreateSkill(arg1:main.SkillCreateRequest):Promise<string>;
+
 export function CreateTab(arg1:string,arg2:string,arg3:boolean):Promise<database.ChatTab>;
 
 export function CreateTerminalSession(arg1:string):Promise<terminal.SessionInfo>;
@@ -54,6 +57,8 @@ export function DeleteMessage(arg1:number):Promise<void>;
 export function DeleteMessages(arg1:number,arg2:Array<number>):Promise<void>;
 
 export function DeleteProfile(arg1:string):Promise<void>;
+
+export function DeleteSkill(arg1:string):Promise<void>;
 
 export function DisconnectMCPServer(arg1:string):Promise<void>;
 
@@ -115,11 +120,19 @@ export function GetProfiles():Promise<Array<profiles.ProfileInfo>>;
 
 export function GetSAPI5Voices():Promise<Array<main.SAPI5VoiceInfo>>;
 
+export function GetSkill(arg1:string):Promise<skills.Skill>;
+
+export function GetSkillSearchPaths():Promise<Array<string>>;
+
+export function GetSkills():Promise<Array<skills.SkillInfo>>;
+
 export function GetTabs():Promise<main.TabsResponse>;
 
 export function GetTerminalHistory(arg1:string):Promise<Array<terminal.HistoryEntry>>;
 
 export function GetTerminalStats():Promise<terminal.ManagerStats>;
+
+export function GetUserInvocableSkills():Promise<Array<skills.SkillInfo>>;
 
 export function ImportConversations(arg1:string):Promise<main.ImportResult>;
 
@@ -216,5 +229,7 @@ export function UpdateConversationModel(arg1:number,arg2:string):Promise<void>;
 export function UpdateMessage(arg1:number,arg2:string):Promise<void>;
 
 export function UpdateProfile(arg1:string,arg2:profiles.Profile):Promise<void>;
+
+export function UpdateSkill(arg1:string,arg2:main.SkillCreateRequest):Promise<void>;
 
 export function UpdateTabTitle(arg1:number,arg2:string):Promise<void>;

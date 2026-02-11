@@ -8,6 +8,7 @@ import HistoryPage from '../pages/HistoryPage';
 import HelpPage from '../pages/HelpPage';
 import TerminalPage from '../pages/TerminalPage';
 import AllowlistPage from '../pages/AllowlistPage';
+import SkillsPage from '../pages/SkillsPage';
 import McpPage from '../pages/McpPage';
 
 export const router = createHashRouter([
@@ -29,6 +30,10 @@ export const router = createHashRouter([
           {
             path: 'allowlists',
             element: <AllowlistPage />,
+          },
+          {
+            path: 'skills',
+            element: <SkillsPage />,
           },
           {
             path: 'mcp',

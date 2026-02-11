@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"assistente/internal/tools"
@@ -170,8 +169,5 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 
 // resolvePath converte caminho relativo para absoluto usando workDir
 func (t *ReadFile) resolvePath(path string) (string, error) {
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path), nil
-	}
-	return filepath.Abs(filepath.Join(t.workDir, path))
+	return resolveFilePath(path, t.workDir)
 }

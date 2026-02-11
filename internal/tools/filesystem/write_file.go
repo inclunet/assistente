@@ -151,10 +151,7 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 }
 
 func (t *WriteFile) resolvePath(path string) (string, error) {
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path), nil
-	}
-	return filepath.Abs(filepath.Join(t.workDir, path))
+	return resolveFilePath(path, t.workDir)
 }
 
 // isSensitiveFile verifica se o caminho é um arquivo sensível que não deve ser modificado.

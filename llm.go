@@ -12,8 +12,10 @@ import (
 	"time"
 
 	"assistente/internal/config"
+	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/skills"
 	"assistente/internal/tools"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -447,17 +449,68 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		return 0, err
 	}
 
-	// 4. Compõe system prompt completo
+	// 3.5. Detecta invocação de skill via /slash command
+	var slashSkillContent string
+	if slug, args, ok := parseSlashCommand(userContent); ok && a.skillMgr != nil {
+		skill, err := a.skillMgr.Get(slug)
+		if err == nil && skill.IsUserInvocable() {
+			log.Printf("[Skills] Slash command detectado: /%s args=%q", slug, args)
+
+			// Substitui $ARGUMENTS e $N no conteúdo
+			processedContent := skills.SubstituteArguments(skill.Content, args)
+
+			// Preprocessa !commands (respeita permissões de bash do skill)
+			var allowedBashCmds []string
+			if skill.Tools != nil && skill.Tools.BashCommands != nil {
+				allowedBashCmds = skill.Tools.BashCommands.Allowed
+			}
+			processedContent = skills.PreprocessCommands(processedContent, allowedBashCmds)
+
+			// Monta seção de contexto do skill invocado
+			var sb strings.Builder
+			sb.WriteString("<invoked_skill>\n")
+			sb.WriteString("## ")
+			sb.WriteString(skill.GetDisplayName())
+			if skill.Type != "" {
+				sb.WriteString(" [")
+				sb.WriteString(skill.Type)
+				sb.WriteString("]")
+			}
+			sb.WriteString("\n")
+			sb.WriteString(processedContent)
+			sb.WriteString("\n")
+
+			// Progressive file loading: lista arquivos complementares do skill
+			supplementary, _ := a.skillMgr.GetSkillFiles(slug)
+			if len(supplementary) > 0 {
+				sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
+				for _, f := range supplementary {
+					sb.WriteString("- `")
+					sb.WriteString(f)
+					sb.WriteString("`\n")
+				}
+			}
+
+			sb.WriteString("</invoked_skill>")
+			slashSkillContent = sb.String()
+		} else if err != nil {
+			log.Printf("[Skills] Skill /%s não encontrado: %v", slug, err)
+		}
+	}
+
+	// 4. Compõe system prompt completo (com skills do perfil)
 	var profileSystemPrompt string
 	var systemPromptPosition string
+	var enabledSkills []string
 	if activeProfile != nil {
 		profileSystemPrompt = activeProfile.Chat.SystemPrompt
 		systemPromptPosition = activeProfile.Chat.SystemPromptPosition
 		if systemPromptPosition == "" {
 			systemPromptPosition = "before"
 		}
+		enabledSkills = activeProfile.Chat.EnabledSkills
 	}
-	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition)
+	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, slashSkillContent)
 
 	// 5. Processa com LLM
 	// Determina quais ferramentas estão habilitadas pelo perfil ativo
@@ -513,8 +566,10 @@ Key behaviors:
 - Use markdown formatting for better readability
 - Adapt your communication style to the user's needs`
 
-// buildFullSystemPrompt composes the complete system prompt with base prompt and custom prompt
-func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string) []Message {
+// buildFullSystemPrompt composes the complete system prompt with base prompt, custom prompt, skills and invoked skill.
+// enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
+// slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
+func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, slashSkillContent string) []Message {
 	// Build the system prompt parts
 	var parts []string
 
@@ -524,6 +579,23 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 		basePrompt = DefaultSystemPrompt
 	}
 	parts = append(parts, basePrompt)
+
+	// 2. Skills injection (auto + available)
+	skillsSection := a.buildSkillsPromptSection(enabledSkills)
+	if skillsSection != "" {
+		parts = append(parts, "\n\n"+skillsSection)
+	}
+
+	// 2.5. Invoked skill via /slash command
+	if slashSkillContent != "" {
+		parts = append(parts, "\n\n"+slashSkillContent)
+	}
+
+	// 3. Memory injection (memory.md sempre no contexto)
+	memorySection := a.buildMemoryContext()
+	if memorySection != "" {
+		parts = append(parts, "\n\n"+memorySection)
+	}
 
 	// Combine all parts
 	fullSystemPrompt := strings.Join(parts, "")
@@ -574,6 +646,169 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 	newMessages[systemIndex].Content = combinedContent
 
 	return newMessages
+}
+
+// buildSkillsPromptSection constrói a seção de skills para o system prompt.
+// Carrega skills auto (injeção direta) e skills disponíveis (referência para leitura sob demanda).
+// enabledSkills: nil = todos, [] = nenhum, ["slug1"] = apenas esses.
+func (a *App) buildSkillsPromptSection(enabledSkills []string) string {
+	if a.skillMgr == nil {
+		return ""
+	}
+
+	// Se enabledSkills é um slice vazio (não nil), nenhum skill habilitado
+	if enabledSkills != nil && len(enabledSkills) == 0 {
+		return ""
+	}
+
+	// Carrega skills auto (injetados no prompt)
+	autoSkills, err := a.skillMgr.GetAutoSkills()
+	if err != nil {
+		log.Printf("[Skills] Erro ao carregar auto skills: %v", err)
+		autoSkills = nil
+	}
+
+	// Carrega skills disponíveis (referenciados para leitura sob demanda)
+	availableSkills, err := a.skillMgr.GetAvailableSkills()
+	if err != nil {
+		log.Printf("[Skills] Erro ao carregar available skills: %v", err)
+		availableSkills = nil
+	}
+
+	// Filtra pelo perfil se enabledSkills não for nil
+	if enabledSkills != nil {
+		autoSkills = skills.FilterByNames(autoSkills, enabledSkills)
+		availableSkills = skills.FilterByNames(availableSkills, enabledSkills)
+	}
+
+	if len(autoSkills) == 0 && len(availableSkills) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Seção de skills auto_load (conteúdo completo injetado)
+	if len(autoSkills) > 0 {
+		sb.WriteString("<auto_skills>\n")
+		for i, s := range autoSkills {
+			if i > 0 {
+				sb.WriteString("\n")
+			}
+			sb.WriteString("## ")
+			sb.WriteString(s.GetDisplayName())
+			if s.Type != "" {
+				sb.WriteString(" [")
+				sb.WriteString(s.Type)
+				sb.WriteString("]")
+			}
+			sb.WriteString("\n")
+
+			// Preprocessa !commands no conteúdo auto_load
+			autoContent := s.Content
+			var allowedBashCmds []string
+			if s.Tools != nil && s.Tools.BashCommands != nil {
+				allowedBashCmds = s.Tools.BashCommands.Allowed
+			}
+			autoContent = skills.PreprocessCommands(autoContent, allowedBashCmds)
+
+			sb.WriteString(autoContent)
+			sb.WriteString("\n")
+
+			// Progressive file loading: lista arquivos complementares do auto skill
+			if a.skillMgr != nil {
+				supplementary, _ := a.skillMgr.GetSkillFiles(s.Slug)
+				if len(supplementary) > 0 {
+					sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
+					for _, f := range supplementary {
+						sb.WriteString("- `")
+						sb.WriteString(f)
+						sb.WriteString("`\n")
+					}
+				}
+			}
+		}
+		sb.WriteString("</auto_skills>")
+	}
+
+	// Seção de skills disponíveis (referência para leitura via read_file)
+	// Filtra skills com disable-model-invocation: true (modelo não pode invocá-los)
+	var modelInvocableSkills []skills.Skill
+	for _, s := range availableSkills {
+		if s.IsModelInvocable() {
+			modelInvocableSkills = append(modelInvocableSkills, s)
+		}
+	}
+
+	if len(modelInvocableSkills) > 0 {
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString("<available_skills>\n")
+		sb.WriteString("You have skills available that provide specialized instructions for specific tasks.\n")
+		sb.WriteString("To use a skill, read its file using the read_file tool with the path indicated below.\n")
+		sb.WriteString("Only read a skill when it's relevant to the current task.\n\n")
+		for _, s := range modelInvocableSkills {
+			sb.WriteString("- **")
+			sb.WriteString(s.GetDisplayName())
+			sb.WriteString("** (`")
+			sb.WriteString(s.Slug)
+			sb.WriteString("`)")
+			if s.Type != "" {
+				sb.WriteString(" [")
+				sb.WriteString(s.Type)
+				sb.WriteString("]")
+			}
+			sb.WriteString(": ")
+			sb.WriteString(s.Description)
+			sb.WriteString("\n  Path: `")
+			sb.WriteString(s.Path)
+			sb.WriteString("`\n")
+
+			// Progressive file loading: lista arquivos complementares do skill
+			if a.skillMgr != nil {
+				supplementary, _ := a.skillMgr.GetSkillFiles(s.Slug)
+				if len(supplementary) > 0 {
+					sb.WriteString("  Supporting files:\n")
+					for _, f := range supplementary {
+						sb.WriteString("    - `")
+						sb.WriteString(f)
+						sb.WriteString("`\n")
+					}
+				}
+			}
+		}
+		sb.WriteString("</available_skills>")
+	}
+
+	return sb.String()
+}
+
+// buildMemoryContext lê o arquivo memory.md do diretório de memória e retorna
+// o conteúdo formatado para injeção no system prompt.
+// Usa configdir.Resolver para resolução multi-diretório (exe < home < workdir).
+// Apenas memory.md é carregado automaticamente; daily/weekly/monthly/yearly são sob demanda.
+func (a *App) buildMemoryContext() string {
+	resolver := configdir.NewResolver("memory")
+
+	data, _, err := resolver.Read("memory.md")
+	if err != nil {
+		// memory.md não existe ainda — perfeitamente normal
+		return ""
+	}
+
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<user_memory>\n")
+	sb.WriteString("The following are the user's core memories. Use this information to personalize your responses.\n")
+	sb.WriteString("You can update this file at ~/.assistente/memory/memory.md when the user shares important personal information.\n\n")
+	sb.WriteString(content)
+	sb.WriteString("\n</user_memory>")
+
+	return sb.String()
 }
 
 // MaxContextMessages define o limite de mensagens no contexto para evitar contextos muito grandes
@@ -837,4 +1072,44 @@ func (a *App) ResetDatabase() error {
 	runtime.EventsEmit(a.ctx, "database:reset")
 
 	return nil
+}
+
+// parseSlashCommand detecta se uma mensagem é um slash command para invocar um skill.
+// Formato: /skill-slug [argumentos...]
+// Retorna (slug, args, true) se for um slash command válido, ("", "", false) caso contrário.
+func parseSlashCommand(content string) (slug string, args string, ok bool) {
+	content = strings.TrimSpace(content)
+
+	// Deve começar com /
+	if !strings.HasPrefix(content, "/") {
+		return "", "", false
+	}
+
+	// Remove o /
+	rest := content[1:]
+	if rest == "" {
+		return "", "", false
+	}
+
+	// Não deve começar com espaço (evita confusão com paths como "/ something")
+	if rest[0] == ' ' {
+		return "", "", false
+	}
+
+	// Separa slug dos argumentos (pelo primeiro espaço)
+	parts := strings.SplitN(rest, " ", 2)
+	slug = strings.ToLower(parts[0])
+
+	// Valida que o slug parece um nome de skill (letras, números, hifens)
+	for _, ch := range slug {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+			return "", "", false
+		}
+	}
+
+	if len(parts) > 1 {
+		args = strings.TrimSpace(parts[1])
+	}
+
+	return slug, args, true
 }

@@ -408,10 +408,7 @@ func (t *GrepSearch) formatResults(pattern, basePath string, matches []grepMatch
 }
 
 func (t *GrepSearch) resolvePath(path string) (string, error) {
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path), nil
-	}
-	return filepath.Abs(filepath.Join(t.workDir, path))
+	return resolveFilePath(path, t.workDir)
 }
 
 // matchIncludePattern verifica se um nome de arquivo casa com um padrão de inclusão.

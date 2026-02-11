@@ -25,26 +25,27 @@ type ChatConfig struct {
 	SystemPrompt         string   `json:"system_prompt,omitempty"`          // Prompt customizado
 	SystemPromptPosition string   `json:"system_prompt_position,omitempty"` // "before" ou "after"
 	EnabledTools         []string `json:"enabled_tools"`                    // Ferramentas habilitadas (nil = todas)
-	CommandAllowlist     string   `json:"command_allowlist,omitempty"`       // Slug da allowlist de comandos
+	EnabledSkills        []string `json:"enabled_skills"`                   // Skills habilitados (nil = todos, [] = nenhum)
+	CommandAllowlist     string   `json:"command_allowlist,omitempty"`      // Slug da allowlist de comandos
 }
 
 // VoiceConfig define as configurações de voz TTS
 type VoiceConfig struct {
-	Provider        string  `json:"provider"`                  // disabled, webspeech, sapi5, openai
-	VoiceID         string  `json:"voice_id,omitempty"`        // ID da voz
-	Rate            float64 `json:"rate"`                      // Velocidade
-	Pitch           float64 `json:"pitch"`                     // Tom
-	Volume          float64 `json:"volume"`                    // Volume (0-1)
-	EnabledForAgent bool    `json:"enabled_for_agent"`         // TTS para mensagens do assistente
-	EnabledForUser  bool    `json:"enabled_for_user"`          // TTS para mensagens do usuário
+	Provider        string  `json:"provider"`           // disabled, webspeech, sapi5, openai
+	VoiceID         string  `json:"voice_id,omitempty"` // ID da voz
+	Rate            float64 `json:"rate"`               // Velocidade
+	Pitch           float64 `json:"pitch"`              // Tom
+	Volume          float64 `json:"volume"`             // Volume (0-1)
+	EnabledForAgent bool    `json:"enabled_for_agent"`  // TTS para mensagens do assistente
+	EnabledForUser  bool    `json:"enabled_for_user"`   // TTS para mensagens do usuário
 }
 
 // InteractionConfig define as configurações de interação por voz
 type InteractionConfig struct {
-	STTProvider    string          `json:"stt_provider"`              // webspeech, whisper_api
-	Language       string          `json:"language"`                  // Idioma (ex: pt-BR)
-	FeedbackSounds bool            `json:"feedback_sounds"`           // Sons de início/fim
-	Triggers       []TriggerConfig `json:"triggers,omitempty"`        // Lista de triggers
+	STTProvider    string          `json:"stt_provider"`       // webspeech, whisper_api
+	Language       string          `json:"language"`           // Idioma (ex: pt-BR)
+	FeedbackSounds bool            `json:"feedback_sounds"`    // Sons de início/fim
+	Triggers       []TriggerConfig `json:"triggers,omitempty"` // Lista de triggers
 }
 
 // TriggerConfig define uma forma de ativar interação por voz
@@ -56,8 +57,8 @@ type TriggerConfig struct {
 	AutoStop bool `json:"auto_stop,omitempty"`
 
 	// Hotkey
-	Hotkey             string `json:"hotkey,omitempty"`               // Ex: "Ctrl+Shift+Space"
-	HotkeyGlobal       bool   `json:"hotkey_global,omitempty"`        // Global ou local
+	Hotkey             string `json:"hotkey,omitempty"`                // Ex: "Ctrl+Shift+Space"
+	HotkeyGlobal       bool   `json:"hotkey_global,omitempty"`         // Global ou local
 	HotkeyBringToFront bool   `json:"hotkey_bring_to_front,omitempty"` // Trazer janela (se global)
 
 	// Wakeword
@@ -75,10 +76,10 @@ type TriggerConfig struct {
 // ProfileInfo é um resumo leve de um perfil para listagem
 type ProfileInfo struct {
 	Name        string `json:"name"`
-	Slug        string `json:"slug"`        // nome do arquivo sem extensão
+	Slug        string `json:"slug"` // nome do arquivo sem extensão
 	Description string `json:"description"`
 	Icon        string `json:"icon"`
-	Source      string `json:"source"`      // "exe", "home", "workdir"
+	Source      string `json:"source"` // "exe", "home", "workdir"
 }
 
 // Trigger types

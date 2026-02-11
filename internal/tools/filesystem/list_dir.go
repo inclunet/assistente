@@ -230,10 +230,7 @@ func (t *ListDirectory) listRecursive(fullPath, displayPath string, maxDepth int
 
 // resolvePath converte caminho relativo para absoluto
 func (t *ListDirectory) resolvePath(path string) (string, error) {
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path), nil
-	}
-	return filepath.Abs(filepath.Join(t.workDir, path))
+	return resolveFilePath(path, t.workDir)
 }
 
 // shouldSkipDir retorna true para diretórios que devem ser ignorados na recursão

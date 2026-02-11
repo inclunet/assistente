@@ -62,6 +62,10 @@ export function CreateProfile(arg1) {
   return window['go']['main']['App']['CreateProfile'](arg1);
 }
 
+export function CreateSkill(arg1) {
+  return window['go']['main']['App']['CreateSkill'](arg1);
+}
+
 export function CreateTab(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateTab'](arg1, arg2, arg3);
 }
@@ -92,6 +96,10 @@ export function DeleteMessages(arg1, arg2) {
 
 export function DeleteProfile(arg1) {
   return window['go']['main']['App']['DeleteProfile'](arg1);
+}
+
+export function DeleteSkill(arg1) {
+  return window['go']['main']['App']['DeleteSkill'](arg1);
 }
 
 export function DisconnectMCPServer(arg1) {
@@ -214,6 +222,18 @@ export function GetSAPI5Voices() {
   return window['go']['main']['App']['GetSAPI5Voices']();
 }
 
+export function GetSkill(arg1) {
+  return window['go']['main']['App']['GetSkill'](arg1);
+}
+
+export function GetSkillSearchPaths() {
+  return window['go']['main']['App']['GetSkillSearchPaths']();
+}
+
+export function GetSkills() {
+  return window['go']['main']['App']['GetSkills']();
+}
+
 export function GetTabs() {
   return window['go']['main']['App']['GetTabs']();
 }
@@ -224,6 +244,10 @@ export function GetTerminalHistory(arg1) {
 
 export function GetTerminalStats() {
   return window['go']['main']['App']['GetTerminalStats']();
+}
+
+export function GetUserInvocableSkills() {
+  return window['go']['main']['App']['GetUserInvocableSkills']();
 }
 
 export function ImportConversations(arg1) {
@@ -416,6 +440,10 @@ export function UpdateMessage(arg1, arg2) {
 
 export function UpdateProfile(arg1, arg2) {
   return window['go']['main']['App']['UpdateProfile'](arg1, arg2);
+}
+
+export function UpdateSkill(arg1, arg2) {
+  return window['go']['main']['App']['UpdateSkill'](arg1, arg2);
 }
 
 export function UpdateTabTitle(arg1, arg2) {

@@ -52,8 +52,8 @@ func NewResolver(subdir string) *Resolver {
 	}
 }
 
-// sourceForPath determina a Source com base no diretório base
-func sourceForPath(dirPath string) Source {
+// SourceForPath determina a Source com base no diretório base.
+func SourceForPath(dirPath string) Source {
 	initPaths()
 	clean := filepath.Clean(dirPath)
 
@@ -113,7 +113,7 @@ func (r *Resolver) Resolve(filename string) (*ResolvedFile, error) {
 				Name:     slugFromFilename(filename),
 				Filename: filename,
 				Path:     fullPath,
-				Source:   sourceForPath(fullPath),
+				Source:   SourceForPath(fullPath),
 			}
 		}
 	}
@@ -150,7 +150,7 @@ func (r *Resolver) List() ([]ResolvedFile, error) {
 				Name:     slugFromFilename(filename),
 				Filename: filename,
 				Path:     fullPath,
-				Source:   sourceForPath(fullPath),
+				Source:   SourceForPath(fullPath),
 			}
 		}
 	}
@@ -207,7 +207,7 @@ func (r *Resolver) Create(filename string, data []byte) error {
 		return err
 	}
 
-	homeDir := r.getHomeDir()
+	homeDir := r.GetHomeDir()
 	if homeDir == "" {
 		return fmt.Errorf("home directory not available")
 	}
@@ -242,17 +242,17 @@ func (r *Resolver) GetSearchPaths() []string {
 
 // EnsureHomeDir cria o diretório home (~/.assistente/[subdir]) se não existir.
 func (r *Resolver) EnsureHomeDir() error {
-	homeDir := r.getHomeDir()
+	homeDir := r.GetHomeDir()
 	if homeDir == "" {
 		return fmt.Errorf("home directory not available")
 	}
 	return os.MkdirAll(homeDir, 0755)
 }
 
-// getHomeDir retorna o caminho do diretório home para este resolver.
+// GetHomeDir retorna o caminho do diretório home para este resolver.
 // O diretório home é sempre o segundo na lista de prioridade,
 // mas se houver apenas 1 ou 2 paths (deduplicação), precisamos encontrá-lo.
-func (r *Resolver) getHomeDir() string {
+func (r *Resolver) GetHomeDir() string {
 	initPaths()
 
 	baseHome := cachedHomeDir
@@ -288,7 +288,7 @@ func (r *Resolver) ResolveAll(filename string) ([]ResolvedFile, error) {
 				Name:     slugFromFilename(filename),
 				Filename: filename,
 				Path:     fullPath,
-				Source:   sourceForPath(fullPath),
+				Source:   SourceForPath(fullPath),
 			})
 		}
 	}

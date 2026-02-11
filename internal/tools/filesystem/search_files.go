@@ -229,10 +229,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 }
 
 func (t *SearchFiles) resolvePath(path string) (string, error) {
-	if filepath.IsAbs(path) {
-		return filepath.Clean(path), nil
-	}
-	return filepath.Abs(filepath.Join(t.workDir, path))
+	return resolveFilePath(path, t.workDir)
 }
 
 // extractGlobPattern extrai o padrão simples de um padrão recursivo

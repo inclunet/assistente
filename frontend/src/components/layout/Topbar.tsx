@@ -30,6 +30,7 @@ export function Topbar() {
   const getCurrentPage = (): string => {
     if (location.pathname === '/terminal') return 'terminal';
     if (location.pathname === '/allowlists') return 'allowlists';
+    if (location.pathname === '/skills') return 'skills';
     if (location.pathname === '/mcp') return 'mcp';
     if (location.pathname === '/settings') return 'settings';
     if (location.pathname === '/profiles') return 'profiles';
@@ -68,6 +69,12 @@ export function Topbar() {
       label: 'Allowlists',
       icon: '🛡️',
       onClick: () => navigate('/allowlists'),
+    },
+    {
+      id: 'skills',
+      label: 'Skills',
+      icon: '🧠',
+      onClick: () => navigate('/skills'),
     },
     {
       id: 'mcp',
