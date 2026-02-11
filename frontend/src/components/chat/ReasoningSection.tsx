@@ -47,6 +47,7 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
         aria-expanded={isExpanded}
         aria-controls="reasoning-content"
         type="button"
+        tabIndex={-1}
       >
         <span className="reasoning-section__icon" aria-hidden="true">
           {isStreaming ? '🧠' : '💭'}

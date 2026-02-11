@@ -112,6 +112,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
         onKeyDown={handleKeyDown}
         aria-expanded={isExpanded}
         type="button"
+        tabIndex={-1}
       >
         <span className="tool-calls-section__icon" aria-hidden="true">
           {isRunning ? '⚙️' : '🔧'}
@@ -149,7 +150,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
                   {tc.args && (
                     <div className="tool-calls-section__section">
                       <h4 className="tool-calls-section__section-heading">Parâmetros</h4>
-                      <pre className="tool-calls-section__args">{tc.args}</pre>
+                      <pre className="tool-calls-section__args">{formatArgs(tc.args)}</pre>
                     </div>
                   )}
                 </li>
@@ -174,7 +175,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
                     {tc.function.arguments && (
                       <div className="tool-calls-section__section">
                         <h4 className="tool-calls-section__section-heading">Parâmetros</h4>
-                        <pre className="tool-calls-section__args">{tc.function.arguments}</pre>
+                        <pre className="tool-calls-section__args">{formatArgs(tc.function.arguments)}</pre>
                       </div>
                     )}
 
@@ -184,14 +185,15 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
                         <h4 className="tool-calls-section__section-heading">Resposta</h4>
                         <pre className="tool-calls-section__result-content">
                           {isLongResult && !isResultExpanded
-                            ? tc.result!.slice(0, RESULT_PREVIEW_LENGTH) + '…'
-                            : tc.result}
+                            ? normalizeResult(tc.result!.slice(0, RESULT_PREVIEW_LENGTH)) + '…'
+                            : normalizeResult(tc.result!)}
                         </pre>
                         {isLongResult && (
                           <button
                             className="tool-calls-section__result-toggle"
                             onClick={() => toggleResultExpanded(tc.id)}
                             type="button"
+                            tabIndex={-1}
                           >
                             {isResultExpanded ? 'Mostrar menos' : `Mostrar tudo (${formatSize(tc.result!.length)})`}
                           </button>
@@ -208,6 +210,27 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
     </div>
   );
 };
+
+/**
+ * Formata string JSON de argumentos para exibição legível.
+ * Converte tabs em espaços e re-indenta com 2 espaços.
+ */
+function formatArgs(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    // Se não é JSON válido, apenas substitui tabs por 2 espaços
+    return raw.replace(/\t/g, '  ');
+  }
+}
+
+/**
+ * Normaliza tabs em conteúdo de resultado de ferramenta.
+ */
+function normalizeResult(raw: string): string {
+  return raw.replace(/\t/g, '  ');
+}
 
 /**
  * Formata tamanho em bytes/KB para exibição

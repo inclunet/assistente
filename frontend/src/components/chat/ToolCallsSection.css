@@ -161,6 +161,8 @@
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
+  tab-size: 2;
+  -moz-tab-size: 2;
 }
 
 /* Resultado da ferramenta */
@@ -191,6 +193,8 @@
   overflow-y: auto;
   white-space: pre-wrap;
   word-break: break-all;
+  tab-size: 2;
+  -moz-tab-size: 2;
 }
 
 .tool-calls-section__result-toggle {
