@@ -88,6 +88,12 @@ func loadSkill(ds discoveredSkill) (*Skill, error) {
 		return nil, fmt.Errorf("failed to parse skill %s: %w", ds.slug, err)
 	}
 
+	// Se name está vazio, usa o slug (nome do diretório) como fallback
+	// Spec: "If omitted, uses the directory name"
+	if meta.Name == "" {
+		meta.Name = ds.slug
+	}
+
 	// Expande variáveis de template nos paths de filesystem (${HOME}, ${PROJECT_ROOT}, ${TEMP})
 	projectRoot, _ := os.Getwd()
 	meta.ExpandTemplateVars(projectRoot)

@@ -456,8 +456,11 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		if err == nil && skill.IsUserInvocable() {
 			log.Printf("[Skills] Slash command detectado: /%s args=%q", slug, args)
 
-			// Substitui $ARGUMENTS e $N no conteúdo
-			processedContent := skills.SubstituteArguments(skill.Content, args)
+			// Substitui $ARGUMENTS, $N, e variáveis de sessão no conteúdo
+			sessionVars := map[string]string{
+				"CLAUDE_SESSION_ID": fmt.Sprintf("%d", conversationID),
+			}
+			processedContent := skills.SubstituteArguments(skill.Content, args, sessionVars)
 
 			// Preprocessa !commands (respeita permissões de bash do skill)
 			var allowedBashCmds []string

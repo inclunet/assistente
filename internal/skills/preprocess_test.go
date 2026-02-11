@@ -109,6 +109,58 @@ func TestPreprocessCommands_MultipleCommands(t *testing.T) {
 	}
 }
 
+func TestPreprocessCommands_BacktickSyntax(t *testing.T) {
+	// Formato oficial Claude Code: !`command`
+	content := "PR diff:\n!`echo backtick-works`\nDone"
+	result := PreprocessCommands(content, nil)
+
+	if !strings.Contains(result, "backtick-works") {
+		t.Errorf("expected backtick command output, got: %q", result)
+	}
+	if strings.Contains(result, "`") {
+		t.Errorf("backticks should be stripped from output, got: %q", result)
+	}
+}
+
+func TestPreprocessCommands_BacktickAndPlain(t *testing.T) {
+	// Ambas as sintaxes no mesmo conteúdo
+	var content string
+	if runtime.GOOS == "windows" {
+		content = "!echo plain\n!`echo backtick`"
+	} else {
+		content = "!echo plain\n!`echo backtick`"
+	}
+	result := PreprocessCommands(content, nil)
+
+	if !strings.Contains(result, "plain") {
+		t.Errorf("expected plain command output, got: %q", result)
+	}
+	if !strings.Contains(result, "backtick") {
+		t.Errorf("expected backtick command output, got: %q", result)
+	}
+}
+
+func TestStripBackticks(t *testing.T) {
+	tests := []struct {
+		input    string
+		expected string
+	}{
+		{"`echo hello`", "echo hello"},
+		{"echo hello", "echo hello"},
+		{"`git log --oneline`", "git log --oneline"},
+		{"``", ""},
+		{"`", "`"},
+		{"", ""},
+	}
+
+	for _, tt := range tests {
+		result := stripBackticks(tt.input)
+		if result != tt.expected {
+			t.Errorf("stripBackticks(%q): expected %q, got %q", tt.input, tt.expected, result)
+		}
+	}
+}
+
 func TestIsCommandAllowed_NilAllowsAll(t *testing.T) {
 	if !isCommandAllowed("anything --flag", nil) {
 		t.Error("nil allowedCommands should allow everything")

@@ -498,6 +498,42 @@ Skill with hooks`
 	t.Logf("Hooks: %v", meta.Hooks)
 }
 
+func TestParseNameOptional(t *testing.T) {
+	// Spec: name é opcional — se omitido, usa o nome do diretório
+	raw := `---
+description: A skill without a name field
+---
+Do something useful`
+
+	meta, content, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse falhou: %v", err)
+	}
+	// Name deve estar vazio após parse (será preenchido pelo manager com o slug)
+	if meta.Name != "" {
+		t.Errorf("expected empty name, got %q", meta.Name)
+	}
+	if content != "Do something useful" {
+		t.Errorf("unexpected content: %q", content)
+	}
+}
+
+func TestParseNameOptional_DescriptionOptionalInLoose(t *testing.T) {
+	// Na leitura loose, description também pode ser omitido
+	raw := `---
+name: minimal-skill
+---
+Just instructions`
+
+	meta, _, err := Parse(raw)
+	if err != nil {
+		t.Fatalf("Parse falhou: %v", err)
+	}
+	if meta.Name != "minimal-skill" {
+		t.Errorf("expected 'minimal-skill', got %q", meta.Name)
+	}
+}
+
 func TestGetUserInvocableSkills(t *testing.T) {
 	// Cria skills no diretório de trabalho (workdir) que o resolver monitora
 	testSkillsBase := filepath.Join(".assistente", "skills")

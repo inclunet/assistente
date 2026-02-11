@@ -80,11 +80,9 @@ func validateSpecLoose(meta *SkillMetadata) error {
 }
 
 func validateSpecStrict(meta *SkillMetadata, strict bool) error {
-	// Name é sempre obrigatório
-	if meta.Name == "" {
-		return fmt.Errorf("'name' is required in frontmatter")
-	}
-	if strict {
+	// Name é opcional (spec: "If omitted, uses the directory name")
+	// Se presente em modo estrito, deve ser kebab-case e max 64 chars
+	if meta.Name != "" && strict {
 		// Exige kebab-case
 		if !namePattern.MatchString(meta.Name) {
 			return fmt.Errorf("'name' must be kebab-case (lowercase, hyphens): got %q", meta.Name)
@@ -105,9 +103,9 @@ func validateSpecStrict(meta *SkillMetadata, strict bool) error {
 		}
 	}
 
-	// Description obrigatório
-	if meta.Description == "" {
-		return fmt.Errorf("'description' is required in frontmatter")
+	// Description é recomendado (spec: "Recommended") — obrigatório em strict, opcional em loose
+	if strict && meta.Description == "" {
+		return fmt.Errorf("'description' is required for new skills")
 	}
 	if strict {
 		if len(meta.Description) < 10 {

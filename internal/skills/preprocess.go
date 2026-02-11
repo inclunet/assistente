@@ -18,13 +18,17 @@ const (
 )
 
 // PreprocessCommands processa linhas com prefixo `!` no conteúdo de um skill.
-// Cada linha `!command` é executada como shell command e substituída pelo output.
-// Compatível com a spec SKILL.md (Claude Code).
+// Cada linha `!command` ou `` !`command` `` é executada como shell command e substituída pelo output.
+// Compatível com a spec oficial do Claude Code.
+//
+// Formatos suportados:
+//   - !command → formato simples
+//   - !`command` → formato oficial Claude Code (com backticks)
 //
 // Regras:
 //   - Apenas linhas que começam com `!` (opcionalmente com espaço antes) são processadas
-//   - O `!` é removido e o restante é executado como comando shell
-//   - O output substitui a linha inteira (sem o `!`)
+//   - O `!` (e backticks opcionais) são removidos; o restante é executado como comando shell
+//   - O output substitui a linha inteira
 //   - Se o comando falha, a linha é substituída por um comentário de erro
 //   - Timeout de 5s por comando por padrão
 //
@@ -53,6 +57,9 @@ func PreprocessCommands(content string, allowedCommands []string) string {
 			continue
 		}
 
+		// Suporta sintaxe com backticks: !`command` → remove backticks
+		cmd = stripBackticks(cmd)
+
 		// Verifica se o comando é permitido
 		if !isCommandAllowed(cmd, allowedCommands) {
 			result = append(result, fmt.Sprintf("<!-- command blocked: %s (not in allowed list) -->", cmd))
@@ -74,6 +81,16 @@ func PreprocessCommands(content string, allowedCommands []string) string {
 	}
 
 	return strings.Join(result, "\n")
+}
+
+// stripBackticks remove backticks envolvendo o comando.
+// Suporta: `command` → command, ``command`` → command
+func stripBackticks(cmd string) string {
+	// Remove backticks do início e fim
+	if len(cmd) >= 2 && cmd[0] == '`' && cmd[len(cmd)-1] == '`' {
+		cmd = cmd[1 : len(cmd)-1]
+	}
+	return strings.TrimSpace(cmd)
 }
 
 // isCommandAllowed verifica se um comando está na lista de permitidos.
