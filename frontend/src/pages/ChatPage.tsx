@@ -6,7 +6,6 @@ import { ChatInput } from '../components/chat/ChatInput';
 import { ChatToolbar } from '../components/chat/ChatToolbar';
 import { ChatTabs } from '../components/tabs/ChatTabs';
 import { ContextMenu } from '../components/ui/ContextMenu';
-import { MessageDetailModal } from '../components/ui/MessageDetailModal';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { KeyboardShortcutsHelp } from '../components/ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../hooks/useChatKeyboardNav';
@@ -41,10 +40,6 @@ export default function ChatPage() {
   // TTS é controlado pelo perfil global via ttsService (fonte de verdade)
   const isTTSDisabled = !ttsService.isEnabled();
 
-  // Estado do modal de detalhes
-  const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [detailMessage, setDetailMessage] = useState<Message | null>(null);
-
   // Estado do dialog de confirmação de delete
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
@@ -62,6 +57,8 @@ export default function ChatPage() {
 
   // Edição de mensagem via store (acionado pelo menu de contexto)
   const startEditing = useChatStore(state => state.startEditing);
+  // Modo leitura via store (acionado pelo menu de contexto)
+  const startReading = useChatStore(state => state.startReading);
 
   // Ações de mensagem
   const { copyMessage, speakMessage } = useMessageActions({
@@ -71,9 +68,8 @@ export default function ChatPage() {
   // Menu de contexto
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
     onCopy: copyMessage,
-    onOpenDetail: (message) => {
-      setDetailMessage(message);
-      setDetailModalOpen(true);
+    onReadMessage: (message) => {
+      startReading(message.id);
     },
     onSpeak: speakMessage,
     onEdit: (message) => {
@@ -319,10 +315,6 @@ export default function ChatPage() {
         isLoading={isLoading}
         ref={messagesContainerRef}
         onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
-        onOpenDetail={(message) => {
-          setDetailMessage(message);
-          setDetailModalOpen(true);
-        }}
         onSpeak={speakMessage}
       />
 
@@ -383,22 +375,6 @@ export default function ChatPage() {
         y={menuPosition.y}
         onClose={hideMenu}
         ariaLabel="Ações da mensagem"
-      />
-
-      {/* Modal de detalhes */}
-      <MessageDetailModal
-        open={detailModalOpen}
-        content={detailMessage?.content || ''}
-        role={detailMessage?.role === 'user' ? 'Você' : 'Assistente'}
-        media={Array.isArray(detailMessage?.media) ? detailMessage.media : undefined}
-        onClose={() => {
-          setDetailModalOpen(false);
-          setDetailMessage(null);
-        }}
-        onImageClick={(src, alt) => {
-          console.log('Abrir imagem:', src, alt);
-          // TODO: Implementar modal de imagem
-        }}
       />
 
       {/* Dialog de confirmação de exclusão */}

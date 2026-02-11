@@ -19,8 +19,9 @@ export interface ChatMessageProps {
   onThreadToggle?: () => void;
   // Event handlers
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
-  onOpenDetail?: (message: Message) => void;
   onSpeak?: (message: Message) => void;
+  // Modo leitura (virtual modal)
+  isReading?: boolean;
   // Edit mode props
   isEditing?: boolean;
   editContent?: string;
@@ -44,8 +45,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isThreadLoading = false,
   onThreadToggle,
   onContextMenu,
-  onOpenDetail,
   onSpeak,
+  isReading = false,
   isEditing = false,
   editContent: externalEditContent = '',
   onEditContentChange,
@@ -157,14 +158,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       return;
     }
 
-    // Enter abre modal de detalhes
-    if (e.key === 'Enter' && !isStreaming) {
-      e.preventDefault();
-      if (onOpenDetail) {
-        onOpenDetail(message);
-      }
-      return;
-    }
+    // Enter é tratado pelo MessageNode (ativa modo leitura virtual)
+    // Não processar aqui para evitar conflito
   };
 
   const handleKeyUp = (e: React.KeyboardEvent) => {
@@ -213,7 +208,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   return (
     <div
-      className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''}`}
+      className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''} ${isReading ? 'chat-message--reading' : ''}`}
       aria-label={isEditing ? undefined : getAriaLabel()}
       aria-live={isStreaming ? 'polite' : 'off'}
       aria-busy={isStreaming}
@@ -223,6 +218,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       onFocus={handleFocus}
       tabIndex={-1}
     >
+      {isReading && (
+        <div className="chat-message__reading-badge" aria-hidden="true">
+          Lendo
+        </div>
+      )}
       <div className="chat-message__avatar" aria-hidden="true">
         {role === 'user' ? (
           <div className="chat-message__avatar-user">U</div>

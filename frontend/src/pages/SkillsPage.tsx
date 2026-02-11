@@ -27,7 +27,6 @@ interface SkillRow {
   auto: boolean;
   source: string;
   tools: string[];
-  globs: string[];
 }
 
 export default function SkillsPage() {
@@ -49,7 +48,6 @@ export default function SkillsPage() {
     description: string;
     auto: boolean;
     tools: string;
-    globs: string;
     content: string;
   } | null>(null);
   const [editingSlug, setEditingSlug] = useState<string | null>(null);
@@ -75,10 +73,9 @@ export default function SkillsPage() {
         slug: s.slug,
         name: s.name,
         description: s.description || '',
-        auto: s.auto,
+        auto: !s.disableModelInvocation,
         source: s.source,
-        tools: s.tools || [],
-        globs: s.globs || [],
+        tools: (s.tools as any)?.allowed || [],
       }));
       setRows(mapped);
     } catch (error) {
@@ -130,9 +127,8 @@ export default function SkillsPage() {
       setEditingSkill({
         name: skill.name,
         description: skill.description,
-        auto: skill.auto,
-        tools: (skill.tools || []).join(', '),
-        globs: (skill.globs || []).join(', '),
+        auto: !skill.disableModelInvocation,
+        tools: ((skill.tools as any)?.allowed || []).join(', '),
         content: skill.content,
       });
       announce(t('skills.editorOpened', `Editor aberto para ${row.name}`));
@@ -151,7 +147,6 @@ export default function SkillsPage() {
       description: '',
       auto: false,
       tools: '',
-      globs: '',
       content: '',
     });
     announce(t('skills.newSkillAnnounce', 'Editor aberto para novo skill'));
@@ -193,14 +188,12 @@ export default function SkillsPage() {
     setSaving(true);
     try {
       const toolsList = editingSkill.tools.split(',').map(s => s.trim()).filter(Boolean);
-      const globsList = editingSkill.globs.split(',').map(s => s.trim()).filter(Boolean);
 
       const req = main.SkillCreateRequest.createFrom({
         name: editingSkill.name.trim(),
         description: editingSkill.description.trim(),
-        auto: editingSkill.auto,
-        tools: toolsList.length > 0 ? toolsList : undefined,
-        globs: globsList.length > 0 ? globsList : undefined,
+        disableModelInvocation: !editingSkill.auto,
+        tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
         content: editingSkill.content,
       });
 
@@ -469,22 +462,6 @@ export default function SkillsPage() {
                 />
                 <span className="skills-field__hint">
                   {t('skills.toolsHint', 'Informativo — indica quais tools o skill utiliza.')}
-                </span>
-              </div>
-              <div className="skills-field">
-                <label htmlFor="sk-globs" className="skills-field__label">
-                  {t('skills.fieldGlobs', 'Padrões de arquivo')}
-                </label>
-                <input
-                  id="sk-globs"
-                  type="text"
-                  className="skills-field__input"
-                  value={editingSkill.globs}
-                  onChange={(e) => updateField('globs', e.target.value)}
-                  placeholder={t('skills.globsPlaceholder', '*.tsx, *.css (separar por vírgula)')}
-                />
-                <span className="skills-field__hint">
-                  {t('skills.globsHint', 'Padrões de arquivo para ativação contextual futura.')}
                 </span>
               </div>
             </div>

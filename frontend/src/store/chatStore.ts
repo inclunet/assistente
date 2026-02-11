@@ -90,6 +90,7 @@ interface ChatStore {
   isInitialized: boolean;
   expandedThreads: Set<string>; // IDs de mensagens com threads expandidas
   editingMessageId: string | null; // ID da mensagem sendo editada (acionado por F2 ou menu)
+  readingMessageId: string | null; // ID da mensagem para ativar modo leitura (acionado pelo menu de contexto)
   skipFocusRestore: boolean; // Flag para pular restauração de foco após fechar menu
   
   // Reasoning/Thinking - cadeia de pensamento do modelo durante streaming
@@ -108,6 +109,10 @@ interface ChatStore {
   setEditingMessageId: (id: string | null) => void;
   startEditing: (id: string) => void; // Inicia edição e marca para pular restauração de foco
   consumeSkipFocusRestore: () => boolean; // Consome o flag e retorna se deve pular
+  
+  // Reading mode (virtual modal)
+  setReadingMessageId: (id: string | null) => void;
+  startReading: (id: string) => void; // Inicia modo leitura e marca para pular restauração de foco
 
   // Tab management
   createTab: (activate?: boolean) => Promise<string>;
@@ -274,6 +279,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     isInitialized: false,
     expandedThreads: new Set<string>(),
     editingMessageId: null,
+    readingMessageId: null,
     skipFocusRestore: false,
     streamingReasoning: null, // Reasoning durante streaming
     isThinking: false, // Se está recebendo reasoning
@@ -288,6 +294,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     startEditing: (id: string) => {
       // Marca para pular restauração de foco E inicia edição
       set({ editingMessageId: id, skipFocusRestore: true });
+    },
+    
+    setReadingMessageId: (id: string | null) => {
+      set({ readingMessageId: id });
+    },
+    
+    startReading: (id: string) => {
+      // Marca para pular restauração de foco E inicia modo leitura
+      set({ readingMessageId: id, skipFocusRestore: true });
     },
     
     consumeSkipFocusRestore: () => {

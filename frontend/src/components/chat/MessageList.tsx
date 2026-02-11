@@ -15,7 +15,6 @@ export interface MessageListProps {
   onReachEnd?: () => void;
   // Callbacks de ações
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
-  onOpenDetail?: (message: Message) => void;
   onSpeak?: (message: Message) => void;
 }
 
@@ -142,7 +141,7 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 }
 
 export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
-  { isLoading = false, loadingText = 'Assistente está digitando', threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onOpenDetail, onSpeak },
+  { isLoading = false, loadingText = 'Assistente está digitando', threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak },
   ref
 ) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -221,7 +220,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
               onLoadChildren={onLoadChildren}
               onReachEnd={onReachEnd}
               onContextMenu={onContextMenu}
-              onOpenDetail={onOpenDetail}
               onSpeak={onSpeak}
             />
           ))}
