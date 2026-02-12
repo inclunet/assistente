@@ -42,7 +42,7 @@ func (t *SendMessageTool) Parameters() json.RawMessage {
 			"channel": {
 				"type": "string",
 				"description": "The messaging platform to use (e.g., 'telegram', 'signal')",
-				"enum": ["telegram"]
+				"enum": ["telegram", "signal"]
 			},
 			"to": {
 				"type": "string",

@@ -16,6 +16,7 @@ import (
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
+	"assistente/internal/messaging/signal"
 	"assistente/internal/messaging/telegram"
 	msgtool "assistente/internal/tools/messaging"
 	"assistente/internal/profiles"
@@ -224,11 +225,16 @@ func (a *App) initMessaging() {
 	// ResponseNotifier — permite ao gateway capturar respostas para reenvio
 	a.responseNotifier = messaging.NewResponseNotifier()
 
-	// Carrega configuração de mensageria
-	msgConfig, err := messaging.LoadConfig()
+	// Carrega configuração de mensageria do config.json
+	cfg, err := config.Load()
 	if err != nil {
 		log.Printf("[Messaging] Erro ao carregar config: %v", err)
 		return
+	}
+	msgConfig := cfg.Messaging
+	if msgConfig == nil {
+		log.Printf("[Messaging] Nenhum mensageiro configurado (messaging ausente no config.json)")
+		msgConfig = &config.MessagingConfig{} // vazio para evitar nil
 	}
 
 	emitEvent := func(event string, data any) {
@@ -257,6 +263,24 @@ func (a *App) initMessaging() {
 		log.Printf("[Messaging] Telegram não configurado ou desabilitado")
 	}
 
+	// Signal
+	if msgConfig.Signal != nil && msgConfig.Signal.Enabled && msgConfig.Signal.Account != "" {
+		bin := msgConfig.Signal.SignalCliBin
+		if bin == "" {
+			bin = "signal-cli" // assume que está no PATH
+		}
+		adapter := signal.NewAdapter(bin, msgConfig.Signal.Account)
+		a.msgGateway.Register("signal", adapter)
+		go func() {
+			if err := adapter.Connect(a.ctx); err != nil {
+				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
+			}
+		}()
+		log.Printf("[Messaging] Signal habilitado (account=%s)", msgConfig.Signal.Account)
+	} else {
+		log.Printf("[Messaging] Signal não configurado ou desabilitado")
+	}
+
 	// Registra a tool send_message no registry de ferramentas
 	if a.toolRegistry != nil {
 		sendMsgTool := msgtool.NewSendMessageTool(a.msgGateway)
@@ -281,13 +305,23 @@ func (a *App) GetMessagingStatus() map[string]string {
 }
 
 // GetMessagingConfig retorna a configuração de mensageria atual.
-func (a *App) GetMessagingConfig() (*messaging.Config, error) {
-	return messaging.LoadConfig()
+func (a *App) GetMessagingConfig() (*config.MessagingConfig, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.Messaging == nil {
+		return &config.MessagingConfig{}, nil
+	}
+	return cfg.Messaging, nil
 }
 
-// SaveMessagingConfig salva a configuração de mensageria.
-func (a *App) SaveMessagingConfig(cfg *messaging.Config) error {
-	return messaging.SaveConfig(cfg)
+// SaveMessagingConfig salva a configuração de mensageria dentro do config.json.
+func (a *App) SaveMessagingConfig(msgCfg *config.MessagingConfig) error {
+	return config.Update(func(c *config.Config) *config.Config {
+		c.Messaging = msgCfg
+		return c
+	})
 }
 
 // initToolRegistry inicializa o registro de ferramentas disponíveis

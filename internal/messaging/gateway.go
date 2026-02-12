@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"sync"
 
+	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/llm"
 )
@@ -31,7 +32,7 @@ type Gateway struct {
 	mu          sync.RWMutex
 	messengers  map[string]Messenger
 	notifier    *ResponseNotifier
-	config      *Config
+	config      *config.MessagingConfig
 	sendMessage SendMessageFunc
 	emitEvent   emitFunc
 }
@@ -39,14 +40,14 @@ type Gateway struct {
 // NewGateway cria um novo Gateway de mensageria.
 func NewGateway(
 	notifier *ResponseNotifier,
-	config *Config,
+	msgConfig *config.MessagingConfig,
 	sendMessage SendMessageFunc,
 	emitEvent emitFunc,
 ) *Gateway {
 	return &Gateway{
 		messengers:  make(map[string]Messenger),
 		notifier:    notifier,
-		config:      config,
+		config:      msgConfig,
 		sendMessage: sendMessage,
 		emitEvent:   emitEvent,
 	}
@@ -99,7 +100,7 @@ func (g *Gateway) GetMessenger(name string) (Messenger, bool) {
 func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// 1. Verifica allowlist
 	channelConfig := g.getChannelConfig(msg.Channel)
-	if !IsContactAllowed(channelConfig, msg.From.ID) {
+	if !config.IsContactAllowed(channelConfig, msg.From.ID) {
 		fmt.Printf("[Gateway] Mensagem de %s (%s) rejeitada — contato não autorizado\n",
 			msg.From.DisplayName, msg.From.ID)
 		return
@@ -203,13 +204,15 @@ func (g *Gateway) getActiveConversationID() uint {
 }
 
 // getChannelConfig retorna a configuração de um canal específico.
-func (g *Gateway) getChannelConfig(channel string) *ChannelConfig {
+func (g *Gateway) getChannelConfig(channel string) *config.ChannelConfig {
 	if g.config == nil {
 		return nil
 	}
 	switch channel {
 	case "telegram":
 		return g.config.Telegram
+	case "signal":
+		return g.config.Signal
 	default:
 		return nil
 	}
