@@ -171,3 +171,12 @@
   border-color: var(--accent-bright, #79c0ff);
   box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
 }
+
+/* Aba vinculada a canal externo */
+.chat-tabs__tab--channel {
+  border-left: 2px solid var(--accent-color, #58a6ff);
+}
+
+.chat-tabs__tab--channel.chat-tabs__tab--active {
+  border-left: 2px solid var(--accent-color, #58a6ff);
+}

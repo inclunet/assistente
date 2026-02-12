@@ -2,6 +2,7 @@ package messaging
 
 import (
 	"context"
+	"strings"
 	"time"
 )
 
@@ -42,6 +43,9 @@ type IncomingMessage struct {
 	// Text é o conteúdo textual da mensagem.
 	Text string
 
+	// Attachments são os anexos da mensagem (áudio, imagens, documentos, etc.).
+	Attachments []Attachment
+
 	// Timestamp é o momento em que a mensagem foi enviada.
 	Timestamp time.Time
 
@@ -57,8 +61,62 @@ type OutgoingMessage struct {
 	// Text é o conteúdo textual da mensagem.
 	Text string
 
+	// Attachments são os anexos a serem enviados (áudio TTS, imagens, etc.).
+	Attachments []Attachment
+
 	// ReplyToMessageID é opcional — ID da mensagem a ser respondida.
 	ReplyToMessageID string
+}
+
+// Attachment representa um anexo de mensagem (áudio, imagem, documento, etc.).
+type Attachment struct {
+	// Filename é o nome do arquivo (ex: "audio.ogg", "foto.jpg", "relatorio.pdf").
+	Filename string
+
+	// MIMEType é o tipo MIME do arquivo (ex: "audio/ogg", "image/jpeg", "application/pdf").
+	MIMEType string
+
+	// Data é o conteúdo do arquivo em bytes (já baixado).
+	Data []byte
+
+	// Size é o tamanho do arquivo em bytes (pode ser 0 se desconhecido).
+	Size int64
+}
+
+// IsAudio retorna true se o attachment é um arquivo de áudio.
+func (a *Attachment) IsAudio() bool {
+	return strings.HasPrefix(a.MIMEType, "audio/")
+}
+
+// IsImage retorna true se o attachment é uma imagem.
+func (a *Attachment) IsImage() bool {
+	return strings.HasPrefix(a.MIMEType, "image/")
+}
+
+// IsDocument retorna true se o attachment é um documento (PDF, DOCX, etc.).
+func (a *Attachment) IsDocument() bool {
+	return !a.IsAudio() && !a.IsImage() && !strings.HasPrefix(a.MIMEType, "video/")
+}
+
+// IsVideo retorna true se o attachment é um vídeo.
+func (a *Attachment) IsVideo() bool {
+	return strings.HasPrefix(a.MIMEType, "video/")
+}
+
+// HasAudio retorna true se a mensagem contém pelo menos um anexo de áudio.
+func (m *IncomingMessage) HasAudio() bool {
+	for _, a := range m.Attachments {
+		if a.IsAudio() {
+			return true
+		}
+	}
+	return false
+}
+
+// IsAudioOnly retorna true se a mensagem contém apenas áudio (sem texto).
+// Usado para decidir se a resposta deve ser em áudio também.
+func (m *IncomingMessage) IsAudioOnly() bool {
+	return m.Text == "" && len(m.Attachments) > 0 && m.HasAudio()
 }
 
 // Contact representa um contato em um mensageiro.

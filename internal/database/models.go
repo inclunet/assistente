@@ -10,6 +10,8 @@ import (
 type Conversation struct {
 	ID           uint          `json:"id" gorm:"primaryKey"`
 	Title        string        `json:"title"`
+	Channel      string        `json:"channel,omitempty" gorm:"index"`    // Canal de origem: "signal", "telegram", "" (wails/local)
+	ContactID    string        `json:"contact_id,omitempty" gorm:"index"` // ID do contato externo (UUID, phone, telegram ID)
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
 	Messages     []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`

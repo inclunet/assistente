@@ -96,6 +96,31 @@ func CreateConversation(title, model string) (*Conversation, error) {
 	return conv, nil
 }
 
+// FindOrCreateChannelConversation busca uma conversa existente para um canal+contato.
+// Se não existir, cria uma nova. Retorna a conversa e se foi criada (true) ou encontrada (false).
+func FindOrCreateChannelConversation(channel, contactID, contactName string) (*Conversation, bool, error) {
+	var conv Conversation
+	err := db.Where("channel = ? AND contact_id = ?", channel, contactID).First(&conv).Error
+	if err == nil {
+		return &conv, false, nil
+	}
+
+	// Cria nova conversa dedicada para este contato
+	title := contactName
+	if title == "" {
+		title = contactID
+	}
+	conv = Conversation{
+		Title:     title,
+		Channel:   channel,
+		ContactID: contactID,
+	}
+	if err := db.Create(&conv).Error; err != nil {
+		return nil, false, err
+	}
+	return &conv, true, nil
+}
+
 // GetConversations retorna todas as conversas ordenadas por data
 func GetConversations() ([]Conversation, error) {
 	var conversations []Conversation
@@ -145,6 +170,16 @@ func UpdateConversation(id uint, title, model string) error {
 	}
 
 	return db.Model(&Conversation{}).Where("id = ?", id).Updates(updates).Error
+}
+
+// UpdateConversationChannel atualiza o canal e contato vinculados a uma conversa.
+// Passar channel="" e contactID="" desvincula a conversa do canal.
+func UpdateConversationChannel(id uint, channel, contactID string) error {
+	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"channel":    channel,
+		"contact_id": contactID,
+		"updated_at": time.Now(),
+	}).Error
 }
 
 // DeleteConversation deleta uma conversa e suas mensagens

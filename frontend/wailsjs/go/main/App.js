@@ -22,6 +22,14 @@ export function AddMessageWithTokensAndMedia(arg1, arg2, arg3, arg4, arg5, arg6,
   return window['go']['main']['App']['AddMessageWithTokensAndMedia'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function AssignConversationToChannel(arg1, arg2, arg3) {
+  return window['go']['main']['App']['AssignConversationToChannel'](arg1, arg2, arg3);
+}
+
+export function AuthorizeMessagingContact(arg1, arg2) {
+  return window['go']['main']['App']['AuthorizeMessagingContact'](arg1, arg2);
+}
+
 export function ClearConversation(arg1) {
   return window['go']['main']['App']['ClearConversation'](arg1);
 }
@@ -142,6 +150,10 @@ export function GetAllowlists() {
   return window['go']['main']['App']['GetAllowlists']();
 }
 
+export function GetAvailableChannels() {
+  return window['go']['main']['App']['GetAvailableChannels']();
+}
+
 export function GetAvailableTools() {
   return window['go']['main']['App']['GetAvailableTools']();
 }
@@ -152,6 +164,10 @@ export function GetConfig() {
 
 export function GetConversation(arg1) {
   return window['go']['main']['App']['GetConversation'](arg1);
+}
+
+export function GetConversationChannel(arg1) {
+  return window['go']['main']['App']['GetConversationChannel'](arg1);
 }
 
 export function GetConversationInfo(arg1) {
@@ -196,6 +212,14 @@ export function GetMessageChildren(arg1) {
 
 export function GetMessages(arg1, arg2) {
   return window['go']['main']['App']['GetMessages'](arg1, arg2);
+}
+
+export function GetMessagingConfig() {
+  return window['go']['main']['App']['GetMessagingConfig']();
+}
+
+export function GetMessagingStatus() {
+  return window['go']['main']['App']['GetMessagingStatus']();
 }
 
 export function GetModels() {
@@ -334,12 +358,20 @@ export function SaveMCPServer(arg1, arg2) {
   return window['go']['main']['App']['SaveMCPServer'](arg1, arg2);
 }
 
+export function SaveMessagingConfig(arg1) {
+  return window['go']['main']['App']['SaveMessagingConfig'](arg1);
+}
+
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
 export function SendMessage(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['SendMessage'](arg1, arg2, arg3, arg4);
+}
+
+export function SendMessageFromChannel(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SendMessageFromChannel'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function SendMessageSync(arg1, arg2) {
@@ -386,6 +418,34 @@ export function SetSAPI5Volume(arg1) {
   return window['go']['main']['App']['SetSAPI5Volume'](arg1);
 }
 
+export function SignalCheckAPI(arg1) {
+  return window['go']['main']['App']['SignalCheckAPI'](arg1);
+}
+
+export function SignalLink(arg1, arg2) {
+  return window['go']['main']['App']['SignalLink'](arg1, arg2);
+}
+
+export function SignalLinkRaw(arg1, arg2) {
+  return window['go']['main']['App']['SignalLinkRaw'](arg1, arg2);
+}
+
+export function SignalListAccounts(arg1) {
+  return window['go']['main']['App']['SignalListAccounts'](arg1);
+}
+
+export function SignalRegister(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SignalRegister'](arg1, arg2, arg3, arg4);
+}
+
+export function SignalUnregister(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SignalUnregister'](arg1, arg2, arg3);
+}
+
+export function SignalVerify(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SignalVerify'](arg1, arg2, arg3);
+}
+
 export function SpeakSAPI5(arg1, arg2) {
   return window['go']['main']['App']['SpeakSAPI5'](arg1, arg2);
 }
@@ -422,6 +482,10 @@ export function TranscribeWhisper(arg1, arg2) {
   return window['go']['main']['App']['TranscribeWhisper'](arg1, arg2);
 }
 
+export function UnassignConversationFromChannel(arg1) {
+  return window['go']['main']['App']['UnassignConversationFromChannel'](arg1);
+}
+
 export function UpdateAllowlist(arg1, arg2) {
   return window['go']['main']['App']['UpdateAllowlist'](arg1, arg2);
 }
@@ -440,6 +504,10 @@ export function UpdateMessage(arg1, arg2) {
 
 export function UpdateProfile(arg1, arg2) {
   return window['go']['main']['App']['UpdateProfile'](arg1, arg2);
+}
+
+export function UpdateProfileMediaSupport(arg1, arg2) {
+  return window['go']['main']['App']['UpdateProfileMediaSupport'](arg1, arg2);
 }
 
 export function UpdateSkill(arg1, arg2) {

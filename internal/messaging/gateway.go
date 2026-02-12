@@ -2,6 +2,8 @@ package messaging
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"sync"
 
@@ -18,6 +20,10 @@ type SendMessageFunc func(conversationID uint, content, media string, params llm
 // emitFunc é a callback para emitir eventos Wails.
 type emitFunc func(event string, data any)
 
+// SynthesizeTTSFunc é a assinatura da função que sintetiza texto em áudio (MP3).
+// Retorna os bytes do áudio MP3. Usada para responder em áudio quando a mensagem original era áudio.
+type SynthesizeTTSFunc func(text string) ([]byte, error)
+
 // Gateway é o router central de mensageria. Conecta os adapters dos mensageiros
 // ao processamento do assistente (via App.SendMessage).
 //
@@ -29,12 +35,13 @@ type emitFunc func(event string, data any)
 //  5. Quando resposta fica pronta, Notifier dispara callback
 //  6. Gateway reenvia resposta ao mensageiro de origem
 type Gateway struct {
-	mu          sync.RWMutex
-	messengers  map[string]Messenger
-	notifier    *ResponseNotifier
-	config      *config.MessagingConfig
-	sendMessage SendMessageFunc
-	emitEvent   emitFunc
+	mu             sync.RWMutex
+	messengers     map[string]Messenger
+	notifier       *ResponseNotifier
+	config         *config.MessagingConfig
+	sendMessage    SendMessageFunc
+	emitEvent      emitFunc
+	synthesizeTTS  SynthesizeTTSFunc // Opcional: sintetiza áudio para respostas em modo áudio
 }
 
 // NewGateway cria um novo Gateway de mensageria.
@@ -43,13 +50,15 @@ func NewGateway(
 	msgConfig *config.MessagingConfig,
 	sendMessage SendMessageFunc,
 	emitEvent emitFunc,
+	synthesizeTTS SynthesizeTTSFunc,
 ) *Gateway {
 	return &Gateway{
-		messengers:  make(map[string]Messenger),
-		notifier:    notifier,
-		config:      msgConfig,
-		sendMessage: sendMessage,
-		emitEvent:   emitEvent,
+		messengers:    make(map[string]Messenger),
+		notifier:      notifier,
+		config:        msgConfig,
+		sendMessage:   sendMessage,
+		emitEvent:     emitEvent,
+		synthesizeTTS: synthesizeTTS,
 	}
 }
 
@@ -88,6 +97,14 @@ func (g *Gateway) GetStatus() map[string]ConnectionStatus {
 	return status
 }
 
+// UpdateConfig atualiza a configuração de mensageria em memória.
+// Usado após autorizar um contato, por exemplo.
+func (g *Gateway) UpdateConfig(cfg *config.MessagingConfig) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.config = cfg
+}
+
 // GetMessenger retorna um messenger pelo nome (para uso pela tool send_message).
 func (g *Gateway) GetMessenger(name string) (Messenger, bool) {
 	g.mu.RLock()
@@ -100,32 +117,92 @@ func (g *Gateway) GetMessenger(name string) (Messenger, bool) {
 func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	// 1. Verifica allowlist
 	channelConfig := g.getChannelConfig(msg.Channel)
-	if !config.IsContactAllowed(channelConfig, msg.From.ID) {
-		fmt.Printf("[Gateway] Mensagem de %s (%s) rejeitada — contato não autorizado\n",
-			msg.From.DisplayName, msg.From.ID)
+	if !config.IsContactAllowed(channelConfig, msg.From.ID, msg.From.Username) {
+		fmt.Printf("[Gateway] Mensagem de %s (%s / %s) rejeitada — contato não autorizado\n",
+			msg.From.DisplayName, msg.From.ID, msg.From.Username)
+
+		// Emite evento para o frontend oferecer autorização manual
+		if g.emitEvent != nil {
+			g.emitEvent("messaging:contact_blocked", map[string]any{
+				"channel":     msg.Channel,
+				"displayName": msg.From.DisplayName,
+				"contactId":   msg.From.ID,
+				"username":    msg.From.Username,
+			})
+		}
 		return
 	}
 
-	// 2. Pega a conversa ativa do Wails (ou 0 para criar nova)
-	conversationID := g.getActiveConversationID()
+	// 2. Busca (ou cria) a conversa dedicada para este canal+contato.
+	//    Cada contato externo tem sua própria conversa — não compartilha com a aba ativa.
+	conv, created, err := database.FindOrCreateChannelConversation(
+		msg.Channel, msg.From.ID, msg.From.DisplayName,
+	)
+	if err != nil {
+		fmt.Printf("[Gateway] Erro ao buscar/criar conversa para %s/%s: %v\n", msg.Channel, msg.From.ID, err)
+		return
+	}
+	conversationID := conv.ID
+
+	if created {
+		fmt.Printf("[Gateway] Nova conversa %d criada para %s via %s\n", conversationID, msg.From.DisplayName, msg.Channel)
+	}
 	fmt.Printf("[Gateway] Mensagem de %s via %s → conversa %d\n",
 		msg.From.DisplayName, msg.Channel, conversationID)
 
-	// 3. Emite evento para o frontend (notificação visual)
+	// 3. Garante que existe uma aba para essa conversa no Wails
+	channelIcons := map[string]string{"signal": "📡", "telegram": "✈️"}
+	icon := channelIcons[msg.Channel]
+	if icon == "" {
+		icon = "💬"
+	}
+	tabTitle := fmt.Sprintf("[%s] %s", msg.Channel, msg.From.DisplayName)
+	tab, tabCreated, tabErr := database.FindOrCreateTabForConversation(conversationID, tabTitle, icon)
+
+	var tabID uint
+	if tabErr == nil {
+		tabID = tab.ID
+		if tabCreated {
+			fmt.Printf("[Gateway] Nova aba %d criada para conversa %d\n", tabID, conversationID)
+		}
+	} else {
+		fmt.Printf("[Gateway] Erro ao criar aba para conversa %d: %v\n", conversationID, tabErr)
+	}
+
+	// 4. Converte attachments em media JSON (mesmo formato que o frontend)
+	mediaJSON := ""
+	if len(msg.Attachments) > 0 {
+		mediaJSON = attachmentsToMediaJSON(msg.Attachments)
+		fmt.Printf("[Gateway] %d attachment(s) convertidos para media JSON\n", len(msg.Attachments))
+	}
+
+	// 5. Emite evento para o frontend (com conversationID + info da aba)
+	hasAttachments := len(msg.Attachments) > 0
 	if g.emitEvent != nil {
 		g.emitEvent("messaging:incoming", map[string]any{
-			"channel":     msg.Channel,
-			"from":        msg.From.DisplayName,
-			"fromId":      msg.From.ID,
-			"text":        msg.Text,
-			"messageId":   msg.ID,
+			"channel":         msg.Channel,
+			"from":            msg.From.DisplayName,
+			"fromId":          msg.From.ID,
+			"text":            msg.Text,
+			"messageId":       msg.ID,
+			"conversationId":  conversationID,
+			"newConversation": created,
+			"tabId":           tabID,
+			"tabCreated":      tabCreated,
+			"tabTitle":        tabTitle,
+			"tabIcon":         icon,
+			"hasAttachments":  hasAttachments,
+			"audioOnly":       msg.IsAudioOnly(),
 		})
 	}
 
-	// 4. Registra callback no Notifier para capturar a resposta
+	// 6. Registra callback no Notifier para capturar a resposta e reenviar ao mensageiro.
+	//    Se a mensagem original era audio-only, o callback também sintetizará TTS.
+	audioOnly := msg.IsAudioOnly()
 	g.notifier.Register(conversationID, ResponseCallback{
-		Channel: msg.Channel,
-		ChatID:  msg.From.ID,
+		Channel:   msg.Channel,
+		ChatID:    msg.From.ID,
+		AudioOnly: audioOnly,
 		Callback: func(response string) {
 			g.mu.RLock()
 			messenger, ok := g.messengers[msg.Channel]
@@ -136,11 +213,30 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 				return
 			}
 
-			err := messenger.Send(ctx, OutgoingMessage{
+			outMsg := OutgoingMessage{
 				ChatID:           msg.From.ID,
 				Text:             response,
 				ReplyToMessageID: msg.ID,
-			})
+			}
+
+			// Se a mensagem original era áudio e temos TTS, sintetiza e envia áudio
+			if audioOnly && g.synthesizeTTS != nil {
+				audioData, err := g.synthesizeTTS(response)
+				if err == nil && len(audioData) > 0 {
+					outMsg.Attachments = []Attachment{{
+						Filename: "resposta.mp3",
+						MIMEType: "audio/mpeg",
+						Data:     audioData,
+					}}
+					// Em modo áudio, não envia texto (só o áudio)
+					outMsg.Text = ""
+					fmt.Printf("[Gateway] Resposta TTS gerada (%d bytes) para %s\n", len(audioData), msg.From.DisplayName)
+				} else if err != nil {
+					fmt.Printf("[Gateway] Erro ao gerar TTS: %v (enviando texto)\n", err)
+				}
+			}
+
+			err := messenger.Send(ctx, outMsg)
 			if err != nil {
 				fmt.Printf("[Gateway] Erro ao enviar resposta via %s: %v\n", msg.Channel, err)
 			} else {
@@ -149,12 +245,11 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		},
 	})
 
-	// 5. Chama o mesmo SendMessage que o Wails usa
+	// 7. Chama o mesmo SendMessage que o Wails usa (com o conversationID dedicado)
 	params := llm.ChatParams{}
-	resultConvID, err := g.sendMessage(conversationID, msg.Text, "", params, msg.Channel)
+	_, err = g.sendMessage(conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
 		fmt.Printf("[Gateway] Erro ao processar mensagem: %v\n", err)
-		// Tenta notificar o usuário do erro
 		g.mu.RLock()
 		messenger, ok := g.messengers[msg.Channel]
 		g.mu.RUnlock()
@@ -164,43 +259,27 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 				Text:   fmt.Sprintf("Erro ao processar mensagem: %v", err),
 			})
 		}
-		return
-	}
-
-	// Se a conversa foi criada (conversationID era 0), re-registra o callback
-	// com o ID real da conversa
-	if conversationID == 0 && resultConvID > 0 {
-		fmt.Printf("[Gateway] Conversa criada: %d\n", resultConvID)
-		// O notifier já foi registrado com 0, mas o saveAndFinish vai usar resultConvID.
-		// Precisamos re-registrar com o ID correto.
-		g.notifier.Register(resultConvID, ResponseCallback{
-			Channel: msg.Channel,
-			ChatID:  msg.From.ID,
-			Callback: func(response string) {
-				g.mu.RLock()
-				messenger, ok := g.messengers[msg.Channel]
-				g.mu.RUnlock()
-
-				if !ok {
-					return
-				}
-				messenger.Send(ctx, OutgoingMessage{
-					ChatID: msg.From.ID,
-					Text:   response,
-				})
-			},
-		})
 	}
 }
 
-// getActiveConversationID retorna o ID da conversa ativa no Wails.
-// Se não há conversa ativa, retorna 0 (SendMessage criará uma nova).
-func (g *Gateway) getActiveConversationID() uint {
-	tab, err := database.GetActiveTab()
-	if err != nil || tab == nil || tab.ConversationID == nil {
-		return 0
+// attachmentsToMediaJSON converte []Attachment para o formato media JSON
+// usado pelo pipeline LLM (mesmo formato que o frontend envia).
+// Formato: [{"name":"file.jpg","type":"image/jpeg","data":"base64...","size":1234}]
+func attachmentsToMediaJSON(attachments []Attachment) string {
+	var parts []map[string]interface{}
+	for _, att := range attachments {
+		parts = append(parts, map[string]interface{}{
+			"name": att.Filename,
+			"type": att.MIMEType,
+			"data": base64.StdEncoding.EncodeToString(att.Data),
+			"size": att.Size,
+		})
 	}
-	return *tab.ConversationID
+	data, err := json.Marshal(parts)
+	if err != nil {
+		return ""
+	}
+	return string(data)
 }
 
 // getChannelConfig retorna a configuração de um canal específico.

@@ -74,6 +74,32 @@ func CreateTab(title, icon string, setActive bool) (*ChatTab, error) {
 	return tab, nil
 }
 
+// FindOrCreateTabForConversation busca uma aba existente para um conversationID.
+// Se não existir, cria uma nova. Retorna a aba e se foi criada (true) ou encontrada (false).
+func FindOrCreateTabForConversation(conversationID uint, title, icon string) (*ChatTab, bool, error) {
+	var tab ChatTab
+	err := db.Where("conversation_id = ?", conversationID).First(&tab).Error
+	if err == nil {
+		return &tab, false, nil
+	}
+
+	// Cria nova aba para esta conversa (sem ativar — quem decide é o frontend)
+	var maxPos int
+	db.Model(&ChatTab{}).Select("COALESCE(MAX(position), -1)").Scan(&maxPos)
+
+	tab = ChatTab{
+		Title:          title,
+		Icon:           icon,
+		ConversationID: &conversationID,
+		Position:       maxPos + 1,
+		IsActive:       false,
+	}
+	if err := db.Create(&tab).Error; err != nil {
+		return nil, false, err
+	}
+	return &tab, true, nil
+}
+
 // CloseTab fecha uma aba (remove do banco)
 func CloseTab(id uint) error {
 	var tab ChatTab

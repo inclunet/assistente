@@ -9,6 +9,8 @@ import {
   UpdateTabTitle as BackendUpdateTabTitle,
   GetMessages,
   LoadConversationInTab,
+  AssignConversationToChannel,
+  UnassignConversationFromChannel,
 } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
@@ -70,6 +72,7 @@ export interface NewMessageData {
   content: string;
   isStreaming?: boolean;
   parentId?: string;
+  source?: string;
 }
 
 export interface ChatTab {
@@ -80,6 +83,8 @@ export interface ChatTab {
   createdAt: number;
   updatedAt: number;
   backendId?: number; // ID do backend (database.ChatTab)
+  channel?: string;    // Canal vinculado: "signal", "telegram", etc.
+  contactId?: string;  // ID do contato no canal (phone, UUID, chatID)
 }
 
 interface ChatStore {
@@ -156,6 +161,19 @@ interface ChatStore {
   handleDatabaseReset: () => void;
   handleTabClosed: (tabId: number) => void;
   consolidateEmptyTabs: () => void;
+
+  // Channel assignment (bridge bidirecional)
+  assignChannelToTab: (tabId: string, channel: string, contactId: string) => Promise<void>;
+  unassignChannelFromTab: (tabId: string) => Promise<void>;
+
+  // Messaging (external channels)
+  reloadActiveTabMessages: () => Promise<void>;
+  reloadConversationMessages: (conversationId: number) => Promise<void>;
+  handleExternalIncoming: (data: {
+    channel: string; from: string; fromId?: string; text: string; conversationId: number;
+    newConversation?: boolean; tabId?: number; tabCreated?: boolean;
+    tabTitle?: string; tabIcon?: string;
+  }) => void;
 }
 
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -201,6 +219,8 @@ const backendTabToFrontend = (backendTab: database.ChatTab): ChatTab => {
     conversationId: backendTab.conversation_id || undefined,
     createdAt: backendTab.created_at ? Date.parse(backendTab.created_at as any) : Date.now(),
     updatedAt: backendTab.updated_at ? Date.parse(backendTab.updated_at as any) : Date.now(),
+    channel: backendTab.conversation?.channel || undefined,
+    contactId: backendTab.conversation?.contact_id || undefined,
   };
 };
 
@@ -1934,6 +1954,376 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
         }
       }
+    },
+
+    // Recarrega mensagens da aba ativa a partir do banco de dados.
+    // Usado quando mensagens chegam de canais externos (Signal, Telegram).
+    reloadActiveTabMessages: async () => {
+      const { activeTabId, tabs } = get();
+      const tab = tabs.find((t) => t.id === activeTabId);
+      if (!tab?.conversationId) return;
+
+      try {
+        const backendNodes = await GetMessages(tab.conversationId, null);
+        const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
+          (node as any).originalIndex = index;
+          return node;
+        });
+
+        set((state) => ({
+          tabs: state.tabs.map((t) =>
+            t.id === activeTabId
+              ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() }
+              : t
+          ),
+        }));
+        console.log('[Chat] Mensagens recarregadas (external channel):', backendNodes.length);
+      } catch (err) {
+        console.error('[Chat] Erro ao recarregar mensagens (external):', err);
+      }
+    },
+
+    // Recarrega mensagens de uma conversa específica, independente de qual aba está ativa.
+    // Encontra a aba que contém essa conversa e atualiza suas mensagens.
+    // Se a conversa não está em nenhuma aba, não faz nada (as mensagens estão salvas no banco).
+    reloadConversationMessages: async (conversationId: number) => {
+      const { tabs } = get();
+      const tab = tabs.find((t) => t.conversationId === conversationId);
+      if (!tab) {
+        console.log('[Chat] reloadConversation: conversa', conversationId, 'não está em nenhuma aba');
+        return;
+      }
+
+      try {
+        const backendNodes = await GetMessages(conversationId, null);
+        const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
+          (node as any).originalIndex = index;
+          return node;
+        });
+
+        set((state) => ({
+          tabs: state.tabs.map((t) =>
+            t.id === tab.id
+              ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() }
+              : t
+          ),
+        }));
+        console.log('[Chat] Mensagens da conversa', conversationId, 'recarregadas:', backendNodes.length);
+      } catch (err) {
+        console.error('[Chat] Erro ao recarregar conversa', conversationId, ':', err);
+      }
+    },
+
+    // Atribui um canal externo a uma conversa (bridge bidirecional).
+    assignChannelToTab: async (tabId, channel, contactId) => {
+      const tab = get().tabs.find((t) => t.id === tabId);
+      if (!tab?.conversationId) {
+        console.warn('[Chat] assignChannelToTab: aba sem conversationId', tabId);
+        return;
+      }
+      await AssignConversationToChannel(tab.conversationId, channel, contactId);
+      set((state) => ({
+        tabs: state.tabs.map((t) =>
+          t.id === tabId ? { ...t, channel, contactId } : t
+        ),
+      }));
+      console.log('[Chat] Canal atribuído:', channel, contactId, '→ tab', tabId);
+    },
+
+    // Remove a vinculação de canal de uma conversa.
+    unassignChannelFromTab: async (tabId) => {
+      const tab = get().tabs.find((t) => t.id === tabId);
+      if (!tab?.conversationId) return;
+      await UnassignConversationFromChannel(tab.conversationId);
+      set((state) => ({
+        tabs: state.tabs.map((t) =>
+          t.id === tabId ? { ...t, channel: undefined, contactId: undefined } : t
+        ),
+      }));
+      console.log('[Chat] Canal removido da tab', tabId);
+    },
+
+    // Trata mensagem recebida de canal externo (Signal, Telegram) com streaming completo.
+    // Replica o fluxo de sendMessage: placeholder de usuário + assistente streaming + listeners.
+    // Cada contato externo tem sua conversa e aba dedicada (criada pelo backend).
+    handleExternalIncoming: (data) => {
+      const { addMessage, tabs } = get();
+      const { channel, from, text, conversationId, tabId, tabTitle } = data;
+
+      // 1. Encontra a aba dedicada desta conversa no store.
+      //    O backend já garante que a aba e a conversa existem.
+      let targetTabId: string | null = null;
+
+      // Primeiro tenta por conversationId (mais confiável)
+      if (conversationId > 0) {
+        const existingTab = tabs.find((t) => t.conversationId === conversationId);
+        if (existingTab) {
+          targetTabId = existingTab.id;
+        }
+      }
+
+      // Se a aba foi criada pelo backend mas o frontend ainda não conhece, adiciona
+      if (!targetTabId && tabId && tabId > 0) {
+        const frontendTabId = tabId.toString();
+        // Verifica se já existe pelo backendId
+        const existingByBackendId = tabs.find((t) => t.backendId === tabId);
+        if (existingByBackendId) {
+          targetTabId = existingByBackendId.id;
+        } else {
+          // Cria a aba localmente no store (sincronizado com o backend)
+          const newTab: ChatTab = {
+            id: frontendTabId,
+            backendId: tabId,
+            title: tabTitle || `[${channel}] ${from}`,
+            threadedMessages: [],
+            conversationId: conversationId || undefined,
+            createdAt: Date.now(),
+            updatedAt: Date.now(),
+            channel: channel || undefined,
+            contactId: data.fromId || undefined,
+          };
+          set((state) => ({
+            tabs: [...state.tabs, newTab],
+          }));
+          targetTabId = frontendTabId;
+          console.log('[Chat] Nova aba externa adicionada ao store:', frontendTabId, tabTitle);
+        }
+      }
+
+      if (!targetTabId) {
+        console.log('[Chat] handleExternalIncoming: nenhuma aba encontrada para conversa', conversationId);
+        return;
+      }
+
+      console.log('[Chat] handleExternalIncoming:', from, 'via', channel, '→ tab', targetTabId);
+
+      // 2. Adiciona a mensagem do usuário (origin badge via source)
+      addMessage(targetTabId, {
+        role: 'user',
+        content: text,
+        source: channel,
+      });
+
+      // 3. Adiciona placeholder de streaming para a resposta do assistente
+      const assistantMessageId = addMessage(targetTabId, {
+        role: 'assistant',
+        content: '',
+        isStreaming: true,
+      });
+
+      set({ isLoading: true, streamingMessageId: assistantMessageId });
+
+      // 4. Registra listeners de streaming (mesmo padrão do sendMessage)
+      let cleanupExecuted = false;
+      let streamingAnnounced = false;
+
+      const cleanup = () => {
+        if (cleanupExecuted) return;
+        cleanupExecuted = true;
+
+        activeListenerCount--;
+        console.log('[Chat] Cleaning up external listeners for tab:', targetTabId, '| Active:', activeListenerCount);
+        unsubStream();
+        unsubThinking();
+        unsubToolStart();
+        unsubToolEnd();
+        unsubSegmentDone();
+        unsubDone();
+        unsubReady();
+        activeListeners.delete(targetTabId!);
+        set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [] });
+      };
+
+      // Limpa listeners antigos desta tab se existirem
+      const existingCleanup = activeListeners.get(targetTabId);
+      if (existingCleanup) {
+        console.log('[Chat] ⚠️  Limpando listeners antigos da tab (external):', targetTabId);
+        existingCleanup();
+      }
+
+      activeListenerCount++;
+      console.log('[Chat] Registrando listeners EXTERNOS para tab:', targetTabId, '| Total:', activeListenerCount);
+
+      // chat:messages_ready — atualiza ID do user message para o ID real do banco
+      const unsubReady = EventsOn('chat:messages_ready', (event: any) => {
+        if (!activeListeners.has(targetTabId!)) return;
+        if (event.userMessageId) {
+          console.log('[Chat] (external) messages_ready: conv=', event.conversationId);
+          // Se conversationId era 0 e agora sabemos o real, atualiza a tab
+          if (event.conversationId && (!conversationId || conversationId === 0)) {
+            set((state) => ({
+              tabs: state.tabs.map((t) =>
+                t.id === targetTabId
+                  ? { ...t, conversationId: event.conversationId, updatedAt: Date.now() }
+                  : t
+              ),
+            }));
+          }
+        }
+      });
+
+      // chat:stream — atualiza conteúdo da resposta em tempo real
+      const unsubStream = EventsOn('chat:stream', (event: any) => {
+        if (!activeListeners.has(targetTabId!)) return;
+
+        if (event.content) {
+          if (!streamingAnnounced && !event.done && !event.error) {
+            streamingAnnounced = true;
+            announce('Assistente está respondendo', 'polite');
+          }
+
+          if (!event.done && !event.error) {
+            debouncedUpdateMessage(targetTabId!, assistantMessageId, event.content, get().updateMessage);
+          } else {
+            flushPendingUpdate(targetTabId!, assistantMessageId, get().updateMessage);
+            get().updateMessage(targetTabId!, assistantMessageId, event.content);
+          }
+        }
+
+        if (event.error) {
+          flushPendingUpdate(targetTabId!, assistantMessageId, get().updateMessage);
+          get().updateMessage(targetTabId!, assistantMessageId, `Erro: ${event.error}`);
+          cleanup();
+        }
+
+        if (event.done) {
+          const currentState = get();
+          const currentTab = currentState.tabs.find(t => t.id === targetTabId);
+          const flatMessages = flattenThreadedMessages(currentTab?.threadedMessages);
+          const finalMessage = flatMessages.find(m => m.id === assistantMessageId);
+
+          set((state) => ({
+            tabs: state.tabs.map((tab) =>
+              tab.id === targetTabId
+                ? {
+                    ...tab,
+                    threadedMessages: tab.threadedMessages.map((node) => {
+                      const markDone = (n: MessageNode): MessageNode => {
+                        if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                        if (n.children?.length) n.children = n.children.map(markDone);
+                        return n;
+                      };
+                      return markDone(node);
+                    }),
+                  }
+                : tab
+            ),
+          }));
+
+          if (finalMessage?.content) {
+            const isActiveTab = currentState.activeTabId === targetTabId;
+            if (isActiveTab) playReceiveSound();
+
+            if (ttsService.isAutoReadEnabled() && isActiveTab && !cleanupExecuted) {
+              messageAudioService.stopAll();
+              ttsService.stop();
+              ttsService.speak(finalMessage.content).catch((err: any) => {
+                console.error('[Chat] TTS error (external):', err);
+              });
+            }
+
+            if (ttsService.shouldUseAriaLiveForAgent() && isActiveTab) {
+              announce(`Assistente: ${stripMarkdown(finalMessage.content)}`);
+            }
+          }
+        }
+      });
+
+      // chat:thinking
+      const unsubThinking = EventsOn('chat:thinking', (event: any) => {
+        if (!activeListeners.has(targetTabId!)) return;
+        if (event.started) {
+          set({ isThinking: true, streamingReasoning: event.content || '' });
+          announce('O modelo está pensando...', 'polite');
+        } else if (event.done) {
+          set({ isThinking: false });
+          if (event.content) get().updateMessageReasoning(targetTabId!, assistantMessageId, event.content);
+        } else {
+          set({ streamingReasoning: event.content || '' });
+        }
+      });
+
+      // chat:tool_start
+      const unsubToolStart = EventsOn('chat:tool_start', (event: any) => {
+        if (!activeListeners.has(targetTabId!)) return;
+        set((state) => ({
+          hadToolCalls: true,
+          activeToolCalls: [...state.activeToolCalls, {
+            name: event.name, callId: event.callId, args: event.args, status: 'running' as const,
+          }],
+        }));
+        announce(`Executando ferramenta: ${event.name}`, 'polite');
+      });
+
+      // chat:tool_end
+      const unsubToolEnd = EventsOn('chat:tool_end', (event: any) => {
+        if (!activeListeners.has(targetTabId!)) return;
+        set((state) => ({
+          activeToolCalls: state.activeToolCalls.map((tc) =>
+            tc.callId === event.callId
+              ? { ...tc, status: (event.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: event.summary }
+              : tc
+          ),
+        }));
+      });
+
+      // chat:segment_done
+      const unsubSegmentDone = EventsOn('chat:segment_done', (event: any) => {
+        if (!activeListeners.has(targetTabId!)) return;
+        if (event.content && ttsService.isAutoReadEnabled()) {
+          ttsService.speak(event.content).catch((err: any) => {
+            console.error('[Chat] TTS segment error (external):', err);
+          });
+        }
+      });
+
+      // chat:done — finaliza e faz reload se houve tool calls
+      const unsubDone = EventsOn('chat:done', (event: any) => {
+        if (!activeListeners.has(targetTabId!)) return;
+        console.log('[Chat] (external) chat:done:', event);
+
+        const didUseTools = get().hadToolCalls;
+
+        set((state) => {
+          const tabIndex = state.tabs.findIndex((t) => t.id === targetTabId);
+          if (tabIndex >= 0) {
+            state.tabs[tabIndex].threadedMessages = state.tabs[tabIndex].threadedMessages.map((node) => {
+              const markDone = (n: MessageNode): MessageNode => {
+                if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                if (n.children?.length) n.children = n.children.map(markDone);
+                return n;
+              };
+              return markDone(node);
+            });
+          }
+          return state;
+        });
+
+        if (didUseTools) {
+          const tab = get().tabs.find(t => t.id === targetTabId);
+          if (tab?.conversationId) {
+            GetMessages(tab.conversationId, null).then((backendNodes) => {
+              const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
+                (node as any).originalIndex = index;
+                return node;
+              });
+              set((state) => ({
+                tabs: state.tabs.map((t) =>
+                  t.id === targetTabId
+                    ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() }
+                    : t
+                ),
+                hadToolCalls: false,
+              }));
+            });
+          }
+        }
+
+        cleanup();
+      });
+
+      // Armazena cleanup no Map para evitar duplicação
+      activeListeners.set(targetTabId, cleanup);
     },
   };
 });

@@ -20,6 +20,10 @@ export function AddMessageWithTokens(arg1:number,arg2:string,arg3:string,arg4:nu
 
 export function AddMessageWithTokensAndMedia(arg1:number,arg2:string,arg3:string,arg4:string,arg5:number,arg6:number,arg7:number,arg8:string):Promise<database.ChatMessage>;
 
+export function AssignConversationToChannel(arg1:number,arg2:string,arg3:string):Promise<void>;
+
+export function AuthorizeMessagingContact(arg1:string,arg2:string):Promise<void>;
+
 export function ClearConversation(arg1:number):Promise<void>;
 
 export function ClearTab(arg1:number):Promise<void>;
@@ -80,11 +84,15 @@ export function GetAllowlistSearchPaths():Promise<Array<string>>;
 
 export function GetAllowlists():Promise<Array<allowlist.AllowlistInfo>>;
 
+export function GetAvailableChannels():Promise<Array<main.ChannelInfo>>;
+
 export function GetAvailableTools():Promise<Array<main.ToolInfo>>;
 
 export function GetConfig():Promise<config.Config>;
 
 export function GetConversation(arg1:number):Promise<database.Conversation>;
+
+export function GetConversationChannel(arg1:number):Promise<string>;
 
 export function GetConversationInfo(arg1:number):Promise<database.Conversation>;
 
@@ -107,6 +115,10 @@ export function GetMCPServerTools(arg1:string):Promise<Array<mcp.MCPToolInfo>>;
 export function GetMessageChildren(arg1:number):Promise<Array<main.MessageNode>>;
 
 export function GetMessages(arg1:number,arg2:any):Promise<Array<main.MessageNode>>;
+
+export function GetMessagingConfig():Promise<config.MessagingConfig>;
+
+export function GetMessagingStatus():Promise<Record<string, string>>;
 
 export function GetModels():Promise<Array<string>>;
 
@@ -176,9 +188,13 @@ export function RunTerminalCommand(arg1:string,arg2:string):Promise<void>;
 
 export function SaveMCPServer(arg1:string,arg2:mcp.ServerConfig):Promise<void>;
 
+export function SaveMessagingConfig(arg1:config.MessagingConfig):Promise<void>;
+
 export function SaveSettings(arg1:llm.SettingsInput):Promise<void>;
 
 export function SendMessage(arg1:number,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<number>;
+
+export function SendMessageFromChannel(arg1:number,arg2:string,arg3:string,arg4:llm.ChatParams,arg5:string):Promise<number>;
 
 export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Promise<string>;
 
@@ -202,6 +218,20 @@ export function SetSAPI5Rate(arg1:number):Promise<void>;
 
 export function SetSAPI5Volume(arg1:number):Promise<void>;
 
+export function SignalCheckAPI(arg1:string):Promise<Record<string, any>>;
+
+export function SignalLink(arg1:string,arg2:string):Promise<string>;
+
+export function SignalLinkRaw(arg1:string,arg2:string):Promise<string>;
+
+export function SignalListAccounts(arg1:string):Promise<Array<string>>;
+
+export function SignalRegister(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+
+export function SignalUnregister(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+
+export function SignalVerify(arg1:string,arg2:string,arg3:string):Promise<void>;
+
 export function SpeakSAPI5(arg1:string,arg2:string):Promise<void>;
 
 export function StopSAPI5():Promise<void>;
@@ -220,6 +250,8 @@ export function TestConnectionWithModels():Promise<Array<string>>;
 
 export function TranscribeWhisper(arg1:string,arg2:string):Promise<main.TranscriptionResultInfo>;
 
+export function UnassignConversationFromChannel(arg1:number):Promise<void>;
+
 export function UpdateAllowlist(arg1:string,arg2:allowlist.Allowlist):Promise<void>;
 
 export function UpdateConversation(arg1:number,arg2:string,arg3:string):Promise<void>;
@@ -229,6 +261,8 @@ export function UpdateConversationModel(arg1:number,arg2:string):Promise<void>;
 export function UpdateMessage(arg1:number,arg2:string):Promise<void>;
 
 export function UpdateProfile(arg1:string,arg2:profiles.Profile):Promise<void>;
+
+export function UpdateProfileMediaSupport(arg1:string,arg2:boolean):Promise<void>;
 
 export function UpdateSkill(arg1:string,arg2:main.SkillCreateRequest):Promise<void>;
 

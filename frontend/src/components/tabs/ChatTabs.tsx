@@ -9,22 +9,48 @@
  * - PageUp/PageDown: Pular 10 abas
  * - Delete: Fechar aba atual
  * - F2: Renomear aba atual
+ * - Shift+F10 ou Menu: Menu de contexto (renomear, fechar, atribuir canal)
  */
 
-import { useRef, useState } from 'react';
-import { useChatStore } from '../../store/chatStore';
+import { useEffect, useRef, useState } from 'react';
+import { useChatStore, ChatTab } from '../../store/chatStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playBumpSound } from '../../services/audioFeedback';
+import { ContextMenu, MenuItem } from '../ui/ContextMenu';
+import { GetAvailableChannels } from '../../../wailsjs/go/main/App';
+import { useUIStore } from '../../store/uiStore';
 import './ChatTabs.css';
 
+// Ícones visuais por canal
+const channelIcons: Record<string, string> = {
+  signal: '📡',
+  telegram: '✈️',
+};
+
 export function ChatTabs() {
-  const { tabs, activeTabId, isLoading, deleteTab, setActiveTab, updateTabTitle } = useChatStore();
+  const { tabs, activeTabId, isLoading, deleteTab, setActiveTab, updateTabTitle, assignChannelToTab, unassignChannelFromTab } = useChatStore();
+  const { addToast } = useUIStore();
   const tabListRef = useRef<HTMLDivElement>(null);
   const { announce } = useAnnouncer();
   
   // Estado para edição de título
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+
+  // Estado do menu de contexto
+  const [contextMenu, setContextMenu] = useState<{
+    visible: boolean; x: number; y: number; tabId: string;
+  }>({ visible: false, x: 0, y: 0, tabId: '' });
+  const [availableChannels, setAvailableChannels] = useState<{ name: string; connected: boolean; contacts: string[] }[]>([]);
+
+  // Carrega canais disponíveis quando o menu precisa
+  useEffect(() => {
+    if (contextMenu.visible) {
+      GetAvailableChannels().then((channels) => {
+        setAvailableChannels(channels || []);
+      }).catch(() => setAvailableChannels([]));
+    }
+  }, [contextMenu.visible]);
   const editInputRef = useRef<HTMLInputElement>(null);
 
   /**
@@ -186,6 +212,34 @@ export function ChatTabs() {
         }
         handled = true;
         break;
+
+      case 'F10':
+        // Shift+F10: abre menu de contexto (padrão Windows)
+        if (event.shiftKey) {
+          event.preventDefault();
+          const tabButton = tabListRef.current?.querySelector(
+            `[data-tab-id="${tabId}"]`
+          ) as HTMLButtonElement;
+          if (tabButton) {
+            const rect = tabButton.getBoundingClientRect();
+            openContextMenu(tabId, rect.left, rect.bottom);
+          }
+          handled = true;
+        }
+        break;
+
+      case 'ContextMenu':
+        // Tecla Menu (se disponível no teclado)
+        event.preventDefault();
+        const ctxTabButton = tabListRef.current?.querySelector(
+          `[data-tab-id="${tabId}"]`
+        ) as HTMLButtonElement;
+        if (ctxTabButton) {
+          const rect = ctxTabButton.getBoundingClientRect();
+          openContextMenu(tabId, rect.left, rect.bottom);
+        }
+        handled = true;
+        break;
     }
 
     if (handled) {
@@ -245,6 +299,157 @@ export function ChatTabs() {
   };
 
   /**
+   * Abre menu de contexto na aba (clique direito ou Shift+F10)
+   */
+  const openContextMenu = (tabId: string, x: number, y: number) => {
+    setContextMenu({ visible: true, x, y, tabId });
+  };
+
+  const closeContextMenu = () => {
+    setContextMenu({ visible: false, x: 0, y: 0, tabId: '' });
+  };
+
+  const handleTabContextMenu = (event: React.MouseEvent, tabId: string) => {
+    event.preventDefault();
+    event.stopPropagation();
+    openContextMenu(tabId, event.clientX, event.clientY);
+  };
+
+  /**
+   * Constrói os items do menu de contexto para uma aba
+   */
+  const buildContextMenuItems = (tab: ChatTab): MenuItem[] => {
+    const items: MenuItem[] = [
+      {
+        id: 'rename',
+        label: 'Renomear',
+        icon: '✏️',
+        shortcut: 'F2',
+        ariaLabel: 'Renomear conversa',
+        action: () => {
+          closeContextMenu();
+          startEditingTab(tab.id, tab.title || 'Nova conversa');
+        },
+      },
+    ];
+
+    if (tabs.length > 1) {
+      items.push({
+        id: 'close',
+        label: 'Fechar',
+        icon: '✕',
+        shortcut: 'Delete',
+        ariaLabel: 'Fechar conversa',
+        danger: true,
+        action: () => {
+          closeContextMenu();
+          deleteTab(tab.id);
+        },
+      });
+    }
+
+    // Opções de canal
+    const connectedChannels = availableChannels.filter((ch) => ch.connected);
+
+    if (tab.channel) {
+      // Já tem canal atribuído — mostra qual e opção de remover
+      items.push({ id: 'sep-channel', separator: true });
+      items.push({
+        id: 'channel-info',
+        label: `Canal: ${tab.channel}`,
+        icon: channelIcons[tab.channel] || '🔗',
+        ariaLabel: `Canal atribuído: ${tab.channel}`,
+      });
+      items.push({
+        id: 'unassign-channel',
+        label: 'Remover canal',
+        icon: '🚫',
+        ariaLabel: 'Remover vinculação de canal',
+        action: async () => {
+          closeContextMenu();
+          try {
+            await unassignChannelFromTab(tab.id);
+            addToast('Canal removido da conversa', 'success');
+            announce('Canal removido da conversa');
+          } catch (err: any) {
+            addToast(err.message || 'Erro ao remover canal', 'error');
+          }
+        },
+      });
+    } else if (connectedChannels.length > 0 && tab.conversationId) {
+      // Sem canal — oferece submenu para atribuir
+      items.push({ id: 'sep-channel', separator: true });
+
+      const channelSubmenu: MenuItem[] = connectedChannels.map((ch) => {
+        // Se o canal tem contatos, cria submenu com cada contato
+        if (ch.contacts && ch.contacts.length > 0) {
+          // Filtra wildcard (*)
+          const realContacts = ch.contacts.filter((c) => c !== '*');
+          if (realContacts.length === 1) {
+            // Atalho: se tem só 1 contato, atribui direto
+            return {
+              id: `assign-${ch.name}`,
+              label: `${ch.name} (${realContacts[0]})`,
+              icon: channelIcons[ch.name] || '🔗',
+              ariaLabel: `Atribuir ao ${ch.name}, contato ${realContacts[0]}`,
+              action: async () => {
+                closeContextMenu();
+                try {
+                  await assignChannelToTab(tab.id, ch.name, realContacts[0]);
+                  addToast(`Conversa vinculada ao ${ch.name}`, 'success');
+                  announce(`Conversa vinculada ao ${ch.name}`);
+                } catch (err: any) {
+                  addToast(err.message || 'Erro ao atribuir canal', 'error');
+                }
+              },
+            };
+          } else if (realContacts.length > 1) {
+            // Submenu com cada contato
+            return {
+              id: `assign-${ch.name}`,
+              label: ch.name,
+              icon: channelIcons[ch.name] || '🔗',
+              ariaLabel: `Atribuir ao ${ch.name}`,
+              submenu: realContacts.map((contact) => ({
+                id: `assign-${ch.name}-${contact}`,
+                label: contact,
+                ariaLabel: `Contato ${contact}`,
+                action: async () => {
+                  closeContextMenu();
+                  try {
+                    await assignChannelToTab(tab.id, ch.name, contact);
+                    addToast(`Conversa vinculada ao ${ch.name} (${contact})`, 'success');
+                    announce(`Conversa vinculada ao ${ch.name}, contato ${contact}`);
+                  } catch (err: any) {
+                    addToast(err.message || 'Erro ao atribuir canal', 'error');
+                  }
+                },
+              })),
+            };
+          }
+        }
+        // Sem contatos configurados — item desabilitado
+        return {
+          id: `assign-${ch.name}`,
+          label: `${ch.name} (sem contatos)`,
+          icon: channelIcons[ch.name] || '🔗',
+          ariaLabel: `${ch.name} sem contatos configurados`,
+        };
+      });
+
+      items.push({
+        id: 'assign-channel',
+        label: 'Atribuir a canal',
+        icon: '🔗',
+        ariaLabel: 'Atribuir conversa a um canal de mensageria',
+        submenu: channelSubmenu,
+      });
+    }
+
+    return items;
+  };
+
+  /**
    * Handler para input de edição
    */
   const handleEditKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
@@ -284,16 +489,20 @@ export function ChatTabs() {
             data-tab-id={tab.id}
             className={`chat-tabs__tab ${
               tab.id === activeTabId ? 'chat-tabs__tab--active' : ''
-            } ${editingTabId === tab.id ? 'chat-tabs__tab--editing' : ''}`}
+            } ${editingTabId === tab.id ? 'chat-tabs__tab--editing' : ''} ${
+              tab.channel ? 'chat-tabs__tab--channel' : ''
+            }`}
             role="tab"
             aria-selected={tab.id === activeTabId}
             aria-controls={`tabpanel-${tab.id}`}
+            aria-description={tab.channel ? `Canal: ${tab.channel}` : undefined}
             tabIndex={tab.id === activeTabId ? 0 : -1}
             onClick={() => handleTabClick(tab.id)}
             onKeyDown={(e) => handleKeyDown(e, tab.id)}
+            onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
           >
             <span className="chat-tabs__tab-icon" aria-hidden="true">
-              💬
+              {tab.channel ? (channelIcons[tab.channel] || '🔗') : '💬'}
             </span>
             {editingTabId === tab.id ? (
               <input
@@ -324,6 +533,16 @@ export function ChatTabs() {
           </button>
         ))}
       </div>
+
+      {/* Menu de contexto das abas */}
+      <ContextMenu
+        visible={contextMenu.visible}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        items={contextMenu.visible ? buildContextMenuItems(tabs.find(t => t.id === contextMenu.tabId)!) : []}
+        ariaLabel="Menu de contexto da aba"
+        onClose={closeContextMenu}
+      />
     </div>
   );
 }

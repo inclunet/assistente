@@ -6,12 +6,25 @@ import "fmt"
 // Combina configurações de chat (LLM), voz (TTS) e interação (STT/triggers)
 // em um único arquivo JSON armazenado em .assistente/profiles/.
 type Profile struct {
-	Name        string            `json:"name"`
-	Description string            `json:"description,omitempty"`
-	Icon        string            `json:"icon,omitempty"`
-	Chat        ChatConfig        `json:"chat"`
-	Voice       VoiceConfig       `json:"voice"`
-	Interaction InteractionConfig `json:"interaction"`
+	Name         string            `json:"name"`
+	Description  string            `json:"description,omitempty"`
+	Icon         string            `json:"icon,omitempty"`
+	Chat         ChatConfig        `json:"chat"`
+	Voice        VoiceConfig       `json:"voice"`
+	Interaction  InteractionConfig `json:"interaction"`
+	MediaSupport *MediaSupport     `json:"media_support,omitempty"` // Suporte a mídia do modelo (auto-detectado)
+}
+
+// MediaSupport indica quais tipos de mídia o modelo LLM suporta nativamente.
+// Começa nil (não testado). Cada campo é preenchido automaticamente após a
+// primeira tentativa — se o modelo rejeitar, marca false e usa fallback
+// (Whisper para áudio, extração de texto para documentos).
+// O usuário pode forçar valores manualmente no perfil.
+type MediaSupport struct {
+	Audio    *bool `json:"audio,omitempty"`    // Suporta input_audio? nil=não testado
+	Image    *bool `json:"image,omitempty"`    // Suporta image_url? nil=não testado (assume true)
+	Document *bool `json:"document,omitempty"` // Suporta arquivos/PDF? nil=não testado
+	Video    *bool `json:"video,omitempty"`    // Suporta vídeo? nil=não testado
 }
 
 // ChatConfig define as configurações do modelo LLM

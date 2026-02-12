@@ -43,6 +43,62 @@ export namespace allowlist {
 
 export namespace config {
 	
+	export class ChannelConfig {
+	    enabled: boolean;
+	    bot_token?: string;
+	    account?: string;
+	    api_url?: string;
+	    allowed_contacts: string[];
+	    profile?: string;
+	    max_history?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChannelConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.bot_token = source["bot_token"];
+	        this.account = source["account"];
+	        this.api_url = source["api_url"];
+	        this.allowed_contacts = source["allowed_contacts"];
+	        this.profile = source["profile"];
+	        this.max_history = source["max_history"];
+	    }
+	}
+	export class MessagingConfig {
+	    telegram?: ChannelConfig;
+	    signal?: ChannelConfig;
+	
+	    static createFrom(source: any = {}) {
+	        return new MessagingConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.telegram = this.convertValues(source["telegram"], ChannelConfig);
+	        this.signal = this.convertValues(source["signal"], ChannelConfig);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class STTParams {
 	    provider?: string;
 	    recording_mode?: string;
@@ -83,6 +139,7 @@ export namespace config {
 	    active_profile?: string;
 	    chat_params?: ModelParams;
 	    stt_params?: STTParams;
+	    messaging?: MessagingConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -97,6 +154,7 @@ export namespace config {
 	        this.active_profile = source["active_profile"];
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
+	        this.messaging = this.convertValues(source["messaging"], MessagingConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -118,6 +176,7 @@ export namespace config {
 		}
 	}
 	
+	
 
 }
 
@@ -138,6 +197,7 @@ export namespace database {
 	    completionTokens?: number;
 	    totalTokens?: number;
 	    model?: string;
+	    source?: string;
 	    // Go type: time
 	    createdAt: any;
 	
@@ -161,6 +221,7 @@ export namespace database {
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
 	        this.model = source["model"];
+	        this.source = source["source"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	    }
 	
@@ -185,6 +246,8 @@ export namespace database {
 	export class Conversation {
 	    id: number;
 	    title: string;
+	    channel?: string;
+	    contact_id?: string;
 	    // Go type: time
 	    created_at: any;
 	    // Go type: time
@@ -200,6 +263,8 @@ export namespace database {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
+	        this.channel = source["channel"];
+	        this.contact_id = source["contact_id"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
@@ -458,6 +523,22 @@ export namespace llm {
 
 export namespace main {
 	
+	export class ChannelInfo {
+	    name: string;
+	    connected: boolean;
+	    contacts: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ChannelInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.connected = source["connected"];
+	        this.contacts = source["contacts"];
+	    }
+	}
 	export class EnrichedMessage {
 	    id: string;
 	    conversationId: number;
@@ -473,6 +554,7 @@ export namespace main {
 	    completionTokens?: number;
 	    totalTokens?: number;
 	    model?: string;
+	    source?: string;
 	    // Go type: time
 	    createdAt: any;
 	    timestamp: number;
@@ -499,6 +581,7 @@ export namespace main {
 	        this.completionTokens = source["completionTokens"];
 	        this.totalTokens = source["totalTokens"];
 	        this.model = source["model"];
+	        this.source = source["source"];
 	        this.createdAt = this.convertValues(source["createdAt"], null);
 	        this.timestamp = source["timestamp"];
 	        this.isStreaming = source["isStreaming"];
@@ -1072,6 +1155,24 @@ export namespace profiles {
 		    return a;
 		}
 	}
+	export class MediaSupport {
+	    audio?: boolean;
+	    image?: boolean;
+	    document?: boolean;
+	    video?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MediaSupport(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.audio = source["audio"];
+	        this.image = source["image"];
+	        this.document = source["document"];
+	        this.video = source["video"];
+	    }
+	}
 	export class VoiceConfig {
 	    provider: string;
 	    voice_id?: string;
@@ -1103,6 +1204,7 @@ export namespace profiles {
 	    chat: ChatConfig;
 	    voice: VoiceConfig;
 	    interaction: InteractionConfig;
+	    media_support?: MediaSupport;
 	
 	    static createFrom(source: any = {}) {
 	        return new Profile(source);
@@ -1116,6 +1218,7 @@ export namespace profiles {
 	        this.chat = this.convertValues(source["chat"], ChatConfig);
 	        this.voice = this.convertValues(source["voice"], VoiceConfig);
 	        this.interaction = this.convertValues(source["interaction"], InteractionConfig);
+	        this.media_support = this.convertValues(source["media_support"], MediaSupport);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

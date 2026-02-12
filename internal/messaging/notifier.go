@@ -14,6 +14,10 @@ type ResponseCallback struct {
 	// ChatID é o identificador do chat de destino para a resposta.
 	ChatID string
 
+	// AudioOnly indica que a mensagem original era apenas áudio.
+	// A resposta deve ser sintetizada em áudio (TTS) e enviada como attachment.
+	AudioOnly bool
+
 	// Callback é chamado com a resposta completa do assistente.
 	Callback func(response string)
 }

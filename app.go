@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/base64"
 	"fmt"
 	"log"
 	"os"
@@ -241,12 +242,31 @@ func (a *App) initMessaging() {
 		runtime.EventsEmit(a.ctx, event, data)
 	}
 
+	// Função TTS para sintetizar respostas em áudio (quando mensagem original era áudio).
+	// Usa ensureSpeechManager() para lazy-init — speechManager pode não existir no startup.
+	synthesizeTTS := messaging.SynthesizeTTSFunc(func(text string) ([]byte, error) {
+		if !a.ensureSpeechManager() {
+			return nil, fmt.Errorf("speech manager indisponível para TTS")
+		}
+		result, err := a.speechManager.Synthesize(text)
+		if err != nil {
+			return nil, err
+		}
+		// Decodifica base64 para bytes
+		audioBytes, err := base64.StdEncoding.DecodeString(result.AudioBase64)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao decodificar áudio TTS: %w", err)
+		}
+		return audioBytes, nil
+	})
+
 	// Cria o gateway com referência para SendMessageFromChannel
 	a.msgGateway = messaging.NewGateway(
 		a.responseNotifier,
 		msgConfig,
 		a.SendMessageFromChannel,
 		emitEvent,
+		synthesizeTTS,
 	)
 
 	// Telegram
@@ -318,6 +338,222 @@ func (a *App) SaveMessagingConfig(msgCfg *config.MessagingConfig) error {
 		c.Messaging = msgCfg
 		return c
 	})
+}
+
+// SignalRegister inicia o registro de uma conta Signal via signal-cli-rest-api.
+// mode: "sms" (padrão) ou "voice" para receber o código por ligação.
+// captcha: token de verificação exigido pelo Signal (signalcaptcha://...).
+func (a *App) SignalRegister(apiURL, number, mode, captcha string) error {
+	return signal.Register(apiURL, number, mode, captcha)
+}
+
+// SignalVerify verifica o código recebido via SMS/ligação.
+func (a *App) SignalVerify(apiURL, number, code string) error {
+	return signal.Verify(apiURL, number, code)
+}
+
+// SignalLink gera o QR code para vincular como dispositivo secundário.
+// Retorna a imagem QR code em base64 (PNG).
+func (a *App) SignalLink(apiURL, deviceName string) (string, error) {
+	return signal.GetLinkQRCode(apiURL, deviceName)
+}
+
+// SignalLinkRaw gera a URI texto para vincular como dispositivo secundário.
+// Alternativa acessível ao QR code.
+func (a *App) SignalLinkRaw(apiURL, deviceName string) (string, error) {
+	return signal.GetLinkRawURI(apiURL, deviceName)
+}
+
+// SignalUnregister remove uma conta da signal-cli-rest-api.
+func (a *App) SignalUnregister(apiURL, number string, deleteLocalData bool) error {
+	return signal.Unregister(apiURL, number, deleteLocalData)
+}
+
+// SignalCheckAPI verifica se a signal-cli-rest-api está acessível na URL informada.
+func (a *App) SignalCheckAPI(apiURL string) (map[string]interface{}, error) {
+	return signal.CheckAPI(apiURL)
+}
+
+// SignalListAccounts retorna as contas já registradas na signal-cli-rest-api.
+func (a *App) SignalListAccounts(apiURL string) ([]string, error) {
+	return signal.ListAccounts(apiURL)
+}
+
+// AuthorizeMessagingContact adiciona um contato à lista de contatos autorizados de um canal.
+// Salva a alteração no config.json e recarrega a config do gateway.
+func (a *App) AuthorizeMessagingContact(channel, contactID string) error {
+	if channel == "" || contactID == "" {
+		return fmt.Errorf("canal e ID do contato são obrigatórios")
+	}
+
+	err := config.Update(func(c *config.Config) *config.Config {
+		if c.Messaging == nil {
+			c.Messaging = &config.MessagingConfig{}
+		}
+
+		var ch *config.ChannelConfig
+		switch channel {
+		case "telegram":
+			if c.Messaging.Telegram == nil {
+				c.Messaging.Telegram = &config.ChannelConfig{Enabled: true}
+			}
+			ch = c.Messaging.Telegram
+		case "signal":
+			if c.Messaging.Signal == nil {
+				c.Messaging.Signal = &config.ChannelConfig{Enabled: true}
+			}
+			ch = c.Messaging.Signal
+		default:
+			return c
+		}
+
+		// Verifica se já está na lista
+		for _, existing := range ch.AllowedContacts {
+			if existing == contactID {
+				return c // já autorizado
+			}
+		}
+		ch.AllowedContacts = append(ch.AllowedContacts, contactID)
+		return c
+	})
+	if err != nil {
+		return fmt.Errorf("erro ao salvar autorização: %w", err)
+	}
+
+	// Atualiza a config do gateway em memória
+	if a.msgGateway != nil {
+		cfg, err := config.Load()
+		if err == nil && cfg.Messaging != nil {
+			a.msgGateway.UpdateConfig(cfg.Messaging)
+		}
+	}
+
+	log.Printf("[Messaging] Contato %s autorizado no canal %s", contactID, channel)
+	return nil
+}
+
+// registerChannelBridge verifica se uma conversa pertence a um canal externo (Signal, Telegram).
+// Se sim, registra um callback no ResponseNotifier para que a resposta do assistente seja
+// reenviada ao mensageiro de origem — permitindo bridge bidirecional (Wails ↔ Messenger).
+func (a *App) registerChannelBridge(conversationID uint) {
+	conv, err := database.GetConversationInfo(conversationID)
+	if err != nil || conv == nil || conv.Channel == "" || conv.ContactID == "" {
+		return // Conversa local do Wails, não precisa de bridge
+	}
+
+	messenger, ok := a.msgGateway.GetMessenger(conv.Channel)
+	if !ok {
+		return // Messenger não registrado
+	}
+
+	log.Printf("[Bridge] Registrando bridge Wails→%s para conversa %d (contato: %s)", conv.Channel, conversationID, conv.ContactID)
+
+	a.responseNotifier.Register(conversationID, messaging.ResponseCallback{
+		Channel: conv.Channel,
+		ChatID:  conv.ContactID,
+		Callback: func(response string) {
+			err := messenger.Send(context.Background(), messaging.OutgoingMessage{
+				ChatID: conv.ContactID,
+				Text:   response,
+			})
+			if err != nil {
+				log.Printf("[Bridge] Erro ao reenviar resposta para %s/%s: %v", conv.Channel, conv.ContactID, err)
+			} else {
+				log.Printf("[Bridge] Resposta reenviada para %s/%s", conv.Channel, conv.ContactID)
+			}
+		},
+	})
+}
+
+// ChannelInfo descreve um canal de mensageria disponível para atribuição.
+type ChannelInfo struct {
+	Name      string   `json:"name"`      // "signal", "telegram"
+	Connected bool     `json:"connected"` // se está conectado e funcional
+	Contacts  []string `json:"contacts"`  // contatos permitidos (do config)
+}
+
+// GetAvailableChannels retorna os canais de mensageria habilitados, seu status e contatos.
+func (a *App) GetAvailableChannels() []ChannelInfo {
+	cfg, err := config.Load()
+	if err != nil || cfg.Messaging == nil {
+		return nil
+	}
+
+	var channels []ChannelInfo
+
+	// Verifica status dos messengers registrados
+	var status map[string]messaging.ConnectionStatus
+	if a.msgGateway != nil {
+		status = a.msgGateway.GetStatus()
+	}
+
+	if cfg.Messaging.Signal != nil && cfg.Messaging.Signal.Enabled {
+		connected := false
+		if s, ok := status["signal"]; ok {
+			connected = s == messaging.StatusConnected
+		}
+		channels = append(channels, ChannelInfo{
+			Name:      "signal",
+			Connected: connected,
+			Contacts:  cfg.Messaging.Signal.AllowedContacts,
+		})
+	}
+
+	if cfg.Messaging.Telegram != nil && cfg.Messaging.Telegram.Enabled {
+		connected := false
+		if s, ok := status["telegram"]; ok {
+			connected = s == messaging.StatusConnected
+		}
+		channels = append(channels, ChannelInfo{
+			Name:      "telegram",
+			Connected: connected,
+			Contacts:  cfg.Messaging.Telegram.AllowedContacts,
+		})
+	}
+
+	return channels
+}
+
+// AssignConversationToChannel vincula uma conversa existente a um canal externo.
+// A partir deste momento, respostas do assistente nessa conversa também são enviadas ao canal.
+func (a *App) AssignConversationToChannel(conversationID uint, channel, contactID string) error {
+	if channel == "" || contactID == "" {
+		return fmt.Errorf("canal e contato são obrigatórios")
+	}
+
+	conv, err := database.GetConversationInfo(conversationID)
+	if err != nil {
+		return fmt.Errorf("conversa %d não encontrada: %w", conversationID, err)
+	}
+
+	// Atualiza os campos de canal na conversa
+	conv.Channel = channel
+	conv.ContactID = contactID
+	if err := database.UpdateConversationChannel(conversationID, channel, contactID); err != nil {
+		return fmt.Errorf("erro ao atualizar conversa: %w", err)
+	}
+
+	log.Printf("[Bridge] Conversa %d atribuída ao canal %s (contato: %s)", conversationID, channel, contactID)
+	return nil
+}
+
+// UnassignConversationFromChannel remove a vinculação de uma conversa com um canal externo.
+func (a *App) UnassignConversationFromChannel(conversationID uint) error {
+	if err := database.UpdateConversationChannel(conversationID, "", ""); err != nil {
+		return fmt.Errorf("erro ao remover canal da conversa: %w", err)
+	}
+
+	log.Printf("[Bridge] Conversa %d desvinculada de canal externo", conversationID)
+	return nil
+}
+
+// GetConversationChannel retorna o canal e contato vinculados a uma conversa.
+func (a *App) GetConversationChannel(conversationID uint) (string, string, error) {
+	conv, err := database.GetConversationInfo(conversationID)
+	if err != nil {
+		return "", "", err
+	}
+	return conv.Channel, conv.ContactID, nil
 }
 
 // initToolRegistry inicializa o registro de ferramentas disponíveis
@@ -1017,6 +1253,26 @@ func (a *App) InitSpeechManager(apiKey, apiBaseURL, whisperLanguage, ttsVoice, t
 	a.speechManager = speech.NewSpeechManager(config)
 	log.Printf("Speech Manager inicializado (STT: whisper, TTS: openai)")
 	return nil
+}
+
+// ensureSpeechManager garante que o speechManager está inicializado.
+// Se não estiver, tenta inicializar a partir da config.
+// Retorna true se disponível, false caso contrário.
+func (a *App) ensureSpeechManager() bool {
+	if a.speechManager != nil {
+		return true
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		log.Printf("[Speech] Erro ao carregar config para inicializar speechManager: %v", err)
+		return false
+	}
+	if cfg.APIKey == "" {
+		log.Printf("[Speech] API key não configurada — speechManager indisponível")
+		return false
+	}
+	a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", "nova", "tts-1")
+	return a.speechManager != nil
 }
 
 // TranscribeWhisper transcreve áudio usando OpenAI Whisper

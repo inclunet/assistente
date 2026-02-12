@@ -59,13 +59,21 @@ type Config struct {
 
 // IsContactAllowed verifica se um contato está na allowlist de um canal.
 // Se allowlist está vazia, REJEITA tudo (segurança por padrão).
-func IsContactAllowed(cfg *ChannelConfig, contactID string) bool {
+// Use "*" na allowlist para permitir qualquer contato.
+// Compara contra todos os identificadores fornecidos
+// (ex: número de telefone E UUID do Signal).
+func IsContactAllowed(cfg *ChannelConfig, identifiers ...string) bool {
 	if cfg == nil || len(cfg.AllowedContacts) == 0 {
 		return false
 	}
 	for _, allowed := range cfg.AllowedContacts {
-		if allowed == contactID {
+		if allowed == "*" {
 			return true
+		}
+		for _, id := range identifiers {
+			if id != "" && allowed == id {
+				return true
+			}
 		}
 	}
 	return false

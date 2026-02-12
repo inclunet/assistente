@@ -6,9 +6,10 @@ import "time"
 
 // sendMessageV2 é o payload do POST /v2/send da signal-cli-rest-api.
 type sendMessageV2 struct {
-	Message    string   `json:"message"`              // Texto da mensagem
-	Number     string   `json:"number"`               // Número remetente (conta Signal)
-	Recipients []string `json:"recipients"`            // Número(s) destinatário(s)
+	Message           string   `json:"message"`                      // Texto da mensagem
+	Number            string   `json:"number"`                       // Número remetente (conta Signal)
+	Recipients        []string `json:"recipients"`                   // Número(s) destinatário(s)
+	Base64Attachments []string `json:"base64_attachments,omitempty"` // Anexos em base64 (data URI: "data:mime;base64,...")
 }
 
 // sendMessageResponse é a resposta do POST /v2/send.
@@ -45,10 +46,19 @@ type signalEnvelope struct {
 
 // dataMessage é uma mensagem de texto/dados.
 type dataMessage struct {
-	Timestamp        int64  `json:"timestamp"`
-	Message          string `json:"message"`
-	ExpiresInSeconds int    `json:"expiresInSeconds"`
-	ViewOnce         bool   `json:"viewOnce"`
+	Timestamp        int64               `json:"timestamp"`
+	Message          string              `json:"message"`
+	ExpiresInSeconds int                 `json:"expiresInSeconds"`
+	ViewOnce         bool                `json:"viewOnce"`
+	Attachments      []signalAttachment  `json:"attachments,omitempty"`
+}
+
+// signalAttachment representa um anexo recebido via signal-cli-rest-api.
+type signalAttachment struct {
+	ContentType string `json:"contentType"` // MIME type (ex: "audio/aac", "image/jpeg")
+	Filename    string `json:"filename"`    // Nome do arquivo (pode ser vazio)
+	ID          string `json:"id"`          // ID do attachment na API
+	Size        int64  `json:"size"`        // Tamanho em bytes
 }
 
 // syncMessage é uma mensagem de sincronização (enviada por outro dispositivo nosso).
