@@ -239,6 +239,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           <h3 className="chat-message__role">
             {getDisplayRole()}
           </h3>
+          {message.source && message.source !== 'wails' && message.source !== '' && (
+            <span className="chat-message__source-badge" aria-label={`Via ${message.source}`}>
+              {message.source === 'telegram' && '✈'}
+              {message.source === 'signal' && '🔒'}
+              {message.source === 'whatsapp' && '💬'}
+              {!['telegram', 'signal', 'whatsapp'].includes(message.source) && '📱'}
+              <span className="chat-message__source-name">{message.source}</span>
+            </span>
+          )}
           <span className="chat-message__timestamp">
             {formatTime(timestamp)}
           </span>

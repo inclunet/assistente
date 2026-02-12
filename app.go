@@ -15,6 +15,9 @@ import (
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
+	"assistente/internal/messaging"
+	"assistente/internal/messaging/telegram"
+	msgtool "assistente/internal/tools/messaging"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
@@ -41,6 +44,8 @@ type App struct {
 	allowlistMgr          *allowlist.Manager    // Gerenciador de allowlists de comandos
 	mcpMgr                *mcpmgr.Manager       // Gerenciador de servidores MCP
 	skillMgr              *skills.Manager       // Gerenciador de skills
+	responseNotifier      *messaging.ResponseNotifier // Notificador de respostas para mensageiros
+	msgGateway            *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	voiceHotkeyID         int
 	currentConversationID uint // ID da conversa atual
 
@@ -67,6 +72,7 @@ type EnrichedMessage struct {
 	CompletionTokens int       `json:"completionTokens,omitempty"`
 	TotalTokens      int       `json:"totalTokens,omitempty"`
 	Model            string    `json:"model,omitempty"`
+	Source           string    `json:"source,omitempty"`
 	CreatedAt        time.Time `json:"createdAt"`
 	Timestamp        int64     `json:"timestamp"`
 	IsStreaming      bool      `json:"isStreaming"`
@@ -139,6 +145,9 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
 
+	// Inicializa o gateway de mensageria (Telegram, etc.)
+	a.initMessaging()
+
 	// Inicializa hotkeys globais
 	a.initGlobalHotkeys()
 
@@ -208,6 +217,77 @@ func (a *App) initMCP() {
 	}
 
 	log.Printf("[MCP] Manager inicializado")
+}
+
+// initMessaging inicializa o gateway de mensageria (Telegram, futuramente Signal/WhatsApp).
+func (a *App) initMessaging() {
+	// ResponseNotifier — permite ao gateway capturar respostas para reenvio
+	a.responseNotifier = messaging.NewResponseNotifier()
+
+	// Carrega configuração de mensageria
+	msgConfig, err := messaging.LoadConfig()
+	if err != nil {
+		log.Printf("[Messaging] Erro ao carregar config: %v", err)
+		return
+	}
+
+	emitEvent := func(event string, data any) {
+		runtime.EventsEmit(a.ctx, event, data)
+	}
+
+	// Cria o gateway com referência para SendMessageFromChannel
+	a.msgGateway = messaging.NewGateway(
+		a.responseNotifier,
+		msgConfig,
+		a.SendMessageFromChannel,
+		emitEvent,
+	)
+
+	// Telegram
+	if msgConfig.Telegram != nil && msgConfig.Telegram.Enabled && msgConfig.Telegram.BotToken != "" {
+		adapter := telegram.NewAdapter(msgConfig.Telegram.BotToken)
+		a.msgGateway.Register("telegram", adapter)
+		go func() {
+			if err := adapter.Connect(a.ctx); err != nil {
+				log.Printf("[Messaging] Erro ao conectar Telegram: %v", err)
+			}
+		}()
+		log.Printf("[Messaging] Telegram habilitado")
+	} else {
+		log.Printf("[Messaging] Telegram não configurado ou desabilitado")
+	}
+
+	// Registra a tool send_message no registry de ferramentas
+	if a.toolRegistry != nil {
+		sendMsgTool := msgtool.NewSendMessageTool(a.msgGateway)
+		a.toolRegistry.MustRegister(sendMsgTool)
+		log.Printf("[Messaging] Tool 'send_message' registrada")
+	}
+
+	log.Printf("[Messaging] Gateway inicializado")
+}
+
+// GetMessagingStatus retorna o status de todos os mensageiros conectados.
+func (a *App) GetMessagingStatus() map[string]string {
+	if a.msgGateway == nil {
+		return map[string]string{}
+	}
+	status := a.msgGateway.GetStatus()
+	result := make(map[string]string, len(status))
+	for k, v := range status {
+		result[k] = string(v)
+	}
+	return result
+}
+
+// GetMessagingConfig retorna a configuração de mensageria atual.
+func (a *App) GetMessagingConfig() (*messaging.Config, error) {
+	return messaging.LoadConfig()
+}
+
+// SaveMessagingConfig salva a configuração de mensageria.
+func (a *App) SaveMessagingConfig(cfg *messaging.Config) error {
+	return messaging.SaveConfig(cfg)
 }
 
 // initToolRegistry inicializa o registro de ferramentas disponíveis
@@ -306,6 +386,11 @@ func (a *App) shutdown(ctx context.Context) {
 	// Encerra todas as sessões de terminal
 	if a.terminalMgr != nil {
 		a.terminalMgr.CloseAll()
+	}
+
+	// Encerra todos os mensageiros
+	if a.msgGateway != nil {
+		a.msgGateway.Shutdown()
 	}
 }
 

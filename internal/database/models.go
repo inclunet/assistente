@@ -41,6 +41,7 @@ type ChatMessage struct {
 	CompletionTokens int       `json:"completionTokens,omitempty"`         // Tokens de saída
 	TotalTokens      int       `json:"totalTokens,omitempty"`              // Total de tokens
 	Model            string    `json:"model,omitempty"`                    // Modelo usado
+	Source           string    `json:"source,omitempty"`                   // Origem da mensagem: "wails", "telegram", "signal", etc.
 	CreatedAt        time.Time `json:"createdAt"`
 }
 

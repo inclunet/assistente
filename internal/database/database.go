@@ -172,6 +172,7 @@ type MessageOptions struct {
 	CompletionTokens int
 	TotalTokens      int
 	Model            string
+	Source           string // Origem da mensagem: "wails", "telegram", "signal", etc.
 }
 
 // CreateMessage cria uma mensagem com todas as opções disponíveis
@@ -204,6 +205,7 @@ func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 		CompletionTokens: opts.CompletionTokens,
 		TotalTokens:      opts.TotalTokens,
 		Model:            opts.Model,
+		Source:           opts.Source,
 	}
 	if err := db.Create(msg).Error; err != nil {
 		return nil, err

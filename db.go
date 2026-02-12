@@ -48,6 +48,7 @@ func (a *App) enrichMessage(msg database.ChatMessage) EnrichedMessage {
 		CompletionTokens: msg.CompletionTokens,
 		TotalTokens:      msg.TotalTokens,
 		Model:            msg.Model,
+		Source:           msg.Source,
 		CreatedAt:        msg.CreatedAt,
 		// Campos derivados
 		Timestamp:   msg.CreatedAt.UnixMilli(),

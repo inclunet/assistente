@@ -434,6 +434,11 @@ func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
 		}
 	}
 
+	// Notifica o gateway de mensageria (se há callbacks pendentes para esta conversa)
+	if a.responseNotifier != nil {
+		a.responseNotifier.Notify(conversationID, result.FullResponse)
+	}
+
 	// Emite evento final de streaming
 	runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
 		Content:        result.FullResponse,

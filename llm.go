@@ -291,6 +291,11 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 		}
 	}
 
+	// Notifica o gateway de mensageria (se há callbacks pendentes para esta conversa)
+	if h.app.responseNotifier != nil {
+		h.app.responseNotifier.Notify(h.conversationID, finalContent)
+	}
+
 	// Emite evento final de streaming
 	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
 		Content:        finalContent,
@@ -324,12 +329,20 @@ const (
 	MaxMediaSize = 10 * 1024 * 1024
 )
 
-// SendMessage envia uma mensagem para a API com streaming
-// NOVA ARQUITETURA: Backend gerencia todo o estado
-// 1. Cria mensagens no banco ANTES de streamar
-// 2. Emite evento único com IDs das mensagens criadas
-// 3. Streaming emite eventos com messageId
+// SendMessage é o binding Wails para envio de mensagens. Source padrão: "wails".
 func (a *App) SendMessage(conversationID uint, userContent string, userMedia string, params ChatParams) (uint, error) {
+	return a.sendMessageInternal(conversationID, userContent, userMedia, params, "wails")
+}
+
+// SendMessageFromChannel é chamado pelo Gateway de mensageria.
+// Funciona como SendMessage mas permite especificar a origem (source).
+func (a *App) SendMessageFromChannel(conversationID uint, content, media string, params ChatParams, source string) (uint, error) {
+	return a.sendMessageInternal(conversationID, content, media, params, source)
+}
+
+// sendMessageInternal contém a lógica de processamento de mensagens.
+// Usado por SendMessage (Wails) e SendMessageFromChannel (mensageiros).
+func (a *App) sendMessageInternal(conversationID uint, userContent string, userMedia string, params ChatParams, source string) (uint, error) {
 	// Validação de tamanho do conteúdo
 	if len(userContent) > MaxMessageContentSize {
 		errMsg := fmt.Sprintf("Mensagem muito grande (%d bytes). Máximo permitido: %d bytes", len(userContent), MaxMessageContentSize)
@@ -427,13 +440,19 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		log.Printf("[SendMessage] Usando modelo padrão: %s", params.Model)
 	}
 
-	// 1. Salva mensagem do usuário no banco
-	userMsg, err := database.AddMessageWithMedia(conversationID, "user", userContent, userMedia)
+	// 1. Salva mensagem do usuário no banco (com source para badge visual)
+	userMsg, err := database.CreateMessage(database.MessageOptions{
+		ConversationID: conversationID,
+		Role:           "user",
+		Content:        userContent,
+		Media:          userMedia,
+		Source:         source,
+	})
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao salvar mensagem: "+err.Error())
 		return 0, err
 	}
-	fmt.Printf("✅ Mensagem do usuário salva: ID=%d\n", userMsg.ID)
+	fmt.Printf("✅ Mensagem do usuário salva: ID=%d (source=%s)\n", userMsg.ID, source)
 
 	// 2. Emite evento informando que mensagem do usuário foi criada
 	runtime.EventsEmit(a.ctx, "chat:messages_ready", map[string]interface{}{
