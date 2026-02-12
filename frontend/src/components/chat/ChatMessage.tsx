@@ -3,7 +3,8 @@ import { Message } from '../../store/chatStore';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
-import { formatAgentName, isAgentMessage } from '../../lib/chatUtils';
+import { ToolCallsSection, ToolCallStatus } from './ToolCallsSection';
+import { isAgentMessage } from '../../lib/chatUtils';
 import { stripMarkdown } from '../../lib/stripMarkdown';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import './ChatMessage.css';
@@ -18,8 +19,9 @@ export interface ChatMessageProps {
   onThreadToggle?: () => void;
   // Event handlers
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
-  onOpenDetail?: (message: Message) => void;
   onSpeak?: (message: Message) => void;
+  // Modo leitura (virtual modal)
+  isReading?: boolean;
   // Edit mode props
   isEditing?: boolean;
   editContent?: string;
@@ -31,6 +33,8 @@ export interface ChatMessageProps {
   isThinking?: boolean; // Se está recebendo reasoning
   isReasoningExpanded?: boolean; // Se o reasoning está expandido
   onToggleReasoning?: () => void; // Callback para toggle do reasoning
+  // Tool calling props
+  activeToolCalls?: ToolCallStatus[]; // Tool calls em execução (durante streaming)
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
@@ -41,8 +45,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isThreadLoading = false,
   onThreadToggle,
   onContextMenu,
-  onOpenDetail,
   onSpeak,
+  isReading = false,
   isEditing = false,
   editContent: externalEditContent = '',
   onEditContentChange,
@@ -52,8 +56,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isThinking = false,
   isReasoningExpanded = false,
   onToggleReasoning,
+  activeToolCalls,
 }) => {
-  const { role, content, timestamp, isStreaming, agentName, toolName, reasoning } = message;
+  const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
 
   // Usa editContent externo se está editando
@@ -71,16 +76,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     // Usuário
     if (role === 'user') return 'Você';
 
-    // Resposta de ferramenta - usa o nome da ferramenta
-    if (role === 'tool' && toolName) {
-      return formatAgentName(toolName);
-    }
+    // Resposta de ferramenta — mostra ID do call
+    if (role === 'tool') return 'Resultado';
 
-    // Mensagem genérica de ferramenta sem nome específico
-    if (role === 'tool') return 'Ferramenta';
-
-    // Agente específico (file_manager, etc)
-    if (agentName) return formatAgentName(agentName);
+    // Assistente com tool calls pendentes
+    if (role === 'assistant' && toolCalls) return 'Assistente';
 
     // Assistente padrão
     return 'Assistente';
@@ -158,14 +158,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       return;
     }
 
-    // Enter abre modal de detalhes
-    if (e.key === 'Enter' && !isStreaming) {
-      e.preventDefault();
-      if (onOpenDetail) {
-        onOpenDetail(message);
-      }
-      return;
-    }
+    // Enter é tratado pelo MessageNode (ativa modo leitura virtual)
+    // Não processar aqui para evitar conflito
   };
 
   const handleKeyUp = (e: React.KeyboardEvent) => {
@@ -214,7 +208,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   return (
     <div
-      className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''}`}
+      className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''} ${isReading ? 'chat-message--reading' : ''}`}
       aria-label={isEditing ? undefined : getAriaLabel()}
       aria-live={isStreaming ? 'polite' : 'off'}
       aria-busy={isStreaming}
@@ -224,6 +218,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       onFocus={handleFocus}
       tabIndex={-1}
     >
+      {isReading && (
+        <div className="chat-message__reading-badge" aria-hidden="true">
+          Lendo
+        </div>
+      )}
       <div className="chat-message__avatar" aria-hidden="true">
         {role === 'user' ? (
           <div className="chat-message__avatar-user">U</div>
@@ -260,6 +259,14 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             isStreaming={isThinking}
             isExpanded={isThinking || isReasoningExpanded} // Expandido durante streaming ou por toggle
             onToggle={onToggleReasoning}
+          />
+        )}
+
+        {/* Seção de Tool Calls - exibe ferramentas chamadas pelo assistente */}
+        {role === 'assistant' && (toolCalls || (isStreaming && activeToolCalls && activeToolCalls.length > 0)) && (
+          <ToolCallsSection
+            toolCallsJson={toolCalls}
+            activeToolCalls={isStreaming ? activeToolCalls : undefined}
           />
         )}
 

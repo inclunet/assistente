@@ -33,6 +33,9 @@ frontend/.vite/
 .DS_Store
 Thumbs.db
 
+# Tilde directory (criado por engano quando ~ não é expandido no Windows)
+~/
+
 # Database
 *.db
 *.sqlite

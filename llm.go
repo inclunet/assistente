@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -13,8 +12,11 @@ import (
 	"time"
 
 	"assistente/internal/config"
+	"assistente/internal/configdir"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/skills"
+	"assistente/internal/tools"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -23,10 +25,6 @@ import (
 type Message = llm.Message
 type ContentPart = llm.ContentPart
 type ImageURL = llm.ImageURL
-type ToolCall = llm.ToolCall
-type FunctionCall = llm.FunctionCall
-type Tool = llm.Tool
-type ToolFunction = llm.ToolFunction
 type StreamOptions = llm.StreamOptions
 type ChatRequest = llm.ChatRequest
 type ChatChoice = llm.ChatChoice
@@ -51,18 +49,13 @@ var strPtr = llm.StrPtr
 // - n2: interações do agente com tools (parentID=agentMessageID)
 type appStreamHandler struct {
 	app                *App
-	conversationID     uint           // ID da conversa
-	userMessageID      uint           // ID da mensagem do usuário (raiz da thread)
-	accumulatedContent string         // Conteúdo acumulado durante streaming
-	accumulatedCalls   []llm.ToolCall // Acumula tool calls
-	accumulatedResults []string       // Acumula resultados de tools
+	conversationID     uint   // ID da conversa
+	userMessageID      uint   // ID da mensagem do usuário (raiz da thread)
+	accumulatedContent string // Conteúdo acumulado durante streaming
 
 	// Reasoning/Thinking - chain of thought de modelos como DeepSeek, Claude, o1
 	accumulatedReasoning string // Reasoning acumulado durante streaming
 	isThinking           bool   // Flag indicando se está recebendo reasoning
-
-	// Chat Profile - tools filtradas
-	filteredTools []llm.Tool // Lista de tools filtradas pelo perfil
 
 	// Throttling para eventos de streaming
 	mu            sync.Mutex  // Protege accumulatedContent durante throttling
@@ -239,6 +232,18 @@ func (h *appStreamHandler) OnError(err string) {
 	})
 }
 
+// OnToolCalls é chamado quando o LLM solicita execução de ferramentas.
+// Por enquanto (antes do agentic loop), loga e emite como done.
+// Será substituído pelo agentic loop na Fase 5.
+func (h *appStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
+	fmt.Printf("🔧 [TOOL_CALLS] LLM solicitou %d ferramentas (ainda não implementado)\n", len(calls))
+	for _, call := range calls {
+		fmt.Printf("   - %s(%s)\n", call.Function.Name, call.Function.Arguments)
+	}
+	// Delega para OnDone até o agentic loop ser implementado
+	h.OnDone(fullResponse, usage, model)
+}
+
 func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
 	// Cancela qualquer timer pendente e obtém conteúdo acumulado
 	h.mu.Lock()
@@ -298,231 +303,6 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	runtime.EventsEmit(h.app.ctx, "chat:done", map[string]interface{}{
 		"conversationId": h.conversationID,
 	})
-}
-
-func (h *appStreamHandler) OnToolCalls(toolCalls []llm.ToolCall, usage llm.Usage, model string) {
-	// Acumula as tool calls
-	h.accumulatedCalls = append(h.accumulatedCalls, toolCalls...)
-
-	// Salva mensagem do assistant com tool_calls como filha da mensagem do usuário (nível 1)
-	if h.conversationID > 0 && h.userMessageID > 0 {
-		toolCallsJSON, _ := json.Marshal(toolCalls)
-
-		// Formata conteúdo markdown com as tool calls
-		var contentBuilder strings.Builder
-
-		if len(toolCalls) == 1 {
-			// Uma única tool call - formato mais simples
-			tc := toolCalls[0]
-			name := tc.Function.Name
-			displayName := name
-			if strings.HasPrefix(name, "delegate_to_") {
-				displayName = strings.TrimPrefix(name, "delegate_to_")
-			}
-
-			// Extrai tarefa se houver
-			var args map[string]interface{}
-			taskContent := ""
-			if err := json.Unmarshal([]byte(tc.Function.Arguments), &args); err == nil {
-				if task, ok := args["task"].(string); ok {
-					taskContent = task
-				}
-			}
-
-			if taskContent != "" {
-				contentBuilder.WriteString(fmt.Sprintf("🤖 **Consultando %s**\n\n", displayName))
-				contentBuilder.WriteString(fmt.Sprintf("**Tarefa:** %s\n\n", taskContent))
-				contentBuilder.WriteString("**Argumentos:**\n```json\n")
-			} else {
-				contentBuilder.WriteString(fmt.Sprintf("🔧 **Executando:** `%s`\n\n", displayName))
-				contentBuilder.WriteString("**Argumentos:**\n```json\n")
-			}
-
-			// Formata JSON
-			var prettyArgs bytes.Buffer
-			if err := json.Indent(&prettyArgs, []byte(tc.Function.Arguments), "", "  "); err == nil {
-				contentBuilder.WriteString(prettyArgs.String())
-			} else {
-				contentBuilder.WriteString(tc.Function.Arguments)
-			}
-			contentBuilder.WriteString("\n```")
-		} else {
-			// Múltiplas tool calls
-			contentBuilder.WriteString(fmt.Sprintf("🔧 **Executando %d ferramentas:**\n\n", len(toolCalls)))
-			for i, tc := range toolCalls {
-				contentBuilder.WriteString(fmt.Sprintf("%d. **%s**\n```json\n", i+1, tc.Function.Name))
-				var prettyArgs bytes.Buffer
-				if err := json.Indent(&prettyArgs, []byte(tc.Function.Arguments), "", "  "); err == nil {
-					contentBuilder.WriteString(prettyArgs.String())
-				} else {
-					contentBuilder.WriteString(tc.Function.Arguments)
-				}
-				contentBuilder.WriteString("\n```\n")
-				if i < len(toolCalls)-1 {
-					contentBuilder.WriteString("\n")
-				}
-			}
-		}
-
-		content := contentBuilder.String()
-
-		// Salva como filho da mensagem do usuário (nível 1)
-		// role="assistant" porque é o assistente falando com o agente
-		// agentName VAZIO porque é o assistente fazendo a chamada (não o agente respondendo)
-		msg, err := database.AddChildMessage(
-			h.conversationID,
-			h.userMessageID, // ParentID = mensagem do usuário
-			"assistant",
-			content,
-			string(toolCallsJSON),
-			"",
-			"", // agentName VAZIO - é o assistente chamando, não o agente respondendo
-			model,
-		)
-		if err != nil {
-			// Se a conversa foi deletada ou mensagem pai não existe, aborta silenciosamente
-			if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
-				fmt.Printf("🛑 Conversa %d foi deletada/limpa - abortando processamento de tool calls\n", h.conversationID)
-				return
-			}
-			fmt.Printf("❌ Erro ao salvar delegação: %v\n", err)
-		} else {
-			fmt.Printf("✅ Delegação salva: ID=%d, parentID=%d (nível 1)\n", msg.ID, h.userMessageID)
-			// Define no App para os agentes usarem como ParentID (nível 2)
-			h.app.currentDelegationID = msg.ID
-
-			// Emite evento para o frontend mostrar mensagem interna em tempo real
-			runtime.EventsEmit(h.app.ctx, "chat:internal_message", map[string]interface{}{
-				"id":        msg.ID,
-				"parentId":  h.userMessageID,
-				"role":      "assistant",
-				"content":   content,
-				"toolCalls": string(toolCallsJSON),
-				"internal":  true,
-			})
-		}
-
-		// Emite evento de streaming
-		runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
-			Content:        "🔧 Executando ferramentas...",
-			Done:           false,
-			ConversationId: h.conversationID,
-		})
-	}
-}
-
-func (h *appStreamHandler) OnToolsExecuting(toolNames []string) {
-	runtime.EventsEmit(h.app.ctx, "chat:tools", map[string]interface{}{
-		"tools":   toolNames,
-		"message": fmt.Sprintf("Executando %d ferramenta(s): %s", len(toolNames), strings.Join(toolNames, ", ")),
-	})
-}
-
-func (h *appStreamHandler) OnToolResults(results []string, usage llm.Usage, model string) {
-	// Acumula os resultados
-	h.accumulatedResults = append(h.accumulatedResults, results...)
-
-	// Salva cada tool result como filha da mensagem do usuário (nível 1)
-	// Estas são as respostas dos agentes
-	if h.conversationID > 0 && h.userMessageID > 0 {
-		for i, result := range results {
-			var toolCallID string
-			var agentName string
-			callIndex := len(h.accumulatedCalls) - len(results) + i
-			if callIndex >= 0 && callIndex < len(h.accumulatedCalls) {
-				tc := h.accumulatedCalls[callIndex]
-				toolCallID = tc.ID
-				toolName := tc.Function.Name
-
-				// Extrai nome do agente
-				if strings.HasPrefix(toolName, "delegate_to_") {
-					agentName = strings.TrimPrefix(toolName, "delegate_to_")
-				} else {
-					agentName = toolName
-				}
-			}
-
-			// Salva como filho da mensagem do usuário (nível 1)
-			// role="agent" para indicar que é o agente respondendo (não "tool")
-			msg, err := database.AddChildMessage(
-				h.conversationID,
-				h.userMessageID, // ParentID = mensagem do usuário
-				"agent",         // role="agent" para distinguir de tool results internos
-				result,
-				"",         // toolCalls
-				toolCallID, // toolCallID
-				agentName,  // agentName identifica qual agente respondeu
-				model,
-			)
-			if err != nil {
-				// Se a conversa foi deletada ou mensagem pai não existe, aborta silenciosamente
-				if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
-					fmt.Printf("🛑 Conversa %d foi deletada/limpa - abortando processamento de resposta do agente\n", h.conversationID)
-					return
-				}
-				fmt.Printf("❌ Erro ao salvar resposta do agente: %v\n", err)
-			} else {
-				fmt.Printf("✅ Resposta do agente salva: ID=%d, parentID=%d, agent=%s (nível 1)\n",
-					msg.ID, h.userMessageID, agentName)
-
-				// Emite evento para o frontend mostrar resposta do agente em tempo real
-				runtime.EventsEmit(h.app.ctx, "chat:internal_message", map[string]interface{}{
-					"id":         msg.ID,
-					"parentId":   h.userMessageID,
-					"role":       "agent",
-					"content":    result,
-					"agentName":  agentName,
-					"toolCallId": toolCallID,
-					"internal":   true,
-				})
-			}
-		}
-	}
-
-	// Emite evento para feedback visual
-	runtime.EventsEmit(h.app.ctx, "chat:tool_results", map[string]interface{}{
-		"results": results,
-	})
-}
-
-func (h *appStreamHandler) GetTools() []llm.Tool {
-	// Se há tools filtradas pelo perfil, usa elas
-	if h.filteredTools != nil {
-		return h.filteredTools
-	}
-	// Fallback: retorna todas as tools
-	return h.app.GetToolsForAPI()
-}
-
-func (h *appStreamHandler) ExecuteTool(tc llm.ToolCall) (string, error) {
-	// Define o contexto no App para os agentes poderem salvar mensagens
-	h.app.currentConversationID = h.conversationID
-	// currentDelegationID é definido em OnToolCalls (nível 1 → nível 2)
-
-	fmt.Printf("🔧 [EXECUTE] Tool: %s, conversationID=%d, delegationID=%d\n",
-		tc.Function.Name, h.conversationID, h.app.currentDelegationID)
-
-	return h.app.ExecuteTool(tc)
-}
-
-func (h *appStreamHandler) SupportsVision(model string) (bool, error) {
-	return h.app.ModelSupportsVision(model)
-}
-
-func (h *appStreamHandler) SetVisionSupport(model string, supports bool) {
-	h.app.SetModelVisionSupport(model, supports)
-}
-
-func (h *appStreamHandler) GetImageModel() string {
-	cfg, err := config.Load()
-	if err != nil {
-		return ""
-	}
-	return cfg.ImageModel
-}
-
-func (h *appStreamHandler) GenerateImageDescription(imageBase64, model string) (string, error) {
-	return h.app.GenerateImageDescription(imageBase64, model)
 }
 
 // ==================== Wails Bindings ====================
@@ -609,90 +389,46 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		})
 	}
 
-	// Obtém o perfil de conversa efetivo (da conversa ou padrão)
-	chatProfile, err := database.GetEffectiveChatProfile(conversationID)
-	if err != nil {
-		log.Printf("[SendMessage] Erro ao obter perfil de conversa: %v (usando defaults)", err)
+	// Obtém o perfil ativo global
+	activeProfile, profileErr := a.profileManager.GetActive()
+	if profileErr != nil {
+		log.Printf("[SendMessage] Erro ao obter perfil ativo: %v", profileErr)
+		// Continua com valores padrão se houver erro
 	}
 
-	// Aplica configurações do perfil se disponível
-	var filteredTools []llm.Tool
-	var profileSystemPrompt string
-	var systemPromptPosition string
+	// Aplica configurações do perfil de chat ativo
+	if activeProfile != nil {
+		log.Printf("[SendMessage] Usando perfil: %s", activeProfile.Name)
 
-	if chatProfile != nil {
-		log.Printf("[SendMessage] Usando perfil de conversa: %s (ID=%d)", chatProfile.Name, chatProfile.ID)
-
-		// 1. Aplica modelo do perfil (se não especificado nos params e perfil tem modelo)
-		if params.Model == "" && chatProfile.Model != "" {
-			params.Model = chatProfile.Model
+		// 1. Aplica modelo do perfil (se não especificado nos params)
+		if params.Model == "" && activeProfile.Chat.Model != "" {
+			params.Model = activeProfile.Chat.Model
 			log.Printf("[SendMessage] Modelo do perfil: %s", params.Model)
 		}
 
-		// 2. Aplica parâmetros do perfil (sobrescreve defaults)
-		if chatProfile.Temperature > 0 {
-			params.Temperature = chatProfile.Temperature
+		// 2. Aplica parâmetros do perfil
+		if activeProfile.Chat.Temperature > 0 {
+			params.Temperature = activeProfile.Chat.Temperature
 		}
-		if chatProfile.MaxTokens > 0 {
-			params.MaxTokens = chatProfile.MaxTokens
+		if activeProfile.Chat.MaxTokens > 0 {
+			params.MaxTokens = activeProfile.Chat.MaxTokens
 		}
-		if chatProfile.TopP > 0 {
-			params.TopP = chatProfile.TopP
-		}
-
-		// 3. Aplica configuração de tools
-		params.UseTools = chatProfile.UseTools
-
-		// 4. Aplica configuração de thinking/reasoning
-		params.EnableThinking = chatProfile.EnableThinking
-
-		// 5. Filtra tools baseado no perfil
-		if chatProfile.UseTools {
-			allowedTools := chatProfile.GetToolsList()
-			if len(allowedTools) > 0 {
-				// Filtra tools para apenas as permitidas
-				allTools := a.GetToolsForAPI()
-				filteredTools = make([]llm.Tool, 0)
-				for _, tool := range allTools {
-					for _, allowed := range allowedTools {
-						if tool.Function.Name == allowed || strings.HasSuffix(tool.Function.Name, "_"+allowed) || strings.HasPrefix(tool.Function.Name, "delegate_to_"+allowed) {
-							filteredTools = append(filteredTools, tool)
-							break
-						}
-					}
-				}
-				log.Printf("[SendMessage] Tools filtradas: %d de %d", len(filteredTools), len(allTools))
-			} else {
-				// Lista vazia = todas as tools
-				filteredTools = a.GetToolsForAPI()
-			}
+		if activeProfile.Chat.TopP > 0 {
+			params.TopP = activeProfile.Chat.TopP
 		}
 
-		// 6. System prompt do perfil
-		profileSystemPrompt = chatProfile.SystemPrompt
-		systemPromptPosition = chatProfile.SystemPromptPosition
-		if systemPromptPosition == "" {
-			systemPromptPosition = "before"
-		}
+		// 3. Aplica configuração de thinking/reasoning
+		params.EnableThinking = activeProfile.Chat.EnableThinking
 	}
 
-	// Se ainda não tem modelo, tenta obter da conversa ou usa o padrão
+	// Se ainda não tem modelo, usa o padrão do config
 	if params.Model == "" {
-		if conversationID > 0 {
-			effectiveModel, err := a.GetEffectiveModel(conversationID)
-			if err == nil && effectiveModel != "" {
-				params.Model = effectiveModel
-				log.Printf("[SendMessage] Usando modelo da conversa: %s", params.Model)
-			}
-		}
-		if params.Model == "" {
-			params.Model = cfg.DefaultModel
-			log.Printf("[SendMessage] Usando modelo padrão: %s", params.Model)
-		}
+		params.Model = cfg.DefaultModel
+		log.Printf("[SendMessage] Usando modelo padrão: %s", params.Model)
 	}
 
 	// 1. Salva mensagem do usuário no banco
-	userMsg, err := database.AddMessageWithMedia(conversationID, "user", userContent, userMedia, "", "")
+	userMsg, err := database.AddMessageWithMedia(conversationID, "user", userContent, userMedia)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao salvar mensagem: "+err.Error())
 		return 0, err
@@ -713,21 +449,114 @@ func (a *App) SendMessage(conversationID uint, userContent string, userMedia str
 		return 0, err
 	}
 
-	// 4. Compõe system prompt completo
-	includeCoreMemories := true // default
-	if chatProfile != nil {
-		includeCoreMemories = chatProfile.IncludeCoreMemories
-	}
-	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, includeCoreMemories)
+	// 3.5. Detecta invocação de skill via /slash command
+	var slashSkillContent string
+	if slug, args, ok := parseSlashCommand(userContent); ok && a.skillMgr != nil {
+		skill, err := a.skillMgr.Get(slug)
+		if err == nil && skill.IsUserInvocable() {
+			log.Printf("[Skills] Slash command detectado: /%s args=%q", slug, args)
 
-	// 5. Processa com LLM - userMessageID é a raiz da thread
-	handler := &appStreamHandler{
-		app:            a,
-		conversationID: conversationID,
-		userMessageID:  userMsg.ID, // Raiz da thread para interações com agentes
-		filteredTools:  filteredTools,
+			// Substitui $ARGUMENTS, $N, e variáveis de sessão no conteúdo
+			sessionVars := map[string]string{
+				"CLAUDE_SESSION_ID": fmt.Sprintf("%d", conversationID),
+			}
+			processedContent := skills.SubstituteArguments(skill.Content, args, sessionVars)
+
+			// Preprocessa !commands (respeita permissões de bash do skill)
+			var allowedBashCmds []string
+			if skill.Tools != nil && skill.Tools.BashCommands != nil {
+				allowedBashCmds = skill.Tools.BashCommands.Allowed
+			}
+			processedContent = skills.PreprocessCommands(processedContent, allowedBashCmds)
+
+			// Monta seção de contexto do skill invocado
+			var sb strings.Builder
+			sb.WriteString("<invoked_skill>\n")
+			sb.WriteString("## ")
+			sb.WriteString(skill.GetDisplayName())
+			if skill.Type != "" {
+				sb.WriteString(" [")
+				sb.WriteString(skill.Type)
+				sb.WriteString("]")
+			}
+			sb.WriteString("\n")
+			sb.WriteString(processedContent)
+			sb.WriteString("\n")
+
+			// Progressive file loading: lista arquivos complementares do skill
+			supplementary, _ := a.skillMgr.GetSkillFiles(slug)
+			if len(supplementary) > 0 {
+				sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
+				for _, f := range supplementary {
+					sb.WriteString("- `")
+					sb.WriteString(f)
+					sb.WriteString("`\n")
+				}
+			}
+
+			sb.WriteString("</invoked_skill>")
+			slashSkillContent = sb.String()
+		} else if err != nil {
+			log.Printf("[Skills] Skill /%s não encontrado: %v", slug, err)
+		}
 	}
-	go llm.StreamChat(a.ctx, cfg, messages, params, handler)
+
+	// 4. Compõe system prompt completo (com skills do perfil)
+	var profileSystemPrompt string
+	var systemPromptPosition string
+	var enabledSkills []string
+	if activeProfile != nil {
+		profileSystemPrompt = activeProfile.Chat.SystemPrompt
+		systemPromptPosition = activeProfile.Chat.SystemPromptPosition
+		if systemPromptPosition == "" {
+			systemPromptPosition = "before"
+		}
+		enabledSkills = activeProfile.Chat.EnabledSkills
+	}
+	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, slashSkillContent)
+
+	// 5. Processa com LLM
+	// Determina quais ferramentas estão habilitadas pelo perfil ativo
+	var llmToolDefs []llm.ToolDefinition
+	if a.toolRegistry != nil && a.toolRegistry.Count() > 0 {
+		var toolDefs []tools.ToolDefinition
+
+		// Filtra ferramentas pelo perfil: nil = todas, lista = apenas as listadas
+		if activeProfile != nil && activeProfile.Chat.EnabledTools != nil {
+			toolDefs = a.toolRegistry.FilterByNames(activeProfile.Chat.EnabledTools)
+			fmt.Printf("[Tools] Perfil '%s': %d ferramenta(s) habilitada(s) de %d\n",
+				activeProfile.Name, len(toolDefs), a.toolRegistry.Count())
+		} else {
+			toolDefs = a.toolRegistry.ToDefinitions()
+			fmt.Printf("[Tools] Perfil sem restrição: todas as %d ferramentas habilitadas\n", len(toolDefs))
+		}
+
+		// Converte para formato llm.ToolDefinition
+		llmToolDefs = make([]llm.ToolDefinition, len(toolDefs))
+		for i, td := range toolDefs {
+			llmToolDefs[i] = llm.ToolDefinition{
+				Type: td.Type,
+				Function: llm.FunctionDefinition{
+					Name:        td.Function.Name,
+					Description: td.Function.Description,
+					Parameters:  td.Function.Parameters,
+				},
+			}
+		}
+	}
+
+	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
+	if len(llmToolDefs) > 0 {
+		go a.runAgenticLoop(a.ctx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs)
+	} else {
+		// Sem ferramentas: streaming simples (comportamento original)
+		handler := &appStreamHandler{
+			app:            a,
+			conversationID: conversationID,
+			userMessageID:  userMsg.ID,
+		}
+		go llm.StreamChat(a.ctx, cfg, messages, params, handler)
+	}
 	return conversationID, nil
 }
 
@@ -740,8 +569,10 @@ Key behaviors:
 - Use markdown formatting for better readability
 - Adapt your communication style to the user's needs`
 
-// buildFullSystemPrompt composes the complete system prompt with base prompt, custom prompt, and core memories
-func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, includeCoreMemories bool) []Message {
+// buildFullSystemPrompt composes the complete system prompt with base prompt, custom prompt, skills and invoked skill.
+// enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
+// slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
+func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, slashSkillContent string) []Message {
 	// Build the system prompt parts
 	var parts []string
 
@@ -752,23 +583,21 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 	}
 	parts = append(parts, basePrompt)
 
-	// 2. Core memories section (if enabled)
-	if includeCoreMemories {
-		coreMemories, err := database.GetCoreMemories()
-		if err != nil {
-			log.Printf("[SystemPrompt] Error loading core memories: %v", err)
-		} else if len(coreMemories) > 0 {
-			var memoriesSection strings.Builder
-			memoriesSection.WriteString("\n\n## Core Information About the User\n")
-			for _, mem := range coreMemories {
-				if mem.Title != "" {
-					memoriesSection.WriteString(fmt.Sprintf("- **%s**: %s\n", mem.Title, mem.Content))
-				} else {
-					memoriesSection.WriteString(fmt.Sprintf("- %s\n", mem.Content))
-				}
-			}
-			parts = append(parts, memoriesSection.String())
-		}
+	// 2. Skills injection (auto + available)
+	skillsSection := a.buildSkillsPromptSection(enabledSkills)
+	if skillsSection != "" {
+		parts = append(parts, "\n\n"+skillsSection)
+	}
+
+	// 2.5. Invoked skill via /slash command
+	if slashSkillContent != "" {
+		parts = append(parts, "\n\n"+slashSkillContent)
+	}
+
+	// 3. Memory injection (memory.md sempre no contexto)
+	memorySection := a.buildMemoryContext()
+	if memorySection != "" {
+		parts = append(parts, "\n\n"+memorySection)
 	}
 
 	// Combine all parts
@@ -822,6 +651,169 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 	return newMessages
 }
 
+// buildSkillsPromptSection constrói a seção de skills para o system prompt.
+// Carrega skills auto (injeção direta) e skills disponíveis (referência para leitura sob demanda).
+// enabledSkills: nil = todos, [] = nenhum, ["slug1"] = apenas esses.
+func (a *App) buildSkillsPromptSection(enabledSkills []string) string {
+	if a.skillMgr == nil {
+		return ""
+	}
+
+	// Se enabledSkills é um slice vazio (não nil), nenhum skill habilitado
+	if enabledSkills != nil && len(enabledSkills) == 0 {
+		return ""
+	}
+
+	// Carrega skills auto (injetados no prompt)
+	autoSkills, err := a.skillMgr.GetAutoSkills()
+	if err != nil {
+		log.Printf("[Skills] Erro ao carregar auto skills: %v", err)
+		autoSkills = nil
+	}
+
+	// Carrega skills disponíveis (referenciados para leitura sob demanda)
+	availableSkills, err := a.skillMgr.GetAvailableSkills()
+	if err != nil {
+		log.Printf("[Skills] Erro ao carregar available skills: %v", err)
+		availableSkills = nil
+	}
+
+	// Filtra pelo perfil se enabledSkills não for nil
+	if enabledSkills != nil {
+		autoSkills = skills.FilterByNames(autoSkills, enabledSkills)
+		availableSkills = skills.FilterByNames(availableSkills, enabledSkills)
+	}
+
+	if len(autoSkills) == 0 && len(availableSkills) == 0 {
+		return ""
+	}
+
+	var sb strings.Builder
+
+	// Seção de skills auto_load (conteúdo completo injetado)
+	if len(autoSkills) > 0 {
+		sb.WriteString("<auto_skills>\n")
+		for i, s := range autoSkills {
+			if i > 0 {
+				sb.WriteString("\n")
+			}
+			sb.WriteString("## ")
+			sb.WriteString(s.GetDisplayName())
+			if s.Type != "" {
+				sb.WriteString(" [")
+				sb.WriteString(s.Type)
+				sb.WriteString("]")
+			}
+			sb.WriteString("\n")
+
+			// Preprocessa !commands no conteúdo auto_load
+			autoContent := s.Content
+			var allowedBashCmds []string
+			if s.Tools != nil && s.Tools.BashCommands != nil {
+				allowedBashCmds = s.Tools.BashCommands.Allowed
+			}
+			autoContent = skills.PreprocessCommands(autoContent, allowedBashCmds)
+
+			sb.WriteString(autoContent)
+			sb.WriteString("\n")
+
+			// Progressive file loading: lista arquivos complementares do auto skill
+			if a.skillMgr != nil {
+				supplementary, _ := a.skillMgr.GetSkillFiles(s.Slug)
+				if len(supplementary) > 0 {
+					sb.WriteString("\nSupporting files (use read_file to access when needed):\n")
+					for _, f := range supplementary {
+						sb.WriteString("- `")
+						sb.WriteString(f)
+						sb.WriteString("`\n")
+					}
+				}
+			}
+		}
+		sb.WriteString("</auto_skills>")
+	}
+
+	// Seção de skills disponíveis (referência para leitura via read_file)
+	// Filtra skills com disable-model-invocation: true (modelo não pode invocá-los)
+	var modelInvocableSkills []skills.Skill
+	for _, s := range availableSkills {
+		if s.IsModelInvocable() {
+			modelInvocableSkills = append(modelInvocableSkills, s)
+		}
+	}
+
+	if len(modelInvocableSkills) > 0 {
+		if sb.Len() > 0 {
+			sb.WriteString("\n\n")
+		}
+		sb.WriteString("<available_skills>\n")
+		sb.WriteString("You have skills available that provide specialized instructions for specific tasks.\n")
+		sb.WriteString("To use a skill, read its file using the read_file tool with the path indicated below.\n")
+		sb.WriteString("Only read a skill when it's relevant to the current task.\n\n")
+		for _, s := range modelInvocableSkills {
+			sb.WriteString("- **")
+			sb.WriteString(s.GetDisplayName())
+			sb.WriteString("** (`")
+			sb.WriteString(s.Slug)
+			sb.WriteString("`)")
+			if s.Type != "" {
+				sb.WriteString(" [")
+				sb.WriteString(s.Type)
+				sb.WriteString("]")
+			}
+			sb.WriteString(": ")
+			sb.WriteString(s.Description)
+			sb.WriteString("\n  Path: `")
+			sb.WriteString(s.Path)
+			sb.WriteString("`\n")
+
+			// Progressive file loading: lista arquivos complementares do skill
+			if a.skillMgr != nil {
+				supplementary, _ := a.skillMgr.GetSkillFiles(s.Slug)
+				if len(supplementary) > 0 {
+					sb.WriteString("  Supporting files:\n")
+					for _, f := range supplementary {
+						sb.WriteString("    - `")
+						sb.WriteString(f)
+						sb.WriteString("`\n")
+					}
+				}
+			}
+		}
+		sb.WriteString("</available_skills>")
+	}
+
+	return sb.String()
+}
+
+// buildMemoryContext lê o arquivo memory.md do diretório de memória e retorna
+// o conteúdo formatado para injeção no system prompt.
+// Usa configdir.Resolver para resolução multi-diretório (exe < home < workdir).
+// Apenas memory.md é carregado automaticamente; daily/weekly/monthly/yearly são sob demanda.
+func (a *App) buildMemoryContext() string {
+	resolver := configdir.NewResolver("memory")
+
+	data, _, err := resolver.Read("memory.md")
+	if err != nil {
+		// memory.md não existe ainda — perfeitamente normal
+		return ""
+	}
+
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		return ""
+	}
+
+	var sb strings.Builder
+	sb.WriteString("<user_memory>\n")
+	sb.WriteString("The following are the user's core memories. Use this information to personalize your responses.\n")
+	sb.WriteString("You can update this file at ~/.assistente/memory/memory.md when the user shares important personal information.\n\n")
+	sb.WriteString(content)
+	sb.WriteString("\n</user_memory>")
+
+	return sb.String()
+}
+
 // MaxContextMessages define o limite de mensagens no contexto para evitar contextos muito grandes
 const MaxContextMessages = 50
 
@@ -850,7 +842,16 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 	messages := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
 		msg := Message{
-			Role: m.Role,
+			Role:       m.Role,
+			ToolCallID: m.ToolCallID,
+		}
+
+		// Reconstrói tool_calls do JSON armazenado no banco (para mensagens assistant com tool calls)
+		if m.ToolCalls != "" {
+			var toolCalls []llm.ToolCall
+			if err := json.Unmarshal([]byte(m.ToolCalls), &toolCalls); err == nil {
+				msg.ToolCalls = toolCalls
+			}
 		}
 
 		// Processa conteúdo (pode ser texto simples ou multimodal)
@@ -955,10 +956,7 @@ func (a *App) SaveSettings(input SettingsInput) error {
 		return &config.Config{
 			APIKey:          input.APIKey,
 			APIBaseURL:      input.APIBaseURL,
-			BraveAPIKey:     input.BraveAPIKey,
 			DefaultModel:    input.ChatParams.Model,
-			EmbeddingsModel: input.EmbeddingsParams.Model,
-			ImageModel:      input.ImageModel,
 			ResponseTimeout: responseTimeout,
 			ChatParams: config.ModelParams{
 				Model:       input.ChatParams.Model,
@@ -966,17 +964,9 @@ func (a *App) SaveSettings(input SettingsInput) error {
 				MaxTokens:   input.ChatParams.MaxTokens,
 				TopP:        input.ChatParams.TopP,
 			},
-			EmbeddingsParams: config.EmbeddingsParams{
-				Model:      input.EmbeddingsParams.Model,
-				Dimensions: input.EmbeddingsParams.Dimensions,
-			},
 			STTParams: config.STTParams{
 				Provider:      input.STTParams.Provider,
 				RecordingMode: input.STTParams.RecordingMode,
-			},
-			ChatDefaults: config.ChatDefaults{
-				UseTools:             input.ChatDefaults.UseTools,
-				ShowInternalMessages: input.ChatDefaults.ShowInternalMessages,
 			},
 		}
 	})
@@ -986,16 +976,6 @@ func (a *App) SaveSettings(input SettingsInput) error {
 
 	// Atualiza o timeout do HTTP client
 	llm.ConfigureResponseTimeout(responseTimeout)
-
-	// Reinicializa o embeddings service
-	embeddingsModel := input.EmbeddingsParams.Model
-	if a.embeddingsService != nil && embeddingsModel != "" {
-		a.embeddingsService = llm.NewEmbeddingsService(llm.EmbeddingsConfig{
-			APIKey:  input.APIKey,
-			BaseURL: input.APIBaseURL,
-			Model:   embeddingsModel,
-		})
-	}
 
 	return nil
 }
@@ -1030,74 +1010,6 @@ func (a *App) TestConnectionWithModels() ([]string, error) {
 		return nil, fmt.Errorf("nenhum modelo encontrado na API")
 	}
 	return models, nil
-}
-
-// TestEmbeddings testa se o modelo de embeddings está funcionando
-func (a *App) TestEmbeddings() (string, error) {
-	if a.embeddingsService == nil {
-		return "", fmt.Errorf("serviço de embeddings não inicializado")
-	}
-
-	embedding, err := a.embeddingsService.Generate("teste de conexão")
-	if err != nil {
-		return "", fmt.Errorf("erro ao gerar embedding: %v", err)
-	}
-
-	return fmt.Sprintf("Sucesso! Embedding gerado com %d dimensões", len(embedding)), nil
-}
-
-// GetImageModel retorna o modelo configurado para processar imagens
-func (a *App) GetImageModel() (string, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return "", err
-	}
-
-	if cfg.ImageModel != "" {
-		return cfg.ImageModel, nil
-	}
-
-	// Tenta encontrar um modelo com suporte a visão
-	caps, err := database.GetVisionCapableModels()
-	if err == nil && len(caps) > 0 {
-		return caps[0].ModelName, nil
-	}
-
-	// Fallback: tenta encontrar por nome
-	visionModels := []string{"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "claude-3-5-sonnet", "gemini-1.5-pro"}
-	models, _ := a.GetModels()
-	for _, vm := range visionModels {
-		for _, m := range models {
-			if strings.Contains(strings.ToLower(m), strings.ToLower(vm)) {
-				return m, nil
-			}
-		}
-	}
-
-	return "", fmt.Errorf("nenhum modelo com suporte a visão encontrado")
-}
-
-// SetImageModel define o modelo auxiliar para processar imagens
-func (a *App) SetImageModel(model string) error {
-	return config.Update(func(cfg *config.Config) *config.Config {
-		cfg.ImageModel = model
-		return cfg
-	})
-}
-
-// HasImages verifica se a lista de mensagens contém imagens
-func (a *App) HasImages(messages []Message) bool {
-	return llm.HasImages(messages)
-}
-
-// GenerateImageDescription gera uma descrição acessível para uma imagem
-func (a *App) GenerateImageDescription(imageBase64 string, model string) (string, error) {
-	cfg, err := a.GetConfig()
-	if err != nil {
-		return "", fmt.Errorf("erro ao obter configuração: %v", err)
-	}
-
-	return llm.GenerateImageDescription(cfg, imageBase64, model, a.GetModels)
 }
 
 // ResetConfig apaga o arquivo de configuração, resetando ao estado padrão
@@ -1163,4 +1075,44 @@ func (a *App) ResetDatabase() error {
 	runtime.EventsEmit(a.ctx, "database:reset")
 
 	return nil
+}
+
+// parseSlashCommand detecta se uma mensagem é um slash command para invocar um skill.
+// Formato: /skill-slug [argumentos...]
+// Retorna (slug, args, true) se for um slash command válido, ("", "", false) caso contrário.
+func parseSlashCommand(content string) (slug string, args string, ok bool) {
+	content = strings.TrimSpace(content)
+
+	// Deve começar com /
+	if !strings.HasPrefix(content, "/") {
+		return "", "", false
+	}
+
+	// Remove o /
+	rest := content[1:]
+	if rest == "" {
+		return "", "", false
+	}
+
+	// Não deve começar com espaço (evita confusão com paths como "/ something")
+	if rest[0] == ' ' {
+		return "", "", false
+	}
+
+	// Separa slug dos argumentos (pelo primeiro espaço)
+	parts := strings.SplitN(rest, " ", 2)
+	slug = strings.ToLower(parts[0])
+
+	// Valida que o slug parece um nome de skill (letras, números, hifens)
+	for _, ch := range slug {
+		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
+			return "", "", false
+		}
+	}
+
+	if len(parts) > 1 {
+		args = strings.TrimSpace(parts[1])
+	}
+
+	return slug, args, true
 }

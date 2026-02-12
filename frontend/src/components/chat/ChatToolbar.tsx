@@ -1,62 +1,34 @@
-import React, { useEffect, useState, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../store/chatStore';
-import { useSettingsStore } from '../../store/settingsStore';
-import { VoiceProfilePicker, VoiceProfilePickerRef, HistoryPicker, HistoryPickerRef, VoiceProfile, ChatProfilePicker, ChatProfilePickerRef } from '../pickers';
-import { InteractionProfilePicker, InteractionProfilePickerRef } from '../pickers/InteractionProfilePicker';
-import { useInteractionProfileStore } from '../../store/interactionProfileStore';
+import { HistoryPicker, HistoryPickerRef } from '../pickers';
+import { ProfilePicker, ProfilePickerRef } from '../pickers/ProfilePicker';
 import { Toolbar } from '../ui/Toolbar';
 import { ContextMenu, MenuItem } from '../ui/ContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
-import { ttsService } from '../../services/tts';
-import { GetVoiceProfile, GetDefaultVoiceProfile, GetEffectiveVoiceProfile, SetConversationVoiceProfile, GetEffectiveChatProfile, SetConversationChatProfile, GetDefaultChatProfile } from '../../../wailsjs/go/main/App';
-import { EventsOn } from '../../../wailsjs/runtime/runtime';
-import { database } from '../../../wailsjs/go/models';
 import './ChatToolbar.css';
-
-type ChatProfile = database.ChatProfile;
 
 export interface ChatToolbarProps {
   onNewConversation?: () => void;
-  onSettings?: () => void;
-  onVoiceSettings?: () => void;
-  voiceEnabled?: boolean;
   inputRef?: React.RefObject<HTMLTextAreaElement>;
 }
 
-// ID padrão do perfil (seed inicial)
-const DEFAULT_PROFILE_ID = 1;
-
 export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   onNewConversation,
-  onSettings,
-  onVoiceSettings,
-  voiceEnabled = false,
   inputRef,
 }) => {
   const navigate = useNavigate();
-  const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab, setUseTools } = useChatStore();
-  const { config, setConfig } = useSettingsStore();
+  const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab } = useChatStore();
   const { announce } = useAnnouncer();
   const activeTab = getActiveTab();
   const conversationTitle = activeTab?.title || 'Nova conversa';
-  const [selectedProfileId, setSelectedProfileId] = useState<number>(DEFAULT_PROFILE_ID);
 
   // Refs para os pickers
-  const voiceProfilePickerRef = useRef<VoiceProfilePickerRef>(null);
   const historyPickerRef = useRef<HistoryPickerRef>(null);
-  const interactionProfilePickerRef = useRef<InteractionProfilePickerRef>(null);
-  const chatProfilePickerRef = useRef<ChatProfilePickerRef>(null);
-  
-  // Estado do perfil de conversa
-  const [selectedChatProfileId, setSelectedChatProfileId] = useState<number>(1);
-  
-  // Interaction profile store
-  const { activeProfileId, setActiveProfile, loadProfiles } = useInteractionProfileStore();
-  const [selectedInteractionProfileId, setSelectedInteractionProfileId] = useState<number>(activeProfileId || 1);
+  const profilePickerRef = useRef<ProfilePickerRef>(null);
 
   // Estado do menu de contexto
-  const [contextMenu, setContextMenu] = useState<{
+  const [contextMenu, setContextMenu] = React.useState<{
     visible: boolean;
     x: number;
     y: number;
@@ -74,104 +46,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     setContextMenu(prev => ({ ...prev, visible: false }));
   }, []);
 
-  // Itens do menu de VoiceProfile
-  const getVoiceProfileMenuItems = useCallback((): MenuItem[] => [
-    {
-      id: 'edit-profile',
-      label: 'Editar perfil atual',
-      icon: '✏️',
-      action: () => {
-        navigate(`/voice-profiles?edit=${selectedProfileId}`);
-      },
-    },
-    {
-      id: 'new-profile',
-      label: 'Novo perfil',
-      icon: '➕',
-      action: () => {
-        navigate('/voice-profiles?new=true');
-      },
-    },
-    {
-      id: 'manage-profiles',
-      label: 'Gerenciar perfis',
-      icon: '⚙️',
-      action: () => {
-        navigate('/voice-profiles');
-      },
-    },
-  ], [navigate, selectedProfileId]);
-
-  // Itens do menu de History
-  const getHistoryMenuItems = useCallback((): MenuItem[] => [
-    {
-      id: 'new-conversation',
-      label: 'Nova conversa',
-      icon: '➕',
-      shortcut: 'Ctrl+N',
-      action: () => {
-        handleNewConversation();
-      },
-    },
-  ], []);
-
-  // Itens do menu de InteractionProfile
-  const getInteractionProfileMenuItems = useCallback((): MenuItem[] => [
-    {
-      id: 'edit-interaction-profile',
-      label: 'Editar perfil atual',
-      icon: '✏️',
-      action: () => {
-        navigate(`/interaction-profiles?edit=${selectedInteractionProfileId}`);
-      },
-    },
-    {
-      id: 'new-interaction-profile',
-      label: 'Novo perfil',
-      icon: '➕',
-      action: () => {
-        navigate('/interaction-profiles?new=true');
-      },
-    },
-    {
-      id: 'manage-interaction-profiles',
-      label: 'Gerenciar perfis',
-      icon: '⚙️',
-      action: () => {
-        navigate('/interaction-profiles');
-      },
-    },
-  ], [navigate, selectedInteractionProfileId]);
-
-  // Itens do menu de ChatProfile
-  const getChatProfileMenuItems = useCallback((): MenuItem[] => [
-    {
-      id: 'edit-chat-profile',
-      label: 'Editar perfil atual',
-      icon: '✏️',
-      action: () => {
-        navigate(`/chat-profiles?edit=${selectedChatProfileId}`);
-      },
-    },
-    {
-      id: 'new-chat-profile',
-      label: 'Novo perfil',
-      icon: '➕',
-      action: () => {
-        navigate('/chat-profiles?new=true');
-      },
-    },
-    {
-      id: 'manage-chat-profiles',
-      label: 'Gerenciar perfis',
-      icon: '⚙️',
-      action: () => {
-        navigate('/chat-profiles');
-      },
-    },
-  ], [navigate, selectedChatProfileId]);
-
-  // Abre menu de contexto numa posição (mouse ou teclado)
+  // Abre menu de contexto numa posição
   const openContextMenu = useCallback((
     x: number,
     y: number,
@@ -187,275 +62,32 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     });
   }, []);
 
-  // Handler de menu de contexto para VoiceProfilePicker (mouse)
-  const handleVoiceProfileContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    openContextMenu(e.clientX, e.clientY, getVoiceProfileMenuItems(), 'Menu de opções do perfil de voz');
-  }, [openContextMenu, getVoiceProfileMenuItems]);
+  // Itens do menu de contexto do perfil
+  const getProfileMenuItems = useCallback((): MenuItem[] => [
+    {
+      id: 'manage-profiles',
+      label: 'Gerenciar perfis',
+      icon: '⚙️',
+      action: () => {
+        navigate('/profiles');
+      },
+    },
+  ], [navigate]);
 
-  // Handler de teclado para VoiceProfilePicker (Applications key ou Shift+F10)
-  const handleVoiceProfileKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    // ContextMenu key ou Shift+F10
+  // Handler de menu de contexto para ProfilePicker (mouse)
+  const handleProfileContextMenu = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    openContextMenu(e.clientX, e.clientY, getProfileMenuItems(), 'Menu de opções do perfil');
+  }, [openContextMenu, getProfileMenuItems]);
+
+  // Handler de teclado para ProfilePicker (Applications key ou Shift+F10)
+  const handleProfileKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault();
       const rect = e.currentTarget.getBoundingClientRect();
-      openContextMenu(rect.left, rect.bottom, getVoiceProfileMenuItems(), 'Menu de opções do perfil de voz');
+      openContextMenu(rect.left, rect.bottom, getProfileMenuItems(), 'Menu de opções do perfil');
     }
-  }, [openContextMenu, getVoiceProfileMenuItems]);
-
-  // Handler de menu de contexto para HistoryPicker (mouse)
-  const handleHistoryContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    openContextMenu(e.clientX, e.clientY, getHistoryMenuItems(), 'Menu de opções do histórico');
-  }, [openContextMenu, getHistoryMenuItems]);
-
-  // Handler de teclado para HistoryPicker (Applications key ou Shift+F10)
-  const handleHistoryKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    // ContextMenu key ou Shift+F10
-    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
-      e.preventDefault();
-      const rect = e.currentTarget.getBoundingClientRect();
-      openContextMenu(rect.left, rect.bottom, getHistoryMenuItems(), 'Menu de opções do histórico');
-    }
-  }, [openContextMenu, getHistoryMenuItems]);
-
-  // Handler de menu de contexto para InteractionProfilePicker (mouse)
-  const handleInteractionProfileContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    openContextMenu(e.clientX, e.clientY, getInteractionProfileMenuItems(), 'Menu de opções do perfil de interação');
-  }, [openContextMenu, getInteractionProfileMenuItems]);
-
-  // Handler de teclado para InteractionProfilePicker (Applications key ou Shift+F10)
-  const handleInteractionProfileKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    // ContextMenu key ou Shift+F10
-    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
-      e.preventDefault();
-      const rect = e.currentTarget.getBoundingClientRect();
-      openContextMenu(rect.left, rect.bottom, getInteractionProfileMenuItems(), 'Menu de opções do perfil de interação');
-    }
-  }, [openContextMenu, getInteractionProfileMenuItems]);
-
-  // Handler de menu de contexto para ChatProfilePicker (mouse)
-  const handleChatProfileContextMenu = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
-    openContextMenu(e.clientX, e.clientY, getChatProfileMenuItems(), 'Menu de opções do perfil de conversa');
-  }, [openContextMenu, getChatProfileMenuItems]);
-
-  // Handler de teclado para ChatProfilePicker (Applications key ou Shift+F10)
-  const handleChatProfileKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
-    // ContextMenu key ou Shift+F10
-    if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
-      e.preventDefault();
-      const rect = e.currentTarget.getBoundingClientRect();
-      openContextMenu(rect.left, rect.bottom, getChatProfileMenuItems(), 'Menu de opções do perfil de conversa');
-    }
-  }, [openContextMenu, getChatProfileMenuItems]);
-
-  // Ref para config atual (evita loop infinito no useEffect)
-  const configRef = useRef(config);
-  useEffect(() => {
-    configRef.current = config;
-  }, [config]);
-
-  // Aplica as configurações de um perfil de voz ao ttsService
-  // Usa ref para config para evitar dependência e loop infinito
-  const applyVoiceProfile = useCallback(async (profile: VoiceProfile) => {
-    try {
-      // Verifica se TTS está habilitado para o assistente
-      const isTTSEnabledForAgent = profile.provider !== 'disabled' && profile.enabled_for_agent && !!profile.voice_id;
-      // Verifica se TTS está habilitado para o usuário
-      const isTTSEnabledForUser = profile.provider !== 'disabled' && profile.enabled_for_user && !!profile.voice_id;
-      
-      // aria-live é automático: ativo quando TTS está desativado para aquele role
-      // Assistente: se TTS desativado → aria-live ativo
-      // Usuário: se TTS desativado → aria-live ativo
-      const useAriaLiveForAgent = !isTTSEnabledForAgent;
-      const useAriaLiveForUser = !isTTSEnabledForUser;
-
-      if (isTTSEnabledForAgent) {
-        // Configura o ttsService com as opções do perfil
-        const voiceId = `${profile.provider}:${profile.voice_id}`;
-        await ttsService.setVoice(voiceId);
-        await ttsService.setRate(profile.rate);
-        await ttsService.setVolume(profile.volume);
-        await ttsService.setEnabled(true);
-        await ttsService.setAutoRead(true);
-
-        console.log('[ChatToolbar] Perfil de voz TTS aplicado:', profile.name);
-      } else {
-        // Desativa TTS do assistente
-        await ttsService.setEnabled(false);
-        await ttsService.setAutoRead(false);
-
-        console.log('[ChatToolbar] TTS desativado, aria-live para assistente:', useAriaLiveForAgent);
-      }
-
-      // Atualiza o config local usando ref para evitar loop
-      const currentConfig = configRef.current;
-      if (currentConfig) {
-        setConfig({ 
-          ...currentConfig, 
-          voice: isTTSEnabledForAgent ? `${profile.provider}:${profile.voice_id}` : undefined,
-          voiceProfileId: profile.id,
-          // Armazena configurações separadas para assistente e usuário
-          useAriaLiveForAgent,
-          useAriaLiveForUser,
-          ttsEnabledForUser: isTTSEnabledForUser,
-        });
-      }
-    } catch (error) {
-      console.error('[ChatToolbar] Erro ao aplicar perfil de voz:', error);
-    }
-  }, [setConfig]); // Não depende de config, usa configRef
-
-  // Handler para mudança de perfil de voz
-  const handleVoiceProfileChange = useCallback(async (profileId: number) => {
-    setSelectedProfileId(profileId);
-
-    // Salva na conversa atual se existir
-    const conversationId = activeTab?.conversationId;
-    if (conversationId) {
-      try {
-        await SetConversationVoiceProfile(conversationId, profileId);
-      } catch (error) {
-        console.error('[ChatToolbar] Erro ao salvar perfil na conversa:', error);
-      }
-    }
-
-    // Carrega e aplica o perfil
-    try {
-      const profile = await GetVoiceProfile(profileId) as VoiceProfile;
-      if (profile) {
-        await applyVoiceProfile(profile);
-        announce(`Perfil de voz alterado para ${profile.name}`);
-      }
-    } catch (error) {
-      console.error('[ChatToolbar] Erro ao carregar perfil:', error);
-    }
-  }, [activeTab?.conversationId, applyVoiceProfile, announce]);
-
-  // Carrega o perfil efetivo quando a conversa muda
-  useEffect(() => {
-    const loadConversationProfile = async () => {
-      try {
-        const conversationId = activeTab?.conversationId;
-        
-        let profile: VoiceProfile | null = null;
-        
-        if (conversationId) {
-          // Conversa existente - carrega perfil efetivo (da conversa ou padrão)
-          profile = await GetEffectiveVoiceProfile(conversationId).catch(() => null) as VoiceProfile | null;
-          console.log('[ChatToolbar] Perfil efetivo da conversa:', conversationId, profile?.name);
-        }
-        
-        // Se não encontrou perfil (nova conversa ou erro), usa o padrão
-        if (!profile) {
-          profile = await GetDefaultVoiceProfile().catch(() => null) as VoiceProfile | null;
-          console.log('[ChatToolbar] Usando perfil padrão:', profile?.name);
-        }
-        
-        if (profile) {
-          setSelectedProfileId(profile.id);
-          await applyVoiceProfile(profile);
-        }
-      } catch (error) {
-        console.error('[ChatToolbar] Erro ao carregar perfil:', error);
-      }
-    };
-
-    loadConversationProfile();
-  }, [activeTab?.conversationId, applyVoiceProfile]); // Recarrega quando a conversa muda
-
-  // Escuta evento de mudança de perfil de voz via agente
-  useEffect(() => {
-    // Listener para mudança de perfil na conversa
-    const unsubscribeConvChanged = EventsOn('voice:profile:conversation_changed', async (data: { conversation_id: number; profile_id: number; profile?: VoiceProfile }) => {
-      // Só processa se for para a conversa ativa
-      if (data.conversation_id !== activeTab?.conversationId) {
-        console.log('[ChatToolbar] Evento de outra conversa, ignorando:', data.conversation_id);
-        return;
-      }
-
-      console.log('[ChatToolbar] Perfil de voz alterado via agente:', data);
-
-      if (data.profile_id === 0) {
-        // Removeu perfil customizado, usar padrão
-        try {
-          const defaultProfile = await GetDefaultVoiceProfile() as VoiceProfile;
-          if (defaultProfile) {
-            setSelectedProfileId(defaultProfile.id);
-            await applyVoiceProfile(defaultProfile);
-            announce(`Voltou para perfil de voz padrão: ${defaultProfile.name}`);
-          }
-        } catch (error) {
-          console.error('[ChatToolbar] Erro ao carregar perfil padrão:', error);
-        }
-      } else if (data.profile) {
-        // Aplicar perfil específico (já veio no evento)
-        setSelectedProfileId(data.profile.id);
-        await applyVoiceProfile(data.profile);
-        announce(`Perfil de voz alterado para ${data.profile.name}`);
-      } else {
-        // Carregar perfil pelo ID
-        try {
-          const profile = await GetVoiceProfile(data.profile_id) as VoiceProfile;
-          if (profile) {
-            setSelectedProfileId(profile.id);
-            await applyVoiceProfile(profile);
-            announce(`Perfil de voz alterado para ${profile.name}`);
-          }
-        } catch (error) {
-          console.error('[ChatToolbar] Erro ao carregar perfil:', error);
-        }
-      }
-    });
-
-    // Listener para quando um perfil é atualizado (ex: mudou enabled_for_user)
-    const unsubscribeProfileUpdated = EventsOn('voice:profile:updated', async (updatedProfile: VoiceProfile) => {
-      console.log('[ChatToolbar] Perfil de voz atualizado via agente:', updatedProfile);
-
-      // Se o perfil atualizado é o que está sendo usado, reaplicar
-      if (updatedProfile.id === selectedProfileId) {
-        await applyVoiceProfile(updatedProfile);
-        announce(`Perfil ${updatedProfile.name} atualizado`);
-      }
-    });
-
-    return () => {
-      unsubscribeConvChanged();
-      unsubscribeProfileUpdated();
-    };
-  }, [activeTab?.conversationId, applyVoiceProfile, announce, selectedProfileId]);
-
-  // Escuta evento de ativação de perfil de interação via agente
-  useEffect(() => {
-    const unsubscribeInteractionActivated = EventsOn('interaction:profile:activated', async (profileId: number) => {
-      console.log('[ChatToolbar] Perfil de interação ativado via agente:', profileId);
-
-      // Atualiza o store (sem chamar SetActiveInteractionProfile novamente, pois o backend já ativou)
-      // Usamos loadProfiles para recarregar todos os perfis e refletir o novo estado
-      await loadProfiles();
-      setSelectedInteractionProfileId(profileId);
-      
-      // Encontra o nome do perfil para anunciar
-      const profiles = useInteractionProfileStore.getState().profiles;
-      const profile = profiles.find(p => p.id === profileId);
-      if (profile) {
-        announce(`Perfil de interação alterado para ${profile.name}`);
-      }
-    });
-
-    const unsubscribeInteractionDeactivated = EventsOn('interaction:profile:deactivated', async () => {
-      console.log('[ChatToolbar] Perfis de interação desativados via agente');
-      await loadProfiles();
-      announce('Perfis de interação desativados');
-    });
-
-    return () => {
-      unsubscribeInteractionActivated();
-      unsubscribeInteractionDeactivated();
-    };
-  }, [activeProfileId, loadProfiles, announce]);
+  }, [openContextMenu, getProfileMenuItems]);
 
   // Atalhos de teclado globais
   useEffect(() => {
@@ -465,34 +97,19 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         e.preventDefault();
         handleNewConversation();
       }
-      // Ctrl+P: Focar no picker de perfil de voz
-      else if (e.ctrlKey && e.key === 'p' && voiceEnabled) {
-        e.preventDefault();
-        // Busca pelo data-picker específico ou fallback para aria-label
-        const voicePicker = document.querySelector('[data-picker="voice-profile"] button') as HTMLElement
-          || document.querySelector('[aria-label*="Voz"]') as HTMLElement;
-        voicePicker?.click();
-      }
       // Ctrl+H: Focar no picker de histórico
       else if (e.ctrlKey && e.key === 'h') {
         e.preventDefault();
         const historyPicker = document.querySelector('[aria-label*="Histórico"]') as HTMLElement;
         historyPicker?.click();
       }
-      // Ctrl+I: Focar no picker de interação
-      else if (e.ctrlKey && e.key === 'i' && voiceEnabled) {
-        e.preventDefault();
-        const interactionPicker = document.querySelector('[aria-label*="Interação"]') as HTMLElement;
-        interactionPicker?.click();
-      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [onSettings, voiceEnabled]);
+  }, []);
 
   const focusInput = useCallback(() => {
-    // Foca o input após um pequeno delay para garantir que o picker fechou
     setTimeout(() => {
       inputRef?.current?.focus();
     }, 100);
@@ -507,118 +124,9 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     focusInput();
   };
 
-  // Handler para mudança de perfil de interação
-  const handleInteractionProfileChange = useCallback((profileId: number) => {
-    setSelectedInteractionProfileId(profileId);
-    setActiveProfile(profileId);
+  const handleProfileChange = useCallback((_slug: string) => {
     focusInput();
-  }, [setActiveProfile, focusInput]);
-  
-  // Carrega perfis de interação ao montar
-  useEffect(() => {
-    loadProfiles();
-  }, [loadProfiles]);
-
-  // Handler para mudança de perfil de conversa
-  const handleChatProfileChange = useCallback(async (profileId: number) => {
-    setSelectedChatProfileId(profileId);
-
-    // Salva na conversa atual se existir
-    const conversationId = activeTab?.conversationId;
-    if (conversationId) {
-      try {
-        await SetConversationChatProfile(conversationId, profileId);
-        console.log('[ChatToolbar] Perfil de conversa salvo na conversa:', conversationId, profileId);
-      } catch (error) {
-        console.error('[ChatToolbar] Erro ao salvar perfil de conversa:', error);
-      }
-    }
-
-    // Atualiza o estado de useTools baseado no perfil
-    const profile = chatProfilePickerRef.current?.getSelectedProfile();
-    if (profile) {
-      setUseTools(profile.use_tools);
-    }
-
-    focusInput();
-  }, [activeTab?.conversationId, setUseTools, focusInput]);
-
-  // Carrega o perfil de conversa efetivo quando a conversa muda
-  useEffect(() => {
-    const loadConversationChatProfile = async () => {
-      try {
-        const conversationId = activeTab?.conversationId;
-        
-        let profile: ChatProfile | null = null;
-        
-        if (conversationId) {
-          // Conversa existente - carrega perfil efetivo (da conversa ou padrão)
-          profile = await GetEffectiveChatProfile(conversationId).catch(() => null) as ChatProfile | null;
-          console.log('[ChatToolbar] Perfil de conversa efetivo:', conversationId, profile?.name);
-        }
-        
-        // Se não encontrou perfil (nova conversa ou erro), usa o padrão
-        if (!profile) {
-          profile = await GetDefaultChatProfile().catch(() => null) as ChatProfile | null;
-          console.log('[ChatToolbar] Usando perfil de conversa padrão:', profile?.name);
-        }
-        
-        if (profile) {
-          setSelectedChatProfileId(profile.id);
-          setUseTools(profile.use_tools);
-        }
-      } catch (error) {
-        console.error('[ChatToolbar] Erro ao carregar perfil de conversa:', error);
-      }
-    };
-
-    loadConversationChatProfile();
-  }, [activeTab?.conversationId, setUseTools]); // Recarrega quando a conversa muda
-
-  // Escuta evento de mudança de perfil de conversa via agente
-  useEffect(() => {
-    const unsubscribeChatProfileChanged = EventsOn('chat:profile:conversation_changed', async (data: { conversation_id: number; profile_id: number }) => {
-      // Só processa se for para a conversa ativa
-      if (data.conversation_id !== activeTab?.conversationId) {
-        return;
-      }
-
-      console.log('[ChatToolbar] Perfil de conversa alterado via evento:', data);
-
-      if (data.profile_id === 0) {
-        // Removeu perfil customizado, usar padrão
-        try {
-          const defaultProfile = await GetDefaultChatProfile() as ChatProfile;
-          if (defaultProfile) {
-            setSelectedChatProfileId(defaultProfile.id);
-            setUseTools(defaultProfile.use_tools);
-            announce(`Voltou para perfil de conversa padrão: ${defaultProfile.name}`);
-          }
-        } catch (error) {
-          console.error('[ChatToolbar] Erro ao carregar perfil padrão:', error);
-        }
-      } else {
-        // Recarrega o picker e atualiza estado
-        chatProfilePickerRef.current?.reload();
-        setSelectedChatProfileId(data.profile_id);
-        
-        // Carrega perfil para atualizar useTools
-        try {
-          const profile = await GetEffectiveChatProfile(data.conversation_id) as ChatProfile;
-          if (profile) {
-            setUseTools(profile.use_tools);
-            announce(`Perfil de conversa alterado para ${profile.name}`);
-          }
-        } catch (error) {
-          console.error('[ChatToolbar] Erro ao carregar perfil:', error);
-        }
-      }
-    });
-
-    return () => {
-      unsubscribeChatProfileChanged();
-    };
-  }, [activeTab?.conversationId, setUseTools, announce]);
+  }, [focusInput]);
 
   const handleHistoryChange = async (conversationId: number, conversation: any) => {
     try {
@@ -632,136 +140,69 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   };
 
   return (
-  <>
-    <Toolbar
-      ariaLabel="Ferramentas do chat. Use setas para navegar entre os botões"
-      left={
-        <h2 className="chat-toolbar__title" id="chat-heading">
-          {conversationTitle}
-        </h2>
-      }
-      right={
-        <>
-          <button
-            className="toolbar__button"
-            onClick={handleNewConversation}
-            aria-label="Nova conversa, Ctrl+N"
-            title="Nova conversa (Ctrl+N)"
-            disabled={isLoading}
-            tabIndex={0}
-          >
-            <span aria-hidden="true">➕</span>
-            <span>Nova</span>
-          </button>
-
-          <div 
-            onContextMenu={handleHistoryContextMenu}
-            onKeyDown={handleHistoryKeyDown}
-          >
-            <HistoryPicker
-              ref={historyPickerRef}
-              value={activeTab?.conversationId}
-              onChange={handleHistoryChange}
-              label="Histórico (Ctrl+H)"
-              maxWidth="200px"
-              onAnnounce={announce}
-              disabled={isLoading}
-            />
-          </div>
-
-          <div className="toolbar__separator" aria-hidden="true"></div>
-
-          <div
-            onContextMenu={handleChatProfileContextMenu}
-            onKeyDown={handleChatProfileKeyDown}
-          >
-            <ChatProfilePicker
-              ref={chatProfilePickerRef}
-              value={selectedChatProfileId}
-              onChange={handleChatProfileChange}
-              variant="toolbar"
-              label="Perfil"
-              icon="💬"
-              maxWidth="180px"
-              onAnnounce={announce}
-            />
-          </div>
-
-          {voiceEnabled && config && (
-            <>
-              <div 
-                onContextMenu={handleVoiceProfileContextMenu}
-                onKeyDown={handleVoiceProfileKeyDown}
-              >
-                <VoiceProfilePicker
-                  ref={voiceProfilePickerRef}
-                  value={selectedProfileId}
-                  onChange={handleVoiceProfileChange}
-                  variant="toolbar"
-                  label="Voz (Ctrl+P)"
-                  icon="🔊"
-                  maxWidth="180px"
-                  onAnnounce={announce}
-                />
-              </div>
-
-              <div
-                onContextMenu={handleInteractionProfileContextMenu}
-                onKeyDown={handleInteractionProfileKeyDown}
-              >
-                <InteractionProfilePicker
-                  ref={interactionProfilePickerRef}
-                  value={selectedInteractionProfileId}
-                  onChange={handleInteractionProfileChange}
-                  variant="toolbar"
-                  label="Interação (Ctrl+I)"
-                  icon="🎙️"
-                  maxWidth="180px"
-                  onAnnounce={announce}
-                />
-              </div>
-
-              {onVoiceSettings && (
-                <button
-                  className="toolbar__button"
-                  onClick={onVoiceSettings}
-                  aria-label="Configurações de voz"
-                  title="Configurações de voz"
-                  disabled={isLoading}
-                  tabIndex={-1}
-                >
-                  <span aria-hidden="true">🔊</span>
-                </button>
-              )}
-            </>
-          )}
-
-          {onSettings && (
+    <>
+      <Toolbar
+        ariaLabel="Ferramentas do chat. Use setas para navegar entre os botões"
+        left={
+          <h2 className="chat-toolbar__title" id="chat-heading">
+            {conversationTitle}
+          </h2>
+        }
+        right={
+          <>
             <button
               className="toolbar__button"
-              onClick={onSettings}
-              aria-label="Preferências"
-              title="Preferências"
+              onClick={handleNewConversation}
+              aria-label="Nova conversa, Ctrl+N"
+              title="Nova conversa (Ctrl+N)"
               disabled={isLoading}
-              tabIndex={-1}
+              tabIndex={0}
             >
-              <span aria-hidden="true">⚙️</span>
-              <span>Preferências</span>
+              <span aria-hidden="true">➕</span>
+              <span>Nova</span>
             </button>
-          )}
-        </>
-      }
-    />
 
-    {/* Menu de contexto para pickers */}
-    <ContextMenu
-      visible={contextMenu.visible}
-      x={contextMenu.x}
-      y={contextMenu.y}
-      items={contextMenu.items}
-      ariaLabel={contextMenu.ariaLabel}
-      onClose={closeContextMenu}
-    />
-  </>
+            <div>
+              <HistoryPicker
+                ref={historyPickerRef}
+                value={activeTab?.conversationId}
+                onChange={handleHistoryChange}
+                label="Histórico (Ctrl+H)"
+                maxWidth="200px"
+                onAnnounce={announce}
+                disabled={isLoading}
+              />
+            </div>
+
+            <div className="toolbar__separator" aria-hidden="true"></div>
+
+            <div
+              onContextMenu={handleProfileContextMenu}
+              onKeyDown={handleProfileKeyDown}
+            >
+              <ProfilePicker
+                ref={profilePickerRef}
+                onChange={handleProfileChange}
+                variant="toolbar"
+                label="Perfil"
+                icon="💬"
+                maxWidth="180px"
+                onAnnounce={announce}
+              />
+            </div>
+          </>
+        }
+      />
+
+      {/* Menu de contexto para pickers */}
+      <ContextMenu
+        visible={contextMenu.visible}
+        x={contextMenu.x}
+        y={contextMenu.y}
+        items={contextMenu.items}
+        ariaLabel={contextMenu.ariaLabel}
+        onClose={closeContextMenu}
+      />
+    </>
   );
 };

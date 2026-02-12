@@ -1,0 +1,454 @@
+package web
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"strings"
+	"time"
+
+	"assistente/internal/tools"
+
+	"golang.org/x/net/html"
+)
+
+// WebFetch busca o conteúdo de uma URL e extrai texto legível.
+// Remove HTML, scripts, estilos e retorna conteúdo limpo em texto/markdown.
+type WebFetch struct {
+	client            *http.Client
+	allowPrivateHosts bool // Para testes com httptest (padrão: false)
+}
+
+// NewWebFetch cria uma nova instância de WebFetch.
+func NewWebFetch() *WebFetch {
+	return &WebFetch{
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return fmt.Errorf("muitos redirects (limite: 5)")
+				}
+				return nil
+			},
+		},
+	}
+}
+
+func (t *WebFetch) Name() string { return "web_fetch" }
+
+func (t *WebFetch) Description() string {
+	return "Busca o conteúdo de uma URL e extrai o texto principal da página. Remove HTML, scripts e estilos, retornando conteúdo legível. Útil para ler documentação, artigos, READMEs, etc."
+}
+
+func (t *WebFetch) Parameters() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"url": {
+				"type": "string",
+				"description": "URL completa para buscar (deve começar com http:// ou https://)"
+			},
+			"max_length": {
+				"type": "integer",
+				"description": "Tamanho máximo do conteúdo retornado em caracteres. Padrão: 50000."
+			},
+			"extract_mode": {
+				"type": "string",
+				"enum": ["text", "raw", "markdown"],
+				"description": "Modo de extração: 'text' (padrão) extrai texto limpo, 'raw' retorna HTML bruto, 'markdown' tenta converter para markdown básico."
+			}
+		},
+		"required": ["url"],
+		"additionalProperties": false
+	}`)
+}
+
+type webFetchArgs struct {
+	URL         string `json:"url"`
+	MaxLength   *int   `json:"max_length,omitempty"`
+	ExtractMode string `json:"extract_mode,omitempty"`
+}
+
+// Limites de segurança
+const (
+	fetchDefaultMaxLength = 50000
+	fetchMaxResponseBody  = 10 * 1024 * 1024 // 10MB max download
+)
+
+func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
+	var a webFetchArgs
+	if err := json.Unmarshal(args, &a); err != nil {
+		return tools.ToolResult{Content: "Erro ao parsear argumentos: " + err.Error(), IsError: true}, nil
+	}
+
+	if a.URL == "" {
+		return tools.ToolResult{Content: "Parâmetro 'url' é obrigatório", IsError: true}, nil
+	}
+
+	// Valida URL
+	parsedURL, err := url.Parse(a.URL)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("URL inválida: %v", err), IsError: true}, nil
+	}
+
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return tools.ToolResult{Content: "URL deve usar http:// ou https://", IsError: true}, nil
+	}
+
+	// Bloqueia hosts locais/privados (exceto em modo teste)
+	if !t.allowPrivateHosts && isPrivateHost(parsedURL.Hostname()) {
+		return tools.ToolResult{Content: "Acesso a hosts locais/privados não é permitido", IsError: true}, nil
+	}
+
+	maxLength := fetchDefaultMaxLength
+	if a.MaxLength != nil && *a.MaxLength > 0 {
+		maxLength = *a.MaxLength
+	}
+
+	mode := "text"
+	if a.ExtractMode != "" {
+		mode = a.ExtractMode
+	}
+
+	// Faz a requisição
+	req, err := http.NewRequestWithContext(ctx, "GET", a.URL, nil)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Erro ao criar requisição: %v", err), IsError: true}, nil
+	}
+
+	// User-Agent amigável
+	req.Header.Set("User-Agent", "Assistente/1.0 (Tool WebFetch; +https://github.com)")
+	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7")
+	req.Header.Set("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
+
+	resp, err := t.client.Do(req)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Erro ao acessar URL: %v", err), IsError: true}, nil
+	}
+	defer resp.Body.Close()
+
+	// Verifica status
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
+		return tools.ToolResult{
+			Content: fmt.Sprintf("HTTP %d %s para %s", resp.StatusCode, resp.Status, a.URL),
+			IsError: true,
+		}, nil
+	}
+
+	// Lê o body com limite
+	limitedReader := io.LimitReader(resp.Body, fetchMaxResponseBody)
+	body, err := io.ReadAll(limitedReader)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler resposta: %v", err), IsError: true}, nil
+	}
+
+	contentType := resp.Header.Get("Content-Type")
+	content := string(body)
+
+	// Extrai conteúdo baseado no modo e content-type
+	var extracted string
+	switch {
+	case mode == "raw":
+		extracted = content
+	case strings.Contains(contentType, "text/plain") || strings.Contains(contentType, "application/json"):
+		// Texto puro ou JSON — retorna direto
+		extracted = content
+	case strings.Contains(contentType, "text/html") || strings.Contains(contentType, "application/xhtml"):
+		if mode == "markdown" {
+			extracted = htmlToMarkdown(content)
+		} else {
+			extracted = htmlToText(content)
+		}
+	default:
+		// Tenta extrair como HTML por padrão
+		extracted = htmlToText(content)
+	}
+
+	// Trunca se necessário
+	truncated := false
+	if len(extracted) > maxLength {
+		extracted = extracted[:maxLength]
+		truncated = true
+	}
+
+	// Header informativo
+	header := fmt.Sprintf("URL: %s\nStatus: %d | Content-Type: %s | Tamanho: %d chars\n",
+		a.URL, resp.StatusCode, contentType, len(extracted))
+	if truncated {
+		header += fmt.Sprintf("(TRUNCADO: limite de %d caracteres)\n", maxLength)
+	}
+	header += "\n"
+
+	return tools.ToolResult{
+		Content: header + extracted,
+		Metadata: map[string]any{
+			"url":          a.URL,
+			"status":       resp.StatusCode,
+			"content_type": contentType,
+			"length":       len(extracted),
+			"truncated":    truncated,
+		},
+	}, nil
+}
+
+// ==================== HTML Processing ====================
+
+// htmlToText extrai texto legível de HTML, removendo scripts, estilos e tags.
+func htmlToText(rawHTML string) string {
+	doc, err := html.Parse(strings.NewReader(rawHTML))
+	if err != nil {
+		// Fallback: strip tags manualmente
+		return stripTagsSimple(rawHTML)
+	}
+
+	var sb strings.Builder
+	extractText(doc, &sb, false)
+
+	// Limpa whitespace excessivo
+	text := sb.String()
+	text = collapseWhitespace(text)
+	return strings.TrimSpace(text)
+}
+
+// htmlToMarkdown extrai conteúdo de HTML convertendo para markdown básico.
+func htmlToMarkdown(rawHTML string) string {
+	doc, err := html.Parse(strings.NewReader(rawHTML))
+	if err != nil {
+		return stripTagsSimple(rawHTML)
+	}
+
+	var sb strings.Builder
+	extractMarkdown(doc, &sb)
+
+	text := sb.String()
+	text = collapseWhitespace(text)
+	return strings.TrimSpace(text)
+}
+
+// extractText percorre o DOM e extrai texto, ignorando script/style/noscript.
+func extractText(n *html.Node, sb *strings.Builder, inBlock bool) {
+	if n.Type == html.ElementNode {
+		tag := strings.ToLower(n.Data)
+		// Ignora elementos não-textuais
+		if tag == "script" || tag == "style" || tag == "noscript" || tag == "svg" || tag == "head" {
+			return
+		}
+		// Elementos de bloco adicionam quebra de linha
+		if isBlockElement(tag) {
+			sb.WriteString("\n")
+		}
+	}
+
+	if n.Type == html.TextNode {
+		text := strings.TrimSpace(n.Data)
+		if text != "" {
+			sb.WriteString(text)
+			sb.WriteString(" ")
+		}
+	}
+
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		extractText(c, sb, inBlock)
+	}
+
+	if n.Type == html.ElementNode {
+		tag := strings.ToLower(n.Data)
+		if isBlockElement(tag) {
+			sb.WriteString("\n")
+		}
+	}
+}
+
+// extractMarkdown percorre o DOM e converte para markdown básico.
+func extractMarkdown(n *html.Node, sb *strings.Builder) {
+	if n.Type == html.ElementNode {
+		tag := strings.ToLower(n.Data)
+		if tag == "script" || tag == "style" || tag == "noscript" || tag == "svg" || tag == "head" {
+			return
+		}
+
+		switch tag {
+		case "h1":
+			sb.WriteString("\n# ")
+		case "h2":
+			sb.WriteString("\n## ")
+		case "h3":
+			sb.WriteString("\n### ")
+		case "h4":
+			sb.WriteString("\n#### ")
+		case "h5":
+			sb.WriteString("\n##### ")
+		case "h6":
+			sb.WriteString("\n###### ")
+		case "p":
+			sb.WriteString("\n\n")
+		case "br":
+			sb.WriteString("\n")
+		case "li":
+			sb.WriteString("\n- ")
+		case "strong", "b":
+			sb.WriteString("**")
+		case "em", "i":
+			sb.WriteString("*")
+		case "code":
+			sb.WriteString("`")
+		case "pre":
+			sb.WriteString("\n```\n")
+		case "a":
+			// Será tratado no fechamento
+		case "blockquote":
+			sb.WriteString("\n> ")
+		case "hr":
+			sb.WriteString("\n---\n")
+		default:
+			if isBlockElement(tag) {
+				sb.WriteString("\n")
+			}
+		}
+	}
+
+	if n.Type == html.TextNode {
+		text := n.Data
+		// Preserva whitespace em <pre>
+		parent := n.Parent
+		if parent != nil && parent.Type == html.ElementNode && strings.ToLower(parent.Data) == "pre" {
+			sb.WriteString(text)
+		} else {
+			trimmed := strings.TrimSpace(text)
+			if trimmed != "" {
+				sb.WriteString(trimmed)
+				sb.WriteString(" ")
+			}
+		}
+	}
+
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		extractMarkdown(c, sb)
+	}
+
+	// Tags de fechamento
+	if n.Type == html.ElementNode {
+		tag := strings.ToLower(n.Data)
+		switch tag {
+		case "h1", "h2", "h3", "h4", "h5", "h6":
+			sb.WriteString("\n")
+		case "strong", "b":
+			sb.WriteString("**")
+		case "em", "i":
+			sb.WriteString("*")
+		case "code":
+			sb.WriteString("`")
+		case "pre":
+			sb.WriteString("\n```\n")
+		case "a":
+			href := getAttr(n, "href")
+			if href != "" {
+				// Fecha o link no formato markdown: [texto](url)
+				// Como o texto já foi escrito, vamos apenas adicionar o URL
+				sb.WriteString(fmt.Sprintf(" (%s) ", href))
+			}
+		case "p", "div", "section", "article":
+			sb.WriteString("\n")
+		}
+	}
+}
+
+// ==================== Helpers ====================
+
+// isBlockElement retorna true para elementos HTML de bloco.
+func isBlockElement(tag string) bool {
+	blocks := map[string]bool{
+		"div": true, "p": true, "h1": true, "h2": true, "h3": true,
+		"h4": true, "h5": true, "h6": true, "ul": true, "ol": true,
+		"li": true, "table": true, "tr": true, "td": true, "th": true,
+		"blockquote": true, "pre": true, "hr": true, "br": true,
+		"section": true, "article": true, "aside": true, "nav": true,
+		"header": true, "footer": true, "main": true, "figure": true,
+		"figcaption": true, "details": true, "summary": true,
+	}
+	return blocks[tag]
+}
+
+// getAttr retorna o valor de um atributo HTML.
+func getAttr(n *html.Node, key string) string {
+	for _, attr := range n.Attr {
+		if attr.Key == key {
+			return attr.Val
+		}
+	}
+	return ""
+}
+
+// stripTagsSimple remove tags HTML de forma simples (fallback).
+func stripTagsSimple(s string) string {
+	var sb strings.Builder
+	inTag := false
+	for _, r := range s {
+		if r == '<' {
+			inTag = true
+			continue
+		}
+		if r == '>' {
+			inTag = false
+			sb.WriteRune(' ')
+			continue
+		}
+		if !inTag {
+			sb.WriteRune(r)
+		}
+	}
+	return sb.String()
+}
+
+// collapseWhitespace reduz múltiplas quebras de linha e espaços.
+func collapseWhitespace(s string) string {
+	// Reduz 3+ newlines para 2
+	for strings.Contains(s, "\n\n\n") {
+		s = strings.ReplaceAll(s, "\n\n\n", "\n\n")
+	}
+	// Reduz espaços múltiplos (mas não newlines)
+	lines := strings.Split(s, "\n")
+	for i, line := range lines {
+		// Colapsa múltiplos espaços em um
+		words := strings.Fields(line)
+		lines[i] = strings.Join(words, " ")
+	}
+	return strings.Join(lines, "\n")
+}
+
+// isPrivateHost verifica se um host é local/privado.
+func isPrivateHost(host string) bool {
+	host = strings.ToLower(host)
+
+	private := []string{
+		"localhost",
+		"127.0.0.1",
+		"0.0.0.0",
+		"::1",
+		"[::1]",
+	}
+
+	for _, p := range private {
+		if host == p {
+			return true
+		}
+	}
+
+	// Bloqueia ranges privados comuns
+	if strings.HasPrefix(host, "10.") ||
+		strings.HasPrefix(host, "192.168.") ||
+		strings.HasPrefix(host, "172.16.") ||
+		strings.HasPrefix(host, "172.17.") ||
+		strings.HasPrefix(host, "172.18.") ||
+		strings.HasPrefix(host, "172.19.") ||
+		strings.HasPrefix(host, "172.2") ||
+		strings.HasPrefix(host, "172.30.") ||
+		strings.HasPrefix(host, "172.31.") {
+		return true
+	}
+
+	return false
+}

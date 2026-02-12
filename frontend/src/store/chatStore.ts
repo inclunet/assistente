@@ -9,8 +9,6 @@ import {
   UpdateTabTitle as BackendUpdateTabTitle,
   GetMessages,
   LoadConversationInTab,
-  OnTabInactive,
-  OnTabClosed,
 } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
@@ -19,9 +17,8 @@ import { announce } from '../hooks/useAnnouncer';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
-import { VOICE_DISABLED } from '../components/pickers/VoicePicker';
-import { useSettingsStore } from './settingsStore';
 import { stripMarkdown } from '../lib/stripMarkdown';
+import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
 
 // Constantes de validação de input (devem corresponder ao backend)
 const MAX_MESSAGE_CONTENT_SIZE = 500 * 1024; // 500KB
@@ -35,15 +32,6 @@ interface MediaData {
   type: string;
   data: string; // base64
   size: number;
-}
-
-export interface ToolCall {
-  id: string;
-  type: string;
-  function: {
-    name: string;
-    arguments: string;
-  };
 }
 
 // Usa os tipos gerados pelo Wails diretamente
@@ -82,9 +70,6 @@ export interface NewMessageData {
   content: string;
   isStreaming?: boolean;
   parentId?: string;
-  toolCallId?: string;
-  agentName?: string;
-  toolName?: string;
 }
 
 export interface ChatTab {
@@ -105,13 +90,17 @@ interface ChatStore {
   isInitialized: boolean;
   expandedThreads: Set<string>; // IDs de mensagens com threads expandidas
   editingMessageId: string | null; // ID da mensagem sendo editada (acionado por F2 ou menu)
+  readingMessageId: string | null; // ID da mensagem para ativar modo leitura (acionado pelo menu de contexto)
   skipFocusRestore: boolean; // Flag para pular restauração de foco após fechar menu
-  useTools: boolean; // Flag para habilitar/desabilitar ferramentas
   
   // Reasoning/Thinking - cadeia de pensamento do modelo durante streaming
   streamingReasoning: string | null; // Reasoning acumulado durante streaming
   isThinking: boolean; // Se está recebendo reasoning do modelo
   expandedReasonings: Set<string>; // IDs de mensagens com reasoning expandido
+
+  // Tool calling - estado durante streaming do agentic loop
+  activeToolCalls: ToolCallStatus[]; // Tool calls em execução/concluídos durante streaming
+  hadToolCalls: boolean; // Se houve tool calls neste turno (para saber se precisa reload)
 
   // Initialization
   initializeTabs: () => Promise<void>;
@@ -120,9 +109,10 @@ interface ChatStore {
   setEditingMessageId: (id: string | null) => void;
   startEditing: (id: string) => void; // Inicia edição e marca para pular restauração de foco
   consumeSkipFocusRestore: () => boolean; // Consome o flag e retorna se deve pular
-
-  // Tools
-  setUseTools: (value: boolean) => void;
+  
+  // Reading mode (virtual modal)
+  setReadingMessageId: (id: string | null) => void;
+  startReading: (id: string) => void; // Inicia modo leitura e marca para pular restauração de foco
 
   // Tab management
   createTab: (activate?: boolean) => Promise<string>;
@@ -289,11 +279,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     isInitialized: false,
     expandedThreads: new Set<string>(),
     editingMessageId: null,
+    readingMessageId: null,
     skipFocusRestore: false,
-    useTools: true, // Valor padrão, pode ser alterado via toggle na toolbar
     streamingReasoning: null, // Reasoning durante streaming
     isThinking: false, // Se está recebendo reasoning
     expandedReasonings: new Set<string>(), // IDs de mensagens com reasoning expandido
+    activeToolCalls: [], // Tool calls durante streaming
+    hadToolCalls: false, // Se houve tool calls neste turno
     
     setEditingMessageId: (id: string | null) => {
       set({ editingMessageId: id });
@@ -304,16 +296,21 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set({ editingMessageId: id, skipFocusRestore: true });
     },
     
+    setReadingMessageId: (id: string | null) => {
+      set({ readingMessageId: id });
+    },
+    
+    startReading: (id: string) => {
+      // Marca para pular restauração de foco E inicia modo leitura
+      set({ readingMessageId: id, skipFocusRestore: true });
+    },
+    
     consumeSkipFocusRestore: () => {
       const shouldSkip = get().skipFocusRestore;
       if (shouldSkip) {
         set({ skipFocusRestore: false });
       }
       return shouldSkip;
-    },
-
-    setUseTools: (value: boolean) => {
-      set({ useTools: value });
     },
 
     initializeTabs: async () => {
@@ -463,13 +460,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }
 
     try {
-      // Gera embedding da conversa antes de fechar (se houver conversa)
-      if (tab.conversationId) {
-        console.log('[Chat] Generating embedding before closing tab, conversationId:', tab.conversationId);
-        await OnTabClosed(tab.conversationId).catch(err => 
-          console.warn('[Chat] Error generating embedding on tab close:', err)
-        );
-      }
+      // Note: OnTabClosed was removed from backend - embedding generation happens automatically
       
       if (tab.backendId) {
         console.log('[Chat] Closing tab in backend:', tab.backendId);
@@ -514,16 +505,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     console.log('[Chat] 🔵 setActiveTab CHAMADO com tabId:', tabId);
     const state = get();
     const tab = state.tabs.find(t => t.id === tabId);
-    const previousTab = state.tabs.find(t => t.id === state.activeTabId);
+    // previousTab removed - no longer needed after tool-calling removal
     console.log('[Chat] 🔵 Tab encontrada:', tab ? `id=${tab.id}, backendId=${tab.backendId}` : 'NÃO ENCONTRADA');
     
-    // Dispara geração de embedding da aba anterior (em background)
-    if (previousTab && previousTab.backendId && previousTab.id !== tabId) {
-      console.log('[Chat] 🔵 Tab anterior ficando inativa, gerando embedding:', previousTab.backendId);
-      OnTabInactive(previousTab.backendId).catch(err => 
-        console.warn('[Chat] Error generating embedding on tab inactive:', err)
-      );
-    }
+    // Note: OnTabInactive was removed from backend - embedding generation happens automatically
     
     try {
       if (tab?.backendId) {
@@ -604,6 +589,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   addMessage: (tabId, message) => {
     const messageId = generateId();
     // Cria instância da classe EnrichedMessage para ter método convertValues
+    // IMPORTANTE: createdAt DEVE ser string ISO, não Date object.
+    // convertValues(source["createdAt"], null) tenta "new null(obj)" quando recebe um objeto,
+    // causando "classs is not a constructor".
     const newMessage = new main.EnrichedMessage({
       ...message,
       id: messageId,
@@ -611,7 +599,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       conversationId: 0, // Será atualizado pelo backend
       isStreaming: message.isStreaming ?? false,
       internal: false,
-      createdAt: new Date(),
+      createdAt: new Date().toISOString(),
     });
 
     // Cria MessageNode para visualização hierárquica
@@ -635,24 +623,20 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }));
 
     // Anuncia mensagem para leitores de tela e TTS
-    const settings = useSettingsStore.getState();
+    // TTS é configurado pelo perfil global via ttsService (fonte de verdade)
     const isActiveTab = get().activeTabId === tabId;
     
     if (message.role === 'user') {
       // Mensagem do usuário
       playSendSound();
       
-      // Verifica se TTS do usuário está ativo
-      const ttsEnabledForUser = settings.config?.ttsEnabledForUser;
-      const useAriaLiveForUser = settings.config?.useAriaLiveForUser !== false; // true por padrão
-      
-      if (ttsEnabledForUser && settings.config?.voice) {
-        // TTS para mensagem do usuário - usa streaming para reprodução mais rápida
+      if (ttsService.isEnabledForUser()) {
+        // TTS para mensagem do usuário
         const cleanContent = stripMarkdown(message.content);
-        ttsService.speak(cleanContent).catch((err) => {
+        ttsService.speak(cleanContent).catch((err: any) => {
           console.error('[Chat] TTS speak error (user):', err);
         });
-      } else if (useAriaLiveForUser) {
+      } else if (ttsService.shouldUseAriaLiveForUser()) {
         // Anuncia via aria-live se TTS não estiver ativo
         const cleanContent = stripMarkdown(message.content);
         announce(`Você: ${cleanContent}`);
@@ -665,21 +649,14 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         playReceiveSound();
       }
       
-      // Verifica se TTS vai ler a mensagem
-      const voiceEnabled = settings.config?.voice && settings.config.voice !== VOICE_DISABLED;
-      const willUseTTS = voiceEnabled && ttsService.isAutoReadEnabled();
-      const useAriaLiveForAgent = settings.config?.useAriaLiveForAgent !== false; // true por padrão
-      
       // Só anuncia via aria-live se TTS NÃO estiver ativo
       // (evita conflito entre TTS e leitor de tela)
-      if (!willUseTTS && useAriaLiveForAgent && isActiveTab) {
+      if (ttsService.shouldUseAriaLiveForAgent() && isActiveTab) {
         const cleanContent = stripMarkdown(message.content);
         announce(`Assistente: ${cleanContent}`);
       }
       
-      // REMOVIDO: Lógica antiga de TTS que causava duplicação
-      // Agora o TTS é gerenciado exclusivamente no streamComplete via ttsService.speak()
-      // que usa streaming para menor latência
+      // TTS para assistente é gerenciado no streamComplete via ttsService.speak()
     }
 
     console.log('[Chat] Message added:', { tabId, messageId, role: message.role, contentLength: message.content.length });
@@ -779,7 +756,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       messageId: message.id,
       parentId,
       role: message.role,
-      agentName: message.agentName 
     });
     
     set((state) => {
@@ -1010,7 +986,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         setTimeout(() => {
           createTab(false).then(newTabId => {
             console.log('[Chat] New blank tab created (not activated):', newTabId);
-          }).catch(err => {
+          }).catch((err: any) => {
             console.error('[Chat] Error creating new blank tab:', err);
           });
         }, 100);
@@ -1188,66 +1164,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             hasMedia: !!mediaFiles && mediaFiles.length > 0,
           });
 
-          // If we have media files, use AddMessageWithMedia
-          if (mediaFiles && mediaFiles.length > 0) {
-            const mediaDataArray: MediaData[] = [];
-            
-            for (const mediaFile of mediaFiles) {
-              const base64Data = await fileToBase64(mediaFile.file);
-              mediaDataArray.push({
-                name: mediaFile.file.name,
-                type: mediaFile.file.type,
-                data: base64Data,
-                size: mediaFile.file.size,
-              });
-            }
-
-            const mediaJson = JSON.stringify(mediaDataArray);
-            console.log('[Chat] Sending message with media:', mediaDataArray.length, 'files');
-
-            // AddMessageWithMedia returns the new message (ChatMessage with id and conversation_id)
-            const newMessage = await AddMessageWithMedia(
-              conversationId,
-              'user',
-              content,
-              mediaJson,
-              '', // toolCalls
-              ''  // toolResults
-            );
-
-            // Update tab with conversation ID if we didn't have one
-            if (!tab?.conversationId && newMessage.conversationId) {
-              set((state) => ({
-                tabs: state.tabs.map((t) =>
-                  t.id === currentTabId
-                    ? { ...t, conversationId: newMessage.conversationId }
-                    : t
-                ),
-              }));
-            }
-
-            // Update tab with conversation ID
-            const activeConvId = newMessage.conversationId || conversationId;
-            if (!tab?.conversationId && activeConvId) {
-              set((state) => ({
-                tabs: state.tabs.map((t) =>
-                  t.id === currentTabId
-                    ? { ...t, conversationId: activeConvId }
-                    : t
-                ),
-              }));
-            }
-          } else {
-            // Normal message without media
-            await SendMessage(conversationId, content, 'user', {
-              model: '',
-              temperature: 0.7,
-              maxTokens: 4096,
-              useTools: get().useTools,
-            });
-          }
-
           // Setup completion handler that will clean up everything
+          // CRÍTICO: Registrar listeners ANTES de chamar SendMessage/AddMessageWithMedia
+          // pois o backend inicia streaming em goroutine e pode emitir eventos antes do await retornar
           let unsubscribeStream: (() => void) | null = null;
           let unsubscribeComplete: (() => void) | null = null;
           let cleanupExecuted = false; // Flag para evitar cleanup duplicado
@@ -1272,7 +1191,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               unsubscribeComplete = null;
             }
             activeListeners.delete(currentTabId!);
-            set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false });
+            set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [] });
           };
 
           // Limpa listeners antigos desta tab se existirem
@@ -1372,11 +1291,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   playReceiveSound();
                 }
                 
-                // Verifica se TTS deve ler a mensagem
-                const settings = useSettingsStore.getState();
-                const voiceEnabled = settings.config?.voice && settings.config.voice !== VOICE_DISABLED;
-                const willUseTTS = voiceEnabled && ttsService.isAutoReadEnabled();
-                const useAriaLiveForAgent = settings.config?.useAriaLiveForAgent !== false; // true por padrão
+                // TTS é configurado pelo perfil global via ttsService (fonte de verdade)
+                const willUseTTS = ttsService.isAutoReadEnabled();
                 
                 // Sintetiza e reproduz áudio para esta mensagem
                 if (willUseTTS && isActiveTab && !cleanupExecuted) {
@@ -1384,16 +1300,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   messageAudioService.stopAll();
                   ttsService.stop();
                   
-                  // Usa speak() com streaming para reprodução mais rápida
-                  // O streaming começa a reproduzir enquanto ainda está baixando
-                  ttsService.speak(finalMessage.content).catch((err) => {
+                  // Usa speak() para reprodução
+                  ttsService.speak(finalMessage.content).catch((err: any) => {
                     console.error('[Chat] TTS speak error:', err);
                   });
                 }
                 
-                // Só anuncia via aria-live se TTS NÃO estiver ativo E aria-live está habilitado
+                // Só anuncia via aria-live se TTS NÃO estiver ativo
                 // (evita conflito entre TTS e leitor de tela)
-                if (!willUseTTS && useAriaLiveForAgent && isActiveTab) {
+                if (ttsService.shouldUseAriaLiveForAgent() && isActiveTab) {
                   const cleanContent = stripMarkdown(finalMessage.content);
                   announce(`Assistente: ${cleanContent}`);
                 }
@@ -1427,6 +1342,58 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }
           });
 
+          // ==================== Tool Calling Events ====================
+
+          // Listen for tool execution start
+          let unsubscribeToolStart: (() => void) | null = null;
+          unsubscribeToolStart = EventsOn('chat:tool_start', (data: any) => {
+            if (!activeListeners.has(currentTabId!)) return;
+            console.log('[Chat] 🔧 Tool start:', data.name, data.callId);
+            
+            set((state) => ({
+              hadToolCalls: true,
+              activeToolCalls: [
+                ...state.activeToolCalls,
+                {
+                  name: data.name,
+                  callId: data.callId,
+                  args: data.args,
+                  status: 'running' as const,
+                },
+              ],
+            }));
+            announce(`Executando ferramenta: ${data.name}`, 'polite');
+          });
+
+          // Listen for tool execution end
+          let unsubscribeToolEnd: (() => void) | null = null;
+          unsubscribeToolEnd = EventsOn('chat:tool_end', (data: any) => {
+            if (!activeListeners.has(currentTabId!)) return;
+            console.log('[Chat] ✅ Tool end:', data.name, data.status);
+            
+            set((state) => ({
+              activeToolCalls: state.activeToolCalls.map((tc) =>
+                tc.callId === data.callId
+                  ? { ...tc, status: (data.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: data.summary }
+                  : tc
+              ),
+            }));
+          });
+
+          // Listen for segment done (assistant text before tool calls — for verbalization)
+          let unsubscribeSegmentDone: (() => void) | null = null;
+          unsubscribeSegmentDone = EventsOn('chat:segment_done', (data: any) => {
+            if (!activeListeners.has(currentTabId!)) return;
+            console.log('[Chat] 📝 Segment done:', data.iteration, 'hasMore:', data.hasMore);
+            
+            // Verbaliza o segmento intermediário se TTS estiver ativo
+            if (data.content && ttsService.isAutoReadEnabled()) {
+              ttsService.speak(data.content).catch((err: any) => {
+                console.error('[Chat] TTS segment error:', err);
+              });
+            }
+          });
+
           // Listen for completion event - this signals end of entire chat process
           unsubscribeComplete = EventsOn('chat:done', (data: any) => {
             // IMPORTANTE: Verifica se este listener ainda é válido
@@ -1436,6 +1403,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }
             
             console.log('[Chat] Chat complete:', data);
+            const didUseTools = get().hadToolCalls;
             
             // Mark message as no longer streaming
             set((state) => {
@@ -1456,106 +1424,34 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               }
               return state;
             });
+
+            // Se houve tool calls, recarrega mensagens do backend para obter a estrutura completa
+            if (didUseTools) {
+              const tab = get().tabs.find(t => t.id === currentTabId);
+              if (tab?.conversationId) {
+                console.log('[Chat] 🔄 Recarregando mensagens após tool calling...');
+                GetMessages(tab.conversationId, null).then((backendNodes) => {
+                  const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
+                    (node as any).originalIndex = index;
+                    return node;
+                  });
+                  set((state) => ({
+                    tabs: state.tabs.map((t) =>
+                      t.id === currentTabId
+                        ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() }
+                        : t
+                    ),
+                    hadToolCalls: false,
+                  }));
+                  console.log('[Chat] ✅ Mensagens recarregadas:', backendNodes.length);
+                }).catch((err) => {
+                  console.error('[Chat] ❌ Erro ao recarregar mensagens:', err);
+                });
+              }
+            }
             
             // Cleanup listeners
             cleanup();
-          });
-
-          // Listen for tool execution events
-          const unsubscribeTools = EventsOn('chat:tools', (event: any) => {
-            if (!activeListeners.has(currentTabId!)) return;
-            
-            console.log('[Chat] Tools executing:', event);
-            
-            // Adiciona mensagem visual de tools sendo executadas
-            const toolNames = event.tools?.join(', ') || 'ferramentas';
-            announce(`Executando ${toolNames}`, 'polite');
-          });
-
-          // Listen for tool results
-          const unsubscribeToolResults = EventsOn('chat:tool_results', (event: any) => {
-            if (!activeListeners.has(currentTabId!)) return;
-            
-            console.log('[Chat] Tool results:', event);
-          });
-
-          // Listen for agent messages (nível 2: agente ↔ tools)
-          // IMPORTANTE: Este evento é emitido pelo backend para mensagens dos agentes
-          // enquanto chat:internal_message é para mensagens de nível 1 (assistente ↔ agentes)
-          const unsubscribeAgentMessage = EventsOn('chat:agent_message', (event: any) => {
-            if (!activeListeners.has(currentTabId!)) return;
-            
-            console.log('[Chat] Agent message received (level 2):', event);
-            
-            // IMPORTANTE: Converte parentId para string para garantir compatibilidade
-            const parentIdRaw = event.parentId ?? event.parent_id;
-            const parentIdStr = parentIdRaw ? parentIdRaw.toString() : undefined;
-            
-            // Cria instância de EnrichedMessage para mensagem do agente
-            const agentMessage = new main.EnrichedMessage({
-              id: event.id?.toString() || generateId(),
-              conversationId: 0,
-              parentId: parentIdStr,
-              role: event.role || 'assistant', // Agentes podem ter role 'assistant' ou 'tool'
-              content: event.content || '',
-              toolCallId: event.toolCallId || event.tool_call_id,
-              agentName: event.agentName || event.agent_name,
-              toolName: event.toolName || event.tool_name,
-              internal: true,
-              timestamp: Date.now(),
-              isStreaming: false,
-              createdAt: new Date(),
-            });
-            
-            // Adiciona mensagem do agente à árvore (mesma lógica de internal_message)
-            get().addInternalMessage(currentTabId!, agentMessage);
-            
-            // Anuncia atividade do agente
-            if (agentMessage.agentName) {
-              const agentDisplay = agentMessage.agentName.split('_').map((w: string) => 
-                w.charAt(0).toUpperCase() + w.slice(1)
-              ).join(' ');
-              announce(`${agentDisplay} está processando`, 'polite');
-            }
-          });
-          
-          // Listen for internal messages (tool calls, agent responses)
-          const unsubscribeInternalMessage = EventsOn('chat:internal_message', (event: any) => {
-            if (!activeListeners.has(currentTabId!)) return;
-            
-            console.log('[Chat] Internal message received:', event);
-            
-            // IMPORTANTE: Converte parentId para string para garantir compatibilidade
-            // O backend envia como número, mas a árvore usa strings como IDs
-            const parentIdRaw = event.parentId ?? event.parent_id;
-            const parentIdStr = parentIdRaw ? parentIdRaw.toString() : undefined;
-            
-            // Cria instância de EnrichedMessage para mensagem interna
-            const internalMessage = new main.EnrichedMessage({
-              id: event.id?.toString() || generateId(),
-              conversationId: 0,
-              parentId: parentIdStr,
-              role: event.role || 'tool',
-              content: event.content || '',
-              toolCallId: event.toolCallId || event.tool_call_id,
-              agentName: event.agentName || event.agent_name,
-              toolName: event.toolName || event.tool_name,
-              internal: true,
-              timestamp: Date.now(),
-              isStreaming: false,
-              createdAt: new Date(),
-            });
-            
-            // Adiciona mensagem interna à tab
-            get().addInternalMessage(currentTabId!, internalMessage);
-            
-            // Anuncia execução de ferramenta/agente
-            if (internalMessage.agentName) {
-              const agentDisplay = internalMessage.agentName.split('_').map((w: string) => 
-                w.charAt(0).toUpperCase() + w.slice(1)
-              ).join(' ');
-              announce(`${agentDisplay} respondeu`, 'polite');
-            }
           });
 
           // Atualiza cleanup para incluir novos listeners
@@ -1563,10 +1459,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const enhancedCleanup = () => {
             originalCleanup();
             if (unsubscribeThinking) unsubscribeThinking();
-            if (unsubscribeTools) unsubscribeTools();
-            if (unsubscribeToolResults) unsubscribeToolResults();
-            if (unsubscribeAgentMessage) unsubscribeAgentMessage();
-            if (unsubscribeInternalMessage) unsubscribeInternalMessage();
+            if (unsubscribeToolStart) unsubscribeToolStart();
+            if (unsubscribeToolEnd) unsubscribeToolEnd();
+            if (unsubscribeSegmentDone) unsubscribeSegmentDone();
           };
 
           // CRÍTICO: Armazena cleanup no Map IMEDIATAMENTE após criar os listeners
@@ -1582,20 +1477,78 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (unsubscribeConvLoaded) unsubscribeConvLoaded();
             if (unsubscribeMessagesReady) unsubscribeMessagesReady();
           };
+
+          // AGORA envia a mensagem — listeners já estão ativos para capturar streaming
+          if (mediaFiles && mediaFiles.length > 0) {
+            const mediaDataArray: MediaData[] = [];
+            
+            for (const mediaFile of mediaFiles) {
+              const base64Data = await fileToBase64(mediaFile.file);
+              mediaDataArray.push({
+                name: mediaFile.file.name,
+                type: mediaFile.file.type,
+                data: base64Data,
+                size: mediaFile.file.size,
+              });
+            }
+
+            const mediaJson = JSON.stringify(mediaDataArray);
+            console.log('[Chat] Sending message with media:', mediaDataArray.length, 'files');
+
+            const newMessage = await AddMessageWithMedia(
+              conversationId,
+              'user',
+              content,
+              mediaJson
+            );
+
+            // Update tab with conversation ID if we didn't have one
+            if (!tab?.conversationId && newMessage.conversationId) {
+              set((state) => ({
+                tabs: state.tabs.map((t) =>
+                  t.id === currentTabId
+                    ? { ...t, conversationId: newMessage.conversationId }
+                    : t
+                ),
+              }));
+            }
+
+            const activeConvId = newMessage.conversationId || conversationId;
+            if (!tab?.conversationId && activeConvId) {
+              set((state) => ({
+                tabs: state.tabs.map((t) =>
+                  t.id === currentTabId
+                    ? { ...t, conversationId: activeConvId }
+                    : t
+                ),
+              }));
+            }
+          } else {
+            // Normal message without media
+            console.log('[Chat] Calling SendMessage...', { conversationId, contentLength: content.length });
+            await SendMessage(conversationId, content, '', {
+              model: '',
+              temperature: 0,
+              maxTokens: 0,
+            });
+            console.log('[Chat] SendMessage returned successfully');
+          }
           
           // Note: DO NOT cleanup here - listeners need to stay active for streaming events
-        } catch (error) {
+        } catch (error: any) {
           console.error('[Chat] Error sending message:', error);
+          console.error('[Chat] Error type:', typeof error, '| message:', error?.message || String(error));
           
           // Cleanup listener if it exists
           if (unsubscribe) {
             unsubscribe();
           }
 
+          const errorMsg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
           get().updateMessage(
             currentTabId!,
             assistantMessageId,
-            `Erro ao enviar mensagem: ${error instanceof Error ? error.message : 'Erro desconhecido'}`
+            `Erro ao enviar mensagem: ${errorMsg}`
           );
 
           // Mark as not streaming
@@ -1884,6 +1837,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         expandedReasonings: new Set<string>(),
         streamingReasoning: null,
         isThinking: false,
+        activeToolCalls: [],
+        hadToolCalls: false,
       });
       
       // Reinicializa tabs do backend

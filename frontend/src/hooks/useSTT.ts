@@ -276,6 +276,13 @@ export function useSTT(options: UseSTTOptions = {}): UseSTTReturn {
       });
 
       await sttRef.current.init();
+
+      // Guard: component may have unmounted during async init
+      if (!sttRef.current) {
+        isInitializingRef.current = false;
+        setIsInitializing(false);
+        return false;
+      }
       
       setIsWebSpeechSupported(sttRef.current.isWebSpeechSupported);
       setIsWhisperSupported(sttRef.current.isWhisperSupported);

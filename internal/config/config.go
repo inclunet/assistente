@@ -1,14 +1,18 @@
 package config
 
 import (
+	"assistente/internal/configdir"
 	"encoding/json"
-	"os"
-	"path/filepath"
 	"sync"
 )
 
 // Mutex para serializar operações de config e evitar condições de corrida
 var configMutex sync.Mutex
+
+// Resolver para arquivos na raiz de .assistente/
+var rootResolver = configdir.NewResolver("")
+
+const configFilename = "config.json"
 
 // ModelParams representa os parâmetros de um modelo LLM
 type ModelParams struct {
@@ -18,88 +22,60 @@ type ModelParams struct {
 	TopP        float64 `json:"top_p,omitempty"`       // 0.0 a 1.0
 }
 
-// EmbeddingsParams representa os parâmetros para embeddings
-type EmbeddingsParams struct {
-	Model      string `json:"model,omitempty"`
-	Dimensions int    `json:"dimensions,omitempty"` // Dimensões do vetor (se suportado pelo modelo)
-}
-
 // STTParams representa os parâmetros de transcrição
 type STTParams struct {
 	Provider      string `json:"provider,omitempty"`       // "webspeech" ou "whisper"
 	RecordingMode string `json:"recording_mode,omitempty"` // "ptt", "toggle", "vad_silence", "vad_activity"
 }
 
-// ChatDefaults representa as preferências padrão do chat
-type ChatDefaults struct {
-	UseTools             bool `json:"use_tools,omitempty"`              // Usar agentes/ferramentas
-	ShowInternalMessages bool `json:"show_internal_messages,omitempty"` // Mostrar mensagens internas
-}
-
 // Config representa a configuração da aplicação
-// Nota: Configurações de voz TTS foram movidas para VoiceProfiles no banco de dados
 type Config struct {
-	APIKey           string           `json:"api_key"`
-	APIBaseURL       string           `json:"api_base_url"`
-	BraveAPIKey      string           `json:"brave_api_key,omitempty"`    // DEPRECATED: API key para Brave Search (não mais usado)
-	WebSearchModel   string           `json:"web_search_model,omitempty"` // Modelo para busca web (gpt-4o-search-preview, gpt-5-search-api)
-	DefaultModel     string           `json:"default_model,omitempty"`
-	EmbeddingsModel  string           `json:"embeddings_model,omitempty"`
-	ImageModel       string           `json:"image_model,omitempty"`
-	ResponseTimeout  int              `json:"response_timeout,omitempty"` // Timeout em segundos para aguardar resposta da API (padrão: 180)
-	ChatParams       ModelParams      `json:"chat_params,omitempty"`
-	EmbeddingsParams EmbeddingsParams `json:"embeddings_params,omitempty"`
-	STTParams        STTParams        `json:"stt_params,omitempty"`
-	ChatDefaults     ChatDefaults     `json:"chat_defaults,omitempty"`
+	APIKey          string      `json:"api_key"`
+	APIBaseURL      string      `json:"api_base_url"`
+	DefaultModel    string      `json:"default_model,omitempty"`
+	ResponseTimeout int         `json:"response_timeout,omitempty"` // Timeout em segundos para aguardar resposta da API (padrão: 180)
+	ActiveProfile   string      `json:"active_profile,omitempty"`   // Nome (slug) do perfil de conversa ativo
+	ChatParams      ModelParams `json:"chat_params,omitempty"`
+	STTParams       STTParams   `json:"stt_params,omitempty"`
 }
 
 // DefaultConfig retorna a configuração padrão
-// Nota: Configurações de voz TTS são gerenciadas via VoiceProfiles no banco de dados
 func DefaultConfig() *Config {
 	return &Config{
 		APIKey:          "",
 		APIBaseURL:      "https://api.openai.com/v1",
-		DefaultModel:    "gpt-4o-mini", // Modelo padrão
-		ResponseTimeout: 180,           // 3 minutos por padrão (bom para modelos locais)
+		DefaultModel:    "gpt-4o-mini",
+		ResponseTimeout: 180,
+		ActiveProfile:   "padrao",
 		ChatParams: ModelParams{
 			Model:       "gpt-4o-mini",
 			Temperature: 0.7,
 			MaxTokens:   4096,
 			TopP:        1.0,
 		},
-		EmbeddingsParams: EmbeddingsParams{
-			Model:      "text-embedding-3-small",
-			Dimensions: 0, // Usa o padrão do modelo
-		},
 		STTParams: STTParams{
 			Provider:      "webspeech",
 			RecordingMode: "ptt",
 		},
-		ChatDefaults: ChatDefaults{
-			UseTools:             true,
-			ShowInternalMessages: false,
-		},
 	}
 }
 
-// GetConfigPath retorna o caminho do arquivo de configuração na pasta do usuário
+// GetConfigPath retorna o caminho do arquivo de configuração válido (resolvido nos 3 diretórios).
+// Se não existir em nenhum, retorna o caminho no diretório home (~/.assistente/config.json).
 func GetConfigPath() (string, error) {
-	homeDir, err := os.UserHomeDir()
+	resolved, err := rootResolver.Resolve(configFilename)
 	if err != nil {
-		return "", err
+		// Não existe em nenhum diretório — retorna o caminho no home
+		if err := rootResolver.EnsureHomeDir(); err != nil {
+			return "", err
+		}
+		homeDir := configdir.GetHomeDir()
+		return homeDir + string('/') + configFilename, nil
 	}
-
-	configDir := filepath.Join(homeDir, ".assistente")
-
-	// Cria o diretório se não existir
-	if err := os.MkdirAll(configDir, 0755); err != nil {
-		return "", err
-	}
-
-	return filepath.Join(configDir, "config.json"), nil
+	return resolved.Path, nil
 }
 
-// Load carrega a configuração do arquivo
+// Load carrega a configuração do arquivo válido (maior prioridade)
 func Load() (*Config, error) {
 	configMutex.Lock()
 	defer configMutex.Unlock()
@@ -109,30 +85,21 @@ func Load() (*Config, error) {
 
 // loadUnsafe carrega config sem lock (para uso interno quando já tem o mutex)
 func loadUnsafe() (*Config, error) {
-	configPath, err := GetConfigPath()
+	data, _, err := rootResolver.Read(configFilename)
 	if err != nil {
-		return nil, err
-	}
-
-	// Se o arquivo não existe, retorna configuração padrão
-	if _, err := os.Stat(configPath); os.IsNotExist(err) {
+		// Arquivo não existe em nenhum diretório — retorna config padrão
 		return DefaultConfig(), nil
 	}
 
-	data, err := os.ReadFile(configPath)
-	if err != nil {
+	cfg := DefaultConfig()
+	if err := json.Unmarshal(data, cfg); err != nil {
 		return nil, err
 	}
 
-	var config Config
-	if err := json.Unmarshal(data, &config); err != nil {
-		return nil, err
-	}
-
-	return &config, nil
+	return cfg, nil
 }
 
-// Save salva a configuração no arquivo
+// Save salva a configuração no arquivo válido (ou cria no home se não existir)
 func Save(config *Config) error {
 	configMutex.Lock()
 	defer configMutex.Unlock()
@@ -142,17 +109,12 @@ func Save(config *Config) error {
 
 // saveUnsafe salva config sem lock (para uso interno quando já tem o mutex)
 func saveUnsafe(config *Config) error {
-	configPath, err := GetConfigPath()
-	if err != nil {
-		return err
-	}
-
 	data, err := json.MarshalIndent(config, "", "  ")
 	if err != nil {
 		return err
 	}
 
-	return os.WriteFile(configPath, data, 0644)
+	return rootResolver.Write(configFilename, data)
 }
 
 // Update atualiza a configuração de forma atômica

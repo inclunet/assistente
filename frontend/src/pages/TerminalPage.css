@@ -1,0 +1,65 @@
+.terminal-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background-color: var(--color-bg-primary, #fff);
+}
+
+/* Título do terminal na Toolbar (mesmo padrão do ChatToolbar) */
+.terminal-page__toolbar-title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #333);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* CWD como info no lado direito da Toolbar */
+.terminal-page__toolbar-cwd {
+  font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
+  font-size: 0.8rem;
+  color: var(--color-text-secondary, #666);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 350px;
+}
+
+/* Estado do terminal (idle/busy) */
+.terminal-page__toolbar-state {
+  font-size: 0.8rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.terminal-page__toolbar-state--idle {
+  color: var(--color-success, #2e7d32);
+}
+
+.terminal-page__toolbar-state--busy {
+  color: var(--color-accent, #2196f3);
+}
+
+/* Input container */
+.terminal-page__input-container {
+  flex-shrink: 0;
+  border-top: 1px solid var(--color-border, #e0e0e0);
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  .terminal-page {
+    background-color: var(--color-bg-primary-dark, #1e1e1e);
+  }
+
+  .terminal-page__toolbar-title {
+    color: var(--color-text-primary-dark, #e0e0e0);
+  }
+
+  .terminal-page__input-container {
+    border-top-color: var(--color-border-dark, #333);
+  }
+}

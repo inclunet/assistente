@@ -13,7 +13,7 @@ A arquitetura atual tem responsabilidades mal divididas entre frontend e backend
 
 ### Backend - Fragmentado:
 - Emite múltiplos eventos (`chat:chunk`, `chat:message_saved`, `chat:message_updated`)
-- Salva mensagens em momentos diferentes (OnToolCalls, OnDone, agentes)
+- Salva mensagens em momentos diferentes (OnDone)
 - Não retorna dados estruturados
 
 ### Resultado:
@@ -189,7 +189,6 @@ EventsOn('chat:messages_added', (messageIds) => {
 - [x] Criar tipo `StreamEvent` (`app.go`)
 - [x] Modificar `SendMessage` para criar mensagem do assistant antes de streamar (`llm.go`)
 - [x] Modificar `appStreamHandler` para emitir eventos com `messageId` (`llm.go`)
-- [x] Criar `UpdateMessageToolCalls` no database (`database.go`)
 - [x] Manter `chat:stream` como evento principal de streaming
 
 ### Fase 3: Frontend - Simplificação (Estimativa: 2h) ✅ CONCLUÍDA

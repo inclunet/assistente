@@ -1,0 +1,162 @@
+.terminal-tabs {
+  display: flex;
+  align-items: center;
+  background-color: var(--color-bg-secondary, #f0f0f0);
+  border-bottom: 1px solid var(--color-border, #ddd);
+  min-height: 36px;
+  padding: 0 4px;
+}
+
+.terminal-tabs__list {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 4px 4px 0;
+  overflow-x: auto;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Cada aba é um <button role="tab"> */
+.terminal-tabs__tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-radius: 6px 6px 0 0;
+  background-color: var(--color-bg-tertiary, #e8e8e8);
+  cursor: pointer;
+  font-size: 0.82rem;
+  white-space: nowrap;
+  max-width: 200px;
+  transition: background-color 0.15s ease;
+  border: 1px solid transparent;
+  border-bottom: none;
+  position: relative;
+  color: inherit;
+  font-family: inherit;
+}
+
+.terminal-tabs__tab:hover {
+  background-color: var(--color-bg-hover, #ddd);
+}
+
+.terminal-tabs__tab--active {
+  background-color: var(--color-bg-primary, #fff);
+  border-color: var(--color-border, #ddd);
+  font-weight: 600;
+}
+
+.terminal-tabs__tab:focus-visible {
+  outline: 2px solid var(--color-accent, #2196f3);
+  outline-offset: -2px;
+  z-index: 1;
+}
+
+.terminal-tabs__tab-icon {
+  font-family: monospace;
+  font-size: 0.75rem;
+  opacity: 0.6;
+}
+
+.terminal-tabs__tab-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+
+.terminal-tabs__tab-state {
+  font-size: 0.6rem;
+  line-height: 1;
+  color: var(--color-accent, #2196f3);
+  animation: terminal-tab-pulse 1s infinite;
+}
+
+@keyframes terminal-tab-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+/* Botão de fechar — fora do tabindex (tabIndex=-1) */
+.terminal-tabs__tab-close {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  background: none;
+  border-radius: 3px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: var(--color-text-tertiary, #999);
+  opacity: 0;
+  transition: opacity 0.15s ease, background-color 0.15s ease;
+}
+
+.terminal-tabs__tab:hover .terminal-tabs__tab-close,
+.terminal-tabs__tab--active .terminal-tabs__tab-close,
+.terminal-tabs__tab:focus-visible .terminal-tabs__tab-close {
+  opacity: 1;
+}
+
+.terminal-tabs__tab-close:hover {
+  background-color: var(--color-error-bg, #ffebee);
+  color: var(--color-error, #c62828);
+}
+
+.terminal-tabs__new-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  margin-left: 4px;
+  border: 1px dashed var(--color-border, #ccc);
+  background: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 1.1rem;
+  color: var(--color-text-secondary, #888);
+  transition: all 0.15s ease;
+  flex-shrink: 0;
+}
+
+.terminal-tabs__new-btn:hover {
+  background-color: var(--color-bg-hover, #e8e8e8);
+  border-color: var(--color-accent, #2196f3);
+  color: var(--color-accent, #2196f3);
+}
+
+.terminal-tabs__new-btn:focus-visible {
+  outline: 2px solid var(--color-accent, #2196f3);
+  outline-offset: 2px;
+}
+
+/* Dark mode */
+@media (prefers-color-scheme: dark) {
+  .terminal-tabs {
+    background-color: var(--color-bg-secondary-dark, #1a1a1a);
+    border-bottom-color: var(--color-border-dark, #333);
+  }
+
+  .terminal-tabs__tab {
+    background-color: var(--color-bg-tertiary-dark, #252525);
+  }
+
+  .terminal-tabs__tab:hover {
+    background-color: var(--color-bg-hover-dark, #333);
+  }
+
+  .terminal-tabs__tab--active {
+    background-color: var(--color-bg-primary-dark, #1e1e1e);
+    border-color: var(--color-border-dark, #444);
+  }
+
+  .terminal-tabs__tab-close:hover {
+    background-color: rgba(198, 40, 40, 0.2);
+    color: #ef9a9a;
+  }
+}

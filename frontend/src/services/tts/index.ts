@@ -8,7 +8,8 @@ import { ttsFactory } from './factory';
 
 export interface TTSConfig {
   enabled: boolean;
-  autoRead: boolean;
+  autoRead: boolean;           // Leitura automática de mensagens do assistente
+  enabledForUser: boolean;     // TTS para mensagens do usuário
   provider: TTSProvider;
   voiceName?: string;
   rate: number;
@@ -21,6 +22,7 @@ class TTSService {
   private config: TTSConfig = {
     enabled: false,
     autoRead: false,
+    enabledForUser: false,
     provider: TTSProvider.WEBSPEECH,
     rate: 1.0,
     pitch: 1.0,
@@ -246,11 +248,42 @@ class TTSService {
   }
   
   /**
-   * Habilita/desabilita leitura automática
+   * Habilita/desabilita leitura automática (mensagens do assistente)
    */
   setAutoRead(autoRead: boolean): void {
     this.config.autoRead = autoRead;
     this.emit('configChanged', this.config);
+  }
+  
+  /**
+   * Verifica se TTS está habilitado para mensagens do usuário
+   */
+  isEnabledForUser(): boolean {
+    return this.config.enabled && this.config.enabledForUser;
+  }
+  
+  /**
+   * Habilita/desabilita TTS para mensagens do usuário
+   */
+  setEnabledForUser(enabled: boolean): void {
+    this.config.enabledForUser = enabled;
+    this.emit('configChanged', this.config);
+  }
+  
+  /**
+   * Verifica se deve usar aria-live para mensagens do assistente
+   * (usa aria-live quando TTS NÃO está ativo para o assistente)
+   */
+  shouldUseAriaLiveForAgent(): boolean {
+    return !this.isAutoReadEnabled();
+  }
+  
+  /**
+   * Verifica se deve usar aria-live para mensagens do usuário
+   * (usa aria-live quando TTS NÃO está ativo para o usuário)
+   */
+  shouldUseAriaLiveForUser(): boolean {
+    return !this.isEnabledForUser();
   }
   
   /**

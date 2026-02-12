@@ -156,7 +156,7 @@ interface MenuItem {
 
 1. **Atalhos Globais**: Implementar Alt+Key para abrir menu e navegar
 2. **Testes com NVDA/JAWS**: Validar anúncios e navegação
-3. **Mais Itens**: Adicionar Histórico, FAQ, Memórias, etc.
+3. **Mais Itens**: Adicionar Histórico, etc.
 4. **Animações**: Transições suaves de abertura/fechamento
 5. **Temas**: Garantir contraste em modo claro/escuro
 

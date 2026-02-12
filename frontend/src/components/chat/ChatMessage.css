@@ -152,6 +152,42 @@
   }
 }
 
+/* Reading mode (virtual modal) */
+.chat-message--reading {
+  background-color: var(--reading-bg, rgba(102, 126, 234, 0.06));
+  border: 2px solid var(--accent-color, #667eea);
+  border-radius: 8px;
+  position: relative;
+}
+
+.chat-message__reading-badge {
+  position: absolute;
+  top: 8px;
+  right: 12px;
+  background-color: var(--accent-color, #667eea);
+  color: white;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 10px;
+  border-radius: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  opacity: 0.9;
+  pointer-events: none;
+  animation: readingBadgeIn 0.2s ease-out;
+}
+
+@keyframes readingBadgeIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 0.9;
+    transform: translateY(0);
+  }
+}
+
 /* Edit mode inline */
 .chat-message--editing {
   background-color: var(--info-bg, #e7f3ff) !important;
@@ -236,6 +272,15 @@
 
   .chat-message__text {
     color: var(--text-secondary, #b0b0b0);
+  }
+
+  .chat-message--reading {
+    background-color: rgba(102, 126, 234, 0.12);
+    border-color: var(--accent-color, #667eea);
+  }
+
+  .chat-message__reading-badge {
+    background-color: var(--accent-color, #7b93f5);
   }
 
   .chat-message--editing {

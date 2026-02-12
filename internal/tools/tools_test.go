@@ -1,0 +1,375 @@
+package tools
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"testing"
+	"time"
+)
+
+// ==================== Mock Tool ====================
+
+// mockTool é uma ferramenta de teste que retorna o conteúdo configurado
+type mockTool struct {
+	name        string
+	description string
+	params      json.RawMessage
+	executeFn   func(ctx context.Context, args json.RawMessage) (ToolResult, error)
+}
+
+func (m *mockTool) Name() string                { return m.name }
+func (m *mockTool) Description() string          { return m.description }
+func (m *mockTool) Parameters() json.RawMessage  { return m.params }
+func (m *mockTool) Execute(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+	if m.executeFn != nil {
+		return m.executeFn(ctx, args)
+	}
+	return ToolResult{Content: "ok"}, nil
+}
+
+func newMockTool(name string) *mockTool {
+	return &mockTool{
+		name:        name,
+		description: "Mock tool: " + name,
+		params:      json.RawMessage(`{"type":"object","properties":{}}`),
+	}
+}
+
+// ==================== Registry Tests ====================
+
+func TestRegistryRegister(t *testing.T) {
+	r := NewRegistry()
+
+	tool := newMockTool("test_tool")
+	err := r.Register(tool)
+	if err != nil {
+		t.Fatalf("Register falhou: %v", err)
+	}
+
+	if !r.Has("test_tool") {
+		t.Error("Has retornou false após Register")
+	}
+
+	if r.Count() != 1 {
+		t.Errorf("Count esperado 1, obtido %d", r.Count())
+	}
+}
+
+func TestRegistryDuplicateRegister(t *testing.T) {
+	r := NewRegistry()
+
+	r.MustRegister(newMockTool("dup"))
+
+	err := r.Register(newMockTool("dup"))
+	if err == nil {
+		t.Error("Esperava erro ao registrar ferramenta duplicada")
+	}
+}
+
+func TestRegistryGet(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("find_me"))
+
+	tool, ok := r.Get("find_me")
+	if !ok {
+		t.Fatal("Get retornou false para tool registrada")
+	}
+	if tool.Name() != "find_me" {
+		t.Errorf("Nome esperado 'find_me', obtido '%s'", tool.Name())
+	}
+
+	_, ok = r.Get("not_found")
+	if ok {
+		t.Error("Get retornou true para tool não registrada")
+	}
+}
+
+func TestRegistryAll(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("beta"))
+	r.MustRegister(newMockTool("alpha"))
+	r.MustRegister(newMockTool("gamma"))
+
+	all := r.All()
+	if len(all) != 3 {
+		t.Fatalf("All esperado 3 tools, obtido %d", len(all))
+	}
+
+	// Deve estar ordenado por nome
+	if all[0].Name() != "alpha" || all[1].Name() != "beta" || all[2].Name() != "gamma" {
+		t.Errorf("All não está ordenado: %s, %s, %s", all[0].Name(), all[1].Name(), all[2].Name())
+	}
+}
+
+func TestRegistryNames(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("zeta"))
+	r.MustRegister(newMockTool("alpha"))
+
+	names := r.Names()
+	if len(names) != 2 {
+		t.Fatalf("Names esperado 2, obtido %d", len(names))
+	}
+	if names[0] != "alpha" || names[1] != "zeta" {
+		t.Errorf("Names não está ordenado: %v", names)
+	}
+}
+
+func TestRegistryToDefinitions(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("read_file"))
+	r.MustRegister(newMockTool("list_dir"))
+
+	defs := r.ToDefinitions()
+	if len(defs) != 2 {
+		t.Fatalf("ToDefinitions esperado 2, obtido %d", len(defs))
+	}
+
+	for _, def := range defs {
+		if def.Type != "function" {
+			t.Errorf("Type esperado 'function', obtido '%s'", def.Type)
+		}
+		if def.Function.Name == "" {
+			t.Error("Function.Name está vazio")
+		}
+		if def.Function.Description == "" {
+			t.Error("Function.Description está vazio")
+		}
+	}
+}
+
+func TestRegistryFilterByNames(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("read_file"))
+	r.MustRegister(newMockTool("write_file"))
+	r.MustRegister(newMockTool("grep_search"))
+
+	// Filtra apenas 2 das 3
+	defs := r.FilterByNames([]string{"read_file", "grep_search"})
+	if len(defs) != 2 {
+		t.Fatalf("FilterByNames esperado 2, obtido %d", len(defs))
+	}
+
+	// Tool inexistente é ignorada silenciosamente
+	defs = r.FilterByNames([]string{"read_file", "inexistente"})
+	if len(defs) != 1 {
+		t.Fatalf("FilterByNames com inexistente esperado 1, obtido %d", len(defs))
+	}
+}
+
+// ==================== Executor Tests ====================
+
+func TestExecutorSingleSuccess(t *testing.T) {
+	r := NewRegistry()
+	tool := newMockTool("echo")
+	tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+		return ToolResult{Content: "hello world"}, nil
+	}
+	r.MustRegister(tool)
+
+	exec := NewExecutor(r, DefaultExecutorConfig())
+	result := exec.ExecuteOne(context.Background(), ToolCall{
+		ID:   "call_1",
+		Type: "function",
+		Function: FunctionCall{
+			Name:      "echo",
+			Arguments: `{}`,
+		},
+	})
+
+	if result.Error != nil {
+		t.Fatalf("Erro inesperado: %v", result.Error)
+	}
+	if result.Result.Content != "hello world" {
+		t.Errorf("Content esperado 'hello world', obtido '%s'", result.Result.Content)
+	}
+	if result.CallID != "call_1" {
+		t.Errorf("CallID esperado 'call_1', obtido '%s'", result.CallID)
+	}
+	if result.ToolName != "echo" {
+		t.Errorf("ToolName esperado 'echo', obtido '%s'", result.ToolName)
+	}
+}
+
+func TestExecutorToolNotFound(t *testing.T) {
+	r := NewRegistry()
+	exec := NewExecutor(r, DefaultExecutorConfig())
+
+	result := exec.ExecuteOne(context.Background(), ToolCall{
+		ID:       "call_1",
+		Type:     "function",
+		Function: FunctionCall{Name: "nao_existe", Arguments: `{}`},
+	})
+
+	if !result.Result.IsError {
+		t.Error("Esperava IsError=true para tool não encontrada")
+	}
+}
+
+func TestExecutorInvalidJSON(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("test"))
+
+	exec := NewExecutor(r, DefaultExecutorConfig())
+	result := exec.ExecuteOne(context.Background(), ToolCall{
+		ID:       "call_1",
+		Type:     "function",
+		Function: FunctionCall{Name: "test", Arguments: `{invalid json`},
+	})
+
+	if !result.Result.IsError {
+		t.Error("Esperava IsError=true para JSON inválido")
+	}
+}
+
+func TestExecutorTimeout(t *testing.T) {
+	r := NewRegistry()
+	tool := newMockTool("slow")
+	tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+		select {
+		case <-time.After(5 * time.Second):
+			return ToolResult{Content: "done"}, nil
+		case <-ctx.Done():
+			return ToolResult{}, ctx.Err()
+		}
+	}
+	r.MustRegister(tool)
+
+	cfg := DefaultExecutorConfig()
+	cfg.ToolTimeout = 100 * time.Millisecond
+	exec := NewExecutor(r, cfg)
+
+	result := exec.ExecuteOne(context.Background(), ToolCall{
+		ID:       "call_1",
+		Type:     "function",
+		Function: FunctionCall{Name: "slow", Arguments: `{}`},
+	})
+
+	if !result.Result.IsError {
+		t.Error("Esperava IsError=true para timeout")
+	}
+}
+
+func TestExecutorTruncation(t *testing.T) {
+	r := NewRegistry()
+	tool := newMockTool("big_output")
+	tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+		// Gera resultado maior que o limite
+		bigContent := make([]byte, 1024)
+		for i := range bigContent {
+			bigContent[i] = 'x'
+		}
+		return ToolResult{Content: string(bigContent)}, nil
+	}
+	r.MustRegister(tool)
+
+	cfg := DefaultExecutorConfig()
+	cfg.MaxResultSize = 100 // Limite baixo para teste
+	exec := NewExecutor(r, cfg)
+
+	result := exec.ExecuteOne(context.Background(), ToolCall{
+		ID:       "call_1",
+		Type:     "function",
+		Function: FunctionCall{Name: "big_output", Arguments: `{}`},
+	})
+
+	if result.Result.IsError {
+		t.Errorf("Não deveria ser erro, apenas truncado: %s", result.Result.Content)
+	}
+	if result.Result.Metadata["truncated"] != true {
+		t.Error("Metadata 'truncated' deveria ser true")
+	}
+}
+
+func TestExecutorParallel(t *testing.T) {
+	r := NewRegistry()
+
+	// Cria 3 tools que demoram 100ms cada
+	for i := 0; i < 3; i++ {
+		tool := newMockTool(fmt.Sprintf("tool_%d", i))
+		idx := i
+		tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+			time.Sleep(100 * time.Millisecond)
+			return ToolResult{Content: fmt.Sprintf("result_%d", idx)}, nil
+		}
+		r.MustRegister(tool)
+	}
+
+	exec := NewExecutor(r, DefaultExecutorConfig())
+
+	calls := []ToolCall{
+		{ID: "call_0", Type: "function", Function: FunctionCall{Name: "tool_0", Arguments: `{}`}},
+		{ID: "call_1", Type: "function", Function: FunctionCall{Name: "tool_1", Arguments: `{}`}},
+		{ID: "call_2", Type: "function", Function: FunctionCall{Name: "tool_2", Arguments: `{}`}},
+	}
+
+	start := time.Now()
+	results := exec.ExecuteAll(context.Background(), calls)
+	elapsed := time.Since(start)
+
+	// Se executou em paralelo, deve levar ~100ms, não ~300ms
+	if elapsed > 250*time.Millisecond {
+		t.Errorf("ExecuteAll demorou %v — provavelmente não executou em paralelo", elapsed)
+	}
+
+	// Verifica resultados na ordem correta
+	for i, result := range results {
+		expected := fmt.Sprintf("result_%d", i)
+		if result.Result.Content != expected {
+			t.Errorf("Resultado[%d]: esperado '%s', obtido '%s'", i, expected, result.Result.Content)
+		}
+		if result.CallID != fmt.Sprintf("call_%d", i) {
+			t.Errorf("CallID[%d]: esperado 'call_%d', obtido '%s'", i, i, result.CallID)
+		}
+	}
+}
+
+func TestExecutorPanicRecovery(t *testing.T) {
+	r := NewRegistry()
+	tool := newMockTool("panicker")
+	tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+		panic("ferramenta explodiu!")
+	}
+	r.MustRegister(tool)
+
+	exec := NewExecutor(r, DefaultExecutorConfig())
+	result := exec.ExecuteOne(context.Background(), ToolCall{
+		ID:       "call_1",
+		Type:     "function",
+		Function: FunctionCall{Name: "panicker", Arguments: `{}`},
+	})
+
+	if !result.Result.IsError {
+		t.Error("Esperava IsError=true após panic")
+	}
+}
+
+func TestExecutorContextCancellation(t *testing.T) {
+	r := NewRegistry()
+	tool := newMockTool("waiting")
+	tool.executeFn = func(ctx context.Context, args json.RawMessage) (ToolResult, error) {
+		<-ctx.Done()
+		return ToolResult{}, ctx.Err()
+	}
+	r.MustRegister(tool)
+
+	exec := NewExecutor(r, DefaultExecutorConfig())
+
+	ctx, cancel := context.WithCancel(context.Background())
+	// Cancela após 50ms (simula o usuário cancelando)
+	go func() {
+		time.Sleep(50 * time.Millisecond)
+		cancel()
+	}()
+
+	result := exec.ExecuteOne(ctx, ToolCall{
+		ID:       "call_1",
+		Type:     "function",
+		Function: FunctionCall{Name: "waiting", Arguments: `{}`},
+	})
+
+	if !result.Result.IsError {
+		t.Error("Esperava IsError=true após cancelamento")
+	}
+}

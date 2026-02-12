@@ -1,12 +1,12 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GetConfig, SaveSettings, ResetConfig, ResetDatabase, TestConnectionWithModels, GetDefaultVoiceProfile, GetDefaultInteractionProfile, GetDefaultChatProfile, SetDefaultVoiceProfile, SetDefaultInteractionProfile, SetDefaultChatProfile } from '../../wailsjs/go/main/App';
+import { useNavigate } from 'react-router-dom';
+import { GetConfig, SaveSettings, ResetConfig, ResetDatabase, TestConnectionWithModels } from '../../wailsjs/go/main/App';
 import { llm } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
 import { Input, Button } from '../components';
-import { VoiceProfilePicker, VoiceProfilePickerRef, ChatProfilePicker, ChatProfilePickerRef } from '../components/pickers';
-import { InteractionProfilePicker, InteractionProfilePickerRef } from '../components/pickers/InteractionProfilePicker';
+import { ProfilePicker, ProfilePickerRef } from '../components/pickers/ProfilePicker';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import './SettingsPage.css';
 
@@ -18,6 +18,7 @@ interface FormData {
 
 export default function SettingsPage() {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { addToast } = useUIStore();
   const { handleDatabaseReset } = useChatStore();
   const { announce } = useAnnouncer();
@@ -27,15 +28,7 @@ export default function SettingsPage() {
   const [testing, setTesting] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   
-  // Refs para os pickers de perfis
-  const voiceProfilePickerRef = useRef<VoiceProfilePickerRef>(null);
-  const interactionProfilePickerRef = useRef<InteractionProfilePickerRef>(null);
-  const chatProfilePickerRef = useRef<ChatProfilePickerRef>(null);
-  
-  // Estados dos perfis padrão
-  const [defaultVoiceProfileId, setDefaultVoiceProfileId] = useState<number>(0);
-  const [defaultInteractionProfileId, setDefaultInteractionProfileId] = useState<number>(0);
-  const [defaultChatProfileId, setDefaultChatProfileId] = useState<number>(0);
+  const profilePickerRef = useRef<ProfilePickerRef>(null);
   
   const [formData, setFormData] = useState<FormData>({
     apiKey: '',
@@ -43,7 +36,6 @@ export default function SettingsPage() {
     responseTimeout: 180,
   });
 
-  // Carrega configuração do backend
   useEffect(() => {
     loadConfig();
   }, []);
@@ -51,14 +43,7 @@ export default function SettingsPage() {
   const loadConfig = async () => {
     try {
       setLoading(true);
-      
-      // Carrega configuração e perfis padrão em paralelo
-      const [config, defaultVoiceProfile, defaultInteractionProfile, defaultChatProfile] = await Promise.all([
-        GetConfig(),
-        GetDefaultVoiceProfile().catch(() => null),
-        GetDefaultInteractionProfile().catch(() => null),
-        GetDefaultChatProfile().catch(() => null),
-      ]);
+      const config = await GetConfig();
       
       if (config) {
         setFormData({
@@ -66,17 +51,6 @@ export default function SettingsPage() {
           apiBaseURL: config.api_base_url || 'https://api.openai.com/v1',
           responseTimeout: config.response_timeout || 180,
         });
-      }
-      
-      // Define perfis padrão
-      if (defaultVoiceProfile) {
-        setDefaultVoiceProfileId(defaultVoiceProfile.id);
-      }
-      if (defaultInteractionProfile) {
-        setDefaultInteractionProfileId(defaultInteractionProfile.id);
-      }
-      if (defaultChatProfile) {
-        setDefaultChatProfileId(defaultChatProfile.id);
       }
     } catch (error) {
       console.error('Erro ao carregar configuração:', error);
@@ -109,42 +83,6 @@ export default function SettingsPage() {
     }
   };
 
-  const handleChatProfileChange = async (profileId: number) => {
-    try {
-      await SetDefaultChatProfile(profileId);
-      setDefaultChatProfileId(profileId);
-      addToast('Perfil de conversa padrão atualizado!', 'success');
-      announce('Perfil de conversa padrão atualizado');
-    } catch (error: any) {
-      console.error('Erro ao definir perfil de conversa padrão:', error);
-      addToast(error.message || 'Erro ao definir perfil de conversa padrão', 'error');
-    }
-  };
-
-  const handleVoiceProfileChange = async (profileId: number) => {
-    try {
-      await SetDefaultVoiceProfile(profileId);
-      setDefaultVoiceProfileId(profileId);
-      addToast('Perfil de voz padrão atualizado!', 'success');
-      announce('Perfil de voz padrão atualizado');
-    } catch (error: any) {
-      console.error('Erro ao definir perfil de voz padrão:', error);
-      addToast(error.message || 'Erro ao definir perfil de voz padrão', 'error');
-    }
-  };
-
-  const handleInteractionProfileChange = async (profileId: number) => {
-    try {
-      await SetDefaultInteractionProfile(profileId);
-      setDefaultInteractionProfileId(profileId);
-      addToast('Perfil de interação padrão atualizado!', 'success');
-      announce('Perfil de interação padrão atualizado');
-    } catch (error: any) {
-      console.error('Erro ao definir perfil de interação padrão:', error);
-      addToast(error.message || 'Erro ao definir perfil de interação padrão', 'error');
-    }
-  };
-
   const handleTestConnection = async () => {
     setTesting(true);
     try {
@@ -170,7 +108,7 @@ export default function SettingsPage() {
       await ResetConfig();
       addToast('Configurações resetadas com sucesso!', 'success');
       announce('Configurações resetadas');
-      await loadConfig(); // Recarrega os valores padrão
+      await loadConfig();
     } catch (error: any) {
       console.error('Erro ao resetar configurações:', error);
       addToast(error.message || 'Erro ao resetar configurações', 'error');
@@ -178,18 +116,17 @@ export default function SettingsPage() {
   };
 
   const handleResetDatabase = async () => {
-    if (!confirm('⚠️ ATENÇÃO: Tem certeza que deseja apagar o banco de dados?\n\nIsso irá REMOVER PERMANENTEMENTE:\n- Todas as conversas\n- Todas as memórias\n- Todos os FAQs\n- Todos os perfis\n- Todas as conexões OAuth\n\nEsta ação NÃO pode ser desfeita!')) {
+    if (!confirm('ATENÇÃO: Tem certeza que deseja apagar o banco de dados?\n\nIsso irá REMOVER PERMANENTEMENTE todas as conversas.\n\nEsta ação NÃO pode ser desfeita!')) {
       return;
     }
     
-    // Segunda confirmação
-    if (!confirm('Esta é sua ÚLTIMA CHANCE!\n\nDigite OK para confirmar a exclusão de todos os dados.')) {
+    if (!confirm('Esta é sua ÚLTIMA CHANCE!\n\nConfirmar exclusão de todos os dados?')) {
       return;
     }
     
     try {
       await ResetDatabase();
-      handleDatabaseReset(); // Atualiza o frontend
+      handleDatabaseReset();
       addToast('Banco de dados resetado com sucesso!', 'success');
       announce('Banco de dados resetado');
     } catch (error: any) {
@@ -216,7 +153,7 @@ export default function SettingsPage() {
       <div className="settings-content">
         {/* API Section */}
         <section className="settings-section">
-          <h2>🔑 API</h2>
+          <h2>API</h2>
           <div className="settings-fields">
             <Input
               label="API Key"
@@ -246,7 +183,7 @@ export default function SettingsPage() {
             
             {availableModels.length > 0 && (
               <p className="settings-field-hint">
-                ✅ {availableModels.length} modelos disponíveis na API
+                {availableModels.length} modelos disponíveis na API
               </p>
             )}
 
@@ -266,58 +203,28 @@ export default function SettingsPage() {
           </div>
         </section>
 
-        {/* Default Profiles Section */}
+        {/* Profile Section */}
         <section className="settings-section">
-          <h2>🎭 Perfis Padrão</h2>
+          <h2>Perfil Ativo</h2>
           <p className="settings-section-description">
-            Defina os perfis que serão usados por padrão em novas conversas.
-            Configure modelo, temperatura, ferramentas e mais nos perfis de conversa.
+            O perfil ativo define modelo, temperatura, voz e interação para todas as conversas.
           </p>
-          <div className="settings-fields settings-profiles-grid">
-            <div className="settings-profile-item">
-              <label className="settings-label">Perfil de Conversa</label>
-              <p className="settings-field-hint">Modelo, parâmetros e ferramentas</p>
-              <ChatProfilePicker
-                ref={chatProfilePickerRef}
-                value={defaultChatProfileId}
-                onChange={handleChatProfileChange}
-                label="Perfil de Conversa Padrão"
-                maxWidth="100%"
-                onAnnounce={announce}
-              />
-            </div>
-            
-            <div className="settings-profile-item">
-              <label className="settings-label">Perfil de Voz</label>
-              <p className="settings-field-hint">Síntese de voz (TTS)</p>
-              <VoiceProfilePicker
-                ref={voiceProfilePickerRef}
-                value={defaultVoiceProfileId}
-                onChange={handleVoiceProfileChange}
-                label="Perfil de Voz Padrão"
-                maxWidth="100%"
-                onAnnounce={announce}
-              />
-            </div>
-            
-            <div className="settings-profile-item">
-              <label className="settings-label">Perfil de Interação</label>
-              <p className="settings-field-hint">Reconhecimento de voz (STT)</p>
-              <InteractionProfilePicker
-                ref={interactionProfilePickerRef}
-                value={defaultInteractionProfileId}
-                onChange={handleInteractionProfileChange}
-                label="Perfil de Interação Padrão"
-                maxWidth="100%"
-                onAnnounce={announce}
-              />
-            </div>
+          <div className="settings-fields">
+            <ProfilePicker
+              ref={profilePickerRef}
+              label="Perfil Ativo"
+              maxWidth="100%"
+              onAnnounce={announce}
+            />
+            <Button variant="outline" onClick={() => navigate('/profiles')}>
+              Gerenciar Perfis
+            </Button>
           </div>
         </section>
 
         {/* Danger Zone */}
         <section className="settings-section settings-danger">
-          <h2>⚠️ Zona de Perigo</h2>
+          <h2>Zona de Perigo</h2>
           <p className="settings-danger-warning">
             As ações abaixo são irreversíveis. Tenha certeza antes de prosseguir.
           </p>
@@ -335,7 +242,7 @@ export default function SettingsPage() {
             <div className="settings-danger-item">
               <div>
                 <strong>Apagar Banco de Dados</strong>
-                <p>Remove permanentemente todas as conversas, memórias, FAQs e perfis.</p>
+                <p>Remove permanentemente todas as conversas.</p>
               </div>
               <Button variant="danger" onClick={handleResetDatabase}>
                 Apagar Tudo

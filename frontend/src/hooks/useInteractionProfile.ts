@@ -2,8 +2,11 @@
  * useInteractionProfile - Hook de Orquestração de Interação por Voz
  * 
  * Integra todos os serviços de voz (VAD, STT, Hotkeys, TTS) baseado no
- * perfil de interação ativo. Este é o hook principal para controlar
+ * perfil ativo global. Este é o hook principal para controlar
  * toda a experiência de voz do assistente.
+ * 
+ * Agora usa o sistema unificado de perfis (profiles.Profile) em vez
+ * da antiga interactionProfileStore.
  * 
  * @example
  * ```tsx
@@ -36,12 +39,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSTT } from './useSTT';
 import { useWakewordDetection } from './useWakewordDetection';
-import { 
-  useInteractionProfileStore, 
-  InteractionProfile,
-  InteractionTrigger,
-} from '../store/interactionProfileStore';
+import { GetActiveProfile } from '../../wailsjs/go/main/App';
+import { profiles } from '../../wailsjs/go/models';
 import { playSound, SOUND_TYPES } from '../services/audioFeedback';
+import { ttsService } from '../services/tts';
+import { TTSProvider } from '../services/tts/types';
+
+// Tipos re-exportados do novo sistema de perfis
+type Profile = profiles.Profile;
+type TriggerConfig = profiles.TriggerConfig;
+type InteractionConfig = profiles.InteractionConfig;
 
 // Import dinâmico do Wails para eventos
 let EventsOn: ((event: string, callback: (...args: unknown[]) => void) => () => void) | null = null;
@@ -112,9 +119,8 @@ export interface UseInteractionProfileOptions {
 }
 
 export interface UseInteractionProfileReturn {
-  // Estado do perfil
-  activeProfile: InteractionProfile | null;
-  profiles: InteractionProfile[];
+  // Estado do perfil (agora é o perfil unificado completo)
+  activeProfile: Profile | null;
   
   // Estados de interação
   isActive: boolean;        // Se está em modo ativo (gravando ou ouvindo wakeword)
@@ -133,8 +139,7 @@ export interface UseInteractionProfileReturn {
   toggleInteraction: () => void;
   
   // Gestão de perfis
-  setActiveProfile: (profileId: number) => Promise<void>;
-  loadProfiles: () => Promise<void>;
+  reloadProfile: () => Promise<void>;
   
   // Wakeword específico
   startWakewordListening: () => void;
@@ -148,7 +153,7 @@ export interface UseInteractionProfileReturn {
 }
 
 // Extrai configurações VAD do primeiro trigger que use VAD
-function getVADConfigFromTriggers(triggers?: InteractionTrigger[]): {
+function getVADConfigFromTriggers(triggers?: TriggerConfig[]): {
   silenceDuration: number;
   silenceThreshold: number;
   activityThreshold: number;
@@ -167,13 +172,13 @@ function getVADConfigFromTriggers(triggers?: InteractionTrigger[]): {
   if (!triggers || triggers.length === 0) return defaults;
 
   // Procura por um trigger que tenha configurações VAD
-  const vadTrigger = triggers.find(t => 
+  const vadTrigger = triggers.find((t: TriggerConfig) => 
     t.enabled && (t.auto_stop || t.type === 'vad')
   );
 
   if (!vadTrigger) {
     // Se não tem trigger com VAD, verifica se tem button_ptt
-    const pttTrigger = triggers.find(t => t.enabled && t.type === 'button_ptt');
+    const pttTrigger = triggers.find((t: TriggerConfig) => t.enabled && t.type === 'button_ptt');
     if (pttTrigger) {
       return { ...defaults, mode: 'ptt' };
     }
@@ -200,7 +205,7 @@ function getVADConfigFromTriggers(triggers?: InteractionTrigger[]): {
 }
 
 // Extrai configuração de wakeword dos triggers
-function getWakewordConfigFromTriggers(triggers?: InteractionTrigger[]): {
+function getWakewordConfigFromTriggers(triggers?: TriggerConfig[]): {
   hasWakeword: boolean;
   keyword: string;
   sensitivity: number;
@@ -212,7 +217,7 @@ function getWakewordConfigFromTriggers(triggers?: InteractionTrigger[]): {
 } | null {
   if (!triggers) return null;
   
-  const wakewordTrigger = triggers.find(t => t.enabled && t.type === 'wakeword');
+  const wakewordTrigger = triggers.find((t: TriggerConfig) => t.enabled && t.type === 'wakeword');
   if (!wakewordTrigger) return null;
   
   return {
@@ -227,6 +232,15 @@ function getWakewordConfigFromTriggers(triggers?: InteractionTrigger[]): {
   };
 }
 
+// Helpers para acessar interaction config do perfil unificado
+function getInteractionConfig(profile: Profile | null): InteractionConfig | null {
+  return profile?.interaction ?? null;
+}
+
+function getTriggers(profile: Profile | null): TriggerConfig[] | undefined {
+  return profile?.interaction?.triggers;
+}
+
 export function useInteractionProfile(options: UseInteractionProfileOptions = {}): UseInteractionProfileReturn {
   const {
     onTranscription,
@@ -237,24 +251,14 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     onError,
   } = options;
 
-  // Store
-  const {
-    profiles,
-    isLoading: storeLoading,
-    error: storeError,
-    loadProfiles,
-    setActiveProfile: storeSetActiveProfile,
-    getActiveProfile,
-    setRecording,
-    setProcessing,
-    setListening,
-    setVolume: storeSetVolume,
-  } = useInteractionProfileStore();
-
-  // Estado local
+  // Estado local (substitui a store antiga)
+  const [activeProfile, setActiveProfileState] = useState<Profile | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [isActive, setIsActive] = useState(false);
   const [interimText, setInterimText] = useState('');
-  // Nota: isWakewordListening vem do hook useWakewordDetection (não precisa de estado local)
+  const [localVolume, setLocalVolume] = useState(0);
+  const [localIsListening, setLocalIsListening] = useState(false);
   
   // Refs para callbacks
   const callbacksRef = useRef({
@@ -282,8 +286,24 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     };
   }, [onTranscription, onActivityStart, onActivityEnd, onHotkeyActivation, onWakeWordDetected, onError]);
 
-  // Perfil ativo
-  const activeProfile = getActiveProfile();
+  // Carrega o perfil ativo do backend
+  const loadActiveProfile = useCallback(async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      const profile = await GetActiveProfile();
+      setActiveProfileState(profile);
+    } catch (e) {
+      console.error('[useInteractionProfile] Erro ao carregar perfil ativo:', e);
+      setError(e instanceof Error ? e.message : 'Erro ao carregar perfil');
+    } finally {
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Interaction config do perfil ativo
+  const interactionConfig = getInteractionConfig(activeProfile);
+  const triggers = getTriggers(activeProfile);
 
   // Mapeia STT provider do perfil para o formato do useSTT
   const mapSTTProvider = (provider: string | undefined): 'webspeech' | 'whisper_api' => {
@@ -292,8 +312,8 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   };
 
   // Extrai configurações dos triggers
-  const vadConfig = getVADConfigFromTriggers(activeProfile?.triggers);
-  const wakewordConfig = getWakewordConfigFromTriggers(activeProfile?.triggers);
+  const vadConfig = getVADConfigFromTriggers(triggers);
+  const wakewordConfig = getWakewordConfigFromTriggers(triggers);
   const hasWakewordTrigger = wakewordConfig?.hasWakeword || false;
 
   // Hook de STT
@@ -309,10 +329,12 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     cancelRecording,
     setMode,
     setProvider,
+    setLanguage,
     updateConfig,
     init: initSTT,
   } = useSTT({
-    provider: mapSTTProvider(activeProfile?.stt_provider),
+    provider: mapSTTProvider(interactionConfig?.stt_provider),
+    language: interactionConfig?.language || 'pt-BR',
     mode: vadConfig.mode,
     silenceDuration: vadConfig.silenceDuration,
     silenceThreshold: vadConfig.silenceThreshold,
@@ -321,11 +343,10 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     
     onTranscription: (text, provider) => {
       setIsActive(false);
-      setRecording(false);
       setInterimText('');
       
       // Feedback sonoro
-      if (activeProfile?.feedback_sounds) {
+      if (interactionConfig?.feedback_sounds) {
         playSound(SOUND_TYPES.RECORD_END);
       }
       
@@ -353,26 +374,23 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     },
     
     onVolumeChange: (vol) => {
-      storeSetVolume(vol);
+      setLocalVolume(vol);
     },
     
     onError: (message) => {
       setIsActive(false);
-      setRecording(false);
       callbacksRef.current.onError?.(message);
     },
     
     onNoSpeechDetected: () => {
       setIsActive(false);
-      setRecording(false);
-      if (activeProfile?.feedback_sounds) {
+      if (interactionConfig?.feedback_sounds) {
         playSound(SOUND_TYPES.ERROR);
       }
     },
     
     onRecordingCancelled: () => {
       setIsActive(false);
-      setRecording(false);
       setInterimText('');
     },
   });
@@ -388,10 +406,10 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     lastRecognizedText: wakewordLastText,
   } = useWakewordDetection({
     keyword: wakewordConfig?.keyword || 'assistente',
-    language: activeProfile?.language || 'pt-BR',
+    language: interactionConfig?.language || 'pt-BR',
     sensitivity: wakewordConfig?.sensitivity || 0.5,
     onDetected: async (keyword, fullText) => {
-      console.log('[useInteractionProfile] 🎯 Wakeword detected:', keyword, 'in:', fullText);
+      console.log('[useInteractionProfile] Wakeword detected:', keyword, 'in:', fullText);
       
       // Para a escuta de wakeword temporariamente
       wakewordStopListening();
@@ -400,13 +418,12 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       callbacksRef.current.onWakeWordDetected?.(keyword);
       
       // Feedback sonoro
-      if (activeProfile?.feedback_sounds) {
+      if (interactionConfig?.feedback_sounds) {
         playSound(SOUND_TYPES.RECORD_START);
       }
       
       // Inicia gravação real
       setIsActive(true);
-      setRecording(true);
       
       // Garante que STT está inicializado
       if (!sttInitialized) {
@@ -416,7 +433,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
           console.error('[useInteractionProfile] Falha ao inicializar STT');
           callbacksRef.current.onError?.('Falha ao inicializar reconhecimento de voz');
           setIsActive(false);
-          setRecording(false);
           return;
         }
       }
@@ -429,11 +445,12 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     },
   });
 
-  // Atualiza config quando perfil muda
+  // Atualiza config de STT quando perfil muda
   useEffect(() => {
-    if (activeProfile) {
-      const config = getVADConfigFromTriggers(activeProfile.triggers);
-      setProvider(mapSTTProvider(activeProfile.stt_provider));
+    if (interactionConfig) {
+      const config = getVADConfigFromTriggers(interactionConfig.triggers);
+      setProvider(mapSTTProvider(interactionConfig.stt_provider));
+      setLanguage(interactionConfig.language || 'pt-BR');
       setMode(config.mode);
       updateConfig({
         silenceDuration: config.silenceDuration,
@@ -442,18 +459,74 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
         activityDuration: config.activityDuration,
       });
     }
-  }, [activeProfile, setProvider, setMode, updateConfig]);
+  }, [interactionConfig, setProvider, setLanguage, setMode, updateConfig]);
 
-  // Sincroniza estado de wakeword listening com a store
+  // Sincroniza configurações de TTS quando o perfil ativo muda
+  // O ttsService é a única fonte de verdade para TTS — sem intermediários
   useEffect(() => {
-    setListening(wakewordIsListening);
-  }, [wakewordIsListening, setListening]);
+    if (!activeProfile) return;
 
-  // Sincroniza estado
+    const voiceConfig = activeProfile.voice;
+    const isDisabled = !voiceConfig || voiceConfig.provider === 'disabled';
+
+    const syncTTS = async () => {
+      if (isDisabled) {
+        ttsService.setEnabled(false);
+        ttsService.setAutoRead(false);
+        ttsService.setEnabledForUser(false);
+        console.log('[useInteractionProfile] TTS desativado pelo perfil');
+        return;
+      }
+
+      // Mapeia provider do perfil para TTSProvider enum
+      const mapTTSProvider = (provider: string): TTSProvider => {
+        switch (provider) {
+          case 'webspeech': return TTSProvider.WEBSPEECH;
+          case 'sapi5': return TTSProvider.SAPI5;
+          case 'openai': return TTSProvider.OPENAI;
+          default: return TTSProvider.WEBSPEECH;
+        }
+      };
+
+      // Ativa e configura TTS
+      ttsService.setEnabled(true);
+      ttsService.setAutoRead(voiceConfig.enabled_for_agent);
+      ttsService.setEnabledForUser(voiceConfig.enabled_for_user);
+
+      // Configura provider e voz
+      const ttsProvider = mapTTSProvider(voiceConfig.provider);
+      await ttsService.setProvider(ttsProvider);
+
+      if (voiceConfig.voice_id) {
+        await ttsService.setVoice(voiceConfig.voice_id);
+      }
+
+      // Configura parâmetros
+      await ttsService.setRate(voiceConfig.rate || 1.0);
+      ttsService.setPitch(voiceConfig.pitch || 1.0);
+      await ttsService.setVolume(voiceConfig.volume || 1.0);
+
+      console.log('[useInteractionProfile] TTS sincronizado com perfil:', {
+        provider: voiceConfig.provider,
+        voiceId: voiceConfig.voice_id,
+        enabledForAgent: voiceConfig.enabled_for_agent,
+        enabledForUser: voiceConfig.enabled_for_user,
+        rate: voiceConfig.rate,
+        volume: voiceConfig.volume,
+      });
+    };
+
+    syncTTS().catch((err) => {
+      console.error('[useInteractionProfile] Erro ao sincronizar TTS:', err);
+    });
+  }, [activeProfile]);
+
+  // Sincroniza estado de wakeword listening
   useEffect(() => {
-    setRecording(sttRecording);
-    setProcessing(sttProcessing);
-  }, [sttRecording, sttProcessing, setRecording, setProcessing]);
+    setLocalIsListening(wakewordIsListening);
+  }, [wakewordIsListening]);
+
+  // (estado de gravação/processamento vem direto do useSTT hook via sttRecording/sttProcessing)
 
   // Funções de controle de wakeword
   const startWakewordListening = useCallback(() => {
@@ -461,20 +534,20 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     shouldRestartWakewordRef.current = true;
     wakewordStartListening();
     
-    if (activeProfile?.feedback_sounds) {
+    if (interactionConfig?.feedback_sounds) {
       playSound(SOUND_TYPES.RECORD_START);
     }
-  }, [wakewordStartListening, activeProfile]);
+  }, [wakewordStartListening, interactionConfig]);
 
   const stopWakewordListening = useCallback(() => {
     console.log('[useInteractionProfile] Stopping wakeword listening');
     shouldRestartWakewordRef.current = false;
     wakewordStopListening();
     
-    if (activeProfile?.feedback_sounds) {
+    if (interactionConfig?.feedback_sounds) {
       playSound(SOUND_TYPES.RECORD_END);
     }
-  }, [wakewordStopListening, activeProfile]);
+  }, [wakewordStopListening, interactionConfig]);
 
   const toggleWakewordListening = useCallback(() => {
     console.log('[useInteractionProfile] Toggle wakeword:', { isListening: wakewordIsListening });
@@ -507,33 +580,31 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     }
     
     setIsActive(true);
-    setRecording(true);
     
     // Feedback sonoro
-    if (activeProfile?.feedback_sounds) {
+    if (interactionConfig?.feedback_sounds) {
       playSound(SOUND_TYPES.RECORD_START);
     }
     
     await startRecording();
-  }, [isActive, activeProfile, startRecording, setRecording, sttInitialized, initSTT]);
+  }, [isActive, interactionConfig, startRecording, sttInitialized, initSTT]);
 
   // Para interação
   const stopInteraction = useCallback(() => {
     stopRecording();
     // isActive será setado para false quando onTranscription for chamado
-  }, [stopRecording, isActive, sttRecording]);
+  }, [stopRecording]);
 
   // Cancela interação
   const cancelInteraction = useCallback(() => {
     cancelRecording();
     setIsActive(false);
-    setRecording(false);
     setInterimText('');
     
-    if (activeProfile?.feedback_sounds) {
+    if (interactionConfig?.feedback_sounds) {
       playSound(SOUND_TYPES.ERROR);
     }
-  }, [cancelRecording, activeProfile, setRecording]);
+  }, [cancelRecording, interactionConfig]);
 
   // Toggle interação - usa sttRecording (estado real) em vez de isActive (estado local)
   // Para modo wakeword, faz toggle da escuta de wakeword (não da gravação)
@@ -563,11 +634,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   useEffect(() => {
     toggleInteractionRef.current = toggleInteraction;
   }, [toggleInteraction]);
-
-  // Define perfil ativo (store já cuida de registrar hotkeys no backend)
-  const setActiveProfile = useCallback(async (profileId: number) => {
-    await storeSetActiveProfile(profileId);
-  }, [storeSetActiveProfile]);
 
   // Registra handler de hotkey (usando singleton global)
   useEffect(() => {
@@ -608,24 +674,42 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     };
   }, [wakewordIsListening, wakewordStopListening]);
 
-  // Carrega perfis ao montar
+  // Carrega perfil ativo ao montar e ouve mudanças de perfil
   useEffect(() => {
-    loadProfiles();
-  }, [loadProfiles]);
+    loadActiveProfile();
+
+    // Escuta eventos de mudança de perfil
+    let cleanup: (() => void) | undefined;
+    
+    const setupListener = async () => {
+      await loadWailsFunctions();
+      if (EventsOn) {
+        cleanup = EventsOn('profile:changed', () => {
+          console.log('[useInteractionProfile] Perfil alterado, recarregando...');
+          loadActiveProfile();
+        });
+      }
+    };
+
+    setupListener();
+
+    return () => {
+      cleanup?.();
+    };
+  }, [loadActiveProfile]);
 
   return {
     // Perfil
     activeProfile,
-    profiles,
     
     // Estados
     isActive: isActive || wakewordIsListening,
-    isListening: sttListening || wakewordIsListening || useInteractionProfileStore.getState().isListening,
+    isListening: sttListening || wakewordIsListening || localIsListening,
     isRecording: sttRecording,
     isProcessing: sttProcessing,
     
     // Dados
-    volume,
+    volume: volume || localVolume,
     interimText: interimText || sttInterimText || (wakewordIsListening ? wakewordLastText : ''),
     
     // Ações
@@ -633,8 +717,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     stopInteraction,
     cancelInteraction,
     toggleInteraction,
-    setActiveProfile,
-    loadProfiles,
+    reloadProfile: loadActiveProfile,
     
     // Wakeword específico
     startWakewordListening,
@@ -643,8 +726,8 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     isWakewordListening: wakewordIsListening,
     
     // Estados de carregamento
-    isLoading: storeLoading,
-    error: storeError,
+    isLoading,
+    error,
   };
 }
 

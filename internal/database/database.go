@@ -1,15 +1,13 @@
 package database
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
-	"log"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"assistente/internal/config"
+	"assistente/internal/configdir"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -24,32 +22,6 @@ var ErrConversationDeleted = errors.New("conversa foi deletada")
 // ErrParentMessageDeleted é retornado quando se tenta criar mensagem com parentId que não existe mais
 // Isso acontece quando a conversa foi limpa (clear) - as mensagens foram deletadas mas a conversa ainda existe
 var ErrParentMessageDeleted = errors.New("mensagem pai foi deletada")
-
-// EmbeddingGenerator interface para gerar embeddings
-type EmbeddingGenerator interface {
-	Generate(text string) ([]float32, error)
-}
-
-// SummaryGenerator interface para gerar resumos de conversas usando LLM
-type SummaryGenerator interface {
-	GenerateSummary(messages []ChatMessage) (string, error)
-}
-
-// embeddingGenerator é o gerador de embeddings configurado
-var embeddingGenerator EmbeddingGenerator
-
-// summaryGenerator é o gerador de resumos configurado
-var summaryGenerator SummaryGenerator
-
-// SetEmbeddingGenerator configura o gerador de embeddings
-func SetEmbeddingGenerator(gen EmbeddingGenerator) {
-	embeddingGenerator = gen
-}
-
-// SetSummaryGenerator configura o gerador de resumos
-func SetSummaryGenerator(gen SummaryGenerator) {
-	summaryGenerator = gen
-}
 
 // DB retorna a instância do banco de dados
 func DB() *gorm.DB {
@@ -71,13 +43,22 @@ func Close() error {
 }
 
 // Init inicializa o banco de dados
+// Resolve conversations.db nos 3 diretórios (exe > home > workdir).
+// Se não existir em nenhum, cria em ~/.assistente/
 func Init() error {
-	configPath, err := config.GetConfigPath()
-	if err != nil {
-		return err
-	}
+	rootResolver := configdir.NewResolver("")
 
-	dbPath := filepath.Join(filepath.Dir(configPath), "conversations.db")
+	var dbPath string
+	resolved, err := rootResolver.Resolve("conversations.db")
+	if err != nil {
+		// Não existe em nenhum diretório — criar no home
+		if err := rootResolver.EnsureHomeDir(); err != nil {
+			return err
+		}
+		dbPath = filepath.Join(configdir.GetHomeDir(), "conversations.db")
+	} else {
+		dbPath = resolved.Path
+	}
 
 	db, err = gorm.Open(sqlite.Open(dbPath), &gorm.Config{})
 	if err != nil {
@@ -88,78 +69,16 @@ func Init() error {
 	db.Exec("PRAGMA journal_mode=WAL")
 	db.Exec("PRAGMA synchronous=NORMAL")
 
-	// Auto migrate
+	// Auto migrate - apenas tabelas de conversas, mensagens e abas
+	// Perfis agora são gerenciados via arquivos JSON em .assistente/profiles/
 	if err := db.AutoMigrate(
 		&Conversation{},
 		&ChatMessage{},
 		&ChatTab{},
-		&FAQ{},
-		&Memory{},
-		&AgentConfig{},
-		&HTTPAgent{},
-		&HTTPEndpoint{},
-		&MCPAgentDB{},
-		&OAuthConnection{},
-		&ModelCapability{},
-		&FileAgentAuthorizedPath{},
-		&VoiceProfile{},
-		&InteractionProfile{},
-		&InteractionTrigger{},
-		&ChatProfile{},
 	); err != nil {
 		return err
 	}
 
-	// Seed: cria perfil de voz padrão "Desativado" se não existir
-	if err := seedDefaultVoiceProfile(); err != nil {
-		fmt.Printf("Aviso: erro ao criar perfil de voz padrão: %v\n", err)
-	}
-
-	// Seed: cria perfil de interação padrão "Manual" se não existir
-	if err := seedDefaultInteractionProfile(); err != nil {
-		fmt.Printf("Aviso: erro ao criar perfil de interação padrão: %v\n", err)
-	}
-
-	// Seed: cria perfis de conversa padrão se não existirem
-	if err := seedDefaultChatProfiles(); err != nil {
-		fmt.Printf("Aviso: erro ao criar perfis de conversa padrão: %v\n", err)
-	}
-
-	return nil
-}
-
-// seedDefaultVoiceProfile cria o perfil de voz padrão "Desativado" se não existir
-func seedDefaultVoiceProfile() error {
-	// Verifica se já existe um perfil padrão
-	var count int64
-	if err := db.Model(&VoiceProfile{}).Where("is_default = ?", true).Count(&count).Error; err != nil {
-		return err
-	}
-
-	if count > 0 {
-		// Já existe um perfil padrão
-		return nil
-	}
-
-	// Cria o perfil padrão "Desativado"
-	profile := &VoiceProfile{
-		Name:            "Desativado",
-		Description:     "Perfil padrão sem síntese de voz. Usa aria-live para leitores de tela.",
-		Provider:        "disabled",
-		VoiceID:         "",
-		Rate:            1.0,
-		Pitch:           1.0,
-		Volume:          1.0,
-		EnabledForAgent: false,
-		EnabledForUser:  false,
-		IsDefault:       true,
-	}
-
-	if err := db.Create(profile).Error; err != nil {
-		return err
-	}
-
-	fmt.Println("[Database] Perfil de voz padrão 'Desativado' criado com sucesso")
 	return nil
 }
 
@@ -169,27 +88,6 @@ func seedDefaultVoiceProfile() error {
 func CreateConversation(title, model string) (*Conversation, error) {
 	conv := &Conversation{
 		Title: title,
-	}
-
-	// Se modelo fornecido, salva nas preferências
-	if model != "" {
-		conv.SetPreferences(&ChatPreferences{Model: model})
-	}
-
-	if err := db.Create(conv).Error; err != nil {
-		return nil, err
-	}
-	return conv, nil
-}
-
-// CreateConversationWithPreferences cria uma nova conversa com preferências iniciais
-func CreateConversationWithPreferences(title string, prefs *ChatPreferences) (*Conversation, error) {
-	conv := &Conversation{
-		Title: title,
-	}
-
-	if prefs != nil {
-		conv.SetPreferences(prefs)
 	}
 
 	if err := db.Create(conv).Error; err != nil {
@@ -239,26 +137,11 @@ func GetConversationInfo(id uint) (*Conversation, error) {
 	return &conv, nil
 }
 
-// UpdateConversation atualiza título e modelo da conversa
+// UpdateConversation atualiza título da conversa
 func UpdateConversation(id uint, title, model string) error {
 	updates := map[string]interface{}{
 		"title":      title,
 		"updated_at": time.Now(),
-	}
-
-	// Se modelo fornecido, atualiza nas preferências
-	if model != "" {
-		conv, err := GetConversationInfo(id)
-		if err == nil {
-			prefs := conv.GetPreferences()
-			if prefs == nil {
-				prefs = &ChatPreferences{}
-			}
-			prefs.Model = model
-			if prefsJSON, err := json.Marshal(prefs); err == nil {
-				updates["preferences"] = string(prefsJSON)
-			}
-		}
 	}
 
 	return db.Model(&Conversation{}).Where("id = ?", id).Updates(updates).Error
@@ -272,258 +155,19 @@ func DeleteConversation(id uint) error {
 	return db.Delete(&Conversation{}, id).Error
 }
 
-// UpdateConversationModel atualiza apenas o modelo da conversa (via preferências)
-func UpdateConversationModel(id uint, model string) error {
-	conv, err := GetConversationInfo(id)
-	if err != nil {
-		return err
-	}
-
-	prefs := conv.GetPreferences()
-	if prefs == nil {
-		prefs = &ChatPreferences{}
-	}
-	prefs.Model = model
-
-	return UpdateConversationPreferences(id, prefs)
-}
-
-// UpdateConversationSettings atualiza showInternalMessages (via preferências)
-func UpdateConversationSettings(id uint, showInternalMessages bool) error {
-	conv, err := GetConversationInfo(id)
-	if err != nil {
-		return err
-	}
-
-	prefs := conv.GetPreferences()
-	if prefs == nil {
-		prefs = &ChatPreferences{}
-	}
-	prefs.ShowInternalMessages = &showInternalMessages
-
-	return UpdateConversationPreferences(id, prefs)
-}
-
-// UpdateConversationPreferences atualiza as preferências locais de uma conversa
-func UpdateConversationPreferences(id uint, prefs *ChatPreferences) error {
-	var prefsJSON string
-	if prefs != nil {
-		data, err := json.Marshal(prefs)
-		if err != nil {
-			return err
-		}
-		prefsJSON = string(data)
-	}
-
-	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"preferences": prefsJSON,
-		"updated_at":  time.Now(),
-	}).Error
-}
-
-// GetConversationPreferences retorna as preferências de uma conversa
-func GetConversationPreferences(id uint) (*ChatPreferences, error) {
-	conv, err := GetConversationInfo(id)
-	if err != nil {
-		return nil, err
-	}
-	return conv.GetPreferences(), nil
-}
-
-// ==================== Conversation Embeddings ====================
-
-// GetConversationsWithEmbedding retorna conversas que têm embedding
-func GetConversationsWithEmbedding() ([]Conversation, error) {
-	var conversations []Conversation
-	err := db.Where("embedding IS NOT NULL AND embedding != ''").Find(&conversations).Error
-	return conversations, err
-}
-
-// GetConversationsWithoutEmbedding retorna conversas sem embedding
-func GetConversationsWithoutEmbedding() ([]Conversation, error) {
-	var conversations []Conversation
-	err := db.Where("embedding IS NULL OR embedding = ''").Find(&conversations).Error
-	return conversations, err
-}
-
-// UpdateConversationEmbedding atualiza o embedding e resumo de uma conversa
-func UpdateConversationEmbedding(id uint, summary, embedding string, messageCount int) error {
-	return db.Model(&Conversation{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"summary":                 summary,
-		"embedding":               embedding,
-		"embedding_message_count": messageCount,
-	}).Error
-}
-
-// GenerateConversationEmbedding gera e salva o embedding de uma conversa
-func GenerateConversationEmbedding(conversationID uint) error {
-	if embeddingGenerator == nil {
-		return fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	// Busca a conversa
-	conv, err := GetConversation(conversationID)
-	if err != nil {
-		return err
-	}
-
-	// Busca as mensagens da conversa
-	messages, err := GetAllConversationMessages(conversationID)
-	if err != nil {
-		return err
-	}
-
-	if len(messages) == 0 {
-		return fmt.Errorf("conversa sem mensagens")
-	}
-
-	// Gera o resumo usando LLM
-	if summaryGenerator == nil {
-		return fmt.Errorf("serviço de resumo não configurado")
-	}
-
-	// Prepara mensagens com título como contexto
-	messagesWithContext := make([]ChatMessage, 0, len(messages)+1)
-
-	// Adiciona o título como primeira "mensagem" de contexto
-	if conv.Title != "" && conv.Title != "Nova conversa" {
-		messagesWithContext = append(messagesWithContext, ChatMessage{
-			Role:    "system",
-			Content: fmt.Sprintf("Título da conversa: %s", conv.Title),
-		})
-	}
-
-	// Adiciona todas as mensagens
-	messagesWithContext = append(messagesWithContext, messages...)
-
-	// Usa o LLM para gerar resumo
-	summary, err := summaryGenerator.GenerateSummary(messagesWithContext)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar resumo: %w", err)
-	}
-
-	if summary == "" {
-		return fmt.Errorf("não foi possível gerar resumo")
-	}
-
-	// Gera embedding do resumo
-	embedding, err := embeddingGenerator.Generate(summary)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar embedding: %w", err)
-	}
-
-	// Salva
-	conv.Summary = summary
-	conv.SetEmbedding(embedding)
-	return UpdateConversationEmbedding(conversationID, summary, conv.Embedding, len(messages))
-}
-
-// GenerateAllConversationEmbeddings gera embeddings para todas as conversas que não têm
-func GenerateAllConversationEmbeddings() (int, error) {
-	if embeddingGenerator == nil {
-		return 0, fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	conversations, err := GetConversationsWithoutEmbedding()
-	if err != nil {
-		return 0, err
-	}
-
-	count := 0
-	for _, conv := range conversations {
-		if err := GenerateConversationEmbedding(conv.ID); err != nil {
-			fmt.Printf("Erro ao gerar embedding para Conversation %d: %v\n", conv.ID, err)
-			continue
-		}
-		count++
-	}
-
-	return count, nil
-}
-
-// SearchConversationsSemantic busca conversas usando similaridade de embeddings
-func SearchConversationsSemantic(query string, topK int, minSimilarity float32) ([]Conversation, error) {
-	if embeddingGenerator == nil {
-		return nil, fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	if query == "" {
-		return nil, nil
-	}
-
-	// Gera embedding da query
-	queryEmbedding, err := embeddingGenerator.Generate(query)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao gerar embedding da query: %w", err)
-	}
-
-	// Busca conversas com embedding
-	conversations, err := GetConversationsWithEmbedding()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(conversations) == 0 {
-		return nil, nil
-	}
-
-	type convWithSimilarity struct {
-		conv       Conversation
-		similarity float32
-	}
-
-	// Calcula similaridade para cada conversa
-	results := make([]convWithSimilarity, 0, len(conversations))
-	for _, conv := range conversations {
-		convEmbedding := conv.GetEmbedding()
-		if len(convEmbedding) == 0 {
-			continue
-		}
-
-		similarity := CosineSimilarity(queryEmbedding, convEmbedding)
-		if similarity >= minSimilarity {
-			results = append(results, convWithSimilarity{
-				conv:       conv,
-				similarity: similarity,
-			})
-		}
-	}
-
-	// Ordena por similaridade decrescente
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].similarity > results[i].similarity {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
-
-	// Limita ao topK
-	if topK > len(results) {
-		topK = len(results)
-	}
-
-	finalResults := make([]Conversation, topK)
-	for i := 0; i < topK; i++ {
-		finalResults[i] = results[i].conv
-	}
-
-	return finalResults, nil
-}
-
 // ==================== ChatMessage ====================
 
 // MessageOptions contém opções para criar uma mensagem
 type MessageOptions struct {
 	ConversationID   uint
 	ParentID         *uint  // ID da mensagem pai (define hierarquia)
-	Role             string // user, assistant, tool
+	TurnID           *uint  // Agrupa mensagens de um turno (aponta para user message)
+	Role             string // user, assistant, tool, system
 	Content          string
 	Reasoning        string // Reasoning/thinking do modelo
 	Media            string // JSON com mídias
-	ToolCalls        string // JSON com tool calls
-	ToolCallID       string // ID da tool call (para role="tool")
-	AgentName        string // Nome do agente
+	ToolCalls        string // JSON: [{"id":"call_x","type":"function","function":{...}}]
+	ToolCallID       string // Para role="tool": ID da chamada que este resultado responde
 	PromptTokens     int
 	CompletionTokens int
 	TotalTokens      int
@@ -535,8 +179,6 @@ func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 	// Verifica se a conversa ainda existe antes de criar a mensagem
 	var conv Conversation
 	if err := db.First(&conv, opts.ConversationID).Error; err != nil {
-		// Conversa não existe (foi deletada) - retorna erro especial
-		// Os chamadores devem verificar ErrConversationDeleted e abortar graciosamente
 		return nil, fmt.Errorf("%w: conversa %d", ErrConversationDeleted, opts.ConversationID)
 	}
 
@@ -544,7 +186,6 @@ func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 	if opts.ParentID != nil && *opts.ParentID > 0 {
 		var parentMsg ChatMessage
 		if err := db.First(&parentMsg, *opts.ParentID).Error; err != nil {
-			// Mensagem pai não existe (foi deletada no clear) - retorna erro especial
 			return nil, fmt.Errorf("%w: mensagem %d", ErrParentMessageDeleted, *opts.ParentID)
 		}
 	}
@@ -552,13 +193,13 @@ func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 	msg := &ChatMessage{
 		ConversationID:   opts.ConversationID,
 		ParentID:         opts.ParentID,
+		TurnID:           opts.TurnID,
 		Role:             opts.Role,
 		Content:          opts.Content,
 		Reasoning:        opts.Reasoning,
 		Media:            opts.Media,
 		ToolCalls:        opts.ToolCalls,
 		ToolCallID:       opts.ToolCallID,
-		AgentName:        opts.AgentName,
 		PromptTokens:     opts.PromptTokens,
 		CompletionTokens: opts.CompletionTokens,
 		TotalTokens:      opts.TotalTokens,
@@ -572,33 +213,30 @@ func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 }
 
 // AddMessage adiciona uma mensagem simples (sem parent - nível 0)
-func AddMessage(conversationID uint, role, content, toolCalls, toolResults string) (*ChatMessage, error) {
+func AddMessage(conversationID uint, role, content string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
-		ToolCalls:      toolCalls,
 	})
 }
 
 // AddMessageWithMedia adiciona uma mensagem com mídias (sem parent - nível 0)
-func AddMessageWithMedia(conversationID uint, role, content, media, toolCalls, toolResults string) (*ChatMessage, error) {
+func AddMessageWithMedia(conversationID uint, role, content, media string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID: conversationID,
 		Role:           role,
 		Content:        content,
 		Media:          media,
-		ToolCalls:      toolCalls,
 	})
 }
 
 // AddMessageWithTokens adiciona uma mensagem com informações de tokens
-func AddMessageWithTokens(conversationID uint, role, content, toolCalls, toolResults string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
+func AddMessageWithTokens(conversationID uint, role, content string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
-		ToolCalls:        toolCalls,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      totalTokens,
@@ -607,13 +245,12 @@ func AddMessageWithTokens(conversationID uint, role, content, toolCalls, toolRes
 }
 
 // AddMessageWithTokensAndMedia adiciona uma mensagem com mídias e informações de tokens
-func AddMessageWithTokensAndMedia(conversationID uint, role, content, media, toolCalls, toolResults string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
+func AddMessageWithTokensAndMedia(conversationID uint, role, content, media string, promptTokens, completionTokens, totalTokens int, model string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID:   conversationID,
 		Role:             role,
 		Content:          content,
 		Media:            media,
-		ToolCalls:        toolCalls,
 		PromptTokens:     promptTokens,
 		CompletionTokens: completionTokens,
 		TotalTokens:      totalTokens,
@@ -622,32 +259,59 @@ func AddMessageWithTokensAndMedia(conversationID uint, role, content, media, too
 }
 
 // AddToolMessage adiciona uma mensagem de role="tool" (resposta de tool ao orquestrador)
-func AddToolMessage(conversationID uint, content, toolCallID string) (*ChatMessage, error) {
+func AddToolMessage(conversationID uint, content string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID: conversationID,
+		Role:           "tool",
+		Content:        content,
+	})
+}
+
+// AddToolResultMessage adiciona uma mensagem de resultado de tool com TurnID e ToolCallID.
+// Usado pelo agentic loop para salvar o resultado de uma execução de ferramenta.
+func AddToolResultMessage(conversationID uint, turnID uint, content, toolCallID string) (*ChatMessage, error) {
+	return CreateMessage(MessageOptions{
+		ConversationID: conversationID,
+		TurnID:         &turnID,
 		Role:           "tool",
 		Content:        content,
 		ToolCallID:     toolCallID,
 	})
 }
 
+// AddAssistantToolMessage adiciona uma mensagem do assistente que contém tool_calls.
+// Usada quando o LLM responde com texto + pedidos de ferramentas.
+func AddAssistantToolMessage(conversationID uint, turnID uint, content, toolCalls, reasoning, model string) (*ChatMessage, error) {
+	return CreateMessage(MessageOptions{
+		ConversationID: conversationID,
+		TurnID:         &turnID,
+		Role:           "assistant",
+		Content:        content,
+		ToolCalls:      toolCalls,
+		Reasoning:      reasoning,
+		Model:          model,
+	})
+}
+
+// GetTurnMessages retorna todas as mensagens de um turno (mesmo TurnID), ordenadas por criação.
+func GetTurnMessages(turnID uint) ([]ChatMessage, error) {
+	var messages []ChatMessage
+	err := db.Where("turn_id = ?", turnID).Order("created_at ASC").Find(&messages).Error
+	return messages, err
+}
+
 // AddChildMessage adiciona uma mensagem filha (com ParentID definido)
-// Usada para mensagens internas de agentes e tools
-func AddChildMessage(conversationID uint, parentID uint, role, content, toolCalls, toolCallID, agentName, model string) (*ChatMessage, error) {
+func AddChildMessage(conversationID uint, parentID uint, role, content, model string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{
 		ConversationID: conversationID,
 		ParentID:       &parentID,
 		Role:           role,
 		Content:        content,
-		ToolCalls:      toolCalls,
-		ToolCallID:     toolCallID,
-		AgentName:      agentName,
 		Model:          model,
 	})
 }
 
 // UpdateMessageContent atualiza o conteúdo e tokens de uma mensagem existente
-// Usado para completar mensagens de delegação com a resposta final
 func UpdateMessageContent(messageID uint, content string, promptTokens, completionTokens, totalTokens int, model string) error {
 	return db.Model(&ChatMessage{}).Where("id = ?", messageID).Updates(map[string]interface{}{
 		"content":           content,
@@ -658,18 +322,8 @@ func UpdateMessageContent(messageID uint, content string, promptTokens, completi
 	}).Error
 }
 
-// UpdateMessageToolCalls atualiza uma mensagem com tool_calls
-// Usado quando o assistant decide chamar ferramentas
-func UpdateMessageToolCalls(messageID uint, toolCalls string, agentName string) error {
-	return db.Model(&ChatMessage{}).Where("id = ?", messageID).Updates(map[string]interface{}{
-		"tool_calls": toolCalls,
-		"agent_name": agentName,
-	}).Error
-}
-
 // DeleteMessage exclui uma mensagem e todas as suas filhas (respostas)
 func DeleteMessage(messageID uint) error {
-	// Primeiro, exclui recursivamente todas as mensagens filhas
 	var childIDs []uint
 	if err := db.Model(&ChatMessage{}).Where("parent_id = ?", messageID).Pluck("id", &childIDs).Error; err != nil {
 		return err
@@ -679,7 +333,6 @@ func DeleteMessage(messageID uint) error {
 			return err
 		}
 	}
-	// Exclui a mensagem em si
 	return db.Delete(&ChatMessage{}, messageID).Error
 }
 
@@ -688,30 +341,14 @@ func DeleteAllMessages(conversationID uint) error {
 	return db.Where("conversation_id = ?", conversationID).Delete(&ChatMessage{}).Error
 }
 
-// GetMessageChildren retorna todas as mensagens filhas de uma mensagem
-// Deprecated: Use GetMessages instead
-func GetMessageChildren(parentID uint) ([]ChatMessage, error) {
-	return GetMessages(0, &parentID)
-}
-
 // GetMessages retorna mensagens de uma conversa com filtro opcional por parent
-// - conversationID > 0: filtra por conversa (obrigatório para raízes)
-// - parentID == nil: retorna mensagens raiz (parent_id IS NULL)
-// - parentID != nil: retorna filhos da mensagem especificada
-//
-// Exemplos:
-//
-//	GetMessages(convID, nil)      → mensagens raiz da conversa
-//	GetMessages(0, &parentID)     → filhos de uma mensagem
 func GetMessages(conversationID uint, parentID *uint) ([]ChatMessage, error) {
 	var messages []ChatMessage
 	query := db.Order("created_at ASC")
 
 	if parentID != nil {
-		// Busca filhos de uma mensagem específica
 		query = query.Where("parent_id = ?", *parentID)
 	} else {
-		// Busca mensagens raiz de uma conversa
 		if conversationID == 0 {
 			return nil, fmt.Errorf("conversationID é obrigatório para buscar mensagens raiz")
 		}
@@ -766,7 +403,6 @@ func GetMessageTree(messageID uint) (*ChatMessage, []ChatMessage, error) {
 		return nil, nil, err
 	}
 
-	// Busca todos os descendentes recursivamente
 	var descendants []ChatMessage
 	if err := getDescendants(messageID, &descendants); err != nil {
 		return nil, nil, err
@@ -830,1056 +466,31 @@ func GetAllTokenStats() (map[string]int, error) {
 	}, nil
 }
 
-// ==================== Memory ====================
+// ==================== Chat Tab ====================
 
-// CreateMemory cria uma nova memória
-func CreateMemory(title, content, category string) (*Memory, error) {
-	memory := &Memory{
-		Title:    title,
-		Content:  content,
-		Category: category,
+// CreateChatTab cria uma nova aba de chat
+func CreateChatTab(conversationID *uint, title, icon string, position int) (*ChatTab, error) {
+	tab := &ChatTab{
+		ConversationID: conversationID,
+		Title:          title,
+		Icon:           icon,
+		Position:       position,
+		IsActive:       false,
 	}
-	if err := db.Create(memory).Error; err != nil {
+	if err := db.Create(tab).Error; err != nil {
 		return nil, err
 	}
-	return memory, nil
+	return tab, nil
 }
 
-// GetAllMemories retorna todas as memórias
-func GetAllMemories() ([]Memory, error) {
-	var memories []Memory
-	err := db.Order("updated_at DESC").Find(&memories).Error
-	return memories, err
-}
-
-// GetMemoriesByCategory retorna memórias de uma categoria
-func GetMemoriesByCategory(category string) ([]Memory, error) {
-	var memories []Memory
-	err := db.Where("LOWER(category) = LOWER(?)", category).Order("updated_at DESC").Find(&memories).Error
-	return memories, err
-}
-
-// SearchMemories busca memórias por texto
-func SearchMemories(query string) ([]Memory, error) {
-	var memories []Memory
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
-		return GetAllMemories()
-	}
-	words := strings.Fields(query)
-	tx := db.Model(&Memory{})
-	for _, word := range words {
-		searchTerm := "%" + word + "%"
-		tx = tx.Where(
-			"LOWER(title) LIKE ? OR LOWER(content) LIKE ? OR LOWER(category) LIKE ?",
-			searchTerm, searchTerm, searchTerm,
-		)
-	}
-	err := tx.Order("updated_at DESC").Find(&memories).Error
-	return memories, err
-}
-
-// UpdateMemory atualiza uma memória
-func UpdateMemory(id uint, title, content, category string) (*Memory, error) {
-	var memory Memory
-	if err := db.First(&memory, id).Error; err != nil {
-		return nil, err
-	}
-	memory.Title = title
-	memory.Content = content
-	memory.Category = category
-	memory.UpdatedAt = time.Now()
-	if err := db.Save(&memory).Error; err != nil {
-		return nil, err
-	}
-	return &memory, nil
-}
-
-// DeleteMemory deleta uma memória
-func DeleteMemory(id uint) error {
-	return db.Delete(&Memory{}, id).Error
-}
-
-// GetCoreMemories retorna memórias marcadas como "core"
-func GetCoreMemories() ([]Memory, error) {
-	var memories []Memory
-	err := db.Where("LOWER(category) = ?", "core").Order("created_at ASC").Find(&memories).Error
-	return memories, err
-}
-
-// GetMemory retorna uma memória por ID
-func GetMemory(id uint) (*Memory, error) {
-	var memory Memory
-	err := db.First(&memory, id).Error
+// GetChatTab retorna uma aba por ID
+func GetChatTab(id uint) (*ChatTab, error) {
+	var tab ChatTab
+	err := db.Preload("Conversation").First(&tab, id).Error
 	if err != nil {
 		return nil, err
 	}
-	return &memory, nil
-}
-
-// GetMemoriesWithEmbedding retorna memórias que têm embedding
-func GetMemoriesWithEmbedding() ([]Memory, error) {
-	var memories []Memory
-	err := db.Where("embedding IS NOT NULL AND embedding != ''").Find(&memories).Error
-	return memories, err
-}
-
-// GetMemoriesWithoutEmbedding retorna memórias sem embedding
-func GetMemoriesWithoutEmbedding() ([]Memory, error) {
-	var memories []Memory
-	err := db.Where("embedding IS NULL OR embedding = ''").Find(&memories).Error
-	return memories, err
-}
-
-// UpdateMemoryEmbedding atualiza o embedding de uma memória
-func UpdateMemoryEmbedding(id uint, embedding string) error {
-	return db.Model(&Memory{}).Where("id = ?", id).Update("embedding", embedding).Error
-}
-
-// GenerateMemoryEmbedding gera e salva o embedding de uma memória
-func GenerateMemoryEmbedding(memoryID uint) error {
-	if embeddingGenerator == nil {
-		return fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	memory, err := GetMemory(memoryID)
-	if err != nil {
-		return err
-	}
-
-	// Combina título, conteúdo e categoria para o embedding
-	text := memory.Title + " " + memory.Content
-	if memory.Category != "" {
-		text += " " + memory.Category
-	}
-
-	embedding, err := embeddingGenerator.Generate(text)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar embedding: %w", err)
-	}
-
-	memory.SetEmbedding(embedding)
-	return UpdateMemoryEmbedding(memoryID, memory.Embedding)
-}
-
-// GenerateAllMemoryEmbeddings gera embeddings para todas as memórias que não têm
-func GenerateAllMemoryEmbeddings() (int, error) {
-	if embeddingGenerator == nil {
-		return 0, fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	memories, err := GetMemoriesWithoutEmbedding()
-	if err != nil {
-		return 0, err
-	}
-
-	count := 0
-	for _, memory := range memories {
-		if err := GenerateMemoryEmbedding(memory.ID); err != nil {
-			fmt.Printf("Erro ao gerar embedding para Memory %d: %v\n", memory.ID, err)
-			continue
-		}
-		count++
-	}
-
-	return count, nil
-}
-
-// SearchMemorySemantic busca memórias usando similaridade de embeddings
-func SearchMemorySemantic(query string, topK int, minSimilarity float32) ([]Memory, error) {
-	// Fallback para busca textual se embeddings não disponível
-	if embeddingGenerator == nil {
-		return SearchMemories(query)
-	}
-
-	if query == "" {
-		return nil, nil
-	}
-
-	// Gera embedding da query
-	queryEmbedding, err := embeddingGenerator.Generate(query)
-	if err != nil {
-		fmt.Printf("Erro ao gerar embedding da query, usando busca textual: %v\n", err)
-		return SearchMemories(query)
-	}
-
-	// Busca memórias com embedding
-	memories, err := GetMemoriesWithEmbedding()
-	if err != nil {
-		return nil, err
-	}
-
-	// Se não há memórias com embedding, faz fallback para busca textual
-	if len(memories) == 0 {
-		return SearchMemories(query)
-	}
-
-	type memoryWithSimilarity struct {
-		memory     Memory
-		similarity float32
-	}
-
-	// Calcula similaridade para cada memória
-	results := make([]memoryWithSimilarity, 0, len(memories))
-	for _, memory := range memories {
-		memoryEmbedding := memory.GetEmbedding()
-		if len(memoryEmbedding) == 0 {
-			continue
-		}
-
-		similarity := CosineSimilarity(queryEmbedding, memoryEmbedding)
-		if similarity >= minSimilarity {
-			results = append(results, memoryWithSimilarity{
-				memory:     memory,
-				similarity: similarity,
-			})
-		}
-	}
-
-	// Ordena por similaridade decrescente
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].similarity > results[i].similarity {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
-
-	// Limita ao topK
-	if topK > len(results) {
-		topK = len(results)
-	}
-
-	finalResults := make([]Memory, topK)
-	for i := 0; i < topK; i++ {
-		finalResults[i] = results[i].memory
-	}
-
-	return finalResults, nil
-}
-
-// ==================== FAQ ====================
-
-// CreateFAQ cria uma nova entrada no FAQ
-func CreateFAQ(question, answer, tags string) (*FAQ, error) {
-	faq := &FAQ{
-		Question: question,
-		Answer:   answer,
-		Tags:     tags,
-	}
-	if err := db.Create(faq).Error; err != nil {
-		return nil, err
-	}
-	return faq, nil
-}
-
-// GetFAQ retorna uma entrada do FAQ por ID
-func GetFAQ(id uint) (*FAQ, error) {
-	var faq FAQ
-	err := db.First(&faq, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &faq, nil
-}
-
-// GetAllFAQs retorna todas as entradas do FAQ
-func GetAllFAQs() ([]FAQ, error) {
-	var faqs []FAQ
-	err := db.Order("updated_at DESC").Find(&faqs).Error
-	return faqs, err
-}
-
-// UpdateFAQ atualiza uma entrada do FAQ
-func UpdateFAQ(id uint, question, answer, tags string) (*FAQ, error) {
-	var faq FAQ
-	if err := db.First(&faq, id).Error; err != nil {
-		return nil, err
-	}
-	faq.Question = question
-	faq.Answer = answer
-	faq.Tags = tags
-	faq.UpdatedAt = time.Now()
-	if err := db.Save(&faq).Error; err != nil {
-		return nil, err
-	}
-	return &faq, nil
-}
-
-// DeleteFAQ deleta uma entrada do FAQ
-func DeleteFAQ(id uint) error {
-	return db.Delete(&FAQ{}, id).Error
-}
-
-// SearchFAQ busca FAQs por texto
-func SearchFAQ(query string) ([]FAQ, error) {
-	var faqs []FAQ
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
-		return faqs, nil
-	}
-	words := strings.Fields(query)
-	tx := db.Model(&FAQ{})
-	for _, word := range words {
-		searchTerm := "%" + word + "%"
-		tx = tx.Where(
-			"LOWER(question) LIKE ? OR LOWER(answer) LIKE ? OR LOWER(tags) LIKE ?",
-			searchTerm, searchTerm, searchTerm,
-		)
-	}
-	err := tx.Order("updated_at DESC").Find(&faqs).Error
-	return faqs, err
-}
-
-// GetFAQsWithEmbedding retorna FAQs que têm embedding
-func GetFAQsWithEmbedding() ([]FAQ, error) {
-	var faqs []FAQ
-	err := db.Where("embedding IS NOT NULL AND embedding != ''").Find(&faqs).Error
-	return faqs, err
-}
-
-// GetFAQsWithoutEmbedding retorna FAQs sem embedding
-func GetFAQsWithoutEmbedding() ([]FAQ, error) {
-	var faqs []FAQ
-	err := db.Where("embedding IS NULL OR embedding = ''").Find(&faqs).Error
-	return faqs, err
-}
-
-// UpdateFAQEmbedding atualiza o embedding de uma FAQ
-func UpdateFAQEmbedding(id uint, embedding string) error {
-	return db.Model(&FAQ{}).Where("id = ?", id).Update("embedding", embedding).Error
-}
-
-// GenerateFAQEmbedding gera e salva o embedding de uma FAQ
-func GenerateFAQEmbedding(faqID uint) error {
-	if embeddingGenerator == nil {
-		return fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	faq, err := GetFAQ(faqID)
-	if err != nil {
-		return err
-	}
-
-	text := faq.Question + " " + faq.Answer
-	if faq.Tags != "" {
-		text += " " + faq.Tags
-	}
-
-	embedding, err := embeddingGenerator.Generate(text)
-	if err != nil {
-		return fmt.Errorf("erro ao gerar embedding: %w", err)
-	}
-
-	faq.SetEmbedding(embedding)
-	return UpdateFAQEmbedding(faqID, faq.Embedding)
-}
-
-// GenerateAllFAQEmbeddings gera embeddings para todas as FAQs que não têm
-func GenerateAllFAQEmbeddings() (int, error) {
-	if embeddingGenerator == nil {
-		return 0, fmt.Errorf("serviço de embeddings não configurado")
-	}
-
-	faqs, err := GetFAQsWithoutEmbedding()
-	if err != nil {
-		return 0, err
-	}
-
-	count := 0
-	for _, faq := range faqs {
-		if err := GenerateFAQEmbedding(faq.ID); err != nil {
-			fmt.Printf("Erro ao gerar embedding para FAQ %d: %v\n", faq.ID, err)
-			continue
-		}
-		count++
-	}
-
-	return count, nil
-}
-
-// SearchFAQSemantic busca FAQs usando similaridade de embeddings
-func SearchFAQSemantic(query string, topK int, minSimilarity float32) ([]FAQ, error) {
-	if embeddingGenerator == nil {
-		return SearchFAQ(query)
-	}
-
-	if query == "" {
-		return nil, nil
-	}
-
-	queryEmbedding, err := embeddingGenerator.Generate(query)
-	if err != nil {
-		fmt.Printf("Erro ao gerar embedding da query, usando busca textual: %v\n", err)
-		return SearchFAQ(query)
-	}
-
-	faqs, err := GetFAQsWithEmbedding()
-	if err != nil {
-		return nil, err
-	}
-
-	if len(faqs) == 0 {
-		return SearchFAQ(query)
-	}
-
-	type faqWithSimilarity struct {
-		faq        FAQ
-		similarity float32
-	}
-
-	results := make([]faqWithSimilarity, 0, len(faqs))
-	for _, faq := range faqs {
-		faqEmbedding := faq.GetEmbedding()
-		if len(faqEmbedding) == 0 {
-			continue
-		}
-
-		similarity := CosineSimilarity(queryEmbedding, faqEmbedding)
-		if similarity >= minSimilarity {
-			results = append(results, faqWithSimilarity{
-				faq:        faq,
-				similarity: similarity,
-			})
-		}
-	}
-
-	// Ordena por similaridade decrescente
-	for i := 0; i < len(results)-1; i++ {
-		for j := i + 1; j < len(results); j++ {
-			if results[j].similarity > results[i].similarity {
-				results[i], results[j] = results[j], results[i]
-			}
-		}
-	}
-
-	if topK > len(results) {
-		topK = len(results)
-	}
-
-	finalResults := make([]FAQ, topK)
-	for i := 0; i < topK; i++ {
-		finalResults[i] = results[i].faq
-	}
-
-	return finalResults, nil
-}
-
-// ==================== AgentConfig ====================
-
-// GetAgentConfig retorna a configuração de um agente pelo nome
-func GetAgentConfig(name string) (*AgentConfig, error) {
-	var cfg AgentConfig
-	err := db.Where("name = ?", name).First(&cfg).Error
-	if err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
-// GetAgentConfigByID retorna a configuração de um agente pelo ID
-func GetAgentConfigByID(id uint) (*AgentConfig, error) {
-	var cfg AgentConfig
-	err := db.First(&cfg, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &cfg, nil
-}
-
-// GetAllAgentConfigs retorna todas as configurações de agentes
-func GetAllAgentConfigs() ([]AgentConfig, error) {
-	var configs []AgentConfig
-	err := db.Order("name ASC").Find(&configs).Error
-	return configs, err
-}
-
-// CreateAgentConfig cria uma nova configuração de agente
-func CreateAgentConfig(name, displayName, description, agentType, model, systemPrompt, cfg string, enabled bool) (*AgentConfig, error) {
-	agentConfig := &AgentConfig{
-		Name:         name,
-		DisplayName:  displayName,
-		Description:  description,
-		AgentType:    agentType,
-		Model:        model,
-		SystemPrompt: systemPrompt,
-		Config:       cfg,
-		Enabled:      enabled,
-	}
-	if err := db.Create(agentConfig).Error; err != nil {
-		return nil, err
-	}
-	return agentConfig, nil
-}
-
-// UpdateAgentConfig atualiza a configuração de um agente
-func UpdateAgentConfig(id uint, displayName, description, model, systemPrompt, cfg string, enabled bool) (*AgentConfig, error) {
-	var agentConfig AgentConfig
-	if err := db.First(&agentConfig, id).Error; err != nil {
-		return nil, err
-	}
-	agentConfig.DisplayName = displayName
-	agentConfig.Description = description
-	agentConfig.Model = model
-	agentConfig.SystemPrompt = systemPrompt
-	agentConfig.Config = cfg
-	agentConfig.Enabled = enabled
-	agentConfig.UpdatedAt = time.Now()
-	if err := db.Save(&agentConfig).Error; err != nil {
-		return nil, err
-	}
-	return &agentConfig, nil
-}
-
-// DeleteAgentConfig deleta uma configuração de agente
-func DeleteAgentConfig(id uint) error {
-	return db.Delete(&AgentConfig{}, id).Error
-}
-
-// SaveOrUpdateAgentConfig salva ou atualiza configuração de um agente pelo nome
-func SaveOrUpdateAgentConfig(name, displayName, description, agentType, model, systemPrompt, cfg string, enabled bool) (*AgentConfig, error) {
-	var agentConfig AgentConfig
-	err := db.Where("name = ?", name).First(&agentConfig).Error
-	if err != nil {
-		return CreateAgentConfig(name, displayName, description, agentType, model, systemPrompt, cfg, enabled)
-	}
-	agentConfig.DisplayName = displayName
-	agentConfig.Description = description
-	agentConfig.AgentType = agentType
-	agentConfig.Model = model
-	agentConfig.SystemPrompt = systemPrompt
-	agentConfig.Config = cfg
-	agentConfig.Enabled = enabled
-	agentConfig.UpdatedAt = time.Now()
-	if err := db.Save(&agentConfig).Error; err != nil {
-		return nil, err
-	}
-	return &agentConfig, nil
-}
-
-// ==================== HTTPAgent ====================
-
-// CreateHTTPAgent cria um novo HTTP Agent
-func CreateHTTPAgent(agentConfigID uint, baseURL, authType, authConfig, defaultHeaders string, timeoutSeconds, retryCount int) (*HTTPAgent, error) {
-	httpAgent := &HTTPAgent{
-		AgentConfigID:  agentConfigID,
-		BaseURL:        baseURL,
-		AuthType:       authType,
-		AuthConfig:     authConfig,
-		DefaultHeaders: defaultHeaders,
-		TimeoutSeconds: timeoutSeconds,
-		RetryCount:     retryCount,
-	}
-	if err := db.Create(httpAgent).Error; err != nil {
-		return nil, err
-	}
-	return httpAgent, nil
-}
-
-// GetHTTPAgent retorna um HTTP Agent por ID
-func GetHTTPAgent(id uint) (*HTTPAgent, error) {
-	var httpAgent HTTPAgent
-	err := db.Preload("Endpoints").First(&httpAgent, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &httpAgent, nil
-}
-
-// GetHTTPAgentByConfigID retorna um HTTP Agent pelo AgentConfigID
-func GetHTTPAgentByConfigID(agentConfigID uint) (*HTTPAgent, error) {
-	var httpAgent HTTPAgent
-	err := db.Preload("Endpoints").Where("agent_config_id = ?", agentConfigID).First(&httpAgent).Error
-	if err != nil {
-		return nil, err
-	}
-	return &httpAgent, nil
-}
-
-// GetAllHTTPAgents retorna todos os HTTP Agents
-func GetAllHTTPAgents() ([]HTTPAgent, error) {
-	var httpAgents []HTTPAgent
-	err := db.Preload("Endpoints").Find(&httpAgents).Error
-	return httpAgents, err
-}
-
-// UpdateHTTPAgent atualiza um HTTP Agent
-func UpdateHTTPAgent(id uint, baseURL, authType, authConfig, defaultHeaders string, timeoutSeconds, retryCount int) (*HTTPAgent, error) {
-	var httpAgent HTTPAgent
-	if err := db.First(&httpAgent, id).Error; err != nil {
-		return nil, err
-	}
-	httpAgent.BaseURL = baseURL
-	httpAgent.AuthType = authType
-	httpAgent.AuthConfig = authConfig
-	httpAgent.DefaultHeaders = defaultHeaders
-	httpAgent.TimeoutSeconds = timeoutSeconds
-	httpAgent.RetryCount = retryCount
-	httpAgent.UpdatedAt = time.Now()
-	if err := db.Save(&httpAgent).Error; err != nil {
-		return nil, err
-	}
-	return &httpAgent, nil
-}
-
-// DeleteHTTPAgent deleta um HTTP Agent e seus endpoints
-func DeleteHTTPAgent(id uint) error {
-	if err := db.Where("http_agent_id = ?", id).Delete(&HTTPEndpoint{}).Error; err != nil {
-		return err
-	}
-	return db.Delete(&HTTPAgent{}, id).Error
-}
-
-// ==================== HTTPEndpoint ====================
-
-// CreateHTTPEndpoint cria um novo endpoint
-func CreateHTTPEndpoint(httpAgentID uint, name, description, method, pathTemplate, queryTemplate, headersJSON, bodyTemplate, parameters, responseTemplate string) (*HTTPEndpoint, error) {
-	endpoint := &HTTPEndpoint{
-		HTTPAgentID:      httpAgentID,
-		Name:             name,
-		Description:      description,
-		Method:           method,
-		PathTemplate:     pathTemplate,
-		QueryTemplate:    queryTemplate,
-		HeadersJSON:      headersJSON,
-		BodyTemplate:     bodyTemplate,
-		Parameters:       parameters,
-		ResponseTemplate: responseTemplate,
-	}
-	if err := db.Create(endpoint).Error; err != nil {
-		return nil, err
-	}
-	return endpoint, nil
-}
-
-// GetHTTPEndpoint retorna um endpoint por ID
-func GetHTTPEndpoint(id uint) (*HTTPEndpoint, error) {
-	var endpoint HTTPEndpoint
-	err := db.First(&endpoint, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &endpoint, nil
-}
-
-// GetHTTPEndpointsByAgentID retorna todos os endpoints de um agent
-func GetHTTPEndpointsByAgentID(httpAgentID uint) ([]HTTPEndpoint, error) {
-	var endpoints []HTTPEndpoint
-	err := db.Where("http_agent_id = ?", httpAgentID).Find(&endpoints).Error
-	return endpoints, err
-}
-
-// UpdateHTTPEndpoint atualiza um endpoint
-func UpdateHTTPEndpoint(id uint, name, description, method, pathTemplate, queryTemplate, headersJSON, bodyTemplate, parameters, responseTemplate string) (*HTTPEndpoint, error) {
-	var endpoint HTTPEndpoint
-	if err := db.First(&endpoint, id).Error; err != nil {
-		return nil, err
-	}
-	endpoint.Name = name
-	endpoint.Description = description
-	endpoint.Method = method
-	endpoint.PathTemplate = pathTemplate
-	endpoint.QueryTemplate = queryTemplate
-	endpoint.HeadersJSON = headersJSON
-	endpoint.BodyTemplate = bodyTemplate
-	endpoint.Parameters = parameters
-	endpoint.ResponseTemplate = responseTemplate
-	endpoint.UpdatedAt = time.Now()
-	if err := db.Save(&endpoint).Error; err != nil {
-		return nil, err
-	}
-	return &endpoint, nil
-}
-
-// DeleteHTTPEndpoint deleta um endpoint
-func DeleteHTTPEndpoint(id uint) error {
-	return db.Delete(&HTTPEndpoint{}, id).Error
-}
-
-// ==================== MCPAgentDB ====================
-
-// CreateMCPAgent cria um novo MCP Agent
-func CreateMCPAgent(agentConfigID uint, transportType, serverCommand, serverArgs, serverEnv, workingDir, serverURL, authType, authValue, httpHeaders, executionMode string, autoConnect bool) (*MCPAgentDB, error) {
-	if transportType == "" {
-		transportType = "stdio"
-	}
-	if executionMode == "" {
-		executionMode = "convert"
-	}
-	mcpAgent := &MCPAgentDB{
-		AgentConfigID: agentConfigID,
-		TransportType: transportType,
-		ServerCommand: serverCommand,
-		ServerArgs:    serverArgs,
-		ServerEnv:     serverEnv,
-		WorkingDir:    workingDir,
-		ServerURL:     serverURL,
-		AuthType:      authType,
-		AuthValue:     authValue,
-		HTTPHeaders:   httpHeaders,
-		ExecutionMode: executionMode,
-		AutoConnect:   autoConnect,
-	}
-	if err := db.Create(mcpAgent).Error; err != nil {
-		return nil, err
-	}
-	return mcpAgent, nil
-}
-
-// GetMCPAgent retorna um MCP Agent por ID
-func GetMCPAgent(id uint) (*MCPAgentDB, error) {
-	var mcpAgent MCPAgentDB
-	err := db.First(&mcpAgent, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &mcpAgent, nil
-}
-
-// GetMCPAgentByConfigID retorna um MCP Agent pelo AgentConfigID
-func GetMCPAgentByConfigID(agentConfigID uint) (*MCPAgentDB, error) {
-	var mcpAgent MCPAgentDB
-	err := db.Where("agent_config_id = ?", agentConfigID).First(&mcpAgent).Error
-	if err != nil {
-		return nil, err
-	}
-	return &mcpAgent, nil
-}
-
-// GetAllMCPAgents retorna todos os MCP Agents
-func GetAllMCPAgents() ([]MCPAgentDB, error) {
-	var mcpAgents []MCPAgentDB
-	err := db.Find(&mcpAgents).Error
-	return mcpAgents, err
-}
-
-// UpdateMCPAgent atualiza um MCP Agent
-func UpdateMCPAgent(id uint, transportType, serverCommand, serverArgs, serverEnv, workingDir, serverURL, authType, authValue, httpHeaders, executionMode string, autoConnect bool) (*MCPAgentDB, error) {
-	var mcpAgent MCPAgentDB
-	if err := db.First(&mcpAgent, id).Error; err != nil {
-		return nil, err
-	}
-	mcpAgent.TransportType = transportType
-	mcpAgent.ServerCommand = serverCommand
-	mcpAgent.ServerArgs = serverArgs
-	mcpAgent.ServerEnv = serverEnv
-	mcpAgent.WorkingDir = workingDir
-	mcpAgent.ServerURL = serverURL
-	mcpAgent.AuthType = authType
-	mcpAgent.AuthValue = authValue
-	mcpAgent.HTTPHeaders = httpHeaders
-	mcpAgent.ExecutionMode = executionMode
-	mcpAgent.AutoConnect = autoConnect
-	mcpAgent.UpdatedAt = time.Now()
-	if err := db.Save(&mcpAgent).Error; err != nil {
-		return nil, err
-	}
-	return &mcpAgent, nil
-}
-
-// DeleteMCPAgent deleta um MCP Agent
-func DeleteMCPAgent(id uint) error {
-	return db.Delete(&MCPAgentDB{}, id).Error
-}
-
-// GetAllMCPAgentsFull retorna todos os MCP Agents com suas configurações de agente
-func GetAllMCPAgentsFull() ([]map[string]interface{}, error) {
-	var mcpAgents []MCPAgentDB
-	if err := db.Find(&mcpAgents).Error; err != nil {
-		return nil, err
-	}
-	result := make([]map[string]interface{}, 0, len(mcpAgents))
-	for _, mcp := range mcpAgents {
-		var agentConfig AgentConfig
-		if err := db.First(&agentConfig, mcp.AgentConfigID).Error; err != nil {
-			continue
-		}
-		result = append(result, map[string]interface{}{
-			"id":             mcp.ID,
-			"agent_config":   agentConfig,
-			"transport_type": mcp.TransportType,
-			"server_command": mcp.ServerCommand,
-			"server_args":    mcp.ServerArgs,
-			"server_env":     mcp.ServerEnv,
-			"working_dir":    mcp.WorkingDir,
-			"server_url":     mcp.ServerURL,
-			"auth_type":      mcp.AuthType,
-			"auth_value":     mcp.AuthValue,
-			"http_headers":   mcp.HTTPHeaders,
-			"execution_mode": mcp.ExecutionMode,
-			"auto_connect":   mcp.AutoConnect,
-			"created_at":     mcp.CreatedAt,
-			"updated_at":     mcp.UpdatedAt,
-		})
-	}
-	return result, nil
-}
-
-// ==================== ModelCapability ====================
-
-// GetOrCreateModelCapability retorna ou cria capacidades para um modelo
-func GetOrCreateModelCapability(modelName string) (*ModelCapability, error) {
-	var cap ModelCapability
-	err := db.Where("model_name = ?", modelName).First(&cap).Error
-	if err == nil {
-		return &cap, nil
-	}
-	cap = ModelCapability{
-		ModelName: modelName,
-	}
-	if err := db.Create(&cap).Error; err != nil {
-		return nil, err
-	}
-	return &cap, nil
-}
-
-// GetModelCapability retorna as capacidades de um modelo
-func GetModelCapability(modelName string) (*ModelCapability, error) {
-	var cap ModelCapability
-	err := db.Where("model_name = ?", modelName).First(&cap).Error
-	if err != nil {
-		return nil, err
-	}
-	return &cap, nil
-}
-
-// GetAllModelCapabilities retorna todas as capacidades conhecidas
-func GetAllModelCapabilities() ([]ModelCapability, error) {
-	var caps []ModelCapability
-	err := db.Order("times_used DESC, model_name ASC").Find(&caps).Error
-	return caps, err
-}
-
-// UpdateModelCapability atualiza as capacidades de um modelo
-func UpdateModelCapability(modelName string, supportsVision, supportsAudio, supportsVideo, supportsDocuments, supportsTools, supportsStreaming, supportsJSON *bool) (*ModelCapability, error) {
-	cap, err := GetOrCreateModelCapability(modelName)
-	if err != nil {
-		return nil, err
-	}
-	if supportsVision != nil {
-		cap.SupportsVision = supportsVision
-	}
-	if supportsAudio != nil {
-		cap.SupportsAudio = supportsAudio
-	}
-	if supportsVideo != nil {
-		cap.SupportsVideo = supportsVideo
-	}
-	if supportsDocuments != nil {
-		cap.SupportsDocuments = supportsDocuments
-	}
-	if supportsTools != nil {
-		cap.SupportsTools = supportsTools
-	}
-	if supportsStreaming != nil {
-		cap.SupportsStreaming = supportsStreaming
-	}
-	if supportsJSON != nil {
-		cap.SupportsJSON = supportsJSON
-	}
-	cap.LastTested = time.Now()
-	cap.UpdatedAt = time.Now()
-	if err := db.Save(cap).Error; err != nil {
-		return nil, err
-	}
-	return cap, nil
-}
-
-// SetModelVisionSupport define se um modelo suporta visão
-func SetModelVisionSupport(modelName string, supported bool) error {
-	_, err := UpdateModelCapability(modelName, &supported, nil, nil, nil, nil, nil, nil)
-	return err
-}
-
-// SetModelToolsSupport define se um modelo suporta tools
-func SetModelToolsSupport(modelName string, supported bool) error {
-	_, err := UpdateModelCapability(modelName, nil, nil, nil, nil, &supported, nil, nil)
-	return err
-}
-
-// IncrementModelUsage incrementa o contador de uso de um modelo
-func IncrementModelUsage(modelName string) error {
-	cap, err := GetOrCreateModelCapability(modelName)
-	if err != nil {
-		return err
-	}
-	cap.TimesUsed++
-	return db.Model(cap).Update("times_used", cap.TimesUsed).Error
-}
-
-// SetModelError registra um erro em um modelo
-func SetModelError(modelName, errorMsg string) error {
-	cap, err := GetOrCreateModelCapability(modelName)
-	if err != nil {
-		return err
-	}
-	cap.LastError = errorMsg
-	cap.LastTested = time.Now()
-	return db.Save(cap).Error
-}
-
-// GetVisionCapableModels retorna modelos que suportam visão
-func GetVisionCapableModels() ([]ModelCapability, error) {
-	var caps []ModelCapability
-	err := db.Where("supports_vision = ?", true).Order("times_used DESC").Find(&caps).Error
-	return caps, err
-}
-
-// ModelSupportsVision verifica se um modelo suporta visão
-func ModelSupportsVision(modelName string) (bool, error) {
-	cap, err := GetModelCapability(modelName)
-	if err != nil {
-		return false, nil
-	}
-	if cap.SupportsVision == nil {
-		return false, nil
-	}
-	return *cap.SupportsVision, nil
-}
-
-// ==================== OAuthConnection ====================
-
-// CreateOAuthConnection cria uma nova conexão OAuth
-func CreateOAuthConnection(providerID, providerName, userEmail, userName, userID, accessToken, refreshToken, tokenType, scopes string, expiresAt time.Time) (*OAuthConnection, error) {
-	conn := &OAuthConnection{
-		ProviderID:   providerID,
-		ProviderName: providerName,
-		UserEmail:    userEmail,
-		UserName:     userName,
-		UserID:       userID,
-		AccessToken:  accessToken,
-		RefreshToken: refreshToken,
-		TokenType:    tokenType,
-		Scopes:       scopes,
-		ExpiresAt:    expiresAt,
-		IsActive:     true,
-		LastUsedAt:   time.Now(),
-	}
-	if err := db.Create(conn).Error; err != nil {
-		return nil, err
-	}
-	return conn, nil
-}
-
-// GetOAuthConnection retorna uma conexão OAuth por ID
-func GetOAuthConnection(id uint) (*OAuthConnection, error) {
-	var conn OAuthConnection
-	err := db.First(&conn, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &conn, nil
-}
-
-// GetOAuthConnectionByProvider retorna conexões de um provider específico
-func GetOAuthConnectionByProvider(providerID string) ([]OAuthConnection, error) {
-	var conns []OAuthConnection
-	err := db.Where("provider_id = ? AND is_active = ?", providerID, true).
-		Order("updated_at DESC").Find(&conns).Error
-	return conns, err
-}
-
-// GetAllOAuthConnections retorna todas as conexões OAuth ativas
-func GetAllOAuthConnections() ([]OAuthConnection, error) {
-	var conns []OAuthConnection
-	err := db.Where("is_active = ?", true).Order("provider_id ASC, updated_at DESC").Find(&conns).Error
-	return conns, err
-}
-
-// UpdateOAuthTokens atualiza os tokens de uma conexão
-func UpdateOAuthTokens(id uint, accessToken, refreshToken string, expiresAt time.Time) error {
-	return db.Model(&OAuthConnection{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"access_token":  accessToken,
-		"refresh_token": refreshToken,
-		"expires_at":    expiresAt,
-		"last_used_at":  time.Now(),
-		"updated_at":    time.Now(),
-	}).Error
-}
-
-// UpdateOAuthConnectionLastUsed atualiza o timestamp de último uso
-func UpdateOAuthConnectionLastUsed(id uint) error {
-	return db.Model(&OAuthConnection{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"last_used_at": time.Now(),
-	}).Error
-}
-
-// DeleteOAuthConnection desativa uma conexão OAuth (soft delete)
-func DeleteOAuthConnection(id uint) error {
-	return db.Model(&OAuthConnection{}).Where("id = ?", id).Updates(map[string]interface{}{
-		"is_active":  false,
-		"updated_at": time.Now(),
-	}).Error
-}
-
-// HardDeleteOAuthConnection remove permanentemente uma conexão
-func HardDeleteOAuthConnection(id uint) error {
-	return db.Delete(&OAuthConnection{}, id).Error
-}
-
-// GetActiveOAuthConnectionForProvider retorna a conexão ativa mais recente para um provider
-func GetActiveOAuthConnectionForProvider(providerID string) (*OAuthConnection, error) {
-	var conn OAuthConnection
-	err := db.Where("provider_id = ? AND is_active = ?", providerID, true).
-		Order("updated_at DESC").First(&conn).Error
-	if err != nil {
-		return nil, err
-	}
-	return &conn, nil
-}
-
-// ==================== FileAgentAuthorizedPath ====================
-
-// CreateFileAgentAuthorizedPath cria uma nova pasta autorizada
-func CreateFileAgentAuthorizedPath(path string, allowDelete, allowWrite, recursive bool) (*FileAgentAuthorizedPath, error) {
-	authPath := &FileAgentAuthorizedPath{
-		Path:        path,
-		AllowDelete: allowDelete,
-		AllowWrite:  allowWrite,
-		Recursive:   recursive,
-	}
-	if err := db.Create(authPath).Error; err != nil {
-		return nil, err
-	}
-	return authPath, nil
-}
-
-// GetFileAgentAuthorizedPath retorna uma pasta autorizada por ID
-func GetFileAgentAuthorizedPath(id uint) (*FileAgentAuthorizedPath, error) {
-	var authPath FileAgentAuthorizedPath
-	err := db.First(&authPath, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &authPath, nil
-}
-
-// GetAllFileAgentAuthorizedPaths retorna todas as pastas autorizadas
-func GetAllFileAgentAuthorizedPaths() ([]FileAgentAuthorizedPath, error) {
-	var authPaths []FileAgentAuthorizedPath
-	err := db.Order("path ASC").Find(&authPaths).Error
-	return authPaths, err
-}
-
-// UpdateFileAgentAuthorizedPath atualiza uma pasta autorizada
-func UpdateFileAgentAuthorizedPath(id uint, path string, allowDelete, allowWrite, recursive bool) (*FileAgentAuthorizedPath, error) {
-	var authPath FileAgentAuthorizedPath
-	if err := db.First(&authPath, id).Error; err != nil {
-		return nil, err
-	}
-	authPath.Path = path
-	authPath.AllowDelete = allowDelete
-	authPath.AllowWrite = allowWrite
-	authPath.Recursive = recursive
-	if err := db.Save(&authPath).Error; err != nil {
-		return nil, err
-	}
-	return &authPath, nil
-}
-
-// DeleteFileAgentAuthorizedPath deleta uma pasta autorizada
-func DeleteFileAgentAuthorizedPath(id uint) error {
-	return db.Delete(&FileAgentAuthorizedPath{}, id).Error
+	return &tab, nil
 }
 
 // ==================== Utilities ====================
@@ -1895,833 +506,14 @@ func GenerateTitle(content string) string {
 	return content
 }
 
-// CosineSimilarity calcula a similaridade de cosseno entre dois vetores
-func CosineSimilarity(a, b []float32) float32 {
-	if len(a) != len(b) || len(a) == 0 {
-		return 0
-	}
-	var dotProduct, normA, normB float64
-	for i := range a {
-		dotProduct += float64(a[i]) * float64(b[i])
-		normA += float64(a[i]) * float64(a[i])
-		normB += float64(b[i]) * float64(b[i])
-	}
-	if normA == 0 || normB == 0 {
-		return 0
-	}
-	return float32(dotProduct / (sqrtFloat64(normA) * sqrtFloat64(normB)))
-}
-
-func sqrtFloat64(x float64) float64 {
-	if x <= 0 {
-		return 0
-	}
-	z := x / 2
-	for i := 0; i < 10; i++ {
-		z = z - (z*z-x)/(2*z)
-	}
-	return z
-}
-
-// ==================== VoiceProfile ====================
-
-// CreateVoiceProfile cria um novo perfil de voz
-// VoiceProfileOptions contém opções para criar/atualizar um perfil de voz
-type VoiceProfileOptions struct {
-	Name            string
-	Description     string
-	Provider        string
-	VoiceID         string
-	Rate            float64
-	Pitch           float64
-	Volume          float64
-	EnabledForAgent bool
-	EnabledForUser  bool
-	IsDefault       bool
-}
-
-// CreateVoiceProfile cria um novo perfil de voz (versão simplificada para compatibilidade)
-func CreateVoiceProfile(name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
-	return CreateVoiceProfileFull(VoiceProfileOptions{
-		Name:            name,
-		Description:     description,
-		Provider:        provider,
-		VoiceID:         voiceID,
-		Rate:            rate,
-		Pitch:           pitch,
-		Volume:          volume,
-		EnabledForAgent: provider != "disabled",
-		EnabledForUser:  false,
-		IsDefault:       isDefault,
-	})
-}
-
-// CreateVoiceProfileFull cria um novo perfil de voz com todas as opções
-func CreateVoiceProfileFull(opts VoiceProfileOptions) (*VoiceProfile, error) {
-	profile := &VoiceProfile{
-		Name:            opts.Name,
-		Description:     opts.Description,
-		Provider:        opts.Provider,
-		VoiceID:         opts.VoiceID,
-		Rate:            opts.Rate,
-		Pitch:           opts.Pitch,
-		Volume:          opts.Volume,
-		EnabledForAgent: opts.EnabledForAgent,
-		EnabledForUser:  opts.EnabledForUser,
-		IsDefault:       opts.IsDefault,
-	}
-
-	// Valida o perfil
-	if err := profile.Validate(); err != nil {
-		return nil, err
-	}
-
-	// Se marcado como default, remove o default anterior
-	if opts.IsDefault {
-		if err := db.Model(&VoiceProfile{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
-			return nil, err
-		}
-	}
-
-	if err := db.Create(profile).Error; err != nil {
-		return nil, err
-	}
-	return profile, nil
-}
-
-// GetVoiceProfile retorna um perfil de voz por ID
-func GetVoiceProfile(id uint) (*VoiceProfile, error) {
-	var profile VoiceProfile
-	err := db.First(&profile, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &profile, nil
-}
-
-// GetVoiceProfileByName retorna um perfil de voz por nome
-func GetVoiceProfileByName(name string) (*VoiceProfile, error) {
-	var profile VoiceProfile
-	err := db.Where("name = ?", name).First(&profile).Error
-	if err != nil {
-		return nil, err
-	}
-	return &profile, nil
-}
-
-// GetAllVoiceProfiles retorna todos os perfis de voz
-func GetAllVoiceProfiles() ([]VoiceProfile, error) {
-	var profiles []VoiceProfile
-	err := db.Order("name ASC").Find(&profiles).Error
-	return profiles, err
-}
-
-// GetDefaultVoiceProfile retorna o perfil de voz padrão
-func GetDefaultVoiceProfile() (*VoiceProfile, error) {
-	var profile VoiceProfile
-	err := db.Where("is_default = ?", true).First(&profile).Error
-	if err != nil {
-		return nil, err
-	}
-	return &profile, nil
-}
-
-// UpdateVoiceProfile atualiza um perfil de voz
-// UpdateVoiceProfile atualiza um perfil de voz (versão simplificada para compatibilidade)
-func UpdateVoiceProfile(id uint, name, description, provider, voiceID string, rate, pitch, volume float64, isDefault bool) (*VoiceProfile, error) {
-	// Busca o perfil existente para manter os valores dos novos campos
-	var existing VoiceProfile
-	if err := db.First(&existing, id).Error; err != nil {
-		return nil, err
-	}
-
-	return UpdateVoiceProfileFull(id, VoiceProfileOptions{
-		Name:            name,
-		Description:     description,
-		Provider:        provider,
-		VoiceID:         voiceID,
-		Rate:            rate,
-		Pitch:           pitch,
-		Volume:          volume,
-		EnabledForAgent: existing.EnabledForAgent,
-		EnabledForUser:  existing.EnabledForUser,
-		IsDefault:       isDefault,
-	})
-}
-
-// UpdateVoiceProfileFull atualiza um perfil de voz com todas as opções
-func UpdateVoiceProfileFull(id uint, opts VoiceProfileOptions) (*VoiceProfile, error) {
-	var profile VoiceProfile
-	if err := db.First(&profile, id).Error; err != nil {
-		return nil, err
-	}
-
-	profile.Name = opts.Name
-	profile.Description = opts.Description
-	profile.Provider = opts.Provider
-	profile.VoiceID = opts.VoiceID
-	profile.Rate = opts.Rate
-	profile.Pitch = opts.Pitch
-	profile.Volume = opts.Volume
-	profile.EnabledForAgent = opts.EnabledForAgent
-	profile.EnabledForUser = opts.EnabledForUser
-	profile.UpdatedAt = time.Now()
-
-	// Valida o perfil
-	if err := profile.Validate(); err != nil {
-		return nil, err
-	}
-
-	// Se marcado como default, remove o default anterior
-	if opts.IsDefault && !profile.IsDefault {
-		if err := db.Model(&VoiceProfile{}).Where("is_default = ? AND id != ?", true, id).Update("is_default", false).Error; err != nil {
-			return nil, err
-		}
-	}
-	profile.IsDefault = opts.IsDefault
-
-	if err := db.Save(&profile).Error; err != nil {
-		return nil, err
-	}
-	return &profile, nil
-}
-
-// DeleteVoiceProfile deleta um perfil de voz
-func DeleteVoiceProfile(id uint) error {
-	return db.Delete(&VoiceProfile{}, id).Error
-}
-
-// SetDefaultVoiceProfile define um perfil como padrão
-func SetDefaultVoiceProfile(id uint) error {
-	// Remove default anterior
-	if err := db.Model(&VoiceProfile{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
-		return err
-	}
-	// Define o novo default
-	return db.Model(&VoiceProfile{}).Where("id = ?", id).Update("is_default", true).Error
-}
-
-// SearchVoiceProfiles busca perfis por nome ou descrição
-func SearchVoiceProfiles(query string) ([]VoiceProfile, error) {
-	var profiles []VoiceProfile
+// SearchConversations busca conversas por título
+func SearchConversations(query string) ([]Conversation, error) {
+	var conversations []Conversation
 	query = strings.ToLower(strings.TrimSpace(query))
 	if query == "" {
-		return GetAllVoiceProfiles()
+		return GetConversations()
 	}
 	searchTerm := "%" + query + "%"
-	err := db.Where(
-		"LOWER(name) LIKE ? OR LOWER(description) LIKE ? OR LOWER(provider) LIKE ?",
-		searchTerm, searchTerm, searchTerm,
-	).Order("name ASC").Find(&profiles).Error
-	return profiles, err
-}
-
-// ==================== Interaction Profile CRUD ====================
-
-// migrateInteractionProfilesToTriggers migra perfis antigos para a nova estrutura com triggers
-func migrateInteractionProfilesToTriggers() error {
-	// Verifica se existem perfis sem triggers
-	var profiles []InteractionProfile
-	if err := db.Find(&profiles).Error; err != nil {
-		return err
-	}
-
-	for _, profile := range profiles {
-		// Verifica se o perfil tem triggers
-		var triggerCount int64
-		if err := db.Model(&InteractionTrigger{}).Where("profile_id = ?", profile.ID).Count(&triggerCount).Error; err != nil {
-			continue
-		}
-
-		if triggerCount == 0 {
-			// Perfil sem triggers - cria trigger padrão PTT (push-to-talk)
-			log.Printf("[Database] Migrando perfil '%s' (ID: %d) - criando trigger PTT padrão", profile.Name, profile.ID)
-			trigger := InteractionTrigger{
-				ProfileID: profile.ID,
-				Type:      TriggerTypeButtonPTT,
-				Enabled:   true,
-				AutoStop:  false, // PTT não usa VAD
-			}
-			if err := db.Create(&trigger).Error; err != nil {
-				log.Printf("[Database] Erro ao criar trigger para perfil %d: %v", profile.ID, err)
-			}
-		}
-	}
-
-	return nil
-}
-
-// seedDefaultInteractionProfile cria os perfis de interação padrão
-func seedDefaultInteractionProfile() error {
-	// Primeiro, migra perfis existentes para a nova estrutura
-	if err := migrateInteractionProfilesToTriggers(); err != nil {
-		log.Printf("[Database] Erro na migração de triggers: %v", err)
-	}
-
-	// Verifica se já existe algum perfil
-	var count int64
-	if err := db.Model(&InteractionProfile{}).Count(&count).Error; err != nil {
-		return err
-	}
-
-	if count > 0 {
-		// Já existem perfis (possivelmente migrados)
-		return nil
-	}
-
-	// Cria perfil PTT (padrão de fábrica e ativo por padrão)
-	pttProfile := InteractionProfile{
-		Name:           "PTT (Push-to-Talk)",
-		Description:    "Segure o botão para gravar. Modo padrão de fábrica.",
-		IsDefault:      true,
-		IsActive:       true, // Perfil ativo inicial
-		STTProvider:    "webspeech",
-		Language:       "pt-BR",
-		FeedbackSounds: true,
-	}
-	if err := db.Create(&pttProfile).Error; err != nil {
-		return err
-	}
-	// Adiciona trigger button_ptt
-	db.Create(&InteractionTrigger{
-		ProfileID: pttProfile.ID,
-		Type:      TriggerTypeButtonPTT,
-		Enabled:   true,
-		AutoStop:  false, // PTT não usa VAD, solta o botão para parar
-	})
-
-	// Cria perfil Toggle (clique para iniciar/parar)
-	toggleProfile := InteractionProfile{
-		Name:           "Toggle",
-		Description:    "Clique para iniciar, clique novamente para parar.",
-		IsDefault:      false,
-		STTProvider:    "webspeech",
-		Language:       "pt-BR",
-		FeedbackSounds: true,
-	}
-	if err := db.Create(&toggleProfile).Error; err != nil {
-		return err
-	}
-	// Adiciona trigger button_toggle
-	db.Create(&InteractionTrigger{
-		ProfileID: toggleProfile.ID,
-		Type:      TriggerTypeButtonToggle,
-		Enabled:   true,
-		AutoStop:  false,
-	})
-
-	// Cria perfil Desktop Rápido (com hotkey)
-	desktopProfile := InteractionProfile{
-		Name:           "Desktop Rápido",
-		Description:    "Atalho Ctrl+Shift+Space traz janela e ativa gravação com VAD.",
-		IsDefault:      false,
-		STTProvider:    "webspeech",
-		Language:       "pt-BR",
-		FeedbackSounds: true,
-	}
-	if err := db.Create(&desktopProfile).Error; err != nil {
-		return err
-	}
-	// Adiciona triggers
-	db.Create(&InteractionTrigger{
-		ProfileID:          desktopProfile.ID,
-		Type:               TriggerTypeHotkey,
-		Enabled:            true,
-		AutoStop:           true,
-		Hotkey:             "Ctrl+Shift+Space",
-		HotkeyGlobal:       true,
-		HotkeyBringToFront: true,
-		VADSilenceDuration: 1500,
-	})
-	db.Create(&InteractionTrigger{
-		ProfileID:          desktopProfile.ID,
-		Type:               TriggerTypeButtonToggle,
-		Enabled:            true,
-		AutoStop:           true,
-		VADSilenceDuration: 1500,
-	})
-
-	// Cria perfil Conversa com Wake Word
-	wakewordProfile := InteractionProfile{
-		Name:           "Conversa por Voz",
-		Description:    "Diga 'assistente' para iniciar. Ctrl+W liga/desliga escuta.",
-		IsDefault:      false,
-		STTProvider:    "webspeech",
-		Language:       "pt-BR",
-		FeedbackSounds: true,
-	}
-	if err := db.Create(&wakewordProfile).Error; err != nil {
-		return err
-	}
-	// Adiciona triggers
-	db.Create(&InteractionTrigger{
-		ProfileID:           wakewordProfile.ID,
-		Type:                TriggerTypeWakeword,
-		Enabled:             true,
-		WakewordKeyword:     "assistente",
-		WakewordProvider:    "webspeech",
-		WakewordSensitivity: 0.5,
-		Hotkey:              "Ctrl+W",
-		HotkeyGlobal:        true,
-		HotkeyBringToFront:  false,
-		VADSilenceDuration:  1500,
-	})
-	db.Create(&InteractionTrigger{
-		ProfileID:          wakewordProfile.ID,
-		Type:               TriggerTypeButtonToggle,
-		Enabled:            true,
-		AutoStop:           true,
-		VADSilenceDuration: 1500,
-	})
-
-	return nil
-}
-
-// seedDefaultChatProfiles cria os perfis de conversa padrão
-func seedDefaultChatProfiles() error {
-	// Verifica se já existe algum perfil
-	var count int64
-	if err := db.Model(&ChatProfile{}).Count(&count).Error; err != nil {
-		return err
-	}
-
-	if count > 0 {
-		// Já existem perfis
-		return nil
-	}
-
-	// Lista de todas as ferramentas disponíveis por padrão
-	allTools := `["file_manager","web_search","memory","faq","voice_profile","interaction_profile","chat_profile"]`
-
-	// 1. Perfil "Padrão" - todas as ferramentas
-	defaultProfile := ChatProfile{
-		Name:                 "Padrão",
-		Description:          "Configuração padrão com todas as ferramentas habilitadas.",
-		Icon:                 "💬",
-		IsDefault:            true,
-		Model:                "", // Será definido automaticamente ao configurar API
-		Temperature:          0.7,
-		MaxTokens:            4096,
-		TopP:                 1.0,
-		ResponseTimeout:      180,
-		UseTools:             true,
-		ToolsList:            allTools,
-		SystemPromptPosition: "after",
-		IncludeCoreMemories:  true,
-		ShowInternalMessages: false,
-	}
-	if err := db.Create(&defaultProfile).Error; err != nil {
-		return err
-	}
-	fmt.Println("[Database] Perfil de conversa 'Padrão' criado com sucesso")
-
-	// 2. Perfil "Modelo Local" - sem ferramentas (para gpt-oss, llama, etc.)
-	localProfile := ChatProfile{
-		Name:                 "Modelo Local",
-		Description:          "Para modelos locais que não suportam ferramentas (Ollama, LM Studio, etc.).",
-		Icon:                 "🏠",
-		IsDefault:            false,
-		Model:                "",
-		Temperature:          0.7,
-		MaxTokens:            4096,
-		TopP:                 1.0,
-		ResponseTimeout:      300, // Modelos locais podem ser mais lentos
-		UseTools:             false,
-		ToolsList:            "[]",
-		SystemPromptPosition: "after",
-		IncludeCoreMemories:  true,
-		ShowInternalMessages: false,
-	}
-	if err := db.Create(&localProfile).Error; err != nil {
-		return err
-	}
-	fmt.Println("[Database] Perfil de conversa 'Modelo Local' criado com sucesso")
-
-	// 3. Perfil "Programação" - focado em código
-	codeProfile := ChatProfile{
-		Name:                 "Programação",
-		Description:          "Otimizado para tarefas de desenvolvimento de software.",
-		Icon:                 "💻",
-		IsDefault:            false,
-		Model:                "",
-		Temperature:          0.3, // Mais determinístico para código
-		MaxTokens:            8192,
-		TopP:                 1.0,
-		ResponseTimeout:      180,
-		UseTools:             true,
-		ToolsList:            `["file_manager"]`,
-		SystemPrompt:         "You are a programming assistant. Always provide code examples when relevant. Use markdown to format code. Prefer simple and idiomatic solutions.",
-		SystemPromptPosition: "after",
-		IncludeCoreMemories:  true,
-		ShowInternalMessages: false,
-	}
-	if err := db.Create(&codeProfile).Error; err != nil {
-		return err
-	}
-	fmt.Println("[Database] Perfil de conversa 'Programação' criado com sucesso")
-
-	return nil
-}
-
-// CreateInteractionProfile cria um novo perfil de interação
-func CreateInteractionProfile(profile *InteractionProfile) (*InteractionProfile, error) {
-	if err := profile.Validate(); err != nil {
-		return nil, err
-	}
-
-	// Se é default, remove default anterior
-	if profile.IsDefault {
-		db.Model(&InteractionProfile{}).Where("is_default = ?", true).Update("is_default", false)
-	}
-
-	if err := db.Create(profile).Error; err != nil {
-		return nil, err
-	}
-
-	return profile, nil
-}
-
-// GetInteractionProfile retorna um perfil por ID com seus triggers
-func GetInteractionProfile(id uint) (*InteractionProfile, error) {
-	var profile InteractionProfile
-	if err := db.Preload("Triggers").First(&profile, id).Error; err != nil {
-		return nil, err
-	}
-	return &profile, nil
-}
-
-// GetInteractionProfileByName retorna um perfil por nome
-func GetInteractionProfileByName(name string) (*InteractionProfile, error) {
-	var profile InteractionProfile
-	if err := db.Preload("Triggers").Where("name = ?", name).First(&profile).Error; err != nil {
-		return nil, err
-	}
-	return &profile, nil
-}
-
-// GetAllInteractionProfiles retorna todos os perfis de interação com triggers
-func GetAllInteractionProfiles() ([]InteractionProfile, error) {
-	var profiles []InteractionProfile
-	err := db.Preload("Triggers").Order("name ASC").Find(&profiles).Error
-	return profiles, err
-}
-
-// GetDefaultInteractionProfile retorna o perfil de interação padrão
-func GetDefaultInteractionProfile() (*InteractionProfile, error) {
-	var profile InteractionProfile
-	if err := db.Preload("Triggers").Where("is_default = ?", true).First(&profile).Error; err != nil {
-		// Se não encontrou, retorna o primeiro
-		if err := db.Preload("Triggers").First(&profile).Error; err != nil {
-			return nil, err
-		}
-	}
-	return &profile, nil
-}
-
-// GetActiveInteractionProfile retorna o perfil de interação atualmente ativo
-func GetActiveInteractionProfile() (*InteractionProfile, error) {
-	var profile InteractionProfile
-	if err := db.Preload("Triggers").Where("is_active = ?", true).First(&profile).Error; err != nil {
-		// Se não encontrou perfil ativo, retorna nil sem erro
-		return nil, nil
-	}
-	return &profile, nil
-}
-
-// SetActiveInteractionProfile define qual perfil está ativo (persiste no banco)
-func SetActiveInteractionProfile(profileID uint) error {
-	// Desativa todos os perfis
-	if err := db.Model(&InteractionProfile{}).Where("is_active = ?", true).Update("is_active", false).Error; err != nil {
-		return err
-	}
-
-	// Ativa o perfil selecionado (0 = nenhum perfil ativo)
-	if profileID > 0 {
-		if err := db.Model(&InteractionProfile{}).Where("id = ?", profileID).Update("is_active", true).Error; err != nil {
-			return err
-		}
-	}
-
-	return nil
-}
-
-// UpdateInteractionProfile atualiza um perfil de interação
-func UpdateInteractionProfile(id uint, profile *InteractionProfile) (*InteractionProfile, error) {
-	if err := profile.Validate(); err != nil {
-		return nil, err
-	}
-
-	// Busca o perfil existente
-	var existing InteractionProfile
-	if err := db.First(&existing, id).Error; err != nil {
-		return nil, err
-	}
-
-	// Se está se tornando default, remove default anterior
-	if profile.IsDefault && !existing.IsDefault {
-		db.Model(&InteractionProfile{}).Where("is_default = ?", true).Update("is_default", false)
-	}
-
-	// Atualiza todos os campos
-	profile.ID = id
-	profile.CreatedAt = existing.CreatedAt
-
-	if err := db.Save(profile).Error; err != nil {
-		return nil, err
-	}
-
-	// Retorna com triggers
-	return GetInteractionProfile(id)
-}
-
-// DeleteInteractionProfile deleta um perfil de interação (triggers são deletados em cascata)
-func DeleteInteractionProfile(id uint) error {
-	return db.Delete(&InteractionProfile{}, id).Error
-}
-
-// SetDefaultInteractionProfile define um perfil como padrão
-func SetDefaultInteractionProfile(id uint) error {
-	// Remove default anterior
-	if err := db.Model(&InteractionProfile{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
-		return err
-	}
-	// Define o novo default
-	return db.Model(&InteractionProfile{}).Where("id = ?", id).Update("is_default", true).Error
-}
-
-// SearchInteractionProfiles busca perfis por nome ou descrição
-func SearchInteractionProfiles(query string) ([]InteractionProfile, error) {
-	var profiles []InteractionProfile
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
-		return GetAllInteractionProfiles()
-	}
-	searchTerm := "%" + query + "%"
-	err := db.Preload("Triggers").Where(
-		"LOWER(name) LIKE ? OR LOWER(description) LIKE ?",
-		searchTerm, searchTerm,
-	).Order("name ASC").Find(&profiles).Error
-	return profiles, err
-}
-
-// ==================== Interaction Trigger CRUD ====================
-
-// CreateInteractionTrigger cria um novo trigger
-func CreateInteractionTrigger(trigger *InteractionTrigger) (*InteractionTrigger, error) {
-	if err := trigger.Validate(); err != nil {
-		return nil, err
-	}
-
-	if err := db.Create(trigger).Error; err != nil {
-		return nil, err
-	}
-
-	return trigger, nil
-}
-
-// GetInteractionTrigger retorna um trigger por ID
-func GetInteractionTrigger(id uint) (*InteractionTrigger, error) {
-	var trigger InteractionTrigger
-	if err := db.First(&trigger, id).Error; err != nil {
-		return nil, err
-	}
-	return &trigger, nil
-}
-
-// GetTriggersByProfile retorna todos os triggers de um perfil
-func GetTriggersByProfile(profileID uint) ([]InteractionTrigger, error) {
-	var triggers []InteractionTrigger
-	err := db.Where("profile_id = ?", profileID).Find(&triggers).Error
-	return triggers, err
-}
-
-// UpdateInteractionTrigger atualiza um trigger
-func UpdateInteractionTrigger(id uint, trigger *InteractionTrigger) (*InteractionTrigger, error) {
-	if err := trigger.Validate(); err != nil {
-		return nil, err
-	}
-
-	// Busca o trigger existente
-	var existing InteractionTrigger
-	if err := db.First(&existing, id).Error; err != nil {
-		return nil, err
-	}
-
-	// Atualiza todos os campos
-	trigger.ID = id
-	trigger.ProfileID = existing.ProfileID
-	trigger.CreatedAt = existing.CreatedAt
-
-	if err := db.Save(trigger).Error; err != nil {
-		return nil, err
-	}
-
-	return trigger, nil
-}
-
-// DeleteInteractionTrigger deleta um trigger
-func DeleteInteractionTrigger(id uint) error {
-	return db.Delete(&InteractionTrigger{}, id).Error
-}
-
-// DeleteTriggersByProfile deleta todos os triggers de um perfil
-func DeleteTriggersByProfile(profileID uint) error {
-	return db.Where("profile_id = ?", profileID).Delete(&InteractionTrigger{}).Error
-}
-
-// ==================== Chat Profile CRUD ====================
-
-// CreateChatProfile cria um novo perfil de conversa
-func CreateChatProfile(profile *ChatProfile) (*ChatProfile, error) {
-	if err := profile.Validate(); err != nil {
-		return nil, err
-	}
-
-	// Se é default, remove default anterior
-	if profile.IsDefault {
-		db.Model(&ChatProfile{}).Where("is_default = ?", true).Update("is_default", false)
-	}
-
-	if err := db.Create(profile).Error; err != nil {
-		return nil, err
-	}
-
-	return profile, nil
-}
-
-// GetChatProfile retorna um perfil de conversa por ID
-func GetChatProfile(id uint) (*ChatProfile, error) {
-	var profile ChatProfile
-	if err := db.First(&profile, id).Error; err != nil {
-		return nil, err
-	}
-	return &profile, nil
-}
-
-// GetAllChatProfiles retorna todos os perfis de conversa
-func GetAllChatProfiles() ([]ChatProfile, error) {
-	var profiles []ChatProfile
-	err := db.Order("is_default DESC, name ASC").Find(&profiles).Error
-	return profiles, err
-}
-
-// GetDefaultChatProfile retorna o perfil de conversa padrão
-func GetDefaultChatProfile() (*ChatProfile, error) {
-	var profile ChatProfile
-	if err := db.Where("is_default = ?", true).First(&profile).Error; err != nil {
-		return nil, err
-	}
-	return &profile, nil
-}
-
-// UpdateChatProfile atualiza um perfil de conversa
-func UpdateChatProfile(id uint, profile *ChatProfile) (*ChatProfile, error) {
-	if err := profile.Validate(); err != nil {
-		return nil, err
-	}
-
-	// Busca o perfil existente
-	var existing ChatProfile
-	if err := db.First(&existing, id).Error; err != nil {
-		return nil, err
-	}
-
-	// Se está se tornando default, remove default anterior
-	if profile.IsDefault && !existing.IsDefault {
-		db.Model(&ChatProfile{}).Where("is_default = ?", true).Update("is_default", false)
-	}
-
-	// Atualiza todos os campos
-	profile.ID = id
-	profile.CreatedAt = existing.CreatedAt
-
-	if err := db.Save(profile).Error; err != nil {
-		return nil, err
-	}
-
-	return GetChatProfile(id)
-}
-
-// DeleteChatProfile deleta um perfil de conversa
-func DeleteChatProfile(id uint) error {
-	// Não permite deletar o perfil padrão
-	var profile ChatProfile
-	if err := db.First(&profile, id).Error; err != nil {
-		return err
-	}
-	if profile.IsDefault {
-		return fmt.Errorf("não é possível deletar o perfil padrão")
-	}
-
-	// Remove referências em conversas
-	db.Model(&Conversation{}).Where("chat_profile_id = ?", id).Update("chat_profile_id", nil)
-
-	return db.Delete(&ChatProfile{}, id).Error
-}
-
-// SetDefaultChatProfile define um perfil como padrão
-func SetDefaultChatProfile(id uint) error {
-	// Remove default anterior
-	if err := db.Model(&ChatProfile{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
-		return err
-	}
-	// Define o novo default
-	return db.Model(&ChatProfile{}).Where("id = ?", id).Update("is_default", true).Error
-}
-
-// SearchChatProfiles busca perfis por nome ou descrição
-func SearchChatProfiles(query string) ([]ChatProfile, error) {
-	var profiles []ChatProfile
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
-		return GetAllChatProfiles()
-	}
-	searchTerm := "%" + query + "%"
-	err := db.Where(
-		"LOWER(name) LIKE ? OR LOWER(description) LIKE ?",
-		searchTerm, searchTerm,
-	).Order("is_default DESC, name ASC").Find(&profiles).Error
-	return profiles, err
-}
-
-// ==================== Chat Profile - Conversation Integration ====================
-
-// SetConversationChatProfile define o perfil de conversa para uma conversa
-func SetConversationChatProfile(conversationID uint, profileID uint) error {
-	return db.Model(&Conversation{}).Where("id = ?", conversationID).Update("chat_profile_id", profileID).Error
-}
-
-// ClearConversationChatProfile remove o perfil customizado de uma conversa (usa padrão)
-func ClearConversationChatProfile(conversationID uint) error {
-	return db.Model(&Conversation{}).Where("id = ?", conversationID).Update("chat_profile_id", nil).Error
-}
-
-// GetConversationChatProfile retorna o perfil de conversa de uma conversa (ou nil se usar padrão)
-func GetConversationChatProfile(conversationID uint) (*ChatProfile, error) {
-	var conversation Conversation
-	if err := db.First(&conversation, conversationID).Error; err != nil {
-		return nil, err
-	}
-
-	if conversation.ChatProfileID == nil {
-		return nil, nil // Usa perfil padrão
-	}
-
-	return GetChatProfile(*conversation.ChatProfileID)
-}
-
-// GetEffectiveChatProfile retorna o perfil efetivo de uma conversa (da conversa ou padrão)
-func GetEffectiveChatProfile(conversationID uint) (*ChatProfile, error) {
-	// Tenta obter perfil da conversa
-	profile, err := GetConversationChatProfile(conversationID)
-	if err != nil {
-		return nil, err
-	}
-
-	if profile != nil {
-		return profile, nil
-	}
-
-	// Usa perfil padrão
-	return GetDefaultChatProfile()
+	err := db.Where("LOWER(title) LIKE ?", searchTerm).Order("updated_at DESC").Find(&conversations).Error
+	return conversations, err
 }

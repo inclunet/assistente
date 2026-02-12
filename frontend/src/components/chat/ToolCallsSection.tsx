@@ -1,0 +1,241 @@
+import React, { useState } from 'react';
+import './ToolCallsSection.css';
+
+/**
+ * Representa uma tool call individual parseada do JSON.
+ * O campo `result` é adicionado pela consolidação no MessageList.
+ */
+export interface ParsedToolCall {
+  id: string;
+  type: string;
+  function: {
+    name: string;
+    arguments: string;
+  };
+  /** Resultado retornado pela ferramenta (adicionado pela consolidação) */
+  result?: string;
+}
+
+/**
+ * Status de uma tool call em execução (durante streaming)
+ */
+export interface ToolCallStatus {
+  name: string;
+  callId: string;
+  args?: string;
+  status: 'running' | 'done' | 'error';
+  summary?: string;
+}
+
+interface ToolCallsSectionProps {
+  /** JSON string de tool_calls (do campo toolCalls da mensagem consolidada) */
+  toolCallsJson?: string;
+  /** Tool calls ativos durante streaming (do store) */
+  activeToolCalls?: ToolCallStatus[];
+}
+
+/** Limite de caracteres para exibir resultado truncado */
+const RESULT_PREVIEW_LENGTH = 300;
+
+/**
+ * ToolCallsSection renderiza indicadores de ferramentas chamadas pelo assistente.
+ * 
+ * Dois modos de uso:
+ * 1. **Streaming**: mostra `activeToolCalls` com status em tempo real (running/done/error)
+ * 2. **Histórico**: parseia `toolCallsJson` para exibir chamadas + resultados
+ */
+export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
+  toolCallsJson,
+  activeToolCalls,
+}) => {
+  const [isExpanded, setIsExpanded] = useState(false);
+  const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
+
+  // Parseia tool calls do JSON (modo histórico)
+  let parsedCalls: ParsedToolCall[] = [];
+  if (toolCallsJson) {
+    try {
+      parsedCalls = JSON.parse(toolCallsJson);
+    } catch {
+      // JSON inválido — ignora
+    }
+  }
+
+  // Determina quais calls mostrar
+  const hasActiveCalls = activeToolCalls && activeToolCalls.length > 0;
+  const hasSavedCalls = parsedCalls.length > 0;
+
+  if (!hasActiveCalls && !hasSavedCalls) return null;
+
+  const toolCount = hasActiveCalls ? activeToolCalls!.length : parsedCalls.length;
+  const isRunning = hasActiveCalls && activeToolCalls!.some(tc => tc.status === 'running');
+
+  const handleToggle = () => setIsExpanded(!isExpanded);
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' || e.key === ' ') {
+      e.preventDefault();
+      handleToggle();
+    }
+  };
+
+  const toggleResultExpanded = (callId: string) => {
+    setExpandedResults(prev => {
+      const next = new Set(prev);
+      if (next.has(callId)) {
+        next.delete(callId);
+      } else {
+        next.add(callId);
+      }
+      return next;
+    });
+  };
+
+  // Nomes das tools para exibição rápida
+  const toolNames = hasActiveCalls
+    ? activeToolCalls!.map(tc => tc.name)
+    : parsedCalls.map(tc => tc.function.name);
+
+  const uniqueNames = [...new Set(toolNames)];
+  const summaryText = isRunning
+    ? `Executando ${toolCount} ferramenta(s)...`
+    : `${toolCount} ferramenta(s) usada(s)`;
+
+  return (
+    <div
+      className={`tool-calls-section ${isExpanded ? 'tool-calls-section--expanded' : ''} ${isRunning ? 'tool-calls-section--running' : ''}`}
+      aria-label={isRunning ? 'Ferramentas em execução' : 'Ferramentas utilizadas'}
+    >
+      <button
+        className="tool-calls-section__header"
+        onClick={handleToggle}
+        onKeyDown={handleKeyDown}
+        aria-expanded={isExpanded}
+        type="button"
+        tabIndex={-1}
+      >
+        <span className="tool-calls-section__icon" aria-hidden="true">
+          {isRunning ? '⚙️' : '🔧'}
+        </span>
+        <span className="tool-calls-section__title">
+          {uniqueNames.join(', ')}
+        </span>
+        <span className="tool-calls-section__summary">
+          {summaryText}
+        </span>
+        <span
+          className={`tool-calls-section__chevron ${isExpanded ? 'tool-calls-section__chevron--expanded' : ''}`}
+          aria-hidden="true"
+        >
+          ▼
+        </span>
+      </button>
+
+      {isExpanded && (
+        <div className="tool-calls-section__content" role="region" aria-label="Detalhes das ferramentas">
+          {hasActiveCalls ? (
+            // Modo streaming: mostra status em tempo real
+            <ul className="tool-calls-section__list">
+              {activeToolCalls!.map((tc) => (
+                <li key={tc.callId} className={`tool-calls-section__item tool-calls-section__item--${tc.status}`}>
+                  <div className="tool-calls-section__item-header">
+                    <span className="tool-calls-section__status-icon" aria-hidden="true">
+                      {tc.status === 'running' ? '⏳' : tc.status === 'done' ? '✅' : '❌'}
+                    </span>
+                    <span className="tool-calls-section__name">{tc.name}</span>
+                    {tc.summary && (
+                      <span className="tool-calls-section__result-summary">{tc.summary}</span>
+                    )}
+                  </div>
+                  {tc.args && (
+                    <div className="tool-calls-section__section">
+                      <h4 className="tool-calls-section__section-heading">Parâmetros</h4>
+                      <pre className="tool-calls-section__args">{formatArgs(tc.args)}</pre>
+                    </div>
+                  )}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            // Modo histórico: mostra chamadas + resultados
+            <ul className="tool-calls-section__list">
+              {parsedCalls.map((tc) => {
+                const isResultExpanded = expandedResults.has(tc.id);
+                const hasResult = !!tc.result;
+                const isLongResult = hasResult && tc.result!.length > RESULT_PREVIEW_LENGTH;
+
+                return (
+                  <li key={tc.id} className="tool-calls-section__item tool-calls-section__item--done">
+                    <div className="tool-calls-section__item-header">
+                      <span className="tool-calls-section__status-icon" aria-hidden="true">✅</span>
+                      <span className="tool-calls-section__name">{tc.function.name}</span>
+                    </div>
+
+                    {/* Parâmetros da chamada */}
+                    {tc.function.arguments && (
+                      <div className="tool-calls-section__section">
+                        <h4 className="tool-calls-section__section-heading">Parâmetros</h4>
+                        <pre className="tool-calls-section__args">{formatArgs(tc.function.arguments)}</pre>
+                      </div>
+                    )}
+
+                    {/* Resultado retornado pela ferramenta */}
+                    {hasResult && (
+                      <div className="tool-calls-section__section">
+                        <h4 className="tool-calls-section__section-heading">Resposta</h4>
+                        <pre className="tool-calls-section__result-content">
+                          {isLongResult && !isResultExpanded
+                            ? normalizeResult(tc.result!.slice(0, RESULT_PREVIEW_LENGTH)) + '…'
+                            : normalizeResult(tc.result!)}
+                        </pre>
+                        {isLongResult && (
+                          <button
+                            className="tool-calls-section__result-toggle"
+                            onClick={() => toggleResultExpanded(tc.id)}
+                            type="button"
+                            tabIndex={-1}
+                          >
+                            {isResultExpanded ? 'Mostrar menos' : `Mostrar tudo (${formatSize(tc.result!.length)})`}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  );
+};
+
+/**
+ * Formata string JSON de argumentos para exibição legível.
+ * Converte tabs em espaços e re-indenta com 2 espaços.
+ */
+function formatArgs(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw);
+    return JSON.stringify(parsed, null, 2);
+  } catch {
+    // Se não é JSON válido, apenas substitui tabs por 2 espaços
+    return raw.replace(/\t/g, '  ');
+  }
+}
+
+/**
+ * Normaliza tabs em conteúdo de resultado de ferramenta.
+ */
+function normalizeResult(raw: string): string {
+  return raw.replace(/\t/g, '  ');
+}
+
+/**
+ * Formata tamanho em bytes/KB para exibição
+ */
+function formatSize(chars: number): string {
+  if (chars < 1024) return `${chars} chars`;
+  return `${(chars / 1024).toFixed(1)} KB`;
+}

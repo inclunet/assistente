@@ -66,7 +66,7 @@ Navegação **estende a seleção** da última linha focada até a atual, criand
 - **TabIndex Dinâmico**: 0 para célula focada, -1 para outras
 - **Contagem ARIA**: aria-rowcount e aria-colcount informam total de linhas/colunas
 - **Feedback Sonoro**: Som de "bump" ao tentar navegar além dos limites (não circular)
-- **Ações Acessíveis**: Emojis têm aria-label descritivo (ex: "Abrir conversa", "Excluir FAQ")
+- **Ações Acessíveis**: Emojis têm aria-label descritivo (ex: "Abrir conversa")
 
 ## Exemplos de Uso
 

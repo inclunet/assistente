@@ -1,6 +1,7 @@
 package llm
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 )
@@ -10,10 +11,51 @@ import (
 // Message representa uma mensagem no histórico do chat
 type Message struct {
 	Role       string      `json:"role"`
-	Content    interface{} `json:"content,omitempty"` // Pode ser string ou []ContentPart
-	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`
-	ToolCallID string      `json:"tool_call_id,omitempty"`
-	Thinking   string      `json:"thinking,omitempty"` // Ollama thinking/reasoning
+	Content    interface{} `json:"content,omitempty"`      // Pode ser string ou []ContentPart
+	Thinking   string      `json:"thinking,omitempty"`     // Ollama thinking/reasoning
+	ToolCalls  []ToolCall  `json:"tool_calls,omitempty"`   // Tool calls solicitadas pelo assistant
+	ToolCallID string      `json:"tool_call_id,omitempty"` // Para role="tool": vincula ao call
+}
+
+// ToolCall representa uma chamada de ferramenta solicitada pelo LLM
+type ToolCall struct {
+	ID       string       `json:"id"`
+	Type     string       `json:"type"` // sempre "function"
+	Function FunctionCall `json:"function"`
+}
+
+// FunctionCall contém nome e argumentos de uma chamada de função
+type FunctionCall struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments"`
+}
+
+// ToolCallDelta representa um delta incremental de tool_call durante streaming.
+// O LLM envia os argumentos em fragmentos que precisam ser acumulados.
+type ToolCallDelta struct {
+	Index    int           `json:"index"`
+	ID       string        `json:"id,omitempty"`
+	Type     string        `json:"type,omitempty"`
+	Function *FunctionDelta `json:"function,omitempty"`
+}
+
+// FunctionDelta representa o delta incremental da função
+type FunctionDelta struct {
+	Name      string `json:"name,omitempty"`
+	Arguments string `json:"arguments,omitempty"`
+}
+
+// ToolDefinition define uma ferramenta para enviar ao LLM no campo "tools"
+type ToolDefinition struct {
+	Type     string             `json:"type"` // sempre "function"
+	Function FunctionDefinition `json:"function"`
+}
+
+// FunctionDefinition contém a especificação completa de uma função
+type FunctionDefinition struct {
+	Name        string          `json:"name"`
+	Description string          `json:"description"`
+	Parameters  json.RawMessage `json:"parameters"`
 }
 
 // ContentPart representa uma parte do conteúdo multimodal
@@ -60,34 +102,6 @@ func (m *Message) GetContentAsString() string {
 	}
 }
 
-// ==================== Tool Types ====================
-
-// ToolCall representa uma chamada de ferramenta
-type ToolCall struct {
-	ID       string       `json:"id"`
-	Type     string       `json:"type"`
-	Function FunctionCall `json:"function"`
-}
-
-// FunctionCall representa a chamada de uma função
-type FunctionCall struct {
-	Name      string `json:"name"`
-	Arguments string `json:"arguments"`
-}
-
-// Tool representa uma ferramenta disponível para o modelo
-type Tool struct {
-	Type     string       `json:"type"`
-	Function ToolFunction `json:"function"`
-}
-
-// ToolFunction representa a definição de uma função
-type ToolFunction struct {
-	Name        string                 `json:"name"`
-	Description string                 `json:"description"`
-	Parameters  map[string]interface{} `json:"parameters,omitempty"`
-}
-
 // ==================== Request/Response Types ====================
 
 // StreamOptions para incluir uso de tokens no streaming
@@ -97,15 +111,16 @@ type StreamOptions struct {
 
 // ChatRequest representa a requisição para a API da OpenAI
 type ChatRequest struct {
-	Model         string         `json:"model"`
-	Messages      []Message      `json:"messages"`
-	MaxTokens     int            `json:"max_tokens,omitempty"`
-	Temperature   float64        `json:"temperature,omitempty"`
-	TopP          *float64       `json:"top_p,omitempty"` // Ponteiro para omitir quando nil
-	Stream        bool           `json:"stream"`
-	StreamOptions *StreamOptions `json:"stream_options,omitempty"`
-	Tools         []Tool         `json:"tools,omitempty"`
-	Think         *bool          `json:"think,omitempty"` // Ollama: habilita reasoning/thinking
+	Model         string           `json:"model"`
+	Messages      []Message        `json:"messages"`
+	MaxTokens     int              `json:"max_tokens,omitempty"`
+	Temperature   float64          `json:"temperature,omitempty"`
+	TopP          *float64         `json:"top_p,omitempty"` // Ponteiro para omitir quando nil
+	Stream        bool             `json:"stream"`
+	StreamOptions *StreamOptions   `json:"stream_options,omitempty"`
+	Think         *bool            `json:"think,omitempty"`          // Ollama: habilita reasoning/thinking
+	Tools         []ToolDefinition `json:"tools,omitempty"`          // Ferramentas disponíveis para o LLM
+	ToolChoice    interface{}      `json:"tool_choice,omitempty"`    // "auto", "none", "required" ou objeto
 }
 
 // ChatChoice representa uma escolha na resposta
@@ -118,11 +133,11 @@ type ChatChoice struct {
 
 // Delta representa um delta no streaming
 type Delta struct {
-	Role             string     `json:"role,omitempty"`
-	Content          string     `json:"content,omitempty"`
-	ToolCalls        []ToolCall `json:"tool_calls,omitempty"`
-	ReasoningContent string     `json:"reasoning_content,omitempty"` // DeepSeek, Qwen reasoning
-	Thinking         string     `json:"thinking,omitempty"`          // Ollama thinking/reasoning
+	Role             string          `json:"role,omitempty"`
+	Content          string          `json:"content,omitempty"`
+	ReasoningContent string          `json:"reasoning_content,omitempty"` // DeepSeek, Qwen reasoning
+	Thinking         string          `json:"thinking,omitempty"`          // Ollama thinking/reasoning
+	ToolCalls        []ToolCallDelta `json:"tool_calls,omitempty"`        // Tool calls incrementais
 }
 
 // Usage representa o uso de tokens
@@ -144,16 +159,14 @@ type ChatResponse struct {
 
 // StreamChunk representa um chunk do streaming
 type StreamChunk struct {
-	Content          string     `json:"content"`
-	Done             bool       `json:"done"`
-	Error            string     `json:"error,omitempty"`
-	FullResponse     string     `json:"fullResponse,omitempty"`
-	PromptTokens     int        `json:"promptTokens,omitempty"`
-	CompletionTokens int        `json:"completionTokens,omitempty"`
-	TotalTokens      int        `json:"totalTokens,omitempty"`
-	Model            string     `json:"model,omitempty"`
-	ToolCalls        []ToolCall `json:"toolCalls,omitempty"`
-	ToolResults      []string   `json:"toolResults,omitempty"`
+	Content          string `json:"content"`
+	Done             bool   `json:"done"`
+	Error            string `json:"error,omitempty"`
+	FullResponse     string `json:"fullResponse,omitempty"`
+	PromptTokens     int    `json:"promptTokens,omitempty"`
+	CompletionTokens int    `json:"completionTokens,omitempty"`
+	TotalTokens      int    `json:"totalTokens,omitempty"`
+	Model            string `json:"model,omitempty"`
 }
 
 // Model representa um modelo da API
@@ -176,22 +189,17 @@ type ChatParams struct {
 	MaxTokens      int     `json:"maxTokens"`
 	Temperature    float64 `json:"temperature"`
 	TopP           float64 `json:"topP,omitempty"`
-	UseTools       bool    `json:"useTools"`
 	EnableThinking bool    `json:"enableThinking,omitempty"` // Habilita reasoning/thinking (Ollama: think=true)
 }
 
 // SettingsInput representa os parâmetros de entrada para salvar configurações
 // Nota: Configurações de voz TTS foram movidas para VoiceProfiles no banco de dados
 type SettingsInput struct {
-	APIKey           string           `json:"api_key"`
-	APIBaseURL       string           `json:"api_base_url"`
-	BraveAPIKey      string           `json:"brave_api_key,omitempty"`
-	ResponseTimeout  int              `json:"response_timeout,omitempty"` // Timeout em segundos (padrão: 180)
-	ChatParams       ModelParams      `json:"chat_params"`
-	EmbeddingsParams EmbeddingsParams `json:"embeddings_params"`
-	ImageModel       string           `json:"image_model,omitempty"`
-	STTParams        STTParams        `json:"stt_params,omitempty"`
-	ChatDefaults     ChatDefaults     `json:"chat_defaults,omitempty"`
+	APIKey          string      `json:"api_key"`
+	APIBaseURL      string      `json:"api_base_url"`
+	ResponseTimeout int         `json:"response_timeout,omitempty"` // Timeout em segundos (padrão: 180)
+	ChatParams      ModelParams `json:"chat_params"`
+	STTParams       STTParams   `json:"stt_params,omitempty"`
 }
 
 // ModelParams representa parâmetros do modelo de chat
@@ -202,22 +210,10 @@ type ModelParams struct {
 	TopP        float64 `json:"top_p,omitempty"`
 }
 
-// EmbeddingsParams representa parâmetros do modelo de embeddings
-type EmbeddingsParams struct {
-	Model      string `json:"model"`
-	Dimensions int    `json:"dimensions,omitempty"`
-}
-
 // STTParams representa parâmetros de transcrição
 type STTParams struct {
 	Provider      string `json:"provider,omitempty"`
 	RecordingMode string `json:"recording_mode,omitempty"`
-}
-
-// ChatDefaults representa preferências padrão do chat
-type ChatDefaults struct {
-	UseTools             bool `json:"use_tools,omitempty"`
-	ShowInternalMessages bool `json:"show_internal_messages,omitempty"`
 }
 
 // ==================== Helper Functions ====================

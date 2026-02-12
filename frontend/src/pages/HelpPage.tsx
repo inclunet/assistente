@@ -43,7 +43,7 @@ export default function HelpPage() {
           <p>
             O grande diferencial do Assistente é que você pode <strong>pedir ações diretamente no chat</strong>,
             seja digitando ou falando. A IA entende comandos em linguagem natural e executa as ações
-            através dos agentes integrados.
+            diretamente.
           </p>
 
           <h4>Por que usar comandos no chat?</h4>
@@ -55,7 +55,6 @@ export default function HelpPage() {
           </ul>
 
           <h4>Gerenciamento de Conversas</h4>
-          <p>Peça para o Chat Manager:</p>
           <ul>
             <li><code>"Cria uma nova conversa"</code> / <code>"Nova aba"</code></li>
             <li><code>"Fecha essa aba"</code> / <code>"Fecha a aba atual"</code></li>
@@ -67,51 +66,7 @@ export default function HelpPage() {
             <li><code>"Abre aquela conversa sobre Y"</code></li>
           </ul>
 
-          <h4>Memórias</h4>
-          <p>Peça para o Memory Agent:</p>
-          <ul>
-            <li><code>"Lembra que eu prefiro X"</code> / <code>"Salva que meu nome é Y"</code></li>
-            <li><code>"Guarda que eu trabalho com Z"</code></li>
-            <li><code>"Você lembra meu nome?"</code> / <code>"O que você sabe sobre mim?"</code></li>
-            <li><code>"Esquece aquela informação sobre X"</code></li>
-            <li><code>"Atualiza: agora eu prefiro Y"</code></li>
-            <li><code>"Lista tudo que você sabe sobre mim"</code></li>
-            <li><code>"Tem alguma aba aberta sobre X?"</code></li>
-            <li><code>"A gente já conversou sobre Y?"</code></li>
-          </ul>
-
-          <h4>FAQs e Base de Conhecimento</h4>
-          <p>Peça para o FAQ Agent:</p>
-          <ul>
-            <li><code>"Como faço para X?"</code> - busca automaticamente na base</li>
-            <li><code>"Tem documentação sobre Y?"</code></li>
-            <li><code>"Cria um FAQ: Pergunta... Resposta..."</code></li>
-            <li><code>"Adiciona na base de conhecimento: ..."</code></li>
-            <li><code>"Atualiza o FAQ sobre X"</code></li>
-            <li><code>"Deleta o FAQ sobre Y"</code></li>
-          </ul>
-
-          <h4>Arquivos</h4>
-          <p>Peça para o File Agent:</p>
-          <ul>
-            <li><code>"Lê o arquivo X"</code> / <code>"Abre o documento Y"</code></li>
-            <li><code>"O que tem nesse PDF?"</code> (com arquivo anexado)</li>
-            <li><code>"Lista os arquivos na pasta Z"</code></li>
-            <li><code>"Busca por 'texto' nos arquivos"</code></li>
-            <li><code>"Cria um arquivo chamado X com o conteúdo Y"</code></li>
-            <li><code>"Salva isso no arquivo X"</code></li>
-          </ul>
-
-          <h4>Imagens</h4>
-          <p>Peça para o Image Agent:</p>
-          <ul>
-            <li><code>"Gera uma imagem de X"</code></li>
-            <li><code>"Cria uma ilustração mostrando Y"</code></li>
-            <li><code>"Desenha um diagrama de Z"</code></li>
-          </ul>
-
           <h4>Perfis de Voz e Interação</h4>
-          <p>Peça para o Profile Agent:</p>
           <ul>
             <li><code>"Usa a voz do OpenAI nessa conversa"</code></li>
             <li><code>"Muda a velocidade da voz para mais rápido"</code></li>
@@ -124,7 +79,7 @@ export default function HelpPage() {
           <h4>Dicas para Comandos por Voz</h4>
           <ul>
             <li>Fale de forma clara e natural</li>
-            <li>Você pode combinar comandos: <code>"Salva que meu nome é João e cria uma nova conversa"</code></li>
+            <li>Você pode combinar comandos: <code>"Cria uma nova conversa e usa a voz do OpenAI"</code></li>
             <li>A IA pede confirmação antes de ações destrutivas como deletar</li>
             <li>Se algo não funcionar, tente reformular o pedido</li>
           </ul>
@@ -139,8 +94,8 @@ export default function HelpPage() {
         <div className="help-content">
           <p>
             O <strong>Assistente IA</strong> é uma aplicação desktop de inteligência artificial que
-            permite conversas naturais com modelos de linguagem, suporte a voz, gerenciamento de
-            conhecimento e integração com serviços externos.
+            permite conversas naturais com modelos de linguagem, suporte a voz e múltiplas abas
+            para organizar suas conversas.
           </p>
 
           <h4>Destaque: Comandos por Chat e Voz</h4>
@@ -149,10 +104,9 @@ export default function HelpPage() {
             Em vez de navegar por menus, simplesmente diga o que quer fazer:
           </p>
           <ul>
-            <li><em>"Salva que meu email é x@y.com"</em> - cria uma memória</li>
             <li><em>"Cria uma nova conversa"</em> - abre uma nova aba</li>
-            <li><em>"Lê o arquivo relatório.pdf"</em> - acessa um arquivo</li>
             <li><em>"Usa a voz do OpenAI"</em> - muda o perfil de voz</li>
+            <li><em>"Renomeia essa conversa para X"</em> - renomeia a aba atual</li>
           </ul>
           <p>Veja a seção "Comandos por Chat e Voz" para mais exemplos.</p>
 
@@ -165,20 +119,6 @@ export default function HelpPage() {
             <li>
               <strong>Voz:</strong> Fale com a IA e ouça as respostas. Suporte a múltiplos
               provedores de reconhecimento e síntese
-            </li>
-            <li>
-              <strong>Memória:</strong> A IA lembra informações sobre você entre conversas
-            </li>
-            <li>
-              <strong>FAQ:</strong> Base de conhecimento para respostas rápidas sobre procedimentos
-            </li>
-            <li>
-              <strong>Agentes:</strong> Ferramentas que permitem à IA executar ações como ler
-              arquivos, gerar imagens, buscar informações
-            </li>
-            <li>
-              <strong>Arquivos:</strong> Envie arquivos no chat ou peça para ler documentos do seu
-              computador
             </li>
             <li>
               <strong>Acessibilidade:</strong> Navegação completa por teclado e suporte a leitores
@@ -218,17 +158,13 @@ export default function HelpPage() {
             </li>
           </ul>
 
-          <h4>Threads e Mensagens Internas</h4>
+          <h4>Threads e Mensagens</h4>
           <p>
             As mensagens são organizadas em uma estrutura hierárquica. O nível principal (raiz)
-            contém suas mensagens e as respostas finais da IA. As threads contêm as interações
-            internas: chamadas de ferramentas (tool calls), requisições a agentes e suas respostas.
+            contém suas mensagens e as respostas finais da IA. As threads contêm mensagens relacionadas
+            e contexto adicional.
           </p>
           <ul>
-            <li>
-              <strong>Mostrar/ocultar internas:</strong> Use o toggle "Mostrar mensagens internas"
-              na barra de ferramentas
-            </li>
             <li>
               <strong>Expandir thread:</strong> Seta Direita ou clique no indicador de interações
             </li>
@@ -239,10 +175,6 @@ export default function HelpPage() {
               <strong>Navegar entre mensagens:</strong> Setas Cima/Baixo
             </li>
           </ul>
-          <p>
-            As threads são úteis para entender como a IA chegou a uma resposta, ver quais agentes
-            foram consultados e depurar problemas.
-          </p>
 
           <h4>Envio de Mensagens</h4>
           <ul>
@@ -261,9 +193,6 @@ export default function HelpPage() {
           <ul>
             <li>
               <strong>Streaming:</strong> As respostas da IA são exibidas em tempo real
-            </li>
-            <li>
-              <strong>Tool Calls:</strong> A IA pode executar ferramentas e agentes automaticamente
             </li>
             <li>
               <strong>Menu de Contexto:</strong> Clique direito ou Shift+F10 para opções adicionais
@@ -318,11 +247,10 @@ export default function HelpPage() {
 
           <h4>Exemplos de Comandos por Voz</h4>
           <ul>
-            <li><em>"Lembra que meu nome é João"</em></li>
             <li><em>"Cria uma nova conversa"</em></li>
-            <li><em>"Gera uma imagem de um gato programando"</em></li>
-            <li><em>"Busca nos FAQs como configurar o sistema"</em></li>
             <li><em>"Usa a voz mais rápida"</em></li>
+            <li><em>"Renomeia essa conversa para trabalho"</em></li>
+            <li><em>"Ativa o perfil de interação Desktop"</em></li>
           </ul>
 
           <h4>Reconhecimento de Fala (STT)</h4>
@@ -386,199 +314,6 @@ export default function HelpPage() {
             Veja a seção "Perfis de Voz e Interação" para configurar provedores, vozes, velocidade e
             modos de ativação.
           </p>
-        </div>
-      ),
-    },
-    {
-      id: 'memory',
-      title: 'Memória',
-      icon: '🧠',
-      content: (
-        <div className="help-content">
-          <h4>O que são Memórias?</h4>
-          <p>
-            Memórias são informações persistentes que a IA pode consultar durante as conversas.
-            Diferente do contexto da conversa, memórias são armazenadas permanentemente e podem ser
-            recuperadas através de busca semântica.
-          </p>
-
-          <h4>Tipos de Uso</h4>
-          <ul>
-            <li>
-              <strong>Informações pessoais:</strong> Preferências, dados de contato, informações
-              sobre você
-            </li>
-            <li>
-              <strong>Conhecimento específico:</strong> Fatos, definições, procedimentos da sua
-              área
-            </li>
-            <li>
-              <strong>Contexto de projetos:</strong> Detalhes sobre projetos em andamento
-            </li>
-            <li>
-              <strong>Instruções recorrentes:</strong> Como você prefere que certas tarefas sejam
-              feitas
-            </li>
-          </ul>
-
-          <h4>Gerenciamento</h4>
-          <ul>
-            <li>
-              <strong>Criar memória:</strong> Ctrl+N na página de Memória
-            </li>
-            <li>
-              <strong>Categorias:</strong> Organize memórias por categoria para melhor recuperação
-            </li>
-            <li>
-              <strong>Embeddings:</strong> Memórias são indexadas automaticamente para busca
-              semântica
-            </li>
-          </ul>
-
-          <h4>Como a IA usa Memórias</h4>
-          <p>
-            O agente de memória é consultado automaticamente quando você faz perguntas sobre
-            informações pessoais, preferências ou coisas que você mencionou anteriormente. Ele
-            também busca em abas abertas e no histórico de conversas para encontrar contexto
-            relevante.
-          </p>
-        </div>
-      ),
-    },
-    {
-      id: 'faq',
-      title: 'FAQ (Perguntas Frequentes)',
-      icon: '❓',
-      content: (
-        <div className="help-content">
-          <h4>O que é o FAQ?</h4>
-          <p>
-            O FAQ é uma base de conhecimento estruturada com pares de pergunta-resposta. Diferente
-            das memórias (texto livre), FAQs são otimizados para consultas específicas.
-          </p>
-
-          <h4>Quando usar FAQ vs Memória?</h4>
-          <ul>
-            <li>
-              <strong>FAQ:</strong> Para perguntas específicas com respostas diretas e bem
-              definidas
-            </li>
-            <li>
-              <strong>Memória:</strong> Para informações contextuais e conhecimento geral
-            </li>
-          </ul>
-
-          <h4>Gerenciamento</h4>
-          <ul>
-            <li>
-              <strong>Criar FAQ:</strong> Ctrl+N na página de FAQ
-            </li>
-            <li>
-              <strong>Formato:</strong> Cada FAQ tem uma pergunta (título) e uma resposta (conteúdo)
-            </li>
-            <li>
-              <strong>Busca:</strong> Suporta busca textual e semântica
-            </li>
-          </ul>
-
-          <h4>Integração com Chat</h4>
-          <p>
-            O agente de FAQ é consultado automaticamente durante as conversas. Quando uma pergunta
-            similar é identificada, a resposta do FAQ é incluída na resposta da IA.
-          </p>
-        </div>
-      ),
-    },
-    {
-      id: 'agents',
-      title: 'Agentes',
-      icon: '🤖',
-      content: (
-        <div className="help-content">
-          <h4>O que são Agentes?</h4>
-          <p>
-            Agentes são ferramentas que estendem as capacidades da IA. Eles permitem que a IA
-            execute ações como buscar informações, manipular arquivos, chamar APIs externas e muito
-            mais.
-          </p>
-
-          <h4>Agentes Internos (Nativos)</h4>
-          <ul>
-            <li>
-              <strong>Memory Agent:</strong> Gerencia memórias persistentes sobre você (salva,
-              busca, atualiza). Também busca em abas abertas e histórico de conversas para
-              encontrar contexto relevante.
-            </li>
-            <li>
-              <strong>FAQ Agent:</strong> Busca respostas na base de perguntas frequentes usando
-              busca semântica.
-            </li>
-            <li>
-              <strong>File Agent:</strong> Lê, escreve, lista e busca em arquivos. Só funciona em
-              pastas autorizadas.
-            </li>
-            <li>
-              <strong>Image Agent:</strong> Gera imagens a partir de descrições usando DALL-E.
-            </li>
-            <li>
-              <strong>Chat Manager:</strong> Executa ações em abas e conversas: navegar, criar,
-              renomear, excluir, limpar, resumir.
-            </li>
-            <li>
-              <strong>Profile Agent:</strong> Gerencia perfis de voz e interação: lista, cria,
-              atualiza, ativa.
-            </li>
-            <li>
-              <strong>Builder Agent:</strong> Cria e modifica agentes HTTP e MCP dinamicamente.
-            </li>
-          </ul>
-
-          <h4>Agentes HTTP</h4>
-          <p>
-            Permitem integração com APIs REST externas. Você pode criar endpoints personalizados com
-            templates Go para processar requisições e respostas.
-          </p>
-          <ul>
-            <li>
-              <strong>Endpoints:</strong> Defina múltiplos endpoints por agente
-            </li>
-            <li>
-              <strong>Templates:</strong> Use templates Go para construir URLs, headers e body
-            </li>
-            <li>
-              <strong>OAuth:</strong> Suporte a autenticação OAuth2 para APIs protegidas
-            </li>
-          </ul>
-
-          <h4>Agentes MCP</h4>
-          <p>
-            Implementam o Model Context Protocol para integração padronizada com ferramentas
-            externas.
-          </p>
-          <ul>
-            <li>
-              <strong>Modo stdio:</strong> Comunicação via processo local
-            </li>
-            <li>
-              <strong>Modo HTTP:</strong> Comunicação via servidor HTTP
-            </li>
-          </ul>
-
-          <h4>Gerenciamento de Agentes</h4>
-          <ul>
-            <li>
-              <strong>Habilitar/Desabilitar:</strong> Controle quais agentes estão ativos
-            </li>
-            <li>
-              <strong>Testar:</strong> Use o chat de teste para validar agentes
-            </li>
-            <li>
-              <strong>Diagnóstico:</strong> Veja logs e erros de execução
-            </li>
-            <li>
-              <strong>Hot Reload:</strong> Recarregue agentes sem reiniciar o app
-            </li>
-          </ul>
         </div>
       ),
     },
@@ -648,35 +383,6 @@ export default function HelpPage() {
             <li>Anexar uma planilha e pedir <em>"Analisa esses dados"</em></li>
             <li>Colar um screenshot e perguntar <em>"O que está errado aqui?"</em></li>
           </ul>
-
-          <h4>File Agent (Acesso a Arquivos do Sistema)</h4>
-          <p>
-            O File Agent permite que a IA acesse arquivos no seu computador sem precisar fazer
-            upload. Basta pedir no chat:
-          </p>
-          <ul>
-            <li><code>"Lê o arquivo C:/pasta/documento.txt"</code></li>
-            <li><code>"Lista os arquivos na pasta X"</code></li>
-            <li><code>"Busca por 'palavra' nos arquivos"</code></li>
-            <li><code>"Salva isso no arquivo Y"</code></li>
-          </ul>
-
-          <h4>Formatos Suportados pelo File Agent</h4>
-          <p>O File Agent suporta mais formatos que o upload direto:</p>
-          <ul>
-            <li>Texto, Markdown, JSON, XML, YAML, CSV</li>
-            <li>Código-fonte (todas as linguagens)</li>
-            <li>PDF, Word, Excel, PowerPoint</li>
-            <li>OpenDocument (ODT, ODS, ODP)</li>
-            <li>E-books (EPUB)</li>
-            <li>Google Docs (via OAuth)</li>
-          </ul>
-
-          <h4>Pastas Autorizadas (Segurança)</h4>
-          <p>
-            O File Agent só pode acessar pastas que você autorizar explicitamente. Configure em:
-            Menu → Agentes → File Agent → Pastas Autorizadas.
-          </p>
         </div>
       ),
     },
@@ -771,16 +477,6 @@ export default function HelpPage() {
             <code>"Configura um hotkey Ctrl+Alt+V para gravar"</code>
           </p>
 
-          <h4>Gerenciando Perfis pelo Chat</h4>
-          <p>Você pode gerenciar perfis diretamente no chat:</p>
-          <ul>
-            <li><code>"Usa a voz da OpenAI nessa conversa"</code></li>
-            <li><code>"Cria um perfil de voz com voz feminina e velocidade 1.2"</code></li>
-            <li><code>"Lista meus perfis de voz"</code></li>
-            <li><code>"Muda a velocidade da voz para mais lento"</code></li>
-            <li><code>"Ativa o perfil de interação Desktop"</code></li>
-          </ul>
-
           <h4>Perfis por Conversa</h4>
           <p>
             Cada conversa pode usar perfis diferentes. Use os seletores na barra de ferramentas do
@@ -790,60 +486,6 @@ export default function HelpPage() {
           <h4>Perfis Padrão</h4>
           <p>
             Em Configurações, defina quais perfis serão usados automaticamente em novas conversas.
-          </p>
-        </div>
-      ),
-    },
-    {
-      id: 'oauth',
-      title: 'Integrações OAuth',
-      icon: '🔐',
-      content: (
-        <div className="help-content">
-          <h4>O que é OAuth?</h4>
-          <p>
-            OAuth é um protocolo de autorização que permite que o Assistente acesse serviços
-            externos em seu nome, sem que você precise compartilhar suas senhas.
-          </p>
-
-          <h4>Provedores Suportados</h4>
-          <ul>
-            <li>
-              <strong>Google:</strong> Google Drive, Google Docs, Gmail, etc.
-            </li>
-            <li>
-              <strong>Microsoft:</strong> OneDrive, Outlook, Microsoft 365
-            </li>
-            <li>
-              <strong>GitHub:</strong> Repositórios, Issues, Pull Requests
-            </li>
-          </ul>
-
-          <h4>Como Conectar</h4>
-          <ol>
-            <li>Vá para a página OAuth no menu</li>
-            <li>Clique em "Conectar" no provedor desejado</li>
-            <li>Autorize o acesso no navegador</li>
-            <li>O token será salvo automaticamente</li>
-          </ol>
-
-          <h4>Gerenciamento de Conexões</h4>
-          <ul>
-            <li>
-              <strong>Status:</strong> Veja se a conexão está ativa
-            </li>
-            <li>
-              <strong>Renovar:</strong> Tokens são renovados automaticamente quando expiram
-            </li>
-            <li>
-              <strong>Desconectar:</strong> Revogue o acesso a qualquer momento
-            </li>
-          </ul>
-
-          <h4>Uso pelos Agentes</h4>
-          <p>
-            Agentes HTTP podem usar conexões OAuth para acessar APIs protegidas. Configure o
-            provedor OAuth no endpoint do agente.
           </p>
         </div>
       ),
@@ -883,24 +525,6 @@ export default function HelpPage() {
             </li>
           </ul>
 
-          <h4>Embeddings</h4>
-          <ul>
-            <li>
-              <strong>Modelo:</strong> Modelo para busca semântica (recomendado:
-              text-embedding-3-small)
-            </li>
-            <li>
-              <strong>Dimensões:</strong> Tamanho do vetor (0 = padrão do modelo)
-            </li>
-          </ul>
-
-          <h4>Geração de Imagens</h4>
-          <ul>
-            <li>
-              <strong>Modelo:</strong> DALL-E 3, DALL-E 2 ou GPT Image 1
-            </li>
-          </ul>
-
           <h4>Perfis Padrão</h4>
           <ul>
             <li>
@@ -909,16 +533,6 @@ export default function HelpPage() {
             <li>
               <strong>Perfil de Interação:</strong> Configurações de entrada e hotkeys para novas
               conversas
-            </li>
-          </ul>
-
-          <h4>Padrões do Chat</h4>
-          <ul>
-            <li>
-              <strong>Usar Agentes:</strong> Habilita ferramentas por padrão
-            </li>
-            <li>
-              <strong>Mostrar Mensagens Internas:</strong> Exibe tool calls na conversa
             </li>
           </ul>
 
@@ -978,9 +592,8 @@ export default function HelpPage() {
 
           <h4>Busca em Conversas Passadas</h4>
           <p>
-            O agente de memória pode buscar automaticamente em conversas do histórico quando você
-            faz perguntas sobre discussões anteriores. Use frases como "lembra quando
-            conversamos sobre..." para ativar essa busca.
+            Você pode buscar conversas anteriores usando a busca na página de histórico. Digite
+            palavras-chave relacionadas ao que você procura para encontrar conversas relevantes.
           </p>
         </div>
       ),
@@ -1396,15 +1009,6 @@ export default function HelpPage() {
               <strong>Conversas:</strong> Histórico completo de mensagens
             </li>
             <li>
-              <strong>Memórias:</strong> Base de conhecimento
-            </li>
-            <li>
-              <strong>FAQs:</strong> Perguntas frequentes
-            </li>
-            <li>
-              <strong>Agentes HTTP:</strong> Configurações de agentes criados
-            </li>
-            <li>
               <strong>Perfis de Voz:</strong> Configurações de síntese de voz
             </li>
             <li>
@@ -1420,7 +1024,7 @@ export default function HelpPage() {
 
           <h4>Como Exportar</h4>
           <ol>
-            <li>Vá para a página do recurso desejado (Histórico, Memória, etc.)</li>
+            <li>Vá para a página do recurso desejado (Histórico, Perfis de Voz, etc.)</li>
             <li>Selecione os itens a exportar (ou todos)</li>
             <li>Clique em "Exportar"</li>
             <li>Escolha o local para salvar o arquivo</li>
@@ -1462,11 +1066,7 @@ export default function HelpPage() {
           <h4>O que é Armazenado</h4>
           <ul>
             <li>Conversas e mensagens</li>
-            <li>Memórias e FAQs</li>
-            <li>Embeddings (vetores para busca semântica)</li>
             <li>Perfis de voz e interação</li>
-            <li>Configurações de agentes</li>
-            <li>Tokens OAuth (criptografados)</li>
             <li>Estatísticas de uso de tokens</li>
           </ul>
 
@@ -1474,7 +1074,6 @@ export default function HelpPage() {
           <ul>
             <li>Dados são armazenados apenas localmente</li>
             <li>Comunicação com APIs é feita diretamente (sem intermediários)</li>
-            <li>Tokens OAuth são armazenados de forma segura</li>
             <li>Você pode excluir todos os dados a qualquer momento</li>
           </ul>
 
@@ -1524,24 +1123,6 @@ export default function HelpPage() {
             <li>
               <strong>Conversas grandes:</strong> Threads são carregadas sob demanda (lazy loading)
             </li>
-            <li>
-              <strong>Busca lenta:</strong> Embeddings são calculados em background
-            </li>
-          </ul>
-
-          <h4>Problemas com Agentes</h4>
-          <ul>
-            <li>Use o "Diagnóstico" para ver logs de execução</li>
-            <li>Teste endpoints individualmente com o "Testador"</li>
-            <li>Verifique conexões OAuth se o agente precisa de autenticação</li>
-            <li>Use "Hot Reload" após modificar configurações</li>
-          </ul>
-
-          <h4>Problemas com Arquivos</h4>
-          <ul>
-            <li>Verifique se a pasta está autorizada no File Agent</li>
-            <li>Confirme que o formato de arquivo é suportado</li>
-            <li>Arquivos muito grandes podem demorar para processar</li>
           </ul>
 
           <h4>Resetar Aplicação</h4>
@@ -1608,7 +1189,7 @@ export default function HelpPage() {
 
       <footer className="help-footer">
         <p>
-          Versão do Assistente IA • Última atualização da documentação: Janeiro 2026
+          Versão do Assistente IA • Última atualização da documentação: Fevereiro 2026
         </p>
       </footer>
     </div>

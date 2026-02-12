@@ -8,11 +8,15 @@
  * - Wakeword: Clica para ativar/desativar escuta por palavra de ativação
  * 
  * Integra com useInteractionProfile para VAD, hotkeys e wakeword.
+ * Usa o sistema unificado de perfis (profiles.Profile).
  */
 
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { useInteractionProfile } from '../../hooks/useInteractionProfile';
+import { profiles } from '../../../wailsjs/go/models';
 import './VoiceButton.css';
+
+type TriggerConfig = profiles.TriggerConfig;
 
 // Tipos de modo de interação
 type InteractionMode = 'ptt' | 'toggle' | 'vad' | 'wakeword';
@@ -68,28 +72,31 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     },
   });
 
+  // Acessa triggers do perfil unificado
+  const interactionTriggers = activeProfile?.interaction?.triggers;
+
   // Determina o modo de interação baseado nos triggers do perfil
   const getInteractionMode = useCallback((): InteractionMode => {
-    if (!activeProfile?.triggers) return 'ptt';
+    if (!interactionTriggers) return 'ptt';
     
-    const enabledTriggers = activeProfile.triggers.filter(t => t.enabled);
+    const enabledTriggers = interactionTriggers.filter((t: TriggerConfig) => t.enabled);
     
     // Prioridade: wakeword > vad > button_ptt > button_toggle
-    const hasWakeword = enabledTriggers.some(t => t.type === 'wakeword');
+    const hasWakeword = enabledTriggers.some((t: TriggerConfig) => t.type === 'wakeword');
     if (hasWakeword) return 'wakeword';
     
-    const hasVAD = enabledTriggers.some(t => t.type === 'vad');
+    const hasVAD = enabledTriggers.some((t: TriggerConfig) => t.type === 'vad');
     if (hasVAD) return 'vad';
     
-    const hasPTT = enabledTriggers.some(t => t.type === 'button_ptt');
+    const hasPTT = enabledTriggers.some((t: TriggerConfig) => t.type === 'button_ptt');
     if (hasPTT) return 'ptt';
     
-    const hasToggle = enabledTriggers.some(t => t.type === 'button_toggle');
+    const hasToggle = enabledTriggers.some((t: TriggerConfig) => t.type === 'button_toggle');
     if (hasToggle) return 'toggle';
     
     // Default: PTT
     return 'ptt';
-  }, [activeProfile]);
+  }, [interactionTriggers]);
 
   const mode = getInteractionMode();
   
@@ -225,7 +232,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     wakeword: {
       short: '🗣️',
       idle: 'Clique para ativar palavra de ativação',
-      active: isRecordingState ? 'Gravando...' : `Ouvindo... Diga "${activeProfile?.triggers?.find(t => t.type === 'wakeword')?.wakeword_keyword || 'assistente'}"`,
+      active: isRecordingState ? 'Gravando...' : `Ouvindo... Diga "${interactionTriggers?.find((t: TriggerConfig) => t.type === 'wakeword')?.wakeword_keyword || 'assistente'}"`,
       hint: 'Wake',
     },
   };

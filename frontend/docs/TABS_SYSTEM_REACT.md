@@ -106,7 +106,7 @@ Usuário
 
 1. **Criar ConversationController** (`lib/chat/conversation-controller.ts`):
    - Instanciado por aba
-   - Gerencia mensagens, streaming, tools
+   - Gerencia mensagens, streaming
    - Escuta eventos escopados da conversa
    - Métodos: `loadConversation()`, `send()`, `clear()`, `destroy()`
 

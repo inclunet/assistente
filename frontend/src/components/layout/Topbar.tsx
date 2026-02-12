@@ -28,15 +28,13 @@ export function Topbar() {
 
   // Determina a página atual baseada na rota
   const getCurrentPage = (): string => {
+    if (location.pathname === '/terminal') return 'terminal';
+    if (location.pathname === '/allowlists') return 'allowlists';
+    if (location.pathname === '/skills') return 'skills';
+    if (location.pathname === '/mcp') return 'mcp';
     if (location.pathname === '/settings') return 'settings';
+    if (location.pathname === '/profiles') return 'profiles';
     if (location.pathname === '/history') return 'history';
-    if (location.pathname === '/memory') return 'memory';
-    if (location.pathname === '/faq') return 'faq';
-    if (location.pathname === '/agents') return 'agents';
-    if (location.pathname === '/oauth') return 'oauth';
-    if (location.pathname === '/voice-profiles') return 'voice-profiles';
-    if (location.pathname === '/interaction-profiles') return 'interaction-profiles';
-    if (location.pathname === '/chat-profiles') return 'chat-profiles';
     if (location.pathname === '/help') return 'help';
     return 'chat';
   };
@@ -49,52 +47,40 @@ export function Topbar() {
       onClick: () => navigate('/'),
     },
     {
+      id: 'terminal',
+      label: 'Terminal',
+      icon: '>_',
+      onClick: () => navigate('/terminal'),
+    },
+    {
       id: 'history',
       label: 'Histórico',
       icon: '📜',
       onClick: () => navigate('/history'),
     },
     {
-      id: 'memory',
-      label: 'Memória',
+      id: 'profiles',
+      label: 'Perfis',
+      icon: '🎭',
+      onClick: () => navigate('/profiles'),
+    },
+    {
+      id: 'allowlists',
+      label: 'Allowlists',
+      icon: '🛡️',
+      onClick: () => navigate('/allowlists'),
+    },
+    {
+      id: 'skills',
+      label: 'Skills',
       icon: '🧠',
-      onClick: () => navigate('/memory'),
+      onClick: () => navigate('/skills'),
     },
     {
-      id: 'faq',
-      label: 'FAQ',
-      icon: '❓',
-      onClick: () => navigate('/faq'),
-    },
-    {
-      id: 'agents',
-      label: 'Agentes',
-      icon: '🤖',
-      onClick: () => navigate('/agents'),
-    },
-    {
-      id: 'voice-profiles',
-      label: 'Perfis de Voz',
-      icon: '🔊',
-      onClick: () => navigate('/voice-profiles'),
-    },
-    {
-      id: 'interaction-profiles',
-      label: 'Perfis de Interação',
-      icon: '🎙️',
-      onClick: () => navigate('/interaction-profiles'),
-    },
-    {
-      id: 'chat-profiles',
-      label: 'Perfis de Conversa',
-      icon: '💬',
-      onClick: () => navigate('/chat-profiles'),
-    },
-    {
-      id: 'oauth',
-      label: 'OAuth',
-      icon: '🔐',
-      onClick: () => navigate('/oauth'),
+      id: 'mcp',
+      label: 'MCP',
+      icon: '🔌',
+      onClick: () => navigate('/mcp'),
     },
     {
       id: 'settings',

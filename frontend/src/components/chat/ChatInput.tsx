@@ -1,9 +1,12 @@
-import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef } from 'react';
+import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback } from 'react';
 import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
+import { SlashCommandMenu, countFilteredSkills } from './SlashCommandMenu';
 import { MediaFile, processMediaFiles } from '../../services/mediaService';
 import { DIMENSIONS } from '../../constants/chat';
+import { GetUserInvocableSkills } from '../../../wailsjs/go/main/App';
+import type { skills } from '../../../wailsjs/go/models';
 import './ChatInput.css';
 
 export interface ChatInputProps {
@@ -26,9 +29,22 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   const [isProcessing, setIsProcessing] = useState(false);
   const internalTextareaRef = useRef<HTMLTextAreaElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
+
+  // Slash command state
+  const [showSlashMenu, setShowSlashMenu] = useState(false);
+  const [slashFilter, setSlashFilter] = useState('');
+  const [slashSelectedIndex, setSlashSelectedIndex] = useState(0);
+  const [invocableSkills, setInvocableSkills] = useState<skills.SkillInfo[]>([]);
   
   // Use external ref if provided, otherwise use internal ref
   const textareaRef = (ref as React.RefObject<HTMLTextAreaElement>) || internalTextareaRef;
+
+  // Carrega skills invocáveis quando o componente monta
+  useEffect(() => {
+    GetUserInvocableSkills()
+      .then((result) => setInvocableSkills(result || []))
+      .catch(() => setInvocableSkills([]));
+  }, []);
 
   // Handler para transcrição de voz
   const handleVoiceTranscription = (text: string) => {
@@ -38,6 +54,40 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       setMediaFiles([]);
     }
   };
+
+  // Detecta slash command no texto
+  const updateSlashMenu = useCallback((text: string) => {
+    if (invocableSkills.length === 0) {
+      setShowSlashMenu(false);
+      return;
+    }
+
+    // Verifica se o texto começa com /
+    if (text.startsWith('/') && !text.includes('\n')) {
+      const afterSlash = text.slice(1);
+      // Se tem espaço, o slug está completo — fecha o menu
+      if (afterSlash.includes(' ')) {
+        setShowSlashMenu(false);
+        return;
+      }
+      setSlashFilter(afterSlash);
+      setSlashSelectedIndex(0);
+      setShowSlashMenu(true);
+    } else {
+      setShowSlashMenu(false);
+    }
+  }, [invocableSkills]);
+
+  // Quando um skill é selecionado no menu
+  const handleSlashSelect = useCallback((skill: skills.SkillInfo) => {
+    const hint = skill.argumentHint ? ` ` : '';
+    setMessage(`/${skill.slug}${hint}`);
+    setShowSlashMenu(false);
+    // Foca o textarea
+    requestAnimationFrame(() => {
+      textareaRef.current?.focus();
+    });
+  }, [textareaRef]);
 
   const adjustTextareaHeight = () => {
     const textarea = textareaRef.current;
@@ -147,6 +197,43 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
   };
 
   const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    // Navegação no menu slash
+    if (showSlashMenu) {
+      const totalFiltered = countFilteredSkills(invocableSkills, slashFilter);
+
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSlashSelectedIndex((prev) => (prev + 1) % Math.max(totalFiltered, 1));
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSlashSelectedIndex((prev) => (prev - 1 + Math.max(totalFiltered, 1)) % Math.max(totalFiltered, 1));
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        // Seleciona o skill na posição atual
+        const filtered = invocableSkills.filter((s) => {
+          const searchText = slashFilter.toLowerCase();
+          if (!searchText) return true;
+          const name = (s.displayName || s.name || '').toLowerCase();
+          const slug = (s.slug || '').toLowerCase();
+          const desc = (s.description || '').toLowerCase();
+          return name.includes(searchText) || slug.includes(searchText) || desc.includes(searchText);
+        });
+        if (filtered[slashSelectedIndex]) {
+          handleSlashSelect(filtered[slashSelectedIndex]);
+        }
+        return;
+      }
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setShowSlashMenu(false);
+        return;
+      }
+    }
+
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
       if (!disabled) {
@@ -180,6 +267,17 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
         </div>
       )}
 
+      {showSlashMenu && invocableSkills.length > 0 && (
+        <SlashCommandMenu
+          skills={invocableSkills}
+          filter={slashFilter}
+          selectedIndex={slashSelectedIndex}
+          onSelect={handleSlashSelect}
+          onClose={() => setShowSlashMenu(false)}
+          anchorRef={textareaRef}
+        />
+      )}
+
       <MediaPreview media={mediaFiles} onRemove={handleRemoveMedia} />
 
       <div className="chat-input__container">
@@ -208,7 +306,10 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           ref={textareaRef}
           className="chat-input__textarea"
           value={message}
-          onChange={(e) => setMessage(e.target.value)}
+          onChange={(e) => {
+            setMessage(e.target.value);
+            updateSlashMenu(e.target.value);
+          }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
           placeholder={placeholder}

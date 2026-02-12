@@ -11,7 +11,7 @@ import { stripMarkdown } from './stripMarkdown';
 
 export interface MenuItemsOptions {
   onCopy?: (message: Message, asMarkdown: boolean) => void;
-  onOpenDetail?: (message: Message) => void;
+  onReadMessage?: (message: Message) => void;
   onSpeak?: (message: Message) => void;
   onEdit?: (message: Message) => void;
   onResend?: (message: Message) => void;
@@ -232,7 +232,7 @@ export function getMessageMenuItems(
 ): MenuItem[] {
   const {
     onCopy,
-    onOpenDetail,
+    onReadMessage,
     onSpeak,
     onEdit,
     onResend,
@@ -263,14 +263,14 @@ export function getMessageMenuItems(
     tablesData: tables,
   });
 
-  // 1. AÇÃO PRIMÁRIA: Ver em tela cheia
+  // 1. AÇÃO PRIMÁRIA: Modo de leitura (virtual modal)
   items.push({
-    id: 'fullscreen',
-    label: 'Ver em tela cheia',
-    icon: '🔍',
-    ariaLabel: 'Ver em tela cheia',
+    id: 'read-mode',
+    label: 'Modo de leitura',
+    icon: '📖',
+    ariaLabel: 'Ativar modo de leitura da mensagem',
     shortcut: 'Enter',
-    action: () => onOpenDetail?.(message),
+    action: () => onReadMessage?.(message),
   });
 
   // 1.5 Ver/Ocultar Raciocínio (se a mensagem tem reasoning)

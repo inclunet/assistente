@@ -1,12 +1,11 @@
 import { useRef, useState, useEffect } from 'react';
 import { useChatStore } from '../store/chatStore';
-import { useSettingsStore } from '../store/settingsStore';
+import { ttsService } from '../services/tts';
 import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
 import { ChatToolbar } from '../components/chat/ChatToolbar';
 import { ChatTabs } from '../components/tabs/ChatTabs';
 import { ContextMenu } from '../components/ui/ContextMenu';
-import { MessageDetailModal } from '../components/ui/MessageDetailModal';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { KeyboardShortcutsHelp } from '../components/ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../hooks/useChatKeyboardNav';
@@ -14,7 +13,7 @@ import { useTabsKeyboardShortcuts } from '../hooks/useTabsKeyboardShortcuts';
 import { useContextMenu, useMessageActions } from '../hooks/useContextMenu';
 import { Message } from '../store/chatStore';
 import { MediaFile } from '../services/mediaService';
-import { DeleteMessage } from '../../wailsjs/go/main/App';
+import { DeleteMessage, RespondCommandConfirmation } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
 import { announce } from '../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../utils/errorHandler';
@@ -38,14 +37,8 @@ export default function ChatPage() {
     isReasoningExpanded,
   } = useChatStore();
 
-  const { config } = useSettingsStore();
-
-  // TTS está desabilitado se não há voz configurada ou se a voz é "disabled"
-  const isTTSDisabled = !config?.voice || config.voice === 'disabled' || config.voice.includes('disabled');
-
-  // Estado do modal de detalhes
-  const [detailModalOpen, setDetailModalOpen] = useState(false);
-  const [detailMessage, setDetailMessage] = useState<Message | null>(null);
+  // TTS é controlado pelo perfil global via ttsService (fonte de verdade)
+  const isTTSDisabled = !ttsService.isEnabled();
 
   // Estado do dialog de confirmação de delete
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
@@ -54,12 +47,18 @@ export default function ChatPage() {
   // Estado do painel de ajuda de atalhos
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
+  // Estado do dialog de confirmação de comando (tool: run_command)
+  const [cmdConfirmOpen, setCmdConfirmOpen] = useState(false);
+  const [cmdConfirmData, setCmdConfirmData] = useState<{ id: string; command: string; workDir: string } | null>(null);
+
   // Estado de erro para recovery
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
   const [sendError, setSendError] = useState<string | null>(null);
 
   // Edição de mensagem via store (acionado pelo menu de contexto)
   const startEditing = useChatStore(state => state.startEditing);
+  // Modo leitura via store (acionado pelo menu de contexto)
+  const startReading = useChatStore(state => state.startReading);
 
   // Ações de mensagem
   const { copyMessage, speakMessage } = useMessageActions({
@@ -69,9 +68,8 @@ export default function ChatPage() {
   // Menu de contexto
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
     onCopy: copyMessage,
-    onOpenDetail: (message) => {
-      setDetailMessage(message);
-      setDetailModalOpen(true);
+    onReadMessage: (message) => {
+      startReading(message.id);
     },
     onSpeak: speakMessage,
     onEdit: (message) => {
@@ -228,12 +226,50 @@ export default function ChatPage() {
     return () => document.removeEventListener('keydown', handleEscape);
   }, [sendError]);
 
+  // Listener para confirmação de comandos (tool: run_command)
+  useEffect(() => {
+    const unsub = EventsOn('tool:confirm_command', (data: { id: string; command: string; workDir: string }) => {
+      setCmdConfirmData(data);
+      setCmdConfirmOpen(true);
+    });
+    return unsub;
+  }, []);
+
+  const handleConfirmCommand = async () => {
+    if (cmdConfirmData) {
+      try {
+        await RespondCommandConfirmation(cmdConfirmData.id, true);
+      } catch (err) {
+        console.error('[ChatPage] Erro ao confirmar comando:', err);
+      }
+    }
+    setCmdConfirmOpen(false);
+    setCmdConfirmData(null);
+    // Retorna foco ao input após fechar o dialog
+    requestAnimationFrame(() => inputRef.current?.focus());
+  };
+
+  const handleDenyCommand = async () => {
+    if (cmdConfirmData) {
+      try {
+        await RespondCommandConfirmation(cmdConfirmData.id, false);
+      } catch (err) {
+        console.error('[ChatPage] Erro ao negar comando:', err);
+      }
+    }
+    setCmdConfirmOpen(false);
+    // Retorna foco ao input após fechar o dialog
+    requestAnimationFrame(() => inputRef.current?.focus());
+    setCmdConfirmData(null);
+  };
+
   const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
     try {
       setSendError(null); // Clear previous error
       setLastFailedMessage(null);
       await sendMessage(content, mediaFiles);
-    } catch (error) {
+    } catch (error: any) {
+      console.error('[ChatPage] sendMessage error details:', error?.message || error);
       // Store failed message for retry
       setLastFailedMessage({ content, media: mediaFiles });
       setSendError(ErrorMessages.CHAT.SEND_FAILED);
@@ -271,7 +307,7 @@ export default function ChatPage() {
   return (
     <div className="chat-page">
       <ChatTabs />
-      <ChatToolbar voiceEnabled={true} inputRef={inputRef} />
+      <ChatToolbar inputRef={inputRef} />
       <MessageList
         threadedMessages={threadedMessages}
         onLoadChildren={loadMessageChildren}
@@ -279,10 +315,6 @@ export default function ChatPage() {
         isLoading={isLoading}
         ref={messagesContainerRef}
         onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
-        onOpenDetail={(message) => {
-          setDetailMessage(message);
-          setDetailModalOpen(true);
-        }}
         onSpeak={speakMessage}
       />
 
@@ -345,22 +377,6 @@ export default function ChatPage() {
         ariaLabel="Ações da mensagem"
       />
 
-      {/* Modal de detalhes */}
-      <MessageDetailModal
-        open={detailModalOpen}
-        content={detailMessage?.content || ''}
-        role={detailMessage?.role === 'user' ? 'Você' : 'Assistente'}
-        media={Array.isArray(detailMessage?.media) ? detailMessage.media : undefined}
-        onClose={() => {
-          setDetailModalOpen(false);
-          setDetailMessage(null);
-        }}
-        onImageClick={(src, alt) => {
-          console.log('Abrir imagem:', src, alt);
-          // TODO: Implementar modal de imagem
-        }}
-      />
-
       {/* Dialog de confirmação de exclusão */}
       <ConfirmDialog
         isOpen={deleteDialogOpen}
@@ -371,6 +387,18 @@ export default function ChatPage() {
         variant="danger"
         onConfirm={handleConfirmDelete}
         onCancel={handleCancelDelete}
+      />
+
+      {/* Dialog de confirmação de comando shell */}
+      <ConfirmDialog
+        isOpen={cmdConfirmOpen}
+        title="Confirmar execução de comando"
+        message={cmdConfirmData ? `O assistente quer executar:\n\n${cmdConfirmData.command}\n\nem: ${cmdConfirmData.workDir}` : ''}
+        confirmText="Permitir"
+        cancelText="Negar"
+        variant="warning"
+        onConfirm={handleConfirmCommand}
+        onCancel={handleDenyCommand}
       />
 
       {/* Painel de ajuda de atalhos de teclado */}

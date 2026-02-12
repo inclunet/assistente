@@ -5,6 +5,7 @@ import { useChatStore } from '../../store/chatStore';
 import { playBumpSound } from '../../services/audioFeedback';
 import { UpdateMessage } from '../../../wailsjs/go/main/App';
 import { announce } from '../../hooks/useAnnouncer';
+import { useVirtualModal } from '../../hooks/useVirtualModal';
 import { handleError, ErrorSeverity } from '../../utils/errorHandler';
 import './MessageNode.css';
 
@@ -16,7 +17,6 @@ export interface MessageNodeProps {
   onLoadChildren?: (messageId: string) => Promise<MessageNodeType[]>;
   onReachEnd?: () => void; // Chamado quando tenta ir além do último item no level 0
   onContextMenu?: (e: React.MouseEvent, message: any) => void;
-  onOpenDetail?: (message: any) => void;
   onSpeak?: (message: any) => void;
 }
 
@@ -28,7 +28,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   onLoadChildren,
   onReachEnd,
   onContextMenu,
-  onOpenDetail,
   onSpeak,
 }) => {
   const nodeRef = React.useRef<HTMLDivElement>(null);
@@ -39,10 +38,13 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   const toggleThreadExpanded = useChatStore(state => state.toggleThreadExpanded);
   const editingMessageId = useChatStore(state => state.editingMessageId);
   const setEditingMessageId = useChatStore(state => state.setEditingMessageId);
+  const readingMessageId = useChatStore(state => state.readingMessageId);
+  const setReadingMessageId = useChatStore(state => state.setReadingMessageId);
   const streamingMessageId = useChatStore(state => state.streamingMessageId);
   const streamingReasoning = useChatStore(state => state.streamingReasoning);
   const isThinkingGlobal = useChatStore(state => state.isThinking);
   const toggleReasoningExpanded = useChatStore(state => state.toggleReasoningExpanded);
+  const activeToolCalls = useChatStore(state => state.activeToolCalls);
   
   // OTIMIZADO: Seletores que retornam apenas valores booleanos para este nó específico
   // Evita re-renders quando outras threads/reasonings são expandidas/colapsadas
@@ -56,12 +58,31 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   const [isLoading, setIsLoading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(node.message.content);
+  const [isReading, setIsReading] = useState(false);
+
+  // Virtual modal: transforma a mensagem em "dialog" para leitores de tela
+  useVirtualModal({
+    elementRef: nodeRef,
+    isActive: isReading,
+    onClose: () => setIsReading(false),
+  });
   
   // SIMPLIFICADO: Usa apenas node.children da store
   // - loadMessageChildren atualiza node.children na store
   // - addInternalMessage também atualiza node.children na store
   // - Não precisamos de estado local duplicado
   const children = node.children || [];
+
+  // Detecta modo leitura acionado externamente (pelo menu de contexto)
+  useEffect(() => {
+    if (readingMessageId === node.message.id && !isReading) {
+      if (!node.message.internal) {
+        setIsReading(true);
+      }
+      // Limpa o estado na store
+      setReadingMessageId(null);
+    }
+  }, [readingMessageId, node.message.id, node.message.internal, isReading, setReadingMessageId]);
 
   // Detecta edição acionada externamente (pelo menu de contexto)
   useEffect(() => {
@@ -223,13 +244,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       return;
     }
     
-    // Enter abre modal de detalhes (delega para o handler)
+    // Enter ativa modo de leitura (virtual modal)
     if (key === 'Enter' && !node.message.internal) {
       e.preventDefault();
       e.stopPropagation();
-      if (onOpenDetail) {
-        onOpenDetail(node.message);
-      }
+      setIsReading(true);
       return;
     }
 
@@ -375,7 +394,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   return (
     <div
       ref={nodeRef}
-      className={`message-node message-node--level-${level} ${isInternal ? 'message-node--internal' : ''}`}
+      className={`message-node message-node--level-${level} ${isInternal ? 'message-node--internal' : ''} ${isReading ? 'message-node--reading' : ''}`}
       data-level={level}
       data-sibling-index={siblingIndex}
       data-message-node
@@ -395,8 +414,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           isThreadLoading={isLoading}
           onThreadToggle={handleToggle}
           onContextMenu={onContextMenu}
-          onOpenDetail={onOpenDetail}
           onSpeak={onSpeak}
+          isReading={isReading}
           isEditing={isEditing}
           editContent={editContent}
           onEditContentChange={setEditContent}
@@ -407,6 +426,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           isThinking={node.message.id === streamingMessageId ? isThinkingGlobal : false}
           isReasoningExpanded={reasoningExpanded}
           onToggleReasoning={() => toggleReasoningExpanded(node.message.id)}
+          // Tool calling - passa apenas para a mensagem em streaming
+          activeToolCalls={node.message.id === streamingMessageId ? activeToolCalls : undefined}
         />
       </div>
 
@@ -421,7 +442,6 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
               siblingCount={children.length}
               onLoadChildren={onLoadChildren}
               onContextMenu={onContextMenu}
-              onOpenDetail={onOpenDetail}
               onSpeak={onSpeak}
               // Não passa onReachEnd para threads internas
             />
