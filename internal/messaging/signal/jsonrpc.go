@@ -1,93 +1,49 @@
 package signal
 
-import (
-	"encoding/json"
-	"fmt"
-	"sync/atomic"
-	"time"
-)
+import "time"
 
-// ==================== JSON-RPC 2.0 Types ====================
+// ==================== signal-cli-rest-api Types ====================
 
-// Contadores globais para gerar IDs únicos de requisições
-var requestIDCounter atomic.Int64
-
-// nextRequestID gera um ID único para cada requisição JSON-RPC.
-func nextRequestID() string {
-	return fmt.Sprintf("%d", requestIDCounter.Add(1))
+// sendMessageV2 é o payload do POST /v2/send da signal-cli-rest-api.
+type sendMessageV2 struct {
+	Message    string   `json:"message"`              // Texto da mensagem
+	Number     string   `json:"number"`               // Número remetente (conta Signal)
+	Recipients []string `json:"recipients"`            // Número(s) destinatário(s)
 }
 
-// jsonRPCRequest é uma requisição JSON-RPC 2.0 enviada via stdin ao signal-cli.
-type jsonRPCRequest struct {
-	JSONRPC string      `json:"jsonrpc"`
-	Method  string      `json:"method"`
-	Params  interface{} `json:"params,omitempty"`
-	ID      string      `json:"id"`
+// sendMessageResponse é a resposta do POST /v2/send.
+type sendMessageResponse struct {
+	Timestamp string `json:"timestamp,omitempty"`
 }
 
-// jsonRPCResponse é uma resposta JSON-RPC 2.0 recebida via stdout do signal-cli.
-// Pode ser uma resposta a uma requisição (tem ID) ou uma notificação (sem ID).
-type jsonRPCResponse struct {
-	JSONRPC string          `json:"jsonrpc"`
-	Result  json.RawMessage `json:"result,omitempty"`
-	Error   *jsonRPCError   `json:"error,omitempty"`
-	ID      *string         `json:"id,omitempty"` // nil = notificação (mensagem recebida)
-	Method  string          `json:"method,omitempty"`
-	Params  json.RawMessage `json:"params,omitempty"`
+// apiError é um erro retornado pela REST API.
+type apiError struct {
+	Error string `json:"error"`
 }
 
-// jsonRPCError representa um erro JSON-RPC 2.0.
-type jsonRPCError struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data,omitempty"`
-}
+// ==================== WebSocket Receive Types ====================
 
-func (e *jsonRPCError) Error() string {
-	return fmt.Sprintf("JSON-RPC error %d: %s", e.Code, e.Message)
-}
-
-// IsNotification retorna true se a resposta é uma notificação (mensagem recebida)
-// e não uma resposta a uma requisição.
-func (r *jsonRPCResponse) IsNotification() bool {
-	return r.ID == nil && r.Method != ""
-}
-
-// ==================== Signal-specific Types ====================
-
-// sendParams são os parâmetros para o método "send" do signal-cli.
-type sendParams struct {
-	Recipient []string `json:"recipient,omitempty"` // Número(s) de telefone destino
-	GroupID   string   `json:"groupId,omitempty"`   // ID do grupo (alternativa a recipient)
-	Message   string   `json:"message"`             // Texto da mensagem
-}
-
-// sendResult é o resultado do método "send".
-type sendResult struct {
-	Timestamp int64 `json:"timestamp"`
-}
-
-// receiveNotification é o payload de uma notificação "receive" do signal-cli.
-// Mensagens recebidas chegam como notificações JSON-RPC (sem campo "id").
-type receiveNotification struct {
-	Envelope signalEnvelope `json:"envelope"`
-	Account  string         `json:"account,omitempty"` // Presente em modo multi-account
+// wsEnvelope é o envelope de uma mensagem recebida via WebSocket (/v1/receive).
+// Formato baseado na documentação do signal-cli-rest-api.
+type wsEnvelope struct {
+	Envelope *signalEnvelope `json:"envelope,omitempty"`
+	Account  string          `json:"account,omitempty"`
 }
 
 // signalEnvelope é o envelope de uma mensagem Signal.
 type signalEnvelope struct {
-	Source       string `json:"source"`       // Número do remetente
-	SourceNumber string `json:"sourceNumber"` // Número do remetente (redundante)
-	SourceUUID   string `json:"sourceUuid"`   // UUID do remetente
-	SourceName   string `json:"sourceName"`   // Nome do remetente
-	SourceDevice int    `json:"sourceDevice"` // ID do dispositivo
+	Source       string `json:"source"`
+	SourceNumber string `json:"sourceNumber"`
+	SourceUUID   string `json:"sourceUuid"`
+	SourceName   string `json:"sourceName"`
+	SourceDevice int    `json:"sourceDevice"`
 
 	Timestamp   int64        `json:"timestamp"`
-	DataMessage *dataMessage `json:"dataMessage,omitempty"` // Mensagem de dados (texto, mídia, etc.)
-	SyncMessage *syncMessage `json:"syncMessage,omitempty"` // Mensagem de sync (quando enviamos de outro dispositivo)
+	DataMessage *dataMessage `json:"dataMessage,omitempty"`
+	SyncMessage *syncMessage `json:"syncMessage,omitempty"`
 }
 
-// dataMessage é uma mensagem de texto/dados do Signal.
+// dataMessage é uma mensagem de texto/dados.
 type dataMessage struct {
 	Timestamp        int64  `json:"timestamp"`
 	Message          string `json:"message"`
@@ -95,7 +51,7 @@ type dataMessage struct {
 	ViewOnce         bool   `json:"viewOnce"`
 }
 
-// syncMessage é uma mensagem de sincronização (quando enviamos de outro dispositivo).
+// syncMessage é uma mensagem de sincronização (enviada por outro dispositivo nosso).
 type syncMessage struct {
 	SentMessage *sentMessage `json:"sentMessage,omitempty"`
 }
@@ -109,19 +65,6 @@ type sentMessage struct {
 }
 
 // ==================== Helper Functions ====================
-
-// newSendRequest cria uma requisição JSON-RPC para enviar uma mensagem.
-func newSendRequest(recipient, message string) jsonRPCRequest {
-	return jsonRPCRequest{
-		JSONRPC: "2.0",
-		Method:  "send",
-		Params: sendParams{
-			Recipient: []string{recipient},
-			Message:   message,
-		},
-		ID: nextRequestID(),
-	}
-}
 
 // timestampToTime converte um timestamp do Signal (milissegundos) em time.Time.
 func timestampToTime(ts int64) time.Time {

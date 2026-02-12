@@ -263,20 +263,16 @@ func (a *App) initMessaging() {
 		log.Printf("[Messaging] Telegram não configurado ou desabilitado")
 	}
 
-	// Signal
-	if msgConfig.Signal != nil && msgConfig.Signal.Enabled && msgConfig.Signal.Account != "" {
-		bin := msgConfig.Signal.SignalCliBin
-		if bin == "" {
-			bin = "signal-cli" // assume que está no PATH
-		}
-		adapter := signal.NewAdapter(bin, msgConfig.Signal.Account)
+	// Signal (via signal-cli-rest-api HTTP + WebSocket)
+	if msgConfig.Signal != nil && msgConfig.Signal.Enabled && msgConfig.Signal.Account != "" && msgConfig.Signal.APIURL != "" {
+		adapter := signal.NewAdapter(msgConfig.Signal.APIURL, msgConfig.Signal.Account)
 		a.msgGateway.Register("signal", adapter)
 		go func() {
 			if err := adapter.Connect(a.ctx); err != nil {
 				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
 			}
 		}()
-		log.Printf("[Messaging] Signal habilitado (account=%s)", msgConfig.Signal.Account)
+		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", msgConfig.Signal.APIURL, msgConfig.Signal.Account)
 	} else {
 		log.Printf("[Messaging] Signal não configurado ou desabilitado")
 	}

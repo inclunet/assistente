@@ -33,7 +33,7 @@ type ChannelConfig struct {
 	Enabled         bool     `json:"enabled"`
 	BotToken        string   `json:"bot_token,omitempty"`      // Telegram: token do bot (@BotFather)
 	Account         string   `json:"account,omitempty"`        // Signal: número de telefone da conta vinculada
-	SignalCliBin    string   `json:"signal_cli_bin,omitempty"` // Signal: caminho do binário signal-cli (vazio = PATH)
+	APIURL          string   `json:"api_url,omitempty"`        // Signal: URL da signal-cli-rest-api (ex: "http://signal-api:8080")
 	AllowedContacts []string `json:"allowed_contacts"`         // IDs de contatos autorizados
 	Profile         string   `json:"profile,omitempty"`        // Perfil de chat a usar (vazio = ativo)
 	MaxHistory      int      `json:"max_history,omitempty"`    // Mensagens no contexto (0 = padrão)

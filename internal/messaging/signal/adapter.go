@@ -1,59 +1,59 @@
 package signal
 
 import (
-	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
-	"os/exec"
+	"net/http"
+	"net/url"
+	"strings"
 	"sync"
+	"time"
 
 	"assistente/internal/messaging"
+
+	"github.com/gorilla/websocket"
 )
 
-// SignalAdapter implementa messaging.Messenger para o Signal via signal-cli JSON-RPC.
-// Lança signal-cli como subprocesso e comunica via stdin/stdout (JSON-RPC 2.0).
+// SignalAdapter implementa messaging.Messenger para o Signal via signal-cli-rest-api HTTP.
+// Conecta a uma instância da signal-cli-rest-api (bbernhard) rodando como serviço
+// (Docker, Kubernetes, etc.) e comunica via REST API + WebSocket.
 //
-// Pré-requisitos:
-//   - Java 21+ instalado
-//   - signal-cli binário acessível (PATH ou caminho absoluto)
-//   - Conta Signal vinculada (via signal-cli link ou signal-cli register)
+// Endpoints usados:
+//   - POST /v2/send — envia mensagens
+//   - GET  /v1/receive/{number} — WebSocket para receber mensagens em tempo real
+//   - GET  /v1/about — health check
 type SignalAdapter struct {
-	bin     string // caminho do binário signal-cli
+	baseURL string // URL base da API (ex: "http://signal-api:8080")
 	account string // número de telefone da conta Signal (ex: "+5511999999999")
 
 	handler messaging.IncomingMessageHandler
 	status  messaging.ConnectionStatus
 
-	cmd    *exec.Cmd
-	stdin  io.WriteCloser
-	stdout io.ReadCloser
-
-	// Controle de respostas pendentes: id -> canal para receber resposta
-	pending   map[string]chan jsonRPCResponse
-	pendingMu sync.Mutex
-
-	// Serializa escritas no stdin
-	writeMu sync.Mutex
+	wsConn *websocket.Conn
+	client *http.Client
 
 	ctx    context.Context
 	cancel context.CancelFunc
 	mu     sync.RWMutex
 }
 
-// NewAdapter cria um novo adapter para o Signal.
-// bin é o caminho do binário signal-cli (vazio = "signal-cli" no PATH).
+// NewAdapter cria um novo adapter para o Signal via REST API.
+// baseURL é a URL base da signal-cli-rest-api (ex: "http://signal-api:8080").
 // account é o número de telefone vinculado (ex: "+5511999999999").
-func NewAdapter(bin, account string) *SignalAdapter {
-	if bin == "" {
-		bin = "signal-cli"
-	}
+func NewAdapter(baseURL, account string) *SignalAdapter {
+	// Remove trailing slash
+	baseURL = strings.TrimRight(baseURL, "/")
+
 	return &SignalAdapter{
-		bin:     bin,
+		baseURL: baseURL,
 		account: account,
 		status:  messaging.StatusDisconnected,
-		pending: make(map[string]chan jsonRPCResponse),
+		client: &http.Client{
+			Timeout: 30 * time.Second,
+		},
 	}
 }
 
@@ -62,7 +62,7 @@ func (s *SignalAdapter) Name() string {
 	return "signal"
 }
 
-// Connect inicia o subprocesso signal-cli em modo JSON-RPC e começa a ler respostas.
+// Connect verifica a conexão com a API e inicia o WebSocket para receber mensagens.
 func (s *SignalAdapter) Connect(ctx context.Context) error {
 	s.mu.Lock()
 	s.status = messaging.StatusConnecting
@@ -70,46 +70,28 @@ func (s *SignalAdapter) Connect(ctx context.Context) error {
 
 	s.ctx, s.cancel = context.WithCancel(ctx)
 
-	// Monta o comando: signal-cli -a ACCOUNT jsonRpc
-	args := []string{}
-	if s.account != "" {
-		args = append(args, "-a", s.account)
-	}
-	args = append(args, "jsonRpc")
-
-	s.cmd = exec.CommandContext(s.ctx, s.bin, args...)
-
-	var err error
-	s.stdin, err = s.cmd.StdinPipe()
-	if err != nil {
+	// Verifica se a API está acessível
+	if err := s.healthCheck(); err != nil {
 		s.setStatus(messaging.StatusError)
-		return fmt.Errorf("erro ao obter stdin do signal-cli: %w", err)
+		return fmt.Errorf("signal-cli-rest-api não acessível em %s: %w", s.baseURL, err)
 	}
 
-	s.stdout, err = s.cmd.StdoutPipe()
-	if err != nil {
+	// Conecta o WebSocket para receber mensagens
+	if err := s.connectWebSocket(); err != nil {
 		s.setStatus(messaging.StatusError)
-		return fmt.Errorf("erro ao obter stdout do signal-cli: %w", err)
-	}
-
-	if err := s.cmd.Start(); err != nil {
-		s.setStatus(messaging.StatusError)
-		return fmt.Errorf("erro ao iniciar signal-cli: %w", err)
+		return fmt.Errorf("erro ao conectar WebSocket Signal: %w", err)
 	}
 
 	s.setStatus(messaging.StatusConnected)
-	fmt.Printf("[Signal] Conectado (pid=%d, account=%s)\n", s.cmd.Process.Pid, s.account)
+	fmt.Printf("[Signal] Conectado à API %s (account=%s)\n", s.baseURL, s.account)
 
-	// Inicia goroutine que lê respostas/notificações do stdout
-	go s.readLoop()
-
-	// Inicia goroutine que espera o processo terminar
-	go s.waitProcess()
+	// Inicia o loop de leitura do WebSocket
+	go s.wsReadLoop()
 
 	return nil
 }
 
-// Disconnect encerra o subprocesso signal-cli.
+// Disconnect encerra a conexão WebSocket.
 func (s *SignalAdapter) Disconnect() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -117,28 +99,46 @@ func (s *SignalAdapter) Disconnect() error {
 	if s.cancel != nil {
 		s.cancel()
 	}
-	if s.stdin != nil {
-		s.stdin.Close()
-	}
-	if s.cmd != nil && s.cmd.Process != nil {
-		s.cmd.Process.Kill()
+	if s.wsConn != nil {
+		s.wsConn.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseNormalClosure, ""))
+		s.wsConn.Close()
+		s.wsConn = nil
 	}
 	s.status = messaging.StatusDisconnected
 	fmt.Println("[Signal] Desconectado")
 	return nil
 }
 
-// Send envia uma mensagem de texto para um contato via Signal.
+// Send envia uma mensagem de texto via POST /v2/send.
 func (s *SignalAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) error {
-	req := newSendRequest(msg.ChatID, msg.Text)
+	payload := sendMessageV2{
+		Message:    msg.Text,
+		Number:     s.account,
+		Recipients: []string{msg.ChatID},
+	}
 
-	resp, err := s.sendRequest(req)
+	body, err := json.Marshal(payload)
+	if err != nil {
+		return fmt.Errorf("erro ao serializar mensagem: %w", err)
+	}
+
+	reqURL := s.baseURL + "/v2/send"
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(body))
+	if err != nil {
+		return fmt.Errorf("erro ao criar request: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("erro ao enviar mensagem Signal para %s: %w", msg.ChatID, err)
 	}
+	defer resp.Body.Close()
 
-	if resp.Error != nil {
-		return fmt.Errorf("signal-cli retornou erro: %v", resp.Error)
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		respBody, _ := io.ReadAll(resp.Body)
+		return fmt.Errorf("signal-cli-rest-api retornou %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	return nil
@@ -160,101 +160,114 @@ func (s *SignalAdapter) Status() messaging.ConnectionStatus {
 
 // ==================== Internal Methods ====================
 
-// sendRequest envia uma requisição JSON-RPC e aguarda a resposta correspondente.
-func (s *SignalAdapter) sendRequest(req jsonRPCRequest) (jsonRPCResponse, error) {
-	// Cria canal para receber a resposta
-	ch := make(chan jsonRPCResponse, 1)
-	s.pendingMu.Lock()
-	s.pending[req.ID] = ch
-	s.pendingMu.Unlock()
+// healthCheck verifica se a API está acessível via GET /v1/about.
+func (s *SignalAdapter) healthCheck() error {
+	reqURL := s.baseURL + "/v1/about"
+	req, err := http.NewRequestWithContext(s.ctx, "GET", reqURL, nil)
+	if err != nil {
+		return err
+	}
 
-	// Cleanup em caso de erro ou timeout
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("status %d", resp.StatusCode)
+	}
+
+	fmt.Printf("[Signal] Health check OK (%s)\n", reqURL)
+	return nil
+}
+
+// connectWebSocket conecta ao endpoint WebSocket /v1/receive/{number}.
+func (s *SignalAdapter) connectWebSocket() error {
+	// Converte HTTP URL para WS URL
+	wsURL := s.baseURL + "/v1/receive/" + url.PathEscape(s.account)
+	wsURL = strings.Replace(wsURL, "http://", "ws://", 1)
+	wsURL = strings.Replace(wsURL, "https://", "wss://", 1)
+
+	dialer := websocket.Dialer{
+		HandshakeTimeout: 10 * time.Second,
+	}
+
+	conn, _, err := dialer.DialContext(s.ctx, wsURL, nil)
+	if err != nil {
+		return fmt.Errorf("erro ao conectar WebSocket %s: %w", wsURL, err)
+	}
+
+	s.mu.Lock()
+	s.wsConn = conn
+	s.mu.Unlock()
+
+	fmt.Printf("[Signal] WebSocket conectado: %s\n", wsURL)
+	return nil
+}
+
+// wsReadLoop lê mensagens do WebSocket continuamente.
+func (s *SignalAdapter) wsReadLoop() {
 	defer func() {
-		s.pendingMu.Lock()
-		delete(s.pending, req.ID)
-		s.pendingMu.Unlock()
+		s.mu.RLock()
+		conn := s.wsConn
+		s.mu.RUnlock()
+		if conn != nil {
+			conn.Close()
+		}
 	}()
 
-	// Serializa e envia
-	data, err := json.Marshal(req)
-	if err != nil {
-		return jsonRPCResponse{}, fmt.Errorf("erro ao serializar request: %w", err)
-	}
-	data = append(data, '\n') // signal-cli espera uma linha por request
+	for {
+		select {
+		case <-s.ctx.Done():
+			fmt.Println("[Signal] WebSocket read loop encerrado (contexto cancelado)")
+			return
+		default:
+		}
 
-	s.writeMu.Lock()
-	_, err = s.stdin.Write(data)
-	s.writeMu.Unlock()
+		s.mu.RLock()
+		conn := s.wsConn
+		s.mu.RUnlock()
 
-	if err != nil {
-		return jsonRPCResponse{}, fmt.Errorf("erro ao escrever no stdin: %w", err)
-	}
-
-	// Aguarda resposta ou cancelamento
-	select {
-	case resp := <-ch:
-		return resp, nil
-	case <-s.ctx.Done():
-		return jsonRPCResponse{}, fmt.Errorf("contexto cancelado enquanto aguardava resposta")
-	}
-}
-
-// readLoop lê continuamente o stdout do signal-cli, processando respostas e notificações.
-func (s *SignalAdapter) readLoop() {
-	scanner := bufio.NewScanner(s.stdout)
-	// Aumenta o buffer para mensagens grandes
-	scanner.Buffer(make([]byte, 0, 64*1024), 1024*1024)
-
-	for scanner.Scan() {
-		line := scanner.Bytes()
-		if len(line) == 0 {
+		if conn == nil {
+			fmt.Println("[Signal] WebSocket desconectado, tentando reconectar...")
+			s.reconnectWebSocket()
 			continue
 		}
 
-		var resp jsonRPCResponse
-		if err := json.Unmarshal(line, &resp); err != nil {
-			fmt.Printf("[Signal] Erro ao parsear resposta: %v (linha: %s)\n", err, truncate(string(line), 200))
-			continue
-		}
-
-		if resp.IsNotification() {
-			// Notificação de mensagem recebida
-			s.handleNotification(resp)
-		} else if resp.ID != nil {
-			// Resposta a uma requisição pendente
-			s.pendingMu.Lock()
-			ch, ok := s.pending[*resp.ID]
-			s.pendingMu.Unlock()
-
-			if ok {
-				ch <- resp
-			} else {
-				fmt.Printf("[Signal] Resposta para request desconhecido: id=%s\n", *resp.ID)
+		_, message, err := conn.ReadMessage()
+		if err != nil {
+			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
+				fmt.Println("[Signal] WebSocket fechado normalmente")
+				return
 			}
+			if s.ctx.Err() != nil {
+				return // Contexto cancelado
+			}
+			fmt.Printf("[Signal] Erro ao ler WebSocket: %v\n", err)
+			s.reconnectWebSocket()
+			continue
 		}
-	}
 
-	if err := scanner.Err(); err != nil {
-		fmt.Printf("[Signal] Erro no reader: %v\n", err)
+		s.handleWSMessage(message)
 	}
-	fmt.Println("[Signal] Read loop encerrado")
 }
 
-// handleNotification processa uma notificação de mensagem recebida do signal-cli.
-func (s *SignalAdapter) handleNotification(resp jsonRPCResponse) {
-	if resp.Method != "receive" {
+// handleWSMessage processa uma mensagem recebida via WebSocket.
+func (s *SignalAdapter) handleWSMessage(data []byte) {
+	var envelope wsEnvelope
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		fmt.Printf("[Signal] Erro ao parsear mensagem WS: %v (dados: %s)\n", err, truncate(string(data), 200))
 		return
 	}
 
-	var notification receiveNotification
-	if err := json.Unmarshal(resp.Params, &notification); err != nil {
-		fmt.Printf("[Signal] Erro ao parsear notificação: %v\n", err)
+	if envelope.Envelope == nil {
 		return
 	}
 
-	env := notification.Envelope
+	env := envelope.Envelope
 
-	// Extrai texto da mensagem (dataMessage ou syncMessage)
+	// Extrai texto da mensagem (dataMessage)
 	var text string
 	if env.DataMessage != nil && env.DataMessage.Message != "" {
 		text = env.DataMessage.Message
@@ -276,7 +289,7 @@ func (s *SignalAdapter) handleNotification(resp jsonRPCResponse) {
 		return
 	}
 
-	// Usa sourceNumber como ID do contato (número de telefone)
+	// Usa sourceNumber como ID do contato
 	contactID := env.SourceNumber
 	if contactID == "" {
 		contactID = env.Source
@@ -300,23 +313,39 @@ func (s *SignalAdapter) handleNotification(resp jsonRPCResponse) {
 	go handler(ctx, msg)
 }
 
-// waitProcess aguarda o processo signal-cli terminar e atualiza o status.
-func (s *SignalAdapter) waitProcess() {
-	if s.cmd == nil {
-		return
+// reconnectWebSocket tenta reconectar ao WebSocket com backoff exponencial.
+func (s *SignalAdapter) reconnectWebSocket() {
+	s.mu.Lock()
+	if s.wsConn != nil {
+		s.wsConn.Close()
+		s.wsConn = nil
 	}
+	s.mu.Unlock()
 
-	err := s.cmd.Wait()
-	if err != nil {
-		// Verifica se foi cancelamento normal (ctx.Done)
-		if s.ctx.Err() != nil {
-			fmt.Println("[Signal] Processo encerrado (contexto cancelado)")
-		} else {
-			fmt.Printf("[Signal] Processo encerrado com erro: %v\n", err)
-			s.setStatus(messaging.StatusError)
+	backoff := time.Second
+	maxBackoff := 60 * time.Second
+
+	for {
+		select {
+		case <-s.ctx.Done():
+			return
+		case <-time.After(backoff):
 		}
-	} else {
-		fmt.Println("[Signal] Processo encerrado normalmente")
+
+		fmt.Printf("[Signal] Tentando reconectar WebSocket (backoff=%s)...\n", backoff)
+
+		if err := s.connectWebSocket(); err != nil {
+			fmt.Printf("[Signal] Reconexão falhou: %v\n", err)
+			backoff *= 2
+			if backoff > maxBackoff {
+				backoff = maxBackoff
+			}
+			continue
+		}
+
+		fmt.Println("[Signal] WebSocket reconectado com sucesso")
+		s.setStatus(messaging.StatusConnected)
+		return
 	}
 }
 
