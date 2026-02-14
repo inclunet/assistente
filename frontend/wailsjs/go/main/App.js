@@ -26,8 +26,8 @@ export function AssignConversationToChannel(arg1, arg2, arg3) {
   return window['go']['main']['App']['AssignConversationToChannel'](arg1, arg2, arg3);
 }
 
-export function AuthorizeMessagingContact(arg1, arg2) {
-  return window['go']['main']['App']['AuthorizeMessagingContact'](arg1, arg2);
+export function AuthorizeMessagingContactFull(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['AuthorizeMessagingContactFull'](arg1, arg2, arg3, arg4);
 }
 
 export function ClearConversation(arg1) {
@@ -118,6 +118,10 @@ export function ExportConversations(arg1) {
   return window['go']['main']['App']['ExportConversations'](arg1);
 }
 
+export function GenerateAndSaveMessageAudio(arg1, arg2) {
+  return window['go']['main']['App']['GenerateAndSaveMessageAudio'](arg1, arg2);
+}
+
 export function GetActiveProfile() {
   return window['go']['main']['App']['GetActiveProfile']();
 }
@@ -128,6 +132,10 @@ export function GetActiveProfileSlug() {
 
 export function GetActiveTab() {
   return window['go']['main']['App']['GetActiveTab']();
+}
+
+export function GetAllChannelConfigs() {
+  return window['go']['main']['App']['GetAllChannelConfigs']();
 }
 
 export function GetAllTabs() {
@@ -150,12 +158,20 @@ export function GetAllowlists() {
   return window['go']['main']['App']['GetAllowlists']();
 }
 
+export function GetAuthorizedContacts() {
+  return window['go']['main']['App']['GetAuthorizedContacts']();
+}
+
 export function GetAvailableChannels() {
   return window['go']['main']['App']['GetAvailableChannels']();
 }
 
 export function GetAvailableTools() {
   return window['go']['main']['App']['GetAvailableTools']();
+}
+
+export function GetChannelConfig(arg1) {
+  return window['go']['main']['App']['GetChannelConfig'](arg1);
 }
 
 export function GetConfig() {
@@ -206,16 +222,16 @@ export function GetMCPServerTools(arg1) {
   return window['go']['main']['App']['GetMCPServerTools'](arg1);
 }
 
+export function GetMessageAudio(arg1) {
+  return window['go']['main']['App']['GetMessageAudio'](arg1);
+}
+
 export function GetMessageChildren(arg1) {
   return window['go']['main']['App']['GetMessageChildren'](arg1);
 }
 
 export function GetMessages(arg1, arg2) {
   return window['go']['main']['App']['GetMessages'](arg1, arg2);
-}
-
-export function GetMessagingConfig() {
-  return window['go']['main']['App']['GetMessagingConfig']();
 }
 
 export function GetMessagingStatus() {
@@ -326,6 +342,10 @@ export function ReloadLLMClient() {
   return window['go']['main']['App']['ReloadLLMClient']();
 }
 
+export function RemoveAuthorizedContact(arg1, arg2) {
+  return window['go']['main']['App']['RemoveAuthorizedContact'](arg1, arg2);
+}
+
 export function RenameConversation(arg1, arg2) {
   return window['go']['main']['App']['RenameConversation'](arg1, arg2);
 }
@@ -350,16 +370,24 @@ export function RespondCommandConfirmation(arg1, arg2) {
   return window['go']['main']['App']['RespondCommandConfirmation'](arg1, arg2);
 }
 
+export function RestartChannel(arg1) {
+  return window['go']['main']['App']['RestartChannel'](arg1);
+}
+
 export function RunTerminalCommand(arg1, arg2) {
   return window['go']['main']['App']['RunTerminalCommand'](arg1, arg2);
+}
+
+export function SaveChannelConfig(arg1, arg2) {
+  return window['go']['main']['App']['SaveChannelConfig'](arg1, arg2);
 }
 
 export function SaveMCPServer(arg1, arg2) {
   return window['go']['main']['App']['SaveMCPServer'](arg1, arg2);
 }
 
-export function SaveMessagingConfig(arg1) {
-  return window['go']['main']['App']['SaveMessagingConfig'](arg1);
+export function SaveMessageAudio(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SaveMessageAudio'](arg1, arg2, arg3);
 }
 
 export function SaveSettings(arg1) {

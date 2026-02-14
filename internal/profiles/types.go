@@ -51,7 +51,21 @@ type VoiceConfig struct {
 	Volume          float64 `json:"volume"`             // Volume (0-1)
 	EnabledForAgent bool    `json:"enabled_for_agent"`  // TTS para mensagens do assistente
 	EnabledForUser  bool    `json:"enabled_for_user"`   // TTS para mensagens do usuário
+
+	// ChannelResponseMode define como o canal externo responde em relação ao formato de mídia.
+	// Afeta apenas conversas via canais (Signal, Telegram, etc.) — não afeta o desktop.
+	//   "mirror"       (padrão) — espelha o formato: texto→texto, áudio→áudio
+	//   "always_text"  — sempre responde em texto, mesmo se recebeu áudio
+	//   "always_audio" — sempre responde em áudio (TTS), mesmo se recebeu texto
+	ChannelResponseMode string `json:"channel_response_mode,omitempty"`
 }
+
+// Channel response mode constants
+const (
+	ChannelResponseMirror      = "mirror"       // texto→texto, áudio→áudio (padrão)
+	ChannelResponseAlwaysText  = "always_text"  // sempre texto
+	ChannelResponseAlwaysAudio = "always_audio" // sempre áudio (TTS)
+)
 
 // InteractionConfig define as configurações de interação por voz
 type InteractionConfig struct {
@@ -167,6 +181,12 @@ func (p *Profile) Validate() error {
 		return fmt.Errorf("voice.provider must be one of: disabled, webspeech, sapi5, openai")
 	}
 
+	// Validação do modo de resposta para canais
+	validChannelModes := []string{"", ChannelResponseMirror, ChannelResponseAlwaysText, ChannelResponseAlwaysAudio}
+	if !containsStr(validChannelModes, p.Voice.ChannelResponseMode) {
+		return fmt.Errorf("voice.channel_response_mode must be one of: mirror, always_text, always_audio")
+	}
+
 	// Validação da interação
 	validSTTProviders := []string{"webspeech", "whisper_api", ""}
 	if !containsStr(validSTTProviders, p.Interaction.STTProvider) {
@@ -203,6 +223,29 @@ func (p *Profile) ShouldUseAriaLiveForUser() bool {
 // IsVoiceDisabled retorna true se o perfil não usa TTS
 func (p *Profile) IsVoiceDisabled() bool {
 	return p.Voice.Provider == "disabled" || (!p.Voice.EnabledForAgent && !p.Voice.EnabledForUser)
+}
+
+// GetChannelResponseMode retorna o modo de resposta efetivo para canais externos.
+func (p *Profile) GetChannelResponseMode() string {
+	if p.Voice.ChannelResponseMode == "" {
+		return ChannelResponseMirror
+	}
+	return p.Voice.ChannelResponseMode
+}
+
+// ShouldRespondWithAudio retorna se o canal deve responder com áudio dado o modo e se a mensagem original era áudio.
+func (p *Profile) ShouldRespondWithAudio(incomingIsAudio bool) bool {
+	mode := p.GetChannelResponseMode()
+	switch mode {
+	case ChannelResponseAlwaysAudio:
+		return true
+	case ChannelResponseAlwaysText:
+		return false
+	case ChannelResponseMirror:
+		return incomingIsAudio
+	default:
+		return incomingIsAudio // fallback = mirror
+	}
 }
 
 func containsStr(slice []string, item string) bool {

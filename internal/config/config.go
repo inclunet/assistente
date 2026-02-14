@@ -28,55 +28,17 @@ type STTParams struct {
 	RecordingMode string `json:"recording_mode,omitempty"` // "ptt", "toggle", "vad_silence", "vad_activity"
 }
 
-// ChannelConfig contém a configuração de um canal de mensageria (Telegram, Signal, etc.).
-type ChannelConfig struct {
-	Enabled         bool     `json:"enabled"`
-	BotToken        string   `json:"bot_token,omitempty"`      // Telegram: token do bot (@BotFather)
-	Account         string   `json:"account,omitempty"`        // Signal: número de telefone da conta vinculada
-	APIURL          string   `json:"api_url,omitempty"`        // Signal: URL da signal-cli-rest-api (ex: "http://signal-api:8080")
-	AllowedContacts []string `json:"allowed_contacts"`         // IDs de contatos autorizados
-	Profile         string   `json:"profile,omitempty"`        // Perfil de chat a usar (vazio = ativo)
-	MaxHistory      int      `json:"max_history,omitempty"`    // Mensagens no contexto (0 = padrão)
-}
-
-// MessagingConfig contém a configuração de todos os canais de mensageria.
-type MessagingConfig struct {
-	Telegram *ChannelConfig `json:"telegram,omitempty"`
-	Signal   *ChannelConfig `json:"signal,omitempty"`
-}
-
-// Config representa a configuração da aplicação
+// Config representa a configuração da aplicação.
+// NOTA: Configuração de canais de mensageria foi movida para .assistente/channels/<nome>/config.json
+// (pacote internal/channels). Contatos autorizados em .assistente/contacts.json (pacote internal/contacts).
 type Config struct {
-	APIKey          string           `json:"api_key"`
-	APIBaseURL      string           `json:"api_base_url"`
-	DefaultModel    string           `json:"default_model,omitempty"`
-	ResponseTimeout int              `json:"response_timeout,omitempty"` // Timeout em segundos para aguardar resposta da API (padrão: 180)
-	ActiveProfile   string           `json:"active_profile,omitempty"`   // Nome (slug) do perfil de conversa ativo
-	ChatParams      ModelParams      `json:"chat_params,omitempty"`
-	STTParams       STTParams        `json:"stt_params,omitempty"`
-	Messaging       *MessagingConfig `json:"messaging,omitempty"`        // Configuração de mensageiros (Telegram, Signal)
-}
-
-// IsContactAllowed verifica se um contato está na allowlist de um canal.
-// Se allowlist está vazia, REJEITA tudo (segurança por padrão).
-// Use "*" na allowlist para permitir qualquer contato.
-// Compara contra todos os identificadores fornecidos
-// (ex: número de telefone E UUID do Signal).
-func IsContactAllowed(cfg *ChannelConfig, identifiers ...string) bool {
-	if cfg == nil || len(cfg.AllowedContacts) == 0 {
-		return false
-	}
-	for _, allowed := range cfg.AllowedContacts {
-		if allowed == "*" {
-			return true
-		}
-		for _, id := range identifiers {
-			if id != "" && allowed == id {
-				return true
-			}
-		}
-	}
-	return false
+	APIKey          string      `json:"api_key"`
+	APIBaseURL      string      `json:"api_base_url"`
+	DefaultModel    string      `json:"default_model,omitempty"`
+	ResponseTimeout int         `json:"response_timeout,omitempty"` // Timeout em segundos para aguardar resposta da API (padrão: 180)
+	ActiveProfile   string      `json:"active_profile,omitempty"`   // Nome (slug) do perfil de conversa ativo
+	ChatParams      ModelParams `json:"chat_params,omitempty"`
+	STTParams       STTParams   `json:"stt_params,omitempty"`
 }
 
 // DefaultConfig retorna a configuração padrão

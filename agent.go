@@ -39,9 +39,9 @@ type agenticStreamHandler struct {
 	iteration      int // Número da iteração atual do loop
 
 	// Acumuladores de conteúdo
-	accumulatedContent  string
+	accumulatedContent   string
 	accumulatedReasoning string
-	isThinking          bool
+	isThinking           bool
 
 	// Throttling para eventos de streaming
 	mu            sync.Mutex
@@ -405,6 +405,7 @@ func (a *App) runAgenticLoop(
 
 // saveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
 func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
+	var savedMsgID uint
 	if conversationID > 0 && result.FullResponse != "" {
 		// Se houve tool calls no turno, salva com TurnID
 		opts := database.MessageOptions{
@@ -431,12 +432,13 @@ func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
 			fmt.Printf("❌ Erro ao salvar resposta final do assistant: %v\n", err)
 		} else {
 			fmt.Printf("✅ [AGENT] Resposta final salva: ID=%d\n", msg.ID)
+			savedMsgID = msg.ID
 		}
 	}
 
 	// Notifica o gateway de mensageria (se há callbacks pendentes para esta conversa)
 	if a.responseNotifier != nil {
-		a.responseNotifier.Notify(conversationID, result.FullResponse)
+		a.responseNotifier.Notify(conversationID, result.FullResponse, savedMsgID)
 	}
 
 	// Emite evento final de streaming

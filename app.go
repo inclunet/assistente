@@ -9,9 +9,11 @@ import (
 	"time"
 
 	"assistente/internal/allowlist"
+	"assistente/internal/channels"
 	"assistente/internal/config"
 	"assistente/internal/configdir"
 	"assistente/internal/confirmation"
+	"assistente/internal/contacts"
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
@@ -19,13 +21,13 @@ import (
 	"assistente/internal/messaging"
 	"assistente/internal/messaging/signal"
 	"assistente/internal/messaging/telegram"
-	msgtool "assistente/internal/tools/messaging"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 	"assistente/internal/tools/filesystem"
+	msgtool "assistente/internal/tools/messaging"
 	"assistente/internal/tools/shell"
 	"assistente/internal/tools/web"
 
@@ -39,13 +41,13 @@ type App struct {
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
 	profileManager        *profiles.Manager
-	toolRegistry          *tools.Registry       // Registro de ferramentas disponíveis
-	toolExecutor          *tools.Executor       // Executor de ferramentas com paralelismo e timeout
-	terminalMgr           *terminal.Manager     // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
-	confirmationMgr       *confirmation.Manager // Gerenciador de confirmações de comandos
-	allowlistMgr          *allowlist.Manager    // Gerenciador de allowlists de comandos
-	mcpMgr                *mcpmgr.Manager       // Gerenciador de servidores MCP
-	skillMgr              *skills.Manager       // Gerenciador de skills
+	toolRegistry          *tools.Registry             // Registro de ferramentas disponíveis
+	toolExecutor          *tools.Executor             // Executor de ferramentas com paralelismo e timeout
+	terminalMgr           *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
+	confirmationMgr       *confirmation.Manager       // Gerenciador de confirmações de comandos
+	allowlistMgr          *allowlist.Manager          // Gerenciador de allowlists de comandos
+	mcpMgr                *mcpmgr.Manager             // Gerenciador de servidores MCP
+	skillMgr              *skills.Manager             // Gerenciador de skills
 	responseNotifier      *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway            *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	voiceHotkeyID         int
@@ -221,38 +223,77 @@ func (a *App) initMCP() {
 	log.Printf("[MCP] Manager inicializado")
 }
 
-// initMessaging inicializa o gateway de mensageria (Telegram, futuramente Signal/WhatsApp).
+// initMessaging inicializa o gateway de mensageria usando configs de .assistente/channels/.
 func (a *App) initMessaging() {
 	// ResponseNotifier — permite ao gateway capturar respostas para reenvio
 	a.responseNotifier = messaging.NewResponseNotifier()
-
-	// Carrega configuração de mensageria do config.json
-	cfg, err := config.Load()
-	if err != nil {
-		log.Printf("[Messaging] Erro ao carregar config: %v", err)
-		return
-	}
-	msgConfig := cfg.Messaging
-	if msgConfig == nil {
-		log.Printf("[Messaging] Nenhum mensageiro configurado (messaging ausente no config.json)")
-		msgConfig = &config.MessagingConfig{} // vazio para evitar nil
-	}
 
 	emitEvent := func(event string, data any) {
 		runtime.EventsEmit(a.ctx, event, data)
 	}
 
-	// Função TTS para sintetizar respostas em áudio (quando mensagem original era áudio).
-	// Usa ensureSpeechManager() para lazy-init — speechManager pode não existir no startup.
-	synthesizeTTS := messaging.SynthesizeTTSFunc(func(text string) ([]byte, error) {
+	// Função TTS para sintetizar respostas em áudio para canais externos.
+	// Resolve o perfil do canal e usa ChannelResponseMode para decidir se gera TTS:
+	//   - "mirror" (padrão): áudio→áudio, texto→texto
+	//   - "always_text":     nunca gera TTS
+	//   - "always_audio":    sempre gera TTS
+	// Retorna (nil, nil) se não deve gerar áudio (gateway enviará texto).
+	synthesizeTTS := messaging.SynthesizeTTSFunc(func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
+		// Resolve o perfil do canal
+		var profile *profiles.Profile
+		if chCfg, _ := channels.Load(channel); chCfg != nil && chCfg.Profile != "" {
+			if p, err := a.profileManager.Get(chCfg.Profile); err == nil {
+				profile = p
+			}
+		}
+		if profile == nil {
+			if p, err := a.profileManager.GetActive(); err == nil {
+				profile = p
+			}
+		}
+
+		// Consulta ChannelResponseMode do perfil para decidir se gera áudio
+		if profile != nil {
+			if !profile.ShouldRespondWithAudio(incomingIsAudio) {
+				log.Printf("[TTS-Channel] Modo '%s': não gerar áudio para canal %s (incoming_audio=%v)",
+					profile.GetChannelResponseMode(), channel, incomingIsAudio)
+				return nil, nil
+			}
+		} else {
+			// Sem perfil: fallback para mirror
+			if !incomingIsAudio {
+				return nil, nil
+			}
+		}
+
+		// Verifica se o provider de voz suporta canais externos
+		if profile != nil {
+			if profile.Voice.Provider == "disabled" || profile.Voice.Provider == "" {
+				log.Printf("[TTS-Channel] Voz desabilitada no perfil para canal %s — respondendo com texto", channel)
+				return nil, nil
+			}
+			// WebSpeech e SAPI5 são providers locais do desktop — não funcionam para canais externos
+			if profile.Voice.Provider == "webspeech" || profile.Voice.Provider == "sapi5" {
+				log.Printf("[TTS-Channel] Provider '%s' é local e não suporta canais externos — respondendo com texto", profile.Voice.Provider)
+				return nil, nil
+			}
+		}
+
 		if !a.ensureSpeechManager() {
 			return nil, fmt.Errorf("speech manager indisponível para TTS")
 		}
-		result, err := a.speechManager.Synthesize(text)
+
+		// Usa a voz do perfil se especificada, senão usa Synthesize padrão
+		var result *speech.SynthesisResult
+		var err error
+		if profile != nil && profile.Voice.VoiceID != "" {
+			result, err = a.speechManager.SynthesizeWithVoice(text, profile.Voice.VoiceID)
+		} else {
+			result, err = a.speechManager.Synthesize(text)
+		}
 		if err != nil {
 			return nil, err
 		}
-		// Decodifica base64 para bytes
 		audioBytes, err := base64.StdEncoding.DecodeString(result.AudioBase64)
 		if err != nil {
 			return nil, fmt.Errorf("erro ao decodificar áudio TTS: %w", err)
@@ -260,18 +301,24 @@ func (a *App) initMessaging() {
 		return audioBytes, nil
 	})
 
-	// Cria o gateway com referência para SendMessageFromChannel
+	// Cria o gateway
 	a.msgGateway = messaging.NewGateway(
 		a.responseNotifier,
-		msgConfig,
 		a.SendMessageFromChannel,
 		emitEvent,
 		synthesizeTTS,
+		database.SaveMessageAudio,
 	)
 
+	// Carrega canais habilitados de .assistente/channels/
+	enabledChannels, err := channels.LoadEnabled()
+	if err != nil {
+		log.Printf("[Messaging] Erro ao carregar canais: %v", err)
+	}
+
 	// Telegram
-	if msgConfig.Telegram != nil && msgConfig.Telegram.Enabled && msgConfig.Telegram.BotToken != "" {
-		adapter := telegram.NewAdapter(msgConfig.Telegram.BotToken)
+	if cfg, ok := enabledChannels["telegram"]; ok && cfg.BotToken != "" {
+		adapter := telegram.NewAdapter(cfg.BotToken)
 		a.msgGateway.Register("telegram", adapter)
 		go func() {
 			if err := adapter.Connect(a.ctx); err != nil {
@@ -284,15 +331,15 @@ func (a *App) initMessaging() {
 	}
 
 	// Signal (via signal-cli-rest-api HTTP + WebSocket)
-	if msgConfig.Signal != nil && msgConfig.Signal.Enabled && msgConfig.Signal.Account != "" && msgConfig.Signal.APIURL != "" {
-		adapter := signal.NewAdapter(msgConfig.Signal.APIURL, msgConfig.Signal.Account)
+	if cfg, ok := enabledChannels["signal"]; ok && cfg.Account != "" && cfg.APIURL != "" {
+		adapter := signal.NewAdapter(cfg.APIURL, cfg.Account)
 		a.msgGateway.Register("signal", adapter)
 		go func() {
 			if err := adapter.Connect(a.ctx); err != nil {
 				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
 			}
 		}()
-		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", msgConfig.Signal.APIURL, msgConfig.Signal.Account)
+		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", cfg.APIURL, cfg.Account)
 	} else {
 		log.Printf("[Messaging] Signal não configurado ou desabilitado")
 	}
@@ -320,24 +367,93 @@ func (a *App) GetMessagingStatus() map[string]string {
 	return result
 }
 
-// GetMessagingConfig retorna a configuração de mensageria atual.
-func (a *App) GetMessagingConfig() (*config.MessagingConfig, error) {
-	cfg, err := config.Load()
+// GetChannelConfig retorna a configuração de um canal de mensageria.
+func (a *App) GetChannelConfig(channelName string) (*channels.ChannelConfig, error) {
+	cfg, err := channels.Load(channelName)
 	if err != nil {
 		return nil, err
 	}
-	if cfg.Messaging == nil {
-		return &config.MessagingConfig{}, nil
+	if cfg == nil {
+		return &channels.ChannelConfig{}, nil
 	}
-	return cfg.Messaging, nil
+	return cfg, nil
 }
 
-// SaveMessagingConfig salva a configuração de mensageria dentro do config.json.
-func (a *App) SaveMessagingConfig(msgCfg *config.MessagingConfig) error {
-	return config.Update(func(c *config.Config) *config.Config {
-		c.Messaging = msgCfg
-		return c
-	})
+// SaveChannelConfig salva a configuração de um canal e reconecta automaticamente.
+func (a *App) SaveChannelConfig(channelName string, cfg *channels.ChannelConfig) error {
+	if err := channels.Save(channelName, cfg); err != nil {
+		return err
+	}
+	// Reconecta o canal com a nova configuração
+	a.restartChannel(channelName, cfg)
+	return nil
+}
+
+// RestartChannel reconecta um canal de mensageria (exposto ao frontend).
+func (a *App) RestartChannel(channelName string) error {
+	cfg, err := channels.Load(channelName)
+	if err != nil {
+		return fmt.Errorf("erro ao carregar config do canal %s: %w", channelName, err)
+	}
+	if cfg == nil {
+		return fmt.Errorf("canal %s não configurado", channelName)
+	}
+	a.restartChannel(channelName, cfg)
+	return nil
+}
+
+// restartChannel desconecta o canal anterior (se houver) e reconecta com a nova config.
+func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
+	if a.msgGateway == nil {
+		log.Printf("[Messaging] Gateway não inicializado, ignorando restart de %s", channelName)
+		return
+	}
+
+	// Desconecta o adapter anterior
+	a.msgGateway.Unregister(channelName)
+
+	if !cfg.Enabled {
+		log.Printf("[Messaging] Canal %s desabilitado", channelName)
+		return
+	}
+
+	switch channelName {
+	case "telegram":
+		if cfg.BotToken == "" {
+			log.Printf("[Messaging] Telegram: bot token vazio, não conectando")
+			return
+		}
+		adapter := telegram.NewAdapter(cfg.BotToken)
+		a.msgGateway.Register("telegram", adapter)
+		go func() {
+			if err := adapter.Connect(a.ctx); err != nil {
+				log.Printf("[Messaging] Erro ao conectar Telegram: %v", err)
+			}
+		}()
+		log.Printf("[Messaging] Telegram reconectado")
+
+	case "signal":
+		if cfg.Account == "" || cfg.APIURL == "" {
+			log.Printf("[Messaging] Signal: conta ou URL da API vazios, não conectando")
+			return
+		}
+		adapter := signal.NewAdapter(cfg.APIURL, cfg.Account)
+		a.msgGateway.Register("signal", adapter)
+		go func() {
+			if err := adapter.Connect(a.ctx); err != nil {
+				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
+			}
+		}()
+		log.Printf("[Messaging] Signal reconectado (api=%s, account=%s)", cfg.APIURL, cfg.Account)
+
+	default:
+		log.Printf("[Messaging] Canal desconhecido: %s", channelName)
+	}
+}
+
+// GetAllChannelConfigs retorna as configurações de todos os canais.
+func (a *App) GetAllChannelConfigs() (map[string]*channels.ChannelConfig, error) {
+	return channels.ListAll()
 }
 
 // SignalRegister inicia o registro de uma conta Signal via signal-cli-rest-api.
@@ -379,57 +495,41 @@ func (a *App) SignalListAccounts(apiURL string) ([]string, error) {
 	return signal.ListAccounts(apiURL)
 }
 
-// AuthorizeMessagingContact adiciona um contato à lista de contatos autorizados de um canal.
-// Salva a alteração no config.json e recarrega a config do gateway.
-func (a *App) AuthorizeMessagingContact(channel, contactID string) error {
+// AuthorizeMessagingContactFull autoriza um contato em um canal.
+// Respeita o limite max_contacts configurado no canal.
+func (a *App) AuthorizeMessagingContactFull(channel, contactID, displayName, username string) error {
 	if channel == "" || contactID == "" {
 		return fmt.Errorf("canal e ID do contato são obrigatórios")
 	}
 
-	err := config.Update(func(c *config.Config) *config.Config {
-		if c.Messaging == nil {
-			c.Messaging = &config.MessagingConfig{}
-		}
-
-		var ch *config.ChannelConfig
-		switch channel {
-		case "telegram":
-			if c.Messaging.Telegram == nil {
-				c.Messaging.Telegram = &config.ChannelConfig{Enabled: true}
-			}
-			ch = c.Messaging.Telegram
-		case "signal":
-			if c.Messaging.Signal == nil {
-				c.Messaging.Signal = &config.ChannelConfig{Enabled: true}
-			}
-			ch = c.Messaging.Signal
-		default:
-			return c
-		}
-
-		// Verifica se já está na lista
-		for _, existing := range ch.AllowedContacts {
-			if existing == contactID {
-				return c // já autorizado
-			}
-		}
-		ch.AllowedContacts = append(ch.AllowedContacts, contactID)
-		return c
-	})
-	if err != nil {
-		return fmt.Errorf("erro ao salvar autorização: %w", err)
+	// Obtém max_contacts do config do canal
+	maxContacts := 1
+	if chCfg, _ := channels.Load(channel); chCfg != nil {
+		maxContacts = chCfg.GetMaxContacts()
 	}
 
-	// Atualiza a config do gateway em memória
-	if a.msgGateway != nil {
-		cfg, err := config.Load()
-		if err == nil && cfg.Messaging != nil {
-			a.msgGateway.UpdateConfig(cfg.Messaging)
-		}
+	if err := contacts.Authorize(channel, contactID, displayName, username, maxContacts); err != nil {
+		return fmt.Errorf("erro ao autorizar: %w", err)
 	}
-
-	log.Printf("[Messaging] Contato %s autorizado no canal %s", contactID, channel)
+	log.Printf("[Contacts] Contato %s (%s) autorizado no canal %s", displayName, contactID, channel)
 	return nil
+}
+
+// RemoveAuthorizedContact remove um contato específico de um canal.
+func (a *App) RemoveAuthorizedContact(channel, contactID string) error {
+	if channel == "" || contactID == "" {
+		return fmt.Errorf("canal e ID do contato são obrigatórios")
+	}
+	if err := contacts.Remove(channel, contactID); err != nil {
+		return fmt.Errorf("erro ao remover contato: %w", err)
+	}
+	log.Printf("[Contacts] Contato %s removido do canal %s", contactID, channel)
+	return nil
+}
+
+// GetAuthorizedContacts retorna todos os contatos autorizados (mapa canal → lista).
+func (a *App) GetAuthorizedContacts() (contacts.ContactsFile, error) {
+	return contacts.GetAll()
 }
 
 // registerChannelBridge verifica se uma conversa pertence a um canal externo (Signal, Telegram).
@@ -451,7 +551,7 @@ func (a *App) registerChannelBridge(conversationID uint) {
 	a.responseNotifier.Register(conversationID, messaging.ResponseCallback{
 		Channel: conv.Channel,
 		ChatID:  conv.ContactID,
-		Callback: func(response string) {
+		Callback: func(response string, assistantMsgID uint) {
 			err := messenger.Send(context.Background(), messaging.OutgoingMessage{
 				ChatID: conv.ContactID,
 				Text:   response,
@@ -467,51 +567,42 @@ func (a *App) registerChannelBridge(conversationID uint) {
 
 // ChannelInfo descreve um canal de mensageria disponível para atribuição.
 type ChannelInfo struct {
-	Name      string   `json:"name"`      // "signal", "telegram"
-	Connected bool     `json:"connected"` // se está conectado e funcional
-	Contacts  []string `json:"contacts"`  // contatos permitidos (do config)
+	Name        string                       `json:"name"`        // "signal", "telegram"
+	Connected   bool                         `json:"connected"`   // se está conectado e funcional
+	Contacts    []*contacts.AuthorizedContact `json:"contacts"`   // contatos autorizados
+	MaxContacts int                          `json:"maxContacts"` // limite de contatos
 }
 
-// GetAvailableChannels retorna os canais de mensageria habilitados, seu status e contatos.
+// GetAvailableChannels retorna os canais habilitados, seu status e contatos autorizados.
 func (a *App) GetAvailableChannels() []ChannelInfo {
-	cfg, err := config.Load()
-	if err != nil || cfg.Messaging == nil {
+	enabledChannels, err := channels.LoadEnabled()
+	if err != nil {
 		return nil
 	}
 
-	var channels []ChannelInfo
+	authorizedContacts, _ := contacts.GetAll()
 
-	// Verifica status dos messengers registrados
+	var result []ChannelInfo
+
 	var status map[string]messaging.ConnectionStatus
 	if a.msgGateway != nil {
 		status = a.msgGateway.GetStatus()
 	}
 
-	if cfg.Messaging.Signal != nil && cfg.Messaging.Signal.Enabled {
+	for name, cfg := range enabledChannels {
 		connected := false
-		if s, ok := status["signal"]; ok {
+		if s, ok := status[name]; ok {
 			connected = s == messaging.StatusConnected
 		}
-		channels = append(channels, ChannelInfo{
-			Name:      "signal",
-			Connected: connected,
-			Contacts:  cfg.Messaging.Signal.AllowedContacts,
+		result = append(result, ChannelInfo{
+			Name:        name,
+			Connected:   connected,
+			Contacts:    authorizedContacts[name],
+			MaxContacts: cfg.GetMaxContacts(),
 		})
 	}
 
-	if cfg.Messaging.Telegram != nil && cfg.Messaging.Telegram.Enabled {
-		connected := false
-		if s, ok := status["telegram"]; ok {
-			connected = s == messaging.StatusConnected
-		}
-		channels = append(channels, ChannelInfo{
-			Name:      "telegram",
-			Connected: connected,
-			Contacts:  cfg.Messaging.Telegram.AllowedContacts,
-		})
-	}
-
-	return channels
+	return result
 }
 
 // AssignConversationToChannel vincula uma conversa existente a um canal externo.
@@ -554,6 +645,52 @@ func (a *App) GetConversationChannel(conversationID uint) (string, string, error
 		return "", "", err
 	}
 	return conv.Channel, conv.ContactID, nil
+}
+
+// AudioResult é o resultado de busca/geração de áudio para o frontend.
+type AudioResult struct {
+	Audio    string `json:"audio"`
+	MimeType string `json:"mimeType"`
+}
+
+// GetMessageAudio retorna o áudio base64 e MIME type de uma mensagem.
+func (a *App) GetMessageAudio(messageID uint) (*AudioResult, error) {
+	audio, mime, err := database.GetMessageAudio(messageID)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar áudio: %w", err)
+	}
+	if audio == "" {
+		return nil, nil
+	}
+	return &AudioResult{Audio: audio, MimeType: mime}, nil
+}
+
+// SaveMessageAudio salva áudio (base64) numa mensagem existente.
+// Usado pelo frontend para persistir áudio gerado via TTS OpenAI.
+func (a *App) SaveMessageAudio(messageID uint, audioBase64 string, mimeType string) error {
+	return database.SaveMessageAudio(messageID, audioBase64, mimeType)
+}
+
+// GenerateAndSaveMessageAudio gera áudio TTS para uma mensagem e salva no DB.
+// Retorna o áudio base64 e MIME type. Usado pelo frontend para gerar+salvar+tocar.
+func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioResult, error) {
+	if !a.ensureSpeechManager() {
+		return nil, fmt.Errorf("speech manager indisponível")
+	}
+
+	result, err := a.speechManager.Synthesize(text)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao sintetizar TTS: %w", err)
+	}
+
+	mimeType := "audio/mpeg"
+	// Salva no DB
+	if err := database.SaveMessageAudio(messageID, result.AudioBase64, mimeType); err != nil {
+		log.Printf("[TTS] Erro ao salvar áudio no DB: %v", err)
+		// Retorna o áudio mesmo se falhar ao salvar
+	}
+
+	return &AudioResult{Audio: result.AudioBase64, MimeType: mimeType}, nil
 }
 
 // initToolRegistry inicializa o registro de ferramentas disponíveis

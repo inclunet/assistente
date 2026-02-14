@@ -41,7 +41,7 @@ export function ChatTabs() {
   const [contextMenu, setContextMenu] = useState<{
     visible: boolean; x: number; y: number; tabId: string;
   }>({ visible: false, x: 0, y: 0, tabId: '' });
-  const [availableChannels, setAvailableChannels] = useState<{ name: string; connected: boolean; contacts: string[] }[]>([]);
+  const [availableChannels, setAvailableChannels] = useState<{ name: string; connected: boolean; contacts?: { id: string; display_name: string; username?: string }[]; maxContacts?: number }[]>([]);
 
   // Carrega canais disponíveis quando o menu precisa
   useEffect(() => {
@@ -381,59 +381,57 @@ export function ChatTabs() {
       items.push({ id: 'sep-channel', separator: true });
 
       const channelSubmenu: MenuItem[] = connectedChannels.map((ch) => {
-        // Se o canal tem contatos, cria submenu com cada contato
-        if (ch.contacts && ch.contacts.length > 0) {
-          // Filtra wildcard (*)
-          const realContacts = ch.contacts.filter((c) => c !== '*');
-          if (realContacts.length === 1) {
-            // Atalho: se tem só 1 contato, atribui direto
-            return {
-              id: `assign-${ch.name}`,
-              label: `${ch.name} (${realContacts[0]})`,
-              icon: channelIcons[ch.name] || '🔗',
-              ariaLabel: `Atribuir ao ${ch.name}, contato ${realContacts[0]}`,
+        const chContacts = ch.contacts || [];
+        if (chContacts.length === 1) {
+          // Um contato — atribui direto
+          const c = chContacts[0];
+          const contactLabel = c.display_name || c.id;
+          return {
+            id: `assign-${ch.name}`,
+            label: `${ch.name} (${contactLabel})`,
+            icon: channelIcons[ch.name] || '🔗',
+            ariaLabel: `Atribuir ao ${ch.name}, contato ${contactLabel}`,
+            action: async () => {
+              closeContextMenu();
+              try {
+                await assignChannelToTab(tab.id, ch.name, c.id);
+                addToast(`Conversa vinculada ao ${ch.name}`, 'success');
+                announce(`Conversa vinculada ao ${ch.name}`);
+              } catch (err: any) {
+                addToast(err.message || 'Erro ao atribuir canal', 'error');
+              }
+            },
+          };
+        } else if (chContacts.length > 1) {
+          // Vários contatos — submenu
+          return {
+            id: `assign-${ch.name}`,
+            label: ch.name,
+            icon: channelIcons[ch.name] || '🔗',
+            ariaLabel: `Atribuir ao ${ch.name}`,
+            submenu: chContacts.map((c) => ({
+              id: `assign-${ch.name}-${c.id}`,
+              label: c.display_name || c.id,
+              ariaLabel: `Contato ${c.display_name || c.id}`,
               action: async () => {
                 closeContextMenu();
                 try {
-                  await assignChannelToTab(tab.id, ch.name, realContacts[0]);
+                  await assignChannelToTab(tab.id, ch.name, c.id);
                   addToast(`Conversa vinculada ao ${ch.name}`, 'success');
                   announce(`Conversa vinculada ao ${ch.name}`);
                 } catch (err: any) {
                   addToast(err.message || 'Erro ao atribuir canal', 'error');
                 }
               },
-            };
-          } else if (realContacts.length > 1) {
-            // Submenu com cada contato
-            return {
-              id: `assign-${ch.name}`,
-              label: ch.name,
-              icon: channelIcons[ch.name] || '🔗',
-              ariaLabel: `Atribuir ao ${ch.name}`,
-              submenu: realContacts.map((contact) => ({
-                id: `assign-${ch.name}-${contact}`,
-                label: contact,
-                ariaLabel: `Contato ${contact}`,
-                action: async () => {
-                  closeContextMenu();
-                  try {
-                    await assignChannelToTab(tab.id, ch.name, contact);
-                    addToast(`Conversa vinculada ao ${ch.name} (${contact})`, 'success');
-                    announce(`Conversa vinculada ao ${ch.name}, contato ${contact}`);
-                  } catch (err: any) {
-                    addToast(err.message || 'Erro ao atribuir canal', 'error');
-                  }
-                },
-              })),
-            };
-          }
+            })),
+          };
         }
-        // Sem contatos configurados — item desabilitado
+        // Sem contatos autorizados — item desabilitado
         return {
           id: `assign-${ch.name}`,
           label: `${ch.name} (sem contatos)`,
           icon: channelIcons[ch.name] || '🔗',
-          ariaLabel: `${ch.name} sem contatos configurados`,
+          ariaLabel: `${ch.name} sem contatos autorizados`,
         };
       });
 

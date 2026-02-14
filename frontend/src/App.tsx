@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import './App.css';
-import { GetConfig, AuthorizeMessagingContact } from "../wailsjs/go/main/App";
+import { GetConfig, AuthorizeMessagingContactFull } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
 import { useUIStore } from './store/uiStore';
@@ -173,8 +173,13 @@ function App() {
             const identifier = contactAuthData.contactId || contactAuthData.username;
             const name = contactAuthData.displayName || identifier;
             try {
-                await AuthorizeMessagingContact(contactAuthData.channel, identifier);
-                addToast(`Contato ${name} autorizado no ${contactAuthData.channel}!`, 'success');
+                await AuthorizeMessagingContactFull(
+                    contactAuthData.channel,
+                    identifier,
+                    contactAuthData.displayName || '',
+                    contactAuthData.username || '',
+                );
+                addToast(`Contato ${name} autorizado como contato do ${contactAuthData.channel}!`, 'success');
             } catch (err: any) {
                 addToast(err.message || 'Erro ao autorizar contato', 'error');
             }
@@ -203,7 +208,7 @@ function App() {
 
     // Monta a mensagem descritiva para o dialog de autorização
     const contactAuthMessage = contactAuthData
-        ? `O contato ${contactAuthData.displayName || 'desconhecido'} enviou uma mensagem via ${contactAuthData.channel}, mas não está na lista de contatos autorizados.\n\nIdentificador: ${contactAuthData.contactId || contactAuthData.username}\n\nDeseja autorizar este contato?`
+        ? `O contato ${contactAuthData.displayName || 'desconhecido'} enviou uma mensagem via ${contactAuthData.channel}, mas nenhum contato está autorizado para este canal.\n\nIdentificador: ${contactAuthData.contactId || contactAuthData.username}\n\nDeseja definir este contato como o contato autorizado do ${contactAuthData.channel}? (Apenas um contato é permitido por canal.)`
         : '';
 
     return (

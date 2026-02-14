@@ -10,6 +10,7 @@ import TerminalPage from '../pages/TerminalPage';
 import AllowlistPage from '../pages/AllowlistPage';
 import SkillsPage from '../pages/SkillsPage';
 import McpPage from '../pages/McpPage';
+import ChannelsPage from '../pages/ChannelsPage';
 
 export const router = createHashRouter([
   {
@@ -38,6 +39,10 @@ export const router = createHashRouter([
           {
             path: 'mcp',
             element: <McpPage />,
+          },
+          {
+            path: 'channels',
+            element: <ChannelsPage />,
           },
           {
             path: 'settings',

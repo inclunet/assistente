@@ -18,8 +18,8 @@ type ResponseCallback struct {
 	// A resposta deve ser sintetizada em áudio (TTS) e enviada como attachment.
 	AudioOnly bool
 
-	// Callback é chamado com a resposta completa do assistente.
-	Callback func(response string)
+	// Callback é chamado com a resposta completa do assistente e o ID da mensagem salva.
+	Callback func(response string, assistantMessageID uint)
 }
 
 // ResponseNotifier permite ao Gateway registrar callbacks para capturar respostas
@@ -30,7 +30,7 @@ type ResponseCallback struct {
 //  2. Gateway registra callback via Register(conversationID, cb)
 //  3. Gateway chama App.SendMessage(conversationID, ...)
 //  4. Agentic loop roda normalmente (streaming para Wails)
-//  5. saveAndFinish chama Notify(conversationID, resposta)
+//  5. saveAndFinish chama Notify(conversationID, resposta, messageID)
 //  6. Callback dispara → Gateway reenvia ao Telegram
 //
 // Thread-safe para uso concorrente.
@@ -58,7 +58,8 @@ func (n *ResponseNotifier) Register(conversationID uint, cb ResponseCallback) {
 
 // Notify chama todos os callbacks registrados para uma conversa e os remove.
 // Se não há callbacks, não faz nada (zero overhead no fluxo normal do Wails).
-func (n *ResponseNotifier) Notify(conversationID uint, response string) {
+// assistantMessageID é o ID da mensagem do assistente salva no DB (0 se não disponível).
+func (n *ResponseNotifier) Notify(conversationID uint, response string, assistantMessageID uint) {
 	n.mu.Lock()
 	cbs, ok := n.callbacks[conversationID]
 	if ok {
@@ -70,11 +71,11 @@ func (n *ResponseNotifier) Notify(conversationID uint, response string) {
 		return
 	}
 
-	fmt.Printf("[Messaging] Notificando %d callback(s) para conversa %d\n", len(cbs), conversationID)
+	fmt.Printf("[Messaging] Notificando %d callback(s) para conversa %d (msgID=%d)\n", len(cbs), conversationID, assistantMessageID)
 	for _, cb := range cbs {
 		// Chama em goroutine para não bloquear o saveAndFinish
 		go func(c ResponseCallback) {
-			c.Callback(response)
+			c.Callback(response, assistantMessageID)
 		}(cb)
 	}
 }

@@ -201,6 +201,8 @@ type MessageOptions struct {
 	Content          string
 	Reasoning        string // Reasoning/thinking do modelo
 	Media            string // JSON com mídias
+	Audio            string // Áudio em base64 (recebido ou TTS)
+	AudioMimeType    string // MIME do áudio
 	ToolCalls        string // JSON: [{"id":"call_x","type":"function","function":{...}}]
 	ToolCallID       string // Para role="tool": ID da chamada que este resultado responde
 	PromptTokens     int
@@ -234,6 +236,8 @@ func CreateMessage(opts MessageOptions) (*ChatMessage, error) {
 		Content:          opts.Content,
 		Reasoning:        opts.Reasoning,
 		Media:            opts.Media,
+		Audio:            opts.Audio,
+		AudioMimeType:    opts.AudioMimeType,
 		ToolCalls:        opts.ToolCalls,
 		ToolCallID:       opts.ToolCallID,
 		PromptTokens:     opts.PromptTokens,
@@ -293,6 +297,31 @@ func AddMessageWithTokensAndMedia(conversationID uint, role, content, media stri
 		TotalTokens:      totalTokens,
 		Model:            model,
 	})
+}
+
+// GetMessageAudio retorna o áudio base64 e MIME de uma mensagem.
+// Retorna ("", "", nil) se a mensagem não tem áudio.
+func GetMessageAudio(messageID uint) (string, string, error) {
+	var msg ChatMessage
+	if err := db.Select("audio", "audio_mime_type").First(&msg, messageID).Error; err != nil {
+		return "", "", err
+	}
+	return msg.Audio, msg.AudioMimeType, nil
+}
+
+// SaveMessageAudio salva áudio (base64) numa mensagem existente.
+func SaveMessageAudio(messageID uint, audioBase64 string, mimeType string) error {
+	return db.Model(&ChatMessage{}).Where("id = ?", messageID).Updates(map[string]interface{}{
+		"audio":           audioBase64,
+		"audio_mime_type": mimeType,
+	}).Error
+}
+
+// HasMessageAudio verifica se uma mensagem tem áudio salvo.
+func HasMessageAudio(messageID uint) bool {
+	var count int64
+	db.Model(&ChatMessage{}).Where("id = ? AND audio != '' AND audio IS NOT NULL", messageID).Count(&count)
+	return count > 0
 }
 
 // AddToolMessage adiciona uma mensagem de role="tool" (resposta de tool ao orquestrador)

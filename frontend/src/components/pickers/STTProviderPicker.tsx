@@ -4,7 +4,7 @@ import './STTProviderPicker.css';
 
 // Constantes de provedores STT
 export const STT_WEBSPEECH = 'webspeech';
-export const STT_WHISPER = 'whisper';
+export const STT_WHISPER = 'whisper_api';
 
 export interface STTProviderPickerProps {
   value: string;

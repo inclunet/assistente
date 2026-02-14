@@ -297,54 +297,60 @@ export function getMessageMenuItems(
       action: () => onSpeak?.(message),
     });
     
-    // 2.1 Baixar áudio desta mensagem (usa cache se disponível)
+    // 2.1 Baixar audio desta mensagem (usa DB se disponivel)
     items.push({
       id: 'download-audio',
-      label: 'Baixar áudio desta mensagem',
+      label: 'Baixar audio desta mensagem',
       icon: '💾',
-      ariaLabel: 'Baixar áudio desta mensagem',
+      ariaLabel: 'Baixar audio desta mensagem',
       action: async () => {
         if (!message.content || !message.id) {
-          onAnnounce?.('Mensagem sem conteúdo');
+          onAnnounce?.('Mensagem sem conteudo');
           return;
         }
-        
+
         try {
           let audioBlob: Blob | null = null;
-          
-          // Verifica cache primeiro
-          audioBlob = messageAudioService.getCachedAudio(message.id);
-          
-          if (audioBlob) {
-            onAnnounce?.('Baixando do cache...');
-          } else {
-            // Não está em cache - sintetiza
-            onAnnounce?.('Sintetizando áudio...');
-            
-            const cleanText = stripMarkdown(message.content);
-            audioBlob = await ttsService.synthesizeOnDemand(cleanText);
-            
-            if (audioBlob) {
-              // Guarda no cache
-              messageAudioService.cacheAudio(message.id, audioBlob);
+          const numericId = typeof message.id === 'string' ? parseInt(message.id, 10) : message.id;
+
+          // 1. Verifica DB primeiro
+          if (numericId && !isNaN(numericId)) {
+            const dbAudio = await messageAudioService.getAudioFromDB(numericId);
+            if (dbAudio) {
+              onAnnounce?.('Baixando do banco...');
+              audioBlob = messageAudioService.base64ToBlob(dbAudio.audio, dbAudio.mimeType);
             }
           }
-          
+
+          // 2. Se nao tem no DB, gera via backend TTS e salva
+          if (!audioBlob && numericId && !isNaN(numericId)) {
+            onAnnounce?.('Sintetizando audio...');
+            const cleanText = stripMarkdown(message.content);
+            const generated = await messageAudioService.generateAndSaveAudio(numericId, cleanText);
+            if (generated) {
+              audioBlob = messageAudioService.base64ToBlob(generated.audio, generated.mimeType);
+            }
+          }
+
+          // 3. Fallback: sintetiza localmente
           if (!audioBlob) {
-            onAnnounce?.('Não foi possível sintetizar o áudio. Verifique se há um perfil de voz com provider que suporte síntese (OpenAI ou SAPI5).');
+            onAnnounce?.('Sintetizando audio...');
+            const cleanText = stripMarkdown(message.content);
+            audioBlob = await ttsService.synthesizeOnDemand(cleanText);
+          }
+
+          if (!audioBlob) {
+            onAnnounce?.('Nao foi possivel gerar audio. Configure um perfil de voz com provider OpenAI ou SAPI5.');
             return;
           }
-          
-          // Gera nome do arquivo com timestamp
+
           const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
           const filename = `mensagem-${timestamp}.mp3`;
-          
-          // Baixa o arquivo
           messageAudioService.downloadAudioBlob(audioBlob, filename);
-          onAnnounce?.('Áudio baixado com sucesso');
+          onAnnounce?.('Audio baixado com sucesso');
         } catch (error) {
-          console.error('Erro ao baixar áudio:', error);
-          onAnnounce?.('Erro ao sintetizar áudio');
+          console.error('Erro ao baixar audio:', error);
+          onAnnounce?.('Erro ao gerar audio');
         }
       },
     });

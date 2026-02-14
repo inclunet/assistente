@@ -839,6 +839,24 @@ export default function ProfilesPage() {
                       {t('profiles.fieldTTSUser', 'TTS para mensagens do usuário')}
                     </label>
                   </div>
+                  <div className="profiles-field">
+                    <label htmlFor="pf-channel-response" className="profiles-field__label">
+                      {t('profiles.fieldChannelResponse', 'Resposta em canais externos')}
+                    </label>
+                    <select
+                      id="pf-channel-response"
+                      className="profiles-field__select"
+                      value={editingProfile.voice?.channel_response_mode || 'mirror'}
+                      onChange={(e) => updateField('voice.channel_response_mode', e.target.value)}
+                    >
+                      <option value="mirror">Espelhar (texto→texto, áudio→áudio)</option>
+                      <option value="always_text">Sempre texto</option>
+                      <option value="always_audio">Sempre áudio (TTS)</option>
+                    </select>
+                    <p className="profiles-field__hint">
+                      Define como conversas via Signal, Telegram e outros canais respondem.
+                    </p>
+                  </div>
                 </>
               )}
             </div>

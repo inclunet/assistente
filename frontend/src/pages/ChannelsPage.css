@@ -1,0 +1,243 @@
+.channels-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+
+.channels-page__loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #a1a1aa;
+  font-size: 1rem;
+}
+
+.channels-page__title {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #e4e4e7);
+}
+
+/* ── Tabs ──────────────────────────────────────────────── */
+
+.channels-page__tabs {
+  display: flex;
+  gap: 0;
+  border-bottom: 1px solid var(--color-border, #3f3f46);
+  padding: 0 16px;
+}
+
+.channels-page__tab {
+  padding: 10px 20px;
+  font-size: 0.9rem;
+  font-weight: 500;
+  color: var(--color-text-secondary, #a1a1aa);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.channels-page__tab:hover {
+  color: var(--color-text-primary, #e4e4e7);
+}
+
+.channels-page__tab:focus-visible {
+  outline: 2px solid var(--color-accent, #60a5fa);
+  outline-offset: -2px;
+}
+
+.channels-page__tab--active {
+  color: var(--color-accent, #60a5fa);
+  border-bottom-color: var(--color-accent, #60a5fa);
+}
+
+/* ── Content ───────────────────────────────────────────── */
+
+.channels-page__content {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.channels-page__tab-description {
+  color: var(--color-text-secondary, #a1a1aa);
+  font-size: 0.875rem;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.channels-page__empty {
+  color: #71717a;
+  font-size: 0.875rem;
+  text-align: center;
+  padding: 2rem 0;
+}
+
+/* ── Editor (below grid) ───────────────────────────────── */
+
+.channels-page__editor {
+  border: 1px solid var(--color-border, #3f3f46);
+  border-radius: 8px;
+  padding: 16px;
+  background-color: var(--color-bg-secondary, #18181b);
+}
+
+.channels-page__editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+}
+
+.channels-page__editor-header h3 {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #e4e4e7);
+}
+
+.channels-page__editor-actions {
+  display: flex;
+  gap: 8px;
+}
+
+/* ── Fields ────────────────────────────────────────────── */
+
+.channels-page__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.channels-page__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1rem;
+}
+
+.channels-page__hint {
+  color: #a1a1aa;
+  font-size: 0.8rem;
+  margin-top: -0.5rem;
+  line-height: 1.4;
+}
+
+.channels-page__hint a {
+  color: #60a5fa;
+  text-decoration: none;
+}
+
+.channels-page__hint a:hover {
+  text-decoration: underline;
+}
+
+/* ── Subsection (signal registration) ──────────────────── */
+
+.channels-page__subsection {
+  background: #09090b;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  padding: 1.25rem;
+}
+
+.channels-page__subsection h4 {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text-primary, #e4e4e7);
+}
+
+/* ── Account row ───────────────────────────────────────── */
+
+.channels-page__account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background: #09090b;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+  margin-bottom: 0.5rem;
+}
+
+.channels-page__account-number {
+  color: var(--color-text-primary, #e4e4e7);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  font-family: monospace;
+}
+
+/* ── QR Code ───────────────────────────────────────────── */
+
+.channels-page__qr-container {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0.75rem;
+  padding: 1rem;
+  background: #09090b;
+  border: 1px solid #3f3f46;
+  border-radius: 6px;
+}
+
+.channels-page__qr-image {
+  max-width: 256px;
+  border-radius: 4px;
+  background: white;
+  padding: 8px;
+}
+
+/* ── Alert / Success ───────────────────────────────────── */
+
+.channels-page__alert {
+  color: #fecaca;
+  font-size: 0.9375rem;
+  padding: 0.875rem 1rem;
+  background: rgba(239, 68, 68, 0.15);
+  border: 1px solid rgba(239, 68, 68, 0.4);
+  border-radius: 6px;
+  border-left: 4px solid #ef4444;
+  line-height: 1.5;
+  word-break: break-word;
+}
+
+.channels-page__alert strong {
+  color: #fca5a5;
+}
+
+.channels-page__success {
+  color: #bbf7d0;
+  font-size: 0.9375rem;
+  padding: 0.875rem 1rem;
+  background: rgba(74, 222, 128, 0.1);
+  border: 1px solid rgba(74, 222, 128, 0.3);
+  border-radius: 6px;
+  border-left: 4px solid #4ade80;
+  line-height: 1.5;
+}
+
+/* ── Responsive ────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .channels-page__content {
+    padding: 12px;
+  }
+
+  .channels-page__row {
+    grid-template-columns: 1fr;
+  }
+
+  .channels-page__editor-header {
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+  }
+}

@@ -265,6 +265,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Salva resposta final do assistant no nível 0 (sem parentID)
 	// Inclui reasoning se houver
+	var savedMsgID uint
 	if h.conversationID > 0 && finalContent != "" {
 		msg, err := database.CreateMessage(database.MessageOptions{
 			ConversationID:   h.conversationID,
@@ -289,12 +290,13 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 			} else {
 				fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", msg.ID)
 			}
+			savedMsgID = msg.ID
 		}
 	}
 
 	// Notifica o gateway de mensageria (se há callbacks pendentes para esta conversa)
 	if h.app.responseNotifier != nil {
-		h.app.responseNotifier.Notify(h.conversationID, finalContent)
+		h.app.responseNotifier.Notify(h.conversationID, finalContent, savedMsgID)
 	}
 
 	// Emite evento final de streaming
@@ -409,11 +411,20 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		})
 	}
 
-	// Obtém o perfil ativo global
-	activeProfile, profileErr := a.profileManager.GetActive()
+	// Obtém o perfil: usa profileSlug se especificado (canais), senão o ativo global
+	var activeProfile *profiles.Profile
+	var profileErr error
+	if params.ProfileSlug != "" {
+		activeProfile, profileErr = a.profileManager.Get(params.ProfileSlug)
+		if profileErr != nil {
+			log.Printf("[SendMessage] Erro ao obter perfil '%s' do canal: %v — usando perfil ativo global", params.ProfileSlug, profileErr)
+			activeProfile, profileErr = a.profileManager.GetActive()
+		}
+	} else {
+		activeProfile, profileErr = a.profileManager.GetActive()
+	}
 	if profileErr != nil {
-		log.Printf("[SendMessage] Erro ao obter perfil ativo: %v", profileErr)
-		// Continua com valores padrão se houver erro
+		log.Printf("[SendMessage] Erro ao obter perfil: %v", profileErr)
 	}
 
 	// Aplica configurações do perfil de chat ativo
@@ -449,16 +460,34 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 
 	// 0.5. Se userContent está vazio e há mídia de áudio, transcreve automaticamente.
 	// Isso garante que a transcrição fique salva no DB e visível na UI.
+	// Também extrai o áudio base64 para persistir junto com a mensagem.
+	var userAudioBase64 string
+	var userAudioMime string
+	if userMedia != "" {
+		userAudioBase64, userAudioMime = extractAudioFromMedia(userMedia)
+	}
 	if userContent == "" && userMedia != "" {
-		userContent = a.transcribeAudioFromMedia(userMedia)
+		// Verifica se o perfil tem STT configurado como whisper_api (necessário para canais)
+		if source != "wails" && activeProfile != nil {
+			sttProvider := activeProfile.Interaction.STTProvider
+			if sttProvider == "webspeech" || sttProvider == "" {
+				log.Printf("[SendMessage] Canal %s: STT '%s' não suporta transcrição server-side — ignorando áudio", source, sttProvider)
+				userContent = "[Mensagem de áudio recebida, mas transcrição automática não está configurada. Configure Whisper no perfil deste canal para processar mensagens de voz.]"
+			}
+		}
+		if userContent == "" {
+			userContent = a.transcribeAudioFromMedia(userMedia)
+		}
 	}
 
-	// 1. Salva mensagem do usuário no banco (com source para badge visual)
+	// 1. Salva mensagem do usuário no banco (com source para badge visual e áudio persistido)
 	userMsg, err := database.CreateMessage(database.MessageOptions{
 		ConversationID: conversationID,
 		Role:           "user",
 		Content:        userContent,
 		Media:          userMedia,
+		Audio:          userAudioBase64,
+		AudioMimeType:  userAudioMime,
 		Source:         source,
 	})
 	if err != nil {
@@ -468,10 +497,12 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	fmt.Printf("✅ Mensagem do usuário salva: ID=%d (source=%s)\n", userMsg.ID, source)
 
 	// 2. Emite evento informando que mensagem do usuário foi criada
+	//    Inclui o conteúdo para que o frontend atualize mensagens de canais (ex: transcrição de áudio)
 	runtime.EventsEmit(a.ctx, "chat:messages_ready", map[string]interface{}{
 		"conversationId": conversationID,
 		"userMessageId":  userMsg.ID,
 		"createdNew":     createdNew,
+		"userContent":    userMsg.Content,
 	})
 
 	// 3. Carrega histórico da conversa para contexto
@@ -896,7 +927,9 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 			var mediaParts []map[string]interface{}
 			if err := json.Unmarshal([]byte(m.Media), &mediaParts); err == nil {
 				var content []interface{}
-				if m.Content != "" {
+				// Verifica se a mensagem já tem conteúdo textual (ex: transcrição de áudio já feita)
+				hasTextContent := m.Content != ""
+				if hasTextContent {
 					content = append(content, map[string]interface{}{
 						"type": "text",
 						"text": m.Content,
@@ -917,6 +950,12 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 							},
 						})
 					} else if strings.HasPrefix(mediaType, "audio/") {
+						// Se já temos transcrição no Content, não re-transcreve o áudio
+						// (evita duplicação: content já tem o texto transcrito)
+						if hasTextContent {
+							log.Printf("[Media] Áudio ignorado no histórico — já temos transcrição no content")
+							continue
+						}
 						audioFmt := strings.TrimPrefix(mediaType, "audio/")
 						if supportedAudioFormats[audioFmt] {
 							// Formato suportado (wav, mp3): envia direto como input_audio
@@ -995,6 +1034,23 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 	}
 
 	return messages, nil
+}
+
+// extractAudioFromMedia extrai o primeiro áudio base64 e MIME do mediaJSON.
+// Retorna ("", "") se não houver áudio.
+func extractAudioFromMedia(mediaJSON string) (string, string) {
+	var mediaParts []map[string]interface{}
+	if err := json.Unmarshal([]byte(mediaJSON), &mediaParts); err != nil {
+		return "", ""
+	}
+	for _, mp := range mediaParts {
+		mediaType, _ := mp["type"].(string)
+		data, _ := mp["data"].(string)
+		if strings.HasPrefix(mediaType, "audio/") && data != "" {
+			return data, mediaType
+		}
+	}
+	return "", ""
 }
 
 // transcribeAudioFromMedia extrai áudio do mediaJSON e transcreve via Whisper.

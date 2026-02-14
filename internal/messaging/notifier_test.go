@@ -15,7 +15,7 @@ func TestNotifier_RegisterAndNotify(t *testing.T) {
 	n.Register(1, ResponseCallback{
 		Channel: "telegram",
 		ChatID:  "123",
-		Callback: func(response string) {
+		Callback: func(response string, msgID uint) {
 			mu.Lock()
 			received = response
 			mu.Unlock()
@@ -26,7 +26,7 @@ func TestNotifier_RegisterAndNotify(t *testing.T) {
 		t.Fatalf("expected 1 pending, got %d", n.PendingCount())
 	}
 
-	n.Notify(1, "Hello from assistant")
+	n.Notify(1, "Hello from assistant", 42)
 
 	// Aguarda goroutine do callback
 	time.Sleep(50 * time.Millisecond)
@@ -47,7 +47,7 @@ func TestNotifier_NotifyWithoutCallbacks(t *testing.T) {
 	n := NewResponseNotifier()
 
 	// Não deve causar panic nem erro
-	n.Notify(999, "response without listener")
+	n.Notify(999, "response without listener", 0)
 
 	if n.PendingCount() != 0 {
 		t.Fatalf("expected 0 pending, got %d", n.PendingCount())
@@ -63,7 +63,7 @@ func TestNotifier_MultipleCallbacksSameConversation(t *testing.T) {
 	n.Register(1, ResponseCallback{
 		Channel: "telegram",
 		ChatID:  "123",
-		Callback: func(response string) {
+		Callback: func(response string, msgID uint) {
 			mu.Lock()
 			results = append(results, "telegram:"+response)
 			mu.Unlock()
@@ -73,7 +73,7 @@ func TestNotifier_MultipleCallbacksSameConversation(t *testing.T) {
 	n.Register(1, ResponseCallback{
 		Channel: "signal",
 		ChatID:  "+55119999",
-		Callback: func(response string) {
+		Callback: func(response string, msgID uint) {
 			mu.Lock()
 			results = append(results, "signal:"+response)
 			mu.Unlock()
@@ -84,7 +84,7 @@ func TestNotifier_MultipleCallbacksSameConversation(t *testing.T) {
 		t.Fatalf("expected 2 pending, got %d", n.PendingCount())
 	}
 
-	n.Notify(1, "multi-channel")
+	n.Notify(1, "multi-channel", 100)
 
 	time.Sleep(50 * time.Millisecond)
 
@@ -108,7 +108,7 @@ func TestNotifier_DifferentConversations(t *testing.T) {
 	n.Register(1, ResponseCallback{
 		Channel: "telegram",
 		ChatID:  "111",
-		Callback: func(response string) {
+		Callback: func(response string, msgID uint) {
 			mu.Lock()
 			results[1] = response
 			mu.Unlock()
@@ -118,7 +118,7 @@ func TestNotifier_DifferentConversations(t *testing.T) {
 	n.Register(2, ResponseCallback{
 		Channel: "telegram",
 		ChatID:  "222",
-		Callback: func(response string) {
+		Callback: func(response string, msgID uint) {
 			mu.Lock()
 			results[2] = response
 			mu.Unlock()
@@ -126,7 +126,7 @@ func TestNotifier_DifferentConversations(t *testing.T) {
 	})
 
 	// Notifica apenas conversa 1
-	n.Notify(1, "response for conv 1")
+	n.Notify(1, "response for conv 1", 200)
 
 	time.Sleep(50 * time.Millisecond)
 

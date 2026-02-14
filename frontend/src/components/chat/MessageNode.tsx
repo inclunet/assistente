@@ -1,12 +1,13 @@
 import React, { useState, useCallback, useEffect } from 'react';
 import { ChatMessage } from './ChatMessage';
-import { MessageNode as MessageNodeType } from '../../store/chatStore';
+import { MessageNode as MessageNodeType, Message } from '../../store/chatStore';
 import { useChatStore } from '../../store/chatStore';
 import { playBumpSound } from '../../services/audioFeedback';
 import { UpdateMessage } from '../../../wailsjs/go/main/App';
 import { announce } from '../../hooks/useAnnouncer';
 import { useVirtualModal } from '../../hooks/useVirtualModal';
 import { handleError, ErrorSeverity } from '../../utils/errorHandler';
+import { messageAudioService } from '../../services/messageAudio';
 import './MessageNode.css';
 
 export interface MessageNodeProps {
@@ -59,6 +60,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   const [isEditing, setIsEditing] = useState(false);
   const [editContent, setEditContent] = useState(node.message.content);
   const [isReading, setIsReading] = useState(false);
+  const [isPlayingAudio, setIsPlayingAudio] = useState(false);
 
   // Virtual modal: transforma a mensagem em "dialog" para leitores de tela
   useVirtualModal({
@@ -97,6 +99,24 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       setEditingMessageId(null);
     }
   }, [editingMessageId, node.message.id, node.message.role, node.message.internal, node.message.isStreaming, node.message.content, isEditing, setEditingMessageId]);
+
+  // Handler de speak que controla o estado de playback
+  const handleSpeak = useCallback(async (message: Message) => {
+    if (isPlayingAudio) {
+      // Se ja esta tocando, para
+      messageAudioService.stopCurrentAudio();
+      setIsPlayingAudio(false);
+      return;
+    }
+    setIsPlayingAudio(true);
+    try {
+      if (onSpeak) {
+        await onSpeak(message);
+      }
+    } finally {
+      setIsPlayingAudio(false);
+    }
+  }, [isPlayingAudio, onSpeak]);
 
   const hasChildren = node.childCount > 0 || children.length > 0;
 
@@ -414,7 +434,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           isThreadLoading={isLoading}
           onThreadToggle={handleToggle}
           onContextMenu={onContextMenu}
-          onSpeak={onSpeak}
+          onSpeak={handleSpeak}
           isReading={isReading}
           isEditing={isEditing}
           editContent={editContent}
@@ -428,6 +448,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onToggleReasoning={() => toggleReasoningExpanded(node.message.id)}
           // Tool calling - passa apenas para a mensagem em streaming
           activeToolCalls={node.message.id === streamingMessageId ? activeToolCalls : undefined}
+          isPlayingAudio={isPlayingAudio}
         />
       </div>
 

@@ -5,9 +5,11 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"log"
 	"sync"
 
-	"assistente/internal/config"
+	"assistente/internal/channels"
+	"assistente/internal/contacts"
 	"assistente/internal/database"
 	"assistente/internal/llm"
 )
@@ -21,8 +23,13 @@ type SendMessageFunc func(conversationID uint, content, media string, params llm
 type emitFunc func(event string, data any)
 
 // SynthesizeTTSFunc é a assinatura da função que sintetiza texto em áudio (MP3).
-// Retorna os bytes do áudio MP3. Usada para responder em áudio quando a mensagem original era áudio.
-type SynthesizeTTSFunc func(text string) ([]byte, error)
+// Recebe o texto, o canal e se a mensagem original era áudio.
+// Resolve o perfil do canal e o ChannelResponseMode para decidir se gera TTS.
+// Retorna (nil, nil) se não deve gerar áudio (o gateway enviará texto).
+type SynthesizeTTSFunc func(text string, channel string, incomingIsAudio bool) ([]byte, error)
+
+// SaveAudioFunc é a assinatura da função que salva áudio no DB.
+type SaveAudioFunc func(messageID uint, audioBase64 string, mimeType string) error
 
 // Gateway é o router central de mensageria. Conecta os adapters dos mensageiros
 // ao processamento do assistente (via App.SendMessage).
@@ -35,30 +42,30 @@ type SynthesizeTTSFunc func(text string) ([]byte, error)
 //  5. Quando resposta fica pronta, Notifier dispara callback
 //  6. Gateway reenvia resposta ao mensageiro de origem
 type Gateway struct {
-	mu             sync.RWMutex
-	messengers     map[string]Messenger
-	notifier       *ResponseNotifier
-	config         *config.MessagingConfig
-	sendMessage    SendMessageFunc
-	emitEvent      emitFunc
-	synthesizeTTS  SynthesizeTTSFunc // Opcional: sintetiza áudio para respostas em modo áudio
+	mu            sync.RWMutex
+	messengers    map[string]Messenger
+	notifier      *ResponseNotifier
+	sendMessage   SendMessageFunc
+	emitEvent     emitFunc
+	synthesizeTTS SynthesizeTTSFunc // Opcional: sintetiza áudio para respostas em modo áudio
+	saveAudio     SaveAudioFunc     // Opcional: salva áudio no DB
 }
 
 // NewGateway cria um novo Gateway de mensageria.
 func NewGateway(
 	notifier *ResponseNotifier,
-	msgConfig *config.MessagingConfig,
 	sendMessage SendMessageFunc,
 	emitEvent emitFunc,
 	synthesizeTTS SynthesizeTTSFunc,
+	saveAudio SaveAudioFunc,
 ) *Gateway {
 	return &Gateway{
 		messengers:    make(map[string]Messenger),
 		notifier:      notifier,
-		config:        msgConfig,
 		sendMessage:   sendMessage,
 		emitEvent:     emitEvent,
 		synthesizeTTS: synthesizeTTS,
+		saveAudio:     saveAudio,
 	}
 }
 
@@ -72,10 +79,25 @@ func (g *Gateway) Register(name string, m Messenger) {
 	fmt.Printf("[Gateway] Messenger '%s' registrado\n", name)
 }
 
+// Unregister desconecta e remove um messenger pelo nome.
+func (g *Gateway) Unregister(name string) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+
+	if m, ok := g.messengers[name]; ok {
+		fmt.Printf("[Gateway] Desconectando '%s'...\n", name)
+		if err := m.Disconnect(); err != nil {
+			fmt.Printf("[Gateway] Erro ao desconectar '%s': %v\n", name, err)
+		}
+		delete(g.messengers, name)
+		fmt.Printf("[Gateway] Messenger '%s' removido\n", name)
+	}
+}
+
 // Shutdown desconecta todos os messengers.
 func (g *Gateway) Shutdown() {
-	g.mu.RLock()
-	defer g.mu.RUnlock()
+	g.mu.Lock()
+	defer g.mu.Unlock()
 
 	for name, m := range g.messengers {
 		fmt.Printf("[Gateway] Desconectando '%s'...\n", name)
@@ -83,6 +105,7 @@ func (g *Gateway) Shutdown() {
 			fmt.Printf("[Gateway] Erro ao desconectar '%s': %v\n", name, err)
 		}
 	}
+	g.messengers = make(map[string]Messenger)
 }
 
 // GetStatus retorna o status de todos os messengers registrados.
@@ -97,14 +120,6 @@ func (g *Gateway) GetStatus() map[string]ConnectionStatus {
 	return status
 }
 
-// UpdateConfig atualiza a configuração de mensageria em memória.
-// Usado após autorizar um contato, por exemplo.
-func (g *Gateway) UpdateConfig(cfg *config.MessagingConfig) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.config = cfg
-}
-
 // GetMessenger retorna um messenger pelo nome (para uso pela tool send_message).
 func (g *Gateway) GetMessenger(name string) (Messenger, bool) {
 	g.mu.RLock()
@@ -115,13 +130,26 @@ func (g *Gateway) GetMessenger(name string) (Messenger, bool) {
 
 // handleIncoming é chamado quando uma mensagem chega de qualquer messenger.
 func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
-	// 1. Verifica allowlist
-	channelConfig := g.getChannelConfig(msg.Channel)
-	if !config.IsContactAllowed(channelConfig, msg.From.ID, msg.From.Username) {
-		fmt.Printf("[Gateway] Mensagem de %s (%s / %s) rejeitada — contato não autorizado\n",
-			msg.From.DisplayName, msg.From.ID, msg.From.Username)
+	// 1. Verifica contato autorizado (contacts.json centralizado + max_contacts do canal)
+	maxContacts := 1
+	if chCfg, _ := channels.Load(msg.Channel); chCfg != nil {
+		maxContacts = chCfg.GetMaxContacts()
+	}
 
-		// Emite evento para o frontend oferecer autorização manual
+	hasContacts, isAllowed := contacts.IsAuthorized(msg.Channel, maxContacts, msg.From.ID, msg.From.Username)
+
+	if hasContacts && !isAllowed {
+		// Limite de contatos atingido e este não está na lista — rejeita silenciosamente
+		log.Printf("[Gateway] Mensagem de %s (%s) rejeitada — canal %s com limite de contatos atingido",
+			msg.From.DisplayName, msg.From.ID, msg.Channel)
+		return
+	}
+
+	if !hasContacts {
+		// Canal sem contatos ou com vaga — solicita autorização ao usuário
+		fmt.Printf("[Gateway] Mensagem de %s (%s / %s) — canal %s aguardando autorização\n",
+			msg.From.DisplayName, msg.From.ID, msg.From.Username, msg.Channel)
+
 		if g.emitEvent != nil {
 			g.emitEvent("messaging:contact_blocked", map[string]any{
 				"channel":     msg.Channel,
@@ -134,7 +162,8 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	}
 
 	// 2. Busca (ou cria) a conversa dedicada para este canal+contato.
-	//    Cada contato externo tem sua própria conversa — não compartilha com a aba ativa.
+	//    Primeiro verifica o config do canal (persistido entre reinícios),
+	//    depois busca no DB por channel+contactID.
 	conv, created, err := database.FindOrCreateChannelConversation(
 		msg.Channel, msg.From.ID, msg.From.DisplayName,
 	)
@@ -146,6 +175,10 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 
 	if created {
 		fmt.Printf("[Gateway] Nova conversa %d criada para %s via %s\n", conversationID, msg.From.DisplayName, msg.Channel)
+		// Persiste o mapeamento contactID → conversationID no config do canal
+		if err := channels.SaveConversationID(msg.Channel, msg.From.ID, conversationID); err != nil {
+			log.Printf("[Gateway] Erro ao persistir conversa no config: %v", err)
+		}
 	}
 	fmt.Printf("[Gateway] Mensagem de %s via %s → conversa %d\n",
 		msg.From.DisplayName, msg.Channel, conversationID)
@@ -197,13 +230,13 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	}
 
 	// 6. Registra callback no Notifier para capturar a resposta e reenviar ao mensageiro.
-	//    Se a mensagem original era audio-only, o callback também sintetizará TTS.
-	audioOnly := msg.IsAudioOnly()
+	//    O ChannelResponseMode do perfil decide se a resposta será áudio ou texto.
+	incomingIsAudio := msg.IsAudioOnly()
 	g.notifier.Register(conversationID, ResponseCallback{
 		Channel:   msg.Channel,
 		ChatID:    msg.From.ID,
-		AudioOnly: audioOnly,
-		Callback: func(response string) {
+		AudioOnly: incomingIsAudio, // hint para o notifier (mantém compatibilidade)
+		Callback: func(response string, assistantMsgID uint) {
 			g.mu.RLock()
 			messenger, ok := g.messengers[msg.Channel]
 			g.mu.RUnlock()
@@ -219,18 +252,27 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 				ReplyToMessageID: msg.ID,
 			}
 
-			// Se a mensagem original era áudio e temos TTS, sintetiza e envia áudio
-			if audioOnly && g.synthesizeTTS != nil {
-				audioData, err := g.synthesizeTTS(response)
+			// Consulta synthesizeTTS que resolve o perfil e o ChannelResponseMode
+			// para decidir se gera áudio. Retorna (nil, nil) se deve enviar texto.
+			if g.synthesizeTTS != nil {
+				audioData, err := g.synthesizeTTS(response, msg.Channel, incomingIsAudio)
 				if err == nil && len(audioData) > 0 {
 					outMsg.Attachments = []Attachment{{
 						Filename: "resposta.mp3",
 						MIMEType: "audio/mpeg",
 						Data:     audioData,
 					}}
-					// Em modo áudio, não envia texto (só o áudio)
 					outMsg.Text = ""
 					fmt.Printf("[Gateway] Resposta TTS gerada (%d bytes) para %s\n", len(audioData), msg.From.DisplayName)
+
+					// Salva o áudio TTS na mensagem do assistente no DB
+					if assistantMsgID > 0 && g.saveAudio != nil {
+						if err := g.saveAudio(assistantMsgID, base64.StdEncoding.EncodeToString(audioData), "audio/mpeg"); err != nil {
+							fmt.Printf("[Gateway] Erro ao salvar áudio TTS no DB: %v\n", err)
+						} else {
+							fmt.Printf("[Gateway] Áudio TTS salvo na mensagem %d\n", assistantMsgID)
+						}
+					}
 				} else if err != nil {
 					fmt.Printf("[Gateway] Erro ao gerar TTS: %v (enviando texto)\n", err)
 				}
@@ -246,7 +288,12 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	})
 
 	// 7. Chama o mesmo SendMessage que o Wails usa (com o conversationID dedicado)
+	//    Usa o perfil do canal (se configurado) em vez do perfil ativo global.
 	params := llm.ChatParams{}
+	if chCfg, _ := channels.Load(msg.Channel); chCfg != nil && chCfg.Profile != "" {
+		params.ProfileSlug = chCfg.Profile
+		log.Printf("[Gateway] Usando perfil '%s' do canal %s", chCfg.Profile, msg.Channel)
+	}
 	_, err = g.sendMessage(conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
 		fmt.Printf("[Gateway] Erro ao processar mensagem: %v\n", err)
@@ -282,17 +329,3 @@ func attachmentsToMediaJSON(attachments []Attachment) string {
 	return string(data)
 }
 
-// getChannelConfig retorna a configuração de um canal específico.
-func (g *Gateway) getChannelConfig(channel string) *config.ChannelConfig {
-	if g.config == nil {
-		return nil
-	}
-	switch channel {
-	case "telegram":
-		return g.config.Telegram
-	case "signal":
-		return g.config.Signal
-	default:
-		return nil
-	}
-}

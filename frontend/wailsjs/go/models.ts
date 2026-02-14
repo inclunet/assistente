@@ -41,16 +41,17 @@ export namespace allowlist {
 
 }
 
-export namespace config {
+export namespace channels {
 	
 	export class ChannelConfig {
 	    enabled: boolean;
 	    bot_token?: string;
 	    account?: string;
 	    api_url?: string;
-	    allowed_contacts: string[];
 	    profile?: string;
 	    max_history?: number;
+	    max_contacts?: number;
+	    conversations?: Record<string, number>;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChannelConfig(source);
@@ -62,43 +63,17 @@ export namespace config {
 	        this.bot_token = source["bot_token"];
 	        this.account = source["account"];
 	        this.api_url = source["api_url"];
-	        this.allowed_contacts = source["allowed_contacts"];
 	        this.profile = source["profile"];
 	        this.max_history = source["max_history"];
+	        this.max_contacts = source["max_contacts"];
+	        this.conversations = source["conversations"];
 	    }
 	}
-	export class MessagingConfig {
-	    telegram?: ChannelConfig;
-	    signal?: ChannelConfig;
+
+}
+
+export namespace config {
 	
-	    static createFrom(source: any = {}) {
-	        return new MessagingConfig(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.telegram = this.convertValues(source["telegram"], ChannelConfig);
-	        this.signal = this.convertValues(source["signal"], ChannelConfig);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class STTParams {
 	    provider?: string;
 	    recording_mode?: string;
@@ -139,7 +114,6 @@ export namespace config {
 	    active_profile?: string;
 	    chat_params?: ModelParams;
 	    stt_params?: STTParams;
-	    messaging?: MessagingConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new Config(source);
@@ -154,7 +128,6 @@ export namespace config {
 	        this.active_profile = source["active_profile"];
 	        this.chat_params = this.convertValues(source["chat_params"], ModelParams);
 	        this.stt_params = this.convertValues(source["stt_params"], STTParams);
-	        this.messaging = this.convertValues(source["messaging"], MessagingConfig);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -176,7 +149,29 @@ export namespace config {
 		}
 	}
 	
+
+}
+
+export namespace contacts {
 	
+	export class AuthorizedContact {
+	    id: string;
+	    display_name: string;
+	    username?: string;
+	    authorized_at: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AuthorizedContact(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.display_name = source["display_name"];
+	        this.username = source["username"];
+	        this.authorized_at = source["authorized_at"];
+	    }
+	}
 
 }
 
@@ -191,6 +186,8 @@ export namespace database {
 	    content: string;
 	    reasoning?: string;
 	    media?: string;
+	    audio?: string;
+	    audioMimeType?: string;
 	    toolCalls?: string;
 	    toolCallId?: string;
 	    promptTokens?: number;
@@ -215,6 +212,8 @@ export namespace database {
 	        this.content = source["content"];
 	        this.reasoning = source["reasoning"];
 	        this.media = source["media"];
+	        this.audio = source["audio"];
+	        this.audioMimeType = source["audioMimeType"];
 	        this.toolCalls = source["toolCalls"];
 	        this.toolCallId = source["toolCallId"];
 	        this.promptTokens = source["promptTokens"];
@@ -348,6 +347,7 @@ export namespace llm {
 	    temperature: number;
 	    topP?: number;
 	    enableThinking?: boolean;
+	    profileSlug?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatParams(source);
@@ -360,6 +360,7 @@ export namespace llm {
 	        this.temperature = source["temperature"];
 	        this.topP = source["topP"];
 	        this.enableThinking = source["enableThinking"];
+	        this.profileSlug = source["profileSlug"];
 	    }
 	}
 	export class FunctionCall {
@@ -523,10 +524,25 @@ export namespace llm {
 
 export namespace main {
 	
+	export class AudioResult {
+	    audio: string;
+	    mimeType: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new AudioResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.audio = source["audio"];
+	        this.mimeType = source["mimeType"];
+	    }
+	}
 	export class ChannelInfo {
 	    name: string;
 	    connected: boolean;
-	    contacts: string[];
+	    contacts: contacts.AuthorizedContact[];
+	    maxContacts: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChannelInfo(source);
@@ -536,8 +552,27 @@ export namespace main {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
 	        this.connected = source["connected"];
-	        this.contacts = source["contacts"];
+	        this.contacts = this.convertValues(source["contacts"], contacts.AuthorizedContact);
+	        this.maxContacts = source["maxContacts"];
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class EnrichedMessage {
 	    id: string;
@@ -1181,6 +1216,7 @@ export namespace profiles {
 	    volume: number;
 	    enabled_for_agent: boolean;
 	    enabled_for_user: boolean;
+	    channel_response_mode?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new VoiceConfig(source);
@@ -1195,6 +1231,7 @@ export namespace profiles {
 	        this.volume = source["volume"];
 	        this.enabled_for_agent = source["enabled_for_agent"];
 	        this.enabled_for_user = source["enabled_for_user"];
+	        this.channel_response_mode = source["channel_response_mode"];
 	    }
 	}
 	export class Profile {

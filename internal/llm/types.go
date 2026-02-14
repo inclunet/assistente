@@ -190,6 +190,7 @@ type ChatParams struct {
 	Temperature    float64 `json:"temperature"`
 	TopP           float64 `json:"topP,omitempty"`
 	EnableThinking bool    `json:"enableThinking,omitempty"` // Habilita reasoning/thinking (Ollama: think=true)
+	ProfileSlug    string  `json:"profileSlug,omitempty"`    // Perfil específico (canais). Vazio = perfil ativo global
 }
 
 // SettingsInput representa os parâmetros de entrada para salvar configurações

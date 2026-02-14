@@ -32,6 +32,7 @@ export function Topbar() {
     if (location.pathname === '/allowlists') return 'allowlists';
     if (location.pathname === '/skills') return 'skills';
     if (location.pathname === '/mcp') return 'mcp';
+    if (location.pathname === '/channels') return 'channels';
     if (location.pathname === '/settings') return 'settings';
     if (location.pathname === '/profiles') return 'profiles';
     if (location.pathname === '/history') return 'history';
@@ -81,6 +82,12 @@ export function Topbar() {
       label: 'MCP',
       icon: '🔌',
       onClick: () => navigate('/mcp'),
+    },
+    {
+      id: 'channels',
+      label: 'Canais',
+      icon: '📡',
+      onClick: () => navigate('/channels'),
     },
     {
       id: 'settings',

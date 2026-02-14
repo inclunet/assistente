@@ -5,6 +5,8 @@ import {allowlist} from '../models';
 import {profiles} from '../models';
 import {main} from '../models';
 import {terminal} from '../models';
+import {channels} from '../models';
+import {contacts} from '../models';
 import {config} from '../models';
 import {mcp} from '../models';
 import {skills} from '../models';
@@ -22,7 +24,7 @@ export function AddMessageWithTokensAndMedia(arg1:number,arg2:string,arg3:string
 
 export function AssignConversationToChannel(arg1:number,arg2:string,arg3:string):Promise<void>;
 
-export function AuthorizeMessagingContact(arg1:string,arg2:string):Promise<void>;
+export function AuthorizeMessagingContactFull(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function ClearConversation(arg1:number):Promise<void>;
 
@@ -68,11 +70,15 @@ export function DisconnectMCPServer(arg1:string):Promise<void>;
 
 export function ExportConversations(arg1:Array<number>):Promise<string>;
 
+export function GenerateAndSaveMessageAudio(arg1:number,arg2:string):Promise<main.AudioResult>;
+
 export function GetActiveProfile():Promise<profiles.Profile>;
 
 export function GetActiveProfileSlug():Promise<string>;
 
 export function GetActiveTab():Promise<database.ChatTab>;
+
+export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
 
 export function GetAllTabs():Promise<Array<database.ChatTab>>;
 
@@ -84,9 +90,13 @@ export function GetAllowlistSearchPaths():Promise<Array<string>>;
 
 export function GetAllowlists():Promise<Array<allowlist.AllowlistInfo>>;
 
+export function GetAuthorizedContacts():Promise<contacts.ContactsFile>;
+
 export function GetAvailableChannels():Promise<Array<main.ChannelInfo>>;
 
 export function GetAvailableTools():Promise<Array<main.ToolInfo>>;
+
+export function GetChannelConfig(arg1:string):Promise<channels.ChannelConfig>;
 
 export function GetConfig():Promise<config.Config>;
 
@@ -112,11 +122,11 @@ export function GetMCPServerConfig(arg1:string):Promise<mcp.ServerConfig>;
 
 export function GetMCPServerTools(arg1:string):Promise<Array<mcp.MCPToolInfo>>;
 
+export function GetMessageAudio(arg1:number):Promise<main.AudioResult>;
+
 export function GetMessageChildren(arg1:number):Promise<Array<main.MessageNode>>;
 
 export function GetMessages(arg1:number,arg2:any):Promise<Array<main.MessageNode>>;
-
-export function GetMessagingConfig():Promise<config.MessagingConfig>;
 
 export function GetMessagingStatus():Promise<Record<string, string>>;
 
@@ -172,6 +182,8 @@ export function ReconnectMCPServer(arg1:string):Promise<void>;
 
 export function ReloadLLMClient():Promise<void>;
 
+export function RemoveAuthorizedContact(arg1:string,arg2:string):Promise<void>;
+
 export function RenameConversation(arg1:number,arg2:string):Promise<void>;
 
 export function RenameTab(arg1:number,arg2:string):Promise<void>;
@@ -184,11 +196,15 @@ export function ResetDatabase():Promise<void>;
 
 export function RespondCommandConfirmation(arg1:string,arg2:boolean):Promise<void>;
 
+export function RestartChannel(arg1:string):Promise<void>;
+
 export function RunTerminalCommand(arg1:string,arg2:string):Promise<void>;
+
+export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 
 export function SaveMCPServer(arg1:string,arg2:mcp.ServerConfig):Promise<void>;
 
-export function SaveMessagingConfig(arg1:config.MessagingConfig):Promise<void>;
+export function SaveMessageAudio(arg1:number,arg2:string,arg3:string):Promise<void>;
 
 export function SaveSettings(arg1:llm.SettingsInput):Promise<void>;
 

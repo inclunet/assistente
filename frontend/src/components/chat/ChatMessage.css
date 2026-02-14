@@ -319,3 +319,35 @@
     background-color: var(--bg-hover, #3a3a3a);
   }
 }
+
+/* Botao de play audio */
+.chat-message__play-btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 0.85rem;
+  padding: 2px 4px;
+  border-radius: 4px;
+  opacity: 0.5;
+  transition: opacity 0.15s ease;
+  line-height: 1;
+  vertical-align: middle;
+}
+
+.chat-message__play-btn:hover,
+.chat-message__play-btn:focus-visible {
+  opacity: 1;
+  background-color: var(--bg-hover, rgba(0, 0, 0, 0.08));
+  outline: 2px solid var(--accent-color, #667eea);
+  outline-offset: 1px;
+}
+
+.chat-message__play-btn--playing {
+  opacity: 1;
+  animation: audio-pulse 1s ease-in-out infinite;
+}
+
+@keyframes audio-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}

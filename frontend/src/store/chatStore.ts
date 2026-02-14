@@ -2098,9 +2098,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       console.log('[Chat] handleExternalIncoming:', from, 'via', channel, '→ tab', targetTabId);
 
       // 2. Adiciona a mensagem do usuário (origin badge via source)
-      addMessage(targetTabId, {
+      //    Para áudio, text pode ser vazio — será atualizado por chat:messages_ready com a transcrição.
+      const userMessageId = addMessage(targetTabId, {
         role: 'user',
-        content: text,
+        content: text || 'Transcrevendo áudio...',
         source: channel,
       });
 
@@ -2144,20 +2145,53 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       activeListenerCount++;
       console.log('[Chat] Registrando listeners EXTERNOS para tab:', targetTabId, '| Total:', activeListenerCount);
 
-      // chat:messages_ready — atualiza ID do user message para o ID real do banco
+      // chat:messages_ready — atualiza ID, conteúdo e conversationId do user message
       const unsubReady = EventsOn('chat:messages_ready', (event: any) => {
         if (!activeListeners.has(targetTabId!)) return;
         if (event.userMessageId) {
-          console.log('[Chat] (external) messages_ready: conv=', event.conversationId);
-          // Se conversationId era 0 e agora sabemos o real, atualiza a tab
-          if (event.conversationId && (!conversationId || conversationId === 0)) {
-            set((state) => ({
+          const backendUserId = event.userMessageId.toString();
+          console.log('[Chat] (external) messages_ready: conv=', event.conversationId, 'backendId=', backendUserId, 'content=', event.userContent?.substring(0, 50));
+          
+          // Atualiza ID e conteúdo da mensagem do usuário (ID local → ID do banco, + transcrição de áudio)
+          set((state) => {
+            const tab = state.tabs.find(t => t.id === targetTabId);
+            if (!tab) return state;
+
+            const updateNodes = (nodes: MessageNode[]): MessageNode[] => {
+              return nodes.map(node => {
+                if (node.message.id === userMessageId) {
+                  const updatedMessage = new main.EnrichedMessage({
+                    ...node.message,
+                    id: backendUserId,
+                    content: event.userContent || node.message.content,
+                  });
+                  return new main.MessageNode({
+                    ...node,
+                    message: updatedMessage,
+                  });
+                }
+                return node;
+              });
+            };
+
+            return {
               tabs: state.tabs.map((t) =>
                 t.id === targetTabId
-                  ? { ...t, conversationId: event.conversationId, updatedAt: Date.now() }
+                  ? {
+                      ...t,
+                      threadedMessages: updateNodes(t.threadedMessages),
+                      conversationId: event.conversationId || t.conversationId,
+                      updatedAt: Date.now(),
+                    }
                   : t
               ),
-            }));
+            };
+          });
+
+          // Anuncia a mensagem transcrita para o leitor de telas
+          if (event.userContent) {
+            const cleanContent = stripMarkdown(event.userContent);
+            announce(`${from} via ${channel}: ${cleanContent}`);
           }
         }
       });

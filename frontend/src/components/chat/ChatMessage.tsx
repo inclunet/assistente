@@ -35,6 +35,8 @@ export interface ChatMessageProps {
   onToggleReasoning?: () => void; // Callback para toggle do reasoning
   // Tool calling props
   activeToolCalls?: ToolCallStatus[]; // Tool calls em execução (durante streaming)
+  // Audio playback
+  isPlayingAudio?: boolean; // Se está reproduzindo áudio desta mensagem
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
@@ -57,6 +59,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isReasoningExpanded = false,
   onToggleReasoning,
   activeToolCalls,
+  isPlayingAudio = false,
 }) => {
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
@@ -251,6 +254,17 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           <span className="chat-message__timestamp">
             {formatTime(timestamp)}
           </span>
+          {!isStreaming && !isEditing && content && onSpeak && (
+            <button
+              className={`chat-message__play-btn${isPlayingAudio ? ' chat-message__play-btn--playing' : ''}`}
+              onClick={(e) => { e.stopPropagation(); onSpeak(message); }}
+              aria-label={isPlayingAudio ? 'Parar áudio' : 'Reproduzir áudio'}
+              title={isPlayingAudio ? 'Parar' : 'Ouvir'}
+              tabIndex={-1}
+            >
+              {isPlayingAudio ? '⏹' : '🔊'}
+            </button>
+          )}
           {hasThreadIndicator && onThreadToggle && (
             <ThreadIndicator
               childCount={threadChildCount}

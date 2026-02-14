@@ -110,32 +110,42 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
   const speakMessage = useCallback(
     async (message: Message) => {
       if (!message.content || !message.id) return;
-      
+
       const text = stripMarkdown(message.content);
-      
-      // Verifica cache primeiro
-      const cachedBlob = messageAudioService.getCachedAudio(message.id);
-      if (cachedBlob) {
-        // Reproduz do cache (sem nova síntese!)
-        const volume = ttsService.getVolume();
-        await messageAudioService.playAudioBlob(cachedBlob, volume);
+      const volume = ttsService.getVolume();
+
+      // 1. Verifica se tem audio persistido no DB
+      const numericId = typeof message.id === 'string' ? parseInt(message.id, 10) : message.id;
+      if (numericId && !isNaN(numericId)) {
+        const dbAudio = await messageAudioService.getAudioFromDB(numericId);
+        if (dbAudio) {
+          await messageAudioService.playAudioBase64(dbAudio.audio, dbAudio.mimeType, volume);
+          return;
+        }
+      }
+
+      // 2. Tenta gerar via backend (OpenAI TTS) e salvar no DB
+      if (numericId && !isNaN(numericId)) {
+        const generated = await messageAudioService.generateAndSaveAudio(numericId, text);
+        if (generated) {
+          await messageAudioService.playAudioBase64(generated.audio, generated.mimeType, volume);
+          return;
+        }
+      }
+
+      // 3. Fallback: synthesizeOnDemand (gera blob local, ex: SAPI5)
+      const audioBlob = await ttsService.synthesizeOnDemand(text);
+      if (audioBlob) {
+        // Salva no DB se tiver ID numerico
+        if (numericId && !isNaN(numericId)) {
+          messageAudioService.saveAudioToDB(numericId, audioBlob);
+        }
+        await messageAudioService.playAudioBlob(audioBlob, volume);
         return;
       }
-      
-      // Não está em cache - sintetiza
-      const audioBlob = await ttsService.synthesizeOnDemand(text);
-      
-      if (audioBlob) {
-        // Guarda no cache para próxima vez
-        messageAudioService.cacheAudio(message.id, audioBlob);
-        
-        // Reproduz
-        const volume = ttsService.getVolume();
-        await messageAudioService.playAudioBlob(audioBlob, volume);
-      } else {
-        // Fallback para speakOnDemand (providers que não suportam synthesize)
-        ttsService.speakOnDemand(text);
-      }
+
+      // 4. Fallback final: WebSpeech (sem salvar, reproduz direto)
+      ttsService.speakOnDemand(text);
     },
     []
   );
