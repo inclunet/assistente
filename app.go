@@ -13,7 +13,6 @@ import (
 	"assistente/internal/channels"
 	"assistente/internal/config"
 	"assistente/internal/configdir"
-	"assistente/internal/confirmation"
 	"assistente/internal/contacts"
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
@@ -23,12 +22,14 @@ import (
 	"assistente/internal/messaging/signal"
 	"assistente/internal/messaging/telegram"
 	"assistente/internal/profiles"
+	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 	"assistente/internal/tools/filesystem"
 	msgtool "assistente/internal/tools/messaging"
+	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
 	"assistente/internal/tools/web"
 
@@ -45,7 +46,7 @@ type App struct {
 	toolRegistry          *tools.Registry             // Registro de ferramentas disponíveis
 	toolExecutor          *tools.Executor             // Executor de ferramentas com paralelismo e timeout
 	terminalMgr           *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
-	confirmationMgr       *confirmation.Manager       // Gerenciador de confirmações de comandos
+	questionnaireMgr      *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
 	allowlistMgr          *allowlist.Manager          // Gerenciador de allowlists de comandos
 	mcpMgr                *mcpmgr.Manager             // Gerenciador de servidores MCP
 	skillMgr              *skills.Manager             // Gerenciador de skills
@@ -185,7 +186,7 @@ func (a *App) ReloadLLMClient() {
 	a.initLLMClient()
 }
 
-// initTerminalAndAllowlists inicializa os managers de terminal, confirmação e allowlists.
+// initTerminalAndAllowlists inicializa os managers de terminal, questionário e allowlists.
 func (a *App) initTerminalAndAllowlists() {
 	// Callback para emitir eventos Wails a partir dos managers
 	emitEvent := func(event string, data any) {
@@ -195,8 +196,8 @@ func (a *App) initTerminalAndAllowlists() {
 	// Terminal Manager (pool compartilhado LLM + usuário)
 	a.terminalMgr = terminal.NewManager(terminal.DefaultManagerConfig(), emitEvent)
 
-	// Confirmation Manager (confirmação de comandos)
-	a.confirmationMgr = confirmation.NewManager(emitEvent)
+	// Questionnaire Manager (coleta de respostas estruturadas)
+	a.questionnaireMgr = questionnaire.NewManager(emitEvent)
 
 	// Allowlist Manager (CRUD de allowlists)
 	a.allowlistMgr = allowlist.NewManager()
@@ -204,7 +205,7 @@ func (a *App) initTerminalAndAllowlists() {
 		log.Printf("[Allowlist] Erro ao garantir allowlist padrão: %v", err)
 	}
 
-	log.Printf("[Terminal] Managers de terminal, confirmação e allowlist inicializados")
+	log.Printf("[Terminal] Managers de terminal, questionário e allowlist inicializados")
 }
 
 // initMCP inicializa o gerenciador de servidores MCP.
@@ -303,10 +304,53 @@ func (a *App) initMessaging() {
 	})
 
 	// Cria o gateway
+	approveContactFn := func(ctx context.Context, channel, displayName, contactID, username string) (bool, error) {
+		if a.questionnaireMgr == nil {
+			return false, fmt.Errorf("questionnaire manager não inicializado")
+		}
+		name := displayName
+		if name == "" {
+			name = "desconhecido"
+		}
+		identifier := contactID
+		if identifier == "" {
+			identifier = username
+		}
+		message := fmt.Sprintf("O contato %s enviou uma mensagem via %s, mas nenhum contato está autorizado para este canal.\n\nIdentificador: %s\n\nDeseja definir este contato como o contato autorizado do %s? (Apenas um contato é permitido por canal.)",
+			name, channel, identifier, channel)
+		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+			Title:       "Contato não autorizado",
+			Description: message,
+			AllowCancel: true,
+			SubmitLabel: "Autorizar",
+			CancelLabel: "Ignorar",
+			Questions: []questionnaire.Question{
+				{
+					ID:       "approve",
+					Type:     "boolean",
+					Prompt:   fmt.Sprintf("Autorizar este contato no canal %s?", channel),
+					Required: true,
+				},
+			},
+		})
+		if err != nil {
+			return false, err
+		}
+		if resp.Cancelled {
+			return false, nil
+		}
+		approved, ok := resp.Answers["approve"].(bool)
+		if !ok {
+			return false, fmt.Errorf("resposta inválida para autorização de contato")
+		}
+		return approved, nil
+	}
+
 	a.msgGateway = messaging.NewGateway(
 		a.responseNotifier,
 		a.SendMessageFromChannel,
 		emitEvent,
+		approveContactFn,
 		synthesizeTTS,
 		database.SaveMessageAudio,
 	)
@@ -720,7 +764,35 @@ func (a *App) initToolRegistry() {
 
 	// Registra ferramenta de shell (run_command)
 	confirmFn := func(ctx context.Context, cmd, wd string) (bool, error) {
-		return a.confirmationMgr.RequestConfirmation(ctx, cmd, wd)
+		if a.questionnaireMgr == nil {
+			return false, fmt.Errorf("questionnaire manager não inicializado")
+		}
+		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+			Title:       "Confirmar execução de comando",
+			Description: fmt.Sprintf("O assistente quer executar:\n\n%s\n\nem: %s", cmd, wd),
+			AllowCancel: true,
+			SubmitLabel: "Permitir",
+			CancelLabel: "Negar",
+			Questions: []questionnaire.Question{
+				{
+					ID:       "approve",
+					Type:     "boolean",
+					Prompt:   "Permitir a execução deste comando?",
+					Required: true,
+				},
+			},
+		})
+		if err != nil {
+			return false, err
+		}
+		if resp.Cancelled {
+			return false, nil
+		}
+		approved, ok := resp.Answers["approve"].(bool)
+		if !ok {
+			return false, fmt.Errorf("resposta inválida para aprovação de comando")
+		}
+		return approved, nil
 	}
 	getAllowlistFn := func() *allowlist.Allowlist {
 		activeProfile, err := a.profileManager.GetActive()
@@ -748,6 +820,9 @@ func (a *App) initToolRegistry() {
 		return al
 	}
 	a.toolRegistry.MustRegister(shell.NewRunCommand(a.terminalMgr, confirmFn, getAllowlistFn, workDir))
+
+	// Registra ferramenta de questionário (collect_responses)
+	a.toolRegistry.MustRegister(questiontool.NewCollectResponses(a.questionnaireMgr))
 
 	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
 }
@@ -896,17 +971,13 @@ func (a *App) GetTerminalStats() *terminal.ManagerStats {
 	return &stats
 }
 
-// ============================================================================
-// Command Confirmation API
-// ============================================================================
-
-// RespondCommandConfirmation responde a uma solicitação de confirmação de comando.
-// Chamado pelo frontend quando o usuário aprova ou nega um comando.
-func (a *App) RespondCommandConfirmation(requestID string, approved bool) error {
-	if a.confirmationMgr == nil {
-		return fmt.Errorf("confirmation manager não inicializado")
+// RespondQuestionnaire responde a uma solicitação de questionário.
+// Chamado pelo frontend quando o usuário envia ou cancela o questionário.
+func (a *App) RespondQuestionnaire(requestID string, answers map[string]any, cancelled bool) error {
+	if a.questionnaireMgr == nil {
+		return fmt.Errorf("questionnaire manager não inicializado")
 	}
-	return a.confirmationMgr.Respond(requestID, approved)
+	return a.questionnaireMgr.Respond(requestID, answers, cancelled)
 }
 
 // ============================================================================

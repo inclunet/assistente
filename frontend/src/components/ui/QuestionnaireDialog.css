@@ -1,0 +1,127 @@
+.questionnaire-dialog__description {
+  margin: 0 0 16px 0;
+  color: var(--text-secondary, #6b7280);
+  line-height: 1.5;
+  white-space: pre-line;
+}
+
+.questionnaire-dialog__form {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.questionnaire-dialog__question {
+  border: 1px solid var(--border-color, #e5e7eb);
+  border-radius: 12px;
+  padding: 12px 14px;
+  background: var(--surface-2, #f9fafb);
+}
+
+.questionnaire-dialog__header {
+  margin-bottom: 10px;
+}
+
+.questionnaire-dialog__label {
+  display: block;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+  margin-bottom: 4px;
+}
+
+.questionnaire-dialog__hint {
+  font-size: 0.9rem;
+  color: var(--text-secondary, #6b7280);
+}
+
+.questionnaire-dialog__input {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--surface-1, #ffffff);
+  color: var(--text-primary, #111827);
+}
+
+.questionnaire-dialog__textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: var(--surface-1, #ffffff);
+  color: var(--text-primary, #111827);
+  resize: vertical;
+}
+
+.questionnaire-dialog__input:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.6);
+  outline-offset: 2px;
+}
+
+.questionnaire-dialog__textarea:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.6);
+  outline-offset: 2px;
+}
+
+.questionnaire-dialog__options {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.questionnaire-dialog__scale {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.questionnaire-dialog__scale-value {
+  min-width: 28px;
+  text-align: center;
+  font-weight: 600;
+  color: var(--text-primary, #111827);
+}
+
+.questionnaire-dialog__option {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary, #111827);
+}
+
+.questionnaire-dialog__error {
+  margin-top: 8px;
+  color: #b91c1c;
+  font-size: 0.9rem;
+}
+
+.questionnaire-dialog__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+.questionnaire-dialog__button {
+  padding: 8px 14px;
+  border-radius: 999px;
+  border: none;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.questionnaire-dialog__button.primary {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+.questionnaire-dialog__button.secondary {
+  background: #e5e7eb;
+  color: #111827;
+}
+
+@media (max-width: 600px) {
+  .questionnaire-dialog__footer {
+    flex-direction: column-reverse;
+    align-items: stretch;
+  }
+}

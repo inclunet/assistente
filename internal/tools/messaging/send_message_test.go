@@ -49,7 +49,7 @@ func TestSendMessageTool_GatewayMissing(t *testing.T) {
 }
 
 func TestSendMessageTool_ChannelNotFound(t *testing.T) {
-	gateway := msgpkg.NewGateway(nil, nil, nil, nil, nil)
+	gateway := msgpkg.NewGateway(nil, nil, nil, nil, nil, nil)
 	tool := NewSendMessageTool(gateway)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"channel":"telegram","to":"123","message":"hi"}`))
@@ -62,7 +62,7 @@ func TestSendMessageTool_ChannelNotFound(t *testing.T) {
 }
 
 func TestSendMessageTool_Success(t *testing.T) {
-	gateway := msgpkg.NewGateway(nil, nil, nil, nil, nil)
+	gateway := msgpkg.NewGateway(nil, nil, nil, nil, nil, nil)
 	messenger := &fakeMessenger{name: "telegram"}
 	gateway.Register("telegram", messenger)
 
@@ -80,7 +80,7 @@ func TestSendMessageTool_Success(t *testing.T) {
 }
 
 func TestSendMessageTool_SendFailure(t *testing.T) {
-	gateway := msgpkg.NewGateway(nil, nil, nil, nil, nil)
+	gateway := msgpkg.NewGateway(nil, nil, nil, nil, nil, nil)
 	messenger := &fakeMessenger{name: "signal", sendErr: context.DeadlineExceeded}
 	gateway.Register("signal", messenger)
 

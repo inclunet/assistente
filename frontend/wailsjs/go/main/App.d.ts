@@ -194,7 +194,7 @@ export function ResetConfig():Promise<void>;
 
 export function ResetDatabase():Promise<void>;
 
-export function RespondCommandConfirmation(arg1:string,arg2:boolean):Promise<void>;
+export function RespondQuestionnaire(arg1:string,arg2:Record<string, any>,arg3:boolean):Promise<void>;
 
 export function RestartChannel(arg1:string):Promise<void>;
 

@@ -93,7 +93,7 @@ func resetState(t *testing.T) {
 	_ = contacts.RemoveAll("signal")
 }
 
-func TestGateway_UnauthorizedContactEmitsEvent(t *testing.T) {
+func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
 	resetState(t)
 
 	notifier := NewResponseNotifier()
@@ -106,7 +106,7 @@ func TestGateway_UnauthorizedContactEmitsEvent(t *testing.T) {
 	gateway := NewGateway(notifier, func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
 		t.Fatalf("sendMessage não deveria ser chamado para contato não autorizado")
 		return 0, nil
-	}, emitEvent, nil, nil)
+	}, emitEvent, nil, nil, nil)
 
 	incoming := IncomingMessage{
 		ID:      "msg-1",
@@ -121,8 +121,8 @@ func TestGateway_UnauthorizedContactEmitsEvent(t *testing.T) {
 
 	gateway.handleIncoming(context.Background(), incoming)
 
-	if len(emitted) != 1 || emitted[0] != "messaging:contact_blocked" {
-		t.Fatalf("esperava evento messaging:contact_blocked, got=%v", emitted)
+	if len(emitted) != 0 {
+		t.Fatalf("não esperava eventos, got=%v", emitted)
 	}
 }
 
@@ -152,6 +152,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 	gateway := NewGateway(
 		notifier,
 		sendMessage,
+		nil,
 		nil,
 		func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			return nil, fmt.Errorf("tts indisponível")
@@ -227,6 +228,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 			return conversationID, nil
 		},
 		nil,
+		nil,
 		func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			return []byte("audio-bytes"), nil
 		},
@@ -296,7 +298,7 @@ func TestGateway_ContactLimitRejectsSilently(t *testing.T) {
 	gateway := NewGateway(NewResponseNotifier(), func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
 		called++
 		return conversationID, nil
-	}, emitEvent, nil, nil)
+	}, emitEvent, nil, nil, nil)
 
 	incoming := IncomingMessage{
 		ID:      "msg-limit",
@@ -333,7 +335,7 @@ func TestGateway_AttachmentsConvertedToMediaJSON(t *testing.T) {
 	gateway := NewGateway(NewResponseNotifier(), func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
 		capturedMedia = media
 		return conversationID, nil
-	}, nil, nil, nil)
+	}, nil, nil, nil, nil)
 
 	incoming := IncomingMessage{
 		ID:      "msg-media",
@@ -387,7 +389,7 @@ func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 
 	gateway := NewGateway(NewResponseNotifier(), func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
 		return conversationID, fmt.Errorf("falha de envio")
-	}, nil, nil, nil)
+	}, nil, nil, nil, nil)
 	gateway.Register("telegram", fake)
 
 	incoming := IncomingMessage{

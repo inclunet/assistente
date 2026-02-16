@@ -1,18 +1,23 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet } from 'react-router-dom';
 import './App.css';
-import { GetConfig, AuthorizeMessagingContactFull } from "../wailsjs/go/main/App";
-import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
+import { GetConfig, RespondQuestionnaire } from "../wailsjs/go/main/App";
+import { EventsOn } from "../wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
 import { useUIStore } from './store/uiStore';
 import { useChatStore } from './store/chatStore';
 import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
-import { ConfirmDialog } from './components/ui/ConfirmDialog';
+import { QuestionnaireDialog, QuestionnairePayload } from './components/ui/QuestionnaireDialog';
 
 function App() {
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
     const { initializeTabs, isInitialized, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleTabClosed, handleExternalIncoming } = useChatStore();
+    const wasQuestionnaireOpenRef = useRef(false);
+
+    // Estado do dialog de questionário (tool: collect_responses e aprovações)
+    const [questionnaireOpen, setQuestionnaireOpen] = useState(false);
+    const [questionnaireData, setQuestionnaireData] = useState<QuestionnairePayload | null>(null);
 
     useEffect(() => {
         // Aguardar Wails estar pronto antes de carregar configuração
@@ -142,56 +147,13 @@ function App() {
         };
     }, [handleExternalIncoming]);
 
-    // Estado do dialog de autorização de contato (mensageria)
-    const [contactAuthOpen, setContactAuthOpen] = useState(false);
-    const [contactAuthData, setContactAuthData] = useState<{
-        channel: string; displayName: string; contactId: string; username: string;
-    } | null>(null);
-
     useEffect(() => {
-        EventsOn('messaging:contact_blocked', (data: any) => {
-            // Se já tem um dialog aberto, ignora (evita empilhar)
-            setContactAuthData((prev) => {
-                if (prev) return prev;
-                return {
-                    channel: data.channel || '',
-                    displayName: data.displayName || '',
-                    contactId: data.contactId || '',
-                    username: data.username || '',
-                };
-            });
-            setContactAuthOpen(true);
+        const unsub = EventsOn('tool:questionnaire', (data: QuestionnairePayload) => {
+            setQuestionnaireData(data);
+            setQuestionnaireOpen(true);
         });
-
-        return () => {
-            EventsOff('messaging:contact_blocked');
-        };
+        return unsub;
     }, []);
-
-    const handleAuthorizeContact = async () => {
-        if (contactAuthData) {
-            const identifier = contactAuthData.contactId || contactAuthData.username;
-            const name = contactAuthData.displayName || identifier;
-            try {
-                await AuthorizeMessagingContactFull(
-                    contactAuthData.channel,
-                    identifier,
-                    contactAuthData.displayName || '',
-                    contactAuthData.username || '',
-                );
-                addToast(`Contato ${name} autorizado como contato do ${contactAuthData.channel}!`, 'success');
-            } catch (err: any) {
-                addToast(err.message || 'Erro ao autorizar contato', 'error');
-            }
-        }
-        setContactAuthOpen(false);
-        setContactAuthData(null);
-    };
-
-    const handleDenyContact = () => {
-        setContactAuthOpen(false);
-        setContactAuthData(null);
-    };
 
     // Previne menu de contexto nativo quando tecla ContextMenu ou Shift+F10 for pressionada
     useEffect(() => {
@@ -206,26 +168,59 @@ function App() {
         return () => document.removeEventListener('keydown', preventNativeContextMenu, true);
     }, []);
 
-    // Monta a mensagem descritiva para o dialog de autorização
-    const contactAuthMessage = contactAuthData
-        ? `O contato ${contactAuthData.displayName || 'desconhecido'} enviou uma mensagem via ${contactAuthData.channel}, mas nenhum contato está autorizado para este canal.\n\nIdentificador: ${contactAuthData.contactId || contactAuthData.username}\n\nDeseja definir este contato como o contato autorizado do ${contactAuthData.channel}? (Apenas um contato é permitido por canal.)`
-        : '';
+    const focusChatInput = () => {
+        requestAnimationFrame(() => {
+            const textarea = document.querySelector('.chat-input__textarea') as HTMLTextAreaElement | null;
+            textarea?.focus();
+        });
+    };
+
+    // Restaura foco quando o questionário fecha
+    useEffect(() => {
+        if (!questionnaireOpen && wasQuestionnaireOpenRef.current) {
+            focusChatInput();
+        }
+        wasQuestionnaireOpenRef.current = questionnaireOpen;
+    }, [questionnaireOpen]);
+
+    const handleQuestionnaireSubmit = async (answers: Record<string, any>) => {
+        if (questionnaireData) {
+            try {
+                await RespondQuestionnaire(questionnaireData.id, answers, false);
+            } catch (err) {
+                console.error('[App] Erro ao enviar questionário:', err);
+                addToast('Erro ao enviar questionário', 'error');
+            }
+        }
+        setQuestionnaireOpen(false);
+        setQuestionnaireData(null);
+        focusChatInput();
+    };
+
+    const handleQuestionnaireCancel = async () => {
+        if (questionnaireData) {
+            try {
+                await RespondQuestionnaire(questionnaireData.id, {}, true);
+            } catch (err) {
+                console.error('[App] Erro ao cancelar questionário:', err);
+            }
+        }
+        setQuestionnaireOpen(false);
+        setQuestionnaireData(null);
+        focusChatInput();
+    };
 
     return (
         <>
             <ScreenReaderAnnouncer />
             <Outlet />
 
-            {/* Dialog de autorização de contato (mensageria) */}
-            <ConfirmDialog
-                isOpen={contactAuthOpen}
-                title="Contato não autorizado"
-                message={contactAuthMessage}
-                confirmText="Autorizar"
-                cancelText="Ignorar"
-                variant="warning"
-                onConfirm={handleAuthorizeContact}
-                onCancel={handleDenyContact}
+            {/* Dialog de questionário global */}
+            <QuestionnaireDialog
+                isOpen={questionnaireOpen}
+                data={questionnaireData}
+                onSubmit={handleQuestionnaireSubmit}
+                onCancel={handleQuestionnaireCancel}
             />
         </>
     )

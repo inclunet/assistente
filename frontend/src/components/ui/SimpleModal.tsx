@@ -30,9 +30,19 @@ export interface SimpleModalProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   /** Se true, restaura foco no grid quando o modal fecha. Default: true */
   returnFocusToGrid?: boolean;
+  /** Se false, desabilita fechamento (ESC, clique fora e botão X). Default: true */
+  allowClose?: boolean;
 }
 
-export function SimpleModal({ isOpen, onClose, title, children, size = 'md', returnFocusToGrid = true }: SimpleModalProps) {
+export function SimpleModal({
+  isOpen,
+  onClose,
+  title,
+  children,
+  size = 'md',
+  returnFocusToGrid = true,
+  allowClose = true,
+}: SimpleModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const firstFocusableRef = useRef<HTMLElement | null>(null);
   const titleId = useId();
@@ -95,6 +105,7 @@ export function SimpleModal({ isOpen, onClose, title, children, size = 'md', ret
     if (!isOpen) return;
 
     const handleEscape = (e: KeyboardEvent) => {
+      if (!allowClose) return;
       if (e.key === 'Escape') {
         onClose();
       }
@@ -126,6 +137,7 @@ export function SimpleModal({ isOpen, onClose, title, children, size = 'md', ret
     };
 
     const handleClickOutside = (e: MouseEvent) => {
+      if (!allowClose) return;
       if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
         const overlay = (e.target as HTMLElement).closest('.simple-modal-overlay');
         if (overlay) {
@@ -147,7 +159,7 @@ export function SimpleModal({ isOpen, onClose, title, children, size = 'md', ret
       document.removeEventListener('mousedown', handleClickOutside);
       document.body.style.overflow = '';
     };
-  }, [isOpen, onClose, getFocusableElements]);
+  }, [isOpen, onClose, getFocusableElements, allowClose]);
 
   if (!isOpen) return null;
 
@@ -156,13 +168,15 @@ export function SimpleModal({ isOpen, onClose, title, children, size = 'md', ret
       <div ref={modalRef} className={`simple-modal-content ${size}`}>
         <div className="simple-modal-header">
           <h2 id={titleId} className="simple-modal-title">{title}</h2>
-          <button 
-            className="simple-modal-close"
-            onClick={onClose}
-            aria-label="Fechar modal"
-          >
-            ✕
-          </button>
+          {allowClose && (
+            <button 
+              className="simple-modal-close"
+              onClick={onClose}
+              aria-label="Fechar modal"
+            >
+              ✕
+            </button>
+          )}
         </div>
         <div className="simple-modal-body">
           {children}

@@ -366,8 +366,8 @@ export function ResetDatabase() {
   return window['go']['main']['App']['ResetDatabase']();
 }
 
-export function RespondCommandConfirmation(arg1, arg2) {
-  return window['go']['main']['App']['RespondCommandConfirmation'](arg1, arg2);
+export function RespondQuestionnaire(arg1, arg2, arg3) {
+  return window['go']['main']['App']['RespondQuestionnaire'](arg1, arg2, arg3);
 }
 
 export function RestartChannel(arg1) {

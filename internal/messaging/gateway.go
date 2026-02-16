@@ -34,6 +34,10 @@ type SynthesizeTTSFunc func(text string, channel string, incomingIsAudio bool) (
 // SaveAudioFunc é a assinatura da função que salva áudio no DB.
 type SaveAudioFunc func(messageID uint, audioBase64 string, mimeType string) error
 
+// ApproveContactFunc é a assinatura da função que solicita aprovação para autorizar um contato.
+// Retorna true se aprovado, false caso contrário.
+type ApproveContactFunc func(ctx context.Context, channel, displayName, contactID, username string) (bool, error)
+
 // Gateway é o router central de mensageria. Conecta os adapters dos mensageiros
 // ao processamento do assistente (via App.SendMessage).
 //
@@ -50,6 +54,7 @@ type Gateway struct {
 	notifier      *ResponseNotifier
 	sendMessage   SendMessageFunc
 	emitEvent     emitFunc
+	approveContact ApproveContactFunc
 	synthesizeTTS SynthesizeTTSFunc // Opcional: sintetiza áudio para respostas em modo áudio
 	saveAudio     SaveAudioFunc     // Opcional: salva áudio no DB
 }
@@ -59,6 +64,7 @@ func NewGateway(
 	notifier *ResponseNotifier,
 	sendMessage SendMessageFunc,
 	emitEvent emitFunc,
+	approveContact ApproveContactFunc,
 	synthesizeTTS SynthesizeTTSFunc,
 	saveAudio SaveAudioFunc,
 ) *Gateway {
@@ -67,6 +73,7 @@ func NewGateway(
 		notifier:      notifier,
 		sendMessage:   sendMessage,
 		emitEvent:     emitEvent,
+		approveContact: approveContact,
 		synthesizeTTS: synthesizeTTS,
 		saveAudio:     saveAudio,
 	}
@@ -155,15 +162,24 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		log.Printf("[Gateway] trace=%s conv=? channel=%s contact=%s username=%s name=%s msg=%s aguardando autorização",
 			traceID, msg.Channel, maskIdentifier(msg.From.ID), maskIdentifier(msg.From.Username), msg.From.DisplayName, msg.ID)
 
-		if g.emitEvent != nil {
-			g.emitEvent("messaging:contact_blocked", map[string]any{
-				"channel":     msg.Channel,
-				"displayName": msg.From.DisplayName,
-				"contactId":   msg.From.ID,
-				"username":    msg.From.Username,
-			})
+		if g.approveContact != nil {
+			approved, err := g.approveContact(ctx, msg.Channel, msg.From.DisplayName, msg.From.ID, msg.From.Username)
+			if err != nil {
+				log.Printf("[Gateway] trace=%s channel=%s erro ao solicitar autorização: %v", traceID, msg.Channel, err)
+				return
+			}
+			if !approved {
+				log.Printf("[Gateway] trace=%s channel=%s contato não autorizado (negado)", traceID, msg.Channel)
+				return
+			}
+			if err := contacts.Authorize(msg.Channel, msg.From.ID, msg.From.DisplayName, msg.From.Username, maxContacts); err != nil {
+				log.Printf("[Gateway] trace=%s channel=%s erro ao autorizar contato: %v", traceID, msg.Channel, err)
+				return
+			}
+			log.Printf("[Gateway] trace=%s channel=%s contato autorizado: %s", traceID, msg.Channel, maskIdentifier(msg.From.ID))
+		} else {
+			return
 		}
-		return
 	}
 
 	// 2. Busca (ou cria) a conversa dedicada para este canal+contato.
