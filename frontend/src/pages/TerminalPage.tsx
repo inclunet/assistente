@@ -158,9 +158,9 @@ export default function TerminalPage() {
       <Toolbar
         ariaLabel="Ferramentas do terminal. Use setas para navegar entre os botões"
         left={
-          <h2 className="terminal-page__toolbar-title" id="terminal-heading">
+          <h1 className="page-toolbar__title" id="terminal-heading">
             {activeSession?.name || 'Terminal'}
-          </h2>
+          </h1>
         }
         right={
           <>

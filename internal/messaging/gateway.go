@@ -7,6 +7,9 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"strings"
+
+	"github.com/google/uuid"
 
 	"assistente/internal/channels"
 	"assistente/internal/contacts"
@@ -130,6 +133,8 @@ func (g *Gateway) GetMessenger(name string) (Messenger, bool) {
 
 // handleIncoming é chamado quando uma mensagem chega de qualquer messenger.
 func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
+	traceID := uuid.NewString()
+
 	// 1. Verifica contato autorizado (contacts.json centralizado + max_contacts do canal)
 	maxContacts := 1
 	if chCfg, _ := channels.Load(msg.Channel); chCfg != nil {
@@ -140,15 +145,15 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 
 	if hasContacts && !isAllowed {
 		// Limite de contatos atingido e este não está na lista — rejeita silenciosamente
-		log.Printf("[Gateway] Mensagem de %s (%s) rejeitada — canal %s com limite de contatos atingido",
-			msg.From.DisplayName, msg.From.ID, msg.Channel)
+		log.Printf("[Gateway] trace=%s conv=? channel=%s contact=%s name=%s msg=%s rejeitada (limite de contatos)",
+			traceID, msg.Channel, maskIdentifier(msg.From.ID), msg.From.DisplayName, msg.ID)
 		return
 	}
 
 	if !hasContacts {
 		// Canal sem contatos ou com vaga — solicita autorização ao usuário
-		fmt.Printf("[Gateway] Mensagem de %s (%s / %s) — canal %s aguardando autorização\n",
-			msg.From.DisplayName, msg.From.ID, msg.From.Username, msg.Channel)
+		log.Printf("[Gateway] trace=%s conv=? channel=%s contact=%s username=%s name=%s msg=%s aguardando autorização",
+			traceID, msg.Channel, maskIdentifier(msg.From.ID), maskIdentifier(msg.From.Username), msg.From.DisplayName, msg.ID)
 
 		if g.emitEvent != nil {
 			g.emitEvent("messaging:contact_blocked", map[string]any{
@@ -168,20 +173,23 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		msg.Channel, msg.From.ID, msg.From.DisplayName,
 	)
 	if err != nil {
-		fmt.Printf("[Gateway] Erro ao buscar/criar conversa para %s/%s: %v\n", msg.Channel, msg.From.ID, err)
+		log.Printf("[Gateway] trace=%s conv=? channel=%s contact=%s erro ao buscar/criar conversa: %v",
+			traceID, msg.Channel, maskIdentifier(msg.From.ID), err)
 		return
 	}
 	conversationID := conv.ID
 
 	if created {
-		fmt.Printf("[Gateway] Nova conversa %d criada para %s via %s\n", conversationID, msg.From.DisplayName, msg.Channel)
+		log.Printf("[Gateway] trace=%s conv=%d channel=%s contact=%s nova conversa criada",
+			traceID, conversationID, msg.Channel, maskIdentifier(msg.From.ID))
 		// Persiste o mapeamento contactID → conversationID no config do canal
 		if err := channels.SaveConversationID(msg.Channel, msg.From.ID, conversationID); err != nil {
-			log.Printf("[Gateway] Erro ao persistir conversa no config: %v", err)
+			log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao persistir conversa no config: %v",
+				traceID, conversationID, msg.Channel, err)
 		}
 	}
-	fmt.Printf("[Gateway] Mensagem de %s via %s → conversa %d\n",
-		msg.From.DisplayName, msg.Channel, conversationID)
+	log.Printf("[Gateway] trace=%s conv=%d channel=%s contact=%s msg=%s recebida",
+		traceID, conversationID, msg.Channel, maskIdentifier(msg.From.ID), msg.ID)
 
 	// 3. Garante que existe uma aba para essa conversa no Wails
 	channelIcons := map[string]string{"signal": "📡", "telegram": "✈️"}
@@ -196,17 +204,17 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	if tabErr == nil {
 		tabID = tab.ID
 		if tabCreated {
-			fmt.Printf("[Gateway] Nova aba %d criada para conversa %d\n", tabID, conversationID)
+			log.Printf("[Gateway] trace=%s conv=%d tab=%d criada", traceID, conversationID, tabID)
 		}
 	} else {
-		fmt.Printf("[Gateway] Erro ao criar aba para conversa %d: %v\n", conversationID, tabErr)
+		log.Printf("[Gateway] trace=%s conv=%d erro ao criar aba: %v", traceID, conversationID, tabErr)
 	}
 
 	// 4. Converte attachments em media JSON (mesmo formato que o frontend)
 	mediaJSON := ""
 	if len(msg.Attachments) > 0 {
 		mediaJSON = attachmentsToMediaJSON(msg.Attachments)
-		fmt.Printf("[Gateway] %d attachment(s) convertidos para media JSON\n", len(msg.Attachments))
+		log.Printf("[Gateway] trace=%s conv=%d attachments=%d convertidos para media JSON", traceID, conversationID, len(msg.Attachments))
 	}
 
 	// 5. Emite evento para o frontend (com conversationID + info da aba)
@@ -236,13 +244,15 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 		Channel:   msg.Channel,
 		ChatID:    msg.From.ID,
 		AudioOnly: incomingIsAudio, // hint para o notifier (mantém compatibilidade)
+		TraceID:   traceID,
 		Callback: func(response string, assistantMsgID uint) {
 			g.mu.RLock()
 			messenger, ok := g.messengers[msg.Channel]
 			g.mu.RUnlock()
 
 			if !ok {
-				fmt.Printf("[Gateway] Messenger '%s' não encontrado para resposta\n", msg.Channel)
+				log.Printf("[Gateway] trace=%s conv=%d channel=%s messenger não encontrado para resposta",
+					traceID, conversationID, msg.Channel)
 				return
 			}
 
@@ -263,26 +273,41 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 						Data:     audioData,
 					}}
 					outMsg.Text = ""
-					fmt.Printf("[Gateway] Resposta TTS gerada (%d bytes) para %s\n", len(audioData), msg.From.DisplayName)
+					log.Printf("[Gateway] trace=%s conv=%d channel=%s TTS gerado bytes=%d",
+						traceID, conversationID, msg.Channel, len(audioData))
 
 					// Salva o áudio TTS na mensagem do assistente no DB
 					if assistantMsgID > 0 && g.saveAudio != nil {
 						if err := g.saveAudio(assistantMsgID, base64.StdEncoding.EncodeToString(audioData), "audio/mpeg"); err != nil {
-							fmt.Printf("[Gateway] Erro ao salvar áudio TTS no DB: %v\n", err)
+							log.Printf("[Gateway] trace=%s conv=%d msgID=%d erro ao salvar áudio TTS no DB: %v",
+								traceID, conversationID, assistantMsgID, err)
 						} else {
-							fmt.Printf("[Gateway] Áudio TTS salvo na mensagem %d\n", assistantMsgID)
+							log.Printf("[Gateway] trace=%s conv=%d msgID=%d áudio TTS salvo", traceID, conversationID, assistantMsgID)
 						}
 					}
 				} else if err != nil {
-					fmt.Printf("[Gateway] Erro ao gerar TTS: %v (enviando texto)\n", err)
+					// Fallback explícito para texto
+					if outMsg.Text == "" {
+						outMsg.Text = response
+					}
+					log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao gerar TTS: %v (fallback texto)",
+						traceID, conversationID, msg.Channel, err)
+				} else {
+					// TTS ignorado (perfil decidiu não gerar áudio) — garantir texto
+					if outMsg.Text == "" {
+						outMsg.Text = response
+					}
+					log.Printf("[Gateway] trace=%s conv=%d channel=%s TTS ignorado (fallback texto)",
+						traceID, conversationID, msg.Channel)
 				}
 			}
 
 			err := messenger.Send(ctx, outMsg)
 			if err != nil {
-				fmt.Printf("[Gateway] Erro ao enviar resposta via %s: %v\n", msg.Channel, err)
+				log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao enviar resposta: %v",
+					traceID, conversationID, msg.Channel, err)
 			} else {
-				fmt.Printf("[Gateway] Resposta enviada via %s para %s\n", msg.Channel, msg.From.DisplayName)
+				log.Printf("[Gateway] trace=%s conv=%d channel=%s resposta enviada", traceID, conversationID, msg.Channel)
 			}
 		},
 	})
@@ -292,11 +317,11 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	params := llm.ChatParams{}
 	if chCfg, _ := channels.Load(msg.Channel); chCfg != nil && chCfg.Profile != "" {
 		params.ProfileSlug = chCfg.Profile
-		log.Printf("[Gateway] Usando perfil '%s' do canal %s", chCfg.Profile, msg.Channel)
+		log.Printf("[Gateway] trace=%s conv=%d channel=%s usando perfil=%s", traceID, conversationID, msg.Channel, chCfg.Profile)
 	}
 	_, err = g.sendMessage(conversationID, msg.Text, mediaJSON, params, msg.Channel)
 	if err != nil {
-		fmt.Printf("[Gateway] Erro ao processar mensagem: %v\n", err)
+		log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao processar mensagem: %v", traceID, conversationID, msg.Channel, err)
 		g.mu.RLock()
 		messenger, ok := g.messengers[msg.Channel]
 		g.mu.RUnlock()
@@ -327,5 +352,16 @@ func attachmentsToMediaJSON(attachments []Attachment) string {
 		return ""
 	}
 	return string(data)
+}
+
+func maskIdentifier(value string) string {
+	if value == "" {
+		return ""
+	}
+	if len(value) <= 4 {
+		return "****"
+	}
+	visible := value[len(value)-4:]
+	return strings.Repeat("*", len(value)-4) + visible
 }
 

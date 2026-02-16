@@ -86,6 +86,62 @@ As configurações são salvas em:
 - **Windows**: `%USERPROFILE%\.assistente\config.json`
 - **Linux/Mac**: `~/.assistente/config.json`
 
+Configurações de canais e contatos:
+- **Windows**: `%USERPROFILE%\.assistente\channels\*.json` e `%USERPROFILE%\.assistente\contacts.json`
+- **Linux/Mac**: `~/.assistente/channels/*.json` e `~/.assistente/contacts.json`
+
+## 📡 Canais de Mensageria (Telegram/Signal)
+
+O assistente pode receber e responder mensagens via mensageiros externos usando o **mesmo pipeline** do chat do Wails.
+
+### Telegram
+
+1. Crie um bot via @BotFather.
+2. Crie/edite `telegram.json`:
+
+```json
+{
+  "enabled": true,
+  "bot_token": "SEU_TOKEN",
+  "profile": "", 
+  "max_history": 50,
+  "max_contacts": 1
+}
+```
+
+### Signal
+
+1. Suba uma `signal-cli-rest-api`.
+2. Crie/edite `signal.json`:
+
+```json
+{
+  "enabled": true,
+  "api_url": "http://localhost:8080",
+  "account": "+5511999999999",
+  "profile": "",
+  "max_history": 50,
+  "max_contacts": 1
+}
+```
+
+### Contatos autorizados
+
+Os contatos autorizados ficam em `contacts.json` (um por canal, por padrão):
+
+```json
+{
+  "telegram": [
+    { "id": "123456", "display_name": "Fulano", "authorized_at": "2026-02-15T12:00:00Z" }
+  ],
+  "signal": [
+    { "id": "+5511999999999", "display_name": "Fulano", "authorized_at": "2026-02-15T12:00:00Z" }
+  ]
+}
+```
+
+> Dica: o app pode pedir autorização de contato automaticamente quando chega uma mensagem externa.
+
 ## 🔧 Usando com outros provedores
 
 Basta configurar a **URL Base da API** para usar serviços compatíveis:

@@ -22,6 +22,7 @@ import { ProfilePicker } from '../components/pickers/ProfilePicker';
 import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { SimpleModal } from '../components/ui/SimpleModal';
 import { playBumpSound } from '../services/audioFeedback';
 import './ChannelsPage.css';
 
@@ -89,11 +90,6 @@ export default function ChannelsPage() {
   const [channelRows, setChannelRows] = useState<ChannelRow[]>([]);
   const [editingChannel, setEditingChannel] = useState<string | null>(null);
 
-  // ── Editor focus management (ProfilesPage pattern) ───────────────
-  const editorRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const editorJustOpenedRef = useRef(false);
-
   // ── Channel forms ────────────────────────────────────────────────
   const [telegramForm, setTelegramForm] = useState<TelegramForm>({
     enabled: false, botToken: '', profile: '', maxHistory: 50, maxContacts: 1,
@@ -110,7 +106,9 @@ export default function ChannelsPage() {
   const [signalSmsSent, setSignalSmsSent] = useState(false);
   const [signalCheckingAPI, setSignalCheckingAPI] = useState(false);
   const [signalAPIInfo, setSignalAPIInfo] = useState('');
+  const [signalAPIReady, setSignalAPIReady] = useState(false);
   const [signalAccounts, setSignalAccounts] = useState<string[]>([]);
+  const [signalConnectionMode, setSignalConnectionMode] = useState<'register' | 'link'>('register');
   const [signalLinkQR, setSignalLinkQR] = useState('');
   const [signalLinking, setSignalLinking] = useState(false);
   const [signalUnregistering, setSignalUnregistering] = useState<string | null>(null);
@@ -208,31 +206,6 @@ export default function ChannelsPage() {
     };
   }, []);
 
-  // ── Editor focus: auto-focus first input when opened ─────────────
-  useEffect(() => {
-    if (editingChannel && editorRef.current && editorJustOpenedRef.current) {
-      editorJustOpenedRef.current = false;
-      previousFocusRef.current = document.activeElement as HTMLElement;
-      const firstInput = editorRef.current.querySelector<HTMLElement>(
-        'input, select, textarea, [tabindex]'
-      );
-      setTimeout(() => firstInput?.focus(), 50);
-    }
-  }, [editingChannel]);
-
-  // ── ESC to close editor ──────────────────────────────────────────
-  useEffect(() => {
-    if (!editingChannel) return;
-    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (e.key === 'Escape' && editingChannel) {
-        e.preventDefault();
-        handleCloseEditor();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingChannel]);
-
   // ── Tab keyboard navigation (ARIA tabs pattern) ──────────────────
 
   const handleTabKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
@@ -314,7 +287,6 @@ export default function ChannelsPage() {
   // ── Channel editor open/close ────────────────────────────────────
 
   const handleEditChannel = (row: ChannelRow) => {
-    editorJustOpenedRef.current = true;
     setEditingChannel(row.name);
     announce(`Editor aberto para ${row.label}`);
   };
@@ -322,7 +294,6 @@ export default function ChannelsPage() {
   const handleCloseEditor = () => {
     setEditingChannel(null);
     announce('Editor fechado');
-    setTimeout(() => previousFocusRef.current?.focus(), 50);
   };
 
   const handleReconnectChannel = async (channelName: string) => {
@@ -348,6 +319,7 @@ export default function ChannelsPage() {
     }
     setSignalCheckingAPI(true);
     setSignalAPIInfo('');
+    setSignalAPIReady(false);
     setSignalRegError('');
     setSignalAccounts([]);
     try {
@@ -366,12 +338,14 @@ export default function ChannelsPage() {
         infoText += ' Nenhuma conta registrada — registre ou vincule abaixo.';
       }
       setSignalAPIInfo(infoText);
+      setSignalAPIReady(true);
       addToast('Signal API acessível!', 'success');
       announce(infoText);
     } catch (error: any) {
       setSignalAPIInfo('');
       const msg = error.message || 'Não foi possível conectar à API Signal';
       setSignalRegError(msg);
+      setSignalAPIReady(false);
       addToast(msg, 'error');
     } finally {
       setSignalCheckingAPI(false);
@@ -622,7 +596,13 @@ export default function ChannelsPage() {
           <Input
             label="URL da API"
             value={signalForm.apiURL}
-            onChange={(e) => setSignalForm((prev) => ({ ...prev, apiURL: e.target.value }))}
+            onChange={(e) => {
+              setSignalForm((prev) => ({ ...prev, apiURL: e.target.value }));
+              setSignalAPIReady(false);
+              setSignalAPIInfo('');
+              setSignalRegError('');
+              setSignalAccounts([]);
+            }}
             placeholder="http://localhost:8080"
             fullWidth
           />
@@ -640,42 +620,73 @@ export default function ChannelsPage() {
             {signalAPIInfo && <p className="channels-page__hint" role="status">{signalAPIInfo}</p>}
           </div>
 
-          <Input
-            label="Conta (número de telefone)"
-            value={signalForm.account}
-            onChange={(e) => setSignalForm((prev) => ({ ...prev, account: e.target.value }))}
-            placeholder="+5511999999999"
-            fullWidth
-          />
+          {!signalAPIReady && (
+            <p className="channels-page__hint" role="status">Teste a conexão para avançar.</p>
+          )}
 
-          {/* Contas registradas */}
-          {signalAccounts.length > 0 && (
+          {signalAPIReady && signalAccounts.length > 0 && (
             <div className="channels-page__subsection">
-              <h4>Contas Registradas</h4>
-              {signalAccounts.map((acc) => (
-                <div key={acc} className="channels-page__account-row">
-                  <span className="channels-page__account-number">{acc}</span>
-                  <Button
-                    variant="danger"
-                    size="sm"
-                    onClick={() => handleSignalUnregister(acc)}
-                    loading={signalUnregistering === acc}
-                    disabled={signalUnregistering !== null}
-                  >
-                    Remover
-                  </Button>
-                </div>
-              ))}
+              <h4>Conta Conectada</h4>
+              <div className="channels-page__account-row">
+                <span className="channels-page__account-number">{signalAccounts[0]}</span>
+                <Button
+                  variant="danger"
+                  size="sm"
+                  onClick={() => handleSignalUnregister(signalAccounts[0])}
+                  loading={signalUnregistering === signalAccounts[0]}
+                  disabled={signalUnregistering !== null}
+                >
+                  Desconectar
+                </Button>
+              </div>
             </div>
           )}
 
-          {/* Registro / Vinculação */}
-          {signalAccounts.length === 0 && (
+          {signalAPIReady && signalAccounts.length === 0 && (
             <div className="channels-page__subsection">
-              <h4>Registrar ou Vincular Conta</h4>
+              <h4>Conectar Conta</h4>
               <p className="channels-page__hint">
-                Registre um número novo (requer token + SMS) ou vincule como dispositivo secundário.
+                Cadastre um novo número ou conecte uma conta existente via QR Code.
               </p>
+
+              <Input
+                label="Novo número de telefone"
+                value={signalForm.account}
+                onChange={(e) => setSignalForm((prev) => ({ ...prev, account: e.target.value }))}
+                placeholder="+5511999999999"
+                fullWidth
+              />
+
+              <div className="channels-page__row">
+                <Button
+                  variant={signalConnectionMode === 'register' ? 'primary' : 'outline'}
+                  onClick={() => {
+                    setSignalConnectionMode('register');
+                    setSignalRegStep('idle');
+                    setSignalRegCode('');
+                    setSignalRegCaptcha('');
+                    setSignalRegError('');
+                    setSignalSmsSent(false);
+                    setSignalLinkQR('');
+                    setSignalLinking(false);
+                  }}
+                >
+                  Cadastrar número
+                </Button>
+                <Button
+                  variant={signalConnectionMode === 'link' ? 'primary' : 'outline'}
+                  onClick={() => {
+                    setSignalConnectionMode('link');
+                    setSignalRegStep('idle');
+                    setSignalRegCode('');
+                    setSignalRegCaptcha('');
+                    setSignalRegError('');
+                    setSignalSmsSent(false);
+                  }}
+                >
+                  Conectar conta existente
+                </Button>
+              </div>
 
               <div aria-live="assertive" aria-atomic="true">
                 {signalRegError && (
@@ -685,81 +696,92 @@ export default function ChannelsPage() {
                 )}
               </div>
 
-              {signalRegStep === 'idle' && (
-                <div className="channels-page__fields">
-                  <Input
-                    label="Token de Verificação"
-                    value={signalRegCaptcha}
-                    onChange={(e) => setSignalRegCaptcha(e.target.value)}
-                    placeholder="signalcaptcha://signal-hcaptcha.abcdef..."
-                    fullWidth
-                  />
-                  <p className="channels-page__hint">
-                    Abra{' '}
-                    <a href="https://signalcaptchas.org/registration/generate.html" target="_blank" rel="noopener noreferrer">
-                      esta página
-                    </a>
-                    , complete o desafio, clique direito em "Open Signal" e copie o link.
-                  </p>
-                  <div className="channels-page__row">
-                    <Button variant="outline" onClick={() => handleSignalRegister('sms')} disabled={!signalForm.apiURL || !signalForm.account || !signalRegCaptcha}>
-                      Enviar código por SMS
-                    </Button>
-                    <Button variant="outline" onClick={handleSignalLink} disabled={!signalForm.apiURL || signalLinking} loading={signalLinking}>
-                      Vincular Dispositivo (QR)
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {signalRegStep === 'registering' && (
-                <p className="channels-page__hint" role="status" aria-live="polite">Enviando código...</p>
-              )}
-
-              {(signalRegStep === 'awaiting_code' || signalRegStep === 'verifying') && (
-                <div className="channels-page__fields">
-                  <Input
-                    label="Código de Verificação"
-                    value={signalRegCode}
-                    onChange={(e) => setSignalRegCode(e.target.value)}
-                    placeholder="123-456"
-                    fullWidth
-                  />
-                  <div className="channels-page__row">
-                    <Button variant="outline" onClick={handleSignalVerify} loading={signalRegStep === 'verifying'} disabled={!signalRegCode}>
-                      Verificar
-                    </Button>
-                    <Button variant="outline" onClick={() => handleSignalRegister('voice')} disabled={!signalSmsSent}>
-                      Reenviar por Ligação
-                    </Button>
-                    <Button variant="ghost" onClick={() => { setSignalRegStep('idle'); setSignalRegCode(''); setSignalRegError(''); setSignalSmsSent(false); setSignalRegCaptcha(''); }}>
-                      Cancelar
-                    </Button>
-                  </div>
-                </div>
-              )}
-
-              {signalRegStep === 'done' && (
-                <div className="channels-page__fields">
-                  <div className="channels-page__success" role="status" aria-live="polite">
-                    Número {signalForm.account} registrado com sucesso!
-                  </div>
-                  <Button variant="ghost" onClick={() => { setSignalRegStep('idle'); setSignalSmsSent(false); }}>OK</Button>
-                </div>
-              )}
-
-              {(signalLinkQR || signalLinking) && (
-                <div className="channels-page__qr-container" role="region" aria-label="QR Code de vinculação Signal">
-                  {signalLinkQR ? (
-                    <>
-                      <p className="channels-page__hint">Escaneie o QR Code com o Signal no celular:</p>
-                      <img src={signalLinkQR} alt="QR Code para vincular dispositivo Signal" className="channels-page__qr-image" />
-                    </>
-                  ) : (
-                    <p className="channels-page__hint" role="status" aria-live="polite">Gerando QR Code...</p>
+              {signalConnectionMode === 'register' && (
+                <>
+                  {signalRegStep === 'idle' && (
+                    <div className="channels-page__fields">
+                      <Input
+                        label="Token de Verificação"
+                        value={signalRegCaptcha}
+                        onChange={(e) => setSignalRegCaptcha(e.target.value)}
+                        placeholder="signalcaptcha://signal-hcaptcha.abcdef..."
+                        fullWidth
+                      />
+                      <p className="channels-page__hint">
+                        Abra{' '}
+                        <a href="https://signalcaptchas.org/registration/generate.html" target="_blank" rel="noopener noreferrer">
+                          esta página
+                        </a>
+                        , complete o desafio, clique direito em "Open Signal" e copie o link.
+                      </p>
+                      <div className="channels-page__row">
+                        <Button variant="outline" onClick={() => handleSignalRegister('sms')} disabled={!signalForm.apiURL || !signalForm.account || !signalRegCaptcha}>
+                          Enviar código por SMS
+                        </Button>
+                      </div>
+                    </div>
                   )}
-                  {signalLinking && <p className="channels-page__hint" role="status" aria-live="polite">Aguardando vinculação...</p>}
-                  <Button variant="ghost" onClick={() => { setSignalLinkQR(''); setSignalLinking(false); stopLinkPolling(); }}>Cancelar</Button>
+
+                  {signalRegStep === 'registering' && (
+                    <p className="channels-page__hint" role="status" aria-live="polite">Enviando código...</p>
+                  )}
+
+                  {(signalRegStep === 'awaiting_code' || signalRegStep === 'verifying') && (
+                    <div className="channels-page__fields">
+                      <Input
+                        label="Código de Verificação"
+                        value={signalRegCode}
+                        onChange={(e) => setSignalRegCode(e.target.value)}
+                        placeholder="123-456"
+                        fullWidth
+                      />
+                      <div className="channels-page__row">
+                        <Button variant="outline" onClick={handleSignalVerify} loading={signalRegStep === 'verifying'} disabled={!signalRegCode}>
+                          Verificar
+                        </Button>
+                        <Button variant="outline" onClick={() => handleSignalRegister('voice')} disabled={!signalSmsSent}>
+                          Reenviar por Ligação
+                        </Button>
+                        <Button variant="ghost" onClick={() => { setSignalRegStep('idle'); setSignalRegCode(''); setSignalRegError(''); setSignalSmsSent(false); setSignalRegCaptcha(''); }}>
+                          Cancelar
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
+                  {signalRegStep === 'done' && (
+                    <div className="channels-page__fields">
+                      <div className="channels-page__success" role="status" aria-live="polite">
+                        Número {signalForm.account} registrado com sucesso!
+                      </div>
+                      <Button variant="ghost" onClick={() => { setSignalRegStep('idle'); setSignalSmsSent(false); }}>OK</Button>
+                    </div>
+                  )}
+                </>
+              )}
+
+              {signalConnectionMode === 'link' && (
+                <div className="channels-page__fields">
+                  <div className="channels-page__row">
+                    <Button variant="outline" onClick={handleSignalLink} disabled={!signalForm.apiURL || signalLinking} loading={signalLinking}>
+                      Gerar QR Code
+                    </Button>
+                  </div>
+
+                  {(signalLinkQR || signalLinking) && (
+                    <div className="channels-page__qr-container" role="region" aria-label="QR Code de vinculação Signal">
+                      {signalLinkQR ? (
+                        <>
+                          <p className="channels-page__hint">Escaneie o QR Code com o Signal no celular:</p>
+                          <img src={signalLinkQR} alt="QR Code para vincular dispositivo Signal" className="channels-page__qr-image" />
+                        </>
+                      ) : (
+                        <p className="channels-page__hint" role="status" aria-live="polite">Gerando QR Code...</p>
+                      )}
+                      {signalLinking && <p className="channels-page__hint" role="status" aria-live="polite">Aguardando vinculação...</p>}
+                      <Button variant="ghost" onClick={() => { setSignalLinkQR(''); setSignalLinking(false); stopLinkPolling(); }}>Cancelar</Button>
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -812,21 +834,6 @@ export default function ChannelsPage() {
 
   return (
     <div className="channels-page">
-      <Toolbar
-        left={<h1 className="channels-page__title">Canais de Comunicação</h1>}
-        actions={[
-          {
-            key: 'reload',
-            label: 'Recarregar',
-            icon: '🔄',
-            variant: 'secondary',
-            onClick: loadAll,
-          },
-        ]}
-        ariaLabel="Barra de ferramentas de canais"
-        onFocusGrid={activeTab === 'channels' ? channelsFocusFirstCell : contactsFocusFirstCell}
-      />
-
       {/* Tabs — ARIA tabs pattern with roving tabindex and arrow keys */}
       <div className="channels-page__tabs" role="tablist" aria-label="Seções de canais">
         {tabs.map((tab, index) => (
@@ -847,89 +854,106 @@ export default function ChannelsPage() {
         ))}
       </div>
 
-      {/* Channels tab panel */}
-      <div
-        id="channels-tabpanel-channels"
-        role="tabpanel"
-        aria-labelledby="channels-tab-channels"
-        className="channels-page__content"
-        hidden={activeTab !== 'channels'}
-      >
-        <DataGrid
-          items={channelRows}
-          columns={channelColumns}
-          label="Canais de comunicação"
-          getItemId={(item) => item.id}
-          onActivate={(item) => handleEditChannel(item)}
-          onCellAction={(item, column) => {
-            if (column.key === '_reconnect') {
-              handleReconnectChannel(item.name);
-            }
-          }}
-          onGridReady={channelsHandleGridReady}
-        />
+      <Toolbar
+        left={<h1 className="page-toolbar__title">Canais de Comunicação</h1>}
+        actions={[
+          {
+            key: 'reload',
+            label: 'Recarregar',
+            icon: '🔄',
+            variant: 'secondary',
+            onClick: loadAll,
+          },
+        ]}
+        ariaLabel="Barra de ferramentas de canais"
+        onFocusGrid={activeTab === 'channels' ? channelsFocusFirstCell : contactsFocusFirstCell}
+      />
 
-        {/* Editor Panel — follows ProfilesPage pattern */}
-        {editingChannel && (
-          <div
-            ref={editorRef}
-            className="channels-page__editor"
-            role="region"
-            aria-label={`Editor de canal: ${editorTitle}`}
-            aria-live="polite"
-          >
-            <div className="channels-page__editor-header">
-              <h3>{editorTitle}</h3>
-              <div className="channels-page__editor-actions">
-                <Button
-                  variant="outline"
-                  onClick={() => handleReconnectChannel(editingChannel)}
-                  loading={reconnecting}
-                >
-                  Reconectar
-                </Button>
-                <Button onClick={() => handleSaveChannel(editingChannel)} loading={saving}>
-                  Salvar
-                </Button>
-                <Button variant="ghost" onClick={handleCloseEditor}>
-                  Fechar
-                </Button>
-              </div>
-            </div>
-            <div className="channels-page__fields">
-              {editingChannel === 'telegram' && renderTelegramEditor()}
-              {editingChannel === 'signal' && renderSignalEditor()}
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Channels tab panel */}
+      {activeTab === 'channels' && (
+        <div
+          id="channels-tabpanel-channels"
+          role="tabpanel"
+          aria-labelledby="channels-tab-channels"
+          className="channels-page__content"
+        >
+          <DataGrid
+            items={channelRows}
+            columns={channelColumns}
+            label="Canais de comunicação"
+            autoFocusOnMount={false}
+            getItemId={(item) => item.id}
+            onActivate={(item) => handleEditChannel(item)}
+            onCellAction={(item, column) => {
+              if (column.key === '_reconnect') {
+                handleReconnectChannel(item.name);
+              }
+            }}
+            onGridReady={channelsHandleGridReady}
+          />
+        </div>
+      )}
 
       {/* Contacts tab panel */}
-      <div
-        id="channels-tabpanel-contacts"
-        role="tabpanel"
-        aria-labelledby="channels-tab-contacts"
-        className="channels-page__content"
-        hidden={activeTab !== 'contacts'}
+      {activeTab === 'contacts' && (
+        <div
+          id="channels-tabpanel-contacts"
+          role="tabpanel"
+          aria-labelledby="channels-tab-contacts"
+          className="channels-page__content"
+        >
+          <p className="channels-page__tab-description">
+            Contatos que podem se comunicar com o assistente por cada canal.
+            Remova um contato para liberar uma vaga para novas autorizações.
+          </p>
+          {contactRows.length > 0 ? (
+            <DataGrid
+              items={contactRows}
+              columns={contactColumns}
+              label="Contatos autorizados"
+              autoFocusOnMount={false}
+              getItemId={(item) => item.id}
+              onCellAction={(item) => handleDeleteContact(item)}
+              onDelete={(item) => handleDeleteContact(item)}
+              onGridReady={contactsHandleGridReady}
+            />
+          ) : (
+            <p className="channels-page__empty" role="status">Nenhum contato autorizado.</p>
+          )}
+        </div>
+      )}
+
+      {/* Editor Modal */}
+      <SimpleModal
+        isOpen={!!editingChannel}
+        onClose={handleCloseEditor}
+        title={`Editor de canal: ${editorTitle}`}
+        size="lg"
       >
-        <p className="channels-page__tab-description">
-          Contatos que podem se comunicar com o assistente por cada canal.
-          Remova um contato para liberar uma vaga para novas autorizações.
-        </p>
-        {contactRows.length > 0 ? (
-          <DataGrid
-            items={contactRows}
-            columns={contactColumns}
-            label="Contatos autorizados"
-            getItemId={(item) => item.id}
-            onCellAction={(item) => handleDeleteContact(item)}
-            onDelete={(item) => handleDeleteContact(item)}
-            onGridReady={contactsHandleGridReady}
-          />
-        ) : (
-          <p className="channels-page__empty" role="status">Nenhum contato autorizado.</p>
-        )}
-      </div>
+        <div className="channels-page__fields">
+          {editingChannel === 'telegram' && renderTelegramEditor()}
+          {editingChannel === 'signal' && renderSignalEditor()}
+        </div>
+        <div className="channels-page__editor-footer">
+          {editingChannel && (
+            <Button
+              variant="outline"
+              onClick={() => handleReconnectChannel(editingChannel)}
+              loading={reconnecting}
+            >
+              Reconectar
+            </Button>
+          )}
+          <Button variant="ghost" onClick={handleCloseEditor}>
+            Cancelar
+          </Button>
+          {editingChannel && (
+            <Button onClick={() => handleSaveChannel(editingChannel)} loading={saving}>
+              Salvar
+            </Button>
+          )}
+        </div>
+      </SimpleModal>
 
       {/* Confirm dialog */}
       <ConfirmDialog

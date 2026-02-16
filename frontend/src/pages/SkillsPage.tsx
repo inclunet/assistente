@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   GetSkills,
@@ -12,6 +12,7 @@ import { skills, main } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
+import { SimpleModal } from '../components/ui/SimpleModal';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
@@ -54,11 +55,6 @@ export default function SkillsPage() {
   const [isNew, setIsNew] = useState(false);
   const [saving, setSaving] = useState(false);
 
-  // Refs for focus management
-  const editorRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const editorJustOpenedRef = useRef(false);
-
   const loadSkills = useCallback(async () => {
     setLoading(true);
     try {
@@ -90,32 +86,6 @@ export default function SkillsPage() {
     loadSkills();
   }, [loadSkills]);
 
-  // Focus editor only when it first opens
-  useEffect(() => {
-    if (editingSkill && editorRef.current && editorJustOpenedRef.current) {
-      editorJustOpenedRef.current = false;
-      previousFocusRef.current = document.activeElement as HTMLElement;
-      const firstInput = editorRef.current.querySelector<HTMLElement>(
-        'input, select, textarea, [tabindex]'
-      );
-      setTimeout(() => firstInput?.focus(), 50);
-    }
-  }, [editingSkill]);
-
-  // ESC to close editor
-  useEffect(() => {
-    if (!editingSkill) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && editingSkill) {
-        e.preventDefault();
-        handleCloseEditor();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingSkill]);
-
   // --- Grid actions ---
 
   const handleEditSkill = async (row: SkillRow) => {
@@ -123,7 +93,6 @@ export default function SkillsPage() {
       const skill = await GetSkill(row.slug);
       setEditingSlug(row.slug);
       setIsNew(false);
-      editorJustOpenedRef.current = true;
       setEditingSkill({
         name: skill.name,
         description: skill.description,
@@ -141,7 +110,6 @@ export default function SkillsPage() {
   const handleNewSkill = () => {
     setEditingSlug(null);
     setIsNew(true);
-    editorJustOpenedRef.current = true;
     setEditingSkill({
       name: '',
       description: '',
@@ -222,7 +190,6 @@ export default function SkillsPage() {
     setEditingSlug(null);
     setIsNew(false);
     announce(t('skills.editorClosed', 'Editor fechado'));
-    setTimeout(() => previousFocusRef.current?.focus(), 50);
   };
 
   const updateField = (field: string, value: any) => {
@@ -358,18 +325,108 @@ export default function SkillsPage() {
         onGridReady={handleGridReady}
       />
 
-      {/* Editor Panel */}
-      {editingSkill && (
-        <div
-          ref={editorRef}
-          className="skills-editor"
-          role="region"
-          aria-label={t('skills.editorLabel', `Editor de skill: ${editorTitle}`)}
-          aria-live="polite"
-        >
-          <div className="skills-editor__header">
-            <h2 id="skills-editor-title">{editorTitle}</h2>
-            <div className="skills-editor__actions">
+      {/* Editor Modal */}
+      <SimpleModal
+        isOpen={!!editingSkill}
+        onClose={handleCloseEditor}
+        title={editorTitle}
+        size="lg"
+      >
+        {editingSkill && (
+          <div className="skills-editor" aria-live="polite">
+            {/* General Section */}
+            <section className="skills-section" aria-labelledby="section-general">
+              <h3 id="section-general">{t('skills.sectionGeneral', 'Geral')}</h3>
+              <div className="skills-fields">
+                <div className="skills-field">
+                  <label htmlFor="sk-name" className="skills-field__label">
+                    {t('skills.fieldName', 'Nome')}
+                  </label>
+                  <input
+                    id="sk-name"
+                    type="text"
+                    className="skills-field__input"
+                    value={editingSkill.name}
+                    onChange={(e) => updateField('name', e.target.value)}
+                    placeholder={t('skills.namePlaceholder', 'Ex: Criar Componente React')}
+                  />
+                </div>
+                <div className="skills-field">
+                  <label htmlFor="sk-description" className="skills-field__label">
+                    {t('skills.fieldDescription', 'Descrição')}
+                  </label>
+                  <input
+                    id="sk-description"
+                    type="text"
+                    className="skills-field__input"
+                    value={editingSkill.description}
+                    onChange={(e) => updateField('description', e.target.value)}
+                    placeholder={t('skills.descriptionPlaceholder', 'Quando este skill deve ser usado')}
+                  />
+                </div>
+                <div className="skills-field skills-field--checkbox">
+                  <input
+                    id="sk-auto"
+                    type="checkbox"
+                    checked={editingSkill.auto}
+                    onChange={(e) => updateField('auto', e.target.checked)}
+                  />
+                  <label htmlFor="sk-auto" className="skills-field__label">
+                    {t('skills.fieldAuto', 'Auto — injetar automaticamente no system prompt')}
+                  </label>
+                </div>
+                <p className="skills-field__hint">
+                  {editingSkill.auto
+                    ? t('skills.autoHint', 'O conteúdo deste skill será incluído em toda conversa.')
+                    : t('skills.manualHint', 'O assistente lerá este skill sob demanda quando for relevante.')}
+                </p>
+              </div>
+            </section>
+
+            {/* Metadata Section */}
+            <section className="skills-section" aria-labelledby="section-metadata">
+              <h3 id="section-metadata">{t('skills.sectionMetadata', 'Metadados')}</h3>
+              <div className="skills-fields">
+                <div className="skills-field">
+                  <label htmlFor="sk-tools" className="skills-field__label">
+                    {t('skills.fieldTools', 'Ferramentas associadas')}
+                  </label>
+                  <input
+                    id="sk-tools"
+                    type="text"
+                    className="skills-field__input"
+                    value={editingSkill.tools}
+                    onChange={(e) => updateField('tools', e.target.value)}
+                    placeholder={t('skills.toolsPlaceholder', 'read_file, write_file (separar por vírgula)')}
+                  />
+                  <span className="skills-field__hint">
+                    {t('skills.toolsHint', 'Informativo — indica quais tools o skill utiliza.')}
+                  </span>
+                </div>
+              </div>
+            </section>
+
+            {/* Content Section */}
+            <section className="skills-section" aria-labelledby="section-content">
+              <h3 id="section-content">{t('skills.sectionContent', 'Conteúdo')}</h3>
+              <div className="skills-fields">
+                <div className="skills-field">
+                  <label htmlFor="sk-content" className="skills-field__label">
+                    {t('skills.fieldContent', 'Instruções (Markdown)')}
+                  </label>
+                  <textarea
+                    id="sk-content"
+                    className="skills-field__textarea"
+                    value={editingSkill.content}
+                    onChange={(e) => updateField('content', e.target.value)}
+                    placeholder={t('skills.contentPlaceholder', '# Instruções\n\nDescreva aqui o que o assistente deve fazer...')}
+                    rows={12}
+                  />
+                </div>
+              </div>
+            </section>
+
+            <div className="skills-editor__footer">
               {editingSlug && (
                 <Button
                   variant="danger"
@@ -382,9 +439,6 @@ export default function SkillsPage() {
                   {t('skills.deleteBtn', 'Excluir')}
                 </Button>
               )}
-              <Button onClick={handleSave} loading={saving}>
-                {t('skills.saveBtn', 'Salvar')}
-              </Button>
               <Button
                 variant="ghost"
                 onClick={handleCloseEditor}
@@ -392,102 +446,13 @@ export default function SkillsPage() {
               >
                 {t('skills.closeBtn', 'Fechar')}
               </Button>
+              <Button onClick={handleSave} loading={saving}>
+                {t('skills.saveBtn', 'Salvar')}
+              </Button>
             </div>
           </div>
-
-          {/* General Section */}
-          <section className="skills-section" aria-labelledby="section-general">
-            <h3 id="section-general">{t('skills.sectionGeneral', 'Geral')}</h3>
-            <div className="skills-fields">
-              <div className="skills-field">
-                <label htmlFor="sk-name" className="skills-field__label">
-                  {t('skills.fieldName', 'Nome')}
-                </label>
-                <input
-                  id="sk-name"
-                  type="text"
-                  className="skills-field__input"
-                  value={editingSkill.name}
-                  onChange={(e) => updateField('name', e.target.value)}
-                  placeholder={t('skills.namePlaceholder', 'Ex: Criar Componente React')}
-                />
-              </div>
-              <div className="skills-field">
-                <label htmlFor="sk-description" className="skills-field__label">
-                  {t('skills.fieldDescription', 'Descrição')}
-                </label>
-                <input
-                  id="sk-description"
-                  type="text"
-                  className="skills-field__input"
-                  value={editingSkill.description}
-                  onChange={(e) => updateField('description', e.target.value)}
-                  placeholder={t('skills.descriptionPlaceholder', 'Quando este skill deve ser usado')}
-                />
-              </div>
-              <div className="skills-field skills-field--checkbox">
-                <input
-                  id="sk-auto"
-                  type="checkbox"
-                  checked={editingSkill.auto}
-                  onChange={(e) => updateField('auto', e.target.checked)}
-                />
-                <label htmlFor="sk-auto" className="skills-field__label">
-                  {t('skills.fieldAuto', 'Auto — injetar automaticamente no system prompt')}
-                </label>
-              </div>
-              <p className="skills-field__hint">
-                {editingSkill.auto
-                  ? t('skills.autoHint', 'O conteúdo deste skill será incluído em toda conversa.')
-                  : t('skills.manualHint', 'O assistente lerá este skill sob demanda quando for relevante.')}
-              </p>
-            </div>
-          </section>
-
-          {/* Metadata Section */}
-          <section className="skills-section" aria-labelledby="section-metadata">
-            <h3 id="section-metadata">{t('skills.sectionMetadata', 'Metadados')}</h3>
-            <div className="skills-fields">
-              <div className="skills-field">
-                <label htmlFor="sk-tools" className="skills-field__label">
-                  {t('skills.fieldTools', 'Ferramentas associadas')}
-                </label>
-                <input
-                  id="sk-tools"
-                  type="text"
-                  className="skills-field__input"
-                  value={editingSkill.tools}
-                  onChange={(e) => updateField('tools', e.target.value)}
-                  placeholder={t('skills.toolsPlaceholder', 'read_file, write_file (separar por vírgula)')}
-                />
-                <span className="skills-field__hint">
-                  {t('skills.toolsHint', 'Informativo — indica quais tools o skill utiliza.')}
-                </span>
-              </div>
-            </div>
-          </section>
-
-          {/* Content Section */}
-          <section className="skills-section" aria-labelledby="section-content">
-            <h3 id="section-content">{t('skills.sectionContent', 'Conteúdo')}</h3>
-            <div className="skills-fields">
-              <div className="skills-field">
-                <label htmlFor="sk-content" className="skills-field__label">
-                  {t('skills.fieldContent', 'Instruções (Markdown)')}
-                </label>
-                <textarea
-                  id="sk-content"
-                  className="skills-field__textarea"
-                  value={editingSkill.content}
-                  onChange={(e) => updateField('content', e.target.value)}
-                  placeholder={t('skills.contentPlaceholder', '# Instruções\n\nDescreva aqui o que o assistente deve fazer...')}
-                  rows={12}
-                />
-              </div>
-            </div>
-          </section>
-        </div>
-      )}
+        )}
+      </SimpleModal>
 
       {/* Empty state when no skill is being edited */}
       {!editingSkill && rows.length > 0 && (

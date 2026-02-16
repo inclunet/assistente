@@ -1,4 +1,4 @@
-import { ReactNode, useEffect, useRef, useCallback } from 'react';
+import { ReactNode, useEffect, useRef, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
 import './SimpleModal.css';
 
@@ -35,6 +35,7 @@ export interface SimpleModalProps {
 export function SimpleModal({ isOpen, onClose, title, children, size = 'md', returnFocusToGrid = true }: SimpleModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const firstFocusableRef = useRef<HTMLElement | null>(null);
+  const titleId = useId();
 
   // Retorna todos os elementos focáveis dentro do modal
   const getFocusableElements = useCallback(() => {
@@ -51,6 +52,24 @@ export function SimpleModal({ isOpen, onClose, title, children, size = 'md', ret
       }
     };
   }, [returnFocusToGrid]);
+
+  // Esconde conteúdo de background para leitores de tela e evita foco fora do modal
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const appRoot = document.getElementById('root');
+    if (appRoot) {
+      appRoot.setAttribute('aria-hidden', 'true');
+      appRoot.setAttribute('inert', '');
+    }
+
+    return () => {
+      if (appRoot) {
+        appRoot.removeAttribute('aria-hidden');
+        appRoot.removeAttribute('inert');
+      }
+    };
+  }, [isOpen]);
 
   // Auto-focus no primeiro elemento focável quando o modal abre
   useEffect(() => {
@@ -133,10 +152,10 @@ export function SimpleModal({ isOpen, onClose, title, children, size = 'md', ret
   if (!isOpen) return null;
 
   return createPortal(
-    <div className="simple-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="modal-title">
+    <div className="simple-modal-overlay" role="dialog" aria-modal="true" aria-labelledby={titleId}>
       <div ref={modalRef} className={`simple-modal-content ${size}`}>
         <div className="simple-modal-header">
-          <h2 id="modal-title" className="simple-modal-title">{title}</h2>
+          <h2 id={titleId} className="simple-modal-title">{title}</h2>
           <button 
             className="simple-modal-close"
             onClick={onClose}

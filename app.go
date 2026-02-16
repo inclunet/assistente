@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 	"time"
 
 	"assistente/internal/allowlist"
@@ -339,7 +340,7 @@ func (a *App) initMessaging() {
 				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
 			}
 		}()
-		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", cfg.APIURL, cfg.Account)
+		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", cfg.APIURL, maskIdentifier(cfg.Account))
 	} else {
 		log.Printf("[Messaging] Signal não configurado ou desabilitado")
 	}
@@ -444,7 +445,7 @@ func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
 			}
 		}()
-		log.Printf("[Messaging] Signal reconectado (api=%s, account=%s)", cfg.APIURL, cfg.Account)
+		log.Printf("[Messaging] Signal reconectado (api=%s, account=%s)", cfg.APIURL, maskIdentifier(cfg.Account))
 
 	default:
 		log.Printf("[Messaging] Canal desconhecido: %s", channelName)
@@ -1410,6 +1411,17 @@ func (a *App) ensureSpeechManager() bool {
 	}
 	a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", "nova", "tts-1")
 	return a.speechManager != nil
+}
+
+func maskIdentifier(value string) string {
+	if value == "" {
+		return ""
+	}
+	if len(value) <= 4 {
+		return "****"
+	}
+	visible := value[len(value)-4:]
+	return strings.Repeat("*", len(value)-4) + visible
 }
 
 // TranscribeWhisper transcreve áudio usando OpenAI Whisper

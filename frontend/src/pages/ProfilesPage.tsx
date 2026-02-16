@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   GetProfiles,
@@ -17,6 +17,7 @@ import { profiles, main, allowlist } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
+import { SimpleModal } from '../components/ui/SimpleModal';
 import { ModelPicker } from '../components/pickers/ModelPicker';
 import { VoicePicker, VOICE_DISABLED } from '../components/pickers/VoicePicker';
 import { STTProviderPicker } from '../components/pickers/STTProviderPicker';
@@ -63,11 +64,6 @@ export default function ProfilesPage() {
 
   // Allowlists disponíveis (carregadas do manager de allowlists)
   const [availableAllowlists, setAvailableAllowlists] = useState<allowlist.AllowlistInfo[]>([]);
-
-  // Refs for focus management
-  const editorRef = useRef<HTMLDivElement>(null);
-  const previousFocusRef = useRef<HTMLElement | null>(null);
-  const editorJustOpenedRef = useRef(false);
 
   const loadProfiles = useCallback(async () => {
     setLoading(true);
@@ -121,32 +117,6 @@ export default function ProfilesPage() {
     };
   }, [loadProfiles]);
 
-  // Focus editor only when it first opens (not on every field change)
-  useEffect(() => {
-    if (editingProfile && editorRef.current && editorJustOpenedRef.current) {
-      editorJustOpenedRef.current = false;
-      previousFocusRef.current = document.activeElement as HTMLElement;
-      const firstInput = editorRef.current.querySelector<HTMLElement>(
-        'input, select, textarea, [tabindex]'
-      );
-      setTimeout(() => firstInput?.focus(), 50);
-    }
-  }, [editingProfile]);
-
-  // ESC to close editor
-  useEffect(() => {
-    if (!editingProfile) return;
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape' && editingProfile) {
-        e.preventDefault();
-        handleCloseEditor();
-      }
-    };
-    window.addEventListener('keydown', handleKeyDown);
-    return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [editingProfile]);
-
   // --- Grid actions ---
 
   const handleEditProfile = async (row: ProfileRow) => {
@@ -154,7 +124,6 @@ export default function ProfilesPage() {
       const profile = await GetProfile(row.slug);
       setEditingSlug(row.slug);
       setIsNew(false);
-      editorJustOpenedRef.current = true;
       setEditingProfile(profile);
       announce(t('profiles.editorOpened', `Editor aberto para ${row.name}`));
     } catch (error) {
@@ -234,7 +203,6 @@ export default function ProfilesPage() {
     });
     setEditingSlug(null);
     setIsNew(true);
-    editorJustOpenedRef.current = true;
     setEditingProfile(defaultProfile);
     announce(t('profiles.newProfileAnnounce', 'Editor aberto para novo perfil'));
   };
@@ -271,8 +239,6 @@ export default function ProfilesPage() {
     setEditingSlug(null);
     setIsNew(false);
     announce(t('profiles.editorClosed', 'Editor fechado'));
-    // Restore focus
-    setTimeout(() => previousFocusRef.current?.focus(), 50);
   };
 
   const updateField = (path: string, value: any) => {
@@ -293,47 +259,54 @@ export default function ProfilesPage() {
     {
       key: 'name',
       label: t('profiles.colName', 'Nome'),
-      width: '30%',
+      width: '22%',
       editable: true,
     },
     {
       key: 'description',
       label: t('profiles.colDescription', 'Descrição'),
-      width: '30%',
+      width: '28%',
       truncate: true,
     },
     {
       key: 'source',
       label: t('profiles.colSource', 'Origem'),
       width: '12%',
+      format: (value: string) => {
+        switch (value) {
+          case 'workdir':
+            return t('profiles.sourceWorkdir', 'Projeto');
+          case 'home':
+            return t('profiles.sourceHome', 'Global');
+          case 'exe':
+            return t('profiles.sourceExe', 'Embutido');
+          default:
+            return value || '-';
+        }
+      },
     },
     {
       key: 'isActive',
       label: t('profiles.colStatus', 'Status'),
-      width: '13%',
-      format: (_value: any, item: ProfileRow) =>
-        item.isActive ? (
-          <span className="profiles-badge profiles-badge--active">
-            {t('profiles.active', 'Ativo')}
-          </span>
-        ) : (
-          <span className="profiles-badge profiles-badge--inactive">
-            {t('profiles.inactive', 'Inativo')}
-          </span>
-        ),
+      width: '10%',
+      format: (value: boolean) => (
+        <span className={value ? 'profiles-badge profiles-badge--active' : 'profiles-badge profiles-badge--inactive'}>
+          {value ? t('profiles.active', 'Ativo') : t('profiles.inactive', 'Inativo')}
+        </span>
+      ),
     },
     {
       key: 'activate',
       label: '',
-      width: '5%',
+      width: '6%',
       action: true,
-      actionIcon: '⚡',
+      actionIcon: '✅',
       actionLabel: t('profiles.activate', 'Ativar perfil'),
     },
     {
       key: 'edit',
       label: '',
-      width: '5%',
+      width: '6%',
       action: true,
       actionIcon: '✏️',
       actionLabel: t('profiles.edit', 'Editar perfil'),
@@ -341,7 +314,7 @@ export default function ProfilesPage() {
     {
       key: 'delete',
       label: '',
-      width: '5%',
+      width: '6%',
       action: true,
       actionIcon: '🗑️',
       actionLabel: t('profiles.delete', 'Excluir perfil'),
@@ -437,95 +410,61 @@ export default function ProfilesPage() {
         onGridReady={handleGridReady}
       />
 
-      {/* Editor Panel */}
-      {editingProfile && (
-        <div
-          ref={editorRef}
-          className="profiles-editor"
-          role="region"
-          aria-label={t('profiles.editorLabel', `Editor de perfil: ${editorTitle}`)}
-          aria-live="polite"
-        >
-          <div className="profiles-editor__header">
-            <h2 id="profiles-editor-title">{editorTitle}</h2>
-            <div className="profiles-editor__actions">
-              {editingSlug && activeSlug !== editingSlug && (
-                <Button
-                  variant="outline"
-                  onClick={() => handleActivateProfile({ slug: editingSlug, name: editingProfile.name } as ProfileRow)}
-                  aria-label={t('profiles.activateBtnLabel', `Ativar perfil ${editingProfile.name}`)}
-                >
-                  {t('profiles.activateBtn', 'Ativar')}
-                </Button>
-              )}
-              {editingSlug && activeSlug !== editingSlug && (
-                <Button
-                  variant="danger"
-                  onClick={() => handleDeleteProfile({ slug: editingSlug, name: editingProfile.name, isActive: false } as ProfileRow)}
-                  aria-label={t('profiles.deleteBtnLabel', `Excluir perfil ${editingProfile.name}`)}
-                >
-                  {t('profiles.deleteBtn', 'Excluir')}
-                </Button>
-              )}
-              <Button onClick={handleSave} loading={saving}>
-                {t('profiles.saveBtn', 'Salvar')}
-              </Button>
-              <Button
-                variant="ghost"
-                onClick={handleCloseEditor}
-                aria-label={t('profiles.closeBtnLabel', 'Fechar editor, Escape')}
-              >
-                {t('profiles.closeBtn', 'Fechar')}
-              </Button>
-            </div>
-          </div>
+      {/* Editor Modal */}
+      <SimpleModal
+        isOpen={!!editingProfile}
+        onClose={handleCloseEditor}
+        title={editorTitle}
+        size="xl"
+      >
+        {editingProfile && (
+          <div className="profiles-editor" aria-live="polite">
+            {/* General Section */}
+            <section className="profiles-section" aria-labelledby="section-general">
+              <h3 id="section-general">{t('profiles.sectionGeneral', 'Geral')}</h3>
+              <div className="profiles-fields">
+                <div className="profiles-field">
+                  <label htmlFor="pf-name" className="profiles-field__label">
+                    {t('profiles.fieldName', 'Nome')}
+                  </label>
+                  <input
+                    id="pf-name"
+                    type="text"
+                    className="profiles-field__input"
+                    value={editingProfile.name}
+                    onChange={(e) => updateField('name', e.target.value)}
+                  />
+                </div>
+                <div className="profiles-field">
+                  <label htmlFor="pf-description" className="profiles-field__label">
+                    {t('profiles.fieldDescription', 'Descrição')}
+                  </label>
+                  <input
+                    id="pf-description"
+                    type="text"
+                    className="profiles-field__input"
+                    value={editingProfile.description || ''}
+                    onChange={(e) => updateField('description', e.target.value)}
+                  />
+                </div>
+                <div className="profiles-field">
+                  <label htmlFor="pf-icon" className="profiles-field__label">
+                    {t('profiles.fieldIcon', 'Ícone (Ionicons)')}
+                  </label>
+                  <input
+                    id="pf-icon"
+                    type="text"
+                    className="profiles-field__input"
+                    value={editingProfile.icon || ''}
+                    onChange={(e) => updateField('icon', e.target.value)}
+                    placeholder="chatbox"
+                  />
+                </div>
+              </div>
+            </section>
 
-          {/* General Section */}
-          <section className="profiles-section" aria-labelledby="section-general">
-            <h3 id="section-general">{t('profiles.sectionGeneral', 'Geral')}</h3>
-            <div className="profiles-fields">
-              <div className="profiles-field">
-                <label htmlFor="pf-name" className="profiles-field__label">
-                  {t('profiles.fieldName', 'Nome')}
-                </label>
-                <input
-                  id="pf-name"
-                  type="text"
-                  className="profiles-field__input"
-                  value={editingProfile.name}
-                  onChange={(e) => updateField('name', e.target.value)}
-                />
-              </div>
-              <div className="profiles-field">
-                <label htmlFor="pf-description" className="profiles-field__label">
-                  {t('profiles.fieldDescription', 'Descrição')}
-                </label>
-                <input
-                  id="pf-description"
-                  type="text"
-                  className="profiles-field__input"
-                  value={editingProfile.description || ''}
-                  onChange={(e) => updateField('description', e.target.value)}
-                />
-              </div>
-              <div className="profiles-field">
-                <label htmlFor="pf-icon" className="profiles-field__label">
-                  {t('profiles.fieldIcon', 'Ícone (Ionicons)')}
-                </label>
-                <input
-                  id="pf-icon"
-                  type="text"
-                  className="profiles-field__input"
-                  value={editingProfile.icon || ''}
-                  onChange={(e) => updateField('icon', e.target.value)}
-                  placeholder="chatbox"
-                />
-              </div>
-            </div>
-          </section>
-
-          {/* Chat Section */}
-          <section className="profiles-section" aria-labelledby="section-chat">
+            {/* Chat Section */}
+            <section className="profiles-section" aria-labelledby="section-chat">
             <h3 id="section-chat">{t('profiles.sectionChat', 'Chat (LLM)')}</h3>
             <div className="profiles-fields">
               <div className="profiles-field">
@@ -862,46 +801,78 @@ export default function ProfilesPage() {
             </div>
           </section>
 
-          {/* Interaction Section */}
-          <section className="profiles-section" aria-labelledby="section-interaction">
-            <h3 id="section-interaction">{t('profiles.sectionInteraction', 'Interação (STT)')}</h3>
-            <div className="profiles-fields">
-              <div className="profiles-field">
-                <STTProviderPicker
-                  value={editingProfile.interaction?.stt_provider || 'webspeech'}
-                  onChange={(provider) => updateField('interaction.stt_provider', provider)}
-                  variant="form"
-                  label={t('profiles.fieldSTTProvider', 'Provedor STT')}
-                />
+            {/* Interaction Section */}
+            <section className="profiles-section" aria-labelledby="section-interaction">
+              <h3 id="section-interaction">{t('profiles.sectionInteraction', 'Interação (STT)')}</h3>
+              <div className="profiles-fields">
+                <div className="profiles-field">
+                  <STTProviderPicker
+                    value={editingProfile.interaction?.stt_provider || 'webspeech'}
+                    onChange={(provider) => updateField('interaction.stt_provider', provider)}
+                    variant="form"
+                    label={t('profiles.fieldSTTProvider', 'Provedor STT')}
+                  />
+                </div>
+                <div className="profiles-field">
+                  <label htmlFor="pf-language" className="profiles-field__label">
+                    {t('profiles.fieldLanguage', 'Idioma')}
+                  </label>
+                  <input
+                    id="pf-language"
+                    type="text"
+                    className="profiles-field__input"
+                    value={editingProfile.interaction?.language || 'pt-BR'}
+                    onChange={(e) => updateField('interaction.language', e.target.value)}
+                    placeholder="pt-BR"
+                  />
+                </div>
+                <div className="profiles-field profiles-field--checkbox">
+                  <input
+                    id="pf-feedback-sounds"
+                    type="checkbox"
+                    checked={editingProfile.interaction?.feedback_sounds ?? true}
+                    onChange={(e) => updateField('interaction.feedback_sounds', e.target.checked)}
+                  />
+                  <label htmlFor="pf-feedback-sounds" className="profiles-field__label">
+                    {t('profiles.fieldFeedbackSounds', 'Sons de feedback')}
+                  </label>
+                </div>
               </div>
-              <div className="profiles-field">
-                <label htmlFor="pf-language" className="profiles-field__label">
-                  {t('profiles.fieldLanguage', 'Idioma')}
-                </label>
-                <input
-                  id="pf-language"
-                  type="text"
-                  className="profiles-field__input"
-                  value={editingProfile.interaction?.language || 'pt-BR'}
-                  onChange={(e) => updateField('interaction.language', e.target.value)}
-                  placeholder="pt-BR"
-                />
-              </div>
-              <div className="profiles-field profiles-field--checkbox">
-                <input
-                  id="pf-feedback-sounds"
-                  type="checkbox"
-                  checked={editingProfile.interaction?.feedback_sounds ?? true}
-                  onChange={(e) => updateField('interaction.feedback_sounds', e.target.checked)}
-                />
-                <label htmlFor="pf-feedback-sounds" className="profiles-field__label">
-                  {t('profiles.fieldFeedbackSounds', 'Sons de feedback')}
-                </label>
-              </div>
+            </section>
+
+            <div className="profiles-editor__footer">
+              {editingSlug && activeSlug !== editingSlug && (
+                <Button
+                  variant="secondary"
+                  onClick={() => handleActivateProfile({ slug: editingSlug, name: editingProfile.name } as ProfileRow)}
+                  aria-label={t('profiles.activateBtnLabel', `Ativar perfil ${editingProfile.name}`)}
+                >
+                  {t('profiles.activateBtn', 'Ativar')}
+                </Button>
+              )}
+              {editingSlug && activeSlug !== editingSlug && (
+                <Button
+                  variant="danger"
+                  onClick={() => handleDeleteProfile({ slug: editingSlug, name: editingProfile.name, isActive: false } as ProfileRow)}
+                  aria-label={t('profiles.deleteBtnLabel', `Excluir perfil ${editingProfile.name}`)}
+                >
+                  {t('profiles.deleteBtn', 'Excluir')}
+                </Button>
+              )}
+              <Button
+                variant="ghost"
+                onClick={handleCloseEditor}
+                aria-label={t('profiles.closeBtnLabel', 'Fechar editor, Escape')}
+              >
+                {t('profiles.closeBtn', 'Fechar')}
+              </Button>
+              <Button onClick={handleSave} loading={saving}>
+                {t('profiles.saveBtn', 'Salvar')}
+              </Button>
             </div>
-          </section>
-        </div>
-      )}
+          </div>
+        )}
+      </SimpleModal>
 
       {/* Empty state when no profile is being edited */}
       {!editingProfile && profileRows.length > 0 && (

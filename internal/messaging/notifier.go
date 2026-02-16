@@ -11,6 +11,9 @@ type ResponseCallback struct {
 	// Channel identifica a plataforma ("telegram", "signal", etc.).
 	Channel string
 
+	// TraceID permite correlacionar logs entre gateway/notifier/envio.
+	TraceID string
+
 	// ChatID é o identificador do chat de destino para a resposta.
 	ChatID string
 
@@ -52,8 +55,8 @@ func (n *ResponseNotifier) Register(conversationID uint, cb ResponseCallback) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.callbacks[conversationID] = append(n.callbacks[conversationID], cb)
-	fmt.Printf("[Messaging] Callback registrado para conversa %d (canal: %s, chat: %s)\n",
-		conversationID, cb.Channel, cb.ChatID)
+	fmt.Printf("[Messaging] Callback registrado trace=%s conv=%d channel=%s chat=%s\n",
+		cb.TraceID, conversationID, cb.Channel, cb.ChatID)
 }
 
 // Notify chama todos os callbacks registrados para uma conversa e os remove.
@@ -71,7 +74,11 @@ func (n *ResponseNotifier) Notify(conversationID uint, response string, assistan
 		return
 	}
 
-	fmt.Printf("[Messaging] Notificando %d callback(s) para conversa %d (msgID=%d)\n", len(cbs), conversationID, assistantMessageID)
+	traceID := ""
+	if len(cbs) > 0 {
+		traceID = cbs[0].TraceID
+	}
+	fmt.Printf("[Messaging] Notificando %d callback(s) trace=%s conv=%d msgID=%d\n", len(cbs), traceID, conversationID, assistantMessageID)
 	for _, cb := range cbs {
 		// Chama em goroutine para não bloquear o saveAndFinish
 		go func(c ResponseCallback) {

@@ -55,6 +55,15 @@
   gap: 12px;
 }
 
+.mcp-page__editor-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--color-border, #ddd);
+}
+
 .mcp-page__field {
   display: flex;
   flex-direction: column;

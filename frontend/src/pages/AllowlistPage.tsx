@@ -11,7 +11,9 @@ import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { SimpleModal } from '../components/ui/SimpleModal';
 import { useUIStore } from '../store/uiStore';
+import { useGridFocus } from '../hooks/useGridFocus';
 import './AllowlistPage.css';
 
 type AllowlistInfo = allowlist.AllowlistInfo;
@@ -27,6 +29,7 @@ interface AllowlistRow {
 
 export default function AllowlistPage() {
   const { addToast } = useUIStore();
+  const { focusFirstCell, handleGridReady } = useGridFocus();
 
   const [rows, setRows] = useState<AllowlistRow[]>([]);
   const [_loading, setLoading] = useState(true);
@@ -148,7 +151,9 @@ export default function AllowlistPage() {
   return (
     <div className="allowlist-page">
       <Toolbar
-        left={<h2 style={{ margin: 0, fontSize: '1.1rem' }}>Allowlists de Comandos</h2>}
+        left={<h1 className="page-toolbar__title">Allowlists de Comandos</h1>}
+        ariaLabel="Barra de ferramentas de allowlists"
+        onFocusGrid={focusFirstCell}
         actions={[
           {
             key: 'new',
@@ -166,31 +171,18 @@ export default function AllowlistPage() {
           getItemId={(row) => row.id}
           onActivate={(row) => handleEdit(row)}
           label="Allowlists de Comandos"
+          onGridReady={handleGridReady}
         />
+      </div>
 
+      <SimpleModal
+        isOpen={!!editing}
+        onClose={() => { setEditing(null); setEditingSlug(null); setIsNew(false); }}
+        title={isNew ? 'Nova Allowlist' : `Editando: ${editing?.name || ''}`}
+        size="lg"
+      >
         {editing && (
-          <div className="allowlist-page__editor">
-            <div className="allowlist-page__editor-header">
-              <h3>{isNew ? 'Nova Allowlist' : `Editando: ${editing.name}`}</h3>
-              <div className="allowlist-page__editor-actions">
-                {!isNew && editingSlug && (
-                  <Button
-                    variant="danger"
-                    onClick={() => {
-                      const row = rows.find(r => r.slug === editingSlug);
-                      if (row) { setDeleteTarget(row); setDeleteOpen(true); }
-                    }}
-                  >
-                    Excluir
-                  </Button>
-                )}
-                <Button onClick={handleSave} loading={saving}>Salvar</Button>
-                <Button variant="ghost" onClick={() => { setEditing(null); setEditingSlug(null); }}>
-                  Fechar
-                </Button>
-              </div>
-            </div>
-
+          <>
             <div className="allowlist-page__fields">
               <div className="allowlist-page__field">
                 <label className="allowlist-page__label">Nome</label>
@@ -256,9 +248,27 @@ export default function AllowlistPage() {
                 </span>
               </div>
             </div>
-          </div>
+
+            <div className="allowlist-page__editor-footer">
+              {!isNew && editingSlug && (
+                <Button
+                  variant="danger"
+                  onClick={() => {
+                    const row = rows.find(r => r.slug === editingSlug);
+                    if (row) { setDeleteTarget(row); setDeleteOpen(true); }
+                  }}
+                >
+                  Excluir
+                </Button>
+              )}
+              <Button variant="ghost" onClick={() => { setEditing(null); setEditingSlug(null); setIsNew(false); }}>
+                Cancelar
+              </Button>
+              <Button onClick={handleSave} loading={saving}>Salvar</Button>
+            </div>
+          </>
         )}
-      </div>
+      </SimpleModal>
 
       <ConfirmDialog
         isOpen={deleteOpen}

@@ -93,12 +93,12 @@ func (s *SignalAdapter) Connect(ctx context.Context) error {
 			return fmt.Errorf("erro ao conectar WebSocket Signal: %w", err)
 		}
 		s.setStatus(messaging.StatusConnected)
-		fmt.Printf("[Signal] Conectado via WebSocket à API %s (account=%s, mode=%s)\n", s.baseURL, s.account, mode)
+		fmt.Printf("[Signal] Conectado via WebSocket à API %s (account=%s, mode=%s)\n", s.baseURL, maskIdentifier(s.account), mode)
 		go s.wsReadLoop()
 	} else {
 		// Modo native: usa HTTP polling
 		s.setStatus(messaging.StatusConnected)
-		fmt.Printf("[Signal] Conectado via HTTP polling à API %s (account=%s, mode=%s)\n", s.baseURL, s.account, mode)
+		fmt.Printf("[Signal] Conectado via HTTP polling à API %s (account=%s, mode=%s)\n", s.baseURL, maskIdentifier(s.account), mode)
 		go s.httpPollLoop()
 	}
 
@@ -326,7 +326,7 @@ func (s *SignalAdapter) handleWSMessage(data []byte) {
 
 	// Log dos campos do remetente para debug de allowlist
 	fmt.Printf("[Signal] Envelope: source=%q, sourceNumber=%q, sourceUuid=%q, sourceName=%q\n",
-		env.Source, env.SourceNumber, env.SourceUUID, env.SourceName)
+		maskIdentifier(env.Source), maskIdentifier(env.SourceNumber), maskIdentifier(env.SourceUUID), env.SourceName)
 
 	// Extrai texto e attachments da mensagem (dataMessage)
 	var text string
@@ -407,7 +407,7 @@ func (s *SignalAdapter) handleWSMessage(data []byte) {
 		Channel:     "signal",
 	}
 
-	fmt.Printf("[Signal] Mensagem de %s (%s): %s\n", msg.From.DisplayName, msg.From.ID, truncate(msg.Text, 100))
+	fmt.Printf("[Signal] Mensagem de %s (%s): %s\n", msg.From.DisplayName, maskIdentifier(msg.From.ID), truncate(msg.Text, 100))
 
 	// Processa em goroutine para não bloquear o reader loop
 	go handler(ctx, msg)
@@ -526,4 +526,15 @@ func truncate(str string, maxLen int) string {
 		return str
 	}
 	return str[:maxLen] + "..."
+}
+
+func maskIdentifier(value string) string {
+	if value == "" {
+		return ""
+	}
+	if len(value) <= 4 {
+		return "****"
+	}
+	visible := value[len(value)-4:]
+	return strings.Repeat("*", len(value)-4) + visible
 }

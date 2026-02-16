@@ -5,6 +5,7 @@ import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { SimpleModal } from '../components/ui/SimpleModal';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
@@ -147,6 +148,13 @@ export default function McpPage() {
     setFormAutoConnect(true);
   }, []);
 
+  const handleCloseEditor = useCallback(() => {
+    setEditing(null);
+    setEditingSlug(null);
+    setIsNew(false);
+    announce('Editor fechado');
+  }, [announce]);
+
   const handleSave = useCallback(async () => {
     const slug = isNew
       ? formSlug.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
@@ -193,15 +201,13 @@ export default function McpPage() {
       await save(slug, config);
       addToast(isNew ? 'Servidor MCP criado!' : 'Servidor MCP atualizado!', 'success');
       announce(isNew ? 'Servidor criado com sucesso' : 'Servidor atualizado com sucesso');
-      setEditing(null);
-      setEditingSlug(null);
-      setIsNew(false);
+      handleCloseEditor();
     } catch (error: any) {
       addToast(error?.message || 'Erro ao salvar', 'error');
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, save, addToast, announce]);
+  }, [isNew, editingSlug, formSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, save, addToast, announce, handleCloseEditor]);
 
   const handleDelete = useCallback(async () => {
     if (!deleteTarget) return;
@@ -326,7 +332,8 @@ export default function McpPage() {
   return (
     <div className="mcp-page">
       <Toolbar
-        left={<h2 style={{ margin: 0, fontSize: '1.1rem' }}>Servidores MCP</h2>}
+        left={<h1 className="page-toolbar__title">Servidores MCP</h1>}
+        ariaLabel="Barra de ferramentas de MCP"
         onFocusGrid={focusFirstCell}
         actions={[
           {
@@ -350,11 +357,147 @@ export default function McpPage() {
           label="Servidores MCP"
         />
 
-        {editing && (
-          <div className="mcp-page__editor">
-            <div className="mcp-page__editor-header">
-              <h3>{isNew ? 'Novo Servidor MCP' : `Editando: ${formName || editingSlug}`}</h3>
-              <div className="mcp-page__editor-actions">
+        <SimpleModal
+          isOpen={!!editing}
+          onClose={handleCloseEditor}
+          title={isNew ? 'Novo Servidor MCP' : `Editando: ${formName || editingSlug}`}
+          size="lg"
+        >
+          {editing && (
+            <div className="mcp-page__editor" aria-live="polite">
+              <div className="mcp-page__fields">
+                {isNew && (
+                  <div className="mcp-page__field">
+                    <label className="mcp-page__label">Slug (identificador)</label>
+                    <input
+                      type="text"
+                      className="mcp-page__input"
+                      value={formSlug}
+                      onChange={(e) => setFormSlug(e.target.value)}
+                      placeholder="ex: github, filesystem"
+                      required
+                    />
+                    <span className="mcp-page__hint">
+                      Identificador único. Apenas letras minúsculas, números, - e _
+                    </span>
+                  </div>
+                )}
+
+                <div className="mcp-page__field">
+                  <label className="mcp-page__label">Nome</label>
+                  <input
+                    type="text"
+                    className="mcp-page__input"
+                    value={formName}
+                    onChange={(e) => setFormName(e.target.value)}
+                    placeholder="ex: GitHub Tools"
+                    required
+                  />
+                </div>
+
+                <div className="mcp-page__field">
+                  <label className="mcp-page__label">Descrição</label>
+                  <input
+                    type="text"
+                    className="mcp-page__input"
+                    value={formDescription}
+                    onChange={(e) => setFormDescription(e.target.value)}
+                    placeholder="Descrição opcional do servidor"
+                  />
+                </div>
+
+                <div className="mcp-page__field">
+                  <label className="mcp-page__label">Transporte</label>
+                  <select
+                    className="mcp-page__input"
+                    value={formTransport}
+                    onChange={(e) => setFormTransport(e.target.value)}
+                  >
+                    <option value="stdio">stdio (processo local)</option>
+                    <option value="sse">SSE (servidor remoto)</option>
+                  </select>
+                </div>
+
+                {formTransport === 'stdio' && (
+                  <>
+                    <div className="mcp-page__field">
+                      <label className="mcp-page__label">Comando</label>
+                      <input
+                        type="text"
+                        className="mcp-page__input"
+                        value={formCommand}
+                        onChange={(e) => setFormCommand(e.target.value)}
+                        placeholder="ex: npx, node, python"
+                        required
+                      />
+                    </div>
+                    <div className="mcp-page__field">
+                      <label className="mcp-page__label">Argumentos (separados por espaço)</label>
+                      <input
+                        type="text"
+                        className="mcp-page__input"
+                        value={formArgs}
+                        onChange={(e) => setFormArgs(e.target.value)}
+                        placeholder="ex: -y @modelcontextprotocol/server-filesystem /home"
+                      />
+                    </div>
+                  </>
+                )}
+
+                {formTransport === 'sse' && (
+                  <div className="mcp-page__field">
+                    <label className="mcp-page__label">URL do servidor</label>
+                    <input
+                      type="url"
+                      className="mcp-page__input"
+                      value={formUrl}
+                      onChange={(e) => setFormUrl(e.target.value)}
+                      placeholder="https://example.com/mcp"
+                      required
+                    />
+                  </div>
+                )}
+
+                <div className="mcp-page__field">
+                  <label className="mcp-page__label">
+                    Variáveis de ambiente (KEY=VALUE, uma por linha)
+                  </label>
+                  <textarea
+                    className="mcp-page__textarea"
+                    rows={4}
+                    value={formEnvText}
+                    onChange={(e) => setFormEnvText(e.target.value)}
+                    placeholder={"GITHUB_TOKEN=ghp_xxx\nNODE_ENV=production"}
+                  />
+                  <span className="mcp-page__hint">
+                    Linhas começando com # são ignoradas.
+                  </span>
+                </div>
+
+                <div className="mcp-page__field">
+                  <label className="mcp-page__label">Opções</label>
+                  <div className="mcp-page__checkboxes">
+                    <label className="mcp-page__checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={formEnabled}
+                        onChange={(e) => setFormEnabled(e.target.checked)}
+                      />
+                      Habilitado
+                    </label>
+                    <label className="mcp-page__checkbox-label">
+                      <input
+                        type="checkbox"
+                        checked={formAutoConnect}
+                        onChange={(e) => setFormAutoConnect(e.target.checked)}
+                      />
+                      Conectar automaticamente no início
+                    </label>
+                  </div>
+                </div>
+              </div>
+
+              <div className="mcp-page__editor-footer">
                 {!isNew && editingSlug && (
                   <Button
                     variant="danger"
@@ -366,146 +509,12 @@ export default function McpPage() {
                     Excluir
                   </Button>
                 )}
+                <Button variant="ghost" onClick={handleCloseEditor}>Fechar</Button>
                 <Button onClick={handleSave} loading={saving}>Salvar</Button>
-                <Button variant="ghost" onClick={() => { setEditing(null); setEditingSlug(null); }}>
-                  Fechar
-                </Button>
               </div>
             </div>
-
-            <div className="mcp-page__fields">
-              {isNew && (
-                <div className="mcp-page__field">
-                  <label className="mcp-page__label">Slug (identificador)</label>
-                  <input
-                    type="text"
-                    className="mcp-page__input"
-                    value={formSlug}
-                    onChange={(e) => setFormSlug(e.target.value)}
-                    placeholder="ex: github, filesystem"
-                    required
-                  />
-                  <span className="mcp-page__hint">
-                    Identificador único. Apenas letras minúsculas, números, - e _
-                  </span>
-                </div>
-              )}
-
-              <div className="mcp-page__field">
-                <label className="mcp-page__label">Nome</label>
-                <input
-                  type="text"
-                  className="mcp-page__input"
-                  value={formName}
-                  onChange={(e) => setFormName(e.target.value)}
-                  placeholder="ex: GitHub Tools"
-                  required
-                />
-              </div>
-
-              <div className="mcp-page__field">
-                <label className="mcp-page__label">Descrição</label>
-                <input
-                  type="text"
-                  className="mcp-page__input"
-                  value={formDescription}
-                  onChange={(e) => setFormDescription(e.target.value)}
-                  placeholder="Descrição opcional do servidor"
-                />
-              </div>
-
-              <div className="mcp-page__field">
-                <label className="mcp-page__label">Transporte</label>
-                <select
-                  className="mcp-page__input"
-                  value={formTransport}
-                  onChange={(e) => setFormTransport(e.target.value)}
-                >
-                  <option value="stdio">stdio (processo local)</option>
-                  <option value="sse">SSE (servidor remoto)</option>
-                </select>
-              </div>
-
-              {formTransport === 'stdio' && (
-                <>
-                  <div className="mcp-page__field">
-                    <label className="mcp-page__label">Comando</label>
-                    <input
-                      type="text"
-                      className="mcp-page__input"
-                      value={formCommand}
-                      onChange={(e) => setFormCommand(e.target.value)}
-                      placeholder="ex: npx, node, python"
-                      required
-                    />
-                  </div>
-                  <div className="mcp-page__field">
-                    <label className="mcp-page__label">Argumentos (separados por espaço)</label>
-                    <input
-                      type="text"
-                      className="mcp-page__input"
-                      value={formArgs}
-                      onChange={(e) => setFormArgs(e.target.value)}
-                      placeholder="ex: -y @modelcontextprotocol/server-filesystem /home"
-                    />
-                  </div>
-                </>
-              )}
-
-              {formTransport === 'sse' && (
-                <div className="mcp-page__field">
-                  <label className="mcp-page__label">URL do servidor</label>
-                  <input
-                    type="url"
-                    className="mcp-page__input"
-                    value={formUrl}
-                    onChange={(e) => setFormUrl(e.target.value)}
-                    placeholder="https://example.com/mcp"
-                    required
-                  />
-                </div>
-              )}
-
-              <div className="mcp-page__field">
-                <label className="mcp-page__label">
-                  Variáveis de ambiente (KEY=VALUE, uma por linha)
-                </label>
-                <textarea
-                  className="mcp-page__textarea"
-                  rows={4}
-                  value={formEnvText}
-                  onChange={(e) => setFormEnvText(e.target.value)}
-                  placeholder={"GITHUB_TOKEN=ghp_xxx\nNODE_ENV=production"}
-                />
-                <span className="mcp-page__hint">
-                  Linhas começando com # são ignoradas.
-                </span>
-              </div>
-
-              <div className="mcp-page__field">
-                <label className="mcp-page__label">Opções</label>
-                <div className="mcp-page__checkboxes">
-                  <label className="mcp-page__checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={formEnabled}
-                      onChange={(e) => setFormEnabled(e.target.checked)}
-                    />
-                    Habilitado
-                  </label>
-                  <label className="mcp-page__checkbox-label">
-                    <input
-                      type="checkbox"
-                      checked={formAutoConnect}
-                      onChange={(e) => setFormAutoConnect(e.target.checked)}
-                    />
-                    Conectar automaticamente no início
-                  </label>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
+          )}
+        </SimpleModal>
       </div>
 
       <ConfirmDialog

@@ -18,6 +18,7 @@ export interface DataGridProps<T = any> {
   items: T[];
   columns: DataGridColumn<T>[];
   label?: string;
+  autoFocusOnMount?: boolean;
   getItemId?: (item: T) => string | number;
   selectedIds?: Set<string | number>;
   multiSelect?: boolean;
@@ -33,6 +34,7 @@ export function DataGrid<T = any>({
   items,
   columns,
   label = 'Grid de dados',
+  autoFocusOnMount = true,
   getItemId = (item: any) => item.id,
   selectedIds,
   multiSelect = false,
@@ -101,6 +103,9 @@ export function DataGrid<T = any>({
 
   // Foca no grid quando montado (se houver items) - apenas uma vez
   useEffect(() => {
+    if (!autoFocusOnMount) {
+      return;
+    }
     // Aguarda os dados carregarem
     const checkTimer = setInterval(() => {
       if (items.length > 0 && !hasInitializedRef.current) {
@@ -125,7 +130,7 @@ export function DataGrid<T = any>({
     return () => {
       clearInterval(checkTimer);
     };
-  }, []); // Array vazio - roda apenas no mount
+  }, [autoFocusOnMount, items.length, focusFirstCell]);
 
   // Sincroniza selectedIds externo com estado local
   useEffect(() => {

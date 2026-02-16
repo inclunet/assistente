@@ -38,8 +38,8 @@ func Register(apiURL, number, mode, captcha string) error {
 	}
 
 	reqURL := fmt.Sprintf("%s/v1/register/%s", apiURL, url.PathEscape(number))
-	log.Printf("[Signal] Register: POST %s (mode=%s, use_voice=%v, has_captcha=%v)",
-		reqURL, mode, payload.UseVoice, captcha != "")
+	log.Printf("[Signal] Register: POST %s (number=%s, mode=%s, use_voice=%v, has_captcha=%v)",
+		reqURL, maskIdentifier(number), mode, payload.UseVoice, captcha != "")
 
 	req, err := http.NewRequest("POST", reqURL, bytes.NewReader(body))
 	if err != nil {
@@ -65,7 +65,7 @@ func Register(apiURL, number, mode, captcha string) error {
 		return fmt.Errorf("erro %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	log.Printf("[Signal] Register: sucesso para %s", number)
+	log.Printf("[Signal] Register: sucesso para %s", maskIdentifier(number))
 	return nil
 }
 
@@ -75,7 +75,7 @@ func Verify(apiURL, number, code string) error {
 
 	reqURL := fmt.Sprintf("%s/v1/register/%s/verify/%s",
 		apiURL, url.PathEscape(number), url.PathEscape(code))
-	log.Printf("[Signal] Verify: POST %s", reqURL)
+	log.Printf("[Signal] Verify: POST %s (number=%s)", reqURL, maskIdentifier(number))
 
 	req, err := http.NewRequest("POST", reqURL, nil)
 	if err != nil {
@@ -101,7 +101,7 @@ func Verify(apiURL, number, code string) error {
 		return fmt.Errorf("erro %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	log.Printf("[Signal] Verify: número %s verificado com sucesso", number)
+	log.Printf("[Signal] Verify: número %s verificado com sucesso", maskIdentifier(number))
 	return nil
 }
 
@@ -112,7 +112,7 @@ func Unregister(apiURL, number string, deleteLocalData bool) error {
 
 	// POST /v1/unregister/{number}
 	reqURL := fmt.Sprintf("%s/v1/unregister/%s", apiURL, url.PathEscape(number))
-	log.Printf("[Signal] Unregister: POST %s (deleteLocalData=%v)", reqURL, deleteLocalData)
+	log.Printf("[Signal] Unregister: POST %s (number=%s, deleteLocalData=%v)", reqURL, maskIdentifier(number), deleteLocalData)
 
 	req, err := http.NewRequest("POST", reqURL, nil)
 	if err != nil {
@@ -158,7 +158,7 @@ func Unregister(apiURL, number string, deleteLocalData bool) error {
 		log.Printf("[Signal] Unregister: delete local-data status=%d, body=%s", delResp.StatusCode, truncateStr(string(delBody), 300))
 	}
 
-	log.Printf("[Signal] Unregister: %s removido com sucesso", number)
+	log.Printf("[Signal] Unregister: %s removido com sucesso", maskIdentifier(number))
 	return nil
 }
 
