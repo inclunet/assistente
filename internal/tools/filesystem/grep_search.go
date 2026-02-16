@@ -27,7 +27,7 @@ func NewGrepSearch(workDir string) *GrepSearch {
 func (t *GrepSearch) Name() string { return "grep_search" }
 
 func (t *GrepSearch) Description() string {
-	return "Busca por padrão (texto literal ou regex) dentro do conteúdo de arquivos. Retorna linhas correspondentes com número da linha e contexto. Ideal para encontrar definições, usos de variáveis, strings, etc."
+	return "Searches file contents by pattern (Go regex or literal). Returns matching lines with line numbers and context. Use include to filter files and case_sensitive=false for case-insensitive search."
 }
 
 func (t *GrepSearch) Parameters() json.RawMessage {

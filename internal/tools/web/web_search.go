@@ -58,7 +58,7 @@ func NewWebSearchWithProvider(provider SearchProvider) *WebSearch {
 func (t *WebSearch) Name() string { return "web_search" }
 
 func (t *WebSearch) Description() string {
-	return "Busca informações na web. Retorna títulos, URLs e trechos relevantes dos resultados. Útil para encontrar documentação atualizada, soluções para erros, notícias e informações em tempo real."
+	return "Searches the web and returns titles, URLs, and snippets. Use to discover relevant links; to read content, call web_fetch on a chosen URL."
 }
 
 func (t *WebSearch) Parameters() json.RawMessage {

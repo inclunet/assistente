@@ -25,7 +25,7 @@ func NewWriteFile(workDir string) *WriteFile {
 func (t *WriteFile) Name() string { return "write_file" }
 
 func (t *WriteFile) Description() string {
-	return "Cria ou sobrescreve um arquivo com o conteúdo fornecido. Cria diretórios intermediários automaticamente. Use para criar novos arquivos ou quando precisar reescrever o conteúdo inteiro."
+	return "Creates or overwrites a file with full content (no partial edits). Creates intermediate directories. Use for new files or full rewrites; for small edits, use edit_file."
 }
 
 func (t *WriteFile) Parameters() json.RawMessage {

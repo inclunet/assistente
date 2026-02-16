@@ -25,7 +25,7 @@ func NewListDirectory(workDir string) *ListDirectory {
 func (t *ListDirectory) Name() string { return "list_directory" }
 
 func (t *ListDirectory) Description() string {
-	return "Lista arquivos e diretórios em um caminho. Retorna nome, tipo (arquivo/diretório) e tamanho. Não é recursivo por padrão."
+	return "Lists files and directories for a path (default: working directory). Returns name, type, and size. Not recursive by default; use recursive=true and max_depth."
 }
 
 func (t *ListDirectory) Parameters() json.RawMessage {

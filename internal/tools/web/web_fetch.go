@@ -40,7 +40,7 @@ func NewWebFetch() *WebFetch {
 func (t *WebFetch) Name() string { return "web_fetch" }
 
 func (t *WebFetch) Description() string {
-	return "Busca o conteúdo de uma URL e extrai o texto principal da página. Remove HTML, scripts e estilos, retornando conteúdo legível. Útil para ler documentação, artigos, READMEs, etc."
+	return "Fetches a URL (http/https) and extracts readable content. Strips HTML/scripts/styles and returns text (or raw/markdown). Blocks local/private hosts. Use after finding a specific link."
 }
 
 func (t *WebFetch) Parameters() json.RawMessage {

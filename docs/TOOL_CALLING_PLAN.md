@@ -168,15 +168,16 @@ O LLM vê esse histórico e decide: "Já tenho tudo" → responde com finish_rea
 
 | # | Ferramenta | Descrição | Usa Resolver? | Fase |
 |---|-----------|-----------|---------------|------|
-| 1 | read_file | Lê conteúdo de arquivo (com offset/limit) | Sim | 2 |
-| 2 | list_directory | Lista arquivos e diretórios | Sim | 2 |
-| 3 | search_files | Busca por padrão glob | Sim | 2 |
-| 4 | grep_search | Busca regex no conteúdo de arquivos | Não (workdir) | 6 |
-| 5 | write_file | Escreve/cria arquivo | Sim | 6 |
-| 6 | edit_file | Substituição exata de string | Sim | 6 |
-| 7 | web_fetch | Busca conteúdo de URL (converte HTML→markdown) | Não | 8 |
-| 8 | web_search | Pesquisa na web via API | Não | 8 |
-| 9 | run_command | Executa comando no terminal (com confirmação) | Não | 9 |
+| 1 | read_file | Lê arquivo com linhas numeradas; suporta offset/limit | Sim | 2 |
+| 2 | list_directory | Lista diretórios (recursivo opcional) | Sim | 2 |
+| 3 | search_files | Busca por padrão glob; usa **/ para recursivo | Sim | 2 |
+| 4 | grep_search | Busca regex/literal com contexto (include opcional) | Não (workdir) | 6 |
+| 5 | write_file | Cria/sobrescreve arquivo inteiro | Sim | 6 |
+| 6 | edit_file | Substituição exata (old_string → new_string) | Sim | 6 |
+| 7 | web_fetch | Baixa URL e extrai texto (ou raw/markdown) | Não | 8 |
+| 8 | web_search | Pesquisa na web e retorna links/trechos | Não | 8 |
+| 9 | run_command | Executa comandos no terminal (allowlist/timeout) | Não | 9 |
+| 10 | send_message | Envia mensagem via Telegram/Signal | Não | 10 |
 
 ---
 
@@ -199,6 +200,8 @@ internal/tools/
 ├── web/              # Tools web
 │   ├── web_fetch.go
 │   └── web_search.go
+├── messaging/         # Tools de mensageria
+│   └── send_message.go
 └── shell/            # Execução de comandos
     └── run_command.go
 ```

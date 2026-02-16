@@ -26,7 +26,7 @@ func NewReadFile(workDir string) *ReadFile {
 func (t *ReadFile) Name() string { return "read_file" }
 
 func (t *ReadFile) Description() string {
-	return "Lê o conteúdo de um arquivo. Suporta leitura parcial com offset (linha inicial) e limit (número de linhas). Sem offset/limit, retorna o arquivo inteiro."
+	return "Reads a file and returns line-numbered content. Use offset (1-indexed; negative counts from end) and limit (number of lines). Without offset/limit, returns the whole file."
 }
 
 func (t *ReadFile) Parameters() json.RawMessage {

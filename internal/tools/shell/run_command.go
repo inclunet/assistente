@@ -60,7 +60,7 @@ func (rc *RunCommand) Name() string {
 }
 
 func (rc *RunCommand) Description() string {
-	return `Executa um comando shell no terminal. Use para rodar comandos do sistema, compilar código, executar testes, listar arquivos, verificar status do git, etc. O comando é executado em uma sessão PTY persistente. Comandos destrutivos podem requerer confirmação do usuário.`
+	return `Runs a shell command in a persistent PTY session. Use for builds, tests, file inspection, git, etc. Respects allowlist and may require user confirmation. working_directory is project-relative; timeout_seconds max is 300.`
 }
 
 func (rc *RunCommand) Parameters() json.RawMessage {

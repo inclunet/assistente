@@ -32,7 +32,7 @@ func (t *SendMessageTool) Name() string {
 }
 
 func (t *SendMessageTool) Description() string {
-	return "Sends a message to the user via an external messaging platform (Telegram, Signal, etc.). Use this to proactively notify the user or send information when they request it. The user must have configured the messaging channel and authorized the contact."
+	return "Sends a text message via external messaging (Telegram/Signal). Use for proactive notifications when requested. The channel must be configured and the contact authorized."
 }
 
 func (t *SendMessageTool) Parameters() json.RawMessage {
@@ -46,7 +46,7 @@ func (t *SendMessageTool) Parameters() json.RawMessage {
 			},
 			"to": {
 				"type": "string",
-				"description": "The recipient's identifier (chat_id for Telegram, phone number for Signal)"
+				"description": "Recipient identifier (Telegram chat_id, Signal E.164 phone number, e.g., +5511999999999)"
 			},
 			"message": {
 				"type": "string",

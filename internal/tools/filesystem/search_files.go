@@ -24,7 +24,7 @@ func NewSearchFiles(workDir string) *SearchFiles {
 func (t *SearchFiles) Name() string { return "search_files" }
 
 func (t *SearchFiles) Description() string {
-	return "Busca arquivos por padrão de nome (glob). Exemplos: '*.go' encontra todos os arquivos Go, '**/test_*.py' encontra testes Python em qualquer subdiretório."
+	return "Finds files by glob pattern. Use **/ for recursive search (e.g., '**/test_*.py'). Without **/, it searches only the base directory."
 }
 
 func (t *SearchFiles) Parameters() json.RawMessage {

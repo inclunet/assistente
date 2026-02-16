@@ -25,7 +25,7 @@ func NewEditFile(workDir string) *EditFile {
 func (t *EditFile) Name() string { return "edit_file" }
 
 func (t *EditFile) Description() string {
-	return "Edita um arquivo existente substituindo uma string exata (old_string) por outra (new_string). A old_string deve ser única no arquivo para evitar substituições indesejadas. Use replace_all=true para substituir todas as ocorrências. Prefira esta ferramenta sobre write_file para edições parciais."
+	return "Edits an existing file by replacing an exact string (old_string) with another (new_string). old_string should be unique (include context/indentation). If multiple occurrences exist, it fails unless replace_all=true."
 }
 
 func (t *EditFile) Parameters() json.RawMessage {
