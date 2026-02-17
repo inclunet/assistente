@@ -20,7 +20,7 @@ jobs:
             output: assistente.exe
             
           # Linux
-          - os: ubuntu-22.04
+          - os: ubuntu-latest
             platform: linux/amd64
             goos: linux
             goarch: amd64
@@ -88,10 +88,16 @@ jobs:
           # Configura PKG_CONFIG_PATH para incluir diretórios comuns
           echo "PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
           
+          # Cria link simbólico para webkit2gtk-4.0 se necessário (Ubuntu 22.04+ tem apenas 4.1)
+          if [ ! -f /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc ] && [ -f /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc ]; then
+            echo "🔗 Criando link simbólico webkit2gtk-4.0.pc -> webkit2gtk-4.1.pc"
+            sudo ln -s /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.1.pc /usr/lib/x86_64-linux-gnu/pkgconfig/webkit2gtk-4.0.pc
+          fi
+          
           # Verifica se webkit foi instalado corretamente
           echo "📦 Verificando instalação do webkit2gtk..."
           pkg-config --list-all | grep webkit || echo "⚠️ webkit2gtk não encontrado no pkg-config"
-          find /usr -name "webkit2gtk*.pc" 2>/dev/null || echo "⚠️ Arquivo .pc do webkit2gtk não encontrado"
+          pkg-config --exists webkit2gtk-4.0 && echo "✅ webkit2gtk-4.0 encontrado" || echo "⚠️ webkit2gtk-4.0 NÃO encontrado"
 
       - name: Install frontend dependencies
         working-directory: frontend
