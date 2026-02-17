@@ -100,13 +100,8 @@ jobs:
       - name: Prepare artifacts
         shell: bash
         run: |
-          # Obtém versão da tag ou do release
-          if [ "${{ github.event_name }}" = "release" ]; then
-            VERSION=${{ github.event.release.tag_name }}
-            VERSION=${VERSION#v}
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
-          fi
+          # Obtém versão da tag
+          VERSION=${GITHUB_REF#refs/tags/v}
           ARTIFACT_NAME="assistente-${{ matrix.goos }}-${{ matrix.goarch }}"
           
           mkdir -p artifacts
@@ -202,19 +197,10 @@ jobs:
 
       # Manifest não é mais necessário - o updater busca diretamente da API do GitHub
 
-      - name: Create GitHub Release (se não existe)
-        run: |
-          # Obtém versão da tag ou do release
-          if [ "${{ github.event_name }}" = "release" ]; then
-            VERSION=${{ github.event.release.tag_name }}
-            echo "Release já existe, atualizando assets..."
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
-            echo "Criando novo release..."
-          fi
+      - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
+          tag_name: ${{ github.ref_name }}
           files: release-assets/*
           generate_release_notes: true
           draft: false
@@ -244,11 +230,7 @@ jobs:
 
       - name: Summary
         run: |
-          if [ "${{ github.event_name }}" = "release" ]; then
-            VERSION=${{ github.event.release.tag_name }}
-          else
-            VERSION=${GITHUB_REF#refs/tags/}
-          fi
+          VERSION=${GITHUB_REF#refs/tags/}
           
           echo "✅ Release ${VERSION} publicado!"
           echo ""
