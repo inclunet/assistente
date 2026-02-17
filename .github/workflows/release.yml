@@ -62,6 +62,11 @@ jobs:
       - name: Install Wails
         run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
 
+      - name: Verify Wails Installation
+        run: |
+          wails version
+          wails doctor
+
       - name: Install dependencies (Linux)
         if: matrix.os == 'ubuntu-latest'
         run: |
@@ -73,26 +78,44 @@ jobs:
         run: npm install
 
       - name: Build application
-        run: wails build -platform ${{ matrix.platform }} -clean
+        run: |
+          echo "🏗️ Building for ${{ matrix.platform }}..."
+          wails build -platform ${{ matrix.platform }} -clean
+          echo "✅ Build completed"
+          echo "📂 Build output:"
+          ls -lh build/bin/ || echo "⚠️ build/bin/ not found"
 
       - name: Build installer (Windows)
         if: matrix.os == 'windows-latest'
-        run: wails build -platform ${{ matrix.platform }} -nsis -clean
+        run: |
+          echo "🪟 Building Windows installer..."
+          wails build -platform ${{ matrix.platform }} -nsis -clean
+          echo "✅ Installer build completed"
+          echo "📂 Installer output:"
+          ls -lh build/bin/ || echo "⚠️ build/bin/ not found"
 
       - name: Build installer (macOS)
         if: matrix.goos == 'darwin'
+        continue-on-error: true
         run: |
+          echo "🍎 Building macOS package..."
           # Builda executável primeiro
           wails build -platform ${{ matrix.platform }} -clean
+          echo "Build completed. Files in build/bin/:"
+          ls -lh build/bin/ || true
           # Cria DMG
           # Nota: pode precisar de create-dmg ou outro tool
           # Por enquanto, assumindo que Wails gera automaticamente
 
       - name: Build packages (Linux)
         if: matrix.os == 'ubuntu-latest'
+        continue-on-error: true
         run: |
+          echo "🐧 Building Linux packages..."
           # AppImage (automático com Wails)
           wails build -platform ${{ matrix.platform }} -clean
+          echo "Build completed. Files in build/bin/:"
+          ls -lh build/bin/ || true
           
           # Opcional: gerar .deb também
           # wails build -platform ${{ matrix.platform }} -deb
@@ -104,57 +127,86 @@ jobs:
           VERSION=${GITHUB_REF#refs/tags/v}
           ARTIFACT_NAME="assistente-${{ matrix.goos }}-${{ matrix.goarch }}"
           
+          echo "📦 Preparing artifacts for ${ARTIFACT_NAME}..."
+          echo "Version: ${VERSION}"
+          
           mkdir -p artifacts
           
+          echo "📂 Content of build/bin/:"
+          ls -lah build/bin/ || echo "⚠️ build/bin/ directory not found!"
+          
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            echo "🪟 Processing Windows artifacts..."
+            
             # Windows: executável + instalador NSIS
             if [ -f "build/bin/${{ matrix.output }}" ]; then
+              echo "✅ Found executable: build/bin/${{ matrix.output }}"
               cp build/bin/${{ matrix.output }} artifacts/${ARTIFACT_NAME}.exe
+            else
+              echo "⚠️ Executable not found at: build/bin/${{ matrix.output }}"
             fi
             
-            # Instalador NSIS
-            if [ -f "build/bin/assistente-amd64-installer.exe" ]; then
-              cp build/bin/assistente-amd64-installer.exe artifacts/${ARTIFACT_NAME}-installer.exe
-            fi
-            
-            # Pode ter outro padrão de nome
-            if [ -f "build/bin/Assistente-Installer.exe" ]; then
-              cp "build/bin/Assistente-Installer.exe" artifacts/${ARTIFACT_NAME}-installer.exe
-            fi
+            # Instalador NSIS - tenta vários padrões de nome
+            for installer in "build/bin/assistente-amd64-installer.exe" "build/bin/Assistente-Installer.exe" "build/bin/assistente-installer.exe"; do
+              if [ -f "$installer" ]; then
+                echo "✅ Found installer: $installer"
+                cp "$installer" artifacts/${ARTIFACT_NAME}-installer.exe
+                break
+              fi
+            done
             
           elif [ "${{ matrix.goos }}" = "darwin" ]; then
+            echo "🍎 Processing macOS artifacts..."
+            
             # macOS: executável + DMG
             if [ -f "build/bin/${{ matrix.output }}" ]; then
+              echo "✅ Found executable: build/bin/${{ matrix.output }}"
               cp build/bin/${{ matrix.output }} artifacts/${ARTIFACT_NAME}
               chmod +x artifacts/${ARTIFACT_NAME}
+            else
+              echo "⚠️ Executable not found at: build/bin/${{ matrix.output }}"
             fi
             
             # DMG
-            if [ -f "build/bin/assistente.dmg" ]; then
-              cp build/bin/assistente.dmg artifacts/${ARTIFACT_NAME}.dmg
-            fi
-            if [ -f "build/bin/Assistente.dmg" ]; then
-              cp build/bin/Assistente.dmg artifacts/${ARTIFACT_NAME}.dmg
-            fi
+            for dmg in "build/bin/assistente.dmg" "build/bin/Assistente.dmg" "build/bin/assistente-${{ matrix.goarch }}.dmg"; do
+              if [ -f "$dmg" ]; then
+                echo "✅ Found DMG: $dmg"
+                cp "$dmg" artifacts/${ARTIFACT_NAME}.dmg
+                break
+              fi
+            done
             
           else
+            echo "🐧 Processing Linux artifacts..."
+            
             # Linux: executável + AppImage
             if [ -f "build/bin/${{ matrix.output }}" ]; then
+              echo "✅ Found executable: build/bin/${{ matrix.output }}"
               cp build/bin/${{ matrix.output }} artifacts/${ARTIFACT_NAME}
               chmod +x artifacts/${ARTIFACT_NAME}
+            else
+              echo "⚠️ Executable not found at: build/bin/${{ matrix.output }}"
             fi
             
             # AppImage
-            if [ -f "build/bin/assistente.AppImage" ]; then
-              cp build/bin/assistente.AppImage artifacts/${ARTIFACT_NAME}.AppImage
-              chmod +x artifacts/${ARTIFACT_NAME}.AppImage
-            fi
+            for appimage in "build/bin/assistente.AppImage" "build/bin/Assistente.AppImage" "build/bin/assistente-amd64.AppImage"; do
+              if [ -f "$appimage" ]; then
+                echo "✅ Found AppImage: $appimage"
+                cp "$appimage" artifacts/${ARTIFACT_NAME}.AppImage
+                chmod +x artifacts/${ARTIFACT_NAME}.AppImage
+                break
+              fi
+            done
             
             # .deb se existir
             if [ -f "build/bin/assistente.deb" ]; then
+              echo "✅ Found .deb: build/bin/assistente.deb"
               cp build/bin/assistente.deb artifacts/${ARTIFACT_NAME}.deb
             fi
           fi
+          
+          echo "📋 Final artifacts:"
+          ls -lah artifacts/
 
       - name: Calculate checksums
         shell: bash
@@ -188,14 +240,42 @@ jobs:
           mkdir -p release-assets
           
           # Consolida todos os builds
+          echo "📦 Consolidando artifacts..."
           for dir in artifacts/build-*; do
-            cp $dir/* release-assets/ || true
+            if [ -d "$dir" ]; then
+              echo "Copiando de $dir"
+              find "$dir" -type f -exec cp {} release-assets/ \;
+            fi
           done
           
+          # Remove checksums individuais e cria um consolidado
+          rm -f release-assets/checksums.txt
+          
           # Lista arquivos
+          echo "📋 Arquivos preparados:"
           ls -lh release-assets/
+          
+          # Gera checksums consolidados
+          echo "🔐 Gerando checksums..."
+          cd release-assets
+          for file in *; do
+            if [ -f "$file" ]; then
+              sha256sum "$file" >> checksums.txt
+            fi
+          done
+          cat checksums.txt
 
       # Manifest não é mais necessário - o updater busca diretamente da API do GitHub
+
+      - name: Verify release assets
+        run: |
+          echo "✅ Verificando assets..."
+          if [ -z "$(ls -A release-assets)" ]; then
+            echo "❌ ERRO: Nenhum asset encontrado em release-assets/"
+            exit 1
+          fi
+          echo "Assets encontrados:"
+          ls -lh release-assets/
 
       - name: Create or Update GitHub Release
         uses: softprops/action-gh-release@v1
@@ -205,6 +285,7 @@ jobs:
           generate_release_notes: true
           draft: false
           prerelease: false
+          fail_on_unmatched_files: true
           body: |
             ## 📥 Downloads
             
