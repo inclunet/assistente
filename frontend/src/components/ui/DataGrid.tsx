@@ -220,7 +220,7 @@ export function DataGrid<T = any>({
     gridRef.current?.focus();
   };
 
-  const handleKeyDown = (event: KeyboardEvent) => {
+  const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (rowCount === 0 || columnCount === 0) return;
 
     // Se estamos editando
@@ -285,6 +285,35 @@ export function DataGrid<T = any>({
         if (event.ctrlKey && multiSelect) {
           event.preventDefault();
           selectAll();
+          return;
+        }
+        break;
+
+      case 'c':
+        if (event.ctrlKey && !event.altKey) {
+          event.preventDefault();
+          // Ctrl+C: copiar célula atual
+          // Ctrl+Shift+C: copiar todas as células selecionadas
+          if (event.shiftKey && multiSelect && localSelectedIds.size > 0) {
+            // Copiar todas as linhas selecionadas
+            const selectedItems = items.filter(item => localSelectedIds.has(getItemId(item)));
+            const textToCopy = selectedItems.map(item => {
+              return columns.map(col => {
+                const value = item[col.key as keyof T];
+                return col.format ? String(col.format(value, item)) : String(value || '');
+              }).join('\t');
+            }).join('\n');
+            navigator.clipboard.writeText(textToCopy);
+            announce(`${selectedItems.length} linhas copiadas`);
+          } else {
+            // Copiar apenas a célula focada
+            const item = items[focusedRow];
+            const col = columns[focusedCol];
+            const value = item[col.key as keyof T];
+            const textToCopy = col.format ? String(col.format(value, item)) : String(value || '');
+            navigator.clipboard.writeText(textToCopy);
+            announce('Célula copiada');
+          }
           return;
         }
         break;

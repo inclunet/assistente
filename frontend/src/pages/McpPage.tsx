@@ -352,6 +352,10 @@ export default function McpPage() {
           items={rows}
           getItemId={(row) => row.id}
           onActivate={(row) => handleEdit(row)}
+          onDelete={(row) => {
+            setDeleteTarget(row);
+            setDeleteOpen(true);
+          }}
           onCellAction={handleCellAction}
           onGridReady={handleGridReady}
           label="Servidores MCP"

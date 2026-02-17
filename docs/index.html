@@ -1,0 +1,410 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Assistente - Download</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: #333;
+            min-height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+            padding: 20px;
+        }
+
+        header {
+            text-align: center;
+            padding: 60px 20px;
+            color: white;
+        }
+
+        h1 {
+            font-size: 3.5rem;
+            margin-bottom: 10px;
+            font-weight: 700;
+        }
+
+        .version {
+            font-size: 1.2rem;
+            opacity: 0.9;
+            margin-bottom: 30px;
+        }
+
+        .tagline {
+            font-size: 1.3rem;
+            opacity: 0.95;
+            max-width: 600px;
+            margin: 0 auto;
+        }
+
+        main {
+            flex: 1;
+            background: white;
+            border-radius: 20px 20px 0 0;
+            box-shadow: 0 -10px 40px rgba(0,0,0,0.1);
+        }
+
+        .downloads {
+            padding: 60px 20px;
+        }
+
+        .downloads h2 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 40px;
+            color: #2d3748;
+        }
+
+        .download-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+            gap: 30px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .download-card {
+            background: #f7fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            padding: 30px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+
+        .download-card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.1);
+            border-color: #667eea;
+        }
+
+        .download-card .icon {
+            font-size: 4rem;
+            margin-bottom: 20px;
+        }
+
+        .download-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 15px;
+            color: #2d3748;
+        }
+
+        .download-card .requirements {
+            font-size: 0.9rem;
+            color: #718096;
+            margin-bottom: 20px;
+        }
+
+        .download-btn {
+            display: inline-block;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 12px 30px;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            transition: transform 0.2s ease;
+            margin: 5px;
+        }
+
+        .download-btn:hover {
+            transform: scale(1.05);
+        }
+
+        .download-btn.secondary {
+            background: #e2e8f0;
+            color: #4a5568;
+        }
+
+        .download-btn.secondary:hover {
+            background: #cbd5e0;
+        }
+
+        .features {
+            background: #f7fafc;
+            padding: 60px 20px;
+        }
+
+        .features h2 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 40px;
+            color: #2d3748;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            gap: 30px;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+
+        .feature {
+            text-align: center;
+        }
+
+        .feature .icon {
+            font-size: 3rem;
+            margin-bottom: 15px;
+        }
+
+        .feature h3 {
+            font-size: 1.2rem;
+            margin-bottom: 10px;
+            color: #2d3748;
+        }
+
+        .feature p {
+            color: #718096;
+            line-height: 1.6;
+        }
+
+        footer {
+            background: #2d3748;
+            color: white;
+            text-align: center;
+            padding: 30px 20px;
+        }
+
+        footer a {
+            color: #667eea;
+            text-decoration: none;
+        }
+
+        .release-notes {
+            max-width: 800px;
+            margin: 40px auto;
+            padding: 30px;
+            background: white;
+            border-radius: 12px;
+            border: 2px solid #e2e8f0;
+        }
+
+        .release-notes h3 {
+            color: #2d3748;
+            margin-bottom: 20px;
+        }
+
+        .release-notes ul {
+            list-style: none;
+            padding-left: 0;
+        }
+
+        .release-notes li {
+            padding: 8px 0;
+            color: #4a5568;
+        }
+
+        .release-notes li:before {
+            content: "✓ ";
+            color: #48bb78;
+            font-weight: bold;
+            margin-right: 10px;
+        }
+
+        @media (max-width: 768px) {
+            h1 {
+                font-size: 2.5rem;
+            }
+            
+            .download-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="container">
+            <h1>🤖 Assistente</h1>
+            <div class="version" id="version">Versão 1.0.0</div>
+            <p class="tagline">Seu assistente de IA com interface desktop moderna</p>
+        </div>
+    </header>
+
+    <main>
+        <section class="downloads">
+            <div class="container">
+                <h2>📥 Downloads</h2>
+                
+                <div class="download-grid">
+                    <!-- Windows -->
+                    <div class="download-card">
+                        <div class="icon">🪟</div>
+                        <h3>Windows</h3>
+                        <p class="requirements">Windows 10/11 (64-bit)</p>
+                        <a href="#" class="download-btn" id="windows-installer">
+                            Instalador (.exe)
+                        </a>
+                        <br>
+                        <a href="#" class="download-btn secondary" id="windows-portable">
+                            Portátil (.exe)
+                        </a>
+                    </div>
+
+                    <!-- macOS -->
+                    <div class="download-card">
+                        <div class="icon">🍎</div>
+                        <h3>macOS</h3>
+                        <p class="requirements">macOS 11+ (Intel & Apple Silicon)</p>
+                        <a href="#" class="download-btn" id="macos-dmg">
+                            Download (.dmg)
+                        </a>
+                    </div>
+
+                    <!-- Linux -->
+                    <div class="download-card">
+                        <div class="icon">🐧</div>
+                        <h3>Linux</h3>
+                        <p class="requirements">Ubuntu 20.04+, Debian 11+</p>
+                        <a href="#" class="download-btn" id="linux-appimage">
+                            AppImage
+                        </a>
+                        <br>
+                        <a href="#" class="download-btn secondary" id="linux-deb">
+                            .deb
+                        </a>
+                    </div>
+                </div>
+
+                <div class="release-notes">
+                    <h3>📝 Novidades nesta versão</h3>
+                    <ul id="release-notes">
+                        <li>Sistema de auto-update automático</li>
+                        <li>Suporte para GitHub Pages</li>
+                        <li>Interface moderna e responsiva</li>
+                        <li>Integração com LLMs</li>
+                    </ul>
+                </div>
+            </div>
+        </section>
+
+        <section class="features">
+            <div class="container">
+                <h2>✨ Recursos</h2>
+                
+                <div class="features-grid">
+                    <div class="feature">
+                        <div class="icon">🔄</div>
+                        <h3>Auto-Update</h3>
+                        <p>Atualizações automáticas sem interromper seu trabalho</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon">🎨</div>
+                        <h3>Interface Moderna</h3>
+                        <p>Design intuitivo e responsivo para produtividade máxima</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon">🔒</div>
+                        <h3>Seguro</h3>
+                        <p>Verificação de checksums e atualizações criptografadas</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon">⚡</div>
+                        <h3>Rápido</h3>
+                        <p>Performance otimizada com tecnologia Go + Wails</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon">🌐</div>
+                        <h3>Multiplataforma</h3>
+                        <p>Funciona no Windows, macOS e Linux</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon">🤖</div>
+                        <h3>IA Integrada</h3>
+                        <p>Conecte-se com os melhores modelos de linguagem</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <footer>
+        <div class="container">
+            <p>
+                <strong>Assistente</strong> - Desenvolvido com ❤️ usando 
+                <a href="https://wails.io" target="_blank">Wails</a> e 
+                <a href="https://go.dev" target="_blank">Go</a>
+            </p>
+            <p style="margin-top: 10px; opacity: 0.8;">
+                <a href="https://github.com/inclunet/assistente" target="_blank">GitHub</a> • 
+                <a href="https://github.com/inclunet/assistente/issues" target="_blank">Reportar Bug</a> • 
+                <a href="#" id="changelog">Changelog</a>
+            </p>
+        </div>
+    </footer>
+
+    <script>
+        // Carrega informações da última versão do manifest
+        fetch('update-manifest.json')
+            .then(res => res.json())
+            .then(data => {
+                const version = data.version;
+                const baseUrl = `https://github.com/inclunet/assistente/releases/download/v${version}`;
+                
+                // Atualiza versão no header
+                document.getElementById('version').textContent = `Versão ${version}`;
+                
+                // Atualiza links de download
+                const builds = data.builds;
+                
+                // Windows
+                if (builds['windows-amd64']) {
+                    const installerBtn = document.getElementById('windows-installer');
+                    const portableBtn = document.getElementById('windows-portable');
+                    
+                    // Instalador (recomendado)
+                    installerBtn.href = `${baseUrl}/assistente-windows-amd64-installer.exe`;
+                    // Executável portátil
+                    portableBtn.href = builds['windows-amd64'].url;
+                }
+                
+                // macOS
+                if (builds['darwin-arm64'] || builds['darwin-amd64']) {
+                    const macBtn = document.getElementById('macos-dmg');
+                    // Prioriza ARM64, fallback para AMD64
+                    const platform = builds['darwin-arm64'] ? 'darwin-arm64' : 'darwin-amd64';
+                    macBtn.href = `${baseUrl}/assistente-${platform}.dmg`;
+                }
+                
+                // Linux
+                if (builds['linux-amd64']) {
+                    const appimageBtn = document.getElementById('linux-appimage');
+                    const debBtn = document.getElementById('linux-deb');
+                    
+                    // AppImage (instalador)
+                    appimageBtn.href = `${baseUrl}/assistente-linux-amd64.AppImage`;
+                    // Executável portátil
+                    debBtn.href = builds['linux-amd64'].url;
+                    debBtn.textContent = 'Executável';
+                }
+                
+                // Changelog
+                document.getElementById('changelog').href = `https://github.com/inclunet/assistente/releases/tag/v${version}`;
+            })
+            .catch(err => {
+                console.error('Erro ao carregar manifest:', err);
+            });
+    </script>
+</body>
+</html>

@@ -17,8 +17,21 @@ export function useTabsKeyboardShortcuts() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
+      const target = event.target as HTMLElement;
+      const isDataGrid = target.closest('.datagrid-container') !== null;
+      
+      // Se estiver em DataGrid, não interceptar nenhuma tecla
+      if (isDataGrid) {
+        return;
+      }
+
       // Ctrl+T ou Ctrl+N: Nova aba
+      // Apenas bloquear se estiver em campo de entrada (evita conflito com digitação)
       if (event.ctrlKey && (event.key === 't' || event.key === 'n') && !event.shiftKey && !event.altKey) {
+        const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+        if (isInput) {
+          return; // Permite Ctrl+T no navegador para abas
+        }
         event.preventDefault();
         createTab();
         announce('Nova guia criada');

@@ -1,4 +1,4 @@
-import { useRef, useState, useEffect } from 'react';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { useChatStore } from '../store/chatStore';
 import { ttsService } from '../services/tts';
 import { MessageList } from '../components/chat/MessageList';
@@ -10,7 +10,6 @@ import { KeyboardShortcutsHelp } from '../components/ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../hooks/useChatKeyboardNav';
 import { useTabsKeyboardShortcuts } from '../hooks/useTabsKeyboardShortcuts';
 import { useContextMenu, useMessageActions } from '../hooks/useContextMenu';
-import { Message } from '../store/chatStore';
 import { MediaFile } from '../services/mediaService';
 import { DeleteMessage } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
@@ -39,10 +38,6 @@ export default function ChatPage() {
   // TTS é controlado pelo perfil global via ttsService (fonte de verdade)
   const isTTSDisabled = !ttsService.isEnabled();
 
-  // Estado do dialog de confirmação de delete
-  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-  const [messageToDelete, setMessageToDelete] = useState<Message | null>(null);
-
   // Estado do painel de ajuda de atalhos
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
@@ -62,6 +57,36 @@ export default function ChatPage() {
     onAnnounce: (msg) => console.log('Anúncio:', msg),
   });
 
+  // Função para deletar mensagem (usada tanto no menu quanto no teclado)
+  const handleDeleteMessage = useCallback(async (message: any) => {
+    try {
+      const messageId = parseInt(message.id, 10);
+      if (!isNaN(messageId)) {
+        await DeleteMessage(messageId);
+        announce('Mensagem excluída');
+        // Recarrega a conversa atual sem page reload
+        const activeTab = getActiveTab();
+        if (activeTab?.conversationId) {
+          await loadConversationInActiveTab(activeTab.conversationId, activeTab.title || 'Conversa');
+        }
+      }
+    } catch (error) {
+      // Se o usuário cancelou a exclusão, não mostra erro
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('cancelada')) {
+        announce('Exclusão cancelada');
+        return;
+      }
+      
+      handleError(error, {
+        source: 'ChatPage.onDelete',
+        userMessage: ErrorMessages.CHAT.DELETE_FAILED,
+        severity: ErrorSeverity.RECOVERABLE,
+        metadata: { messageId: message.id },
+      });
+    }
+  }, [announce, getActiveTab, loadConversationInActiveTab]);
+
   // Menu de contexto
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
     onCopy: copyMessage,
@@ -79,10 +104,7 @@ export default function ChatPage() {
         announce('Mensagem reenviada');
       }
     },
-    onDelete: (message) => {
-      setMessageToDelete(message);
-      setDeleteDialogOpen(true);
-    },
+    onDelete: handleDeleteMessage,
     onPin: (message) => {
       // Pin requer campo adicional no modelo ChatMessage
       // Deixar para implementação futura
@@ -107,39 +129,6 @@ export default function ChatPage() {
 
   // Enable global keyboard shortcuts for tabs (Ctrl+T, Ctrl+W, Ctrl+Tab, etc.)
   useTabsKeyboardShortcuts();
-
-  // Handle delete confirmation
-  const handleConfirmDelete = async () => {
-    if (!messageToDelete) return;
-
-    try {
-      const messageId = parseInt(messageToDelete.id, 10);
-      if (!isNaN(messageId)) {
-        await DeleteMessage(messageId);
-        announce('Mensagem excluída');
-        // Recarrega a conversa atual sem page reload
-        const activeTab = getActiveTab();
-        if (activeTab?.conversationId) {
-          await loadConversationInActiveTab(activeTab.conversationId, activeTab.title || 'Conversa');
-        }
-      }
-    } catch (error) {
-      handleError(error, {
-        source: 'ChatPage.handleConfirmDelete',
-        userMessage: ErrorMessages.CHAT.DELETE_FAILED,
-        severity: ErrorSeverity.RECOVERABLE,
-        metadata: { messageId: messageToDelete.id },
-      });
-    } finally {
-      setDeleteDialogOpen(false);
-      setMessageToDelete(null);
-    }
-  };
-
-  const handleCancelDelete = () => {
-    setDeleteDialogOpen(false);
-    setMessageToDelete(null);
-  };
 
   // Usa os MessageNode[] que o backend já enviou com childCount correto
   const threadedMessages = getThreadedMessages() || [];
@@ -277,6 +266,7 @@ export default function ChatPage() {
         ref={messagesContainerRef}
         onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
         onSpeak={speakMessage}
+        onDelete={handleDeleteMessage}
       />
 
       {/* Error banner with retry */}
@@ -336,18 +326,6 @@ export default function ChatPage() {
         y={menuPosition.y}
         onClose={hideMenu}
         ariaLabel="Ações da mensagem"
-      />
-
-      {/* Dialog de confirmação de exclusão */}
-      <ConfirmDialog
-        isOpen={deleteDialogOpen}
-        title="Excluir mensagem"
-        message="Tem certeza que deseja excluir esta mensagem e todas as suas respostas? Esta ação não pode ser desfeita."
-        confirmText="Excluir"
-        cancelText="Cancelar"
-        variant="danger"
-        onConfirm={handleConfirmDelete}
-        onCancel={handleCancelDelete}
       />
 
       {/* Painel de ajuda de atalhos de teclado */}

@@ -1248,6 +1248,137 @@ func (a *App) GetMCPServerConfig(slug string) (*mcpmgr.ServerConfig, error) {
 	return a.mcpMgr.GetConfig(slug)
 }
 
+// ReadMCPResource lê o conteúdo de um resource MCP.
+func (a *App) ReadMCPResource(slug, uri string) (string, error) {
+	if a.mcpMgr == nil {
+		return "", fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.ReadResource(slug, uri)
+}
+
+// GetMCPPrompt executa um prompt MCP e retorna as mensagens geradas.
+func (a *App) GetMCPPrompt(slug, name string, arguments map[string]string) ([]string, error) {
+	if a.mcpMgr == nil {
+		return nil, fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.GetPrompt(slug, name, arguments)
+}
+
+// GetNativeMCPServers retorna informações dos servidores MCP para uso nativo por modelos.
+func (a *App) GetNativeMCPServers() []map[string]any {
+	if a.mcpMgr == nil {
+		return []map[string]any{}
+	}
+	return a.mcpMgr.GetNativeServerInfo()
+}
+
+// LLMSettings contém configurações da API LLM
+type LLMSettings struct {
+	APIKey  string
+	BaseURL string
+}
+
+// GetLLMSettings retorna as configurações atuais da API LLM
+func (a *App) GetLLMSettings() (*LLMSettings, error) {
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao carregar config: %w", err)
+	}
+	
+	return &LLMSettings{
+		APIKey:  cfg.APIKey,
+		BaseURL: cfg.APIBaseURL,
+	}, nil
+}
+
+// TestMCPNativeSupport testa se o modelo configurado no perfil suporta MCP nativo.
+// Faz chamada real à API. Deve ser chamado ao configurar perfil pela primeira vez.
+// Retorna (suporta, mensagemErro, erro)
+func (a *App) TestMCPNativeSupport(profileSlug string) (bool, string, error) {
+	// Carregar perfil
+	profile, err := a.profileManager.Get(profileSlug)
+	if err != nil {
+		return false, "", fmt.Errorf("erro ao carregar perfil: %w", err)
+	}
+	
+	// Obter configurações da API do LLM settings atual
+	settings, err := a.GetLLMSettings()
+	if err != nil {
+		return false, "", fmt.Errorf("erro ao obter configurações: %w", err)
+	}
+	
+	// Fazer teste
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	
+	supported, errMsg, err := profiles.TestMCPNativeSupport(
+		ctx,
+		settings.APIKey,
+		settings.BaseURL,
+		profile.Chat.Model,
+	)
+	
+	if err != nil {
+		return false, errMsg, err
+	}
+	
+	// Salvar resultado no perfil
+	profile.SetMCPNativeSupport(supported)
+	if err := a.profileManager.Update(profileSlug, profile); err != nil {
+		return supported, "", fmt.Errorf("erro ao salvar perfil: %w", err)
+	}
+	
+	return supported, "", nil
+}
+
+// ClearMCPTest limpa resultado do teste MCP de um perfil para forçar re-teste.
+func (a *App) ClearMCPTest(profileSlug string) error {
+	profile, err := a.profileManager.Get(profileSlug)
+	if err != nil {
+		return fmt.Errorf("erro ao carregar perfil: %w", err)
+	}
+	
+	profile.ClearMCPTest()
+	
+	if err := a.profileManager.Update(profileSlug, profile); err != nil {
+		return fmt.Errorf("erro ao salvar perfil: %w", err)
+	}
+	
+	return nil
+}
+
+// SetMCPWorkspaceRoots configura os diretórios raiz do workspace para servidores MCP.
+func (a *App) SetMCPWorkspaceRoots(roots []mcpmgr.Root) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.SetWorkspaceRoots(roots)
+}
+
+// GetMCPWorkspaceRoots retorna os workspace roots configurados.
+func (a *App) GetMCPWorkspaceRoots() []mcpmgr.Root {
+	if a.mcpMgr == nil {
+		return []mcpmgr.Root{}
+	}
+	return a.mcpMgr.GetWorkspaceRoots()
+}
+
+// SubscribeToMCPResource inscreve para receber notificações de um resource.
+func (a *App) SubscribeToMCPResource(slug, uri string) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.SubscribeToResource(slug, uri)
+}
+
+// UnsubscribeFromMCPResource cancela inscrição de um resource.
+func (a *App) UnsubscribeFromMCPResource(slug, uri string) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.UnsubscribeFromResource(slug, uri)
+}
+
 // initGlobalHotkeys inicializa o gerenciador de hotkeys
 func (a *App) initGlobalHotkeys() {
 	if !hotkey.IsSupported() {

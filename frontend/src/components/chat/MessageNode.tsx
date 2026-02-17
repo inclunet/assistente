@@ -19,6 +19,7 @@ export interface MessageNodeProps {
   onReachEnd?: () => void; // Chamado quando tenta ir além do último item no level 0
   onContextMenu?: (e: React.MouseEvent, message: any) => void;
   onSpeak?: (message: any) => void;
+  onDelete?: (message: any) => void;
 }
 
 export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
@@ -30,6 +31,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   onReachEnd,
   onContextMenu,
   onSpeak,
+  onDelete,
 }) => {
   const nodeRef = React.useRef<HTMLDivElement>(null);
   
@@ -282,6 +284,26 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       return;
     }
 
+    // Delete: deleta mensagem
+    if (key === 'Delete' && !node.message.internal && !node.message.isStreaming && onDelete) {
+      e.preventDefault();
+      e.stopPropagation();
+      onDelete(node.message);
+      return;
+    }
+
+    // Ctrl+C: copia conteúdo da mensagem
+    if (e.ctrlKey && key === 'c' && !e.altKey && !node.message.internal) {
+      e.preventDefault();
+      e.stopPropagation();
+      const textToCopy = e.shiftKey 
+        ? `[${node.message.role}] ${node.message.content}` // Ctrl+Shift+C: com role
+        : node.message.content; // Ctrl+C: apenas conteúdo
+      navigator.clipboard.writeText(textToCopy);
+      announce(e.shiftKey ? 'Mensagem copiada com role' : 'Conteúdo copiado');
+      return;
+    }
+
     // R: toggle do reasoning (somente mensagens do assistente com reasoning)
     if ((key === 'r' || key === 'R') && node.message.role === 'assistant' && node.message.reasoning) {
       e.preventDefault();
@@ -464,6 +486,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
               onLoadChildren={onLoadChildren}
               onContextMenu={onContextMenu}
               onSpeak={onSpeak}
+              onDelete={onDelete}
               // Não passa onReachEnd para threads internas
             />
           ))}

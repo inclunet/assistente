@@ -1,6 +1,9 @@
 package profiles
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // Profile representa um perfil de conversa unificado.
 // Combina configurações de chat (LLM), voz (TTS) e interação (STT/triggers)
@@ -40,6 +43,19 @@ type ChatConfig struct {
 	EnabledTools         []string `json:"enabled_tools"`                    // Ferramentas habilitadas (nil = todas)
 	EnabledSkills        []string `json:"enabled_skills"`                   // Skills habilitados (nil = todos, [] = nenhum)
 	CommandAllowlist     string   `json:"command_allowlist,omitempty"`      // Slug da allowlist de comandos
+	
+	// MCP Mode: "adapter" (padrão) ou "native"
+	// - "adapter": Tools MCP via bridge (compatível com qualquer modelo)
+	// - "native": MCP direto (requer modelo com suporte nativo como Claude 3.7+)
+	// - "auto": Detecta automaticamente se modelo suporta MCP nativo
+	MCPMode string `json:"mcp_mode,omitempty"` // adapter, native, auto (padrão: adapter)
+	
+	// MCPNativeTested indica se o suporte MCP nativo foi testado para este modelo
+	// Evita re-testar toda vez. Valores:
+	// - nil: não testado ainda
+	// - true: testado e suporta MCP nativo
+	// - false: testado e NÃO suporta MCP nativo
+	MCPNativeTested *bool `json:"mcp_native_tested,omitempty"`
 }
 
 // VoiceConfig define as configurações de voz TTS
@@ -65,6 +81,13 @@ const (
 	ChannelResponseMirror      = "mirror"       // texto→texto, áudio→áudio (padrão)
 	ChannelResponseAlwaysText  = "always_text"  // sempre texto
 	ChannelResponseAlwaysAudio = "always_audio" // sempre áudio (TTS)
+)
+
+// MCP Mode constants
+const (
+	MCPModeAdapter = "adapter" // Usa bridge de tools (compatível com todos modelos)
+	MCPModeNative  = "native"  // MCP direto (requer suporte do modelo)
+	MCPModeAuto    = "auto"    // Detecta automaticamente
 )
 
 // InteractionConfig define as configurações de interação por voz
@@ -174,6 +197,12 @@ func (p *Profile) Validate() error {
 	if p.Chat.SystemPromptPosition != "" && p.Chat.SystemPromptPosition != "before" && p.Chat.SystemPromptPosition != "after" {
 		return fmt.Errorf("chat.system_prompt_position must be 'before' or 'after'")
 	}
+	
+	// Validação do MCP Mode
+	validMCPModes := []string{"", MCPModeAdapter, MCPModeNative, MCPModeAuto}
+	if !containsStr(validMCPModes, p.Chat.MCPMode) {
+		return fmt.Errorf("chat.mcp_mode must be one of: adapter, native, auto")
+	}
 
 	// Validação da voz
 	validVoiceProviders := []string{"disabled", "webspeech", "sapi5", "openai"}
@@ -254,5 +283,80 @@ func containsStr(slice []string, item string) bool {
 			return true
 		}
 	}
+	return false
+}
+
+// GetMCPMode retorna o modo MCP efetivo do perfil.
+// Se não especificado ou inválido, retorna "auto" como padrão.
+func (p *Profile) GetMCPMode() string {
+	mode := p.Chat.MCPMode
+	
+	// Valida se é um modo válido
+	if mode == MCPModeAdapter || mode == MCPModeNative || mode == MCPModeAuto {
+		return mode
+	}
+	
+	// Default: auto (testa e decide automaticamente)
+	return MCPModeAuto
+}
+
+// ShouldUseMCPNative retorna se deve usar modo MCP nativo baseado no modelo.
+// Verifica se o modelo suporta MCP nativamente e se o modo está configurado para "native" ou "auto".
+func (p *Profile) ShouldUseMCPNative() bool {
+	mode := p.GetMCPMode()
+	
+	// Se modo é explicitamente adapter, nunca usa nativo
+	if mode == MCPModeAdapter {
+		return false
+	}
+	
+	// Se modo é explicitamente native, sempre usa nativo
+	if mode == MCPModeNative {
+		return true
+	}
+	
+	// Se modo é auto, usa o resultado do teste (se disponível)
+	if mode == MCPModeAuto {
+		// Se já foi testado, usa resultado do teste
+		if p.Chat.MCPNativeTested != nil {
+			return *p.Chat.MCPNativeTested
+		}
+		// Se não foi testado, assume false (seguro)
+		return false
+	}
+	
+	return false
+}
+
+// MCPNativeWasTested retorna true se o suporte MCP nativo já foi testado.
+func (p *Profile) MCPNativeWasTested() bool {
+	return p.Chat.MCPNativeTested != nil
+}
+
+// SetMCPNativeSupport marca se o modelo suporta MCP nativo após teste.
+func (p *Profile) SetMCPNativeSupport(supported bool) {
+	p.Chat.MCPNativeTested = &supported
+}
+
+// ModelSupportsNativeMCP verifica se um modelo suporta MCP nativamente.
+// DEPRECATED: Use TestMCPNativeSupport() para teste real em vez de hardcoded.
+// Esta função agora apenas fornece "hint" inicial.
+func ModelSupportsNativeMCP(modelID string) bool {
+	// Normaliza para lowercase para comparação
+	model := strings.ToLower(modelID)
+	
+	// Claude 3.7+ (inclui sonnet, opus, haiku)
+	// Estes são conhecidos por suportar, mas sempre teste para confirmar
+	if strings.Contains(model, "claude-3-7") ||
+	   strings.Contains(model, "claude-3.7") {
+		return true
+	}
+	
+	// Claude 4+ (futuro)
+	if strings.Contains(model, "claude-4") {
+		return true
+	}
+	
+	// Para outros modelos, retorna false (teste é necessário)
 	return false
 }

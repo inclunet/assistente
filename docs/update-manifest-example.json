@@ -1,0 +1,27 @@
+{
+  "version": "1.0.0",
+  "released": "2026-02-16T10:00:00Z",
+  "notes": "Versão inicial com suporte a auto-update",
+  "builds": {
+    "windows-amd64": {
+      "url": "https://inclunet.github.io/assistente/releases/1.0.0/assistente-windows-amd64.exe",
+      "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 50000000
+    },
+    "darwin-amd64": {
+      "url": "https://inclunet.github.io/assistente/releases/1.0.0/assistente-darwin-amd64",
+      "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 48000000
+    },
+    "darwin-arm64": {
+      "url": "https://inclunet.github.io/assistente/releases/1.0.0/assistente-darwin-arm64",
+      "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 45000000
+    },
+    "linux-amd64": {
+      "url": "https://inclunet.github.io/assistente/releases/1.0.0/assistente-linux-amd64",
+      "checksum": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+      "size": 47000000
+    }
+  }
+}

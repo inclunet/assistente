@@ -121,6 +121,22 @@ export default function HelpPage() {
               provedores de reconhecimento e síntese
             </li>
             <li>
+              <strong>Terminal Integrado:</strong> Execute comandos do sistema diretamente no app
+            </li>
+            <li>
+              <strong>MCP (Model Context Protocol):</strong> Conecte servidores externos para
+              estender capacidades da IA
+            </li>
+            <li>
+              <strong>Skills:</strong> Instruções especializadas para modificar comportamento da IA
+            </li>
+            <li>
+              <strong>Channels:</strong> Integração com Telegram e Signal
+            </li>
+            <li>
+              <strong>Allowlists:</strong> Controle de segurança sobre ferramentas da IA
+            </li>
+            <li>
               <strong>Acessibilidade:</strong> Navegação completa por teclado e suporte a leitores
               de tela
             </li>
@@ -599,6 +615,357 @@ export default function HelpPage() {
       ),
     },
     {
+      id: 'terminal',
+      title: 'Terminal Integrado',
+      icon: '>_',
+      content: (
+        <div className="help-content">
+          <h4>O que é o Terminal?</h4>
+          <p>
+            O Assistente inclui um terminal integrado que permite executar comandos do sistema
+            diretamente no aplicativo. É útil para tarefas de desenvolvimento, administração
+            de sistema ou quando a IA precisa executar comandos para você.
+          </p>
+
+          <h4>Sistema de Sessões</h4>
+          <p>
+            O terminal suporta múltiplas sessões simultâneas, cada uma com seu próprio histórico
+            e contexto de trabalho:
+          </p>
+          <ul>
+            <li><strong>Nova sessão:</strong> Ctrl+T</li>
+            <li><strong>Fechar sessão:</strong> Ctrl+W</li>
+            <li><strong>Navegar entre sessões:</strong> Ctrl+Tab / Ctrl+Shift+Tab</li>
+            <li><strong>Ir para sessão específica:</strong> Ctrl+1 a Ctrl+9</li>
+          </ul>
+
+          <h4>Executando Comandos</h4>
+          <ol>
+            <li>Digite o comando no campo de entrada</li>
+            <li>Pressione Enter para executar</li>
+            <li>A saída aparece no histórico acima</li>
+            <li>Use Ctrl+C para interromper processos em execução</li>
+          </ol>
+
+          <h4>Histórico de Comandos</h4>
+          <ul>
+            <li>Navegue com Seta Cima/Baixo no campo de entrada</li>
+            <li>Cada sessão mantém seu próprio histórico</li>
+            <li>Comandos são salvos automaticamente</li>
+          </ul>
+
+          <h4>Integração com IA</h4>
+          <p>
+            A IA pode sugerir e executar comandos de terminal quando necessário. Você pode pedir
+            no chat coisas como:
+          </p>
+          <ul>
+            <li><em>"Lista os arquivos dessa pasta"</em></li>
+            <li><em>"Executa npm install"</em></li>
+            <li><em>"Mostra o conteúdo do arquivo X"</em></li>
+          </ul>
+        </div>
+      ),
+    },
+    {
+      id: 'mcp',
+      title: 'MCP (Model Context Protocol)',
+      icon: '🔌',
+      content: (
+        <div className="help-content">
+          <h4>O que é MCP?</h4>
+          <p>
+            O <strong>Model Context Protocol</strong> é um padrão aberto que permite conectar
+            servidores externos que fornecem ferramentas e contexto adicional para a IA. Com MCP,
+            você pode estender as capacidades do assistente conectando-o a diversas fontes de dados
+            e serviços.
+          </p>
+
+          <h4>Servidores MCP</h4>
+          <p>
+            Servidores MCP são programas que expõem ferramentas que a IA pode usar. Exemplos:
+          </p>
+          <ul>
+            <li><strong>Filesystem:</strong> Acesso a arquivos e pastas do sistema</li>
+            <li><strong>Database:</strong> Consultas a bancos de dados</li>
+            <li><strong>Web:</strong> Busca na web, fetch de URLs</li>
+            <li><strong>APIs:</strong> Integração com serviços externos (GitHub, Slack, etc.)</li>
+          </ul>
+
+          <h4>Configurando Servidores</h4>
+          <ol>
+            <li>Vá para a página "MCP" no menu</li>
+            <li>Clique em "Novo Servidor"</li>
+            <li>Preencha os dados:
+              <ul>
+                <li><strong>Nome:</strong> Identificação do servidor</li>
+                <li><strong>Transporte:</strong> stdio (processo local) ou SSE (HTTP)</li>
+                <li><strong>Comando:</strong> Caminho do executável (para stdio)</li>
+                <li><strong>Args:</strong> Argumentos do comando</li>
+                <li><strong>URL:</strong> Endereço do servidor (para SSE)</li>
+              </ul>
+            </li>
+            <li>Marque "Habilitado" e "Auto-conectar"</li>
+            <li>Salve a configuração</li>
+          </ol>
+
+          <h4>Gerenciando Conexões</h4>
+          <ul>
+            <li><strong>Conectar:</strong> Inicia a conexão com o servidor</li>
+            <li><strong>Desconectar:</strong> Encerra a conexão</li>
+            <li><strong>Reconectar:</strong> Reinicia a conexão (útil após mudanças)</li>
+            <li><strong>Status:</strong> Mostra se está conectado, desconectado ou com erro</li>
+          </ul>
+
+          <h4>Ferramentas Disponíveis</h4>
+          <p>
+            Quando um servidor MCP está conectado, suas ferramentas ficam disponíveis para a IA
+            usar automaticamente. A coluna "Tools" mostra quantas ferramentas cada servidor fornece.
+          </p>
+
+          <h4>Exemplos de Uso</h4>
+          <p>Com o servidor de filesystem conectado, você pode pedir:</p>
+          <ul>
+            <li><em>"Lista os arquivos da pasta Documents"</em></li>
+            <li><em>"Lê o conteúdo do arquivo config.json"</em></li>
+            <li><em>"Cria um arquivo README.md com..."</em></li>
+          </ul>
+        </div>
+      ),
+    },
+    {
+      id: 'skills',
+      title: 'Skills (Habilidades)',
+      icon: '🧠',
+      content: (
+        <div className="help-content">
+          <h4>O que são Skills?</h4>
+          <p>
+            Skills são <strong>instruções especializadas</strong> que você pode dar à IA para
+            modificar seu comportamento ou dar contexto adicional. Elas são como "modos" ou
+            "personalidades" que a IA pode assumir para tarefas específicas.
+          </p>
+
+          <h4>Como Funcionam</h4>
+          <p>
+            Cada skill contém:
+          </p>
+          <ul>
+            <li><strong>Instruções:</strong> Texto que é adicionado ao contexto da IA</li>
+            <li><strong>Ferramentas permitidas:</strong> Lista de tools que a skill pode usar</li>
+            <li><strong>Invocação automática:</strong> Se a IA pode ativar a skill automaticamente</li>
+          </ul>
+
+          <h4>Tipos de Skills</h4>
+          <ul>
+            <li>
+              <strong>Manuais:</strong> Você ativa explicitamente dizendo <code>"Use a skill X"</code>
+            </li>
+            <li>
+              <strong>Automáticas:</strong> A IA decide quando usar baseado no contexto
+            </li>
+          </ul>
+
+          <h4>Criando Skills</h4>
+          <ol>
+            <li>Vá para a página "Skills" no menu</li>
+            <li>Clique em "Nova Skill"</li>
+            <li>Preencha:
+              <ul>
+                <li><strong>Nome:</strong> Identificação da skill</li>
+                <li><strong>Descrição:</strong> O que a skill faz</li>
+                <li><strong>Conteúdo:</strong> As instruções que serão dadas à IA</li>
+                <li><strong>Ferramentas:</strong> Lista de tools permitidas (opcional)</li>
+                <li><strong>Auto:</strong> Se a IA pode ativar automaticamente</li>
+              </ul>
+            </li>
+            <li>Salve a skill</li>
+          </ol>
+
+          <h4>Exemplos de Skills</h4>
+          <ul>
+            <li>
+              <strong>Revisor de Código:</strong> Instrui a IA a revisar código em busca de bugs
+              e sugerir melhorias
+            </li>
+            <li>
+              <strong>Assistente de Escrita:</strong> Ajuda a escrever textos formais, e-mails,
+              documentos
+            </li>
+            <li>
+              <strong>Tradutor Técnico:</strong> Traduz mantendo terminologia técnica precisa
+            </li>
+            <li>
+              <strong>Debugger:</strong> Analisa erros e sugere soluções
+            </li>
+          </ul>
+
+          <h4>Usando Skills</h4>
+          <p>Para usar uma skill, basta pedir no chat:</p>
+          <ul>
+            <li><code>"Usa a skill Revisor de Código"</code></li>
+            <li><code>"Ativa o modo Assistente de Escrita"</code></li>
+            <li><code>"Como um tradutor técnico, traduza isso..."</code></li>
+          </ul>
+        </div>
+      ),
+    },
+    {
+      id: 'allowlists',
+      title: 'Allowlists (Listas de Permissões)',
+      icon: '🛡️',
+      content: (
+        <div className="help-content">
+          <h4>O que são Allowlists?</h4>
+          <p>
+            Allowlists são <strong>regras de segurança</strong> que controlam quais ferramentas
+            a IA pode usar e em quais condições. Elas protegem você de ações potencialmente
+            perigosas ou indesejadas.
+          </p>
+
+          <h4>Como Funcionam</h4>
+          <p>
+            Cada allowlist define três categorias de ações:
+          </p>
+          <ul>
+            <li>
+              <strong>Auto-aprovar:</strong> Ferramentas que a IA pode usar livremente sem pedir
+              permissão
+            </li>
+            <li>
+              <strong>Confirmar:</strong> Ferramentas que requerem sua aprovação antes de executar
+            </li>
+            <li>
+              <strong>Sempre negar:</strong> Ferramentas que nunca devem ser usadas
+            </li>
+          </ul>
+
+          <h4>Ação Padrão</h4>
+          <p>
+            Para ferramentas não listadas explicitamente, a allowlist define uma ação padrão:
+          </p>
+          <ul>
+            <li><strong>auto_approve:</strong> Permite usar livremente</li>
+            <li><strong>confirm:</strong> Pede confirmação (recomendado)</li>
+            <li><strong>deny:</strong> Nega automaticamente</li>
+          </ul>
+
+          <h4>Criando Allowlists</h4>
+          <ol>
+            <li>Vá para a página "Allowlists" no menu</li>
+            <li>Clique em "Nova Allowlist"</li>
+            <li>Preencha o nome e descrição</li>
+            <li>Configure as regras:
+              <ul>
+                <li>Digite nomes de ferramentas separados por vírgula</li>
+                <li>Ou use padrões como <code>read_*</code> para todas as ferramentas de leitura</li>
+              </ul>
+            </li>
+            <li>Defina a ação padrão</li>
+            <li>Salve a allowlist</li>
+          </ol>
+
+          <h4>Exemplos de Uso</h4>
+          <ul>
+            <li>
+              <strong>Modo Seguro:</strong> Auto-aprovar apenas leitura, confirmar escrita, negar
+              execução
+            </li>
+            <li>
+              <strong>Desenvolvimento:</strong> Auto-aprovar operações de arquivo, confirmar git e
+              npm
+            </li>
+            <li>
+              <strong>Apenas Consulta:</strong> Auto-aprovar apenas leitura e busca, negar tudo
+              que modifica
+            </li>
+          </ul>
+
+          <h4>Vinculando a Perfis</h4>
+          <p>
+            Allowlists podem ser vinculadas a Perfis de Interação, aplicando as regras
+            automaticamente quando o perfil está ativo.
+          </p>
+        </div>
+      ),
+    },
+    {
+      id: 'channels',
+      title: 'Channels (Canais de Mensagens)',
+      icon: '📱',
+      content: (
+        <div className="help-content">
+          <h4>O que são Channels?</h4>
+          <p>
+            Channels permitem que o Assistente se conecte a <strong>aplicativos de mensagens</strong>
+            como Telegram e Signal, permitindo que você converse com a IA diretamente nesses apps.
+          </p>
+
+          <h4>Canais Suportados</h4>
+          <ul>
+            <li>
+              <strong>Telegram:</strong> Via Bot API - crie um bot com @BotFather
+            </li>
+            <li>
+              <strong>Signal:</strong> Via signal-cli-rest-api - requer servidor local
+            </li>
+          </ul>
+
+          <h4>Configurando Telegram</h4>
+          <ol>
+            <li>Crie um bot no Telegram com @BotFather</li>
+            <li>Copie o token do bot</li>
+            <li>Vá para "Channels" no menu</li>
+            <li>Na aba "Canais", edite "Telegram"</li>
+            <li>Cole o Bot Token</li>
+            <li>Escolha um Perfil de Voz (opcional)</li>
+            <li>Configure limites de histórico e contatos</li>
+            <li>Marque "Habilitado" e salve</li>
+            <li>Inicie uma conversa com o bot no Telegram</li>
+          </ol>
+
+          <h4>Configurando Signal</h4>
+          <ol>
+            <li>Instale e configure signal-cli-rest-api</li>
+            <li>Registre um número no Signal (via API ou app)</li>
+            <li>Vá para "Channels" no menu</li>
+            <li>Na aba "Canais", edite "Signal"</li>
+            <li>Configure a URL da API</li>
+            <li>Selecione a conta registrada</li>
+            <li>Escolha um Perfil de Voz (opcional)</li>
+            <li>Marque "Habilitado" e salve</li>
+          </ol>
+
+          <h4>Gerenciamento de Contatos</h4>
+          <p>
+            Na aba "Contatos", você pode ver e gerenciar quem pode conversar com o assistente:
+          </p>
+          <ul>
+            <li>Primeiro contato é aprovado automaticamente (configurável)</li>
+            <li>Você pode remover contatos autorizados</li>
+            <li>Limite de contatos por canal previne uso excessivo</li>
+          </ul>
+
+          <h4>Como Funciona</h4>
+          <ol>
+            <li>Alguém envia mensagem para o bot/número</li>
+            <li>A mensagem chega ao Assistente</li>
+            <li>Uma nova aba é criada automaticamente no chat</li>
+            <li>A IA processa e responde</li>
+            <li>A resposta é enviada de volta pelo canal</li>
+          </ol>
+
+          <h4>Recursos</h4>
+          <ul>
+            <li><strong>Conversas isoladas:</strong> Cada contato tem sua própria aba/conversa</li>
+            <li><strong>Histórico limitado:</strong> Controle de contexto para economia de tokens</li>
+            <li><strong>Perfis de voz:</strong> Respostas podem ser enviadas como áudio</li>
+            <li><strong>Multi-conta:</strong> Suporte a múltiplas contas Signal</li>
+          </ul>
+        </div>
+      ),
+    },
+    {
       id: 'keyboard',
       title: 'Teclas de Atalho',
       icon: '⌨️',
@@ -726,6 +1093,66 @@ export default function HelpPage() {
                   <kbd>Ctrl</kbd>+<kbd>I</kbd>
                 </td>
                 <td>Seletor de perfil de interação</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>Terminal</h4>
+          <table className="help-shortcuts">
+            <thead>
+              <tr>
+                <th>Atalho</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>T</kbd>
+                </td>
+                <td>Nova sessão de terminal</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>W</kbd>
+                </td>
+                <td>Fechar sessão atual</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>Tab</kbd>
+                </td>
+                <td>Próxima sessão</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>Tab</kbd>
+                </td>
+                <td>Sessão anterior</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>1</kbd> a <kbd>9</kbd>
+                </td>
+                <td>Ir para sessão específica</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>C</kbd>
+                </td>
+                <td>Interromper comando em execução</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>↑</kbd> / <kbd>↓</kbd>
+                </td>
+                <td>Navegar histórico de comandos</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Escape</kbd>
+                </td>
+                <td>Voltar para o campo de entrada</td>
               </tr>
             </tbody>
           </table>
@@ -882,6 +1309,102 @@ export default function HelpPage() {
                   <kbd>Tab</kbd>
                 </td>
                 <td>Fechar e mover foco</td>
+              </tr>
+            </tbody>
+          </table>
+
+          <h4>DataGrid / Histórico / Gerenciamento de Dados</h4>
+          <table className="help-shortcuts">
+            <thead>
+              <tr>
+                <th>Atalho</th>
+                <th>Ação</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <kbd>↑</kbd> / <kbd>↓</kbd>
+                </td>
+                <td>Navegar entre linhas</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>←</kbd> / <kbd>→</kbd>
+                </td>
+                <td>Navegar entre colunas</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Home</kbd> / <kbd>End</kbd>
+                </td>
+                <td>Primeira/última coluna</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>Home</kbd> / <kbd>Ctrl</kbd>+<kbd>End</kbd>
+                </td>
+                <td>Primeira/última célula da grid</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Page Up</kbd> / <kbd>Page Down</kbd>
+                </td>
+                <td>Pular 10 linhas</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Enter</kbd>
+                </td>
+                <td>Ativar item (abrir/executar ação)</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>F2</kbd>
+                </td>
+                <td>Editar célula (em colunas editáveis)</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Delete</kbd>
+                </td>
+                <td>Remover item selecionado</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Space</kbd>
+                </td>
+                <td>Marcar/desmarcar item</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>Space</kbd>
+                </td>
+                <td>Toggle seleção do item atual</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>A</kbd>
+                </td>
+                <td>Selecionar todos os itens</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>C</kbd>
+                </td>
+                <td>Copiar conteúdo da célula focada</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>C</kbd>
+                </td>
+                <td>Copiar todas as linhas selecionadas (TSV)</td>
+              </tr>
+              <tr>
+                <td>
+                  <kbd>Escape</kbd>
+                </td>
+                <td>Limpar seleção</td>
               </tr>
             </tbody>
           </table>
@@ -1189,7 +1712,7 @@ export default function HelpPage() {
 
       <footer className="help-footer">
         <p>
-          Versão do Assistente IA • Última atualização da documentação: Fevereiro 2026
+          Assistente IA • Última atualização da documentação: Fevereiro 2026
         </p>
       </footer>
     </div>

@@ -170,6 +170,10 @@ export default function AllowlistPage() {
           items={rows}
           getItemId={(row) => row.id}
           onActivate={(row) => handleEdit(row)}
+          onDelete={(row) => {
+            setDeleteTarget(row);
+            setDeleteOpen(true);
+          }}
           label="Allowlists de Comandos"
           onGridReady={handleGridReady}
         />

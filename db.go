@@ -7,6 +7,7 @@ import (
 
 	"assistente/internal/config"
 	"assistente/internal/database"
+	"assistente/internal/questionnaire"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -233,6 +234,39 @@ func (a *App) DeleteConversation(id uint) error {
 
 // DeleteMessage exclui uma mensagem e todas as suas filhas (respostas)
 func (a *App) DeleteMessage(messageID uint) error {
+	// Solicita confirmação via questionário
+	ctx := a.ctx
+	if a.questionnaireMgr == nil {
+		return fmt.Errorf("questionnaire manager não inicializado")
+	}
+	
+	resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+		Title:       "Excluir mensagem",
+		Description: "Tem certeza que deseja excluir esta mensagem e todas as suas respostas? Esta ação não pode ser desfeita.",
+		AllowCancel: true,
+		SubmitLabel: "Excluir",
+		CancelLabel: "Cancelar",
+		Questions: []questionnaire.Question{
+			{
+				ID:       "confirm",
+				Type:     "boolean",
+				Prompt:   "Confirmar exclusão?",
+				Required: true,
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	if resp.Cancelled {
+		return fmt.Errorf("exclusão cancelada pelo usuário")
+	}
+	confirmed, ok := resp.Answers["confirm"].(bool)
+	if !ok || !confirmed {
+		return fmt.Errorf("exclusão cancelada pelo usuário")
+	}
+	
+	// Prossegue com a exclusão
 	if err := database.DeleteMessage(messageID); err != nil {
 		return err
 	}
