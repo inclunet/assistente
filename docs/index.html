@@ -174,6 +174,88 @@
             line-height: 1.6;
         }
 
+        .about {
+            background: white;
+            padding: 60px 20px;
+            border-top: 1px solid #e2e8f0;
+        }
+
+        .about h2 {
+            text-align: center;
+            font-size: 2rem;
+            margin-bottom: 40px;
+            color: #2d3748;
+        }
+
+        .about-content {
+            max-width: 800px;
+            margin: 0 auto;
+            line-height: 1.8;
+            color: #4a5568;
+        }
+
+        .about-content h3 {
+            color: #2d3748;
+            margin-top: 30px;
+            margin-bottom: 15px;
+            font-size: 1.5rem;
+        }
+
+        .about-content p {
+            margin-bottom: 15px;
+        }
+
+        .about-content ul {
+            margin: 15px 0 15px 30px;
+        }
+
+        .about-content li {
+            margin-bottom: 8px;
+        }
+
+        .providers-table {
+            width: 100%;
+            margin: 20px 0;
+            border-collapse: collapse;
+        }
+
+        .providers-table th,
+        .providers-table td {
+            padding: 12px;
+            text-align: left;
+            border: 1px solid #e2e8f0;
+        }
+
+        .providers-table th {
+            background: #f7fafc;
+            font-weight: 600;
+        }
+
+        .shortcuts-table {
+            width: 100%;
+            margin: 20px 0;
+            border-collapse: collapse;
+        }
+
+        .shortcuts-table th,
+        .shortcuts-table td {
+            padding: 10px;
+            text-align: left;
+            border: 1px solid #e2e8f0;
+        }
+
+        .shortcuts-table th {
+            background: #f7fafc;
+            font-weight: 600;
+        }
+
+        .shortcuts-table code {
+            background: #edf2f7;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
+        }
+
         footer {
             background: #2d3748;
             color: white;
@@ -231,21 +313,21 @@
 <body>
     <header>
         <div class="container">
-            <h1>🤖 Assistente</h1>
+            <h1><span aria-hidden="true">🤖</span> Assistente</h1>
             <div class="version" id="version">Versão 1.0.0</div>
-            <p class="tagline">Seu assistente de IA com interface desktop moderna</p>
+            <p class="tagline">Assistente de IA desktop completamente acessível, feito por pessoa cega para pessoas cegas</p>
         </div>
     </header>
 
     <main>
         <section class="downloads">
             <div class="container">
-                <h2>📥 Downloads</h2>
+                <h2><span aria-hidden="true">📥</span> Downloads</h2>
                 
                 <div class="download-grid">
                     <!-- Windows -->
                     <div class="download-card">
-                        <div class="icon">🪟</div>
+                        <div class="icon" aria-hidden="true">🪟</div>
                         <h3>Windows</h3>
                         <p class="requirements">Windows 10/11 (64-bit)</p>
                         <a href="#" class="download-btn" id="windows-installer">
@@ -259,7 +341,7 @@
 
                     <!-- macOS -->
                     <div class="download-card">
-                        <div class="icon">🍎</div>
+                        <div class="icon" aria-hidden="true">🍎</div>
                         <h3>macOS</h3>
                         <p class="requirements">macOS 11+ (Intel & Apple Silicon)</p>
                         <a href="#" class="download-btn" id="macos-dmg">
@@ -269,7 +351,7 @@
 
                     <!-- Linux -->
                     <div class="download-card">
-                        <div class="icon">🐧</div>
+                        <div class="icon" aria-hidden="true">🐧</div>
                         <h3>Linux</h3>
                         <p class="requirements">Ubuntu 20.04+, Debian 11+</p>
                         <a href="#" class="download-btn" id="linux-appimage">
@@ -283,7 +365,7 @@
                 </div>
 
                 <div class="release-notes">
-                    <h3>📝 Novidades nesta versão</h3>
+                    <h3><span aria-hidden="true">📝</span> Novidades nesta versão</h3>
                     <ul id="release-notes">
                         <li>Sistema de auto-update automático</li>
                         <li>Suporte para GitHub Pages</li>
@@ -294,45 +376,182 @@
             </div>
         </section>
 
+        <section class="about">
+            <div class="container">
+                <h2><span aria-hidden="true">💡</span> Sobre o Projeto</h2>
+                <div class="about-content">
+                    <h3>Motivação</h3>
+                    <p>
+                        Este projeto começou como uma <strong>prova de conceito</strong>: será que é possível criar uma aplicação de IA 
+                        verdadeiramente acessível para pessoas cegas? Não apenas "usável", mas <strong>otimizada</strong> para quem 
+                        depende de leitores de tela?
+                    </p>
+                    <p>
+                        A resposta é sim. E o projeto evoluiu muito além disso.
+                    </p>
+                    <p>
+                        Concebido inicialmente para testar a viabilidade de um chat acessível compatível com qualquer provedor de IA, 
+                        o Assistente rapidamente se tornou uma <strong>ferramenta de trabalho indispensável</strong>. O projeto cresceu 
+                        organicamente, incorporando novas funcionalidades conforme surgiam necessidades reais no dia-a-dia.
+                    </p>
+                    <p>
+                        <strong>Este não é um projeto feito "para" pessoas cegas. É feito "por" uma pessoa cega, para ela mesma.</strong> 
+                        Cada recurso foi pensado a partir da pergunta: "Como isso me ajudaria hoje?"
+                    </p>
+
+                    <h3>Inspirações</h3>
+                    <p>A interface e interações foram inspiradas em ferramentas que funcionam bem com leitores de tela:</p>
+                    <ul>
+                        <li><strong>IDEs modernos</strong>: Visual Studio Code, Cursor - navegação por atalhos, busca rápida</li>
+                        <li><strong>Ferramentas de comunicação</strong>: Slack - organização em threads e canais</li>
+                        <li><strong>Terminais</strong>: Bash, PowerShell, CMD - comandos eficientes, navegação por histórico</li>
+                        <li><strong>Aplicações produtivas</strong>: Windows Explorer, Excel, Google Sheets - atalhos de teclado, navegação estruturada</li>
+                        <li><strong>Ferramentas Google</strong>: busca instantânea, sugestões contextuais</li>
+                    </ul>
+
+                    <h3>Como Usar</h3>
+                    <p><strong>Menu de Ajuda:</strong> Pressione <code>F1</code> para acessar o menu completo com:</p>
+                    <ul>
+                        <li>Lista completa de atalhos de teclado</li>
+                        <li>Guia rápido de recursos</li>
+                        <li>Dicas de acessibilidade</li>
+                        <li>Documentação do MCP</li>
+                    </ul>
+
+                    <h3>Atalhos Essenciais</h3>
+                    <table class="shortcuts-table">
+                        <thead>
+                            <tr>
+                                <th>Atalho</th>
+                                <th>Ação</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><code>F1</code></td>
+                                <td>Abrir menu de ajuda</td>
+                            </tr>
+                            <tr>
+                                <td><code>Alt + 1</code></td>
+                                <td>Ir para Chat</td>
+                            </tr>
+                            <tr>
+                                <td><code>Alt + 2</code></td>
+                                <td>Ir para Configurações</td>
+                            </tr>
+                            <tr>
+                                <td><code>Ctrl + N</code></td>
+                                <td>Nova conversa</td>
+                            </tr>
+                            <tr>
+                                <td><code>Ctrl + K</code></td>
+                                <td>Busca rápida</td>
+                            </tr>
+                            <tr>
+                                <td><code>Enter</code></td>
+                                <td>Enviar mensagem</td>
+                            </tr>
+                            <tr>
+                                <td><code>Shift + Enter</code></td>
+                                <td>Nova linha</td>
+                            </tr>
+                        </tbody>
+                    </table>
+
+                    <h3>Dicas para Usuários de Leitores de Tela</h3>
+                    <ol>
+                        <li><strong>Ative o "Modo Acessibilidade"</strong> nas configurações (Alt + 2)</li>
+                        <li>Use <code>Tab</code> para navegar entre elementos</li>
+                        <li>Use <code>F6</code> para alternar entre painéis principais</li>
+                        <li>Respostas são anunciadas automaticamente quando completas</li>
+                    </ol>
+
+                    <h3>Provedores de IA Suportados</h3>
+                    <table class="providers-table">
+                        <thead>
+                            <tr>
+                                <th>Provedor</th>
+                                <th>URL Base</th>
+                                <th>Como Obter API Key</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <tr>
+                                <td><strong>OpenAI</strong></td>
+                                <td>https://api.openai.com/v1</td>
+                                <td><a href="https://platform.openai.com/api-keys" target="_blank">platform.openai.com</a></td>
+                            </tr>
+                            <tr>
+                                <td><strong>Groq</strong></td>
+                                <td>https://api.groq.com/openai/v1</td>
+                                <td><a href="https://console.groq.com" target="_blank">console.groq.com</a> (Gratuito)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Google AI</strong></td>
+                                <td>https://generativelanguage.googleapis.com/v1</td>
+                                <td><a href="https://makersuite.google.com/app/apikey" target="_blank">makersuite.google.com</a></td>
+                            </tr>
+                            <tr>
+                                <td><strong>OpenRouter</strong></td>
+                                <td>https://openrouter.ai/api/v1</td>
+                                <td><a href="https://openrouter.ai/keys" target="_blank">openrouter.ai</a> (100+ modelos)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>Ollama</strong></td>
+                                <td>http://localhost:11434/v1</td>
+                                <td>Sem API key - <a href="https://ollama.ai" target="_blank">ollama.ai</a> (Local, gratuito)</td>
+                            </tr>
+                            <tr>
+                                <td><strong>LM Studio</strong></td>
+                                <td>http://localhost:1234/v1</td>
+                                <td>Sem API key - <a href="https://lmstudio.ai" target="_blank">lmstudio.ai</a> (Local, gratuito)</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    <p><strong>Dica:</strong> Para iniciantes, recomendamos <strong>Groq</strong> (gratuito e rápido) ou <strong>Ollama</strong> (roda no seu PC).</p>
+                </div>
+            </div>
+        </section>
+
         <section class="features">
             <div class="container">
-                <h2>✨ Recursos</h2>
+                <h2><span aria-hidden="true">✨</span> Recursos</h2>
                 
                 <div class="features-grid">
                     <div class="feature">
-                        <div class="icon">🔄</div>
+                        <div class="icon" aria-hidden="true">♿</div>
+                        <h3>Acessibilidade Total</h3>
+                        <p>Otimizado para leitores de tela como NVDA, JAWS e Narrator</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon" aria-hidden="true">🔄</div>
                         <h3>Auto-Update</h3>
                         <p>Atualizações automáticas sem interromper seu trabalho</p>
                     </div>
 
                     <div class="feature">
-                        <div class="icon">🎨</div>
-                        <h3>Interface Moderna</h3>
-                        <p>Design intuitivo e responsivo para produtividade máxima</p>
+                        <div class="icon" aria-hidden="true">🎨</div>
+                        <h3>Interface Eficiente</h3>
+                        <p>Inspirada em VSCode, Slack e terminais para máxima produtividade</p>
                     </div>
 
                     <div class="feature">
-                        <div class="icon">🔒</div>
-                        <h3>Seguro</h3>
-                        <p>Verificação de checksums e atualizações criptografadas</p>
+                        <div class="icon" aria-hidden="true">🔌</div>
+                        <h3>Múltiplos Provedores</h3>
+                        <p>OpenAI, Groq, Ollama, LM Studio e mais</p>
                     </div>
 
                     <div class="feature">
-                        <div class="icon">⚡</div>
-                        <h3>Rápido</h3>
-                        <p>Performance otimizada com tecnologia Go + Wails</p>
-                    </div>
-
-                    <div class="feature">
-                        <div class="icon">🌐</div>
+                        <div class="icon" aria-hidden="true">🌐</div>
                         <h3>Multiplataforma</h3>
                         <p>Funciona no Windows, macOS e Linux</p>
                     </div>
 
                     <div class="feature">
-                        <div class="icon">🤖</div>
-                        <h3>IA Integrada</h3>
-                        <p>Conecte-se com os melhores modelos de linguagem</p>
+                        <div class="icon" aria-hidden="true">🛠️</div>
+                        <h3>MCP Integrado</h3>
+                        <p>Model Context Protocol para ferramentas externas</p>
                     </div>
                 </div>
             </div>
@@ -342,7 +561,11 @@
     <footer>
         <div class="container">
             <p>
-                <strong>Assistente</strong> - Desenvolvido com ❤️ usando 
+                <strong>Assistente</strong> - Desenvolvido por pessoa cega usando ferramentas de IA 
+                (Cursor, Copilot, Antigravity, Claude Code)
+            </p>
+            <p style="margin-top: 10px;">
+                Construído com 
                 <a href="https://wails.io" target="_blank">Wails</a> e 
                 <a href="https://go.dev" target="_blank">Go</a>
             </p>
@@ -350,6 +573,9 @@
                 <a href="https://github.com/inclunet/assistente" target="_blank">GitHub</a> • 
                 <a href="https://github.com/inclunet/assistente/issues" target="_blank">Reportar Bug</a> • 
                 <a href="#" id="changelog">Changelog</a>
+            </p>
+            <p style="margin-top: 15px; opacity: 0.7; font-size: 0.9rem;">
+                Projeto open source • Não afiliado a nenhuma empresa
             </p>
         </div>
     </footer>

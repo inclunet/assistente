@@ -17,14 +17,11 @@ import (
 )
 
 const (
-	// ManifestURL é o URL do manifest no GitHub Pages
-	ManifestURL = "https://inclunet.github.io/assistente/update-manifest.json"
+	// GitHubAPIURL é a base da API do GitHub para releases
+	GitHubAPIURL = "https://api.github.com/repos/inclunet/assistente/releases/latest"
 	
 	// CheckInterval é o intervalo padrão para verificar atualizações
 	CheckInterval = 6 * time.Hour
-
-	// GitHubAPIURL é a base da API do GitHub para releases
-	GitHubAPIURL = "https://api.github.com/repos/inclunet/assistente/releases/latest"
 )
 
 // Manifest representa o arquivo de metadados de versões
@@ -55,7 +52,7 @@ type UpdateInfo struct {
 // Updater gerencia verificação e aplicação de atualizações
 type Updater struct {
 	currentVersion string
-	manifestURL    string
+	githubAPIURL   string
 	githubToken    string // Token para acessar releases privadas (opcional)
 	httpClient     *http.Client
 }
@@ -64,8 +61,8 @@ type Updater struct {
 func New(currentVersion string) *Updater {
 	return &Updater{
 		currentVersion: currentVersion,
-		manifestURL:    ManifestURL,
-		githubToken:    "", // Pode ser configurado depois se repo for privado
+		githubAPIURL:   GitHubAPIURL,
+		githubToken:    "", // Pode ser configurado depois se releases forem privadas
 		httpClient: &http.Client{
 			Timeout: 30 * time.Second,
 		},
@@ -155,11 +152,16 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 	return nil
 }
 
-// fetchManifest busca o manifest de atualizações
+// fetchManifest busca o manifest de atualizações da API do GitHub
 func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
-	req, err := http.NewRequestWithContext(ctx, "GET", u.manifestURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", u.githubAPIURL, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	// Adiciona token se configurado (para releases privadas)
+	if u.githubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+u.githubToken)
 	}
 
 	resp, err := u.httpClient.Do(req)
@@ -172,12 +174,75 @@ func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
 		return nil, fmt.Errorf("status HTTP inesperado: %d", resp.StatusCode)
 	}
 
-	var manifest Manifest
-	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil {
-		return nil, fmt.Errorf("falha ao decodificar manifest: %w", err)
+	// Parse GitHub Release response
+	var ghRelease struct {
+		TagName     string    `json:"tag_name"`
+		PublishedAt time.Time `json:"published_at"`
+		Body        string    `json:"body"`
+		Assets      []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+			Size               int64  `json:"size"`
+		} `json:"assets"`
 	}
 
-	return &manifest, nil
+	if err := json.NewDecoder(resp.Body).Decode(&ghRelease); err != nil {
+		return nil, fmt.Errorf("falha ao decodificar release: %w", err)
+	}
+
+	// Converte para formato Manifest
+	manifest := &Manifest{
+		Version:  ghRelease.TagName,
+		Released: ghRelease.PublishedAt.Format(time.RFC3339),
+		Notes:    ghRelease.Body,
+		Builds:   make(map[string]Build),
+	}
+
+	// Mapeia assets para builds
+	for _, asset := range ghRelease.Assets {
+		// Extrai plataforma do nome do asset
+		// Exemplo: assistente-windows-amd64.exe -> windows-amd64
+		var buildKey string
+		switch {
+		case contains(asset.Name, "windows-amd64"):
+			buildKey = "windows-amd64"
+		case contains(asset.Name, "darwin-amd64"):
+			buildKey = "darwin-amd64"
+		case contains(asset.Name, "darwin-arm64"):
+			buildKey = "darwin-arm64"
+		case contains(asset.Name, "linux-amd64"):
+			buildKey = "linux-amd64"
+		default:
+			continue // Skip instaladores e outros arquivos
+		}
+
+		// Ignora instaladores (queremos apenas executáveis)
+		if contains(asset.Name, "installer") || contains(asset.Name, ".dmg") || contains(asset.Name, ".AppImage") {
+			continue
+		}
+
+		manifest.Builds[buildKey] = Build{
+			URL:      asset.BrowserDownloadURL,
+			Checksum: "", // Checksums virão de arquivo separado se necessário
+			Size:     asset.Size,
+		}
+	}
+
+	return manifest, nil
+}
+
+// contains verifica se uma string contém outra (helper)
+func contains(s, substr string) bool {
+	return len(s) >= len(substr) && (s == substr || len(s) > len(substr) && (s[:len(substr)] == substr || s[len(s)-len(substr):] == substr || findSubstring(s, substr)))
+}
+
+func findSubstring(s, substr string) bool {
+	for i := 0; i <= len(s)-len(substr); i++ {
+		if s[i:i+len(substr)] == substr {
+			return true
+		}
+	}
+	return false
 }
 
 // downloadBinary baixa o binário da URL especificada

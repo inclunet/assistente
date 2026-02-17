@@ -50,7 +50,7 @@ jobs:
       - name: Setup Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version: '1.23'
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
@@ -157,11 +157,9 @@ jobs:
         shell: bash
         working-directory: artifacts
         run: |
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
-            sha256sum *.exe > checksums.txt
-          else
-            sha256sum * > checksums.txt
-          fi
+          for file in *; do
+            [ -f "$file" ] && sha256sum "$file" >> checksums.txt
+          done
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
@@ -194,53 +192,7 @@ jobs:
           # Lista arquivos
           ls -lh release-assets/
 
-      - name: Generate manifest
-        id: manifest
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          RELEASED=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          
-          cat > docs/update-manifest.json <<EOF
-          {
-            "version": "${VERSION}",
-            "released": "${RELEASED}",
-            "notes": "Release ${VERSION}",
-            "builds": {
-          EOF
-          
-          # Adiciona informações de cada build
-          first=true
-          for file in release-assets/assistente-*; do
-            [ -f "$file" ] || continue
-            [[ "$file" == *"checksums.txt"* ]] && continue
-            [[ "$file" == *"-installer"* ]] && continue
-            
-            filename=$(basename "$file")
-            checksum=$(sha256sum "$file" | cut -d' ' -f1)
-            size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")
-            
-            # Extrai plataforma do nome: assistente-windows-amd64.exe
-            platform=$(echo "$filename" | sed 's/assistente-\(.*\)\.\?[^.]*$/\1/')
-            
-            [ "$first" = false ] && echo "," >> docs/update-manifest.json
-            first=false
-            
-            cat >> docs/update-manifest.json <<EOF
-              "${platform}": {
-                "url": "https://github.com/inclunet/assistente/releases/download/v${VERSION}/${filename}",
-                "checksum": "sha256:${checksum}",
-                "size": ${size}
-              }
-          EOF
-          done
-          
-          cat >> docs/update-manifest.json <<EOF
-            }
-          }
-          EOF
-          
-          echo "Manifest gerado:"
-          cat docs/update-manifest.json
+      # Manifest não é mais necessário - o updater busca diretamente da API do GitHub
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v1
@@ -270,21 +222,7 @@ jobs:
             
             **Primeira instalação**: Baixe o instalador apropriado para seu sistema operacional.
 
-      - name: Update GitHub Pages
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          
-          # NÃO copia instaladores - eles ficam só no GitHub Releases
-          # Apenas atualiza manifest.json (já foi gerado acima)
-          
-          # Configura git
-          git config user.name "GitHub Actions"
-          git config user.email "actions@github.com"
-          
-          # Commit apenas manifest (poucos KB)
-          git add docs/update-manifest.json
-          git commit -m "docs: update manifest to ${VERSION}" || echo "Nada para commitar"
-          git push origin HEAD:main
+      # Push para GitHub Pages não é mais necessário
 
       - name: Summary
         run: |
@@ -296,3 +234,9 @@ jobs:
           echo "📄 Manifest: https://inclunet.github.io/assistente/update-manifest.json"
           echo ""
           echo "🔄 Auto-update agora detectará a nova versão automaticamente"
+🔄 Auto-update detectará a nova versão automaticamente via GitHub API"
+          echo ""
+          echo "Para tornar os releases públicos (mesmo com repo privado):"
+          echo "1. Vá em Settings → General → scroll até 'Danger Zone'"
+          echo "2. Em 'Make this repository public' → Configure visibility"
+          echo "3. OU: marque os releases como públicos individual

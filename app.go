@@ -32,8 +32,14 @@ import (
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
 	"assistente/internal/tools/web"
+	"assistente/internal/updater"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
+)
+
+const (
+	// AppVersion é a versão atual do aplicativo
+	AppVersion = "1.0.0"
 )
 
 // App struct
@@ -52,6 +58,7 @@ type App struct {
 	skillMgr              *skills.Manager             // Gerenciador de skills
 	responseNotifier      *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway            *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
+	updater               *updater.Updater            // Gerenciador de atualizações automáticas
 	voiceHotkeyID         int
 	currentConversationID uint // ID da conversa atual
 
@@ -159,6 +166,12 @@ func (a *App) startup(ctx context.Context) {
 
 	// Registra hotkeys do perfil ativo
 	a.registerActiveProfileHotkeys()
+
+	// Inicializa o updater
+	a.initUpdater()
+
+	// Verifica atualizações no startup (não bloqueante)
+	go a.checkForUpdatesOnStartup()
 }
 
 // initLLMClient inicializa o cliente LLM
@@ -2088,4 +2101,140 @@ func (a *App) ClearTab(id uint) error {
 // ReorderTabs reordena as abas
 func (a *App) ReorderTabs(orderedIds []uint) error {
 	return database.ReorderTabs(orderedIds)
+}
+
+// ==================== Auto Update ====================
+
+// initUpdater inicializa o gerenciador de atualizações
+func (a *App) initUpdater() {
+	a.updater = updater.New(AppVersion)
+	log.Printf("[Updater] Inicializado (versão atual: %s)", AppVersion)
+}
+
+// checkForUpdatesOnStartup verifica atualizações ao iniciar (não bloqueante)
+func (a *App) checkForUpdatesOnStartup() {
+	// Aguarda 5 segundos após startup para não interferir com inicialização
+	time.Sleep(5 * time.Second)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	info, err := a.updater.CheckForUpdates(ctx)
+	if err != nil {
+		log.Printf("[Updater] Erro ao verificar atualizações: %v", err)
+		return
+	}
+
+	if !info.Available {
+		log.Printf("[Updater] Aplicativo está atualizado (v%s)", info.CurrentVersion)
+		return
+	}
+
+	log.Printf("[Updater] Nova versão disponível: v%s -> v%s", info.CurrentVersion, info.LatestVersion)
+
+	// Pergunta ao usuário se deseja atualizar usando o sistema de questionário
+	go a.promptForUpdate(info)
+}
+
+// promptForUpdate pergunta ao usuário se deseja atualizar
+func (a *App) promptForUpdate(info *updater.UpdateInfo) {
+	if a.questionnaireMgr == nil {
+		log.Printf("[Updater] Questionnaire manager não disponível")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	description := fmt.Sprintf("Versão atual: %s\nNova versão: %s", info.CurrentVersion, info.LatestVersion)
+	if info.ReleaseNotes != "" {
+		description += "\n\nNotas da versão:\n" + info.ReleaseNotes
+	}
+	if info.DownloadSize > 0 {
+		sizeMB := float64(info.DownloadSize) / (1024 * 1024)
+		description += fmt.Sprintf("\n\nTamanho do download: %.2f MB", sizeMB)
+	}
+
+	resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+		Title:       "Atualização Disponível",
+		Description: description,
+		Questions: []questionnaire.Question{
+			{
+				ID:       "confirm",
+				Type:     "boolean",
+				Prompt:   "Deseja atualizar agora?",
+				Required: true,
+				Default:  true,
+			},
+		},
+		AllowCancel: true,
+		SubmitLabel: "Atualizar",
+		CancelLabel: "Mais Tarde",
+	})
+
+	if err != nil {
+		log.Printf("[Updater] Erro ao solicitar confirmação: %v", err)
+		return
+	}
+
+	if resp.Cancelled {
+		log.Printf("[Updater] Usuário cancelou a atualização")
+		return
+	}
+
+	if confirm, ok := resp.Answers["confirm"].(bool); ok && confirm {
+		go a.applyUpdateWithProgress()
+	}
+}
+
+// CheckForUpdates verifica manualmente se há atualizações disponíveis (chamado pelo frontend)
+func (a *App) CheckForUpdates() (*updater.UpdateInfo, error) {
+	if a.updater == nil {
+		return nil, fmt.Errorf("updater não inicializado")
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	return a.updater.CheckForUpdates(ctx)
+}
+
+// ApplyUpdate aplica a atualização (chamado pelo frontend)
+func (a *App) ApplyUpdate() error {
+	if a.updater == nil {
+		return fmt.Errorf("updater não inicializado")
+	}
+
+	go a.applyUpdateWithProgress()
+	return nil
+}
+
+// applyUpdateWithProgress aplica a atualização com feedback de progresso
+func (a *App) applyUpdateWithProgress() {
+	// Emite evento de início
+	runtime.EventsEmit(a.ctx, "update:started", nil)
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+	defer cancel()
+
+	log.Printf("[Updater] Iniciando download e aplicação da atualização...")
+
+	err := a.updater.ApplyUpdate(ctx)
+	if err != nil {
+		log.Printf("[Updater] Erro ao aplicar atualização: %v", err)
+		runtime.EventsEmit(a.ctx, "update:error", map[string]interface{}{
+			"error": err.Error(),
+		})
+		return
+	}
+
+	log.Printf("[Updater] Atualização aplicada com sucesso. Reinicie o aplicativo.")
+	runtime.EventsEmit(a.ctx, "update:completed", map[string]interface{}{
+		"message": "Atualização instalada! Reinicie o aplicativo para aplicar as mudanças.",
+	})
+}
+
+// GetAppVersion retorna a versão atual do aplicativo
+func (a *App) GetAppVersion() string {
+	return AppVersion
 }

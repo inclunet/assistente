@@ -14,11 +14,11 @@ type fakeMessenger struct {
 	sendErr  error
 }
 
-func (f *fakeMessenger) Name() string { return f.name }
-func (f *fakeMessenger) Connect(ctx context.Context) error { return nil }
-func (f *fakeMessenger) Disconnect() error { return nil }
+func (f *fakeMessenger) Name() string                                     { return f.name }
+func (f *fakeMessenger) Connect(ctx context.Context) error                { return nil }
+func (f *fakeMessenger) Disconnect() error                                { return nil }
 func (f *fakeMessenger) SetHandler(handler msgpkg.IncomingMessageHandler) {}
-func (f *fakeMessenger) Status() msgpkg.ConnectionStatus { return msgpkg.StatusConnected }
+func (f *fakeMessenger) Status() msgpkg.ConnectionStatus                  { return msgpkg.StatusConnected }
 func (f *fakeMessenger) Send(ctx context.Context, msg msgpkg.OutgoingMessage) error {
 	f.lastSent = msg
 	return f.sendErr
