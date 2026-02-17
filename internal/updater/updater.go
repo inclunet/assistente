@@ -246,16 +246,16 @@ func findSubstring(s, substr string) bool {
 }
 
 // downloadBinary baixa o binário da URL especificada
-f// Adiciona token se configurado (para releases privadas do GitHub)
-	if u.githubToken != "" {
-		req.Header.Set("Authorization", "Bearer "+u.githubToken)
-		req.Header.Set("Accept", "application/octet-stream")
-	}
-
-	unc (u *Updater) downloadBinary(ctx context.Context, url string) (io.ReadCloser, error) {
+func (u *Updater) downloadBinary(ctx context.Context, url string) (io.ReadCloser, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
 	if err != nil {
 		return nil, err
+	}
+
+	// Adiciona token se configurado (para releases privadas do GitHub)
+	if u.githubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+u.githubToken)
+		req.Header.Set("Accept", "application/octet-stream")
 	}
 
 	resp, err := u.httpClient.Do(req)

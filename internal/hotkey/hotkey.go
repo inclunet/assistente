@@ -13,11 +13,11 @@ import (
 )
 
 // Modificadores exportados para conveniência
-var (
-	ModCtrl  = hotkey.ModCtrl
-	ModShift = hotkey.ModShift
-	ModAlt   = hotkey.ModAlt
-	ModWin   = hotkey.ModWin // Win no Windows, Cmd no macOS
+const (
+	ModCtrl  hotkey.Modifier = 1 << 0
+	ModShift hotkey.Modifier = 1 << 1
+	ModAlt   hotkey.Modifier = 1 << 2
+	ModWin   hotkey.Modifier = 1 << 3 // Win no Windows, Cmd no macOS
 )
 
 // Teclas comuns
