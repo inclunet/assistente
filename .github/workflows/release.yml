@@ -4,6 +4,8 @@ on:
   push:
     tags:
       - 'v*' # Trigger em tags como v1.0.0, v1.0.1, etc.
+  release:
+    types: [created, published] # Trigger quando criar release manualmente
 
 permissions:
   contents: write # Necessário para criar releases e fazer push
@@ -96,7 +98,14 @@ jobs:
           # wails build -platform ${{ matrix.platform }} -deb
 
       - name: Prepare artifacts
-        shell: bash
+        sh# Obtém versão da tag ou do release
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION=${{ github.event.release.tag_name }}
+            VERSION=${VERSION#v}
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+          fi
+          
         run: |
           VERSION=${GITHUB_REF#refs/tags/v}
           ARTIFACT_NAME="assistente-${{ matrix.goos }}-${{ matrix.goarch }}"
@@ -194,9 +203,19 @@ jobs:
 
       # Manifest não é mais necessário - o updater busca diretamente da API do GitHub
 
-      - name: Create GitHub Release
+      - name: Create GitHub Release (se não existe)
+        run: |
+          # Obtém versão da tag ou do release
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION=${{ github.event.release.tag_name }}
+            echo "Release já existe, atualizando assets..."
+          else
+            VERSION=${GITHUB_REF#refs/tags/v}
+            echo "Criando novo release..."
+          fi
         uses: softprops/action-gh-release@v1
         with:
+          tag_name: ${{ github.event_name == 'release' && github.event.release.tag_name || github.ref_name }}
           files: release-assets/*
           generate_release_notes: true
           draft: false
@@ -226,17 +245,13 @@ jobs:
 
       - name: Summary
         run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
-          echo "✅ Release v${VERSION} publicado!"
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION=${{ github.event.release.tag_name }}
+          else
+            VERSION=${GITHUB_REF#refs/tags/}
+          fi
+          
+          echo "✅ Release ${VERSION} publicado!"
           echo ""
-          echo "📦 GitHub Release: https://github.com/inclunet/assistente/releases/tag/v${VERSION}"
-          echo "🌐 Site de Downloads: https://inclunet.github.io/assistente/"
-          echo "📄 Manifest: https://inclunet.github.io/assistente/update-manifest.json"
-          echo ""
-          echo "🔄 Auto-update agora detectará a nova versão automaticamente"
-🔄 Auto-update detectará a nova versão automaticamente via GitHub API"
-          echo ""
-          echo "Para tornar os releases públicos (mesmo com repo privado):"
-          echo "1. Vá em Settings → General → scroll até 'Danger Zone'"
-          echo "2. Em 'Make this repository public' → Configure visibility"
-          echo "3. OU: marque os releases como públicos individual
+          echo "📦 GitHub Release: https://github.com/inclunet/assistente/releases/tag/${VERSION}"
+          echo "🔄 Auto-update detectará a nova versão automaticamente via GitHub API"
