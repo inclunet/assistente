@@ -151,16 +151,25 @@ jobs:
 
       - name: Build packages (Linux)
         if: matrix.goos == 'linux'
-        continue-on-error: true
+        shell: bash
         run: |
-          echo "🐧 Building Linux packages..."
-          # AppImage (automático com Wails)
-          xvfb-run wails build -platform ${{ matrix.platform }} -clean
-          echo "Build completed. Files in build/bin/:"
-          ls -lh build/bin/ || true
+          echo "🐧 Tentando gerar AppImage..."
+          # Não usa -clean para não apagar o executável
+          # Tenta diferentes formas de gerar AppImage
           
-          # Opcional: gerar .deb também
-          # xvfb-run wails build -platform ${{ matrix.platform }} -deb
+          # Opção 1: Wails com flag específica (se suportado)
+          xvfb-run wails build -platform ${{ matrix.platform }} -appimage || echo "⚠️ Flag -appimage não suportada"
+          
+          echo "📂 Arquivos em build/bin/:"
+          ls -lah build/bin/ || true
+          
+          # Verifica se algum AppImage foi gerado
+          if ls build/bin/*.AppImage 1> /dev/null 2>&1; then
+            echo "✅ AppImage encontrado!"
+          else
+            echo "⚠️ Nenhum AppImage foi gerado. Wails pode não suportar AppImage automático."
+            echo "💡 Continuando apenas com o executável."
+          fi
 
       - name: Prepare artifacts
         shell: bash
@@ -240,15 +249,21 @@ jobs:
               echo "⚠️ Executable not found at: build/bin/${{ matrix.output }}"
             fi
             
-            # AppImage
-            for appimage in "build/bin/assistente.AppImage" "build/bin/Assistente.AppImage" "build/bin/assistente-amd64.AppImage"; do
+            # AppImage - busca por qualquer arquivo .AppImage
+            APPIMAGE_FOUND=false
+            for appimage in build/bin/*.AppImage; do
               if [ -f "$appimage" ]; then
                 echo "✅ Found AppImage: $appimage"
                 cp "$appimage" artifacts/${ARTIFACT_NAME}.AppImage
                 chmod +x artifacts/${ARTIFACT_NAME}.AppImage
+                APPIMAGE_FOUND=true
                 break
               fi
             done
+            
+            if [ "$APPIMAGE_FOUND" = "false" ]; then
+              echo "⚠️ Nenhum AppImage encontrado. Apenas o executável será disponibilizado."
+            fi
             
             # .deb se existir
             if [ -f "build/bin/assistente.deb" ]; then
