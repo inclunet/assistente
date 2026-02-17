@@ -213,16 +213,16 @@ func parseModifiersUint(mods uint32) []hotkey.Modifier {
 
 	// Mapeamento baseado nas constantes
 	if mods&0x0002 != 0 { // ModControl
-		result = append(result, hotkey.ModCtrl)
+		result = append(result, ModCtrl)
 	}
 	if mods&0x0004 != 0 { // ModShift
-		result = append(result, hotkey.ModShift)
+		result = append(result, ModShift)
 	}
 	if mods&0x0001 != 0 { // ModAlt
-		result = append(result, hotkey.ModAlt)
+		result = append(result, ModAlt)
 	}
 	if mods&0x0008 != 0 { // ModWin
-		result = append(result, hotkey.ModWin)
+		result = append(result, ModWin)
 	}
 
 	return result
@@ -234,16 +234,16 @@ func ParseModifiersString(mods string) []hotkey.Modifier {
 	modsLower := strings.ToLower(mods)
 
 	if strings.Contains(modsLower, "ctrl") || strings.Contains(modsLower, "control") {
-		result = append(result, hotkey.ModCtrl)
+		result = append(result, ModCtrl)
 	}
 	if strings.Contains(modsLower, "shift") {
-		result = append(result, hotkey.ModShift)
+		result = append(result, ModShift)
 	}
 	if strings.Contains(modsLower, "alt") || strings.Contains(modsLower, "option") {
-		result = append(result, hotkey.ModAlt)
+		result = append(result, ModAlt)
 	}
 	if strings.Contains(modsLower, "win") || strings.Contains(modsLower, "super") || strings.Contains(modsLower, "cmd") {
-		result = append(result, hotkey.ModWin)
+		result = append(result, ModWin)
 	}
 
 	return result
@@ -299,13 +299,13 @@ func ParseCombination(combination string) ([]hotkey.Modifier, hotkey.Key, error)
 		modLower := strings.ToLower(strings.TrimSpace(mod))
 		switch modLower {
 		case "ctrl", "control":
-			modifiers = append(modifiers, hotkey.ModCtrl)
+			modifiers = append(modifiers, ModCtrl)
 		case "shift":
-			modifiers = append(modifiers, hotkey.ModShift)
+			modifiers = append(modifiers, ModShift)
 		case "alt", "option":
-			modifiers = append(modifiers, hotkey.ModAlt)
+			modifiers = append(modifiers, ModAlt)
 		case "win", "super", "cmd", "command", "meta":
-			modifiers = append(modifiers, hotkey.ModWin)
+			modifiers = append(modifiers, ModWin)
 		}
 	}
 
