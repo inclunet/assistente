@@ -77,7 +77,9 @@ jobs:
           # Instala outras dependências necessárias
           sudo apt-get install -y build-essential pkg-config
           # Instala bibliotecas X11 para suporte a clipboard/hotkey
-          sudo apt-get install -y xorg-dev libx11-dev libxkbcommon-dev
+          sudo apt-get install -y xorg-dev libx11-dev libxkbcommon-dev libxext-dev
+          # Instala xvfb para criar display virtual (necessário para builds headless)
+          sudo apt-get install -y xvfb
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -86,7 +88,12 @@ jobs:
       - name: Build application
         run: |
           echo "🏗️ Building for ${{ matrix.platform }}..."
-          wails build -platform ${{ matrix.platform }} -clean
+          if [ "${{ matrix.goos }}" = "linux" ]; then
+            # Usa xvfb-run para criar display virtual no Linux
+            xvfb-run wails build -platform ${{ matrix.platform }} -clean
+          else
+            wails build -platform ${{ matrix.platform }} -clean
+          fi
           echo "✅ Build completed"
           echo "📂 Build output:"
           ls -lh build/bin/ || echo "⚠️ build/bin/ not found"
@@ -119,12 +126,12 @@ jobs:
         run: |
           echo "🐧 Building Linux packages..."
           # AppImage (automático com Wails)
-          wails build -platform ${{ matrix.platform }} -clean
+          xvfb-run wails build -platform ${{ matrix.platform }} -clean
           echo "Build completed. Files in build/bin/:"
           ls -lh build/bin/ || true
           
           # Opcional: gerar .deb também
-          # wails build -platform ${{ matrix.platform }} -deb
+          # xvfb-run wails build -platform ${{ matrix.platform }} -deb
 
       - name: Prepare artifacts
         shell: bash
