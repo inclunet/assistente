@@ -19,17 +19,17 @@ import (
 const (
 	// GitHubAPIURL é a base da API do GitHub para releases
 	GitHubAPIURL = "https://api.github.com/repos/inclunet/assistente/releases/latest"
-	
+
 	// CheckInterval é o intervalo padrão para verificar atualizações
 	CheckInterval = 6 * time.Hour
 )
 
 // Manifest representa o arquivo de metadados de versões
 type Manifest struct {
-	Version  string            `json:"version"`
-	Released string            `json:"released"`
-	Notes    string            `json:"notes,omitempty"`
-	Builds   map[string]Build  `json:"builds"`
+	Version  string           `json:"version"`
+	Released string           `json:"released"`
+	Notes    string           `json:"notes,omitempty"`
+	Builds   map[string]Build `json:"builds"`
 }
 
 // Build representa informações de um build específico
@@ -91,7 +91,7 @@ func (u *Updater) CheckForUpdates(ctx context.Context) (*UpdateInfo, error) {
 	// Verifica se há nova versão
 	if manifest.Version != u.currentVersion {
 		info.Available = true
-		
+
 		// Obtém informações do build para a plataforma atual
 		buildKey := u.getBuildKey()
 		if build, ok := manifest.Builds[buildKey]; ok {
@@ -315,7 +315,7 @@ func (u *Updater) verifyChecksum(r io.Reader, expectedChecksum string) error {
 func (u *Updater) getBuildKey() string {
 	os := runtime.GOOS
 	arch := runtime.GOARCH
-	
+
 	// Normaliza nomes de plataformas
 	switch os {
 	case "darwin":

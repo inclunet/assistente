@@ -314,11 +314,11 @@ func ParseCombination(combination string) ([]hotkey.Modifier, hotkey.Key, error)
 
 // RegisteredProfileHotkey representa um hotkey registrado para um perfil de interação
 type RegisteredProfileHotkey struct {
-	ProfileID     int
-	IsPrimary     bool   // true para hotkey principal, false para secundário
-	Combination   string // A combinação original (ex: "Ctrl+Shift+A")
-	BringToFront  bool   // Se deve trazer janela para frente
-	HotkeyID      int    // ID do hotkey registrado no Manager
+	ProfileID    int
+	IsPrimary    bool   // true para hotkey principal, false para secundário
+	Combination  string // A combinação original (ex: "Ctrl+Shift+A")
+	BringToFront bool   // Se deve trazer janela para frente
+	HotkeyID     int    // ID do hotkey registrado no Manager
 }
 
 // profileHotkeys guarda o mapeamento de perfis para hotkeys
@@ -395,7 +395,7 @@ func GetProfileHotkeys(profileID int) []*RegisteredProfileHotkey {
 	result := make([]*RegisteredProfileHotkey, len(hotkeys))
 	copy(result, hotkeys)
 	return result
-}// UnregisterAllProfileHotkeys remove todos os hotkeys de todos os perfis
+} // UnregisterAllProfileHotkeys remove todos os hotkeys de todos os perfis
 func (m *Manager) UnregisterAllProfileHotkeys() {
 	profileHotkeysMu.Lock()
 	allProfiles := make([]int, 0, len(profileHotkeys))
