@@ -96,27 +96,28 @@ jobs:
         shell: bash
         run: |
           echo "🏗️ Building for ${{ matrix.platform }}..."
-          if [ "${{ matrix.goos }}" = "linux" ]; then
-            # Exibe informações de debug para Linux
-            echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
-            pkg-config --list-all | grep webkit || true
-            # Usa xvfb-run para criar display virtual no Linux
-            xvfb-run wails build -platform ${{ matrix.platform }} -clean
-          else
-            wails build -platform ${{ matrix.platform }} -clean
-          fi
+          wails build -platform ${{ matrix.platform }} -clean
           echo "✅ Build completed"
           echo "📂 Build output:"
-          ls -lh build/bin/ || echo "⚠️ build/bin/ not found"
+          if [ -d "build/bin" ]; then
+            ls -la build/bin/
+          else
+            echo "⚠️ build/bin/ not found"
+          fi
 
       - name: Build installer (Windows)
         if: matrix.os == 'windows-latest'
+        shell: bash
         run: |
-          echo "🪟 Building Windows installer..."
+          echo "🚪 Building Windows installer..."
           wails build -platform ${{ matrix.platform }} -nsis -clean
           echo "✅ Installer build completed"
           echo "📂 Installer output:"
-          ls -lh build/bin/ || echo "⚠️ build/bin/ not found"
+          if [ -d "build/bin" ]; then
+            ls -la build/bin/
+          else
+            echo "⚠️ build/bin/ not found"
+          fi
 
       - name: Build installer (macOS)
         if: matrix.goos == 'darwin'
