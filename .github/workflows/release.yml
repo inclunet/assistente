@@ -1,14 +1,11 @@
 name: Release
 
 on:
-  push:
-    tags:
-      - 'v*' # Trigger em tags como v1.0.0, v1.0.1, etc.
   release:
-    types: [created, published] # Trigger quando criar release manualmente
+    types: [created] # Trigger quando criar release com gh release create
 
 permissions:
-  contents: write # Necessário para criar releases e fazer push
+  contents: write # Necessário para fazer upload de assets
 
 jobs:
   build:
@@ -190,7 +187,6 @@ jobs:
             if [ "$INSTALLER_FOUND" = "false" ]; then
               echo "⚠️ No installer found. Build may have failed or NSIS not configured."
             fi
-            done
             
           elif [ "${{ matrix.goos }}" = "darwin" ]; then
             echo "🍎 Processing macOS artifacts..."
@@ -314,35 +310,11 @@ jobs:
           echo "Assets encontrados:"
           ls -lh release-assets/
 
-      - name: Create or Update GitHub Release
+      - name: Upload assets to existing release
         uses: softprops/action-gh-release@v1
         with:
-          tag_name: ${{ github.ref_name }}
           files: release-assets/*
-          generate_release_notes: true
-          draft: false
-          prerelease: false
           fail_on_unmatched_files: true
-          body: |
-            ## 📥 Downloads
-            
-            ### Windows
-            - 🪟 [Instalador (recomendado)](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-windows-amd64-installer.exe)
-            - 📦 [Executável portátil](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-windows-amd64.exe)
-            
-            ### macOS
-            - 🍎 [Instalador DMG](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-darwin-arm64.dmg) (Apple Silicon)
-            - 🍎 [Instalador DMG](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-darwin-amd64.dmg) (Intel)
-            
-            ### Linux
-            - 🐧 [AppImage](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-linux-amd64.AppImage)
-            - 📦 [Executável](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-linux-amd64)
-            
-            ---
-            
-            **Auto-update**: Se você já tem o aplicativo instalado, ele detectará esta atualização automaticamente no próximo startup.
-            
-            **Primeira instalação**: Baixe o instalador apropriado para seu sistema operacional.
 
       # Push para GitHub Pages não é mais necessário
 
