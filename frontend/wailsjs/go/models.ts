@@ -732,6 +732,20 @@ export namespace main {
 	        this.message = source["message"];
 	    }
 	}
+	export class LLMSettings {
+	    APIKey: string;
+	    BaseURL: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new LLMSettings(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.APIKey = source["APIKey"];
+	        this.BaseURL = source["BaseURL"];
+	    }
+	}
 	
 	export class OpenAITTSVoiceInfo {
 	    id: string;
@@ -977,6 +991,78 @@ export namespace main {
 
 export namespace mcp {
 	
+	export class MCPPromptArgument {
+	    name: string;
+	    description: string;
+	    required: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPPromptArgument(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.required = source["required"];
+	    }
+	}
+	export class MCPPromptInfo {
+	    name: string;
+	    description: string;
+	    arguments: MCPPromptArgument[];
+	    serverSlug: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPPromptInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.arguments = this.convertValues(source["arguments"], MCPPromptArgument);
+	        this.serverSlug = source["serverSlug"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class MCPResourceInfo {
+	    uri: string;
+	    name: string;
+	    description: string;
+	    mimeType: string;
+	    serverSlug: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new MCPResourceInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uri = source["uri"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.mimeType = source["mimeType"];
+	        this.serverSlug = source["serverSlug"];
+	    }
+	}
 	export class MCPToolInfo {
 	    name: string;
 	    fullName: string;
@@ -995,6 +1081,20 @@ export namespace mcp {
 	        this.description = source["description"];
 	        this.schema = source["schema"];
 	        this.serverSlug = source["serverSlug"];
+	    }
+	}
+	export class Root {
+	    uri: string;
+	    name?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Root(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.uri = source["uri"];
+	        this.name = source["name"];
 	    }
 	}
 	export class ServerConfig {
@@ -1034,9 +1134,14 @@ export namespace mcp {
 	    error?: string;
 	    toolCount: number;
 	    tools: MCPToolInfo[];
+	    resourceCount: number;
+	    resources: MCPResourceInfo[];
+	    promptCount: number;
+	    prompts: MCPPromptInfo[];
 	    enabled: boolean;
 	    autoConnect: boolean;
 	    connectedAt?: string;
+	    lastPing?: string;
 	    command?: string;
 	    args?: string[];
 	    url?: string;
@@ -1055,9 +1160,14 @@ export namespace mcp {
 	        this.error = source["error"];
 	        this.toolCount = source["toolCount"];
 	        this.tools = this.convertValues(source["tools"], MCPToolInfo);
+	        this.resourceCount = source["resourceCount"];
+	        this.resources = this.convertValues(source["resources"], MCPResourceInfo);
+	        this.promptCount = source["promptCount"];
+	        this.prompts = this.convertValues(source["prompts"], MCPPromptInfo);
 	        this.enabled = source["enabled"];
 	        this.autoConnect = source["autoConnect"];
 	        this.connectedAt = source["connectedAt"];
+	        this.lastPing = source["lastPing"];
 	        this.command = source["command"];
 	        this.args = source["args"];
 	        this.url = source["url"];
@@ -1098,6 +1208,8 @@ export namespace profiles {
 	    enabled_tools: string[];
 	    enabled_skills: string[];
 	    command_allowlist?: string;
+	    mcp_mode?: string;
+	    mcp_native_tested?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatConfig(source);
@@ -1116,6 +1228,8 @@ export namespace profiles {
 	        this.enabled_tools = source["enabled_tools"];
 	        this.enabled_skills = source["enabled_skills"];
 	        this.command_allowlist = source["command_allowlist"];
+	        this.mcp_mode = source["mcp_mode"];
+	        this.mcp_native_tested = source["mcp_native_tested"];
 	    }
 	}
 	export class TriggerConfig {
@@ -2023,6 +2137,33 @@ export namespace terminal {
 	        this.shell = source["shell"];
 	        this.createdAt = source["createdAt"];
 	        this.lastUsed = source["lastUsed"];
+	    }
+	}
+
+}
+
+export namespace updater {
+	
+	export class UpdateInfo {
+	    available: boolean;
+	    currentVersion: string;
+	    latestVersion: string;
+	    releaseNotes?: string;
+	    releaseDate?: string;
+	    downloadSize?: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.available = source["available"];
+	        this.currentVersion = source["currentVersion"];
+	        this.latestVersion = source["latestVersion"];
+	        this.releaseNotes = source["releaseNotes"];
+	        this.releaseDate = source["releaseDate"];
+	        this.downloadSize = source["downloadSize"];
 	    }
 	}
 

@@ -1,0 +1,298 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*' # Trigger em tags como v1.0.0, v1.0.1, etc.
+
+permissions:
+  contents: write # Necessário para criar releases e fazer push
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        include:
+          # Windows
+          - os: windows-latest
+            platform: windows/amd64
+            goos: windows
+            goarch: amd64
+            output: assistente.exe
+            
+          # macOS Intel
+          - os: macos-latest
+            platform: darwin/amd64
+            goos: darwin
+            goarch: amd64
+            output: assistente
+            
+          # macOS Apple Silicon
+          - os: macos-latest
+            platform: darwin/arm64
+            goos: darwin
+            goarch: arm64
+            output: assistente
+            
+          # Linux
+          - os: ubuntu-latest
+            platform: linux/amd64
+            goos: linux
+            goarch: amd64
+            output: assistente
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install Wails
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+      - name: Install dependencies (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-3-dev libwebkit2gtk-4.0-dev
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install
+
+      - name: Build application
+        run: wails build -platform ${{ matrix.platform }} -clean
+
+      - name: Build installer (Windows)
+        if: matrix.os == 'windows-latest'
+        run: wails build -platform ${{ matrix.platform }} -nsis -clean
+
+      - name: Build installer (macOS)
+        if: matrix.goos == 'darwin'
+        run: |
+          # Builda executável primeiro
+          wails build -platform ${{ matrix.platform }} -clean
+          # Cria DMG
+          # Nota: pode precisar de create-dmg ou outro tool
+          # Por enquanto, assumindo que Wails gera automaticamente
+
+      - name: Build packages (Linux)
+        if: matrix.os == 'ubuntu-latest'
+        run: |
+          # AppImage (automático com Wails)
+          wails build -platform ${{ matrix.platform }} -clean
+          
+          # Opcional: gerar .deb também
+          # wails build -platform ${{ matrix.platform }} -deb
+
+      - name: Prepare artifacts
+        shell: bash
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          ARTIFACT_NAME="assistente-${{ matrix.goos }}-${{ matrix.goarch }}"
+          
+          mkdir -p artifacts
+          
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            # Windows: executável + instalador NSIS
+            if [ -f "build/bin/${{ matrix.output }}" ]; then
+              cp build/bin/${{ matrix.output }} artifacts/${ARTIFACT_NAME}.exe
+            fi
+            
+            # Instalador NSIS
+            if [ -f "build/bin/assistente-amd64-installer.exe" ]; then
+              cp build/bin/assistente-amd64-installer.exe artifacts/${ARTIFACT_NAME}-installer.exe
+            fi
+            
+            # Pode ter outro padrão de nome
+            if [ -f "build/bin/Assistente-Installer.exe" ]; then
+              cp "build/bin/Assistente-Installer.exe" artifacts/${ARTIFACT_NAME}-installer.exe
+            fi
+            
+          elif [ "${{ matrix.goos }}" = "darwin" ]; then
+            # macOS: executável + DMG
+            if [ -f "build/bin/${{ matrix.output }}" ]; then
+              cp build/bin/${{ matrix.output }} artifacts/${ARTIFACT_NAME}
+              chmod +x artifacts/${ARTIFACT_NAME}
+            fi
+            
+            # DMG
+            if [ -f "build/bin/assistente.dmg" ]; then
+              cp build/bin/assistente.dmg artifacts/${ARTIFACT_NAME}.dmg
+            fi
+            if [ -f "build/bin/Assistente.dmg" ]; then
+              cp build/bin/Assistente.dmg artifacts/${ARTIFACT_NAME}.dmg
+            fi
+            
+          else
+            # Linux: executável + AppImage
+            if [ -f "build/bin/${{ matrix.output }}" ]; then
+              cp build/bin/${{ matrix.output }} artifacts/${ARTIFACT_NAME}
+              chmod +x artifacts/${ARTIFACT_NAME}
+            fi
+            
+            # AppImage
+            if [ -f "build/bin/assistente.AppImage" ]; then
+              cp build/bin/assistente.AppImage artifacts/${ARTIFACT_NAME}.AppImage
+              chmod +x artifacts/${ARTIFACT_NAME}.AppImage
+            fi
+            
+            # .deb se existir
+            if [ -f "build/bin/assistente.deb" ]; then
+              cp build/bin/assistente.deb artifacts/${ARTIFACT_NAME}.deb
+            fi
+          fi
+
+      - name: Calculate checksums
+        shell: bash
+        working-directory: artifacts
+        run: |
+          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+            sha256sum *.exe > checksums.txt
+          else
+            sha256sum * > checksums.txt
+          fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-${{ matrix.goos }}-${{ matrix.goarch }}
+          path: artifacts/*
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Prepare release assets
+        run: |
+          mkdir -p release-assets
+          
+          # Consolida todos os builds
+          for dir in artifacts/build-*; do
+            cp $dir/* release-assets/ || true
+          done
+          
+          # Lista arquivos
+          ls -lh release-assets/
+
+      - name: Generate manifest
+        id: manifest
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          RELEASED=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          
+          cat > docs/update-manifest.json <<EOF
+          {
+            "version": "${VERSION}",
+            "released": "${RELEASED}",
+            "notes": "Release ${VERSION}",
+            "builds": {
+          EOF
+          
+          # Adiciona informações de cada build
+          first=true
+          for file in release-assets/assistente-*; do
+            [ -f "$file" ] || continue
+            [[ "$file" == *"checksums.txt"* ]] && continue
+            [[ "$file" == *"-installer"* ]] && continue
+            
+            filename=$(basename "$file")
+            checksum=$(sha256sum "$file" | cut -d' ' -f1)
+            size=$(stat -f%z "$file" 2>/dev/null || stat -c%s "$file")
+            
+            # Extrai plataforma do nome: assistente-windows-amd64.exe
+            platform=$(echo "$filename" | sed 's/assistente-\(.*\)\.\?[^.]*$/\1/')
+            
+            [ "$first" = false ] && echo "," >> docs/update-manifest.json
+            first=false
+            
+            cat >> docs/update-manifest.json <<EOF
+              "${platform}": {
+                "url": "https://github.com/inclunet/assistente/releases/download/v${VERSION}/${filename}",
+                "checksum": "sha256:${checksum}",
+                "size": ${size}
+              }
+          EOF
+          done
+          
+          cat >> docs/update-manifest.json <<EOF
+            }
+          }
+          EOF
+          
+          echo "Manifest gerado:"
+          cat docs/update-manifest.json
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: release-assets/*
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## 📥 Downloads
+            
+            ### Windows
+            - 🪟 [Instalador (recomendado)](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-windows-amd64-installer.exe)
+            - 📦 [Executável portátil](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-windows-amd64.exe)
+            
+            ### macOS
+            - 🍎 [Instalador DMG](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-darwin-arm64.dmg) (Apple Silicon)
+            - 🍎 [Instalador DMG](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-darwin-amd64.dmg) (Intel)
+            
+            ### Linux
+            - 🐧 [AppImage](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-linux-amd64.AppImage)
+            - 📦 [Executável](https://github.com/inclunet/assistente/releases/download/${{ github.ref_name }}/assistente-linux-amd64)
+            
+            ---
+            
+            **Auto-update**: Se você já tem o aplicativo instalado, ele detectará esta atualização automaticamente no próximo startup.
+            
+            **Primeira instalação**: Baixe o instalador apropriado para seu sistema operacional.
+
+      - name: Update GitHub Pages
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          
+          # NÃO copia instaladores - eles ficam só no GitHub Releases
+          # Apenas atualiza manifest.json (já foi gerado acima)
+          
+          # Configura git
+          git config user.name "GitHub Actions"
+          git config user.email "actions@github.com"
+          
+          # Commit apenas manifest (poucos KB)
+          git add docs/update-manifest.json
+          git commit -m "docs: update manifest to ${VERSION}" || echo "Nada para commitar"
+          git push origin HEAD:main
+
+      - name: Summary
+        run: |
+          VERSION=${GITHUB_REF#refs/tags/v}
+          echo "✅ Release v${VERSION} publicado!"
+          echo ""
+          echo "📦 GitHub Release: https://github.com/inclunet/assistente/releases/tag/v${VERSION}"
+          echo "🌐 Site de Downloads: https://inclunet.github.io/assistente/"
+          echo "📄 Manifest: https://inclunet.github.io/assistente/update-manifest.json"
+          echo ""
+          echo "🔄 Auto-update agora detectará a nova versão automaticamente"

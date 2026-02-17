@@ -22,6 +22,10 @@ export function AddMessageWithTokensAndMedia(arg1, arg2, arg3, arg4, arg5, arg6,
   return window['go']['main']['App']['AddMessageWithTokensAndMedia'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function ApplyUpdate() {
+  return window['go']['main']['App']['ApplyUpdate']();
+}
+
 export function AssignConversationToChannel(arg1, arg2, arg3) {
   return window['go']['main']['App']['AssignConversationToChannel'](arg1, arg2, arg3);
 }
@@ -30,8 +34,16 @@ export function AuthorizeMessagingContactFull(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['AuthorizeMessagingContactFull'](arg1, arg2, arg3, arg4);
 }
 
+export function CheckForUpdates() {
+  return window['go']['main']['App']['CheckForUpdates']();
+}
+
 export function ClearConversation(arg1) {
   return window['go']['main']['App']['ClearConversation'](arg1);
+}
+
+export function ClearMCPTest(arg1) {
+  return window['go']['main']['App']['ClearMCPTest'](arg1);
 }
 
 export function ClearTab(arg1) {
@@ -158,6 +170,10 @@ export function GetAllowlists() {
   return window['go']['main']['App']['GetAllowlists']();
 }
 
+export function GetAppVersion() {
+  return window['go']['main']['App']['GetAppVersion']();
+}
+
 export function GetAuthorizedContacts() {
   return window['go']['main']['App']['GetAuthorizedContacts']();
 }
@@ -214,12 +230,24 @@ export function GetEffectiveModel() {
   return window['go']['main']['App']['GetEffectiveModel']();
 }
 
+export function GetLLMSettings() {
+  return window['go']['main']['App']['GetLLMSettings']();
+}
+
+export function GetMCPPrompt(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetMCPPrompt'](arg1, arg2, arg3);
+}
+
 export function GetMCPServerConfig(arg1) {
   return window['go']['main']['App']['GetMCPServerConfig'](arg1);
 }
 
 export function GetMCPServerTools(arg1) {
   return window['go']['main']['App']['GetMCPServerTools'](arg1);
+}
+
+export function GetMCPWorkspaceRoots() {
+  return window['go']['main']['App']['GetMCPWorkspaceRoots']();
 }
 
 export function GetMessageAudio(arg1) {
@@ -240,6 +268,10 @@ export function GetMessagingStatus() {
 
 export function GetModels() {
   return window['go']['main']['App']['GetModels']();
+}
+
+export function GetNativeMCPServers() {
+  return window['go']['main']['App']['GetNativeMCPServers']();
 }
 
 export function GetOpenAITTSVoices() {
@@ -332,6 +364,10 @@ export function OpenConversationInNewTab(arg1) {
 
 export function PreviewVoiceSettings(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['PreviewVoiceSettings'](arg1, arg2, arg3, arg4, arg5, arg6);
+}
+
+export function ReadMCPResource(arg1, arg2) {
+  return window['go']['main']['App']['ReadMCPResource'](arg1, arg2);
 }
 
 export function ReconnectMCPServer(arg1) {
@@ -430,6 +466,10 @@ export function SetDefaultModel(arg1) {
   return window['go']['main']['App']['SetDefaultModel'](arg1);
 }
 
+export function SetMCPWorkspaceRoots(arg1) {
+  return window['go']['main']['App']['SetMCPWorkspaceRoots'](arg1);
+}
+
 export function SetOpenAITTSSpeed(arg1) {
   return window['go']['main']['App']['SetOpenAITTSSpeed'](arg1);
 }
@@ -482,6 +522,10 @@ export function StopSAPI5() {
   return window['go']['main']['App']['StopSAPI5']();
 }
 
+export function SubscribeToMCPResource(arg1, arg2) {
+  return window['go']['main']['App']['SubscribeToMCPResource'](arg1, arg2);
+}
+
 export function SwitchToTab(arg1) {
   return window['go']['main']['App']['SwitchToTab'](arg1);
 }
@@ -506,12 +550,20 @@ export function TestConnectionWithModels() {
   return window['go']['main']['App']['TestConnectionWithModels']();
 }
 
+export function TestMCPNativeSupport(arg1) {
+  return window['go']['main']['App']['TestMCPNativeSupport'](arg1);
+}
+
 export function TranscribeWhisper(arg1, arg2) {
   return window['go']['main']['App']['TranscribeWhisper'](arg1, arg2);
 }
 
 export function UnassignConversationFromChannel(arg1) {
   return window['go']['main']['App']['UnassignConversationFromChannel'](arg1);
+}
+
+export function UnsubscribeFromMCPResource(arg1, arg2) {
+  return window['go']['main']['App']['UnsubscribeFromMCPResource'](arg1, arg2);
 }
 
 export function UpdateAllowlist(arg1, arg2) {
