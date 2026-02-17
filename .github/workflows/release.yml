@@ -98,16 +98,15 @@ jobs:
           # wails build -platform ${{ matrix.platform }} -deb
 
       - name: Prepare artifacts
-        sh# Obtém versão da tag ou do release
+        shell: bash
+        run: |
+          # Obtém versão da tag ou do release
           if [ "${{ github.event_name }}" = "release" ]; then
             VERSION=${{ github.event.release.tag_name }}
             VERSION=${VERSION#v}
           else
             VERSION=${GITHUB_REF#refs/tags/v}
           fi
-          
-        run: |
-          VERSION=${GITHUB_REF#refs/tags/v}
           ARTIFACT_NAME="assistente-${{ matrix.goos }}-${{ matrix.goarch }}"
           
           mkdir -p artifacts
