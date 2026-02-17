@@ -153,23 +153,60 @@ jobs:
         if: matrix.goos == 'linux'
         shell: bash
         run: |
-          echo "🐧 Tentando gerar AppImage..."
-          # Não usa -clean para não apagar o executável
-          # Tenta diferentes formas de gerar AppImage
+          echo "🐧 Criando AppImage para Linux..."
           
-          # Opção 1: Wails com flag específica (se suportado)
-          xvfb-run wails build -platform ${{ matrix.platform }} -appimage || echo "⚠️ Flag -appimage não suportada"
-          
+          # Lista arquivos atuais
           echo "📂 Arquivos em build/bin/:"
           ls -lah build/bin/ || true
           
-          # Verifica se algum AppImage foi gerado
-          if ls build/bin/*.AppImage 1> /dev/null 2>&1; then
-            echo "✅ AppImage encontrado!"
+          # Instala linuxdeploy para criar AppImage
+          wget -q https://github.com/linuxdeploy/linuxdeploy/releases/download/continuous/linuxdeploy-x86_64.AppImage -O linuxdeploy
+          chmod +x linuxdeploy
+          
+          # Cria estrutura AppDir
+          mkdir -p AppDir/usr/bin
+          mkdir -p AppDir/usr/share/applications
+          mkdir -p AppDir/usr/share/icons/hicolor/256x256/apps
+          
+          # Copia executável
+          cp build/bin/assistente AppDir/usr/bin/
+          
+          # Cria arquivo .desktop
+          cat > AppDir/usr/share/applications/assistente.desktop << 'EOF'
+          [Desktop Entry]
+          Name=Assistente
+          Exec=assistente
+          Icon=assistente
+          Type=Application
+          Categories=Utility;
+          Terminal=false
+          EOF
+          
+          # Copia ícone (se existir, senão usa um placeholder)
+          if [ -f "build/appicon.png" ]; then
+            cp build/appicon.png AppDir/usr/share/icons/hicolor/256x256/apps/assistente.png
+          elif [ -f "build/linux/icon.png" ]; then
+            cp build/linux/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/assistente.png
           else
-            echo "⚠️ Nenhum AppImage foi gerado. Wails pode não suportar AppImage automático."
-            echo "💡 Continuando apenas com o executável."
+            # Cria um ícone simples placeholder
+            convert -size 256x256 xc:blue -pointsize 48 -fill white -gravity center -annotate +0+0 "A" AppDir/usr/share/icons/hicolor/256x256/apps/assistente.png || \
+            echo "⚠️ Imagemagick não disponível, AppImage será criado sem ícone"
           fi
+          
+          # Gera AppImage
+          OUTPUT=assistente-x86_64.AppImage ./linuxdeploy --appdir AppDir --output appimage
+          
+          # Move para build/bin
+          if [ -f "assistente-x86_64.AppImage" ]; then
+            mv assistente-x86_64.AppImage build/bin/
+            echo "✅ AppImage criado com sucesso!"
+          else
+            echo "⚠️ Falha ao criar AppImage"
+          fi
+          
+          # Lista arquivos finais
+          echo "📂 Arquivos finais em build/bin/:"
+          ls -lah build/bin/ || true
 
       - name: Prepare artifacts
         shell: bash
