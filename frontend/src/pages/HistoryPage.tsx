@@ -268,7 +268,7 @@ export default function HistoryPage() {
         columns={columns}
         onCellAction={handleCellAction}
         onCellEdit={handleCellEdit}
-        onDelete={handleDeleteConversation}
+        onDelete={(item: Conversation) => handleDeleteConversation(item.id)}
         selectedIds={selectedIds}
         multiSelect={true}
         onSelectionChange={setSelectedIds}

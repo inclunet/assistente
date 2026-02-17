@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, KeyboardEvent, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { playBumpSound } from '../../services/audioFeedback';
 import './DataGrid.css';
 
