@@ -581,55 +581,104 @@
     </footer>
 
     <script>
-        // Carrega informações da última versão do manifest
-        fetch('update-manifest.json')
+        // Carrega informações da última release do GitHub
+        fetch('https://api.github.com/repos/inclunet/assistente/releases/latest')
             .then(res => res.json())
-            .then(data => {
-                const version = data.version;
-                const baseUrl = `https://github.com/inclunet/assistente/releases/download/v${version}`;
+            .then(release => {
+                const version = release.tag_name.replace('v', '');
+                const baseUrl = `https://github.com/inclunet/assistente/releases/download/${release.tag_name}`;
                 
                 // Atualiza versão no header
                 document.getElementById('version').textContent = `Versão ${version}`;
                 
-                // Atualiza links de download
-                const builds = data.builds;
+                // Mapeia assets
+                const assets = {};
+                release.assets.forEach(asset => {
+                    assets[asset.name] = asset.browser_download_url;
+                });
                 
                 // Windows
-                if (builds['windows-amd64']) {
-                    const installerBtn = document.getElementById('windows-installer');
-                    const portableBtn = document.getElementById('windows-portable');
-                    
-                    // Instalador (recomendado)
+                const installerBtn = document.getElementById('windows-installer');
+                const portableBtn = document.getElementById('windows-portable');
+                
+                if (assets['assistente-windows-amd64-installer.exe']) {
+                    installerBtn.href = assets['assistente-windows-amd64-installer.exe'];
+                } else {
                     installerBtn.href = `${baseUrl}/assistente-windows-amd64-installer.exe`;
-                    // Executável portátil
-                    portableBtn.href = builds['windows-amd64'].url;
+                }
+                
+                if (assets['assistente-windows-amd64.exe']) {
+                    portableBtn.href = assets['assistente-windows-amd64.exe'];
+                } else {
+                    portableBtn.href = `${baseUrl}/assistente-windows-amd64.exe`;
                 }
                 
                 // macOS
-                if (builds['darwin-arm64'] || builds['darwin-amd64']) {
-                    const macBtn = document.getElementById('macos-dmg');
-                    // Prioriza ARM64, fallback para AMD64
-                    const platform = builds['darwin-arm64'] ? 'darwin-arm64' : 'darwin-amd64';
-                    macBtn.href = `${baseUrl}/assistente-${platform}.dmg`;
+                const macBtn = document.getElementById('macos-dmg');
+                if (assets['assistente-darwin-arm64.dmg']) {
+                    macBtn.href = assets['assistente-darwin-arm64.dmg'];
+                } else if (assets['assistente-darwin-amd64.dmg']) {
+                    macBtn.href = assets['assistente-darwin-amd64.dmg'];
+                } else {
+                    macBtn.href = `${baseUrl}/assistente-darwin-arm64.dmg`;
                 }
                 
                 // Linux
-                if (builds['linux-amd64']) {
-                    const appimageBtn = document.getElementById('linux-appimage');
-                    const debBtn = document.getElementById('linux-deb');
-                    
-                    // AppImage (instalador)
+                const appimageBtn = document.getElementById('linux-appimage');
+                const debBtn = document.getElementById('linux-deb');
+                
+                if (assets['assistente-linux-amd64.AppImage']) {
+                    appimageBtn.href = assets['assistente-linux-amd64.AppImage'];
+                } else {
                     appimageBtn.href = `${baseUrl}/assistente-linux-amd64.AppImage`;
-                    // Executável portátil
-                    debBtn.href = builds['linux-amd64'].url;
+                }
+                
+                if (assets['assistente-linux-amd64']) {
+                    debBtn.href = assets['assistente-linux-amd64'];
+                    debBtn.textContent = 'Executável';
+                } else {
+                    debBtn.href = `${baseUrl}/assistente-linux-amd64`;
                     debBtn.textContent = 'Executável';
                 }
                 
                 // Changelog
-                document.getElementById('changelog').href = `https://github.com/inclunet/assistente/releases/tag/v${version}`;
+                document.getElementById('changelog').href = release.html_url;
+                
+                // Atualiza release notes se disponível
+                if (release.body) {
+                    const notesList = document.getElementById('release-notes');
+                    notesList.innerHTML = '';
+                    
+                    // Parse markdown simples (linhas com - ou *)
+                    const lines = release.body.split('\n');
+                    lines.forEach(line => {
+                        line = line.trim();
+                        if (line.startsWith('- ') || line.startsWith('* ')) {
+                            const li = document.createElement('li');
+                            li.textContent = line.substring(2);
+                            notesList.appendChild(li);
+                        }
+                    });
+                    
+                    // Se não achou nada, usa padrão
+                    if (notesList.children.length === 0) {
+                        notesList.innerHTML = `<li>${release.name || 'Release ' + version}</li>`;
+                    }
+                }
             })
             .catch(err => {
-                console.error('Erro ao carregar manifest:', err);
+                console.error('Erro ao carregar release:', err);
+                // Fallback para versão hardcoded
+                const version = '1.0.2';
+                const baseUrl = `https://github.com/inclunet/assistente/releases/download/v${version}`;
+                
+                document.getElementById('version').textContent = `Versão ${version}`;
+                document.getElementById('windows-installer').href = `${baseUrl}/assistente-windows-amd64-installer.exe`;
+                document.getElementById('windows-portable').href = `${baseUrl}/assistente-windows-amd64.exe`;
+                document.getElementById('macos-dmg').href = `${baseUrl}/assistente-darwin-arm64.dmg`;
+                document.getElementById('linux-appimage').href = `${baseUrl}/assistente-linux-amd64.AppImage`;
+                document.getElementById('linux-deb').href = `${baseUrl}/assistente-linux-amd64`;
+                document.getElementById('changelog').href = `https://github.com/inclunet/assistente/releases/tag/v${version}`;
             });
     </script>
 </body>
