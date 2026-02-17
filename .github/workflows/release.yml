@@ -101,7 +101,12 @@ jobs:
         shell: bash
         run: |
           echo "🏗️ Building for ${{ matrix.platform }}..."
-          wails build -platform ${{ matrix.platform }} -clean
+          if [ "${{ matrix.goos }}" = "linux" ]; then
+            # Usa xvfb-run para criar display virtual no Linux
+            xvfb-run wails build -platform ${{ matrix.platform }} -clean
+          else
+            wails build -platform ${{ matrix.platform }} -clean
+          fi
           echo "✅ Build completed"
           echo "📂 Build output:"
           if [ -d "build/bin" ]; then
