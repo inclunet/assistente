@@ -110,7 +110,8 @@ jobs:
         shell: bash
         run: |
           echo "🚪 Building Windows installer..."
-          wails build -platform ${{ matrix.platform }} -nsis -clean
+          # Não usa -clean para não apagar o executável já gerado
+          wails build -platform ${{ matrix.platform }} -nsis
           echo "✅ Installer build completed"
           echo "📂 Installer output:"
           if [ -d "build/bin" ]; then
@@ -163,6 +164,10 @@ jobs:
           if [ "${{ matrix.os }}" = "windows-latest" ]; then
             echo "🪟 Processing Windows artifacts..."
             
+            # Lista todos os .exe para debug
+            echo "📋 All .exe files in build/bin/:"
+            find build/bin -name "*.exe" -type f || true
+            
             # Windows: executável + instalador NSIS
             if [ -f "build/bin/${{ matrix.output }}" ]; then
               echo "✅ Found executable: build/bin/${{ matrix.output }}"
@@ -172,12 +177,19 @@ jobs:
             fi
             
             # Instalador NSIS - tenta vários padrões de nome
-            for installer in "build/bin/assistente-amd64-installer.exe" "build/bin/Assistente-Installer.exe" "build/bin/assistente-installer.exe"; do
+            INSTALLER_FOUND=false
+            for installer in "build/bin/assistente-amd64-installer.exe" "build/bin/Assistente-Installer.exe" "build/bin/assistente-installer.exe" "build/bin/assistente-windows-amd64-installer.exe" "build/bin/"*-installer.exe "build/bin/"*Installer.exe; do
               if [ -f "$installer" ]; then
                 echo "✅ Found installer: $installer"
                 cp "$installer" artifacts/${ARTIFACT_NAME}-installer.exe
+                INSTALLER_FOUND=true
                 break
               fi
+            done
+            
+            if [ "$INSTALLER_FOUND" = "false" ]; then
+              echo "⚠️ No installer found. Build may have failed or NSIS not configured."
+            fi
             done
             
           elif [ "${{ matrix.goos }}" = "darwin" ]; then
