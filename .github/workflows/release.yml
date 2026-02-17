@@ -12,12 +12,19 @@ jobs:
     strategy:
       matrix:
         include:
-          # Windows apenas (testando)
+          # Windows
           - os: windows-latest
             platform: windows/amd64
             goos: windows
             goarch: amd64
             output: assistente.exe
+            
+          # Linux
+          - os: ubuntu-22.04
+            platform: linux/amd64
+            goos: linux
+            goarch: amd64
+            output: assistente
             
           # macOS Intel (desabilitado temporariamente)
           # - os: macos-latest
@@ -31,13 +38,6 @@ jobs:
           #   platform: darwin/arm64
           #   goos: darwin
           #   goarch: arm64
-          #   output: assistente
-            
-          # Linux (desabilitado temporariamente)
-          # - os: ubuntu-22.04
-          #   platform: linux/amd64
-          #   goos: linux
-          #   goarch: amd64
           #   output: assistente
 
     runs-on: ${{ matrix.os }}
