@@ -15,33 +15,33 @@ jobs:
     strategy:
       matrix:
         include:
-          # Windows
+          # Windows apenas (testando)
           - os: windows-latest
             platform: windows/amd64
             goos: windows
             goarch: amd64
             output: assistente.exe
             
-          # macOS Intel
-          - os: macos-latest
-            platform: darwin/amd64
-            goos: darwin
-            goarch: amd64
-            output: assistente
+          # macOS Intel (desabilitado temporariamente)
+          # - os: macos-latest
+          #   platform: darwin/amd64
+          #   goos: darwin
+          #   goarch: amd64
+          #   output: assistente
             
-          # macOS Apple Silicon
-          - os: macos-latest
-            platform: darwin/arm64
-            goos: darwin
-            goarch: arm64
-            output: assistente
+          # macOS Apple Silicon (desabilitado temporariamente)
+          # - os: macos-latest
+          #   platform: darwin/arm64
+          #   goos: darwin
+          #   goarch: arm64
+          #   output: assistente
             
-          # Linux
-          - os: ubuntu-22.04
-            platform: linux/amd64
-            goos: linux
-            goarch: amd64
-            output: assistente
+          # Linux (desabilitado temporariamente)
+          # - os: ubuntu-22.04
+          #   platform: linux/amd64
+          #   goos: linux
+          #   goarch: amd64
+          #   output: assistente
 
     runs-on: ${{ matrix.os }}
 
@@ -79,6 +79,14 @@ jobs:
           sudo apt-get install -y xorg-dev libx11-dev libxkbcommon-dev libxext-dev
           # Instala xvfb para criar display virtual (necessário para builds headless)
           sudo apt-get install -y xvfb
+          
+          # Configura PKG_CONFIG_PATH para incluir diretórios comuns
+          echo "PKG_CONFIG_PATH=/usr/lib/pkgconfig:/usr/lib/x86_64-linux-gnu/pkgconfig:/usr/share/pkgconfig:$PKG_CONFIG_PATH" >> $GITHUB_ENV
+          
+          # Verifica se webkit foi instalado corretamente
+          echo "📦 Verificando instalação do webkit2gtk..."
+          pkg-config --list-all | grep webkit || echo "⚠️ webkit2gtk não encontrado no pkg-config"
+          find /usr -name "webkit2gtk*.pc" 2>/dev/null || echo "⚠️ Arquivo .pc do webkit2gtk não encontrado"
 
       - name: Install frontend dependencies
         working-directory: frontend
@@ -89,6 +97,9 @@ jobs:
         run: |
           echo "🏗️ Building for ${{ matrix.platform }}..."
           if [ "${{ matrix.goos }}" = "linux" ]; then
+            # Exibe informações de debug para Linux
+            echo "PKG_CONFIG_PATH=$PKG_CONFIG_PATH"
+            pkg-config --list-all | grep webkit || true
             # Usa xvfb-run para criar display virtual no Linux
             xvfb-run wails build -platform ${{ matrix.platform }} -clean
           else
