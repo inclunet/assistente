@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
@@ -2109,7 +2110,17 @@ func (a *App) ReorderTabs(orderedIds []uint) error {
 
 // initUpdater inicializa o gerenciador de atualizações
 func (a *App) initUpdater() {
-	a.updater = updater.New(AppVersion)
+	version := AppVersion
+	
+	// Se versão é "dev", tenta ler do wails.json
+	if version == "dev" {
+		if wailsVersion := readVersionFromWailsJSON(); wailsVersion != "" {
+			version = wailsVersion
+			log.Printf("[Updater] Usando versão do wails.json: %s", version)
+		}
+	}
+	
+	a.updater = updater.New(version)
 	
 	// Configura callback de progresso
 	a.updater.SetProgressCallback(func(bytesDownloaded, totalBytes int64, phase string) {
@@ -2175,7 +2186,27 @@ func (a *App) initUpdater() {
 		return false
 	})
 	
-	log.Printf("[Updater] Inicializado (versão atual: %s)", AppVersion)
+	log.Printf("[Updater] Inicializado (versão atual: %s)", version)
+}
+
+// readVersionFromWailsJSON tenta ler a versão do arquivo wails.json
+func readVersionFromWailsJSON() string {
+	data, err := os.ReadFile("wails.json")
+	if err != nil {
+		return ""
+	}
+	
+	var config struct {
+		Info struct {
+			ProductVersion string `json:"productVersion"`
+		} `json:"info"`
+	}
+	
+	if err := json.Unmarshal(data, &config); err != nil {
+		return ""
+	}
+	
+	return config.Info.ProductVersion
 }
 
 // checkForUpdatesOnStartup verifica atualizações ao iniciar (não bloqueante)

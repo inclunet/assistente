@@ -13,6 +13,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/inconshreveable/go-update"
@@ -135,27 +136,37 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 	}
 
 	// Tenta atualização in-place primeiro (mais rápido e fluido)
+	log.Printf("[Updater] Tentando atualização in-place...")
 	err = u.applyUpdateInPlace(ctx, manifest)
 	if err == nil {
 		return nil // Sucesso!
 	}
 
+	log.Printf("[Updater] Falha na atualização in-place: %v", err)
+
 	// Se falhou por permissão no Windows
 	if runtime.GOOS == "windows" && isPermissionError(err) {
-		log.Printf("[Updater] ⚠️ Sem permissão para atualização direta")
+		log.Printf("[Updater] ⚠️ Detectado erro de permissão")
 		
 		// Tenta solicitar elevação se callback configurado
-		if u.elevationCallback != nil && u.elevationCallback() {
-			log.Printf("[Updater] 🔐 Usuário autorizou elevação, tentando com privilégios...")
-			return u.applyUpdateElevated(ctx, manifest)
+		if u.elevationCallback != nil {
+			log.Printf("[Updater] 🔐 Solicitando elevação de privilégios...")
+			if u.elevationCallback() {
+				log.Printf("[Updater] ✓ Usuário autorizou elevação")
+				return u.applyUpdateElevated(ctx, manifest)
+			}
+			log.Printf("[Updater] ✗ Usuário recusou elevação")
+		} else {
+			log.Printf("[Updater] ⚠️ Callback de elevação não configurado")
 		}
 		
-		// Se não autorizou elevação, usa instalador como fallback
-		log.Printf("[Updater] 📦 Usando instalador como alternativa...")
+		// Se não autorizou elevação ou callback não existe, usa instalador como fallback
+		log.Printf("[Updater] 📦 Usando instalador NSIS como alternativa...")
 		return u.applyUpdateWindows(ctx, manifest)
 	}
 
-	// Falhou por outro motivo
+	// Falhou por outro motivo que não seja permissão
+	log.Printf("[Updater] ✗ Falha não relacionada a permissões")
 	return err
 }
 
@@ -355,12 +366,19 @@ func isPermissionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	errStr := err.Error()
+	errStr := strings.ToLower(err.Error())
 	// Verifica mensagens comuns de erro de permissão
-	return contains(errStr, "Access is denied") ||
-		contains(errStr, "permission denied") ||
-		contains(errStr, "access denied") ||
-		contains(errStr, "Cannot create")
+	isPerm := strings.Contains(errStr, "access is denied") ||
+		strings.Contains(errStr, "permission denied") ||
+		strings.Contains(errStr, "access denied") ||
+		strings.Contains(errStr, "cannot create") ||
+		strings.Contains(errStr, "access denied")
+	
+	if isPerm {
+		log.Printf("[Updater] ✓ Detectado erro de permissão: %s", errStr)
+	}
+	
+	return isPerm
 }
 
 // downloadInstaller baixa o instalador do Windows
