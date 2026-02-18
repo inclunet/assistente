@@ -26,19 +26,19 @@ jobs:
             goarch: amd64
             output: assistente
             
-          # macOS Intel (desabilitado temporariamente)
-          # - os: macos-latest
-          #   platform: darwin/amd64
-          #   goos: darwin
-          #   goarch: amd64
-          #   output: assistente
+          # macOS Apple Silicon (ARM64)
+          - os: macos-latest
+            platform: darwin/arm64
+            goos: darwin
+            goarch: arm64
+            output: assistente
             
-          # macOS Apple Silicon (desabilitado temporariamente)
-          # - os: macos-latest
-          #   platform: darwin/arm64
-          #   goos: darwin
-          #   goarch: arm64
-          #   output: assistente
+          # macOS Intel (AMD64)
+          - os: macos-13
+            platform: darwin/amd64
+            goos: darwin
+            goarch: amd64
+            output: assistente
 
     runs-on: ${{ matrix.os }}
 
