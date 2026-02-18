@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"time"
@@ -53,13 +54,17 @@ type UpdateInfo struct {
 // ProgressCallback é chamado durante o download para reportar progresso
 type ProgressCallback func(bytesDownloaded, totalBytes int64, phase string)
 
+// ElevationCallback é chamado quando elevação é necessária (retorna true se usuário autorizou)
+type ElevationCallback func() bool
+
 // Updater gerencia verificação e aplicação de atualizações
 type Updater struct {
-	currentVersion   string
-	githubAPIURL     string
-	githubToken      string // Token para acessar releases privadas (opcional)
-	httpClient       *http.Client
-	progressCallback ProgressCallback
+	currentVersion    string
+	githubAPIURL      string
+	githubToken       string // Token para acessar releases privadas (opcional)
+	httpClient        *http.Client
+	progressCallback  ProgressCallback
+	elevationCallback ElevationCallback
 }
 
 // New cria um novo Updater
@@ -82,6 +87,11 @@ func (u *Updater) SetGitHubToken(token string) {
 // SetProgressCallback configura callback para reportar progresso
 func (u *Updater) SetProgressCallback(callback ProgressCallback) {
 	u.progressCallback = callback
+}
+
+// SetElevationCallback configura callback para solicitar elevação
+func (u *Updater) SetElevationCallback(callback ElevationCallback) {
+	u.elevationCallback = callback
 }
 
 // CheckForUpdates verifica se há uma nova versão disponível
@@ -124,6 +134,172 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 		return fmt.Errorf("já está na versão mais recente (%s)", u.currentVersion)
 	}
 
+	// Tenta atualização in-place primeiro (mais rápido e fluido)
+	err = u.applyUpdateInPlace(ctx, manifest)
+	if err == nil {
+		return nil // Sucesso!
+	}
+
+	// Se falhou por permissão no Windows
+	if runtime.GOOS == "windows" && isPermissionError(err) {
+		log.Printf("[Updater] ⚠️ Sem permissão para atualização direta")
+		
+		// Tenta solicitar elevação se callback configurado
+		if u.elevationCallback != nil && u.elevationCallback() {
+			log.Printf("[Updater] 🔐 Usuário autorizou elevação, tentando com privilégios...")
+			return u.applyUpdateElevated(ctx, manifest)
+		}
+		
+		// Se não autorizou elevação, usa instalador como fallback
+		log.Printf("[Updater] 📦 Usando instalador como alternativa...")
+		return u.applyUpdateWindows(ctx, manifest)
+	}
+
+	// Falhou por outro motivo
+	return err
+}
+
+// applyUpdateElevated relança o processo de atualização com privilégios elevados
+func (u *Updater) applyUpdateElevated(ctx context.Context, manifest *Manifest) error {
+	// Obtém build para a plataforma atual
+	buildKey := u.getBuildKey()
+	build, ok := manifest.Builds[buildKey]
+	if !ok {
+		return fmt.Errorf("build não disponível para plataforma: %s", buildKey)
+	}
+
+	// Baixa o novo binário
+	binary, err := u.downloadBinary(ctx, build.URL)
+	if err != nil {
+		return fmt.Errorf("falha ao baixar binário: %w", err)
+	}
+	defer binary.Close()
+
+	// Salva em arquivo temporário
+	tmpFile, ok := binary.(*os.File)
+	if !ok {
+		return fmt.Errorf("tipo de arquivo inesperado")
+	}
+	tmpPath := tmpFile.Name()
+
+	// Reporta instalação
+	if u.progressCallback != nil {
+		u.progressCallback(0, 100, "installing")
+	}
+
+	// Obtém caminho do executável atual
+	exePath, err := os.Executable()
+	if err != nil {
+		return fmt.Errorf("falha ao obter caminho do executável: %w", err)
+	}
+
+	// Cria script PowerShell para fazer a substituição com elevação
+	script := fmt.Sprintf(`
+		Start-Sleep -Seconds 2
+		Move-Item -Path "%s" -Destination "%s" -Force
+		Start-Process "%s"
+	`, tmpPath, exePath, exePath)
+
+	scriptFile, err := os.CreateTemp("", "update-*.ps1")
+	if err != nil {
+		return fmt.Errorf("falha ao criar script: %w", err)
+	}
+	defer os.Remove(scriptFile.Name())
+
+	if _, err := scriptFile.WriteString(script); err != nil {
+		return fmt.Errorf("falha ao escrever script: %w", err)
+	}
+	scriptFile.Close()
+
+	// Executa PowerShell com elevação usando runas
+	cmd := exec.Command("powershell", "-Command",
+		fmt.Sprintf("Start-Process powershell -Verb RunAs -ArgumentList '-ExecutionPolicy Bypass -File \"%s\"'", scriptFile.Name()))
+	
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("falha ao solicitar elevação: %w", err)
+	}
+
+	log.Printf("[Updater] ✅ Processo de atualização elevado iniciado")
+	return nil
+}
+
+// applyUpdateWindows baixa e executa o instalador do Windows
+func (u *Updater) applyUpdateWindows(ctx context.Context, manifest *Manifest) error {
+	// Procura pelo instalador nos assets do GitHub
+	var installerURL string
+	var installerSize int64
+	
+	// Busca o instalador no GitHub release
+	req, err := http.NewRequestWithContext(ctx, "GET", u.githubAPIURL, nil)
+	if err != nil {
+		return err
+	}
+
+	if u.githubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+u.githubToken)
+	}
+
+	resp, err := u.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var ghRelease struct {
+		Assets []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+			Size               int64  `json:"size"`
+		} `json:"assets"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&ghRelease); err != nil {
+		return fmt.Errorf("falha ao decodificar release: %w", err)
+	}
+
+	// Procura o instalador
+	for _, asset := range ghRelease.Assets {
+		if contains(asset.Name, "installer.exe") && contains(asset.Name, "windows-amd64") {
+			installerURL = asset.BrowserDownloadURL
+			installerSize = asset.Size
+			break
+		}
+	}
+
+	if installerURL == "" {
+		return fmt.Errorf("instalador do Windows não encontrado no release")
+	}
+
+	log.Printf("[Updater] Baixando instalador: %s", installerURL)
+
+	// Baixa o instalador
+	installerFile, err := u.downloadInstaller(ctx, installerURL, installerSize)
+	if err != nil {
+		return fmt.Errorf("falha ao baixar instalador: %w", err)
+	}
+	defer os.Remove(installerFile) // Remove após execução
+
+	// Reporta instalação
+	if u.progressCallback != nil {
+		u.progressCallback(0, 100, "installing")
+	}
+
+	log.Printf("[Updater] Executando instalador: %s", installerFile)
+
+	// Executa o instalador de forma silenciosa
+	cmd := exec.Command(installerFile, "/S") // /S = silent mode no NSIS
+	if err := cmd.Start(); err != nil {
+		return fmt.Errorf("falha ao executar instalador: %w", err)
+	}
+
+	// Não aguarda a conclusão - o instalador irá substituir o executável e o usuário precisará reiniciar
+	log.Printf("[Updater] Instalador iniciado. O aplicativo será atualizado em segundo plano.")
+	
+	return nil
+}
+
+// applyUpdateInPlace aplica atualização substituindo o executável (Linux/macOS)
+func (u *Updater) applyUpdateInPlace(ctx context.Context, manifest *Manifest) error {
 	// Obtém build para a plataforma atual
 	buildKey := u.getBuildKey()
 	build, ok := manifest.Builds[buildKey]
@@ -149,7 +325,6 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 			return fmt.Errorf("falha na verificação de checksum: %w", err)
 		}
 	} else {
-		// Checksum não fornecido, pula verificação
 		log.Printf("[Updater] ⚠️ Checksum não fornecido, pulando verificação")
 	}
 
@@ -164,9 +339,7 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 	}
 
 	// Aplica a atualização
-	err = update.Apply(binary, update.Options{
-		// TargetPath pode ser especificado se quiser atualizar um binário diferente
-	})
+	err = update.Apply(binary, update.Options{})
 	if err != nil {
 		if rerr := update.RollbackError(err); rerr != nil {
 			return fmt.Errorf("falha ao aplicar update e rollback: %v (rollback error: %v)", err, rerr)
@@ -177,7 +350,78 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 	return nil
 }
 
-// fetchManifest busca o manifest de atualizações da API do GitHub
+// isPermissionError verifica se o erro é relacionado a permissões
+func isPermissionError(err error) bool {
+	if err == nil {
+		return false
+	}
+	errStr := err.Error()
+	// Verifica mensagens comuns de erro de permissão
+	return contains(errStr, "Access is denied") ||
+		contains(errStr, "permission denied") ||
+		contains(errStr, "access denied") ||
+		contains(errStr, "Cannot create")
+}
+
+// downloadInstaller baixa o instalador do Windows
+func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes int64) (string, error) {
+	req, err := http.NewRequestWithContext(ctx, "GET", url, nil)
+	if err != nil {
+		return "", err
+	}
+
+	if u.githubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+u.githubToken)
+		req.Header.Set("Accept", "application/octet-stream")
+	}
+
+	resp, err := u.httpClient.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("status HTTP inesperado ao baixar instalador: %d", resp.StatusCode)
+	}
+
+	// Cria arquivo temporário para o instalador
+	tmpFile, err := os.CreateTemp("", "assistente-installer-*.exe")
+	if err != nil {
+		return "", fmt.Errorf("falha ao criar arquivo temporário: %w", err)
+	}
+	defer tmpFile.Close()
+
+	// Reporta progresso durante download
+	if u.progressCallback != nil {
+		u.progressCallback(0, totalBytes, "downloading")
+	}
+
+	var bytesDownloaded int64
+	buffer := make([]byte, 32*1024)
+	for {
+		n, err := resp.Body.Read(buffer)
+		if n > 0 {
+			if _, writeErr := tmpFile.Write(buffer[:n]); writeErr != nil {
+				os.Remove(tmpFile.Name())
+				return "", fmt.Errorf("falha ao escrever no arquivo: %w", writeErr)
+			}
+			bytesDownloaded += int64(n)
+			if u.progressCallback != nil {
+				u.progressCallback(bytesDownloaded, totalBytes, "downloading")
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			os.Remove(tmpFile.Name())
+			return "", fmt.Errorf("falha ao baixar instalador: %w", err)
+		}
+	}
+
+	return tmpFile.Name(), nil
+}
 func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", u.githubAPIURL, nil)
 	if err != nil {

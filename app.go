@@ -3,9 +3,11 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os"
+	"runtime"
 	"strings"
 	"time"
 
@@ -37,11 +39,37 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-const (
-	// AppVersion é a versão atual do aplicativo
-	// Será sobrescrito em build time com -ldflags
+var (
+	// AppVersion é a versão do aplicativo (injetada em build pelo wails.json)
 	AppVersion = "dev"
 )
+
+func init() {
+	// Tenta ler versão do wails.json em runtime
+	// Isso garante que a versão está correta mesmo sem ldflags
+	if version := readVersionFromWailsJSON(); version != "" {
+		AppVersion = version
+	}
+}
+
+func readVersionFromWailsJSON() string {
+	data, err := os.ReadFile("wails.json")
+	if err != nil {
+		return ""
+	}
+	
+	var config struct {
+		Info struct {
+			ProductVersion string `json:"productVersion"`
+		} `json:"info"`
+	}
+	
+	if err := json.Unmarshal(data, &config); err != nil {
+		return ""
+	}
+	
+	return config.Info.ProductVersion
+}
 
 // App struct
 type App struct {
@@ -2129,6 +2157,51 @@ func (a *App) initUpdater() {
 		})
 	})
 	
+	// Configura callback de elevação (solicita permissão ao usuário)
+	a.updater.SetElevationCallback(func() bool {
+		if a.questionnaireMgr == nil {
+			log.Printf("[Updater] Questionnaire manager não disponível para solicitar elevação")
+			return false
+		}
+		
+		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+		defer cancel()
+		
+		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+			Title:       "Permissão Necessária",
+			Description: "Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?",
+			Questions: []questionnaire.Question{
+				{
+					ID:       "allow",
+					Type:     "boolean",
+					Prompt:   "Permitir atualização com privilégios de administrador?",
+					Required: true,
+					Default:  true,
+				},
+			},
+			AllowCancel: true,
+			SubmitLabel: "Permitir",
+			CancelLabel: "Cancelar",
+		})
+		
+		if err != nil {
+			log.Printf("[Updater] Erro ao solicitar confirmação de elevação: %v", err)
+			return false
+		}
+		
+		if resp.Cancelled {
+			log.Printf("[Updater] Usuário cancelou a solicitação de elevação")
+			return false
+		}
+		
+		if allow, ok := resp.Answers["allow"].(bool); ok && allow {
+			log.Printf("[Updater] Usuário autorizou elevação")
+			return true
+		}
+		
+		return false
+	})
+	
 	log.Printf("[Updater] Inicializado (versão atual: %s)", AppVersion)
 }
 
@@ -2273,7 +2346,7 @@ func (a *App) applyUpdateWithProgress() {
 
 	log.Printf("[Updater] Atualização aplicada com sucesso. Reinicie o aplicativo.")
 	runtime.EventsEmit(a.ctx, "update:completed", map[string]interface{}{
-		"message": "Atualização instalada! Reinicie o aplicativo para aplicar as mudanças.",
+		"message": "Atualização instalada com sucesso! Feche e reabra o aplicativo para aplicar as mudanças.",
 	})
 }
 
