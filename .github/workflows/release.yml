@@ -217,13 +217,15 @@ jobs:
           
           echo "📦 Preparing artifacts for ${ARTIFACT_NAME}..."
           echo "Version: ${VERSION}"
+          echo "OS: ${{ matrix.os }}"
+          echo "GOOS: ${{ matrix.goos }}"
           
           mkdir -p artifacts
           
           echo "📂 Content of build/bin/:"
           ls -lah build/bin/ || echo "⚠️ build/bin/ directory not found!"
           
-          if [ "${{ matrix.os }}" = "windows-latest" ]; then
+          if [ "${{ matrix.goos }}" = "windows" ]; then
             echo "🪟 Processing Windows artifacts..."
             
             # Lista todos os .exe para debug
