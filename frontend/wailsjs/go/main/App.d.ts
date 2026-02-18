@@ -271,6 +271,8 @@ export function SignalVerify(arg1:string,arg2:string,arg3:string):Promise<void>;
 
 export function SpeakSAPI5(arg1:string,arg2:string):Promise<void>;
 
+export function StartUpdate():Promise<void>;
+
 export function StopSAPI5():Promise<void>;
 
 export function SubscribeToMCPResource(arg1:string,arg2:string):Promise<void>;

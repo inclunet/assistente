@@ -518,6 +518,10 @@ export function SpeakSAPI5(arg1, arg2) {
   return window['go']['main']['App']['SpeakSAPI5'](arg1, arg2);
 }
 
+export function StartUpdate() {
+  return window['go']['main']['App']['StartUpdate']();
+}
+
 export function StopSAPI5() {
   return window['go']['main']['App']['StopSAPI5']();
 }

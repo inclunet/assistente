@@ -3,11 +3,9 @@ package main
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log"
 	"os"
-	"runtime"
 	"strings"
 	"time"
 
@@ -40,36 +38,11 @@ import (
 )
 
 var (
-	// AppVersion é a versão do aplicativo (injetada em build pelo wails.json)
+	// AppVersion é a versão do aplicativo
+	// Será injetada automaticamente pelo Wails a partir de wails.json info.productVersion
+	// Em dev, permanece como "dev"
 	AppVersion = "dev"
 )
-
-func init() {
-	// Tenta ler versão do wails.json em runtime
-	// Isso garante que a versão está correta mesmo sem ldflags
-	if version := readVersionFromWailsJSON(); version != "" {
-		AppVersion = version
-	}
-}
-
-func readVersionFromWailsJSON() string {
-	data, err := os.ReadFile("wails.json")
-	if err != nil {
-		return ""
-	}
-	
-	var config struct {
-		Info struct {
-			ProductVersion string `json:"productVersion"`
-		} `json:"info"`
-	}
-	
-	if err := json.Unmarshal(data, &config); err != nil {
-		return ""
-	}
-	
-	return config.Info.ProductVersion
-}
 
 // App struct
 type App struct {
