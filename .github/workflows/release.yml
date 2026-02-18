@@ -27,14 +27,14 @@ jobs:
             output: assistente
             
           # macOS Apple Silicon (ARM64)
-          - os: macos-latest
+          - os: macos-14
             platform: darwin/arm64
             goos: darwin
             goarch: arm64
             output: assistente
             
           # macOS Intel (AMD64)
-          - os: macos-13-large
+          - os: macos-13
             platform: darwin/amd64
             goos: darwin
             goarch: amd64
