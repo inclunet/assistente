@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { ApplyUpdate } from '../../wailsjs/go/main/App';
+import { StartUpdate } from '../../wailsjs/go/main/App';
 import { useUIStore } from '../store/uiStore';
 import './UpdatePage.css';
 
@@ -23,11 +23,13 @@ export default function UpdatePage() {
   const [bytesDownloaded, setBytesDownloaded] = useState(0);
   const [totalBytes, setTotalBytes] = useState(0);
   const [errorMessage, setErrorMessage] = useState('');
-  const [autoStarted, setAutoStarted] = useState(false);
 
   useEffect(() => {
+    console.log('[UpdatePage] Componente montado');
+    
     // Escuta eventos de progresso
     const unsubProgress = EventsOn('update:progress', (data: ProgressEvent) => {
+      console.log('[UpdatePage] Progress event:', data);
       setPhase(data.phase as UpdatePhase);
       setProgress(data.percentage);
       setBytesDownloaded(data.bytesDownloaded);
@@ -36,12 +38,14 @@ export default function UpdatePage() {
 
     // Escuta evento de início
     const unsubStarted = EventsOn('update:started', () => {
+      console.log('[UpdatePage] Update started event');
       setPhase('downloading');
       setProgress(0);
     });
 
     // Escuta evento de conclusão
     const unsubCompleted = EventsOn('update:completed', (data: any) => {
+      console.log('[UpdatePage] Update completed event:', data);
       setPhase('completed');
       setProgress(100);
       addToast(data.message || 'Atualização concluída!', 'success');
@@ -49,29 +53,34 @@ export default function UpdatePage() {
 
     // Escuta evento de erro
     const unsubError = EventsOn('update:error', (data: any) => {
+      console.log('[UpdatePage] Update error event:', data);
       setPhase('error');
       setErrorMessage(data.error || 'Erro desconhecido');
       addToast('Erro ao atualizar: ' + data.error, 'error');
     });
 
-    // Auto-inicia a atualização se não foi iniciada ainda
-    if (!autoStarted) {
-      setAutoStarted(true);
-      handleStartUpdate();
-    }
+    // NÃO chama ApplyUpdate aqui - StartUpdate() já fez isso!
+    // O AboutPage chama StartUpdate() que navega para cá e inicia o processo
+    console.log('[UpdatePage] Listeners registrados, aguardando eventos...');
 
     return () => {
+      console.log('[UpdatePage] Limpando listeners');
       unsubProgress();
       unsubStarted();
       unsubCompleted();
       unsubError();
     };
-  }, [autoStarted, addToast]);
+  }, [addToast]); // Removido autoStarted da dependência
 
-  const handleStartUpdate = async () => {
+  const handleRetryUpdate = async () => {
+    console.log('[UpdatePage] Tentando atualizar novamente...');
+    setPhase('idle');
+    setErrorMessage('');
     try {
-      await ApplyUpdate();
+      await StartUpdate();
+      // StartUpdate() navega para esta página e inicia o processo
     } catch (error: any) {
+      console.error('[UpdatePage] Erro ao tentar novamente:', error);
       setPhase('error');
       setErrorMessage(error.message || 'Erro ao iniciar atualização');
       addToast('Erro ao iniciar atualização', 'error');
@@ -174,7 +183,7 @@ export default function UpdatePage() {
               <div className="update-actions">
                 <button 
                   className="btn-primary"
-                  onClick={handleStartUpdate}
+                  onClick={handleRetryUpdate}
                 >
                   Tentar Novamente
                 </button>

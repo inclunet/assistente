@@ -347,15 +347,31 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, manifest *Man
 
 	log.Printf("[Updater] Executando instalador: %s", installerFile)
 
+	// Verifica se o arquivo existe e tem tamanho adequado
+	fileInfo, err := os.Stat(installerFile)
+	if err != nil {
+		return fmt.Errorf("arquivo do instalador não encontrado: %w", err)
+	}
+	log.Printf("[Updater] Tamanho do instalador: %d bytes", fileInfo.Size())
+	if fileInfo.Size() < 1000 {
+		return fmt.Errorf("arquivo do instalador muito pequeno: %d bytes (possível erro no download)", fileInfo.Size())
+	}
+
 	// Executa o instalador de forma silenciosa em background
 	// /S = silent mode no NSIS
 	// O instalador irá aguardar o app fechar e então substituir o executável
+	log.Printf("[Updater] Iniciando processo do instalador com flag /S...")
 	cmd := exec.Command(installerFile, "/S")
+	
+	// Redireciona saída para debug
+	cmd.Stdout = os.Stdout
+	cmd.Stderr = os.Stderr
+	
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("falha ao executar instalador: %w", err)
 	}
 
-	log.Printf("[Updater] ✅ Instalador iniciado em modo silencioso")
+	log.Printf("[Updater] ✅ Instalador iniciado em modo silencioso (PID: %d)", cmd.Process.Pid)
 	log.Printf("[Updater] 🔄 Fechando aplicativo para permitir atualização...")
 	
 	// Aguarda 1 segundo para garantir que o instalador iniciou
@@ -623,7 +639,8 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 	if err != nil {
 		return "", fmt.Errorf("falha ao criar arquivo temporário: %w", err)
 	}
-	defer tmpFile.Close()
+	tmpPath := tmpFile.Name()
+	log.Printf("[Updater] Arquivo temporário criado: %s", tmpPath)
 
 	// Reporta progresso durante download
 	if u.progressCallback != nil {
@@ -636,7 +653,8 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 		n, err := resp.Body.Read(buffer)
 		if n > 0 {
 			if _, writeErr := tmpFile.Write(buffer[:n]); writeErr != nil {
-				os.Remove(tmpFile.Name())
+				tmpFile.Close()
+				os.Remove(tmpPath)
 				return "", fmt.Errorf("falha ao escrever no arquivo: %w", writeErr)
 			}
 			bytesDownloaded += int64(n)
@@ -648,12 +666,23 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 			break
 		}
 		if err != nil {
-			os.Remove(tmpFile.Name())
+			tmpFile.Close()
+			os.Remove(tmpPath)
 			return "", fmt.Errorf("falha ao baixar instalador: %w", err)
 		}
 	}
 
-	return tmpFile.Name(), nil
+	// Sincroniza e fecha o arquivo antes de retornar
+	if err := tmpFile.Sync(); err != nil {
+		log.Printf("[Updater] Aviso: falha ao sincronizar arquivo: %v", err)
+	}
+	if err := tmpFile.Close(); err != nil {
+		os.Remove(tmpPath)
+		return "", fmt.Errorf("falha ao fechar arquivo: %w", err)
+	}
+
+	log.Printf("[Updater] Download completo: %d bytes", bytesDownloaded)
+	return tmpPath, nil
 }
 func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
 	req, err := http.NewRequestWithContext(ctx, "GET", u.githubAPIURL, nil)
