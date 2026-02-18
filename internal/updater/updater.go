@@ -135,15 +135,50 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 		return fmt.Errorf("já está na versão mais recente (%s)", u.currentVersion)
 	}
 
-	// No Windows, usa o instalador diretamente (mais confiável)
+	// No Windows, detecta se é versão instalada ou portátil
 	if runtime.GOOS == "windows" {
-		log.Printf("[Updater] 📦 Usando instalador NSIS para atualização no Windows...")
-		return u.applyUpdateWindows(ctx, manifest)
+		if u.isInstalledVersion() {
+			log.Printf("[Updater] 📦 Versão instalada detectada - usando instalador NSIS...")
+			return u.applyUpdateWindowsInstaller(ctx, manifest)
+		} else {
+			log.Printf("[Updater] 📦 Versão portátil detectada - substituindo executável...")
+			return u.applyUpdateWindowsPortable(ctx, manifest)
+		}
 	}
 
-	// Em outras plataformas (Linux/macOS), usa atualização in-place
+	// Linux: sempre atualização in-place
+	// macOS: pode usar .app bundle ou .dmg dependendo do caso
 	log.Printf("[Updater] Aplicando atualização in-place...")
 	return u.applyUpdateInPlace(ctx, manifest)
+}
+
+// isInstalledVersion verifica se o executável está em Program Files (versão instalada)
+func (u *Updater) isInstalledVersion() bool {
+	if runtime.GOOS != "windows" {
+		return false
+	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		log.Printf("[Updater] ⚠️ Não foi possível obter caminho do executável: %v", err)
+		return false // Em caso de erro, assume portátil (mais seguro)
+	}
+
+	// Normaliza o caminho para lowercase para comparação
+	exePath = strings.ToLower(filepath.Clean(exePath))
+	log.Printf("[Updater] Caminho do executável: %s", exePath)
+
+	// Verifica se está em Program Files ou Program Files (x86)
+	isInProgramFiles := strings.Contains(exePath, "program files") ||
+		strings.Contains(exePath, "program files (x86)")
+
+	if isInProgramFiles {
+		log.Printf("[Updater] ✓ Executável em Program Files - versão instalada")
+	} else {
+		log.Printf("[Updater] ✓ Executável fora de Program Files - versão portátil")
+	}
+
+	return isInProgramFiles
 }
 
 // applyUpdateElevated relança o processo de atualização com privilégios elevados
@@ -235,7 +270,8 @@ Remove-Item -Path $PSCommandPath -Force
 
 
 // applyUpdateWindows baixa e executa o instalador do Windows
-func (u *Updater) applyUpdateWindows(ctx context.Context, manifest *Manifest) error {
+// applyUpdateWindowsInstaller aplica atualização usando instalador NSIS (versão instalada)
+func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, manifest *Manifest) error {
 	// Procura pelo instalador nos assets do GitHub
 	var installerURL string
 	var installerSize int64
@@ -319,9 +355,157 @@ func (u *Updater) applyUpdateWindows(ctx context.Context, manifest *Manifest) er
 		return fmt.Errorf("falha ao executar instalador: %w", err)
 	}
 
-	log.Printf("[Updater] ✅ Instalador iniciado em segundo plano")
-	log.Printf("[Updater] O aplicativo será atualizado quando você fechar e reabrir")
+	log.Printf("[Updater] ✅ Instalador iniciado em modo silencioso")
+	log.Printf("[Updater] 🔄 Fechando aplicativo para permitir atualização...")
+	
+	// Aguarda 1 segundo para garantir que o instalador iniciou
+	time.Sleep(1 * time.Second)
+	
+	// Fecha o aplicativo para que o instalador possa substituir o executável
+	// O instalador NSIS detectará que o processo terminou e aplicará a atualização
+	os.Exit(0)
+	
+	return nil // Nunca executado, mas mantém o compilador feliz
+}
 
+// applyUpdateWindowsPortable aplica atualização baixando versão portátil (fora de Program Files)
+func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, manifest *Manifest) error {
+	var portableURL string
+	var portableSize int64
+
+	// Busca a versão portátil no GitHub release
+	req, err := http.NewRequestWithContext(ctx, "GET", u.githubAPIURL, nil)
+	if err != nil {
+		return err
+	}
+
+	if u.githubToken != "" {
+		req.Header.Set("Authorization", "Bearer "+u.githubToken)
+	}
+
+	resp, err := u.httpClient.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	var ghRelease struct {
+		Assets []struct {
+			Name               string `json:"name"`
+			BrowserDownloadURL string `json:"browser_download_url"`
+			Size               int64  `json:"size"`
+		} `json:"assets"`
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(&ghRelease); err != nil {
+		return fmt.Errorf("falha ao decodificar release: %w", err)
+	}
+
+	log.Printf("[Updater] Buscando versão portátil entre %d assets...", len(ghRelease.Assets))
+
+	// Procura a versão portátil - aceita vários padrões
+	for _, asset := range ghRelease.Assets {
+		log.Printf("[Updater] Asset encontrado: %s", asset.Name)
+		
+		assetLower := strings.ToLower(asset.Name)
+		
+		// Aceita: *portable*.exe, *windows*.exe (mas não installer/setup)
+		isPortable := (strings.Contains(assetLower, "portable") ||
+			(strings.Contains(assetLower, "windows") && 
+				!strings.Contains(assetLower, "installer") && 
+				!strings.Contains(assetLower, "setup"))) &&
+			strings.HasSuffix(assetLower, ".exe")
+		
+		if isPortable {
+			portableURL = asset.BrowserDownloadURL
+			portableSize = asset.Size
+			log.Printf("[Updater] ✓ Versão portátil selecionada: %s (%d bytes)", asset.Name, asset.Size)
+			break
+		}
+	}
+
+	if portableURL == "" {
+		return fmt.Errorf("versão portátil do Windows não encontrada no release (encontrados %d assets)", len(ghRelease.Assets))
+	}
+
+	// Baixa o executável portátil
+	req, err = http.NewRequestWithContext(ctx, "GET", portableURL, nil)
+	if err != nil {
+		return err
+	}
+
+	resp, err = u.httpClient.Do(req)
+	if err != nil {
+		return fmt.Errorf("falha ao baixar executável portátil: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("falha ao baixar: status %d", resp.StatusCode)
+	}
+
+	// Cria arquivo temporário
+	tmpFile, err := os.CreateTemp("", "assistente-portable-*.exe")
+	if err != nil {
+		return fmt.Errorf("falha ao criar arquivo temporário: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	defer os.Remove(tmpPath)
+
+	// Baixa com progress callback
+	var downloaded int64
+	buf := make([]byte, 32*1024)
+	for {
+		n, err := resp.Body.Read(buf)
+		if n > 0 {
+			if _, err := tmpFile.Write(buf[:n]); err != nil {
+				tmpFile.Close()
+				return fmt.Errorf("falha ao escrever arquivo: %w", err)
+			}
+			downloaded += int64(n)
+			if u.progressCallback != nil && portableSize > 0 {
+				percent := int(float64(downloaded) / float64(portableSize) * 100)
+				u.progressCallback(downloaded, portableSize, fmt.Sprintf("downloading: %d%%", percent))
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			tmpFile.Close()
+			return fmt.Errorf("falha ao baixar: %w", err)
+		}
+	}
+
+	if err := tmpFile.Close(); err != nil {
+		return fmt.Errorf("falha ao fechar arquivo temporário: %w", err)
+	}
+
+	log.Printf("[Updater] Executável portátil baixado: %s", tmpPath)
+
+	// Reporta instalação
+	if u.progressCallback != nil {
+		u.progressCallback(0, 100, "installing")
+	}
+
+	// Abre o arquivo baixado para usar com go-update
+	binaryFile, err := os.Open(tmpPath)
+	if err != nil {
+		return fmt.Errorf("falha ao abrir arquivo baixado: %w", err)
+	}
+	defer binaryFile.Close()
+
+	// Aplica a atualização usando go-update
+	err = update.Apply(binaryFile, update.Options{})
+	if err != nil {
+		log.Printf("[Updater] ❌ Erro ao aplicar atualização: %v", err)
+		if rerr := update.RollbackError(err); rerr != nil {
+			return fmt.Errorf("falha ao aplicar update e rollback: %v (rollback error: %v)", err, rerr)
+		}
+		return fmt.Errorf("falha ao aplicar update (rollback realizado): %w", err)
+	}
+
+	log.Printf("[Updater] ✅ Atualização portátil aplicada com sucesso")
 	return nil
 }
 
