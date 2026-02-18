@@ -316,9 +316,33 @@ jobs:
         shell: bash
         working-directory: artifacts
         run: |
+          echo "📋 Calculando checksums..."
+          
+          # Verifica se há arquivos
+          if ! ls -A . 2>/dev/null | grep -q .; then
+            echo "⚠️ Nenhum arquivo encontrado em artifacts/"
+            exit 1
+          fi
+          
+          echo "Arquivos encontrados:"
+          ls -lah
+          
+          # Calcula checksums apenas de arquivos regulares
           for file in *; do
-            [ -f "$file" ] && sha256sum "$file" >> checksums.txt
+            # Ignora checksums.txt e verifica se é arquivo regular (não diretório ou symlink)
+            if [ -f "$file" ] && [ ! -L "$file" ] && [ "$file" != "checksums.txt" ]; then
+              echo "Calculando checksum de: $file"
+              sha256sum "$file" >> checksums.txt || echo "⚠️ Erro ao calcular checksum de $file"
+            fi
           done
+          
+          # Verifica se checksums.txt foi criado
+          if [ -f "checksums.txt" ]; then
+            echo "✅ Checksums gerados:"
+            cat checksums.txt
+          else
+            echo "⚠️ Nenhum checksum foi gerado"
+          fi
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v4
