@@ -19,8 +19,12 @@ O sistema de auto-update agora detecta automaticamente se o aplicativo está rod
   4. Executa `instalador.exe /S` em modo silencioso
   5. **Fecha o aplicativo automaticamente (os.Exit)**
   6. Instalador detecta que o app fechou e substitui o executável
-  7. Instalador se auto-remove
-  8. **Usuário reabre o app manualmente na nova versão**
+  7. **Instalador reabre o aplicativo automaticamente após atualização**
+  8. Instalador se auto-remove
+
+**Recursos do Instalador:**
+- ✅ Opção para executar o programa após instalação manual
+- ✅ Reabertura automática após atualização silenciosa
 
 #### 📦 Versão Portátil (Qualquer outro local)
 - **Detecção**: Executável fora de Program Files (Desktop, USB, pastas personalizadas)

@@ -49,12 +49,14 @@ VIAddVersionKey "ProductName"     "${INFO_PRODUCTNAME}"
 ManifestDPIAware true
 
 !include "MUI.nsh"
+!include "LogicLib.nsh"
+!include "FileFunc.nsh"
 
 !define MUI_ICON "..\icon.ico"
 !define MUI_UNICON "..\icon.ico"
 # !define MUI_WELCOMEFINISHPAGE_BITMAP "resources\leftimage.bmp" #Include this to add a bitmap on the left side of the Welcome Page. Must be a size of 164x314
-!define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps
-!define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
+!define MUI_FINISHPAGE_NOAUTOCLOSE # Wait on the INSTFILES page so the user can take a look into the details of the installation steps!define MUI_FINISHPAGE_RUN "$INSTDIR\${PRODUCT_EXECUTABLE}" # Opção para executar o programa após instalação
+!define MUI_FINISHPAGE_RUN_TEXT "Executar ${INFO_PRODUCTNAME}" # Texto do checkbox!define MUI_ABORTWARNING # This will warn the user if they exit from the installer.
 
 !insertmacro MUI_PAGE_WELCOME # Welcome to the installer page.
 # !insertmacro MUI_PAGE_LICENSE "resources\eula.txt" # Adds a EULA page to the installer
@@ -75,8 +77,23 @@ OutFile "..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the inst
 InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
+Var SilentMode
+
 Function .onInit
    !insertmacro wails.checkArchitecture
+   
+   # Detecta se está em modo silencioso
+   ${GetParameters} $R0
+   ${GetOptions} $R0 "/S" $R1
+   IfErrors +2 0
+   StrCpy $SilentMode "1"
+FunctionEnd
+
+Function .onInstSuccess
+   # Se for modo silencioso (atualização automática), reabre o programa
+   ${If} $SilentMode == "1"
+      Exec '"$INSTDIR\${PRODUCT_EXECUTABLE}"'
+   ${EndIf}
 FunctionEnd
 
 Section
