@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Outlet } from 'react-router-dom';
+import { Outlet, useNavigate } from 'react-router-dom';
 import './App.css';
 import { GetConfig, RespondQuestionnaire } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
@@ -10,6 +10,7 @@ import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
 import { QuestionnaireDialog, QuestionnairePayload } from './components/ui/QuestionnaireDialog';
 
 function App() {
+    const navigate = useNavigate();
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
     const { initializeTabs, isInitialized, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleTabClosed, handleExternalIncoming } = useChatStore();
@@ -112,14 +113,20 @@ function App() {
             }
         });
 
+        EventsOn('navigate:update', () => {
+            console.log('[App] navigate:update event received');
+            navigate('/update');
+        });
+
         return () => {
             EventsOff('conversation:deleted');
             EventsOff('conversation:cleared');
             EventsOff('conversation:renamed');
             EventsOff('database:reset');
             EventsOff('tab_closed');
+            EventsOff('navigate:update');
         };
-    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleTabClosed]);
+    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleTabClosed, navigate]);
 
     // Listener para mensagens de canais externos (Signal, Telegram).
     // Quando messaging:incoming chega, delega ao chatStore que monta placeholders

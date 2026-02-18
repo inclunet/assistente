@@ -2108,6 +2108,26 @@ func (a *App) ReorderTabs(orderedIds []uint) error {
 // initUpdater inicializa o gerenciador de atualizações
 func (a *App) initUpdater() {
 	a.updater = updater.New(AppVersion)
+	
+	// Configura callback de progresso
+	a.updater.SetProgressCallback(func(bytesDownloaded, totalBytes int64, phase string) {
+		if a.ctx == nil {
+			return
+		}
+		
+		var percentage float64
+		if totalBytes > 0 {
+			percentage = float64(bytesDownloaded) / float64(totalBytes) * 100
+		}
+		
+		runtime.EventsEmit(a.ctx, "update:progress", map[string]interface{}{
+			"phase":            phase,
+			"bytesDownloaded": bytesDownloaded,
+			"totalBytes":       totalBytes,
+			"percentage":       percentage,
+		})
+	})
+	
 	log.Printf("[Updater] Inicializado (versão atual: %s)", AppVersion)
 }
 
@@ -2183,6 +2203,10 @@ func (a *App) promptForUpdate(info *updater.UpdateInfo) {
 	}
 
 	if confirm, ok := resp.Answers["confirm"].(bool); ok && confirm {
+		// Navega para página de atualização
+		if a.ctx != nil {
+			runtime.EventsEmit(a.ctx, "navigate:update", nil)
+		}
 		go a.applyUpdateWithProgress()
 	}
 }
@@ -2205,6 +2229,24 @@ func (a *App) ApplyUpdate() error {
 		return fmt.Errorf("updater não inicializado")
 	}
 
+	go a.applyUpdateWithProgress()
+	return nil
+}
+
+// StartUpdate inicia o processo de atualização (navega para página e inicia)
+func (a *App) StartUpdate() error {
+	if a.updater == nil {
+		return fmt.Errorf("updater não inicializado")
+	}
+
+	// Emite evento para navegar para página de atualização
+	if a.ctx != nil {
+		runtime.EventsEmit(a.ctx, "navigate:update", nil)
+	}
+	
+	// Aguarda um pouco para garantir que a navegação ocorreu
+	time.Sleep(500 * time.Millisecond)
+	
 	go a.applyUpdateWithProgress()
 	return nil
 }

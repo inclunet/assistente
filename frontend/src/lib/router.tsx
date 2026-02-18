@@ -11,6 +11,8 @@ import AllowlistPage from '../pages/AllowlistPage';
 import SkillsPage from '../pages/SkillsPage';
 import McpPage from '../pages/McpPage';
 import ChannelsPage from '../pages/ChannelsPage';
+import UpdatePage from '../pages/UpdatePage';
+import AboutPage from '../pages/AboutPage';
 
 export const router = createHashRouter([
   {
@@ -59,6 +61,14 @@ export const router = createHashRouter([
           {
             path: 'help',
             element: <HelpPage />,
+          },
+          {
+            path: 'about',
+            element: <AboutPage />,
+          },
+          {
+            path: 'update',
+            element: <UpdatePage />,
           },
         ],
       },

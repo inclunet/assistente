@@ -1,0 +1,180 @@
+.update-page {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  min-height: 100vh;
+  padding: 2rem;
+  background: var(--bg-secondary);
+}
+
+.update-container {
+  max-width: 600px;
+  width: 100%;
+  background: var(--bg-primary);
+  border-radius: 12px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  overflow: hidden;
+}
+
+.update-header {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+  padding: 2rem;
+  text-align: center;
+}
+
+.update-header h1 {
+  margin: 0;
+  font-size: 1.8rem;
+  font-weight: 600;
+}
+
+.update-content {
+  padding: 2rem;
+}
+
+.update-status {
+  text-align: center;
+  margin-bottom: 2rem;
+}
+
+.update-status h2 {
+  margin: 0 0 0.5rem 0;
+  font-size: 1.4rem;
+  color: var(--text-primary);
+}
+
+.download-info {
+  margin: 0;
+  font-size: 1rem;
+  color: var(--text-secondary);
+}
+
+.progress-container {
+  margin-bottom: 2rem;
+}
+
+.progress-bar {
+  width: 100%;
+  height: 30px;
+  background: var(--bg-secondary);
+  border-radius: 15px;
+  overflow: hidden;
+  position: relative;
+  box-shadow: inset 0 2px 4px rgba(0, 0, 0, 0.1);
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea 0%, #764ba2 100%);
+  transition: width 0.3s ease;
+  border-radius: 15px;
+}
+
+.progress-text {
+  text-align: center;
+  margin-top: 0.5rem;
+  font-size: 1.1rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.update-spinner {
+  display: flex;
+  justify-content: center;
+  margin: 2rem 0;
+}
+
+.spinner {
+  width: 50px;
+  height: 50px;
+  border: 4px solid var(--bg-secondary);
+  border-top: 4px solid #667eea;
+  border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  0% { transform: rotate(0deg); }
+  100% { transform: rotate(360deg); }
+}
+
+.update-message {
+  text-align: center;
+  color: var(--text-secondary);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.update-success,
+.update-error {
+  text-align: center;
+}
+
+.success-icon,
+.error-icon {
+  font-size: 4rem;
+  margin-bottom: 1rem;
+}
+
+.update-success h2,
+.update-error h2 {
+  margin: 0 0 1rem 0;
+  font-size: 1.5rem;
+  color: var(--text-primary);
+}
+
+.update-success p,
+.update-error p {
+  margin: 0 0 2rem 0;
+  color: var(--text-secondary);
+  font-size: 1rem;
+}
+
+.error-message {
+  background: var(--bg-secondary);
+  padding: 1rem;
+  border-radius: 8px;
+  font-family: 'Courier New', monospace;
+  font-size: 0.9rem;
+  color: var(--error-color, #ef4444);
+  word-break: break-word;
+}
+
+.update-actions {
+  display: flex;
+  gap: 1rem;
+  justify-content: center;
+  margin-top: 2rem;
+}
+
+.btn-primary,
+.btn-secondary {
+  padding: 0.75rem 1.5rem;
+  border: none;
+  border-radius: 8px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: white;
+}
+
+.btn-primary:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4);
+}
+
+.btn-secondary {
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+}
+
+.btn-secondary:hover {
+  background: var(--bg-tertiary);
+}

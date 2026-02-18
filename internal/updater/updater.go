@@ -49,12 +49,16 @@ type UpdateInfo struct {
 	DownloadSize   int64  `json:"downloadSize,omitempty"`
 }
 
+// ProgressCallback é chamado durante o download para reportar progresso
+type ProgressCallback func(bytesDownloaded, totalBytes int64, phase string)
+
 // Updater gerencia verificação e aplicação de atualizações
 type Updater struct {
-	currentVersion string
-	githubAPIURL   string
-	githubToken    string // Token para acessar releases privadas (opcional)
-	httpClient     *http.Client
+	currentVersion   string
+	githubAPIURL     string
+	githubToken      string // Token para acessar releases privadas (opcional)
+	httpClient       *http.Client
+	progressCallback ProgressCallback
 }
 
 // New cria um novo Updater
@@ -72,6 +76,11 @@ func New(currentVersion string) *Updater {
 // SetGitHubToken configura token para acessar releases privadas
 func (u *Updater) SetGitHubToken(token string) {
 	u.githubToken = token
+}
+
+// SetProgressCallback configura callback para reportar progresso
+func (u *Updater) SetProgressCallback(callback ProgressCallback) {
+	u.progressCallback = callback
 }
 
 // CheckForUpdates verifica se há uma nova versão disponível
@@ -128,6 +137,11 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 	}
 	defer binary.Close()
 
+	// Reporta verificação
+	if u.progressCallback != nil {
+		u.progressCallback(0, 100, "verifying")
+	}
+
 	// Verifica checksum
 	if err := u.verifyChecksum(binary, build.Checksum); err != nil {
 		return fmt.Errorf("falha na verificação de checksum: %w", err)
@@ -136,6 +150,11 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 	// Reseta para o início do arquivo após verificar checksum
 	if seeker, ok := binary.(io.Seeker); ok {
 		seeker.Seek(0, io.SeekStart)
+	}
+
+	// Reporta instalação
+	if u.progressCallback != nil {
+		u.progressCallback(0, 100, "installing")
 	}
 
 	// Aplica a atualização
@@ -275,13 +294,40 @@ func (u *Updater) downloadBinary(ctx context.Context, url string) (io.ReadCloser
 		return nil, fmt.Errorf("falha ao criar arquivo temporário: %w", err)
 	}
 
-	_, err = io.Copy(tmpFile, resp.Body)
-	resp.Body.Close()
-	if err != nil {
-		tmpFile.Close()
-		os.Remove(tmpFile.Name())
-		return nil, fmt.Errorf("falha ao salvar binário: %w", err)
+	// Reporta progresso durante download
+	totalBytes := resp.ContentLength
+	if u.progressCallback != nil {
+		u.progressCallback(0, totalBytes, "downloading")
 	}
+
+	var bytesDownloaded int64
+	buffer := make([]byte, 32*1024) // 32KB buffer
+	for {
+		n, err := resp.Body.Read(buffer)
+		if n > 0 {
+			if _, writeErr := tmpFile.Write(buffer[:n]); writeErr != nil {
+				resp.Body.Close()
+				tmpFile.Close()
+				os.Remove(tmpFile.Name())
+				return nil, fmt.Errorf("falha ao escrever no arquivo: %w", writeErr)
+			}
+			bytesDownloaded += int64(n)
+			if u.progressCallback != nil {
+				u.progressCallback(bytesDownloaded, totalBytes, "downloading")
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			resp.Body.Close()
+			tmpFile.Close()
+			os.Remove(tmpFile.Name())
+			return nil, fmt.Errorf("falha ao baixar binário: %w", err)
+		}
+	}
+
+	resp.Body.Close()
 
 	// Volta ao início do arquivo
 	tmpFile.Seek(0, io.SeekStart)

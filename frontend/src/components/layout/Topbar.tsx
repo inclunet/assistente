@@ -37,6 +37,8 @@ export function Topbar() {
     if (location.pathname === '/profiles') return 'profiles';
     if (location.pathname === '/history') return 'history';
     if (location.pathname === '/help') return 'help';
+    if (location.pathname === '/about') return 'about';
+    if (location.pathname === '/update') return 'update';
     return 'chat';
   };
 
@@ -101,6 +103,12 @@ export function Topbar() {
       icon: '📚',
       shortcut: 'F1',
       onClick: () => navigate('/help'),
+    },
+    {
+      id: 'about',
+      label: 'Sobre',
+      icon: 'ℹ️',
+      onClick: () => navigate('/about'),
     },
   ];
 
