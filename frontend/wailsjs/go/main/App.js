@@ -418,8 +418,8 @@ export function RunTerminalCommand(arg1, arg2) {
   return window['go']['main']['App']['RunTerminalCommand'](arg1, arg2);
 }
 
-export function RunWelcomeWizard(arg1) {
-  return window['go']['main']['App']['RunWelcomeWizard'](arg1);
+export function RunWelcomeWizard() {
+  return window['go']['main']['App']['RunWelcomeWizard']();
 }
 
 export function SaveChannelConfig(arg1, arg2) {

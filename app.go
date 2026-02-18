@@ -2354,7 +2354,9 @@ func (a *App) NeedsWelcomeWizard() bool {
 
 // RunWelcomeWizard executa o wizard de boas-vindas
 // Retorna true se completou com sucesso, false se cancelado
-func (a *App) RunWelcomeWizard(ctx context.Context) (bool, error) {
+func (a *App) RunWelcomeWizard() (bool, error) {
+	ctx := a.ctx
+	
 	// Etapa 1: Escolher provedor
 	providerResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
 		Title:       "Bem-vindo ao Assistente!",

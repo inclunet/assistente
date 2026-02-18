@@ -11,7 +11,6 @@ import {contacts} from '../models';
 import {config} from '../models';
 import {mcp} from '../models';
 import {skills} from '../models';
-import {context} from '../models';
 import {llm} from '../models';
 
 export function AddChildMessage(arg1:number,arg2:number,arg3:string,arg4:string,arg5:string):Promise<database.ChatMessage>;
@@ -222,7 +221,7 @@ export function RestartChannel(arg1:string):Promise<void>;
 
 export function RunTerminalCommand(arg1:string,arg2:string):Promise<void>;
 
-export function RunWelcomeWizard(arg1:context.Context):Promise<boolean>;
+export function RunWelcomeWizard():Promise<boolean>;
 
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 
