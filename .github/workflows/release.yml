@@ -34,7 +34,7 @@ jobs:
             output: assistente
             
           # macOS Intel (AMD64)
-          - os: macos-13
+          - os: macos-13-large
             platform: darwin/amd64
             goos: darwin
             goarch: amd64
