@@ -136,42 +136,20 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 		return fmt.Errorf("já está na versão mais recente (%s)", u.currentVersion)
 	}
 
-	// Tenta atualização in-place primeiro (mais rápido e fluido)
-	log.Printf("[Updater] Tentando atualização in-place...")
-	err = u.applyUpdateInPlace(ctx, manifest)
-	if err == nil {
-		return nil // Sucesso!
-	}
-
-	log.Printf("[Updater] Falha na atualização in-place: %v", err)
-
-	// Se falhou por permissão no Windows
-	if runtime.GOOS == "windows" && isPermissionError(err) {
-		log.Printf("[Updater] ⚠️ Detectado erro de permissão")
-
-		// Tenta solicitar elevação se callback configurado
-		if u.elevationCallback != nil {
-			log.Printf("[Updater] 🔐 Solicitando elevação de privilégios...")
-			if u.elevationCallback() {
-				log.Printf("[Updater] ✓ Usuário autorizou elevação")
-				return u.applyUpdateElevated(ctx, manifest)
-			}
-			log.Printf("[Updater] ✗ Usuário recusou elevação")
-		} else {
-			log.Printf("[Updater] ⚠️ Callback de elevação não configurado")
-		}
-
-		// Se não autorizou elevação ou callback não existe, usa instalador como fallback
-		log.Printf("[Updater] 📦 Usando instalador NSIS como alternativa...")
+	// No Windows, usa o instalador diretamente (mais confiável)
+	if runtime.GOOS == "windows" {
+		log.Printf("[Updater] 📦 Usando instalador NSIS para atualização no Windows...")
 		return u.applyUpdateWindows(ctx, manifest)
 	}
 
-	// Falhou por outro motivo que não seja permissão
-	log.Printf("[Updater] ✗ Falha não relacionada a permissões")
-	return err
+	// Em outras plataformas (Linux/macOS), usa atualização in-place
+	log.Printf("[Updater] Aplicando atualização in-place...")
+	return u.applyUpdateInPlace(ctx, manifest)
 }
 
 // applyUpdateElevated relança o processo de atualização com privilégios elevados
+// NOTA: Desabilitado - preferimos usar o instalador NSIS diretamente
+/*
 func (u *Updater) applyUpdateElevated(ctx context.Context, manifest *Manifest) error {
 	// Obtém build para a plataforma atual
 	buildKey := u.getBuildKey()
@@ -254,6 +232,8 @@ Remove-Item -Path $PSCommandPath -Force
 
 	return nil
 }
+*/
+
 
 // applyUpdateWindows baixa e executa o instalador do Windows
 func (u *Updater) applyUpdateWindows(ctx context.Context, manifest *Manifest) error {
@@ -289,17 +269,30 @@ func (u *Updater) applyUpdateWindows(ctx context.Context, manifest *Manifest) er
 		return fmt.Errorf("falha ao decodificar release: %w", err)
 	}
 
-	// Procura o instalador
+	log.Printf("[Updater] Buscando instalador entre %d assets...", len(ghRelease.Assets))
+
+	// Procura o instalador - aceita vários padrões de nomes
 	for _, asset := range ghRelease.Assets {
-		if contains(asset.Name, "installer.exe") && contains(asset.Name, "windows-amd64") {
+		log.Printf("[Updater] Asset encontrado: %s", asset.Name)
+		
+		assetLower := strings.ToLower(asset.Name)
+		
+		// Aceita: *installer*.exe, *windows*.exe, *setup*.exe
+		isInstaller := (strings.Contains(assetLower, "installer") ||
+			strings.Contains(assetLower, "setup") ||
+			strings.Contains(assetLower, "windows")) &&
+			strings.HasSuffix(assetLower, ".exe")
+		
+		if isInstaller {
 			installerURL = asset.BrowserDownloadURL
 			installerSize = asset.Size
+			log.Printf("[Updater] ✓ Instalador selecionado: %s (%d bytes)", asset.Name, asset.Size)
 			break
 		}
 	}
 
 	if installerURL == "" {
-		return fmt.Errorf("instalador do Windows não encontrado no release")
+		return fmt.Errorf("instalador do Windows não encontrado no release (encontrados %d assets)", len(ghRelease.Assets))
 	}
 
 	log.Printf("[Updater] Baixando instalador: %s", installerURL)
@@ -309,7 +302,8 @@ func (u *Updater) applyUpdateWindows(ctx context.Context, manifest *Manifest) er
 	if err != nil {
 		return fmt.Errorf("falha ao baixar instalador: %w", err)
 	}
-	defer os.Remove(installerFile) // Remove após execução
+	// NÃO remove o instalador aqui - ele precisa executar em background
+	// O instalador NSIS se auto-remove após a instalação
 
 	// Reporta instalação
 	if u.progressCallback != nil {
@@ -318,14 +312,16 @@ func (u *Updater) applyUpdateWindows(ctx context.Context, manifest *Manifest) er
 
 	log.Printf("[Updater] Executando instalador: %s", installerFile)
 
-	// Executa o instalador de forma silenciosa
-	cmd := exec.Command(installerFile, "/S") // /S = silent mode no NSIS
+	// Executa o instalador de forma silenciosa em background
+	// /S = silent mode no NSIS
+	// O instalador irá aguardar o app fechar e então substituir o executável
+	cmd := exec.Command(installerFile, "/S")
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("falha ao executar instalador: %w", err)
 	}
 
-	// Não aguarda a conclusão - o instalador irá substituir o executável e o usuário precisará reiniciar
-	log.Printf("[Updater] Instalador iniciado. O aplicativo será atualizado em segundo plano.")
+	log.Printf("[Updater] ✅ Instalador iniciado em segundo plano")
+	log.Printf("[Updater] O aplicativo será atualizado quando você fechar e reabrir")
 
 	return nil
 }
@@ -386,6 +382,9 @@ func (u *Updater) applyUpdateInPlace(ctx context.Context, manifest *Manifest) er
 }
 
 // isPermissionError verifica se o erro é relacionado a permissões
+// isPermissionError verifica se o erro é relacionado a permissões
+// NOTA: Desabilitado - não usamos mais detecção de permissões no Windows
+/*
 func isPermissionError(err error) bool {
 	if err == nil {
 		return false
@@ -411,6 +410,8 @@ func isPermissionError(err error) bool {
 
 	return isPerm
 }
+*/
+
 
 // downloadInstaller baixa o instalador do Windows
 func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes int64) (string, error) {
