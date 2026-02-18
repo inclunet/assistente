@@ -354,6 +354,10 @@ export function LoadConversationInTab(arg1, arg2) {
   return window['go']['main']['App']['LoadConversationInTab'](arg1, arg2);
 }
 
+export function NeedsWelcomeWizard() {
+  return window['go']['main']['App']['NeedsWelcomeWizard']();
+}
+
 export function OpenConversationInCurrentTab(arg1) {
   return window['go']['main']['App']['OpenConversationInCurrentTab'](arg1);
 }
@@ -412,6 +416,10 @@ export function RestartChannel(arg1) {
 
 export function RunTerminalCommand(arg1, arg2) {
   return window['go']['main']['App']['RunTerminalCommand'](arg1, arg2);
+}
+
+export function RunWelcomeWizard(arg1) {
+  return window['go']['main']['App']['RunWelcomeWizard'](arg1);
 }
 
 export function SaveChannelConfig(arg1, arg2) {

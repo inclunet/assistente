@@ -148,7 +148,7 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 	// Se falhou por permissão no Windows
 	if runtime.GOOS == "windows" && isPermissionError(err) {
 		log.Printf("[Updater] ⚠️ Detectado erro de permissão")
-		
+
 		// Tenta solicitar elevação se callback configurado
 		if u.elevationCallback != nil {
 			log.Printf("[Updater] 🔐 Solicitando elevação de privilégios...")
@@ -160,7 +160,7 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 		} else {
 			log.Printf("[Updater] ⚠️ Callback de elevação não configurado")
 		}
-		
+
 		// Se não autorizou elevação ou callback não existe, usa instalador como fallback
 		log.Printf("[Updater] 📦 Usando instalador NSIS como alternativa...")
 		return u.applyUpdateWindows(ctx, manifest)
@@ -206,32 +206,52 @@ func (u *Updater) applyUpdateElevated(ctx context.Context, manifest *Manifest) e
 	}
 
 	// Cria script PowerShell para fazer a substituição com elevação
+	// O script vai: aguardar app fechar, substituir exe, reiniciar
 	script := fmt.Sprintf(`
-		Start-Sleep -Seconds 2
-		Move-Item -Path "%s" -Destination "%s" -Force
-		Start-Process "%s"
-	`, tmpPath, exePath, exePath)
+# Aguarda 3 segundos para garantir que o app fechou
+Start-Sleep -Seconds 3
+
+# Move o novo executável para o local correto
+$source = '%s'
+$destination = '%s'
+Move-Item -Path $source -Destination $destination -Force
+
+# Reinicia o aplicativo
+Start-Process -FilePath $destination
+
+# Remove o script
+Remove-Item -Path $PSCommandPath -Force
+`, tmpPath, exePath, exePath)
 
 	scriptFile, err := os.CreateTemp("", "update-*.ps1")
 	if err != nil {
 		return fmt.Errorf("falha ao criar script: %w", err)
 	}
-	defer os.Remove(scriptFile.Name())
+	scriptPath := scriptFile.Name()
 
 	if _, err := scriptFile.WriteString(script); err != nil {
 		return fmt.Errorf("falha ao escrever script: %w", err)
 	}
 	scriptFile.Close()
 
-	// Executa PowerShell com elevação usando runas
-	cmd := exec.Command("powershell", "-Command",
-		fmt.Sprintf("Start-Process powershell -Verb RunAs -ArgumentList '-ExecutionPolicy Bypass -File \"%s\"'", scriptFile.Name()))
-	
+	// Executa PowerShell com elevação usando RunAs
+	// Usa ArgumentList como array para evitar problemas com aspas
+	psCommand := fmt.Sprintf(`Start-Process -FilePath powershell.exe -Verb RunAs -ArgumentList '-ExecutionPolicy','Bypass','-File','%s'`, scriptPath)
+
+	cmd := exec.Command("powershell", "-Command", psCommand)
 	if err := cmd.Start(); err != nil {
 		return fmt.Errorf("falha ao solicitar elevação: %w", err)
 	}
 
 	log.Printf("[Updater] ✅ Processo de atualização elevado iniciado")
+
+	// Importante: aguarda um pouco para garantir que o UAC foi mostrado
+	time.Sleep(500 * time.Millisecond)
+
+	// Encerra o aplicativo atual para permitir a substituição
+	log.Printf("[Updater] 🔄 Encerrando aplicativo para permitir atualização...")
+	os.Exit(0)
+
 	return nil
 }
 
@@ -240,7 +260,7 @@ func (u *Updater) applyUpdateWindows(ctx context.Context, manifest *Manifest) er
 	// Procura pelo instalador nos assets do GitHub
 	var installerURL string
 	var installerSize int64
-	
+
 	// Busca o instalador no GitHub release
 	req, err := http.NewRequestWithContext(ctx, "GET", u.githubAPIURL, nil)
 	if err != nil {
@@ -306,7 +326,7 @@ func (u *Updater) applyUpdateWindows(ctx context.Context, manifest *Manifest) er
 
 	// Não aguarda a conclusão - o instalador irá substituir o executável e o usuário precisará reiniciar
 	log.Printf("[Updater] Instalador iniciado. O aplicativo será atualizado em segundo plano.")
-	
+
 	return nil
 }
 
@@ -370,25 +390,25 @@ func isPermissionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	
+
 	// Verifica a string do erro e todos os erros wrapped
 	var errMsg string
 	for e := err; e != nil; e = errors.Unwrap(e) {
 		errMsg += strings.ToLower(e.Error()) + " "
 	}
-	
+
 	// Verifica mensagens comuns de erro de permissão
 	isPerm := strings.Contains(errMsg, "access is denied") ||
 		strings.Contains(errMsg, "permission denied") ||
 		strings.Contains(errMsg, "access denied") ||
 		strings.Contains(errMsg, "cannot create")
-	
+
 	if isPerm {
 		log.Printf("[Updater] ✓ Detectado erro de permissão na mensagem: %s", errMsg)
 	} else {
 		log.Printf("[Updater] ✗ Não é erro de permissão: %s", errMsg)
 	}
-	
+
 	return isPerm
 }
 

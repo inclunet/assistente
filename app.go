@@ -627,10 +627,10 @@ func (a *App) registerChannelBridge(conversationID uint) {
 
 // ChannelInfo descreve um canal de mensageria disponível para atribuição.
 type ChannelInfo struct {
-	Name        string                       `json:"name"`        // "signal", "telegram"
-	Connected   bool                         `json:"connected"`   // se está conectado e funcional
-	Contacts    []*contacts.AuthorizedContact `json:"contacts"`   // contatos autorizados
-	MaxContacts int                          `json:"maxContacts"` // limite de contatos
+	Name        string                        `json:"name"`        // "signal", "telegram"
+	Connected   bool                          `json:"connected"`   // se está conectado e funcional
+	Contacts    []*contacts.AuthorizedContact `json:"contacts"`    // contatos autorizados
+	MaxContacts int                           `json:"maxContacts"` // limite de contatos
 }
 
 // GetAvailableChannels retorna os canais habilitados, seu status e contatos autorizados.
@@ -1299,7 +1299,7 @@ func (a *App) GetLLMSettings() (*LLMSettings, error) {
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar config: %w", err)
 	}
-	
+
 	return &LLMSettings{
 		APIKey:  cfg.APIKey,
 		BaseURL: cfg.APIBaseURL,
@@ -1315,34 +1315,34 @@ func (a *App) TestMCPNativeSupport(profileSlug string) (bool, string, error) {
 	if err != nil {
 		return false, "", fmt.Errorf("erro ao carregar perfil: %w", err)
 	}
-	
+
 	// Obter configurações da API do LLM settings atual
 	settings, err := a.GetLLMSettings()
 	if err != nil {
 		return false, "", fmt.Errorf("erro ao obter configurações: %w", err)
 	}
-	
+
 	// Fazer teste
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
-	
+
 	supported, errMsg, err := profiles.TestMCPNativeSupport(
 		ctx,
 		settings.APIKey,
 		settings.BaseURL,
 		profile.Chat.Model,
 	)
-	
+
 	if err != nil {
 		return false, errMsg, err
 	}
-	
+
 	// Salvar resultado no perfil
 	profile.SetMCPNativeSupport(supported)
 	if err := a.profileManager.Update(profileSlug, profile); err != nil {
 		return supported, "", fmt.Errorf("erro ao salvar perfil: %w", err)
 	}
-	
+
 	return supported, "", nil
 }
 
@@ -1352,13 +1352,13 @@ func (a *App) ClearMCPTest(profileSlug string) error {
 	if err != nil {
 		return fmt.Errorf("erro ao carregar perfil: %w", err)
 	}
-	
+
 	profile.ClearMCPTest()
-	
+
 	if err := a.profileManager.Update(profileSlug, profile); err != nil {
 		return fmt.Errorf("erro ao salvar perfil: %w", err)
 	}
-	
+
 	return nil
 }
 
@@ -2112,36 +2112,36 @@ func (a *App) initUpdater() {
 	// AppVersion é injetada via ldflags durante o build
 	// Em dev, permanece como "dev"
 	a.updater = updater.New(AppVersion)
-	
+
 	// Configura callback de progresso
 	a.updater.SetProgressCallback(func(bytesDownloaded, totalBytes int64, phase string) {
 		if a.ctx == nil {
 			return
 		}
-		
+
 		var percentage float64
 		if totalBytes > 0 {
 			percentage = float64(bytesDownloaded) / float64(totalBytes) * 100
 		}
-		
+
 		runtime.EventsEmit(a.ctx, "update:progress", map[string]interface{}{
-			"phase":            phase,
+			"phase":           phase,
 			"bytesDownloaded": bytesDownloaded,
-			"totalBytes":       totalBytes,
-			"percentage":       percentage,
+			"totalBytes":      totalBytes,
+			"percentage":      percentage,
 		})
 	})
-	
+
 	// Configura callback de elevação (solicita permissão ao usuário)
 	a.updater.SetElevationCallback(func() bool {
 		if a.questionnaireMgr == nil {
 			log.Printf("[Updater] Questionnaire manager não disponível para solicitar elevação")
 			return false
 		}
-		
+
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
 		defer cancel()
-		
+
 		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
 			Title:       "Permissão Necessária",
 			Description: "Para atualizar o aplicativo, precisamos de permissões de administrador para substituir o arquivo executável.\n\nDeseja permitir?",
@@ -2158,25 +2158,25 @@ func (a *App) initUpdater() {
 			SubmitLabel: "Permitir",
 			CancelLabel: "Cancelar",
 		})
-		
+
 		if err != nil {
 			log.Printf("[Updater] Erro ao solicitar confirmação de elevação: %v", err)
 			return false
 		}
-		
+
 		if resp.Cancelled {
 			log.Printf("[Updater] Usuário cancelou a solicitação de elevação")
 			return false
 		}
-		
+
 		if allow, ok := resp.Answers["allow"].(bool); ok && allow {
 			log.Printf("[Updater] Usuário autorizou elevação")
 			return true
 		}
-		
+
 		return false
 	})
-	
+
 	log.Printf("[Updater] Inicializado (versão atual: %s)", AppVersion)
 }
 
@@ -2184,6 +2184,13 @@ func (a *App) initUpdater() {
 func (a *App) checkForUpdatesOnStartup() {
 	// Aguarda 5 segundos após startup para não interferir com inicialização
 	time.Sleep(5 * time.Second)
+
+	// Só verifica atualizações se LLM estiver configurado
+	cfg, err := config.Load()
+	if err != nil || cfg.APIKey == "" || cfg.APIBaseURL == "" {
+		log.Printf("[Updater] Pulando verificação de atualizações: LLM não configurado")
+		return
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -2292,10 +2299,10 @@ func (a *App) StartUpdate() error {
 	if a.ctx != nil {
 		runtime.EventsEmit(a.ctx, "navigate:update", nil)
 	}
-	
+
 	// Aguarda um pouco para garantir que a navegação ocorreu
 	time.Sleep(500 * time.Millisecond)
-	
+
 	go a.applyUpdateWithProgress()
 	return nil
 }
@@ -2328,4 +2335,292 @@ func (a *App) applyUpdateWithProgress() {
 // GetAppVersion retorna a versão atual do aplicativo
 func (a *App) GetAppVersion() string {
 	return AppVersion
+}
+
+// ==================== Welcome Wizard ====================
+
+// NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas
+// Retorna true se não houver provedor ou token configurado
+func (a *App) NeedsWelcomeWizard() bool {
+	cfg, err := config.Load()
+	if err != nil {
+		return true
+	}
+
+	// Verifica se tem API key e base URL configurados
+	hasConfig := cfg.APIKey != "" && cfg.APIBaseURL != ""
+	return !hasConfig
+}
+
+// RunWelcomeWizard executa o wizard de boas-vindas
+// Retorna true se completou com sucesso, false se cancelado
+func (a *App) RunWelcomeWizard(ctx context.Context) (bool, error) {
+	// Etapa 1: Escolher provedor
+	providerResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+		Title:       "Bem-vindo ao Assistente!",
+		Description: "Vamos configurar seu assistente em alguns passos simples.",
+		Questions: []questionnaire.Question{
+			{
+				ID:       "provider",
+				Type:     "select",
+				Prompt:   "Qual provedor de IA você deseja usar?",
+				Required: true,
+				Options: []string{
+					"OpenAI",
+					"Anthropic (Claude)",
+					"Google (Gemini)",
+					"Azure OpenAI",
+					"Ollama (Local)",
+					"LiteLLM",
+					"Outro (URL personalizada)",
+				},
+			},
+		},
+		AllowCancel: true,
+		SubmitLabel: "Próximo",
+		CancelLabel: "Cancelar",
+	})
+
+	if err != nil || providerResp.Cancelled {
+		return false, err
+	}
+
+	provider := providerResp.Answers["provider"].(string)
+
+	// Mapeia provedor para base URL padrão
+	baseURL := ""
+	switch provider {
+	case "OpenAI":
+		baseURL = "https://api.openai.com/v1"
+	case "Anthropic (Claude)":
+		baseURL = "https://api.anthropic.com/v1"
+	case "Google (Gemini)":
+		baseURL = "https://generativelanguage.googleapis.com/v1beta"
+	case "Azure OpenAI":
+		baseURL = "" // Usuário precisará fornecer
+	case "Ollama (Local)":
+		baseURL = "http://localhost:11434/v1"
+	case "LiteLLM":
+		baseURL = "http://localhost:4000"
+	case "Outro (URL personalizada)":
+		baseURL = "" // Usuário precisará fornecer
+	}
+
+	// Etapa 2: URL personalizada (se necessário)
+	needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI"
+	if needsCustomURL {
+		urlResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+			Title:       "Configuração do Servidor",
+			Description: "Informe a URL do servidor OpenAI-compatible.",
+			Questions: []questionnaire.Question{
+				{
+					ID:          "baseURL",
+					Type:        "text",
+					Prompt:      "URL do servidor (exemplo: http://localhost:11434/v1)",
+					Required:    true,
+					Placeholder: "http://localhost:11434/v1",
+				},
+			},
+			AllowCancel: true,
+			SubmitLabel: "Próximo",
+			CancelLabel: "Voltar",
+		})
+
+		if err != nil || urlResp.Cancelled {
+			return false, err
+		}
+
+		baseURL = urlResp.Answers["baseURL"].(string)
+	}
+
+	// Etapa 3: API Key
+	keyDescription := "Informe sua chave de API. Deixe em branco se o servidor não requer autenticação."
+	if provider == "Ollama (Local)" {
+		keyDescription = "Ollama local geralmente não precisa de chave. Você pode deixar em branco."
+	}
+
+	keyResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+		Title:       "Chave de API",
+		Description: keyDescription,
+		Questions: []questionnaire.Question{
+			{
+				ID:          "apiKey",
+				Type:        "text",
+				Prompt:      "Chave de API (opcional)",
+				Required:    false,
+				Placeholder: "sk-...",
+			},
+		},
+		AllowCancel: true,
+		SubmitLabel: "Próximo",
+		CancelLabel: "Voltar",
+	})
+
+	if err != nil || keyResp.Cancelled {
+		return false, err
+	}
+
+	apiKey := ""
+	if keyResp.Answers["apiKey"] != nil {
+		apiKey = keyResp.Answers["apiKey"].(string)
+	}
+
+	// Salva configuração temporária para testar modelos
+	tempCfg := &config.Config{
+		APIKey:     apiKey,
+		APIBaseURL: baseURL,
+	}
+
+	// Etapa 4: Listar e escolher modelo
+	models, err := llm.GetModels(tempCfg)
+	if err != nil {
+		// Se falhou ao listar modelos, pergunta se quer continuar mesmo assim
+		errorResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+			Title:       "Erro ao Listar Modelos",
+			Description: fmt.Sprintf("Não foi possível listar os modelos disponíveis: %v\n\nVocê pode configurar um modelo padrão manualmente ou cancelar e verificar suas credenciais.", err),
+			Questions: []questionnaire.Question{
+				{
+					ID:          "defaultModel",
+					Type:        "text",
+					Prompt:      "Nome do modelo (ex: gpt-4o-mini, claude-3-5-sonnet-20241022)",
+					Required:    true,
+					Placeholder: "gpt-4o-mini",
+					Default:     "gpt-4o-mini",
+				},
+			},
+			AllowCancel: true,
+			SubmitLabel: "Salvar Configuração",
+			CancelLabel: "Cancelar",
+		})
+
+		if err != nil || errorResp.Cancelled {
+			return false, err
+		}
+
+		defaultModel := errorResp.Answers["defaultModel"].(string)
+
+		// Salva configuração
+		if err := a.saveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
+			return false, err
+		}
+
+		return true, nil
+	}
+
+	// Se conseguiu listar modelos, mostra seleção
+	if len(models) == 0 {
+		models = []string{"gpt-4o-mini", "claude-3-5-sonnet-20241022", "gemini-pro"}
+	}
+
+	modelResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+		Title:       "Escolha o Modelo Padrão",
+		Description: "Selecione o modelo que será usado como padrão. Você pode alterar isso depois.",
+		Questions: []questionnaire.Question{
+			{
+				ID:       "model",
+				Type:     "select",
+				Prompt:   "Modelo padrão:",
+				Required: true,
+				Options:  models,
+				Default:  models[0],
+			},
+		},
+		AllowCancel: true,
+		SubmitLabel: "Finalizar",
+		CancelLabel: "Voltar",
+	})
+
+	if err != nil || modelResp.Cancelled {
+		return false, err
+	}
+
+	defaultModel := modelResp.Answers["model"].(string)
+
+	// Salva configuração
+	if err := a.saveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
+		return false, err
+	}
+
+	// Atualiza modelo em todos os perfis
+	if err := a.updateAllProfilesModel(defaultModel); err != nil {
+		log.Printf("[Wizard] Aviso: erro ao atualizar modelo nos perfis: %v", err)
+	}
+
+	// Reinicializa cliente LLM
+	a.initLLMClient()
+
+	// Verifica se há atualizações disponíveis após configuração
+	go a.checkForUpdatesAfterWizard()
+
+	return true, nil
+}
+
+// saveWelcomeConfig salva a configuração do wizard
+func (a *App) saveWelcomeConfig(baseURL, apiKey, defaultModel string) error {
+	cfg, err := config.Load()
+	if err != nil {
+		cfg = config.DefaultConfig()
+	}
+
+	cfg.APIBaseURL = baseURL
+	cfg.APIKey = apiKey
+	cfg.DefaultModel = defaultModel
+	cfg.ChatParams.Model = defaultModel
+
+	return config.Save(cfg)
+}
+
+// updateAllProfilesModel atualiza o modelo em todos os perfis
+func (a *App) updateAllProfilesModel(model string) error {
+	profiles, err := a.profileManager.List()
+	if err != nil {
+		return err
+	}
+
+	for _, profileInfo := range profiles {
+		profile, err := a.profileManager.Get(profileInfo.Name)
+		if err != nil {
+			log.Printf("[Wizard] Erro ao carregar perfil %s: %v", profileInfo.Name, err)
+			continue
+		}
+
+		profile.Chat.Model = model
+		if err := a.profileManager.Update(profileInfo.Name, profile); err != nil {
+			log.Printf("[Wizard] Erro ao salvar perfil %s: %v", profileInfo.Name, err)
+		}
+	}
+
+	return nil
+}
+
+// checkForUpdatesAfterWizard verifica atualizações após o wizard de configuração
+func (a *App) checkForUpdatesAfterWizard() {
+	// Aguarda 2 segundos para não interferir com finalização do wizard
+	time.Sleep(2 * time.Second)
+
+	if a.updater == nil {
+		log.Printf("[Wizard] Updater não inicializado, pulando verificação de atualizações")
+		return
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	log.Printf("[Wizard] Verificando atualizações disponíveis...")
+
+	info, err := a.updater.CheckForUpdates(ctx)
+	if err != nil {
+		log.Printf("[Wizard] Erro ao verificar atualizações: %v", err)
+		return
+	}
+
+	if !info.Available {
+		log.Printf("[Wizard] Aplicativo está atualizado (v%s)", info.CurrentVersion)
+		return
+	}
+
+	log.Printf("[Wizard] Nova versão disponível: v%s -> v%s", info.CurrentVersion, info.LatestVersion)
+
+	// Pergunta ao usuário se deseja atualizar
+	go a.promptForUpdate(info)
 }

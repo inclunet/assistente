@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import './App.css';
-import { GetConfig, RespondQuestionnaire } from "../wailsjs/go/main/App";
+import { GetConfig, RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "../wailsjs/go/main/App";
 import { EventsOn, EventsOff } from "../wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
 import { useUIStore } from './store/uiStore';
@@ -32,6 +32,24 @@ function App() {
 
             setLoading(true);
             try {
+                // Verifica se precisa do wizard de boas-vindas
+                const needsWizard = await NeedsWelcomeWizard();
+                if (needsWizard) {
+                    console.log('[App] Iniciando wizard de boas-vindas...');
+                    try {
+                        const completed = await RunWelcomeWizard();
+                        if (!completed) {
+                            console.log('[App] Wizard cancelado pelo usuário');
+                            addToast('Configuração cancelada. Configure nas Configurações.', 'warning');
+                        } else {
+                            addToast('Configuração concluída com sucesso!', 'success', 5000);
+                        }
+                    } catch (error) {
+                        console.error('[App] Erro ao executar wizard:', error);
+                        addToast('Erro ao configurar. Verifique nas Configurações.', 'error');
+                    }
+                }
+
                 const config: any = await GetConfig();
                 setConfig({
                     apiKey: config.api_key || '',
