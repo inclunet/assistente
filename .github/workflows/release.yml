@@ -25,20 +25,6 @@ jobs:
             goos: linux
             goarch: amd64
             output: assistente
-            
-          # macOS Apple Silicon (ARM64)
-          - os: macos-14
-            platform: darwin/arm64
-            goos: darwin
-            goarch: arm64
-            output: assistente
-            
-          # macOS Intel (AMD64)
-          - os: macos-13
-            platform: darwin/amd64
-            goos: darwin
-            goarch: amd64
-            output: assistente
 
     runs-on: ${{ matrix.os }}
 
@@ -135,29 +121,6 @@ jobs:
           else
             echo "⚠️ build/bin/ not found"
           fi
-
-      - name: Create DMG (macOS)
-        if: matrix.goos == 'darwin'
-        continue-on-error: true
-        run: |
-          echo "🍎 Verificando se precisa criar DMG para macOS..."
-          # O executável já foi buildado no step anterior
-          # Aqui apenas verificamos se existe e opcionalmente criamos DMG
-          
-          echo "📂 Verificando build/bin/:"
-          ls -lh build/bin/ || echo "⚠️ build/bin/ não encontrado"
-          
-          if [ -f "build/bin/${{ matrix.output }}" ]; then
-            echo "✅ Executável encontrado: build/bin/${{ matrix.output }}"
-            file build/bin/${{ matrix.output }}
-          else
-            echo "❌ Executável NÃO encontrado em build/bin/${{ matrix.output }}"
-            echo "Procurando qualquer arquivo 'assistente' em build/:"
-            find build -name "*assistente*" -type f || true
-          fi
-          
-          # TODO: Criar DMG se necessário (requer create-dmg ou outro tool)
-          # Por enquanto, apenas o executável será usado
 
       - name: Build packages (Linux)
         if: matrix.goos == 'linux'
@@ -276,36 +239,6 @@ jobs:
             if [ "$INSTALLER_FOUND" = "false" ]; then
               echo "⚠️ No installer found. Build may have failed or NSIS not configured."
             fi
-            
-          elif [ "${{ matrix.goos }}" = "darwin" ]; then
-            echo "🍎 Processing macOS artifacts..."
-            echo "🔍 Procurando executável em: build/bin/${{ matrix.output }}"
-            
-            # Lista TODOS os arquivos no diretório para debug
-            echo "📋 Todos os arquivos em build/bin/:"
-            find build/bin -type f -exec ls -lh {} \;
-            
-            # macOS: executável + DMG
-            if [ -f "build/bin/${{ matrix.output }}" ]; then
-              echo "✅ Found executable: build/bin/${{ matrix.output }}"
-              cp build/bin/${{ matrix.output }} artifacts/${ARTIFACT_NAME}
-              chmod +x artifacts/${ARTIFACT_NAME}
-              echo "✅ Copiado para: artifacts/${ARTIFACT_NAME}"
-              ls -lh artifacts/${ARTIFACT_NAME}
-            else
-              echo "❌ ERROR: Executable not found at: build/bin/${{ matrix.output }}"
-              echo "Tentando localizar qualquer executável com 'assistente':"
-              find build -name "*assistente*" -type f -exec ls -lh {} \;
-            fi
-            
-            # DMG
-            for dmg in "build/bin/assistente.dmg" "build/bin/Assistente.dmg" "build/bin/assistente-${{ matrix.goarch }}.dmg"; do
-              if [ -f "$dmg" ]; then
-                echo "✅ Found DMG: $dmg"
-                cp "$dmg" artifacts/${ARTIFACT_NAME}.dmg
-                break
-              fi
-            done
             
           else
             echo "🐧 Processing Linux artifacts..."
