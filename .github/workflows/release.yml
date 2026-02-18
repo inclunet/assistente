@@ -99,14 +99,15 @@ jobs:
           VERSION=${VERSION#v}
           echo "📌 Version: $VERSION"
           
-          # Atualiza wails.json com a versão
-          sed -i "s/\"productVersion\": \".*\"/\"productVersion\": \"$VERSION\"/" wails.json
+          # Prepara ldflags para injetar a versão
+          LDFLAGS="-X main.AppVersion=$VERSION"
+          echo "🔧 Using ldflags: $LDFLAGS"
           
           if [ "${{ matrix.goos }}" = "linux" ]; then
             # Usa xvfb-run para criar display virtual no Linux
-            xvfb-run wails build -platform ${{ matrix.platform }} -clean
+            xvfb-run wails build -platform ${{ matrix.platform }} -ldflags "$LDFLAGS" -clean
           else
-            wails build -platform ${{ matrix.platform }} -clean
+            wails build -platform ${{ matrix.platform }} -ldflags "$LDFLAGS" -clean
           fi
           echo "✅ Build completed"
           echo "📂 Build output:"
@@ -122,9 +123,15 @@ jobs:
         run: |
           echo "🚪 Building Windows installer..."
           
-          # Versão já foi atualizada no wails.json no step anterior
+          # Extrai versão da tag
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          
+          # Prepara ldflags para injetar a versão
+          LDFLAGS="-X main.AppVersion=$VERSION"
+          
           # Não usa -clean para não apagar o executável já gerado
-          wails build -platform ${{ matrix.platform }} -nsis
+          wails build -platform ${{ matrix.platform }} -ldflags "$LDFLAGS" -nsis
           echo "✅ Installer build completed"
           echo "📂 Installer output:"
           if [ -d "build/bin" ]; then

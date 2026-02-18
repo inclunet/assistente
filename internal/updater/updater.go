@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -352,12 +353,15 @@ func (u *Updater) applyUpdateInPlace(ctx context.Context, manifest *Manifest) er
 	// Aplica a atualização
 	err = update.Apply(binary, update.Options{})
 	if err != nil {
+		log.Printf("[Updater] ❌ Erro ao aplicar atualização: %v", err)
 		if rerr := update.RollbackError(err); rerr != nil {
 			return fmt.Errorf("falha ao aplicar update e rollback: %v (rollback error: %v)", err, rerr)
 		}
+		// Retorna o erro original (wrapped) para preservar a mensagem completa
 		return fmt.Errorf("falha ao aplicar update (rollback realizado): %w", err)
 	}
 
+	log.Printf("[Updater] ✅ Atualização aplicada com sucesso")
 	return nil
 }
 
@@ -366,16 +370,23 @@ func isPermissionError(err error) bool {
 	if err == nil {
 		return false
 	}
-	errStr := strings.ToLower(err.Error())
+	
+	// Verifica a string do erro e todos os erros wrapped
+	var errMsg string
+	for e := err; e != nil; e = errors.Unwrap(e) {
+		errMsg += strings.ToLower(e.Error()) + " "
+	}
+	
 	// Verifica mensagens comuns de erro de permissão
-	isPerm := strings.Contains(errStr, "access is denied") ||
-		strings.Contains(errStr, "permission denied") ||
-		strings.Contains(errStr, "access denied") ||
-		strings.Contains(errStr, "cannot create") ||
-		strings.Contains(errStr, "access denied")
+	isPerm := strings.Contains(errMsg, "access is denied") ||
+		strings.Contains(errMsg, "permission denied") ||
+		strings.Contains(errMsg, "access denied") ||
+		strings.Contains(errMsg, "cannot create")
 	
 	if isPerm {
-		log.Printf("[Updater] ✓ Detectado erro de permissão: %s", errStr)
+		log.Printf("[Updater] ✓ Detectado erro de permissão na mensagem: %s", errMsg)
+	} else {
+		log.Printf("[Updater] ✗ Não é erro de permissão: %s", errMsg)
 	}
 	
 	return isPerm
