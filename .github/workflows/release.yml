@@ -93,11 +93,20 @@ jobs:
         shell: bash
         run: |
           echo "🏗️ Building for ${{ matrix.platform }}..."
+          
+          # Extrai versão da tag (remove 'v' se existir)
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          echo "📌 Version: $VERSION"
+          
+          # Define ldflags para injetar versão no binário
+          LDFLAGS="-X main.AppVersion=$VERSION"
+          
           if [ "${{ matrix.goos }}" = "linux" ]; then
             # Usa xvfb-run para criar display virtual no Linux
-            xvfb-run wails build -platform ${{ matrix.platform }} -clean
+            xvfb-run wails build -platform ${{ matrix.platform }} -clean -ldflags "$LDFLAGS"
           else
-            wails build -platform ${{ matrix.platform }} -clean
+            wails build -platform ${{ matrix.platform }} -clean -ldflags "$LDFLAGS"
           fi
           echo "✅ Build completed"
           echo "📂 Build output:"
@@ -112,8 +121,14 @@ jobs:
         shell: bash
         run: |
           echo "🚪 Building Windows installer..."
+          
+          # Extrai versão para o instalador também
+          VERSION=${GITHUB_REF#refs/tags/}
+          VERSION=${VERSION#v}
+          LDFLAGS="-X main.AppVersion=$VERSION"
+          
           # Não usa -clean para não apagar o executável já gerado
-          wails build -platform ${{ matrix.platform }} -nsis
+          wails build -platform ${{ matrix.platform }} -nsis -ldflags "$LDFLAGS"
           echo "✅ Installer build completed"
           echo "📂 Installer output:"
           if [ -d "build/bin" ]; then

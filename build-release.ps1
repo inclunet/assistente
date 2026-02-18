@@ -13,6 +13,9 @@ $MANIFEST_FILE = "update-manifest.json"
 
 Write-Host "=== Gerando release v$VERSION ===" -ForegroundColor Cyan
 
+# Define ldflags para injetar versão
+$LDFLAGS = "-X main.AppVersion=$VERSION"
+
 # Cria diretório de release
 New-Item -ItemType Directory -Force -Path $RELEASE_DIR | Out-Null
 
@@ -44,7 +47,7 @@ foreach ($platform in $platforms) {
     # Build com Wails
     if ($os -eq "windows" -and $arch -eq "amd64") {
         # Build nativo Windows (pode usar CGO)
-        wails build -platform windows/amd64 -clean
+        wails build -platform windows/amd64 -clean -ldflags $LDFLAGS
         
         # Copia binário gerado
         $wailsOutput = "build\bin\assistente.exe"

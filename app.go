@@ -39,7 +39,8 @@ import (
 
 const (
 	// AppVersion é a versão atual do aplicativo
-	AppVersion = "1.0.0"
+	// Será sobrescrito em build time com -ldflags
+	AppVersion = "dev"
 )
 
 // App struct

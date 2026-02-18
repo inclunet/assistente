@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -142,9 +143,14 @@ func (u *Updater) ApplyUpdate(ctx context.Context) error {
 		u.progressCallback(0, 100, "verifying")
 	}
 
-	// Verifica checksum
-	if err := u.verifyChecksum(binary, build.Checksum); err != nil {
-		return fmt.Errorf("falha na verificação de checksum: %w", err)
+	// Verifica checksum apenas se fornecido
+	if build.Checksum != "" {
+		if err := u.verifyChecksum(binary, build.Checksum); err != nil {
+			return fmt.Errorf("falha na verificação de checksum: %w", err)
+		}
+	} else {
+		// Checksum não fornecido, pula verificação
+		log.Printf("[Updater] ⚠️ Checksum não fornecido, pulando verificação")
 	}
 
 	// Reseta para o início do arquivo após verificar checksum
