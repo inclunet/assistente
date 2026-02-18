@@ -361,17 +361,14 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, manifest *Man
 	// /S = silent mode no NSIS
 	// O instalador irá aguardar o app fechar e então substituir o executável
 	log.Printf("[Updater] Iniciando processo do instalador com flag /S...")
-	cmd := exec.Command(installerFile, "/S")
 	
-	// Redireciona saída para debug
-	cmd.Stdout = os.Stdout
-	cmd.Stderr = os.Stderr
-	
-	if err := cmd.Start(); err != nil {
+	// No Windows, usa ShellExecute com "runas" para solicitar elevação
+	// Isso mostrará o diálogo UAC automaticamente
+	if err := executeWithElevation(installerFile, "/S"); err != nil {
 		return fmt.Errorf("falha ao executar instalador: %w", err)
 	}
 
-	log.Printf("[Updater] ✅ Instalador iniciado em modo silencioso (PID: %d)", cmd.Process.Pid)
+	log.Printf("[Updater] ✅ Instalador iniciado em modo silencioso com elevação")
 	log.Printf("[Updater] 🔄 Fechando aplicativo para permitir atualização...")
 	
 	// Aguarda 1 segundo para garantir que o instalador iniciou
@@ -894,4 +891,17 @@ func GetExecutablePath() (string, error) {
 		return "", err
 	}
 	return filepath.EvalSymlinks(executable)
+}
+
+// executeWithElevation executa um comando com elevação no Windows usando ShellExecute
+// Esta função solicita UAC (User Account Control) automaticamente
+func executeWithElevation(path string, args string) error {
+	if runtime.GOOS != "windows" {
+		// Em outros sistemas, usa exec normal
+		cmd := exec.Command(path, args)
+		return cmd.Start()
+	}
+
+	// No Windows, usa ShellExecute com "runas" verb para solicitar elevação
+	return shellExecute("runas", path, args, "", 1) // SW_SHOWNORMAL = 1
 }
