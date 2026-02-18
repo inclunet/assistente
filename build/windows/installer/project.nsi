@@ -102,6 +102,35 @@ Section
     !insertmacro wails.webview2runtime
 
     SetOutPath $INSTDIR
+    
+    # Se estiver em modo silencioso, aguarda o processo do app terminar
+    ${If} $SilentMode == "1"
+        DetailPrint "Aguardando aplicativo fechar..."
+        Sleep 2000  # Aguarda 2 segundos
+        
+        # Loop para verificar se o processo terminou
+        StrCpy $R0 0
+        ${Do}
+            # Tenta renomear o executável (só funciona se não estiver em uso)
+            ClearErrors
+            Rename "$INSTDIR\${PRODUCT_EXECUTABLE}" "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+            ${IfNot} ${Errors}
+                # Conseguiu renomear, processo não está em execução
+                Delete "$INSTDIR\${PRODUCT_EXECUTABLE}.old"
+                ${ExitDo}
+            ${EndIf}
+            
+            # Incrementa contador e aguarda
+            IntOp $R0 $R0 + 1
+            ${If} $R0 > 30  # Máximo 30 tentativas (15 segundos)
+                MessageBox MB_ICONEXCLAMATION|MB_OK "O aplicativo não fechou a tempo. Por favor, feche manualmente e tente novamente."
+                Abort
+            ${EndIf}
+            Sleep 500  # Aguarda meio segundo
+        ${Loop}
+        
+        DetailPrint "Aplicativo fechado, continuando instalação..."
+    ${EndIf}
 
     !insertmacro wails.files
 
