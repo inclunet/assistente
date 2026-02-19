@@ -2357,204 +2357,272 @@ func (a *App) NeedsWelcomeWizard() bool {
 func (a *App) RunWelcomeWizard() (bool, error) {
 	ctx := a.ctx
 	
-	// Etapa 1: Escolher provedor
-	providerResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       "Bem-vindo ao Assistente!",
-		Description: "Vamos configurar seu assistente em alguns passos simples.",
-		Questions: []questionnaire.Question{
-			{
-				ID:       "provider",
-				Type:     "select",
-				Prompt:   "Qual provedor de IA você deseja usar?",
-				Required: true,
-				Options: []string{
-					"OpenAI",
-					"Anthropic (Claude)",
-					"Google (Gemini)",
-					"Azure OpenAI",
-					"Ollama (Local)",
-					"LiteLLM",
-					"Outro (URL personalizada)",
+	// Variáveis para armazenar dados entre etapas
+	var provider string
+	var baseURL string
+	var apiKey string
+	var defaultModel string
+	
+	// Controle de navegação entre etapas
+	currentStep := 1
+	
+	for currentStep > 0 {
+		switch currentStep {
+		case 1: // Etapa 1: Escolher provedor
+			providerResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+				Title:       "Bem-vindo ao Assistente!",
+				Description: "Vamos configurar seu assistente em alguns passos simples.",
+				Questions: []questionnaire.Question{
+					{
+						ID:       "provider",
+						Type:     "single_choice",
+						Prompt:   "Qual provedor de IA você deseja usar?",
+						Required: true,
+						Options: []string{
+							"OpenAI",
+							"Anthropic (Claude)",
+							"Google (Gemini)",
+							"Azure OpenAI",
+							"Ollama (Local)",
+							"LiteLLM",
+							"Outro (URL personalizada)",
+						},
+						Default: provider, // Mantém seleção anterior se voltar
+					},
 				},
-			},
-		},
-		AllowCancel: true,
-		SubmitLabel: "Próximo",
-		CancelLabel: "Cancelar",
-	})
+				AllowCancel: true,
+				SubmitLabel: "Próximo",
+				CancelLabel: "Cancelar",
+			})
 
-	if err != nil || providerResp.Cancelled {
-		return false, err
-	}
+			if err != nil || providerResp.Cancelled {
+				return false, err
+			}
 
-	provider := providerResp.Answers["provider"].(string)
+			provider = providerResp.Answers["provider"].(string)
 
-	// Mapeia provedor para base URL padrão
-	baseURL := ""
-	switch provider {
-	case "OpenAI":
-		baseURL = "https://api.openai.com/v1"
-	case "Anthropic (Claude)":
-		baseURL = "https://api.anthropic.com/v1"
-	case "Google (Gemini)":
-		baseURL = "https://generativelanguage.googleapis.com/v1beta"
-	case "Azure OpenAI":
-		baseURL = "" // Usuário precisará fornecer
-	case "Ollama (Local)":
-		baseURL = "http://localhost:11434/v1"
-	case "LiteLLM":
-		baseURL = "http://localhost:4000"
-	case "Outro (URL personalizada)":
-		baseURL = "" // Usuário precisará fornecer
-	}
-
-	// Etapa 2: URL personalizada (se necessário)
-	needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI"
-	if needsCustomURL {
-		urlResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-			Title:       "Configuração do Servidor",
-			Description: "Informe a URL do servidor OpenAI-compatible.",
-			Questions: []questionnaire.Question{
-				{
-					ID:          "baseURL",
-					Type:        "text",
-					Prompt:      "URL do servidor (exemplo: http://localhost:11434/v1)",
-					Required:    true,
-					Placeholder: "http://localhost:11434/v1",
+			// Mapeia provedor para base URL padrão
+			switch provider {
+			case "OpenAI":
+				baseURL = "https://api.openai.com/v1"
+			case "Anthropic (Claude)":
+				baseURL = "https://api.anthropic.com/v1"
+			case "Google (Gemini)":
+				baseURL = "https://generativelanguage.googleapis.com/v1beta"
+			case "Azure OpenAI":
+				baseURL = "" // Usuário precisará fornecer
+			case "Ollama (Local)":
+				baseURL = "http://localhost:11434/v1"
+			case "LiteLLM":
+				baseURL = "" // Usuário precisará fornecer
+			case "Outro (URL personalizada)":
+				baseURL = "" // Usuário precisará fornecer
+			}
+			
+			currentStep = 2
+			
+		case 2: // Etapa 2: URL personalizada (se necessário)
+			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
+			
+			if !needsCustomURL {
+				// Pula para próxima etapa se não precisa de URL customizada
+				currentStep = 3
+				continue
+			}
+			
+			// Ajusta placeholder e exemplo baseado no provedor
+			placeholderURL := "http://localhost:11434/v1"
+			if provider == "LiteLLM" {
+				placeholderURL = "http://localhost:4000"
+			} else if provider == "Azure OpenAI" {
+				placeholderURL = "https://your-resource.openai.azure.com"
+			}
+			
+			urlResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+				Title:       "Configuração do Servidor",
+				Description: "Informe a URL do servidor OpenAI-compatible.",
+				Questions: []questionnaire.Question{
+					{
+						ID:          "baseURL",
+						Type:        "text",
+						Prompt:      "URL do servidor",
+						Required:    true,
+						Placeholder: placeholderURL,
+						Default:     baseURL, // Mantém valor anterior se voltar
+					},
 				},
-			},
-			AllowCancel: true,
-			SubmitLabel: "Próximo",
-			CancelLabel: "Voltar",
-		})
+				AllowCancel: true,
+				SubmitLabel: "Próximo",
+				CancelLabel: "Voltar",
+			})
 
-		if err != nil || urlResp.Cancelled {
-			return false, err
-		}
+			if err != nil {
+				return false, err
+			}
+			
+			if urlResp.Cancelled {
+				currentStep = 1 // Volta para etapa anterior
+				continue
+			}
 
-		baseURL = urlResp.Answers["baseURL"].(string)
-	}
+			baseURL = urlResp.Answers["baseURL"].(string)
+			currentStep = 3
+			
+		case 3: // Etapa 3: API Key
+			keyDescription := "Informe sua chave de API. Deixe em branco se o servidor não requer autenticação."
+			if provider == "Ollama (Local)" {
+				keyDescription = "Ollama local geralmente não precisa de chave. Você pode deixar em branco."
+			}
 
-	// Etapa 3: API Key
-	keyDescription := "Informe sua chave de API. Deixe em branco se o servidor não requer autenticação."
-	if provider == "Ollama (Local)" {
-		keyDescription = "Ollama local geralmente não precisa de chave. Você pode deixar em branco."
-	}
-
-	keyResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       "Chave de API",
-		Description: keyDescription,
-		Questions: []questionnaire.Question{
-			{
-				ID:          "apiKey",
-				Type:        "text",
-				Prompt:      "Chave de API (opcional)",
-				Required:    false,
-				Placeholder: "sk-...",
-			},
-		},
-		AllowCancel: true,
-		SubmitLabel: "Próximo",
-		CancelLabel: "Voltar",
-	})
-
-	if err != nil || keyResp.Cancelled {
-		return false, err
-	}
-
-	apiKey := ""
-	if keyResp.Answers["apiKey"] != nil {
-		apiKey = keyResp.Answers["apiKey"].(string)
-	}
-
-	// Salva configuração temporária para testar modelos
-	tempCfg := &config.Config{
-		APIKey:     apiKey,
-		APIBaseURL: baseURL,
-	}
-
-	// Etapa 4: Listar e escolher modelo
-	models, err := llm.GetModels(tempCfg)
-	if err != nil {
-		// Se falhou ao listar modelos, pergunta se quer continuar mesmo assim
-		errorResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-			Title:       "Erro ao Listar Modelos",
-			Description: fmt.Sprintf("Não foi possível listar os modelos disponíveis: %v\n\nVocê pode configurar um modelo padrão manualmente ou cancelar e verificar suas credenciais.", err),
-			Questions: []questionnaire.Question{
-				{
-					ID:          "defaultModel",
-					Type:        "text",
-					Prompt:      "Nome do modelo (ex: gpt-4o-mini, claude-3-5-sonnet-20241022)",
-					Required:    true,
-					Placeholder: "gpt-4o-mini",
-					Default:     "gpt-4o-mini",
+			keyResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+				Title:       "Chave de API",
+				Description: keyDescription,
+				Questions: []questionnaire.Question{
+					{
+						ID:          "apiKey",
+						Type:        "text",
+						Prompt:      "Chave de API (opcional)",
+						Required:    false,
+						Placeholder: "sk-...",
+						Default:     apiKey, // Mantém valor anterior se voltar
+					},
 				},
-			},
-			AllowCancel: true,
-			SubmitLabel: "Salvar Configuração",
-			CancelLabel: "Cancelar",
-		})
+				AllowCancel: true,
+				SubmitLabel: "Próximo",
+				CancelLabel: "Voltar",
+			})
 
-		if err != nil || errorResp.Cancelled {
-			return false, err
+			if err != nil {
+				return false, err
+			}
+			
+			if keyResp.Cancelled {
+				// Volta para etapa anterior (URL customizada ou provedor)
+				needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
+				if needsCustomURL {
+					currentStep = 2
+				} else {
+					currentStep = 1
+				}
+				continue
+			}
+
+			if keyResp.Answers["apiKey"] != nil {
+				apiKey = keyResp.Answers["apiKey"].(string)
+			}
+			
+			currentStep = 4
+			
+		case 4: // Etapa 4: Listar e escolher modelo
+			// Salva configuração temporária para testar modelos
+			tempCfg := &config.Config{
+				APIKey:     apiKey,
+				APIBaseURL: baseURL,
+			}
+
+			models, err := llm.GetModels(tempCfg)
+			if err != nil {
+				// Se falhou ao listar modelos, pergunta se quer continuar mesmo assim
+				errorResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+					Title:       "Erro ao Listar Modelos",
+					Description: fmt.Sprintf("Não foi possível listar os modelos disponíveis: %v\n\nVocê pode configurar um modelo padrão manualmente ou voltar para verificar suas credenciais.", err),
+					Questions: []questionnaire.Question{
+						{
+							ID:          "defaultModel",
+							Type:        "text",
+							Prompt:      "Nome do modelo (ex: gpt-4o-mini, claude-3-5-sonnet-20241022)",
+							Required:    true,
+							Placeholder: "gpt-4o-mini",
+							Default:     defaultModel,
+						},
+					},
+					AllowCancel: true,
+					SubmitLabel: "Salvar Configuração",
+					CancelLabel: "Voltar",
+				})
+
+				if err != nil {
+					return false, err
+				}
+				
+				if errorResp.Cancelled {
+					currentStep = 3 // Volta para API key
+					continue
+				}
+
+				defaultModel = errorResp.Answers["defaultModel"].(string)
+
+				// Salva configuração
+				if err := a.saveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
+					return false, err
+				}
+
+				return true, nil
+			}
+
+			// Se conseguiu listar modelos, mostra seleção
+			if len(models) == 0 {
+				models = []string{"gpt-4o-mini", "claude-3-5-sonnet-20241022", "gemini-pro"}
+			}
+			
+			// Mantém modelo selecionado anteriormente se houver
+			modelDefault := ""
+			if defaultModel != "" {
+				modelDefault = defaultModel
+			} else {
+				modelDefault = models[0]
+			}
+
+			modelResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+				Title:       "Escolha o Modelo Padrão",
+				Description: "Selecione o modelo que será usado como padrão. Você pode alterar isso depois.",
+				Questions: []questionnaire.Question{
+					{
+						ID:       "model",
+						Type:     "single_choice",
+						Prompt:   "Modelo padrão:",
+						Required: true,
+						Options:  models,
+						Default:  modelDefault,
+					},
+				},
+				AllowCancel: true,
+				SubmitLabel: "Finalizar",
+				CancelLabel: "Voltar",
+			})
+
+			if err != nil {
+				return false, err
+			}
+			
+			if modelResp.Cancelled {
+				currentStep = 3 // Volta para API key
+				continue
+			}
+
+			defaultModel = modelResp.Answers["model"].(string)
+
+			// Salva configuração
+			if err := a.saveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
+				return false, err
+			}
+
+			// Atualiza modelo em todos os perfis
+			if err := a.updateAllProfilesModel(defaultModel); err != nil {
+				log.Printf("[Wizard] Aviso: erro ao atualizar modelo nos perfis: %v", err)
+			}
+
+			// Reinicializa cliente LLM
+			a.initLLMClient()
+
+			// Verifica se há atualizações disponíveis após configuração
+			go a.checkForUpdatesAfterWizard()
+
+			return true, nil
 		}
-
-		defaultModel := errorResp.Answers["defaultModel"].(string)
-
-		// Salva configuração
-		if err := a.saveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
-			return false, err
-		}
-
-		return true, nil
 	}
-
-	// Se conseguiu listar modelos, mostra seleção
-	if len(models) == 0 {
-		models = []string{"gpt-4o-mini", "claude-3-5-sonnet-20241022", "gemini-pro"}
-	}
-
-	modelResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-		Title:       "Escolha o Modelo Padrão",
-		Description: "Selecione o modelo que será usado como padrão. Você pode alterar isso depois.",
-		Questions: []questionnaire.Question{
-			{
-				ID:       "model",
-				Type:     "select",
-				Prompt:   "Modelo padrão:",
-				Required: true,
-				Options:  models,
-				Default:  models[0],
-			},
-		},
-		AllowCancel: true,
-		SubmitLabel: "Finalizar",
-		CancelLabel: "Voltar",
-	})
-
-	if err != nil || modelResp.Cancelled {
-		return false, err
-	}
-
-	defaultModel := modelResp.Answers["model"].(string)
-
-	// Salva configuração
-	if err := a.saveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
-		return false, err
-	}
-
-	// Atualiza modelo em todos os perfis
-	if err := a.updateAllProfilesModel(defaultModel); err != nil {
-		log.Printf("[Wizard] Aviso: erro ao atualizar modelo nos perfis: %v", err)
-	}
-
-	// Reinicializa cliente LLM
-	a.initLLMClient()
-
-	// Verifica se há atualizações disponíveis após configuração
-	go a.checkForUpdatesAfterWizard()
-
-	return true, nil
+	
+	return false, nil
 }
 
 // saveWelcomeConfig salva a configuração do wizard

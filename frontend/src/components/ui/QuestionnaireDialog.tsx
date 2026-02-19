@@ -147,6 +147,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                 placeholder={q.placeholder}
                 onChange={(e) => updateAnswer(q.id, e.target.value)}
                 className="questionnaire-dialog__input"
+                autoFocus={index === 0}
               />
             )}
 
@@ -158,6 +159,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                 onChange={(e) => updateAnswer(q.id, e.target.value)}
                 className="questionnaire-dialog__textarea"
                 rows={4}
+                autoFocus={index === 0}
               />
             )}
 
@@ -175,6 +177,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                   updateAnswer(q.id, value === '' ? '' : Number(value));
                 }}
                 className="questionnaire-dialog__input"
+                autoFocus={index === 0}
               />
             )}
 
