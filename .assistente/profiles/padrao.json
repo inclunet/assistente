@@ -1,0 +1,25 @@
+{
+  "_builtin_version": "1.0.0",
+  "name": "Padrão",
+  "description": "Configuração padrão.",
+  "icon": "chatbox",
+  "chat": {
+    "temperature": 0.7,
+    "max_tokens": 4096,
+    "top_p": 1.0,
+    "response_timeout": 180,
+    "enable_thinking": false,
+    "system_prompt_position": "after"
+  },
+  "voice": {
+    "provider": "disabled",
+    "rate": 1.0,
+    "pitch": 1.0,
+    "volume": 1.0
+  },
+  "interaction": {
+    "stt_provider": "webspeech",
+    "language": "pt-BR",
+    "feedback_sounds": true
+  }
+}
