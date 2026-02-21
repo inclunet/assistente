@@ -137,9 +137,12 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("Erro ao inicializar banco de dados: %v", err)
 	}
 
-	// Garante perfis padrão em ~/.assistente/profiles/
+	// Instala/atualiza perfis embutidos em ~/.assistente/profiles/
+	a.installBuiltinProfiles()
+
+	// Garante que o diretório de perfis existe
 	if err := a.profileManager.EnsureDefaults(); err != nil {
-		log.Printf("Erro ao criar perfis padrão: %v", err)
+		log.Printf("Erro ao garantir diretório de perfis: %v", err)
 	}
 
 	// Inicializa o cliente LLM
@@ -1057,6 +1060,8 @@ func (a *App) initSkills() {
 	if err := a.skillMgr.EnsureDir(); err != nil {
 		log.Printf("[Skills] Erro ao garantir diretório de skills: %v", err)
 	}
+
+	a.installBuiltinSkills()
 
 	list, err := a.skillMgr.List()
 	if err != nil {

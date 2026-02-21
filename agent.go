@@ -293,8 +293,11 @@ func (a *App) runAgenticLoop(
 			return
 		}
 
-		// 4. Emite segment_done para verbalização imediata
-		if result.FullResponse != "" {
+		// 4. Emite segment_done para verbalização e acumulação de segmentos.
+		// Emite sempre que houver mais iterações (!IsDone) para que o frontend
+		// capture as tool calls completadas como segmentos — mesmo quando o LLM
+		// chama ferramentas sem produzir texto intermediário.
+		if result.FullResponse != "" || !result.IsDone {
 			runtime.EventsEmit(a.ctx, "chat:segment_done", map[string]interface{}{
 				"content":        result.FullResponse,
 				"iteration":      iteration,

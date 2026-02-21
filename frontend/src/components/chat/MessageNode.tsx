@@ -48,7 +48,8 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   const isThinkingGlobal = useChatStore(state => state.isThinking);
   const toggleReasoningExpanded = useChatStore(state => state.toggleReasoningExpanded);
   const activeToolCalls = useChatStore(state => state.activeToolCalls);
-  
+  const completedSegments = useChatStore(state => state.completedSegments);
+
   // OTIMIZADO: Seletores que retornam apenas valores booleanos para este nó específico
   // Evita re-renders quando outras threads/reasonings são expandidas/colapsadas
   const isExpanded = useChatStore(
@@ -470,6 +471,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onToggleReasoning={() => toggleReasoningExpanded(node.message.id)}
           // Tool calling - passa apenas para a mensagem em streaming
           activeToolCalls={node.message.id === streamingMessageId ? activeToolCalls : undefined}
+          completedSegments={node.message.id === streamingMessageId ? completedSegments : undefined}
           isPlayingAudio={isPlayingAudio}
         />
       </div>

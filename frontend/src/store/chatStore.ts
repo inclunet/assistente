@@ -43,8 +43,24 @@ export type MessageNode = main.MessageNode & {
 };
 
 export type Message = main.EnrichedMessage & {
-  // Nenhuma conversão necessária - backend manda tudo pronto
+  _turnSegments?: TurnSegment[];
 };
+
+/**
+ * Represents a segment within an agentic turn.
+ * Segments alternate between text (assistant reasoning) and tool calls,
+ * showing the progression: think → use tools → think → use tools → final answer.
+ */
+export interface TurnSegment {
+  type: 'text' | 'tool_calls';
+  content?: string;
+  toolCalls?: Array<{
+    id: string;
+    type: string;
+    function: { name: string; arguments: string };
+    result?: string;
+  }>;
+}
 
 /**
  * Deriva um array flat de mensagens da estrutura hierárquica threadedMessages.
@@ -106,6 +122,7 @@ interface ChatStore {
   // Tool calling - estado durante streaming do agentic loop
   activeToolCalls: ToolCallStatus[]; // Tool calls em execução/concluídos durante streaming
   hadToolCalls: boolean; // Se houve tool calls neste turno (para saber se precisa reload)
+  completedSegments: TurnSegment[]; // Segments from previous iterations (text + tools interleaved)
 
   // Initialization
   initializeTabs: () => Promise<void>;
@@ -306,6 +323,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     expandedReasonings: new Set<string>(), // IDs de mensagens com reasoning expandido
     activeToolCalls: [], // Tool calls durante streaming
     hadToolCalls: false, // Se houve tool calls neste turno
+    completedSegments: [], // Segments from previous agentic iterations
     
     setEditingMessageId: (id: string | null) => {
       set({ editingMessageId: id });
@@ -1211,7 +1229,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               unsubscribeComplete = null;
             }
             activeListeners.delete(currentTabId!);
-            set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [] });
+            set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
           };
 
           // Limpa listeners antigos desta tab se existirem
@@ -1382,7 +1400,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 },
               ],
             }));
-            announce(`Executando ferramenta: ${data.name}`, 'polite');
           });
 
           // Listen for tool execution end
@@ -1398,19 +1415,56 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   : tc
               ),
             }));
+
+            if (data.status === 'error') {
+              announce(`Ferramenta ${data.name} falhou`, 'assertive');
+            }
           });
 
-          // Listen for segment done (assistant text before tool calls — for verbalization)
+          // Listen for segment done (assistant text before tool calls — for verbalization + segment accumulation)
           let unsubscribeSegmentDone: (() => void) | null = null;
           unsubscribeSegmentDone = EventsOn('chat:segment_done', (data: any) => {
             if (!activeListeners.has(currentTabId!)) return;
-            console.log('[Chat] 📝 Segment done:', data.iteration, 'hasMore:', data.hasMore);
-            
-            // Verbaliza o segmento intermediário se TTS estiver ativo
-            if (data.content && ttsService.isAutoReadEnabled()) {
-              ttsService.speak(data.content).catch((err: any) => {
-                console.error('[Chat] TTS segment error:', err);
-              });
+
+            if (data.hasMore) {
+              const state = get();
+              const newSegments: TurnSegment[] = [...state.completedSegments];
+
+              // Snapshot completed tool calls from previous iteration
+              if (state.activeToolCalls.length > 0) {
+                const toolCount = state.activeToolCalls.length;
+                newSegments.push({
+                  type: 'tool_calls',
+                  toolCalls: state.activeToolCalls.map(tc => ({
+                    id: tc.callId,
+                    type: 'function',
+                    function: { name: tc.name, arguments: tc.args || '' },
+                    result: tc.summary,
+                  })),
+                });
+                announce(toolCount === 1 ? state.activeToolCalls[0].name : `${toolCount} ferramentas`, 'polite');
+              }
+
+              if (data.content) {
+                newSegments.push({ type: 'text', content: data.content });
+
+                // Verbalize segment text for screen reader users
+                if (ttsService.isAutoReadEnabled()) {
+                  ttsService.speak(data.content).catch((err: any) => {
+                    console.error('[Chat] TTS segment error:', err);
+                  });
+                } else {
+                  const cleanContent = stripMarkdown(data.content);
+                  announce(cleanContent, 'assertive');
+                }
+              }
+
+              set({ completedSegments: newSegments, activeToolCalls: [] });
+
+              // Clear message content since it's now captured in completedSegments.
+              // Prevents brief visual duplication before the next iteration starts streaming.
+              flushPendingUpdate(currentTabId!, assistantMessageId, get().updateMessage);
+              get().updateMessage(currentTabId!, assistantMessageId, '');
             }
           });
 
@@ -1462,6 +1516,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                         : t
                     ),
                     hadToolCalls: false,
+                    completedSegments: [],
                   }));
                   console.log('[Chat] ✅ Mensagens recarregadas:', backendNodes.length);
                 }).catch((err) => {
@@ -1590,13 +1645,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }
             return state;
           });
-        } finally {
+
           set({ isLoading: false, streamingMessageId: null });
         }
+        // NOTE: No `finally` block here — streamingMessageId must stay set while
+        // streaming is active. The cleanup() (triggered by chat:done) resets it.
       },
 
       stopStreaming: () => {
-        set({ isLoading: false, streamingMessageId: null });
+        set({ isLoading: false, streamingMessageId: null, completedSegments: [] });
         // TODO: Cancel backend request
       },
 
@@ -1859,6 +1916,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         isThinking: false,
         activeToolCalls: [],
         hadToolCalls: false,
+        completedSegments: [],
       });
       
       // Reinicializa tabs do backend
@@ -2132,7 +2190,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         unsubDone();
         unsubReady();
         activeListeners.delete(targetTabId!);
-        set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [] });
+        set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
       };
 
       // Limpa listeners antigos desta tab se existirem
@@ -2299,15 +2357,38 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               : tc
           ),
         }));
+        const statusLabel = event.status === 'error' ? 'falhou' : 'concluída';
+        announce(`Ferramenta ${event.name} ${statusLabel}`, 'polite');
       });
 
       // chat:segment_done
       const unsubSegmentDone = EventsOn('chat:segment_done', (event: any) => {
         if (!activeListeners.has(targetTabId!)) return;
-        if (event.content && ttsService.isAutoReadEnabled()) {
+        if (event.hasMore && event.content && ttsService.isAutoReadEnabled()) {
           ttsService.speak(event.content).catch((err: any) => {
             console.error('[Chat] TTS segment error (external):', err);
           });
+        }
+        if (event.hasMore) {
+          const state = get();
+          const newSegments: TurnSegment[] = [...state.completedSegments];
+          if (state.activeToolCalls.length > 0) {
+            newSegments.push({
+              type: 'tool_calls',
+              toolCalls: state.activeToolCalls.map(tc => ({
+                id: tc.callId,
+                type: 'function',
+                function: { name: tc.name, arguments: tc.args || '' },
+                result: tc.summary,
+              })),
+            });
+          }
+          if (event.content) {
+            newSegments.push({ type: 'text', content: event.content });
+          }
+          set({ completedSegments: newSegments, activeToolCalls: [] });
+          flushPendingUpdate(targetTabId!, assistantMessageId, get().updateMessage);
+          get().updateMessage(targetTabId!, assistantMessageId, '');
         }
       });
 
@@ -2348,6 +2429,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                     : t
                 ),
                 hadToolCalls: false,
+                completedSegments: [],
               }));
             });
           }

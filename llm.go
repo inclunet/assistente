@@ -635,7 +635,8 @@ Key behaviors:
 - Be concise but thorough
 - When uncertain, acknowledge limitations
 - Use markdown formatting for better readability
-- Adapt your communication style to the user's needs`
+- Adapt your communication style to the user's needs
+- Proactively manage memory: save important user information, decisions, and preferences to memory files without being asked. When you learn something worth remembering, save it immediately and briefly mention what you saved.`
 
 // buildFullSystemPrompt composes the complete system prompt with base prompt, custom prompt, skills and invoked skill.
 // enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
@@ -874,8 +875,13 @@ func (a *App) buildMemoryContext() string {
 
 	var sb strings.Builder
 	sb.WriteString("<user_memory>\n")
-	sb.WriteString("The following are the user's core memories. Use this information to personalize your responses.\n")
-	sb.WriteString("You can update this file at ~/.assistente/memory/memory.md when the user shares important personal information.\n\n")
+	sb.WriteString("These are the user's core memories. You MUST use them to personalize every response.\n\n")
+	sb.WriteString("PROACTIVE MEMORY MANAGEMENT:\n")
+	sb.WriteString("- You SHOULD save new memories WITHOUT being asked when you learn preferences, decisions, corrections, or important context.\n")
+	sb.WriteString("- Use edit_file to update ~/.assistente/memory/memory.md for persistent facts (name, preferences, projects, patterns).\n")
+	sb.WriteString("- Use write_file to save daily notes to ~/.assistente/memory/daily/YYYY-MM-DD.md (decisions, tasks done, context).\n")
+	sb.WriteString("- When you save something, briefly mention it (one line) so the user knows.\n")
+	sb.WriteString("- Before starting tasks, check if saved memories contain relevant context.\n\n")
 	sb.WriteString(content)
 	sb.WriteString("\n</user_memory>")
 
@@ -896,16 +902,84 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 
 	total := len(dbMessages)
 
-	// Limita o contexto às últimas N mensagens para evitar contextos muito grandes
+	// Limita o contexto às últimas N mensagens para evitar contextos muito grandes.
+	// A truncação respeita pares tool_use/tool_result: nunca mantém um tool_result
+	// sem o assistant(tool_calls) correspondente, evitando erros 400 da Anthropic.
 	if total > MaxContextMessages {
-		// Mantém as primeiras 2 (system prompt + contexto inicial) + últimas (MaxContextMessages-2)
 		kept := MaxContextMessages - 2
-		dbMessages = append(dbMessages[:2], dbMessages[total-kept:]...)
+		cutIndex := total - kept
+		if cutIndex < 2 {
+			cutIndex = 2
+		}
+
+		// Avança o ponto de corte para não partir um grupo assistant+tool no meio.
+		// Se a mensagem no cutIndex é role="tool", avança até encontrar uma que não seja.
+		for cutIndex < total && dbMessages[cutIndex].Role == "tool" {
+			cutIndex++
+		}
+
+		dbMessages = append(dbMessages[:2], dbMessages[cutIndex:]...)
 		fmt.Printf("📋 [HISTORY] Conversa %d: %d msgs total, truncado para %d (limite: %d)\n",
 			conversationID, total, len(dbMessages), MaxContextMessages)
 	} else {
 		fmt.Printf("📋 [HISTORY] Conversa %d: %d mensagens carregadas\n", conversationID, total)
 	}
+
+	// Safety net: ensure every tool_use has its tool_result and vice-versa.
+	// Pass 1: collect all tool_call IDs offered (assistant) and answered (tool).
+	offeredIDs := make(map[string]bool) // IDs in assistant tool_calls
+	answeredIDs := make(map[string]bool) // IDs referenced by tool_result messages
+	for _, m := range dbMessages {
+		if m.ToolCalls != "" {
+			var tcs []struct {
+				ID string `json:"id"`
+			}
+			if json.Unmarshal([]byte(m.ToolCalls), &tcs) == nil {
+				for _, tc := range tcs {
+					offeredIDs[tc.ID] = true
+				}
+			}
+		}
+		if m.Role == "tool" && m.ToolCallID != "" {
+			answeredIDs[m.ToolCallID] = true
+		}
+	}
+
+	// Pass 2: remove orphaned tool_results and strip orphaned tool_calls from assistant messages.
+	cleaned := make([]database.ChatMessage, 0, len(dbMessages))
+	for _, m := range dbMessages {
+		// Drop tool_result whose tool_use was truncated
+		if m.Role == "tool" && m.ToolCallID != "" && !offeredIDs[m.ToolCallID] {
+			fmt.Printf("📋 [HISTORY] Removendo tool_result órfão: %s\n", m.ToolCallID)
+			continue
+		}
+		// Strip tool_calls from assistant if their tool_results were truncated
+		if m.ToolCalls != "" {
+			var tcs []json.RawMessage
+			var tcsParsed []struct {
+				ID string `json:"id"`
+			}
+			if json.Unmarshal([]byte(m.ToolCalls), &tcs) == nil && json.Unmarshal([]byte(m.ToolCalls), &tcsParsed) == nil {
+				var kept []json.RawMessage
+				for i, tc := range tcsParsed {
+					if answeredIDs[tc.ID] {
+						kept = append(kept, tcs[i])
+					} else {
+						fmt.Printf("📋 [HISTORY] Removendo tool_use órfão: %s\n", tc.ID)
+					}
+				}
+				if len(kept) == 0 {
+					m.ToolCalls = ""
+				} else if len(kept) < len(tcs) {
+					if j, err := json.Marshal(kept); err == nil {
+						m.ToolCalls = string(j)
+					}
+				}
+			}
+		}
+		cleaned = append(cleaned, m)
+	}
+	dbMessages = cleaned
 
 	messages := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {

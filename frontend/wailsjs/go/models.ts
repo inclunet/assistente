@@ -1349,6 +1349,7 @@ export namespace profiles {
 	    }
 	}
 	export class Profile {
+	    _builtin_version?: string;
 	    name: string;
 	    description?: string;
 	    icon?: string;
@@ -1363,6 +1364,7 @@ export namespace profiles {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this._builtin_version = source["_builtin_version"];
 	        this.name = source["name"];
 	        this.description = source["description"];
 	        this.icon = source["icon"];

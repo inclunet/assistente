@@ -189,91 +189,10 @@ func (m *Manager) GetSearchPaths() []string {
 	return m.resolver.GetSearchPaths()
 }
 
-// EnsureDefaults garante que o perfil padrão existe
+// EnsureDefaults ensures the profiles home directory exists.
+// Builtin profiles are now installed by App.installBuiltinProfiles() from embedded JSON files.
 func (m *Manager) EnsureDefaults() error {
-	if err := m.resolver.EnsureHomeDir(); err != nil {
-		return err
-	}
-
-	// Verifica se existe pelo menos um perfil
-	files, err := m.resolver.List()
-	if err != nil {
-		return err
-	}
-
-	hasProfiles := false
-	for _, f := range files {
-		if strings.HasSuffix(f.Filename, ".json") {
-			hasProfiles = true
-			break
-		}
-	}
-
-	if !hasProfiles {
-		// Cria o perfil padrão
-		defaultProfile := DefaultProfile()
-		if _, err := m.Create(defaultProfile); err != nil {
-			return fmt.Errorf("failed to create default profile: %w", err)
-		}
-
-		// Cria perfil "Modelo Local"
-		localProfile := &Profile{
-			Name:        "Modelo Local",
-			Description: "Para modelos locais (Ollama, LM Studio, etc.).",
-			Icon:        "desktop-outline",
-			Chat: ChatConfig{
-				Temperature:          0.7,
-				MaxTokens:            4096,
-				TopP:                 1.0,
-				ResponseTimeout:      300,
-				SystemPromptPosition: "after",
-			},
-			Voice: VoiceConfig{
-				Provider: "disabled",
-				Rate:     1.0,
-				Pitch:    1.0,
-				Volume:   1.0,
-			},
-			Interaction: InteractionConfig{
-				STTProvider:    "webspeech",
-				Language:       "pt-BR",
-				FeedbackSounds: true,
-			},
-		}
-		if _, err := m.Create(localProfile); err != nil {
-			fmt.Printf("Aviso: erro ao criar perfil 'Modelo Local': %v\n", err)
-		}
-
-		// Cria perfil "Programação"
-		codeProfile := &Profile{
-			Name:        "Programação",
-			Description: "Otimizado para programação e código.",
-			Icon:        "code-slash-outline",
-			Chat: ChatConfig{
-				Temperature:          0.3,
-				MaxTokens:            8192,
-				TopP:                 0.95,
-				ResponseTimeout:      180,
-				SystemPromptPosition: "after",
-			},
-			Voice: VoiceConfig{
-				Provider: "disabled",
-				Rate:     1.0,
-				Pitch:    1.0,
-				Volume:   1.0,
-			},
-			Interaction: InteractionConfig{
-				STTProvider:    "webspeech",
-				Language:       "pt-BR",
-				FeedbackSounds: true,
-			},
-		}
-		if _, err := m.Create(codeProfile); err != nil {
-			fmt.Printf("Aviso: erro ao criar perfil 'Programação': %v\n", err)
-		}
-	}
-
-	return nil
+	return m.resolver.EnsureHomeDir()
 }
 
 // Slugify converte um nome em slug seguro para nome de arquivo.

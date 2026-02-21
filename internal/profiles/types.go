@@ -9,13 +9,14 @@ import (
 // Combina configurações de chat (LLM), voz (TTS) e interação (STT/triggers)
 // em um único arquivo JSON armazenado em .assistente/profiles/.
 type Profile struct {
-	Name         string            `json:"name"`
-	Description  string            `json:"description,omitempty"`
-	Icon         string            `json:"icon,omitempty"`
-	Chat         ChatConfig        `json:"chat"`
-	Voice        VoiceConfig       `json:"voice"`
-	Interaction  InteractionConfig `json:"interaction"`
-	MediaSupport *MediaSupport     `json:"media_support,omitempty"` // Suporte a mídia do modelo (auto-detectado)
+	BuiltinVersion string            `json:"_builtin_version,omitempty"` // Version for builtin profiles (used by installBuiltinProfiles)
+	Name           string            `json:"name"`
+	Description    string            `json:"description,omitempty"`
+	Icon           string            `json:"icon,omitempty"`
+	Chat           ChatConfig        `json:"chat"`
+	Voice          VoiceConfig       `json:"voice"`
+	Interaction    InteractionConfig `json:"interaction"`
+	MediaSupport   *MediaSupport     `json:"media_support,omitempty"` // Suporte a mídia do modelo (auto-detectado)
 }
 
 // MediaSupport indica quais tipos de mídia o modelo LLM suporta nativamente.

@@ -49,32 +49,26 @@ export function useAnnouncerState() {
 
   useEffect(() => {
     const handleAnnounce = (message: string, priority: 'polite' | 'assertive' = 'polite') => {
+      // Timeout scales with message length so screen readers have time to capture it.
+      // Minimum 3s for short messages, ~50ms per char for longer text.
+      const timeoutMs = Math.max(3000, message.length * 50);
+
       if (priority === 'assertive') {
-        // Limpa timeout anterior se existir
         if (assertiveTimeoutRef.current) {
           clearTimeout(assertiveTimeoutRef.current);
         }
-        
-        // Define a mensagem
         setAssertiveMessage(message);
-        
-        // Limpa após 1 segundo
         assertiveTimeoutRef.current = window.setTimeout(() => {
           setAssertiveMessage('');
-        }, 1000);
+        }, timeoutMs);
       } else {
-        // Limpa timeout anterior se existir
         if (politeTimeoutRef.current) {
           clearTimeout(politeTimeoutRef.current);
         }
-        
-        // Define a mensagem
         setPoliteMessage(message);
-        
-        // Limpa após 1 segundo
         politeTimeoutRef.current = window.setTimeout(() => {
           setPoliteMessage('');
-        }, 1000);
+        }, timeoutMs);
       }
     };
 

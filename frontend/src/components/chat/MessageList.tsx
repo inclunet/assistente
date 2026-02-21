@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useMemo, forwardRef } from 'react';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
-import { MessageNode, Message } from '../../store/chatStore';
+import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
 import { main } from '../../../wailsjs/go/models';
 import './MessageList.css';
 
@@ -20,23 +20,22 @@ export interface MessageListProps {
 }
 
 /**
- * Consolida mensagens de turnos de tool calling em entradas únicas.
+ * Consolida mensagens de turnos de tool calling em entradas únicas com
+ * segments intercalados (texto → tools → texto → tools → resposta final).
  * 
  * No agentic loop, um único turno gera múltiplas mensagens no banco:
  *   1. Assistant com toolCalls (intermediária)
  *   2. Tool results (role=tool)
- *   3. Assistant final (resposta)
+ *   3. Assistant com toolCalls (outra iteração)
+ *   4. Tool results...
+ *   5. Assistant final (resposta)
  * 
- * Esta função agrupa todas essas mensagens pelo `turnId` e produz UMA
- * única entrada visual: a resposta final com todos os toolCalls coletados
- * como seção colapsável.
- * 
- * Mensagens sem turnId (conversas simples) passam inalteradas.
+ * Produz UMA entrada visual com `_turnSegments` que preserva a ordem
+ * cronológica: [text, tool_calls, text, tool_calls, ..., text].
  */
 function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
   if (!nodes || nodes.length === 0) return nodes;
 
-  // Agrupa mensagens por turnId
   const turnMap = new Map<number, MessageNode[]>();
   let hasTurns = false;
 
@@ -49,7 +48,6 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
     }
   }
 
-  // Se não há turnIds, retorna como está (conversa sem tool calling)
   if (!hasTurns) return nodes;
 
   const processedTurnIds = new Set<number>();
@@ -58,23 +56,18 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
   for (const node of nodes) {
     const turnId = node.message.turnId;
 
-    // Mensagem sem turnId (user, ou assistant simples sem tools) — passa direto
     if (!turnId) {
       result.push(node);
       continue;
     }
 
-    // Role=tool é sempre ocultado (representado pelo ToolCallsSection)
     if (node.message.role === 'tool') continue;
-
-    // Este turno já foi consolidado — pula mensagens intermediárias
     if (processedTurnIds.has(turnId)) continue;
     processedTurnIds.add(turnId);
 
-    // Consolida todas as mensagens deste turno
     const turnNodes = turnMap.get(turnId) || [];
 
-    // 1. Coleta resultados das tools (role=tool) indexados por toolCallId
+    // Index tool results by toolCallId
     const toolResults = new Map<string, string>();
     for (const tn of turnNodes) {
       if (tn.message.role === 'tool' && tn.message.toolCallId) {
@@ -82,7 +75,8 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
       }
     }
 
-    // 2. Coleta tool calls e casa com seus resultados
+    // Build segments in chronological order from assistant messages
+    const segments: TurnSegment[] = [];
     const allToolCalls: unknown[] = [];
     let finalContent = '';
     let finalReasoning = '';
@@ -91,38 +85,34 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
     for (const tn of turnNodes) {
       if (tn.message.role !== 'assistant') continue;
 
-      // Coleta tool calls e embutir resultado de cada uma
-      if (tn.message.toolCalls) {
-        try {
-          const parsed = JSON.parse(tn.message.toolCalls);
-          const calls = Array.isArray(parsed) ? parsed : [parsed];
-          for (const call of calls) {
-            // Enriquece cada call com o resultado correspondente
-            const result = toolResults.get(call.id);
-            allToolCalls.push({
-              ...call,
-              result: result ?? undefined,
-            });
-          }
-        } catch {
-          // JSON inválido — ignora
-        }
-      }
-
-      // O último assistant com conteúdo é a resposta final
+      // Text segment (intermediate reasoning or final answer)
       if (tn.message.content) {
+        segments.push({ type: 'text', content: tn.message.content });
         finalContent = tn.message.content;
         finalNode = tn;
       }
 
-      // Coleta reasoning (pode vir de qualquer iteração)
+      // Tool calls segment (enriched with results)
+      if (tn.message.toolCalls) {
+        try {
+          const parsed = JSON.parse(tn.message.toolCalls);
+          const calls = Array.isArray(parsed) ? parsed : [parsed];
+          const enrichedCalls = calls.map((call: any) => ({
+            ...call,
+            result: toolResults.get(call.id) ?? undefined,
+          }));
+          segments.push({ type: 'tool_calls', toolCalls: enrichedCalls });
+          allToolCalls.push(...enrichedCalls);
+        } catch {
+          // Invalid JSON — skip
+        }
+      }
+
       if (tn.message.reasoning) {
         finalReasoning = tn.message.reasoning;
       }
     }
 
-    // 3. Cria mensagem consolidada: resposta final + toolCalls com resultados
-    // Usa createFrom para manter a classe Wails (com convertValues)
     const consolidatedMessage = main.EnrichedMessage.createFrom({
       ...finalNode.message,
       content: finalContent,
@@ -134,6 +124,11 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
       ...finalNode,
       message: consolidatedMessage,
     }) as MessageNode;
+
+    // Attach segments only for multi-step turns (more than just the final text)
+    if (segments.length > 1) {
+      (consolidated.message as Message)._turnSegments = segments;
+    }
 
     result.push(consolidated);
   }

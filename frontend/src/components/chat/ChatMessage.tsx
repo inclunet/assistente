@@ -1,5 +1,5 @@
-import React, { useRef, useEffect } from 'react';
-import { Message } from '../../store/chatStore';
+import React, { useRef, useEffect, useState } from 'react';
+import { Message, TurnSegment, useChatStore } from '../../store/chatStore';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
@@ -35,6 +35,7 @@ export interface ChatMessageProps {
   onToggleReasoning?: () => void; // Callback para toggle do reasoning
   // Tool calling props
   activeToolCalls?: ToolCallStatus[]; // Tool calls em execução (durante streaming)
+  completedSegments?: TurnSegment[]; // Completed segments from previous agentic iterations (streaming)
   // Audio playback
   isPlayingAudio?: boolean; // Se está reproduzindo áudio desta mensagem
 }
@@ -59,10 +60,48 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isReasoningExpanded = false,
   onToggleReasoning,
   activeToolCalls,
+  completedSegments: _completedSegmentsProp,
   isPlayingAudio = false,
 }) => {
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
+  const messageId = message.id;
+
+  // Manual subscribe to completedSegments — bypasses useSyncExternalStore/React.memo entirely.
+  // useState + subscribe guarantees re-render when segments change.
+  const [liveSegments, setLiveSegments] = useState<TurnSegment[]>([]);
+  const [liveToolCalls, setLiveToolCalls] = useState<ToolCallStatus[]>([]);
+
+  useEffect(() => {
+    const unsub = useChatStore.subscribe((state) => {
+      if (state.streamingMessageId === messageId) {
+        setLiveSegments(prev =>
+          prev !== state.completedSegments ? state.completedSegments : prev
+        );
+        setLiveToolCalls(prev =>
+          prev !== state.activeToolCalls ? state.activeToolCalls : prev
+        );
+      } else {
+        setLiveSegments(prev => prev.length > 0 ? [] : prev);
+        setLiveToolCalls(prev => prev.length > 0 ? [] : prev);
+      }
+    });
+
+    // Sync initial state
+    const initial = useChatStore.getState();
+    if (initial.streamingMessageId === messageId) {
+      setLiveSegments(initial.completedSegments);
+      setLiveToolCalls(initial.activeToolCalls);
+    }
+
+    return unsub;
+  }, [messageId]);
+
+  const completedSegments = liveSegments.length > 0 ? liveSegments : _completedSegmentsProp;
+  const effectiveToolCalls = liveToolCalls.length > 0 ? liveToolCalls : activeToolCalls;
+
+  const hasAgenticSegments = !!(message._turnSegments || (completedSegments && completedSegments.length > 0));
+  const isAgenticStreaming = isStreaming && hasAgenticSegments;
 
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : content;
@@ -213,8 +252,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     <div
       className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''} ${isReading ? 'chat-message--reading' : ''}`}
       aria-label={isEditing ? undefined : getAriaLabel()}
-      aria-live={isStreaming ? 'polite' : 'off'}
-      aria-busy={isStreaming}
+      aria-live={isStreaming && !isAgenticStreaming ? 'polite' : 'off'}
+      aria-busy={isStreaming && !isAgenticStreaming}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
       onContextMenu={handleContextMenuEvent}
@@ -280,60 +319,112 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           <ReasoningSection 
             reasoning={streamingReasoning || reasoning || ''} 
             isStreaming={isThinking}
-            isExpanded={isThinking || isReasoningExpanded} // Expandido durante streaming ou por toggle
+            isExpanded={isThinking || isReasoningExpanded}
             onToggle={onToggleReasoning}
           />
         )}
 
-        {/* Seção de Tool Calls - exibe ferramentas chamadas pelo assistente */}
-        {role === 'assistant' && (toolCalls || (isStreaming && activeToolCalls && activeToolCalls.length > 0)) && (
-          <ToolCallsSection
-            toolCallsJson={toolCalls}
-            activeToolCalls={isStreaming ? activeToolCalls : undefined}
-          />
-        )}
-
-        <div className="chat-message__text">
-          {isEditing ? (
-            <div className="chat-message__edit">
-              <textarea
-                ref={editTextareaRef}
-                className="chat-message__edit-textarea"
-                value={editContent}
-                onChange={(e) => onEditContentChange?.(e.target.value)}
-                placeholder="Edite sua mensagem..."
-                rows={3}
-                tabIndex={0}
-                aria-label="Editar mensagem"
-              />
-              <div className="chat-message__edit-actions">
-                <button
-                  className="chat-message__edit-button chat-message__edit-button--cancel"
-                  onClick={onCancelEdit}
-                  aria-label="Cancelar"
-                >
-                  Cancelar
-                </button>
-                <button
-                  className="chat-message__edit-button chat-message__edit-button--save"
-                  onClick={onSaveEdit}
-                  disabled={!editContent.trim()}
-                  aria-label="Salvar"
-                >
-                  Salvar
-                </button>
-              </div>
+        {/* Interleaved segments: text → tools → text → tools → final answer */}
+        {role === 'assistant' && hasAgenticSegments ? (
+          <>
+            {/* Completed segments — role="log" so screen readers announce each addition
+                and browse mode users can navigate segment by segment */}
+            <div
+              role="log"
+              aria-label="Progresso do assistente"
+              aria-relevant="additions"
+              className="chat-message__segments-log"
+            >
+              {(message._turnSegments || completedSegments || []).map((seg, idx) => (
+                <React.Fragment key={idx}>
+                  {seg.type === 'text' && seg.content && (
+                    <section
+                      className="chat-message__text chat-message__text--segment"
+                      aria-label={`Passo ${Math.floor(idx / 2) + 1}`}
+                    >
+                      <MarkdownRenderer content={seg.content} />
+                    </section>
+                  )}
+                  {seg.type === 'tool_calls' && seg.toolCalls && (
+                    <ToolCallsSection
+                      toolCallsJson={JSON.stringify(seg.toolCalls)}
+                    />
+                  )}
+                </React.Fragment>
+              ))}
             </div>
-          ) : (
-            <>
-              {role === 'assistant' && content ? (
-                <MarkdownRenderer content={content} />
-              ) : (
-                content || (isStreaming && <span className="chat-message__cursor">▋</span>)
+
+            {/* Current iteration — aria-busy suppresses char-by-char updates */}
+            <div aria-busy={isStreaming} aria-live={isStreaming ? 'polite' : 'off'}>
+              {isStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
+                <ToolCallsSection activeToolCalls={effectiveToolCalls} />
               )}
-            </>
-          )}
-        </div>
+
+              {isStreaming && content && !message._turnSegments && (
+                <div className="chat-message__text">
+                  <MarkdownRenderer content={content} />
+                </div>
+              )}
+              {isStreaming && !content && !message._turnSegments && (
+                <div className="chat-message__text">
+                  <span className="chat-message__cursor">▋</span>
+                </div>
+              )}
+            </div>
+          </>
+        ) : (
+          <>
+            {/* Non-agentic messages: flat layout (reasoning → tools → content) */}
+            {role === 'assistant' && (toolCalls || (isStreaming && effectiveToolCalls && effectiveToolCalls.length > 0)) && (
+              <ToolCallsSection
+                toolCallsJson={toolCalls}
+                activeToolCalls={isStreaming ? effectiveToolCalls : undefined}
+              />
+            )}
+
+            <div className="chat-message__text">
+              {isEditing ? (
+                <div className="chat-message__edit">
+                  <textarea
+                    ref={editTextareaRef}
+                    className="chat-message__edit-textarea"
+                    value={editContent}
+                    onChange={(e) => onEditContentChange?.(e.target.value)}
+                    placeholder="Edite sua mensagem..."
+                    rows={3}
+                    tabIndex={0}
+                    aria-label="Editar mensagem"
+                  />
+                  <div className="chat-message__edit-actions">
+                    <button
+                      className="chat-message__edit-button chat-message__edit-button--cancel"
+                      onClick={onCancelEdit}
+                      aria-label="Cancelar"
+                    >
+                      Cancelar
+                    </button>
+                    <button
+                      className="chat-message__edit-button chat-message__edit-button--save"
+                      onClick={onSaveEdit}
+                      disabled={!editContent.trim()}
+                      aria-label="Salvar"
+                    >
+                      Salvar
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  {role === 'assistant' && content ? (
+                    <MarkdownRenderer content={content} />
+                  ) : (
+                    content || (isStreaming && <span className="chat-message__cursor">▋</span>)
+                  )}
+                </>
+              )}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
