@@ -29,6 +29,8 @@ export function AssignConversationToChannel(arg1:number,arg2:string,arg3:string)
 
 export function AuthorizeMessagingContactFull(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
+export function CheckContextWindowThreshold(arg1:number,arg2:number):Promise<boolean>;
+
 export function CheckForUpdates():Promise<updater.UpdateInfo>;
 
 export function ClearConversation(arg1:number):Promise<void>;
@@ -115,7 +117,7 @@ export function GetConversationChannel(arg1:number):Promise<string>;
 
 export function GetConversationInfo(arg1:number):Promise<database.Conversation>;
 
-export function GetConversationTokenStats(arg1:number):Promise<Record<string, number>>;
+export function GetConversationTokenStats(arg1:number):Promise<main.TokenStatsResult>;
 
 export function GetConversationWithThreads(arg1:number):Promise<main.ConversationWithThreads>;
 
@@ -157,6 +159,8 @@ export function GetProfileSearchPaths():Promise<Array<string>>;
 
 export function GetProfiles():Promise<Array<profiles.ProfileInfo>>;
 
+export function GetRecentMessagesTokenCount(arg1:number,arg2:number):Promise<number>;
+
 export function GetSAPI5Voices():Promise<Array<main.SAPI5VoiceInfo>>;
 
 export function GetSkill(arg1:string):Promise<skills.Skill>;
@@ -170,6 +174,8 @@ export function GetTabs():Promise<main.TabsResponse>;
 export function GetTerminalHistory(arg1:string):Promise<Array<terminal.HistoryEntry>>;
 
 export function GetTerminalStats():Promise<terminal.ManagerStats>;
+
+export function GetTurnTokenStats(arg1:number,arg2:number):Promise<main.TokenStatsResult>;
 
 export function GetUserInvocableSkills():Promise<Array<skills.SkillInfo>>;
 

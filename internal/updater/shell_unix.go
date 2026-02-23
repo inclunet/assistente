@@ -1,3 +1,4 @@
+//go:build !windows
 // +build !windows
 
 package updater
@@ -7,6 +8,6 @@ import (
 )
 
 // shellExecute é um stub para sistemas não-Windows
-func shellExecute(verb, file, params, dir string, show int) error {
+func shellExecute(_ /* verb */, _ /* file */, _ /* params */, _ /* dir */ string, _ /* show */ int) error {
 	return fmt.Errorf("shellExecute is only supported on Windows")
 }

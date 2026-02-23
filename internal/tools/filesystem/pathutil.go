@@ -50,7 +50,7 @@ func resolveFilePath(path, workDir string) (string, error) {
 
 // validatePath verifica se um caminho é seguro para acesso.
 // Bloqueia path traversal e acesso a diretórios sensíveis.
-func validatePath(fullPath, workDir string) error {
+func validatePath(fullPath, _ string) error {
 	cleanPath := filepath.Clean(fullPath)
 
 	// Bloqueia path traversal (o caminho limpo não deve "escapar" para diretórios sensíveis do sistema)

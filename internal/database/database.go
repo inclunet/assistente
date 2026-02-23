@@ -532,6 +532,105 @@ func GetAllTokenStats() (map[string]int, error) {
 	}, nil
 }
 
+// TokenStats representa estatísticas detalhadas de tokens
+type TokenStats struct {
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+	MessageCount     int    `json:"message_count"`
+	Model            string `json:"model,omitempty"`
+}
+
+// GetTurnTokenStats retorna estatísticas de tokens para um turno específico
+// Um turno é identificado pelo TurnID (ID da mensagem do usuário que iniciou o turno)
+func GetTurnTokenStats(conversationID uint, turnID uint) (*TokenStats, error) {
+	var result struct {
+		TotalPromptTokens     int
+		TotalCompletionTokens int
+		TotalTokens           int
+		MessageCount          int
+	}
+	err := db.Model(&ChatMessage{}).
+		Where("conversation_id = ? AND turn_id = ?", conversationID, turnID).
+		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, COUNT(*) as message_count").
+		Scan(&result).Error
+	if err != nil {
+		return nil, err
+	}
+	return &TokenStats{
+		PromptTokens:     result.TotalPromptTokens,
+		CompletionTokens: result.TotalCompletionTokens,
+		TotalTokens:      result.TotalTokens,
+		MessageCount:     result.MessageCount,
+	}, nil
+}
+
+// GetConversationDetailedTokenStats retorna estatísticas detalhadas de tokens de uma conversa
+// Inclui contagem de mensagens e modelo mais usado
+func GetConversationDetailedTokenStats(conversationID uint) (*TokenStats, error) {
+	var result struct {
+		TotalPromptTokens     int
+		TotalCompletionTokens int
+		TotalTokens           int
+		MessageCount          int
+	}
+	err := db.Model(&ChatMessage{}).
+		Where("conversation_id = ?", conversationID).
+		Select("SUM(prompt_tokens) as total_prompt_tokens, SUM(completion_tokens) as total_completion_tokens, SUM(total_tokens) as total_tokens, COUNT(*) as message_count").
+		Scan(&result).Error
+	if err != nil {
+		return nil, err
+	}
+
+	// Busca o modelo mais usado
+	var mostUsedModel string
+	db.Model(&ChatMessage{}).
+		Where("conversation_id = ? AND model != ''", conversationID).
+		Select("model").
+		Group("model").
+		Order("COUNT(*) DESC").
+		Limit(1).
+		Scan(&mostUsedModel)
+
+	return &TokenStats{
+		PromptTokens:     result.TotalPromptTokens,
+		CompletionTokens: result.TotalCompletionTokens,
+		TotalTokens:      result.TotalTokens,
+		MessageCount:     result.MessageCount,
+		Model:            mostUsedModel,
+	}, nil
+}
+
+// GetContextWindowUsage calcula a porcentagem de uso da janela de contexto
+// baseado no total de tokens da conversa e no limite do modelo
+func GetContextWindowUsage(conversationID uint, contextLimit int) (float64, int, error) {
+	stats, err := GetConversationDetailedTokenStats(conversationID)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	if contextLimit <= 0 {
+		return 0, stats.TotalTokens, nil
+	}
+
+	percentage := (float64(stats.TotalTokens) / float64(contextLimit)) * 100
+	return percentage, stats.TotalTokens, nil
+}
+
+// GetRecentMessagesTokenCount retorna o total de tokens das N mensagens mais recentes
+// Útil para estimar o contexto atual que será enviado ao LLM
+func GetRecentMessagesTokenCount(conversationID uint, messageLimit int) (int, error) {
+	var totalTokens int
+	err := db.Model(&ChatMessage{}).
+		Where("conversation_id = ?", conversationID).
+		Order("created_at DESC").
+		Limit(messageLimit).
+		Select("SUM(total_tokens)").
+		Scan(&totalTokens).Error
+
+	return totalTokens, err
+}
+
 // ==================== Chat Tab ====================
 
 // CreateChatTab cria uma nova aba de chat

@@ -268,10 +268,9 @@ Remove-Item -Path $PSCommandPath -Force
 }
 */
 
-
 // applyUpdateWindows baixa e executa o instalador do Windows
 // applyUpdateWindowsInstaller aplica atualização usando instalador NSIS (versão instalada)
-func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, manifest *Manifest) error {
+func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, _ *Manifest) error {
 	// Procura pelo instalador nos assets do GitHub
 	var installerURL string
 	var installerSize int64
@@ -309,15 +308,15 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, manifest *Man
 	// Procura o instalador - aceita vários padrões de nomes
 	for _, asset := range ghRelease.Assets {
 		log.Printf("[Updater] Asset encontrado: %s", asset.Name)
-		
+
 		assetLower := strings.ToLower(asset.Name)
-		
+
 		// Aceita: *installer*.exe, *windows*.exe, *setup*.exe
 		isInstaller := (strings.Contains(assetLower, "installer") ||
 			strings.Contains(assetLower, "setup") ||
 			strings.Contains(assetLower, "windows")) &&
 			strings.HasSuffix(assetLower, ".exe")
-		
+
 		if isInstaller {
 			installerURL = asset.BrowserDownloadURL
 			installerSize = asset.Size
@@ -361,7 +360,7 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, manifest *Man
 	// /S = silent mode no NSIS
 	// O instalador irá aguardar o app fechar e então substituir o executável
 	log.Printf("[Updater] Iniciando processo do instalador com flag /S...")
-	
+
 	// No Windows, usa ShellExecute com "runas" para solicitar elevação
 	// Isso mostrará o diálogo UAC automaticamente
 	if err := executeWithElevation(installerFile, "/S"); err != nil {
@@ -370,19 +369,19 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, manifest *Man
 
 	log.Printf("[Updater] ✅ Instalador iniciado em modo silencioso com elevação")
 	log.Printf("[Updater] 🔄 Fechando aplicativo para permitir atualização...")
-	
+
 	// Aguarda 1 segundo para garantir que o instalador iniciou
 	time.Sleep(1 * time.Second)
-	
+
 	// Fecha o aplicativo para que o instalador possa substituir o executável
 	// O instalador NSIS detectará que o processo terminou e aplicará a atualização
 	os.Exit(0)
-	
+
 	return nil // Nunca executado, mas mantém o compilador feliz
 }
 
 // applyUpdateWindowsPortable aplica atualização baixando versão portátil (fora de Program Files)
-func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, manifest *Manifest) error {
+func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) error {
 	var portableURL string
 	var portableSize int64
 
@@ -419,16 +418,16 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, manifest *Mani
 	// Procura a versão portátil - aceita vários padrões
 	for _, asset := range ghRelease.Assets {
 		log.Printf("[Updater] Asset encontrado: %s", asset.Name)
-		
+
 		assetLower := strings.ToLower(asset.Name)
-		
+
 		// Aceita: *portable*.exe, *windows*.exe (mas não installer/setup)
 		isPortable := (strings.Contains(assetLower, "portable") ||
-			(strings.Contains(assetLower, "windows") && 
-				!strings.Contains(assetLower, "installer") && 
+			(strings.Contains(assetLower, "windows") &&
+				!strings.Contains(assetLower, "installer") &&
 				!strings.Contains(assetLower, "setup"))) &&
 			strings.HasSuffix(assetLower, ".exe")
-		
+
 		if isPortable {
 			portableURL = asset.BrowserDownloadURL
 			portableSize = asset.Size
@@ -607,7 +606,6 @@ func isPermissionError(err error) bool {
 	return isPerm
 }
 */
-
 
 // downloadInstaller baixa o instalador do Windows
 func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes int64) (string, error) {

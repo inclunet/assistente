@@ -34,6 +34,10 @@ export function AuthorizeMessagingContactFull(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['AuthorizeMessagingContactFull'](arg1, arg2, arg3, arg4);
 }
 
+export function CheckContextWindowThreshold(arg1, arg2) {
+  return window['go']['main']['App']['CheckContextWindowThreshold'](arg1, arg2);
+}
+
 export function CheckForUpdates() {
   return window['go']['main']['App']['CheckForUpdates']();
 }
@@ -290,6 +294,10 @@ export function GetProfiles() {
   return window['go']['main']['App']['GetProfiles']();
 }
 
+export function GetRecentMessagesTokenCount(arg1, arg2) {
+  return window['go']['main']['App']['GetRecentMessagesTokenCount'](arg1, arg2);
+}
+
 export function GetSAPI5Voices() {
   return window['go']['main']['App']['GetSAPI5Voices']();
 }
@@ -316,6 +324,10 @@ export function GetTerminalHistory(arg1) {
 
 export function GetTerminalStats() {
   return window['go']['main']['App']['GetTerminalStats']();
+}
+
+export function GetTurnTokenStats(arg1, arg2) {
+  return window['go']['main']['App']['GetTurnTokenStats'](arg1, arg2);
 }
 
 export function GetUserInvocableSkills() {

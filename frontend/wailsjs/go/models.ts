@@ -954,6 +954,38 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class TokenStatsResult {
+	    conversationId: number;
+	    promptTokens: number;
+	    completionTokens: number;
+	    totalTokens: number;
+	    messageCount: number;
+	    model: string;
+	    mostUsedModel: string;
+	    contextUsage: number;
+	    contextLimit: number;
+	    isNearLimit: boolean;
+	    isCritical: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new TokenStatsResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.promptTokens = source["promptTokens"];
+	        this.completionTokens = source["completionTokens"];
+	        this.totalTokens = source["totalTokens"];
+	        this.messageCount = source["messageCount"];
+	        this.model = source["model"];
+	        this.mostUsedModel = source["mostUsedModel"];
+	        this.contextUsage = source["contextUsage"];
+	        this.contextLimit = source["contextLimit"];
+	        this.isNearLimit = source["isNearLimit"];
+	        this.isCritical = source["isCritical"];
+	    }
+	}
 	export class ToolInfo {
 	    name: string;
 	    description: string;
@@ -1200,6 +1232,7 @@ export namespace profiles {
 	    model?: string;
 	    temperature: number;
 	    max_tokens: number;
+	    context_window?: number;
 	    top_p: number;
 	    response_timeout: number;
 	    enable_thinking: boolean;
@@ -1220,6 +1253,7 @@ export namespace profiles {
 	        this.model = source["model"];
 	        this.temperature = source["temperature"];
 	        this.max_tokens = source["max_tokens"];
+	        this.context_window = source["context_window"];
 	        this.top_p = source["top_p"];
 	        this.response_timeout = source["response_timeout"];
 	        this.enable_thinking = source["enable_thinking"];

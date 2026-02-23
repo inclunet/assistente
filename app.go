@@ -870,7 +870,7 @@ func (a *App) GetAvailableTools() []ToolInfo {
 }
 
 // shutdown é chamado quando o app fecha
-func (a *App) shutdown(ctx context.Context) {
+func (a *App) shutdown(_ context.Context) {
 	if a.hotkeyManager != nil {
 		a.hotkeyManager.Stop()
 	}
@@ -1296,6 +1296,108 @@ func (a *App) GetNativeMCPServers() []map[string]any {
 type LLMSettings struct {
 	APIKey  string
 	BaseURL string
+}
+
+// ============================================================================
+// Token Stats API
+// ============================================================================
+
+// TokenStatsResult representa estatísticas de tokens para o frontend
+type TokenStatsResult struct {
+	ConversationID   uint    `json:"conversationId"`
+	PromptTokens     int     `json:"promptTokens"`
+	CompletionTokens int     `json:"completionTokens"`
+	TotalTokens      int     `json:"totalTokens"`
+	MessageCount     int     `json:"messageCount"`
+	Model            string  `json:"model"`
+	MostUsedModel    string  `json:"mostUsedModel"`
+	ContextUsage     float64 `json:"contextUsage"` // Porcentagem de uso do contexto (0-100)
+	ContextLimit     int     `json:"contextLimit"` // Limite de tokens do modelo
+	IsNearLimit      bool    `json:"isNearLimit"`  // True se >= 80% do limite
+	IsCritical       bool    `json:"isCritical"`   // True se >= 95% do limite
+}
+
+// GetConversationTokenStats retorna estatísticas de tokens de uma conversa
+func (a *App) GetConversationTokenStats(conversationID uint) (*TokenStatsResult, error) {
+	stats, err := database.GetConversationDetailedTokenStats(conversationID)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar estatísticas de tokens: %w", err)
+	}
+
+	result := &TokenStatsResult{
+		ConversationID:   conversationID,
+		PromptTokens:     stats.PromptTokens,
+		CompletionTokens: stats.CompletionTokens,
+		TotalTokens:      stats.TotalTokens,
+		MessageCount:     stats.MessageCount,
+		Model:            stats.Model,
+		MostUsedModel:    stats.Model, // Por enquanto, usar o mesmo valor de Model
+	}
+
+	// Busca informações do perfil ativo para obter o limite de contexto
+	profile, err := a.profileManager.GetActive()
+	if err == nil && profile != nil && profile.Chat.ContextWindow > 0 {
+		contextLimit := profile.Chat.ContextWindow
+		percentage, _, err := database.GetContextWindowUsage(conversationID, contextLimit)
+		if err == nil {
+			result.ContextUsage = percentage
+			result.ContextLimit = contextLimit
+			result.IsNearLimit = percentage >= 80.0
+			result.IsCritical = percentage >= 95.0
+		}
+	}
+
+	return result, nil
+}
+
+// GetTurnTokenStats retorna estatísticas de tokens para um turno específico
+func (a *App) GetTurnTokenStats(conversationID uint, turnID uint) (*TokenStatsResult, error) {
+	stats, err := database.GetTurnTokenStats(conversationID, turnID)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar estatísticas do turno: %w", err)
+	}
+
+	return &TokenStatsResult{
+		PromptTokens:     stats.PromptTokens,
+		CompletionTokens: stats.CompletionTokens,
+		TotalTokens:      stats.TotalTokens,
+		MessageCount:     stats.MessageCount,
+	}, nil
+}
+
+// GetRecentMessagesTokenCount retorna o total de tokens das N mensagens mais recentes
+// Útil para estimar quanto contexto será enviado na próxima requisição
+func (a *App) GetRecentMessagesTokenCount(conversationID uint, messageLimit int) (int, error) {
+	return database.GetRecentMessagesTokenCount(conversationID, messageLimit)
+}
+
+// CheckContextWindowThreshold verifica se a conversa está próxima do limite de contexto
+// Retorna true e a porcentagem se estiver acima do threshold (padrão 80%)
+func (a *App) CheckContextWindowThreshold(conversationID uint, threshold float64) (bool, float64, error) {
+	if threshold <= 0 {
+		threshold = 80.0 // Padrão: 80%
+	}
+
+	// Busca informações do perfil ativo para obter o limite de contexto
+	profile, err := a.profileManager.GetActive()
+	if err != nil {
+		return false, 0, fmt.Errorf("erro ao obter perfil ativo: %w", err)
+	}
+
+	if profile == nil || profile.Chat.ContextWindow <= 0 {
+		return false, 0, fmt.Errorf("limite de contexto não configurado no perfil")
+	}
+
+	contextLimit := profile.Chat.ContextWindow
+	percentage, totalTokens, err := database.GetContextWindowUsage(conversationID, contextLimit)
+	if err != nil {
+		return false, 0, fmt.Errorf("erro ao calcular uso do contexto: %w", err)
+	}
+
+	log.Printf("[TokenStats] Conversa %d: %d tokens de %d (%0.1f%%)",
+		conversationID, totalTokens, contextLimit, percentage)
+
+	return percentage >= threshold, percentage, nil
 }
 
 // GetLLMSettings retorna as configurações atuais da API LLM
@@ -2361,16 +2463,16 @@ func (a *App) NeedsWelcomeWizard() bool {
 // Retorna true se completou com sucesso, false se cancelado
 func (a *App) RunWelcomeWizard() (bool, error) {
 	ctx := a.ctx
-	
+
 	// Variáveis para armazenar dados entre etapas
 	var provider string
 	var baseURL string
 	var apiKey string
 	var defaultModel string
-	
+
 	// Controle de navegação entre etapas
 	currentStep := 1
-	
+
 	for currentStep > 0 {
 		switch currentStep {
 		case 1: // Etapa 1: Escolher provedor
@@ -2423,26 +2525,27 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			case "Outro (URL personalizada)":
 				baseURL = "" // Usuário precisará fornecer
 			}
-			
+
 			currentStep = 2
-			
+
 		case 2: // Etapa 2: URL personalizada (se necessário)
 			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
-			
+
 			if !needsCustomURL {
 				// Pula para próxima etapa se não precisa de URL customizada
 				currentStep = 3
 				continue
 			}
-			
+
 			// Ajusta placeholder e exemplo baseado no provedor
 			placeholderURL := "http://localhost:11434/v1"
-			if provider == "LiteLLM" {
+			switch provider {
+			case "LiteLLM":
 				placeholderURL = "http://localhost:4000"
-			} else if provider == "Azure OpenAI" {
+			case "Azure OpenAI":
 				placeholderURL = "https://your-resource.openai.azure.com"
 			}
-			
+
 			urlResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
 				Title:       "Configuração do Servidor",
 				Description: "Informe a URL do servidor OpenAI-compatible.",
@@ -2464,7 +2567,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			
+
 			if urlResp.Cancelled {
 				currentStep = 1 // Volta para etapa anterior
 				continue
@@ -2472,7 +2575,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 
 			baseURL = urlResp.Answers["baseURL"].(string)
 			currentStep = 3
-			
+
 		case 3: // Etapa 3: API Key
 			keyDescription := "Informe sua chave de API. Deixe em branco se o servidor não requer autenticação."
 			if provider == "Ollama (Local)" {
@@ -2500,7 +2603,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			
+
 			if keyResp.Cancelled {
 				// Volta para etapa anterior (URL customizada ou provedor)
 				needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
@@ -2515,9 +2618,9 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			if keyResp.Answers["apiKey"] != nil {
 				apiKey = keyResp.Answers["apiKey"].(string)
 			}
-			
+
 			currentStep = 4
-			
+
 		case 4: // Etapa 4: Listar e escolher modelo
 			// Salva configuração temporária para testar modelos
 			tempCfg := &config.Config{
@@ -2549,7 +2652,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				if err != nil {
 					return false, err
 				}
-				
+
 				if errorResp.Cancelled {
 					currentStep = 3 // Volta para API key
 					continue
@@ -2569,7 +2672,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			if len(models) == 0 {
 				models = []string{"gpt-4o-mini", "claude-3-5-sonnet-20241022", "gemini-pro"}
 			}
-			
+
 			// Mantém modelo selecionado anteriormente se houver
 			modelDefault := ""
 			if defaultModel != "" {
@@ -2599,7 +2702,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			if err != nil {
 				return false, err
 			}
-			
+
 			if modelResp.Cancelled {
 				currentStep = 3 // Volta para API key
 				continue
@@ -2626,7 +2729,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			return true, nil
 		}
 	}
-	
+
 	return false, nil
 }
 

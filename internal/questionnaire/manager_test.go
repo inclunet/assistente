@@ -57,7 +57,8 @@ func TestRequestQuestionnaire_Answered(t *testing.T) {
 }
 
 func TestRequestQuestionnaire_Cancelled(t *testing.T) {
-	mgr := NewManager(func(event string, data any) {
+	var mgr *Manager
+	mgr = NewManager(func(event string, data any) {
 		go func() {
 			time.Sleep(10 * time.Millisecond)
 			dataMap := data.(map[string]any)

@@ -239,7 +239,7 @@ func (a *App) DeleteMessage(messageID uint) error {
 	if a.questionnaireMgr == nil {
 		return fmt.Errorf("questionnaire manager não inicializado")
 	}
-	
+
 	resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
 		Title:       "Excluir mensagem",
 		Description: "Tem certeza que deseja excluir esta mensagem e todas as suas respostas? Esta ação não pode ser desfeita.",
@@ -265,7 +265,7 @@ func (a *App) DeleteMessage(messageID uint) error {
 	if !ok || !confirmed {
 		return fmt.Errorf("exclusão cancelada pelo usuário")
 	}
-	
+
 	// Prossegue com a exclusão
 	if err := database.DeleteMessage(messageID); err != nil {
 		return err
@@ -328,10 +328,6 @@ func (a *App) AddMessageWithTokensAndMedia(conversationID uint, role, content, m
 
 func (a *App) AddChildMessage(conversationID uint, parentID uint, role, content, model string) (*ChatMessage, error) {
 	return database.AddChildMessage(conversationID, parentID, role, content, model)
-}
-
-func (a *App) GetConversationTokenStats(conversationID uint) (map[string]int, error) {
-	return database.GetConversationTokenStats(conversationID)
 }
 
 func (a *App) GetAllTokenStats() (map[string]int, error) {

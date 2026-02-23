@@ -33,6 +33,11 @@ export function ChatTabs() {
   const tabListRef = useRef<HTMLDivElement>(null);
   const { announce } = useAnnouncer();
   
+  // Debug: Log tabs quando mudarem
+  useEffect(() => {
+    console.log('[ChatTabs] Tabs atualizadas:', tabs.map(t => ({ id: t.id, title: t.title })));
+  }, [tabs]);
+  
   // Estado para edição de título
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
@@ -481,7 +486,9 @@ export function ChatTabs() {
         role="tablist"
         aria-label="Lista de conversas abertas"
       >
-        {tabs.map(tab => (
+        {tabs.map(tab => {
+          console.log('[ChatTabs] Renderizando aba:', { id: tab.id, title: tab.title, conversationId: tab.conversationId });
+          return (
           <button
             key={tab.id}
             data-tab-id={tab.id}
@@ -529,7 +536,7 @@ export function ChatTabs() {
               </button>
             )}
           </button>
-        ))}
+        )})}
       </div>
 
       {/* Menu de contexto das abas */}

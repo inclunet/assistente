@@ -20,48 +20,8 @@ const (
 	ModWin   hotkey.Modifier = 1 << 3 // Win no Windows, Cmd no macOS
 )
 
-// Teclas comuns
-const (
-	KeyA     = hotkey.KeyA
-	KeyB     = hotkey.KeyB
-	KeyC     = hotkey.KeyC
-	KeyD     = hotkey.KeyD
-	KeyE     = hotkey.KeyE
-	KeyF     = hotkey.KeyF
-	KeyG     = hotkey.KeyG
-	KeyH     = hotkey.KeyH
-	KeyI     = hotkey.KeyI
-	KeyJ     = hotkey.KeyJ
-	KeyK     = hotkey.KeyK
-	KeyL     = hotkey.KeyL
-	KeyM     = hotkey.KeyM
-	KeyN     = hotkey.KeyN
-	KeyO     = hotkey.KeyO
-	KeyP     = hotkey.KeyP
-	KeyQ     = hotkey.KeyQ
-	KeyR     = hotkey.KeyR
-	KeyS     = hotkey.KeyS
-	KeyT     = hotkey.KeyT
-	KeyU     = hotkey.KeyU
-	KeyV     = hotkey.KeyV
-	KeyW     = hotkey.KeyW
-	KeyX     = hotkey.KeyX
-	KeyY     = hotkey.KeyY
-	KeyZ     = hotkey.KeyZ
-	KeySpace = hotkey.KeySpace
-	KeyF1    = hotkey.KeyF1
-	KeyF2    = hotkey.KeyF2
-	KeyF3    = hotkey.KeyF3
-	KeyF4    = hotkey.KeyF4
-	KeyF5    = hotkey.KeyF5
-	KeyF6    = hotkey.KeyF6
-	KeyF7    = hotkey.KeyF7
-	KeyF8    = hotkey.KeyF8
-	KeyF9    = hotkey.KeyF9
-	KeyF10   = hotkey.KeyF10
-	KeyF11   = hotkey.KeyF11
-	KeyF12   = hotkey.KeyF12
-)
+// Teclas comuns - removidas as re-exportações para evitar erros de compilação cross-platform
+// As teclas são usadas diretamente através do pacote hotkey onde necessário
 
 // HotkeyCallback função chamada quando hotkey é pressionado
 type HotkeyCallback func()
@@ -250,25 +210,9 @@ func ParseModifiersString(mods string) []hotkey.Modifier {
 }
 
 // ParseKeyString converte string para Key
+// Implementação específica por plataforma definida em hotkey_windows.go e hotkey_darwin.go
 func ParseKeyString(key string) (hotkey.Key, error) {
-	keyMap := map[string]hotkey.Key{
-		"A": hotkey.KeyA, "B": hotkey.KeyB, "C": hotkey.KeyC, "D": hotkey.KeyD,
-		"E": hotkey.KeyE, "F": hotkey.KeyF, "G": hotkey.KeyG, "H": hotkey.KeyH,
-		"I": hotkey.KeyI, "J": hotkey.KeyJ, "K": hotkey.KeyK, "L": hotkey.KeyL,
-		"M": hotkey.KeyM, "N": hotkey.KeyN, "O": hotkey.KeyO, "P": hotkey.KeyP,
-		"Q": hotkey.KeyQ, "R": hotkey.KeyR, "S": hotkey.KeyS, "T": hotkey.KeyT,
-		"U": hotkey.KeyU, "V": hotkey.KeyV, "W": hotkey.KeyW, "X": hotkey.KeyX,
-		"Y": hotkey.KeyY, "Z": hotkey.KeyZ,
-		"SPACE": hotkey.KeySpace,
-		"F1":    hotkey.KeyF1, "F2": hotkey.KeyF2, "F3": hotkey.KeyF3, "F4": hotkey.KeyF4,
-		"F5": hotkey.KeyF5, "F6": hotkey.KeyF6, "F7": hotkey.KeyF7, "F8": hotkey.KeyF8,
-		"F9": hotkey.KeyF9, "F10": hotkey.KeyF10, "F11": hotkey.KeyF11, "F12": hotkey.KeyF12,
-	}
-
-	if k, ok := keyMap[strings.ToUpper(key)]; ok {
-		return k, nil
-	}
-	return 0, fmt.Errorf("unknown key: %s", key)
+	return parseKeyStringImpl(strings.ToUpper(key))
 }
 
 // ParseCombination converte uma string de combinação para modifiers e key

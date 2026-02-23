@@ -1,4 +1,4 @@
-import React, { useEffect, useCallback, useRef } from 'react';
+import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../store/chatStore';
 import { HistoryPicker, HistoryPickerRef } from '../pickers';
@@ -6,6 +6,8 @@ import { ProfilePicker, ProfilePickerRef } from '../pickers/ProfilePicker';
 import { Toolbar } from '../ui/Toolbar';
 import { ContextMenu, MenuItem } from '../ui/ContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { TokenStatsButton } from './TokenStatsButton';
+import { TokenStatsModal } from './TokenStatsModal';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
@@ -23,9 +25,22 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const activeTab = getActiveTab();
   const conversationTitle = activeTab?.title || 'Nova conversa';
 
+  // Debug: log activeTab
+  useEffect(() => {
+    console.log('[ChatToolbar] activeTab mudou:', {
+      id: activeTab?.id,
+      conversationId: activeTab?.conversationId,
+      title: activeTab?.title,
+      hasConversationId: !!activeTab?.conversationId
+    });
+  }, [activeTab]);
+
   // Refs para os pickers
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
+
+  // Estado do modal de tokens
+  const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
 
   // Estado do menu de contexto
   const [contextMenu, setContextMenu] = React.useState<{
@@ -103,11 +118,25 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         const historyPicker = document.querySelector('[aria-label*="Histórico"]') as HTMLElement;
         historyPicker?.click();
       }
+      // Ctrl+T: Abrir estatísticas de tokens
+      else if (e.ctrlKey && e.key === 't') {
+        e.preventDefault();
+        if (activeTab?.conversationId) {
+          setIsTokenModalOpen(true);
+          announce('Modal de estatísticas de tokens aberto');
+        }
+      }
+      // Ctrl+P: Focar no picker de perfil
+      else if (e.ctrlKey && e.key === 'p') {
+        e.preventDefault();
+        const profilePicker = document.querySelector('[aria-label*="Perfil"]') as HTMLElement;
+        profilePicker?.click();
+      }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, []);
+  }, [activeTab?.conversationId, announce]);
 
   const focusInput = useCallback(() => {
     setTimeout(() => {
@@ -167,12 +196,19 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 ref={historyPickerRef}
                 value={activeTab?.conversationId}
                 onChange={handleHistoryChange}
-                label="Histórico (Ctrl+H)"
+                label="Histórico, Ctrl+H"
                 maxWidth="200px"
                 onAnnounce={announce}
                 disabled={isLoading}
               />
             </div>
+
+            <div className="toolbar__separator" aria-hidden="true"></div>
+
+            <TokenStatsButton
+              conversationId={activeTab?.conversationId}
+              onOpenModal={() => setIsTokenModalOpen(true)}
+            />
 
             <div className="toolbar__separator" aria-hidden="true"></div>
 
@@ -184,7 +220,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 ref={profilePickerRef}
                 onChange={handleProfileChange}
                 variant="toolbar"
-                label="Perfil"
+                label="Perfil, Ctrl+P"
                 icon="💬"
                 maxWidth="180px"
                 onAnnounce={announce}
@@ -203,6 +239,15 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         ariaLabel={contextMenu.ariaLabel}
         onClose={closeContextMenu}
       />
+
+      {/* Modal de estatísticas de tokens */}
+      {activeTab?.conversationId && (
+        <TokenStatsModal
+          conversationId={activeTab.conversationId}
+          isOpen={isTokenModalOpen}
+          onClose={() => setIsTokenModalOpen(false)}
+        />
+      )}
     </>
   );
 };

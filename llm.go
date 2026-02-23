@@ -311,6 +311,70 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	runtime.EventsEmit(h.app.ctx, "chat:done", map[string]interface{}{
 		"conversationId": h.conversationID,
 	})
+
+	// Verifica uso do contexto e emite aviso se necessário
+	h.checkAndEmitContextWarning()
+}
+
+// checkAndEmitContextWarning verifica se a conversa está próxima do limite de contexto
+// e emite um evento de aviso para o frontend
+func (h *appStreamHandler) checkAndEmitContextWarning() {
+	if h.conversationID == 0 {
+		return
+	}
+
+	// Obtém estatísticas de tokens da conversa
+	stats, err := h.app.GetConversationTokenStats(h.conversationID)
+	if err != nil {
+		// Não loga erro para não poluir o console
+		return
+	}
+
+	// Se não há limite configurado, não faz nada
+	if stats.ContextLimit == 0 {
+		return
+	}
+
+	// Emite evento com estatísticas atualizadas
+	runtime.EventsEmit(h.app.ctx, "chat:token_stats", map[string]interface{}{
+		"conversationId":   h.conversationID,
+		"totalTokens":      stats.TotalTokens,
+		"contextLimit":     stats.ContextLimit,
+		"contextUsage":     stats.ContextUsage,
+		"isNearLimit":      stats.IsNearLimit,
+		"isCritical":       stats.IsCritical,
+		"promptTokens":     stats.PromptTokens,
+		"completionTokens": stats.CompletionTokens,
+		"messageCount":     stats.MessageCount,
+	})
+
+	// Se estiver em nível crítico (>= 95%), emite aviso urgente
+	if stats.IsCritical {
+		runtime.EventsEmit(h.app.ctx, "chat:context_warning", map[string]interface{}{
+			"conversationId": h.conversationID,
+			"level":          "critical",
+			"message": fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
+				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
+			"percentage":   stats.ContextUsage,
+			"totalTokens":  stats.TotalTokens,
+			"contextLimit": stats.ContextLimit,
+		})
+		fmt.Printf("⚠️  [CONTEXT] Conversa %d em nível CRÍTICO: %0.1f%% (%d/%d tokens)\n",
+			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
+	} else if stats.IsNearLimit {
+		// Se estiver próximo do limite (>= 80%), emite aviso
+		runtime.EventsEmit(h.app.ctx, "chat:context_warning", map[string]interface{}{
+			"conversationId": h.conversationID,
+			"level":          "warning",
+			"message": fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
+				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
+			"percentage":   stats.ContextUsage,
+			"totalTokens":  stats.TotalTokens,
+			"contextLimit": stats.ContextLimit,
+		})
+		fmt.Printf("⚠️  [CONTEXT] Conversa %d próxima do limite: %0.1f%% (%d/%d tokens)\n",
+			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
+	}
 }
 
 // ==================== Wails Bindings ====================
@@ -889,7 +953,7 @@ func (a *App) buildMemoryContext() string {
 }
 
 // MaxContextMessages define o limite de mensagens no contexto para evitar contextos muito grandes
-const MaxContextMessages = 50
+const MaxContextMessages = 20 // Reduzido de 50 para 20 mensagens (~2-3 turnos de conversa)
 
 // loadConversationHistory carrega o histórico de mensagens de uma conversa
 // OTIMIZADO: Busca apenas mensagens de nível 0 direto do SQL (sem carregar threads de agentes)
@@ -927,7 +991,7 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 
 	// Safety net: ensure every tool_use has its tool_result and vice-versa.
 	// Pass 1: collect all tool_call IDs offered (assistant) and answered (tool).
-	offeredIDs := make(map[string]bool) // IDs in assistant tool_calls
+	offeredIDs := make(map[string]bool)  // IDs in assistant tool_calls
 	answeredIDs := make(map[string]bool) // IDs referenced by tool_result messages
 	for _, m := range dbMessages {
 		if m.ToolCalls != "" {

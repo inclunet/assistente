@@ -36,6 +36,7 @@ type ChatConfig struct {
 	Model                string   `json:"model,omitempty"`
 	Temperature          float64  `json:"temperature"`                      // 0.0 a 2.0
 	MaxTokens            int      `json:"max_tokens"`                       // Limite de tokens na resposta
+	ContextWindow        int      `json:"context_window,omitempty"`         // Limite de contexto (tokens totais)
 	TopP                 float64  `json:"top_p"`                            // 0.0 a 1.0
 	ResponseTimeout      int      `json:"response_timeout"`                 // Timeout em segundos
 	EnableThinking       bool     `json:"enable_thinking"`                  // Habilita reasoning/thinking
@@ -44,13 +45,13 @@ type ChatConfig struct {
 	EnabledTools         []string `json:"enabled_tools"`                    // Ferramentas habilitadas (nil = todas)
 	EnabledSkills        []string `json:"enabled_skills"`                   // Skills habilitados (nil = todos, [] = nenhum)
 	CommandAllowlist     string   `json:"command_allowlist,omitempty"`      // Slug da allowlist de comandos
-	
+
 	// MCP Mode: "adapter" (padrão) ou "native"
 	// - "adapter": Tools MCP via bridge (compatível com qualquer modelo)
 	// - "native": MCP direto (requer modelo com suporte nativo como Claude 3.7+)
 	// - "auto": Detecta automaticamente se modelo suporta MCP nativo
 	MCPMode string `json:"mcp_mode,omitempty"` // adapter, native, auto (padrão: adapter)
-	
+
 	// MCPNativeTested indica se o suporte MCP nativo foi testado para este modelo
 	// Evita re-testar toda vez. Valores:
 	// - nil: não testado ainda
@@ -198,7 +199,7 @@ func (p *Profile) Validate() error {
 	if p.Chat.SystemPromptPosition != "" && p.Chat.SystemPromptPosition != "before" && p.Chat.SystemPromptPosition != "after" {
 		return fmt.Errorf("chat.system_prompt_position must be 'before' or 'after'")
 	}
-	
+
 	// Validação do MCP Mode
 	validMCPModes := []string{"", MCPModeAdapter, MCPModeNative, MCPModeAuto}
 	if !containsStr(validMCPModes, p.Chat.MCPMode) {
@@ -291,12 +292,12 @@ func containsStr(slice []string, item string) bool {
 // Se não especificado ou inválido, retorna "auto" como padrão.
 func (p *Profile) GetMCPMode() string {
 	mode := p.Chat.MCPMode
-	
+
 	// Valida se é um modo válido
 	if mode == MCPModeAdapter || mode == MCPModeNative || mode == MCPModeAuto {
 		return mode
 	}
-	
+
 	// Default: auto (testa e decide automaticamente)
 	return MCPModeAuto
 }
@@ -305,17 +306,17 @@ func (p *Profile) GetMCPMode() string {
 // Verifica se o modelo suporta MCP nativamente e se o modo está configurado para "native" ou "auto".
 func (p *Profile) ShouldUseMCPNative() bool {
 	mode := p.GetMCPMode()
-	
+
 	// Se modo é explicitamente adapter, nunca usa nativo
 	if mode == MCPModeAdapter {
 		return false
 	}
-	
+
 	// Se modo é explicitamente native, sempre usa nativo
 	if mode == MCPModeNative {
 		return true
 	}
-	
+
 	// Se modo é auto, usa o resultado do teste (se disponível)
 	if mode == MCPModeAuto {
 		// Se já foi testado, usa resultado do teste
@@ -325,7 +326,7 @@ func (p *Profile) ShouldUseMCPNative() bool {
 		// Se não foi testado, assume false (seguro)
 		return false
 	}
-	
+
 	return false
 }
 
@@ -345,19 +346,19 @@ func (p *Profile) SetMCPNativeSupport(supported bool) {
 func ModelSupportsNativeMCP(modelID string) bool {
 	// Normaliza para lowercase para comparação
 	model := strings.ToLower(modelID)
-	
+
 	// Claude 3.7+ (inclui sonnet, opus, haiku)
 	// Estes são conhecidos por suportar, mas sempre teste para confirmar
 	if strings.Contains(model, "claude-3-7") ||
-	   strings.Contains(model, "claude-3.7") {
+		strings.Contains(model, "claude-3.7") {
 		return true
 	}
-	
+
 	// Claude 4+ (futuro)
 	if strings.Contains(model, "claude-4") {
 		return true
 	}
-	
+
 	// Para outros modelos, retorna false (teste é necessário)
 	return false
 }

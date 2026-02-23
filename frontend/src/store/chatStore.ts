@@ -1004,8 +1004,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // Atualiza a aba com a nova conversa
-      set((state) => ({
-        tabs: state.tabs.map((t) =>
+      set((state) => {
+        console.log('[Chat] Atualizando aba', activeTabId, 'com conversa', conversationId, 'título:', conversationTitle);
+        console.log('[Chat] Estado das abas antes da atualização:', state.tabs.map(t => ({ id: t.id, title: t.title, conversationId: t.conversationId })));
+        
+        const newTabs = state.tabs.map((t) =>
           t.id === activeTabId
             ? {
                 ...t,
@@ -1015,8 +1018,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 updatedAt: Date.now(),
               }
             : t
-        ),
-      }));
+        );
+        
+        console.log('[Chat] Estado das abas depois da atualização:', newTabs.map(t => ({ id: t.id, title: t.title, conversationId: t.conversationId })));
+        
+        return { tabs: newTabs };
+      });
 
       // Se era uma aba em branco, cria uma nova aba em branco para futuras conversas
       if (isBlankTab) {
