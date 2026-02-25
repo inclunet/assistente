@@ -70,7 +70,12 @@ func (c *SyncClient) SimpleChat(ctx context.Context, model, systemPrompt, userMe
 		return "", fmt.Errorf("resposta vazia do LLM")
 	}
 
-	return *resp.Choices[0].Message.Content, nil
+	raw := *resp.Choices[0].Message.Content
+	final, _, ok := SplitLocalAIChatML(raw)
+	if ok {
+		return final, nil
+	}
+	return raw, nil
 }
 
 func (c *SyncClient) sendRequest(ctx context.Context, model string, messages []syncChatMessage) (*syncChatResponse, error) {
@@ -104,7 +109,7 @@ func (c *SyncClient) sendRequest(ctx context.Context, model string, messages []s
 	}
 
 	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API retornou status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("%s", summarizeHTTPError(resp.StatusCode, body))
 	}
 
 	var chatResp syncChatResponse

@@ -7,9 +7,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math/rand"
 	"net/http"
 	"sort"
 	"strings"
+	"time"
 
 	"assistente/internal/config"
 )
@@ -46,7 +48,7 @@ func GetModels(cfg *config.Config) ([]string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("erro na API (%d): %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("%s", summarizeHTTPError(resp.StatusCode, body))
 	}
 
 	var modelsResp ModelsResponse
@@ -122,7 +124,7 @@ func SendMessageSync(cfg *config.Config, messages []Message, params ChatParams) 
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		return "", fmt.Errorf("erro na API: %s", string(body))
+		return "", fmt.Errorf("%s", summarizeHTTPError(resp.StatusCode, body))
 	}
 
 	var chatResp ChatResponse
@@ -131,7 +133,12 @@ func SendMessageSync(cfg *config.Config, messages []Message, params ChatParams) 
 	}
 
 	if len(chatResp.Choices) > 0 {
-		return chatResp.Choices[0].Message.GetContentAsString(), nil
+		raw := chatResp.Choices[0].Message.GetContentAsString()
+		final, _, ok := SplitLocalAIChatML(raw)
+		if ok {
+			return final, nil
+		}
+		return raw, nil
 	}
 
 	return "", fmt.Errorf("nenhuma resposta recebida")
@@ -201,184 +208,278 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 		return
 	}
 
-	reqCtx, cancel := context.WithCancel(ctx)
-	defer cancel()
-
 	endpoint := BuildEndpoint(cfg.APIBaseURL, "chat/completions")
-	req, err := http.NewRequestWithContext(reqCtx, "POST", endpoint, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		handler.OnError("Erro ao criar requisição: " + err.Error())
-		return
-	}
 
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
-	req.Header.Set("Accept", "text/event-stream")
+	// Retry do streaming (principalmente para 524/5xx e falhas de rede) —
+	// só é seguro fazer retry se ainda não emitimos nada (para evitar duplicação no chat).
+	const maxAttempts = 10
+	backoff := 500 * time.Millisecond
+	maxBackoff := 8 * time.Second
 
-	resp, err := SharedHTTPClient.Do(req)
-	if err != nil {
-		handler.OnError("Erro na conexão: " + err.Error())
-		return
-	}
-	defer resp.Body.Close()
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return
+		default:
+		}
 
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		bodyStr := string(body)
-		handler.OnError(fmt.Sprintf("Erro na API (%d): %s", resp.StatusCode, bodyStr))
-		return
-	}
-
-	reader := bufio.NewReader(resp.Body)
-	var fullResponse strings.Builder
-	var fullReasoning strings.Builder // Acumula reasoning/thinking
-	var lastUsage Usage
-	var lastModel string
-	var lastFinishReason string
-	var isThinking bool                // Estado para detectar thinking em tags
-	var thinkingBuffer strings.Builder // Buffer para conteúdo dentro de <thinking>
-
-	// Acumula tool_calls incrementais (LLM envia argumentos em fragmentos)
-	toolCallAccumulator := make(map[int]*ToolCall) // index -> ToolCall parcial
-
-	for {
-		line, err := reader.ReadString('\n')
+		req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonBody))
 		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			handler.OnError("Erro ao ler resposta: " + err.Error())
+			handler.OnError("Erro ao criar requisição: " + err.Error())
 			return
 		}
 
-		line = strings.TrimSpace(line)
-		if line == "" {
-			continue
-		}
+		req.Header.Set("Content-Type", "application/json")
+		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+		req.Header.Set("Accept", "text/event-stream")
 
-		if !strings.HasPrefix(line, "data: ") {
-			continue
-		}
-
-		data := strings.TrimPrefix(line, "data: ")
-
-		if data == "[DONE]" {
-			// Notifica fim do reasoning se houver
-			if fullReasoning.Len() > 0 {
-				handler.OnThinkingDone(fullReasoning.String())
+		resp, err := SharedHTTPClient.Do(req)
+		if err != nil {
+			if attempt < maxAttempts {
+				sleepWithJitter(ctx, backoff)
+				backoff = nextBackoff(backoff, maxBackoff)
+				continue
 			}
+			handler.OnError("Erro na conexão: " + err.Error())
+			return
+		}
 
-			// Verifica se foi finish_reason: "tool_calls"
-			if lastFinishReason == "tool_calls" {
-				calls := buildToolCallsFromAccumulator(toolCallAccumulator)
-				if len(calls) > 0 {
-					handler.OnToolCalls(calls, fullResponse.String(), lastUsage, lastModel)
-					return
+		if resp.StatusCode != http.StatusOK {
+			body, _ := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if attempt < maxAttempts && shouldRetryHTTPStatus(resp.StatusCode) {
+				sleepWithJitter(ctx, backoff)
+				backoff = nextBackoff(backoff, maxBackoff)
+				continue
+			}
+			handler.OnError(summarizeHTTPError(resp.StatusCode, body))
+			return
+		}
+
+		reader := bufio.NewReader(resp.Body)
+		var fullResponse strings.Builder
+		var fullReasoning strings.Builder // Acumula reasoning/thinking
+		var lastUsage Usage
+		var lastModel string
+		var lastFinishReason string
+		var isThinking bool                // Estado para detectar thinking em tags
+		var thinkingBuffer strings.Builder // Buffer para conteúdo dentro de <thinking>
+		var localAIState localAIChatMLState
+		var emittedAnything bool
+		receivedDone := false
+
+		// Acumula tool_calls incrementais (LLM envia argumentos em fragmentos)
+		toolCallAccumulator := make(map[int]*ToolCall) // index -> ToolCall parcial
+
+		for {
+			line, err := reader.ReadString('\n')
+			if err != nil {
+				if err == io.EOF {
+					break
 				}
+				_ = resp.Body.Close()
+				if attempt < maxAttempts && !emittedAnything {
+					sleepWithJitter(ctx, backoff)
+					backoff = nextBackoff(backoff, maxBackoff)
+					goto nextAttempt
+				}
+				handler.OnError("Erro ao ler resposta: " + err.Error())
+				return
 			}
 
-			handler.OnDone(fullResponse.String(), lastUsage, lastModel)
-			return
-		}
-
-		var chatResp ChatResponse
-		if err := json.Unmarshal([]byte(data), &chatResp); err != nil {
-			continue
-		}
-
-		if chatResp.Model != "" {
-			lastModel = chatResp.Model
-		}
-
-		if chatResp.Usage.TotalTokens > 0 {
-			lastUsage = chatResp.Usage
-		}
-
-		if len(chatResp.Choices) > 0 {
-			choice := chatResp.Choices[0]
-
-			// Captura finish_reason
-			if choice.FinishReason != "" {
-				lastFinishReason = choice.FinishReason
+			line = strings.TrimSpace(line)
+			if line == "" {
+				continue
 			}
 
-			// Processa reasoning_content (DeepSeek, Qwen, etc)
-			if choice.Delta.ReasoningContent != "" {
-				reasoning := choice.Delta.ReasoningContent
-				fullReasoning.WriteString(reasoning)
-				handler.OnThinking(reasoning)
+			if !strings.HasPrefix(line, "data: ") {
+				continue
 			}
 
-			// Processa thinking do Ollama
-			if choice.Delta.Thinking != "" {
-				thinking := choice.Delta.Thinking
-				fullReasoning.WriteString(thinking)
-				handler.OnThinking(thinking)
+			data := strings.TrimPrefix(line, "data: ")
+
+			if data == "[DONE]" {
+				receivedDone = true
+				_ = resp.Body.Close()
+
+				// Notifica fim do reasoning se houver
+				if fullReasoning.Len() > 0 {
+					handler.OnThinkingDone(fullReasoning.String())
+				}
+
+				// Verifica se foi finish_reason: "tool_calls"
+				if lastFinishReason == "tool_calls" {
+					calls := buildToolCallsFromAccumulator(toolCallAccumulator)
+					if len(calls) > 0 {
+						emittedAnything = true
+						handler.OnToolCalls(calls, fullResponse.String(), lastUsage, lastModel)
+						return
+					}
+				}
+
+				emittedAnything = true
+				handler.OnDone(fullResponse.String(), lastUsage, lastModel)
+				return
 			}
 
-			// Processa thinking na mensagem completa (Ollama non-streaming ou chunk final)
-			if choice.Message.Thinking != "" {
-				thinking := choice.Message.Thinking
-				// Só adiciona se não foi processado via Delta
-				if !strings.Contains(fullReasoning.String(), thinking) {
+			var chatResp ChatResponse
+			if err := json.Unmarshal([]byte(data), &chatResp); err != nil {
+				continue
+			}
+
+			if chatResp.Model != "" {
+				lastModel = chatResp.Model
+			}
+
+			if chatResp.Usage.TotalTokens > 0 {
+				lastUsage = chatResp.Usage
+			}
+
+			if len(chatResp.Choices) > 0 {
+				choice := chatResp.Choices[0]
+
+				// Captura finish_reason
+				if choice.FinishReason != "" {
+					lastFinishReason = choice.FinishReason
+				}
+
+				// Processa reasoning_content (DeepSeek, Qwen, etc)
+				if choice.Delta.ReasoningContent != "" {
+					reasoning := choice.Delta.ReasoningContent
+					fullReasoning.WriteString(reasoning)
+					emittedAnything = true
+					handler.OnThinking(reasoning)
+				}
+
+				// Processa thinking do Ollama
+				if choice.Delta.Thinking != "" {
+					thinking := choice.Delta.Thinking
 					fullReasoning.WriteString(thinking)
+					emittedAnything = true
 					handler.OnThinking(thinking)
 				}
-			}
 
-			// Processa tool_calls incrementais no delta
-			if len(choice.Delta.ToolCalls) > 0 {
-				for _, tcDelta := range choice.Delta.ToolCalls {
-					acc, exists := toolCallAccumulator[tcDelta.Index]
-					if !exists {
-						acc = &ToolCall{Type: "function"}
-						toolCallAccumulator[tcDelta.Index] = acc
+				// Processa thinking na mensagem completa (Ollama non-streaming ou chunk final)
+				if choice.Message.Thinking != "" {
+					thinking := choice.Message.Thinking
+					// Só adiciona se não foi processado via Delta
+					if !strings.Contains(fullReasoning.String(), thinking) {
+						fullReasoning.WriteString(thinking)
+						emittedAnything = true
+						handler.OnThinking(thinking)
 					}
-					// Acumula ID (vem no primeiro delta do index)
-					if tcDelta.ID != "" {
-						acc.ID = tcDelta.ID
-					}
-					if tcDelta.Type != "" {
-						acc.Type = tcDelta.Type
-					}
-					// Acumula nome e argumentos (argumentos vêm em fragmentos)
-					if tcDelta.Function != nil {
-						if tcDelta.Function.Name != "" {
-							acc.Function.Name = tcDelta.Function.Name
+				}
+
+				// Processa tool_calls incrementais no delta
+				if len(choice.Delta.ToolCalls) > 0 {
+					for _, tcDelta := range choice.Delta.ToolCalls {
+						acc, exists := toolCallAccumulator[tcDelta.Index]
+						if !exists {
+							acc = &ToolCall{Type: "function"}
+							toolCallAccumulator[tcDelta.Index] = acc
 						}
-						acc.Function.Arguments += tcDelta.Function.Arguments
+						// Acumula ID (vem no primeiro delta do index)
+						if tcDelta.ID != "" {
+							acc.ID = tcDelta.ID
+						}
+						if tcDelta.Type != "" {
+							acc.Type = tcDelta.Type
+						}
+						// Acumula nome e argumentos (argumentos vêm em fragmentos)
+						if tcDelta.Function != nil {
+							if tcDelta.Function.Name != "" {
+								acc.Function.Name = tcDelta.Function.Name
+							}
+							acc.Function.Arguments += tcDelta.Function.Arguments
+						}
 					}
 				}
-			}
 
-			// Processa tool_calls na mensagem completa (resposta não-streaming)
-			if len(choice.Message.ToolCalls) > 0 && len(toolCallAccumulator) == 0 {
-				for i, tc := range choice.Message.ToolCalls {
-					toolCallAccumulator[i] = &ToolCall{
-						ID:   tc.ID,
-						Type: tc.Type,
-						Function: FunctionCall{
-							Name:      tc.Function.Name,
-							Arguments: tc.Function.Arguments,
-						},
+				// Processa tool_calls na mensagem completa (resposta não-streaming)
+				if len(choice.Message.ToolCalls) > 0 && len(toolCallAccumulator) == 0 {
+					for i, tc := range choice.Message.ToolCalls {
+						toolCallAccumulator[i] = &ToolCall{
+							ID:   tc.ID,
+							Type: tc.Type,
+							Function: FunctionCall{
+								Name:      tc.Function.Name,
+								Arguments: tc.Function.Arguments,
+							},
+						}
 					}
 				}
-			}
 
-			// Processa conteúdo
-			if choice.Delta.Content != "" {
-				content := choice.Delta.Content
+				// Processa conteúdo
+				if choice.Delta.Content != "" {
+					content := choice.Delta.Content
 
-				// Detecta tags <thinking> no conteúdo (Claude via OpenRouter, etc)
-				content = processThinkingTags(content, &isThinking, &thinkingBuffer, &fullReasoning, handler)
+					// LocalAI pode devolver reasoning no próprio content via tokens ChatML (<|channel|>analysis...)
+					content = processLocalAIChatML(content, &localAIState, &fullReasoning, handler)
 
-				// Se ainda sobrou conteúdo após extrair thinking
-				if content != "" {
-					fullResponse.WriteString(content)
-					handler.OnChunk(content)
+					// Detecta tags <thinking> no conteúdo (Claude via OpenRouter, etc)
+					content = processThinkingTags(content, &isThinking, &thinkingBuffer, &fullReasoning, handler)
+
+					// Se ainda sobrou conteúdo após extrair thinking
+					if content != "" {
+						fullResponse.WriteString(content)
+						emittedAnything = true
+						handler.OnChunk(content)
+					}
 				}
 			}
 		}
+
+		_ = resp.Body.Close()
+		if !receivedDone {
+			if attempt < maxAttempts && !emittedAnything {
+				sleepWithJitter(ctx, backoff)
+				backoff = nextBackoff(backoff, maxBackoff)
+				continue
+			}
+			handler.OnError("Streaming finalizou sem sinal [DONE]")
+			return
+		}
+
+		return
+
+	nextAttempt:
+		continue
+	}
+}
+
+func shouldRetryHTTPStatus(code int) bool {
+	if code == 408 || code == 425 || code == 429 {
+		return true
+	}
+	if code >= 500 && code <= 599 {
+		return true
+	}
+	return false
+}
+
+func nextBackoff(current, max time.Duration) time.Duration {
+	next := current * 2
+	if next > max {
+		return max
+	}
+	return next
+}
+
+func sleepWithJitter(ctx context.Context, base time.Duration) {
+	if base <= 0 {
+		return
+	}
+
+	jitter := time.Duration(rand.Intn(250)) * time.Millisecond
+	wait := base + jitter
+
+	t := time.NewTimer(wait)
+	defer t.Stop()
+
+	select {
+	case <-ctx.Done():
+	case <-t.C:
 	}
 }
 
