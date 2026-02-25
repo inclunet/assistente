@@ -1,9 +1,12 @@
 package skills
 
 import (
+	"os"
+	"path/filepath"
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPreprocessCommands_BasicEcho(t *testing.T) {
@@ -186,4 +189,112 @@ func TestIsCommandAllowed_MatchesExecutable(t *testing.T) {
 	if isCommandAllowed("rm -rf /", []string{"git", "echo"}) {
 		t.Error("should not match non-allowed executable")
 	}
+}
+
+// --- ProcessTemplate tests ---
+
+func TestProcessTemplate_NoTemplates(t *testing.T) {
+	content := "This is plain content\nNo templates here"
+	result := ProcessTemplate(content)
+	if result != content {
+		t.Errorf("expected unchanged content, got: %q", result)
+	}
+}
+
+func TestProcessTemplate_EmptyContent(t *testing.T) {
+	result := ProcessTemplate("")
+	if result != "" {
+		t.Errorf("expected empty string, got: %q", result)
+	}
+}
+
+func TestProcessTemplate_MalformedTemplate(t *testing.T) {
+	content := "Before {{ malformed After"
+	result := ProcessTemplate(content)
+	if result != content {
+		t.Errorf("malformed template should return original content, got: %q", result)
+	}
+}
+
+func TestProcessTemplate_IncludeNonexistent(t *testing.T) {
+	content := `Before
+{{ include "nonexistent/file-that-does-not-exist-xyz.md" }}
+After`
+	result := ProcessTemplate(content)
+	if !strings.Contains(result, "Before") {
+		t.Errorf("expected 'Before' preserved, got: %q", result)
+	}
+	if !strings.Contains(result, "After") {
+		t.Errorf("expected 'After' preserved, got: %q", result)
+	}
+}
+
+func TestProcessTemplate_IncludeInvalidPath(t *testing.T) {
+	content := `{{ include "no-slash" }}`
+	result := ProcessTemplate(content)
+	if strings.Contains(result, "no-slash") {
+		t.Errorf("invalid path should return empty, got: %q", result)
+	}
+}
+
+func TestProcessTemplate_IncludeEmptyParts(t *testing.T) {
+	content := `{{ include "/file.md" }}`
+	result := ProcessTemplate(content)
+	if result != "" && strings.TrimSpace(result) != "" {
+		t.Logf("include with empty namespace returned: %q", result)
+	}
+}
+
+func TestProcessTemplate_PreservesNonTemplateBraces(t *testing.T) {
+	content := "JSON: {\"key\": \"value\"}\nNormal text"
+	result := ProcessTemplate(content)
+	if result != content {
+		t.Errorf("non-template braces should be preserved, got: %q", result)
+	}
+}
+
+func TestProcessTemplate_Now(t *testing.T) {
+	content := "Timestamp: {{ now }}"
+	result := ProcessTemplate(content)
+
+	year := time.Now().Format("2006")
+	if !strings.Contains(result, year) {
+		t.Errorf("expected current year %s in output, got: %q", year, result)
+	}
+	if strings.Contains(result, "{{") {
+		t.Errorf("template should be resolved, got: %q", result)
+	}
+}
+
+func TestProcessTemplate_IncludeRealMemory(t *testing.T) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		t.Skip("cannot determine home directory")
+	}
+	memoryPath := filepath.Join(homeDir, ".assistente", "memory", "memory.md")
+	if _, err := os.Stat(memoryPath); os.IsNotExist(err) {
+		t.Skipf("memory.md not found at %s (skip on CI)", memoryPath)
+	}
+
+	content := `<user_memory>
+Current date/time: {{ now }}
+
+{{ include "memory/memory.md" }}
+</user_memory>`
+	result := ProcessTemplate(content)
+
+	if strings.Contains(result, "{{") {
+		t.Errorf("templates should be resolved, got: %q", result)
+	}
+	if !strings.Contains(result, "<user_memory>") {
+		t.Errorf("expected <user_memory> wrapper, got: %q", result)
+	}
+	year := time.Now().Format("2006")
+	if !strings.Contains(result, year) {
+		t.Errorf("expected current year in now output, got: %q", result)
+	}
+	if len(result) < 100 {
+		t.Errorf("expected substantial content from memory.md, got only %d chars: %q", len(result), result)
+	}
+	t.Logf("Include result (%d bytes):\n%s", len(result), result[:min(500, len(result))])
 }

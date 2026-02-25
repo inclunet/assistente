@@ -338,7 +338,8 @@ func (m *Manager) GetSkillFiles(slug string) ([]string, error) {
 	return nil, fmt.Errorf("skill not found: %s", slug)
 }
 
-// FilterByNames filtra uma lista de skills pelos slugs fornecidos.
+// FilterByNames filtra uma lista de skills pelos identificadores fornecidos.
+// Aceita tanto slug (nome do diretório) quanto name (campo do frontmatter).
 // Se names for nil, retorna todos. Se for vazio, retorna nenhum.
 func FilterByNames(allSkills []Skill, names []string) []Skill {
 	if names == nil {
@@ -355,7 +356,7 @@ func FilterByNames(allSkills []Skill, names []string) []Skill {
 
 	var result []Skill
 	for _, s := range allSkills {
-		if nameSet[s.Slug] {
+		if nameSet[s.Slug] || nameSet[s.Name] {
 			result = append(result, s)
 		}
 	}

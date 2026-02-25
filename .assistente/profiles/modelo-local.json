@@ -13,8 +13,7 @@
     "enabled_tools": null,
     "enabled_skills": null,
     "disable_tools": true,
-    "disable_skills": true,
-    "disable_memory": true
+    "disable_skills": true
   },
   "voice": {
     "provider": "disabled",

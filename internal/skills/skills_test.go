@@ -23,8 +23,8 @@ func TestParseMemorySkill(t *testing.T) {
 	if meta.Name != "memory-manager" {
 		t.Errorf("Name esperado 'memory-manager', got %q", meta.Name)
 	}
-	if meta.Version != "1.0.0" {
-		t.Errorf("Version esperado '1.0.0', got %q", meta.Version)
+	if meta.Version != "2.1.0" {
+		t.Errorf("Version esperado '2.1.0', got %q", meta.Version)
 	}
 	if meta.Description == "" {
 		t.Error("Description não deve ser vazio")
@@ -109,11 +109,11 @@ func TestParseMemorySkill(t *testing.T) {
 	requiredSections := []string{
 		"## memory.md",
 		"## daily/",
-		"## Ciclo de Vida",
-		"Rollup Semanal",
-		"Rollup Mensal",
-		"Rollup Anual",
-		"## Checklist de Início de Conversa",
+		"## Lifecycle",
+		"Weekly Rollup",
+		"Monthly Rollup",
+		"Yearly Rollup",
+		"## Conversation Start Checklist",
 	}
 	for _, section := range requiredSections {
 		if !strings.Contains(content, section) {

@@ -48,7 +48,6 @@ type ChatConfig struct {
 	EnabledSkills        []string `json:"enabled_skills"`                   // Skills habilitados (nil = todos, [] = nenhum)
 	DisableTools         bool     `json:"disable_tools,omitempty"`          // Desabilita completamente tool calling
 	DisableSkills        bool     `json:"disable_skills,omitempty"`         // Desabilita injeção de skills no prompt
-	DisableMemory        bool     `json:"disable_memory,omitempty"`         // Desabilita injeção de memória no prompt
 	CommandAllowlist     string   `json:"command_allowlist,omitempty"`      // Slug da allowlist de comandos
 
 	// MCP Mode: "adapter" (padrão) ou "native"

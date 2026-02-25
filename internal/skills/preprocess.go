@@ -4,10 +4,14 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os/exec"
 	"runtime"
 	"strings"
+	"text/template"
 	"time"
+
+	"assistente/internal/configdir"
 )
 
 const (
@@ -111,6 +115,81 @@ func isCommandAllowed(cmd string, allowedCommands []string) bool {
 	}
 
 	return false
+}
+
+// ProcessTemplate processa o conteúdo de um skill como Go text/template.
+// Fornece a função `include` no FuncMap, que permite incluir arquivos
+// dinamicamente via configdir.Resolver (resolução multi-diretório).
+//
+// Uso na SKILL.md:
+//
+//	{{ include "memory/memory.md" }}
+//
+// O path usa o formato "namespace/arquivo", onde namespace é o subdiretório
+// dentro de .assistente/ (ex: "memory" → .assistente/memory/).
+// Se o arquivo não existir, retorna string vazia (silencioso).
+// Se o template tiver erro de parse, retorna o conteúdo original (fallback seguro).
+func ProcessTemplate(content string) string {
+	if content == "" || !strings.Contains(content, "{{") {
+		return content
+	}
+
+	funcMap := template.FuncMap{
+		"include": includeFile,
+		"now":     currentTimestamp,
+	}
+
+	tmpl, err := template.New("skill").Funcs(funcMap).Parse(content)
+	if err != nil {
+		log.Printf("[Skills/Template] Parse error (returning original): %v", err)
+		return content
+	}
+
+	var buf strings.Builder
+	if err := tmpl.Execute(&buf, nil); err != nil {
+		log.Printf("[Skills/Template] Execute error (returning original): %v", err)
+		return content
+	}
+
+	return buf.String()
+}
+
+func currentTimestamp() string {
+	return time.Now().Format("2006-01-02 15:04 (Monday)")
+}
+
+// includeFile lê um arquivo via configdir.Resolver e retorna seu conteúdo.
+// O path segue o formato "namespace/arquivo" (ex: "memory/memory.md").
+// O primeiro segmento é o subdiretório dentro de .assistente/.
+func includeFile(path string) string {
+	parts := strings.SplitN(path, "/", 2)
+	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
+		log.Printf("[Skills/Template] include: invalid path %q (expected 'namespace/file')", path)
+		return ""
+	}
+
+	namespace := parts[0]
+	filename := parts[1]
+
+	resolver := configdir.NewResolver(namespace)
+	data, resolved, err := resolver.Read(filename)
+	if err != nil {
+		log.Printf("[Skills/Template] include %q: not found (searched: %v)", path, resolver.GetSearchPaths())
+		return ""
+	}
+
+	content := strings.TrimSpace(string(data))
+	if content == "" {
+		log.Printf("[Skills/Template] include %q: file empty (%s)", path, resolved.Path)
+		return ""
+	}
+
+	if len(content) > MaxCommandOutputSize {
+		content = content[:MaxCommandOutputSize] + "\n<!-- include truncated -->"
+	}
+
+	log.Printf("[Skills/Template] include %q: loaded %d bytes from %s", path, len(content), resolved.Path)
+	return content
 }
 
 // executeCommand executa um comando shell com timeout.

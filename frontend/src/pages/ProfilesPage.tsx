@@ -786,34 +786,6 @@ export default function ProfilesPage() {
                 )}
               </div>
 
-              {/* Memória */}
-              <div className={`profiles-collapse ${editingProfile.chat?.disable_memory ? 'profiles-collapse--closed' : 'profiles-collapse--open'}`}>
-                <button
-                  type="button"
-                  className="profiles-collapse__header"
-                  onClick={() => updateField('chat.disable_memory', !editingProfile.chat?.disable_memory)}
-                  aria-expanded={!editingProfile.chat?.disable_memory}
-                >
-                  <span className="profiles-collapse__chevron" aria-hidden="true">
-                    {editingProfile.chat?.disable_memory ? '▶' : '▼'}
-                  </span>
-                  <span className="profiles-collapse__title">
-                    {t('profiles.collapseMemory', 'Memória')}
-                  </span>
-                  <span className={`profiles-collapse__badge ${editingProfile.chat?.disable_memory ? 'profiles-collapse__badge--off' : 'profiles-collapse__badge--on'}`}>
-                    {editingProfile.chat?.disable_memory
-                      ? t('profiles.featureOff', 'Desabilitado')
-                      : t('profiles.featureOn', 'Habilitado')}
-                  </span>
-                </button>
-                {!editingProfile.chat?.disable_memory && (
-                  <div className="profiles-collapse__content">
-                    <p className="profiles-field__hint" style={{ margin: 0 }}>
-                      {t('profiles.memoryEnabledDesc', 'O conteúdo de memory.md será injetado no system prompt, permitindo que o assistente use e gerencie memórias do usuário proativamente.')}
-                    </p>
-                  </div>
-                )}
-              </div>
             </div>
           </section>
 

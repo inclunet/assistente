@@ -1266,7 +1266,6 @@ export namespace profiles {
 	    enabled_skills: string[];
 	    disable_tools?: boolean;
 	    disable_skills?: boolean;
-	    disable_memory?: boolean;
 	    command_allowlist?: string;
 	    mcp_mode?: string;
 	    mcp_native_tested?: boolean;
@@ -1292,7 +1291,6 @@ export namespace profiles {
 	        this.enabled_skills = source["enabled_skills"];
 	        this.disable_tools = source["disable_tools"];
 	        this.disable_skills = source["disable_skills"];
-	        this.disable_memory = source["disable_memory"];
 	        this.command_allowlist = source["command_allowlist"];
 	        this.mcp_mode = source["mcp_mode"];
 	        this.mcp_native_tested = source["mcp_native_tested"];

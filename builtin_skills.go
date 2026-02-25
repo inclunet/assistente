@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"embed"
 	"io/fs"
 	"log"
@@ -63,10 +64,14 @@ func (a *App) installBuiltinSkills() {
 		if existingData, err := os.ReadFile(targetSkillFile); err == nil {
 			existingMeta, _, err := skills.Parse(string(existingData))
 			if err == nil && !isVersionNewer(embeddedMeta.Version, existingMeta.Version) {
-				log.Printf("[Skills] Builtin %s v%s up to date (installed: v%s)", slug, embeddedMeta.Version, existingMeta.Version)
-				continue
+				if bytes.Equal(embeddedSkillData, existingData) {
+					log.Printf("[Skills] Builtin %s v%s up to date (installed: v%s)", slug, embeddedMeta.Version, existingMeta.Version)
+					continue
+				}
+				log.Printf("[Skills] Updating builtin skill %s v%s (content changed)", slug, embeddedMeta.Version)
+			} else {
+				log.Printf("[Skills] Updating builtin skill %s: v%s → v%s", slug, existingMeta.Version, embeddedMeta.Version)
 			}
-			log.Printf("[Skills] Updating builtin skill %s: v%s → v%s", slug, existingMeta.Version, embeddedMeta.Version)
 		} else {
 			log.Printf("[Skills] Installing builtin skill %s v%s", slug, embeddedMeta.Version)
 		}

@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "1.0.0",
+  "_builtin_version": "1.0.1",
   "name": "Programação",
   "description": "Otimizado para programação e código.",
   "icon": "code-slash-outline",
@@ -17,7 +17,7 @@
     "system_prompt_position": "before",
     "enabled_tools": null,
     "enabled_skills": [
-      "memory-manager",
+      "memory",
       "coding"
     ]
   },

@@ -12,7 +12,7 @@ import (
 	"time"
 
 	"assistente/internal/config"
-	"assistente/internal/configdir"
+
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -640,8 +640,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 			enabledSkills = []string{}
 		}
 	}
-	disableMemory := activeProfile != nil && activeProfile.Chat.DisableMemory
-	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, slashSkillContent, conversationSummary, disableMemory)
+	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, slashSkillContent, conversationSummary)
 
 	// 5. Pré-processamento de mídia:
 	//    a) Converte formatos de áudio não suportados (aac, ogg, etc.) para texto via Whisper
@@ -701,14 +700,13 @@ Key behaviors:
 - Be concise but thorough
 - When uncertain, acknowledge limitations
 - Use markdown formatting for better readability
-- Adapt your communication style to the user's needs
-- Proactively manage memory: save important user information, decisions, and preferences to memory files without being asked. When you learn something worth remembering, save it immediately and briefly mention what you saved.`
+- Adapt your communication style to the user's needs`
 
 // buildFullSystemPrompt composes the complete system prompt with base prompt, custom prompt, skills, invoked skill, and conversation summary.
 // enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
 // slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
 // conversationSummary: resumo de mensagens antigas da conversa (rolling context).
-func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, slashSkillContent string, conversationSummary string, disableMemory bool) []Message {
+func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, slashSkillContent string, conversationSummary string) []Message {
 	// Build the system prompt parts
 	var parts []string
 
@@ -730,15 +728,7 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 		parts = append(parts, "\n\n"+slashSkillContent)
 	}
 
-	// 3. Memory injection (memory.md no contexto, exceto se desabilitado pelo perfil)
-	if !disableMemory {
-		memorySection := a.buildMemoryContext()
-		if memorySection != "" {
-			parts = append(parts, "\n\n"+memorySection)
-		}
-	}
-
-	// 4. Conversation summary (rolling context)
+	// 3. Conversation summary (rolling context)
 	if conversationSummary != "" {
 		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
 	}
@@ -849,8 +839,8 @@ func (a *App) buildSkillsPromptSection(enabledSkills []string) string {
 			}
 			sb.WriteString("\n")
 
-			// Preprocessa !commands no conteúdo auto_load
 			autoContent := s.Content
+			autoContent = skills.ProcessTemplate(autoContent)
 			var allowedBashCmds []string
 			if s.Tools != nil && s.Tools.BashCommands != nil {
 				allowedBashCmds = s.Tools.BashCommands.Allowed
@@ -929,38 +919,6 @@ func (a *App) buildSkillsPromptSection(enabledSkills []string) string {
 	return sb.String()
 }
 
-// buildMemoryContext lê o arquivo memory.md do diretório de memória e retorna
-// o conteúdo formatado para injeção no system prompt.
-// Usa configdir.Resolver para resolução multi-diretório (exe < home < workdir).
-// Apenas memory.md é carregado automaticamente; daily/weekly/monthly/yearly são sob demanda.
-func (a *App) buildMemoryContext() string {
-	resolver := configdir.NewResolver("memory")
-
-	data, _, err := resolver.Read("memory.md")
-	if err != nil {
-		// memory.md não existe ainda — perfeitamente normal
-		return ""
-	}
-
-	content := strings.TrimSpace(string(data))
-	if content == "" {
-		return ""
-	}
-
-	var sb strings.Builder
-	sb.WriteString("<user_memory>\n")
-	sb.WriteString("These are the user's core memories. You MUST use them to personalize every response.\n\n")
-	sb.WriteString("PROACTIVE MEMORY MANAGEMENT:\n")
-	sb.WriteString("- You SHOULD save new memories WITHOUT being asked when you learn preferences, decisions, corrections, or important context.\n")
-	sb.WriteString("- Use edit_file to update ~/.assistente/memory/memory.md for persistent facts (name, preferences, projects, patterns).\n")
-	sb.WriteString("- Use write_file to save daily notes to ~/.assistente/memory/daily/YYYY-MM-DD.md (decisions, tasks done, context).\n")
-	sb.WriteString("- When you save something, briefly mention it (one line) so the user knows.\n")
-	sb.WriteString("- Before starting tasks, check if saved memories contain relevant context.\n\n")
-	sb.WriteString(content)
-	sb.WriteString("\n</user_memory>")
-
-	return sb.String()
-}
 
 // DefaultMaxContextMessages é o limite padrão de mensagens no contexto
 const DefaultMaxContextMessages = 50
