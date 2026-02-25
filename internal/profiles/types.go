@@ -36,7 +36,9 @@ type ChatConfig struct {
 	Model                string   `json:"model,omitempty"`
 	Temperature          float64  `json:"temperature"`                      // 0.0 a 2.0
 	MaxTokens            int      `json:"max_tokens"`                       // Limite de tokens na resposta
-	ContextWindow        int      `json:"context_window,omitempty"`         // Limite de contexto (tokens totais)
+	ContextWindow        int      `json:"context_window,omitempty"`         // Tamanho da janela de contexto do modelo (0 = não definido)
+	MaxContextMessages   int      `json:"max_context_messages,omitempty"`   // Máx de mensagens no contexto (0 = padrão 50)
+	MinContextMessages   int      `json:"min_context_messages,omitempty"`   // Mín de mensagens preservadas após sumarização (0 = padrão 10)
 	TopP                 float64  `json:"top_p"`                            // 0.0 a 1.0
 	ResponseTimeout      int      `json:"response_timeout"`                 // Timeout em segundos
 	EnableThinking       bool     `json:"enable_thinking"`                  // Habilita reasoning/thinking
@@ -190,6 +192,18 @@ func (p *Profile) Validate() error {
 	if p.Chat.MaxTokens < 1 {
 		return fmt.Errorf("chat.max_tokens must be at least 1")
 	}
+	if p.Chat.ContextWindow < 0 {
+		return fmt.Errorf("chat.context_window must be 0 (auto) or a positive number")
+	}
+	if p.Chat.MaxContextMessages < 0 {
+		return fmt.Errorf("chat.max_context_messages must be 0 (default) or a positive number")
+	}
+	if p.Chat.MinContextMessages < 0 {
+		return fmt.Errorf("chat.min_context_messages must be 0 (default) or a positive number")
+	}
+	if p.Chat.MinContextMessages > 0 && p.Chat.MaxContextMessages > 0 && p.Chat.MinContextMessages >= p.Chat.MaxContextMessages {
+		return fmt.Errorf("chat.min_context_messages must be less than max_context_messages")
+	}
 	if p.Chat.TopP < 0 || p.Chat.TopP > 1 {
 		return fmt.Errorf("chat.top_p must be between 0 and 1")
 	}
@@ -277,6 +291,22 @@ func (p *Profile) ShouldRespondWithAudio(incomingIsAudio bool) bool {
 	default:
 		return incomingIsAudio // fallback = mirror
 	}
+}
+
+// GetMaxContextMessages retorna o limite efetivo de mensagens no contexto.
+func (p *Profile) GetMaxContextMessages() int {
+	if p.Chat.MaxContextMessages > 0 {
+		return p.Chat.MaxContextMessages
+	}
+	return 50
+}
+
+// GetMinContextMessages retorna o mínimo de mensagens preservadas após sumarização.
+func (p *Profile) GetMinContextMessages() int {
+	if p.Chat.MinContextMessages > 0 {
+		return p.Chat.MinContextMessages
+	}
+	return 10
 }
 
 func containsStr(slice []string, item string) bool {

@@ -136,6 +136,21 @@ function App() {
             navigate('/update');
         });
 
+        EventsOn('chat:summary_started', (data: any) => {
+            console.log('[App] Sumarização iniciada:', data);
+            addToast(`Sumarizando conversa (${data.messageCount} mensagens)...`, 'info', 10000);
+        });
+
+        EventsOn('chat:summary_completed', (data: any) => {
+            console.log('[App] Sumarização concluída:', data);
+            addToast(`Resumo da conversa atualizado (${data.messageCount} mensagens resumidas)`, 'success', 5000);
+        });
+
+        EventsOn('chat:summary_error', (data: any) => {
+            console.log('[App] Erro na sumarização:', data);
+            addToast(`Erro ao sumarizar conversa: ${data.error}`, 'error');
+        });
+
         return () => {
             EventsOff('conversation:deleted');
             EventsOff('conversation:cleared');
@@ -143,6 +158,9 @@ function App() {
             EventsOff('database:reset');
             EventsOff('tab_closed');
             EventsOff('navigate:update');
+            EventsOff('chat:summary_started');
+            EventsOff('chat:summary_completed');
+            EventsOff('chat:summary_error');
         };
     }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleTabClosed, navigate]);
 

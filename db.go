@@ -334,6 +334,27 @@ func (a *App) GetAllTokenStats() (map[string]int, error) {
 	return database.GetAllTokenStats()
 }
 
+// ==================== Rolling Context (Summary) ====================
+
+type ConversationSummaryInfo struct {
+	Summary              string `json:"summary"`
+	SummaryUpToMessageID uint   `json:"summary_up_to_message_id"`
+	SummarizingInProgress bool  `json:"summarizing_in_progress"`
+}
+
+func (a *App) GetConversationSummary(conversationID uint) (*ConversationSummaryInfo, error) {
+	summary, upToID, err := database.GetConversationSummary(conversationID)
+	if err != nil {
+		return nil, err
+	}
+	inProgress, _ := database.IsSummarizingInProgress(conversationID)
+	return &ConversationSummaryInfo{
+		Summary:              summary,
+		SummaryUpToMessageID: upToID,
+		SummarizingInProgress: inProgress,
+	}, nil
+}
+
 // ==================== Chat Tabs ====================
 
 type TabsResponse struct {

@@ -542,7 +542,6 @@ type TokenStats struct {
 }
 
 // GetTurnTokenStats retorna estatísticas de tokens para um turno específico
-// Um turno é identificado pelo TurnID (ID da mensagem do usuário que iniciou o turno)
 func GetTurnTokenStats(conversationID uint, turnID uint) (*TokenStats, error) {
 	var result struct {
 		TotalPromptTokens     int
@@ -566,7 +565,6 @@ func GetTurnTokenStats(conversationID uint, turnID uint) (*TokenStats, error) {
 }
 
 // GetConversationDetailedTokenStats retorna estatísticas detalhadas de tokens de uma conversa
-// Inclui contagem de mensagens e modelo mais usado
 func GetConversationDetailedTokenStats(conversationID uint) (*TokenStats, error) {
 	var result struct {
 		TotalPromptTokens     int
@@ -582,7 +580,6 @@ func GetConversationDetailedTokenStats(conversationID uint) (*TokenStats, error)
 		return nil, err
 	}
 
-	// Busca o modelo mais usado
 	var mostUsedModel string
 	db.Model(&ChatMessage{}).
 		Where("conversation_id = ? AND model != ''", conversationID).
@@ -602,23 +599,19 @@ func GetConversationDetailedTokenStats(conversationID uint) (*TokenStats, error)
 }
 
 // GetContextWindowUsage calcula a porcentagem de uso da janela de contexto
-// baseado no total de tokens da conversa e no limite do modelo
 func GetContextWindowUsage(conversationID uint, contextLimit int) (float64, int, error) {
 	stats, err := GetConversationDetailedTokenStats(conversationID)
 	if err != nil {
 		return 0, 0, err
 	}
-
 	if contextLimit <= 0 {
 		return 0, stats.TotalTokens, nil
 	}
-
 	percentage := (float64(stats.TotalTokens) / float64(contextLimit)) * 100
 	return percentage, stats.TotalTokens, nil
 }
 
 // GetRecentMessagesTokenCount retorna o total de tokens das N mensagens mais recentes
-// Útil para estimar o contexto atual que será enviado ao LLM
 func GetRecentMessagesTokenCount(conversationID uint, messageLimit int) (int, error) {
 	var totalTokens int
 	err := db.Model(&ChatMessage{}).
@@ -627,8 +620,60 @@ func GetRecentMessagesTokenCount(conversationID uint, messageLimit int) (int, er
 		Limit(messageLimit).
 		Select("SUM(total_tokens)").
 		Scan(&totalTokens).Error
-
 	return totalTokens, err
+}
+
+// ==================== Rolling Context (Summary) ====================
+
+// GetConversationSummary retorna o resumo e o ID da última mensagem resumida de uma conversa
+func GetConversationSummary(conversationID uint) (summary string, upToMessageID uint, err error) {
+	var conv Conversation
+	err = db.Select("summary", "summary_up_to_message_id").First(&conv, conversationID).Error
+	if err != nil {
+		return "", 0, err
+	}
+	return conv.Summary, conv.SummaryUpToMessageID, nil
+}
+
+// UpdateConversationSummary atualiza o resumo de uma conversa
+func UpdateConversationSummary(conversationID uint, summary string, upToMessageID uint) error {
+	return db.Model(&Conversation{}).Where("id = ?", conversationID).Updates(map[string]interface{}{
+		"summary":                  summary,
+		"summary_up_to_message_id": upToMessageID,
+		"summarizing_in_progress":  false,
+	}).Error
+}
+
+// SetSummarizingInProgress marca se uma sumarização está em andamento
+func SetSummarizingInProgress(conversationID uint, inProgress bool) error {
+	return db.Model(&Conversation{}).Where("id = ?", conversationID).
+		Update("summarizing_in_progress", inProgress).Error
+}
+
+// IsSummarizingInProgress verifica se há sumarização em andamento
+func IsSummarizingInProgress(conversationID uint) (bool, error) {
+	var conv Conversation
+	err := db.Select("summarizing_in_progress").First(&conv, conversationID).Error
+	if err != nil {
+		return false, err
+	}
+	return conv.SummarizingInProgress, nil
+}
+
+// GetMessagesAfterID retorna mensagens raiz de uma conversa com ID > afterID
+func GetMessagesAfterID(conversationID uint, afterID uint) ([]ChatMessage, error) {
+	var messages []ChatMessage
+	err := db.Where("conversation_id = ? AND parent_id IS NULL AND id > ?", conversationID, afterID).
+		Order("created_at ASC").Find(&messages).Error
+	return messages, err
+}
+
+// GetMessagesBetweenIDs retorna mensagens raiz com ID entre startAfterID e endID (inclusive)
+func GetMessagesBetweenIDs(conversationID uint, startAfterID uint, endID uint) ([]ChatMessage, error) {
+	var messages []ChatMessage
+	err := db.Where("conversation_id = ? AND parent_id IS NULL AND id > ? AND id <= ?", conversationID, startAfterID, endID).
+		Order("created_at ASC").Find(&messages).Error
+	return messages, err
 }
 
 // ==================== Chat Tab ====================

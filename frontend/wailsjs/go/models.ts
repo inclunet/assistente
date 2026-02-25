@@ -253,6 +253,9 @@ export namespace database {
 	    updated_at: any;
 	    messages?: ChatMessage[];
 	    message_count: number;
+	    summary?: string;
+	    summary_up_to_message_id?: number;
+	    summarizing_in_progress?: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Conversation(source);
@@ -268,6 +271,9 @@ export namespace database {
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.messages = this.convertValues(source["messages"], ChatMessage);
 	        this.message_count = source["message_count"];
+	        this.summary = source["summary"];
+	        this.summary_up_to_message_id = source["summary_up_to_message_id"];
+	        this.summarizing_in_progress = source["summarizing_in_progress"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -573,6 +579,22 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class ConversationSummaryInfo {
+	    summary: string;
+	    summary_up_to_message_id: number;
+	    summarizing_in_progress: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ConversationSummaryInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.summary = source["summary"];
+	        this.summary_up_to_message_id = source["summary_up_to_message_id"];
+	        this.summarizing_in_progress = source["summarizing_in_progress"];
+	    }
 	}
 	export class EnrichedMessage {
 	    id: string;
@@ -1233,6 +1255,8 @@ export namespace profiles {
 	    temperature: number;
 	    max_tokens: number;
 	    context_window?: number;
+	    max_context_messages?: number;
+	    min_context_messages?: number;
 	    top_p: number;
 	    response_timeout: number;
 	    enable_thinking: boolean;
@@ -1254,6 +1278,8 @@ export namespace profiles {
 	        this.temperature = source["temperature"];
 	        this.max_tokens = source["max_tokens"];
 	        this.context_window = source["context_window"];
+	        this.max_context_messages = source["max_context_messages"];
+	        this.min_context_messages = source["min_context_messages"];
 	        this.top_p = source["top_p"];
 	        this.response_timeout = source["response_timeout"];
 	        this.enable_thinking = source["enable_thinking"];

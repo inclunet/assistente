@@ -16,6 +16,11 @@ type Conversation struct {
 	UpdatedAt    time.Time     `json:"updated_at"`
 	Messages     []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
 	MessageCount int           `json:"message_count" gorm:"-"` // Campo calculado, não persiste no banco
+
+	// Rolling Context: sumarização automática de mensagens antigas
+	Summary              string `json:"summary,omitempty" gorm:"type:text"`            // Resumo acumulativo da conversa
+	SummaryUpToMessageID uint   `json:"summary_up_to_message_id,omitempty" gorm:"default:0"` // ID da última mensagem coberta pelo resumo
+	SummarizingInProgress bool  `json:"summarizing_in_progress,omitempty" gorm:"default:false"` // Evita sumarizações concorrentes
 }
 
 // ChatMessage representa uma mensagem na conversa

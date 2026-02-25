@@ -61,7 +61,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     setContextMenu(prev => ({ ...prev, visible: false }));
   }, []);
 
-  // Abre menu de contexto numa posição
   const openContextMenu = useCallback((
     x: number,
     y: number,
@@ -77,7 +76,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     });
   }, []);
 
-  // Itens do menu de contexto do perfil
   const getProfileMenuItems = useCallback((): MenuItem[] => [
     {
       id: 'manage-profiles',
@@ -89,13 +87,11 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     },
   ], [navigate]);
 
-  // Handler de menu de contexto para ProfilePicker (mouse)
   const handleProfileContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
     openContextMenu(e.clientX, e.clientY, getProfileMenuItems(), 'Menu de opções do perfil');
   }, [openContextMenu, getProfileMenuItems]);
 
-  // Handler de teclado para ProfilePicker (Applications key ou Shift+F10)
   const handleProfileKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault();
@@ -104,21 +100,17 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     }
   }, [openContextMenu, getProfileMenuItems]);
 
-  // Atalhos de teclado globais
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Ctrl+N: Nova conversa
       if (e.ctrlKey && e.key === 'n') {
         e.preventDefault();
         handleNewConversation();
       }
-      // Ctrl+H: Focar no picker de histórico
       else if (e.ctrlKey && e.key === 'h') {
         e.preventDefault();
         const historyPicker = document.querySelector('[aria-label*="Histórico"]') as HTMLElement;
         historyPicker?.click();
       }
-      // Ctrl+T: Abrir estatísticas de tokens
       else if (e.ctrlKey && e.key === 't') {
         e.preventDefault();
         if (activeTab?.conversationId) {
@@ -126,7 +118,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
           announce('Modal de estatísticas de tokens aberto');
         }
       }
-      // Ctrl+P: Focar no picker de perfil
       else if (e.ctrlKey && e.key === 'p') {
         e.preventDefault();
         const profilePicker = document.querySelector('[aria-label*="Perfil"]') as HTMLElement;
@@ -230,7 +221,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         }
       />
 
-      {/* Menu de contexto para pickers */}
       <ContextMenu
         visible={contextMenu.visible}
         x={contextMenu.x}
@@ -240,7 +230,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         onClose={closeContextMenu}
       />
 
-      {/* Modal de estatísticas de tokens */}
       {activeTab?.conversationId && (
         <TokenStatsModal
           conversationId={activeTab.conversationId}

@@ -210,6 +210,10 @@ export function GetConversationInfo(arg1) {
   return window['go']['main']['App']['GetConversationInfo'](arg1);
 }
 
+export function GetConversationSummary(arg1) {
+  return window['go']['main']['App']['GetConversationSummary'](arg1);
+}
+
 export function GetConversationTokenStats(arg1) {
   return window['go']['main']['App']['GetConversationTokenStats'](arg1);
 }

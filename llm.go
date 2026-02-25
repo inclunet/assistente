@@ -314,6 +314,9 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Verifica uso do contexto e emite aviso se necessário
 	h.checkAndEmitContextWarning()
+
+	// Verifica se precisa sumarizar (após resposta concluída, não bloqueia nada)
+	go h.app.checkAndTriggerSummarization(h.conversationID)
 }
 
 // checkAndEmitContextWarning verifica se a conversa está próxima do limite de contexto
@@ -323,19 +326,15 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		return
 	}
 
-	// Obtém estatísticas de tokens da conversa
 	stats, err := h.app.GetConversationTokenStats(h.conversationID)
 	if err != nil {
-		// Não loga erro para não poluir o console
 		return
 	}
 
-	// Se não há limite configurado, não faz nada
 	if stats.ContextLimit == 0 {
 		return
 	}
 
-	// Emite evento com estatísticas atualizadas
 	runtime.EventsEmit(h.app.ctx, "chat:token_stats", map[string]interface{}{
 		"conversationId":   h.conversationID,
 		"totalTokens":      stats.TotalTokens,
@@ -348,7 +347,6 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		"messageCount":     stats.MessageCount,
 	})
 
-	// Se estiver em nível crítico (>= 95%), emite aviso urgente
 	if stats.IsCritical {
 		runtime.EventsEmit(h.app.ctx, "chat:context_warning", map[string]interface{}{
 			"conversationId": h.conversationID,
@@ -362,7 +360,6 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		fmt.Printf("⚠️  [CONTEXT] Conversa %d em nível CRÍTICO: %0.1f%% (%d/%d tokens)\n",
 			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 	} else if stats.IsNearLimit {
-		// Se estiver próximo do limite (>= 80%), emite aviso
 		runtime.EventsEmit(h.app.ctx, "chat:context_warning", map[string]interface{}{
 			"conversationId": h.conversationID,
 			"level":          "warning",
@@ -569,8 +566,8 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		"userContent":    userMsg.Content,
 	})
 
-	// 3. Carrega histórico da conversa para contexto
-	messages, err := a.loadConversationHistory(conversationID)
+	// 3. Carrega histórico da conversa para contexto (com rolling context)
+	messages, conversationSummary, err := a.loadConversationHistory(conversationID, activeProfile)
 	if err != nil {
 		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao carregar histórico: "+err.Error())
 		return 0, err
@@ -640,7 +637,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 		enabledSkills = activeProfile.Chat.EnabledSkills
 	}
-	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, slashSkillContent)
+	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, slashSkillContent, conversationSummary)
 
 	// 5. Pré-processamento de mídia:
 	//    a) Converte formatos de áudio não suportados (aac, ogg, etc.) para texto via Whisper
@@ -702,10 +699,11 @@ Key behaviors:
 - Adapt your communication style to the user's needs
 - Proactively manage memory: save important user information, decisions, and preferences to memory files without being asked. When you learn something worth remembering, save it immediately and briefly mention what you saved.`
 
-// buildFullSystemPrompt composes the complete system prompt with base prompt, custom prompt, skills and invoked skill.
+// buildFullSystemPrompt composes the complete system prompt with base prompt, custom prompt, skills, invoked skill, and conversation summary.
 // enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
 // slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
-func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, slashSkillContent string) []Message {
+// conversationSummary: resumo de mensagens antigas da conversa (rolling context).
+func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, slashSkillContent string, conversationSummary string) []Message {
 	// Build the system prompt parts
 	var parts []string
 
@@ -731,6 +729,11 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 	memorySection := a.buildMemoryContext()
 	if memorySection != "" {
 		parts = append(parts, "\n\n"+memorySection)
+	}
+
+	// 4. Conversation summary (rolling context)
+	if conversationSummary != "" {
+		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
 	}
 
 	// Combine all parts
@@ -952,47 +955,82 @@ func (a *App) buildMemoryContext() string {
 	return sb.String()
 }
 
-// MaxContextMessages define o limite de mensagens no contexto para evitar contextos muito grandes
-const MaxContextMessages = 20 // Reduzido de 50 para 20 mensagens (~2-3 turnos de conversa)
+// DefaultMaxContextMessages é o limite padrão de mensagens no contexto
+const DefaultMaxContextMessages = 50
 
-// loadConversationHistory carrega o histórico de mensagens de uma conversa
-// OTIMIZADO: Busca apenas mensagens de nível 0 direto do SQL (sem carregar threads de agentes)
-func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
-	// Busca apenas mensagens raiz (parentID IS NULL) direto do banco
-	dbMessages, err := database.GetMessages(conversationID, nil)
+// loadConversationHistory carrega o histórico de mensagens de uma conversa.
+// Respeita rolling context: se há resumo, exclui mensagens já resumidas do contexto.
+// O perfil define MaxContextMessages (limite de msgs) e ContextWindow (trigger de sumarização).
+func (a *App) loadConversationHistory(conversationID uint, profile *profiles.Profile) ([]Message, string, error) {
+	maxCtxMsgs := DefaultMaxContextMessages
+	if profile != nil {
+		maxCtxMsgs = profile.GetMaxContextMessages()
+	}
+
+	// Busca resumo existente da conversa
+	existingSummary, summaryUpToID, err := database.GetConversationSummary(conversationID)
 	if err != nil {
-		return nil, err
+		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %d: %v", conversationID, err)
+		existingSummary = ""
+		summaryUpToID = 0
+	}
+
+	// Busca todas as mensagens raiz para avaliação de sumarização
+	allRootMessages, err := database.GetMessages(conversationID, nil)
+	if err != nil {
+		return nil, "", err
+	}
+
+	// Filtra mensagens para o contexto: apenas as que vêm depois do resumo
+	var dbMessages []database.ChatMessage
+	if summaryUpToID > 0 {
+		for _, m := range allRootMessages {
+			if m.ID > summaryUpToID {
+				dbMessages = append(dbMessages, m)
+			}
+		}
+		fmt.Printf("📋 [HISTORY] Conversa %d: %d msgs total, %d após resumo (upToID=%d)\n",
+			conversationID, len(allRootMessages), len(dbMessages), summaryUpToID)
+	} else {
+		dbMessages = allRootMessages
 	}
 
 	total := len(dbMessages)
 
-	// Limita o contexto às últimas N mensagens para evitar contextos muito grandes.
-	// A truncação respeita pares tool_use/tool_result: nunca mantém um tool_result
-	// sem o assistant(tool_calls) correspondente, evitando erros 400 da Anthropic.
-	if total > MaxContextMessages {
-		kept := MaxContextMessages - 2
-		cutIndex := total - kept
-		if cutIndex < 2 {
-			cutIndex = 2
+	// Truncação por limite de mensagens no contexto (MaxContextMessages).
+	// Corta no limite de uma mensagem role="user", preservando turns completos.
+	if total > maxCtxMsgs {
+		cutIndex := -1
+		for i := total - 1; i >= 2; i-- {
+			if dbMessages[i].Role == "user" {
+				msgCount := 2 + (total - i)
+				if msgCount > maxCtxMsgs {
+					break
+				}
+				cutIndex = i
+			}
 		}
 
-		// Avança o ponto de corte para não partir um grupo assistant+tool no meio.
-		// Se a mensagem no cutIndex é role="tool", avança até encontrar uma que não seja.
-		for cutIndex < total && dbMessages[cutIndex].Role == "tool" {
-			cutIndex++
+		if cutIndex > 2 {
+			dbMessages = append(dbMessages[:2], dbMessages[cutIndex:]...)
+			fmt.Printf("📋 [HISTORY] Conversa %d: truncado para %d msgs (corte em user msg idx %d)\n",
+				conversationID, len(dbMessages), cutIndex)
+		} else {
+			kept := maxCtxMsgs - 2
+			if kept > total {
+				kept = total
+			}
+			dbMessages = append(dbMessages[:2], dbMessages[total-kept:]...)
+			fmt.Printf("📋 [HISTORY] Conversa %d: truncado para %d msgs (fallback)\n",
+				conversationID, len(dbMessages))
 		}
-
-		dbMessages = append(dbMessages[:2], dbMessages[cutIndex:]...)
-		fmt.Printf("📋 [HISTORY] Conversa %d: %d msgs total, truncado para %d (limite: %d)\n",
-			conversationID, total, len(dbMessages), MaxContextMessages)
 	} else {
-		fmt.Printf("📋 [HISTORY] Conversa %d: %d mensagens carregadas\n", conversationID, total)
+		fmt.Printf("📋 [HISTORY] Conversa %d: %d mensagens no contexto\n", conversationID, total)
 	}
 
 	// Safety net: ensure every tool_use has its tool_result and vice-versa.
-	// Pass 1: collect all tool_call IDs offered (assistant) and answered (tool).
-	offeredIDs := make(map[string]bool)  // IDs in assistant tool_calls
-	answeredIDs := make(map[string]bool) // IDs referenced by tool_result messages
+	offeredIDs := make(map[string]bool)
+	answeredIDs := make(map[string]bool)
 	for _, m := range dbMessages {
 		if m.ToolCalls != "" {
 			var tcs []struct {
@@ -1012,12 +1050,10 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 	// Pass 2: remove orphaned tool_results and strip orphaned tool_calls from assistant messages.
 	cleaned := make([]database.ChatMessage, 0, len(dbMessages))
 	for _, m := range dbMessages {
-		// Drop tool_result whose tool_use was truncated
 		if m.Role == "tool" && m.ToolCallID != "" && !offeredIDs[m.ToolCallID] {
 			fmt.Printf("📋 [HISTORY] Removendo tool_result órfão: %s\n", m.ToolCallID)
 			continue
 		}
-		// Strip tool_calls from assistant if their tool_results were truncated
 		if m.ToolCalls != "" {
 			var tcs []json.RawMessage
 			var tcsParsed []struct {
@@ -1044,6 +1080,11 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 		cleaned = append(cleaned, m)
 	}
 	dbMessages = cleaned
+
+	// Garante que a primeira mensagem no contexto é uma user message
+	for len(dbMessages) > 0 && dbMessages[0].Role != "user" {
+		dbMessages = dbMessages[1:]
+	}
 
 	messages := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
@@ -1171,7 +1212,7 @@ func (a *App) loadConversationHistory(conversationID uint) ([]Message, error) {
 		messages = append(messages, msg)
 	}
 
-	return messages, nil
+	return messages, existingSummary, nil
 }
 
 // extractAudioFromMedia extrai o primeiro áudio base64 e MIME do mediaJSON.

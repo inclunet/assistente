@@ -511,6 +511,60 @@ export default function ProfilesPage() {
                 />
               </div>
               <div className="profiles-field">
+                <label htmlFor="pf-context-window" className="profiles-field__label">
+                  {t('profiles.fieldContextWindow', 'Janela de Contexto (tokens)')}
+                </label>
+                <input
+                  id="pf-context-window"
+                  type="number"
+                  className="profiles-field__input"
+                  min="0"
+                  max="2000000"
+                  value={editingProfile.chat?.context_window ?? 0}
+                  onChange={(e) => updateField('chat.context_window', parseInt(e.target.value) || 0)}
+                  placeholder="0"
+                />
+                <span className="profiles-field__hint">
+                  {t('profiles.contextWindowHint', 'Total de tokens suportados pelo modelo (ex: 128000). 0 = não definido. Quando definido, ativa sumarização automática.')}
+                </span>
+              </div>
+              <div className="profiles-field">
+                <label htmlFor="pf-max-context-messages" className="profiles-field__label">
+                  {t('profiles.fieldMaxContextMessages', 'Máx. Mensagens no Contexto')}
+                </label>
+                <input
+                  id="pf-max-context-messages"
+                  type="number"
+                  className="profiles-field__input"
+                  min="0"
+                  max="500"
+                  value={editingProfile.chat?.max_context_messages ?? 0}
+                  onChange={(e) => updateField('chat.max_context_messages', parseInt(e.target.value) || 0)}
+                  placeholder="50"
+                />
+                <span className="profiles-field__hint">
+                  {t('profiles.maxContextMessagesHint', 'Limite de mensagens enviadas ao modelo. 0 = padrão (50).')}
+                </span>
+              </div>
+              <div className="profiles-field">
+                <label htmlFor="pf-min-context-messages" className="profiles-field__label">
+                  {t('profiles.fieldMinContextMessages', 'Mín. Mensagens Preservadas')}
+                </label>
+                <input
+                  id="pf-min-context-messages"
+                  type="number"
+                  className="profiles-field__input"
+                  min="0"
+                  max="100"
+                  value={editingProfile.chat?.min_context_messages ?? 0}
+                  onChange={(e) => updateField('chat.min_context_messages', parseInt(e.target.value) || 0)}
+                  placeholder="10"
+                />
+                <span className="profiles-field__hint">
+                  {t('profiles.minContextMessagesHint', 'Mínimo de mensagens mantidas após sumarização. 0 = padrão (10).')}
+                </span>
+              </div>
+              <div className="profiles-field">
                 <label htmlFor="pf-top-p" className="profiles-field__label">
                   {t('profiles.fieldTopP', 'Top P')}
                 </label>

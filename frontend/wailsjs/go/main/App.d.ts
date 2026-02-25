@@ -117,6 +117,8 @@ export function GetConversationChannel(arg1:number):Promise<string>;
 
 export function GetConversationInfo(arg1:number):Promise<database.Conversation>;
 
+export function GetConversationSummary(arg1:number):Promise<main.ConversationSummaryInfo>;
+
 export function GetConversationTokenStats(arg1:number):Promise<main.TokenStatsResult>;
 
 export function GetConversationWithThreads(arg1:number):Promise<main.ConversationWithThreads>;
