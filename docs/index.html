@@ -148,14 +148,15 @@
 
         .features-grid {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
             gap: 30px;
-            max-width: 1000px;
+            max-width: 1200px;
             margin: 0 auto;
         }
 
         .feature {
             text-align: center;
+            padding: 20px;
         }
 
         .feature .icon {
@@ -205,12 +206,19 @@
             margin-bottom: 15px;
         }
 
-        .about-content ul {
+        .about-content ul, .about-content ol {
             margin: 15px 0 15px 30px;
         }
 
         .about-content li {
             margin-bottom: 8px;
+        }
+
+        .about-content code {
+            background: #edf2f7;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-family: 'Courier New', monospace;
         }
 
         .providers-table {
@@ -307,6 +315,10 @@
             .download-grid {
                 grid-template-columns: 1fr;
             }
+
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
         }
     </style>
 </head>
@@ -315,7 +327,7 @@
         <div class="container">
             <h1><span aria-hidden="true">🤖</span> Assistente</h1>
             <div class="version" id="version">Versão 1.0.0</div>
-            <p class="tagline">Assistente de IA desktop completamente acessível, feito por pessoa cega para pessoas cegas</p>
+            <p class="tagline">Cliente de chat multi-modelo e multi-conversa completamente acessível, feito por quem usa para quem usa</p>
         </div>
     </header>
 
@@ -376,6 +388,68 @@
             </div>
         </section>
 
+        <section class="features">
+            <div class="container">
+                <h2><span aria-hidden="true">✨</span> Recursos</h2>
+                
+                <div class="features-grid">
+                    <div class="feature">
+                        <div class="icon" aria-hidden="true">🗂️</div>
+                        <h3>Multi-Conversa em Abas</h3>
+                        <p>Mantenha várias conversas simultâneas em abas paralelas, alternando contextos sem perder o fio da meada</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon" aria-hidden="true">⌨️</div>
+                        <h3>Navegação Inovadora</h3>
+                        <p>↑ no input vai pra última mensagem, ↑/↓ navega entre mensagens, Enter isola mensagem com foco total (inert no resto), ESC retorna — loop perfeito sem dead-ends</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon" aria-hidden="true">🔊</div>
+                        <h3>TTS Multi-Engine</h3>
+                        <p>OpenAI voices, Web Speech API, SAPI5 — escolha a voz certa para cada momento: qualidade, velocidade ou integração com leitor de tela</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon" aria-hidden="true">🎤</div>
+                        <h3>STT com Wake Word</h3>
+                        <p>Reconhecimento de voz funciona fora da janela do app com wake word ou teclas de atalho globais — autonomia total</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon" aria-hidden="true">♿</div>
+                        <h3>Autonomia Real</h3>
+                        <p>Otimizado para leitores de tela (NVDA, JAWS, Narrator) — não é checkbox WCAG, é design centrado em quem realmente usa</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon" aria-hidden="true">🔌</div>
+                        <h3>Múltiplos Provedores</h3>
+                        <p>OpenAI, Groq, Ollama, LM Studio, OpenRouter, Google AI — use o modelo que quiser, local ou cloud</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon" aria-hidden="true">🛠️</div>
+                        <h3>MCP Integrado</h3>
+                        <p>Model Context Protocol para estender funcionalidades com ferramentas externas — seu assistente pode fazer muito mais</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon" aria-hidden="true">🔄</div>
+                        <h3>Auto-Update</h3>
+                        <p>Atualizações automáticas silenciosas sem interromper seu trabalho — sempre atualizado sem esforço</p>
+                    </div>
+
+                    <div class="feature">
+                        <div class="icon" aria-hidden="true">🌐</div>
+                        <h3>Multiplataforma</h3>
+                        <p>Windows, macOS e Linux — interface nativa e otimizada em todas as plataformas</p>
+                    </div>
+                </div>
+            </div>
+        </section>
+
         <section class="about">
             <div class="container">
                 <h2><span aria-hidden="true">💡</span> Sobre o Projeto</h2>
@@ -403,7 +477,7 @@
                     <p>A interface e interações foram inspiradas em ferramentas que funcionam bem com leitores de tela:</p>
                     <ul>
                         <li><strong>IDEs modernos</strong>: Visual Studio Code, Cursor - navegação por atalhos, busca rápida</li>
-                        <li><strong>Ferramentas de comunicação</strong>: Slack - organização em threads e canais</li>
+                        <li><strong>Ferramentas de comunicação</strong>: Slack - organização em threads e canais, navegação entre mensagens</li>
                         <li><strong>Terminais</strong>: Bash, PowerShell, CMD - comandos eficientes, navegação por histórico</li>
                         <li><strong>Aplicações produtivas</strong>: Windows Explorer, Excel, Google Sheets - atalhos de teclado, navegação estruturada</li>
                         <li><strong>Ferramentas Google</strong>: busca instantânea, sugestões contextuais</li>
@@ -448,7 +522,23 @@
                                 <td>Busca rápida</td>
                             </tr>
                             <tr>
-                                <td><code>Enter</code></td>
+                                <td><code>↑ (no input)</code></td>
+                                <td>Ir para última mensagem do histórico</td>
+                            </tr>
+                            <tr>
+                                <td><code>↑/↓ (navegando)</code></td>
+                                <td>Navegar entre mensagens</td>
+                            </tr>
+                            <tr>
+                                <td><code>Enter (em mensagem)</code></td>
+                                <td>Isolar mensagem com foco total</td>
+                            </tr>
+                            <tr>
+                                <td><code>ESC</code></td>
+                                <td>Retornar ao contexto anterior</td>
+                            </tr>
+                            <tr>
+                                <td><code>Enter (no input)</code></td>
                                 <td>Enviar mensagem</td>
                             </tr>
                             <tr>
@@ -461,8 +551,10 @@
                     <h3>Dicas para Usuários de Leitores de Tela</h3>
                     <ol>
                         <li><strong>Ative o "Modo Acessibilidade"</strong> nas configurações (Alt + 2)</li>
-                        <li>Use <code>Tab</code> para navegar entre elementos</li>
+                        <li>Use <code>Tab</code> para navegar entre elementos interativos</li>
                         <li>Use <code>F6</code> para alternar entre painéis principais</li>
+                        <li>Use <code>↑/↓</code> no campo de input para navegar no histórico de mensagens</li>
+                        <li>Pressione <code>Enter</code> em uma mensagem para isolá-la e ler com calma</li>
                         <li>Respostas são anunciadas automaticamente quando completas</li>
                     </ol>
 
@@ -509,50 +601,6 @@
                         </tbody>
                     </table>
                     <p><strong>Dica:</strong> Para iniciantes, recomendamos <strong>Groq</strong> (gratuito e rápido) ou <strong>Ollama</strong> (roda no seu PC).</p>
-                </div>
-            </div>
-        </section>
-
-        <section class="features">
-            <div class="container">
-                <h2><span aria-hidden="true">✨</span> Recursos</h2>
-                
-                <div class="features-grid">
-                    <div class="feature">
-                        <div class="icon" aria-hidden="true">♿</div>
-                        <h3>Acessibilidade Total</h3>
-                        <p>Otimizado para leitores de tela como NVDA, JAWS e Narrator</p>
-                    </div>
-
-                    <div class="feature">
-                        <div class="icon" aria-hidden="true">🔄</div>
-                        <h3>Auto-Update</h3>
-                        <p>Atualizações automáticas sem interromper seu trabalho</p>
-                    </div>
-
-                    <div class="feature">
-                        <div class="icon" aria-hidden="true">🎨</div>
-                        <h3>Interface Eficiente</h3>
-                        <p>Inspirada em VSCode, Slack e terminais para máxima produtividade</p>
-                    </div>
-
-                    <div class="feature">
-                        <div class="icon" aria-hidden="true">🔌</div>
-                        <h3>Múltiplos Provedores</h3>
-                        <p>OpenAI, Groq, Ollama, LM Studio e mais</p>
-                    </div>
-
-                    <div class="feature">
-                        <div class="icon" aria-hidden="true">🌐</div>
-                        <h3>Multiplataforma</h3>
-                        <p>Funciona no Windows, macOS e Linux</p>
-                    </div>
-
-                    <div class="feature">
-                        <div class="icon" aria-hidden="true">🛠️</div>
-                        <h3>MCP Integrado</h3>
-                        <p>Model Context Protocol para ferramentas externas</p>
-                    </div>
                 </div>
             </div>
         </section>
