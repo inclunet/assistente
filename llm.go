@@ -636,8 +636,12 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 			systemPromptPosition = "before"
 		}
 		enabledSkills = activeProfile.Chat.EnabledSkills
+		if activeProfile.Chat.DisableSkills {
+			enabledSkills = []string{}
+		}
 	}
-	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, slashSkillContent, conversationSummary)
+	disableMemory := activeProfile != nil && activeProfile.Chat.DisableMemory
+	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, slashSkillContent, conversationSummary, disableMemory)
 
 	// 5. Pré-processamento de mídia:
 	//    a) Converte formatos de áudio não suportados (aac, ogg, etc.) para texto via Whisper
@@ -647,7 +651,8 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// 6. Processa com LLM
 	// Determina quais ferramentas estão habilitadas pelo perfil ativo
 	var llmToolDefs []llm.ToolDefinition
-	if a.toolRegistry != nil && a.toolRegistry.Count() > 0 {
+	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
+	if !disableTools && a.toolRegistry != nil && a.toolRegistry.Count() > 0 {
 		var toolDefs []tools.ToolDefinition
 
 		// Filtra ferramentas pelo perfil: nil = todas, lista = apenas as listadas
@@ -703,7 +708,7 @@ Key behaviors:
 // enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
 // slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
 // conversationSummary: resumo de mensagens antigas da conversa (rolling context).
-func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, slashSkillContent string, conversationSummary string) []Message {
+func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, slashSkillContent string, conversationSummary string, disableMemory bool) []Message {
 	// Build the system prompt parts
 	var parts []string
 
@@ -725,10 +730,12 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 		parts = append(parts, "\n\n"+slashSkillContent)
 	}
 
-	// 3. Memory injection (memory.md sempre no contexto)
-	memorySection := a.buildMemoryContext()
-	if memorySection != "" {
-		parts = append(parts, "\n\n"+memorySection)
+	// 3. Memory injection (memory.md no contexto, exceto se desabilitado pelo perfil)
+	if !disableMemory {
+		memorySection := a.buildMemoryContext()
+		if memorySection != "" {
+			parts = append(parts, "\n\n"+memorySection)
+		}
 	}
 
 	// 4. Conversation summary (rolling context)

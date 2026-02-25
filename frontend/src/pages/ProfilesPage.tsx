@@ -160,10 +160,10 @@ export default function ProfilesPage() {
       announce(t('profiles.deletedAnnounce', 'Perfil excluído'));
 
       if (editingSlug === row.slug) {
-        setEditingSlug(null);
-        setEditingProfile(null);
+        handleCloseEditor();
       }
       await loadProfiles();
+      setTimeout(() => focusFirstCell(), 50);
     } catch (error: any) {
       console.error('Erro ao excluir perfil:', error);
       addToast(error.message || t('profiles.deleteError', 'Erro ao excluir perfil'), 'error');
@@ -226,6 +226,8 @@ export default function ProfilesPage() {
         announce(t('profiles.updatedAnnounce', `Perfil ${editingProfile.name} atualizado`));
       }
       await loadProfiles();
+      handleCloseEditor();
+      setTimeout(() => focusFirstCell(), 50);
     } catch (error: any) {
       console.error('Erro ao salvar perfil:', error);
       addToast(error.message || t('profiles.saveError', 'Erro ao salvar perfil'), 'error');
@@ -610,6 +612,7 @@ export default function ProfilesPage() {
                   {t('profiles.fieldThinking', 'Habilitar Thinking/Reasoning')}
                 </label>
               </div>
+
               <div className="profiles-field">
                 <label htmlFor="pf-system-prompt" className="profiles-field__label">
                   {t('profiles.fieldSystemPrompt', 'System Prompt')}
@@ -638,263 +641,397 @@ export default function ProfilesPage() {
                 </select>
               </div>
 
-              {/* Seção de Ferramentas */}
-              {availableTools.length > 0 && (
-                <div className="profiles-field">
-                  <fieldset className="profiles-field__fieldset">
-                    <legend className="profiles-field__label">
-                      {t('profiles.fieldTools', 'Ferramentas')}
-                    </legend>
-                    <p className="profiles-field__hint">
-                      {t('profiles.toolsHint', 'Selecione quais ferramentas este perfil pode usar. Nenhuma seleção = todas habilitadas.')}
-                    </p>
-                    <div className="profiles-field__tools-actions">
-                      <button
-                        type="button"
-                        className="profiles-field__tools-toggle"
-                        onClick={() => {
-                          const allNames = availableTools.map(t => t.name);
-                          const currentEnabled = editingProfile.chat?.enabled_tools;
-                          // Se todas estão selecionadas ou nenhuma (null), limpa para null (todas)
-                          // Se alguma está selecionada, seleciona todas
-                          if (!currentEnabled || currentEnabled.length === 0 || currentEnabled.length === allNames.length) {
-                            updateField('chat.enabled_tools', null);
-                          } else {
-                            updateField('chat.enabled_tools', allNames);
-                          }
-                        }}
-                      >
-                        {(!editingProfile.chat?.enabled_tools || editingProfile.chat.enabled_tools.length === 0)
-                          ? t('profiles.toolsDeselectAll', 'Desmarcar todas')
-                          : t('profiles.toolsSelectAll', 'Selecionar todas')}
-                      </button>
-                    </div>
-                    <div className="profiles-field__tools-grid">
-                      {availableTools.map((tool) => {
-                        const enabledList = editingProfile.chat?.enabled_tools;
-                        // null/vazio = todas habilitadas
-                        const isEnabled = !enabledList || enabledList.length === 0 || enabledList.includes(tool.name);
+              {/* === Seções colapsáveis de contexto === */}
 
-                        const handleToggle = () => {
-                          const allNames = availableTools.map(t => t.name);
-
-                          if (!enabledList || enabledList.length === 0) {
-                            // Estava "todas" → remove esta (cria lista com todas menos esta)
-                            updateField('chat.enabled_tools', allNames.filter(n => n !== tool.name));
-                          } else if (isEnabled) {
-                            // Remove desta
-                            const newList = enabledList.filter((n: string) => n !== tool.name);
-                            // Se ficou vazio, volta para null (nenhuma tool)
-                            updateField('chat.enabled_tools', newList.length === 0 ? [] : newList);
-                          } else {
-                            // Adiciona esta
-                            const newList = [...enabledList, tool.name];
-                            // Se selecionou todas, volta para null
-                            if (newList.length === allNames.length) {
-                              updateField('chat.enabled_tools', null);
-                            } else {
-                              updateField('chat.enabled_tools', newList);
-                            }
-                          }
-                        };
-
-                        return (
-                          <div key={tool.name} className="profiles-field__tool-item">
-                            <input
-                              type="checkbox"
-                              id={`pf-tool-${tool.name}`}
-                              checked={isEnabled}
-                              onChange={handleToggle}
-                            />
-                            <label htmlFor={`pf-tool-${tool.name}`} className="profiles-field__tool-label">
-                              <span className="profiles-field__tool-name">{tool.name}</span>
-                              <span className="profiles-field__tool-desc">{tool.description}</span>
-                            </label>
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </fieldset>
-                </div>
-              )}
-
-              {/* Allowlist de Comandos */}
-              <div className="profiles-field">
-                <label htmlFor="pf-command-allowlist" className="profiles-field__label">
-                  {t('profiles.fieldCommandAllowlist', 'Allowlist de Comandos')}
-                </label>
-                <select
-                  id="pf-command-allowlist"
-                  className="profiles-field__input"
-                  value={editingProfile.chat?.command_allowlist || ''}
-                  onChange={(e) => updateField('chat.command_allowlist', e.target.value || '')}
+              {/* Ferramentas (Tool Calling) */}
+              <div className={`profiles-collapse ${editingProfile.chat?.disable_tools ? 'profiles-collapse--closed' : 'profiles-collapse--open'}`}>
+                <button
+                  type="button"
+                  className="profiles-collapse__header"
+                  onClick={() => updateField('chat.disable_tools', !editingProfile.chat?.disable_tools)}
+                  aria-expanded={!editingProfile.chat?.disable_tools}
                 >
-                  <option value="">{t('profiles.allowlistDefault', 'Padrão')}</option>
-                  {availableAllowlists.map((al) => (
-                    <option key={al.slug} value={al.slug}>
-                      {al.name} ({al.ruleCount} regras)
-                    </option>
-                  ))}
-                </select>
-                <span className="profiles-field__hint">
-                  {t('profiles.allowlistHint', 'Define quais comandos shell são executados automaticamente, bloqueados ou pedem confirmação.')}
-                </span>
+                  <span className="profiles-collapse__chevron" aria-hidden="true">
+                    {editingProfile.chat?.disable_tools ? '▶' : '▼'}
+                  </span>
+                  <span className="profiles-collapse__title">
+                    {t('profiles.collapseTools', 'Ferramentas (Tool Calling)')}
+                  </span>
+                  <span className={`profiles-collapse__badge ${editingProfile.chat?.disable_tools ? 'profiles-collapse__badge--off' : 'profiles-collapse__badge--on'}`}>
+                    {editingProfile.chat?.disable_tools
+                      ? t('profiles.featureOff', 'Desabilitado')
+                      : t('profiles.featureOn', 'Habilitado')}
+                  </span>
+                </button>
+                {!editingProfile.chat?.disable_tools && (
+                  <div className="profiles-collapse__content">
+                    {availableTools.length > 0 && (
+                      <>
+                        <p className="profiles-field__hint">
+                          {t('profiles.toolsHint', 'Selecione quais ferramentas este perfil pode usar. Nenhuma seleção = todas habilitadas.')}
+                        </p>
+                        <div className="profiles-field__tools-actions">
+                          <button
+                            type="button"
+                            className="profiles-field__tools-toggle"
+                            onClick={() => {
+                              const allNames = availableTools.map(t => t.name);
+                              const currentEnabled = editingProfile.chat?.enabled_tools;
+                              if (!currentEnabled || currentEnabled.length === 0 || currentEnabled.length === allNames.length) {
+                                updateField('chat.enabled_tools', null);
+                              } else {
+                                updateField('chat.enabled_tools', allNames);
+                              }
+                            }}
+                          >
+                            {(!editingProfile.chat?.enabled_tools || editingProfile.chat.enabled_tools.length === 0)
+                              ? t('profiles.toolsDeselectAll', 'Desmarcar todas')
+                              : t('profiles.toolsSelectAll', 'Selecionar todas')}
+                          </button>
+                        </div>
+                        <div className="profiles-field__tools-grid">
+                          {availableTools.map((tool) => {
+                            const enabledList = editingProfile.chat?.enabled_tools;
+                            const isEnabled = !enabledList || enabledList.length === 0 || enabledList.includes(tool.name);
+
+                            const handleToggle = () => {
+                              const allNames = availableTools.map(t => t.name);
+
+                              if (!enabledList || enabledList.length === 0) {
+                                updateField('chat.enabled_tools', allNames.filter(n => n !== tool.name));
+                              } else if (isEnabled) {
+                                const newList = enabledList.filter((n: string) => n !== tool.name);
+                                updateField('chat.enabled_tools', newList.length === 0 ? [] : newList);
+                              } else {
+                                const newList = [...enabledList, tool.name];
+                                if (newList.length === allNames.length) {
+                                  updateField('chat.enabled_tools', null);
+                                } else {
+                                  updateField('chat.enabled_tools', newList);
+                                }
+                              }
+                            };
+
+                            return (
+                              <div key={tool.name} className="profiles-field__tool-item">
+                                <input
+                                  type="checkbox"
+                                  id={`pf-tool-${tool.name}`}
+                                  checked={isEnabled}
+                                  onChange={handleToggle}
+                                />
+                                <label htmlFor={`pf-tool-${tool.name}`} className="profiles-field__tool-label">
+                                  <span className="profiles-field__tool-name">{tool.name}</span>
+                                  <span className="profiles-field__tool-desc">{tool.description}</span>
+                                </label>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Allowlist de Comandos */}
+                    <div className="profiles-field" style={{ marginTop: '0.75rem' }}>
+                      <label htmlFor="pf-command-allowlist" className="profiles-field__label">
+                        {t('profiles.fieldCommandAllowlist', 'Allowlist de Comandos')}
+                      </label>
+                      <select
+                        id="pf-command-allowlist"
+                        className="profiles-field__input"
+                        value={editingProfile.chat?.command_allowlist || ''}
+                        onChange={(e) => updateField('chat.command_allowlist', e.target.value || '')}
+                      >
+                        <option value="">{t('profiles.allowlistDefault', 'Padrão')}</option>
+                        {availableAllowlists.map((al) => (
+                          <option key={al.slug} value={al.slug}>
+                            {al.name} ({al.ruleCount} regras)
+                          </option>
+                        ))}
+                      </select>
+                      <span className="profiles-field__hint">
+                        {t('profiles.allowlistHint', 'Define quais comandos shell são executados automaticamente, bloqueados ou pedem confirmação.')}
+                      </span>
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Skills */}
+              <div className={`profiles-collapse ${editingProfile.chat?.disable_skills ? 'profiles-collapse--closed' : 'profiles-collapse--open'}`}>
+                <button
+                  type="button"
+                  className="profiles-collapse__header"
+                  onClick={() => updateField('chat.disable_skills', !editingProfile.chat?.disable_skills)}
+                  aria-expanded={!editingProfile.chat?.disable_skills}
+                >
+                  <span className="profiles-collapse__chevron" aria-hidden="true">
+                    {editingProfile.chat?.disable_skills ? '▶' : '▼'}
+                  </span>
+                  <span className="profiles-collapse__title">
+                    {t('profiles.collapseSkills', 'Skills')}
+                  </span>
+                  <span className={`profiles-collapse__badge ${editingProfile.chat?.disable_skills ? 'profiles-collapse__badge--off' : 'profiles-collapse__badge--on'}`}>
+                    {editingProfile.chat?.disable_skills
+                      ? t('profiles.featureOff', 'Desabilitado')
+                      : t('profiles.featureOn', 'Habilitado')}
+                  </span>
+                </button>
+                {!editingProfile.chat?.disable_skills && (
+                  <div className="profiles-collapse__content">
+                    <p className="profiles-field__hint" style={{ margin: 0 }}>
+                      {t('profiles.skillsEnabledDesc', 'Skills automáticos e disponíveis serão injetados no system prompt. Inclui instruções de skills do tipo "auto" e referências para skills sob demanda.')}
+                    </p>
+                  </div>
+                )}
+              </div>
+
+              {/* Memória */}
+              <div className={`profiles-collapse ${editingProfile.chat?.disable_memory ? 'profiles-collapse--closed' : 'profiles-collapse--open'}`}>
+                <button
+                  type="button"
+                  className="profiles-collapse__header"
+                  onClick={() => updateField('chat.disable_memory', !editingProfile.chat?.disable_memory)}
+                  aria-expanded={!editingProfile.chat?.disable_memory}
+                >
+                  <span className="profiles-collapse__chevron" aria-hidden="true">
+                    {editingProfile.chat?.disable_memory ? '▶' : '▼'}
+                  </span>
+                  <span className="profiles-collapse__title">
+                    {t('profiles.collapseMemory', 'Memória')}
+                  </span>
+                  <span className={`profiles-collapse__badge ${editingProfile.chat?.disable_memory ? 'profiles-collapse__badge--off' : 'profiles-collapse__badge--on'}`}>
+                    {editingProfile.chat?.disable_memory
+                      ? t('profiles.featureOff', 'Desabilitado')
+                      : t('profiles.featureOn', 'Habilitado')}
+                  </span>
+                </button>
+                {!editingProfile.chat?.disable_memory && (
+                  <div className="profiles-collapse__content">
+                    <p className="profiles-field__hint" style={{ margin: 0 }}>
+                      {t('profiles.memoryEnabledDesc', 'O conteúdo de memory.md será injetado no system prompt, permitindo que o assistente use e gerencie memórias do usuário proativamente.')}
+                    </p>
+                  </div>
+                )}
               </div>
             </div>
           </section>
 
-          {/* Voice Section */}
-          <section className="profiles-section" aria-labelledby="section-voice">
-            <h3 id="section-voice">{t('profiles.sectionVoice', 'Voz (TTS)')}</h3>
-            <div className="profiles-fields">
-              <div className="profiles-field">
-                <VoicePicker
-                  value={editingProfile.voice?.voice_id || VOICE_DISABLED}
-                  onChange={(voice) => {
-                    if (voice === VOICE_DISABLED) {
+          {/* Voice (TTS) — colapsável */}
+          {(() => {
+            const isVoiceDisabled = editingProfile.voice?.provider === 'disabled';
+            return (
+              <div className={`profiles-collapse ${isVoiceDisabled ? 'profiles-collapse--closed' : 'profiles-collapse--open'}`}>
+                <button
+                  type="button"
+                  className="profiles-collapse__header"
+                  onClick={() => {
+                    if (isVoiceDisabled) {
+                      updateField('voice.provider', 'webspeech');
+                    } else {
                       updateField('voice.provider', 'disabled');
                       updateField('voice.voice_id', '');
-                    } else {
-                      updateField('voice.voice_id', voice);
-                      // Provider is inferred by VoicePicker based on the selected voice
-                      if (!editingProfile.voice?.provider || editingProfile.voice.provider === 'disabled') {
-                        updateField('voice.provider', 'webspeech');
-                      }
                     }
                   }}
-                  variant="form"
-                  label={t('profiles.fieldVoice', 'Voz')}
-                />
+                  aria-expanded={!isVoiceDisabled}
+                >
+                  <span className="profiles-collapse__chevron" aria-hidden="true">
+                    {isVoiceDisabled ? '▶' : '▼'}
+                  </span>
+                  <span className="profiles-collapse__title">
+                    {t('profiles.collapseVoice', 'Voz (TTS)')}
+                  </span>
+                  <span className={`profiles-collapse__badge ${isVoiceDisabled ? 'profiles-collapse__badge--off' : 'profiles-collapse__badge--on'}`}>
+                    {isVoiceDisabled
+                      ? t('profiles.featureOff', 'Desabilitado')
+                      : t('profiles.featureOn', 'Habilitado')}
+                  </span>
+                </button>
+                {!isVoiceDisabled && (
+                  <div className="profiles-collapse__content">
+                    <div className="profiles-fields">
+                      <div className="profiles-field">
+                        <VoicePicker
+                          value={editingProfile.voice?.voice_id || VOICE_DISABLED}
+                          onChange={(voice) => {
+                            if (voice === VOICE_DISABLED) {
+                              updateField('voice.provider', 'disabled');
+                              updateField('voice.voice_id', '');
+                            } else {
+                              updateField('voice.voice_id', voice);
+                              if (!editingProfile.voice?.provider || editingProfile.voice.provider === 'disabled') {
+                                updateField('voice.provider', 'webspeech');
+                              }
+                            }
+                          }}
+                          variant="form"
+                          label={t('profiles.fieldVoice', 'Voz')}
+                        />
+                      </div>
+                      <div className="profiles-field">
+                        <label htmlFor="pf-voice-rate" className="profiles-field__label">
+                          {t('profiles.fieldVoiceRate', 'Velocidade')}
+                        </label>
+                        <div className="profiles-field__range-group">
+                          <input
+                            id="pf-voice-rate"
+                            type="range"
+                            className="profiles-field__range"
+                            min="0.25"
+                            max="4"
+                            step="0.1"
+                            value={editingProfile.voice?.rate ?? 1.0}
+                            onChange={(e) => updateField('voice.rate', parseFloat(e.target.value))}
+                            aria-valuetext={`${editingProfile.voice?.rate?.toFixed(1) ?? '1.0'}x`}
+                          />
+                          <span className="profiles-field__range-value" aria-hidden="true">
+                            {editingProfile.voice?.rate?.toFixed(1) ?? '1.0'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="profiles-field">
+                        <label htmlFor="pf-voice-volume" className="profiles-field__label">
+                          {t('profiles.fieldVoiceVolume', 'Volume')}
+                        </label>
+                        <div className="profiles-field__range-group">
+                          <input
+                            id="pf-voice-volume"
+                            type="range"
+                            className="profiles-field__range"
+                            min="0"
+                            max="1"
+                            step="0.1"
+                            value={editingProfile.voice?.volume ?? 1.0}
+                            onChange={(e) => updateField('voice.volume', parseFloat(e.target.value))}
+                            aria-valuetext={`${Math.round((editingProfile.voice?.volume ?? 1.0) * 100)}%`}
+                          />
+                          <span className="profiles-field__range-value" aria-hidden="true">
+                            {editingProfile.voice?.volume?.toFixed(1) ?? '1.0'}
+                          </span>
+                        </div>
+                      </div>
+                      <div className="profiles-field profiles-field--checkbox">
+                        <input
+                          id="pf-tts-agent"
+                          type="checkbox"
+                          checked={editingProfile.voice?.enabled_for_agent ?? false}
+                          onChange={(e) => updateField('voice.enabled_for_agent', e.target.checked)}
+                        />
+                        <label htmlFor="pf-tts-agent" className="profiles-field__label">
+                          {t('profiles.fieldTTSAgent', 'TTS para mensagens do assistente')}
+                        </label>
+                      </div>
+                      <div className="profiles-field profiles-field--checkbox">
+                        <input
+                          id="pf-tts-user"
+                          type="checkbox"
+                          checked={editingProfile.voice?.enabled_for_user ?? false}
+                          onChange={(e) => updateField('voice.enabled_for_user', e.target.checked)}
+                        />
+                        <label htmlFor="pf-tts-user" className="profiles-field__label">
+                          {t('profiles.fieldTTSUser', 'TTS para mensagens do usuário')}
+                        </label>
+                      </div>
+                      <div className="profiles-field">
+                        <label htmlFor="pf-channel-response" className="profiles-field__label">
+                          {t('profiles.fieldChannelResponse', 'Resposta em canais externos')}
+                        </label>
+                        <select
+                          id="pf-channel-response"
+                          className="profiles-field__select"
+                          value={editingProfile.voice?.channel_response_mode || 'mirror'}
+                          onChange={(e) => updateField('voice.channel_response_mode', e.target.value)}
+                        >
+                          <option value="mirror">Espelhar (texto→texto, audio→audio)</option>
+                          <option value="always_text">Sempre texto</option>
+                          <option value="always_audio">Sempre audio (TTS)</option>
+                        </select>
+                        <p className="profiles-field__hint">
+                          Define como conversas via Signal, Telegram e outros canais respondem.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-              {editingProfile.voice?.provider !== 'disabled' && (
-                <>
-                  <div className="profiles-field">
-                    <label htmlFor="pf-voice-rate" className="profiles-field__label">
-                      {t('profiles.fieldVoiceRate', 'Velocidade')}
-                    </label>
-                    <div className="profiles-field__range-group">
-                      <input
-                        id="pf-voice-rate"
-                        type="range"
-                        className="profiles-field__range"
-                        min="0.25"
-                        max="4"
-                        step="0.1"
-                        value={editingProfile.voice?.rate ?? 1.0}
-                        onChange={(e) => updateField('voice.rate', parseFloat(e.target.value))}
-                        aria-valuetext={`${editingProfile.voice?.rate?.toFixed(1) ?? '1.0'}x`}
-                      />
-                      <span className="profiles-field__range-value" aria-hidden="true">
-                        {editingProfile.voice?.rate?.toFixed(1) ?? '1.0'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="profiles-field">
-                    <label htmlFor="pf-voice-volume" className="profiles-field__label">
-                      {t('profiles.fieldVoiceVolume', 'Volume')}
-                    </label>
-                    <div className="profiles-field__range-group">
-                      <input
-                        id="pf-voice-volume"
-                        type="range"
-                        className="profiles-field__range"
-                        min="0"
-                        max="1"
-                        step="0.1"
-                        value={editingProfile.voice?.volume ?? 1.0}
-                        onChange={(e) => updateField('voice.volume', parseFloat(e.target.value))}
-                        aria-valuetext={`${Math.round((editingProfile.voice?.volume ?? 1.0) * 100)}%`}
-                      />
-                      <span className="profiles-field__range-value" aria-hidden="true">
-                        {editingProfile.voice?.volume?.toFixed(1) ?? '1.0'}
-                      </span>
-                    </div>
-                  </div>
-                  <div className="profiles-field profiles-field--checkbox">
-                    <input
-                      id="pf-tts-agent"
-                      type="checkbox"
-                      checked={editingProfile.voice?.enabled_for_agent ?? false}
-                      onChange={(e) => updateField('voice.enabled_for_agent', e.target.checked)}
-                    />
-                    <label htmlFor="pf-tts-agent" className="profiles-field__label">
-                      {t('profiles.fieldTTSAgent', 'TTS para mensagens do assistente')}
-                    </label>
-                  </div>
-                  <div className="profiles-field profiles-field--checkbox">
-                    <input
-                      id="pf-tts-user"
-                      type="checkbox"
-                      checked={editingProfile.voice?.enabled_for_user ?? false}
-                      onChange={(e) => updateField('voice.enabled_for_user', e.target.checked)}
-                    />
-                    <label htmlFor="pf-tts-user" className="profiles-field__label">
-                      {t('profiles.fieldTTSUser', 'TTS para mensagens do usuário')}
-                    </label>
-                  </div>
-                  <div className="profiles-field">
-                    <label htmlFor="pf-channel-response" className="profiles-field__label">
-                      {t('profiles.fieldChannelResponse', 'Resposta em canais externos')}
-                    </label>
-                    <select
-                      id="pf-channel-response"
-                      className="profiles-field__select"
-                      value={editingProfile.voice?.channel_response_mode || 'mirror'}
-                      onChange={(e) => updateField('voice.channel_response_mode', e.target.value)}
-                    >
-                      <option value="mirror">Espelhar (texto→texto, áudio→áudio)</option>
-                      <option value="always_text">Sempre texto</option>
-                      <option value="always_audio">Sempre áudio (TTS)</option>
-                    </select>
-                    <p className="profiles-field__hint">
-                      Define como conversas via Signal, Telegram e outros canais respondem.
-                    </p>
-                  </div>
-                </>
-              )}
-            </div>
-          </section>
+            );
+          })()}
 
-            {/* Interaction Section */}
-            <section className="profiles-section" aria-labelledby="section-interaction">
-              <h3 id="section-interaction">{t('profiles.sectionInteraction', 'Interação (STT)')}</h3>
-              <div className="profiles-fields">
-                <div className="profiles-field">
-                  <STTProviderPicker
-                    value={editingProfile.interaction?.stt_provider || 'webspeech'}
-                    onChange={(provider) => updateField('interaction.stt_provider', provider)}
-                    variant="form"
-                    label={t('profiles.fieldSTTProvider', 'Provedor STT')}
-                  />
-                </div>
-                <div className="profiles-field">
-                  <label htmlFor="pf-language" className="profiles-field__label">
-                    {t('profiles.fieldLanguage', 'Idioma')}
-                  </label>
-                  <input
-                    id="pf-language"
-                    type="text"
-                    className="profiles-field__input"
-                    value={editingProfile.interaction?.language || 'pt-BR'}
-                    onChange={(e) => updateField('interaction.language', e.target.value)}
-                    placeholder="pt-BR"
-                  />
-                </div>
-                <div className="profiles-field profiles-field--checkbox">
-                  <input
-                    id="pf-feedback-sounds"
-                    type="checkbox"
-                    checked={editingProfile.interaction?.feedback_sounds ?? true}
-                    onChange={(e) => updateField('interaction.feedback_sounds', e.target.checked)}
-                  />
-                  <label htmlFor="pf-feedback-sounds" className="profiles-field__label">
-                    {t('profiles.fieldFeedbackSounds', 'Sons de feedback')}
-                  </label>
-                </div>
+          {/* Interaction (STT) — colapsável */}
+          {(() => {
+            const isSTTDisabled = !editingProfile.interaction?.stt_provider;
+            return (
+              <div className={`profiles-collapse ${isSTTDisabled ? 'profiles-collapse--closed' : 'profiles-collapse--open'}`}>
+                <button
+                  type="button"
+                  className="profiles-collapse__header"
+                  onClick={() => {
+                    if (isSTTDisabled) {
+                      updateField('interaction.stt_provider', 'webspeech');
+                    } else {
+                      updateField('interaction.stt_provider', '');
+                    }
+                  }}
+                  aria-expanded={!isSTTDisabled}
+                >
+                  <span className="profiles-collapse__chevron" aria-hidden="true">
+                    {isSTTDisabled ? '▶' : '▼'}
+                  </span>
+                  <span className="profiles-collapse__title">
+                    {t('profiles.collapseInteraction', 'Interação (STT)')}
+                  </span>
+                  <span className={`profiles-collapse__badge ${isSTTDisabled ? 'profiles-collapse__badge--off' : 'profiles-collapse__badge--on'}`}>
+                    {isSTTDisabled
+                      ? t('profiles.featureOff', 'Desabilitado')
+                      : t('profiles.featureOn', 'Habilitado')}
+                  </span>
+                </button>
+                {!isSTTDisabled && (
+                  <div className="profiles-collapse__content">
+                    <div className="profiles-fields">
+                      <div className="profiles-field">
+                        <STTProviderPicker
+                          value={editingProfile.interaction?.stt_provider || 'webspeech'}
+                          onChange={(provider) => updateField('interaction.stt_provider', provider)}
+                          variant="form"
+                          label={t('profiles.fieldSTTProvider', 'Provedor STT')}
+                        />
+                      </div>
+                      <div className="profiles-field">
+                        <label htmlFor="pf-language" className="profiles-field__label">
+                          {t('profiles.fieldLanguage', 'Idioma')}
+                        </label>
+                        <input
+                          id="pf-language"
+                          type="text"
+                          className="profiles-field__input"
+                          value={editingProfile.interaction?.language || 'pt-BR'}
+                          onChange={(e) => updateField('interaction.language', e.target.value)}
+                          placeholder="pt-BR"
+                        />
+                      </div>
+                      <div className="profiles-field profiles-field--checkbox">
+                        <input
+                          id="pf-feedback-sounds"
+                          type="checkbox"
+                          checked={editingProfile.interaction?.feedback_sounds ?? true}
+                          onChange={(e) => updateField('interaction.feedback_sounds', e.target.checked)}
+                        />
+                        <label htmlFor="pf-feedback-sounds" className="profiles-field__label">
+                          {t('profiles.fieldFeedbackSounds', 'Sons de feedback')}
+                        </label>
+                      </div>
+                    </div>
+                  </div>
+                )}
               </div>
-            </section>
+            );
+          })()}
 
             <div className="profiles-editor__footer">
+              <Button onClick={handleSave} loading={saving}>
+                {t('profiles.saveBtn', 'Salvar')}
+              </Button>
               {editingSlug && activeSlug !== editingSlug && (
                 <Button
                   variant="secondary"
@@ -904,6 +1041,7 @@ export default function ProfilesPage() {
                   {t('profiles.activateBtn', 'Ativar')}
                 </Button>
               )}
+              <div className="profiles-editor__footer-spacer" />
               {editingSlug && activeSlug !== editingSlug && (
                 <Button
                   variant="danger"
@@ -913,16 +1051,6 @@ export default function ProfilesPage() {
                   {t('profiles.deleteBtn', 'Excluir')}
                 </Button>
               )}
-              <Button
-                variant="ghost"
-                onClick={handleCloseEditor}
-                aria-label={t('profiles.closeBtnLabel', 'Fechar editor, Escape')}
-              >
-                {t('profiles.closeBtn', 'Fechar')}
-              </Button>
-              <Button onClick={handleSave} loading={saving}>
-                {t('profiles.saveBtn', 'Salvar')}
-              </Button>
             </div>
           </div>
         )}

@@ -1264,6 +1264,9 @@ export namespace profiles {
 	    system_prompt_position?: string;
 	    enabled_tools: string[];
 	    enabled_skills: string[];
+	    disable_tools?: boolean;
+	    disable_skills?: boolean;
+	    disable_memory?: boolean;
 	    command_allowlist?: string;
 	    mcp_mode?: string;
 	    mcp_native_tested?: boolean;
@@ -1287,6 +1290,9 @@ export namespace profiles {
 	        this.system_prompt_position = source["system_prompt_position"];
 	        this.enabled_tools = source["enabled_tools"];
 	        this.enabled_skills = source["enabled_skills"];
+	        this.disable_tools = source["disable_tools"];
+	        this.disable_skills = source["disable_skills"];
+	        this.disable_memory = source["disable_memory"];
 	        this.command_allowlist = source["command_allowlist"];
 	        this.mcp_mode = source["mcp_mode"];
 	        this.mcp_native_tested = source["mcp_native_tested"];
@@ -1329,6 +1335,7 @@ export namespace profiles {
 	    }
 	}
 	export class InteractionConfig {
+	    disabled?: boolean;
 	    stt_provider: string;
 	    language: string;
 	    feedback_sounds: boolean;
@@ -1340,6 +1347,7 @@ export namespace profiles {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.disabled = source["disabled"];
 	        this.stt_provider = source["stt_provider"];
 	        this.language = source["language"];
 	        this.feedback_sounds = source["feedback_sounds"];
@@ -1383,6 +1391,7 @@ export namespace profiles {
 	    }
 	}
 	export class VoiceConfig {
+	    disabled?: boolean;
 	    provider: string;
 	    voice_id?: string;
 	    rate: number;
@@ -1398,6 +1407,7 @@ export namespace profiles {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.disabled = source["disabled"];
 	        this.provider = source["provider"];
 	        this.voice_id = source["voice_id"];
 	        this.rate = source["rate"];

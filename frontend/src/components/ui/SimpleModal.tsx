@@ -45,6 +45,7 @@ export function SimpleModal({
 }: SimpleModalProps) {
   const modalRef = useRef<HTMLDivElement>(null);
   const firstFocusableRef = useRef<HTMLElement | null>(null);
+  const prevOpenRef = useRef(false);
   const titleId = useId();
 
   // Retorna todos os elementos focáveis dentro do modal
@@ -54,14 +55,13 @@ export function SimpleModal({
       .filter(el => el.offsetParent !== null); // Filtra elementos visíveis
   }, []);
 
-  // Restaura foco no grid quando o componente desmonta (modal fecha)
+  // Restaura foco no grid quando isOpen transita de true → false
   useEffect(() => {
-    return () => {
-      if (returnFocusToGrid) {
-        focusGridFirstCell();
-      }
-    };
-  }, [returnFocusToGrid]);
+    if (prevOpenRef.current && !isOpen && returnFocusToGrid) {
+      focusGridFirstCell();
+    }
+    prevOpenRef.current = isOpen;
+  }, [isOpen, returnFocusToGrid]);
 
   // Esconde conteúdo de background para leitores de tela e evita foco fora do modal
   useEffect(() => {

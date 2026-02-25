@@ -46,6 +46,9 @@ type ChatConfig struct {
 	SystemPromptPosition string   `json:"system_prompt_position,omitempty"` // "before" ou "after"
 	EnabledTools         []string `json:"enabled_tools"`                    // Ferramentas habilitadas (nil = todas)
 	EnabledSkills        []string `json:"enabled_skills"`                   // Skills habilitados (nil = todos, [] = nenhum)
+	DisableTools         bool     `json:"disable_tools,omitempty"`          // Desabilita completamente tool calling
+	DisableSkills        bool     `json:"disable_skills,omitempty"`         // Desabilita injeção de skills no prompt
+	DisableMemory        bool     `json:"disable_memory,omitempty"`         // Desabilita injeção de memória no prompt
 	CommandAllowlist     string   `json:"command_allowlist,omitempty"`      // Slug da allowlist de comandos
 
 	// MCP Mode: "adapter" (padrão) ou "native"
@@ -64,8 +67,9 @@ type ChatConfig struct {
 
 // VoiceConfig define as configurações de voz TTS
 type VoiceConfig struct {
-	Provider        string  `json:"provider"`           // disabled, webspeech, sapi5, openai
-	VoiceID         string  `json:"voice_id,omitempty"` // ID da voz
+	Disabled        bool    `json:"disabled,omitempty"`  // Desabilita completamente TTS neste perfil
+	Provider        string  `json:"provider"`            // disabled, webspeech, sapi5, openai
+	VoiceID         string  `json:"voice_id,omitempty"`  // ID da voz
 	Rate            float64 `json:"rate"`               // Velocidade
 	Pitch           float64 `json:"pitch"`              // Tom
 	Volume          float64 `json:"volume"`             // Volume (0-1)
@@ -96,10 +100,11 @@ const (
 
 // InteractionConfig define as configurações de interação por voz
 type InteractionConfig struct {
-	STTProvider    string          `json:"stt_provider"`       // webspeech, whisper_api
-	Language       string          `json:"language"`           // Idioma (ex: pt-BR)
-	FeedbackSounds bool            `json:"feedback_sounds"`    // Sons de início/fim
-	Triggers       []TriggerConfig `json:"triggers,omitempty"` // Lista de triggers
+	Disabled       bool            `json:"disabled,omitempty"`  // Desabilita completamente STT/interação neste perfil
+	STTProvider    string          `json:"stt_provider"`        // webspeech, whisper_api
+	Language       string          `json:"language"`            // Idioma (ex: pt-BR)
+	FeedbackSounds bool            `json:"feedback_sounds"`     // Sons de início/fim
+	Triggers       []TriggerConfig `json:"triggers,omitempty"`  // Lista de triggers
 }
 
 // TriggerConfig define uma forma de ativar interação por voz
@@ -257,17 +262,17 @@ func (p *Profile) Validate() error {
 
 // ShouldUseAriaLiveForAgent retorna se deve usar aria-live para mensagens do assistente
 func (p *Profile) ShouldUseAriaLiveForAgent() bool {
-	return p.Voice.Provider == "disabled" || !p.Voice.EnabledForAgent
+	return p.Voice.Disabled || p.Voice.Provider == "disabled" || !p.Voice.EnabledForAgent
 }
 
 // ShouldUseAriaLiveForUser retorna se deve usar aria-live para mensagens do usuário
 func (p *Profile) ShouldUseAriaLiveForUser() bool {
-	return p.Voice.Provider == "disabled" || !p.Voice.EnabledForUser
+	return p.Voice.Disabled || p.Voice.Provider == "disabled" || !p.Voice.EnabledForUser
 }
 
 // IsVoiceDisabled retorna true se o perfil não usa TTS
 func (p *Profile) IsVoiceDisabled() bool {
-	return p.Voice.Provider == "disabled" || (!p.Voice.EnabledForAgent && !p.Voice.EnabledForUser)
+	return p.Voice.Disabled || p.Voice.Provider == "disabled" || (!p.Voice.EnabledForAgent && !p.Voice.EnabledForUser)
 }
 
 // GetChannelResponseMode retorna o modo de resposta efetivo para canais externos.
