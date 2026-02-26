@@ -118,8 +118,9 @@ type ChatRequest struct {
 	TopP          *float64         `json:"top_p,omitempty"` // Ponteiro para omitir quando nil
 	Stream        bool             `json:"stream"`
 	StreamOptions *StreamOptions   `json:"stream_options,omitempty"`
-	Think         *bool            `json:"think,omitempty"`          // Ollama: habilita reasoning/thinking
-	Tools         []ToolDefinition `json:"tools,omitempty"`          // Ferramentas disponíveis para o LLM
+	Think            *bool            `json:"think,omitempty"`             // Ollama: habilita reasoning/thinking
+	ReasoningEffort  string           `json:"reasoning_effort,omitempty"`  // OpenAI/LiteLLM: low, medium, high
+	Tools            []ToolDefinition `json:"tools,omitempty"`             // Ferramentas disponíveis para o LLM
 	ToolChoice    interface{}      `json:"tool_choice,omitempty"`    // "auto", "none", "required" ou objeto
 }
 
@@ -189,7 +190,7 @@ type ChatParams struct {
 	MaxTokens      int     `json:"maxTokens"`
 	Temperature    float64 `json:"temperature"`
 	TopP           float64 `json:"topP,omitempty"`
-	EnableThinking bool    `json:"enableThinking,omitempty"` // Habilita reasoning/thinking (Ollama: think=true)
+	ReasoningEffort string `json:"reasoningEffort,omitempty"` // off, low, medium, high
 	ProfileSlug    string  `json:"profileSlug,omitempty"`    // Perfil específico (canais). Vazio = perfil ativo global
 }
 

@@ -191,9 +191,12 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 		reqBody.TopP = &params.TopP
 	}
 
-	// Habilita thinking se configurado no perfil (necessário para Ollama)
-	if params.EnableThinking {
+	// Reasoning: "ollama" envia think=true, "low/medium/high" envia reasoning_effort
+	switch params.ReasoningEffort {
+	case "ollama":
 		reqBody.Think = BoolPtr(true)
+	case "none", "low", "medium", "high", "max":
+		reqBody.ReasoningEffort = params.ReasoningEffort
 	}
 
 	// Adiciona ferramentas se fornecidas

@@ -11,9 +11,10 @@ import {
   GetProfileSearchPaths,
   GetAvailableTools,
   GetAllowlists,
+  GetSkills,
 } from '../../wailsjs/go/main/App';
 import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { profiles, main, allowlist } from '../../wailsjs/go/models';
+import { profiles, main, allowlist, skills } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
@@ -24,6 +25,8 @@ import { STTProviderPicker } from '../components/pickers/STTProviderPicker';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
+import { useCheckboxListNav } from '../hooks/useCheckboxListNav';
+import { playBumpSound } from '../services/audioFeedback';
 import './ProfilesPage.css';
 
 type ProfileInfo = profiles.ProfileInfo;
@@ -61,6 +64,11 @@ export default function ProfilesPage() {
 
   // Ferramentas disponíveis (carregadas do registry do backend)
   const [availableTools, setAvailableTools] = useState<main.ToolInfo[]>([]);
+  const toolsGridRef = useCheckboxListNav();
+
+  // Skills disponíveis (carregados do manager de skills)
+  const [availableSkills, setAvailableSkills] = useState<skills.SkillInfo[]>([]);
+  const skillsGridRef = useCheckboxListNav();
 
   // Allowlists disponíveis (carregadas do manager de allowlists)
   const [availableAllowlists, setAvailableAllowlists] = useState<allowlist.AllowlistInfo[]>([]);
@@ -103,6 +111,10 @@ export default function ProfilesPage() {
     // Carrega allowlists disponíveis
     GetAllowlists().then(setAvailableAllowlists).catch((err) => {
       console.error('[Profiles] Erro ao carregar allowlists:', err);
+    });
+    // Carrega skills disponíveis
+    GetSkills().then(setAvailableSkills).catch((err) => {
+      console.error('[Profiles] Erro ao carregar skills:', err);
     });
 
     // Escuta mudanças nas tools MCP para atualizar a lista de ferramentas
@@ -163,7 +175,7 @@ export default function ProfilesPage() {
         handleCloseEditor();
       }
       await loadProfiles();
-      setTimeout(() => focusFirstCell(), 50);
+      setTimeout(() => focusFirstCell?.(), 50);
     } catch (error: any) {
       console.error('Erro ao excluir perfil:', error);
       addToast(error.message || t('profiles.deleteError', 'Erro ao excluir perfil'), 'error');
@@ -181,7 +193,7 @@ export default function ProfilesPage() {
         max_tokens: 4096,
         top_p: 1.0,
         response_timeout: 180,
-        enable_thinking: false,
+        reasoning_effort: '',
         system_prompt: '',
         system_prompt_position: 'after',
       },
@@ -227,7 +239,7 @@ export default function ProfilesPage() {
       }
       await loadProfiles();
       handleCloseEditor();
-      setTimeout(() => focusFirstCell(), 50);
+      setTimeout(() => focusFirstCell?.(), 50);
     } catch (error: any) {
       console.error('Erro ao salvar perfil:', error);
       addToast(error.message || t('profiles.saveError', 'Erro ao salvar perfil'), 'error');
@@ -601,54 +613,231 @@ export default function ProfilesPage() {
                   onChange={(e) => updateField('chat.response_timeout', parseInt(e.target.value) || 180)}
                 />
               </div>
-              <div className="profiles-field profiles-field--checkbox">
-                <input
-                  id="pf-thinking"
-                  type="checkbox"
-                  checked={editingProfile.chat?.enable_thinking ?? false}
-                  onChange={(e) => updateField('chat.enable_thinking', e.target.checked)}
-                />
-                <label htmlFor="pf-thinking" className="profiles-field__label">
-                  {t('profiles.fieldThinking', 'Habilitar Thinking/Reasoning')}
-                </label>
-              </div>
-
               <div className="profiles-field">
-                <label htmlFor="pf-system-prompt" className="profiles-field__label">
-                  {t('profiles.fieldSystemPrompt', 'System Prompt')}
-                </label>
-                <textarea
-                  id="pf-system-prompt"
-                  className="profiles-field__textarea"
-                  value={editingProfile.chat?.system_prompt || ''}
-                  onChange={(e) => updateField('chat.system_prompt', e.target.value)}
-                  placeholder={t('profiles.systemPromptPlaceholder', 'Prompt customizado (vazio = usa padrão)')}
-                  rows={4}
-                />
-              </div>
-              <div className="profiles-field">
-                <label htmlFor="pf-prompt-position" className="profiles-field__label">
-                  {t('profiles.fieldPromptPosition', 'Posição do System Prompt')}
+                <label htmlFor="pf-reasoning" className="profiles-field__label">
+                  {t('profiles.fieldReasoning', 'Raciocínio (Reasoning)')}
                 </label>
                 <select
-                  id="pf-prompt-position"
+                  id="pf-reasoning"
                   className="profiles-field__select"
-                  value={editingProfile.chat?.system_prompt_position || 'after'}
-                  onChange={(e) => updateField('chat.system_prompt_position', e.target.value)}
+                  value={editingProfile.chat?.reasoning_effort || 'off'}
+                  onChange={(e) => updateField('chat.reasoning_effort', e.target.value === 'off' ? '' : e.target.value)}
                 >
-                  <option value="before">{t('profiles.promptBefore', 'Antes do prompt base')}</option>
-                  <option value="after">{t('profiles.promptAfter', 'Depois do prompt base')}</option>
+                  <option value="ollama">{t('profiles.reasoningOllama', 'Ativado (Ollama)')}</option>
+                  <option value="off">{t('profiles.reasoningOff', 'Desativado')}</option>
+                  <option value="none">{t('profiles.reasoningNone', 'Mínimo (none)')}</option>
+                  <option value="low">{t('profiles.reasoningLow', 'Baixo (low)')}</option>
+                  <option value="medium">{t('profiles.reasoningMedium', 'Médio (medium)')}</option>
+                  <option value="high">{t('profiles.reasoningHigh', 'Alto (high)')}</option>
+                  <option value="max">{t('profiles.reasoningMax', 'Máximo (max)')}</option>
                 </select>
+                <span className="profiles-field__hint">
+                  {t('profiles.reasoningHint', 'Baixo/Médio/Alto envia reasoning_effort (OpenAI, Anthropic, LiteLLM). Ollama envia think=true.')}
+                </span>
               </div>
 
               {/* === Seções colapsáveis de contexto === */}
+
+              {/* Skills */}
+              <div className={`profiles-collapse ${editingProfile.chat?.disable_skills ? 'profiles-collapse--closed' : 'profiles-collapse--open'}`}>
+                <button
+                  type="button"
+                  className="profiles-collapse__header"
+                  onClick={(e) => {
+                    const wasDisabled = editingProfile.chat?.disable_skills;
+                    updateField('chat.disable_skills', !wasDisabled);
+                    if (wasDisabled) {
+                      setTimeout(() => {
+                        const collapse = (e.target as HTMLElement).closest('.profiles-collapse');
+                        const firstCb = collapse?.querySelector<HTMLInputElement>('.profiles-field__tools-grid input[type="checkbox"]');
+                        firstCb?.focus();
+                      }, 50);
+                    }
+                  }}
+                  aria-expanded={!editingProfile.chat?.disable_skills}
+                >
+                  <span className="profiles-collapse__chevron" aria-hidden="true">
+                    {editingProfile.chat?.disable_skills ? '▶' : '▼'}
+                  </span>
+                  <span className="profiles-collapse__title">
+                    {t('profiles.collapseSkills', 'Skills')}
+                  </span>
+                  <span className={`profiles-collapse__badge ${editingProfile.chat?.disable_skills ? 'profiles-collapse__badge--off' : 'profiles-collapse__badge--on'}`}>
+                    {editingProfile.chat?.disable_skills
+                      ? t('profiles.featureOff', 'Desabilitado')
+                      : t('profiles.featureOn', 'Habilitado')}
+                  </span>
+                </button>
+                {!editingProfile.chat?.disable_skills && (
+                  <div className="profiles-collapse__content">
+                    {availableSkills.length > 0 && (
+                      <>
+                        <p className="profiles-field__hint">
+                          {t('profiles.skillsHint', 'Marque skills para autoload (injetados no system prompt em ordem). Desmarcados ficam disponíveis sob demanda.')}
+                        </p>
+                        {(() => {
+                          const autoloadList = editingProfile.chat?.enabled_skills;
+                          const allSlugs = availableSkills.map(s => s.slug);
+                          const allAutoloaded = autoloadList != null && autoloadList.length === allSlugs.length;
+                          const noneAutoloaded = !autoloadList || (Array.isArray(autoloadList) && autoloadList.length === 0);
+                          const showSelectAll = !allAutoloaded;
+                          const showDeselectAll = !noneAutoloaded;
+                          const disableOnDemand = editingProfile.chat?.disable_on_demand_skills ?? false;
+
+                          const autoloadSet = new Set(autoloadList || []);
+                          const autoloadSkills = (autoloadList || [])
+                            .map(slug => availableSkills.find(s => s.slug === slug))
+                            .filter(Boolean) as skills.SkillInfo[];
+                          const onDemandSkills = availableSkills.filter(s => !autoloadSet.has(s.slug));
+                          const sortedSkills = [...autoloadSkills, ...onDemandSkills];
+
+                          const handleToggleSkill = (slug: string) => {
+                            const current = autoloadList || [];
+                            if (autoloadSet.has(slug)) {
+                              const newList = current.filter((s: string) => s !== slug);
+                              updateField('chat.enabled_skills', newList);
+                            } else {
+                              const newList = [...current, slug];
+                              updateField('chat.enabled_skills', newList.length === allSlugs.length ? allSlugs : newList);
+                            }
+                          };
+
+                          return (
+                            <>
+                              <div
+                                className="profiles-field__tools-actions"
+                                role="toolbar"
+                                aria-label={t('profiles.skillsActionsLabel', 'Ações de seleção de skills')}
+                                onKeyDown={(e) => {
+                                  const btns = Array.from(
+                                    (e.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button:not([disabled])')
+                                  );
+                                  if (btns.length <= 1) return;
+                                  const cur = btns.indexOf(e.target as HTMLButtonElement);
+                                  if (cur < 0) return;
+
+                                  let next = cur;
+                                  switch (e.key) {
+                                    case 'ArrowRight':
+                                    case 'ArrowDown':
+                                      e.preventDefault();
+                                      if (cur >= btns.length - 1) { playBumpSound(); return; }
+                                      next = cur + 1;
+                                      break;
+                                    case 'ArrowLeft':
+                                    case 'ArrowUp':
+                                      e.preventDefault();
+                                      if (cur <= 0) { playBumpSound(); return; }
+                                      next = cur - 1;
+                                      break;
+                                    case 'Home':
+                                      e.preventDefault();
+                                      next = 0;
+                                      break;
+                                    case 'End':
+                                      e.preventDefault();
+                                      next = btns.length - 1;
+                                      break;
+                                    default:
+                                      return;
+                                  }
+                                  btns.forEach((b, i) => b.setAttribute('tabindex', i === next ? '0' : '-1'));
+                                  btns[next]?.focus();
+                                }}
+                              >
+                                {showSelectAll && (
+                                  <button
+                                    type="button"
+                                    className="profiles-field__tools-toggle"
+                                    tabIndex={0}
+                                    onClick={() => updateField('chat.enabled_skills', allSlugs)}
+                                  >
+                                    {t('profiles.skillsSelectAll', 'Selecionar todas')}
+                                  </button>
+                                )}
+                                {showDeselectAll && (
+                                  <button
+                                    type="button"
+                                    className="profiles-field__tools-toggle"
+                                    tabIndex={showSelectAll ? -1 : 0}
+                                    onClick={() => updateField('chat.enabled_skills', [])}
+                                  >
+                                    {t('profiles.skillsDeselectAll', 'Desmarcar todas')}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className={`profiles-field__tools-toggle ${disableOnDemand ? 'profiles-field__tools-toggle--active' : ''}`}
+                                  tabIndex={-1}
+                                  onClick={() => updateField('chat.disable_on_demand_skills', !disableOnDemand)}
+                                  aria-pressed={disableOnDemand}
+                                >
+                                  {disableOnDemand
+                                    ? t('profiles.skillsOnDemandOff', 'Sob demanda: desativado')
+                                    : t('profiles.skillsOnDemandOn', 'Sob demanda: ativado')}
+                                </button>
+                              </div>
+                              <div
+                                ref={skillsGridRef}
+                                className="profiles-field__tools-grid"
+                                role="group"
+                                aria-label={t('profiles.skillsGridLabel', 'Lista de skills')}
+                              >
+                                {sortedSkills.map((skill) => {
+                                  const isAutoload = autoloadSet.has(skill.slug);
+                                  return (
+                                    <div key={skill.slug} className={`profiles-field__tool-item ${isAutoload ? 'profiles-field__tool-item--autoload' : ''}`}>
+                                      <input
+                                        type="checkbox"
+                                        id={`pf-skill-${skill.slug}`}
+                                        checked={isAutoload}
+                                        onChange={() => handleToggleSkill(skill.slug)}
+                                        aria-labelledby={`pf-skill-name-${skill.slug}`}
+                                        aria-describedby={`pf-skill-desc-${skill.slug}`}
+                                      />
+                                      <label htmlFor={`pf-skill-${skill.slug}`} className="profiles-field__tool-label">
+                                        <span id={`pf-skill-name-${skill.slug}`} className="profiles-field__tool-name">{skill.name}</span>
+                                        <span id={`pf-skill-desc-${skill.slug}`} className="profiles-field__tool-desc">
+                                          {skill.description}
+                                          {isAutoload && (
+                                            <span className="profiles-field__skill-badge"> (autoload)</span>
+                                          )}
+                                        </span>
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          );
+                        })()}
+                      </>
+                    )}
+                    {availableSkills.length === 0 && (
+                      <p className="profiles-field__hint" style={{ margin: 0 }}>
+                        {t('profiles.noSkillsAvailable', 'Nenhum skill encontrado.')}
+                      </p>
+                    )}
+                  </div>
+                )}
+              </div>
 
               {/* Ferramentas (Tool Calling) */}
               <div className={`profiles-collapse ${editingProfile.chat?.disable_tools ? 'profiles-collapse--closed' : 'profiles-collapse--open'}`}>
                 <button
                   type="button"
                   className="profiles-collapse__header"
-                  onClick={() => updateField('chat.disable_tools', !editingProfile.chat?.disable_tools)}
+                  onClick={(e) => {
+                    const wasDisabled = editingProfile.chat?.disable_tools;
+                    updateField('chat.disable_tools', !wasDisabled);
+                    if (wasDisabled) {
+                      setTimeout(() => {
+                        const collapse = (e.target as HTMLElement).closest('.profiles-collapse');
+                        const firstCb = collapse?.querySelector<HTMLInputElement>('.profiles-field__tools-grid input[type="checkbox"]');
+                        firstCb?.focus();
+                      }, 50);
+                    }
+                  }}
                   aria-expanded={!editingProfile.chat?.disable_tools}
                 >
                   <span className="profiles-collapse__chevron" aria-hidden="true">
@@ -670,64 +859,119 @@ export default function ProfilesPage() {
                         <p className="profiles-field__hint">
                           {t('profiles.toolsHint', 'Selecione quais ferramentas este perfil pode usar. Nenhuma seleção = todas habilitadas.')}
                         </p>
-                        <div className="profiles-field__tools-actions">
-                          <button
-                            type="button"
-                            className="profiles-field__tools-toggle"
-                            onClick={() => {
-                              const allNames = availableTools.map(t => t.name);
-                              const currentEnabled = editingProfile.chat?.enabled_tools;
-                              if (!currentEnabled || currentEnabled.length === 0 || currentEnabled.length === allNames.length) {
-                                updateField('chat.enabled_tools', null);
-                              } else {
-                                updateField('chat.enabled_tools', allNames);
-                              }
-                            }}
-                          >
-                            {(!editingProfile.chat?.enabled_tools || editingProfile.chat.enabled_tools.length === 0)
-                              ? t('profiles.toolsDeselectAll', 'Desmarcar todas')
-                              : t('profiles.toolsSelectAll', 'Selecionar todas')}
-                          </button>
-                        </div>
-                        <div className="profiles-field__tools-grid">
-                          {availableTools.map((tool) => {
-                            const enabledList = editingProfile.chat?.enabled_tools;
-                            const isEnabled = !enabledList || enabledList.length === 0 || enabledList.includes(tool.name);
+                        {(() => {
+                          const enabledList = editingProfile.chat?.enabled_tools;
+                          const allNames = availableTools.map(t => t.name);
+                          const allSelected = !enabledList;
+                          const noneSelected = Array.isArray(enabledList) && enabledList.length === 0;
+                          const showSelectAll = !allSelected;
+                          const showDeselectAll = !noneSelected;
 
-                            const handleToggle = () => {
-                              const allNames = availableTools.map(t => t.name);
+                          return (
+                            <>
+                              <div
+                                className="profiles-field__tools-actions"
+                                role="toolbar"
+                                aria-label={t('profiles.toolsActionsLabel', 'Ações de seleção de ferramentas')}
+                                onKeyDown={(e) => {
+                                  const btns = Array.from(
+                                    (e.currentTarget as HTMLElement).querySelectorAll<HTMLButtonElement>('button:not([disabled])')
+                                  );
+                                  if (btns.length <= 1) return;
+                                  const cur = btns.indexOf(e.target as HTMLButtonElement);
+                                  if (cur < 0) return;
 
-                              if (!enabledList || enabledList.length === 0) {
-                                updateField('chat.enabled_tools', allNames.filter(n => n !== tool.name));
-                              } else if (isEnabled) {
-                                const newList = enabledList.filter((n: string) => n !== tool.name);
-                                updateField('chat.enabled_tools', newList.length === 0 ? [] : newList);
-                              } else {
-                                const newList = [...enabledList, tool.name];
-                                if (newList.length === allNames.length) {
-                                  updateField('chat.enabled_tools', null);
-                                } else {
-                                  updateField('chat.enabled_tools', newList);
-                                }
-                              }
-                            };
-
-                            return (
-                              <div key={tool.name} className="profiles-field__tool-item">
-                                <input
-                                  type="checkbox"
-                                  id={`pf-tool-${tool.name}`}
-                                  checked={isEnabled}
-                                  onChange={handleToggle}
-                                />
-                                <label htmlFor={`pf-tool-${tool.name}`} className="profiles-field__tool-label">
-                                  <span className="profiles-field__tool-name">{tool.name}</span>
-                                  <span className="profiles-field__tool-desc">{tool.description}</span>
-                                </label>
+                                  let next = cur;
+                                  switch (e.key) {
+                                    case 'ArrowRight':
+                                    case 'ArrowDown':
+                                      e.preventDefault();
+                                      if (cur >= btns.length - 1) { playBumpSound(); return; }
+                                      next = cur + 1;
+                                      break;
+                                    case 'ArrowLeft':
+                                    case 'ArrowUp':
+                                      e.preventDefault();
+                                      if (cur <= 0) { playBumpSound(); return; }
+                                      next = cur - 1;
+                                      break;
+                                    case 'Home':
+                                      e.preventDefault();
+                                      next = 0;
+                                      break;
+                                    case 'End':
+                                      e.preventDefault();
+                                      next = btns.length - 1;
+                                      break;
+                                    default:
+                                      return;
+                                  }
+                                  btns.forEach((b, i) => b.setAttribute('tabindex', i === next ? '0' : '-1'));
+                                  btns[next]?.focus();
+                                }}
+                              >
+                                {showSelectAll && (
+                                  <button
+                                    type="button"
+                                    className="profiles-field__tools-toggle"
+                                    tabIndex={0}
+                                    onClick={() => updateField('chat.enabled_tools', null)}
+                                  >
+                                    {t('profiles.toolsSelectAll', 'Selecionar todas')}
+                                  </button>
+                                )}
+                                {showDeselectAll && (
+                                  <button
+                                    type="button"
+                                    className="profiles-field__tools-toggle"
+                                    tabIndex={showSelectAll ? -1 : 0}
+                                    onClick={() => updateField('chat.enabled_tools', [])}
+                                  >
+                                    {t('profiles.toolsDeselectAll', 'Desmarcar todas')}
+                                  </button>
+                                )}
                               </div>
-                            );
-                          })}
-                        </div>
+                              <div
+                                ref={toolsGridRef}
+                                className="profiles-field__tools-grid"
+                                role="group"
+                                aria-label={t('profiles.toolsGridLabel', 'Lista de ferramentas disponíveis')}
+                              >
+                                {availableTools.map((tool) => {
+                                  const isEnabled = !enabledList || enabledList.includes(tool.name);
+
+                                  const handleToggle = () => {
+                                    if (!enabledList) {
+                                      updateField('chat.enabled_tools', allNames.filter(n => n !== tool.name));
+                                    } else if (isEnabled) {
+                                      updateField('chat.enabled_tools', enabledList.filter((n: string) => n !== tool.name));
+                                    } else {
+                                      const newList = [...enabledList, tool.name];
+                                      updateField('chat.enabled_tools', newList.length === allNames.length ? null : newList);
+                                    }
+                                  };
+
+                                  return (
+                                    <div key={tool.name} className="profiles-field__tool-item">
+                                      <input
+                                        type="checkbox"
+                                        id={`pf-tool-${tool.name}`}
+                                        checked={isEnabled}
+                                        onChange={handleToggle}
+                                        aria-labelledby={`pf-tool-name-${tool.name}`}
+                                        aria-describedby={`pf-tool-desc-${tool.name}`}
+                                      />
+                                      <label htmlFor={`pf-tool-${tool.name}`} className="profiles-field__tool-label">
+                                        <span id={`pf-tool-name-${tool.name}`} className="profiles-field__tool-name">{tool.name}</span>
+                                        <span id={`pf-tool-desc-${tool.name}`} className="profiles-field__tool-desc">{tool.description}</span>
+                                      </label>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            </>
+                          );
+                        })()}
                       </>
                     )}
 
@@ -753,35 +997,6 @@ export default function ProfilesPage() {
                         {t('profiles.allowlistHint', 'Define quais comandos shell são executados automaticamente, bloqueados ou pedem confirmação.')}
                       </span>
                     </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Skills */}
-              <div className={`profiles-collapse ${editingProfile.chat?.disable_skills ? 'profiles-collapse--closed' : 'profiles-collapse--open'}`}>
-                <button
-                  type="button"
-                  className="profiles-collapse__header"
-                  onClick={() => updateField('chat.disable_skills', !editingProfile.chat?.disable_skills)}
-                  aria-expanded={!editingProfile.chat?.disable_skills}
-                >
-                  <span className="profiles-collapse__chevron" aria-hidden="true">
-                    {editingProfile.chat?.disable_skills ? '▶' : '▼'}
-                  </span>
-                  <span className="profiles-collapse__title">
-                    {t('profiles.collapseSkills', 'Skills')}
-                  </span>
-                  <span className={`profiles-collapse__badge ${editingProfile.chat?.disable_skills ? 'profiles-collapse__badge--off' : 'profiles-collapse__badge--on'}`}>
-                    {editingProfile.chat?.disable_skills
-                      ? t('profiles.featureOff', 'Desabilitado')
-                      : t('profiles.featureOn', 'Habilitado')}
-                  </span>
-                </button>
-                {!editingProfile.chat?.disable_skills && (
-                  <div className="profiles-collapse__content">
-                    <p className="profiles-field__hint" style={{ margin: 0 }}>
-                      {t('profiles.skillsEnabledDesc', 'Skills automáticos e disponíveis serão injetados no system prompt. Inclui instruções de skills do tipo "auto" e referências para skills sob demanda.')}
-                    </p>
                   </div>
                 )}
               </div>

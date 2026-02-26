@@ -41,13 +41,14 @@ type ChatConfig struct {
 	MinContextMessages   int      `json:"min_context_messages,omitempty"`   // Mín de mensagens preservadas após sumarização (0 = padrão 10)
 	TopP                 float64  `json:"top_p"`                            // 0.0 a 1.0
 	ResponseTimeout      int      `json:"response_timeout"`                 // Timeout em segundos
-	EnableThinking       bool     `json:"enable_thinking"`                  // Habilita reasoning/thinking
+	ReasoningEffort      string   `json:"reasoning_effort,omitempty"`       // off, low, medium, high (vazio = off)
 	SystemPrompt         string   `json:"system_prompt,omitempty"`          // Prompt customizado
 	SystemPromptPosition string   `json:"system_prompt_position,omitempty"` // "before" ou "after"
 	EnabledTools         []string `json:"enabled_tools"`                    // Ferramentas habilitadas (nil = todas)
-	EnabledSkills        []string `json:"enabled_skills"`                   // Skills habilitados (nil = todos, [] = nenhum)
-	DisableTools         bool     `json:"disable_tools,omitempty"`          // Desabilita completamente tool calling
-	DisableSkills        bool     `json:"disable_skills,omitempty"`         // Desabilita injeção de skills no prompt
+	EnabledSkills         []string `json:"enabled_skills"`                    // Skills autoload ordenados (nil = usa auto_load do skill, [] = nenhum autoload)
+	DisableTools          bool     `json:"disable_tools,omitempty"`           // Desabilita completamente tool calling
+	DisableSkills         bool     `json:"disable_skills,omitempty"`          // Desabilita injeção de skills no prompt
+	DisableOnDemandSkills bool     `json:"disable_on_demand_skills,omitempty"` // Desabilita skills sob demanda (apenas autoload)
 	CommandAllowlist     string   `json:"command_allowlist,omitempty"`      // Slug da allowlist de comandos
 
 	// MCP Mode: "adapter" (padrão) ou "native"
@@ -161,7 +162,7 @@ func DefaultProfile() *Profile {
 			MaxTokens:            4096,
 			TopP:                 1.0,
 			ResponseTimeout:      180,
-			EnableThinking:       false,
+			ReasoningEffort:      "",
 			SystemPrompt:         "",
 			SystemPromptPosition: "after",
 		},
@@ -216,6 +217,10 @@ func (p *Profile) Validate() error {
 	}
 	if p.Chat.SystemPromptPosition != "" && p.Chat.SystemPromptPosition != "before" && p.Chat.SystemPromptPosition != "after" {
 		return fmt.Errorf("chat.system_prompt_position must be 'before' or 'after'")
+	}
+	validReasoningEfforts := []string{"", "off", "none", "low", "medium", "high", "max", "ollama"}
+	if !containsStr(validReasoningEfforts, p.Chat.ReasoningEffort) {
+		return fmt.Errorf("chat.reasoning_effort must be one of: off, low, medium, high")
 	}
 
 	// Validação do MCP Mode

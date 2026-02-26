@@ -272,6 +272,26 @@ func (m *Manager) GetAvailableSkills() ([]Skill, error) {
 	return result, nil
 }
 
+// GetAllSkillsFull retorna todos os skills com conteúdo completo.
+func (m *Manager) GetAllSkillsFull() ([]Skill, error) {
+	discovered := m.discoverAll()
+
+	var result []Skill
+	for _, ds := range discovered {
+		skill, err := loadSkill(ds)
+		if err != nil {
+			continue
+		}
+		result = append(result, *skill)
+	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].Name < result[j].Name
+	})
+
+	return result, nil
+}
+
 // GetUserInvocableSkills retorna skills que podem ser invocados pelo usuário via /slash.
 // Filtra por IsUserInvocable() == true.
 func (m *Manager) GetUserInvocableSkills() ([]SkillInfo, error) {
@@ -357,6 +377,50 @@ func FilterByNames(allSkills []Skill, names []string) []Skill {
 	var result []Skill
 	for _, s := range allSkills {
 		if nameSet[s.Slug] || nameSet[s.Name] {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+// FilterByNamesOrdered retorna skills na mesma ordem do slice names.
+func FilterByNamesOrdered(allSkills []Skill, names []string) []Skill {
+	if names == nil {
+		return allSkills
+	}
+	if len(names) == 0 {
+		return nil
+	}
+
+	skillMap := make(map[string]Skill, len(allSkills))
+	for _, s := range allSkills {
+		skillMap[s.Slug] = s
+		skillMap[s.Name] = s
+	}
+
+	var result []Skill
+	for _, name := range names {
+		if s, ok := skillMap[name]; ok {
+			result = append(result, s)
+		}
+	}
+	return result
+}
+
+// FilterExcludeNames retorna skills cujo slug NÃO está na lista.
+func FilterExcludeNames(allSkills []Skill, names []string) []Skill {
+	if len(names) == 0 {
+		return allSkills
+	}
+
+	nameSet := make(map[string]bool, len(names))
+	for _, n := range names {
+		nameSet[n] = true
+	}
+
+	var result []Skill
+	for _, s := range allSkills {
+		if !nameSet[s.Slug] && !nameSet[s.Name] {
 			result = append(result, s)
 		}
 	}

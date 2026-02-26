@@ -509,8 +509,8 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 			params.TopP = activeProfile.Chat.TopP
 		}
 
-		// 3. Aplica configuração de thinking/reasoning
-		params.EnableThinking = activeProfile.Chat.EnableThinking
+		// 3. Aplica configuração de reasoning effort
+		params.ReasoningEffort = activeProfile.Chat.ReasoningEffort
 	}
 
 	// Se ainda não tem modelo, usa o padrão do config
@@ -629,6 +629,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	var profileSystemPrompt string
 	var systemPromptPosition string
 	var enabledSkills []string
+	var disableOnDemand bool
 	if activeProfile != nil {
 		profileSystemPrompt = activeProfile.Chat.SystemPrompt
 		systemPromptPosition = activeProfile.Chat.SystemPromptPosition
@@ -636,11 +637,12 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 			systemPromptPosition = "before"
 		}
 		enabledSkills = activeProfile.Chat.EnabledSkills
+		disableOnDemand = activeProfile.Chat.DisableOnDemandSkills
 		if activeProfile.Chat.DisableSkills {
 			enabledSkills = []string{}
 		}
 	}
-	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, slashSkillContent, conversationSummary)
+	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, disableOnDemand, slashSkillContent, conversationSummary)
 
 	// 5. Pré-processamento de mídia:
 	//    a) Converte formatos de áudio não suportados (aac, ogg, etc.) para texto via Whisper
@@ -706,7 +708,7 @@ Key behaviors:
 // enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
 // slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
 // conversationSummary: resumo de mensagens antigas da conversa (rolling context).
-func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, slashSkillContent string, conversationSummary string) []Message {
+func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, disableOnDemand bool, slashSkillContent string, conversationSummary string) []Message {
 	// Build the system prompt parts
 	var parts []string
 
@@ -718,7 +720,7 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 	parts = append(parts, basePrompt)
 
 	// 2. Skills injection (auto + available)
-	skillsSection := a.buildSkillsPromptSection(enabledSkills)
+	skillsSection := a.buildSkillsPromptSection(enabledSkills, disableOnDemand)
 	if skillsSection != "" {
 		parts = append(parts, "\n\n"+skillsSection)
 	}
@@ -785,36 +787,47 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 }
 
 // buildSkillsPromptSection constrói a seção de skills para o system prompt.
-// Carrega skills auto (injeção direta) e skills disponíveis (referência para leitura sob demanda).
-// enabledSkills: nil = todos, [] = nenhum, ["slug1"] = apenas esses.
-func (a *App) buildSkillsPromptSection(enabledSkills []string) string {
+// enabledSkills: nil = usa auto_load do skill, [] = nenhum, ["slug1","slug2"] = autoload ordenado pelo perfil.
+// disableOnDemand: true = não incluir skills sob demanda.
+func (a *App) buildSkillsPromptSection(enabledSkills []string, disableOnDemand bool) string {
 	if a.skillMgr == nil {
 		return ""
 	}
 
 	// Se enabledSkills é um slice vazio (não nil), nenhum skill habilitado
-	if enabledSkills != nil && len(enabledSkills) == 0 {
+	if enabledSkills != nil && len(enabledSkills) == 0 && disableOnDemand {
 		return ""
 	}
 
-	// Carrega skills auto (injetados no prompt)
-	autoSkills, err := a.skillMgr.GetAutoSkills()
-	if err != nil {
-		log.Printf("[Skills] Erro ao carregar auto skills: %v", err)
-		autoSkills = nil
-	}
+	var autoSkills []skills.Skill
+	var availableSkills []skills.Skill
 
-	// Carrega skills disponíveis (referenciados para leitura sob demanda)
-	availableSkills, err := a.skillMgr.GetAvailableSkills()
-	if err != nil {
-		log.Printf("[Skills] Erro ao carregar available skills: %v", err)
-		availableSkills = nil
-	}
-
-	// Filtra pelo perfil se enabledSkills não for nil
 	if enabledSkills != nil {
-		autoSkills = skills.FilterByNames(autoSkills, enabledSkills)
-		availableSkills = skills.FilterByNames(availableSkills, enabledSkills)
+		// Perfil define lista explícita de autoload (ordenada)
+		allSkills, err := a.skillMgr.GetAllSkillsFull()
+		if err != nil {
+			log.Printf("[Skills] Erro ao carregar skills: %v", err)
+			return ""
+		}
+
+		autoSkills = skills.FilterByNamesOrdered(allSkills, enabledSkills)
+		if !disableOnDemand {
+			availableSkills = skills.FilterExcludeNames(allSkills, enabledSkills)
+		}
+	} else {
+		// Sem lista no perfil: usa auto_load do próprio skill (backward compat)
+		var err error
+		autoSkills, err = a.skillMgr.GetAutoSkills()
+		if err != nil {
+			log.Printf("[Skills] Erro ao carregar auto skills: %v", err)
+		}
+
+		if !disableOnDemand {
+			availableSkills, err = a.skillMgr.GetAvailableSkills()
+			if err != nil {
+				log.Printf("[Skills] Erro ao carregar available skills: %v", err)
+			}
+		}
 	}
 
 	if len(autoSkills) == 0 && len(availableSkills) == 0 {
