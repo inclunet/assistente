@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { SimpleModal } from '../ui/SimpleModal';
 import { CodeEditor } from '../ui/CodeEditor';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
@@ -26,10 +26,31 @@ export function MermaidEditorModal({
   onRemove,
 }: MermaidEditorModalProps) {
   const [code, setCode] = useState(initialCode);
+  const codeEditorRef = useRef<any>(null);
+  const monacoRef = useRef<any>(null);
 
   useEffect(() => {
     if (!isOpen) return;
     setCode(initialCode);
+  }, [isOpen, initialCode]);
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    // Foco previsível: coloca o cursor no editor e seleciona tudo.
+    // (Regras do plano: ao abrir, foco vai para o editor de código; selecionar todo o código.)
+    requestAnimationFrame(() => {
+      try {
+        const editor = codeEditorRef.current;
+        const model = editor?.getModel?.();
+        if (!editor || !model) return;
+        editor.focus?.();
+        const fullRange = model.getFullModelRange?.();
+        if (fullRange) editor.setSelection?.(fullRange);
+      } catch {
+        // best-effort
+      }
+    });
   }, [isOpen, initialCode]);
 
   useEffect(() => {
@@ -49,8 +70,24 @@ export function MermaidEditorModal({
       <div
         className="mermaid-editor-modal"
         onKeyDown={(e) => {
+          // Esc já é tratado pelo SimpleModal (onClose), mas mantemos aqui
+          // para garantir que o editor não capture/propague teclas.
+          if (e.key === 'Escape') {
+            e.stopPropagation();
+            return;
+          }
+
+          // Ctrl+S / Cmd+S: aplicar (opcional no plano, mas útil no modal)
+          if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 's' || e.key === 'S')) {
+            e.preventDefault();
+            e.stopPropagation();
+            onApply(code);
+            return;
+          }
+
           if (e.key === 'Enter' && e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) {
             e.preventDefault();
+            e.stopPropagation();
             onApply(code);
           }
         }}
@@ -65,6 +102,10 @@ export function MermaidEditorModal({
                 ariaLabel="Código Mermaid"
                 value={code}
                 onChange={setCode}
+                onMount={(editor, monaco) => {
+                  codeEditorRef.current = editor;
+                  monacoRef.current = monaco;
+                }}
               />
             </div>
           </div>

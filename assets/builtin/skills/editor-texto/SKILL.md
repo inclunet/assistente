@@ -1,7 +1,7 @@
 ---
 name: editor-texto
-version: 1.0.0
-description: "Instruções operacionais para edição dentro do editor: use text_edit quando toolcalling estiver disponível; caso contrário, responda com ```editor_patch```."
+version: 1.0.4
+description: "Instruções operacionais para edição dentro do editor: use text_edit quando toolcalling estiver disponível; quando tools estiverem desativadas (ex.: modelo sem toolcalling), responda com ```editor_patch```."
 displayName: Editor — Edição de Texto
 author: Assistente
 type: agent
@@ -45,6 +45,7 @@ Parâmetros recomendados:
 Regras:
 - Não use `<editor_patch>`.
 - Não inclua blocos de patch na resposta normal quando você estiver usando `text_edit`.
+- IMPORTANTE: quando tool-calling estiver habilitado, NÃO responda com ```editor_patch``` no corpo. Se você não conseguir usar a ferramenta por limitação do modelo/proxy, peça para o usuário desativar ferramentas (tools) neste perfil.
 
 {{- else }}
 

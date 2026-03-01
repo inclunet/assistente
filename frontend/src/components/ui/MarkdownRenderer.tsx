@@ -365,6 +365,22 @@ export function MarkdownRenderer({
 
     const mermaidBlocks = containerRef.current.querySelectorAll('code.language-mermaid');
 
+    const getErrorText = (err: unknown) => {
+      if (!err) return 'Erro desconhecido';
+      if (err instanceof Error) return String(err.stack || err.message || 'Erro');
+      try {
+        return typeof err === 'string' ? err : JSON.stringify(err, null, 2);
+      } catch {
+        return String(err);
+      }
+    };
+
+    const truncate = (text: string, maxChars = 8000) => {
+      const s = String(text || '');
+      if (s.length <= maxChars) return s;
+      return s.slice(0, maxChars) + `\n… (truncado; ${s.length} chars)`;
+    };
+
     for (let i = 0; i < mermaidBlocks.length; i++) {
       const codeBlock = mermaidBlocks[i] as HTMLElement;
       const pre = codeBlock.parentElement as HTMLPreElement;
@@ -471,6 +487,112 @@ export function MarkdownRenderer({
         diagramWrapper.appendChild(btnContainer);
       } catch (err) {
         console.error('Erro ao renderizar Mermaid:', err);
+
+        const errorText = truncate(getErrorText(err));
+
+        const diagramWrapper = document.createElement('div');
+        diagramWrapper.className = 'mermaid-diagram mermaid-diagram--error';
+        diagramWrapper.setAttribute('role', 'group');
+        diagramWrapper.setAttribute('aria-label', 'Diagrama Mermaid (erro)');
+        diagramWrapper.dataset.mermaidIndex = String(i);
+        diagramWrapper.dataset.mermaidCode = mermaidCode;
+        diagramWrapper.tabIndex = focusableMermaid ? 0 : -1;
+
+        const titleEl = document.createElement('div');
+        titleEl.className = 'mermaid-diagram__error-title';
+        titleEl.textContent = 'Erro ao renderizar Mermaid';
+
+        const msgEl = document.createElement('div');
+        msgEl.className = 'mermaid-diagram__error-message';
+        msgEl.textContent = 'O preview não pôde ser gerado. Você ainda pode editar/aplicar o código.';
+
+        const detailsEl = document.createElement('details');
+        detailsEl.className = 'mermaid-diagram__error-details';
+
+        const summaryEl = document.createElement('summary');
+        summaryEl.textContent = 'Detalhes do erro';
+
+        const preEl = document.createElement('pre');
+        preEl.textContent = errorText;
+
+        detailsEl.appendChild(summaryEl);
+        detailsEl.appendChild(preEl);
+
+        const btnContainer = document.createElement('div');
+        btnContainer.className = 'code-buttons';
+
+        const copyCodeBtn = document.createElement('button');
+        copyCodeBtn.className = 'copy-btn';
+        copyCodeBtn.textContent = 'Copiar código';
+        copyCodeBtn.setAttribute('tabindex', interactiveButtons ? '0' : '-1');
+        copyCodeBtn.setAttribute('aria-label', 'Copiar código Mermaid');
+        copyCodeBtn.onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(mermaidCode);
+            copyCodeBtn.textContent = 'Copiado!';
+            setTimeout(() => {
+              copyCodeBtn.textContent = 'Copiar código';
+            }, 2000);
+          } catch {
+            copyCodeBtn.textContent = 'Erro';
+            setTimeout(() => {
+              copyCodeBtn.textContent = 'Copiar código';
+            }, 2000);
+          }
+        };
+
+        const copyErrBtn = document.createElement('button');
+        copyErrBtn.className = 'copy-btn';
+        copyErrBtn.textContent = 'Copiar erro';
+        copyErrBtn.setAttribute('tabindex', interactiveButtons ? '0' : '-1');
+        copyErrBtn.setAttribute('aria-label', 'Copiar detalhes do erro Mermaid');
+        copyErrBtn.onclick = async () => {
+          try {
+            await navigator.clipboard.writeText(errorText);
+            copyErrBtn.textContent = 'Copiado!';
+            setTimeout(() => {
+              copyErrBtn.textContent = 'Copiar erro';
+            }, 2000);
+          } catch {
+            copyErrBtn.textContent = 'Erro';
+            setTimeout(() => {
+              copyErrBtn.textContent = 'Copiar erro';
+            }, 2000);
+          }
+        };
+
+        const retryBtn = document.createElement('button');
+        retryBtn.className = 'copy-btn toggle-editor-btn';
+        retryBtn.textContent = 'Re-renderizar';
+        retryBtn.setAttribute('tabindex', interactiveButtons ? '0' : '-1');
+        retryBtn.setAttribute('aria-label', 'Tentar renderizar Mermaid novamente');
+        retryBtn.onclick = async () => {
+          try {
+            retryBtn.textContent = 'Re-renderizando…';
+            retryBtn.setAttribute('disabled', 'true');
+
+            // Recria a renderização removendo o wrapper atual e reprocessando.
+            pre.style.display = '';
+            pre.removeAttribute('data-mermaid-rendered');
+            diagramWrapper.remove();
+            await renderMermaidDiagrams();
+          } finally {
+            // Se falhar, uma nova UI de erro será criada; se der certo, este botão não existe mais.
+          }
+        };
+
+        btnContainer.appendChild(copyCodeBtn);
+        btnContainer.appendChild(copyErrBtn);
+        btnContainer.appendChild(retryBtn);
+
+        diagramWrapper.appendChild(titleEl);
+        diagramWrapper.appendChild(msgEl);
+        diagramWrapper.appendChild(detailsEl);
+        diagramWrapper.appendChild(btnContainer);
+
+        pre.parentNode!.insertBefore(diagramWrapper, pre);
+        pre.style.display = 'none';
+        pre.dataset.mermaidRendered = 'true';
       }
     }
   }

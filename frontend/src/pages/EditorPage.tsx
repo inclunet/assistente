@@ -22,6 +22,7 @@ import { basenameFromPath, normalizePathKey } from '../utils/path';
 import {
   EditorDeleteDraft,
   EditorGetFileInfo,
+  GetProfile,
   EditorLoadSession,
   EditorOpenFile,
   EditorReadDraft,
@@ -72,6 +73,16 @@ export default function EditorPage() {
   const [mermaidInitialCode, setMermaidInitialCode] = useState('');
   const [mermaidInsertText, setMermaidInsertText] = useState('');
   const [richMermaidSession, setRichMermaidSession] = useState<any | null>(null);
+
+  // Foco previsível após fechar o modal Mermaid.
+  const prevMermaidOpenRef = useRef(false);
+  useEffect(() => {
+    const isOpen = activeMermaidIndex !== null;
+    if (prevMermaidOpenRef.current && !isOpen) {
+      focusEditorSoon();
+    }
+    prevMermaidOpenRef.current = isOpen;
+  }, [activeMermaidIndex]);
 
   type InlineChatSelection =
     | {
@@ -1574,6 +1585,19 @@ export default function EditorPage() {
     const runId = (inlineChatRunIdRef.current += 1);
     setInlineChatError(null);
 
+    const isToolCallingEnabledForProfileSlug = async (slug: string): Promise<boolean> => {
+      const s = String(slug || '').trim();
+      if (!s) return true;
+      try {
+        const prof: any = await GetProfile(s);
+        const disabled = !!prof?.chat?.disable_tools;
+        return !disabled;
+      } catch {
+        // Best-effort: se não conseguimos ler o perfil, assume tools on.
+        return true;
+      }
+    };
+
     const normalizeReplacementForEditor = (raw: string, patchFormat: any, selectedText: string) => {
       const text = String(raw ?? '');
       const sel = String(selectedText ?? '');
@@ -1787,6 +1811,12 @@ export default function EditorPage() {
 
     try {
       setIsAsking(true);
+
+      // Regra importante:
+      // - tools ON  => tool-only (NUNCA extrai patch do texto)
+      // - tools OFF => body-only (extrai ```editor_patch``` do texto)
+      const toolCallingEnabled = await isToolCallingEnabledForProfileSlug(editorProfileSlug);
+
       const donePromise = waitForChatDone(expectedConversationId);
       await useChatStore.getState().sendMessageWithParams(prompt, mediaFiles, { profileSlug: editorProfileSlug });
       await donePromise;
@@ -1795,12 +1825,16 @@ export default function EditorPage() {
 
       const extracted = await waitForEditorPatch(chatTabId, {
         afterMessageId,
-        preferToolCalling: true,
-        allowBodyFallback: false,
+        preferToolCalling: toolCallingEnabled,
+        allowBodyFallback: !toolCallingEnabled,
         timeoutMs: 8000,
       });
       if (!extracted.ok) {
         const errText = String(extracted.error || '').trim();
+
+        if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
+          addToast('Resposta não contém patch aplicável', 'error');
+        }
 
         // Se a própria tool foi rejeitada/cancelada pelo usuário, não trata como erro.
         if (/rejeitad|cancelad/i.test(errText)) {

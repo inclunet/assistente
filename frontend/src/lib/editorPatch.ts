@@ -10,6 +10,9 @@ export type ExtractEditorPatchResult =
   | { ok: true; patch: EditorPatchV1 }
   | { ok: false; error: string };
 
+const MAX_EDITOR_PATCH_CHARS = 200 * 1024; // ~200KB (aprox em chars)
+const MAX_EDITOR_REPLACEMENT_CHARS = 200 * 1024; // mantém UI responsiva
+
 export function extractEditorPatch(text: string): ExtractEditorPatchResult {
   // Preferir formato Markdown (bloco de código) por ser mais compatível.
   // Aceita: ```editor_patch\n{...}\n```
@@ -21,6 +24,13 @@ export function extractEditorPatch(text: string): ExtractEditorPatchResult {
       return { ok: false, error: 'Resposta não contém patch (bloco ```editor_patch```)' };
     }
     return { ok: false, error: 'Patch vazio' };
+  }
+
+  if (jsonText.length > MAX_EDITOR_PATCH_CHARS) {
+    return {
+      ok: false,
+      error: `Patch muito grande para aplicar com segurança (limite: ${MAX_EDITOR_PATCH_CHARS} caracteres).`,
+    };
   }
 
   let parsed: any;
@@ -37,6 +47,13 @@ export function extractEditorPatch(text: string): ExtractEditorPatchResult {
   }
   if (typeof parsed?.replacement !== 'string') {
     return { ok: false, error: 'Patch inválido: replacement deve ser string' };
+  }
+
+  if (String(parsed.replacement).length > MAX_EDITOR_REPLACEMENT_CHARS) {
+    return {
+      ok: false,
+      error: `replacement muito grande para aplicar com segurança (limite: ${MAX_EDITOR_REPLACEMENT_CHARS} caracteres).`,
+    };
   }
 
   return { ok: true, patch: parsed as EditorPatchV1 };
