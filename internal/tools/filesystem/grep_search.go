@@ -82,10 +82,10 @@ type grepMatch struct {
 
 // Limites de segurança
 const (
-	grepDefaultMaxResults    = 100
-	grepDefaultContextLines  = 2
-	grepMaxFileSize          = 5 * 1024 * 1024 // 5MB — pula arquivos maiores
-	grepMaxFilesScanned      = 10000            // Limite de arquivos escaneados
+	grepDefaultMaxResults   = 100
+	grepDefaultContextLines = 2
+	grepMaxFileSize         = 5 * 1024 * 1024 // 5MB — pula arquivos maiores
+	grepMaxFilesScanned     = 10000           // Limite de arquivos escaneados
 )
 
 func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
@@ -144,7 +144,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
-	if err := validatePath(fullBase, t.workDir); err != nil {
+	if err := validatePathWithPolicy(ctx, fullBase, t.workDir, ToolPolicy(), "grep"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
@@ -196,7 +196,20 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 			return filepath.SkipDir
 		}
 
+		// Enforcement por skill: não vazar nomes/conteúdo fora do escopo
+		if err := validateSkillFilesystemAllowlist(ctx, path, t.workDir, "grep"); err != nil {
+			if d.IsDir() {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+
 		if d.IsDir() {
+			return nil
+		}
+
+		// Toolcalling: não vazar conteúdo de arquivos sensíveis
+		if ToolPolicy().BlockSensitive && isSensitiveFile(path) {
 			return nil
 		}
 

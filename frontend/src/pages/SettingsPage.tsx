@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { GetConfig, SaveSettings, ResetConfig, ResetDatabase, TestConnectionWithModels } from '../../wailsjs/go/main/App';
+import { GetConfig, SaveSettings, ResetConfig, ResetDatabase, TestConnectionWithModels } from '@wailsjs/go/main/App';
 import { llm } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';

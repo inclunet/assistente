@@ -16,6 +16,16 @@ var (
 	pathsOnce     sync.Once
 )
 
+// ResetForTests limpa o cache de paths.
+// Útil em testes que alteram env vars (ex: USERPROFILE) e/ou o diretório de trabalho.
+// Não é seguro chamar concorrentemente com operações de I/O usando o resolver.
+func ResetForTests() {
+	cachedExeDir = ""
+	cachedHomeDir = ""
+	cachedWorkDir = ""
+	pathsOnce = sync.Once{}
+}
+
 // initPaths computa os 3 diretórios base uma única vez
 func initPaths() {
 	pathsOnce.Do(func() {

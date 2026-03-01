@@ -1,0 +1,28 @@
+{
+  "_builtin_version": "1.0.1",
+  "name": "Editor de texto",
+  "description": "Perfil enxuto para edição dentro do editor (sem ferramentas de filesystem).",
+  "icon": "edit",
+  "chat": {
+    "temperature": 0.2,
+    "max_tokens": 4096,
+    "top_p": 1.0,
+    "response_timeout": 180,
+    "enable_thinking": false,
+    "system_prompt": "Você está em modo de edição de texto dentro de um editor. Não use ferramentas de filesystem. Quando precisar propor uma alteração, use a ferramenta text_edit para apresentar a substituição do trecho selecionado e pedir confirmação do usuário.",
+    "system_prompt_position": "before",
+    "enabled_tools": ["text_edit"],
+    "enabled_skills": ["editor-texto"]
+  },
+  "voice": {
+    "provider": "disabled",
+    "rate": 1.0,
+    "pitch": 1.0,
+    "volume": 1.0
+  },
+  "interaction": {
+    "stt_provider": "webspeech",
+    "language": "pt-BR",
+    "feedback_sounds": true
+  }
+}

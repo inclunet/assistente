@@ -130,6 +130,58 @@ export function DisconnectMCPServer(arg1) {
   return window['go']['main']['App']['DisconnectMCPServer'](arg1);
 }
 
+export function EditorDeleteDraft(arg1) {
+  return window['go']['main']['App']['EditorDeleteDraft'](arg1);
+}
+
+export function EditorGetFileInfo(arg1) {
+  return window['go']['main']['App']['EditorGetFileInfo'](arg1);
+}
+
+export function EditorLoadSession() {
+  return window['go']['main']['App']['EditorLoadSession']();
+}
+
+export function EditorOpenFile() {
+  return window['go']['main']['App']['EditorOpenFile']();
+}
+
+export function EditorReadDraft(arg1) {
+  return window['go']['main']['App']['EditorReadDraft'](arg1);
+}
+
+export function EditorReadFile(arg1) {
+  return window['go']['main']['App']['EditorReadFile'](arg1);
+}
+
+export function EditorRenameFile(arg1, arg2) {
+  return window['go']['main']['App']['EditorRenameFile'](arg1, arg2);
+}
+
+export function EditorSaveFileDialog(arg1) {
+  return window['go']['main']['App']['EditorSaveFileDialog'](arg1);
+}
+
+export function EditorSaveSession(arg1) {
+  return window['go']['main']['App']['EditorSaveSession'](arg1);
+}
+
+export function EditorUnwatchFile(arg1) {
+  return window['go']['main']['App']['EditorUnwatchFile'](arg1);
+}
+
+export function EditorWatchFile(arg1) {
+  return window['go']['main']['App']['EditorWatchFile'](arg1);
+}
+
+export function EditorWriteDraft(arg1, arg2) {
+  return window['go']['main']['App']['EditorWriteDraft'](arg1, arg2);
+}
+
+export function EditorWriteFile(arg1, arg2) {
+  return window['go']['main']['App']['EditorWriteFile'](arg1, arg2);
+}
+
 export function ExportConversations(arg1) {
   return window['go']['main']['App']['ExportConversations'](arg1);
 }

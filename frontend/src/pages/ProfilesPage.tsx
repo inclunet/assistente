@@ -12,8 +12,8 @@ import {
   GetAvailableTools,
   GetAllowlists,
   GetSkills,
-} from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+} from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import { profiles, main, allowlist, skills } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';

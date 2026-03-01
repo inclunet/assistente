@@ -29,6 +29,7 @@ export function Topbar() {
   // Determina a página atual baseada na rota
   const getCurrentPage = (): string => {
     if (location.pathname === '/terminal') return 'terminal';
+    if (location.pathname === '/editor') return 'editor';
     if (location.pathname === '/allowlists') return 'allowlists';
     if (location.pathname === '/skills') return 'skills';
     if (location.pathname === '/mcp') return 'mcp';
@@ -54,6 +55,12 @@ export function Topbar() {
       label: 'Terminal',
       icon: '>_',
       onClick: () => navigate('/terminal'),
+    },
+    {
+      id: 'editor',
+      label: 'Editor',
+      icon: '📝',
+      onClick: () => navigate('/editor'),
     },
     {
       id: 'history',

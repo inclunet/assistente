@@ -733,6 +733,125 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class EditorFileInfo {
+	    path: string;
+	    exists: boolean;
+	    isDir: boolean;
+	    size: number;
+	    modTimeMs: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditorFileInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.exists = source["exists"];
+	        this.isDir = source["isDir"];
+	        this.size = source["size"];
+	        this.modTimeMs = source["modTimeMs"];
+	    }
+	}
+	export class EditorMergeSession {
+	    originalPath: string;
+	    mineDraftId: string;
+	    diskDraftId: string;
+	    conflictDraftId: string;
+	    createdAt: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditorMergeSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.originalPath = source["originalPath"];
+	        this.mineDraftId = source["mineDraftId"];
+	        this.diskDraftId = source["diskDraftId"];
+	        this.conflictDraftId = source["conflictDraftId"];
+	        this.createdAt = source["createdAt"];
+	    }
+	}
+	export class EditorOpenResult {
+	    path: string;
+	    content: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditorOpenResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.path = source["path"];
+	        this.content = source["content"];
+	    }
+	}
+	export class EditorSessionTab {
+	    id: string;
+	    title: string;
+	    mode: string;
+	    filePath?: string;
+	    draftId?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditorSessionTab(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.title = source["title"];
+	        this.mode = source["mode"];
+	        this.filePath = source["filePath"];
+	        this.draftId = source["draftId"];
+	    }
+	}
+	export class EditorSession {
+	    version: number;
+	    autoSaveEnabled: boolean;
+	    activeTabId?: string;
+	    profileSlug?: string;
+	    tabs: EditorSessionTab[];
+	    fileModeByPath?: Record<string, string>;
+	    externalConflictLockedByTabId?: Record<string, boolean>;
+	    mergeSessionsByTabId?: Record<string, EditorMergeSession>;
+	
+	    static createFrom(source: any = {}) {
+	        return new EditorSession(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.version = source["version"];
+	        this.autoSaveEnabled = source["autoSaveEnabled"];
+	        this.activeTabId = source["activeTabId"];
+	        this.profileSlug = source["profileSlug"];
+	        this.tabs = this.convertValues(source["tabs"], EditorSessionTab);
+	        this.fileModeByPath = source["fileModeByPath"];
+	        this.externalConflictLockedByTabId = source["externalConflictLockedByTabId"];
+	        this.mergeSessionsByTabId = this.convertValues(source["mergeSessionsByTabId"], EditorMergeSession, true);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
 	
 	export class ImportResult {
 	    success: boolean;

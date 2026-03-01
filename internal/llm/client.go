@@ -203,6 +203,9 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 	if len(tools) > 0 {
 		reqBody.Tools = tools
 		reqBody.ToolChoice = "auto"
+		if choice, ok := toolChoiceFromContext(ctx); ok {
+			reqBody.ToolChoice = choice
+		}
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -251,6 +254,22 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
+
+			// Alguns proxies/modelos OpenAI-compat não suportam tool_choice="required".
+			// Para não quebrar o perfil do editor, fazemos downgrade para "auto" e tentamos novamente.
+			if reqBody.ToolChoice == "required" {
+				lower := strings.ToLower(string(body))
+				if strings.Contains(lower, "tool_choice") || strings.Contains(lower, "tool choice") {
+					reqBody.ToolChoice = "auto"
+					if b, err := json.Marshal(reqBody); err == nil {
+						jsonBody = b
+						if attempt < maxAttempts {
+							continue
+						}
+					}
+				}
+			}
+
 			if attempt < maxAttempts && shouldRetryHTTPStatus(resp.StatusCode) {
 				sleepWithJitter(ctx, backoff)
 				backoff = nextBackoff(backoff, maxBackoff)

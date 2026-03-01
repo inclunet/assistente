@@ -8,13 +8,13 @@
 import { STT_PROVIDERS, ISTTProvider, STTProvider } from '../types';
 import { AudioRecorder } from '../AudioRecorder';
 
-// Import dinâmico do Wails
+import { TranscribeWhisper as WailsTranscribeWhisper } from '@wailsjs/go/main/App';
+
 let TranscribeWhisper: ((audioBase64: string, filename: string) => Promise<{ text: string }>) | null = null;
 
 async function loadWailsFunctions(): Promise<boolean> {
   try {
-    const wails = await import('../../../../wailsjs/go/main/App');
-    TranscribeWhisper = wails.TranscribeWhisper;
+    TranscribeWhisper = WailsTranscribeWhisper;
     return true;
   } catch (e) {
     console.warn('[WhisperProvider] Wails TranscribeWhisper não disponível:', e);

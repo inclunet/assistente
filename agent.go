@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -254,6 +255,12 @@ func (a *App) runAgenticLoop(
 ) {
 	maxIterations := a.toolExecutor.Config().MaxIterations
 
+	// Caso especial: perfil do editor (somente text_edit).
+	// Aqui queremos: 1) forçar que o modelo chame a tool na 1ª iteração, e
+	// 2) terminar o loop logo após a execução do text_edit (não precisamos de "resposta final" do LLM).
+	editorToolOnly := strings.TrimSpace(params.ProfileSlug) == "editor-texto" &&
+		len(toolDefs) == 1 && strings.TrimSpace(toolDefs[0].Function.Name) == "text_edit"
+
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Verifica cancelamento
 		if ctx.Err() != nil {
@@ -277,7 +284,11 @@ func (a *App) runAgenticLoop(
 		}
 
 		// 2. Chama o LLM (bloqueante — streaming emite eventos em tempo real)
-		llm.StreamChat(ctx, cfg, messages, params, handler, toolDefs...)
+		iterCtx := ctx
+		if editorToolOnly && iteration == 0 {
+			iterCtx = llm.WithToolChoice(iterCtx, "required")
+		}
+		llm.StreamChat(iterCtx, cfg, messages, params, handler, toolDefs...)
 
 		result := handler.result
 
@@ -392,6 +403,20 @@ func (a *App) runAgenticLoop(
 		}
 
 		// 6e. Continua o loop → próxima iteração chama o LLM com os resultados
+		if editorToolOnly {
+			// Para o editor, o tool_result já é o resultado final do turno.
+			// Emite eventos de conclusão e encerra sem rodada extra do LLM.
+			runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
+				Content:        "",
+				Done:           true,
+				ConversationId: conversationID,
+			})
+			runtime.EventsEmit(a.ctx, "chat:done", map[string]interface{}{
+				"conversationId": conversationID,
+			})
+			go a.checkAndTriggerSummarization(conversationID)
+			return
+		}
 	}
 
 	// Atingiu limite de iterações

@@ -77,6 +77,32 @@ export function DeleteSkill(arg1:string):Promise<void>;
 
 export function DisconnectMCPServer(arg1:string):Promise<void>;
 
+export function EditorDeleteDraft(arg1:string):Promise<void>;
+
+export function EditorGetFileInfo(arg1:string):Promise<main.EditorFileInfo>;
+
+export function EditorLoadSession():Promise<main.EditorSession>;
+
+export function EditorOpenFile():Promise<main.EditorOpenResult>;
+
+export function EditorReadDraft(arg1:string):Promise<string>;
+
+export function EditorReadFile(arg1:string):Promise<string>;
+
+export function EditorRenameFile(arg1:string,arg2:string):Promise<string>;
+
+export function EditorSaveFileDialog(arg1:string):Promise<string>;
+
+export function EditorSaveSession(arg1:main.EditorSession):Promise<void>;
+
+export function EditorUnwatchFile(arg1:string):Promise<void>;
+
+export function EditorWatchFile(arg1:string):Promise<void>;
+
+export function EditorWriteDraft(arg1:string,arg2:string):Promise<void>;
+
+export function EditorWriteFile(arg1:string,arg2:string):Promise<void>;
+
 export function ExportConversations(arg1:Array<number>):Promise<string>;
 
 export function GenerateAndSaveMessageAudio(arg1:number,arg2:string):Promise<main.AudioResult>;

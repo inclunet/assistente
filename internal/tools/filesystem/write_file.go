@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"assistente/internal/tools"
@@ -78,17 +77,9 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
-	// Valida segurança
-	if err := validatePath(fullPath, t.workDir); err != nil {
+	// Valida segurança (toolcalling estrito)
+	if err := validatePathWithPolicy(ctx, fullPath, t.workDir, ToolPolicy(), "write"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
-	}
-
-	// Bloqueia escrita em extensões sensíveis do sistema
-	if isSensitiveFile(fullPath) {
-		return tools.ToolResult{
-			Content: fmt.Sprintf("Não é permitido escrever em arquivos de sistema/configuração sensíveis: %s", a.Path),
-			IsError: true,
-		}, nil
 	}
 
 	// Verifica se o arquivo já existe (para relatório)
@@ -107,17 +98,8 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 		}, nil
 	}
 
-	// Cria diretórios intermediários se necessário
-	dir := filepath.Dir(fullPath)
-	if err := os.MkdirAll(dir, 0755); err != nil {
-		return tools.ToolResult{
-			Content: fmt.Sprintf("Erro ao criar diretórios: %v", err),
-			IsError: true,
-		}, nil
-	}
-
-	// Escreve o arquivo
-	if err := os.WriteFile(fullPath, []byte(a.Content), 0644); err != nil {
+	// Escreve o arquivo (criando diretórios intermediários se necessário)
+	if err := WriteFileBytes(fullPath, []byte(a.Content), 0644); err != nil {
 		return tools.ToolResult{
 			Content: fmt.Sprintf("Erro ao escrever arquivo: %v", err),
 			IsError: true,
@@ -152,38 +134,4 @@ func (t *WriteFile) Execute(ctx context.Context, args json.RawMessage) (tools.To
 
 func (t *WriteFile) resolvePath(path string) (string, error) {
 	return resolveFilePath(path, t.workDir)
-}
-
-// isSensitiveFile verifica se o caminho é um arquivo sensível que não deve ser modificado.
-func isSensitiveFile(path string) bool {
-	name := strings.ToLower(filepath.Base(path))
-
-	// Arquivos de ambiente com secrets
-	sensitiveNames := map[string]bool{
-		".env":         true,
-		".env.local":   true,
-		".env.prod":    true,
-		".env.production": true,
-		"id_rsa":       true,
-		"id_ed25519":   true,
-		"known_hosts":  true,
-		"authorized_keys": true,
-	}
-
-	if sensitiveNames[name] {
-		return true
-	}
-
-	// Extensões de certificados e chaves
-	ext := strings.ToLower(filepath.Ext(path))
-	sensitiveExts := map[string]bool{
-		".pem": true,
-		".key": true,
-		".crt": true,
-		".cer": true,
-		".p12": true,
-		".pfx": true,
-	}
-
-	return sensitiveExts[ext]
 }

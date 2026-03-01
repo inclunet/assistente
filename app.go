@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"assistente/internal/allowlist"
@@ -27,6 +28,7 @@ import (
 	"assistente/internal/speech"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
+	"assistente/internal/tools/editor"
 	"assistente/internal/tools/filesystem"
 	msgtool "assistente/internal/tools/messaging"
 	questiontool "assistente/internal/tools/questionnaire"
@@ -67,6 +69,10 @@ type App struct {
 	// Throttle para hotkeys - evita disparo repetido quando segura a tecla
 	hotkeyLastFired  map[uint]time.Time
 	hotkeyThrottleMs int64 // tempo mínimo entre disparos (em ms)
+
+	// Watcher de arquivos do editor (mudanças externas)
+	editorWatchMu    sync.Mutex
+	editorDirWatches map[string]*editorDirWatch
 }
 
 // ==================== Tipos para Threads ====================
@@ -775,6 +781,10 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(filesystem.NewGrepSearch(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewWriteFile(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewEditFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewMoveFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewCopyFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewDeleteFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewMakeDirectory(workDir))
 
 	// Registra ferramentas web
 	a.toolRegistry.MustRegister(web.NewWebFetch())
@@ -842,6 +852,9 @@ func (a *App) initToolRegistry() {
 	// Registra ferramenta de questionário (collect_responses)
 	a.toolRegistry.MustRegister(questiontool.NewCollectResponses(a.questionnaireMgr))
 
+	// Registra ferramenta de edição de texto (para contexto de editor)
+	a.toolRegistry.MustRegister(editor.NewTextEdit(a.questionnaireMgr))
+
 	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
 }
 
@@ -871,6 +884,8 @@ func (a *App) GetAvailableTools() []ToolInfo {
 
 // shutdown é chamado quando o app fecha
 func (a *App) shutdown(_ context.Context) {
+	a.stopAllEditorWatches()
+
 	if a.hotkeyManager != nil {
 		a.hotkeyManager.Stop()
 	}

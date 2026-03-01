@@ -17,7 +17,7 @@ import { useChatStore, ChatTab } from '../../store/chatStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playBumpSound } from '../../services/audioFeedback';
 import { ContextMenu, MenuItem } from '../ui/ContextMenu';
-import { GetAvailableChannels } from '../../../wailsjs/go/main/App';
+import { GetAvailableChannels } from '@wailsjs/go/main/App';
 import { useUIStore } from '../../store/uiStore';
 import './ChatTabs.css';
 

@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from 'react';
-import { EventsOn, EventsOff } from '../../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff } from '@wailsjs/runtime/runtime';
 
 /**
  * Hook para escutar eventos do Wails

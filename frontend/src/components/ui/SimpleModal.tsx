@@ -2,6 +2,10 @@ import { ReactNode, useEffect, useRef, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
 import './SimpleModal.css';
 
+// Stack global simples para garantir que apenas o modal do topo
+// trate Escape/Tab/click-outside quando há múltiplos modais abertos.
+const OPEN_MODAL_STACK: string[] = [];
+
 // Seletor para elementos focáveis
 const FOCUSABLE_SELECTOR = 
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
@@ -47,6 +51,38 @@ export function SimpleModal({
   const firstFocusableRef = useRef<HTMLElement | null>(null);
   const prevOpenRef = useRef(false);
   const titleId = useId();
+  const modalInstanceIdRef = useRef<string>(
+    (() => {
+      try {
+        return crypto.randomUUID();
+      } catch {
+        return `modal-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+      }
+    })()
+  );
+
+  const isTopMost = useCallback(() => {
+    const id = modalInstanceIdRef.current;
+    return OPEN_MODAL_STACK.length > 0 && OPEN_MODAL_STACK[OPEN_MODAL_STACK.length - 1] === id;
+  }, []);
+
+  // Mantém o stack em sync com abertura/fechamento.
+  useEffect(() => {
+    const id = modalInstanceIdRef.current;
+    if (!isOpen) return;
+
+    // Remove qualquer entrada antiga (best-effort), e empilha no topo.
+    for (let i = OPEN_MODAL_STACK.length - 1; i >= 0; i--) {
+      if (OPEN_MODAL_STACK[i] === id) OPEN_MODAL_STACK.splice(i, 1);
+    }
+    OPEN_MODAL_STACK.push(id);
+
+    return () => {
+      for (let i = OPEN_MODAL_STACK.length - 1; i >= 0; i--) {
+        if (OPEN_MODAL_STACK[i] === id) OPEN_MODAL_STACK.splice(i, 1);
+      }
+    };
+  }, [isOpen]);
 
   // Retorna todos os elementos focáveis dentro do modal
   const getFocusableElements = useCallback(() => {
@@ -105,14 +141,17 @@ export function SimpleModal({
     if (!isOpen) return;
 
     const handleEscape = (e: KeyboardEvent) => {
+      if (!isTopMost()) return;
       if (!allowClose) return;
       if (e.key === 'Escape') {
+        e.stopPropagation();
         onClose();
       }
     };
 
     // Focus trap - mantém o foco dentro do modal
     const handleTab = (e: KeyboardEvent) => {
+      if (!isTopMost()) return;
       if (e.key !== 'Tab') return;
       
       const focusableElements = getFocusableElements();
@@ -137,6 +176,7 @@ export function SimpleModal({
     };
 
     const handleClickOutside = (e: MouseEvent) => {
+      if (!isTopMost()) return;
       if (!allowClose) return;
       if (modalRef.current && !modalRef.current.contains(e.target as Node)) {
         const overlay = (e.target as HTMLElement).closest('.simple-modal-overlay');
@@ -159,7 +199,7 @@ export function SimpleModal({
       document.removeEventListener('mousedown', handleClickOutside);
       document.body.style.overflow = '';
     };
-  }, [isOpen, onClose, getFocusableElements, allowClose]);
+  }, [isOpen, onClose, getFocusableElements, allowClose, isTopMost]);
 
   if (!isOpen) return null;
 

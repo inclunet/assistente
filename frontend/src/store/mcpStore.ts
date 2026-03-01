@@ -8,8 +8,8 @@ import {
   DeleteMCPServer,
   GetMCPServerTools,
   GetMCPServerConfig,
-} from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+} from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import { mcp } from '../../wailsjs/go/models';
 
 type ServerInfo = mcp.ServerInfo;

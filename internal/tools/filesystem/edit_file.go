@@ -88,17 +88,9 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
-	// Valida segurança
-	if err := validatePath(fullPath, t.workDir); err != nil {
+	// Valida segurança (toolcalling estrito)
+	if err := validatePathWithPolicy(ctx, fullPath, t.workDir, ToolPolicy(), "edit"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
-	}
-
-	// Bloqueia edição em arquivos sensíveis
-	if isSensitiveFile(fullPath) {
-		return tools.ToolResult{
-			Content: fmt.Sprintf("Não é permitido editar arquivos de sistema/configuração sensíveis: %s", a.Path),
-			IsError: true,
-		}, nil
 	}
 
 	// Verifica se arquivo existe
@@ -114,11 +106,10 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Lê conteúdo atual
-	data, err := os.ReadFile(fullPath)
+	data, err := ReadFileBytes(fullPath)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler arquivo: %v", err), IsError: true}, nil
 	}
-
 	content := string(data)
 
 	// Conta ocorrências
@@ -177,10 +168,9 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Escreve o arquivo modificado
-	if err := os.WriteFile(fullPath, []byte(newContent), info.Mode()); err != nil {
+	if err := WriteFileBytes(fullPath, []byte(newContent), info.Mode()); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao escrever arquivo: %v", err), IsError: true}, nil
 	}
-
 	// Calcula diff resumido
 	oldLines := strings.Count(a.OldString, "\n") + 1
 	newLines := strings.Count(a.NewString, "\n") + 1

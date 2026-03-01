@@ -1,0 +1,85 @@
+package filesystem
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"os"
+	"strings"
+
+	"assistente/internal/tools"
+)
+
+// MakeDirectory cria um diretório no disco (com suporte a parents via MkdirAll).
+type MakeDirectory struct {
+	workDir string
+}
+
+func NewMakeDirectory(workDir string) *MakeDirectory {
+	return &MakeDirectory{workDir: workDir}
+}
+
+func (t *MakeDirectory) Name() string { return "make_directory" }
+
+func (t *MakeDirectory) Description() string {
+	return "Creates a directory on disk. Validates paths, respects skill filesystem scope, and blocks sensitive paths. Uses MkdirAll by default."
+}
+
+func (t *MakeDirectory) Parameters() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"path": {"type": "string", "description": "Caminho do diretório a criar (absoluto ou relativo ao diretório de trabalho)"},
+			"parents": {"type": "boolean", "description": "Se true, cria diretórios intermediários. Padrão: true"}
+		},
+		"required": ["path"],
+		"additionalProperties": false
+	}`)
+}
+
+type makeDirArgs struct {
+	Path    string `json:"path"`
+	Parents *bool  `json:"parents,omitempty"`
+}
+
+func (t *MakeDirectory) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
+	var a makeDirArgs
+	if err := json.Unmarshal(args, &a); err != nil {
+		return tools.ToolResult{Content: "Erro ao parsear argumentos: " + err.Error(), IsError: true}, nil
+	}
+	p := strings.TrimSpace(a.Path)
+	if p == "" {
+		return tools.ToolResult{Content: "Parâmetro 'path' é obrigatório", IsError: true}, nil
+	}
+	parents := true
+	if a.Parents != nil {
+		parents = *a.Parents
+	}
+
+	fullPath, err := resolveFilePath(p, t.workDir)
+	if err != nil {
+		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+	}
+	if err := validatePathWithPolicy(ctx, fullPath, t.workDir, ToolPolicy(), "write"); err != nil {
+		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+	}
+
+	if info, err := os.Stat(fullPath); err == nil {
+		if info.IsDir() {
+			return tools.ToolResult{Content: fmt.Sprintf("Já existe: %s", p)}, nil
+		}
+		return tools.ToolResult{Content: fmt.Sprintf("Já existe um arquivo em '%s'", p), IsError: true}, nil
+	}
+
+	if parents {
+		if err := EnsureDirWithPolicy(fullPath, 0o755, ToolPolicy()); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("Erro ao criar diretório: %v", err), IsError: true}, nil
+		}
+	} else {
+		if err := os.Mkdir(fullPath, 0o755); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("Erro ao criar diretório: %v", err), IsError: true}, nil
+		}
+	}
+
+	return tools.ToolResult{Content: fmt.Sprintf("Criado diretório: %s", p), Metadata: map[string]any{"path": p, "parents": parents}}, nil
+}

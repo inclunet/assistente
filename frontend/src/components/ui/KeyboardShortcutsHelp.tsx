@@ -25,6 +25,7 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
 
   const shortcuts = [
     { keys: SHORTCUTS.NEW_TAB, description: 'Nova conversa' },
+    { keys: SHORTCUTS.CLEAR_CONVERSATION, description: 'Limpar conversa' },
     { keys: SHORTCUTS.PREV_TAB, description: 'Navegar entre conversas' },
     { keys: SHORTCUTS.HISTORY, description: 'Abrir histórico' },
     { keys: SHORTCUTS.MODELS, description: 'Selecionar modelo' },

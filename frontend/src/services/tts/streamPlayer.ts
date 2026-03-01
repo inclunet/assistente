@@ -6,7 +6,7 @@
  * Funciona com qualquer provedor de TTS que suporte streaming.
  */
 
-import { EventsOn } from '../../../wailsjs/runtime/runtime';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 
 // Evento de streaming do backend (formato padronizado)
 interface TTSStreamEvent {

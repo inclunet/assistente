@@ -144,6 +144,16 @@ cd ..
 # Execute em modo desenvolvimento
 wails dev
 
+# Se a geração de bindings do Wails estiver muito verbosa (ex.: mensagens "KnownStructs" / "Not found: time.Time"),
+# você pode reduzir o barulho sem alterar modelos Go:
+wails dev -loglevel Warning
+
+# Ou, via scripts npm (útil para padronizar em time/CI local):
+npm run dev:quiet
+
+# Em dias que você não mudou assinaturas/structs expostos ao frontend, dá para pular a geração de bindings:
+npm run dev:nobindings
+
 # Ou compile para produção
 wails build
 ```

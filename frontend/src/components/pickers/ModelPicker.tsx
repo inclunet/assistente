@@ -1,5 +1,5 @@
 import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { GetModels } from '../../../wailsjs/go/main/App';
+import { GetModels } from '@wailsjs/go/main/App';
 import { Combobox, ComboboxItem } from './Combobox';
 import './ModelPicker.css';
 

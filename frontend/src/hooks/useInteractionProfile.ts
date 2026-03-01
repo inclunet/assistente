@@ -39,7 +39,8 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSTT } from './useSTT';
 import { useWakewordDetection } from './useWakewordDetection';
-import { GetActiveProfile } from '../../wailsjs/go/main/App';
+import { GetActiveProfile } from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import { profiles } from '../../wailsjs/go/models';
 import { playSound, SOUND_TYPES } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
@@ -49,20 +50,6 @@ import { TTSProvider } from '../services/tts/types';
 type Profile = profiles.Profile;
 type TriggerConfig = profiles.TriggerConfig;
 type InteractionConfig = profiles.InteractionConfig;
-
-// Import dinâmico do Wails para eventos
-let EventsOn: ((event: string, callback: (...args: unknown[]) => void) => () => void) | null = null;
-
-async function loadWailsFunctions() {
-  try {
-    const events = await import('../../wailsjs/runtime/runtime');
-    EventsOn = events.EventsOn;
-    return true;
-  } catch (e) {
-    console.warn('[useInteractionProfile] Wails não disponível:', e);
-    return false;
-  }
-}
 
 // Singleton para evitar múltiplas instâncias processando o mesmo evento
 let hotkeyEventCleanup: (() => void) | null = null;
@@ -81,11 +68,12 @@ function registerGlobalHotkeyHandler(handler: (data: unknown) => void): void {
 // Configura listener de eventos uma única vez (singleton)
 async function ensureHotkeyListener(): Promise<void> {
   if (hotkeyEventCleanup) return; // Já registrado
-  
-  await loadWailsFunctions();
-  if (!EventsOn) return;
-  
-  hotkeyEventCleanup = EventsOn('interaction:hotkey:triggered', (data) => {
+
+	// Se o runtime do Wails não estiver disponível por algum motivo (ex: rodando fora do app),
+	// não registra listener.
+	if (!EventsOn) return;
+
+	hotkeyEventCleanup = EventsOn('interaction:hotkey:triggered', (data) => {
     // Throttle no frontend - evita processar eventos muito rápidos
     const now = Date.now();
     if (now - lastHotkeyTime < HOTKEY_THROTTLE_MS) {
@@ -682,12 +670,13 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     let cleanup: (() => void) | undefined;
     
     const setupListener = async () => {
-      await loadWailsFunctions();
-      if (EventsOn) {
+      try {
         cleanup = EventsOn('profile:changed', () => {
           console.log('[useInteractionProfile] Perfil alterado, recarregando...');
           loadActiveProfile();
         });
+      } catch (err) {
+        console.warn('[useInteractionProfile] Falha ao registrar listener profile:changed:', err);
       }
     };
 

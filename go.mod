@@ -4,6 +4,7 @@ go 1.24.1
 
 require (
 	github.com/KennethanCeyer/ptyx v0.2.0
+	github.com/fsnotify/fsnotify v1.9.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-ole/go-ole v1.3.0
 	github.com/go-telegram-bot-api/telegram-bot-api/v5 v5.5.1

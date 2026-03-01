@@ -106,6 +106,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   // Usa editContent externo se está editando
   const editContent = isEditing ? externalEditContent : content;
 
+  const toolCallsHasTextEdit =
+    role === 'assistant' &&
+    typeof toolCalls === 'string' &&
+    /"name"\s*:\s*"text_edit"/i.test(toolCalls);
+
+  // Quando `text_edit` é usado, o conteúdo do assistente pode vir poluído com fences (ex.: ```markdown).
+  // Como a UI já mostra as tool calls, omitimos o corpo textual para evitar ruído.
+  const displayContent = isEditing ? externalEditContent : (toolCallsHasTextEdit ? '' : content);
+
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
     return date.toLocaleTimeString('pt-BR', {
@@ -130,7 +139,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   const getAriaLabel = () => {
     const roleLabel = getDisplayRole();
-    const contentPreview = content ? stripMarkdown(content) : 'Escrevendo';
+    const contentPreview = displayContent ? stripMarkdown(displayContent) : 'Escrevendo';
     const playHint = role === 'assistant' && !isStreaming ? ' Pressione Espaço para reproduzir áudio.' : '';
 
     // Timestamp relativo com prefixo
@@ -293,7 +302,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           <span className="chat-message__timestamp">
             {formatTime(timestamp)}
           </span>
-          {!isStreaming && !isEditing && content && onSpeak && (
+          {!isStreaming && !isEditing && displayContent && onSpeak && (
             <button
               className={`chat-message__play-btn${isPlayingAudio ? ' chat-message__play-btn--playing' : ''}`}
               onClick={(e) => { e.stopPropagation(); onSpeak(message); }}
@@ -360,12 +369,12 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 <ToolCallsSection activeToolCalls={effectiveToolCalls} />
               )}
 
-              {isStreaming && content && !message._turnSegments && (
+              {isStreaming && displayContent && !message._turnSegments && (
                 <div className="chat-message__text">
-                  <MarkdownRenderer content={content} />
+                  <MarkdownRenderer content={displayContent} />
                 </div>
               )}
-              {isStreaming && !content && !message._turnSegments && (
+              {isStreaming && !displayContent && !message._turnSegments && (
                 <div className="chat-message__text">
                   <span className="chat-message__cursor">▋</span>
                 </div>
@@ -415,10 +424,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 </div>
               ) : (
                 <>
-                  {role === 'assistant' && content ? (
-                    <MarkdownRenderer content={content} />
+                  {role === 'assistant' && displayContent ? (
+                    <MarkdownRenderer content={displayContent} />
                   ) : (
-                    content || (isStreaming && <span className="chat-message__cursor">▋</span>)
+                    displayContent || (isStreaming && <span className="chat-message__cursor">▋</span>)
                   )}
                 </>
               )}

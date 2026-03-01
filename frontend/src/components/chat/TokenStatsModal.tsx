@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { GetConversationTokenStats } from '../../../wailsjs/go/main/App';
-import { EventsOn } from '../../../wailsjs/runtime/runtime';
+import { GetConversationTokenStats } from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import './TokenStatsModal.css';
 
 interface TokenStats {

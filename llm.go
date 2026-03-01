@@ -575,16 +575,31 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 
 	// 3.5. Detecta invocação de skill via /slash command
 	var slashSkillContent string
+	invokedSkillSlug := ""
+	var invokedFilesystemScope *tools.FilesystemScope
+
+	// Contexto de template para skills (disponível via {{ .Profile }} e flags derivadas)
+	// Isso permite que skills ajustem instruções conforme o perfil ativo (ex.: toolcalling ligado/desligado).
+	skillTplData := a.buildSkillTemplateData(activeProfile, params.ProfileSlug)
 	if slug, args, ok := parseSlashCommand(userContent); ok && a.skillMgr != nil {
 		skill, err := a.skillMgr.Get(slug)
 		if err == nil && skill.IsUserInvocable() {
 			log.Printf("[Skills] Slash command detectado: /%s args=%q", slug, args)
+			invokedSkillSlug = slug
+			if skill.Filesystem != nil {
+				invokedFilesystemScope = &tools.FilesystemScope{
+					Read:  append([]string{}, skill.Filesystem.Read...),
+					Write: append([]string{}, skill.Filesystem.Write...),
+					Deny:  append([]string{}, skill.Filesystem.Deny...),
+				}
+			}
 
 			// Substitui $ARGUMENTS, $N, e variáveis de sessão no conteúdo
 			sessionVars := map[string]string{
 				"CLAUDE_SESSION_ID": fmt.Sprintf("%d", conversationID),
 			}
 			processedContent := skills.SubstituteArguments(skill.Content, args, sessionVars)
+			processedContent = skills.ProcessTemplate(processedContent, skillTplData)
 
 			// Preprocessa !commands (respeita permissões de bash do skill)
 			var allowedBashCmds []string
@@ -642,7 +657,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 			enabledSkills = []string{}
 		}
 	}
-	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, disableOnDemand, slashSkillContent, conversationSummary)
+	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, conversationSummary)
 
 	// 5. Pré-processamento de mídia:
 	//    a) Converte formatos de áudio não suportados (aac, ogg, etc.) para texto via Whisper
@@ -682,7 +697,14 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 
 	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
 	if len(llmToolDefs) > 0 {
-		go a.runAgenticLoop(a.ctx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs)
+		agentCtx := a.ctx
+		if invokedSkillSlug != "" {
+			agentCtx = tools.WithExecutionContext(agentCtx, tools.ExecutionContext{
+				InvokedSkillSlug: invokedSkillSlug,
+				Filesystem:       invokedFilesystemScope,
+			})
+		}
+		go a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs)
 	} else {
 		// Sem ferramentas: streaming simples (comportamento original)
 		handler := &appStreamHandler{
@@ -708,7 +730,7 @@ Key behaviors:
 // enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
 // slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
 // conversationSummary: resumo de mensagens antigas da conversa (rolling context).
-func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, disableOnDemand bool, slashSkillContent string, conversationSummary string) []Message {
+func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, disableOnDemand bool, skillTplData any, slashSkillContent string, conversationSummary string) []Message {
 	// Build the system prompt parts
 	var parts []string
 
@@ -720,7 +742,7 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 	parts = append(parts, basePrompt)
 
 	// 2. Skills injection (auto + available)
-	skillsSection := a.buildSkillsPromptSection(enabledSkills, disableOnDemand)
+	skillsSection := a.buildSkillsPromptSection(enabledSkills, disableOnDemand, skillTplData)
 	if skillsSection != "" {
 		parts = append(parts, "\n\n"+skillsSection)
 	}
@@ -786,10 +808,54 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 	return newMessages
 }
 
+type skillTemplateData struct {
+	Profile            *profiles.Profile
+	ProfileSlug        string
+	ToolCallingEnabled bool
+	EnabledTools       []string
+	EnabledToolCount   int
+}
+
+func (a *App) buildSkillTemplateData(activeProfile *profiles.Profile, profileSlug string) skillTemplateData {
+	enabledToolNames := a.computeEnabledToolNames(activeProfile)
+	return skillTemplateData{
+		Profile:            activeProfile,
+		ProfileSlug:        profileSlug,
+		ToolCallingEnabled: len(enabledToolNames) > 0,
+		EnabledTools:       enabledToolNames,
+		EnabledToolCount:   len(enabledToolNames),
+	}
+}
+
+func (a *App) computeEnabledToolNames(activeProfile *profiles.Profile) []string {
+	if activeProfile != nil && activeProfile.Chat.DisableTools {
+		return nil
+	}
+	if a.toolRegistry == nil || a.toolRegistry.Count() == 0 {
+		return nil
+	}
+
+	var toolDefs []tools.ToolDefinition
+	if activeProfile != nil && activeProfile.Chat.EnabledTools != nil {
+		toolDefs = a.toolRegistry.FilterByNames(activeProfile.Chat.EnabledTools)
+	} else {
+		toolDefs = a.toolRegistry.ToDefinitions()
+	}
+	if len(toolDefs) == 0 {
+		return nil
+	}
+
+	names := make([]string, 0, len(toolDefs))
+	for _, td := range toolDefs {
+		names = append(names, td.Function.Name)
+	}
+	return names
+}
+
 // buildSkillsPromptSection constrói a seção de skills para o system prompt.
 // enabledSkills: nil = usa auto_load do skill, [] = nenhum, ["slug1","slug2"] = autoload ordenado pelo perfil.
 // disableOnDemand: true = não incluir skills sob demanda.
-func (a *App) buildSkillsPromptSection(enabledSkills []string, disableOnDemand bool) string {
+func (a *App) buildSkillsPromptSection(enabledSkills []string, disableOnDemand bool, skillTemplateData any) string {
 	if a.skillMgr == nil {
 		return ""
 	}
@@ -853,7 +919,7 @@ func (a *App) buildSkillsPromptSection(enabledSkills []string, disableOnDemand b
 			sb.WriteString("\n")
 
 			autoContent := s.Content
-			autoContent = skills.ProcessTemplate(autoContent)
+			autoContent = skills.ProcessTemplate(autoContent, skillTemplateData)
 			var allowedBashCmds []string
 			if s.Tools != nil && s.Tools.BashCommands != nil {
 				allowedBashCmds = s.Tools.BashCommands.Allowed
@@ -931,7 +997,6 @@ func (a *App) buildSkillsPromptSection(enabledSkills []string, disableOnDemand b
 
 	return sb.String()
 }
-
 
 // DefaultMaxContextMessages é o limite padrão de mensagens no contexto
 const DefaultMaxContextMessages = 50

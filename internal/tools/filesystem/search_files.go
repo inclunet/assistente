@@ -79,7 +79,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 	}
 
 	// Valida segurança
-	if err := validatePath(fullBase, t.workDir); err != nil {
+	if err := validatePathWithPolicy(ctx, fullBase, t.workDir, ToolPolicy(), "search"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
@@ -98,6 +98,7 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 
 	var matches []string
 	truncated := false
+	skippedBySkill := 0
 
 	if isRecursive {
 		// Busca recursiva: percorre a árvore e aplica glob no nome relativo
@@ -123,7 +124,21 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 				return filepath.SkipDir
 			}
 
+			// Enforcement por skill: não vazar nomes fora do escopo
+			if err := validateSkillFilesystemAllowlist(ctx, path, t.workDir, "search"); err != nil {
+				skippedBySkill++
+				if d.IsDir() {
+					return filepath.SkipDir
+				}
+				return nil
+			}
+
 			if d.IsDir() {
+				return nil
+			}
+
+			// Toolcalling: não vazar nomes de arquivos sensíveis
+			if ToolPolicy().BlockSensitive && isSensitiveFile(path) {
 				return nil
 			}
 
@@ -176,6 +191,15 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 				break
 			}
 
+			// Toolcalling: não vazar nomes de arquivos sensíveis
+			if ToolPolicy().BlockSensitive && isSensitiveFile(match) {
+				continue
+			}
+			if err := validateSkillFilesystemAllowlist(ctx, match, t.workDir, "search"); err != nil {
+				skippedBySkill++
+				continue
+			}
+
 			relPath, _ := filepath.Rel(fullBase, match)
 			if relPath == "" {
 				relPath = match
@@ -218,12 +242,16 @@ func (t *SearchFiles) Execute(ctx context.Context, args json.RawMessage) (tools.
 	if truncated {
 		header += fmt.Sprintf("(TRUNCADO: limite de %d resultados atingido)\n", maxResults)
 	}
+	if skippedBySkill > 0 {
+		header += fmt.Sprintf("(%d caminho(s) omitido(s) por permissões do skill)\n", skippedBySkill)
+	}
 
 	return tools.ToolResult{
 		Content: header + strings.Join(matches, "\n"),
 		Metadata: map[string]any{
-			"results":   len(matches),
-			"truncated": truncated,
+			"results":          len(matches),
+			"truncated":        truncated,
+			"skipped_by_skill": skippedBySkill,
 		},
 	}, nil
 }

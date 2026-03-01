@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { 
   SendMessage, 
-  AddMessageWithMedia,
   GetAllTabs,
   CreateTab,
   CloseTab,
@@ -11,10 +10,11 @@ import {
   LoadConversationInTab,
   AssignConversationToChannel,
   UnassignConversationFromChannel,
-} from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+	GetMessageChildren,
+} from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
-import { database, main } from '../../wailsjs/go/models';
+import { database, llm, main } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
@@ -161,6 +161,7 @@ interface ChatStore {
 
   // Chat actions
   sendMessage: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
+  sendMessageWithParams: (content: string, mediaFiles?: MediaFile[], paramsOverride?: Partial<llm.ChatParams>) => Promise<void>;
   stopStreaming: () => void;
 
   // Utility
@@ -1048,6 +1049,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   },
 
   sendMessage: async (content, mediaFiles) => {
+        return get().sendMessageWithParams(content, mediaFiles);
+      },
+
+  sendMessageWithParams: async (content, mediaFiles, paramsOverride) => {
         const { activeTabId, addMessage, createTab, updateTabTitle, tabs } = get();
 
         // Validação de tamanho do conteúdo
@@ -1210,7 +1215,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           });
 
           // Setup completion handler that will clean up everything
-          // CRÍTICO: Registrar listeners ANTES de chamar SendMessage/AddMessageWithMedia
+          // CRÍTICO: Registrar listeners ANTES de chamar SendMessage
           // pois o backend inicia streaming em goroutine e pode emitir eventos antes do await retornar
           let unsubscribeStream: (() => void) | null = null;
           let unsubscribeComplete: (() => void) | null = null;
@@ -1561,9 +1566,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           };
 
           // AGORA envia a mensagem — listeners já estão ativos para capturar streaming
+          let mediaJson = '';
           if (mediaFiles && mediaFiles.length > 0) {
             const mediaDataArray: MediaData[] = [];
-            
             for (const mediaFile of mediaFiles) {
               const base64Data = await fileToBase64(mediaFile.file);
               mediaDataArray.push({
@@ -1573,48 +1578,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 size: mediaFile.file.size,
               });
             }
-
-            const mediaJson = JSON.stringify(mediaDataArray);
-            console.log('[Chat] Sending message with media:', mediaDataArray.length, 'files');
-
-            const newMessage = await AddMessageWithMedia(
-              conversationId,
-              'user',
-              content,
-              mediaJson
-            );
-
-            // Update tab with conversation ID if we didn't have one
-            if (!tab?.conversationId && newMessage.conversationId) {
-              set((state) => ({
-                tabs: state.tabs.map((t) =>
-                  t.id === currentTabId
-                    ? { ...t, conversationId: newMessage.conversationId }
-                    : t
-                ),
-              }));
-            }
-
-            const activeConvId = newMessage.conversationId || conversationId;
-            if (!tab?.conversationId && activeConvId) {
-              set((state) => ({
-                tabs: state.tabs.map((t) =>
-                  t.id === currentTabId
-                    ? { ...t, conversationId: activeConvId }
-                    : t
-                ),
-              }));
-            }
-          } else {
-            // Normal message without media
-            console.log('[Chat] Calling SendMessage...', { conversationId, contentLength: content.length });
-            await SendMessage(conversationId, content, '', {
-              model: '',
-              temperature: 0,
-              maxTokens: 0,
-            });
-            console.log('[Chat] SendMessage returned successfully');
+            mediaJson = JSON.stringify(mediaDataArray);
           }
+
+          const mergedParams: any = {
+            model: '',
+            temperature: 0,
+            maxTokens: 0,
+            ...(paramsOverride || {}),
+          };
+
+          console.log('[Chat] Calling SendMessage...', { conversationId, contentLength: content.length, hasMedia: !!mediaJson, params: mergedParams });
+          await SendMessage(conversationId, content, mediaJson, mergedParams);
+          console.log('[Chat] SendMessage returned successfully');
           
           // Note: DO NOT cleanup here - listeners need to stay active for streaming events
         } catch (error: any) {
@@ -1730,7 +1706,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
           
           // Chama backend para carregar filhos
-          const { GetMessageChildren } = await import('../../wailsjs/go/main/App');
           const backendNodes = await GetMessageChildren(messageIdNum);
           
           console.log('[Chat] ✅ Loaded children from backend:', backendNodes.length);

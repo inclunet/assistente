@@ -13,6 +13,7 @@ import McpPage from '../pages/McpPage';
 import ChannelsPage from '../pages/ChannelsPage';
 import UpdatePage from '../pages/UpdatePage';
 import AboutPage from '../pages/AboutPage';
+import EditorPage from '../pages/EditorPage';
 
 export const router = createHashRouter([
   {
@@ -29,6 +30,10 @@ export const router = createHashRouter([
           {
             path: 'terminal',
             element: <TerminalPage />,
+          },
+          {
+            path: 'editor',
+            element: <EditorPage />,
           },
           {
             path: 'allowlists',

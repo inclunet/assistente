@@ -60,9 +60,10 @@ func (t *CollectResponsesTool) Parameters() json.RawMessage {
 					"type": "object",
 					"properties": {
 						"id": {"type": "string", "description": "Identificador único da pergunta"},
-						"type": {"type": "string", "enum": ["text", "long_text", "number", "boolean", "single_choice", "multiple_choice", "scale", "date"], "description": "Tipo da pergunta (texto curto/long, número, sim/não, escolha, escala, data)"},
+						"type": {"type": "string", "enum": ["text", "long_text", "number", "boolean", "single_choice", "multiple_choice", "scale", "date", "readonly_code"], "description": "Tipo da pergunta (texto curto/long, número, sim/não, escolha, escala, data, readonly_code)"},
 						"prompt": {"type": "string", "description": "Enunciado/pergunta principal"},
 						"description": {"type": "string", "description": "Descrição adicional/explicação"},
+						"content": {"type": "string", "description": "Conteúdo somente-leitura (para readonly_code)"},
 						"required": {"type": "boolean", "description": "Se a resposta é obrigatória"},
 						"options": {"type": "array", "items": {"type": "string"}, "description": "Opções para perguntas de escolha (single/multiple_choice)"},
 						"min": {"type": "number", "description": "Valor mínimo (number)"},
@@ -154,14 +155,15 @@ func (t *CollectResponsesTool) Execute(ctx context.Context, args json.RawMessage
 
 func validateQuestions(questions []questionnaire.Question) error {
 	allowedTypes := map[string]bool{
-		"text":           true,
-		"long_text":      true,
-		"number":         true,
-		"boolean":        true,
-		"single_choice":  true,
+		"text":            true,
+		"long_text":       true,
+		"number":          true,
+		"boolean":         true,
+		"single_choice":   true,
 		"multiple_choice": true,
-		"scale":          true,
-		"date":           true,
+		"scale":           true,
+		"date":            true,
+		"readonly_code":   true,
 	}
 
 	seen := make(map[string]struct{})
@@ -189,6 +191,10 @@ func validateQuestions(questions []questionnaire.Question) error {
 			if len(q.Options) == 0 {
 				return fmt.Errorf("Pergunta '%s' precisa de opções em 'options'", id)
 			}
+		}
+		if qType == "readonly_code" {
+			// Não requer resposta; apenas exibe conteúdo.
+			continue
 		}
 		if qType == "number" && q.Min != nil && q.Max != nil && *q.Min > *q.Max {
 			return fmt.Errorf("Pergunta '%s' tem min maior que max", id)

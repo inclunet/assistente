@@ -12,7 +12,7 @@ import {
   SignalLink,
   SignalUnregister,
   RestartChannel,
-} from '../../wailsjs/go/main/App';
+} from '@wailsjs/go/main/App';
 import { channels } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';

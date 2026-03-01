@@ -11,7 +11,7 @@ import {
   SynthesizeOpenAIStream,
   SetOpenAITTSSpeed,
   SetOpenAITTSVoice
-} from '../../../../wailsjs/go/main/App';
+} from '@wailsjs/go/main/App';
 import { main } from '../../../../wailsjs/go/models';
 import { getStreamPlayer, TTSStreamPlayer } from '../streamPlayer';
 

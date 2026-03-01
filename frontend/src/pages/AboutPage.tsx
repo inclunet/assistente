@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GetAppVersion, CheckForUpdates, StartUpdate } from '../../wailsjs/go/main/App';
+import { GetAppVersion, CheckForUpdates, StartUpdate } from '@wailsjs/go/main/App';
 import { useUIStore } from '../store/uiStore';
 import './AboutPage.css';
 

@@ -1,8 +1,8 @@
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
 import { Combobox, ComboboxItem } from './Combobox';
-import { GetConversations } from '../../../wailsjs/go/main/App';
+import { GetConversations } from '@wailsjs/go/main/App';
 import { database } from '../../../wailsjs/go/models';
-import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff } from '@wailsjs/runtime/runtime';
 
 export interface HistoryPickerProps {
   value?: number; // ID da conversa atual

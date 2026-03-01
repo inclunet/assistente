@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../store/chatStore';
+import { ClearConversation } from '@wailsjs/go/main/App';
 import { HistoryPicker, HistoryPickerRef } from '../pickers';
 import { ProfilePicker, ProfilePickerRef } from '../pickers/ProfilePicker';
 import { Toolbar } from '../ui/Toolbar';
@@ -100,11 +101,50 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     }
   }, [openContextMenu, getProfileMenuItems]);
 
+  const focusInput = useCallback(() => {
+    setTimeout(() => {
+      inputRef?.current?.focus();
+    }, 100);
+  }, [inputRef]);
+
+  const handleNewConversation = useCallback(() => {
+    if (onNewConversation) {
+      onNewConversation();
+    } else {
+      // conversa nova "de verdade": limpa conversationId e mensagens na aba ativa
+      void loadConversationInActiveTab(0, 'Nova Conversa');
+    }
+    focusInput();
+  }, [focusInput, loadConversationInActiveTab, onNewConversation]);
+
+  const handleClearConversation = useCallback(async () => {
+    try {
+      const tab = getActiveTab();
+
+      if (tab?.conversationId) {
+        await ClearConversation(tab.conversationId);
+        await loadConversationInActiveTab(tab.conversationId, tab.title || 'Conversa');
+      } else {
+        clearActiveTab();
+      }
+
+      announce('Conversa limpa');
+    } catch (error) {
+      console.error('[ChatToolbar] Erro ao limpar conversa:', error);
+      announce('Erro ao limpar conversa');
+    }
+    focusInput();
+  }, [announce, clearActiveTab, focusInput, getActiveTab, loadConversationInActiveTab]);
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'n') {
         e.preventDefault();
         handleNewConversation();
+      }
+      else if (e.ctrlKey && e.key === 'l') {
+        e.preventDefault();
+        void handleClearConversation();
       }
       else if (e.ctrlKey && e.key === 'h') {
         e.preventDefault();
@@ -127,22 +167,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab?.conversationId, announce]);
-
-  const focusInput = useCallback(() => {
-    setTimeout(() => {
-      inputRef?.current?.focus();
-    }, 100);
-  }, [inputRef]);
-
-  const handleNewConversation = () => {
-    if (onNewConversation) {
-      onNewConversation();
-    } else {
-      clearActiveTab();
-    }
-    focusInput();
-  };
+  }, [activeTab?.conversationId, announce, handleClearConversation, handleNewConversation]);
 
   const handleProfileChange = useCallback((_slug: string) => {
     focusInput();
@@ -180,6 +205,18 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             >
               <span aria-hidden="true">➕</span>
               <span>Nova</span>
+            </button>
+
+            <button
+              className="toolbar__button toolbar__button--danger"
+              onClick={() => void handleClearConversation()}
+              aria-label="Limpar conversa, Ctrl+L"
+              title="Limpar conversa (Ctrl+L)"
+              disabled={isLoading}
+              tabIndex={0}
+            >
+              <span aria-hidden="true">🧹</span>
+              <span>Limpar</span>
             </button>
 
             <div>

@@ -10,6 +10,7 @@ interface MarkdownRendererProps {
   content: string;
   className?: string;
   interactiveButtons?: boolean; // Se true, botões de copiar são focáveis e Monaco Editor é habilitado
+  focusableMermaid?: boolean; // Se true, diagramas Mermaid ficam focáveis (tabIndex=0)
 }
 
 // Configuração do markdown-it
@@ -113,7 +114,12 @@ function renderMarkdown(text: string): string {
   return DOMPurify.sanitize(parsed, purifyConfig);
 }
 
-export function MarkdownRenderer({ content, className = '', interactiveButtons = false }: MarkdownRendererProps) {
+export function MarkdownRenderer({
+  content,
+  className = '',
+  interactiveButtons = false,
+  focusableMermaid = false,
+}: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const editorsRef = useRef<Map<string, monaco.editor.IStandaloneCodeEditor>>(new Map());
 
@@ -131,7 +137,7 @@ export function MarkdownRenderer({ content, className = '', interactiveButtons =
       editorsRef.current.forEach(editor => editor.dispose());
       editorsRef.current.clear();
     };
-  }, [html, interactiveButtons]);
+  }, [html, interactiveButtons, focusableMermaid]);
 
   function addCopyButtons() {
     if (!containerRef.current) return;
@@ -375,6 +381,9 @@ export function MarkdownRenderer({ content, className = '', interactiveButtons =
         diagramWrapper.className = 'mermaid-diagram';
         diagramWrapper.setAttribute('role', 'group');
         diagramWrapper.setAttribute('aria-label', 'Diagrama Mermaid');
+        diagramWrapper.dataset.mermaidIndex = String(i);
+        diagramWrapper.dataset.mermaidCode = mermaidCode;
+        diagramWrapper.tabIndex = focusableMermaid ? 0 : -1;
         diagramWrapper.innerHTML = svg;
 
         pre.parentNode!.insertBefore(diagramWrapper, pre);

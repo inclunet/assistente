@@ -1,7 +1,7 @@
 import { useState, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
 import { Combobox, ComboboxItem } from './Combobox';
-import { GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '../../../wailsjs/go/main/App';
-import { EventsOn } from '../../../wailsjs/runtime/runtime';
+import { GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 
 export interface ProfilePickerProps {
   /** Callback when profile is selected */
