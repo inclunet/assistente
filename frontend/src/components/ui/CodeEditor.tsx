@@ -1,4 +1,5 @@
 import Editor from '@monaco-editor/react';
+import { buildMarkdownLinkFromSelection, normalizePastedLinkHref } from '../../lib/linkPaste';
 import './CodeEditor.css';
 
 export interface CodeEditorProps {
@@ -11,6 +12,7 @@ export interface CodeEditorProps {
   ariaLabel?: string;
   theme?: string;
   onMount?: (editor: any, monaco: any) => void;
+  pasteUrlAsMarkdownLink?: boolean;
 }
 
 export function CodeEditor({
@@ -23,9 +25,47 @@ export function CodeEditor({
   ariaLabel = 'Editor de código',
   theme = 'vs-dark',
   onMount,
+  pasteUrlAsMarkdownLink = false,
 }: CodeEditorProps) {
   const handleEditorChange = (newValue: string | undefined) => {
     if (newValue !== undefined) onChange(newValue);
+  };
+
+  const handleMount = (editor: any, monaco: any) => {
+    onMount?.(editor, monaco);
+
+    if (!pasteUrlAsMarkdownLink) return;
+
+    const domNode: HTMLElement | null = editor?.getDomNode?.() ?? null;
+    const model = editor?.getModel?.();
+    if (!domNode || !model) return;
+
+    const onPaste = (e: ClipboardEvent) => {
+      if (readOnly) return;
+      const href = normalizePastedLinkHref(e.clipboardData?.getData('text/plain') ?? '');
+      if (!href) return;
+
+      const selection = editor?.getSelection?.();
+      if (!selection || selection.isEmpty?.()) return;
+
+      const selectedText = String(model.getValueInRange(selection) ?? '');
+      if (!selectedText) return;
+
+      e.preventDefault();
+      const replacement = buildMarkdownLinkFromSelection({ selectedText, href });
+      editor.executeEdits('paste-url-as-markdown-link', [
+        {
+          range: selection,
+          text: replacement,
+          forceMoveMarkers: true,
+        },
+      ]);
+    };
+
+    domNode.addEventListener('paste', onPaste, true);
+    editor?.onDidDispose?.(() => {
+      domNode.removeEventListener('paste', onPaste, true);
+    });
   };
 
   return (
@@ -35,7 +75,7 @@ export function CodeEditor({
         language={language}
         value={value}
         onChange={handleEditorChange}
-        onMount={onMount}
+        onMount={handleMount}
         theme={theme}
         options={{
           minimap: { enabled: false },

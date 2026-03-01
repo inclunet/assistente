@@ -16,6 +16,9 @@ import { useChatStore } from '../store/chatStore';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { createTwoFilesPatch } from 'diff';
 import { buildEditorPatchPrompt, extractEditorPatch } from '../lib/editorPatch';
+import { applyTextReplacementByOffset } from '../lib/editorPatchApply';
+import { applyRichTextInsert } from '../lib/richTextPatchApply';
+import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
@@ -1650,16 +1653,23 @@ export default function EditorPage() {
         const model = editorRef.current?.getModel?.();
         const current = model?.getValue?.() ?? String(tab.markdown ?? '');
 
+        const applied = applyTextReplacementByOffset({
+          current,
+          startOffset: s.startOffset,
+          endOffset: s.endOffset,
+          expectedSelectedText: s.selectedText,
+          replacement,
+        });
+
         // Se o conteúdo mudou desde o snapshot, evita aplicar offsets errados.
-        const selectedInCurrent = current.slice(s.startOffset, s.endOffset);
-        if (selectedInCurrent !== s.selectedText) {
+        if (!applied.ok) {
           addToast('O texto selecionado mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
         }
 
-        const nextMarkdown = current.slice(0, s.startOffset) + replacement + current.slice(s.endOffset);
+        const nextMarkdown = applied.nextText;
         setTabMarkdown(s.tabId, nextMarkdown);
         updateLatestMarkdownForTab(s.tabId, nextMarkdown);
         schedulePersistForTab(s.tabId);
@@ -1703,39 +1713,37 @@ export default function EditorPage() {
         // Evita aplicar em um range errado caso a seleção tenha mudado enquanto o mini-chat estava aberto.
         try {
           const currentSel = rich.state?.selection;
-          if (!currentSel) {
-            addToast('Não foi possível ler a seleção atual do editor rico. Refazer a seleção e tentar novamente.', 'error');
-            setIsAsking(false);
-            focusEditorSoon();
-            return;
-          }
-
           const expectedEmpty = !!(s as any).selectionIsEmpty;
           const expectedFrom = Number((s as any).from);
           const expectedTo = Number((s as any).to);
+          const expectedSelectedText = String((s as any).selectedText || '');
 
-          if (currentSel.from !== expectedFrom || currentSel.to !== expectedTo) {
-            addToast('A seleção mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
-            setIsAsking(false);
-            focusEditorSoon();
-            return;
-          }
+          const validation = validateRichTextSelectionSnapshot({
+            currentSelection: currentSel
+              ? { from: Number(currentSel.from), to: Number(currentSel.to), empty: !!currentSel.empty }
+              : null,
+            expectedFrom,
+            expectedTo,
+            expectedEmpty,
+            expectedSelectedText,
+            getCurrentSelectedText: expectedEmpty
+              ? undefined
+              : () => String(rich.state?.doc?.textBetween?.(currentSel!.from, currentSel!.to, '\n') ?? ''),
+          });
 
-          if (expectedEmpty && !currentSel.empty) {
-            addToast('A seleção mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
-            setIsAsking(false);
-            focusEditorSoon();
-            return;
-          }
-
-          if (!expectedEmpty) {
-            const currentSelectedText = rich.state.doc.textBetween(currentSel.from, currentSel.to, '\n');
-            if (String(currentSelectedText) !== String((s as any).selectedText || '')) {
+          if (!validation.ok) {
+            if (validation.reason === 'no_selection') {
+              addToast('Não foi possível ler a seleção atual do editor rico. Refazer a seleção e tentar novamente.', 'error');
+            } else if (validation.reason === 'selected_text_mismatch') {
               addToast('O texto selecionado mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
-              setIsAsking(false);
-              focusEditorSoon();
-              return;
+            } else if (validation.reason === 'cannot_read_selected_text') {
+              addToast('Não foi possível validar a seleção do editor rico. Refazer a seleção e tentar novamente.', 'error');
+            } else {
+              addToast('A seleção mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
             }
+            setIsAsking(false);
+            focusEditorSoon();
+            return;
           }
         } catch {
           addToast('Não foi possível validar a seleção do editor rico. Refazer a seleção e tentar novamente.', 'error');
@@ -1744,20 +1752,10 @@ export default function EditorPage() {
           return;
         }
 
-        const wasEditable = !!rich.isEditable;
-        try {
-          if (!wasEditable) rich.setEditable?.(true);
-          const contentToInsert = patch?.format === 'markdown' ? markdownToHtml(replacement) : replacement;
-          rich
-            .chain()
-            .focus()
-            .setTextSelection({ from: s.from, to: s.to })
-            .insertContent(contentToInsert)
-            .run();
-          addToast('Alteração aplicada', 'success');
-        } finally {
-          if (!wasEditable) rich.setEditable?.(false);
-        }
+        const isMarkdown = patch?.format === 'markdown';
+        const contentToInsert = !isMarkdown ? replacement : markdownToHtml(replacement);
+        applyRichTextInsert({ rich, from: s.from, to: s.to, contentToInsert });
+        addToast('Alteração aplicada', 'success');
       }
 
       setInlineChatError(null);
@@ -2311,6 +2309,7 @@ export default function EditorPage() {
                   language="markdown"
                   ariaLabel="Editor Markdown"
                   value={activeTab.markdown}
+                  pasteUrlAsMarkdownLink={true}
                   onChange={(v) => {
                     setTabMarkdown(activeTab.id, v);
                     updateLatestMarkdownForTab(activeTab.id, v);

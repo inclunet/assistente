@@ -1,13 +1,24 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { EditorContent, ReactNodeViewRenderer, useEditor } from '@tiptap/react';
+import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
 import CodeBlock from '@tiptap/extension-code-block';
 import Placeholder from '@tiptap/extension-placeholder';
+import Link from '@tiptap/extension-link';
+import { Table } from '@tiptap/extension-table';
+import TableRow from '@tiptap/extension-table-row';
+import TableHeader from '@tiptap/extension-table-header';
+import TableCell from '@tiptap/extension-table-cell';
 import { Markdown } from 'tiptap-markdown';
+import { Plugin } from '@tiptap/pm/state';
 
 import { Toolbar } from '../ui/Toolbar';
 import { ContextMenu, MenuItem } from '../ui/ContextMenu';
 import { MermaidCodeBlockNodeView } from './MermaidCodeBlockNodeView';
+import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
+import { useUIStore } from '../../store/uiStore';
+import { isSafeLinkHref } from '../../lib/safeLink';
+import { normalizePastedLinkHref } from '../../lib/linkPaste';
 
 import './RichTextEditor.css';
 
@@ -34,6 +45,9 @@ export function RichTextEditor({
   onEditorReady,
   onRequestEditMermaid,
 }: RichTextEditorProps) {
+  const { addToast } = useUIStore();
+  const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
+
   const headingLevels = useMemo(() => [1, 2, 3, 4, 5, 6] as const, []);
 
   const isApplyingExternalMarkdownRef = useRef(false);
@@ -55,6 +69,30 @@ export function RichTextEditor({
   });
 
   const extensions = useMemo(() => {
+    const PasteUrlAsLinkOnSelection = Extension.create({
+      name: 'pasteUrlAsLinkOnSelection',
+      addProseMirrorPlugins() {
+        return [
+          new Plugin({
+            props: {
+              handlePaste: (_view, event) => {
+                if (!this.editor.isEditable) return false;
+
+                const sel = this.editor.state.selection;
+                if (!sel || sel.empty) return false;
+
+                const href = normalizePastedLinkHref(event.clipboardData?.getData('text/plain') ?? '');
+                if (!href) return false;
+
+                this.editor.chain().focus().setLink({ href }).run();
+                return true;
+              },
+            },
+          }),
+        ];
+      },
+    });
+
     const MermaidAwareCodeBlock = CodeBlock.extend({
       addOptions() {
         return {
@@ -71,6 +109,23 @@ export function RichTextEditor({
       StarterKit.configure({
         codeBlock: false,
       }),
+      Table.configure({
+        resizable: true,
+      }),
+      TableRow,
+      TableHeader,
+      TableCell,
+      Link.configure({
+        openOnClick: false,
+        linkOnPaste: true,
+        autolink: true,
+        validate: (href: string) => isSafeLinkHref(href),
+        HTMLAttributes: {
+          target: '_blank',
+          rel: 'noopener noreferrer',
+        },
+      }),
+      PasteUrlAsLinkOnSelection,
       MermaidAwareCodeBlock.configure({
         languageClassPrefix: 'language-',
         defaultLanguage: null,
@@ -98,6 +153,77 @@ export function RichTextEditor({
       onMarkdownChange(next);
     },
   });
+
+  const openLinkDialog = useCallback(async () => {
+    if (!editor || readOnly) return;
+
+    const existingHref = String(editor.getAttributes('link')?.href || '').trim();
+    const sel = editor.state?.selection;
+    const selectedText = sel ? editor.state.doc.textBetween(sel.from, sel.to, '\n') : '';
+    const selectionEmpty = !sel || sel.empty;
+
+    const resp = await requestQuestionnaire({
+      id: `ui-rich-link-${Date.now()}`,
+      title: existingHref ? 'Editar link' : 'Inserir link',
+      description: selectionEmpty
+        ? 'Informe a URL. Se quiser, informe também o texto do link para inserir no cursor.'
+        : 'Informe a URL para aplicar no texto selecionado.',
+      submitLabel: existingHref ? 'Salvar link' : 'Inserir link',
+      cancelLabel: 'Cancelar',
+      allowCancel: true,
+      questions: [
+        {
+          id: 'href',
+          type: 'text',
+          prompt: 'URL',
+          placeholder: 'https://… (ou /caminho, #ancora, mailto:…)',
+          required: true,
+          default: existingHref,
+        },
+        ...(selectionEmpty
+          ? [
+              {
+                id: 'text',
+                type: 'text',
+                prompt: 'Texto (opcional)',
+                placeholder: 'Texto do link',
+                required: false,
+                default: selectedText || '',
+              } as const,
+            ]
+          : []),
+      ],
+    });
+
+    if (resp.cancelled) return;
+
+    const href = String(resp.answers.href || '').trim();
+    if (!isSafeLinkHref(href)) {
+      addToast('Link inválido ou inseguro. Use http(s), mailto, /caminho ou #ancora.', 'error');
+      return;
+    }
+
+    if (selectionEmpty) {
+      const text = String(resp.answers.text || '').trim() || href;
+      editor
+        .chain()
+        .focus()
+        .insertContent({
+          type: 'text',
+          text,
+          marks: [{ type: 'link', attrs: { href } }],
+        })
+        .run();
+      return;
+    }
+
+    editor.chain().focus().extendMarkRange('link').setLink({ href }).run();
+  }, [editor, readOnly, requestQuestionnaire, addToast]);
+
+  const removeLink = useCallback(() => {
+    if (!editor || readOnly) return;
+    editor.chain().focus().extendMarkRange('link').unsetLink().run();
+  }, [editor, readOnly]);
 
   const getActiveCodeBlockInfo = useCallback(() => {
     if (!editor) return null;
@@ -235,6 +361,23 @@ export function RichTextEditor({
       },
       { id: 'sep-1', separator: true },
       {
+        id: 'set-link',
+        label: 'Inserir/Editar link',
+        icon: editor?.isActive('link') ? '✓' : ' ',
+        shortcut: 'Ctrl+K',
+        action: () => void openLinkDialog(),
+        ariaLabel: 'Inserir ou editar link, Ctrl+K',
+      },
+      {
+        id: 'unset-link',
+        label: 'Remover link',
+        icon: '×',
+        action: () => removeLink(),
+        ariaLabel: 'Remover link',
+        disabled: !editor?.isActive('link'),
+      } as any,
+      { id: 'sep-link', separator: true },
+      {
         id: 'clear-marks',
         label: 'Limpar formatação de texto',
         icon: '↺',
@@ -242,7 +385,7 @@ export function RichTextEditor({
         ariaLabel: 'Limpar formatação de texto',
       },
     ];
-  }, [editor]);
+  }, [editor, openLinkDialog, removeLink]);
 
   const getHeadingMenuItems = useCallback((): MenuItem[] => {
     const items: MenuItem[] = [
@@ -338,7 +481,17 @@ export function RichTextEditor({
   }, [editor, markdown]);
 
   return (
-    <div className="rich-text-editor" role="region" aria-label={ariaLabel}>
+    <div
+      className="rich-text-editor"
+      role="region"
+      aria-label={ariaLabel}
+      onKeyDown={(e) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+          e.preventDefault();
+          void openLinkDialog();
+        }
+      }}
+    >
       <Toolbar
         className="rich-text-editor__format-toolbar"
         ariaLabel="Formatação do editor rico. Use setas para navegar"
