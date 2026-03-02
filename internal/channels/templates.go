@@ -129,7 +129,7 @@ func GetAvailableTemplates() []ChannelTemplate {
 			DisplayName: "Slack",
 			Description: "Bot do Slack para canais e mensagens diretas",
 			Icon:        "💼",
-			Supported:   false,
+			Supported:   true,
 			DocURL:      "https://api.slack.com/bot-users",
 			Fields: []ChannelTemplateField{
 				{
@@ -311,6 +311,10 @@ func CreateFromTemplate(templateType string, values map[string]interface{}) erro
 		case "bot_token":
 			if str, ok := value.(string); ok {
 				cfg.BotToken = str
+			}
+		case "app_token":
+			if str, ok := value.(string); ok {
+				cfg.AppToken = str
 			}
 		case "account":
 			if str, ok := value.(string); ok {

@@ -29,6 +29,7 @@ var mu sync.Mutex
 type ChannelConfig struct {
 	Enabled     bool   `json:"enabled"`
 	BotToken    string `json:"bot_token,omitempty"`    // Telegram: token do bot
+	AppToken    string `json:"app_token,omitempty"`    // Slack: app token (socket mode)
 	Account     string `json:"account,omitempty"`      // Signal: número da conta vinculada
 	APIURL      string `json:"api_url,omitempty"`      // Signal: URL da API
 	Profile     string `json:"profile,omitempty"`      // Perfil de chat (vazio = ativo)
