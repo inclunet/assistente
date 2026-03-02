@@ -42,6 +42,16 @@
   outline: none;
 }
 
+.context-menu__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.context-menu__item:disabled:hover,
+.context-menu__item:disabled:focus {
+  background: transparent;
+}
+
 .context-menu__item--danger {
   color: var(--error-color, #f44336);
 }

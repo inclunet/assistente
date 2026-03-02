@@ -225,6 +225,11 @@ export function RichTextEditor({
     editor.chain().focus().extendMarkRange('link').unsetLink().run();
   }, [editor, readOnly]);
 
+  const getActiveTableLabel = useCallback(() => {
+    if (!editor) return '—';
+    return editor.isActive('table') ? 'Na tabela' : '—';
+  }, [editor]);
+
   const getActiveCodeBlockInfo = useCallback(() => {
     if (!editor) return null;
     const sel = editor.state?.selection;
@@ -375,7 +380,7 @@ export function RichTextEditor({
         action: () => removeLink(),
         ariaLabel: 'Remover link',
         disabled: !editor?.isActive('link'),
-      } as any,
+      },
       { id: 'sep-link', separator: true },
       {
         id: 'clear-marks',
@@ -386,6 +391,192 @@ export function RichTextEditor({
       },
     ];
   }, [editor, openLinkDialog, removeLink]);
+
+  const getTableMenuItems = useCallback((): MenuItem[] => {
+    const canUse = !!editor && !readOnly;
+    const inTable = !!editor?.isActive('table');
+
+    const canRun = (fn: () => boolean) => {
+      if (!editor || readOnly) return false;
+      try {
+        return !!fn();
+      } catch {
+        return false;
+      }
+    };
+
+    const canAddRowBefore = inTable && canRun(() => editor!.can().chain().focus().addRowBefore().run());
+    const canAddRowAfter = inTable && canRun(() => editor!.can().chain().focus().addRowAfter().run());
+    const canDeleteRow = inTable && canRun(() => editor!.can().chain().focus().deleteRow().run());
+    const canAddColBefore = inTable && canRun(() => editor!.can().chain().focus().addColumnBefore().run());
+    const canAddColAfter = inTable && canRun(() => editor!.can().chain().focus().addColumnAfter().run());
+    const canDeleteCol = inTable && canRun(() => editor!.can().chain().focus().deleteColumn().run());
+    const canDeleteTable = inTable && canRun(() => editor!.can().chain().focus().deleteTable().run());
+
+    const canToggleHeaderRow = inTable && canRun(() => editor!.can().chain().focus().toggleHeaderRow().run());
+    const canToggleHeaderCol = inTable && canRun(() => editor!.can().chain().focus().toggleHeaderColumn().run());
+    const canToggleHeaderCell = inTable && canRun(() => editor!.can().chain().focus().toggleHeaderCell().run());
+
+    const canMergeCells = inTable && canRun(() => (editor as any)!.can().chain().focus().mergeCells().run());
+    const canSplitCell = inTable && canRun(() => (editor as any)!.can().chain().focus().splitCell().run());
+    const canNextCell = inTable && canRun(() => (editor as any)!.can().chain().focus().goToNextCell().run());
+    const canPrevCell = inTable && canRun(() => (editor as any)!.can().chain().focus().goToPreviousCell().run());
+
+    return [
+      {
+        id: 'insert-table',
+        label: 'Inserir tabela',
+        icon: '▦',
+        ariaLabel: 'Inserir tabela',
+        disabled: !canUse,
+        submenu: [
+          {
+            id: 'insert-table-2x2',
+            label: '2 × 2 (com cabeçalho)',
+            icon: ' ',
+            ariaLabel: 'Inserir tabela 2 por 2 com cabeçalho',
+            disabled: !canUse,
+            action: () => editor?.chain().focus().insertTable({ rows: 2, cols: 2, withHeaderRow: true }).run(),
+          },
+          {
+            id: 'insert-table-3x3',
+            label: '3 × 3 (com cabeçalho)',
+            icon: ' ',
+            ariaLabel: 'Inserir tabela 3 por 3 com cabeçalho',
+            disabled: !canUse,
+            action: () => editor?.chain().focus().insertTable({ rows: 3, cols: 3, withHeaderRow: true }).run(),
+          },
+          {
+            id: 'insert-table-4x4',
+            label: '4 × 4 (com cabeçalho)',
+            icon: ' ',
+            ariaLabel: 'Inserir tabela 4 por 4 com cabeçalho',
+            disabled: !canUse,
+            action: () => editor?.chain().focus().insertTable({ rows: 4, cols: 4, withHeaderRow: true }).run(),
+          },
+        ],
+      },
+      { id: 'sep-t-1', separator: true },
+      {
+        id: 'row-before',
+        label: 'Adicionar linha acima',
+        icon: '+',
+        ariaLabel: 'Adicionar linha acima',
+        disabled: !canAddRowBefore,
+        action: () => editor?.chain().focus().addRowBefore().run(),
+      },
+      {
+        id: 'row-after',
+        label: 'Adicionar linha abaixo',
+        icon: '+',
+        ariaLabel: 'Adicionar linha abaixo',
+        disabled: !canAddRowAfter,
+        action: () => editor?.chain().focus().addRowAfter().run(),
+      },
+      {
+        id: 'del-row',
+        label: 'Remover linha',
+        icon: '−',
+        ariaLabel: 'Remover linha',
+        disabled: !canDeleteRow,
+        action: () => editor?.chain().focus().deleteRow().run(),
+      },
+      { id: 'sep-t-2', separator: true },
+      {
+        id: 'col-before',
+        label: 'Adicionar coluna antes',
+        icon: '+',
+        ariaLabel: 'Adicionar coluna antes',
+        disabled: !canAddColBefore,
+        action: () => editor?.chain().focus().addColumnBefore().run(),
+      },
+      {
+        id: 'col-after',
+        label: 'Adicionar coluna depois',
+        icon: '+',
+        ariaLabel: 'Adicionar coluna depois',
+        disabled: !canAddColAfter,
+        action: () => editor?.chain().focus().addColumnAfter().run(),
+      },
+      {
+        id: 'del-col',
+        label: 'Remover coluna',
+        icon: '−',
+        ariaLabel: 'Remover coluna',
+        disabled: !canDeleteCol,
+        action: () => editor?.chain().focus().deleteColumn().run(),
+      },
+      { id: 'sep-t-3', separator: true },
+      {
+        id: 'toggle-header-row',
+        label: 'Alternar cabeçalho (linha)',
+        icon: editor?.isActive('tableHeader') ? '✓' : ' ',
+        ariaLabel: 'Alternar cabeçalho da linha',
+        disabled: !canToggleHeaderRow,
+        action: () => editor?.chain().focus().toggleHeaderRow().run(),
+      },
+      {
+        id: 'toggle-header-col',
+        label: 'Alternar cabeçalho (coluna)',
+        icon: ' ',
+        ariaLabel: 'Alternar cabeçalho da coluna',
+        disabled: !canToggleHeaderCol,
+        action: () => editor?.chain().focus().toggleHeaderColumn().run(),
+      },
+      {
+        id: 'toggle-header-cell',
+        label: 'Alternar cabeçalho (célula)',
+        icon: ' ',
+        ariaLabel: 'Alternar cabeçalho da célula',
+        disabled: !canToggleHeaderCell,
+        action: () => editor?.chain().focus().toggleHeaderCell().run(),
+      },
+      { id: 'sep-t-4', separator: true },
+      {
+        id: 'merge-cells',
+        label: 'Mesclar células',
+        icon: '⇔',
+        ariaLabel: 'Mesclar células',
+        disabled: !canMergeCells,
+        action: () => (editor as any)?.chain().focus().mergeCells().run(),
+      },
+      {
+        id: 'split-cell',
+        label: 'Separar célula',
+        icon: '⇕',
+        ariaLabel: 'Separar célula',
+        disabled: !canSplitCell,
+        action: () => (editor as any)?.chain().focus().splitCell().run(),
+      },
+      { id: 'sep-t-5', separator: true },
+      {
+        id: 'prev-cell',
+        label: 'Ir para célula anterior',
+        icon: '←',
+        ariaLabel: 'Ir para célula anterior',
+        disabled: !canPrevCell,
+        action: () => (editor as any)?.chain().focus().goToPreviousCell().run(),
+      },
+      {
+        id: 'next-cell',
+        label: 'Ir para próxima célula',
+        icon: '→',
+        ariaLabel: 'Ir para próxima célula',
+        disabled: !canNextCell,
+        action: () => (editor as any)?.chain().focus().goToNextCell().run(),
+      },
+      { id: 'sep-t-6', separator: true },
+      {
+        id: 'delete-table',
+        label: 'Apagar tabela',
+        icon: '🗑',
+        ariaLabel: 'Apagar tabela',
+        danger: true,
+        disabled: !canDeleteTable,
+        action: () => editor?.chain().focus().deleteTable().run(),
+      },
+    ];
+  }, [editor, readOnly]);
 
   const getHeadingMenuItems = useCallback((): MenuItem[] => {
     const items: MenuItem[] = [
@@ -578,6 +769,30 @@ export function RichTextEditor({
               <span className="toolbar__button-icon" aria-hidden="true">▦</span>
               <span className="toolbar__button-label">Blocos</span>
               <span className="rich-text-editor__picker-value" aria-hidden="true">{getActiveBlockLabel()}</span>
+            </button>
+
+            <button
+              type="button"
+              className="toolbar__button"
+              onClick={(e) => {
+                const trigger = e.currentTarget as HTMLElement;
+                openContextMenuForTrigger(trigger, getTableMenuItems(), 'Menu de tabela');
+              }}
+              onKeyDown={(e) => {
+                if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
+                  e.preventDefault();
+                  const trigger = e.currentTarget as HTMLElement;
+                  openContextMenuForTrigger(trigger, getTableMenuItems(), 'Menu de tabela');
+                }
+              }}
+              aria-label={`Tabela: ${getActiveTableLabel()}. Abrir menu`}
+              title="Tabela (menu)"
+              tabIndex={-1}
+              disabled={!editor || readOnly}
+            >
+              <span className="toolbar__button-icon" aria-hidden="true">▦</span>
+              <span className="toolbar__button-label">Tabela</span>
+              <span className="rich-text-editor__picker-value" aria-hidden="true">{getActiveTableLabel()}</span>
             </button>
           </div>
         }

@@ -163,3 +163,44 @@
 .rich-text-editor__content .ProseMirror pre.rich-code-block {
   margin: 0 0 12px 0;
 }
+
+/* Tabelas (TipTap/ProseMirror) */
+.rich-text-editor__content .ProseMirror .tableWrapper {
+  overflow-x: auto;
+  margin: 0 0 12px 0;
+}
+
+.rich-text-editor__content .ProseMirror table {
+  border-collapse: collapse;
+  width: 100%;
+  min-width: 420px;
+  background: rgba(0, 0, 0, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+}
+
+.rich-text-editor__content .ProseMirror th,
+.rich-text-editor__content .ProseMirror td {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  padding: 8px 10px;
+  vertical-align: top;
+}
+
+.rich-text-editor__content .ProseMirror th {
+  background: rgba(255, 255, 255, 0.06);
+  font-weight: 600;
+}
+
+.rich-text-editor__content .ProseMirror td p,
+.rich-text-editor__content .ProseMirror th p {
+  margin: 0;
+}
+
+.rich-text-editor__content .ProseMirror td.is-selected,
+.rich-text-editor__content .ProseMirror th.is-selected {
+  background: rgba(80, 140, 220, 0.14);
+}
+
+.rich-text-editor__content .ProseMirror .selectedCell:after {
+  background: rgba(80, 140, 220, 0.22);
+}
