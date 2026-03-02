@@ -46,6 +46,7 @@ export namespace channels {
 	export class ChannelConfig {
 	    enabled: boolean;
 	    bot_token?: string;
+	    app_token?: string;
 	    account?: string;
 	    api_url?: string;
 	    profile?: string;
@@ -61,6 +62,7 @@ export namespace channels {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
 	        this.bot_token = source["bot_token"];
+	        this.app_token = source["app_token"];
 	        this.account = source["account"];
 	        this.api_url = source["api_url"];
 	        this.profile = source["profile"];

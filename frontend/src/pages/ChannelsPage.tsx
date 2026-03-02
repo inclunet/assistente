@@ -66,6 +66,15 @@ interface SignalForm {
   maxContacts: number;
 }
 
+interface SlackForm {
+  enabled: boolean;
+  botToken: string;
+  appToken: string;
+  profile: string;
+  maxHistory: number;
+  maxContacts: number;
+}
+
 type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying' | 'done';
 
 // ─── Component ───────────────────────────────────────────────────────
@@ -100,6 +109,9 @@ export default function ChannelsPage() {
   });
   const [signalForm, setSignalForm] = useState<SignalForm>({
     enabled: false, apiURL: '', account: '', profile: '', maxHistory: 50, maxContacts: 1,
+  });
+  const [slackForm, setSlackForm] = useState<SlackForm>({
+    enabled: false, botToken: '', appToken: '', profile: '', maxHistory: 50, maxContacts: 1,
   });
 
   // ── Signal registration ──────────────────────────────────────────
@@ -145,14 +157,16 @@ export default function ChannelsPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [telegramCfg, signalCfg, status] = await Promise.all([
+      const [telegramCfg, signalCfg, slackCfg, status] = await Promise.all([
         GetChannelConfig('telegram'),
         GetChannelConfig('signal'),
+        GetChannelConfig('slack'),
         GetMessagingStatus(),
       ]);
 
       const tgEnabled = telegramCfg?.enabled || false;
       const sigEnabled = signalCfg?.enabled || false;
+      const slackEnabled = slackCfg?.enabled || false;
 
       if (telegramCfg) {
         setTelegramForm({
@@ -173,6 +187,16 @@ export default function ChannelsPage() {
           maxContacts: signalCfg.max_contacts || 1,
         });
       }
+      if (slackCfg) {
+        setSlackForm({
+          enabled: slackEnabled,
+          botToken: slackCfg.bot_token || '',
+          appToken: slackCfg.app_token || '',
+          profile: slackCfg.profile || defaultChannelProfile,
+          maxHistory: slackCfg.max_history || 50,
+          maxContacts: slackCfg.max_contacts || 1,
+        });
+      }
 
       setChannelRows([
         {
@@ -188,6 +212,13 @@ export default function ChannelsPage() {
           label: 'Signal',
           enabled: sigEnabled,
           status: status['signal'] || 'desconectado',
+        },
+        {
+          id: 'slack',
+          name: 'slack',
+          label: 'Slack',
+          enabled: slackEnabled,
+          status: status['slack'] || 'desconectado',
         },
       ]);
 
@@ -376,6 +407,15 @@ export default function ChannelsPage() {
           profile: signalForm.profile,
           max_history: signalForm.maxHistory,
           max_contacts: signalForm.maxContacts,
+        }));
+      } else if (channelName === 'slack') {
+        await SaveChannelConfig('slack', channels.ChannelConfig.createFrom({
+          enabled: slackForm.enabled,
+          bot_token: slackForm.botToken,
+          app_token: slackForm.appToken,
+          profile: slackForm.profile,
+          max_history: slackForm.maxHistory,
+          max_contacts: slackForm.maxContacts,
         }));
       }
       addToast(`Canal ${channelName} salvo!`, 'success');
@@ -646,7 +686,13 @@ export default function ChannelsPage() {
 
   // ── Editor title ─────────────────────────────────────────────────
 
-  const editorTitle = editingChannel === 'telegram' ? 'Telegram' : editingChannel === 'signal' ? 'Signal' : '';
+  const editorTitle = editingChannel === 'telegram'
+    ? 'Telegram'
+    : editingChannel === 'signal'
+      ? 'Signal'
+      : editingChannel === 'slack'
+        ? 'Slack'
+        : '';
 
   // ── Render: Telegram editor ──────────────────────────────────────
 
@@ -945,6 +991,74 @@ export default function ChannelsPage() {
     </>
   );
 
+  // ── Render: Slack editor ─────────────────────────────────────────
+
+  const renderSlackEditor = () => (
+    <>
+      <Checkbox
+        label="Habilitado"
+        checked={slackForm.enabled}
+        onChange={(e) => setSlackForm((prev) => ({ ...prev, enabled: e.target.checked }))}
+      />
+      {slackForm.enabled && (
+        <>
+          <Input
+            label="Bot Token"
+            type="password"
+            value={slackForm.botToken}
+            onChange={(e) => setSlackForm((prev) => ({ ...prev, botToken: e.target.value }))}
+            placeholder="xoxb-..."
+            fullWidth
+          />
+          <p className="channels-page__hint">
+            Token do bot do Slack (xoxb-...).
+          </p>
+          <Input
+            label="App Token (Socket Mode)"
+            type="password"
+            value={slackForm.appToken}
+            onChange={(e) => setSlackForm((prev) => ({ ...prev, appToken: e.target.value }))}
+            placeholder="xapp-..."
+            fullWidth
+          />
+          <p className="channels-page__hint">
+            Token do app do Slack para Socket Mode (xapp-...).
+          </p>
+          <Input
+            label="Max. contatos autorizados"
+            type="number"
+            value={String(slackForm.maxContacts)}
+            onChange={(e) => setSlackForm((prev) => ({ ...prev, maxContacts: parseInt(e.target.value) || 1 }))}
+            fullWidth
+          />
+          <p className="channels-page__hint">
+            Ao atingir o limite, novos contatos são ignorados silenciosamente.
+          </p>
+          <ProfilePicker
+            value={slackForm.profile}
+            onChange={(slug) => setSlackForm((prev) => ({ ...prev, profile: slug }))}
+            label="Perfil do Canal"
+            maxWidth="100%"
+            onAnnounce={announce}
+          />
+          <p className="channels-page__hint">
+            Perfil usado para conversas deste canal. Define modelo, voz, STT e comportamento.
+            Vazio usa o perfil ativo global.
+          </p>
+          <Input
+            label="Máximo de Histórico"
+            type="number"
+            min="1"
+            max="200"
+            value={slackForm.maxHistory}
+            onChange={(e) => setSlackForm((prev) => ({ ...prev, maxHistory: parseInt(e.target.value) || 50 }))}
+            fullWidth
+          />
+        </>
+      )}
+    </>
+  );
+
   // ── Main render ──────────────────────────────────────────────────
 
   if (loading) {
@@ -1071,6 +1185,7 @@ export default function ChannelsPage() {
         <div className="channels-page__fields">
           {editingChannel === 'telegram' && renderTelegramEditor()}
           {editingChannel === 'signal' && renderSignalEditor()}
+          {editingChannel === 'slack' && renderSlackEditor()}
         </div>
         <div className="channels-page__editor-footer">
           {editingChannel && (
