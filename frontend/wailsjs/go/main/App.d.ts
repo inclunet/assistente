@@ -47,6 +47,8 @@ export function ConnectMCPServer(arg1:string):Promise<void>;
 
 export function CreateAllowlist(arg1:allowlist.Allowlist):Promise<string>;
 
+export function CreateChannelFromTemplate(arg1:string,arg2:Record<string, any>):Promise<void>;
+
 export function CreateConversation(arg1:string,arg2:string):Promise<database.Conversation>;
 
 export function CreateMessage(arg1:number,arg2:string,arg3:string):Promise<database.ChatMessage>;
@@ -134,6 +136,10 @@ export function GetAvailableChannels():Promise<Array<main.ChannelInfo>>;
 export function GetAvailableTools():Promise<Array<main.ToolInfo>>;
 
 export function GetChannelConfig(arg1:string):Promise<channels.ChannelConfig>;
+
+export function GetChannelConfigAsMap(arg1:string):Promise<Record<string, any>>;
+
+export function GetChannelTemplates():Promise<Array<channels.ChannelTemplate>>;
 
 export function GetConfig():Promise<config.Config>;
 

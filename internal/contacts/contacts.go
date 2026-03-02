@@ -21,6 +21,8 @@ import (
 	"assistente/internal/configdir"
 	"encoding/json"
 	"fmt"
+	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -52,19 +54,45 @@ func Load() (ContactsFile, error) {
 }
 
 func loadUnsafe() (ContactsFile, error) {
-	data, _, err := resolver.Read(contactsFilename)
+	data, resolved, err := resolver.Read(contactsFilename)
 	if err != nil {
 		return make(ContactsFile), nil
 	}
 
 	var contacts ContactsFile
 	if err := json.Unmarshal(data, &contacts); err != nil {
-		return nil, fmt.Errorf("erro ao parsear %s: %w", contactsFilename, err)
+		fmt.Printf("[Contacts] arquivo %s corrompido: %v\n", contactsFilename, err)
+		if resolved != nil {
+			backupCorruptedContactsFile(resolved.Path)
+		}
+		empty := make(ContactsFile)
+		if saveErr := saveUnsafe(empty); saveErr != nil {
+			fmt.Printf("[Contacts] falha ao recriar %s: %v\n", contactsFilename, saveErr)
+		}
+		return empty, nil
 	}
 	if contacts == nil {
 		contacts = make(ContactsFile)
 	}
 	return contacts, nil
+}
+
+func backupCorruptedContactsFile(originalPath string) {
+	if originalPath == "" {
+		return
+	}
+	ts := time.Now().UTC().Format("20060102-150405")
+	dir := filepath.Dir(originalPath)
+	base := filepath.Base(originalPath)
+	backupPath := filepath.Join(dir, fmt.Sprintf("%s.corrupt-%s.bak", base, ts))
+
+	if err := os.Rename(originalPath, backupPath); err == nil {
+		return
+	}
+
+	if data, readErr := os.ReadFile(originalPath); readErr == nil {
+		_ = os.WriteFile(backupPath, data, 0644)
+	}
 }
 
 func saveUnsafe(contacts ContactsFile) error {

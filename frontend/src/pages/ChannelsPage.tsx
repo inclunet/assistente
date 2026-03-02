@@ -12,6 +12,7 @@ import {
   SignalLink,
   SignalUnregister,
   RestartChannel,
+  GetChannelTemplates,
 } from '@wailsjs/go/main/App';
 import { channels } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
@@ -23,6 +24,8 @@ import { Toolbar } from '../components/ui/Toolbar';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
 import { SimpleModal } from '../components/ui/SimpleModal';
+import { ContextMenu, MenuItem } from '../components/ui/ContextMenu';
+import CreateChannelModal from '../components/modals/CreateChannelModal';
 import { playBumpSound } from '../services/audioFeedback';
 import './ChannelsPage.css';
 
@@ -72,6 +75,7 @@ export default function ChannelsPage() {
   const { announce } = useAnnouncer();
   const { focusFirstCell: channelsFocusFirstCell, handleGridReady: channelsHandleGridReady } = useGridFocus();
   const { focusFirstCell: contactsFocusFirstCell, handleGridReady: contactsHandleGridReady } = useGridFocus();
+  const defaultChannelProfile = 'canais-comunicacao';
 
   // ── Tab ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<ActiveTab>('channels');
@@ -119,16 +123,32 @@ export default function ChannelsPage() {
   const [deleteContactOpen, setDeleteContactOpen] = useState(false);
   const [deleteContactTarget, setDeleteContactTarget] = useState<ContactRow | null>(null);
 
+  // ── Create Channel Modal ─────────────────────────────────────────
+  const [showCreateChannelModal, setShowCreateChannelModal] = useState(false);
+  const [createModalTemplateType, setCreateModalTemplateType] = useState<string | null>(null);
+  const [channelTemplates, setChannelTemplates] = useState<channels.ChannelTemplate[]>([]);
+  const [createMenuVisible, setCreateMenuVisible] = useState(false);
+  const [createMenuPosition, setCreateMenuPosition] = useState({ x: 0, y: 0 });
+  const createMenuButtonRef = useRef<HTMLButtonElement | null>(null);
+
   // ── Load ─────────────────────────────────────────────────────────
+
+  const loadTemplates = useCallback(async () => {
+    try {
+      const result = await GetChannelTemplates();
+      setChannelTemplates(result || []);
+    } catch (error) {
+      console.error('Erro ao carregar templates de canal:', error);
+    }
+  }, []);
 
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [telegramCfg, signalCfg, status, allContacts] = await Promise.all([
+      const [telegramCfg, signalCfg, status] = await Promise.all([
         GetChannelConfig('telegram'),
         GetChannelConfig('signal'),
         GetMessagingStatus(),
-        GetAuthorizedContacts(),
       ]);
 
       const tgEnabled = telegramCfg?.enabled || false;
@@ -138,7 +158,7 @@ export default function ChannelsPage() {
         setTelegramForm({
           enabled: tgEnabled,
           botToken: telegramCfg.bot_token || '',
-          profile: telegramCfg.profile || '',
+          profile: telegramCfg.profile || defaultChannelProfile,
           maxHistory: telegramCfg.max_history || 50,
           maxContacts: telegramCfg.max_contacts || 1,
         });
@@ -148,7 +168,7 @@ export default function ChannelsPage() {
           enabled: sigEnabled,
           apiURL: signalCfg.api_url || '',
           account: signalCfg.account || '',
-          profile: signalCfg.profile || '',
+          profile: signalCfg.profile || defaultChannelProfile,
           maxHistory: signalCfg.max_history || 50,
           maxContacts: signalCfg.max_contacts || 1,
         });
@@ -171,23 +191,31 @@ export default function ChannelsPage() {
         },
       ]);
 
-      const rows: ContactRow[] = [];
-      if (allContacts) {
-        for (const [ch, contacts] of Object.entries(allContacts)) {
-          if (Array.isArray(contacts)) {
-            for (const c of contacts as any[]) {
-              rows.push({
-                id: `${ch}:${c.id}`,
-                channel: ch,
-                contactId: c.id || '',
-                displayName: c.display_name || '',
-                username: c.username || '',
-              });
+      // Load contacts separately, don't block if it fails
+      try {
+        const allContacts = await GetAuthorizedContacts();
+        const rows: ContactRow[] = [];
+        if (allContacts) {
+          for (const [ch, contacts] of Object.entries(allContacts)) {
+            if (Array.isArray(contacts)) {
+              for (const c of contacts as any[]) {
+                rows.push({
+                  id: `${ch}:${c.id}`,
+                  channel: ch,
+                  contactId: c.id || '',
+                  displayName: c.display_name || '',
+                  username: c.username || '',
+                });
+              }
             }
           }
         }
+        setContactRows(rows);
+      } catch (contactError) {
+        console.error('Erro ao carregar contatos (não-crítico):', contactError);
+        setContactRows([]);
+        // Don't show toast for non-critical contact loading error
       }
-      setContactRows(rows);
     } catch (error) {
       console.error('Erro ao carregar canais:', error);
       addToast('Erro ao carregar canais', 'error');
@@ -198,13 +226,87 @@ export default function ChannelsPage() {
 
   useEffect(() => {
     loadAll();
-  }, [loadAll]);
+    loadTemplates();
+  }, [loadAll, loadTemplates]);
 
   useEffect(() => {
     return () => {
       if (linkPollRef.current) clearTimeout(linkPollRef.current);
     };
   }, []);
+
+  // ── Create Channel Handler ───────────────────────────────────────
+
+  const handleChannelCreated = () => {
+    addToast('Canal criado com sucesso!', 'success');
+    announce('Canal criado');
+    setCreateModalTemplateType(null);
+    setShowCreateChannelModal(false);
+    loadAll();
+  };
+
+  const openCreateMenu = () => {
+    if (createMenuVisible) {
+      setCreateMenuVisible(false);
+      return;
+    }
+
+    const button = createMenuButtonRef.current;
+    if (button) {
+      const rect = button.getBoundingClientRect();
+      setCreateMenuPosition({ x: rect.left, y: rect.bottom + 6 });
+    }
+    setCreateMenuVisible(true);
+  };
+
+  const closeCreateMenu = () => {
+    setCreateMenuVisible(false);
+  };
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (document.querySelector('.simple-modal-overlay')) return;
+      if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'n' || e.key === 'N')) {
+        e.preventDefault();
+        openCreateMenu();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [openCreateMenu]);
+
+  const handleQuickCreate = async (template: channels.ChannelTemplate) => {
+    setCreateMenuVisible(false);
+
+    if (template.type === 'telegram' || template.type === 'signal') {
+      try {
+        const existing = await GetChannelConfig(template.type);
+        if (!existing) {
+          const defaultConfig = channels.ChannelConfig.createFrom({
+            enabled: false,
+            bot_token: '',
+            api_url: '',
+            account: '',
+            profile: '',
+            max_history: 50,
+            max_contacts: 1,
+          });
+          await SaveChannelConfig(template.type, defaultConfig);
+        }
+
+        await loadAll();
+        setEditingChannel(template.type);
+      } catch (error: any) {
+        console.error('Erro ao criar canal:', error);
+        addToast(error.message || 'Erro ao criar canal', 'error');
+      }
+      return;
+    }
+
+    setCreateModalTemplateType(template.type);
+    setShowCreateChannelModal(true);
+  };
 
   // ── Tab keyboard navigation (ARIA tabs pattern) ──────────────────
 
@@ -265,10 +367,12 @@ export default function ChannelsPage() {
           max_contacts: telegramForm.maxContacts,
         }));
       } else if (channelName === 'signal') {
+        const effectiveAccount = (signalForm.account || signalAccounts[0] || '').trim();
+        const effectiveApiURL = signalForm.apiURL?.trim() || '';
         await SaveChannelConfig('signal', channels.ChannelConfig.createFrom({
           enabled: signalForm.enabled,
-          api_url: signalForm.apiURL,
-          account: signalForm.account,
+          api_url: effectiveApiURL,
+          account: effectiveAccount,
           profile: signalForm.profile,
           max_history: signalForm.maxHistory,
           max_contacts: signalForm.maxContacts,
@@ -277,6 +381,9 @@ export default function ChannelsPage() {
       addToast(`Canal ${channelName} salvo!`, 'success');
       announce(`Canal ${channelName} salvo`);
       await loadAll();
+      setEditingChannel(null);
+      setActiveTab('channels');
+      setTimeout(() => channelsFocusFirstCell?.(), 0);
     } catch (error: any) {
       addToast(error.message || `Erro ao salvar canal ${channelName}`, 'error');
     } finally {
@@ -520,6 +627,22 @@ export default function ChannelsPage() {
       action: true, actionIcon: '🗑️', actionLabel: 'Remover contato',
     },
   ];
+
+  const createMenuItems: MenuItem[] = channelTemplates.length > 0
+    ? channelTemplates.map((template) => ({
+      id: `create-${template.type}`,
+      label: template.display_name,
+      icon: template.icon,
+      ariaLabel: `Criar canal ${template.display_name}`,
+      action: () => handleQuickCreate(template),
+    }))
+    : [{
+      id: 'no-templates',
+      label: 'Nenhum canal disponível',
+      icon: '⚠️',
+      ariaLabel: 'Nenhum canal disponível',
+      action: closeCreateMenu,
+    }];
 
   // ── Editor title ─────────────────────────────────────────────────
 
@@ -856,6 +979,21 @@ export default function ChannelsPage() {
 
       <Toolbar
         left={<h1 className="page-toolbar__title">Canais de Comunicação</h1>}
+        right={
+          <button
+            ref={createMenuButtonRef}
+            className="toolbar__button toolbar__button--primary"
+            onClick={openCreateMenu}
+            aria-haspopup="menu"
+            aria-expanded={createMenuVisible}
+            aria-label="Novo canal"
+            title="Novo (Ctrl+N)"
+          >
+            <span className="toolbar__button-icon" aria-hidden="true">➕</span>
+            <span className="toolbar__button-label">Novo</span>
+            <span className="toolbar__button-icon" aria-hidden="true">▾</span>
+          </button>
+        }
         actions={[
           {
             key: 'reload',
@@ -955,6 +1093,15 @@ export default function ChannelsPage() {
         </div>
       </SimpleModal>
 
+      <ContextMenu
+        items={createMenuItems}
+        x={createMenuPosition.x}
+        y={createMenuPosition.y}
+        visible={createMenuVisible}
+        ariaLabel="Menu de criação de canais"
+        onClose={closeCreateMenu}
+      />
+
       {/* Confirm dialog */}
       <ConfirmDialog
         isOpen={deleteContactOpen && deleteContactTarget !== null}
@@ -965,6 +1112,17 @@ export default function ChannelsPage() {
         onConfirm={confirmDeleteContact}
         onCancel={() => { setDeleteContactOpen(false); setDeleteContactTarget(null); }}
         variant="danger"
+      />
+
+      {/* Create Channel Modal */}
+      <CreateChannelModal
+        isOpen={showCreateChannelModal}
+        onClose={() => {
+          setShowCreateChannelModal(false);
+          setCreateModalTemplateType(null);
+        }}
+        onSuccess={handleChannelCreated}
+        initialTemplateType={createModalTemplateType}
       />
     </div>
   );

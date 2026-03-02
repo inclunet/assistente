@@ -340,19 +340,19 @@ func (a *App) initMessaging() {
 		if identifier == "" {
 			identifier = username
 		}
-		message := fmt.Sprintf("O contato %s enviou uma mensagem via %s, mas nenhum contato está autorizado para este canal.\n\nIdentificador: %s\n\nDeseja definir este contato como o contato autorizado do %s? (Apenas um contato é permitido por canal.)",
-			name, channel, identifier, channel)
+		message := fmt.Sprintf("O contato %s enviou uma mensagem via %s.\n\nIdentificador: %s\n\nPara autorizar este contato, digite o código de pareamento que foi enviado para a pessoa.",
+			name, channel, identifier)
 		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-			Title:       "Contato não autorizado",
+			Title:       "Novo contato - Pareamento requerido",
 			Description: message,
 			AllowCancel: true,
 			SubmitLabel: "Autorizar",
-			CancelLabel: "Ignorar",
+			CancelLabel: "Recusar",
 			Questions: []questionnaire.Question{
 				{
-					ID:       "approve",
-					Type:     "boolean",
-					Prompt:   fmt.Sprintf("Autorizar este contato no canal %s?", channel),
+					ID:       "pairing_code",
+					Type:     "text",
+					Prompt:   "Código de pareamento (6 dígitos):",
 					Required: true,
 				},
 			},
@@ -363,11 +363,23 @@ func (a *App) initMessaging() {
 		if resp.Cancelled {
 			return false, nil
 		}
-		approved, ok := resp.Answers["approve"].(bool)
+		
+		// Valida o código fornecido
+		providedCode, ok := resp.Answers["pairing_code"].(string)
 		if !ok {
-			return false, fmt.Errorf("resposta inválida para autorização de contato")
+			return false, fmt.Errorf("código de pareamento inválido")
 		}
-		return approved, nil
+		
+		// Valida usando a função que retorna (bool, error)
+		valid, validateErr := contacts.ValidatePairingCode(channel, contactID, providedCode)
+		if !valid {
+			if validateErr != nil {
+				return false, fmt.Errorf("pareamento falhou: %v", validateErr)
+			}
+			return false, fmt.Errorf("código de pareamento incorreto")
+		}
+		
+		return true, nil
 	}
 
 	a.msgGateway = messaging.NewGateway(
@@ -418,6 +430,11 @@ func (a *App) initMessaging() {
 		sendMsgTool := msgtool.NewSendMessageTool(a.msgGateway)
 		a.toolRegistry.MustRegister(sendMsgTool)
 		log.Printf("[Messaging] Tool 'send_message' registrada")
+
+		// Registra a tool validate_pairing_code
+		pairingTool := msgtool.NewValidatePairingCodeTool()
+		a.toolRegistry.MustRegister(pairingTool)
+		log.Printf("[Messaging] Tool 'validate_pairing_code' registrada")
 	}
 
 	log.Printf("[Messaging] Gateway inicializado")
@@ -523,6 +540,48 @@ func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 // GetAllChannelConfigs retorna as configurações de todos os canais.
 func (a *App) GetAllChannelConfigs() (map[string]*channels.ChannelConfig, error) {
 	return channels.ListAll()
+}
+
+// GetChannelTemplates retorna todos os templates disponíveis para criar novos canais.
+func (a *App) GetChannelTemplates() []channels.ChannelTemplate {
+	all := channels.GetAvailableTemplates()
+	supported := a.getSupportedChannelTypes()
+	filtered := make([]channels.ChannelTemplate, 0, len(all))
+	for _, t := range all {
+		if _, ok := supported[t.Type]; ok {
+			t.Supported = true
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
+// getSupportedChannelTypes retorna os tipos de canais suportados pelo backend.
+// Mantém este mapa alinhado com os adapters disponíveis (initMessaging/restartChannel).
+func (a *App) getSupportedChannelTypes() map[string]struct{} {
+	return map[string]struct{}{
+		"telegram": {},
+		"signal":   {},
+	}
+}
+
+// CreateChannelFromTemplate cria um novo canal a partir de um template.
+// templateType: "telegram", "signal", "whatsapp", "slack", "teams", "email"
+// values: mapa com os valores dos campos (ex: {"bot_token": "xxx", "max_contacts": 5})
+func (a *App) CreateChannelFromTemplate(templateType string, values map[string]interface{}) error {
+	if err := channels.CreateFromTemplate(templateType, values); err != nil {
+		return err
+	}
+
+	// Emite evento para atualizar UI
+	runtime.EventsEmit(a.ctx, "channel:created", map[string]string{"type": templateType})
+
+	return nil
+}
+
+// GetChannelConfigAsMap retorna a configuração de um canal como mapa para exibir na UI.
+func (a *App) GetChannelConfigAsMap(channelName string) (map[string]interface{}, error) {
+	return channels.GetChannelConfigAsMap(channelName)
 }
 
 // SignalRegister inicia o registro de uma conta Signal via signal-cli-rest-api.

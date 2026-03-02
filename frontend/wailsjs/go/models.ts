@@ -69,6 +69,72 @@ export namespace channels {
 	        this.conversations = source["conversations"];
 	    }
 	}
+	export class ChannelTemplateField {
+	    key: string;
+	    label: string;
+	    type: string;
+	    required: boolean;
+	    placeholder?: string;
+	    description?: string;
+	    default_value?: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChannelTemplateField(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.key = source["key"];
+	        this.label = source["label"];
+	        this.type = source["type"];
+	        this.required = source["required"];
+	        this.placeholder = source["placeholder"];
+	        this.description = source["description"];
+	        this.default_value = source["default_value"];
+	    }
+	}
+	export class ChannelTemplate {
+	    type: string;
+	    display_name: string;
+	    description: string;
+	    icon: string;
+	    fields: ChannelTemplateField[];
+	    doc_url: string;
+	    supported: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChannelTemplate(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.display_name = source["display_name"];
+	        this.description = source["description"];
+	        this.icon = source["icon"];
+	        this.fields = this.convertValues(source["fields"], ChannelTemplateField);
+	        this.doc_url = source["doc_url"];
+	        this.supported = source["supported"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 
 }
 

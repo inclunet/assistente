@@ -70,6 +70,10 @@ export function CreateAllowlist(arg1) {
   return window['go']['main']['App']['CreateAllowlist'](arg1);
 }
 
+export function CreateChannelFromTemplate(arg1, arg2) {
+  return window['go']['main']['App']['CreateChannelFromTemplate'](arg1, arg2);
+}
+
 export function CreateConversation(arg1, arg2) {
   return window['go']['main']['App']['CreateConversation'](arg1, arg2);
 }
@@ -244,6 +248,14 @@ export function GetAvailableTools() {
 
 export function GetChannelConfig(arg1) {
   return window['go']['main']['App']['GetChannelConfig'](arg1);
+}
+
+export function GetChannelConfigAsMap(arg1) {
+  return window['go']['main']['App']['GetChannelConfigAsMap'](arg1);
+}
+
+export function GetChannelTemplates() {
+  return window['go']['main']['App']['GetChannelTemplates']();
 }
 
 export function GetConfig() {

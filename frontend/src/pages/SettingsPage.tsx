@@ -1,12 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
-import { GetConfig, SaveSettings, ResetConfig, ResetDatabase, TestConnectionWithModels } from '@wailsjs/go/main/App';
+import { GetConfig, SaveSettings, ResetConfig, ResetDatabase, TestConnectionWithModels, GetAllChannelConfigs, GetChannelConfig, SaveChannelConfig, RestartChannel } from '@wailsjs/go/main/App';
 import { llm } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
 import { Input, Button } from '../components';
 import { ProfilePicker, ProfilePickerRef } from '../components/pickers/ProfilePicker';
+import CreateChannelModal from '../components/modals/CreateChannelModal';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import './SettingsPage.css';
 
@@ -27,6 +28,8 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [availableModels, setAvailableModels] = useState<string[]>([]);
+  const [channels, setChannels] = useState<Record<string, any>>({});
+  const [showCreateChannelModal, setShowCreateChannelModal] = useState(false);
   
   const profilePickerRef = useRef<ProfilePickerRef>(null);
   
@@ -38,6 +41,7 @@ export default function SettingsPage() {
 
   useEffect(() => {
     loadConfig();
+    loadChannels();
   }, []);
 
   const loadConfig = async () => {
@@ -57,6 +61,40 @@ export default function SettingsPage() {
       addToast('Erro ao carregar configuração', 'error');
     } finally {
       setLoading(false);
+    }
+  };
+
+  const loadChannels = async () => {
+    try {
+      const result = await GetAllChannelConfigs();
+      setChannels(result || {});
+    } catch (error) {
+      console.error('Erro ao carregar canais:', error);
+    }
+  };
+
+  const handleChannelCreated = () => {
+    addToast('Canal criado com sucesso!', 'success');
+    announce('Canal criado');
+    loadChannels();
+  };
+
+  const handleToggleChannel = async (channelName: string, currentEnabled: boolean) => {
+    try {
+      const channelConfig = await GetChannelConfig(channelName);
+      if (!channelConfig) {
+        throw new Error('Configuração do canal não encontrada');
+      }
+
+      channelConfig.enabled = !currentEnabled;
+      await SaveChannelConfig(channelName, channelConfig);
+      await RestartChannel(channelName);
+      await loadChannels();
+      
+      addToast(`Canal ${channelName} ${!currentEnabled ? 'ativado' : 'desativado'}`, 'success');
+    } catch (error: any) {
+      console.error('Erro ao alterar status do canal:', error);
+      addToast(error.message || 'Erro ao alterar canal', 'error');
     }
   };
 
@@ -216,9 +254,58 @@ export default function SettingsPage() {
               maxWidth="100%"
               onAnnounce={announce}
             />
-            <Button variant="outline" onClick={() => navigate('/profiles')}>
+            <Button variant="outline" size="sm" onClick={() => navigate('/profiles')}>
               Gerenciar Perfis
             </Button>
+          </div>
+        </section>
+
+        {/* Channels Section */}
+        <section className="settings-section">
+          <div className="channels-header">
+            <div>
+              <h2>Canais de Mensageria</h2>
+              <p className="settings-section-description">
+                Configure canais externos para receber e enviar mensagens (Telegram, Signal, etc.).
+              </p>
+            </div>
+            <Button 
+              onClick={() => setShowCreateChannelModal(true)}
+              className="channels-create-button"
+            >
+              + Criar Novo Canal
+            </Button>
+          </div>
+          
+          <div className="settings-fields">
+            {Object.keys(channels).length === 0 ? (
+              <div className="channels-empty">
+                <p>Nenhum canal configurado ainda.</p>
+                <p className="channels-empty-hint">
+                  Clique em "Criar Novo Canal" para configurar Telegram, Signal ou outros mensageiros.
+                </p>
+              </div>
+            ) : (
+              <div className="channels-list">
+                {Object.entries(channels).map(([name, config]: [string, any]) => (
+                  <div key={name} className="channel-item">
+                    <div className="channel-info">
+                      <span className="channel-name">{name}</span>
+                      <span className={`channel-status ${config.enabled ? 'enabled' : 'disabled'}`}>
+                        {config.enabled ? '● Ativo' : '○ Inativo'}
+                      </span>
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => handleToggleChannel(name, config.enabled)}
+                    >
+                      {config.enabled ? 'Desativar' : 'Ativar'}
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </section>
 
@@ -260,6 +347,12 @@ export default function SettingsPage() {
           Salvar Configurações
         </Button>
       </div>
+
+      <CreateChannelModal
+        isOpen={showCreateChannelModal}
+        onClose={() => setShowCreateChannelModal(false)}
+        onSuccess={handleChannelCreated}
+      />
     </div>
   );
 }
