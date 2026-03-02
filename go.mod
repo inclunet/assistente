@@ -12,6 +12,7 @@ require (
 	github.com/gorilla/websocket v1.5.3
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf
 	github.com/modelcontextprotocol/go-sdk v1.3.0
+	github.com/slack-go/slack v0.13.0
 	github.com/wailsapp/wails/v2 v2.10.2
 	golang.design/x/hotkey v0.4.1
 	golang.org/x/net v0.47.0
