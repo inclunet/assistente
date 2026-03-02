@@ -84,7 +84,7 @@ A meta era **escrever o mínimo de código manualmente possível**, delegando a 
 - 🔄 **Auto-update** - atualizações automáticas via GitHub Releases
 - 🎯 **Streaming opcional** - pode ser desativado para melhor acessibilidade
 - 🔌 **Suporte a múltiplos provedores** (OpenAI, Ollama, LM Studio, Azure, etc.)
-- 💬 **Integração com mensageiros** - Telegram e Signal
+- 💬 **Integração com mensageiros** - Telegram, Signal e Slack (guia em [docs/SLACK_CHANNEL_SETUP.md](docs/SLACK_CHANNEL_SETUP.md))
 - 🎭 **Perfis de interação** - personalize o comportamento do assistente
 - 🛠️ **Model Context Protocol (MCP)** - use ferramentas externas
 - 🌍 **Multiplataforma** - Windows, macOS e Linux

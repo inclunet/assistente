@@ -21,6 +21,7 @@ import (
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/messaging/signal"
+	"assistente/internal/messaging/slack"
 	"assistente/internal/messaging/telegram"
 	"assistente/internal/profiles"
 	"assistente/internal/questionnaire"
@@ -363,13 +364,13 @@ func (a *App) initMessaging() {
 		if resp.Cancelled {
 			return false, nil
 		}
-		
+
 		// Valida o código fornecido
 		providedCode, ok := resp.Answers["pairing_code"].(string)
 		if !ok {
 			return false, fmt.Errorf("código de pareamento inválido")
 		}
-		
+
 		// Valida usando a função que retorna (bool, error)
 		valid, validateErr := contacts.ValidatePairingCode(channel, contactID, providedCode)
 		if !valid {
@@ -378,7 +379,7 @@ func (a *App) initMessaging() {
 			}
 			return false, fmt.Errorf("código de pareamento incorreto")
 		}
-		
+
 		return true, nil
 	}
 
@@ -423,6 +424,20 @@ func (a *App) initMessaging() {
 		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", cfg.APIURL, maskIdentifier(cfg.Account))
 	} else {
 		log.Printf("[Messaging] Signal não configurado ou desabilitado")
+	}
+
+	// Slack (Socket Mode)
+	if cfg, ok := enabledChannels["slack"]; ok && cfg.BotToken != "" && cfg.AppToken != "" {
+		adapter := slack.NewAdapter(cfg.BotToken, cfg.AppToken)
+		a.msgGateway.Register("slack", adapter)
+		go func() {
+			if err := adapter.Connect(a.ctx); err != nil {
+				log.Printf("[Messaging] Erro ao conectar Slack: %v", err)
+			}
+		}()
+		log.Printf("[Messaging] Slack habilitado")
+	} else {
+		log.Printf("[Messaging] Slack não configurado ou desabilitado")
 	}
 
 	// Registra a tool send_message no registry de ferramentas
@@ -532,6 +547,20 @@ func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 		}()
 		log.Printf("[Messaging] Signal reconectado (api=%s, account=%s)", cfg.APIURL, maskIdentifier(cfg.Account))
 
+	case "slack":
+		if cfg.BotToken == "" || cfg.AppToken == "" {
+			log.Printf("[Messaging] Slack: bot/app token vazios, não conectando")
+			return
+		}
+		adapter := slack.NewAdapter(cfg.BotToken, cfg.AppToken)
+		a.msgGateway.Register("slack", adapter)
+		go func() {
+			if err := adapter.Connect(a.ctx); err != nil {
+				log.Printf("[Messaging] Erro ao conectar Slack: %v", err)
+			}
+		}()
+		log.Printf("[Messaging] Slack reconectado")
+
 	default:
 		log.Printf("[Messaging] Canal desconhecido: %s", channelName)
 	}
@@ -562,6 +591,7 @@ func (a *App) getSupportedChannelTypes() map[string]struct{} {
 	return map[string]struct{}{
 		"telegram": {},
 		"signal":   {},
+		"slack":    {},
 	}
 }
 
