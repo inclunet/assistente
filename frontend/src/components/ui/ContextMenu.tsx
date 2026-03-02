@@ -235,11 +235,20 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
   // Renderiza items recursivamente
   const renderItems = (itemsList: MenuItem[], level: number): JSX.Element[] => {
-    const validItems = itemsList.filter(item => !item.separator);
     const currentLevelFocus = focusStack[level] || 0;
     const isCurrentLevel = level === submenuStack.length;
 
-    return validItems.map((item, index) => {
+    // O focusStack index é relativo apenas a itens não-separadores.
+    let visibleIndex = -1;
+
+    return itemsList.map((item) => {
+      if (item.separator) {
+        return <div key={item.id} className="context-menu__separator" role="separator" />;
+      }
+
+      visibleIndex += 1;
+      const index = visibleIndex;
+
       const hasSubmenu = item.submenu && item.submenu.length > 0;
       const isSubmenuOpen = submenuStack[level] === item.id;
       const isFocused = isCurrentLevel && index === currentLevelFocus;
@@ -256,9 +265,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
               e.preventDefault();
               if (item.disabled) return;
               if (hasSubmenu) {
-                setSubmenuStack(prev => [...prev.slice(0, level), item.id]);
-                const submenuItems = item.submenu!.filter(subitem => !subitem.separator);
-                setFocusStack(prev => [...prev.slice(0, level + 1), firstFocusableIndex(submenuItems)]);
+                setSubmenuStack((prev) => [...prev.slice(0, level), item.id]);
+                const submenuItems = item.submenu!.filter((subitem) => !subitem.separator);
+                setFocusStack((prev) => [...prev.slice(0, level + 1), firstFocusableIndex(submenuItems)]);
                 announce(`Submenu aberto: ${item.label}. ${submenuItems.length} opções disponíveis.`);
               } else {
                 item.action?.();
