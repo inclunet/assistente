@@ -72,6 +72,12 @@
   flex: 1;
 }
 
+.context-menu__check {
+  flex-shrink: 0;
+  font-size: 12px;
+  opacity: 0.9;
+}
+
 .context-menu__shortcut {
   flex-shrink: 0;
   font-size: 12px;

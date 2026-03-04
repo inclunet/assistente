@@ -20,6 +20,12 @@ export interface MessageNodeProps {
   onContextMenu?: (e: React.MouseEvent, message: any) => void;
   onSpeak?: (message: any) => void;
   onDelete?: (message: any) => void;
+  onSendToEditor?: (payload: {
+    target: 'current' | 'new_tab';
+    format: 'markdown' | 'html' | 'plain';
+    title?: string;
+    content: string;
+  }) => void;
 }
 
 export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
@@ -32,6 +38,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   onContextMenu,
   onSpeak,
   onDelete,
+  onSendToEditor,
 }) => {
   const nodeRef = React.useRef<HTMLDivElement>(null);
   
@@ -458,6 +465,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
           onThreadToggle={handleToggle}
           onContextMenu={onContextMenu}
           onSpeak={handleSpeak}
+          onSendToEditor={onSendToEditor}
           isReading={isReading}
           isEditing={isEditing}
           editContent={editContent}

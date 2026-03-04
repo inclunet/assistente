@@ -6,6 +6,7 @@ export interface MenuItem {
   label?: string;
   icon?: string;
   shortcut?: string;
+  checked?: boolean;
   separator?: boolean;
   disabled?: boolean;
   danger?: boolean;
@@ -20,6 +21,11 @@ export interface ContextMenuProps {
   y?: number;
   visible?: boolean;
   ariaLabel?: string;
+  /**
+   * Quando definido, tenta focar esse item ao abrir (se for focável).
+   * Útil para menus de navegação principal.
+   */
+  initialFocusItemId?: string;
   onClose?: () => void;
   onSelect?: (item: MenuItem) => void;
 }
@@ -30,6 +36,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   y = 0,
   visible = false,
   ariaLabel = 'Menu de contexto',
+  initialFocusItemId,
   onClose,
   onSelect,
 }) => {
@@ -131,13 +138,18 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   useEffect(() => {
     if (visible && menuRef.current) {
       setSubmenuStack([]);
-      setFocusStack([firstFocusableIndex(items.filter((i) => !i.separator))]);
+      const topLevelItems = items.filter((i) => !i.separator);
+      const preferredIndex =
+        initialFocusItemId
+          ? topLevelItems.findIndex((i) => i.id === initialFocusItemId && isFocusableItem(i))
+          : -1;
+      setFocusStack([preferredIndex >= 0 ? preferredIndex : firstFocusableIndex(topLevelItems)]);
       const firstButton = menuRef.current.querySelector('button:not([disabled])');
       if (firstButton instanceof HTMLElement) {
         firstButton.focus();
       }
     }
-  }, [visible, items]);
+  }, [visible, items, initialFocusItemId]);
 
   // Move o foco quando muda
   useEffect(() => {
@@ -283,6 +295,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           >
             {item.icon && <span className="context-menu__icon" aria-hidden="true">{item.icon}</span>}
             <span className="context-menu__label">{item.label}</span>
+            {item.checked && <span className="context-menu__check" aria-hidden="true">✓</span>}
             {item.shortcut && <span className="context-menu__shortcut">{item.shortcut}</span>}
             {hasSubmenu && <span className="context-menu__arrow">▶</span>}
           </button>
@@ -329,3 +342,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
     </>
   );
 };
+
+// Nomes mais padrão/"biblioteca": o ContextMenu já é um Menu genérico.
+export type MenuProps = ContextMenuProps;
+export const Menu = ContextMenu;

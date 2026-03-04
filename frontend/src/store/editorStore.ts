@@ -1,12 +1,36 @@
 import { create } from 'zustand';
 
-export type EditorMode = 'markdown' | 'rich';
+export type EditorMode = 'markdown' | 'rich' | 'view';
+
+export type EditorInsertFormat = 'markdown' | 'html' | 'plain';
+
+export type EditorInsertTarget = 'current' | 'new_tab';
+
+export interface EditorInsertRequest {
+  id: string;
+  target: EditorInsertTarget;
+  format: EditorInsertFormat;
+  content: string;
+  title?: string;
+  /** Quando true, o editor deve focar após inserir. */
+  focus?: boolean;
+  /** Vínculo com a conversa que originou o envio (para contexto do mini-chat). */
+  source?: {
+    chatTabId?: string | null;
+    conversationId?: number | null;
+    messageId?: string | null;
+  };
+}
 
 export interface EditorTab {
   id: string;
   title: string;
   markdown: string;
   mode: EditorMode;
+
+  /** Aba de chat vinculada a este documento (para o mini-chat do editor ter contexto). */
+  linkedChatTabId?: string | null;
+  linkedConversationId?: number | null;
 
   /** Path real no disco (quando já foi salvo/aberto) */
   filePath?: string | null;
@@ -30,11 +54,19 @@ interface EditorState {
   setActiveTab: (tabId: string) => void;
   renameTab: (tabId: string, title: string) => void;
   setTabMarkdown: (tabId: string, markdown: string) => void;
+  setTabMode: (tabId: string, mode: EditorMode) => void;
   toggleTabMode: (tabId: string) => void;
 
   setTabFilePath: (tabId: string, filePath: string | null) => void;
   setTabDraftId: (tabId: string, draftId: string | null) => void;
   setTabDirty: (tabId: string, isDirty: boolean) => void;
+
+  setTabLinkedChat: (tabId: string, link: { chatTabId?: string | null; conversationId?: number | null }) => void;
+
+  /** Requisição pendente para inserir conteúdo no editor ao abrir/ativar a página. */
+  pendingInsert: EditorInsertRequest | null;
+  requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string;
+  consumePendingInsert: () => EditorInsertRequest | null;
 
   setAutoSaveEnabled: (enabled: boolean) => void;
   toggleAutoSave: () => void;
@@ -62,6 +94,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   editorProfileSlug: 'editor-texto',
 
+  pendingInsert: null,
+
   createTab: (initial) => {
     const id = newId();
     const tab: EditorTab = {
@@ -69,6 +103,9 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       title: initial?.title || 'Novo documento',
       markdown: initial?.markdown ?? DEFAULT_MD,
       mode: initial?.mode || 'markdown',
+
+      linkedChatTabId: null,
+      linkedConversationId: null,
 
       filePath: null,
       draftId: id,
@@ -81,6 +118,28 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }));
 
     return id;
+  },
+
+  requestInsert: (req) => {
+    const id = newId();
+    const normalized: EditorInsertRequest = {
+      id,
+      target: req.target,
+      format: req.format,
+      content: String(req.content ?? ''),
+      title: req.title,
+      focus: req.focus,
+      source: req.source,
+    };
+    set({ pendingInsert: normalized });
+    return id;
+  },
+
+  consumePendingInsert: () => {
+    const cur = get().pendingInsert;
+    if (!cur) return null;
+    set({ pendingInsert: null });
+    return cur;
   },
 
   closeTab: (tabId) => {
@@ -115,10 +174,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     }));
   },
 
+  setTabMode: (tabId, mode) => {
+    const next: EditorMode = mode === 'rich' || mode === 'view' ? mode : 'markdown';
+    set((state) => ({
+      tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, mode: next } : t)),
+    }));
+  },
+
   toggleTabMode: (tabId) => {
     set((state) => ({
       tabs: state.tabs.map((t) =>
-        t.id === tabId ? { ...t, mode: t.mode === 'markdown' ? 'rich' : 'markdown' } : t
+        t.id === tabId
+          ? { ...t, mode: t.mode === 'view' ? 'markdown' : t.mode === 'markdown' ? 'rich' : 'markdown' }
+          : t
       ),
     }));
   },
@@ -138,6 +206,20 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   setTabDirty: (tabId, isDirty) => {
     set((state) => ({
       tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, isDirty } : t)),
+    }));
+  },
+
+  setTabLinkedChat: (tabId, link) => {
+    set((state) => ({
+      tabs: state.tabs.map((t) =>
+        t.id === tabId
+          ? {
+              ...t,
+              linkedChatTabId: typeof link?.chatTabId === 'string' ? link.chatTabId : null,
+              linkedConversationId: typeof link?.conversationId === 'number' ? link.conversationId : null,
+            }
+          : t
+      ),
     }));
   },
 

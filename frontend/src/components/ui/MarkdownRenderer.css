@@ -157,6 +157,17 @@
   background-color: var(--color-bg-secondary);
 }
 
+/* Botões inline ao lado de links */
+.markdown-content .send-to-editor-link {
+  flex: none;
+  display: inline-block;
+  margin-left: var(--spacing-xs);
+  padding: 0 6px;
+  line-height: 1.6;
+  font-size: 12px;
+  vertical-align: baseline;
+}
+
 /* Container inline do Monaco Editor */
 .markdown-content .monaco-inline-container {
   height: 250px;

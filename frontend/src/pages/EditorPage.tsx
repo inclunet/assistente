@@ -1,27 +1,31 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Toolbar } from '../components/ui/Toolbar';
 import { ProfilePicker } from '../components/pickers/ProfilePicker';
 import { EditorTabs } from '../components/editor/EditorTabs';
 import { CodeEditor } from '../components/ui/CodeEditor';
 import { MarkdownRenderer } from '../components/ui/MarkdownRenderer';
+import { ContextMenu, type MenuItem } from '../components/ui/ContextMenu';
+import { useAnchoredContextMenu } from '../hooks/useAnchoredContextMenu';
 import { MermaidEditorModal } from '../components/editor/MermaidEditorModal';
 import { RichTextEditor } from '../components/editor/RichTextEditor';
 import { EditorInlineChatModal } from '@/components/editor/EditorInlineChatModal';
-import { useEditorStore, type EditorMode, type EditorTab } from '../store/editorStore';
+import { useEditorStore, type EditorMode, type EditorTab, type EditorInsertRequest } from '../store/editorStore';
 import { useEditorTabsKeyboardShortcuts } from '../hooks/useEditorTabsKeyboardShortcuts';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
-import { EventsOn } from '@wailsjs/runtime/runtime';
 import { createTwoFilesPatch } from 'diff';
-import { buildEditorPatchPrompt, extractEditorPatch } from '../lib/editorPatch';
+import { buildEditorPatchPrompt } from '../lib/editorPatch';
 import { applyTextReplacementByOffset } from '../lib/editorPatchApply';
 import { applyRichTextInsert } from '../lib/richTextPatchApply';
 import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
 import { markdownToHtml } from '../lib/markdownToHtml';
+import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
+import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import {
   EditorDeleteDraft,
   EditorGetFileInfo,
@@ -43,11 +47,12 @@ export default function EditorPage() {
   const { addToast } = useUIStore();
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
+  const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId } = useEditorInlineChatPatch();
+
 
   const tabs = useEditorStore((s) => s.tabs);
   const activeTabId = useEditorStore((s) => s.activeTabId);
   const createTab = useEditorStore((s) => s.createTab);
-  const toggleTabMode = useEditorStore((s) => s.toggleTabMode);
   const setTabMarkdown = useEditorStore((s) => s.setTabMarkdown);
   const renameTab = useEditorStore((s) => s.renameTab);
   const setTabFilePath = useEditorStore((s) => s.setTabFilePath);
@@ -58,6 +63,7 @@ export default function EditorPage() {
   const editorProfileSlug = useEditorStore((s) => s.editorProfileSlug);
   const setEditorProfileSlug = useEditorStore((s) => s.setEditorProfileSlug);
   const hydrate = useEditorStore((s) => s.hydrate);
+  const setTabLinkedChat = useEditorStore((s) => s.setTabLinkedChat);
 
   const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) || null, [tabs, activeTabId]);
 
@@ -70,12 +76,73 @@ export default function EditorPage() {
   const richEditorRef = useRef<any>(null);
 
   const [isAsking, setIsAsking] = useState(false);
-  const [showPreview, setShowPreview] = useState(true);
 
   const [activeMermaidIndex, setActiveMermaidIndex] = useState<number | null>(null);
   const [mermaidInitialCode, setMermaidInitialCode] = useState('');
   const [mermaidInsertText, setMermaidInsertText] = useState('');
   const [richMermaidSession, setRichMermaidSession] = useState<any | null>(null);
+
+  type RichMermaidHit = { pos: number; node: any };
+
+  const findRichMermaidById = useCallback((ed: any, mermaidBlockId: string): RichMermaidHit | null => {
+    const target = String(mermaidBlockId || '').trim();
+    if (!ed || !target) return null;
+    const doc = ed.state?.doc;
+    if (!doc) return null;
+
+    let found: RichMermaidHit | null = null;
+    doc.descendants((node: any, pos: number) => {
+      const lang = String(node?.attrs?.language || '').toLowerCase();
+      const id = String(node?.attrs?.mermaidBlockId || '').trim();
+      if (lang === 'mermaid' && id === target) {
+        found = { pos, node };
+        return false;
+      }
+      return true;
+    });
+    return found;
+  }, []);
+
+  const applyRichMermaidById = useCallback(
+    (mermaidBlockId: string, nextCode: string): boolean => {
+      const ed = richEditorRef.current;
+      const hit = findRichMermaidById(ed, mermaidBlockId);
+      if (!ed || !hit) return false;
+
+      try {
+        const from = hit.pos + 1;
+        const to = hit.pos + hit.node.nodeSize - 1;
+        ed.commands.command(({ tr, state }: any) => {
+          tr.replaceWith(from, to, state.schema.text(String(nextCode || '')));
+          return true;
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [findRichMermaidById]
+  );
+
+  const removeRichMermaidById = useCallback(
+    (mermaidBlockId: string): boolean => {
+      const ed = richEditorRef.current;
+      const hit = findRichMermaidById(ed, mermaidBlockId);
+      if (!ed || !hit) return false;
+      try {
+        const from = hit.pos;
+        const to = hit.pos + hit.node.nodeSize;
+        ed.commands.command(({ tr }: any) => {
+          tr.delete(from, to);
+          return true;
+        });
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [findRichMermaidById]
+  );
 
   // Foco previsível após fechar o modal Mermaid.
   const prevMermaidOpenRef = useRef(false);
@@ -106,9 +173,12 @@ export default function EditorPage() {
         mode: 'rich';
         tabId: string;
         selectedText: string;
+        /** Versão Markdown do trecho selecionado (melhor para prompt/preview) */
+        selectedMarkdown?: string;
         selectionIsEmpty?: boolean;
         cursorContext?: string;
         displayText?: string;
+        displayMarkdown?: string;
         from: number;
         to: number;
         snapshot: string;
@@ -121,6 +191,9 @@ export default function EditorPage() {
   const [inlineChatFocusNonce, setInlineChatFocusNonce] = useState(0);
 
   const [sessionLoaded, setSessionLoaded] = useState(false);
+
+  const [editorReadyNonce, setEditorReadyNonce] = useState(0);
+  const [pendingInsert, setPendingInsert] = useState<EditorInsertRequest | null>(null);
 
   const fileModeByPathRef = useRef<Record<string, 'markdown' | 'rich'>>({});
 
@@ -513,6 +586,10 @@ export default function EditorPage() {
     const tab = currentTabs.find((t) => t.id === tabId) || null;
     if (!tab) return;
 
+    if (tab.mode === 'rich' && useEditorStore.getState().activeTabId === tabId) {
+      flushActiveRichMarkdownNow();
+    }
+
     const mergeSession = getMergeSession(tabId);
     if (mergeSession) {
       const markdown = getCachedMarkdownForTab(tab);
@@ -659,7 +736,7 @@ export default function EditorPage() {
             markdown = '';
           }
 
-          const mode: EditorMode = t?.mode === 'rich' ? 'rich' : 'markdown';
+          const mode: EditorMode = t?.mode === 'rich' ? 'rich' : t?.mode === 'view' ? 'view' : 'markdown';
           const title = String(t?.title || (filePath ? basenameFromPath(filePath) : 'Novo documento')) || 'Novo documento';
 
           loadedTabs.push({
@@ -764,7 +841,9 @@ export default function EditorPage() {
       try {
         for (const t of tabs) {
           if (t.filePath) {
-            fileModeByPathRef.current[normalizePathKey(String(t.filePath))] = t.mode;
+            if (t.mode === 'markdown' || t.mode === 'rich') {
+              fileModeByPathRef.current[normalizePathKey(String(t.filePath))] = t.mode;
+            }
           }
         }
       } catch {
@@ -827,7 +906,9 @@ export default function EditorPage() {
       try {
         for (const t of tabs) {
           if (t.filePath) {
-            fileModeByPathRef.current[normalizePathKey(String(t.filePath))] = t.mode;
+            if (t.mode === 'markdown' || t.mode === 'rich') {
+              fileModeByPathRef.current[normalizePathKey(String(t.filePath))] = t.mode;
+            }
           }
         }
       } catch {
@@ -1179,6 +1260,37 @@ export default function EditorPage() {
     return () => window.removeEventListener('keydown', onKeyDown, true);
   }, [activeTab?.id, activeTab?.mode]);
 
+  // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.
+  // Não rouba foco de modais nem de campos de digitação.
+  const didInitialEditorAutofocusRef = useRef(false);
+  useEffect(() => {
+    if (!sessionLoaded) return;
+    if (!activeTab) return;
+    if (inlineChatOpen) return;
+    if (document.querySelector('.simple-modal-overlay')) return;
+
+    const el = document.activeElement as HTMLElement | null;
+    const tag = el?.tagName || '';
+    const isTypingTarget =
+      !!el &&
+      (tag === 'INPUT' ||
+        tag === 'TEXTAREA' ||
+        el.isContentEditable ||
+        el.getAttribute?.('role') === 'textbox');
+
+    // Primeira entrada: sempre tenta focar o editor.
+    if (!didInitialEditorAutofocusRef.current) {
+      didInitialEditorAutofocusRef.current = true;
+      focusEditorSoon();
+      return;
+    }
+
+    // Mudança de aba/modo: se o foco estiver em tabs/toolbar, manda pro editor.
+    if (!isTypingTarget && (el?.closest?.('.editor-tabs') || el?.closest?.('.editor-page__toolbar'))) {
+      focusEditorSoon();
+    }
+  }, [sessionLoaded, activeTab?.id, activeTab?.mode, inlineChatOpen, focusEditorSoon]);
+
   // Limpa drafts quando uma aba (rascunho) é fechada
   const prevTabsRef = useRef<typeof tabs>([]);
   useEffect(() => {
@@ -1199,195 +1311,6 @@ export default function EditorPage() {
       EditorDeleteDraft(draftId).catch(() => null);
     }
   }, [sessionLoaded, tabs]);
-
-  const waitForChatDone = (expectedConversationId?: number, timeoutMs = 5 * 60 * 1000) => {
-    return new Promise<number>((resolve, reject) => {
-      let timer: number;
-      const unsub = EventsOn('chat:done', (data: any) => {
-        const convId = data?.conversationId;
-        if (typeof convId !== 'number') return;
-        if (expectedConversationId && expectedConversationId > 0 && convId !== expectedConversationId) return;
-        window.clearTimeout(timer);
-        unsub();
-        resolve(convId);
-      });
-
-      timer = window.setTimeout(() => {
-        unsub();
-        reject(new Error('Timeout aguardando chat:done'));
-      }, timeoutMs);
-    });
-  };
-
-  const parseToolCalls = (toolCallsJson: any): any[] => {
-    if (!toolCallsJson) return [];
-
-    // Banco/Wails normalmente entrega string JSON em message.toolCalls.
-    // Mas aceitamos também o caso de já ser um array/objeto.
-    if (Array.isArray(toolCallsJson)) return toolCallsJson;
-    if (typeof toolCallsJson === 'object') return [toolCallsJson];
-
-    if (typeof toolCallsJson !== 'string') return [];
-    const raw = toolCallsJson.trim();
-    if (!raw) return [];
-
-    try {
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [parsed];
-    } catch {
-      return [];
-    }
-  };
-
-  const extractTextEditToolCallIds = (toolCallsJson: any): string[] => {
-    const calls = parseToolCalls(toolCallsJson);
-    const ids: string[] = [];
-    for (const c of calls) {
-      const name = String(c?.function?.name || c?.name || '').trim();
-      const id = String(c?.id || c?.callId || '').trim();
-      if (name === 'text_edit' && id) ids.push(id);
-    }
-    return ids;
-  };
-
-  const parseEditorPatchFromToolResultContent = (toolContent: string): any => {
-    const raw = String(toolContent || '').trim();
-    if (!raw) return null;
-    try {
-      const parsed = JSON.parse(raw);
-      // Pode vir direto como patch, ou embrulhado (não deveria, mas aceitamos).
-      const candidate = parsed?.patch && typeof parsed?.patch === 'object' ? parsed.patch : parsed;
-      if (candidate?.v !== 1 || candidate?.op !== 'replace_selection') return null;
-      if (candidate?.format !== 'markdown' && candidate?.format !== 'plain') return null;
-      if (typeof candidate?.replacement !== 'string') return null;
-      return candidate;
-    } catch {
-      return null;
-    }
-  };
-
-  const getMaxNumericMessageId = (messages: any[]): number => {
-    let maxId = 0;
-    for (const m of messages) {
-      const n = typeof m?.id === 'number' ? m.id : parseInt(String(m?.id || ''), 10);
-      if (!isNaN(n) && n > maxId) maxId = n;
-    }
-    return maxId;
-  };
-
-  const findLatestEditorPatch = (
-    chatTabId: string,
-    opts?: {
-      /** Ignora mensagens com id <= afterMessageId (evita pegar patches antigos) */
-      afterMessageId?: number;
-      /** Se true, prioriza tool calling (text_edit) em vez de patch no corpo */
-      preferToolCalling?: boolean;
-      /** Se false, NUNCA tenta extrair patch do corpo (modo tool-only) */
-      allowBodyFallback?: boolean;
-    }
-  ): any => {
-    const afterState = useChatStore.getState();
-    const allMessages = afterState.getTabMessages(chatTabId);
-    const afterMessageId = opts?.afterMessageId || 0;
-    const preferToolCalling = opts?.preferToolCalling !== false;
-
-    const messages = afterMessageId > 0
-      ? allMessages.filter((m: any) => {
-          const n = typeof m?.id === 'number' ? m.id : parseInt(String(m?.id || ''), 10);
-          return !isNaN(n) && n > afterMessageId;
-        })
-      : allMessages;
-
-    const allowBodyFallback = opts?.allowBodyFallback !== false;
-
-    // Indexa resultados de tools por toolCallId
-    const toolResultsByCallId = new Map<string, string>();
-    for (const m of messages) {
-      if (m?.role !== 'tool') continue;
-      const callId = String(m?.toolCallId || '').trim();
-      if (!callId) continue;
-      toolResultsByCallId.set(callId, String(m?.content || ''));
-    }
-
-    // Passo 1 (preferido): assistant tool_calls(text_edit) + tool_result correspondente.
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg: any = messages[i];
-      if (msg?.role !== 'assistant') continue;
-
-      const textEditCallIds = extractTextEditToolCallIds(msg?.toolCalls);
-      if (textEditCallIds.length > 0) {
-        // Pega o último text_edit deste assistant
-        for (let j = textEditCallIds.length - 1; j >= 0; j--) {
-          const callId = textEditCallIds[j];
-          const toolContent = toolResultsByCallId.get(callId);
-          if (!toolContent) continue;
-
-          const patch = parseEditorPatchFromToolResultContent(toolContent);
-          if (patch) return { ok: true, patch, source: 'tool' } as any;
-
-          // Caso a tool tenha retornado mensagem de rejeição/erro, propaga isso.
-          const toolText = String(toolContent || '').trim();
-          if (toolText) {
-            return { ok: false, error: toolText } as any;
-          }
-        }
-
-        // Tem tool_calls, mas ainda não apareceu o tool_result correspondente.
-        return { ok: false, error: 'Aguardando resultado da ferramenta…' } as any;
-      }
-    }
-
-    // Passo 2 (fallback): patch no corpo da resposta (apenas quando não há tool calling)
-    if (!preferToolCalling) {
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const msg: any = messages[i];
-        if (msg?.role !== 'assistant') continue;
-        const content = String(msg?.content || '');
-        const extracted = extractEditorPatch(content);
-        if (extracted.ok) return { ...extracted, source: 'body' } as any;
-      }
-      return { ok: false, error: 'Nenhum patch encontrado' } as any;
-    }
-
-    // preferToolCalling=true: só aceita patch do corpo se explicitamente permitido.
-    if (allowBodyFallback) {
-      for (let i = messages.length - 1; i >= 0; i--) {
-        const msg: any = messages[i];
-        if (msg?.role !== 'assistant') continue;
-        const content = String(msg?.content || '');
-        const extracted = extractEditorPatch(content);
-        if (extracted.ok) return { ...extracted, source: 'body' } as any;
-      }
-    }
-
-    return {
-      ok: false,
-      error: allowBodyFallback
-        ? 'Nenhum patch encontrado'
-        : 'Tool calling está ativo: aguardando um text_edit (nenhum tool_call foi recebido).',
-    } as any;
-  };
-
-  const waitForEditorPatch = async (
-    chatTabId: string,
-    opts?: {
-      afterMessageId?: number;
-      preferToolCalling?: boolean;
-      allowBodyFallback?: boolean;
-      timeoutMs?: number;
-    }
-  ) => {
-    const timeoutMs = typeof opts?.timeoutMs === 'number' ? opts.timeoutMs : 5000;
-    const startedAt = Date.now();
-    while (Date.now() - startedAt < timeoutMs) {
-      const found = findLatestEditorPatch(chatTabId, opts);
-      if (found?.ok) return found;
-      await new Promise((r) => setTimeout(r, 120));
-    }
-
-    // Última tentativa: retorna o melhor erro que tivermos
-    return findLatestEditorPatch(chatTabId, opts);
-  };
 
   const getSelectionSnapshot = () => {
     const editor = editorRef.current;
@@ -1438,6 +1361,33 @@ export default function EditorPage() {
     const { from, to, empty } = sel;
     const selectedText = editor.state.doc.textBetween(from, to, '\n');
 
+    const serializer = (editor.storage as any)?.markdown?.serializer;
+    const serializeNodeToMarkdown = (node: any): string => {
+      try {
+        if (serializer?.serialize) return String(serializer.serialize(node) ?? '');
+      } catch {
+        // best-effort
+      }
+      return '';
+    };
+
+    const getMarkdownForRange = (fromPos: number, toPos: number) => {
+      try {
+        const doc = editor.state?.doc;
+        if (!doc) return '';
+        // `cut` retorna um Node do tipo doc com o conteúdo do range.
+        const cut = doc.cut(Math.max(0, fromPos), Math.max(0, toPos));
+        return serializeNodeToMarkdown(cut);
+      } catch {
+        return '';
+      }
+    };
+
+    let selectedMarkdown = '';
+    if (!empty && to > from) {
+      selectedMarkdown = getMarkdownForRange(from, to);
+    }
+
     // Contexto ao redor do cursor (para inserção quando empty=true)
     let cursorContext = '';
     try {
@@ -1453,12 +1403,54 @@ export default function EditorPage() {
     }
 
     const selectionIsEmpty = !!empty || !selectedText;
-    const displayText = selectionIsEmpty ? (cursorContext || '(cursor)') : selectedText;
 
-    return { selectedText, selectionIsEmpty, cursorContext, displayText, from, to };
+    // Quando não há seleção, usa o bloco atual como “contexto” em Markdown.
+    let displayMarkdown = selectedMarkdown;
+    if (selectionIsEmpty) {
+      try {
+        const $from = (sel as any).$from;
+        if ($from) {
+          let depth = $from.depth;
+          while (depth > 0 && !$from.node(depth)?.isBlock) depth -= 1;
+          if (depth > 0) {
+            const nodeStart = $from.before(depth);
+            const nodeSize = $from.node(depth)?.nodeSize ?? 0;
+            const nodeEnd = nodeStart + nodeSize;
+            if (nodeSize > 0) {
+              displayMarkdown = getMarkdownForRange(nodeStart, nodeEnd);
+            }
+          }
+        }
+      } catch {
+        // best-effort
+      }
+    }
+
+    const displayText = selectionIsEmpty ? (cursorContext || '(cursor)') : selectedText;
+    const displayForContextPanel = displayMarkdown || (selectionIsEmpty ? (cursorContext || '(cursor)') : selectedText);
+
+    // Snapshot do documento (para debug/consistência): prefere o Markdown atual do TipTap.
+    let snapshot = '';
+    try {
+      snapshot = String((editor.storage as any)?.markdown?.getMarkdown?.() ?? '');
+    } catch {
+      snapshot = '';
+    }
+
+    return {
+      selectedText,
+      selectedMarkdown: selectedMarkdown || undefined,
+      selectionIsEmpty,
+      cursorContext,
+      displayText,
+      displayMarkdown: displayForContextPanel || undefined,
+      from,
+      to,
+      snapshot,
+    };
   };
 
-  const focusEditorSoon = () => {
+  function focusEditorSoon() {
     window.setTimeout(() => {
       try {
         if (!activeTab) return;
@@ -1472,7 +1464,175 @@ export default function EditorPage() {
         // best-effort
       }
     }, 20);
+  }
+
+  const flushActiveRichMarkdownNow = () => {
+    try {
+      const tab = useEditorStore.getState().tabs.find((t) => t.id === useEditorStore.getState().activeTabId) || null;
+      if (!tab || tab.mode !== 'rich') return;
+      const rich = richEditorRef.current;
+      (rich as any)?.__flushMarkdown?.();
+    } catch {
+      // best-effort
+    }
   };
+
+  const applyInsertRequest = async (req: EditorInsertRequest): Promise<boolean> => {
+    const r = req;
+    const content = String(r?.content ?? '');
+    if (!content) return true;
+
+    let targetTab = activeTab;
+
+    if (r.target === 'new_tab' || !targetTab) {
+      const title = String(r.title || 'Do chat');
+      const createdId = useEditorStore.getState().createTab({ title, markdown: '', mode: 'markdown' });
+      targetTab = useEditorStore.getState().tabs.find((t) => t.id === createdId) || null;
+      // `createTab` já ativa a aba; aguarda um tick para o editor montar.
+      await new Promise((res) => setTimeout(res, 0));
+    }
+
+    if (!targetTab) return false;
+
+    // Vínculo do chat → editor (para o mini-chat manter contexto)
+    if (r.source?.chatTabId || typeof r.source?.conversationId === 'number') {
+      setTabLinkedChat(targetTab.id, {
+        chatTabId: r.source?.chatTabId ?? null,
+        conversationId: typeof r.source?.conversationId === 'number' ? r.source?.conversationId : null,
+      });
+    }
+
+    const focusAfter = r.focus !== false;
+
+    if (targetTab.mode === 'markdown') {
+      const editor = editorRef.current;
+      const monaco = monacoRef.current;
+      const model = editor?.getModel?.();
+      const selection = editor?.getSelection?.();
+
+      if (editor && monaco && model && selection) {
+        const hasFocus = !!editor.hasTextFocus?.();
+        const isEmptySel = !!selection.isEmpty?.();
+        const selStart = selection.getStartPosition();
+        const currentText = model.getValue?.() ?? '';
+        const { useSelection, textToInsert } = computeMonacoInsertText({
+          hasFocus,
+          selectionIsEmpty: isEmptySel,
+          selectionStart: { lineNumber: selStart.lineNumber, column: selStart.column },
+          currentText,
+          content,
+        });
+
+        // Se não há foco e a seleção é vazia (comum após navegação),
+        // inserir no fim do documento é mais previsível do que no início.
+        const endOffset = model.getValueLength?.() ?? currentText.length;
+        const endPos = model.getPositionAt(endOffset);
+
+        const insertRange = useSelection
+          ? selection
+          : (typeof (monaco as any).Range === 'function'
+              ? new (monaco as any).Range(endPos.lineNumber, endPos.column, endPos.lineNumber, endPos.column)
+              : {
+                  startLineNumber: endPos.lineNumber,
+                  startColumn: endPos.column,
+                  endLineNumber: endPos.lineNumber,
+                  endColumn: endPos.column,
+                });
+
+        const startPos = useSelection ? selStart : endPos;
+        const startOffset = model.getOffsetAt(startPos);
+
+        editor.executeEdits('chat-to-editor-insert', [
+          {
+            range: insertRange as any,
+            text: textToInsert,
+            forceMoveMarkers: true,
+          },
+        ]);
+
+        const nextOffset = startOffset + textToInsert.length;
+        const nextPos = model.getPositionAt(nextOffset);
+        editor.setPosition(nextPos);
+        editor.revealPositionInCenter(nextPos);
+        if (focusAfter) editor.focus();
+        return true;
+      }
+
+      // Fallback: se o Monaco ainda não montou, aplica no markdown da aba (no final) e tenta focar depois.
+      const current = String(targetTab.markdown ?? '');
+      const nextText = current ? current + '\n\n' + content : content;
+      setTabMarkdown(targetTab.id, nextText);
+      updateLatestMarkdownForTab(targetTab.id, nextText);
+      schedulePersistForTab(targetTab.id);
+      if (focusAfter) focusEditorSoon();
+      return true;
+    }
+
+    // Rich: insere no cursor/seleção atual.
+    const rich = richEditorRef.current;
+    if (!rich) return false;
+    const sel = rich.state?.selection;
+    if (!sel) return false;
+
+    const from = Number(sel.from);
+    const to = Number(sel.to);
+
+    let contentToInsert: any = content;
+    if (r.format === 'markdown') {
+      contentToInsert = markdownToHtml(content);
+    } else if (r.format === 'plain') {
+      // Inserção como texto puro (sem interpretar como HTML).
+      // Para manter comportamento previsível, tratamos como texto.
+      contentToInsert = { type: 'text', text: content };
+    }
+
+    applyRichTextInsert({ rich, from, to, contentToInsert });
+    flushActiveRichMarkdownNow();
+    if (focusAfter) {
+      try {
+        rich.commands?.focus?.();
+        rich.view?.focus?.();
+      } catch {
+        // best-effort
+      }
+    }
+    return true;
+  };
+
+  // Consome requisições vindas do Chat → Editor (aba atual ou nova)
+  useEffect(() => {
+    if (!sessionLoaded) return;
+    if (pendingInsert) return;
+    const req = useEditorStore.getState().consumePendingInsert();
+    if (req) setPendingInsert(req);
+  }, [sessionLoaded, pendingInsert]);
+
+  // Tenta aplicar quando o editor (Monaco/TipTap) estiver pronto.
+  useEffect(() => {
+    if (!pendingInsert) return;
+
+    let cancelled = false;
+    (async () => {
+      // Tenta algumas vezes para cobrir o tempo de navegação/mount.
+      for (let i = 0; i < 10; i += 1) {
+        if (cancelled) return;
+        const ok = await applyInsertRequest(pendingInsert);
+        if (ok) {
+          setPendingInsert(null);
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 60));
+      }
+
+      // Se falhar, mantém pendente mas avisa.
+      addToast('Não foi possível inserir no editor (tentativa esgotada). Abra o Editor e tente novamente.', 'error');
+      setPendingInsert(null);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pendingInsert, editorReadyNonce]);
 
   const closeInlineChatModal = () => {
     inlineChatRunIdRef.current += 1;
@@ -1487,7 +1647,18 @@ export default function EditorPage() {
     if (!activeTab) return;
 
     const chatState = useChatStore.getState();
-    if (!chatState.activeTabId) {
+
+    // Se este doc está vinculado a uma conversa, usa essa aba por padrão.
+    const preferredChatTabId = String(activeTab.linkedChatTabId || '');
+    if (preferredChatTabId && preferredChatTabId !== chatState.activeTabId) {
+      try {
+        await chatState.setActiveTab(preferredChatTabId);
+      } catch {
+        // best-effort
+      }
+    }
+
+    if (!useChatStore.getState().activeTabId) {
       addToast('Nenhuma aba de chat ativa para enviar a mensagem.', 'error');
       return;
     }
@@ -1512,7 +1683,7 @@ export default function EditorPage() {
     const snapshot =
       activeTab.mode === 'markdown'
         ? (editorRef.current?.getModel?.()?.getValue?.() ?? activeTab.markdown)
-        : activeTab.markdown;
+        : (selectionRaw as any)?.snapshot ?? activeTab.markdown;
     const selection: InlineChatSelection =
       activeTab.mode === 'markdown'
         ? {
@@ -1530,9 +1701,11 @@ export default function EditorPage() {
             mode: 'rich',
             tabId: activeTab.id,
             selectedText: selectionRaw.selectedText,
+            selectedMarkdown: (selectionRaw as any)?.selectedMarkdown,
             selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
             cursorContext: (selectionRaw as any).cursorContext,
             displayText: (selectionRaw as any).displayText,
+            displayMarkdown: (selectionRaw as any)?.displayMarkdown,
             from: (selectionRaw as any).from,
             to: (selectionRaw as any).to,
             snapshot,
@@ -1562,6 +1735,16 @@ export default function EditorPage() {
       return;
     }
 
+    // Se este doc está vinculado a uma conversa, usa essa aba por padrão.
+    const preferredChatTabId = String(activeTab?.linkedChatTabId || '');
+    if (preferredChatTabId && preferredChatTabId !== chatState.activeTabId) {
+      try {
+        await chatState.setActiveTab(preferredChatTabId);
+      } catch {
+        // best-effort
+      }
+    }
+
     const chatTabId = chatState.activeTabId;
     const chatTab = chatTabId ? chatState.tabs.find((t) => t.id === chatTabId) : undefined;
     const expectedConversationId = chatTab?.conversationId;
@@ -1579,7 +1762,10 @@ export default function EditorPage() {
 
     const prompt = buildEditorPatchPrompt({
       instruction: trimmed,
-      selectedText: inlineChatSelection.selectedText,
+      selectedText:
+        inlineChatSelection.mode === 'rich'
+          ? String((inlineChatSelection as any)?.selectedMarkdown || inlineChatSelection.selectedText || '')
+          : inlineChatSelection.selectedText,
       format: 'markdown',
       selectionIsEmpty: !!(inlineChatSelection as any)?.selectionIsEmpty,
       cursorContext: (inlineChatSelection as any)?.cursorContext,
@@ -1756,6 +1942,7 @@ export default function EditorPage() {
         const contentToInsert = !isMarkdown ? replacement : markdownToHtml(replacement);
         applyRichTextInsert({ rich, from: s.from, to: s.to, contentToInsert });
         addToast('Alteração aplicada', 'success');
+        flushActiveRichMarkdownNow();
       }
 
       setInlineChatError(null);
@@ -1766,7 +1953,7 @@ export default function EditorPage() {
     };
 
     const confirmInlinePatch = async (selection: InlineChatSelection, patch: any) => {
-      const before = String(selection?.selectedText || '');
+      const before = String((selection as any)?.selectedMarkdown || selection?.selectedText || '');
       const after = normalizeReplacementForEditor(String(patch?.replacement || ''), patch?.format, selection?.selectedText);
       const notes = String(patch?.notes || '').trim();
 
@@ -1870,7 +2057,9 @@ export default function EditorPage() {
       if (!path) return;
 
       const key = normalizePathKey(path);
-      const preferredMode = fileModeByPathRef.current[key] || tabs.find((t) => t.filePath && normalizePathKey(String(t.filePath)) === key)?.mode || 'markdown';
+      const fromTabs = tabs.find((t) => t.filePath && normalizePathKey(String(t.filePath)) === key)?.mode;
+      const preferredMode: EditorMode =
+        fileModeByPathRef.current[key] || (fromTabs === 'rich' ? 'rich' : 'markdown');
 
       const title = basenameFromPath(path);
       const id = createTab({ title, markdown: String(res?.content || ''), mode: preferredMode });
@@ -1883,7 +2072,7 @@ export default function EditorPage() {
       setDiskBaselineForTab(id, String(res?.content || ''));
       void refreshDiskInfoForTab({ id, title, markdown: String(res?.content || ''), mode: preferredMode, filePath: path } as any);
 
-      fileModeByPathRef.current[key] = preferredMode;
+      fileModeByPathRef.current[key] = preferredMode === 'rich' ? 'rich' : 'markdown';
 
       // createTab cria um draftId por padrão; como agora é um arquivo real, limpamos.
       EditorDeleteDraft(id).catch(() => null);
@@ -1953,6 +2142,7 @@ export default function EditorPage() {
   const saveFile = async () => {
     if (!activeTab) return;
     try {
+      if (activeTab.mode === 'rich') flushActiveRichMarkdownNow();
       const content = getCachedMarkdownForTab(activeTab);
       updateLatestMarkdownForTab(activeTab.id, content);
 
@@ -2020,6 +2210,7 @@ export default function EditorPage() {
   const saveFileAsCopy = async () => {
     if (!activeTab?.filePath) return;
     try {
+      if (activeTab.mode === 'rich') flushActiveRichMarkdownNow();
       const suggested = basenameFromPath(activeTab.filePath);
       const path = String(await EditorSaveFileDialog(suggested) || '').trim();
       if (!path) return;
@@ -2125,6 +2316,10 @@ export default function EditorPage() {
       if (e.ctrlKey && e.shiftKey && (e.code === 'KeyI' || e.key === 'i' || e.key === 'I') && !e.altKey) {
         e.preventDefault();
         if (isAsking) return;
+        if (activeTab?.mode === 'view') {
+          addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
+          return;
+        }
         if (document.querySelector('.simple-modal-overlay')) return;
         await askInlineChatRef.current();
       }
@@ -2132,67 +2327,55 @@ export default function EditorPage() {
 
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [isAsking]);
+  }, [isAsking, activeTab?.mode, addToast]);
 
-  const actions = useMemo(() => {
-    const modeLabel = activeTab?.mode === 'markdown' ? 'Modo rico' : 'Modo Markdown';
-    const previewLabel = showPreview ? 'Ocultar preview' : 'Mostrar preview';
-
+  const fileMenuItems = useMemo(() => {
     const canSave = !!activeTab && (!activeTab.filePath || !autoSaveEnabled || isExternalConflictLocked(activeTab.id));
     const canSaveAs = !!activeTab?.filePath;
-    const autoSaveLabel = autoSaveEnabled ? 'AutoSave: ligado' : 'AutoSave: desligado';
-
     const hasMergeSession = !!activeTab && !!getMergeSession(activeTab.id);
 
-    return [
+    const items = [
+      { value: 'new', label: 'Novo', sublabel: 'Ctrl+N' },
+      { value: 'open', label: 'Abrir', sublabel: 'Ctrl+O' },
+      { value: 'save', label: 'Salvar', sublabel: 'Ctrl+S', disabled: !canSave },
+      ...(hasMergeSession
+        ? [{ value: 'abort-merge', label: 'Abortar merge (Git)', sublabel: 'Descarta marcadores de conflito' }]
+        : []),
+      { value: 'saveas', label: 'Salvar como...', sublabel: 'Ctrl+Shift+S', disabled: !canSaveAs },
       {
-        key: 'new',
-        label: 'Novo',
-        icon: '+',
-        shortcut: 'Ctrl+N',
-        onClick: () => {
+        value: 'autosave',
+        label: 'Auto-salvar',
+        sublabel: autoSaveEnabled ? 'Ligado' : 'Desligado',
+        disabled: !activeTab,
+      },
+    ];
+
+    return items;
+  }, [activeTab, autoSaveEnabled]);
+
+  const onFileMenuSelect = useCallback(
+    async (value: string) => {
+      const v = String(value || '').trim();
+      if (!v) return;
+
+      switch (v) {
+        case 'new':
           createTab();
           focusEditorSoon();
-        },
-      },
-      {
-        key: 'open',
-        label: 'Abrir',
-        icon: '📂',
-        shortcut: 'Ctrl+O',
-        onClick: openFile,
-      },
-      {
-        key: 'save',
-        label: 'Salvar',
-        icon: '💾',
-        shortcut: 'Ctrl+S',
-        onClick: saveFile,
-        disabled: !canSave,
-      },
-      ...(hasMergeSession
-        ? [
-            {
-              key: 'abort-merge',
-              label: 'Abortar merge',
-              icon: '⟲',
-              onClick: abortMerge,
-            },
-          ]
-        : []),
-      {
-        key: 'saveas',
-        label: 'Salvar como',
-        icon: '📄',
-        shortcut: 'Ctrl+Shift+S',
-        onClick: saveFileAsCopy,
-        disabled: !canSaveAs,
-      },
-      {
-        key: 'autosave',
-        label: autoSaveLabel,
-        icon: autoSaveEnabled ? '🟢' : '⚪',
-        onClick: () => {
+          return;
+        case 'open':
+          await openFile();
+          return;
+        case 'save':
+          await saveFile();
+          return;
+        case 'abort-merge':
+          await abortMerge();
+          return;
+        case 'saveas':
+          await saveFileAsCopy();
+          return;
+        case 'autosave': {
           toggleAutoSave();
 
           // Se acabou de ligar e já tem destino, tenta persistir imediatamente.
@@ -2202,27 +2385,391 @@ export default function EditorPage() {
           }
 
           focusEditorSoon();
+          return;
+        }
+        default:
+          return;
+      }
+    },
+    [createTab, openFile, saveFile, abortMerge, saveFileAsCopy, toggleAutoSave, autoSaveEnabled, activeTab]
+  );
+
+  const {
+    menu: toolbarMenu,
+    triggerElementRef: toolbarMenuTriggerRef,
+    openForTrigger: openToolbarMenu,
+    closeMenu: closeToolbarMenu,
+    onSelectItem: handleToolbarMenuSelect,
+  } = useAnchoredContextMenu({
+    onAfterSelect: () => {
+      focusEditorSoon();
+
+      // Se por algum motivo não focar (ex: modo view), volta ao botão.
+      window.setTimeout(() => {
+        const a = document.activeElement as HTMLElement | null;
+        const inEditor =
+          !!a &&
+          (a.closest?.('.monaco-editor') || a.closest?.('.rich-text-editor__content') || a.closest?.('.rich-text-editor'));
+        if (!inEditor) {
+          toolbarMenuTriggerRef.current?.focus?.();
+        }
+      }, 120);
+    },
+  });
+
+  const setActiveTabMode = useCallback(
+    (nextMode: EditorMode) => {
+      if (!activeTab) return;
+
+      if (activeTab.mode === 'rich' && nextMode !== 'rich') {
+        flushActiveRichMarkdownNow();
+      }
+
+      useEditorStore.getState().setTabMode(activeTab.id, nextMode);
+
+      // Se for arquivo real, memoriza preferência apenas de modos de edição.
+      if (activeTab.filePath && (nextMode === 'markdown' || nextMode === 'rich')) {
+        fileModeByPathRef.current[normalizePathKey(String(activeTab.filePath))] = nextMode;
+      }
+
+      focusEditorSoon();
+    },
+    [activeTab]
+  );
+
+  const fileMenuItemsForContextMenu = useMemo((): MenuItem[] => {
+    return fileMenuItems.map((it) => ({
+      id: `editor-toolbar-file-${it.value}`,
+      label: it.label,
+      shortcut: it.sublabel,
+      disabled: !!(it as any).disabled,
+      action: () => {
+        void onFileMenuSelect(String(it.value || ''));
+      },
+      ariaLabel: it.sublabel ? `${it.label}, ${it.sublabel}` : it.label,
+    }));
+  }, [fileMenuItems, onFileMenuSelect]);
+
+  const insertMenuItemsForContextMenu = useMemo((): MenuItem[] => {
+    const canInsert = !!activeTab && !isAsking && activeTab.mode !== 'view';
+
+    const insertMarkdownSnippet = async (content: string) => {
+      if (!activeTab) return;
+      await applyInsertRequest({
+        op: 'insert',
+        target: 'current_tab',
+        format: 'markdown',
+        content,
+        focus: true,
+      } as any);
+      focusEditorSoon();
+    };
+
+    const insertMarkdownTable = async (rows: number, cols: number) => {
+      const header = Array.from({ length: cols }, (_, i) => `C${i + 1}`);
+      const headerRow = `| ${header.join(' | ')} |`;
+      const sepRow = `|${Array.from({ length: cols }, () => '---').join('|')}|`;
+      const bodyRows = Array.from({ length: Math.max(1, rows - 1) }, () => `| ${Array.from({ length: cols }, () => ' ').join(' | ')} |`).join('\n');
+      await insertMarkdownSnippet([headerRow, sepRow, bodyRows].filter(Boolean).join('\n') + '\n');
+    };
+
+    const insertRichTable = (rows: number, cols: number, withHeaderRow: boolean) => {
+      const rich = richEditorRef.current as any;
+      if (!rich) {
+        addToast('Editor rico ainda não está pronto.', 'info');
+        return;
+      }
+      rich.chain?.().focus?.().insertTable?.({ rows, cols, withHeaderRow })?.run?.();
+    };
+
+    const makeTableMenu = (): MenuItem => {
+      const rowChoices = [2, 3, 4, 5, 6];
+      const colChoices = [2, 3, 4, 5, 6];
+
+      return {
+        id: 'ins-table',
+        label: 'Tabela',
+        icon: '▦',
+        disabled: !canInsert,
+        submenu: rowChoices.map((r) => ({
+          id: `ins-table-r${r}`,
+          label: `${r} linhas`,
+          submenu: colChoices.map((c) => ({
+            id: `ins-table-r${r}-c${c}`,
+            label: `${c} colunas`,
+            submenu:
+              activeTab?.mode === 'rich'
+                ? [
+                    {
+                      id: `ins-table-r${r}-c${c}-hdr-on`,
+                      label: 'Com cabeçalho',
+                      action: () => insertRichTable(r, c, true),
+                    },
+                    {
+                      id: `ins-table-r${r}-c${c}-hdr-off`,
+                      label: 'Sem cabeçalho',
+                      action: () => insertRichTable(r, c, false),
+                    },
+                  ]
+                : [
+                    {
+                      id: `ins-table-r${r}-c${c}-md`,
+                      label: 'Inserir (Markdown)',
+                      action: () => {
+                        void insertMarkdownTable(r, c);
+                      },
+                    },
+                    {
+                      id: `ins-table-r${r}-c${c}-hdr-note`,
+                      label: 'Cabeçalho: Markdown sempre usa a 1ª linha',
+                      disabled: true,
+                    },
+                  ],
+          })),
+        })),
+      };
+    };
+
+    return [
+      {
+        id: 'ins-mermaid',
+        label: 'Diagrama Mermaid',
+        icon: '🧩',
+        disabled: !canInsert,
+        action: () => {
+          if (!activeTab) return;
+          if (activeTab.mode === 'markdown') {
+            void insertMarkdownSnippet('```mermaid\nflowchart TD\n  A[Início] --> B[Fim]\n```\n');
+            return;
+          }
+          const rich = richEditorRef.current as any;
+          if (!rich) {
+            addToast('Editor rico ainda não está pronto.', 'info');
+            return;
+          }
+          const template = 'flowchart TD\n  A[Início] --> B[Fim]';
+          rich.chain?.().focus?.().setCodeBlock?.({ language: 'mermaid' })?.insertContent?.(template)?.run?.();
+          addToast('Bloco Mermaid inserido. Dê duplo clique para editar.', 'success');
         },
-        disabled: !activeTab,
       },
       {
-        key: 'toggle',
-        label: modeLabel,
-        icon: '⇄',
-        onClick: () => {
+        id: 'ins-codeblock',
+        label: 'Bloco de código',
+        icon: '{ }',
+        disabled: !canInsert,
+        action: () => {
           if (!activeTab) return;
-          toggleTabMode(activeTab.id);
-
-          // Se for arquivo real, memoriza preferência para reabrir no mesmo modo
-          if (activeTab.filePath) {
-            const nextMode = activeTab.mode === 'markdown' ? 'rich' : 'markdown';
-            fileModeByPathRef.current[normalizePathKey(String(activeTab.filePath))] = nextMode;
+          if (activeTab.mode === 'markdown') {
+            void insertMarkdownSnippet('```\n\n```\n');
+            return;
           }
-
-          focusEditorSoon();
+          const rich = richEditorRef.current as any;
+          if (!rich) {
+            addToast('Editor rico ainda não está pronto.', 'info');
+            return;
+          }
+          rich.chain?.().focus?.().setCodeBlock?.({ language: '' })?.run?.();
         },
-        disabled: !activeTab,
       },
+      makeTableMenu(),
+      {
+        id: 'ins-lists',
+        label: 'Listas',
+        icon: '•',
+        disabled: !canInsert,
+        submenu: [
+          {
+            id: 'ins-bullets',
+            label: 'Marcadores',
+            shortcut: '•',
+            disabled: !canInsert,
+            action: () => {
+              if (!activeTab) return;
+              if (activeTab.mode === 'markdown') {
+                void insertMarkdownSnippet('- item\n- item\n');
+                return;
+              }
+              const rich = richEditorRef.current as any;
+              if (!rich) {
+                addToast('Editor rico ainda não está pronto.', 'info');
+                return;
+              }
+              rich.chain?.().focus?.().toggleBulletList?.().run?.();
+            },
+          },
+          {
+            id: 'ins-numbers',
+            label: 'Numerada',
+            shortcut: '1.',
+            disabled: !canInsert,
+            action: () => {
+              if (!activeTab) return;
+              if (activeTab.mode === 'markdown') {
+                void insertMarkdownSnippet('1. item\n2. item\n');
+                return;
+              }
+              const rich = richEditorRef.current as any;
+              if (!rich) {
+                addToast('Editor rico ainda não está pronto.', 'info');
+                return;
+              }
+              rich.chain?.().focus?.().toggleOrderedList?.().run?.();
+            },
+          },
+        ],
+      },
+      {
+        id: 'ins-blockquote',
+        label: 'Citação',
+        icon: '❝',
+        disabled: !canInsert,
+        action: () => {
+          if (!activeTab) return;
+          if (activeTab.mode === 'markdown') {
+            void insertMarkdownSnippet('> ');
+            return;
+          }
+          const rich = richEditorRef.current as any;
+          if (!rich) {
+            addToast('Editor rico ainda não está pronto.', 'info');
+            return;
+          }
+          rich.chain?.().focus?.().toggleBlockquote?.().run?.();
+        },
+      },
+    ];
+  }, [activeTab, isAsking, editorReadyNonce, addToast, applyInsertRequest]);
+
+  const formatMenuItemsForContextMenu = useMemo((): MenuItem[] => {
+    const canFormat = !!activeTab && !isAsking && activeTab.mode === 'rich' && !!richEditorRef.current;
+    const rich = richEditorRef.current as any;
+
+    const run = (fn: () => void) => {
+      if (!canFormat || !rich) return;
+      try {
+        fn();
+      } catch {
+        // best-effort
+      }
+    };
+
+    const headingSubmenu: MenuItem[] = [
+      {
+        id: 'fmt-p',
+        label: 'Parágrafo',
+        icon: 'P',
+        disabled: !canFormat,
+        action: () => run(() => rich.chain?.().focus?.().setParagraph?.().run?.()),
+      },
+      ...[1, 2, 3, 4, 5, 6].map((lvl) => ({
+        id: `fmt-h${lvl}`,
+        label: `Título ${lvl} (H${lvl})`,
+        icon: `H${lvl}`,
+        disabled: !canFormat,
+        action: () => run(() => rich.chain?.().focus?.().setHeading?.({ level: lvl })?.run?.()),
+      })),
+    ];
+
+    return [
+      {
+        id: 'fmt-text',
+        label: 'Texto',
+        icon: 'A',
+        disabled: !canFormat,
+        submenu: [
+          {
+            id: 'fmt-bold',
+            label: 'Negrito',
+            shortcut: 'Ctrl+B',
+            disabled: !canFormat,
+            action: () => run(() => rich.chain?.().focus?.().toggleBold?.().run?.()),
+          },
+          {
+            id: 'fmt-italic',
+            label: 'Itálico',
+            shortcut: 'Ctrl+I',
+            disabled: !canFormat,
+            action: () => run(() => rich.chain?.().focus?.().toggleItalic?.().run?.()),
+          },
+          {
+            id: 'fmt-strike',
+            label: 'Tachado',
+            shortcut: 'Ctrl+Shift+X',
+            disabled: !canFormat,
+            action: () => run(() => rich.chain?.().focus?.().toggleStrike?.().run?.()),
+          },
+          { id: 'fmt-text-sep', separator: true },
+          {
+            id: 'fmt-clear-marks',
+            label: 'Limpar formatação de texto',
+            icon: '↺',
+            disabled: !canFormat,
+            action: () => run(() => rich.chain?.().focus?.().unsetAllMarks?.().run?.()),
+          },
+        ],
+      },
+      {
+        id: 'fmt-paragraph',
+        label: 'Parágrafo e títulos',
+        icon: '¶',
+        disabled: !canFormat,
+        submenu: headingSubmenu,
+      },
+      {
+        id: 'fmt-blocks',
+        label: 'Blocos',
+        icon: '▤',
+        disabled: !canFormat,
+        submenu: [
+          {
+            id: 'fmt-bq',
+            label: 'Citação',
+            disabled: !canFormat,
+            action: () => run(() => rich.chain?.().focus?.().toggleBlockquote?.().run?.()),
+          },
+          {
+            id: 'fmt-code',
+            label: 'Bloco de código',
+            disabled: !canFormat,
+            action: () => run(() => rich.chain?.().focus?.().toggleCodeBlock?.().run?.()),
+          },
+          { id: 'fmt-blocks-sep', separator: true },
+          {
+            id: 'fmt-ul',
+            label: 'Lista com marcadores',
+            disabled: !canFormat,
+            action: () => run(() => rich.chain?.().focus?.().toggleBulletList?.().run?.()),
+          },
+          {
+            id: 'fmt-ol',
+            label: 'Lista numerada',
+            disabled: !canFormat,
+            action: () => run(() => rich.chain?.().focus?.().toggleOrderedList?.().run?.()),
+          },
+        ],
+      },
+    ];
+  }, [activeTab, isAsking, editorReadyNonce]);
+
+  const modeMenuItemsForContextMenu = useMemo((): MenuItem[] => {
+    const canChange = !!activeTab && !isAsking;
+    const current = activeTab?.mode || 'markdown';
+    const mk = (mode: EditorMode, label: string): MenuItem => ({
+      id: `mode-${mode}`,
+      label,
+      icon: current === mode ? '✓' : ' ',
+      disabled: !canChange,
+      action: () => setActiveTabMode(mode),
+    });
+    return [
+      mk('markdown', 'Código'),
+      mk('rich', 'Rico'),
+      mk('view', 'Visualização'),
+    ];
+  }, [activeTab, isAsking, setActiveTabMode]);
+
+  const actions = useMemo(() => {
+    return [
       {
         key: 'ask',
         label: 'Perguntar ao chat',
@@ -2230,22 +2777,16 @@ export default function EditorPage() {
         shortcut: 'Ctrl+Shift+I',
         onClick: async () => {
           if (isAsking) return;
+          if (activeTab?.mode === 'view') {
+            addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
+            return;
+          }
           await askInlineChat();
         },
         disabled: !activeTab || isAsking,
       },
-      {
-        key: 'preview',
-        label: previewLabel,
-        icon: '👁',
-        onClick: () => {
-          setShowPreview((v) => !v);
-          focusEditorSoon();
-        },
-        disabled: !activeTab || activeTab.mode !== 'markdown',
-      },
     ];
-  }, [activeTab, createTab, toggleTabMode, askInlineChat, isAsking, showPreview, autoSaveEnabled, toggleAutoSave]);
+  }, [activeTab, askInlineChat, isAsking, addToast]);
 
   // Atalhos de arquivos
   useEffect(() => {
@@ -2283,14 +2824,64 @@ export default function EditorPage() {
       <Toolbar
         className="editor-page__toolbar"
         left={<div className="editor-page__title">{activeTab?.title || 'Editor'}</div>}
-        center={
-          <ProfilePicker
-            value={editorProfileSlug}
-            onChange={(slug) => setEditorProfileSlug(slug)}
-            label="Perfil (editor)"
-            icon="✍️"
-            maxWidth="280px"
-          />
+        right={
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <button
+              className="toolbar__button toolbar__button--secondary"
+              disabled={false}
+              onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Arquivo', fileMenuItemsForContextMenu)}
+              aria-haspopup="menu"
+              aria-label="Arquivo"
+              title="Arquivo"
+            >
+              <span className="toolbar__button-icon" aria-hidden="true">📄</span>
+              <span className="toolbar__button-label">Arquivo</span>
+            </button>
+
+            <button
+              className="toolbar__button toolbar__button--secondary"
+              disabled={!activeTab || isAsking || activeTab.mode !== 'rich' || !richEditorRef.current}
+              onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Formatar', formatMenuItemsForContextMenu)}
+              aria-haspopup="menu"
+              aria-label="Formatar"
+              title="Formatar"
+            >
+              <span className="toolbar__button-icon" aria-hidden="true">🎛️</span>
+              <span className="toolbar__button-label">Formatar</span>
+            </button>
+
+            <button
+              className="toolbar__button toolbar__button--secondary"
+              disabled={!activeTab || isAsking || activeTab.mode === 'view'}
+              onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Inserir', insertMenuItemsForContextMenu)}
+              aria-haspopup="menu"
+              aria-label="Inserir"
+              title="Inserir"
+            >
+              <span className="toolbar__button-icon" aria-hidden="true">➕</span>
+              <span className="toolbar__button-label">Inserir</span>
+            </button>
+
+            <button
+              className="toolbar__button toolbar__button--secondary"
+              disabled={!activeTab || isAsking}
+              onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Modo', modeMenuItemsForContextMenu)}
+              aria-haspopup="menu"
+              aria-label="Modo"
+              title="Modo"
+            >
+              <span className="toolbar__button-icon" aria-hidden="true">🧭</span>
+              <span className="toolbar__button-label">Modo</span>
+            </button>
+
+            <ProfilePicker
+              value={editorProfileSlug}
+              onChange={(slug) => setEditorProfileSlug(slug)}
+              label="Perfil (editor)"
+              icon="✍️"
+              maxWidth="280px"
+            />
+          </div>
         }
         actions={actions}
         ariaLabel="Barra de ferramentas do editor"
@@ -2300,7 +2891,7 @@ export default function EditorPage() {
         {!activeTab ? (
           <div className="editor-page__empty">Nenhuma aba aberta</div>
         ) : activeTab.mode === 'markdown' ? (
-          <div className={showPreview ? 'editor-page__split' : 'editor-page__single'}>
+          <div className={'editor-page__single'}>
             <div className="editor-page__pane" role="region" aria-label="Editor Markdown">
               <div className="editor-page__pane-title">Markdown</div>
               <div className="editor-page__pane-body">
@@ -2325,73 +2916,73 @@ export default function EditorPage() {
                   onMount={(editor, monaco) => {
                     editorRef.current = editor;
                     monacoRef.current = monaco;
+                    setEditorReadyNonce((n) => n + 1);
                   }}
                 />
               </div>
             </div>
+          </div>
+        ) : activeTab.mode === 'view' ? (
+          <div className="editor-page__single">
+            <div
+              className="editor-page__pane"
+              role="region"
+              aria-label="Visualização renderizada"
+              onDoubleClick={(e) => {
+                const target = e.target as HTMLElement | null;
+                const wrapper = target?.closest?.('.mermaid-diagram') as HTMLElement | null;
+                if (!wrapper) return;
+                const raw = wrapper.dataset.mermaidIndex;
+                const index = raw ? Number(raw) : NaN;
+                if (!Number.isFinite(index)) return;
+                openMermaidEditorByIndex(index);
+              }}
+              onKeyDown={(e) => {
+                const target = e.target as HTMLElement | null;
+                const wrapper = target?.closest?.('.mermaid-diagram') as HTMLElement | null;
+                if (!wrapper) return;
 
-            {showPreview && (
-              <div
-                className="editor-page__pane"
-                role="region"
-                aria-label="Preview Markdown"
-                onDoubleClick={(e) => {
-                  const target = e.target as HTMLElement | null;
-                  const wrapper = target?.closest?.('.mermaid-diagram') as HTMLElement | null;
-                  if (!wrapper) return;
-                  const raw = wrapper.dataset.mermaidIndex;
-                  const index = raw ? Number(raw) : NaN;
-                  if (!Number.isFinite(index)) return;
+                const raw = wrapper.dataset.mermaidIndex;
+                const index = raw ? Number(raw) : NaN;
+                if (!Number.isFinite(index)) return;
+
+                if (e.key === 'Enter') {
+                  e.preventDefault();
                   openMermaidEditorByIndex(index);
-                }}
-                onKeyDown={(e) => {
-                  const target = e.target as HTMLElement | null;
-                  const wrapper = target?.closest?.('.mermaid-diagram') as HTMLElement | null;
-                  if (!wrapper) return;
+                  return;
+                }
 
-                  const raw = wrapper.dataset.mermaidIndex;
-                  const index = raw ? Number(raw) : NaN;
-                  if (!Number.isFinite(index)) return;
+                if (e.key === 'Backspace' || e.key === 'Delete') {
+                  e.preventDefault();
+                  removeMermaidBlockByIndex(index);
+                  return;
+                }
 
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    openMermaidEditorByIndex(index);
-                    return;
-                  }
-
-                  if (e.key === 'Backspace' || e.key === 'Delete') {
-                    e.preventDefault();
-                    removeMermaidBlockByIndex(index);
-                    return;
-                  }
-
-                  // Type-to-edit: ao digitar qualquer caractere "imprimível" com o diagrama focado,
-                  // abre o editor e injeta o primeiro caractere no final (best-effort).
-                  if (
-                    e.key.length === 1 &&
-                    !e.ctrlKey &&
-                    !e.metaKey &&
-                    !e.altKey &&
-                    !e.shiftKey
-                  ) {
-                    e.preventDefault();
-                    openMermaidEditorByIndex(index, { insertText: e.key });
-                  }
-                }}
-              >
-                <div className="editor-page__pane-title">Preview</div>
-                <div className="editor-page__preview">
-                  <div className="editor-page__preview-hint">
-                    Dê duplo clique (ou Enter) no diagrama Mermaid para editar.
-                  </div>
-                  <MarkdownRenderer
-                    content={debouncedMarkdownForPreview}
-                    interactiveButtons={false}
-                    focusableMermaid={true}
-                  />
+                // Type-to-edit: abre o editor de Mermaid e injeta o primeiro caractere.
+                if (
+                  e.key.length === 1 &&
+                  !e.ctrlKey &&
+                  !e.metaKey &&
+                  !e.altKey &&
+                  !e.shiftKey
+                ) {
+                  e.preventDefault();
+                  openMermaidEditorByIndex(index, { insertText: e.key });
+                }
+              }}
+            >
+              <div className="editor-page__pane-title">Visualização</div>
+              <div className="editor-page__preview">
+                <div className="editor-page__preview-hint">
+                  Conteúdo renderizado para navegação. Dê duplo clique (ou Enter) em Mermaid para editar.
                 </div>
+                <MarkdownRenderer
+                  content={debouncedMarkdownForPreview}
+                  interactiveButtons={false}
+                  focusableMermaid={true}
+                />
               </div>
-            )}
+            </div>
           </div>
         ) : (
           <div className="editor-page__single">
@@ -2415,12 +3006,22 @@ export default function EditorPage() {
                   placeholder="Escreva…"
                   onEditorReady={(ed) => {
                     richEditorRef.current = ed;
+                    setEditorReadyNonce((n) => n + 1);
                   }}
                   onRequestEditMermaid={(ctx) => {
+                    const mermaidBlockId = String((ctx as any)?.mermaidBlockId || '').trim();
                     setRichMermaidSession({
+                      mermaidBlockId,
                       initialCode: String(ctx.code || ''),
-                      apply: ctx.apply,
-                      remove: ctx.remove,
+                      insertText: String((ctx as any)?.insertText || ''),
+                      apply: (nextCode: string) => {
+                        if (mermaidBlockId && applyRichMermaidById(mermaidBlockId, nextCode)) return;
+                        ctx.apply(nextCode);
+                      },
+                      remove: () => {
+                        if (mermaidBlockId && removeRichMermaidById(mermaidBlockId)) return;
+                        ctx.remove();
+                      },
                     });
                   }}
                 />
@@ -2433,7 +3034,7 @@ export default function EditorPage() {
       <EditorInlineChatModal
         isOpen={inlineChatOpen}
         title="Perguntar ao chat"
-        selectedText={(inlineChatSelection as any)?.displayText || inlineChatSelection?.selectedText || ''}
+        selectedText={(inlineChatSelection as any)?.displayMarkdown || (inlineChatSelection as any)?.displayText || inlineChatSelection?.selectedText || ''}
         error={inlineChatError}
         focusNonce={inlineChatFocusNonce}
         onClose={closeInlineChatModal}
@@ -2448,9 +3049,16 @@ export default function EditorPage() {
             ? mermaidInitialCode
             : richMermaidSession?.initialCode || ''
         }
-        initialInsertText={activeMermaidIndex !== null ? mermaidInsertText : ''}
+        initialInsertText={
+          activeMermaidIndex !== null
+            ? mermaidInsertText
+            : String(richMermaidSession?.insertText || '')
+        }
         onConsumeInsertText={() => {
           if (activeMermaidIndex !== null) setMermaidInsertText('');
+          if (richMermaidSession) {
+            setRichMermaidSession((prev: any) => (prev ? { ...prev, insertText: '' } : prev));
+          }
         }}
         onCancel={() => {
           if (activeMermaidIndex !== null) setActiveMermaidIndex(null);
@@ -2501,6 +3109,16 @@ export default function EditorPage() {
             setRichMermaidSession(null);
           }
         }}
+      />
+
+      <ContextMenu
+        items={toolbarMenu.items}
+        x={toolbarMenu.x}
+        y={toolbarMenu.y}
+        visible={toolbarMenu.visible}
+        ariaLabel={toolbarMenu.ariaLabel}
+        onClose={closeToolbarMenu}
+        onSelect={handleToolbarMenuSelect}
       />
     </div>
   );

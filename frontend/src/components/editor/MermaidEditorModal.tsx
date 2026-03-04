@@ -45,20 +45,58 @@ export function MermaidEditorModal({
         const model = editor?.getModel?.();
         if (!editor || !model) return;
         editor.focus?.();
+        const insert = (initialInsertText || '').toString();
+
+        // Se o modal abriu por "type-to-edit" (insertText), não seleciona tudo
+        // para evitar substituir o código inteiro ao inserir o primeiro caractere.
+        if (insert) {
+          const lastLine = model.getLineCount?.() || 1;
+          const lastCol = (model.getLineMaxColumn?.(lastLine) || 1);
+          editor.setPosition?.({ lineNumber: lastLine, column: lastCol });
+          editor.revealPositionInCenterIfOutsideViewport?.({ lineNumber: lastLine, column: lastCol });
+          return;
+        }
+
         const fullRange = model.getFullModelRange?.();
         if (fullRange) editor.setSelection?.(fullRange);
       } catch {
         // best-effort
       }
     });
-  }, [isOpen, initialCode]);
+  }, [isOpen, initialCode, initialInsertText]);
 
   useEffect(() => {
     if (!isOpen) return;
     const insert = (initialInsertText || '').toString();
     if (!insert) return;
-    setCode((prev) => prev + insert);
-    onConsumeInsertText?.();
+    requestAnimationFrame(() => {
+      // Inserção real no editor (respeita cursor/undo). Fallback para estado.
+      try {
+        const editor = codeEditorRef.current;
+        const model = editor?.getModel?.();
+        const selection = editor?.getSelection?.();
+        if (editor && model && selection) {
+          const monaco = monacoRef.current;
+          editor.executeEdits?.('mermaid-insert', [
+            {
+              range: selection,
+              text: insert,
+              forceMoveMarkers: true,
+            },
+          ]);
+          // Colapsa cursor no fim da inserção.
+          const pos = editor.getPosition?.();
+          if (pos && monaco?.Selection) {
+            editor.setSelection?.(new monaco.Selection(pos.lineNumber, pos.column, pos.lineNumber, pos.column));
+          }
+        } else {
+          setCode((prev) => prev + insert);
+        }
+      } catch {
+        setCode((prev) => prev + insert);
+      }
+      onConsumeInsertText?.();
+    });
   }, [isOpen, initialInsertText, onConsumeInsertText]);
 
   const previewMarkdown = useMemo(() => {

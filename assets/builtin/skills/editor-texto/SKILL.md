@@ -7,14 +7,14 @@ author: Assistente
 type: agent
 category: editor
 difficulty: beginner
-auto_load: false
+acmd /c "cd /d c:\Users\leona\dev\assistente\frontend && npm run build"npx --prefix frontend vitest run --reporter=json --outputFile vitest-report.json --no-coloruto_load: false
 platforms:
   - windows
   - macos
   - linux
 tools:
   allowed:
-    - text_edit
+    - text_editeE
 output:
   format: markdown
 ---

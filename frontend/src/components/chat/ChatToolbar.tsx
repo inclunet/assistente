@@ -5,7 +5,8 @@ import { ClearConversation } from '@wailsjs/go/main/App';
 import { HistoryPicker, HistoryPickerRef } from '../pickers';
 import { ProfilePicker, ProfilePickerRef } from '../pickers/ProfilePicker';
 import { Toolbar } from '../ui/Toolbar';
-import { ContextMenu, MenuItem } from '../ui/ContextMenu';
+import { Menu, type MenuItem } from '../menu';
+import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
@@ -43,39 +44,12 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   // Estado do modal de tokens
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
 
-  // Estado do menu de contexto
-  const [contextMenu, setContextMenu] = React.useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    items: MenuItem[];
-    ariaLabel: string;
-  }>({
-    visible: false,
-    x: 0,
-    y: 0,
-    items: [],
-    ariaLabel: '',
-  });
-
-  const closeContextMenu = useCallback(() => {
-    setContextMenu(prev => ({ ...prev, visible: false }));
-  }, []);
-
-  const openContextMenu = useCallback((
-    x: number,
-    y: number,
-    items: MenuItem[],
-    ariaLabel: string
-  ) => {
-    setContextMenu({
-      visible: true,
-      x,
-      y,
-      items,
-      ariaLabel,
-    });
-  }, []);
+  const {
+    menu: contextMenu,
+    openAtPoint: openContextMenu,
+    closeMenu: closeContextMenu,
+    onSelectItem: onSelectContextMenuItem,
+  } = useAnchoredContextMenu();
 
   const getProfileMenuItems = useCallback((): MenuItem[] => [
     {
@@ -90,14 +64,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
   const handleProfileContextMenu = useCallback((e: React.MouseEvent) => {
     e.preventDefault();
-    openContextMenu(e.clientX, e.clientY, getProfileMenuItems(), 'Menu de opções do perfil');
+    openContextMenu(e.clientX, e.clientY, 'Menu de opções do perfil', getProfileMenuItems(), e.currentTarget);
   }, [openContextMenu, getProfileMenuItems]);
 
   const handleProfileKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault();
       const rect = e.currentTarget.getBoundingClientRect();
-      openContextMenu(rect.left, rect.bottom, getProfileMenuItems(), 'Menu de opções do perfil');
+      openContextMenu(rect.left, rect.bottom, 'Menu de opções do perfil', getProfileMenuItems(), e.currentTarget);
     }
   }, [openContextMenu, getProfileMenuItems]);
 
@@ -258,13 +232,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         }
       />
 
-      <ContextMenu
+      <Menu
         visible={contextMenu.visible}
         x={contextMenu.x}
         y={contextMenu.y}
         items={contextMenu.items}
         ariaLabel={contextMenu.ariaLabel}
         onClose={closeContextMenu}
+        onSelect={onSelectContextMenuItem}
       />
 
       {activeTab?.conversationId && (

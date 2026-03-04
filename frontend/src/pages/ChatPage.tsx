@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
+import { useEditorStore } from '../store/editorStore';
 import { ttsService } from '../services/tts';
 import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
@@ -18,6 +20,7 @@ import { handleError, ErrorSeverity, ErrorMessages } from '../utils/errorHandler
 import './ChatPage.css';
 
 export default function ChatPage() {
+  const navigate = useNavigate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const hasAutoFocusedRef = useRef(false);
@@ -88,6 +91,39 @@ export default function ChatPage() {
   }, [announce, getActiveTab, loadConversationInActiveTab]);
 
   // Menu de contexto
+  const sendToEditor = useCallback(
+    (payload: {
+      target: 'current' | 'new_tab';
+      format: 'markdown' | 'html' | 'plain';
+      title?: string;
+      content: string;
+    }) => {
+      const chatState = useChatStore.getState();
+      const chatTabId = chatState.activeTabId;
+      const chatTab = chatTabId ? chatState.tabs.find((t) => t.id === chatTabId) : undefined;
+      const conversationId = typeof chatTab?.conversationId === 'number' ? chatTab.conversationId : null;
+
+      const content = String(payload?.content ?? '');
+      if (!content) return;
+
+      useEditorStore.getState().requestInsert({
+        target: payload.target,
+        format: payload.format,
+        title: payload.title || 'Do chat',
+        content,
+        focus: true,
+        source: {
+          chatTabId: chatTabId ?? null,
+          conversationId,
+          messageId: null,
+        },
+      });
+
+      navigate('/editor');
+    },
+    [navigate]
+  );
+
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
     onCopy: copyMessage,
     onReadMessage: (message) => {
@@ -105,6 +141,7 @@ export default function ChatPage() {
       }
     },
     onDelete: handleDeleteMessage,
+    onSendToEditor: (payload) => sendToEditor(payload),
     onPin: (message) => {
       // Pin requer campo adicional no modelo ChatMessage
       // Deixar para implementação futura
@@ -267,6 +304,7 @@ export default function ChatPage() {
         onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
         onSpeak={speakMessage}
         onDelete={handleDeleteMessage}
+        onSendToEditor={(payload) => sendToEditor(payload)}
       />
 
       {/* Error banner with retry */}

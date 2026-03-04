@@ -13,7 +13,8 @@ import { Markdown } from 'tiptap-markdown';
 import { Plugin } from '@tiptap/pm/state';
 
 import { Toolbar } from '../ui/Toolbar';
-import { ContextMenu, MenuItem } from '../ui/ContextMenu';
+import { Menu, type MenuItem } from '../menu';
+import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { MermaidCodeBlockNodeView } from './MermaidCodeBlockNodeView';
 import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
 import { useUIStore } from '../../store/uiStore';
@@ -30,7 +31,9 @@ export interface RichTextEditorProps {
   ariaLabel?: string;
   onEditorReady?: (editor: any | null) => void;
   onRequestEditMermaid?: (ctx: {
+    mermaidBlockId: string;
     code: string;
+    insertText?: string;
     apply: (nextCode: string) => void;
     remove: () => void;
   }) => void;
@@ -52,21 +55,15 @@ export function RichTextEditor({
 
   const isApplyingExternalMarkdownRef = useRef(false);
   const lastMarkdownRef = useRef<string>(markdown);
+  const pendingMarkdownRef = useRef<string | null>(null);
+  const markdownEmitTimerRef = useRef<number | null>(null);
 
-  const menuTriggerRef = useRef<HTMLElement | null>(null);
-  const [contextMenu, setContextMenu] = useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    items: MenuItem[];
-    ariaLabel: string;
-  }>({
-    visible: false,
-    x: 0,
-    y: 0,
-    items: [],
-    ariaLabel: '',
-  });
+  const {
+    menu: contextMenu,
+    openForTrigger,
+    closeMenu: closeContextMenu,
+    onSelectItem: onSelectContextMenuItem,
+  } = useAnchoredContextMenu();
 
   const extensions = useMemo(() => {
     const PasteUrlAsLinkOnSelection = Extension.create({
@@ -149,10 +146,77 @@ export function RichTextEditor({
       if (isApplyingExternalMarkdownRef.current) return;
       const md = (editor.storage as any)?.markdown?.getMarkdown?.() as string | undefined;
       const next = typeof md === 'string' ? md : '';
-      lastMarkdownRef.current = next;
-      onMarkdownChange(next);
+
+      // Debounce para evitar emitir Markdown a cada transação.
+      pendingMarkdownRef.current = next;
+      if (markdownEmitTimerRef.current) {
+        window.clearTimeout(markdownEmitTimerRef.current);
+      }
+      markdownEmitTimerRef.current = window.setTimeout(() => {
+        markdownEmitTimerRef.current = null;
+        const pending = pendingMarkdownRef.current;
+        pendingMarkdownRef.current = null;
+        if (typeof pending !== 'string') return;
+        if (pending === lastMarkdownRef.current) return;
+        lastMarkdownRef.current = pending;
+        onMarkdownChange(pending);
+      }, 300);
     },
   });
+
+  // Expõe helpers imperativos no editor (EditorPage usa para flush antes de salvar/trocar modo etc.).
+  useEffect(() => {
+    if (!editor) return;
+
+    const getMarkdownNow = () => {
+      try {
+        const md = (editor.storage as any)?.markdown?.getMarkdown?.() as string | undefined;
+        return typeof md === 'string' ? md : '';
+      } catch {
+        return '';
+      }
+    };
+
+    const flushMarkdown = () => {
+      if (isApplyingExternalMarkdownRef.current) return;
+      if (markdownEmitTimerRef.current) {
+        window.clearTimeout(markdownEmitTimerRef.current);
+        markdownEmitTimerRef.current = null;
+      }
+      const next = pendingMarkdownRef.current ?? getMarkdownNow();
+      pendingMarkdownRef.current = null;
+      if (next === lastMarkdownRef.current) return;
+      lastMarkdownRef.current = next;
+      onMarkdownChange(next);
+    };
+
+    (editor as any).__getMarkdown = getMarkdownNow;
+    (editor as any).__flushMarkdown = flushMarkdown;
+
+    return () => {
+      try {
+        delete (editor as any).__getMarkdown;
+        delete (editor as any).__flushMarkdown;
+      } catch {
+        // best-effort
+      }
+    };
+  }, [editor, onMarkdownChange]);
+
+  // Limpa timer do debounce ao desmontar.
+  useEffect(() => {
+    return () => {
+      if (markdownEmitTimerRef.current) {
+        try {
+          window.clearTimeout(markdownEmitTimerRef.current);
+        } catch {
+          // best-effort
+        }
+      }
+      markdownEmitTimerRef.current = null;
+      pendingMarkdownRef.current = null;
+    };
+  }, []);
 
   const openLinkDialog = useCallback(async () => {
     if (!editor || readOnly) return;
@@ -247,6 +311,14 @@ export function RichTextEditor({
     return null;
   }, [editor]);
 
+  const newMermaidBlockId = useCallback((): string => {
+    try {
+      return crypto.randomUUID();
+    } catch {
+      return `mermaid-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    }
+  }, []);
+
   const insertMermaidBlock = useCallback(() => {
     if (!editor || readOnly) return;
 
@@ -260,6 +332,23 @@ export function RichTextEditor({
 
     const info = getActiveCodeBlockInfo();
     if (!info || info.language !== 'mermaid') return;
+
+    // Garante um ID estável para o bloco recém-criado, para edição fora do cursor.
+    const ensuredMermaidBlockId = (() => {
+      const cur = String((info.node.attrs as any)?.mermaidBlockId || '').trim();
+      if (cur) return cur;
+      const nextId = newMermaidBlockId();
+      try {
+        editor.commands.command(({ tr }) => {
+          const attrs = { ...(info.node.attrs as any), mermaidBlockId: nextId };
+          tr.setNodeMarkup(info.pos, undefined, attrs);
+          return true;
+        });
+      } catch {
+        // best-effort
+      }
+      return nextId;
+    })();
 
     const apply = (nextCode: string) => {
       const current = getActiveCodeBlockInfo();
@@ -283,33 +372,18 @@ export function RichTextEditor({
     };
 
     onRequestEditMermaid?.({
+      mermaidBlockId: ensuredMermaidBlockId,
       code: template,
       apply,
       remove,
     });
-  }, [editor, readOnly, getActiveCodeBlockInfo, onRequestEditMermaid]);
-
-  const closeContextMenu = useCallback(() => {
-    setContextMenu((prev) => ({ ...prev, visible: false }));
-    window.setTimeout(() => {
-      menuTriggerRef.current?.focus?.();
-      menuTriggerRef.current = null;
-    }, 10);
-  }, []);
+  }, [editor, readOnly, getActiveCodeBlockInfo, onRequestEditMermaid, newMermaidBlockId]);
 
   const openContextMenuForTrigger = useCallback(
     (triggerEl: HTMLElement, items: MenuItem[], ariaLabel: string) => {
-      const rect = triggerEl.getBoundingClientRect();
-      menuTriggerRef.current = triggerEl;
-      setContextMenu({
-        visible: true,
-        x: rect.left,
-        y: rect.bottom,
-        items,
-        ariaLabel,
-      });
+      openForTrigger(triggerEl, ariaLabel, items);
     },
-    []
+    [openForTrigger]
   );
 
   const getActiveHeadingLabel = useCallback(() => {
@@ -798,14 +872,14 @@ export function RichTextEditor({
         }
       />
 
-      <ContextMenu
+      <Menu
         items={contextMenu.items}
         x={contextMenu.x}
         y={contextMenu.y}
         visible={contextMenu.visible}
         ariaLabel={contextMenu.ariaLabel}
         onClose={closeContextMenu}
-        onSelect={() => closeContextMenu()}
+        onSelect={onSelectContextMenuItem}
       />
       <EditorContent editor={editor} className="rich-text-editor__content" />
     </div>

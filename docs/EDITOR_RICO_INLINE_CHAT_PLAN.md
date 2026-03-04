@@ -11,6 +11,19 @@ Adicionar uma nova área no app (uma **Editor Page** com **abas**, como Chat e T
 
 Este documento é um plano “maduro para implementação”: decisões técnicas propostas, fluxos de UX, contrato de patch e backlog inicial.
 
+## Status (código atual)
+
+Implementado no repositório (não-exaustivo):
+- [x] `EditorPage` com abas, atalhos e modo duplo (Rico ⇄ Markdown).
+- [x] Mini-chat inline com aplicação de patch (tools ligadas: tool `text_edit`; tools desligadas: parsing de bloco `editor_patch`).
+- [x] Skill/perfil dedicado: `editor-texto` (frontend usa como default; backend tem caminho “tool-only” para esse perfil).
+- [x] Mermaid no modo rico com modal de edição e preview.
+- [x] Tratamento de erro de Mermaid no renderer (ações como “Copiar erro” e “Re-renderizar”).
+- [x] Identificação estável de blocos Mermaid no modo rico via `mermaidBlockId` (para aplicar/remover o bloco correto).
+
+Adiado (por decisão de escopo agora):
+- [ ] Persistência via SQLite (`editor_documents`) e gestão de arquivos do editor.
+
 ---
 
 ## Escopo (MVP)
@@ -57,7 +70,14 @@ Sugestão de stack:
 - `@tiptap/extension-code-block-lowlight` + `lowlight` (highlight)
 
 ### Editor do modo “código/Markdown”
-Recomendação: **CodeMirror 6** para editar o Markdown cru (mais leve que Monaco e excelente para Markdown).
+Decisão (atualizada): **Monaco Editor** para editar o Markdown cru e futuros trechos de código em modo IDE-like.
+
+Motivos:
+- Queremos evolução para edição de código **IDE-like** (language services, diagnostics, navegação, etc.), onde Monaco tende a ser o caminho mais direto.
+- Evita re-trabalho (trocar agora para CodeMirror e depois reverter/duplicar o investimento quando as features IDE chegarem).
+
+Nota de performance:
+- Monaco é mais pesado; mitigar com lazy-load, limitar modelos ativos por aba e evitar habilitar language services completos quando não necessário.
 
 ### Modelo de documento (fonte de verdade)
 - Persistir/armazenar como **Markdown** (string).
@@ -87,7 +107,7 @@ Recomendação: **CodeMirror 6** para editar o Markdown cru (mais leve que Monac
    - botões: **Aplicar** / **Rejeitar**
 7. Aplicar:
   - **Modo rico:** substitui a seleção diretamente no TipTap (convertendo `replacement` em nodes), depois serializa o documento inteiro para Markdown (flush).
-  - **Modo Markdown:** substitui a seleção diretamente no CodeMirror (string range).
+  - **Modo Markdown:** substitui a seleção diretamente no Monaco (string range).
   - adiciona toast “Alteração aplicada”.
 8. Rejeitar:
    - fecha modal; nada muda.
@@ -183,7 +203,7 @@ Estratégia recomendada (incremental):
 
 Estratégia recomendada:
 - Modo Markdown: edição do bloco normalmente.
-- Modo Rico: mostrar um **preview renderizado** do diagrama e um botão “Editar código”, que abre um editor do bloco (CodeMirror) com **preview ao vivo** (espelhado).
+- Modo Rico: mostrar um **preview renderizado** do diagrama e um botão “Editar código”, que abre um editor do bloco (Monaco) com **preview ao vivo** (espelhado).
 
 #### Modal/painel de edição Mermaid (UX detalhado)
 
@@ -192,7 +212,7 @@ Objetivo: manter a experiência “Docs-like” no modo rico, mas garantindo que
 **Como abre**
 - No modo rico, o bloco Mermaid aparece como “card”: preview + ações.
 - A ação “Editar código” abre um `SimpleModal` (ou um “painel” dockado, se preferir) com:
-  - editor (CodeMirror) para o conteúdo do bloco ` ```mermaid ... ``` ` (somente o conteúdo interno);
+  - editor (Monaco) para o conteúdo do bloco ` ```mermaid ... ``` ` (somente o conteúdo interno);
   - preview renderizado ao lado/abaixo.
 
 **Interações no preview (botão + duplo clique + digitação “em cima do diagrama”)**
@@ -200,7 +220,7 @@ Objetivo: manter a experiência “Docs-like” no modo rico, mas garantindo que
 - Duplo clique no preview: abre o modal “Editar código” (mesmo comportamento do botão).
 - Teclado, com o bloco selecionado:
   - `Enter` ou `F2`: abre “Editar código”.
-  - Se o usuário começar a digitar (ex: pressionar `a`, `1`, `(`): abrir “Editar código” imediatamente e **inserir esse primeiro caractere** no CodeMirror (no cursor), para parecer “natural” como em editores Docs.
+  - Se o usuário começar a digitar (ex: pressionar `a`, `1`, `(`): abrir “Editar código” imediatamente e **inserir esse primeiro caractere** no editor (no cursor), para parecer “natural” como em editores Docs.
     - Observação: se isso ficar complexo no MVP, fallback aceitável é abrir o modal e **não** injetar o primeiro caractere, mas mostrar um hint “Você está editando o código do diagrama”.
 - Para acessibilidade/descoberta: abaixo do preview, mostrar uma dica curta (apenas quando selecionado):
   - “Duplo clique ou Enter para editar o código”.
@@ -217,7 +237,7 @@ Objetivo: manter a experiência “Docs-like” no modo rico, mas garantindo que
   - Se confirmar, remover o nó do diagrama (mantendo o undo/redo do editor).
   - Se cancelar, manter seleção no bloco.
 - Exceção (atalho “forte”, opcional): `Shift+Delete` pode remover sem confirmação (para usuários avançados).
-- Se o foco estiver dentro do CodeMirror do modal de edição, `Backspace/Delete` funciona normalmente (edita texto), sem confirmação.
+- Se o foco estiver dentro do editor do modal de edição, `Backspace/Delete` funciona normalmente (edita texto), sem confirmação.
 
 Nota de implementação (para não duplicar código):
 - Centralizar confirmações em um helper único (ex: `uiStore.confirm(...)`) que renderiza pelo `QuestionnaireDialog` global.
@@ -228,7 +248,7 @@ Nota de implementação (para não duplicar código):
 - Janela estreita: 2 tabs (Código | Preview) ou stack vertical (Código em cima, Preview embaixo).
 
 **Foco e acessibilidade**
-- Ao abrir: foco vai para o CodeMirror; selecionar todo o código (ou posicionar o cursor no início) para facilitar substituição rápida.
+- Ao abrir: foco vai para o editor de código; selecionar todo o código (ou posicionar o cursor no início) para facilitar substituição rápida.
 - `Esc`: fecha (Cancelar) sem aplicar.
 - Ao fechar:
   - se Cancelar: retorna foco para o botão “Editar código” do mesmo bloco.
@@ -253,6 +273,9 @@ Nota de implementação (para não duplicar código):
   - “Copiar erro” (copia mensagem/stack para o clipboard).
   - “Re-renderizar” (força nova tentativa).
 
+Status no código atual:
+- O renderer de Markdown já implementa UI de erro com “Copiar erro” e “Re-renderizar”.
+
 **Aplicar vs. persistência no documento**
 - Ao clicar “Aplicar”:
   - validar que o texto não está vazio (ou permitir vazio para “remover diagrama”, se fizer sentido);
@@ -263,6 +286,9 @@ Nota de implementação (para não duplicar código):
 **Como identificar o bloco correto (sem depender de offsets no Markdown)**
 - No modo rico, cada bloco Mermaid deve carregar um `id` estável (ex: atributo no node do TipTap).
 - O modal recebe `{ mermaidBlockId }` e atualiza exatamente aquele nó, mesmo que o documento mude ao redor.
+
+Status no código atual:
+- `mermaidBlockId` já é atribuído automaticamente no NodeView do Mermaid e usado para aplicar/remover no documento rico.
 
 **Critérios de aceite (MVP)**
 - Abrir “Editar código” sempre edita o bloco certo.
@@ -348,6 +374,10 @@ Opção A (MVP): Instrução no próprio prompt do Editor
 Opção B (melhor): Criar um **skill** dedicado (ex: `/editor`) com instruções fixas
 - Editor envia `/<slug>` para invocar o skill e reduz variabilidade.
 
+Status no código atual:
+- Já existe um perfil/skill dedicado (`editor-texto`) que direciona o assistente para edição via tool `text_edit` quando tools estão habilitadas.
+- Quando tools estão desabilitadas, o fluxo aceita fallback por bloco `editor_patch`.
+
 ---
 
 ## Abas do Editor
@@ -397,7 +427,7 @@ Se não houver patch válido, o Editor deve:
 ## Backlog de implementação (sugestão)
 
 ### Fase 0 — Prova (1–2 dias)
-- Inserir TipTap (modo rico) e CodeMirror (modo Markdown) num componente isolado.
+- Inserir TipTap (modo rico) e Monaco (modo Markdown/código) num componente isolado.
 - Implementar toggle Rico ⇄ Markdown com Markdown como fonte de verdade.
 - Implementar captura de seleção (nos dois modos) e substituição local.
 
