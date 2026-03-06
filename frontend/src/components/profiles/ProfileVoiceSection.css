@@ -1,0 +1,17 @@
+.profile-voice-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md, 1rem);
+}
+
+.profile-voice-section__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs, 0.5rem);
+}
+
+/* Disabled state */
+.profile-voice-section:has(input:disabled) {
+  opacity: 0.6;
+  pointer-events: none;
+}

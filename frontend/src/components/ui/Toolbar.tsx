@@ -2,14 +2,75 @@ import { ReactNode, forwardRef, useRef, useEffect } from 'react';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import './Toolbar.css';
 
-export interface ToolbarAction {
-  key: string;
+export type ToolbarButtonVariant = 'primary' | 'secondary' | 'danger';
+
+export interface ToolbarButtonProps
+  extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   label: string;
   icon?: string;
-  onClick: () => void;
-  disabled?: boolean;
-  variant?: 'primary' | 'secondary' | 'danger';
+  endIcon?: string;
   shortcut?: string;
+  variant?: ToolbarButtonVariant;
+}
+
+export const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
+  ({
+    label,
+    icon,
+    endIcon,
+    shortcut,
+    variant = 'secondary',
+    className,
+    title,
+    'aria-label': ariaLabel,
+    tabIndex,
+    ...buttonProps
+  }, ref) => {
+    const computedTitle = title ?? (shortcut ? `${label} (${shortcut})` : label);
+    const computedAriaLabel = ariaLabel ?? (shortcut ? `${label}, ${shortcut}` : label);
+    const { type, ...restButtonProps } = buttonProps;
+
+    return (
+      <button
+        ref={ref}
+        className={`toolbar__button toolbar__button--${variant}${className ? ` ${className}` : ''}`}
+        title={computedTitle}
+        aria-label={computedAriaLabel}
+        tabIndex={typeof tabIndex === 'number' ? tabIndex : -1}
+        type={type ?? 'button'}
+        {...restButtonProps}
+      >
+        {icon && (
+          <span className="toolbar__button-icon" aria-hidden="true">
+            {icon}
+          </span>
+        )}
+        <span className="toolbar__button-label">{label}</span>
+        {shortcut && (
+          <span className="toolbar__button-shortcut" aria-hidden="true">
+            {shortcut}
+          </span>
+        )}
+        {endIcon && (
+          <span className="toolbar__button-icon" aria-hidden="true">
+            {endIcon}
+          </span>
+        )}
+      </button>
+    );
+  }
+);
+
+ToolbarButton.displayName = 'ToolbarButton';
+
+export function ToolbarSeparator() {
+  return <div className="toolbar__separator" aria-hidden="true"></div>;
+}
+
+export interface ToolbarAction extends ToolbarButtonProps {
+  key: string;
+  /** Permite passar `ref` para o botão (ex.: trigger de menu/anchor) */
+  buttonRef?: React.Ref<HTMLButtonElement>;
 }
 
 export interface ToolbarProps {
@@ -49,9 +110,16 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
 }, ref) => {
   const toolbarRef = useToolbarKeyboardNav(onFocusGrid);
   const searchInputRef = useRef<HTMLInputElement>(null);
-  
-  // Combina refs se fornecido
-  const combinedRef = ref || toolbarRef;
+
+  const combinedRef: React.RefCallback<HTMLDivElement> = (node) => {
+    (toolbarRef as React.MutableRefObject<HTMLDivElement | null>).current = node;
+    if (!ref) return;
+    if (typeof ref === 'function') {
+      ref(node);
+      return;
+    }
+    (ref as React.MutableRefObject<HTMLDivElement | null>).current = node;
+  };
 
   // Atalho Ctrl+F para focar no campo de busca
   useEffect(() => {
@@ -102,28 +170,8 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
       {(right || actions.length > 0) && (
         <div className="toolbar__section toolbar__right">
           {right}
-          {actions.map((action) => (
-            <button
-              key={action.key}
-              className={`toolbar__button toolbar__button--${action.variant || 'secondary'}`}
-              onClick={action.onClick}
-              disabled={action.disabled}
-              title={action.shortcut ? `${action.label} (${action.shortcut})` : action.label}
-              aria-label={action.shortcut ? `${action.label}, ${action.shortcut}` : action.label}
-              tabIndex={-1}
-            >
-              {action.icon && (
-                <span className="toolbar__button-icon" aria-hidden="true">
-                  {action.icon}
-                </span>
-              )}
-              <span className="toolbar__button-label">{action.label}</span>
-              {action.shortcut && (
-                <span className="toolbar__button-shortcut" aria-hidden="true">
-                  {action.shortcut}
-                </span>
-              )}
-            </button>
+          {actions.map(({ key, buttonRef, ...buttonProps }) => (
+            <ToolbarButton key={key} ref={buttonRef} {...buttonProps} />
           ))}
         </div>
       )}

@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { Message, useChatStore } from '../store/chatStore';
-import { MenuItem } from '../components/ui/ContextMenu';
+import { MenuItem } from '../components/menu';
 import { getMessageMenuItems, MenuItemsOptions } from '../lib/messageMenuItems';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';

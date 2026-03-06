@@ -1,9 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useEditorStore } from '../../store/editorStore';
 import { useUIStore } from '../../store/uiStore';
 import { EditorRenameFile } from '@wailsjs/go/main/App';
 import { basenameFromPath } from '../../utils/path';
+import { Tabs, Tab, TabList } from '../ui/tabs';
 import './EditorTabs.css';
 
 export function EditorTabs() {
@@ -29,6 +30,29 @@ export function EditorTabs() {
       editInputRef.current?.select();
     }, 10);
   }, [editingTabId]);
+
+  const focusTabButton = useCallback((tabId: string) => {
+    const list = listRef.current;
+    if (!list) return;
+    const btn = list.querySelector(
+      `button[role="tab"][data-tab-value="${CSS.escape(tabId)}"]`
+    ) as HTMLButtonElement | null;
+    btn?.focus();
+  }, []);
+
+  const pendingFocusTabIdRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const id = pendingFocusTabIdRef.current;
+    if (!id) return;
+    pendingFocusTabIdRef.current = null;
+
+    const t = window.setTimeout(() => {
+      focusTabButton(id);
+    }, 50);
+
+    return () => window.clearTimeout(t);
+  }, [focusTabButton, tabs]);
 
   const startRenaming = (tabId: string) => {
     const tab = tabs.find((t) => t.id === tabId);
@@ -67,8 +91,7 @@ export function EditorTabs() {
       setEditingTitle('');
       announce(`Título alterado para: ${nextTitle}`);
       window.setTimeout(() => {
-        const btn = listRef.current?.querySelector(`[data-tab-id="${tabIdToFocus}"]`) as HTMLButtonElement | null;
-        btn?.focus();
+        focusTabButton(tabIdToFocus);
       }, 10);
       return;
     }
@@ -100,8 +123,7 @@ export function EditorTabs() {
       announce(`Arquivo renomeado para: ${newBase}`);
 
       window.setTimeout(() => {
-        const btn = listRef.current?.querySelector(`[data-tab-id="${tabIdToFocus}"]`) as HTMLButtonElement | null;
-        btn?.focus();
+        focusTabButton(tabIdToFocus);
       }, 10);
     } catch (e: any) {
       const msg = String(e?.message || e || 'Falha ao renomear arquivo');
@@ -112,129 +134,163 @@ export function EditorTabs() {
     }
   };
 
-  const handleKeyDown = (event: React.KeyboardEvent, tabId: string) => {
-    const currentIndex = tabs.findIndex((t) => t.id === tabId);
-    if (currentIndex === -1) return;
+  const requestClose = useCallback(
+    (tabId: string, options?: { focusEditor?: boolean }) => {
+      const currentIndex = tabs.findIndex((t) => t.id === tabId);
+      if (currentIndex === -1) return;
 
-    let nextIndex = currentIndex;
-    let handled = false;
+      const focusEditor = options?.focusEditor ?? false;
 
-    switch (event.key) {
-      case 'ArrowLeft':
-      case 'ArrowUp':
-        nextIndex = Math.max(0, currentIndex - 1);
-        handled = true;
-        break;
-      case 'ArrowRight':
-      case 'ArrowDown':
-        nextIndex = Math.min(tabs.length - 1, currentIndex + 1);
-        handled = true;
-        break;
-      case 'Home':
-        nextIndex = 0;
-        handled = true;
-        break;
-      case 'End':
-        nextIndex = tabs.length - 1;
-        handled = true;
-        break;
-      case 'Delete':
-        event.preventDefault();
-        closeTab(tabId);
-        handled = true;
-        break;
-      case 'F2':
+      if (tabs.length > 1) {
+        const nextFocusIndex = currentIndex < tabs.length - 1 ? currentIndex : currentIndex - 1;
+        pendingFocusTabIdRef.current = tabs[nextFocusIndex]?.id ?? null;
+      } else {
+        pendingFocusTabIdRef.current = null;
+      }
+
+      if (activeTabId && tabId === activeTabId) {
+        window.dispatchEvent(new Event('assistente:flush-rich-editor'));
+      }
+
+      closeTab(tabId);
+
+      if (focusEditor) {
+        window.dispatchEvent(new Event('assistente:focus-editor'));
+      }
+    },
+    [activeTabId, closeTab, tabs]
+  );
+
+  const handleSelect = useCallback(
+    (tabId: string) => {
+      if (!tabId) return;
+      window.dispatchEvent(new Event('assistente:flush-rich-editor'));
+      setActiveTab(tabId);
+
+      const idx = tabs.findIndex((t) => t.id === tabId);
+      const tab = idx >= 0 ? tabs[idx] : null;
+      if (tab) announce(`${tab.title}, ${idx + 1} de ${tabs.length}`);
+    },
+    [announce, setActiveTab, tabs]
+  );
+
+  const getFocusedTabId = useCallback(() => {
+    const list = listRef.current;
+    if (!list) return null;
+    const focused = list.querySelector('button[role="tab"]:focus') as HTMLButtonElement | null;
+    const v = focused?.getAttribute('data-tab-value');
+    return v && v.trim() ? v : null;
+  }, []);
+
+  const handleListKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (editingTabId) return;
+      const tabId = getFocusedTabId();
+      if (!tabId) return;
+
+      if (event.key === 'F2') {
         event.preventDefault();
         startRenaming(tabId);
-        handled = true;
-        break;
-      case 'Enter':
-        // Enter: ir para o editor (mantém navegação na lista de abas sem “pular” por setas)
-        if (!event.ctrlKey && !event.metaKey && !event.altKey) {
-          event.preventDefault();
-          setActiveTab(tabId);
-          window.dispatchEvent(new Event('assistente:focus-editor'));
-          announce('Foco no editor');
-          handled = true;
-        }
-        break;
-    }
+        return;
+      }
 
-    if (!handled) return;
+      if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey) {
+        // Enter: ir para o editor.
+        window.dispatchEvent(new Event('assistente:focus-editor'));
+        announce('Foco no editor');
+      }
+    },
+    [announce, editingTabId, getFocusedTabId]
+  );
 
-    if (nextIndex !== currentIndex) {
-      event.preventDefault();
-      const next = tabs[nextIndex];
-      if (!next) return;
-      setActiveTab(next.id);
-      const btn = listRef.current?.querySelector(`[data-tab-id="${next.id}"]`) as HTMLButtonElement | null;
-      btn?.focus();
-      announce(`${next.title}, ${nextIndex + 1} de ${tabs.length}`);
-    }
-  };
+  const handleDelete = useCallback(
+    (tabId: string) => {
+      requestClose(tabId);
+    },
+    [requestClose]
+  );
 
   return (
-    <div className="editor-tabs" role="tablist" aria-label="Abas do editor" ref={listRef}>
-      {tabs.map((tab) => {
-        const isActive = tab.id === activeTabId;
-        const isEditing = tab.id === editingTabId;
-        const titleText = tab.isDirty ? `${tab.title} *` : tab.title;
+    <Tabs
+      value={activeTabId ?? ''}
+      onValueChange={handleSelect}
+      idBase="editor"
+      onDelete={handleDelete}
+      pageJump={10}
+      activationMode="auto"
+    >
+      <TabList
+        ariaLabel="Abas do editor"
+        className="editor-tabs"
+        listRef={listRef}
+        onKeyDown={handleListKeyDown}
+      >
+        {tabs.map((tab) => {
+          const isActive = tab.id === activeTabId;
+          const isEditing = tab.id === editingTabId;
+          const titleText = tab.isDirty ? `${tab.title} *` : tab.title;
 
-        return (
-          <div key={tab.id} className={`editor-tabs__tab ${isActive ? 'is-active' : ''}`}>
-            {isEditing ? (
-              <input
-                ref={editInputRef}
-                className="editor-tabs__edit"
-                value={editingTitle}
-                onChange={(e) => setEditingTitle(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter') {
-                    e.preventDefault();
-                    void confirmRenaming('enter');
-                  }
-                  if (e.key === 'Escape') {
-                    e.preventDefault();
-                    cancelRenaming();
-                  }
-                }}
-                onBlur={() => void confirmRenaming('blur')}
-                aria-label="Editar título da aba"
-              />
-            ) : (
-              <button
-                className="editor-tabs__button"
-                role="tab"
-                aria-selected={isActive}
-                tabIndex={isActive ? 0 : -1}
-                data-tab-id={tab.id}
-                onClick={() => {
-                  setActiveTab(tab.id);
-                  window.dispatchEvent(new Event('assistente:focus-editor'));
-                }}
-                onDoubleClick={() => startRenaming(tab.id)}
-                onKeyDown={(e) => handleKeyDown(e, tab.id)}
-                title={titleText}
-              >
-                <span className="editor-tabs__title">{titleText}</span>
-              </button>
-            )}
-
-            <button
-              className="editor-tabs__close"
-              onClick={() => {
-                closeTab(tab.id);
-                window.dispatchEvent(new Event('assistente:focus-editor'));
-              }}
-              aria-label={`Fechar ${tab.title}`}
-              title="Fechar"
-              tabIndex={-1}
+          return (
+            <div
+              key={tab.id}
+              className={`editor-tabs__tab${isActive ? ' is-active' : ''}`}
+              role="presentation"
             >
-              ×
-            </button>
-          </div>
-        );
-      })}
-    </div>
+              <div className="editor-tabs__main">
+                <Tab
+                  value={tab.id}
+                  className="editor-tabs__button"
+                  title={titleText}
+                  controlsId={null}
+                  onClick={() => {
+                    window.dispatchEvent(new Event('assistente:focus-editor'));
+                  }}
+                  onDoubleClick={() => startRenaming(tab.id)}
+                >
+                  <span className="editor-tabs__title">{titleText}</span>
+                </Tab>
+
+                {isEditing && (
+                  <input
+                    ref={editInputRef}
+                    className="editor-tabs__edit"
+                    value={editingTitle}
+                    onChange={(e) => setEditingTitle(e.target.value)}
+                    onKeyDown={(e) => {
+                      // Evita que o TabList capture setas/Home/End/Delete enquanto edita.
+                      e.stopPropagation();
+
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        void confirmRenaming('enter');
+                      }
+                      if (e.key === 'Escape') {
+                        e.preventDefault();
+                        cancelRenaming();
+                      }
+                    }}
+                    onBlur={() => void confirmRenaming('blur')}
+                    aria-label="Editar título da aba"
+                  />
+                )}
+              </div>
+
+              <button
+                className="editor-tabs__close"
+                onClick={() => {
+                  requestClose(tab.id, { focusEditor: true });
+                }}
+                aria-label={`Fechar ${tab.title}`}
+                title="Fechar"
+                tabIndex={-1}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
+          );
+        })}
+      </TabList>
+    </Tabs>
   );
 }

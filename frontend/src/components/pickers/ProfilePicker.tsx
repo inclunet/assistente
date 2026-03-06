@@ -1,5 +1,6 @@
 import { useState, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
-import { Combobox, ComboboxItem } from './Combobox';
+import { ComboboxItem } from './Combobox';
+import { BasePicker } from './BasePicker';
 import { GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 
@@ -27,6 +28,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
   (
     {
       onChange,
+      variant,
       label = 'Perfil',
       icon = '💬',
       maxWidth,
@@ -136,44 +138,47 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     // Effective selected value
     const selectedSlug = isControlled ? (value || '') : activeSlug;
 
-    if (loading) {
-      return (
-        <div className="voice-picker voice-picker--loading" role="status" aria-live="polite">
-          <span className="voice-picker__icon">{icon}</span>
-          <span className="voice-picker__loading">Carregando...</span>
-        </div>
-      );
-    }
+    const loadingState = (
+      <div className="voice-picker voice-picker--loading" role="status" aria-live="polite">
+        <span className="voice-picker__icon">{icon}</span>
+        <span className="voice-picker__loading">Carregando...</span>
+      </div>
+    );
 
-    if (error) {
-      return (
-        <div className="voice-picker voice-picker--error" role="alert" aria-live="assertive">
-          <span className="voice-picker__icon">⚠️</span>
-          <span className="voice-picker__error">{error}</span>
-        </div>
-      );
-    }
+    const errorState = (
+      <div className="voice-picker voice-picker--error" role="alert" aria-live="assertive">
+        <span className="voice-picker__icon">⚠️</span>
+        <span className="voice-picker__error">{error}</span>
+      </div>
+    );
 
-    if (profileList.length === 0) {
-      return (
-        <div className="voice-picker voice-picker--empty">
-          <span className="voice-picker__icon">{icon}</span>
-          <span>Nenhum perfil</span>
-        </div>
-      );
-    }
+    const emptyState = (
+      <div className="voice-picker voice-picker--empty">
+        <span className="voice-picker__icon">{icon}</span>
+        <span>Nenhum perfil</span>
+      </div>
+    );
 
     return (
-      <div className="voice-picker" data-picker="profile">
-        <Combobox
-          selected={selectedSlug}
-          onSelect={handleSelect}
-          items={buildItems()}
-          label={label}
-          icon={icon}
-          maxWidth={maxWidth}
-        />
-      </div>
+      <BasePicker
+        variant={variant ?? 'form'}
+        items={buildItems()}
+        selected={selectedSlug}
+        onSelect={handleSelect}
+        label={label}
+        icon={icon}
+        maxWidth={maxWidth}
+        onAnnounce={onAnnounce}
+        loading={loading}
+        error={error}
+        loadingState={loadingState}
+        errorState={errorState}
+        emptyState={emptyState}
+        showFormLabel={false}
+        wrapCombobox
+        comboboxWrapperClassName="voice-picker"
+        comboboxWrapperProps={{ 'data-picker': 'profile' } as React.HTMLAttributes<HTMLDivElement>}
+      />
     );
   }
 );

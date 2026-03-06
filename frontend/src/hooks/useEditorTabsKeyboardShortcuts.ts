@@ -1,6 +1,7 @@
 import { useEffect } from 'react';
 import { useAnnouncer } from './useAnnouncer';
 import { useEditorStore } from '../store/editorStore';
+import { isModalOpen } from '../components/ui/Modal';
 
 /**
  * Atalhos globais para abas do editor:
@@ -23,7 +24,7 @@ export function useEditorTabsKeyboardShortcuts() {
       const target = event.target as HTMLElement;
 
       // Não intercepta atalhos quando um modal está aberto
-      if (document.querySelector('.simple-modal-overlay')) return;
+      if (isModalOpen()) return;
 
       // Detecta quando o foco está em inputs/editors (para atalhos que poderiam atrapalhar edição)
       const isInput =
@@ -36,6 +37,7 @@ export function useEditorTabsKeyboardShortcuts() {
       if (event.ctrlKey && (event.key === 't' || event.key === 'n') && !event.shiftKey && !event.altKey) {
         event.preventDefault();
         event.stopPropagation();
+        window.dispatchEvent(new Event('assistente:flush-rich-editor'));
         createTab();
         window.dispatchEvent(new Event('assistente:focus-editor'));
         announce('Nova aba do editor criada');
@@ -46,6 +48,7 @@ export function useEditorTabsKeyboardShortcuts() {
       if (event.ctrlKey && event.key === 'w' && !event.shiftKey && !event.altKey && activeTabId) {
         event.preventDefault();
         event.stopPropagation();
+        window.dispatchEvent(new Event('assistente:flush-rich-editor'));
         closeTab(activeTabId);
         if (!(document.activeElement as HTMLElement | null)?.closest?.('.editor-tabs')) {
           window.dispatchEvent(new Event('assistente:focus-editor'));
@@ -60,6 +63,7 @@ export function useEditorTabsKeyboardShortcuts() {
         if (isInput && target?.tagName === 'INPUT') return;
         event.preventDefault();
         event.stopPropagation();
+        window.dispatchEvent(new Event('assistente:flush-rich-editor'));
         closeTab(activeTabId);
         if (!(document.activeElement as HTMLElement | null)?.closest?.('.editor-tabs')) {
           window.dispatchEvent(new Event('assistente:focus-editor'));
@@ -86,6 +90,7 @@ export function useEditorTabsKeyboardShortcuts() {
 
         const nextTab = tabs[nextIndex];
         if (nextTab) {
+          window.dispatchEvent(new Event('assistente:flush-rich-editor'));
           setActiveTab(nextTab.id);
           announce(`${nextTab.title}, ${nextIndex + 1} de ${tabs.length}`);
           window.dispatchEvent(new Event('assistente:focus-editor'));
@@ -100,6 +105,7 @@ export function useEditorTabsKeyboardShortcuts() {
           const targetTab = tabs[num - 1];
           if (!targetTab) return;
           event.preventDefault();
+          window.dispatchEvent(new Event('assistente:flush-rich-editor'));
           setActiveTab(targetTab.id);
           announce(`${targetTab.title}, ${num} de ${tabs.length}`);
           window.dispatchEvent(new Event('assistente:focus-editor'));
@@ -111,3 +117,4 @@ export function useEditorTabsKeyboardShortcuts() {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [tabs, activeTabId, createTab, closeTab, setActiveTab, announce]);
 }
+

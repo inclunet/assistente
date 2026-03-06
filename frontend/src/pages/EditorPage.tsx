@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Toolbar } from '../components/ui/Toolbar';
+import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { ProfilePicker } from '../components/pickers/ProfilePicker';
 import { EditorTabs } from '../components/editor/EditorTabs';
 import { CodeEditor } from '../components/ui/CodeEditor';
 import { MarkdownRenderer } from '../components/ui/MarkdownRenderer';
-import { ContextMenu, type MenuItem } from '../components/ui/ContextMenu';
+import { Menu, type MenuItem } from '../components/menu';
 import { useAnchoredContextMenu } from '../hooks/useAnchoredContextMenu';
 import { MermaidEditorModal } from '../components/editor/MermaidEditorModal';
 import { RichTextEditor } from '../components/editor/RichTextEditor';
+import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
+import { useRichEditorFlushEvents } from './useRichEditorFlushEvents';
 import { EditorInlineChatModal } from '@/components/editor/EditorInlineChatModal';
 import { useEditorStore, type EditorMode, type EditorTab, type EditorInsertRequest } from '../store/editorStore';
 import { useEditorTabsKeyboardShortcuts } from '../hooks/useEditorTabsKeyboardShortcuts';
@@ -18,13 +20,22 @@ import { useChatStore } from '../store/chatStore';
 import { createTwoFilesPatch } from 'diff';
 import { buildEditorPatchPrompt } from '../lib/editorPatch';
 import { applyTextReplacementByOffset } from '../lib/editorPatchApply';
-import { applyRichTextInsert } from '../lib/richTextPatchApply';
+import { normalizeEditorInsertContent } from '../lib/editorInsertNormalize';
+import { applyRichTextInsert, applyRichTextInsertAtEnd } from '../lib/richTextPatchApply';
 import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
+import { toEditorSessionPayload } from '../lib/editorSessionPayload';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
+import { isModalOpen } from '../components/ui/Modal';
+import {
+  buildFileMenuItemsForContextMenu,
+  buildFormatMenuItemsForContextMenu,
+  buildInsertMenuItemsForContextMenu,
+  buildModeMenuItemsForContextMenu,
+} from './editorMenus';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import {
   EditorDeleteDraft,
@@ -74,6 +85,7 @@ export default function EditorPage() {
   const editorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
   const richEditorRef = useRef<any>(null);
+  const richEditorHandleRef = useRef<RichTextEditorHandle | null>(null);
 
   const [isAsking, setIsAsking] = useState(false);
 
@@ -81,68 +93,6 @@ export default function EditorPage() {
   const [mermaidInitialCode, setMermaidInitialCode] = useState('');
   const [mermaidInsertText, setMermaidInsertText] = useState('');
   const [richMermaidSession, setRichMermaidSession] = useState<any | null>(null);
-
-  type RichMermaidHit = { pos: number; node: any };
-
-  const findRichMermaidById = useCallback((ed: any, mermaidBlockId: string): RichMermaidHit | null => {
-    const target = String(mermaidBlockId || '').trim();
-    if (!ed || !target) return null;
-    const doc = ed.state?.doc;
-    if (!doc) return null;
-
-    let found: RichMermaidHit | null = null;
-    doc.descendants((node: any, pos: number) => {
-      const lang = String(node?.attrs?.language || '').toLowerCase();
-      const id = String(node?.attrs?.mermaidBlockId || '').trim();
-      if (lang === 'mermaid' && id === target) {
-        found = { pos, node };
-        return false;
-      }
-      return true;
-    });
-    return found;
-  }, []);
-
-  const applyRichMermaidById = useCallback(
-    (mermaidBlockId: string, nextCode: string): boolean => {
-      const ed = richEditorRef.current;
-      const hit = findRichMermaidById(ed, mermaidBlockId);
-      if (!ed || !hit) return false;
-
-      try {
-        const from = hit.pos + 1;
-        const to = hit.pos + hit.node.nodeSize - 1;
-        ed.commands.command(({ tr, state }: any) => {
-          tr.replaceWith(from, to, state.schema.text(String(nextCode || '')));
-          return true;
-        });
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    [findRichMermaidById]
-  );
-
-  const removeRichMermaidById = useCallback(
-    (mermaidBlockId: string): boolean => {
-      const ed = richEditorRef.current;
-      const hit = findRichMermaidById(ed, mermaidBlockId);
-      if (!ed || !hit) return false;
-      try {
-        const from = hit.pos;
-        const to = hit.pos + hit.node.nodeSize;
-        ed.commands.command(({ tr }: any) => {
-          tr.delete(from, to);
-          return true;
-        });
-        return true;
-      } catch {
-        return false;
-      }
-    },
-    [findRichMermaidById]
-  );
 
   // Foco previsível após fechar o modal Mermaid.
   const prevMermaidOpenRef = useRef(false);
@@ -672,18 +622,18 @@ export default function EditorPage() {
     }, Math.max(0, delayMs));
   };
 
-  // Restaura sessão (guias abertas + autosave) de ~/.assistente/editor/session.json
+  // Restaura sessão (guias abertas + autosave) via backend (persistido no SQLite)
   useEffect(() => {
     let cancelled = false;
 
     (async () => {
       try {
-        const sess = await EditorLoadSession();
+        const sess = toEditorSessionPayload(await EditorLoadSession());
         if (cancelled) return;
 
         // Preferências por arquivo (se existir)
         try {
-          const fromSess = (sess as any)?.fileModeByPath as Record<string, any> | undefined;
+          const fromSess = sess.fileModeByPath;
           if (fromSess && typeof fromSess === 'object') {
             const next: Record<string, 'markdown' | 'rich'> = {};
             for (const [k, v] of Object.entries(fromSess)) {
@@ -697,13 +647,13 @@ export default function EditorPage() {
           // best-effort
         }
 
-        const autoSaveEnabledFromSess = typeof (sess as any)?.autoSaveEnabled === 'boolean' ? !!(sess as any).autoSaveEnabled : true;
-        const editorProfileSlugFromSess = String((sess as any)?.profileSlug || '').trim();
+        const autoSaveEnabledFromSess = typeof sess.autoSaveEnabled === 'boolean' ? !!sess.autoSaveEnabled : true;
+        const editorProfileSlugFromSess = String(sess.profileSlug || '').trim();
 
-        const lockedFromSess = ((sess as any)?.externalConflictLockedByTabId || {}) as Record<string, any>;
-        const mergeFromSess = ((sess as any)?.mergeSessionsByTabId || {}) as Record<string, any>;
+        const lockedFromSess = (sess.externalConflictLockedByTabId || {}) as Record<string, any>;
+        const mergeFromSess = (sess.mergeSessionsByTabId || {}) as Record<string, any>;
 
-        const rawTabs = Array.isArray((sess as any)?.tabs) ? ((sess as any).tabs as any[]) : [];
+        const rawTabs = Array.isArray(sess.tabs) ? sess.tabs : [];
         const loadedTabs: EditorTab[] = [];
 
         for (const t of rawTabs) {
@@ -772,7 +722,7 @@ export default function EditorPage() {
         }
 
         // Se não houver tabs na sessão, mantém vazio (usuário pode criar com Ctrl+N)
-        const nextActiveTabId = String((sess as any)?.activeTabId || '').trim();
+        const nextActiveTabId = String(sess.activeTabId || '').trim();
         const activeExists = !!loadedTabs.find((t) => t.id === nextActiveTabId);
 
         hydrate({
@@ -832,7 +782,7 @@ export default function EditorPage() {
     updateLatestMarkdownForTab(activeTab.id, String(activeTab.markdown ?? ''));
   }, [sessionLoaded, activeTab?.id]);
 
-  // Persiste a sessão (abas abertas) em ~/.assistente/editor/session.json
+  // Persiste a sessão (abas abertas) via backend (persistido no SQLite)
   useEffect(() => {
     if (!sessionLoaded) return;
 
@@ -1141,7 +1091,7 @@ export default function EditorPage() {
     };
   }, [sessionLoaded, activeTabId]);
 
-  // F6: circular foco entre abas, toolbar principal e toolbar de formatação (quando existir)
+  // F6: circular foco entre abas, toolbar principal e editor
   useEffect(() => {
     const focusFirstEnabledButton = (root: Element | null) => {
       if (!root) return false;
@@ -1164,14 +1114,6 @@ export default function EditorPage() {
       const root = pageRootRef.current;
       if (!root) return false;
       const toolbar = root.querySelector('.editor-page__toolbar') as Element | null;
-      if (!toolbar) return false;
-      return focusFirstEnabledButton(toolbar);
-    };
-
-    const focusFormatToolbar = () => {
-      const root = pageRootRef.current;
-      if (!root) return false;
-      const toolbar = root.querySelector('.rich-text-editor__format-toolbar') as Element | null;
       if (!toolbar) return false;
       return focusFirstEnabledButton(toolbar);
     };
@@ -1208,7 +1150,6 @@ export default function EditorPage() {
       if (!el) return 'unknown' as const;
       if (el.closest?.('.editor-tabs')) return 'tabs' as const;
       if (el.closest?.('.editor-page__toolbar')) return 'main' as const;
-      if (el.closest?.('.rich-text-editor__format-toolbar')) return 'format' as const;
       if (el.closest?.('.rich-text-editor__content')) return 'editor' as const;
       if (el.closest?.('.monaco-editor')) return 'editor' as const;
       return 'unknown' as const;
@@ -1216,14 +1157,13 @@ export default function EditorPage() {
 
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key !== 'F6') return;
-      if (document.querySelector('.simple-modal-overlay')) return;
+      if (isModalOpen()) return;
 
       e.preventDefault();
       e.stopPropagation();
 
-      const zones = ['tabs', 'main', 'format', 'editor'] as const;
+      const zones = ['tabs', 'main', 'editor'] as const;
       const available = zones.filter((z) => {
-        if (z === 'format') return activeTab?.mode === 'rich';
         if (z === 'editor') return !!activeTab;
         return true;
       });
@@ -1240,14 +1180,6 @@ export default function EditorPage() {
         focusMainToolbar();
         return;
       }
-      if (next === 'format') {
-        if (!focusFormatToolbar()) {
-          // fallback
-          focusMainToolbar() || focusTabs();
-        }
-        return;
-      }
-
       if (next === 'editor') {
         if (!focusEditor()) {
           // fallback
@@ -1267,7 +1199,7 @@ export default function EditorPage() {
     if (!sessionLoaded) return;
     if (!activeTab) return;
     if (inlineChatOpen) return;
-    if (document.querySelector('.simple-modal-overlay')) return;
+    if (isModalOpen()) return;
 
     const el = document.activeElement as HTMLElement | null;
     const tag = el?.tagName || '';
@@ -1285,11 +1217,18 @@ export default function EditorPage() {
       return;
     }
 
-    // Mudança de aba/modo: se o foco estiver em tabs/toolbar, manda pro editor.
-    if (!isTypingTarget && (el?.closest?.('.editor-tabs') || el?.closest?.('.editor-page__toolbar'))) {
+    // Mudança de aba/modo: só foca automaticamente se não houver um alvo de foco claro.
+    // (Evita “puxar” o foco de tabs/toolbar, o que quebra navegação por teclado, ex: F6.)
+    const isEditorZone =
+      !!el &&
+      (!!el.closest?.('.rich-text-editor__content') || !!el.closest?.('.monaco-editor'));
+    const isDocumentBody = !el || el === document.body;
+
+    if (!isTypingTarget && (isDocumentBody || isEditorZone)) {
       focusEditorSoon();
     }
-  }, [sessionLoaded, activeTab?.id, activeTab?.mode, inlineChatOpen, focusEditorSoon]);
+  }, [sessionLoaded, activeTab?.id, activeTab?.mode, inlineChatOpen]);
+
 
   // Limpa drafts quando uma aba (rascunho) é fechada
   const prevTabsRef = useRef<typeof tabs>([]);
@@ -1466,21 +1405,22 @@ export default function EditorPage() {
     }, 20);
   }
 
-  const flushActiveRichMarkdownNow = () => {
+  const flushActiveRichMarkdownNow = useCallback(() => {
     try {
       const tab = useEditorStore.getState().tabs.find((t) => t.id === useEditorStore.getState().activeTabId) || null;
       if (!tab || tab.mode !== 'rich') return;
-      const rich = richEditorRef.current;
-      (rich as any)?.__flushMarkdown?.();
+      richEditorHandleRef.current?.flushMarkdown?.();
     } catch {
       // best-effort
     }
-  };
+  }, []);
+
+  useRichEditorFlushEvents({ flushNow: flushActiveRichMarkdownNow });
 
   const applyInsertRequest = async (req: EditorInsertRequest): Promise<boolean> => {
     const r = req;
-    const content = String(r?.content ?? '');
-    if (!content) return true;
+    const rawContent = String(r?.content ?? '');
+    if (!rawContent) return true;
 
     let targetTab = activeTab;
 
@@ -1493,6 +1433,15 @@ export default function EditorPage() {
     }
 
     if (!targetTab) return false;
+
+    const normalized = normalizeEditorInsertContent({
+      content: rawContent,
+      format: r.format,
+      targetMode: targetTab.mode,
+    });
+
+    const content = normalized.content;
+    const format = normalized.format;
 
     // Vínculo do chat → editor (para o mini-chat manter contexto)
     if (r.source?.chatTabId || typeof r.source?.conversationId === 'number') {
@@ -1574,19 +1523,27 @@ export default function EditorPage() {
     const sel = rich.state?.selection;
     if (!sel) return false;
 
+    const richHasFocus = !!((rich as any)?.view?.hasFocus?.() ?? (rich as any)?.isFocused);
+
     const from = Number(sel.from);
     const to = Number(sel.to);
 
     let contentToInsert: any = content;
-    if (r.format === 'markdown') {
+    if (format === 'markdown') {
       contentToInsert = markdownToHtml(content);
-    } else if (r.format === 'plain') {
+    } else if (format === 'plain') {
       // Inserção como texto puro (sem interpretar como HTML).
       // Para manter comportamento previsível, tratamos como texto.
       contentToInsert = { type: 'text', text: content };
     }
 
-    applyRichTextInsert({ rich, from, to, contentToInsert });
+    // Se não há foco (comum após navegar do Chat), a seleção pode estar no início.
+    // Para um comportamento mais previsível, inserimos no fim do documento.
+    if (!richHasFocus) {
+      applyRichTextInsertAtEnd({ rich, contentToInsert });
+    } else {
+      applyRichTextInsert({ rich, from, to, contentToInsert });
+    }
     flushActiveRichMarkdownNow();
     if (focusAfter) {
       try {
@@ -2320,7 +2277,7 @@ export default function EditorPage() {
           addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
           return;
         }
-        if (document.querySelector('.simple-modal-overlay')) return;
+        if (isModalOpen()) return;
         await askInlineChatRef.current();
       }
     };
@@ -2396,26 +2353,10 @@ export default function EditorPage() {
 
   const {
     menu: toolbarMenu,
-    triggerElementRef: toolbarMenuTriggerRef,
     openForTrigger: openToolbarMenu,
     closeMenu: closeToolbarMenu,
     onSelectItem: handleToolbarMenuSelect,
-  } = useAnchoredContextMenu({
-    onAfterSelect: () => {
-      focusEditorSoon();
-
-      // Se por algum motivo não focar (ex: modo view), volta ao botão.
-      window.setTimeout(() => {
-        const a = document.activeElement as HTMLElement | null;
-        const inEditor =
-          !!a &&
-          (a.closest?.('.monaco-editor') || a.closest?.('.rich-text-editor__content') || a.closest?.('.rich-text-editor'));
-        if (!inEditor) {
-          toolbarMenuTriggerRef.current?.focus?.();
-        }
-      }, 120);
-    },
-  });
+  } = useAnchoredContextMenu();
 
   const setActiveTabMode = useCallback(
     (nextMode: EditorMode) => {
@@ -2438,334 +2379,48 @@ export default function EditorPage() {
   );
 
   const fileMenuItemsForContextMenu = useMemo((): MenuItem[] => {
-    return fileMenuItems.map((it) => ({
-      id: `editor-toolbar-file-${it.value}`,
-      label: it.label,
-      shortcut: it.sublabel,
-      disabled: !!(it as any).disabled,
-      action: () => {
-        void onFileMenuSelect(String(it.value || ''));
+    return buildFileMenuItemsForContextMenu({
+      ctx: {
+        fileMenuItems,
+        onSelect: onFileMenuSelect,
       },
-      ariaLabel: it.sublabel ? `${it.label}, ${it.sublabel}` : it.label,
-    }));
+    });
   }, [fileMenuItems, onFileMenuSelect]);
 
   const insertMenuItemsForContextMenu = useMemo((): MenuItem[] => {
-    const canInsert = !!activeTab && !isAsking && activeTab.mode !== 'view';
-
-    const insertMarkdownSnippet = async (content: string) => {
-      if (!activeTab) return;
-      await applyInsertRequest({
-        op: 'insert',
-        target: 'current_tab',
-        format: 'markdown',
-        content,
-        focus: true,
-      } as any);
-      focusEditorSoon();
-    };
-
-    const insertMarkdownTable = async (rows: number, cols: number) => {
-      const header = Array.from({ length: cols }, (_, i) => `C${i + 1}`);
-      const headerRow = `| ${header.join(' | ')} |`;
-      const sepRow = `|${Array.from({ length: cols }, () => '---').join('|')}|`;
-      const bodyRows = Array.from({ length: Math.max(1, rows - 1) }, () => `| ${Array.from({ length: cols }, () => ' ').join(' | ')} |`).join('\n');
-      await insertMarkdownSnippet([headerRow, sepRow, bodyRows].filter(Boolean).join('\n') + '\n');
-    };
-
-    const insertRichTable = (rows: number, cols: number, withHeaderRow: boolean) => {
-      const rich = richEditorRef.current as any;
-      if (!rich) {
-        addToast('Editor rico ainda não está pronto.', 'info');
-        return;
-      }
-      rich.chain?.().focus?.().insertTable?.({ rows, cols, withHeaderRow })?.run?.();
-    };
-
-    const makeTableMenu = (): MenuItem => {
-      const rowChoices = [2, 3, 4, 5, 6];
-      const colChoices = [2, 3, 4, 5, 6];
-
-      return {
-        id: 'ins-table',
-        label: 'Tabela',
-        icon: '▦',
-        disabled: !canInsert,
-        submenu: rowChoices.map((r) => ({
-          id: `ins-table-r${r}`,
-          label: `${r} linhas`,
-          submenu: colChoices.map((c) => ({
-            id: `ins-table-r${r}-c${c}`,
-            label: `${c} colunas`,
-            submenu:
-              activeTab?.mode === 'rich'
-                ? [
-                    {
-                      id: `ins-table-r${r}-c${c}-hdr-on`,
-                      label: 'Com cabeçalho',
-                      action: () => insertRichTable(r, c, true),
-                    },
-                    {
-                      id: `ins-table-r${r}-c${c}-hdr-off`,
-                      label: 'Sem cabeçalho',
-                      action: () => insertRichTable(r, c, false),
-                    },
-                  ]
-                : [
-                    {
-                      id: `ins-table-r${r}-c${c}-md`,
-                      label: 'Inserir (Markdown)',
-                      action: () => {
-                        void insertMarkdownTable(r, c);
-                      },
-                    },
-                    {
-                      id: `ins-table-r${r}-c${c}-hdr-note`,
-                      label: 'Cabeçalho: Markdown sempre usa a 1ª linha',
-                      disabled: true,
-                    },
-                  ],
-          })),
-        })),
-      };
-    };
-
-    return [
-      {
-        id: 'ins-mermaid',
-        label: 'Diagrama Mermaid',
-        icon: '🧩',
-        disabled: !canInsert,
-        action: () => {
-          if (!activeTab) return;
-          if (activeTab.mode === 'markdown') {
-            void insertMarkdownSnippet('```mermaid\nflowchart TD\n  A[Início] --> B[Fim]\n```\n');
-            return;
-          }
-          const rich = richEditorRef.current as any;
-          if (!rich) {
-            addToast('Editor rico ainda não está pronto.', 'info');
-            return;
-          }
-          const template = 'flowchart TD\n  A[Início] --> B[Fim]';
-          rich.chain?.().focus?.().setCodeBlock?.({ language: 'mermaid' })?.insertContent?.(template)?.run?.();
-          addToast('Bloco Mermaid inserido. Dê duplo clique para editar.', 'success');
-        },
+    return buildInsertMenuItemsForContextMenu({
+      ctx: {
+        activeTab,
+        isAsking,
+        editorReadyNonce,
+        richEditorRef,
+        applyInsertRequest,
+        focusEditorSoon,
+        addToast,
       },
-      {
-        id: 'ins-codeblock',
-        label: 'Bloco de código',
-        icon: '{ }',
-        disabled: !canInsert,
-        action: () => {
-          if (!activeTab) return;
-          if (activeTab.mode === 'markdown') {
-            void insertMarkdownSnippet('```\n\n```\n');
-            return;
-          }
-          const rich = richEditorRef.current as any;
-          if (!rich) {
-            addToast('Editor rico ainda não está pronto.', 'info');
-            return;
-          }
-          rich.chain?.().focus?.().setCodeBlock?.({ language: '' })?.run?.();
-        },
-      },
-      makeTableMenu(),
-      {
-        id: 'ins-lists',
-        label: 'Listas',
-        icon: '•',
-        disabled: !canInsert,
-        submenu: [
-          {
-            id: 'ins-bullets',
-            label: 'Marcadores',
-            shortcut: '•',
-            disabled: !canInsert,
-            action: () => {
-              if (!activeTab) return;
-              if (activeTab.mode === 'markdown') {
-                void insertMarkdownSnippet('- item\n- item\n');
-                return;
-              }
-              const rich = richEditorRef.current as any;
-              if (!rich) {
-                addToast('Editor rico ainda não está pronto.', 'info');
-                return;
-              }
-              rich.chain?.().focus?.().toggleBulletList?.().run?.();
-            },
-          },
-          {
-            id: 'ins-numbers',
-            label: 'Numerada',
-            shortcut: '1.',
-            disabled: !canInsert,
-            action: () => {
-              if (!activeTab) return;
-              if (activeTab.mode === 'markdown') {
-                void insertMarkdownSnippet('1. item\n2. item\n');
-                return;
-              }
-              const rich = richEditorRef.current as any;
-              if (!rich) {
-                addToast('Editor rico ainda não está pronto.', 'info');
-                return;
-              }
-              rich.chain?.().focus?.().toggleOrderedList?.().run?.();
-            },
-          },
-        ],
-      },
-      {
-        id: 'ins-blockquote',
-        label: 'Citação',
-        icon: '❝',
-        disabled: !canInsert,
-        action: () => {
-          if (!activeTab) return;
-          if (activeTab.mode === 'markdown') {
-            void insertMarkdownSnippet('> ');
-            return;
-          }
-          const rich = richEditorRef.current as any;
-          if (!rich) {
-            addToast('Editor rico ainda não está pronto.', 'info');
-            return;
-          }
-          rich.chain?.().focus?.().toggleBlockquote?.().run?.();
-        },
-      },
-    ];
+    });
   }, [activeTab, isAsking, editorReadyNonce, addToast, applyInsertRequest]);
 
   const formatMenuItemsForContextMenu = useMemo((): MenuItem[] => {
-    const canFormat = !!activeTab && !isAsking && activeTab.mode === 'rich' && !!richEditorRef.current;
-    const rich = richEditorRef.current as any;
-
-    const run = (fn: () => void) => {
-      if (!canFormat || !rich) return;
-      try {
-        fn();
-      } catch {
-        // best-effort
-      }
-    };
-
-    const headingSubmenu: MenuItem[] = [
-      {
-        id: 'fmt-p',
-        label: 'Parágrafo',
-        icon: 'P',
-        disabled: !canFormat,
-        action: () => run(() => rich.chain?.().focus?.().setParagraph?.().run?.()),
+    return buildFormatMenuItemsForContextMenu({
+      ctx: {
+        activeTab,
+        isAsking,
+        editorReadyNonce,
+        richEditorRef,
+        richEditorHandleRef,
       },
-      ...[1, 2, 3, 4, 5, 6].map((lvl) => ({
-        id: `fmt-h${lvl}`,
-        label: `Título ${lvl} (H${lvl})`,
-        icon: `H${lvl}`,
-        disabled: !canFormat,
-        action: () => run(() => rich.chain?.().focus?.().setHeading?.({ level: lvl })?.run?.()),
-      })),
-    ];
-
-    return [
-      {
-        id: 'fmt-text',
-        label: 'Texto',
-        icon: 'A',
-        disabled: !canFormat,
-        submenu: [
-          {
-            id: 'fmt-bold',
-            label: 'Negrito',
-            shortcut: 'Ctrl+B',
-            disabled: !canFormat,
-            action: () => run(() => rich.chain?.().focus?.().toggleBold?.().run?.()),
-          },
-          {
-            id: 'fmt-italic',
-            label: 'Itálico',
-            shortcut: 'Ctrl+I',
-            disabled: !canFormat,
-            action: () => run(() => rich.chain?.().focus?.().toggleItalic?.().run?.()),
-          },
-          {
-            id: 'fmt-strike',
-            label: 'Tachado',
-            shortcut: 'Ctrl+Shift+X',
-            disabled: !canFormat,
-            action: () => run(() => rich.chain?.().focus?.().toggleStrike?.().run?.()),
-          },
-          { id: 'fmt-text-sep', separator: true },
-          {
-            id: 'fmt-clear-marks',
-            label: 'Limpar formatação de texto',
-            icon: '↺',
-            disabled: !canFormat,
-            action: () => run(() => rich.chain?.().focus?.().unsetAllMarks?.().run?.()),
-          },
-        ],
-      },
-      {
-        id: 'fmt-paragraph',
-        label: 'Parágrafo e títulos',
-        icon: '¶',
-        disabled: !canFormat,
-        submenu: headingSubmenu,
-      },
-      {
-        id: 'fmt-blocks',
-        label: 'Blocos',
-        icon: '▤',
-        disabled: !canFormat,
-        submenu: [
-          {
-            id: 'fmt-bq',
-            label: 'Citação',
-            disabled: !canFormat,
-            action: () => run(() => rich.chain?.().focus?.().toggleBlockquote?.().run?.()),
-          },
-          {
-            id: 'fmt-code',
-            label: 'Bloco de código',
-            disabled: !canFormat,
-            action: () => run(() => rich.chain?.().focus?.().toggleCodeBlock?.().run?.()),
-          },
-          { id: 'fmt-blocks-sep', separator: true },
-          {
-            id: 'fmt-ul',
-            label: 'Lista com marcadores',
-            disabled: !canFormat,
-            action: () => run(() => rich.chain?.().focus?.().toggleBulletList?.().run?.()),
-          },
-          {
-            id: 'fmt-ol',
-            label: 'Lista numerada',
-            disabled: !canFormat,
-            action: () => run(() => rich.chain?.().focus?.().toggleOrderedList?.().run?.()),
-          },
-        ],
-      },
-    ];
+    });
   }, [activeTab, isAsking, editorReadyNonce]);
 
   const modeMenuItemsForContextMenu = useMemo((): MenuItem[] => {
-    const canChange = !!activeTab && !isAsking;
-    const current = activeTab?.mode || 'markdown';
-    const mk = (mode: EditorMode, label: string): MenuItem => ({
-      id: `mode-${mode}`,
-      label,
-      icon: current === mode ? '✓' : ' ',
-      disabled: !canChange,
-      action: () => setActiveTabMode(mode),
+    return buildModeMenuItemsForContextMenu({
+      ctx: {
+        activeTab,
+        isAsking,
+        setActiveTabMode,
+      },
     });
-    return [
-      mk('markdown', 'Código'),
-      mk('rich', 'Rico'),
-      mk('view', 'Visualização'),
-    ];
   }, [activeTab, isAsking, setActiveTabMode]);
 
   const actions = useMemo(() => {
@@ -2792,7 +2447,7 @@ export default function EditorPage() {
   useEffect(() => {
     const onKeyDown = async (e: KeyboardEvent) => {
       if (!activeTab) return;
-      if (document.querySelector('.simple-modal-overlay')) return;
+      if (isModalOpen()) return;
 
       if (e.ctrlKey && !e.shiftKey && (e.key === 's' || e.key === 'S') && !e.altKey) {
         e.preventDefault();
@@ -2826,53 +2481,36 @@ export default function EditorPage() {
         left={<div className="editor-page__title">{activeTab?.title || 'Editor'}</div>}
         right={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
-            <button
-              className="toolbar__button toolbar__button--secondary"
-              disabled={false}
+            <ToolbarButton
+              label="Arquivo"
+              icon="📄"
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Arquivo', fileMenuItemsForContextMenu)}
               aria-haspopup="menu"
-              aria-label="Arquivo"
-              title="Arquivo"
-            >
-              <span className="toolbar__button-icon" aria-hidden="true">📄</span>
-              <span className="toolbar__button-label">Arquivo</span>
-            </button>
+            />
 
-            <button
-              className="toolbar__button toolbar__button--secondary"
+            <ToolbarButton
+              label="Formatar"
+              icon="🎛️"
               disabled={!activeTab || isAsking || activeTab.mode !== 'rich' || !richEditorRef.current}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Formatar', formatMenuItemsForContextMenu)}
               aria-haspopup="menu"
-              aria-label="Formatar"
-              title="Formatar"
-            >
-              <span className="toolbar__button-icon" aria-hidden="true">🎛️</span>
-              <span className="toolbar__button-label">Formatar</span>
-            </button>
+            />
 
-            <button
-              className="toolbar__button toolbar__button--secondary"
+            <ToolbarButton
+              label="Inserir"
+              icon="➕"
               disabled={!activeTab || isAsking || activeTab.mode === 'view'}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Inserir', insertMenuItemsForContextMenu)}
               aria-haspopup="menu"
-              aria-label="Inserir"
-              title="Inserir"
-            >
-              <span className="toolbar__button-icon" aria-hidden="true">➕</span>
-              <span className="toolbar__button-label">Inserir</span>
-            </button>
+            />
 
-            <button
-              className="toolbar__button toolbar__button--secondary"
+            <ToolbarButton
+              label="Modo"
+              icon="🧭"
               disabled={!activeTab || isAsking}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Modo', modeMenuItemsForContextMenu)}
               aria-haspopup="menu"
-              aria-label="Modo"
-              title="Modo"
-            >
-              <span className="toolbar__button-icon" aria-hidden="true">🧭</span>
-              <span className="toolbar__button-label">Modo</span>
-            </button>
+            />
 
             <ProfilePicker
               value={editorProfileSlug}
@@ -2990,6 +2628,7 @@ export default function EditorPage() {
               <div className="editor-page__pane-title">Rico</div>
               <div className="editor-page__pane-body">
                 <RichTextEditor
+                  ref={richEditorHandleRef}
                   ariaLabel="Editor rico"
                   markdown={activeTab.markdown}
                   onMarkdownChange={(md) => {
@@ -3010,16 +2649,17 @@ export default function EditorPage() {
                   }}
                   onRequestEditMermaid={(ctx) => {
                     const mermaidBlockId = String((ctx as any)?.mermaidBlockId || '').trim();
+                    const api = richEditorHandleRef.current;
                     setRichMermaidSession({
                       mermaidBlockId,
                       initialCode: String(ctx.code || ''),
                       insertText: String((ctx as any)?.insertText || ''),
                       apply: (nextCode: string) => {
-                        if (mermaidBlockId && applyRichMermaidById(mermaidBlockId, nextCode)) return;
+                        if (mermaidBlockId && api?.applyMermaidById?.(mermaidBlockId, nextCode)) return;
                         ctx.apply(nextCode);
                       },
                       remove: () => {
-                        if (mermaidBlockId && removeRichMermaidById(mermaidBlockId)) return;
+                        if (mermaidBlockId && api?.removeMermaidById?.(mermaidBlockId)) return;
                         ctx.remove();
                       },
                     });
@@ -3111,7 +2751,7 @@ export default function EditorPage() {
         }}
       />
 
-      <ContextMenu
+      <Menu
         items={toolbarMenu.items}
         x={toolbarMenu.x}
         y={toolbarMenu.y}

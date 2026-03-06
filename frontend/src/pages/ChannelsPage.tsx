@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback, KeyboardEvent as ReactKeyboardEvent } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import {
   GetChannelConfig,
   SaveChannelConfig,
@@ -20,13 +20,15 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { Input, Button, Checkbox } from '../components';
 import { ProfilePicker } from '../components/pickers/ProfilePicker';
-import { Toolbar } from '../components/ui/Toolbar';
+import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
+import { Tabs, TabList, Tab, TabPanel } from '../components/ui/tabs';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { SimpleModal } from '../components/ui/SimpleModal';
-import { ContextMenu, MenuItem } from '../components/ui/ContextMenu';
+import { Modal, isModalOpen } from '../components/ui/Modal';
+import { EditorPanelFields, EditorPanelFooter } from '../components/ui/EditorPanel';
+import { ContextMenu, MenuItem } from '../components/menu';
 import CreateChannelModal from '../components/modals/CreateChannelModal';
 import { playBumpSound } from '../services/audioFeedback';
+import { useConfirm } from '../hooks/useConfirm';
 import './ChannelsPage.css';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -85,10 +87,10 @@ export default function ChannelsPage() {
   const { focusFirstCell: channelsFocusFirstCell, handleGridReady: channelsHandleGridReady } = useGridFocus();
   const { focusFirstCell: contactsFocusFirstCell, handleGridReady: contactsHandleGridReady } = useGridFocus();
   const defaultChannelProfile = 'canais-comunicacao';
+  const requestConfirm = useConfirm();
 
   // ── Tab ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<ActiveTab>('channels');
-  const tabRefs = useRef<(HTMLButtonElement | null)[]>([]);
   const tabs: { id: ActiveTab; label: string }[] = [
     { id: 'channels', label: 'Canais' },
     { id: 'contacts', label: 'Contatos' },
@@ -132,8 +134,6 @@ export default function ChannelsPage() {
 
   // ── Contacts grid ────────────────────────────────────────────────
   const [contactRows, setContactRows] = useState<ContactRow[]>([]);
-  const [deleteContactOpen, setDeleteContactOpen] = useState(false);
-  const [deleteContactTarget, setDeleteContactTarget] = useState<ContactRow | null>(null);
 
   // ── Create Channel Modal ─────────────────────────────────────────
   const [showCreateChannelModal, setShowCreateChannelModal] = useState(false);
@@ -296,7 +296,7 @@ export default function ChannelsPage() {
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (document.querySelector('.simple-modal-overlay')) return;
+      if (isModalOpen()) return;
       if (e.ctrlKey && !e.shiftKey && !e.altKey && (e.key === 'n' || e.key === 'N')) {
         e.preventDefault();
         openCreateMenu();
@@ -306,6 +306,7 @@ export default function ChannelsPage() {
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [openCreateMenu]);
+
 
   const handleQuickCreate = async (template: channels.ChannelTemplate) => {
     setCreateMenuVisible(false);
@@ -339,50 +340,15 @@ export default function ChannelsPage() {
     setShowCreateChannelModal(true);
   };
 
-  // ── Tab keyboard navigation (ARIA tabs pattern) ──────────────────
-
-  const handleTabKeyDown = (e: ReactKeyboardEvent<HTMLButtonElement>, index: number) => {
-    let nextIndex = index;
-
-    switch (e.key) {
-      case 'ArrowRight':
-      case 'ArrowDown':
-        e.preventDefault();
-        if (index === tabs.length - 1) { playBumpSound(); return; }
-        nextIndex = index + 1;
-        break;
-      case 'ArrowLeft':
-      case 'ArrowUp':
-        e.preventDefault();
-        if (index === 0) { playBumpSound(); return; }
-        nextIndex = index - 1;
-        break;
-      case 'Home':
-        e.preventDefault();
-        if (index === 0) { playBumpSound(); return; }
-        nextIndex = 0;
-        break;
-      case 'End':
-        e.preventDefault();
-        if (index === tabs.length - 1) { playBumpSound(); return; }
-        nextIndex = tabs.length - 1;
-        break;
-      default:
-        return;
-    }
-
-    const tab = tabs[nextIndex];
-    setActiveTab(tab.id);
-    setEditingChannel(null);
-    tabRefs.current[nextIndex]?.focus();
-    announce(`Aba ${tab.label} selecionada`);
-  };
-
-  const handleTabClick = (tab: { id: ActiveTab; label: string }) => {
-    setActiveTab(tab.id);
-    setEditingChannel(null);
-    announce(`Aba ${tab.label} selecionada`);
-  };
+  const handleTabChange = useCallback(
+    (tabId: ActiveTab) => {
+      const tab = tabs.find((t) => t.id === tabId);
+      setActiveTab(tabId);
+      setEditingChannel(null);
+      announce(`Aba ${tab?.label ?? tabId} selecionada`);
+    },
+    [announce, tabs]
+  );
 
   // ── Save channel ─────────────────────────────────────────────────
 
@@ -602,7 +568,14 @@ export default function ChannelsPage() {
   };
 
   const handleSignalUnregister = async (account: string) => {
-    if (!confirm(`Remover a conta ${account} do servidor Signal?\n\nIsto irá desregistrar e apagar os dados locais.`)) return;
+    const shouldRemove = await requestConfirm({
+      title: 'Remover conta do Signal',
+      message: `Remover a conta ${account} do servidor Signal?\n\nIsto irá desregistrar e apagar os dados locais.`,
+      confirmText: 'Remover',
+      cancelText: 'Cancelar',
+      variant: 'danger',
+    });
+    if (!shouldRemove) return;
     setSignalUnregistering(account);
     try {
       await SignalUnregister(signalForm.apiURL, account, true);
@@ -622,25 +595,27 @@ export default function ChannelsPage() {
 
   // ── Contact removal ──────────────────────────────────────────────
 
-  const handleDeleteContact = (row: ContactRow) => {
-    setDeleteContactTarget(row);
-    setDeleteContactOpen(true);
-  };
+  const handleDeleteContact = useCallback(async (row: ContactRow) => {
+    const name = row.displayName || row.contactId;
+    const shouldRemove = await requestConfirm({
+      title: 'Remover Contato',
+      message: `Remover ${name} do canal ${row.channel}?`,
+      confirmText: 'Remover',
+      cancelText: 'Cancelar',
+      variant: 'danger',
+    });
 
-  const confirmDeleteContact = async () => {
-    if (!deleteContactTarget) return;
+    if (!shouldRemove) return;
+
     try {
-      await RemoveAuthorizedContact(deleteContactTarget.channel, deleteContactTarget.contactId);
+      await RemoveAuthorizedContact(row.channel, row.contactId);
       addToast('Contato removido', 'success');
       announce('Contato removido');
       await loadAll();
     } catch (error: any) {
       addToast(error.message || 'Erro ao remover contato', 'error');
-    } finally {
-      setDeleteContactOpen(false);
-      setDeleteContactTarget(null);
     }
-  };
+  }, [addToast, announce, loadAll, requestConfirm]);
 
   // ── Grid columns ─────────────────────────────────────────────────
 
@@ -1071,42 +1046,41 @@ export default function ChannelsPage() {
 
   return (
     <div className="channels-page">
-      {/* Tabs — ARIA tabs pattern with roving tabindex and arrow keys */}
-      <div className="channels-page__tabs" role="tablist" aria-label="Seções de canais">
-        {tabs.map((tab, index) => (
-          <button
-            key={tab.id}
-            ref={(el) => { tabRefs.current[index] = el; }}
-            role="tab"
-            id={`channels-tab-${tab.id}`}
-            aria-selected={activeTab === tab.id}
-            aria-controls={`channels-tabpanel-${tab.id}`}
-            tabIndex={activeTab === tab.id ? 0 : -1}
-            className={`channels-page__tab ${activeTab === tab.id ? 'channels-page__tab--active' : ''}`}
-            onClick={() => handleTabClick(tab)}
-            onKeyDown={(e) => handleTabKeyDown(e, index)}
-          >
-            {tab.id === 'contacts' ? `${tab.label} (${contactRows.length})` : tab.label}
-          </button>
-        ))}
-      </div>
+      <Tabs
+        value={activeTab}
+        onValueChange={(v) => handleTabChange(v as ActiveTab)}
+        idBase="channels"
+        onBump={playBumpSound}
+      >
+        <TabList className="channels-page__tabs" ariaLabel="Seções de canais">
+          {tabs.map((tab) => (
+            <Tab
+              key={tab.id}
+              value={tab.id}
+              className="channels-page__tab"
+              activeClassName="channels-page__tab--active"
+            >
+              {tab.id === 'contacts' ? `${tab.label} (${contactRows.length})` : tab.label}
+            </Tab>
+          ))}
+        </TabList>
+      </Tabs>
 
       <Toolbar
         left={<h1 className="page-toolbar__title">Canais de Comunicação</h1>}
         right={
-          <button
+          <ToolbarButton
             ref={createMenuButtonRef}
-            className="toolbar__button toolbar__button--primary"
+            label="Novo"
+            icon="➕"
+            endIcon="▾"
+            shortcut="Ctrl+N"
+            variant="primary"
             onClick={openCreateMenu}
             aria-haspopup="menu"
             aria-expanded={createMenuVisible}
             aria-label="Novo canal"
-            title="Novo (Ctrl+N)"
-          >
-            <span className="toolbar__button-icon" aria-hidden="true">➕</span>
-            <span className="toolbar__button-label">Novo</span>
-            <span className="toolbar__button-icon" aria-hidden="true">▾</span>
-          </button>
+          />
         }
         actions={[
           {
@@ -1123,12 +1097,7 @@ export default function ChannelsPage() {
 
       {/* Channels tab panel */}
       {activeTab === 'channels' && (
-        <div
-          id="channels-tabpanel-channels"
-          role="tabpanel"
-          aria-labelledby="channels-tab-channels"
-          className="channels-page__content"
-        >
+        <TabPanel value="channels" className="channels-page__content">
           <DataGrid
             items={channelRows}
             columns={channelColumns}
@@ -1143,17 +1112,12 @@ export default function ChannelsPage() {
             }}
             onGridReady={channelsHandleGridReady}
           />
-        </div>
+        </TabPanel>
       )}
 
       {/* Contacts tab panel */}
       {activeTab === 'contacts' && (
-        <div
-          id="channels-tabpanel-contacts"
-          role="tabpanel"
-          aria-labelledby="channels-tab-contacts"
-          className="channels-page__content"
-        >
+        <TabPanel value="contacts" className="channels-page__content">
           <p className="channels-page__tab-description">
             Contatos que podem se comunicar com o assistente por cada canal.
             Remova um contato para liberar uma vaga para novas autorizações.
@@ -1165,29 +1129,33 @@ export default function ChannelsPage() {
               label="Contatos autorizados"
               autoFocusOnMount={false}
               getItemId={(item) => item.id}
-              onCellAction={(item) => handleDeleteContact(item)}
-              onDelete={(item) => handleDeleteContact(item)}
+              onCellAction={(item) => {
+                void handleDeleteContact(item);
+              }}
+              onDelete={(item) => {
+                void handleDeleteContact(item);
+              }}
               onGridReady={contactsHandleGridReady}
             />
           ) : (
             <p className="channels-page__empty" role="status">Nenhum contato autorizado.</p>
           )}
-        </div>
+        </TabPanel>
       )}
 
       {/* Editor Modal */}
-      <SimpleModal
+      <Modal
         isOpen={!!editingChannel}
         onClose={handleCloseEditor}
         title={`Editor de canal: ${editorTitle}`}
         size="lg"
       >
-        <div className="channels-page__fields">
+        <EditorPanelFields className="channels-page__fields">
           {editingChannel === 'telegram' && renderTelegramEditor()}
           {editingChannel === 'signal' && renderSignalEditor()}
           {editingChannel === 'slack' && renderSlackEditor()}
-        </div>
-        <div className="channels-page__editor-footer">
+        </EditorPanelFields>
+        <EditorPanelFooter>
           {editingChannel && (
             <Button
               variant="outline"
@@ -1205,8 +1173,8 @@ export default function ChannelsPage() {
               Salvar
             </Button>
           )}
-        </div>
-      </SimpleModal>
+        </EditorPanelFooter>
+      </Modal>
 
       <ContextMenu
         items={createMenuItems}
@@ -1215,18 +1183,6 @@ export default function ChannelsPage() {
         visible={createMenuVisible}
         ariaLabel="Menu de criação de canais"
         onClose={closeCreateMenu}
-      />
-
-      {/* Confirm dialog */}
-      <ConfirmDialog
-        isOpen={deleteContactOpen && deleteContactTarget !== null}
-        title="Remover Contato"
-        message={deleteContactTarget ? `Remover ${deleteContactTarget.displayName || deleteContactTarget.contactId} do canal ${deleteContactTarget.channel}?` : ''}
-        confirmText="Remover"
-        cancelText="Cancelar"
-        onConfirm={confirmDeleteContact}
-        onCancel={() => { setDeleteContactOpen(false); setDeleteContactTarget(null); }}
-        variant="danger"
       />
 
       {/* Create Channel Modal */}

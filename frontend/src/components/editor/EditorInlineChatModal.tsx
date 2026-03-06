@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { SimpleModal } from '../ui/SimpleModal';
+import { Modal } from '../ui/Modal';
 import { MessageList } from '../chat/MessageList';
 import { ChatInput } from '../chat/ChatInput';
-import { ContextMenu } from '../ui/ContextMenu';
+import { ContextMenu } from '../menu';
 import { Toolbar } from '../ui/Toolbar';
 import { useChatStore, type Message } from '../../store/chatStore';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
@@ -180,7 +180,7 @@ export function EditorInlineChatModal({
   }, [isOpen, focusNonce]);
 
   return (
-    <SimpleModal
+    <Modal
       isOpen={isOpen}
       title={`${title} — ${conversationTitle}`}
       onClose={onClose}
@@ -258,6 +258,6 @@ export function EditorInlineChatModal({
         {/* Evita warning de estado não usado em dev */}
         {deleteBusyId ? null : null}
       </div>
-    </SimpleModal>
+    </Modal>
   );
 }

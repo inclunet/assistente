@@ -22,6 +22,7 @@ const keepDistSentinel = () => {
 
 // https://vitejs.dev/config/
 export default defineConfig({
+  root: __dirname,
   plugins: [react(), keepDistSentinel()],
   resolve: {
     alias: {

@@ -7,6 +7,7 @@ import { useSettingsStore } from './store/settingsStore';
 import { useUIStore } from './store/uiStore';
 import { useChatStore } from './store/chatStore';
 import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
+import { ConfirmHost } from './components/ui/ConfirmHost';
 import { QuestionnaireDialog, QuestionnairePayload } from './components/ui/QuestionnaireDialog';
 import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
 
@@ -32,7 +33,6 @@ function App() {
         const loadConfig = async () => {
             // Verificar se Wails está disponível
             if (typeof window === 'undefined' || !(window as any)['go']) {
-                console.log('Aguardando Wails inicializar...');
                 setTimeout(loadConfig, 100);
                 return;
             }
@@ -42,11 +42,9 @@ function App() {
                 // Verifica se precisa do wizard de boas-vindas
                 const needsWizard = await NeedsWelcomeWizard();
                 if (needsWizard) {
-                    console.log('[App] Iniciando wizard de boas-vindas...');
                     try {
                         const completed = await RunWelcomeWizard();
                         if (!completed) {
-                            console.log('[App] Wizard cancelado pelo usuário');
                             addToast('Configuração cancelada. Configure nas Configurações.', 'warning');
                         } else {
                             addToast('Configuração concluída com sucesso!', 'success', 5000);
@@ -83,78 +81,54 @@ function App() {
 
     // Inicializa tabs do backend
     useEffect(() => {
-        console.log('===== [App] useEffect EXECUTANDO =====');
-        console.log('[App] isInitialized:', isInitialized);
-        console.log('[App] initializeTabs:', typeof initializeTabs);
-        
         if (!isInitialized) {
-            console.log('[App] ===== CHAMANDO initializeTabs =====');
             initializeTabs();
-        } else {
-            console.log('[App] ===== JÁ INICIALIZADO, PULANDO =====');
         }
     }, [initializeTabs, isInitialized]);
 
     // Escuta eventos de conversa deletada/limpa para atualizar tabs
     useEffect(() => {
-        console.log('[App] 📡 Registrando listeners de eventos de conversa...');
-        
         EventsOn('conversation:deleted', (data: any) => {
-            console.log('[App] 🗑️ EVENTO conversation:deleted RECEBIDO:', data);
             if (data.conversation_id) {
-                console.log('[App] 🗑️ Chamando handleConversationDeleted com:', data.conversation_id);
                 handleConversationDeleted(data.conversation_id);
-            } else {
-                console.log('[App] 🗑️ ERRO: conversation_id não encontrado no evento!');
             }
         });
 
         EventsOn('conversation:cleared', (data: any) => {
-            console.log('[App] 🧹 EVENTO conversation:cleared RECEBIDO:', data);
             if (data.conversation_id) {
-                console.log('[App] 🧹 Chamando handleConversationCleared com:', data.conversation_id);
                 handleConversationCleared(data.conversation_id);
-            } else {
-                console.log('[App] 🧹 ERRO: conversation_id não encontrado no evento!');
             }
         });
 
         EventsOn('conversation:renamed', (data: any) => {
-            console.log('[App] Conversation renamed event received:', data);
             if (data.conversation_id && data.new_title) {
                 handleConversationRenamed(data.conversation_id, data.new_title);
             }
         });
 
         EventsOn('database:reset', () => {
-            console.log('[App] Database reset event received');
             handleDatabaseReset();
         });
 
         EventsOn('tab_closed', (data: any) => {
-            console.log('[App] Tab closed event received:', data);
             if (data.id) {
                 handleTabClosed(data.id);
             }
         });
 
         EventsOn('navigate:update', () => {
-            console.log('[App] navigate:update event received');
             navigate('/update');
         });
 
         EventsOn('chat:summary_started', (data: any) => {
-            console.log('[App] Sumarização iniciada:', data);
             addToast(`Sumarizando conversa (${data.messageCount} mensagens)...`, 'info', 10000);
         });
 
         EventsOn('chat:summary_completed', (data: any) => {
-            console.log('[App] Sumarização concluída:', data);
             addToast(`Resumo da conversa atualizado (${data.messageCount} mensagens resumidas)`, 'success', 5000);
         });
 
         EventsOn('chat:summary_error', (data: any) => {
-            console.log('[App] Erro na sumarização:', data);
             addToast(`Erro ao sumarizar conversa: ${data.error}`, 'error');
         });
 
@@ -177,7 +151,6 @@ function App() {
     // do sendMessage, com som, TTS, announcer e streaming em tempo real.
     useEffect(() => {
         const unsubIncoming = EventsOn('messaging:incoming', (data: any) => {
-            console.log('[App] messaging:incoming — delegando ao chatStore');
             handleExternalIncoming({
                 channel: data.channel || '',
                 from: data.from || '',
@@ -290,6 +263,8 @@ function App() {
         <>
             <ScreenReaderAnnouncer />
             <Outlet />
+
+            <ConfirmHost />
 
             {/* Dialog de questionário global */}
             <QuestionnaireDialog

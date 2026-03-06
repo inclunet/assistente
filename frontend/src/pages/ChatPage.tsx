@@ -7,7 +7,7 @@ import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
 import { ChatToolbar } from '../components/chat/ChatToolbar';
 import { ChatTabs } from '../components/tabs/ChatTabs';
-import { ContextMenu } from '../components/ui/ContextMenu';
+import { ContextMenu } from '../components/menu';
 import { KeyboardShortcutsHelp } from '../components/ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../hooks/useChatKeyboardNav';
 import { useTabsKeyboardShortcuts } from '../hooks/useTabsKeyboardShortcuts';
@@ -44,7 +44,6 @@ export default function ChatPage() {
   // Estado do painel de ajuda de atalhos
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
-  
 
   // Estado de erro para recovery
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
@@ -57,7 +56,7 @@ export default function ChatPage() {
 
   // Ações de mensagem
   const { copyMessage, speakMessage } = useMessageActions({
-    onAnnounce: (msg) => console.log('Anúncio:', msg),
+    onAnnounce: announce,
   });
 
   // Função para deletar mensagem (usada tanto no menu quanto no teclado)
@@ -142,10 +141,9 @@ export default function ChatPage() {
     },
     onDelete: handleDeleteMessage,
     onSendToEditor: (payload) => sendToEditor(payload),
-    onPin: (message) => {
+    onPin: (_message) => {
       // Pin requer campo adicional no modelo ChatMessage
       // Deixar para implementação futura
-      console.log('Fixar/desafixar mensagem:', message);
       announce('Funcionalidade de fixar mensagem será implementada em breve');
     },
     onToggleReasoning: (message) => {
@@ -211,8 +209,6 @@ export default function ChatPage() {
   // Listen for message:updated events from backend
   useEffect(() => {
     const handleMessageUpdated = (data: any) => {
-      console.log('[ChatPage] Message updated:', data);
-      
       // Em vez de recarregar toda a conversa, atualiza apenas a mensagem na store
       // Isso preserva o estado de foco e evita re-renders desnecessários
       const activeTab = getActiveTab();

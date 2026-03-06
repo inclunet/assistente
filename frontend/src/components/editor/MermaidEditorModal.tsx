@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { SimpleModal } from '../ui/SimpleModal';
+import { Modal } from '../ui/Modal';
 import { CodeEditor } from '../ui/CodeEditor';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import './MermaidEditorModal.css';
@@ -104,11 +104,11 @@ export function MermaidEditorModal({
   }, [code]);
 
   return (
-    <SimpleModal isOpen={isOpen} onClose={onCancel} title={title} size="xl" returnFocusToGrid={false}>
+    <Modal isOpen={isOpen} onClose={onCancel} title={title} size="xl" returnFocusToGrid={false}>
       <div
         className="mermaid-editor-modal"
         onKeyDown={(e) => {
-          // Esc já é tratado pelo SimpleModal (onClose), mas mantemos aqui
+          // Esc já é tratado pelo Modal (onClose), mas mantemos aqui
           // para garantir que o editor não capture/propague teclas.
           if (e.key === 'Escape') {
             e.stopPropagation();
@@ -173,6 +173,6 @@ export function MermaidEditorModal({
           </div>
         </div>
       </div>
-    </SimpleModal>
+    </Modal>
   );
 }

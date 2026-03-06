@@ -1,5 +1,5 @@
 import { Message } from '../store/chatStore';
-import { MenuItem } from '../components/ui/ContextMenu';
+import { MenuItem } from '../components/menu';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';

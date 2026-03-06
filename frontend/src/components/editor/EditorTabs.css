@@ -1,23 +1,37 @@
 .editor-tabs {
+  --tabs-bar-border: rgba(255, 255, 255, 0.08);
+  --tab-radius: 10px;
+  --tab-border: rgba(255, 255, 255, 0.10);
+  --tab-border-active: rgba(255, 255, 255, 0.22);
+  --tab-bg: rgba(255, 255, 255, 0.03);
+  --tab-bg-active: rgba(255, 255, 255, 0.06);
+
   display: flex;
   gap: 6px;
   align-items: center;
   padding: 8px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--tabs-bar-border);
   overflow-x: auto;
 }
 
 .editor-tabs__tab {
   display: inline-flex;
   align-items: center;
-  border: 1px solid rgba(255, 255, 255, 0.10);
-  border-radius: 10px;
-  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid var(--tab-border);
+  border-radius: var(--tab-radius);
+  background: var(--tab-bg);
+  overflow: hidden;
 }
 
 .editor-tabs__tab.is-active {
-  border-color: rgba(255, 255, 255, 0.22);
-  background: rgba(255, 255, 255, 0.06);
+  border-color: var(--tab-border-active);
+  background: var(--tab-bg-active);
+}
+
+.editor-tabs__main {
+  position: relative;
+  display: flex;
+  align-items: center;
 }
 
 .editor-tabs__button {
@@ -52,11 +66,13 @@
 }
 
 .editor-tabs__edit {
-  width: 240px;
-  max-width: 50vw;
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
   padding: 6px 10px;
   border: 0;
-  border-radius: 10px;
   background: rgba(0, 0, 0, 0.25);
   color: inherit;
 }

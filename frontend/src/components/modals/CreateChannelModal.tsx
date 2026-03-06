@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { GetChannelTemplates, CreateChannelFromTemplate } from '@wailsjs/go/main/App';
 import { channels } from '../../../wailsjs/go/models';
 import { Button, Input } from '..';
+import { Modal } from '../ui/Modal';
 import './CreateChannelModal.css';
 
 interface CreateChannelModalProps {
@@ -89,96 +90,98 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
     onClose();
   };
 
-  if (!isOpen) return null;
-
   return (
-    <div className="modal-overlay" onClick={handleClose}>
-      <div className="modal-content create-channel-modal" onClick={(e) => e.stopPropagation()}>
-        <div className="modal-header">
-          <h2>{selectedTemplate ? `Configurar ${selectedTemplate.display_name}` : 'Criar Novo Canal'}</h2>
-          <button className="modal-close" onClick={handleClose} aria-label="Fechar">
-            ×
-          </button>
-        </div>
+    <Modal
+      isOpen={isOpen}
+      onClose={handleClose}
+      title={selectedTemplate ? `Configurar ${selectedTemplate.display_name}` : 'Criar Novo Canal'}
+      size="md"
+    >
+      <div className="create-channel-modal">
+        {error && (
+          <div className="error-message" role="alert">
+            {error}
+          </div>
+        )}
 
-        <div className="modal-body">
-          {error && (
-            <div className="error-message" role="alert">
-              {error}
+        {!selectedTemplate ? (
+          <div className="template-selection">
+            <p className="template-selection-description">
+              Selecione o tipo de canal que deseja configurar:
+            </p>
+            <div className="template-grid">
+              {templates.map((template) => (
+                <button
+                  key={template.type}
+                  className="template-card"
+                  onClick={() => handleTemplateSelect(template)}
+                >
+                  <div className="template-icon">{template.icon}</div>
+                  <div className="template-info">
+                    <h3>{template.display_name}</h3>
+                    <p>{template.description}</p>
+                  </div>
+                </button>
+              ))}
             </div>
-          )}
-
-          {!selectedTemplate ? (
-            <div className="template-selection">
-              <p className="template-selection-description">
-                Selecione o tipo de canal que deseja configurar:
-              </p>
-              <div className="template-grid">
-                {templates.map((template) => (
-                  <button
-                    key={template.type}
-                    className="template-card"
-                    onClick={() => handleTemplateSelect(template)}
+          </div>
+        ) : (
+          <form onSubmit={handleSubmit} className="channel-form">
+            <div className="channel-form-header">
+              <div className="channel-form-icon">{selectedTemplate.icon}</div>
+              <div>
+                <p className="channel-form-description">{selectedTemplate.description}</p>
+                {selectedTemplate.doc_url && (
+                  <a
+                    href={selectedTemplate.doc_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="channel-form-docs"
                   >
-                    <div className="template-icon">{template.icon}</div>
-                    <div className="template-info">
-                      <h3>{template.display_name}</h3>
-                      <p>{template.description}</p>
-                    </div>
-                  </button>
-                ))}
+                    📚 Ver documentação
+                  </a>
+                )}
               </div>
             </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="channel-form">
-              <div className="channel-form-header">
-                <div className="channel-form-icon">{selectedTemplate.icon}</div>
-                <div>
-                  <p className="channel-form-description">{selectedTemplate.description}</p>
-                  {selectedTemplate.doc_url && (
-                    <a
-                      href={selectedTemplate.doc_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="channel-form-docs"
-                    >
-                      📚 Ver documentação
-                    </a>
+
+            <div className="channel-form-fields">
+              {selectedTemplate.fields?.map((field) => (
+                <div key={field.key} className="form-field">
+                  <Input
+                    label={field.label}
+                    type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'}
+                    value={formValues[field.key] || ''}
+                    onChange={(e) => handleFieldChange(field.key, e.target.value)}
+                    placeholder={field.placeholder}
+                    required={field.required}
+                    fullWidth
+                  />
+                  {field.description && (
+                    <p className="field-description">{field.description}</p>
                   )}
                 </div>
-              </div>
+              ))}
+            </div>
 
-              <div className="channel-form-fields">
-                {selectedTemplate.fields?.map((field) => (
-                  <div key={field.key} className="form-field">
-                    <Input
-                      label={field.label}
-                      type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'}
-                      value={formValues[field.key] || ''}
-                      onChange={(e) => handleFieldChange(field.key, e.target.value)}
-                      placeholder={field.placeholder}
-                      required={field.required}
-                      fullWidth
-                    />
-                    {field.description && (
-                      <p className="field-description">{field.description}</p>
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              <div className="modal-actions">
-                <Button variant="ghost" onClick={() => setSelectedTemplate(null)} disabled={loading}>
-                  Voltar
-                </Button>
-                <Button type="submit" loading={loading}>
-                  Criar Canal
-                </Button>
-              </div>
-            </form>
-          )}
-        </div>
+            <div className="modal-actions">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setSelectedTemplate(null);
+                  setError('');
+                }}
+                disabled={loading}
+              >
+                Voltar
+              </Button>
+              <Button type="submit" loading={loading}>
+                Criar Canal
+              </Button>
+            </div>
+          </form>
+        )}
       </div>
-    </div>
+    </Modal>
   );
 }
+

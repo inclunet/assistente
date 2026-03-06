@@ -143,6 +143,9 @@ func (a *App) startup(ctx context.Context) {
 	if err := InitDatabase(); err != nil {
 		log.Printf("Erro ao inicializar banco de dados: %v", err)
 	}
+	if err := a.cleanupEditorOrphanDraftsOnStartup(); err != nil {
+		log.Printf("Erro ao limpar drafts órfãos do editor no startup: %v", err)
+	}
 
 	// Instala/atualiza perfis embutidos em ~/.assistente/profiles/
 	a.installBuiltinProfiles()

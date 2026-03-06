@@ -34,7 +34,7 @@ export interface EditorTab {
 
   /** Path real no disco (quando já foi salvo/aberto) */
   filePath?: string | null;
-  /** ID do draft em ~/.assistente/editor/drafts quando ainda não tem destino */
+  /** ID do draft temporário persistido pelo backend (SQLite) quando ainda não tem destino */
   draftId?: string | null;
   /** Indica mudanças não persistidas no destino (quando autosave está off) */
   isDirty?: boolean;

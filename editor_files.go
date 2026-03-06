@@ -4,14 +4,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
+	"time"
 
 	"assistente/internal/configdir"
+	"assistente/internal/database"
 	"assistente/internal/tools/filesystem"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
+
+const editorOrphanDraftGracePeriod = 24 * time.Hour
 
 type EditorSession struct {
 	Version         int                `json:"version"`
@@ -58,44 +61,6 @@ type EditorFileInfo struct {
 	ModTimeMs int64  `json:"modTimeMs"`
 }
 
-func (a *App) editorBaseDir() (string, error) {
-	base := configdir.GetHomeDir()
-	if strings.TrimSpace(base) == "" {
-		return "", fmt.Errorf("diretório home do app indisponível")
-	}
-	return filepath.Join(base, "editor"), nil
-}
-
-func (a *App) editorDraftsDir() (string, error) {
-	base, err := a.editorBaseDir()
-	if err != nil {
-		return "", err
-	}
-	return filepath.Join(base, "drafts"), nil
-}
-
-func (a *App) ensureEditorDirs() error {
-	base, err := a.editorBaseDir()
-	if err != nil {
-		return err
-	}
-	drafts, err := a.editorDraftsDir()
-	if err != nil {
-		return err
-	}
-	if err := os.MkdirAll(base, 0755); err != nil {
-		return fmt.Errorf("falha ao criar dir do editor: %w", err)
-	}
-	if err := os.MkdirAll(drafts, 0755); err != nil {
-		return fmt.Errorf("falha ao criar dir de drafts do editor: %w", err)
-	}
-	return nil
-}
-
-func editorSessionPath(baseDir string) string {
-	return filepath.Join(baseDir, "session.json")
-}
-
 func draftFilename(draftId string) (string, error) {
 	id := strings.TrimSpace(draftId)
 	if err := configdir.ValidateFilename(id); err != nil {
@@ -105,43 +70,34 @@ func draftFilename(draftId string) (string, error) {
 }
 
 // EditorLoadSession restaura a lista de guias abertas e preferências do editor.
-// Arquivo: ~/.assistente/editor/session.json
+// Persistência: SQLite (tabela editor_session_states)
 func (a *App) EditorLoadSession() (*EditorSession, error) {
-	if err := a.ensureEditorDirs(); err != nil {
-		return nil, err
+	defaultSess := &EditorSession{
+		Version:                       2,
+		AutoSaveEnabled:               true,
+		ProfileSlug:                   "",
+		Tabs:                          []EditorSessionTab{},
+		FileModeByPath:                map[string]string{},
+		ExternalConflictLockedByTabId: map[string]bool{},
+		MergeSessionsByTabId:          map[string]EditorMergeSession{},
 	}
 
-	base, _ := a.editorBaseDir()
-	p := editorSessionPath(base)
-
-	data, err := filesystem.ReadFileBytes(p)
+	jsonPayload, found, err := database.GetEditorSessionJSON("default")
 	if err != nil {
-		if os.IsNotExist(err) {
-			return &EditorSession{
-				Version:                       2,
-				AutoSaveEnabled:               true,
-				ProfileSlug:                   "",
-				Tabs:                          []EditorSessionTab{},
-				FileModeByPath:                map[string]string{},
-				ExternalConflictLockedByTabId: map[string]bool{},
-				MergeSessionsByTabId:          map[string]EditorMergeSession{},
-			}, nil
-		}
-		return nil, fmt.Errorf("falha ao ler sessão do editor: %w", err)
+		return nil, fmt.Errorf("falha ao ler sessão do editor no banco: %w", err)
+	}
+	if !found || strings.TrimSpace(jsonPayload) == "" {
+		return defaultSess, nil
 	}
 
 	var sess EditorSession
-	if err := json.Unmarshal(data, &sess); err != nil {
-		// Se estiver corrompido, não quebra o app.
-		return &EditorSession{
-			Version:                       2,
-			AutoSaveEnabled:               true,
-			ProfileSlug:                   "",
-			Tabs:                          []EditorSessionTab{},
-			FileModeByPath:                map[string]string{},
-			ExternalConflictLockedByTabId: map[string]bool{},
-			MergeSessionsByTabId:          map[string]EditorMergeSession{},
-		}, nil
+	if err := json.Unmarshal([]byte(jsonPayload), &sess); err != nil {
+		// DB-only, mas resiliente: se a sessão estiver corrompida, não impede uso do editor.
+		// Reseta o registro (best-effort) para evitar loop de erro em próximos loads.
+		if b, mErr := json.MarshalIndent(defaultSess, "", "  "); mErr == nil {
+			_ = database.UpsertEditorSessionJSON("default", string(b))
+		}
+		return defaultSess, nil
 	}
 
 	if sess.Version == 0 {
@@ -169,13 +125,6 @@ func (a *App) EditorLoadSession() (*EditorSession, error) {
 
 // EditorSaveSession persiste a sessão atual do editor.
 func (a *App) EditorSaveSession(sess EditorSession) error {
-	if err := a.ensureEditorDirs(); err != nil {
-		return err
-	}
-
-	base, _ := a.editorBaseDir()
-	p := editorSessionPath(base)
-
 	if sess.Version == 0 {
 		sess.Version = 2
 	}
@@ -196,8 +145,8 @@ func (a *App) EditorSaveSession(sess EditorSession) error {
 	if err != nil {
 		return fmt.Errorf("falha ao serializar sessão do editor: %w", err)
 	}
-	if err := filesystem.WriteFileBytes(p, b, 0644); err != nil {
-		return fmt.Errorf("falha ao salvar sessão do editor: %w", err)
+	if err := database.UpsertEditorSessionJSON("default", string(b)); err != nil {
+		return fmt.Errorf("falha ao salvar sessão do editor no banco: %w", err)
 	}
 	return nil
 }
@@ -310,52 +259,92 @@ func (a *App) EditorSaveFileDialog(suggestedFilename string) (string, error) {
 	return path, nil
 }
 
-// EditorWriteDraft persiste um arquivo temporário em ~/.assistente/editor/drafts/.
+// EditorWriteDraft persiste um conteúdo temporário (draft) no SQLite.
 func (a *App) EditorWriteDraft(draftId string, content string) error {
-	if err := a.ensureEditorDirs(); err != nil {
+	if _, err := draftFilename(draftId); err != nil {
 		return err
 	}
-	drafts, _ := a.editorDraftsDir()
-	fn, err := draftFilename(draftId)
-	if err != nil {
-		return err
-	}
-	p := filepath.Join(drafts, fn)
-	if err := filesystem.WriteFileBytes(p, []byte(content), 0644); err != nil {
-		return fmt.Errorf("falha ao salvar draft: %w", err)
+
+	if err := database.UpsertEditorDocument(database.EditorDocument{
+		ID:       strings.TrimSpace(draftId),
+		Mode:     "markdown",
+		Markdown: content,
+	}); err != nil {
+		return fmt.Errorf("falha ao salvar draft no banco: %w", err)
 	}
 	return nil
 }
 
 func (a *App) EditorReadDraft(draftId string) (string, error) {
-	if err := a.ensureEditorDirs(); err != nil {
+	if _, err := draftFilename(draftId); err != nil {
 		return "", err
 	}
-	drafts, _ := a.editorDraftsDir()
-	fn, err := draftFilename(draftId)
+
+	md, found, err := database.GetEditorDocumentMarkdown(draftId)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("falha ao ler draft no banco: %w", err)
 	}
-	p := filepath.Join(drafts, fn)
-	data, err := filesystem.ReadFileBytes(p)
-	if err != nil {
-		return "", fmt.Errorf("falha ao ler draft: %w", err)
+	if !found {
+		return "", fmt.Errorf("draft não encontrado")
 	}
-	return string(data), nil
+	return md, nil
 }
 
 func (a *App) EditorDeleteDraft(draftId string) error {
-	if err := a.ensureEditorDirs(); err != nil {
+	if _, err := draftFilename(draftId); err != nil {
 		return err
 	}
-	drafts, _ := a.editorDraftsDir()
-	fn, err := draftFilename(draftId)
+
+	if err := database.DeleteEditorDocument(draftId); err != nil {
+		return fmt.Errorf("falha ao remover draft no banco: %w", err)
+	}
+	return nil
+}
+
+func collectEditorDraftIDsFromSession(sess *EditorSession) []string {
+	if sess == nil {
+		return nil
+	}
+
+	keep := map[string]struct{}{}
+	add := func(id string) {
+		id = strings.TrimSpace(id)
+		if id == "" {
+			return
+		}
+		keep[id] = struct{}{}
+	}
+
+	for _, tab := range sess.Tabs {
+		add(tab.DraftId)
+	}
+
+	for _, m := range sess.MergeSessionsByTabId {
+		add(m.MineDraftId)
+		add(m.DiskDraftId)
+		add(m.ConflictDraftId)
+	}
+
+	out := make([]string, 0, len(keep))
+	for id := range keep {
+		out = append(out, id)
+	}
+	return out
+}
+
+// cleanupEditorOrphanDraftsOnStartup remove drafts/documentos antigos não referenciados.
+// Objetivo: evitar acúmulo por crash durante autosave/merge.
+func (a *App) cleanupEditorOrphanDraftsOnStartup() error {
+	sess, err := a.EditorLoadSession()
 	if err != nil {
 		return err
 	}
-	p := filepath.Join(drafts, fn)
-	if err := filesystem.RemoveFileWithPolicy(p, filesystem.EditorPolicy()); err != nil {
-		return fmt.Errorf("falha ao remover draft: %w", err)
-	}
-	return nil
+
+	keepIDs := collectEditorDraftIDsFromSession(sess)
+	cutoff := time.Now().Add(-editorOrphanDraftGracePeriod)
+	_, err = database.CleanupOrphanEditorDocuments(database.CleanupOrphanEditorDocumentsArgs{
+		KeepIDs:       keepIDs,
+		UpdatedBefore: cutoff,
+	})
+	return err
 }

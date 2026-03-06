@@ -4,10 +4,11 @@ import { mcp } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { SimpleModal } from '../components/ui/SimpleModal';
+import { Modal } from '../components/ui/Modal';
+import { EditorPanel, EditorPanelFields, EditorPanelFooter } from '../components/ui/EditorPanel';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useConfirm } from '../hooks/useConfirm';
 import { useUIStore } from '../store/uiStore';
 import './McpPage.css';
 
@@ -44,6 +45,7 @@ export default function McpPage() {
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+  const confirm = useConfirm();
 
   const {
     servers,
@@ -74,10 +76,6 @@ export default function McpPage() {
   const [formUrl, setFormUrl] = useState('');
   const [formEnabled, setFormEnabled] = useState(true);
   const [formAutoConnect, setFormAutoConnect] = useState(true);
-
-  // Delete confirmation
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<ServerRow | null>(null);
 
   useEffect(() => {
     loadServers();
@@ -209,22 +207,30 @@ export default function McpPage() {
     }
   }, [isNew, editingSlug, formSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, save, addToast, announce, handleCloseEditor]);
 
-  const handleDelete = useCallback(async () => {
-    if (!deleteTarget) return;
+  const handleDelete = useCallback(async (slug: string, name: string) => {
+    const shouldDelete = await confirm({
+      title: 'Remover Servidor MCP',
+      message: `Tem certeza que deseja remover o servidor "${name}"? A configuração será apagada.`,
+      confirmText: 'Remover',
+      cancelText: 'Cancelar',
+      variant: 'danger',
+    });
+
+    if (!shouldDelete) return;
+
     try {
-      await remove(deleteTarget.slug);
+      await remove(slug);
       addToast('Servidor MCP removido!', 'success');
       announce('Servidor removido');
-      setDeleteOpen(false);
-      setDeleteTarget(null);
-      if (editingSlug === deleteTarget.slug) {
+      if (editingSlug === slug) {
         setEditing(null);
         setEditingSlug(null);
+        setIsNew(false);
       }
     } catch (error: any) {
       addToast(error?.message || 'Erro ao remover', 'error');
     }
-  }, [deleteTarget, remove, editingSlug, addToast, announce]);
+  }, [addToast, announce, confirm, editingSlug, remove]);
 
   const handleConnect = useCallback(async (row: ServerRow) => {
     try {
@@ -316,10 +322,9 @@ export default function McpPage() {
     } else if (column.key === 'reconnect') {
       handleReconnect(item);
     } else if (column.key === 'delete') {
-      setDeleteTarget(item);
-      setDeleteOpen(true);
+      void handleDelete(item.slug, item.name);
     }
-  }, [handleConnect, handleDisconnect, handleReconnect]);
+  }, [handleConnect, handleDelete, handleDisconnect, handleReconnect]);
 
   if (isLoading && rows.length === 0) {
     return (
@@ -353,23 +358,23 @@ export default function McpPage() {
           getItemId={(row) => row.id}
           onActivate={(row) => handleEdit(row)}
           onDelete={(row) => {
-            setDeleteTarget(row);
-            setDeleteOpen(true);
+            void handleDelete(row.slug, row.name);
           }}
           onCellAction={handleCellAction}
           onGridReady={handleGridReady}
           label="Servidores MCP"
         />
 
-        <SimpleModal
+        <Modal
           isOpen={!!editing}
           onClose={handleCloseEditor}
           title={isNew ? 'Novo Servidor MCP' : `Editando: ${formName || editingSlug}`}
           size="lg"
         >
           {editing && (
-            <div className="mcp-page__editor" aria-live="polite">
-              <div className="mcp-page__fields">
+            <div aria-live="polite">
+              <EditorPanel>
+                <EditorPanelFields>
                 {isNew && (
                   <div className="mcp-page__field">
                     <label className="mcp-page__label">Slug (identificador)</label>
@@ -499,38 +504,25 @@ export default function McpPage() {
                     </label>
                   </div>
                 </div>
-              </div>
+                </EditorPanelFields>
 
-              <div className="mcp-page__editor-footer">
-                {!isNew && editingSlug && (
-                  <Button
-                    variant="danger"
-                    onClick={() => {
-                      const row = rows.find(r => r.slug === editingSlug);
-                      if (row) { setDeleteTarget(row); setDeleteOpen(true); }
-                    }}
-                  >
-                    Excluir
-                  </Button>
-                )}
-                <Button variant="ghost" onClick={handleCloseEditor}>Fechar</Button>
-                <Button onClick={handleSave} loading={saving}>Salvar</Button>
-              </div>
+                <EditorPanelFooter>
+                  {!isNew && editingSlug && (
+                    <Button
+                      variant="danger"
+                      onClick={() => void handleDelete(editingSlug, formName || editingSlug)}
+                    >
+                      Excluir
+                    </Button>
+                  )}
+                  <Button variant="ghost" onClick={handleCloseEditor}>Fechar</Button>
+                  <Button onClick={handleSave} loading={saving}>Salvar</Button>
+                </EditorPanelFooter>
+              </EditorPanel>
             </div>
           )}
-        </SimpleModal>
+        </Modal>
       </div>
-
-      <ConfirmDialog
-        isOpen={deleteOpen}
-        title="Remover Servidor MCP"
-        message={`Tem certeza que deseja remover o servidor "${deleteTarget?.name}"? A configuração será apagada.`}
-        confirmText="Remover"
-        cancelText="Cancelar"
-        variant="danger"
-        onConfirm={handleDelete}
-        onCancel={() => { setDeleteOpen(false); setDeleteTarget(null); }}
-      />
     </div>
   );
 }

@@ -75,6 +75,8 @@ func Init() error {
 		&Conversation{},
 		&ChatMessage{},
 		&ChatTab{},
+		&EditorDocument{},
+		&EditorSessionState{},
 	); err != nil {
 		return err
 	}

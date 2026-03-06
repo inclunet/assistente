@@ -1,5 +1,5 @@
 import { useCallback, useRef, useState } from 'react';
-import type { MenuItem } from '../components/ui/ContextMenu';
+import type { MenuItem } from '../components/menu';
 
 export type MenuCloseReason = 'dismiss' | 'select';
 
@@ -17,6 +17,12 @@ export interface UseAnchoredContextMenuOptions {
    * Use para devolver foco ao editor / input, etc.
    */
   onAfterSelect?: () => void;
+
+  /**
+   * Se true (default), ao fechar após seleção o foco volta para o elemento que abriu o menu
+   * (padrão ARIA Menu Button). Se `onAfterSelect` for fornecido, ele tem precedência.
+   */
+  restoreTriggerFocusOnSelect?: boolean;
 
   /**
    * Chamado quando o menu fecha por dismiss (Escape/clique fora).
@@ -48,6 +54,7 @@ export interface UseAnchoredContextMenuResult {
 export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = {}): UseAnchoredContextMenuResult {
   const {
     onAfterSelect,
+    restoreTriggerFocusOnSelect = true,
     onAfterDismiss,
     restoreTriggerFocusOnDismiss = true,
   } = options;
@@ -97,7 +104,14 @@ export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = 
     window.setTimeout(() => {
       try {
         if (reason === 'select') {
-          onAfterSelect?.();
+          if (onAfterSelect) {
+            onAfterSelect();
+            return;
+          }
+
+          if (restoreTriggerFocusOnSelect) {
+            triggerElementRef.current?.focus?.();
+          }
           return;
         }
 
@@ -113,7 +127,7 @@ export function useAnchoredContextMenu(options: UseAnchoredContextMenuOptions = 
         // best-effort
       }
     }, 10);
-  }, [onAfterDismiss, onAfterSelect, restoreTriggerFocusOnDismiss]);
+  }, [onAfterDismiss, onAfterSelect, restoreTriggerFocusOnDismiss, restoreTriggerFocusOnSelect]);
 
   return {
     menu,

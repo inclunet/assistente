@@ -1,13 +1,14 @@
 // Biblioteca de menus (nomenclatura padrão)
-// Base única: ContextMenu já implementa navegação por teclado, submenus e separadores.
+// Base única: `Menu` implementa navegação por teclado, submenus e separadores.
+// `ContextMenu` é uma variação semântica (mesma UI; default aria-label de contexto).
 
 export {
   ContextMenu,
   Menu,
-} from '../ui/ContextMenu';
+} from '../ui/menu';
 
 export type {
   MenuItem,
   ContextMenuProps,
   MenuProps,
-} from '../ui/ContextMenu';
+} from '../ui/menu';

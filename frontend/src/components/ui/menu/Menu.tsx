@@ -1,41 +1,14 @@
 import React, { useEffect, useRef, useState } from 'react';
-import './ContextMenu.css';
+import type { MenuItem, MenuProps } from './types';
 
-export interface MenuItem {
-  id: string;
-  label?: string;
-  icon?: string;
-  shortcut?: string;
-  checked?: boolean;
-  separator?: boolean;
-  disabled?: boolean;
-  danger?: boolean;
-  submenu?: MenuItem[];
-  action?: () => void;
-  ariaLabel?: string; // Label para leitores de tela (sem emoji)
-}
+import '../ContextMenu.css';
 
-export interface ContextMenuProps {
-  items: MenuItem[];
-  x?: number;
-  y?: number;
-  visible?: boolean;
-  ariaLabel?: string;
-  /**
-   * Quando definido, tenta focar esse item ao abrir (se for focável).
-   * Útil para menus de navegação principal.
-   */
-  initialFocusItemId?: string;
-  onClose?: () => void;
-  onSelect?: (item: MenuItem) => void;
-}
-
-export const ContextMenu: React.FC<ContextMenuProps> = ({
+export const Menu: React.FC<MenuProps> = ({
   items,
   x = 0,
   y = 0,
   visible = false,
-  ariaLabel = 'Menu de contexto',
+  ariaLabel = 'Menu',
   initialFocusItemId,
   onClose,
   onSelect,
@@ -75,16 +48,16 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
     return startIndex;
   };
-  
+
   const getCurrentItems = (): MenuItem[] => {
     let currentItems = items;
     for (const submenuId of submenuStack) {
-      const parentItem = currentItems.find(item => item.id === submenuId);
+      const parentItem = currentItems.find((item) => item.id === submenuId);
       if (parentItem?.submenu) {
         currentItems = parentItem.submenu;
       }
     }
-    return currentItems.filter(item => !item.separator);
+    return currentItems.filter((item) => !item.separator);
   };
 
   // Atualiza posição quando x ou y mudam
@@ -157,7 +130,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
       const currentItems = getCurrentItems();
       const currentFocusIndex = getCurrentFocusIndex();
       const targetItem = currentItems[currentFocusIndex];
-      
+
       if (targetItem) {
         const button = menuRef.current.querySelector(`button#${CSS.escape(targetItem.id)}`);
         if (button instanceof HTMLElement) {
@@ -165,6 +138,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
         }
       }
     }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focusStack, visible]);
 
   // Navegação por teclado
@@ -176,7 +150,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
     switch (e.key) {
       case 'ArrowDown':
         e.preventDefault();
-        setFocusStack(prev => {
+        setFocusStack((prev) => {
           const newStack = [...prev];
           newStack[newStack.length - 1] = nextFocusableIndex(currentItems, currentFocusIndex, 1);
           return newStack;
@@ -185,7 +159,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
 
       case 'ArrowUp':
         e.preventDefault();
-        setFocusStack(prev => {
+        setFocusStack((prev) => {
           const newStack = [...prev];
           newStack[newStack.length - 1] = nextFocusableIndex(currentItems, currentFocusIndex, -1);
           return newStack;
@@ -195,9 +169,9 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
       case 'ArrowRight':
         e.preventDefault();
         if (currentItem?.submenu && currentItem.submenu.length > 0 && !currentItem.disabled) {
-          setSubmenuStack(prev => [...prev, currentItem.id]);
-          const submenuItems = currentItem.submenu.filter(item => !item.separator);
-          setFocusStack(prev => [...prev, firstFocusableIndex(submenuItems)]);
+          setSubmenuStack((prev) => [...prev, currentItem.id]);
+          const submenuItems = currentItem.submenu.filter((item) => !item.separator);
+          setFocusStack((prev) => [...prev, firstFocusableIndex(submenuItems)]);
           announce(`Submenu aberto: ${currentItem.label}. ${submenuItems.length} opções disponíveis.`);
         }
         break;
@@ -206,8 +180,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
         e.preventDefault();
         if (submenuStack.length > 0) {
           // Fecha o submenu atual e volta para o nível anterior
-          setSubmenuStack(prev => prev.slice(0, -1));
-          setFocusStack(prev => prev.slice(0, -1));
+          setSubmenuStack((prev) => prev.slice(0, -1));
+          setFocusStack((prev) => prev.slice(0, -1));
           announce('Submenu fechado. Voltando ao menu anterior.');
         }
         // Se estiver no menu raiz, não faz nada
@@ -217,8 +191,8 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
         e.preventDefault();
         if (submenuStack.length > 0) {
           // Se está em submenu, volta para o nível anterior
-          setSubmenuStack(prev => prev.slice(0, -1));
-          setFocusStack(prev => prev.slice(0, -1));
+          setSubmenuStack((prev) => prev.slice(0, -1));
+          setFocusStack((prev) => prev.slice(0, -1));
           announce('Submenu fechado. Voltando ao menu anterior.');
         } else {
           // Se está no menu raiz, fecha o menu
@@ -227,13 +201,13 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
         break;
 
       case 'Enter':
-      case ' ':
+      case ' ': {
         e.preventDefault();
         if (currentItem?.submenu && currentItem.submenu.length > 0 && !currentItem.disabled) {
           // Abre submenu
-          setSubmenuStack(prev => [...prev, currentItem.id]);
-          const submenuItems = currentItem.submenu.filter(item => !item.separator);
-          setFocusStack(prev => [...prev, firstFocusableIndex(submenuItems)]);
+          setSubmenuStack((prev) => [...prev, currentItem.id]);
+          const submenuItems = currentItem.submenu.filter((item) => !item.separator);
+          setFocusStack((prev) => [...prev, firstFocusableIndex(submenuItems)]);
           announce(`Submenu aberto: ${currentItem.label}. ${submenuItems.length} opções disponíveis.`);
         } else if (currentItem?.action && !currentItem?.disabled) {
           // Executa ação
@@ -242,6 +216,7 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
           onClose?.();
         }
         break;
+      }
     }
   };
 
@@ -293,9 +268,17 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
             aria-label={item.ariaLabel || item.label}
             tabIndex={-1}
           >
-            {item.icon && <span className="context-menu__icon" aria-hidden="true">{item.icon}</span>}
+            {item.icon && (
+              <span className="context-menu__icon" aria-hidden="true">
+                {item.icon}
+              </span>
+            )}
             <span className="context-menu__label">{item.label}</span>
-            {item.checked && <span className="context-menu__check" aria-hidden="true">✓</span>}
+            {item.checked && (
+              <span className="context-menu__check" aria-hidden="true">
+                ✓
+              </span>
+            )}
             {item.shortcut && <span className="context-menu__shortcut">{item.shortcut}</span>}
             {hasSubmenu && <span className="context-menu__arrow">▶</span>}
           </button>
@@ -318,15 +301,10 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
   return (
     <>
       {/* Região de anúncio para leitores de tela */}
-      <div 
-        role="status" 
-        aria-live="polite" 
-        aria-atomic="true"
-        className="sr-only"
-      >
+      <div role="status" aria-live="polite" aria-atomic="true" className="sr-only">
         {announcement}
       </div>
-      
+
       <div
         ref={menuRef}
         className="context-menu"
@@ -342,7 +320,3 @@ export const ContextMenu: React.FC<ContextMenuProps> = ({
     </>
   );
 };
-
-// Nomes mais padrão/"biblioteca": o ContextMenu já é um Menu genérico.
-export type MenuProps = ContextMenuProps;
-export const Menu = ContextMenu;

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { SimpleModal } from './SimpleModal';
+import { Modal } from './Modal';
 import './QuestionnaireDialog.css';
 
 export type QuestionnaireQuestionType =
@@ -116,7 +116,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
   if (!data) return null;
 
   return (
-    <SimpleModal
+    <Modal
       isOpen={isOpen}
       onClose={handleCancel}
       title={title}
@@ -303,6 +303,6 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           </button>
         </div>
       </form>
-    </SimpleModal>
+    </Modal>
   );
 }

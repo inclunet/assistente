@@ -1,8 +1,5 @@
 .create-channel-modal {
-  min-width: 600px;
-  max-width: 700px;
-  max-height: 90vh;
-  overflow-y: auto;
+  width: 100%;
 }
 
 .template-selection {
@@ -148,11 +145,11 @@
 
 @media (max-width: 768px) {
   .create-channel-modal {
-    min-width: unset;
-    width: 95vw;
+    width: 100%;
   }
 
   .template-grid {
     grid-template-columns: 1fr;
   }
 }
+

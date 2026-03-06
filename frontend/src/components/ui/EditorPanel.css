@@ -1,0 +1,28 @@
+.editor-panel {
+  border: 1px solid var(--color-border, #ddd);
+  border-radius: 8px;
+  padding: 16px;
+  background-color: var(--color-bg-secondary, #fafafa);
+}
+
+.editor-panel__fields {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.editor-panel__footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  margin-top: 16px;
+  padding-top: 12px;
+  border-top: 1px solid var(--color-border, #ddd);
+}
+
+@media (prefers-color-scheme: dark) {
+  .editor-panel {
+    background-color: var(--color-bg-secondary-dark, #252525);
+    border-color: var(--color-border-dark, #444);
+  }
+}

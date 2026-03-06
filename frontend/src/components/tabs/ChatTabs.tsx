@@ -12,13 +12,14 @@
  * - Shift+F10 ou Menu: Menu de contexto (renomear, fechar, atribuir canal)
  */
 
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { useChatStore, ChatTab } from '../../store/chatStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playBumpSound } from '../../services/audioFeedback';
-import { ContextMenu, MenuItem } from '../ui/ContextMenu';
+import { ContextMenu, MenuItem } from '../menu';
 import { GetAvailableChannels } from '@wailsjs/go/main/App';
 import { useUIStore } from '../../store/uiStore';
+import { Tabs, TabList, Tab } from '../ui/tabs';
 import './ChatTabs.css';
 
 // Ícones visuais por canal
@@ -32,11 +33,6 @@ export function ChatTabs() {
   const { addToast } = useUIStore();
   const tabListRef = useRef<HTMLDivElement>(null);
   const { announce } = useAnnouncer();
-  
-  // Debug: Log tabs quando mudarem
-  useEffect(() => {
-    console.log('[ChatTabs] Tabs atualizadas:', tabs.map(t => ({ id: t.id, title: t.title })));
-  }, [tabs]);
   
   // Estado para edição de título
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
@@ -57,6 +53,33 @@ export function ChatTabs() {
     }
   }, [contextMenu.visible]);
   const editInputRef = useRef<HTMLInputElement>(null);
+
+  const escapeForAttrSelector = useCallback((value: string) => {
+    const esc = (globalThis as any).CSS?.escape as ((v: string) => string) | undefined;
+    if (esc) return esc(value);
+    // Fallback simples: evita quebrar o seletor em casos comuns.
+    return value.replace(/"/g, '\\"');
+  }, []);
+
+  const focusTabButton = useCallback((tabId: string) => {
+    const list = tabListRef.current;
+    if (!list) return;
+    const btn = list.querySelector(
+      `button[role="tab"][data-tab-value="${escapeForAttrSelector(tabId)}"]`
+    ) as HTMLButtonElement | null;
+    btn?.focus();
+  }, [escapeForAttrSelector]);
+
+  const pendingCloseAnnouncementRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    const msg = pendingCloseAnnouncementRef.current;
+    if (!msg) return;
+    pendingCloseAnnouncementRef.current = null;
+    // Aguarda a store atualizar `activeTabId` e foco.
+    const t = window.setTimeout(() => announce(msg), 50);
+    return () => window.clearTimeout(t);
+  }, [announce, tabs]);
 
   /**
    * Inicia edição do título da aba
@@ -98,210 +121,36 @@ export function ChatTabs() {
     
     // Retorna foco para a tab
     setTimeout(() => {
-      if (tabIdToFocus) {
-        const tabButton = tabListRef.current?.querySelector(
-          `[data-tab-id="${tabIdToFocus}"]`
-        ) as HTMLButtonElement;
-        tabButton?.focus();
-      }
+      if (tabIdToFocus) focusTabButton(tabIdToFocus);
     }, 10);
-  };
-
-  /**
-   * Navegação por teclado entre abas
-   */
-  const handleKeyDown = (event: React.KeyboardEvent, tabId: string) => {
-    const currentIndex = tabs.findIndex(t => t.id === tabId);
-    if (currentIndex === -1) return;
-
-    let handled = false;
-    let nextIndex = currentIndex;
-
-    switch (event.key) {
-      case 'ArrowLeft':
-      case 'ArrowUp':
-        // Aba anterior (SEM navegação circular - para no primeiro)
-        if (currentIndex === 0) {
-          playBumpSound(); // Bateu no limite
-          return;
-        }
-        nextIndex = Math.max(currentIndex - 1, 0);
-        handled = true;
-        break;
-
-      case 'ArrowRight':
-      case 'ArrowDown':
-        // Próxima aba (SEM navegação circular - para no último)
-        if (currentIndex === tabs.length - 1) {
-          playBumpSound(); // Bateu no limite
-          return;
-        }
-        nextIndex = Math.min(currentIndex + 1, tabs.length - 1);
-        handled = true;
-        break;
-
-      case 'Home':
-        // Primeira aba
-        if (currentIndex === 0) {
-          playBumpSound();
-          return;
-        }
-        nextIndex = 0;
-        handled = true;
-        break;
-
-      case 'End':
-        // Última aba
-        if (currentIndex === tabs.length - 1) {
-          playBumpSound();
-          return;
-        }
-        nextIndex = tabs.length - 1;
-        handled = true;
-        break;
-
-      case 'PageDown':
-        // Pula 10 abas para frente (SEM navegação circular)
-        if (currentIndex === tabs.length - 1) {
-          playBumpSound();
-          return;
-        }
-        nextIndex = Math.min(currentIndex + 10, tabs.length - 1);
-        handled = true;
-        break;
-
-      case 'PageUp':
-        // Pula 10 abas para trás (SEM navegação circular)
-        if (currentIndex === 0) {
-          playBumpSound();
-          return;
-        }
-        nextIndex = Math.max(currentIndex - 10, 0);
-        handled = true;
-        break;
-
-      case 'Delete':
-        // Fecha aba com Delete
-        if (!event.shiftKey && !event.ctrlKey && !event.altKey) {
-          event.preventDefault();
-          // Determina qual aba receberá o foco após a deleção
-          const nextFocusIndex = currentIndex < tabs.length - 1 ? currentIndex : currentIndex - 1;
-          const nextFocusTab = tabs[nextFocusIndex];
-          
-          deleteTab(tabId);
-          
-          // Foca na próxima guia disponível
-          if (nextFocusTab && tabs.length > 1) {
-            setTimeout(() => {
-              const nextButton = tabListRef.current?.querySelector(
-                `[data-tab-id="${nextFocusTab.id}"]`
-              ) as HTMLButtonElement;
-              nextButton?.focus();
-              
-              // Anuncia a mudança
-              const tabTitle = nextFocusTab.title || 'Nova conversa';
-              const newTabNumber = Math.min(nextFocusIndex + 1, tabs.length - 1);
-              announce(`Guia fechada. ${tabTitle}, ${newTabNumber} de ${tabs.length - 1}`);
-            }, 50);
-          }
-          handled = true;
-        }
-        break;
-
-      case 'F2':
-        // Renomeia aba com F2
-        event.preventDefault();
-        const tab = tabs[currentIndex];
-        if (tab) {
-          startEditingTab(tab.id, tab.title || 'Nova conversa');
-        }
-        handled = true;
-        break;
-
-      case 'F10':
-        // Shift+F10: abre menu de contexto (padrão Windows)
-        if (event.shiftKey) {
-          event.preventDefault();
-          const tabButton = tabListRef.current?.querySelector(
-            `[data-tab-id="${tabId}"]`
-          ) as HTMLButtonElement;
-          if (tabButton) {
-            const rect = tabButton.getBoundingClientRect();
-            openContextMenu(tabId, rect.left, rect.bottom);
-          }
-          handled = true;
-        }
-        break;
-
-      case 'ContextMenu':
-        // Tecla Menu (se disponível no teclado)
-        event.preventDefault();
-        const ctxTabButton = tabListRef.current?.querySelector(
-          `[data-tab-id="${tabId}"]`
-        ) as HTMLButtonElement;
-        if (ctxTabButton) {
-          const rect = ctxTabButton.getBoundingClientRect();
-          openContextMenu(tabId, rect.left, rect.bottom);
-        }
-        handled = true;
-        break;
-    }
-
-    if (handled) {
-      event.preventDefault();
-      if (nextIndex !== currentIndex) {
-        const nextTab = tabs[nextIndex];
-        if (nextTab) {
-          setActiveTab(nextTab.id);
-          // Anuncia mudança de guia
-          const tabNumber = nextIndex + 1;
-          const tabTitle = nextTab.title || 'Nova conversa';
-          announce(`${tabTitle}, ${tabNumber} de ${tabs.length}`);
-          // Foca na próxima aba
-          setTimeout(() => {
-            const nextButton = tabListRef.current?.querySelector(
-              `[data-tab-id="${nextTab.id}"]`
-            ) as HTMLButtonElement;
-            nextButton?.focus();
-          }, 0);
-        }
-      }
-    }
   };
 
   /**
    * Fecha aba com clique no botão X
    */
-  const handleCloseTab = (event: React.MouseEvent, tabId: string) => {
-    event.stopPropagation();
-    
-    const currentIndex = tabs.findIndex(t => t.id === tabId);
-    if (currentIndex === -1) return;
-    
-    // Determina qual aba receberá o foco após a deleção
-    const nextFocusIndex = currentIndex < tabs.length - 1 ? currentIndex : currentIndex - 1;
-    const nextFocusTab = tabs[nextFocusIndex];
-    
-    deleteTab(tabId);
-    
-    // Foca na próxima guia disponível
-    if (nextFocusTab && tabs.length > 1) {
-      setTimeout(() => {
-        const nextButton = tabListRef.current?.querySelector(
-          `[data-tab-id="${nextFocusTab.id}"]`
-        ) as HTMLButtonElement;
-        nextButton?.focus();
-      }, 50);
-    }
-  };
+  const requestClose = useCallback(
+    (tabId: string) => {
+      // Não permite fechar se for a única aba.
+      if (tabs.length <= 1) return;
 
-  /**
-   * Ativa aba ao clicar
-   */
-  const handleTabClick = (tabId: string) => {
-    console.log('[ChatTabs] 🖱️ handleTabClick chamado com tabId:', tabId);
-    setActiveTab(tabId);
-  };
+      const currentIndex = tabs.findIndex((t) => t.id === tabId);
+      if (currentIndex === -1) return;
+
+      const nextFocusIndex = currentIndex < tabs.length - 1 ? currentIndex : currentIndex - 1;
+      const nextFocusTab = tabs[nextFocusIndex];
+
+      if (nextFocusTab && tabs.length > 1) {
+        const tabTitle = nextFocusTab.title || 'Nova conversa';
+        const newTabNumber = Math.min(nextFocusIndex + 1, tabs.length - 1);
+        pendingCloseAnnouncementRef.current = `Guia fechada. ${tabTitle}, ${newTabNumber} de ${tabs.length - 1}`;
+      } else {
+        pendingCloseAnnouncementRef.current = null;
+      }
+
+      void deleteTab(tabId);
+    },
+    [deleteTab, tabs]
+  );
 
   /**
    * Abre menu de contexto na aba (clique direito ou Shift+F10)
@@ -319,6 +168,54 @@ export function ChatTabs() {
     event.stopPropagation();
     openContextMenu(tabId, event.clientX, event.clientY);
   };
+
+  const getFocusedTabId = useCallback(() => {
+    const list = tabListRef.current;
+    if (!list) return null;
+    const focused = list.querySelector('button[role="tab"]:focus') as HTMLButtonElement | null;
+    const v = focused?.getAttribute('data-tab-value');
+    return v && v.trim() ? v : null;
+  }, []);
+
+  const handleListKeyDown = useCallback(
+    (event: React.KeyboardEvent<HTMLDivElement>) => {
+      if (editingTabId) return;
+      if (event.defaultPrevented) return;
+      const tabId = getFocusedTabId();
+      if (!tabId) return;
+
+      if (event.key === 'F2') {
+        event.preventDefault();
+        const tab = tabs.find((t) => t.id === tabId);
+        startEditingTab(tabId, tab?.title || 'Nova conversa');
+        return;
+      }
+
+      if (event.key === 'F10' && event.shiftKey) {
+        event.preventDefault();
+        const tabButton = tabListRef.current?.querySelector(
+          `button[role="tab"][data-tab-value="${escapeForAttrSelector(tabId)}"]`
+        ) as HTMLButtonElement | null;
+        if (tabButton) {
+          const rect = tabButton.getBoundingClientRect();
+          openContextMenu(tabId, rect.left, rect.bottom);
+        }
+        return;
+      }
+
+      if (event.key === 'ContextMenu') {
+        event.preventDefault();
+        const tabButton = tabListRef.current?.querySelector(
+          `button[role="tab"][data-tab-value="${escapeForAttrSelector(tabId)}"]`
+        ) as HTMLButtonElement | null;
+        if (tabButton) {
+          const rect = tabButton.getBoundingClientRect();
+          openContextMenu(tabId, rect.left, rect.bottom);
+        }
+      }
+    },
+    [editingTabId, escapeForAttrSelector, getFocusedTabId, tabs]
+  );
 
   /**
    * Constrói os items do menu de contexto para uma aba
@@ -474,80 +371,115 @@ export function ChatTabs() {
     }
   };
 
+  const handleSelect = useCallback(
+    (tabId: string) => {
+      if (!tabId) return;
+      void setActiveTab(tabId);
+    },
+    [setActiveTab]
+  );
+
+  const handleDelete = useCallback(
+    (tabId: string) => {
+      requestClose(tabId);
+    },
+    [requestClose]
+  );
+
   return (
-    <div
-      className={`chat-tabs ${isLoading ? 'chat-tabs--loading' : ''}`}
-      role="region"
-      aria-label="Abas de conversa"
+    <Tabs
+      value={activeTabId ?? ''}
+      onValueChange={handleSelect}
+      idBase="chat"
+      onBump={playBumpSound}
+      onDelete={handleDelete}
+      pageJump={10}
+      activationMode="auto"
     >
       <div
-        ref={tabListRef}
-        className="chat-tabs__list"
-        role="tablist"
-        aria-label="Lista de conversas abertas"
+        className={`chat-tabs ${isLoading ? 'chat-tabs--loading' : ''}`}
+        role="region"
+        aria-label="Abas de conversa"
       >
-        {tabs.map(tab => {
-          console.log('[ChatTabs] Renderizando aba:', { id: tab.id, title: tab.title, conversationId: tab.conversationId });
-          return (
-          <button
-            key={tab.id}
-            data-tab-id={tab.id}
-            className={`chat-tabs__tab ${
-              tab.id === activeTabId ? 'chat-tabs__tab--active' : ''
-            } ${editingTabId === tab.id ? 'chat-tabs__tab--editing' : ''} ${
-              tab.channel ? 'chat-tabs__tab--channel' : ''
-            }`}
-            role="tab"
-            aria-selected={tab.id === activeTabId}
-            aria-controls={`tabpanel-${tab.id}`}
-            aria-description={tab.channel ? `Canal: ${tab.channel}` : undefined}
-            tabIndex={tab.id === activeTabId ? 0 : -1}
-            onClick={() => handleTabClick(tab.id)}
-            onKeyDown={(e) => handleKeyDown(e, tab.id)}
-            onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
-          >
-            <span className="chat-tabs__tab-icon" aria-hidden="true">
-              {tab.channel ? (channelIcons[tab.channel] || '🔗') : '💬'}
-            </span>
-            {editingTabId === tab.id ? (
-              <input
-                ref={editInputRef}
-                type="text"
-                className="chat-tabs__tab-edit"
-                value={editingTitle}
-                onChange={(e) => setEditingTitle(e.target.value)}
-                onKeyDown={handleEditKeyDown}
-                onBlur={confirmEditingTab}
-                onClick={(e) => e.stopPropagation()}
-                aria-label="Editar título da conversa"
-              />
-            ) : (
-              <span className="chat-tabs__tab-title">{tab.title}</span>
-            )}
-            {tabs.length > 1 && (
-              <button
-                className="chat-tabs__tab-close"
-                onClick={(e) => handleCloseTab(e, tab.id)}
-                aria-label={`Fechar ${tab.title}`}
-                tabIndex={-1}
-                type="button"
-              >
-                ×
-              </button>
-            )}
-          </button>
-        )})}
-      </div>
+        <TabList
+          listRef={tabListRef}
+          className="chat-tabs__list"
+          ariaLabel="Lista de conversas abertas"
+          onKeyDown={handleListKeyDown}
+        >
+          {tabs.map((tab) => {
+            const isActive = tab.id === activeTabId;
+            const isEditing = editingTabId === tab.id;
 
-      {/* Menu de contexto das abas */}
-      <ContextMenu
-        visible={contextMenu.visible}
-        x={contextMenu.x}
-        y={contextMenu.y}
-        items={contextMenu.visible ? buildContextMenuItems(tabs.find(t => t.id === contextMenu.tabId)!) : []}
-        ariaLabel="Menu de contexto da aba"
-        onClose={closeContextMenu}
-      />
-    </div>
+            return (
+              <div
+                key={tab.id}
+                className={`chat-tabs__tab-wrapper${isActive ? ' chat-tabs__tab-wrapper--active' : ''}`}
+                role="presentation"
+              >
+                <Tab
+                  value={tab.id}
+                  className={`chat-tabs__tab${
+                    isActive ? ' chat-tabs__tab--active' : ''
+                  }${isEditing ? ' chat-tabs__tab--editing' : ''}${
+                    tab.channel ? ' chat-tabs__tab--channel' : ''
+                  }`}
+                  controlsId={null}
+                  ariaDescription={tab.channel ? `Canal: ${tab.channel}` : undefined}
+                  onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
+                >
+                  <span className="chat-tabs__tab-icon" aria-hidden="true">
+                    {tab.channel ? (channelIcons[tab.channel] || '🔗') : '💬'}
+                  </span>
+
+                  <span className="chat-tabs__tab-title">{tab.title}</span>
+                </Tab>
+
+                {isEditing && (
+                  <input
+                    ref={editInputRef}
+                    type="text"
+                    className="chat-tabs__tab-edit"
+                    value={editingTitle}
+                    onChange={(e) => setEditingTitle(e.target.value)}
+                    onKeyDown={handleEditKeyDown}
+                    onBlur={confirmEditingTab}
+                    onClick={(e) => e.stopPropagation()}
+                    onContextMenu={(e) => e.stopPropagation()}
+                    aria-label="Editar título da conversa"
+                  />
+                )}
+
+                {tabs.length > 1 && (
+                  <button
+                    className="chat-tabs__tab-close"
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      requestClose(tab.id);
+                    }}
+                    aria-label={`Fechar ${tab.title}`}
+                    tabIndex={-1}
+                    type="button"
+                  >
+                    ×
+                  </button>
+                )}
+              </div>
+            );
+          })}
+        </TabList>
+
+        {/* Menu de contexto das abas */}
+        <ContextMenu
+          visible={contextMenu.visible}
+          x={contextMenu.x}
+          y={contextMenu.y}
+          items={contextMenu.visible ? buildContextMenuItems(tabs.find(t => t.id === contextMenu.tabId)!) : []}
+          ariaLabel="Menu de contexto da aba"
+          onClose={closeContextMenu}
+        />
+      </div>
+    </Tabs>
   );
 }

@@ -4,7 +4,7 @@ import { useChatStore } from '../../store/chatStore';
 import { ClearConversation } from '@wailsjs/go/main/App';
 import { HistoryPicker, HistoryPickerRef } from '../pickers';
 import { ProfilePicker, ProfilePickerRef } from '../pickers/ProfilePicker';
-import { Toolbar } from '../ui/Toolbar';
+import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
 import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -62,7 +62,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     },
   ], [navigate]);
 
-  const handleProfileContextMenu = useCallback((e: React.MouseEvent) => {
+  const handleProfileContextMenu = useCallback((e: React.MouseEvent<HTMLElement>) => {
     e.preventDefault();
     openContextMenu(e.clientX, e.clientY, 'Menu de opções do perfil', getProfileMenuItems(), e.currentTarget);
   }, [openContextMenu, getProfileMenuItems]);
@@ -169,29 +169,22 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         }
         right={
           <>
-            <button
-              className="toolbar__button"
+            <ToolbarButton
+              label="Nova"
+              icon="➕"
+              shortcut="Ctrl+N"
               onClick={handleNewConversation}
-              aria-label="Nova conversa, Ctrl+N"
-              title="Nova conversa (Ctrl+N)"
               disabled={isLoading}
-              tabIndex={0}
-            >
-              <span aria-hidden="true">➕</span>
-              <span>Nova</span>
-            </button>
+            />
 
-            <button
-              className="toolbar__button toolbar__button--danger"
+            <ToolbarButton
+              label="Limpar"
+              icon="🧹"
+              shortcut="Ctrl+L"
+              variant="danger"
               onClick={() => void handleClearConversation()}
-              aria-label="Limpar conversa, Ctrl+L"
-              title="Limpar conversa (Ctrl+L)"
               disabled={isLoading}
-              tabIndex={0}
-            >
-              <span aria-hidden="true">🧹</span>
-              <span>Limpar</span>
-            </button>
+            />
 
             <div>
               <HistoryPicker
@@ -205,14 +198,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
               />
             </div>
 
-            <div className="toolbar__separator" aria-hidden="true"></div>
+            <ToolbarSeparator />
 
             <TokenStatsButton
               conversationId={activeTab?.conversationId}
               onOpenModal={() => setIsTokenModalOpen(true)}
             />
 
-            <div className="toolbar__separator" aria-hidden="true"></div>
+            <ToolbarSeparator />
 
             <div
               onContextMenu={handleProfileContextMenu}

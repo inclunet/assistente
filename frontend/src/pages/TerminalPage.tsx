@@ -3,7 +3,7 @@ import { useTerminalStore } from '../store/terminalStore';
 import { TerminalTabs } from '../components/terminal/TerminalTabs';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
-import { Toolbar } from '../components/ui/Toolbar';
+import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
 import './TerminalPage.css';
 
 export default function TerminalPage() {
@@ -169,29 +169,21 @@ export default function TerminalPage() {
                 <span className="terminal-page__toolbar-cwd" title={activeSession.cwd}>
                   {activeSession.cwd}
                 </span>
-                <div className="toolbar__separator" aria-hidden="true"></div>
+                <ToolbarSeparator />
               </>
             )}
-            <button
-              className="toolbar__button"
+            <ToolbarButton
+              label="Parar"
+              icon="■"
+              shortcut="Ctrl+C"
               onClick={() => interrupt()}
-              aria-label="Interromper comando, Ctrl+C"
-              title="Interromper (Ctrl+C)"
-              tabIndex={0}
-            >
-              <span aria-hidden="true">■</span>
-              <span>Parar</span>
-            </button>
-            <button
-              className="toolbar__button"
+            />
+            <ToolbarButton
+              label="Novo"
+              icon="+"
+              shortcut="Ctrl+T"
               onClick={handleNewTerminal}
-              aria-label="Novo terminal, Ctrl+T"
-              title="Novo terminal (Ctrl+T)"
-              tabIndex={0}
-            >
-              <span aria-hidden="true">+</span>
-              <span>Novo</span>
-            </button>
+            />
           </>
         }
       />

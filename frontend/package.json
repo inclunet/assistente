@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc && vite build",
+    "lint": "eslint src --ext .ts,.tsx",
     "preview": "vite preview",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -26,6 +27,7 @@
     "@types/dompurify": "^3.0.5",
     "@types/markdown-it": "^14.1.2",
     "@types/react-syntax-highlighter": "^15.5.13",
+    "assistente": "file:..",
     "clsx": "^2.1.1",
     "date-fns": "^4.1.0",
     "diff": "^5.2.0",
@@ -50,6 +52,9 @@
     "zustand": "^5.0.2"
   },
   "devDependencies": {
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.0.0",
+    "@testing-library/user-event": "^14.6.1",
     "@types/diff": "^5.2.3",
     "@types/node": "^25.0.9",
     "@types/react": "^18.3.18",
@@ -60,11 +65,14 @@
     "autoprefixer": "^10.4.23",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-react-hooks": "^7.0.1",
+    "jsdom": "^25.0.1",
     "postcss": "^8.5.6",
     "prettier": "^3.8.0",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.7.3",
     "vite": "^5.4.17",
-    "vitest": "^2.1.0"
+    "vitest": "^2.1.0",
+    "vitest-dom": "^0.1.1"
   }
 }
