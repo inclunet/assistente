@@ -13,13 +13,16 @@ import {
   SignalUnregister,
   RestartChannel,
   GetChannelTemplates,
+  ListCredentials,
+  UpsertCredential,
+  DeleteCredential,
 } from '@wailsjs/go/main/App';
 import { channels } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
-import { Input, Button, Checkbox } from '../components';
-import { ProfilePicker } from '../components/pickers/ProfilePicker';
+import { Button } from '../components';
+import { ChannelsTelegramSection, ChannelsSignalSection, ChannelsSlackSection } from '../components/channels';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { Tabs, TabList, Tab, TabPanel } from '../components/ui/tabs';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -49,6 +52,12 @@ interface ContactRow {
   contactId: string;
   displayName: string;
   username: string;
+}
+
+interface CredentialSummary {
+  pattern: string;
+  type: string;
+  masked: string;
 }
 
 interface TelegramForm {
@@ -89,6 +98,8 @@ export default function ChannelsPage() {
   const defaultChannelProfile = 'canais-comunicacao';
   const requestConfirm = useConfirm();
 
+  const channelCredentialPattern = useCallback((channel: string, key: string) => `channel:${channel}:${key}`, []);
+
   // ── Tab ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<ActiveTab>('channels');
   const tabs: { id: ActiveTab; label: string }[] = [
@@ -115,6 +126,10 @@ export default function ChannelsPage() {
   const [slackForm, setSlackForm] = useState<SlackForm>({
     enabled: false, botToken: '', appToken: '', profile: '', maxHistory: 50, maxContacts: 1,
   });
+
+  const [credentialSummaries, setCredentialSummaries] = useState<Record<string, CredentialSummary>>({});
+  const [telegramUseVault, setTelegramUseVault] = useState(true);
+  const [slackUseVault, setSlackUseVault] = useState(true);
 
   // ── Signal registration ──────────────────────────────────────────
   const [signalRegStep, setSignalRegStep] = useState<SignalRegisterStep>('idle');
@@ -157,11 +172,12 @@ export default function ChannelsPage() {
   const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [telegramCfg, signalCfg, slackCfg, status] = await Promise.all([
+      const [telegramCfg, signalCfg, slackCfg, status, credentialsList] = await Promise.all([
         GetChannelConfig('telegram'),
         GetChannelConfig('signal'),
         GetChannelConfig('slack'),
         GetMessagingStatus(),
+        ListCredentials().catch(() => [] as CredentialSummary[]),
       ]);
 
       const tgEnabled = telegramCfg?.enabled || false;
@@ -197,6 +213,26 @@ export default function ChannelsPage() {
           maxContacts: slackCfg.max_contacts || 1,
         });
       }
+
+      const summaryMap: Record<string, CredentialSummary> = {};
+      for (const entry of credentialsList || []) {
+        if (entry?.pattern) {
+          summaryMap[entry.pattern] = entry;
+        }
+      }
+      setCredentialSummaries(summaryMap);
+
+      const telegramPattern = channelCredentialPattern('telegram', 'bot_token');
+      const slackBotPattern = channelCredentialPattern('slack', 'bot_token');
+      const slackAppPattern = channelCredentialPattern('slack', 'app_token');
+
+      const telegramStored = Boolean(summaryMap[telegramPattern] || telegramCfg?.bot_token_ref);
+      const slackStored = Boolean(
+        summaryMap[slackBotPattern] || summaryMap[slackAppPattern] || slackCfg?.bot_token_ref || slackCfg?.app_token_ref
+      );
+
+      setTelegramUseVault(telegramStored || !telegramCfg?.bot_token);
+      setSlackUseVault(slackStored || (!slackCfg?.bot_token && !slackCfg?.app_token));
 
       setChannelRows([
         {
@@ -253,7 +289,7 @@ export default function ChannelsPage() {
     } finally {
       setLoading(false);
     }
-  }, [addToast]);
+  }, [addToast, channelCredentialPattern, defaultChannelProfile]);
 
   useEffect(() => {
     loadAll();
@@ -356,9 +392,26 @@ export default function ChannelsPage() {
     setSaving(true);
     try {
       if (channelName === 'telegram') {
+        const botPattern = channelCredentialPattern('telegram', 'bot_token');
+        const botToken = telegramForm.botToken.trim();
+        const storedBot = credentialSummaries[botPattern];
+
+        if (telegramUseVault) {
+          if (botToken) {
+            await UpsertCredential({
+              pattern: botPattern,
+              type: 'secret',
+              token: botToken,
+            });
+          } else if (telegramForm.enabled && !storedBot) {
+            throw new Error('Informe o token do Telegram ou desative o cofre.');
+          }
+        }
+
         await SaveChannelConfig('telegram', channels.ChannelConfig.createFrom({
           enabled: telegramForm.enabled,
-          bot_token: telegramForm.botToken,
+          bot_token: telegramUseVault ? '' : botToken,
+          bot_token_ref: telegramUseVault ? botPattern : '',
           profile: telegramForm.profile,
           max_history: telegramForm.maxHistory,
           max_contacts: telegramForm.maxContacts,
@@ -375,10 +428,40 @@ export default function ChannelsPage() {
           max_contacts: signalForm.maxContacts,
         }));
       } else if (channelName === 'slack') {
+        const botPattern = channelCredentialPattern('slack', 'bot_token');
+        const appPattern = channelCredentialPattern('slack', 'app_token');
+        const botToken = slackForm.botToken.trim();
+        const appToken = slackForm.appToken.trim();
+        const storedBot = credentialSummaries[botPattern];
+        const storedApp = credentialSummaries[appPattern];
+
+        if (slackUseVault) {
+          if (botToken) {
+            await UpsertCredential({
+              pattern: botPattern,
+              type: 'secret',
+              token: botToken,
+            });
+          }
+          if (appToken) {
+            await UpsertCredential({
+              pattern: appPattern,
+              type: 'secret',
+              token: appToken,
+            });
+          }
+
+          if (slackForm.enabled && ((!storedBot && !botToken) || (!storedApp && !appToken))) {
+            throw new Error('Informe os tokens do Slack ou desative o cofre.');
+          }
+        }
+
         await SaveChannelConfig('slack', channels.ChannelConfig.createFrom({
           enabled: slackForm.enabled,
-          bot_token: slackForm.botToken,
-          app_token: slackForm.appToken,
+          bot_token: slackUseVault ? '' : botToken,
+          bot_token_ref: slackUseVault ? botPattern : '',
+          app_token: slackUseVault ? '' : appToken,
+          app_token_ref: slackUseVault ? appPattern : '',
           profile: slackForm.profile,
           max_history: slackForm.maxHistory,
           max_contacts: slackForm.maxContacts,
@@ -617,6 +700,27 @@ export default function ChannelsPage() {
     }
   }, [addToast, announce, loadAll, requestConfirm]);
 
+  const handleRemoveCredential = useCallback(async (pattern: string, label: string) => {
+    const shouldRemove = await requestConfirm({
+      title: 'Remover credencial',
+      message: `Remover a credencial ${label}?`,
+      confirmText: 'Remover',
+      cancelText: 'Cancelar',
+      variant: 'danger',
+    });
+
+    if (!shouldRemove) return;
+
+    try {
+      await DeleteCredential(pattern);
+      addToast('Credencial removida', 'success');
+      announce('Credencial removida');
+      await loadAll();
+    } catch (error: any) {
+      addToast(error.message || 'Erro ao remover credencial', 'error');
+    }
+  }, [addToast, announce, loadAll, requestConfirm]);
+
   // ── Grid columns ─────────────────────────────────────────────────
 
   const channelColumns: DataGridColumn<ChannelRow>[] = [
@@ -672,366 +776,74 @@ export default function ChannelsPage() {
   // ── Render: Telegram editor ──────────────────────────────────────
 
   const renderTelegramEditor = () => (
-    <>
-      <Checkbox
-        label="Habilitado"
-        checked={telegramForm.enabled}
-        onChange={(e) => setTelegramForm((prev) => ({ ...prev, enabled: e.target.checked }))}
-      />
-      {telegramForm.enabled && (
-        <>
-          <Input
-            label="Bot Token"
-            type="password"
-            value={telegramForm.botToken}
-            onChange={(e) => setTelegramForm((prev) => ({ ...prev, botToken: e.target.value }))}
-            placeholder="123456:ABC-DEF1234ghIkl-zyx57W2v1u123ew11"
-            fullWidth
-          />
-          <p className="channels-page__hint">
-            Crie um bot pelo @BotFather no Telegram e cole o token aqui.
-          </p>
-          <Input
-            label="Max. contatos autorizados"
-            type="number"
-            value={String(telegramForm.maxContacts)}
-            onChange={(e) => setTelegramForm((prev) => ({ ...prev, maxContacts: parseInt(e.target.value) || 1 }))}
-            fullWidth
-          />
-          <p className="channels-page__hint">
-            Ao atingir o limite, novos contatos são ignorados silenciosamente.
-          </p>
-          <ProfilePicker
-            value={telegramForm.profile}
-            onChange={(slug) => setTelegramForm((prev) => ({ ...prev, profile: slug }))}
-            label="Perfil do Canal"
-            maxWidth="100%"
-            onAnnounce={announce}
-          />
-          <p className="channels-page__hint">
-            Perfil usado para conversas deste canal. Define modelo, voz, STT e comportamento.
-            Vazio usa o perfil ativo global.
-          </p>
-          <Input
-            label="Máximo de Histórico"
-            type="number"
-            min="1"
-            max="200"
-            value={telegramForm.maxHistory}
-            onChange={(e) => setTelegramForm((prev) => ({ ...prev, maxHistory: parseInt(e.target.value) || 50 }))}
-            fullWidth
-          />
-        </>
-      )}
-    </>
+    <ChannelsTelegramSection
+      form={telegramForm}
+      onChange={setTelegramForm}
+      onAnnounce={announce}
+      vaultEnabled={telegramUseVault}
+      onToggleVault={setTelegramUseVault}
+      credentialStored={Boolean(credentialSummaries[channelCredentialPattern('telegram', 'bot_token')])}
+      credentialMasked={credentialSummaries[channelCredentialPattern('telegram', 'bot_token')]?.masked || ''}
+      onRemoveCredential={() => handleRemoveCredential(channelCredentialPattern('telegram', 'bot_token'), 'Telegram Bot Token')}
+    />
   );
 
   // ── Render: Signal editor ────────────────────────────────────────
 
   const renderSignalEditor = () => (
-    <>
-      <Checkbox
-        label="Habilitado"
-        checked={signalForm.enabled}
-        onChange={(e) => setSignalForm((prev) => ({ ...prev, enabled: e.target.checked }))}
-      />
-      {signalForm.enabled && (
-        <>
-          <Input
-            label="URL da API"
-            value={signalForm.apiURL}
-            onChange={(e) => {
-              setSignalForm((prev) => ({ ...prev, apiURL: e.target.value }));
-              setSignalAPIReady(false);
-              setSignalAPIInfo('');
-              setSignalRegError('');
-              setSignalAccounts([]);
-            }}
-            placeholder="http://localhost:8080"
-            fullWidth
-          />
-          <div className="channels-page__row">
-            <Button
-              variant="outline"
-              onClick={handleSignalCheckAPI}
-              loading={signalCheckingAPI}
-              disabled={!signalForm.apiURL}
-            >
-              Testar Conexão
-            </Button>
-          </div>
-          <div aria-live="polite">
-            {signalAPIInfo && <p className="channels-page__hint" role="status">{signalAPIInfo}</p>}
-          </div>
-
-          {!signalAPIReady && (
-            <p className="channels-page__hint" role="status">Teste a conexão para avançar.</p>
-          )}
-
-          {signalAPIReady && signalAccounts.length > 0 && (
-            <div className="channels-page__subsection">
-              <h4>Conta Conectada</h4>
-              <div className="channels-page__account-row">
-                <span className="channels-page__account-number">{signalAccounts[0]}</span>
-                <Button
-                  variant="danger"
-                  size="sm"
-                  onClick={() => handleSignalUnregister(signalAccounts[0])}
-                  loading={signalUnregistering === signalAccounts[0]}
-                  disabled={signalUnregistering !== null}
-                >
-                  Desconectar
-                </Button>
-              </div>
-            </div>
-          )}
-
-          {signalAPIReady && signalAccounts.length === 0 && (
-            <div className="channels-page__subsection">
-              <h4>Conectar Conta</h4>
-              <p className="channels-page__hint">
-                Cadastre um novo número ou conecte uma conta existente via QR Code.
-              </p>
-
-              <Input
-                label="Novo número de telefone"
-                value={signalForm.account}
-                onChange={(e) => setSignalForm((prev) => ({ ...prev, account: e.target.value }))}
-                placeholder="+5511999999999"
-                fullWidth
-              />
-
-              <div className="channels-page__row">
-                <Button
-                  variant={signalConnectionMode === 'register' ? 'primary' : 'outline'}
-                  onClick={() => {
-                    setSignalConnectionMode('register');
-                    setSignalRegStep('idle');
-                    setSignalRegCode('');
-                    setSignalRegCaptcha('');
-                    setSignalRegError('');
-                    setSignalSmsSent(false);
-                    setSignalLinkQR('');
-                    setSignalLinking(false);
-                  }}
-                >
-                  Cadastrar número
-                </Button>
-                <Button
-                  variant={signalConnectionMode === 'link' ? 'primary' : 'outline'}
-                  onClick={() => {
-                    setSignalConnectionMode('link');
-                    setSignalRegStep('idle');
-                    setSignalRegCode('');
-                    setSignalRegCaptcha('');
-                    setSignalRegError('');
-                    setSignalSmsSent(false);
-                  }}
-                >
-                  Conectar conta existente
-                </Button>
-              </div>
-
-              <div aria-live="assertive" aria-atomic="true">
-                {signalRegError && (
-                  <div className="channels-page__alert" role="alert">
-                    <strong>Erro:</strong> {signalRegError}
-                  </div>
-                )}
-              </div>
-
-              {signalConnectionMode === 'register' && (
-                <>
-                  {signalRegStep === 'idle' && (
-                    <div className="channels-page__fields">
-                      <Input
-                        label="Token de Verificação"
-                        value={signalRegCaptcha}
-                        onChange={(e) => setSignalRegCaptcha(e.target.value)}
-                        placeholder="signalcaptcha://signal-hcaptcha.abcdef..."
-                        fullWidth
-                      />
-                      <p className="channels-page__hint">
-                        Abra{' '}
-                        <a href="https://signalcaptchas.org/registration/generate.html" target="_blank" rel="noopener noreferrer">
-                          esta página
-                        </a>
-                        , complete o desafio, clique direito em "Open Signal" e copie o link.
-                      </p>
-                      <div className="channels-page__row">
-                        <Button variant="outline" onClick={() => handleSignalRegister('sms')} disabled={!signalForm.apiURL || !signalForm.account || !signalRegCaptcha}>
-                          Enviar código por SMS
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {signalRegStep === 'registering' && (
-                    <p className="channels-page__hint" role="status" aria-live="polite">Enviando código...</p>
-                  )}
-
-                  {(signalRegStep === 'awaiting_code' || signalRegStep === 'verifying') && (
-                    <div className="channels-page__fields">
-                      <Input
-                        label="Código de Verificação"
-                        value={signalRegCode}
-                        onChange={(e) => setSignalRegCode(e.target.value)}
-                        placeholder="123-456"
-                        fullWidth
-                      />
-                      <div className="channels-page__row">
-                        <Button variant="outline" onClick={handleSignalVerify} loading={signalRegStep === 'verifying'} disabled={!signalRegCode}>
-                          Verificar
-                        </Button>
-                        <Button variant="outline" onClick={() => handleSignalRegister('voice')} disabled={!signalSmsSent}>
-                          Reenviar por Ligação
-                        </Button>
-                        <Button variant="ghost" onClick={() => { setSignalRegStep('idle'); setSignalRegCode(''); setSignalRegError(''); setSignalSmsSent(false); setSignalRegCaptcha(''); }}>
-                          Cancelar
-                        </Button>
-                      </div>
-                    </div>
-                  )}
-
-                  {signalRegStep === 'done' && (
-                    <div className="channels-page__fields">
-                      <div className="channels-page__success" role="status" aria-live="polite">
-                        Número {signalForm.account} registrado com sucesso!
-                      </div>
-                      <Button variant="ghost" onClick={() => { setSignalRegStep('idle'); setSignalSmsSent(false); }}>OK</Button>
-                    </div>
-                  )}
-                </>
-              )}
-
-              {signalConnectionMode === 'link' && (
-                <div className="channels-page__fields">
-                  <div className="channels-page__row">
-                    <Button variant="outline" onClick={handleSignalLink} disabled={!signalForm.apiURL || signalLinking} loading={signalLinking}>
-                      Gerar QR Code
-                    </Button>
-                  </div>
-
-                  {(signalLinkQR || signalLinking) && (
-                    <div className="channels-page__qr-container" role="region" aria-label="QR Code de vinculação Signal">
-                      {signalLinkQR ? (
-                        <>
-                          <p className="channels-page__hint">Escaneie o QR Code com o Signal no celular:</p>
-                          <img src={signalLinkQR} alt="QR Code para vincular dispositivo Signal" className="channels-page__qr-image" />
-                        </>
-                      ) : (
-                        <p className="channels-page__hint" role="status" aria-live="polite">Gerando QR Code...</p>
-                      )}
-                      {signalLinking && <p className="channels-page__hint" role="status" aria-live="polite">Aguardando vinculação...</p>}
-                      <Button variant="ghost" onClick={() => { setSignalLinkQR(''); setSignalLinking(false); stopLinkPolling(); }}>Cancelar</Button>
-                    </div>
-                  )}
-                </div>
-              )}
-            </div>
-          )}
-
-          <Input
-            label="Max. contatos autorizados"
-            type="number"
-            value={String(signalForm.maxContacts)}
-            onChange={(e) => setSignalForm((prev) => ({ ...prev, maxContacts: parseInt(e.target.value) || 1 }))}
-            fullWidth
-          />
-          <p className="channels-page__hint">
-            Ao atingir o limite, novos contatos são ignorados silenciosamente.
-          </p>
-          <ProfilePicker
-            value={signalForm.profile}
-            onChange={(slug) => setSignalForm((prev) => ({ ...prev, profile: slug }))}
-            label="Perfil do Canal"
-            maxWidth="100%"
-            onAnnounce={announce}
-          />
-          <p className="channels-page__hint">
-            Perfil usado para conversas deste canal. Define modelo, voz, STT e comportamento.
-            Vazio usa o perfil ativo global.
-          </p>
-          <Input
-            label="Máximo de Histórico"
-            type="number"
-            min="1"
-            max="200"
-            value={signalForm.maxHistory}
-            onChange={(e) => setSignalForm((prev) => ({ ...prev, maxHistory: parseInt(e.target.value) || 50 }))}
-            fullWidth
-          />
-        </>
-      )}
-    </>
+    <ChannelsSignalSection
+      form={signalForm}
+      onChange={setSignalForm}
+      onAnnounce={announce}
+      apiReady={signalAPIReady}
+      apiInfo={signalAPIInfo}
+      regError={signalRegError}
+      regStep={signalRegStep}
+      regCode={signalRegCode}
+      regCaptcha={signalRegCaptcha}
+      smsSent={signalSmsSent}
+      accounts={signalAccounts}
+      connectionMode={signalConnectionMode}
+      linkQR={signalLinkQR}
+      linking={signalLinking}
+      unregistering={signalUnregistering}
+      checkingAPI={signalCheckingAPI}
+      onSetApiReady={setSignalAPIReady}
+      onSetApiInfo={setSignalAPIInfo}
+      onSetRegError={setSignalRegError}
+      onSetRegStep={setSignalRegStep}
+      onSetRegCode={setSignalRegCode}
+      onSetRegCaptcha={setSignalRegCaptcha}
+      onSetSmsSent={setSignalSmsSent}
+      onSetAccounts={setSignalAccounts}
+      onSetConnectionMode={setSignalConnectionMode}
+      onSetLinkQR={setSignalLinkQR}
+      onSetLinking={setSignalLinking}
+      onCheckAPI={handleSignalCheckAPI}
+      onRegister={handleSignalRegister}
+      onVerify={handleSignalVerify}
+      onLink={handleSignalLink}
+      onUnregister={handleSignalUnregister}
+      onStopLinkPolling={stopLinkPolling}
+    />
   );
 
   // ── Render: Slack editor ─────────────────────────────────────────
 
   const renderSlackEditor = () => (
-    <>
-      <Checkbox
-        label="Habilitado"
-        checked={slackForm.enabled}
-        onChange={(e) => setSlackForm((prev) => ({ ...prev, enabled: e.target.checked }))}
-      />
-      {slackForm.enabled && (
-        <>
-          <Input
-            label="Bot Token"
-            type="password"
-            value={slackForm.botToken}
-            onChange={(e) => setSlackForm((prev) => ({ ...prev, botToken: e.target.value }))}
-            placeholder="xoxb-..."
-            fullWidth
-          />
-          <p className="channels-page__hint">
-            Token do bot do Slack (xoxb-...).
-          </p>
-          <Input
-            label="App Token (Socket Mode)"
-            type="password"
-            value={slackForm.appToken}
-            onChange={(e) => setSlackForm((prev) => ({ ...prev, appToken: e.target.value }))}
-            placeholder="xapp-..."
-            fullWidth
-          />
-          <p className="channels-page__hint">
-            Token do app do Slack para Socket Mode (xapp-...).
-          </p>
-          <Input
-            label="Max. contatos autorizados"
-            type="number"
-            value={String(slackForm.maxContacts)}
-            onChange={(e) => setSlackForm((prev) => ({ ...prev, maxContacts: parseInt(e.target.value) || 1 }))}
-            fullWidth
-          />
-          <p className="channels-page__hint">
-            Ao atingir o limite, novos contatos são ignorados silenciosamente.
-          </p>
-          <ProfilePicker
-            value={slackForm.profile}
-            onChange={(slug) => setSlackForm((prev) => ({ ...prev, profile: slug }))}
-            label="Perfil do Canal"
-            maxWidth="100%"
-            onAnnounce={announce}
-          />
-          <p className="channels-page__hint">
-            Perfil usado para conversas deste canal. Define modelo, voz, STT e comportamento.
-            Vazio usa o perfil ativo global.
-          </p>
-          <Input
-            label="Máximo de Histórico"
-            type="number"
-            min="1"
-            max="200"
-            value={slackForm.maxHistory}
-            onChange={(e) => setSlackForm((prev) => ({ ...prev, maxHistory: parseInt(e.target.value) || 50 }))}
-            fullWidth
-          />
-        </>
-      )}
-    </>
+    <ChannelsSlackSection
+      form={slackForm}
+      onChange={setSlackForm}
+      onAnnounce={announce}
+      vaultEnabled={slackUseVault}
+      onToggleVault={setSlackUseVault}
+      botTokenStored={Boolean(credentialSummaries[channelCredentialPattern('slack', 'bot_token')])}
+      botTokenMasked={credentialSummaries[channelCredentialPattern('slack', 'bot_token')]?.masked || ''}
+      appTokenStored={Boolean(credentialSummaries[channelCredentialPattern('slack', 'app_token')])}
+      appTokenMasked={credentialSummaries[channelCredentialPattern('slack', 'app_token')]?.masked || ''}
+      onRemoveBotToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'bot_token'), 'Slack Bot Token')}
+      onRemoveAppToken={() => handleRemoveCredential(channelCredentialPattern('slack', 'app_token'), 'Slack App Token')}
+    />
   );
 
   // ── Main render ──────────────────────────────────────────────────
