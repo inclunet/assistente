@@ -288,7 +288,7 @@ func (a *App) runAgenticLoop(
 		if editorToolOnly && iteration == 0 {
 			iterCtx = llm.WithToolChoice(iterCtx, "required")
 		}
-		llm.StreamChat(iterCtx, cfg, messages, params, handler, toolDefs...)
+		a.llmStreamClient.StreamChat(iterCtx, messages, params, handler, toolDefs...)
 
 		result := handler.result
 

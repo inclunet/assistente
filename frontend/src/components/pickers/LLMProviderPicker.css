@@ -1,0 +1,8 @@
+.llm-provider-picker-form {
+  width: 100%;
+}
+
+.llm-provider-picker-toolbar {
+  display: inline-flex;
+  align-items: center;
+}

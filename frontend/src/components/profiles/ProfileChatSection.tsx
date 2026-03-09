@@ -1,10 +1,13 @@
+import { LLMProviderPicker } from '../pickers/LLMProviderPicker';
 import { ModelPicker } from '../pickers/ModelPicker';
 import { RangeSlider } from '../ui/RangeSlider';
 
 export interface ProfileChatSectionProps {
+  llmProvider: string;
   model: string;
   temperature: number;
   maxTokens: number;
+  maxTokensMode: string;
   contextWindow: number;
   maxContextMessages: number;
   minContextMessages: number;
@@ -13,9 +16,11 @@ export interface ProfileChatSectionProps {
   reasoningEffort: string;
   onChange: (
     field:
+      | 'llm_provider'
       | 'model'
       | 'temperature'
       | 'max_tokens'
+      | 'max_tokens_mode'
       | 'context_window'
       | 'max_context_messages'
       | 'min_context_messages'
@@ -24,17 +29,20 @@ export interface ProfileChatSectionProps {
       | 'reasoning_effort',
     value: string | number
   ) => void;
+  onMultiChange?: (updates: Record<string, any>) => void;
   disabled?: boolean;
 }
 
 /**
  * Seção de configuração de chat (LLM) de um perfil.
- * Permite escolher modelo, parâmetros de geração e limites de contexto.
+ * Permite escolher provedor, modelo, parâmetros de geração e limites de contexto.
  */
 export function ProfileChatSection({
+  llmProvider,
   model,
   temperature,
   maxTokens,
+  maxTokensMode,
   contextWindow,
   maxContextMessages,
   minContextMessages,
@@ -42,11 +50,13 @@ export function ProfileChatSection({
   responseTimeout,
   reasoningEffort,
   onChange,
+  onMultiChange,
   disabled = false,
 }: ProfileChatSectionProps) {
   const temperatureValue = temperature ?? 0.7;
   const topPValue = topP ?? 1.0;
   const maxTokensValue = maxTokens ?? 4096;
+  const maxTokensModeValue = maxTokensMode || 'legacy';
   const contextWindowValue = contextWindow ?? 0;
   const maxContextMessagesValue = maxContextMessages ?? 0;
   const minContextMessagesValue = minContextMessages ?? 0;
@@ -56,13 +66,39 @@ export function ProfileChatSection({
   return (
     <div className="profiles-fields" data-testid="profile-chat-section">
       <div className="profiles-field">
+        <LLMProviderPicker
+          value={llmProvider || ''}
+          onChange={(value) => {
+            // Atualiza provider e limpa model atomicamente
+            if (onMultiChange) {
+              onMultiChange({
+                llm_provider: value,
+                model: '',
+              });
+            } else {
+              onChange('llm_provider', value);
+              onChange('model', '');
+            }
+          }}
+          label="Provedor LLM"
+          variant="form"
+          disabled={disabled}
+        />
+      </div>
+
+      <div className="profiles-field">
         <ModelPicker
           value={model || ''}
-          onChange={(value) => onChange('model', value)}
+          onChange={(value) => {
+            console.log('[ProfileChatSection] Modelo selecionado:', value);
+            onChange('model', value);
+          }}
           label="Modelo"
           placeholder="Filtrar modelos..."
           variant="form"
-          disabled={disabled}
+          disabled={disabled || !llmProvider}
+          providerID={llmProvider}
+          helpText={!llmProvider ? 'Selecione um provedor primeiro' : ''}
         />
       </div>
 
@@ -94,6 +130,25 @@ export function ProfileChatSection({
           onChange={(e) => onChange('max_tokens', parseInt(e.target.value) || 4096)}
           disabled={disabled}
         />
+      </div>
+
+      <div className="profiles-field">
+        <label htmlFor="chat-max-tokens-mode" className="profiles-field__label">
+          Formato do parâmetro max_tokens
+        </label>
+        <select
+          id="chat-max-tokens-mode"
+          className="profiles-field__select"
+          value={maxTokensModeValue}
+          onChange={(e) => onChange('max_tokens_mode', e.target.value)}
+          disabled={disabled}
+        >
+          <option value="legacy">Legacy (max_tokens) - Padrão</option>
+          <option value="completion_tokens">Completion Tokens (max_completion_tokens) - GPT-4o, o1, etc</option>
+        </select>
+        <span className="profiles-field__hint">
+          "legacy" usa max_tokens (maioria dos modelos). "completion_tokens" usa max_completion_tokens (GPT-4o, o1, modelos novos OpenAI).
+        </span>
       </div>
 
       <div className="profiles-field">

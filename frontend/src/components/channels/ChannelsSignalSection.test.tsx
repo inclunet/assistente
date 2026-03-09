@@ -39,11 +39,14 @@ describe('ChannelsSignalSection', () => {
   const mockSetConnectionMode = vi.fn();
   const mockSetLinkQR = vi.fn();
   const mockSetLinking = vi.fn();
+  const mockOnToggleVault = vi.fn();
+  const mockOnRemoveToken = vi.fn();
 
   const defaultForm = {
     enabled: false,
     apiURL: '',
     account: '',
+    apiToken: '',
     profile: '',
     maxHistory: 50,
     maxContacts: 10,
@@ -53,6 +56,11 @@ describe('ChannelsSignalSection', () => {
     form: defaultForm,
     onChange: mockOnChange,
     onAnnounce: mockOnAnnounce,
+    vaultEnabled: false,
+    onToggleVault: mockOnToggleVault,
+    tokenStored: false,
+    tokenMasked: '',
+    onRemoveToken: mockOnRemoveToken,
     apiReady: false,
     apiInfo: '',
     regError: '',

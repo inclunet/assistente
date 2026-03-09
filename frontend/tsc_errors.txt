@@ -1,0 +1,6 @@
+src/components/channels/ChannelsSignalSection.tsx(84,3): error TS6133: 'onSetUnregistering' is declared but its value is never read.
+src/components/channels/ChannelsSignalSection.tsx(85,3): error TS6133: 'onSetCheckingAPI' is declared but its value is never read.
+src/components/channels/ChannelsTelegramSection.tsx(1,17): error TS6133: 'Button' is declared but its value is never read.
+src/pages/ChannelsPage.tsx(21,10): error TS6133: 'Input' is declared but its value is never read.
+src/pages/ChannelsPage.tsx(21,25): error TS6133: 'Checkbox' is declared but its value is never read.
+src/pages/ChannelsPage.tsx(22,1): error TS6133: 'ProfilePicker' is declared but its value is never read.

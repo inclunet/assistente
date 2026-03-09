@@ -8,22 +8,25 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
+	"assistente/internal/credentials"
 	"assistente/internal/tools"
+	httpclient "assistente/internal/tools/http"
 )
 
 // WebSearch realiza buscas na web usando uma API de busca.
 // Suporta múltiplos provedores via configuração (padrão: DuckDuckGo HTML, sem API key).
+// Usa cliente HTTP centralizado com auth/retry automático.
 type WebSearch struct {
-	client   *http.Client
+	client   *httpclient.Client
 	provider SearchProvider
 }
 
 // SearchProvider define a interface para provedores de busca.
 type SearchProvider interface {
 	// Search executa a busca e retorna resultados formatados.
-	Search(ctx context.Context, client *http.Client, query string, maxResults int) ([]SearchResult, error)
+	// Usa cliente HTTP centralizado com auth/retry automático.
+	Search(ctx context.Context, client *httpclient.Client, query string, maxResults int) ([]SearchResult, error)
 	// Name retorna o nome do provedor para logs.
 	Name() string
 }
@@ -36,21 +39,29 @@ type SearchResult struct {
 }
 
 // NewWebSearch cria uma nova instância de WebSearch com o provedor DuckDuckGo padrão.
-func NewWebSearch() *WebSearch {
+func NewWebSearch(credMgr *credentials.Manager) *WebSearch {
+	if credMgr == nil {
+		credMgr = credentials.NewManager(nil)
+	}
+	client := httpclient.New(&httpclient.Config{
+		CredentialManager: credMgr,
+	}, map[string]string{})
 	return &WebSearch{
-		client: &http.Client{
-			Timeout: 15 * time.Second,
-		},
+		client:   client,
 		provider: &duckDuckGoProvider{},
 	}
 }
 
 // NewWebSearchWithProvider cria WebSearch com um provedor customizado (ex: Google, Bing).
-func NewWebSearchWithProvider(provider SearchProvider) *WebSearch {
+func NewWebSearchWithProvider(credMgr *credentials.Manager, provider SearchProvider) *WebSearch {
+	if credMgr == nil {
+		credMgr = credentials.NewManager(nil)
+	}
+	client := httpclient.New(&httpclient.Config{
+		CredentialManager: credMgr,
+	}, map[string]string{})
 	return &WebSearch{
-		client: &http.Client{
-			Timeout: 15 * time.Second,
-		},
+		client:   client,
 		provider: provider,
 	}
 }
@@ -149,7 +160,7 @@ type duckDuckGoProvider struct{}
 
 func (p *duckDuckGoProvider) Name() string { return "DuckDuckGo" }
 
-func (p *duckDuckGoProvider) Search(ctx context.Context, client *http.Client, query string, maxResults int) ([]SearchResult, error) {
+func (p *duckDuckGoProvider) Search(ctx context.Context, client *httpclient.Client, query string, maxResults int) ([]SearchResult, error) {
 	// Usa a DuckDuckGo HTML lite como fallback universal (sem API key)
 	searchURL := fmt.Sprintf("https://html.duckduckgo.com/html/?q=%s", url.QueryEscape(query))
 
@@ -162,7 +173,7 @@ func (p *duckDuckGoProvider) Search(ctx context.Context, client *http.Client, qu
 	req.Header.Set("Accept", "text/html")
 	req.Header.Set("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
 
-	resp, err := client.Do(req)
+	resp, err := client.Do(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("erro na requisição: %w", err)
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -378,11 +379,67 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 
 // GetModels retorna a lista de modelos disponíveis na API
 func (a *App) GetModels() ([]string, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, err
+	if a.llmStreamClient == nil {
+		log.Printf("[GetModels] llmStreamClient não inicializado. Verifique se há perfil ativo com provedor configurado.")
+		return nil, fmt.Errorf("cliente LLM não inicializado. Configure um perfil com provedor LLM primeiro")
 	}
-	return llm.GetModels(cfg)
+	log.Printf("[GetModels] Buscando modelos do provedor...")
+	models, err := a.llmStreamClient.GetModels(a.ctx)
+	if err != nil {
+		log.Printf("[GetModels] Erro ao buscar modelos: %v", err)
+		return nil, fmt.Errorf("erro ao buscar modelos: %w", err)
+	}
+	log.Printf("[GetModels] %d modelos encontrados", len(models))
+	return models, nil
+}
+
+// GetModelsByProvider retorna a lista de modelos de um provedor específico
+func (a *App) GetModelsByProvider(providerID string) ([]string, error) {
+	if providerID == "" {
+		return []string{}, nil
+	}
+
+	provider := a.llmRegistry.Get(providerID)
+	if provider == nil {
+		return nil, fmt.Errorf("provedor '%s' não encontrado", providerID)
+	}
+
+	log.Printf("[GetModelsByProvider] Provedor: %s, Type: %s, Hostname: '%s'", provider.Name, provider.Type, provider.CredentialPattern)
+
+	// Buscar credencial do provedor (opcional para provedores locais)
+	var apiKey string
+	authCfg, err := a.credMgr.GetByPattern(provider.CredentialPattern)
+	if err == nil && authCfg != nil {
+		apiKey = authCfg.Token
+		log.Printf("[GetModelsByProvider] ✓ Credencial encontrada (len=%d chars)", len(apiKey))
+	} else {
+		log.Printf("[GetModelsByProvider] ✗ Credencial NÃO encontrada para hostname '%s': %v", provider.CredentialPattern, err)
+	}
+	// Se não houver credencial, apiKey fica vazio (OK para provedores locais)
+
+	// Criar cliente temporário para buscar modelos
+	tempCfg := &config.Config{
+		APIKey:     apiKey,
+		APIBaseURL: provider.BaseURL,
+	}
+
+	if apiKey != "" {
+		log.Printf("[GetModelsByProvider] APIKey passada para o client (primeiros 10 chars): %s...", apiKey[:min(10, len(apiKey))])
+	} else {
+		log.Printf("[GetModelsByProvider] ATENÇÃO: APIKey VAZIA sendo passada para o client!")
+	}
+
+	tempClient := llm.NewClient(provider, tempCfg, a.credMgr)
+
+	models, err := tempClient.GetModels(a.ctx)
+	if err != nil {
+		log.Printf("[GetModelsByProvider] ERRO ao buscar modelos: %v", err)
+		return nil, fmt.Errorf("erro ao buscar modelos do provedor '%s': %w", providerID, err)
+	}
+
+	log.Printf("[GetModelsByProvider] Sucesso! %d modelos encontrados", len(models))
+
+	return models, nil
 }
 
 // Constantes de validação de input
@@ -507,6 +564,10 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 		if activeProfile.Chat.TopP > 0 {
 			params.TopP = activeProfile.Chat.TopP
+		}
+		// MaxTokensMode: "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
+		if activeProfile.Chat.MaxTokensMode != "" {
+			params.MaxTokensMode = activeProfile.Chat.MaxTokensMode
 		}
 
 		// 3. Aplica configuração de reasoning effort
@@ -712,7 +773,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 			conversationID: conversationID,
 			userMessageID:  userMsg.ID,
 		}
-		go llm.StreamChat(a.ctx, cfg, messages, params, handler)
+		go a.llmStreamClient.StreamChat(a.ctx, messages, params, handler)
 	}
 	return conversationID, nil
 }
@@ -1476,16 +1537,7 @@ func truncateStr(s string, maxLen int) string {
 
 // SendMessageSync envia uma mensagem sem streaming (para acessibilidade)
 func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, error) {
-	cfg, err := config.Load()
-	if err != nil {
-		return "", err
-	}
-
-	if cfg.APIKey == "" {
-		return "", fmt.Errorf("API Key não configurada")
-	}
-
-	return llm.SendMessageSync(cfg, messages, params)
+	return a.llmStreamClient.SendMessageSync(a.ctx, messages, params)
 }
 
 // GetConfig retorna a configuração atual
@@ -1540,9 +1592,6 @@ func (a *App) SaveSettings(input SettingsInput) error {
 	if err != nil {
 		return err
 	}
-
-	// Atualiza o timeout do HTTP client
-	llm.ConfigureResponseTimeout(responseTimeout)
 
 	return nil
 }
@@ -1640,6 +1689,101 @@ func (a *App) ResetDatabase() error {
 
 	// Emite evento para o frontend limpar o estado
 	runtime.EventsEmit(a.ctx, "database:reset")
+
+	return nil
+}
+
+// ClearMessages apaga todas as mensagens e conversas, mantendo a estrutura do banco
+func (a *App) ClearMessages() error {
+	if err := database.ClearAllTabs(); err != nil {
+		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
+	}
+
+	log.Println("[ClearMessages] Mensagens e conversas apagadas")
+	runtime.EventsEmit(a.ctx, "messages:cleared")
+
+	return nil
+}
+
+// ClearAllCredentials apaga todas as credenciais armazenadas
+func (a *App) ClearAllCredentials() error {
+	if a.credMgr == nil {
+		return fmt.Errorf("gerenciador de credenciais não disponível")
+	}
+
+	// Limpa todas as credenciais usando DeletePattern com um padrão que pega tudo
+	// (isso é uma abordagem simples - em produção seria melhor ter um método Clear específico)
+	if err := a.credMgr.DeletePattern(context.Background(), ""); err != nil {
+		return fmt.Errorf("erro ao limpar credenciais: %v", err)
+	}
+
+	log.Println("[ClearAllCredentials] Credenciais apagadas")
+	runtime.EventsEmit(a.ctx, "credentials:cleared")
+
+	return nil
+}
+
+// ClearAllProfiles apaga todos os perfis, mantendo apenas o ativo padrão
+func (a *App) ClearAllProfiles() error {
+	if a.profileManager == nil {
+		return fmt.Errorf("gerenciador de perfis não disponível")
+	}
+
+	profiles, err := a.profileManager.List()
+	if err != nil {
+		return fmt.Errorf("erro ao listar perfis: %v", err)
+	}
+
+	for _, profile := range profiles {
+		if err := a.profileManager.Delete(profile.Slug); err != nil {
+			log.Printf("[ClearAllProfiles] Erro ao deletar perfil %s: %v", profile.Slug, err)
+		}
+	}
+
+	log.Println("[ClearAllProfiles] Perfis apagados")
+	runtime.EventsEmit(a.ctx, "profiles:cleared")
+
+	return nil
+}
+
+// ClearAllSkills apaga todos os skills
+func (a *App) ClearAllSkills() error {
+	if a.skillMgr == nil {
+		return fmt.Errorf("gerenciador de skills não disponível")
+	}
+
+	skills, err := a.skillMgr.List()
+	if err != nil {
+		return fmt.Errorf("erro ao listar skills: %v", err)
+	}
+
+	for _, skill := range skills {
+		if err := a.skillMgr.Delete(skill.Slug); err != nil {
+			log.Printf("[ClearAllSkills] Erro ao deletar skill %s: %v", skill.Slug, err)
+		}
+	}
+
+	log.Println("[ClearAllSkills] Skills apagados")
+	runtime.EventsEmit(a.ctx, "skills:cleared")
+
+	return nil
+}
+
+// ClearAllChannels apaga todos os canais de comunicação
+func (a *App) ClearAllChannels() error {
+	if a.msgGateway == nil {
+		return fmt.Errorf("gateway de mensageria não disponível")
+	}
+
+	status := a.msgGateway.GetStatus()
+	for channelType := range status {
+		if err := a.RestartChannel(channelType); err != nil {
+			log.Printf("[ClearAllChannels] Erro ao resetar canal %s: %v", channelType, err)
+		}
+	}
+
+	log.Println("[ClearAllChannels] Canais apagados")
+	runtime.EventsEmit(a.ctx, "channels:cleared")
 
 	return nil
 }

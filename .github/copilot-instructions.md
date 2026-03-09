@@ -29,3 +29,7 @@
 - Se não houver teste cobrindo o comportamento alterado (ou se a cobertura estiver fraca), criar/atualizar testes junto com a mudança.
 - Ao adicionar testes, manter o escopo focado na feature tocada (evitar “mass refactor” de testes).
 - Antes de concluir, rodar as tasks de teste relevantes (preferência por `Frontend: test` e/ou `Go: test ./...`).
+
+## Testes (regras rígidas)
+- Nunca deletar testes para “resolver” falhas.
+- Nunca simplificar testes para facilitar aprovação; corrigir o código é sempre o caminho.

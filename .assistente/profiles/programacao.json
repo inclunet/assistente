@@ -1,9 +1,10 @@
 {
-  "_builtin_version": "1.0.1",
+  "_builtin_version": "2.1.0",
   "name": "Programação",
   "description": "Otimizado para programação e código.",
   "icon": "code-slash-outline",
   "chat": {
+    "llm_provider": "anthropic-claude",
     "model": "anthropic/claude-sonnet-4-5",
     "temperature": 0,
     "max_tokens": 8200,
@@ -23,6 +24,7 @@
   },
   "voice": {
     "provider": "disabled",
+    "llm_provider_id": "openai-default",
     "rate": 1,
     "pitch": 1,
     "volume": 1,
@@ -31,6 +33,7 @@
   },
   "interaction": {
     "stt_provider": "webspeech",
+    "llm_provider_id": "openai-default",
     "language": "pt-BR",
     "feedback_sounds": true
   }

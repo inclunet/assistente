@@ -1,5 +1,5 @@
 import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { GetModels } from '@wailsjs/go/main/App';
+import { GetModels, GetModelsByProvider } from '@wailsjs/go/main/App';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import './ModelPicker.css';
@@ -15,6 +15,7 @@ export interface ModelPickerProps {
     variant?: 'toolbar' | 'form';
     helpText?: string;
     onAnnounce?: (message: string) => void;
+    providerID?: string; // ID do provedor para filtrar modelos
 }
 
 export interface ModelPickerRef {
@@ -31,21 +32,53 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   maxWidth = '180px',
   variant = 'toolbar',
   helpText = '',
-  onAnnounce
+  onAnnounce,
+  providerID = '', // Provedor específico (se vazio, usa GetModels do ativo)
 }, ref) => {
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
 
   const loadModels = async () => {
+    // Se estamos no modo form e não há providerID, não tenta carregar
+    if (variant === 'form' && !providerID) {
+      setLoading(false);
+      setError('Selecione um provedor primeiro');
+      setModels([]);
+      return;
+    }
+
     setLoading(true);
     setError('');
     try {
-      const modelsList = await GetModels() || [];
-      setModels(modelsList);
-    } catch (e) {
-      setError('Erro ao carregar modelos');
-      console.error('ModelPicker: erro ao carregar modelos', e);
+      let modelsList: string[];
+      
+      // Se providerID foi fornecido, usa GetModelsByProvider
+      if (providerID) {
+        modelsList = await GetModelsByProvider(providerID);
+      } else {
+        // Caso contrário, usa GetModels (do provedor ativo)
+        modelsList = await GetModels();
+      }
+      
+      setModels(modelsList || []);
+      if (!modelsList || modelsList.length === 0) {
+        const msg = providerID
+          ? 'Nenhum modelo disponível para este provedor.'
+          : 'Nenhum modelo disponível. Configure um provedor primeiro.';
+        setError(msg);
+      }
+    } catch (e: any) {
+      const errorMsg = e?.message || String(e) || 'Erro desconhecido';
+      
+      // Detecta erro de credencial não configurada
+      if (errorMsg.includes('credencial não configurada') || errorMsg.includes('Missing bearer authentication')) {
+        setError('Configure a API key deste provedor em Configurações → Credenciais');
+      } else {
+        setError(`Erro ao carregar modelos: ${errorMsg}`);
+      }
+      
+      setModels([]);
     } finally {
       setLoading(false);
     }
@@ -53,7 +86,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
 
   useEffect(() => {
     loadModels();
-  }, []);
+  }, [providerID]); // Recarrega quando providerID muda
 
   useImperativeHandle(ref, () => ({
     reload: loadModels

@@ -1,0 +1,62 @@
+.providers-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--background);
+}
+
+.providers-page .loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  font-size: 1.1rem;
+  color: var(--text-secondary);
+}
+
+/* === Editor Panel === */
+
+.providers-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
+  overflow-y: auto;
+  padding: 1.5rem;
+  max-width: 800px;
+}
+
+.providers-editor__footer {
+  justify-content: flex-start;
+  align-items: center;
+}
+
+.providers-editor__footer-spacer {
+  flex: 1;
+}
+
+/* === Status Badge === */
+
+.provider-status {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.provider-status--configured {
+  background-color: rgba(34, 197, 94, 0.1);
+  color: #22c55e;
+}
+
+.provider-status--missing {
+  background-color: rgba(239, 68, 68, 0.1);
+  color: #ef4444;
+}
+
+.provider-status--none {
+  background-color: rgba(156, 163, 175, 0.1);
+  color: #9ca3af;
+}

@@ -139,6 +139,13 @@
   text-decoration: underline;
 }
 
+.channels-page__vault-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: -0.25rem;
+}
+
 /* ── Subsection (signal registration) ──────────────────── */
 
 .channels-page__subsection {

@@ -28,13 +28,17 @@ var mu sync.Mutex
 // ChannelConfig é a configuração de um canal de mensageria.
 type ChannelConfig struct {
 	Enabled     bool   `json:"enabled"`
-	BotToken    string `json:"bot_token,omitempty"`    // Telegram: token do bot
-	AppToken    string `json:"app_token,omitempty"`    // Slack: app token (socket mode)
-	Account     string `json:"account,omitempty"`      // Signal: número da conta vinculada
-	APIURL      string `json:"api_url,omitempty"`      // Signal: URL da API
-	Profile     string `json:"profile,omitempty"`      // Perfil de chat (vazio = ativo)
-	MaxHistory  int    `json:"max_history,omitempty"`  // Mensagens no contexto (0 = padrão)
-	MaxContacts int    `json:"max_contacts,omitempty"` // Máximo de contatos autorizados (0 = 1)
+	BotToken    string `json:"bot_token,omitempty"`     // Telegram: token do bot
+	BotTokenRef string `json:"bot_token_ref,omitempty"` // Referência no credential manager
+	AppToken    string `json:"app_token,omitempty"`     // Slack: app token (socket mode)
+	AppTokenRef string `json:"app_token_ref,omitempty"` // Referência no credential manager
+	APIToken    string `json:"api_token,omitempty"`     // Signal: token opcional da API
+	APITokenRef string `json:"api_token_ref,omitempty"` // Referência no credential manager
+	Account     string `json:"account,omitempty"`       // Signal: número da conta vinculada
+	APIURL      string `json:"api_url,omitempty"`       // Signal: URL da API
+	Profile     string `json:"profile,omitempty"`       // Perfil de chat (vazio = ativo)
+	MaxHistory  int    `json:"max_history,omitempty"`   // Mensagens no contexto (0 = padrão)
+	MaxContacts int    `json:"max_contacts,omitempty"`  // Máximo de contatos autorizados (0 = 1)
 
 	// Conversations mapeia contactID → conversationID (persistido entre reinícios).
 	// Permite reaproveitar conversas existentes ao reiniciar o app.

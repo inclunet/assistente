@@ -2,7 +2,7 @@ import { createHashRouter } from 'react-router-dom';
 import App from '../App';
 import { Layout } from '../components/layout/Layout';
 import ChatPage from '../pages/ChatPage';
-import SettingsPage from '../pages/SettingsPage';
+import RestoreDefaultsPage from '../pages/RestoreDefaultsPage';
 import ProfilesPage from '../pages/ProfilesPage';
 import HistoryPage from '../pages/HistoryPage';
 import HelpPage from '../pages/HelpPage';
@@ -14,6 +14,8 @@ import ChannelsPage from '../pages/ChannelsPage';
 import UpdatePage from '../pages/UpdatePage';
 import AboutPage from '../pages/AboutPage';
 import EditorPage from '../pages/EditorPage';
+import CredentialsPage from '../pages/CredentialsPage';
+import ProvidersPage from '../pages/ProvidersPage';
 
 export const router = createHashRouter([
   {
@@ -52,8 +54,16 @@ export const router = createHashRouter([
             element: <ChannelsPage />,
           },
           {
+            path: 'credentials',
+            element: <CredentialsPage />,
+          },
+          {
+            path: 'providers',
+            element: <ProvidersPage />,
+          },
+          {
             path: 'settings',
-            element: <SettingsPage />,
+            element: <RestoreDefaultsPage />,
           },
           {
             path: 'profiles',

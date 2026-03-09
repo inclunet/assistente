@@ -57,6 +57,7 @@ func TestValidateContextFields(t *testing.T) {
 		return &Profile{
 			Name: "Test",
 			Chat: ChatConfig{
+				LLMProvider:     "openai-default",
 				Temperature:     0.7,
 				MaxTokens:       4096,
 				TopP:            1.0,

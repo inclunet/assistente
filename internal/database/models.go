@@ -4,6 +4,21 @@ import (
 	"time"
 )
 
+// ==================== LLM Providers ====================
+
+// LLMProvider armazena configuração de provedor LLM
+type LLMProvider struct {
+	ID                string `gorm:"primaryKey"`
+	Name              string `gorm:"not null"`
+	Type              string `gorm:"not null"` // openai, claude, ollama, etc
+	BaseURL           string `gorm:"not null"`
+	Model             string
+	Timeout           int
+	CredentialPattern string
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
+}
+
 // ==================== Conversation & Messages ====================
 
 // Conversation representa uma conversa
@@ -18,9 +33,9 @@ type Conversation struct {
 	MessageCount int           `json:"message_count" gorm:"-"` // Campo calculado, não persiste no banco
 
 	// Rolling Context: sumarização automática de mensagens antigas
-	Summary              string `json:"summary,omitempty" gorm:"type:text"`            // Resumo acumulativo da conversa
-	SummaryUpToMessageID uint   `json:"summary_up_to_message_id,omitempty" gorm:"default:0"` // ID da última mensagem coberta pelo resumo
-	SummarizingInProgress bool  `json:"summarizing_in_progress,omitempty" gorm:"default:false"` // Evita sumarizações concorrentes
+	Summary               string `json:"summary,omitempty" gorm:"type:text"`                     // Resumo acumulativo da conversa
+	SummaryUpToMessageID  uint   `json:"summary_up_to_message_id,omitempty" gorm:"default:0"`    // ID da última mensagem coberta pelo resumo
+	SummarizingInProgress bool   `json:"summarizing_in_progress,omitempty" gorm:"default:false"` // Evita sumarizações concorrentes
 }
 
 // ChatMessage representa uma mensagem na conversa
@@ -69,4 +84,34 @@ type ChatTab struct {
 
 	// Relacionamento
 	Conversation *Conversation `json:"conversation,omitempty" gorm:"foreignKey:ConversationID"`
+}
+
+// ==================== Credenciais ====================
+
+// CredentialEntry armazena credenciais por padrão de domínio (com campos sensíveis criptografados).
+type CredentialEntry struct {
+	ID          uint      `json:"id" gorm:"primaryKey"`
+	Pattern     string    `json:"pattern" gorm:"uniqueIndex"`
+	AuthType    string    `json:"auth_type"`
+	TokenEnc    string    `json:"token_enc" gorm:"type:text"`
+	Username    string    `json:"username"`
+	PasswordEnc string    `json:"password_enc" gorm:"type:text"`
+	HeadersEnc  string    `json:"headers_enc" gorm:"type:text"`
+	ExpiresAt   int64     `json:"expires_at"`
+	RefreshURL  string    `json:"refresh_url"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+}
+
+// CredentialKeyWrap armazena a DEK embrulhada com senha mestre ou recovery key.
+type CredentialKeyWrap struct {
+	ID           uint      `json:"id" gorm:"primaryKey"`
+	Kind         string    `json:"kind" gorm:"uniqueIndex"` // master | recovery
+	Salt         string    `json:"salt" gorm:"type:text"`
+	WrappedDEK   string    `json:"wrapped_dek" gorm:"type:text"`
+	ArgonTime    uint32    `json:"argon_time"`
+	ArgonMemory  uint32    `json:"argon_memory"`
+	ArgonThreads uint8     `json:"argon_threads"`
+	CreatedAt    time.Time `json:"created_at"`
+	UpdatedAt    time.Time `json:"updated_at"`
 }

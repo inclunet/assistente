@@ -10,3 +10,6 @@ export * from './Textarea';
 export * from './Toast';
 export * from './Slider';
 export * from './tabs';
+
+export { Modal } from './Modal';
+export type { ModalProps } from './Modal';

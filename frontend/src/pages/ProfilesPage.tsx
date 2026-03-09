@@ -120,6 +120,7 @@ export default function ProfilesPage() {
           description: '',
           icon: 'chatbox',
           chat: {
+            llm_provider: '',
             model: '',
             temperature: 0.7,
             max_tokens: 4096,
@@ -190,20 +191,29 @@ export default function ProfilesPage() {
     crud.closeEditor();
   };
 
-  const updateField = (path: string, value: any) => {
+  const updateFields = (updates: Record<string, any>) => {
     if (!crud.editingItem) return;
     const updated = JSON.parse(JSON.stringify(crud.editingItem));
-    const keys = path.split('.');
-    let obj = updated;
-    for (let i = 0; i < keys.length - 1; i++) {
-      obj = obj[keys[i]];
+    
+    // Aplica todas as atualizações
+    for (const [path, value] of Object.entries(updates)) {
+      const keys = path.split('.');
+      let obj = updated;
+      for (let i = 0; i < keys.length - 1; i++) {
+        obj = obj[keys[i]];
+      }
+      obj[keys[keys.length - 1]] = value;
     }
-    obj[keys[keys.length - 1]] = value;
+    
     const next = profiles.Profile.createFrom(updated) as ProfileRow;
     next.id = crud.editingItem.id || next.slug || String(crud.editingId || '');
     next.source = crud.editingItem.source;
     next.isActive = crud.editingItem.isActive;
     crud.setEditingItem(next);
+  };
+
+  const updateField = (path: string, value: any) => {
+    updateFields({ [path]: value });
   };
 
   // --- Grid columns ---
@@ -394,9 +404,11 @@ export default function ProfilesPage() {
             <section className="profiles-section" aria-labelledby="section-chat">
               <h3 id="section-chat">{t('profiles.sectionChat', 'Chat (LLM)')}</h3>
               <ProfileChatSection
+                llmProvider={editingProfile.chat?.llm_provider || ''}
                 model={editingProfile.chat?.model || ''}
                 temperature={editingProfile.chat?.temperature ?? 0.7}
                 maxTokens={editingProfile.chat?.max_tokens ?? 4096}
+                maxTokensMode={editingProfile.chat?.max_tokens_mode || 'legacy'}
                 contextWindow={editingProfile.chat?.context_window ?? 0}
                 maxContextMessages={editingProfile.chat?.max_context_messages ?? 0}
                 minContextMessages={editingProfile.chat?.min_context_messages ?? 0}
@@ -404,6 +416,12 @@ export default function ProfilesPage() {
                 responseTimeout={editingProfile.chat?.response_timeout ?? 180}
                 reasoningEffort={editingProfile.chat?.reasoning_effort || ''}
                 onChange={(field, value) => updateField(`chat.${field}`, value)}
+                onMultiChange={(updates) => {
+                  const prefixedUpdates = Object.fromEntries(
+                    Object.entries(updates).map(([k, v]) => [`chat.${k}`, v])
+                  );
+                  updateFields(prefixedUpdates);
+                }}
               />
               <ProfileSkillsSection
                 availableSkills={availableSkills}

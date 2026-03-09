@@ -4,20 +4,24 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
 	"strings"
 	"testing"
+
+	"assistente/internal/credentials"
+	httpclient "assistente/internal/tools/http"
 )
 
 func TestWebSearch_Name(t *testing.T) {
-	tool := NewWebSearch()
+	credMgr := credentials.NewManager(nil)
+	tool := NewWebSearch(credMgr)
 	if tool.Name() != "web_search" {
 		t.Errorf("expected 'web_search', got '%s'", tool.Name())
 	}
 }
 
 func TestWebSearch_Parameters(t *testing.T) {
-	tool := NewWebSearch()
+	credMgr := credentials.NewManager(nil)
+	tool := NewWebSearch(credMgr)
 	var schema map[string]interface{}
 	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
 		t.Fatalf("Parameters() deve retornar JSON válido: %v", err)
@@ -29,7 +33,8 @@ func TestWebSearch_Parameters(t *testing.T) {
 }
 
 func TestWebSearch_MissingQuery(t *testing.T) {
-	tool := NewWebSearch()
+	credMgr := credentials.NewManager(nil)
+	tool := NewWebSearch(credMgr)
 	args := `{}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -48,7 +53,7 @@ type mockSearchProvider struct {
 
 func (m *mockSearchProvider) Name() string { return "MockSearch" }
 
-func (m *mockSearchProvider) Search(ctx context.Context, client *http.Client, query string, maxResults int) ([]SearchResult, error) {
+func (m *mockSearchProvider) Search(ctx context.Context, client *httpclient.Client, query string, maxResults int) ([]SearchResult, error) {
 	if m.err != nil {
 		return nil, m.err
 	}
@@ -59,6 +64,7 @@ func (m *mockSearchProvider) Search(ctx context.Context, client *http.Client, qu
 }
 
 func TestWebSearch_WithMockProvider(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
 	provider := &mockSearchProvider{
 		results: []SearchResult{
 			{Title: "Go Programming", URL: "https://go.dev", Snippet: "The Go programming language"},
@@ -66,7 +72,7 @@ func TestWebSearch_WithMockProvider(t *testing.T) {
 		},
 	}
 
-	tool := NewWebSearchWithProvider(provider)
+	tool := NewWebSearchWithProvider(credMgr, provider)
 	args := `{"query": "golang"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -91,8 +97,9 @@ func TestWebSearch_WithMockProvider(t *testing.T) {
 }
 
 func TestWebSearch_NoResults(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
 	provider := &mockSearchProvider{results: nil}
-	tool := NewWebSearchWithProvider(provider)
+	tool := NewWebSearchWithProvider(credMgr, provider)
 
 	args := `{"query": "xyznonexistent123"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
@@ -108,8 +115,9 @@ func TestWebSearch_NoResults(t *testing.T) {
 }
 
 func TestWebSearch_ProviderError(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
 	provider := &mockSearchProvider{err: fmt.Errorf("network timeout")}
-	tool := NewWebSearchWithProvider(provider)
+	tool := NewWebSearchWithProvider(credMgr, provider)
 
 	args := `{"query": "test"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
@@ -125,6 +133,7 @@ func TestWebSearch_ProviderError(t *testing.T) {
 }
 
 func TestWebSearch_MaxResults(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
 	results := make([]SearchResult, 10)
 	for i := range results {
 		results[i] = SearchResult{
@@ -135,7 +144,7 @@ func TestWebSearch_MaxResults(t *testing.T) {
 	}
 
 	provider := &mockSearchProvider{results: results}
-	tool := NewWebSearchWithProvider(provider)
+	tool := NewWebSearchWithProvider(credMgr, provider)
 
 	args := `{"query": "test", "max_results": 3}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))

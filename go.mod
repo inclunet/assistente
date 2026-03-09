@@ -14,7 +14,9 @@ require (
 	github.com/modelcontextprotocol/go-sdk v1.3.0
 	github.com/slack-go/slack v0.13.0
 	github.com/wailsapp/wails/v2 v2.10.2
+	github.com/zalando/go-keyring v0.2.2
 	golang.design/x/hotkey v0.4.1
+	golang.org/x/crypto v0.44.0
 	golang.org/x/net v0.47.0
 	golang.org/x/text v0.34.0
 	gopkg.in/yaml.v3 v3.0.1
@@ -22,7 +24,9 @@ require (
 )
 
 require (
+	github.com/alessio/shellescape v1.4.1 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
+	github.com/danieljoos/wincred v1.1.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect
@@ -50,7 +54,6 @@ require (
 	github.com/wailsapp/go-webview2 v1.0.19 // indirect
 	github.com/wailsapp/mimetype v1.4.1 // indirect
 	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
-	golang.org/x/crypto v0.44.0 // indirect
 	golang.org/x/oauth2 v0.30.0 // indirect
 	golang.org/x/sys v0.38.0 // indirect
 	golang.org/x/term v0.37.0 // indirect

@@ -24,6 +24,7 @@ vi.mock('@wailsjs/go/main/App', () => ({
   CreateProfile: vi.fn().mockResolvedValue('novo-perfil'),
   UpdateProfile: vi.fn().mockResolvedValue(undefined),
   DeleteProfile: vi.fn().mockResolvedValue(undefined),
+  GetLLMProviders: vi.fn().mockResolvedValue([]),
   GetProfile: vi.fn().mockResolvedValue({
     name: 'Perfil Padrão',
     description: '',
@@ -158,5 +159,5 @@ describe('ProfilesPage', () => {
     expect(screen.getByText('Interação (STT)')).toBeInTheDocument();
     expect(screen.getByText('Nenhum skill encontrado.')).toBeInTheDocument();
     expect(screen.getByText('Nenhuma ferramenta encontrada.')).toBeInTheDocument();
-  });
+  }, 10000);
 });

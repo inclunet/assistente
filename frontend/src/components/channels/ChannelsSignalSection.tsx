@@ -8,6 +8,7 @@ interface SignalForm {
   enabled: boolean;
   apiURL: string;
   account: string;
+  apiToken: string;
   profile: string;
   maxHistory: number;
   maxContacts: number;
@@ -19,6 +20,11 @@ interface ChannelsSignalSectionProps {
   form: SignalForm;
   onChange: (form: SignalForm) => void;
   onAnnounce: (message: string) => void;
+  vaultEnabled: boolean;
+  onToggleVault: (value: boolean) => void;
+  tokenStored: boolean;
+  tokenMasked: string;
+  onRemoveToken: () => void;
   apiReady: boolean;
   apiInfo: string;
   regError: string;
@@ -55,6 +61,11 @@ export function ChannelsSignalSection({
   form,
   onChange,
   onAnnounce,
+  vaultEnabled,
+  onToggleVault,
+  tokenStored,
+  tokenMasked,
+  onRemoveToken,
   apiReady,
   apiInfo,
   regError,
@@ -122,6 +133,32 @@ export function ChannelsSignalSection({
             placeholder="http://localhost:8080"
             fullWidth
           />
+          <Input
+            label="Token da API (opcional)"
+            type="password"
+            value={form.apiToken}
+            onChange={(e) => onChange({ ...form, apiToken: e.target.value })}
+            placeholder="Bearer token"
+            fullWidth
+          />
+          <Checkbox
+            label="Salvar token no cofre de credenciais"
+            checked={vaultEnabled}
+            onChange={(e) => onToggleVault(e.target.checked)}
+          />
+          <p className="channels-page__hint">
+            Use apenas se sua instância exigir autenticação. O token fica criptografado no cofre.
+          </p>
+          {tokenStored && (
+            <div className="channels-page__vault-actions">
+              <span className="channels-page__hint">
+                Token salvo no cofre {tokenMasked ? `(${tokenMasked})` : ''}.
+              </span>
+              <Button variant="ghost" size="sm" onClick={onRemoveToken}>
+                Remover do cofre
+              </Button>
+            </div>
+          )}
           <div className="channels-page__row">
             <Button
               variant="outline"

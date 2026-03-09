@@ -4,6 +4,7 @@ import './QuestionnaireDialog.css';
 
 export type QuestionnaireQuestionType =
   | 'text'
+  | 'password'
   | 'long_text'
   | 'number'
   | 'boolean'
@@ -142,7 +143,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
       >
         {questions.map((q, index) => {
           const labelId = `question-label-${q.id}`;
-          const controlId = (q.type === 'text' || q.type === 'long_text' || q.type === 'number' || q.type === 'scale' || q.type === 'date')
+          const controlId = (q.type === 'text' || q.type === 'password' || q.type === 'long_text' || q.type === 'number' || q.type === 'scale' || q.type === 'date')
             ? `question-${q.id}`
             : undefined;
 
@@ -163,6 +164,18 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
               <input
                 id={`question-${q.id}`}
                 type="text"
+                value={answers[q.id] ?? ''}
+                placeholder={q.placeholder}
+                onChange={(e) => updateAnswer(q.id, e.target.value)}
+                className="questionnaire-dialog__input"
+                autoFocus={index === 0}
+              />
+            )}
+
+            {q.type === 'password' && (
+              <input
+                id={`question-${q.id}`}
+                type="password"
                 value={answers[q.id] ?? ''}
                 placeholder={q.placeholder}
                 onChange={(e) => updateAnswer(q.id, e.target.value)}

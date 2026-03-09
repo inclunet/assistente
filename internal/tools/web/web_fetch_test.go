@@ -8,24 +8,29 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"assistente/internal/credentials"
 )
 
 // newTestWebFetch cria um WebFetch que permite hosts privados (para httptest)
 func newTestWebFetch() *WebFetch {
-	wf := NewWebFetch()
+	credMgr := credentials.NewManager(nil)
+	wf := NewWebFetch(credMgr)
 	wf.allowPrivateHosts = true
 	return wf
 }
 
 func TestWebFetch_Name(t *testing.T) {
-	tool := NewWebFetch()
+	credMgr := credentials.NewManager(nil)
+	tool := NewWebFetch(credMgr)
 	if tool.Name() != "web_fetch" {
 		t.Errorf("expected 'web_fetch', got '%s'", tool.Name())
 	}
 }
 
 func TestWebFetch_Parameters(t *testing.T) {
-	tool := NewWebFetch()
+	credMgr := credentials.NewManager(nil)
+	tool := NewWebFetch(credMgr)
 	var schema map[string]interface{}
 	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
 		t.Fatalf("Parameters() deve retornar JSON válido: %v", err)
@@ -173,7 +178,8 @@ func TestWebFetch_404(t *testing.T) {
 }
 
 func TestWebFetch_InvalidURL(t *testing.T) {
-	tool := NewWebFetch()
+	credMgr := credentials.NewManager(nil)
+	tool := NewWebFetch(credMgr)
 	args := `{"url": "not-a-url"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -185,7 +191,8 @@ func TestWebFetch_InvalidURL(t *testing.T) {
 }
 
 func TestWebFetch_MissingURL(t *testing.T) {
-	tool := NewWebFetch()
+	credMgr := credentials.NewManager(nil)
+	tool := NewWebFetch(credMgr)
 	args := `{}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -197,7 +204,8 @@ func TestWebFetch_MissingURL(t *testing.T) {
 }
 
 func TestWebFetch_BlocksLocalhost(t *testing.T) {
-	tool := NewWebFetch()
+	credMgr := credentials.NewManager(nil)
+	tool := NewWebFetch(credMgr)
 	localURLs := []string{
 		"http://localhost:8080/test",
 		"http://127.0.0.1/test",

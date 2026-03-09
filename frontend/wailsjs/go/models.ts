@@ -46,7 +46,11 @@ export namespace channels {
 	export class ChannelConfig {
 	    enabled: boolean;
 	    bot_token?: string;
+	    bot_token_ref?: string;
 	    app_token?: string;
+	    app_token_ref?: string;
+	    api_token?: string;
+	    api_token_ref?: string;
 	    account?: string;
 	    api_url?: string;
 	    profile?: string;
@@ -62,7 +66,11 @@ export namespace channels {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.enabled = source["enabled"];
 	        this.bot_token = source["bot_token"];
+	        this.bot_token_ref = source["bot_token_ref"];
 	        this.app_token = source["app_token"];
+	        this.app_token_ref = source["app_token_ref"];
+	        this.api_token = source["api_token"];
+	        this.api_token_ref = source["api_token_ref"];
 	        this.account = source["account"];
 	        this.api_url = source["api_url"];
 	        this.profile = source["profile"];
@@ -175,8 +183,8 @@ export namespace config {
 	    }
 	}
 	export class Config {
-	    api_key: string;
-	    api_base_url: string;
+	    api_key?: string;
+	    api_base_url?: string;
 	    default_model?: string;
 	    response_timeout?: number;
 	    active_profile?: string;
@@ -418,6 +426,7 @@ export namespace llm {
 	export class ChatParams {
 	    model: string;
 	    maxTokens: number;
+	    maxTokensMode?: string;
 	    temperature: number;
 	    topP?: number;
 	    reasoningEffort?: string;
@@ -431,6 +440,7 @@ export namespace llm {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.model = source["model"];
 	        this.maxTokens = source["maxTokens"];
+	        this.maxTokensMode = source["maxTokensMode"];
 	        this.temperature = source["temperature"];
 	        this.topP = source["topP"];
 	        this.reasoningEffort = source["reasoningEffort"];
@@ -539,6 +549,32 @@ export namespace llm {
 	        this.max_tokens = source["max_tokens"];
 	        this.temperature = source["temperature"];
 	        this.top_p = source["top_p"];
+	    }
+	}
+	export class ProviderConfig {
+	    id: string;
+	    name: string;
+	    type: string;
+	    base_url: string;
+	    model?: string;
+	    timeout?: number;
+	    headers?: Record<string, string>;
+	    credential_pattern?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ProviderConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.base_url = source["base_url"];
+	        this.model = source["model"];
+	        this.timeout = source["timeout"];
+	        this.headers = source["headers"];
+	        this.credential_pattern = source["credential_pattern"];
 	    }
 	}
 	export class STTParams {
@@ -800,6 +836,66 @@ export namespace main {
 		    }
 		    return a;
 		}
+	}
+	export class CreateLLMProviderRequest {
+	    id: string;
+	    name: string;
+	    type: string;
+	    base_url: string;
+	    api_key?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CreateLLMProviderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.base_url = source["base_url"];
+	        this.api_key = source["api_key"];
+	    }
+	}
+	export class CredentialInput {
+	    pattern: string;
+	    type: string;
+	    token?: string;
+	    username?: string;
+	    password?: string;
+	    headerName?: string;
+	    headerValue?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CredentialInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pattern = source["pattern"];
+	        this.type = source["type"];
+	        this.token = source["token"];
+	        this.username = source["username"];
+	        this.password = source["password"];
+	        this.headerName = source["headerName"];
+	        this.headerValue = source["headerValue"];
+	    }
+	}
+	export class CredentialSummary {
+	    pattern: string;
+	    type: string;
+	    masked: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CredentialSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.pattern = source["pattern"];
+	        this.type = source["type"];
+	        this.masked = source["masked"];
+	    }
 	}
 	export class EditorFileInfo {
 	    path: string;
@@ -1163,6 +1259,22 @@ export namespace main {
 		    return a;
 		}
 	}
+	export class TestLLMProviderRequest {
+	    type: string;
+	    base_url: string;
+	    api_key?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TestLLMProviderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.base_url = source["base_url"];
+	        this.api_key = source["api_key"];
+	    }
+	}
 	export class TokenStatsResult {
 	    conversationId: number;
 	    promptTokens: number;
@@ -1225,6 +1337,24 @@ export namespace main {
 	        this.language = source["language"];
 	        this.duration = source["duration"];
 	        this.provider = source["provider"];
+	    }
+	}
+	export class UpdateLLMProviderRequest {
+	    name?: string;
+	    type?: string;
+	    base_url?: string;
+	    api_key?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new UpdateLLMProviderRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.type = source["type"];
+	        this.base_url = source["base_url"];
+	        this.api_key = source["api_key"];
 	    }
 	}
 
@@ -1438,9 +1568,11 @@ export namespace mcp {
 export namespace profiles {
 	
 	export class ChatConfig {
+	    llm_provider: string;
 	    model?: string;
 	    temperature: number;
 	    max_tokens: number;
+	    max_tokens_mode?: string;
 	    context_window?: number;
 	    max_context_messages?: number;
 	    min_context_messages?: number;
@@ -1464,9 +1596,11 @@ export namespace profiles {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.llm_provider = source["llm_provider"];
 	        this.model = source["model"];
 	        this.temperature = source["temperature"];
 	        this.max_tokens = source["max_tokens"];
+	        this.max_tokens_mode = source["max_tokens_mode"];
 	        this.context_window = source["context_window"];
 	        this.max_context_messages = source["max_context_messages"];
 	        this.min_context_messages = source["min_context_messages"];
@@ -1524,6 +1658,7 @@ export namespace profiles {
 	export class InteractionConfig {
 	    disabled?: boolean;
 	    stt_provider: string;
+	    llm_provider_id?: string;
 	    language: string;
 	    feedback_sounds: boolean;
 	    triggers?: TriggerConfig[];
@@ -1536,6 +1671,7 @@ export namespace profiles {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.disabled = source["disabled"];
 	        this.stt_provider = source["stt_provider"];
+	        this.llm_provider_id = source["llm_provider_id"];
 	        this.language = source["language"];
 	        this.feedback_sounds = source["feedback_sounds"];
 	        this.triggers = this.convertValues(source["triggers"], TriggerConfig);
@@ -1580,6 +1716,7 @@ export namespace profiles {
 	export class VoiceConfig {
 	    disabled?: boolean;
 	    provider: string;
+	    llm_provider_id?: string;
 	    voice_id?: string;
 	    rate: number;
 	    pitch: number;
@@ -1596,6 +1733,7 @@ export namespace profiles {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.disabled = source["disabled"];
 	        this.provider = source["provider"];
+	        this.llm_provider_id = source["llm_provider_id"];
 	        this.voice_id = source["voice_id"];
 	        this.rate = source["rate"];
 	        this.pitch = source["pitch"];
@@ -1610,6 +1748,7 @@ export namespace profiles {
 	    name: string;
 	    description?: string;
 	    icon?: string;
+	    active?: boolean;
 	    chat: ChatConfig;
 	    voice: VoiceConfig;
 	    interaction: InteractionConfig;
@@ -1625,6 +1764,7 @@ export namespace profiles {
 	        this.name = source["name"];
 	        this.description = source["description"];
 	        this.icon = source["icon"];
+	        this.active = source["active"];
 	        this.chat = this.convertValues(source["chat"], ChatConfig);
 	        this.voice = this.convertValues(source["voice"], VoiceConfig);
 	        this.interaction = this.convertValues(source["interaction"], InteractionConfig);

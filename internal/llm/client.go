@@ -9,38 +9,67 @@ import (
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
 
 	"assistente/internal/config"
+	"assistente/internal/credentials"
+	httpclient "assistente/internal/tools/http"
 )
 
-// Client encapsula a lógica de comunicação com a API LLM
+// Client encapsula a lógica de comunicação com a API LLM com suporte a streaming
 type Client struct {
-	cfg *config.Config
+	provider   *ProviderConfig
+	cfg        *config.Config // DEPRECATED: mantido para backward compatibility
+	credMgr    *credentials.Manager
+	httpClient *httpclient.Client
 }
 
-// NewClient cria um novo cliente LLM
-func NewClient(cfg *config.Config) *Client {
-	return &Client{cfg: cfg}
-}
-
-// GetModels retorna a lista de modelos disponíveis na API
-func GetModels(cfg *config.Config) ([]string, error) {
-	if cfg.APIKey == "" {
-		return nil, fmt.Errorf("API Key não configurada")
+// NewClient cria um novo cliente LLM com streaming usando um ProviderConfig
+func NewClient(provider *ProviderConfig, cfg *config.Config, credMgr *credentials.Manager) *Client {
+	// Extract domain from provider baseURL for credential pattern matching
+	domain := ""
+	if u, err := url.Parse(provider.BaseURL); err == nil {
+		domain = u.Host
 	}
 
-	endpoint := BuildEndpoint(cfg.APIBaseURL, "models")
-	req, err := http.NewRequest("GET", endpoint, nil)
+	timeout := time.Duration(provider.Timeout) * time.Second
+	if timeout == 0 {
+		timeout = 3 * time.Minute
+	}
+
+	// Use provider's CredentialPattern (hostname) if available, otherwise fall back to extracted domain
+	hostname := provider.CredentialPattern
+	if hostname == "" {
+		hostname = domain
+	}
+
+	return &Client{
+		provider: provider,
+		cfg:      cfg,
+		credMgr:  credMgr,
+		httpClient: httpclient.New(&httpclient.Config{
+			CredentialManager: credMgr,
+			Timeout:           timeout,
+		}, map[string]string{domain: hostname}), // Map request domain to credential hostname
+	}
+}
+
+// Removed: getToken() - now handled automatically by httpclient
+
+// GetModels retorna a lista de modelos disponíveis na API
+func (c *Client) GetModels(ctx context.Context) ([]string, error) {
+	endpoint := BuildEndpoint(c.provider.BaseURL, "models")
+	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	// NOTE: Authorization header is injected automatically by httpclient via credMgr
 
-	resp, err := SharedHTTPClient.Do(req)
+	resp, err := c.httpClient.Do(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("erro na conexão: %v", err)
 	}
@@ -89,17 +118,21 @@ func GetModels(cfg *config.Config) ([]string, error) {
 }
 
 // SendMessageSync envia uma mensagem sem streaming
-func SendMessageSync(cfg *config.Config, messages []Message, params ChatParams) (string, error) {
-	if cfg.APIKey == "" {
-		return "", fmt.Errorf("API Key não configurada")
-	}
-
+func (c *Client) SendMessageSync(ctx context.Context, messages []Message, params ChatParams) (string, error) {
 	reqBody := ChatRequest{
 		Model:       params.Model,
 		Messages:    messages,
-		MaxTokens:   params.MaxTokens,
 		Temperature: params.Temperature,
 		Stream:      false,
+	}
+
+	// Usar max_completion_tokens ou max_tokens baseado no MaxTokensMode do profile
+	// Default: "legacy" (max_tokens) para compatibilidade
+	if params.MaxTokensMode == "completion_tokens" {
+		reqBody.MaxCompletionTokens = params.MaxTokens
+	} else {
+		// Default: legacy (max_tokens) para compatibilidade
+		reqBody.MaxTokens = params.MaxTokens
 	}
 
 	jsonBody, err := json.Marshal(reqBody)
@@ -107,16 +140,16 @@ func SendMessageSync(cfg *config.Config, messages []Message, params ChatParams) 
 		return "", err
 	}
 
-	endpoint := BuildEndpoint(cfg.APIBaseURL, "chat/completions")
-	req, err := http.NewRequest("POST", endpoint, bytes.NewBuffer(jsonBody))
+	endpoint := BuildEndpoint(c.provider.BaseURL, "chat/completions")
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
+	// NOTE: Authorization header is injected automatically by httpclient via credMgr
 
-	resp, err := SharedHTTPClient.Do(req)
+	resp, err := c.httpClient.Do(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -164,11 +197,17 @@ type StreamHandler interface {
 
 // StreamChat realiza o streaming da resposta.
 // O parâmetro variadic tools permite enviar definições de ferramentas ao LLM (opcional).
-func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
+func (c *Client) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
 	// Usa modelo padrão se não especificado
 	model := params.Model
 	if model == "" {
-		model = cfg.DefaultModel
+		// Try provider's default model first
+		if c.provider.Model != "" {
+			model = c.provider.Model
+		} else if c.cfg != nil && c.cfg.DefaultModel != "" {
+			model = c.cfg.DefaultModel
+		}
+
 		if model == "" {
 			handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
 			return
@@ -178,12 +217,20 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 	reqBody := ChatRequest{
 		Model:       model,
 		Messages:    messages,
-		MaxTokens:   params.MaxTokens,
 		Temperature: params.Temperature,
 		Stream:      true,
 		StreamOptions: &StreamOptions{
 			IncludeUsage: true,
 		},
+	}
+
+	// Usar max_completion_tokens ou max_tokens baseado no MaxTokensMode do profile
+	// Default: "legacy" (max_tokens) para compatibilidade
+	if params.MaxTokensMode == "completion_tokens" {
+		reqBody.MaxCompletionTokens = params.MaxTokens
+	} else {
+		// Default: legacy (max_tokens) para compatibilidade
+		reqBody.MaxTokens = params.MaxTokens
 	}
 
 	// Só inclui top_p se for diferente do padrão (1.0) para evitar erros com alguns modelos/proxies
@@ -214,7 +261,7 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 		return
 	}
 
-	endpoint := BuildEndpoint(cfg.APIBaseURL, "chat/completions")
+	endpoint := BuildEndpoint(c.provider.BaseURL, "chat/completions")
 
 	// Retry do streaming (principalmente para 524/5xx e falhas de rede) —
 	// só é seguro fazer retry se ainda não emitimos nada (para evitar duplicação no chat).
@@ -237,10 +284,10 @@ func StreamChat(ctx context.Context, cfg *config.Config, messages []Message, par
 		}
 
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Authorization", "Bearer "+cfg.APIKey)
 		req.Header.Set("Accept", "text/event-stream")
+		// NOTE: Authorization header is injected automatically by httpclient via credMgr
 
-		resp, err := SharedHTTPClient.Do(req)
+		resp, err := c.httpClient.Do(ctx, req)
 		if err != nil {
 			if attempt < maxAttempts {
 				sleepWithJitter(ctx, backoff)

@@ -72,6 +72,7 @@ interface SignalForm {
   enabled: boolean;
   apiURL: string;
   account: string;
+  apiToken: string;
   profile: string;
   maxHistory: number;
   maxContacts: number;
@@ -121,7 +122,7 @@ export default function ChannelsPage() {
     enabled: false, botToken: '', profile: '', maxHistory: 50, maxContacts: 1,
   });
   const [signalForm, setSignalForm] = useState<SignalForm>({
-    enabled: false, apiURL: '', account: '', profile: '', maxHistory: 50, maxContacts: 1,
+    enabled: false, apiURL: '', account: '', apiToken: '', profile: '', maxHistory: 50, maxContacts: 1,
   });
   const [slackForm, setSlackForm] = useState<SlackForm>({
     enabled: false, botToken: '', appToken: '', profile: '', maxHistory: 50, maxContacts: 1,
@@ -129,6 +130,7 @@ export default function ChannelsPage() {
 
   const [credentialSummaries, setCredentialSummaries] = useState<Record<string, CredentialSummary>>({});
   const [telegramUseVault, setTelegramUseVault] = useState(true);
+  const [signalUseVault, setSignalUseVault] = useState(true);
   const [slackUseVault, setSlackUseVault] = useState(true);
 
   // ── Signal registration ──────────────────────────────────────────
@@ -198,6 +200,7 @@ export default function ChannelsPage() {
           enabled: sigEnabled,
           apiURL: signalCfg.api_url || '',
           account: signalCfg.account || '',
+          apiToken: signalCfg.api_token || '',
           profile: signalCfg.profile || defaultChannelProfile,
           maxHistory: signalCfg.max_history || 50,
           maxContacts: signalCfg.max_contacts || 1,
@@ -223,15 +226,18 @@ export default function ChannelsPage() {
       setCredentialSummaries(summaryMap);
 
       const telegramPattern = channelCredentialPattern('telegram', 'bot_token');
+      const signalTokenPattern = channelCredentialPattern('signal', 'api_token');
       const slackBotPattern = channelCredentialPattern('slack', 'bot_token');
       const slackAppPattern = channelCredentialPattern('slack', 'app_token');
 
       const telegramStored = Boolean(summaryMap[telegramPattern] || telegramCfg?.bot_token_ref);
+      const signalStored = Boolean(summaryMap[signalTokenPattern] || signalCfg?.api_token_ref);
       const slackStored = Boolean(
         summaryMap[slackBotPattern] || summaryMap[slackAppPattern] || slackCfg?.bot_token_ref || slackCfg?.app_token_ref
       );
 
       setTelegramUseVault(telegramStored || !telegramCfg?.bot_token);
+      setSignalUseVault(signalStored || !signalCfg?.api_token);
       setSlackUseVault(slackStored || (!slackCfg?.bot_token && !slackCfg?.app_token));
 
       setChannelRows([
@@ -513,6 +519,7 @@ export default function ChannelsPage() {
       addToast('Informe a URL da API Signal', 'error');
       return;
     }
+    const apiToken = signalForm.apiToken.trim();
     setSignalCheckingAPI(true);
     setSignalAPIInfo('');
     setSignalAPIReady(false);
@@ -520,8 +527,8 @@ export default function ChannelsPage() {
     setSignalAccounts([]);
     try {
       const [info, accounts] = await Promise.all([
-        SignalCheckAPI(signalForm.apiURL),
-        SignalListAccounts(signalForm.apiURL).catch(() => [] as string[]),
+        SignalCheckAPI(signalForm.apiURL, apiToken),
+        SignalListAccounts(signalForm.apiURL, apiToken).catch(() => [] as string[]),
       ]);
       setSignalAccounts(accounts || []);
       let infoText = `API acessível (v${info['version'] || '?'}, build ${info['build'] || '?'}).`;
@@ -555,10 +562,11 @@ export default function ChannelsPage() {
       addToast(msg, 'error');
       return;
     }
+    const apiToken = signalForm.apiToken.trim();
     setSignalRegStep('registering');
     setSignalRegError('');
     try {
-      await SignalRegister(signalForm.apiURL, signalForm.account, mode, signalRegCaptcha);
+      await SignalRegister(signalForm.apiURL, signalForm.account, mode, signalRegCaptcha, apiToken);
       setSignalRegStep('awaiting_code');
       setSignalRegCaptcha('');
       if (mode === 'sms') setSignalSmsSent(true);
@@ -578,10 +586,11 @@ export default function ChannelsPage() {
       setSignalRegError('Informe o código de verificação');
       return;
     }
+    const apiToken = signalForm.apiToken.trim();
     setSignalRegStep('verifying');
     setSignalRegError('');
     try {
-      await SignalVerify(signalForm.apiURL, signalForm.account, signalRegCode);
+      await SignalVerify(signalForm.apiURL, signalForm.account, signalRegCode, apiToken);
       setSignalRegStep('done');
       setSignalSmsSent(false);
       addToast(`Número ${signalForm.account} verificado com sucesso`, 'success');
@@ -612,7 +621,8 @@ export default function ChannelsPage() {
         return;
       }
       try {
-        const accounts = await SignalListAccounts(signalForm.apiURL);
+        const apiToken = signalForm.apiToken.trim();
+        const accounts = await SignalListAccounts(signalForm.apiURL, apiToken);
         if (accounts && accounts.length > 0) {
           setSignalAccounts(accounts);
           if (!signalForm.account) {
@@ -634,12 +644,13 @@ export default function ChannelsPage() {
       setSignalRegError('Informe a URL da API Signal');
       return;
     }
+    const apiToken = signalForm.apiToken.trim();
     setSignalLinkQR('');
     setSignalRegError('');
     setSignalLinking(true);
     stopLinkPolling();
     try {
-      const qr = await SignalLink(signalForm.apiURL, 'Assistente');
+      const qr = await SignalLink(signalForm.apiURL, 'Assistente', apiToken);
       setSignalLinkQR(qr);
       announce('QR Code gerado. Escaneie com o Signal no celular.');
       startLinkPolling(Date.now());
@@ -661,8 +672,9 @@ export default function ChannelsPage() {
     if (!shouldRemove) return;
     setSignalUnregistering(account);
     try {
-      await SignalUnregister(signalForm.apiURL, account, true);
-      const accounts = await SignalListAccounts(signalForm.apiURL).catch(() => [] as string[]);
+      const apiToken = signalForm.apiToken.trim();
+      await SignalUnregister(signalForm.apiURL, account, true, apiToken);
+      const accounts = await SignalListAccounts(signalForm.apiURL, apiToken).catch(() => [] as string[]);
       setSignalAccounts(accounts || []);
       if (signalForm.account === account) {
         setSignalForm((prev) => ({ ...prev, account: accounts?.[0] || '' }));
@@ -795,6 +807,11 @@ export default function ChannelsPage() {
       form={signalForm}
       onChange={setSignalForm}
       onAnnounce={announce}
+      vaultEnabled={signalUseVault}
+      onToggleVault={setSignalUseVault}
+      tokenStored={Boolean(credentialSummaries[channelCredentialPattern('signal', 'api_token')])}
+      tokenMasked={credentialSummaries[channelCredentialPattern('signal', 'api_token')]?.masked || ''}
+      onRemoveToken={() => handleRemoveCredential(channelCredentialPattern('signal', 'api_token'), 'Signal API Token')}
       apiReady={signalAPIReady}
       apiInfo={signalAPIInfo}
       regError={signalRegError}

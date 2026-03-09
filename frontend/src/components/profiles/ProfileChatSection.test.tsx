@@ -16,9 +16,11 @@ vi.mock('../pickers/ModelPicker', () => ({
 
 describe('ProfileChatSection', () => {
   const defaultProps = {
+    llmProvider: '',
     model: 'gpt-4o-mini',
     temperature: 0.7,
     maxTokens: 4096,
+    maxTokensMode: 'legacy',
     contextWindow: 0,
     maxContextMessages: 0,
     minContextMessages: 0,

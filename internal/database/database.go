@@ -28,6 +28,11 @@ func DB() *gorm.DB {
 	return db
 }
 
+// SetDB define a instância do banco de dados (usado em testes)
+func SetDB(database *gorm.DB) {
+	db = database
+}
+
 // Close fecha a conexão com o banco de dados
 func Close() error {
 	if db == nil {
@@ -77,6 +82,9 @@ func Init() error {
 		&ChatTab{},
 		&EditorDocument{},
 		&EditorSessionState{},
+		&CredentialEntry{},
+		&CredentialKeyWrap{},
+		&LLMProvider{},
 	); err != nil {
 		return err
 	}
@@ -728,4 +736,40 @@ func SearchConversations(query string) ([]Conversation, error) {
 	searchTerm := "%" + query + "%"
 	err := db.Where("LOWER(title) LIKE ?", searchTerm).Order("updated_at DESC").Find(&conversations).Error
 	return conversations, err
+}
+
+// ==================== LLM Providers ====================
+
+// SaveLLMProvider salva ou atualiza um provedor
+func SaveLLMProvider(provider *LLMProvider) error {
+	return db.Save(provider).Error
+}
+
+// GetLLMProviders retorna todos os provedores
+func GetLLMProviders() ([]*LLMProvider, error) {
+	var providers []*LLMProvider
+	err := db.Order("created_at ASC").Find(&providers).Error
+	return providers, err
+}
+
+// GetLLMProvider busca um provedor por ID
+func GetLLMProvider(id string) (*LLMProvider, error) {
+	var provider LLMProvider
+	err := db.First(&provider, "id = ?", id).Error
+	if err != nil {
+		return nil, err
+	}
+	return &provider, nil
+}
+
+// DeleteLLMProvider remove um provedor
+func DeleteLLMProvider(id string) error {
+	return db.Delete(&LLMProvider{}, "id = ?", id).Error
+}
+
+// CountLLMProviders retorna o número total de provedores
+func CountLLMProviders() (int64, error) {
+	var count int64
+	err := db.Model(&LLMProvider{}).Count(&count).Error
+	return count, err
 }
