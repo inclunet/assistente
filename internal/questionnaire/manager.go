@@ -16,17 +16,18 @@ const (
 
 // Question define um item do questionário.
 type Question struct {
-	ID          string  `json:"id"`
-	Type        string  `json:"type"`
-	Prompt      string  `json:"prompt"`
-	Description string  `json:"description,omitempty"`
-	Required    bool    `json:"required,omitempty"`
+	ID          string   `json:"id"`
+	Type        string   `json:"type"`
+	Prompt      string   `json:"prompt"`
+	Description string   `json:"description,omitempty"`
+	Content     string   `json:"content,omitempty"`
+	Required    bool     `json:"required,omitempty"`
 	Options     []string `json:"options,omitempty"`
 	Min         *float64 `json:"min,omitempty"`
 	Max         *float64 `json:"max,omitempty"`
 	Step        *float64 `json:"step,omitempty"`
-	Placeholder string  `json:"placeholder,omitempty"`
-	Default     any     `json:"default,omitempty"`
+	Placeholder string   `json:"placeholder,omitempty"`
+	Default     any      `json:"default,omitempty"`
 }
 
 // RequestPayload representa uma solicitação de questionário pendente.

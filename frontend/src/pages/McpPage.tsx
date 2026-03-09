@@ -4,10 +4,13 @@ import { mcp } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
-import { ConfirmDialog } from '../components/ui/ConfirmDialog';
-import { SimpleModal } from '../components/ui/SimpleModal';
+import { McpConnectionSection } from '../components/mcp/McpConnectionSection';
+import { McpGeneralSection } from '../components/mcp/McpGeneralSection';
+import { Modal } from '../components/ui/Modal';
+import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useConfirm } from '../hooks/useConfirm';
 import { useUIStore } from '../store/uiStore';
 import './McpPage.css';
 
@@ -44,6 +47,10 @@ export default function McpPage() {
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+  const confirm = useConfirm();
+
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
 
   const {
     servers,
@@ -74,10 +81,6 @@ export default function McpPage() {
   const [formUrl, setFormUrl] = useState('');
   const [formEnabled, setFormEnabled] = useState(true);
   const [formAutoConnect, setFormAutoConnect] = useState(true);
-
-  // Delete confirmation
-  const [deleteOpen, setDeleteOpen] = useState(false);
-  const [deleteTarget, setDeleteTarget] = useState<ServerRow | null>(null);
 
   useEffect(() => {
     loadServers();
@@ -209,22 +212,30 @@ export default function McpPage() {
     }
   }, [isNew, editingSlug, formSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, save, addToast, announce, handleCloseEditor]);
 
-  const handleDelete = useCallback(async () => {
-    if (!deleteTarget) return;
+  const handleDelete = useCallback(async (slug: string, name: string) => {
+    const shouldDelete = await confirm({
+      title: 'Remover Servidor MCP',
+      message: `Tem certeza que deseja remover o servidor "${name}"? A configuração será apagada.`,
+      confirmText: 'Remover',
+      cancelText: 'Cancelar',
+      variant: 'danger',
+    });
+
+    if (!shouldDelete) return;
+
     try {
-      await remove(deleteTarget.slug);
+      await remove(slug);
       addToast('Servidor MCP removido!', 'success');
       announce('Servidor removido');
-      setDeleteOpen(false);
-      setDeleteTarget(null);
-      if (editingSlug === deleteTarget.slug) {
+      if (editingSlug === slug) {
         setEditing(null);
         setEditingSlug(null);
+        setIsNew(false);
       }
     } catch (error: any) {
       addToast(error?.message || 'Erro ao remover', 'error');
     }
-  }, [deleteTarget, remove, editingSlug, addToast, announce]);
+  }, [addToast, announce, confirm, editingSlug, remove]);
 
   const handleConnect = useCallback(async (row: ServerRow) => {
     try {
@@ -272,7 +283,11 @@ export default function McpPage() {
       key: 'status',
       label: 'Status',
       width: '15%',
-      format: (val) => statusLabel(val),
+      format: (val) => {
+        const label = statusLabel(String(val));
+        const statusClass = `mcp-badge mcp-badge--${String(val)}`;
+        return <span className={statusClass}>{label}</span>;
+      },
     },
     {
       key: 'toolCount',
@@ -316,10 +331,20 @@ export default function McpPage() {
     } else if (column.key === 'reconnect') {
       handleReconnect(item);
     } else if (column.key === 'delete') {
-      setDeleteTarget(item);
-      setDeleteOpen(true);
+      void handleDelete(item.slug, item.name);
     }
-  }, [handleConnect, handleDisconnect, handleReconnect]);
+  }, [handleConnect, handleDelete, handleDisconnect, handleReconnect]);
+
+  const filteredRows = rows.filter((row) => {
+    const query = searchTerm.trim().toLowerCase();
+    if (!query) return true;
+    return (
+      row.name.toLowerCase().includes(query) ||
+      row.slug.toLowerCase().includes(query) ||
+      row.description.toLowerCase().includes(query) ||
+      row.transport.toLowerCase().includes(query)
+    );
+  });
 
   if (isLoading && rows.length === 0) {
     return (
@@ -334,203 +359,98 @@ export default function McpPage() {
       <Toolbar
         left={<h1 className="page-toolbar__title">Servidores MCP</h1>}
         ariaLabel="Barra de ferramentas de MCP"
+        searchPlaceholder="Buscar servidores..."
+        searchValue={searchTerm}
+        onSearchChange={setSearchTerm}
         onFocusGrid={focusFirstCell}
         actions={[
           {
             key: 'new',
             label: 'Novo Servidor',
-            icon: '+',
+            icon: '➕',
             onClick: handleNew,
             variant: 'primary',
           },
         ]}
       />
-
-      <div className="mcp-page__content">
-        <DataGrid
-          columns={columns}
-          items={rows}
-          getItemId={(row) => row.id}
-          onActivate={(row) => handleEdit(row)}
-          onDelete={(row) => {
-            setDeleteTarget(row);
-            setDeleteOpen(true);
-          }}
-          onCellAction={handleCellAction}
-          onGridReady={handleGridReady}
-          label="Servidores MCP"
-        />
-
-        <SimpleModal
-          isOpen={!!editing}
-          onClose={handleCloseEditor}
-          title={isNew ? 'Novo Servidor MCP' : `Editando: ${formName || editingSlug}`}
-          size="lg"
-        >
-          {editing && (
-            <div className="mcp-page__editor" aria-live="polite">
-              <div className="mcp-page__fields">
-                {isNew && (
-                  <div className="mcp-page__field">
-                    <label className="mcp-page__label">Slug (identificador)</label>
-                    <input
-                      type="text"
-                      className="mcp-page__input"
-                      value={formSlug}
-                      onChange={(e) => setFormSlug(e.target.value)}
-                      placeholder="ex: github, filesystem"
-                      required
-                    />
-                    <span className="mcp-page__hint">
-                      Identificador único. Apenas letras minúsculas, números, - e _
-                    </span>
-                  </div>
-                )}
-
-                <div className="mcp-page__field">
-                  <label className="mcp-page__label">Nome</label>
-                  <input
-                    type="text"
-                    className="mcp-page__input"
-                    value={formName}
-                    onChange={(e) => setFormName(e.target.value)}
-                    placeholder="ex: GitHub Tools"
-                    required
-                  />
-                </div>
-
-                <div className="mcp-page__field">
-                  <label className="mcp-page__label">Descrição</label>
-                  <input
-                    type="text"
-                    className="mcp-page__input"
-                    value={formDescription}
-                    onChange={(e) => setFormDescription(e.target.value)}
-                    placeholder="Descrição opcional do servidor"
-                  />
-                </div>
-
-                <div className="mcp-page__field">
-                  <label className="mcp-page__label">Transporte</label>
-                  <select
-                    className="mcp-page__input"
-                    value={formTransport}
-                    onChange={(e) => setFormTransport(e.target.value)}
-                  >
-                    <option value="stdio">stdio (processo local)</option>
-                    <option value="sse">SSE (servidor remoto)</option>
-                  </select>
-                </div>
-
-                {formTransport === 'stdio' && (
-                  <>
-                    <div className="mcp-page__field">
-                      <label className="mcp-page__label">Comando</label>
-                      <input
-                        type="text"
-                        className="mcp-page__input"
-                        value={formCommand}
-                        onChange={(e) => setFormCommand(e.target.value)}
-                        placeholder="ex: npx, node, python"
-                        required
-                      />
-                    </div>
-                    <div className="mcp-page__field">
-                      <label className="mcp-page__label">Argumentos (separados por espaço)</label>
-                      <input
-                        type="text"
-                        className="mcp-page__input"
-                        value={formArgs}
-                        onChange={(e) => setFormArgs(e.target.value)}
-                        placeholder="ex: -y @modelcontextprotocol/server-filesystem /home"
-                      />
-                    </div>
-                  </>
-                )}
-
-                {formTransport === 'sse' && (
-                  <div className="mcp-page__field">
-                    <label className="mcp-page__label">URL do servidor</label>
-                    <input
-                      type="url"
-                      className="mcp-page__input"
-                      value={formUrl}
-                      onChange={(e) => setFormUrl(e.target.value)}
-                      placeholder="https://example.com/mcp"
-                      required
-                    />
-                  </div>
-                )}
-
-                <div className="mcp-page__field">
-                  <label className="mcp-page__label">
-                    Variáveis de ambiente (KEY=VALUE, uma por linha)
-                  </label>
-                  <textarea
-                    className="mcp-page__textarea"
-                    rows={4}
-                    value={formEnvText}
-                    onChange={(e) => setFormEnvText(e.target.value)}
-                    placeholder={"GITHUB_TOKEN=ghp_xxx\nNODE_ENV=production"}
-                  />
-                  <span className="mcp-page__hint">
-                    Linhas começando com # são ignoradas.
-                  </span>
-                </div>
-
-                <div className="mcp-page__field">
-                  <label className="mcp-page__label">Opções</label>
-                  <div className="mcp-page__checkboxes">
-                    <label className="mcp-page__checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={formEnabled}
-                        onChange={(e) => setFormEnabled(e.target.checked)}
-                      />
-                      Habilitado
-                    </label>
-                    <label className="mcp-page__checkbox-label">
-                      <input
-                        type="checkbox"
-                        checked={formAutoConnect}
-                        onChange={(e) => setFormAutoConnect(e.target.checked)}
-                      />
-                      Conectar automaticamente no início
-                    </label>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mcp-page__editor-footer">
-                {!isNew && editingSlug && (
-                  <Button
-                    variant="danger"
-                    onClick={() => {
-                      const row = rows.find(r => r.slug === editingSlug);
-                      if (row) { setDeleteTarget(row); setDeleteOpen(true); }
-                    }}
-                  >
-                    Excluir
-                  </Button>
-                )}
-                <Button variant="ghost" onClick={handleCloseEditor}>Fechar</Button>
-                <Button onClick={handleSave} loading={saving}>Salvar</Button>
-              </div>
-            </div>
-          )}
-        </SimpleModal>
-      </div>
-
-      <ConfirmDialog
-        isOpen={deleteOpen}
-        title="Remover Servidor MCP"
-        message={`Tem certeza que deseja remover o servidor "${deleteTarget?.name}"? A configuração será apagada.`}
-        confirmText="Remover"
-        cancelText="Cancelar"
-        variant="danger"
-        onConfirm={handleDelete}
-        onCancel={() => { setDeleteOpen(false); setDeleteTarget(null); }}
+      <DataGrid
+        columns={columns}
+        items={filteredRows}
+        getItemId={(row) => row.id}
+        selectedIds={selectedIds}
+        onSelectionChange={setSelectedIds}
+        onActivate={(row) => handleEdit(row)}
+        onDelete={(row) => {
+          void handleDelete(row.slug, row.name);
+        }}
+        onCellAction={handleCellAction}
+        onGridReady={handleGridReady}
+        label="Servidores MCP"
       />
+
+      <Modal
+        isOpen={!!editing}
+        onClose={handleCloseEditor}
+        title={isNew ? 'Novo Servidor MCP' : `Editando: ${formName || editingSlug}`}
+        size="lg"
+      >
+        {editing && (
+          <div className="mcp-editor" aria-live="polite">
+            <McpGeneralSection
+              isNew={isNew}
+              slug={formSlug}
+              name={formName}
+              description={formDescription}
+              transport={formTransport}
+              onSlugChange={setFormSlug}
+              onNameChange={setFormName}
+              onDescriptionChange={setFormDescription}
+              onTransportChange={setFormTransport}
+            />
+
+            <McpConnectionSection
+              transport={formTransport}
+              command={formCommand}
+              args={formArgs}
+              url={formUrl}
+              envText={formEnvText}
+              enabled={formEnabled}
+              autoConnect={formAutoConnect}
+              onCommandChange={setFormCommand}
+              onArgsChange={setFormArgs}
+              onUrlChange={setFormUrl}
+              onEnvTextChange={setFormEnvText}
+              onEnabledChange={setFormEnabled}
+              onAutoConnectChange={setFormAutoConnect}
+            />
+
+            <EditorPanelFooter className="mcp-editor__footer">
+              {!isNew && editingSlug && (
+                <Button
+                  variant="danger"
+                  onClick={() => void handleDelete(editingSlug, formName || editingSlug)}
+                >
+                  Excluir
+                </Button>
+              )}
+              <Button variant="ghost" onClick={handleCloseEditor}>Fechar</Button>
+              <Button onClick={handleSave} loading={saving}>Salvar</Button>
+            </EditorPanelFooter>
+          </div>
+        )}
+      </Modal>
+
+      {!editing && rows.length > 0 && (
+        <div className="mcp-empty" role="status">
+          <p>Pressione Enter ou clique no servidor para editar.</p>
+        </div>
+      )}
+
+      {!editing && rows.length === 0 && (
+        <div className="mcp-empty" role="status">
+          <p>Nenhum servidor MCP encontrado. Use o botão "Novo Servidor" para começar.</p>
+        </div>
+      )}
     </div>
   );
 }

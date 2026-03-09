@@ -29,10 +29,13 @@ export function Topbar() {
   // Determina a página atual baseada na rota
   const getCurrentPage = (): string => {
     if (location.pathname === '/terminal') return 'terminal';
+    if (location.pathname === '/editor') return 'editor';
     if (location.pathname === '/allowlists') return 'allowlists';
     if (location.pathname === '/skills') return 'skills';
     if (location.pathname === '/mcp') return 'mcp';
     if (location.pathname === '/channels') return 'channels';
+    if (location.pathname === '/credentials') return 'credentials';
+    if (location.pathname === '/providers') return 'providers';
     if (location.pathname === '/settings') return 'settings';
     if (location.pathname === '/profiles') return 'profiles';
     if (location.pathname === '/history') return 'history';
@@ -54,6 +57,12 @@ export function Topbar() {
       label: 'Terminal',
       icon: '>_',
       onClick: () => navigate('/terminal'),
+    },
+    {
+      id: 'editor',
+      label: 'Editor',
+      icon: '📝',
+      onClick: () => navigate('/editor'),
     },
     {
       id: 'history',
@@ -92,9 +101,21 @@ export function Topbar() {
       onClick: () => navigate('/channels'),
     },
     {
+      id: 'credentials',
+      label: 'Credenciais',
+      icon: '🔐',
+      onClick: () => navigate('/credentials'),
+    },
+    {
+      id: 'providers',
+      label: 'Provedores LLM',
+      icon: '🤖',
+      onClick: () => navigate('/providers'),
+    },
+    {
       id: 'settings',
-      label: 'Configurações',
-      icon: '⚙️',
+      label: 'Restaurar Padrões',
+      icon: '↩️',
       onClick: () => navigate('/settings'),
     },
     {

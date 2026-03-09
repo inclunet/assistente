@@ -17,8 +17,10 @@ build/bin/
 go.work
 
 # Frontend - Node.js
+node_modules/
 frontend/node_modules/
-frontend/dist/
+frontend/dist/*
+!frontend/dist/keep.txt
 frontend/.svelte-kit/
 frontend/.vite/
 

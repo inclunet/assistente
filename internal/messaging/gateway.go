@@ -158,22 +158,46 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	}
 
 	if !hasContacts {
-		// Canal sem contatos ou com vaga — solicita autorização ao usuário
-		log.Printf("[Gateway] trace=%s conv=? channel=%s contact=%s username=%s name=%s msg=%s aguardando autorização",
+		// Canal sem contatos ou com vaga — gera código de pareamento
+		log.Printf("[Gateway] trace=%s conv=? channel=%s contact=%s username=%s name=%s msg=%s aguardando pareamento",
 			traceID, msg.Channel, maskIdentifier(msg.From.ID), maskIdentifier(msg.From.Username), msg.From.DisplayName, msg.ID)
 
+		// Gera código de 6 dígitos
+		pairingCode := contacts.GeneratePairingCode(msg.Channel, msg.From.ID)
+		log.Printf("[Gateway] trace=%s channel=%s contact=%s código de pareamento gerado: %s",
+			traceID, msg.Channel, maskIdentifier(msg.From.ID), pairingCode)
+
+		// Envia mensagem com código para o contato
+		if messenger, ok := g.GetMessenger(msg.Channel); ok {
+			pairingMsg := fmt.Sprintf(
+				"Bem-vindo! Para autorizar seu acesso, responda ao assistente com o seguinte código de pareamento:\n\n🔐 Código: %s",
+				pairingCode,
+			)
+			outMsg := OutgoingMessage{
+				ChatID: msg.From.ID,
+				Text:   pairingMsg,
+			}
+			if err := messenger.Send(ctx, outMsg); err != nil {
+				log.Printf("[Gateway] trace=%s channel=%s erro ao enviar código: %v", traceID, msg.Channel, err)
+			}
+		}
+
+		// Solicita confirmação pelo questionário (incluindo código)
 		if g.approveContact != nil {
 			approved, err := g.approveContact(ctx, msg.Channel, msg.From.DisplayName, msg.From.ID, msg.From.Username)
 			if err != nil {
-				log.Printf("[Gateway] trace=%s channel=%s erro ao solicitar autorização: %v", traceID, msg.Channel, err)
+				log.Printf("[Gateway] trace=%s channel=%s erro ao solicitar pareamento: %v", traceID, msg.Channel, err)
+				contacts.CancelPairingCode(msg.Channel, msg.From.ID)
 				return
 			}
 			if !approved {
-				log.Printf("[Gateway] trace=%s channel=%s contato não autorizado (negado)", traceID, msg.Channel)
+				log.Printf("[Gateway] trace=%s channel=%s pareamento recusado", traceID, msg.Channel)
+				contacts.CancelPairingCode(msg.Channel, msg.From.ID)
 				return
 			}
 			if err := contacts.Authorize(msg.Channel, msg.From.ID, msg.From.DisplayName, msg.From.Username, maxContacts); err != nil {
 				log.Printf("[Gateway] trace=%s channel=%s erro ao autorizar contato: %v", traceID, msg.Channel, err)
+				contacts.CancelPairingCode(msg.Channel, msg.From.ID)
 				return
 			}
 			log.Printf("[Gateway] trace=%s channel=%s contato autorizado: %s", traceID, msg.Channel, maskIdentifier(msg.From.ID))

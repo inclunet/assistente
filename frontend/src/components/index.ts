@@ -8,14 +8,14 @@ export type { InputProps } from './ui/Input';
 export { Textarea } from './ui/Textarea';
 export type { TextareaProps } from './ui/Textarea';
 
+export { FormField } from './ui/FormField';
+export type { FormFieldProps } from './ui/FormField';
+
 export { Select } from './ui/Select';
 export type { SelectProps, SelectOption } from './ui/Select';
 
 export { Checkbox } from './ui/Checkbox';
 export type { CheckboxProps } from './ui/Checkbox';
-
-export { Modal, ModalActions } from './ui/Modal';
-export type { ModalProps } from './ui/Modal';
 
 // Chat Components
 export { ChatMessage } from './chat/ChatMessage';

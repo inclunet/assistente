@@ -12,7 +12,7 @@ import {
   SetSAPI5Volume, 
   SetSAPI5Rate,
   IsSAPI5Speaking 
-} from '../../../../wailsjs/go/main/App';
+} from '@wailsjs/go/main/App';
 
 interface SAPI5VoiceInfo {
   id: string;

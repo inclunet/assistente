@@ -2,12 +2,16 @@ package speech
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"time"
+
+	"assistente/internal/credentials"
+	httpclient "assistente/internal/tools/http"
 )
 
 // WhisperConfig configuração para o Whisper
@@ -21,7 +25,7 @@ type WhisperConfig struct {
 // WhisperClient cliente para transcrição de áudio via OpenAI Whisper
 type WhisperClient struct {
 	config     WhisperConfig
-	httpClient *http.Client
+	httpClient *httpclient.Client
 }
 
 // WhisperResponse resposta da API Whisper
@@ -53,7 +57,7 @@ type WhisperSegment struct {
 }
 
 // NewWhisperClient cria um novo cliente Whisper
-func NewWhisperClient(config WhisperConfig) *WhisperClient {
+func NewWhisperClient(config WhisperConfig, credMgr *credentials.Manager) *WhisperClient {
 	if config.APIBaseURL == "" {
 		config.APIBaseURL = "https://api.openai.com/v1"
 	}
@@ -64,11 +68,14 @@ func NewWhisperClient(config WhisperConfig) *WhisperClient {
 		config.Language = "pt"
 	}
 
+	client := httpclient.New(&httpclient.Config{
+		CredentialManager: credMgr,
+		Timeout:           60 * time.Second,
+	}, map[string]string{})
+
 	return &WhisperClient{
-		config: config,
-		httpClient: &http.Client{
-			Timeout: 60 * time.Second, // Transcrições podem demorar
-		},
+		config:     config,
+		httpClient: client,
 	}
 }
 
@@ -125,7 +132,7 @@ func (c *WhisperClient) Transcribe(audioData []byte, filename string) (string, e
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Envia a requisição
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(context.Background(), req)
 	if err != nil {
 		return "", fmt.Errorf("failed to send request: %w", err)
 	}
@@ -201,7 +208,7 @@ func (c *WhisperClient) TranscribeVerbose(audioData []byte, filename string) (*W
 	req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	// Envia a requisição
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(context.Background(), req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
-import { StartUpdate } from '../../wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
+import { StartUpdate } from '@wailsjs/go/main/App';
 import { useUIStore } from '../store/uiStore';
 import './UpdatePage.css';
 

@@ -42,12 +42,32 @@ export function CheckForUpdates() {
   return window['go']['main']['App']['CheckForUpdates']();
 }
 
+export function ClearAllChannels() {
+  return window['go']['main']['App']['ClearAllChannels']();
+}
+
+export function ClearAllCredentials() {
+  return window['go']['main']['App']['ClearAllCredentials']();
+}
+
+export function ClearAllProfiles() {
+  return window['go']['main']['App']['ClearAllProfiles']();
+}
+
+export function ClearAllSkills() {
+  return window['go']['main']['App']['ClearAllSkills']();
+}
+
 export function ClearConversation(arg1) {
   return window['go']['main']['App']['ClearConversation'](arg1);
 }
 
 export function ClearMCPTest(arg1) {
   return window['go']['main']['App']['ClearMCPTest'](arg1);
+}
+
+export function ClearMessages() {
+  return window['go']['main']['App']['ClearMessages']();
 }
 
 export function ClearTab(arg1) {
@@ -70,8 +90,20 @@ export function CreateAllowlist(arg1) {
   return window['go']['main']['App']['CreateAllowlist'](arg1);
 }
 
+export function CreateChannelFromTemplate(arg1, arg2) {
+  return window['go']['main']['App']['CreateChannelFromTemplate'](arg1, arg2);
+}
+
 export function CreateConversation(arg1, arg2) {
   return window['go']['main']['App']['CreateConversation'](arg1, arg2);
+}
+
+export function CreateDefaultLLMProvider(arg1, arg2) {
+  return window['go']['main']['App']['CreateDefaultLLMProvider'](arg1, arg2);
+}
+
+export function CreateLLMProvider(arg1) {
+  return window['go']['main']['App']['CreateLLMProvider'](arg1);
 }
 
 export function CreateMessage(arg1, arg2, arg3) {
@@ -106,6 +138,14 @@ export function DeleteConversation(arg1) {
   return window['go']['main']['App']['DeleteConversation'](arg1);
 }
 
+export function DeleteCredential(arg1) {
+  return window['go']['main']['App']['DeleteCredential'](arg1);
+}
+
+export function DeleteLLMProvider(arg1, arg2) {
+  return window['go']['main']['App']['DeleteLLMProvider'](arg1, arg2);
+}
+
 export function DeleteMCPServer(arg1) {
   return window['go']['main']['App']['DeleteMCPServer'](arg1);
 }
@@ -130,6 +170,58 @@ export function DisconnectMCPServer(arg1) {
   return window['go']['main']['App']['DisconnectMCPServer'](arg1);
 }
 
+export function EditorDeleteDraft(arg1) {
+  return window['go']['main']['App']['EditorDeleteDraft'](arg1);
+}
+
+export function EditorGetFileInfo(arg1) {
+  return window['go']['main']['App']['EditorGetFileInfo'](arg1);
+}
+
+export function EditorLoadSession() {
+  return window['go']['main']['App']['EditorLoadSession']();
+}
+
+export function EditorOpenFile() {
+  return window['go']['main']['App']['EditorOpenFile']();
+}
+
+export function EditorReadDraft(arg1) {
+  return window['go']['main']['App']['EditorReadDraft'](arg1);
+}
+
+export function EditorReadFile(arg1) {
+  return window['go']['main']['App']['EditorReadFile'](arg1);
+}
+
+export function EditorRenameFile(arg1, arg2) {
+  return window['go']['main']['App']['EditorRenameFile'](arg1, arg2);
+}
+
+export function EditorSaveFileDialog(arg1) {
+  return window['go']['main']['App']['EditorSaveFileDialog'](arg1);
+}
+
+export function EditorSaveSession(arg1) {
+  return window['go']['main']['App']['EditorSaveSession'](arg1);
+}
+
+export function EditorUnwatchFile(arg1) {
+  return window['go']['main']['App']['EditorUnwatchFile'](arg1);
+}
+
+export function EditorWatchFile(arg1) {
+  return window['go']['main']['App']['EditorWatchFile'](arg1);
+}
+
+export function EditorWriteDraft(arg1, arg2) {
+  return window['go']['main']['App']['EditorWriteDraft'](arg1, arg2);
+}
+
+export function EditorWriteFile(arg1, arg2) {
+  return window['go']['main']['App']['EditorWriteFile'](arg1, arg2);
+}
+
 export function ExportConversations(arg1) {
   return window['go']['main']['App']['ExportConversations'](arg1);
 }
@@ -144,6 +236,10 @@ export function GetActiveProfile() {
 
 export function GetActiveProfileSlug() {
   return window['go']['main']['App']['GetActiveProfileSlug']();
+}
+
+export function GetActiveProviderInfo() {
+  return window['go']['main']['App']['GetActiveProviderInfo']();
 }
 
 export function GetActiveTab() {
@@ -194,6 +290,14 @@ export function GetChannelConfig(arg1) {
   return window['go']['main']['App']['GetChannelConfig'](arg1);
 }
 
+export function GetChannelConfigAsMap(arg1) {
+  return window['go']['main']['App']['GetChannelConfigAsMap'](arg1);
+}
+
+export function GetChannelTemplates() {
+  return window['go']['main']['App']['GetChannelTemplates']();
+}
+
 export function GetConfig() {
   return window['go']['main']['App']['GetConfig']();
 }
@@ -238,6 +342,18 @@ export function GetEffectiveModel() {
   return window['go']['main']['App']['GetEffectiveModel']();
 }
 
+export function GetLLMProvider(arg1) {
+  return window['go']['main']['App']['GetLLMProvider'](arg1);
+}
+
+export function GetLLMProviders() {
+  return window['go']['main']['App']['GetLLMProviders']();
+}
+
+export function GetLLMProvidersWithStatus() {
+  return window['go']['main']['App']['GetLLMProvidersWithStatus']();
+}
+
 export function GetLLMSettings() {
   return window['go']['main']['App']['GetLLMSettings']();
 }
@@ -276,6 +392,10 @@ export function GetMessagingStatus() {
 
 export function GetModels() {
   return window['go']['main']['App']['GetModels']();
+}
+
+export function GetModelsByProvider(arg1) {
+  return window['go']['main']['App']['GetModelsByProvider'](arg1);
 }
 
 export function GetNativeMCPServers() {
@@ -346,6 +466,10 @@ export function InitSpeechManager(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['InitSpeechManager'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function InitSpeechManagerFromProfile() {
+  return window['go']['main']['App']['InitSpeechManagerFromProfile']();
+}
+
 export function InterruptTerminalCommand(arg1) {
   return window['go']['main']['App']['InterruptTerminalCommand'](arg1);
 }
@@ -356,6 +480,10 @@ export function IsGlobalHotkeySupported() {
 
 export function IsSAPI5Speaking() {
   return window['go']['main']['App']['IsSAPI5Speaking']();
+}
+
+export function ListCredentials() {
+  return window['go']['main']['App']['ListCredentials']();
 }
 
 export function ListMCPServers() {
@@ -510,32 +638,32 @@ export function SetSAPI5Volume(arg1) {
   return window['go']['main']['App']['SetSAPI5Volume'](arg1);
 }
 
-export function SignalCheckAPI(arg1) {
-  return window['go']['main']['App']['SignalCheckAPI'](arg1);
+export function SignalCheckAPI(arg1, arg2) {
+  return window['go']['main']['App']['SignalCheckAPI'](arg1, arg2);
 }
 
-export function SignalLink(arg1, arg2) {
-  return window['go']['main']['App']['SignalLink'](arg1, arg2);
+export function SignalLink(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SignalLink'](arg1, arg2, arg3);
 }
 
-export function SignalLinkRaw(arg1, arg2) {
-  return window['go']['main']['App']['SignalLinkRaw'](arg1, arg2);
+export function SignalLinkRaw(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SignalLinkRaw'](arg1, arg2, arg3);
 }
 
-export function SignalListAccounts(arg1) {
-  return window['go']['main']['App']['SignalListAccounts'](arg1);
+export function SignalListAccounts(arg1, arg2) {
+  return window['go']['main']['App']['SignalListAccounts'](arg1, arg2);
 }
 
-export function SignalRegister(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['SignalRegister'](arg1, arg2, arg3, arg4);
+export function SignalRegister(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SignalRegister'](arg1, arg2, arg3, arg4, arg5);
 }
 
-export function SignalUnregister(arg1, arg2, arg3) {
-  return window['go']['main']['App']['SignalUnregister'](arg1, arg2, arg3);
+export function SignalUnregister(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SignalUnregister'](arg1, arg2, arg3, arg4);
 }
 
-export function SignalVerify(arg1, arg2, arg3) {
-  return window['go']['main']['App']['SignalVerify'](arg1, arg2, arg3);
+export function SignalVerify(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['SignalVerify'](arg1, arg2, arg3, arg4);
 }
 
 export function SpeakSAPI5(arg1, arg2) {
@@ -578,6 +706,10 @@ export function TestConnectionWithModels() {
   return window['go']['main']['App']['TestConnectionWithModels']();
 }
 
+export function TestLLMProvider(arg1) {
+  return window['go']['main']['App']['TestLLMProvider'](arg1);
+}
+
 export function TestMCPNativeSupport(arg1) {
   return window['go']['main']['App']['TestMCPNativeSupport'](arg1);
 }
@@ -606,6 +738,10 @@ export function UpdateConversationModel(arg1, arg2) {
   return window['go']['main']['App']['UpdateConversationModel'](arg1, arg2);
 }
 
+export function UpdateLLMProvider(arg1, arg2) {
+  return window['go']['main']['App']['UpdateLLMProvider'](arg1, arg2);
+}
+
 export function UpdateMessage(arg1, arg2) {
   return window['go']['main']['App']['UpdateMessage'](arg1, arg2);
 }
@@ -624,4 +760,8 @@ export function UpdateSkill(arg1, arg2) {
 
 export function UpdateTabTitle(arg1, arg2) {
   return window['go']['main']['App']['UpdateTabTitle'](arg1, arg2);
+}
+
+export function UpsertCredential(arg1) {
+  return window['go']['main']['App']['UpsertCredential'](arg1);
 }

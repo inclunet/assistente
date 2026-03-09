@@ -1,0 +1,4 @@
+Este arquivo existe apenas para que `go test`/`go vet` não falhem quando `frontend/dist` ainda não foi buildado.
+
+- O `//go:embed all:frontend/dist` exige pelo menos 1 arquivo embeddable.
+- O build do Vite normalmente apaga o conteúdo do diretório e recria os artefatos.

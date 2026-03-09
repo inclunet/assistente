@@ -16,6 +16,8 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/credentials"
+	httpclient "assistente/internal/tools/http"
 	"github.com/inconshreveable/go-update"
 )
 
@@ -63,20 +65,23 @@ type Updater struct {
 	currentVersion    string
 	githubAPIURL      string
 	githubToken       string // Token para acessar releases privadas (opcional)
-	httpClient        *http.Client
+	credMgr           *credentials.Manager
+	httpClient        *httpclient.Client
 	progressCallback  ProgressCallback
 	elevationCallback ElevationCallback
 }
 
 // New cria um novo Updater
-func New(currentVersion string) *Updater {
+func New(currentVersion string, credMgr *credentials.Manager) *Updater {
 	return &Updater{
 		currentVersion: currentVersion,
 		githubAPIURL:   GitHubAPIURL,
 		githubToken:    "", // Pode ser configurado depois se releases forem privadas
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		credMgr:        credMgr,
+		httpClient: httpclient.New(&httpclient.Config{
+			CredentialManager: credMgr,
+			Timeout:           30 * time.Second,
+		}, map[string]string{}),
 	}
 }
 
@@ -285,7 +290,7 @@ func (u *Updater) applyUpdateWindowsInstaller(ctx context.Context, _ *Manifest) 
 		req.Header.Set("Authorization", "Bearer "+u.githubToken)
 	}
 
-	resp, err := u.httpClient.Do(req)
+	resp, err := u.httpClient.Do(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -395,7 +400,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 		req.Header.Set("Authorization", "Bearer "+u.githubToken)
 	}
 
-	resp, err := u.httpClient.Do(req)
+	resp, err := u.httpClient.Do(ctx, req)
 	if err != nil {
 		return err
 	}
@@ -446,7 +451,7 @@ func (u *Updater) applyUpdateWindowsPortable(ctx context.Context, _ *Manifest) e
 		return err
 	}
 
-	resp, err = u.httpClient.Do(req)
+	resp, err = u.httpClient.Do(ctx, req)
 	if err != nil {
 		return fmt.Errorf("falha ao baixar executável portátil: %w", err)
 	}
@@ -619,7 +624,7 @@ func (u *Updater) downloadInstaller(ctx context.Context, url string, totalBytes 
 		req.Header.Set("Accept", "application/octet-stream")
 	}
 
-	resp, err := u.httpClient.Do(req)
+	resp, err := u.httpClient.Do(ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -690,7 +695,7 @@ func (u *Updater) fetchManifest(ctx context.Context) (*Manifest, error) {
 		req.Header.Set("Authorization", "Bearer "+u.githubToken)
 	}
 
-	resp, err := u.httpClient.Do(req)
+	resp, err := u.httpClient.Do(ctx, req)
 	if err != nil {
 		return nil, err
 	}
@@ -784,7 +789,7 @@ func (u *Updater) downloadBinary(ctx context.Context, url string) (io.ReadCloser
 		req.Header.Set("Accept", "application/octet-stream")
 	}
 
-	resp, err := u.httpClient.Do(req)
+	resp, err := u.httpClient.Do(ctx, req)
 	if err != nil {
 		return nil, err
 	}

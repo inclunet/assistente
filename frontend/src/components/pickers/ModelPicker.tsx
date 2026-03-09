@@ -1,6 +1,7 @@
 import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
-import { GetModels } from '../../../wailsjs/go/main/App';
-import { Combobox, ComboboxItem } from './Combobox';
+import { GetModels, GetModelsByProvider } from '@wailsjs/go/main/App';
+import { ComboboxItem } from './Combobox';
+import { BasePicker } from './BasePicker';
 import './ModelPicker.css';
 
 export interface ModelPickerProps {
@@ -14,6 +15,7 @@ export interface ModelPickerProps {
     variant?: 'toolbar' | 'form';
     helpText?: string;
     onAnnounce?: (message: string) => void;
+    providerID?: string; // ID do provedor para filtrar modelos
 }
 
 export interface ModelPickerRef {
@@ -21,118 +23,110 @@ export interface ModelPickerRef {
 }
 
 export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
-    value,
-    onChange,
-    label = 'Modelo',
-    icon = '🤖',
-    placeholder = 'Filtrar modelos...',
-    disabled = false,
-    maxWidth = '180px',
-    variant = 'toolbar',
-    helpText = '',
-    onAnnounce
+  value,
+  onChange,
+  label = 'Modelo',
+  icon = '🤖',
+  placeholder = 'Filtrar modelos...',
+  disabled = false,
+  maxWidth = '180px',
+  variant = 'toolbar',
+  helpText = '',
+  onAnnounce,
+  providerID = '', // Provedor específico (se vazio, usa GetModels do ativo)
 }, ref) => {
-    const [models, setModels] = useState<string[]>([]);
-    const [loading, setLoading] = useState(true);
-    const [error, setError] = useState('');
+  const [models, setModels] = useState<string[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-    const loadModels = async () => {
-        setLoading(true);
-        setError('');
-        try {
-            const modelsList = await GetModels() || [];
-            setModels(modelsList);
-        } catch (e) {
-            setError('Erro ao carregar modelos');
-            console.error('ModelPicker: erro ao carregar modelos', e);
-        } finally {
-            setLoading(false);
-        }
-    };
-
-    useEffect(() => {
-        loadModels();
-    }, []);
-
-    // Expõe método reload
-    useImperativeHandle(ref, () => ({
-        reload: loadModels
-    }));
-
-    // Items formatados para o Combobox
-    const items: ComboboxItem[] = models.map(m => ({ value: m, label: m }));
-
-    const handleSelect = (selectedValue: string) => {
-        onChange(selectedValue);
-    };
-
-    if (variant === 'form') {
-        return (
-            <div className="model-picker-form">
-                <label htmlFor={`model-picker-${label}`}>{label}</label>
-
-                {loading ? (
-                    <div className="loading-state" role="status" aria-live="polite">
-                        <span className="loading-spinner" aria-hidden="true"></span>
-                        Carregando modelos...
-                    </div>
-                ) : error ? (
-                    <div className="error-state" role="alert">
-                        <span>{error}</span>
-                        <button type="button" className="retry-btn" onClick={loadModels}>
-                            🔄 Tentar novamente
-                        </button>
-                    </div>
-                ) : (
-                    <Combobox
-                        icon={icon}
-                        label={label}
-                        items={items}
-                        selected={value}
-                        onSelect={handleSelect}
-                        placeholder={placeholder}
-                        disabled={disabled}
-                        maxWidth="100%"
-                        onAnnounce={onAnnounce}
-                    />
-                )}
-
-                {helpText && <p className="help-text">{helpText}</p>}
-            </div>
-        );
+  const loadModels = async () => {
+    // Se estamos no modo form e não há providerID, não tenta carregar
+    if (variant === 'form' && !providerID) {
+      setLoading(false);
+      setError('Selecione um provedor primeiro');
+      setModels([]);
+      return;
     }
 
-    // Variant toolbar (compacto)
-    if (loading) {
-        return (
-            <div className="model-picker-toolbar loading" role="status" aria-live="polite">
-                <span className="loading-spinner" aria-hidden="true"></span>
-                <span>Carregando...</span>
-            </div>
-        );
+    setLoading(true);
+    setError('');
+    try {
+      let modelsList: string[];
+      
+      // Se providerID foi fornecido, usa GetModelsByProvider
+      if (providerID) {
+        modelsList = await GetModelsByProvider(providerID);
+      } else {
+        // Caso contrário, usa GetModels (do provedor ativo)
+        modelsList = await GetModels();
+      }
+      
+      setModels(modelsList || []);
+      if (!modelsList || modelsList.length === 0) {
+        const msg = providerID
+          ? 'Nenhum modelo disponível para este provedor.'
+          : 'Nenhum modelo disponível. Configure um provedor primeiro.';
+        setError(msg);
+      }
+    } catch (e: any) {
+      const errorMsg = e?.message || String(e) || 'Erro desconhecido';
+      
+      // Detecta erro de credencial não configurada
+      if (errorMsg.includes('credencial não configurada') || errorMsg.includes('Missing bearer authentication')) {
+        setError('Configure a API key deste provedor em Configurações → Credenciais');
+      } else {
+        setError(`Erro ao carregar modelos: ${errorMsg}`);
+      }
+      
+      setModels([]);
+    } finally {
+      setLoading(false);
     }
+  };
 
-    if (error) {
-        return (
-            <div className="model-picker-toolbar error" role="alert">
-                <span>❌ Erro</span>
-            </div>
-        );
-    }
+  useEffect(() => {
+    loadModels();
+  }, [providerID]); // Recarrega quando providerID muda
 
-    return (
-        <Combobox
-            icon={icon}
-            label={label}
-            items={items}
-            selected={value}
-            onSelect={handleSelect}
-            placeholder={placeholder}
-            disabled={disabled}
-            maxWidth={maxWidth}
-            onAnnounce={onAnnounce}
-        />
-    );
+  useImperativeHandle(ref, () => ({
+    reload: loadModels
+  }));
+
+  const items: ComboboxItem[] = models.map(m => ({ value: m, label: m }));
+
+  const handleSelect = (selectedValue: string) => {
+    onChange(selectedValue);
+  };
+
+  return (
+    <BasePicker
+      variant={variant}
+      items={items}
+      selected={value}
+      onSelect={handleSelect}
+      label={label}
+      icon={icon}
+      placeholder={placeholder}
+      disabled={disabled}
+      maxWidth={variant === 'form' ? '100%' : maxWidth}
+      helpText={variant === 'form' ? helpText : undefined}
+      onAnnounce={onAnnounce}
+      loading={loading}
+      error={error || null}
+      onRetry={loadModels}
+      retryLabel="🔄 Tentar novamente"
+      showFormLabel={variant === 'form'}
+      showFormLabelIcon={false}
+      formClassName="model-picker-form"
+      toolbarClassName="model-picker-toolbar"
+      loadingClassName={{ form: 'loading-state', toolbar: 'model-picker-toolbar loading' }}
+      errorClassName={{ form: 'error-state', toolbar: 'model-picker-toolbar error' }}
+      helpTextClassName="help-text"
+      errorIcon={{ toolbar: '❌', form: undefined }}
+      loadingLabel={{ form: 'Carregando modelos...', toolbar: 'Carregando...' }}
+      errorLabel={{ form: error || 'Erro ao carregar modelos', toolbar: 'Erro' }}
+    />
+  );
 });
 
 ModelPicker.displayName = 'ModelPicker';

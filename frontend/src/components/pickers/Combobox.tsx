@@ -6,6 +6,7 @@ export interface ComboboxItem {
     value: string;
     label: string;
     sublabel?: string;
+    disabled?: boolean;
 }
 
 export interface ComboboxProps {
@@ -88,6 +89,10 @@ export const Combobox = ({
     };
 
     const selectItem = (item: ComboboxItem) => {
+        if (item.disabled) {
+            playBumpSound();
+            return;
+        }
         onSelect(item.value, item);
         close();
     };
@@ -267,9 +272,14 @@ export const Combobox = ({
                                 id={`${uniqueId}-option-${i}`}
                                 role="option"
                                 aria-selected={i === highlightIndex}
-                                className={`${i === highlightIndex ? 'highlighted' : ''} ${item.value === selected ? 'selected' : ''}`}
+                                aria-disabled={item.disabled ? 'true' : 'false'}
+                                className={`${i === highlightIndex ? 'highlighted' : ''} ${item.value === selected ? 'selected' : ''} ${item.disabled ? 'disabled' : ''}`}
                                 onMouseDown={(e) => {
                                     e.preventDefault(); // Previne perda de foco do input
+                                    if (item.disabled) {
+                                        playBumpSound();
+                                        return;
+                                    }
                                     selectItem(item);
                                 }}
                                 onMouseEnter={() => setHighlightIndex(i)}

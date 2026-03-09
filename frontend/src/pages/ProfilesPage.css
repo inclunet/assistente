@@ -45,12 +45,8 @@
 }
 
 .profiles-editor__footer {
-  display: flex;
+  justify-content: flex-start;
   align-items: center;
-  gap: 0.5rem;
-  margin-top: 1rem;
-  padding-top: 1rem;
-  border-top: 1px solid var(--border-color, #3f3f46);
 }
 
 .profiles-editor__footer-spacer {

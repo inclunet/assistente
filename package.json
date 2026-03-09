@@ -1,4 +1,16 @@
 {
+  "name": "assistente",
+  "private": true,
+  "scripts": {
+    "dev": "wails dev",
+    "dev:warn": "wails dev -loglevel Warning",
+    "dev:quiet": "wails dev -loglevel Error -v 0",
+    "dev:nobindings": "wails dev -skipbindings",
+    "build": "npm --prefix frontend run build",
+    "frontend:dev": "npm --prefix frontend run dev",
+    "frontend:build": "npm --prefix frontend run build",
+    "frontend:preview": "npm --prefix frontend run preview"
+  },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
     "i18next": "^25.7.4",

@@ -22,7 +22,7 @@ const (
 )
 
 // PreprocessCommands processa linhas com prefixo `!` no conteúdo de um skill.
-// Cada linha `!command` ou `` !`command` `` é executada como shell command e substituída pelo output.
+// Cada linha `!command` ou “ !`command` “ é executada como shell command e substituída pelo output.
 // Compatível com a spec oficial do Claude Code.
 //
 // Formatos suportados:
@@ -88,7 +88,7 @@ func PreprocessCommands(content string, allowedCommands []string) string {
 }
 
 // stripBackticks remove backticks envolvendo o comando.
-// Suporta: `command` → command, ``command`` → command
+// Suporta: `command` → command, “command“ → command
 func stripBackticks(cmd string) string {
 	// Remove backticks do início e fim
 	if len(cmd) >= 2 && cmd[0] == '`' && cmd[len(cmd)-1] == '`' {
@@ -129,7 +129,10 @@ func isCommandAllowed(cmd string, allowedCommands []string) bool {
 // dentro de .assistente/ (ex: "memory" → .assistente/memory/).
 // Se o arquivo não existir, retorna string vazia (silencioso).
 // Se o template tiver erro de parse, retorna o conteúdo original (fallback seguro).
-func ProcessTemplate(content string) string {
+//
+// data: contexto disponível no template (ex.: perfil ativo, flags de toolcalling, etc.).
+// Se nil, o template é executado sem contexto.
+func ProcessTemplate(content string, data any) string {
 	if content == "" || !strings.Contains(content, "{{") {
 		return content
 	}
@@ -146,7 +149,7 @@ func ProcessTemplate(content string) string {
 	}
 
 	var buf strings.Builder
-	if err := tmpl.Execute(&buf, nil); err != nil {
+	if err := tmpl.Execute(&buf, data); err != nil {
 		log.Printf("[Skills/Template] Execute error (returning original): %v", err)
 		return content
 	}

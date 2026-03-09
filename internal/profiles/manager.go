@@ -1,7 +1,6 @@
 package profiles
 
 import (
-	"assistente/internal/config"
 	"assistente/internal/configdir"
 	"encoding/json"
 	"fmt"
@@ -133,55 +132,125 @@ func (m *Manager) Delete(slug string) error {
 	return m.resolver.Delete(filename)
 }
 
-// GetActive retorna o perfil ativo global (lido do config.json)
+// GetActive retorna o perfil marcado como Active: true em seu JSON
+// NOTA: Migrado para usar Profile.Active em vez de config.json
+// Se nenhum estiver marcado, retorna o primeiro disponível (fallback)
 func (m *Manager) GetActive() (*Profile, error) {
-	cfg, err := config.Load()
+	files, err := m.resolver.List()
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("erro ao listar perfis: %w", err)
 	}
 
-	activeSlug := cfg.ActiveProfile
-	if activeSlug == "" {
-		activeSlug = "padrao"
-	}
+	var firstProfile *Profile
 
-	profile, err := m.Get(activeSlug)
-	if err != nil {
-		// Perfil ativo não encontrado — tenta o padrão
-		profile, err = m.Get("padrao")
+	// Busca perfil marcado como ativo
+	for _, f := range files {
+		if !strings.HasSuffix(f.Filename, ".json") {
+			continue
+		}
+
+		profile, err := m.Get(strings.TrimSuffix(f.Filename, ".json"))
 		if err != nil {
-			// Nenhum perfil encontrado — retorna o default em memória
-			return DefaultProfile(), nil
+			continue
+		}
+
+		// Salva primeiro perfil encontrado (para fallback)
+		if firstProfile == nil {
+			firstProfile = profile
+		}
+
+		// Se encontrou um marcado como ativo, retorna imediatamente
+		if profile.Active {
+			return profile, nil
 		}
 	}
 
-	return profile, nil
+	// Se nenhum marcado como ativo, usa o primeiro como fallback
+	if firstProfile != nil {
+		return firstProfile, nil
+	}
+
+	// Nenhum perfil encontrado — retorna o default em memória
+	return DefaultProfile(), nil
 }
 
-// SetActive define o perfil ativo global (salva no config.json)
+// SetActive marca um perfil como Active: true e desativa os outros
+// NOTA: Migrado para usar Profile.Active em vez de config.json
 func (m *Manager) SetActive(slug string) error {
 	// Verifica se o perfil existe
-	filename := slug + ".json"
-	if !m.resolver.Exists(filename) {
+	profile, err := m.Get(slug)
+	if err != nil {
 		return fmt.Errorf("profile not found: %s", slug)
 	}
 
-	return config.Update(func(cfg *config.Config) *config.Config {
-		cfg.ActiveProfile = slug
-		return cfg
-	})
+	// Marca como ativo
+	profile.Active = true
+	if err := m.Update(slug, profile); err != nil {
+		return err
+	}
+
+	// Desativa os outros
+	files, err := m.resolver.List()
+	if err != nil {
+		return nil // Não é erro crítico
+	}
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Filename, ".json") {
+			continue
+		}
+		otherSlug := strings.TrimSuffix(f.Filename, ".json")
+		if otherSlug == slug {
+			continue
+		}
+
+		other, err := m.Get(otherSlug)
+		if err != nil {
+			continue
+		}
+
+		if other.Active {
+			other.Active = false
+			m.Update(otherSlug, other)
+		}
+	}
+
+	return nil
 }
 
 // GetActiveSlug retorna o slug do perfil ativo
 func (m *Manager) GetActiveSlug() string {
-	cfg, err := config.Load()
+	files, err := m.resolver.List()
 	if err != nil {
 		return "padrao"
 	}
-	if cfg.ActiveProfile == "" {
-		return "padrao"
+
+	var firstSlug string
+
+	for _, f := range files {
+		if !strings.HasSuffix(f.Filename, ".json") {
+			continue
+		}
+
+		slug := strings.TrimSuffix(f.Filename, ".json")
+		if firstSlug == "" {
+			firstSlug = slug
+		}
+
+		profile, err := m.Get(slug)
+		if err != nil {
+			continue
+		}
+		if profile.Active {
+			return slug
+		}
 	}
-	return cfg.ActiveProfile
+
+	if firstSlug != "" {
+		return firstSlug
+	}
+
+	return "padrao"
 }
 
 // GetSearchPaths retorna os caminhos de busca do resolver

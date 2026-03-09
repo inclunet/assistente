@@ -1,10 +1,12 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../store/chatStore';
+import { ClearConversation } from '@wailsjs/go/main/App';
 import { HistoryPicker, HistoryPickerRef } from '../pickers';
 import { ProfilePicker, ProfilePickerRef } from '../pickers/ProfilePicker';
-import { Toolbar } from '../ui/Toolbar';
-import { ContextMenu, MenuItem } from '../ui/ContextMenu';
+import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
+import { Menu, type MenuItem } from '../menu';
+import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
@@ -42,39 +44,12 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   // Estado do modal de tokens
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
 
-  // Estado do menu de contexto
-  const [contextMenu, setContextMenu] = React.useState<{
-    visible: boolean;
-    x: number;
-    y: number;
-    items: MenuItem[];
-    ariaLabel: string;
-  }>({
-    visible: false,
-    x: 0,
-    y: 0,
-    items: [],
-    ariaLabel: '',
-  });
-
-  const closeContextMenu = useCallback(() => {
-    setContextMenu(prev => ({ ...prev, visible: false }));
-  }, []);
-
-  const openContextMenu = useCallback((
-    x: number,
-    y: number,
-    items: MenuItem[],
-    ariaLabel: string
-  ) => {
-    setContextMenu({
-      visible: true,
-      x,
-      y,
-      items,
-      ariaLabel,
-    });
-  }, []);
+  const {
+    menu: contextMenu,
+    openAtPoint: openContextMenu,
+    closeMenu: closeContextMenu,
+    onSelectItem: onSelectContextMenuItem,
+  } = useAnchoredContextMenu();
 
   const getProfileMenuItems = useCallback((): MenuItem[] => [
     {
@@ -87,24 +62,63 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     },
   ], [navigate]);
 
-  const handleProfileContextMenu = useCallback((e: React.MouseEvent) => {
+  const handleProfileContextMenu = useCallback((e: React.MouseEvent<HTMLElement>) => {
     e.preventDefault();
-    openContextMenu(e.clientX, e.clientY, getProfileMenuItems(), 'Menu de opções do perfil');
+    openContextMenu(e.clientX, e.clientY, 'Menu de opções do perfil', getProfileMenuItems(), e.currentTarget);
   }, [openContextMenu, getProfileMenuItems]);
 
   const handleProfileKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault();
       const rect = e.currentTarget.getBoundingClientRect();
-      openContextMenu(rect.left, rect.bottom, getProfileMenuItems(), 'Menu de opções do perfil');
+      openContextMenu(rect.left, rect.bottom, 'Menu de opções do perfil', getProfileMenuItems(), e.currentTarget);
     }
   }, [openContextMenu, getProfileMenuItems]);
+
+  const focusInput = useCallback(() => {
+    setTimeout(() => {
+      inputRef?.current?.focus();
+    }, 100);
+  }, [inputRef]);
+
+  const handleNewConversation = useCallback(() => {
+    if (onNewConversation) {
+      onNewConversation();
+    } else {
+      // conversa nova "de verdade": limpa conversationId e mensagens na aba ativa
+      void loadConversationInActiveTab(0, 'Nova Conversa');
+    }
+    focusInput();
+  }, [focusInput, loadConversationInActiveTab, onNewConversation]);
+
+  const handleClearConversation = useCallback(async () => {
+    try {
+      const tab = getActiveTab();
+
+      if (tab?.conversationId) {
+        await ClearConversation(tab.conversationId);
+        await loadConversationInActiveTab(tab.conversationId, tab.title || 'Conversa');
+      } else {
+        clearActiveTab();
+      }
+
+      announce('Conversa limpa');
+    } catch (error) {
+      console.error('[ChatToolbar] Erro ao limpar conversa:', error);
+      announce('Erro ao limpar conversa');
+    }
+    focusInput();
+  }, [announce, clearActiveTab, focusInput, getActiveTab, loadConversationInActiveTab]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       if (e.ctrlKey && e.key === 'n') {
         e.preventDefault();
         handleNewConversation();
+      }
+      else if (e.ctrlKey && e.key === 'l') {
+        e.preventDefault();
+        void handleClearConversation();
       }
       else if (e.ctrlKey && e.key === 'h') {
         e.preventDefault();
@@ -127,22 +141,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab?.conversationId, announce]);
-
-  const focusInput = useCallback(() => {
-    setTimeout(() => {
-      inputRef?.current?.focus();
-    }, 100);
-  }, [inputRef]);
-
-  const handleNewConversation = () => {
-    if (onNewConversation) {
-      onNewConversation();
-    } else {
-      clearActiveTab();
-    }
-    focusInput();
-  };
+  }, [activeTab?.conversationId, announce, handleClearConversation, handleNewConversation]);
 
   const handleProfileChange = useCallback((_slug: string) => {
     focusInput();
@@ -170,17 +169,22 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         }
         right={
           <>
-            <button
-              className="toolbar__button"
+            <ToolbarButton
+              label="Nova"
+              icon="➕"
+              shortcut="Ctrl+N"
               onClick={handleNewConversation}
-              aria-label="Nova conversa, Ctrl+N"
-              title="Nova conversa (Ctrl+N)"
               disabled={isLoading}
-              tabIndex={0}
-            >
-              <span aria-hidden="true">➕</span>
-              <span>Nova</span>
-            </button>
+            />
+
+            <ToolbarButton
+              label="Limpar"
+              icon="🧹"
+              shortcut="Ctrl+L"
+              variant="danger"
+              onClick={() => void handleClearConversation()}
+              disabled={isLoading}
+            />
 
             <div>
               <HistoryPicker
@@ -194,14 +198,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
               />
             </div>
 
-            <div className="toolbar__separator" aria-hidden="true"></div>
+            <ToolbarSeparator />
 
             <TokenStatsButton
               conversationId={activeTab?.conversationId}
               onOpenModal={() => setIsTokenModalOpen(true)}
             />
 
-            <div className="toolbar__separator" aria-hidden="true"></div>
+            <ToolbarSeparator />
 
             <div
               onContextMenu={handleProfileContextMenu}
@@ -221,13 +225,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         }
       />
 
-      <ContextMenu
+      <Menu
         visible={contextMenu.visible}
         x={contextMenu.x}
         y={contextMenu.y}
         items={contextMenu.items}
         ariaLabel={contextMenu.ariaLabel}
         onClose={closeContextMenu}
+        onSelect={onSelectContextMenuItem}
       />
 
       {activeTab?.conversationId && (

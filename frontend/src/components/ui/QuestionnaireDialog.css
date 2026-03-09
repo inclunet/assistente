@@ -53,6 +53,24 @@
   resize: vertical;
 }
 
+.questionnaire-dialog__readonly {
+  width: 100%;
+  padding: 10px 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border-color, #e5e7eb);
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-primary, #111827);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+  white-space: pre;
+  overflow: auto;
+  max-height: 40vh;
+}
+
+.questionnaire-dialog__readonly:focus {
+  outline: 2px solid rgba(59, 130, 246, 0.6);
+  outline-offset: 2px;
+}
+
 .questionnaire-dialog__input:focus {
   outline: 2px solid rgba(59, 130, 246, 0.6);
   outline-offset: 2px;

@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import { 
   SendMessage, 
-  AddMessageWithMedia,
   GetAllTabs,
   CreateTab,
   CloseTab,
@@ -11,10 +10,11 @@ import {
   LoadConversationInTab,
   AssignConversationToChannel,
   UnassignConversationFromChannel,
-} from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+	GetMessageChildren,
+} from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
-import { database, main } from '../../wailsjs/go/models';
+import { database, llm, main } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
@@ -161,6 +161,7 @@ interface ChatStore {
 
   // Chat actions
   sendMessage: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
+  sendMessageWithParams: (content: string, mediaFiles?: MediaFile[], paramsOverride?: Partial<llm.ChatParams>) => Promise<void>;
   stopStreaming: () => void;
 
   // Utility
@@ -221,13 +222,6 @@ const fileToBase64 = (file: File): Promise<string> => {
 
 // Converte database.ChatTab (backend) para ChatTab (frontend)
 const backendTabToFrontend = (backendTab: database.ChatTab): ChatTab => {
-  console.log('[backendTabToFrontend] Backend tab recebida:', {
-    id: backendTab.id,
-    conversation_id: backendTab.conversation_id,
-    title: backendTab.title,
-    is_active: backendTab.is_active
-  });
-
   return {
     id: backendTab.id?.toString() || generateId(),
     backendId: backendTab.id,
@@ -353,15 +347,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     initializeTabs: async () => {
     try {
-      console.log('[Chat] Initializing tabs from backend...');
       const backendTabs = await GetAllTabs();
-      console.log('[Chat] Loaded tabs from backend:', backendTabs);
 
       let tabs = backendTabs.map(backendTabToFrontend);
       
       // Se não houver tabs, cria uma aba em branco (ativa)
       if (tabs.length === 0) {
-        console.log('[Chat] No tabs found, creating default tab...');
         const newBackendTab = await CreateTab('Nova Conversa', '💬', true);
         tabs = [backendTabToFrontend(newBackendTab)];
       }
@@ -373,43 +364,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         activeTabId: activeTab?.id || tabs[0]?.id || null,
         isInitialized: true,
       });
-
-      console.log('[Chat] Tabs initialized:', { 
-        count: tabs.length, 
-        active: activeTab?.id,
-        titles: tabs.map((t: ChatTab) => ({ id: t.id, backendId: t.backendId, title: t.title }))
-      });
       
       // Carrega mensagens da tab ativa se houver conversationId
       const initialActiveTab = activeTab || tabs[0];
-      console.log('[Chat] ====================================');
-      console.log('[Chat] initialActiveTab:', initialActiveTab);
-      console.log('[Chat] conversationId:', initialActiveTab?.conversationId);
-      console.log('[Chat] ====================================');
       
       if (initialActiveTab?.conversationId) {
-        console.log('[Chat] Carregando mensagens da tab ativa:', initialActiveTab.conversationId);
         try {
-          console.log('[Chat] ANTES de chamar GetMessages');
           const messageNodes = await GetMessages(initialActiveTab.conversationId, null);
-          console.log('[Chat] DEPOIS de chamar GetMessages');
-          console.log('[Chat] MessageNodes recebidos:', messageNodes);
-          console.log('[Chat] MessageNodes length:', messageNodes?.length);
           
           // Backend já manda MessageNode[] pronto - adiciona apenas originalIndex
           const nodes: MessageNode[] = (messageNodes || []).map((node, index) => {
             (node as any).originalIndex = index;
             return node;
           });
-          
-          console.log('[Chat] ✅ Nodes recebidos:', nodes.length);
-          if (nodes.length > 0) {
-            console.log('[Chat] 📊 Primeiro node:', {
-              id: nodes[0].message.id,
-              childCount: nodes[0].childCount,
-              children: nodes[0].children?.length || 0
-            });
-          }
           
           // Atualiza a tab com os nodes hierárquicos
           set((state) => ({
@@ -423,8 +390,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 : t
             ),
           }));
-          
-          console.log('[Chat] ✅ Mensagens carregadas na tab ativa');
         } catch (error) {
           console.error('[Chat] ❌ Erro ao carregar mensagens da tab ativa:', error);
         }
@@ -449,7 +414,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
   createTab: async (activate = true) => {
     try {
-      console.log('[Chat] Creating new tab in backend...', { activate });
       const backendTab = await CreateTab('Nova Conversa', '💬', activate);
       const newTab = backendTabToFrontend(backendTab);
       
@@ -457,8 +421,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         tabs: [...state.tabs, newTab],
         activeTabId: activate ? newTab.id : state.activeTabId,
       }));
-
-      console.log('[Chat] Tab created:', { id: newTab.id, backendId: newTab.backendId, title: newTab.title, activate });
       return newTab.id;
     } catch (error) {
       console.error('[Chat] Error creating tab:', error);
@@ -485,14 +447,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     // Não permite fechar se for a única aba
     if (state.tabs.length <= 1) {
-      console.log('[Chat] Cannot close last tab');
       return;
     }
 
     // Limpa listeners desta tab se existirem
     const existingCleanup = activeListeners.get(tabId);
     if (existingCleanup) {
-      console.log('[Chat] Limpando listeners ao deletar tab:', tabId);
       existingCleanup();
       activeListeners.delete(tabId);
     }
@@ -501,7 +461,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       // Note: OnTabClosed was removed from backend - embedding generation happens automatically
       
       if (tab.backendId) {
-        console.log('[Chat] Closing tab in backend:', tab.backendId);
         await CloseTab(tab.backendId);
       }
     } catch (error) {
@@ -531,34 +490,37 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     setTimeout(() => {
       const newActiveTabId = get().activeTabId;
       if (newActiveTabId) {
-        const tabButton = document.querySelector(
-          `[data-tab-id="${newActiveTabId}"]`
-        ) as HTMLButtonElement;
+        const escaped =
+          (globalThis as any).CSS?.escape?.(newActiveTabId) ??
+          newActiveTabId.replace(/"/g, '\\"');
+
+        const tabButton =
+          (document.querySelector(
+            `button[role="tab"][data-tab-value="${escaped}"]`
+          ) as HTMLButtonElement | null) ??
+          (document.querySelector(
+            `[data-tab-id="${escaped}"]`
+          ) as HTMLButtonElement | null);
         tabButton?.focus();
       }
     }, 50);
   },
 
   setActiveTab: async (tabId) => {
-    console.log('[Chat] 🔵 setActiveTab CHAMADO com tabId:', tabId);
     const state = get();
     const tab = state.tabs.find(t => t.id === tabId);
     // previousTab removed - no longer needed after tool-calling removal
-    console.log('[Chat] 🔵 Tab encontrada:', tab ? `id=${tab.id}, backendId=${tab.backendId}` : 'NÃO ENCONTRADA');
     
     // Note: OnTabInactive was removed from backend - embedding generation happens automatically
     
     try {
       if (tab?.backendId) {
-        console.log('[Chat] Setting active tab in backend:', tab.backendId);
         await SetActiveTab(tab.backendId);
         
         // Carrega mensagens da conversa se houver conversationId e não houver mensagens carregadas
         if (tab.conversationId && tab.threadedMessages.length === 0) {
-          console.log('[Chat]  Carregando mensagens da conversa:', tab.conversationId);
           try {
             const backendNodes = await GetMessages(tab.conversationId, null);
-            console.log('[Chat]  Mensagens carregadas:', backendNodes.length);
             
             // Adiciona originalIndex aos nodes do backend
             const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
@@ -578,8 +540,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   : t
               ),
             }));
-            
-            console.log('[Chat] ✅ Mensagens carregadas na tab:', messageNodes.length);
           } catch (error) {
             console.error('[Chat] ❌ Erro ao carregar mensagens:', error);
           }
@@ -603,8 +563,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   updateTabTitle: (tabId, title) => {
     const tab = get().tabs.find(t => t.id === tabId);
     
-    console.log('[Chat] Updating tab title:', { tabId, backendId: tab?.backendId, title });
-    
     // Atualiza localmente imediatamente (otimista)
     set((state) => ({
       tabs: state.tabs.map((t) =>
@@ -620,8 +578,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         console.error('[Chat] Error updating tab title in backend:', error);
       });
     }
-
-    console.log('[Chat] Tab titles after update:', get().tabs.map(t => ({ id: t.id, title: t.title })));
   },
 
   addMessage: (tabId, message) => {
@@ -697,7 +653,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       // TTS para assistente é gerenciado no streamComplete via ttsService.speak()
     }
 
-    console.log('[Chat] Message added:', { tabId, messageId, role: message.role, contentLength: message.content.length });
     return messageId;
   },
 
@@ -738,10 +693,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       ),
     }));
 
-    // Log apenas a cada 100 caracteres para não poluir o console
-    if (content.length % 100 === 0 || content.length < 10) {
-      console.log('[Chat] Message updated:', { tabId, messageId, contentLength: content.length });
-    }
   },
 
   // Atualiza reasoning de uma mensagem específica
@@ -789,12 +740,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   // 3. UI só mostra threads expandidas (comportamento existente)
   addInternalMessage: (tabId, message) => {
     const parentId = message.parentId?.toString();
-    console.log('[Chat] 📨 Adding internal message:', { 
-      tabId, 
-      messageId: message.id,
-      parentId,
-      role: message.role,
-    });
     
     set((state) => {
       const tab = state.tabs.find(t => t.id === tabId);
@@ -802,7 +747,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       
       // Se não tem parentId, é uma mensagem raiz - adiciona normalmente
       if (!parentId) {
-        console.log('[Chat] No parentId, adding as root message');
         const newNode = new main.MessageNode({
           message,
           children: [],
@@ -830,13 +774,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             // Verifica se a mensagem já existe como filho
             const existsInChildren = (node.children || []).some(child => child.message.id === message.id);
             if (existsInChildren) {
-              console.log('[Chat] Message already exists in children, skipping:', message.id);
               return node;
             }
             
             // SEMPRE adiciona como filho E incrementa contador
             // A renderização (MessageNode) é que decide se mostra ou não baseado no isExpanded
-            console.log('[Chat] ✅ Adding message as child of:', targetParentId);
             const newChildNode = new main.MessageNode({
               message,
               children: [],
@@ -873,7 +815,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const result = addToTree(tab.threadedMessages, parentId, 0);
       
       if (result.found) {
-        console.log('[Chat] ✅ Message added to tree under parent:', parentId);
         return {
           tabs: state.tabs.map((t) =>
             t.id === tabId
@@ -887,7 +828,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       // Razões possíveis:
       // 1. Evento chegou antes do chat:messages_ready (ID da mensagem do usuário ainda é local)
       // 2. É uma mensagem de nível 2+ e o pai de nível 1 ainda não chegou
-      console.log('[Chat] ⚠️ Parent not found by ID:', parentId);
       
       // Fallback: procura a última mensagem do usuário (ancestral de todas as mensagens)
       const findLastUserMessage = (nodes: MessageNode[]): MessageNode | null => {
@@ -902,7 +842,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const lastUserMessage = findLastUserMessage(tab.threadedMessages);
       
       if (lastUserMessage) {
-        console.log('[Chat] 🔄 Fallback: adding under last user message:', lastUserMessage.message.id);
         const fallbackResult = addToTree(tab.threadedMessages, lastUserMessage.message.id, 0);
         
         if (fallbackResult.found) {
@@ -917,7 +856,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
       
       // Último recurso: adiciona como nó raiz
-      console.log('[Chat] ⚠️ All fallbacks failed, adding as root');
       const newNode = new main.MessageNode({
         message,
         children: [],
@@ -972,7 +910,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     try {
       // Se conversationId é 0, limpa a aba (nova conversa)
       if (conversationId === 0) {
-        console.log('[Chat] Criando nova conversa na aba ativa');
         set((state) => ({
           tabs: state.tabs.map((t) =>
             t.id === activeTabId
@@ -990,12 +927,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
 
       // Carrega conversa no backend
-      console.log('[Chat] Carregando conversa', conversationId, 'na aba', activeTab.backendId);
       await LoadConversationInTab(activeTab.backendId, conversationId);
 
       // Carrega mensagens da conversa
       const backendNodes = await GetMessages(conversationId, null);
-      console.log('[Chat] Mensagens carregadas:', backendNodes.length);
 
       // Adiciona originalIndex aos nodes do backend
       const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
@@ -1005,9 +940,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       // Atualiza a aba com a nova conversa
       set((state) => {
-        console.log('[Chat] Atualizando aba', activeTabId, 'com conversa', conversationId, 'título:', conversationTitle);
-        console.log('[Chat] Estado das abas antes da atualização:', state.tabs.map(t => ({ id: t.id, title: t.title, conversationId: t.conversationId })));
-        
         const newTabs = state.tabs.map((t) =>
           t.id === activeTabId
             ? {
@@ -1019,25 +951,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               }
             : t
         );
-        
-        console.log('[Chat] Estado das abas depois da atualização:', newTabs.map(t => ({ id: t.id, title: t.title, conversationId: t.conversationId })));
-        
         return { tabs: newTabs };
       });
 
       // Se era uma aba em branco, cria uma nova aba em branco para futuras conversas
       if (isBlankTab) {
-        console.log('[Chat] Creating new blank tab after loading conversation...');
         setTimeout(() => {
-          createTab(false).then(newTabId => {
-            console.log('[Chat] New blank tab created (not activated):', newTabId);
+          createTab(false).then(() => {
           }).catch((err: any) => {
             console.error('[Chat] Error creating new blank tab:', err);
           });
         }, 100);
       }
-
-      console.log('[Chat] ✅ Conversa carregada com sucesso na aba ativa');
       
       // Anuncia para acessibilidade
       announce(`Conversa aberta: ${conversationTitle || 'Conversa carregada'}`);
@@ -1048,6 +973,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   },
 
   sendMessage: async (content, mediaFiles) => {
+        return get().sendMessageWithParams(content, mediaFiles);
+      },
+
+  sendMessageWithParams: async (content, mediaFiles, paramsOverride) => {
         const { activeTabId, addMessage, createTab, updateTabTitle, tabs } = get();
 
         // Validação de tamanho do conteúdo
@@ -1101,10 +1030,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         // Se for uma aba em branco recebendo sua primeira mensagem,
         // cria uma nova aba em branco para futuras conversas (sem ativar)
         if (isBlankTab) {
-          console.log('[Chat] Creating new blank tab for future conversations...');
           setTimeout(() => {
-            createTab(false).then(newTabId => {
-              console.log('[Chat] New blank tab created (not activated):', newTabId);
+            createTab(false).then(() => {
             }).catch(err => {
               console.error('[Chat] Error creating new blank tab:', err);
             });
@@ -1127,7 +1054,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         
         // Listen for conversation created event
         const unsubscribeConvCreated = EventsOn('chat:conversation_created', (data: any) => {
-          console.log('[Chat] Conversation created:', data);
           if (data.id && data.title) {
             const tabIdToUpdate = currentTabId;
             set((state) => ({
@@ -1142,7 +1068,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
         // Listen for conversation loaded in tab (backend vincula conversa à tab)
         const unsubscribeConvLoaded = EventsOn('conversation_loaded_in_tab', (data: any) => {
-          console.log('[Chat] Conversation loaded in tab:', data);
           if (data.tabId && data.conversationId) {
             // Encontra a tab pelo backendId e atualiza conversationId
             set((state) => ({
@@ -1158,11 +1083,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         // Listen for messages_ready - atualiza IDs das mensagens para IDs reais do banco
         // CRÍTICO: Isso permite que mensagens internas (com parentId do banco) encontrem o pai correto
         const unsubscribeMessagesReady = EventsOn('chat:messages_ready', (data: any) => {
-          console.log('[Chat] 🔄 Messages ready event received:', data);
-          
           if (data.userMessageId) {
             const backendUserId = data.userMessageId.toString();
-            console.log('[Chat] 🔄 Updating user message ID from', userMessageId, 'to', backendUserId);
             
             // Atualiza o ID da mensagem do usuário para o ID real do banco
             set((state) => {
@@ -1173,7 +1095,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               const updateMessageId = (nodes: MessageNode[]): MessageNode[] => {
                 return nodes.map(node => {
                   if (node.message.id === userMessageId) {
-                    console.log('[Chat] ✅ Found user message, updating ID to:', backendUserId);
                     // Cria novo nó com ID atualizado
                     const updatedMessage = new main.EnrichedMessage({
                       ...node.message,
@@ -1203,14 +1124,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const tab = get().tabs.find((t) => t.id === currentTabId);
           const conversationId = tab?.conversationId || 0;
 
-          console.log('[Chat] Sending message to backend...', {
-            conversationId,
-            contentLength: content.length,
-            hasMedia: !!mediaFiles && mediaFiles.length > 0,
-          });
-
           // Setup completion handler that will clean up everything
-          // CRÍTICO: Registrar listeners ANTES de chamar SendMessage/AddMessageWithMedia
+          // CRÍTICO: Registrar listeners ANTES de chamar SendMessage
           // pois o backend inicia streaming em goroutine e pode emitir eventos antes do await retornar
           let unsubscribeStream: (() => void) | null = null;
           let unsubscribeComplete: (() => void) | null = null;
@@ -1220,13 +1135,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const cleanup = () => {
             // Previne execução múltipla do cleanup (backend pode emitir chat:done várias vezes)
             if (cleanupExecuted) {
-              console.log('[Chat] ⚠️  Cleanup já foi executado para tab:', currentTabId, '- ignorando chamada duplicada');
               return;
             }
             cleanupExecuted = true;
 
             activeListenerCount--;
-            console.log('[Chat] Cleaning up listeners for tab:', currentTabId, '| Active listeners:', activeListenerCount);
             if (unsubscribeStream) {
               unsubscribeStream();
               unsubscribeStream = null;
@@ -1242,7 +1155,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           // Limpa listeners antigos desta tab se existirem
           const existingCleanup = activeListeners.get(currentTabId!);
           if (existingCleanup) {
-            console.log('[Chat] ⚠️  LIMPANDO listeners antigos da tab:', currentTabId, '(isso previne duplicação)');
             existingCleanup();
             // IMPORTANTE: Aguarda um tick para garantir que o cleanup foi processado
             await new Promise(resolve => setTimeout(resolve, 0));
@@ -1250,18 +1162,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
           // Listen for streaming chunks from backend
           activeListenerCount++;
-          console.log('[Chat] Registrando NOVOS listeners para tab:', currentTabId, '| Total de listeners ativos:', activeListenerCount);
           
           unsubscribeStream = EventsOn('chat:stream', (event: any) => {
             // IMPORTANTE: Verifica se este listener ainda é válido (não foi limpo)
             if (!activeListeners.has(currentTabId!)) {
-              console.log('[Chat] ⚠️  Ignorando evento de listener órfão para tab:', currentTabId);
               return;
-            }
-
-            // Log apenas eventos importantes para não poluir console
-            if (event.done || event.error) {
-              console.log('[Chat] Stream event:', event);
             }
 
             if (event.content) {
@@ -1296,8 +1201,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
             // If done, mark as not streaming
             if (event.done) {
-              console.log('[Chat] Stream completed');
-              
               // Obtém o conteúdo final da mensagem para anunciar
               const currentState = get();
               const currentTab = currentState.tabs.find(t => t.id === currentTabId);
@@ -1365,7 +1268,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           let unsubscribeThinking: (() => void) | null = null;
           unsubscribeThinking = EventsOn('chat:thinking', (event: any) => {
             if (!activeListeners.has(currentTabId!)) {
-              console.log('[Chat] Ignorando chat:thinking de listener órfão para tab:', currentTabId);
               return;
             }
 
@@ -1380,7 +1282,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               if (event.content) {
                 get().updateMessageReasoning(currentTabId!, assistantMessageId, event.content);
               }
-              console.log('[Chat] Thinking completed:', event.content?.length, 'chars');
             } else {
               // Atualização durante thinking
               set({ streamingReasoning: event.content || '' });
@@ -1393,7 +1294,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           let unsubscribeToolStart: (() => void) | null = null;
           unsubscribeToolStart = EventsOn('chat:tool_start', (data: any) => {
             if (!activeListeners.has(currentTabId!)) return;
-            console.log('[Chat] 🔧 Tool start:', data.name, data.callId);
             
             set((state) => ({
               hadToolCalls: true,
@@ -1413,7 +1313,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           let unsubscribeToolEnd: (() => void) | null = null;
           unsubscribeToolEnd = EventsOn('chat:tool_end', (data: any) => {
             if (!activeListeners.has(currentTabId!)) return;
-            console.log('[Chat] ✅ Tool end:', data.name, data.status);
             
             set((state) => ({
               activeToolCalls: state.activeToolCalls.map((tc) =>
@@ -1476,14 +1375,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           });
 
           // Listen for completion event - this signals end of entire chat process
-          unsubscribeComplete = EventsOn('chat:done', (data: any) => {
+          unsubscribeComplete = EventsOn('chat:done', () => {
             // IMPORTANTE: Verifica se este listener ainda é válido
             if (!activeListeners.has(currentTabId!)) {
-              console.log('[Chat] ⚠️  Ignorando chat:done de listener órfão para tab:', currentTabId);
               return;
             }
-            
-            console.log('[Chat] Chat complete:', data);
             const didUseTools = get().hadToolCalls;
             
             // Mark message as no longer streaming
@@ -1510,7 +1406,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (didUseTools) {
               const tab = get().tabs.find(t => t.id === currentTabId);
               if (tab?.conversationId) {
-                console.log('[Chat] 🔄 Recarregando mensagens após tool calling...');
                 GetMessages(tab.conversationId, null).then((backendNodes) => {
                   const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
                     (node as any).originalIndex = index;
@@ -1525,7 +1420,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                     hadToolCalls: false,
                     completedSegments: [],
                   }));
-                  console.log('[Chat] ✅ Mensagens recarregadas:', backendNodes.length);
                 }).catch((err) => {
                   console.error('[Chat] ❌ Erro ao recarregar mensagens:', err);
                 });
@@ -1550,7 +1444,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           // Isso garante que se uma nova mensagem for enviada antes do término,
           // os listeners antigos serão limpos corretamente
           activeListeners.set(currentTabId!, enhancedCleanup);
-          console.log('[Chat] Listeners registrados para tab:', currentTabId);
 
           // Store cleanup function for use in error handler
           unsubscribe = () => {
@@ -1561,9 +1454,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           };
 
           // AGORA envia a mensagem — listeners já estão ativos para capturar streaming
+          let mediaJson = '';
           if (mediaFiles && mediaFiles.length > 0) {
             const mediaDataArray: MediaData[] = [];
-            
             for (const mediaFile of mediaFiles) {
               const base64Data = await fileToBase64(mediaFile.file);
               mediaDataArray.push({
@@ -1573,48 +1466,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 size: mediaFile.file.size,
               });
             }
-
-            const mediaJson = JSON.stringify(mediaDataArray);
-            console.log('[Chat] Sending message with media:', mediaDataArray.length, 'files');
-
-            const newMessage = await AddMessageWithMedia(
-              conversationId,
-              'user',
-              content,
-              mediaJson
-            );
-
-            // Update tab with conversation ID if we didn't have one
-            if (!tab?.conversationId && newMessage.conversationId) {
-              set((state) => ({
-                tabs: state.tabs.map((t) =>
-                  t.id === currentTabId
-                    ? { ...t, conversationId: newMessage.conversationId }
-                    : t
-                ),
-              }));
-            }
-
-            const activeConvId = newMessage.conversationId || conversationId;
-            if (!tab?.conversationId && activeConvId) {
-              set((state) => ({
-                tabs: state.tabs.map((t) =>
-                  t.id === currentTabId
-                    ? { ...t, conversationId: activeConvId }
-                    : t
-                ),
-              }));
-            }
-          } else {
-            // Normal message without media
-            console.log('[Chat] Calling SendMessage...', { conversationId, contentLength: content.length });
-            await SendMessage(conversationId, content, '', {
-              model: '',
-              temperature: 0,
-              maxTokens: 0,
-            });
-            console.log('[Chat] SendMessage returned successfully');
+            mediaJson = JSON.stringify(mediaDataArray);
           }
+
+          const mergedParams: any = {
+            model: '',
+            temperature: 0,
+            maxTokens: 0,
+            ...(paramsOverride || {}),
+          };
+          await SendMessage(conversationId, content, mediaJson, mergedParams);
           
           // Note: DO NOT cleanup here - listeners need to stay active for streaming events
         } catch (error: any) {
@@ -1720,8 +1581,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       
       // Carrega filhos de uma mensagem específica
       loadMessageChildren: async (messageId) => {
-        console.log('[Chat]  Loading children for message:', messageId);
-        
         try {
           const messageIdNum = parseInt(messageId, 10);
           if (isNaN(messageIdNum)) {
@@ -1730,10 +1589,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
           
           // Chama backend para carregar filhos
-          const { GetMessageChildren } = await import('../../wailsjs/go/main/App');
           const backendNodes = await GetMessageChildren(messageIdNum);
-          
-          console.log('[Chat] ✅ Loaded children from backend:', backendNodes.length);
           
           // Adiciona originalIndex aos nodes do backend
           const frontendNodes: MessageNode[] = (backendNodes || []).map((node, index) => {
@@ -1785,31 +1641,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     // Chamado quando uma conversa é deletada pelo backend
     handleConversationDeleted: (conversationId: number) => {
-      console.log('[Chat] 🗑️ handleConversationDeleted CHAMADO para conversationId:', conversationId);
-      
       // Anuncia para acessibilidade
       announce('Conversa apagada permanentemente');
       
       const state = get();
-      console.log('[Chat] 🗑️ Tabs atuais:', state.tabs.map(t => ({ id: t.id, conversationId: t.conversationId })));
       
       const tabToClose = state.tabs.find(tab => tab.conversationId === conversationId);
       
       if (!tabToClose) {
-        console.log('[Chat] 🗑️ Tab com conversa deletada NÃO ENCONTRADA');
         return;
       }
-      
-      console.log('[Chat] 🗑️ Tab encontrada para fechar:', { id: tabToClose.id, backendId: tabToClose.backendId });
 
       // Se houver mais de uma aba, fecha a aba da conversa deletada
       if (state.tabs.length > 1) {
-        console.log('[Chat] 🗑️ Fechando tab (mais de uma aba existe):', tabToClose.id);
         // Usa deleteTab para fechar corretamente
         get().deleteTab(tabToClose.id);
       } else {
         // Se for a única aba, apenas limpa
-        console.log('[Chat] 🗑️ Única aba - limpando em vez de fechar');
         set((s) => ({
           tabs: s.tabs.map(tab => 
             tab.id === tabToClose.id
@@ -1835,19 +1683,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
         if (input) {
           input.focus();
-          console.log('[Chat] 🗑️ Foco movido para input');
         }
       }, 200);
     },
 
     // Chamado quando uma conversa é limpa (mensagens removidas)
     handleConversationCleared: (conversationId: number) => {
-      console.log('[Chat] 🧹 handleConversationCleared CHAMADO para conversationId:', conversationId);
-      
-      const state = get();
-      const tabToUpdate = state.tabs.find(tab => tab.conversationId === conversationId);
-      console.log('[Chat] 🧹 Tab encontrada:', tabToUpdate ? `id=${tabToUpdate.id}, backendId=${tabToUpdate.backendId}` : 'NENHUMA');
-      
       // Anuncia para acessibilidade
       announce('Mensagens da conversa removidas');
       
@@ -1855,7 +1696,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       set((state) => {
         const updatedTabs: ChatTab[] = state.tabs.map(tab => {
           if (tab.conversationId === conversationId) {
-            console.log('[Chat] 🧹 Limpando mensagens da tab:', tab.id);
             return {
               ...tab,
               threadedMessages: [] as MessageNode[],
@@ -1865,7 +1705,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
           return tab;
         });
-        console.log('[Chat] 🧹 Tabs atualizadas:', updatedTabs.length);
         return { tabs: updatedTabs };
       });
       
@@ -1874,19 +1713,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
         if (input) {
           input.focus();
-          console.log('[Chat] 🧹 Foco movido para input');
         }
       }, 200);
     },
 
     // Chamado quando uma conversa é renomeada
     handleConversationRenamed: (conversationId: number, newTitle: string) => {
-      console.log('[Chat] Handling conversation renamed:', conversationId, '->', newTitle);
-      
       set((state) => {
         const updatedTabs: ChatTab[] = state.tabs.map(tab => {
           if (tab.conversationId === conversationId) {
-            console.log('[Chat] Renaming tab:', tab.id, 'to:', newTitle);
             return {
               ...tab,
               title: newTitle,
@@ -1904,8 +1739,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     // Chamado quando o banco de dados é resetado
     handleDatabaseReset: () => {
-      console.log('[Chat] Handling database reset - reinitializing...');
-      
       // Limpa todos os listeners ativos
       activeListeners.forEach((cleanup) => cleanup());
       activeListeners.clear();
@@ -1935,19 +1768,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     // Chamado quando uma tab é fechada externamente (via ChatManager ou outro)
     handleTabClosed: (backendTabId: number) => {
-      console.log('[Chat] Handling tab closed externally:', backendTabId);
-      
       const state = get();
       const tabToClose = state.tabs.find(t => t.backendId === backendTabId);
       
       if (!tabToClose) {
-        console.log('[Chat] Tab not found, may have been closed locally already');
         return;
       }
       
       // Não permite fechar se for a última aba
       if (state.tabs.length <= 1) {
-        console.log('[Chat] Cannot close last tab, clearing instead');
         set((s) => ({
           tabs: s.tabs.map(tab => 
             tab.backendId === backendTabId
@@ -2000,15 +1829,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       // Encontra todas as abas vazias (sem conversationId)
       const emptyTabs = state.tabs.filter(tab => !tab.conversationId);
       
-      console.log('[Chat] Empty tabs found:', emptyTabs.length);
-      
       // Se houver mais de uma aba vazia, fecha as extras (mantém a última)
       if (emptyTabs.length > 1) {
         // Mantém a última aba vazia (mais recente por updatedAt)
         const sortedEmpty = [...emptyTabs].sort((a, b) => b.updatedAt - a.updatedAt);
         const tabsToClose = sortedEmpty.slice(1); // Fecha todas exceto a mais recente
-        
-        console.log('[Chat] Closing extra empty tabs:', tabsToClose.map(t => t.id));
         
         // Fecha cada aba extra (precisa fazer sequencialmente para evitar race condition)
         for (const tab of tabsToClose) {
@@ -2042,7 +1867,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               : t
           ),
         }));
-        console.log('[Chat] Mensagens recarregadas (external channel):', backendNodes.length);
       } catch (err) {
         console.error('[Chat] Erro ao recarregar mensagens (external):', err);
       }
@@ -2055,7 +1879,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const { tabs } = get();
       const tab = tabs.find((t) => t.conversationId === conversationId);
       if (!tab) {
-        console.log('[Chat] reloadConversation: conversa', conversationId, 'não está em nenhuma aba');
         return;
       }
 
@@ -2073,7 +1896,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               : t
           ),
         }));
-        console.log('[Chat] Mensagens da conversa', conversationId, 'recarregadas:', backendNodes.length);
       } catch (err) {
         console.error('[Chat] Erro ao recarregar conversa', conversationId, ':', err);
       }
@@ -2092,7 +1914,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           t.id === tabId ? { ...t, channel, contactId } : t
         ),
       }));
-      console.log('[Chat] Canal atribuído:', channel, contactId, '→ tab', tabId);
     },
 
     // Remove a vinculação de canal de uma conversa.
@@ -2105,7 +1926,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           t.id === tabId ? { ...t, channel: undefined, contactId: undefined } : t
         ),
       }));
-      console.log('[Chat] Canal removido da tab', tabId);
     },
 
     // Trata mensagem recebida de canal externo (Signal, Telegram) com streaming completo.
@@ -2151,16 +1971,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             tabs: [...state.tabs, newTab],
           }));
           targetTabId = frontendTabId;
-          console.log('[Chat] Nova aba externa adicionada ao store:', frontendTabId, tabTitle);
         }
       }
 
       if (!targetTabId) {
-        console.log('[Chat] handleExternalIncoming: nenhuma aba encontrada para conversa', conversationId);
         return;
       }
-
-      console.log('[Chat] handleExternalIncoming:', from, 'via', channel, '→ tab', targetTabId);
 
       // 2. Adiciona a mensagem do usuário (origin badge via source)
       //    Para áudio, text pode ser vazio — será atualizado por chat:messages_ready com a transcrição.
@@ -2188,7 +2004,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         cleanupExecuted = true;
 
         activeListenerCount--;
-        console.log('[Chat] Cleaning up external listeners for tab:', targetTabId, '| Active:', activeListenerCount);
         unsubStream();
         unsubThinking();
         unsubToolStart();
@@ -2203,19 +2018,16 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       // Limpa listeners antigos desta tab se existirem
       const existingCleanup = activeListeners.get(targetTabId);
       if (existingCleanup) {
-        console.log('[Chat] ⚠️  Limpando listeners antigos da tab (external):', targetTabId);
         existingCleanup();
       }
 
       activeListenerCount++;
-      console.log('[Chat] Registrando listeners EXTERNOS para tab:', targetTabId, '| Total:', activeListenerCount);
 
       // chat:messages_ready — atualiza ID, conteúdo e conversationId do user message
       const unsubReady = EventsOn('chat:messages_ready', (event: any) => {
         if (!activeListeners.has(targetTabId!)) return;
         if (event.userMessageId) {
           const backendUserId = event.userMessageId.toString();
-          console.log('[Chat] (external) messages_ready: conv=', event.conversationId, 'backendId=', backendUserId, 'content=', event.userContent?.substring(0, 50));
           
           // Atualiza ID e conteúdo da mensagem do usuário (ID local → ID do banco, + transcrição de áudio)
           set((state) => {
@@ -2400,9 +2212,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:done — finaliza e faz reload se houve tool calls
-      const unsubDone = EventsOn('chat:done', (event: any) => {
+      const unsubDone = EventsOn('chat:done', () => {
         if (!activeListeners.has(targetTabId!)) return;
-        console.log('[Chat] (external) chat:done:', event);
 
         const didUseTools = get().hadToolCalls;
 

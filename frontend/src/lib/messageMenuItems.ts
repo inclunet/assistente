@@ -1,5 +1,5 @@
 import { Message } from '../store/chatStore';
-import { MenuItem } from '../components/ui/ContextMenu';
+import { MenuItem } from '../components/menu';
 import { unified } from 'unified';
 import remarkParse from 'remark-parse';
 import remarkGfm from 'remark-gfm';
@@ -18,10 +18,32 @@ export interface MenuItemsOptions {
   onDelete?: (message: Message) => void;
   onPin?: (message: Message) => void;
   onAnnounce?: (text: string) => void;
+  onSendToEditor?: (payload: {
+    target: 'current' | 'new_tab';
+    format: 'markdown' | 'html' | 'plain';
+    title?: string;
+    content: string;
+    kind: 'message' | 'code' | 'table' | 'link';
+    index?: number;
+  }) => void;
   onToggleReasoning?: (message: Message) => void; // Mostrar/ocultar reasoning
   isTTSDisabled?: boolean;
   isUser?: boolean;
   isReasoningExpanded?: boolean | ((messageId: string) => boolean); // Estado atual ou função
+}
+
+function fenceCodeBlock(params: { code: string; language?: string }) {
+  const language = String(params.language || '').trim();
+  const code = String(params.code || '');
+  const langPart = language ? language : '';
+  return `\n\n\`\`\`${langPart}\n${code}\n\`\`\`\n`;
+}
+
+function asMarkdownLink(params: { text: string; url: string }) {
+  const text = String(params.text || '').trim() || String(params.url || '').trim();
+  const url = String(params.url || '').trim();
+  if (!url) return text;
+  return `[${text}](${url})`;
 }
 
 // Extrai blocos de código do markdown usando AST
@@ -239,6 +261,7 @@ export function getMessageMenuItems(
     onDelete,
     onPin,
     onAnnounce,
+    onSendToEditor,
     onToggleReasoning,
     isTTSDisabled = true,
     isUser = false,
@@ -376,6 +399,77 @@ export function getMessageMenuItems(
     action: () => onCopy?.(message, true),
   });
 
+  // 4b. Enviar para o editor (mensagem inteira)
+  if (onSendToEditor) {
+    const contentMd = String(message.content || '');
+    const contentPlain = stripMarkdown(contentMd);
+    items.push({
+      id: 'send-editor',
+      label: 'Enviar ao editor',
+      icon: '📝',
+      ariaLabel: 'Enviar ao editor',
+      submenu: [
+        {
+          id: 'send-editor-insert-md',
+          label: 'Inserir no cursor (Markdown)',
+          icon: '🧷',
+          ariaLabel: 'Inserir no cursor do editor (Markdown)',
+          action: () =>
+            onSendToEditor({
+              target: 'current',
+              format: 'markdown',
+              title: 'Mensagem (Markdown)',
+              content: contentMd,
+              kind: 'message',
+            }),
+        },
+        {
+          id: 'send-editor-new-md',
+          label: 'Novo documento (Markdown)',
+          icon: '📄',
+          ariaLabel: 'Criar novo documento no editor (Markdown)',
+          action: () =>
+            onSendToEditor({
+              target: 'new_tab',
+              format: 'markdown',
+              title: 'Mensagem (Markdown)',
+              content: contentMd,
+              kind: 'message',
+            }),
+        },
+        { id: 'send-editor-sep-plain', separator: true },
+        {
+          id: 'send-editor-insert-plain',
+          label: 'Inserir no cursor (texto)',
+          icon: '🧷',
+          ariaLabel: 'Inserir no cursor do editor (texto)',
+          action: () =>
+            onSendToEditor({
+              target: 'current',
+              format: 'plain',
+              title: 'Mensagem (texto)',
+              content: contentPlain,
+              kind: 'message',
+            }),
+        },
+        {
+          id: 'send-editor-new-plain',
+          label: 'Novo documento (texto)',
+          icon: '📄',
+          ariaLabel: 'Criar novo documento no editor (texto)',
+          action: () =>
+            onSendToEditor({
+              target: 'new_tab',
+              format: 'plain',
+              title: 'Mensagem (texto)',
+              content: contentPlain,
+              kind: 'message',
+            }),
+        },
+      ],
+    });
+  }
+
   // 5. Fixar/Desafixar
   if (onPin) {
     const isPinned = (message as any).pinned || false;
@@ -393,6 +487,209 @@ export function getMessageMenuItems(
     items.push({
       id: 'separator-markdown',
       separator: true,
+    });
+  }
+
+  // Enviar blocos para o editor (acessibilidade: disponível no menu também)
+  if (onSendToEditor && (codeBlocks.length > 0 || links.length > 0 || tables.length > 0)) {
+    const submenu: MenuItem[] = [];
+
+    if (codeBlocks.length > 0) {
+      const codeMenu: MenuItem[] = codeBlocks.map((block, i) => {
+        const language = String(block.language || 'text');
+        const md = fenceCodeBlock({ code: block.code, language });
+        return {
+          id: `send-code-${i}`,
+          label: codeBlocks.length === 1 ? `Código ${language}` : `${language} (${i + 1})`,
+          icon: '💻',
+          ariaLabel: `Enviar código ${language} ao editor`,
+          submenu: [
+            {
+              id: `send-code-${i}-insert`,
+              label: 'Inserir no cursor',
+              icon: '🧷',
+              ariaLabel: 'Inserir código no cursor do editor',
+              action: () =>
+                onSendToEditor({
+                  target: 'current',
+                  format: 'markdown',
+                  title: `Código ${language}`,
+                  content: md,
+                  kind: 'code',
+                  index: i,
+                }),
+            },
+            {
+              id: `send-code-${i}-new`,
+              label: 'Novo documento',
+              icon: '📄',
+              ariaLabel: 'Criar novo documento com este código',
+              action: () =>
+                onSendToEditor({
+                  target: 'new_tab',
+                  format: 'markdown',
+                  title: `Código ${language}`,
+                  content: md,
+                  kind: 'code',
+                  index: i,
+                }),
+            },
+          ],
+        };
+      });
+
+      submenu.push({
+        id: 'send-code',
+        label: codeBlocks.length === 1 ? 'Código' : `Códigos (${codeBlocks.length})`,
+        icon: '💻',
+        ariaLabel: codeBlocks.length === 1 ? 'Enviar código ao editor' : `Enviar ${codeBlocks.length} códigos ao editor`,
+        submenu: codeMenu,
+      });
+    }
+
+    if (tables.length > 0) {
+      const tablesMenu: MenuItem[] = tables.map((table, i) => {
+        const md = tableToMarkdown(table);
+        const html = tableToHTML(table);
+        return {
+          id: `send-table-${i}`,
+          label: tables.length === 1 ? 'Tabela' : `Tabela ${i + 1}`,
+          icon: '📊',
+          ariaLabel: `Enviar tabela ${i + 1} ao editor`,
+          submenu: [
+            {
+              id: `send-table-${i}-md`,
+              label: 'Inserir Markdown no cursor',
+              icon: '🧷',
+              ariaLabel: 'Inserir tabela (Markdown) no cursor do editor',
+              action: () =>
+                onSendToEditor({
+                  target: 'current',
+                  format: 'markdown',
+                  title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
+                  content: md,
+                  kind: 'table',
+                  index: i,
+                }),
+            },
+            {
+              id: `send-table-${i}-md-new`,
+              label: 'Novo documento (Markdown)',
+              icon: '📄',
+              ariaLabel: 'Criar novo documento com a tabela (Markdown)',
+              action: () =>
+                onSendToEditor({
+                  target: 'new_tab',
+                  format: 'markdown',
+                  title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
+                  content: md,
+                  kind: 'table',
+                  index: i,
+                }),
+            },
+            { id: `send-table-${i}-sep`, separator: true },
+            {
+              id: `send-table-${i}-html`,
+              label: 'Inserir HTML no cursor',
+              icon: '🧷',
+              ariaLabel: 'Inserir tabela (HTML) no cursor do editor',
+              action: () =>
+                onSendToEditor({
+                  target: 'current',
+                  format: 'html',
+                  title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
+                  content: html,
+                  kind: 'table',
+                  index: i,
+                }),
+            },
+            {
+              id: `send-table-${i}-html-new`,
+              label: 'Novo documento (HTML)',
+              icon: '📄',
+              ariaLabel: 'Criar novo documento com a tabela (HTML)',
+              action: () =>
+                onSendToEditor({
+                  target: 'new_tab',
+                  format: 'html',
+                  title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
+                  content: html,
+                  kind: 'table',
+                  index: i,
+                }),
+            },
+          ],
+        };
+      });
+
+      submenu.push({
+        id: 'send-tables',
+        label: tables.length === 1 ? 'Tabela' : `Tabelas (${tables.length})`,
+        icon: '📊',
+        ariaLabel: tables.length === 1 ? 'Enviar tabela ao editor' : `Enviar ${tables.length} tabelas ao editor`,
+        submenu: tablesMenu,
+      });
+    }
+
+    if (links.length > 0) {
+      const linksMenu: MenuItem[] = links.map((link, i) => {
+        const md = asMarkdownLink({ text: link.text, url: link.url });
+        const label = link.text.substring(0, 28) + (link.text.length > 28 ? '…' : '');
+        return {
+          id: `send-link-${i}`,
+          label,
+          icon: '🔗',
+          ariaLabel: `Enviar link ao editor: ${link.text}`,
+          submenu: [
+            {
+              id: `send-link-${i}-insert`,
+              label: 'Inserir no cursor',
+              icon: '🧷',
+              ariaLabel: 'Inserir link no cursor do editor',
+              action: () =>
+                onSendToEditor({
+                  target: 'current',
+                  format: 'markdown',
+                  title: 'Link',
+                  content: md,
+                  kind: 'link',
+                  index: i,
+                }),
+            },
+            {
+              id: `send-link-${i}-new`,
+              label: 'Novo documento',
+              icon: '📄',
+              ariaLabel: 'Criar novo documento com este link',
+              action: () =>
+                onSendToEditor({
+                  target: 'new_tab',
+                  format: 'markdown',
+                  title: 'Link',
+                  content: md,
+                  kind: 'link',
+                  index: i,
+                }),
+            },
+          ],
+        };
+      });
+
+      submenu.push({
+        id: 'send-links',
+        label: links.length === 1 ? 'Link' : `Links (${links.length})`,
+        icon: '🔗',
+        ariaLabel: links.length === 1 ? 'Enviar link ao editor' : `Enviar ${links.length} links ao editor`,
+        submenu: linksMenu,
+      });
+    }
+
+    items.push({
+      id: 'send-blocks-editor',
+      label: 'Enviar blocos ao editor',
+      icon: '🧩',
+      ariaLabel: 'Enviar blocos ao editor',
+      submenu,
     });
   }
 

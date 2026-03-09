@@ -1,8 +1,19 @@
 .terminal-tabs {
+  /* Aliases de tokens para convergir com `ui/tabs` (sem mudar o visual). */
+  --tab-accent: var(--color-accent, #2196f3);
+  --tab-bg: var(--color-bg-tertiary, #e8e8e8);
+  --tab-bg-hover: var(--color-bg-hover, #ddd);
+  --tab-bg-active: var(--color-bg-primary, #fff);
+  --tab-border-active: var(--color-border, #ddd);
+  --tab-color-muted: var(--color-text-tertiary, #999);
+
+  --tabs-focus-outline: 2px solid var(--tab-accent);
+  --tabs-focus-outline-offset: -2px;
+
   display: flex;
   align-items: center;
-  background-color: var(--color-bg-secondary, #f0f0f0);
-  border-bottom: 1px solid var(--color-border, #ddd);
+  background-color: var(--tabs-bar-bg, var(--color-bg-secondary, #f0f0f0));
+  border-bottom: 1px solid var(--tabs-bar-border, var(--color-border, #ddd));
   min-height: 36px;
   padding: 0 4px;
 }
@@ -17,6 +28,16 @@
   min-width: 0;
 }
 
+.terminal-tabs__tab-wrapper {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.terminal-tabs__tab-wrapper--active {
+  z-index: 1;
+}
+
 /* Cada aba é um <button role="tab"> */
 .terminal-tabs__tab {
   display: flex;
@@ -24,7 +45,7 @@
   gap: 6px;
   padding: 6px 10px;
   border-radius: 6px 6px 0 0;
-  background-color: var(--color-bg-tertiary, #e8e8e8);
+  background-color: var(--tab-bg);
   cursor: pointer;
   font-size: 0.82rem;
   white-space: nowrap;
@@ -37,19 +58,24 @@
   font-family: inherit;
 }
 
+/* espaço para o botão de fechar (absoluto) */
+.terminal-tabs__tab-wrapper .terminal-tabs__tab {
+  padding-right: 26px;
+}
+
 .terminal-tabs__tab:hover {
-  background-color: var(--color-bg-hover, #ddd);
+  background-color: var(--tab-bg-hover);
 }
 
 .terminal-tabs__tab--active {
-  background-color: var(--color-bg-primary, #fff);
-  border-color: var(--color-border, #ddd);
+  background-color: var(--tab-bg-active);
+  border-color: var(--tab-border-active);
   font-weight: 600;
 }
 
 .terminal-tabs__tab:focus-visible {
-  outline: 2px solid var(--color-accent, #2196f3);
-  outline-offset: -2px;
+  outline: var(--tabs-focus-outline);
+  outline-offset: var(--tabs-focus-outline-offset);
   z-index: 1;
 }
 
@@ -79,6 +105,10 @@
 
 /* Botão de fechar — fora do tabindex (tabIndex=-1) */
 .terminal-tabs__tab-close {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -90,14 +120,14 @@
   border-radius: 3px;
   cursor: pointer;
   font-size: 0.9rem;
-  color: var(--color-text-tertiary, #999);
+  color: var(--tab-color-muted);
   opacity: 0;
   transition: opacity 0.15s ease, background-color 0.15s ease;
 }
 
-.terminal-tabs__tab:hover .terminal-tabs__tab-close,
-.terminal-tabs__tab--active .terminal-tabs__tab-close,
-.terminal-tabs__tab:focus-visible .terminal-tabs__tab-close {
+.terminal-tabs__tab-wrapper:hover .terminal-tabs__tab-close,
+.terminal-tabs__tab-wrapper--active .terminal-tabs__tab-close,
+.terminal-tabs__tab-wrapper:focus-within .terminal-tabs__tab-close {
   opacity: 1;
 }
 
@@ -138,21 +168,13 @@
 /* Dark mode */
 @media (prefers-color-scheme: dark) {
   .terminal-tabs {
-    background-color: var(--color-bg-secondary-dark, #1a1a1a);
-    border-bottom-color: var(--color-border-dark, #333);
-  }
+    background-color: var(--tabs-bar-bg, var(--color-bg-secondary-dark, #1a1a1a));
+    border-bottom-color: var(--tabs-bar-border, var(--color-border-dark, #333));
 
-  .terminal-tabs__tab {
-    background-color: var(--color-bg-tertiary-dark, #252525);
-  }
-
-  .terminal-tabs__tab:hover {
-    background-color: var(--color-bg-hover-dark, #333);
-  }
-
-  .terminal-tabs__tab--active {
-    background-color: var(--color-bg-primary-dark, #1e1e1e);
-    border-color: var(--color-border-dark, #444);
+    --tab-bg: var(--color-bg-tertiary-dark, #252525);
+    --tab-bg-hover: var(--color-bg-hover-dark, #333);
+    --tab-bg-active: var(--color-bg-primary-dark, #1e1e1e);
+    --tab-border-active: var(--color-border-dark, #444);
   }
 
   .terminal-tabs__tab-close:hover {

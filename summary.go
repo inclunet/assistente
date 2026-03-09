@@ -198,7 +198,18 @@ func (a *App) executeSummarization(
 	log.Printf("[Summary] Iniciando sumarização: conversa=%d, modelo=%s, %d mensagens novas, resumo anterior=%d chars",
 		conversationID, model, len(newMessages), len(existingSummary))
 
-	client := llm.NewSyncClient(cfg.APIBaseURL, cfg.APIKey)
+	// Busca provider do perfil para criar client
+	provider := a.llmRegistry.Get(profile.Chat.LLMProvider)
+	if provider == nil {
+		log.Printf("[Summary] Provider não encontrado: %s", profile.Chat.LLMProvider)
+		runtime.EventsEmit(a.ctx, "chat:summary_error", map[string]interface{}{
+			"conversationId": conversationID,
+			"error":          "Provider não encontrado",
+		})
+		return
+	}
+
+	client := llm.NewSyncClient(provider, a.credMgr)
 	summary, err := client.SimpleChat(context.Background(), model, SummaryPrompt, userPrompt)
 	if err != nil {
 		log.Printf("[Summary] Erro na chamada LLM: %v", err)

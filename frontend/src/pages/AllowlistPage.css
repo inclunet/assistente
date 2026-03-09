@@ -14,45 +14,6 @@
   gap: 16px;
 }
 
-.allowlist-page__editor {
-  border: 1px solid var(--color-border, #ddd);
-  border-radius: 8px;
-  padding: 16px;
-  background-color: var(--color-bg-secondary, #fafafa);
-}
-
-.allowlist-page__editor-header {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  margin-bottom: 16px;
-}
-
-.allowlist-page__editor-header h3 {
-  margin: 0;
-  font-size: 1.1rem;
-}
-
-.allowlist-page__editor-actions {
-  display: flex;
-  gap: 8px;
-}
-
-.allowlist-page__editor-footer {
-  display: flex;
-  justify-content: flex-end;
-  gap: 8px;
-  margin-top: 16px;
-  padding-top: 12px;
-  border-top: 1px solid var(--color-border, #ddd);
-}
-
-.allowlist-page__fields {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-}
-
 .allowlist-page__field {
   display: flex;
   flex-direction: column;
@@ -103,11 +64,6 @@
 
 /* Dark mode */
 @media (prefers-color-scheme: dark) {
-  .allowlist-page__editor {
-    background-color: var(--color-bg-secondary-dark, #252525);
-    border-color: var(--color-border-dark, #444);
-  }
-
   .allowlist-page__input,
   .allowlist-page__textarea {
     background-color: var(--color-bg-primary-dark, #1e1e1e);

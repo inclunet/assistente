@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations } from '../../wailsjs/go/main/App';
+import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations } from '@wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';

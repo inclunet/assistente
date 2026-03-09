@@ -1,5 +1,6 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { Combobox, ComboboxItem } from './Combobox';
+import { ComboboxItem } from './Combobox';
+import { BasePicker } from './BasePicker';
 import { ttsService } from '../../services/tts';
 import { TTSVoice, TTSProvider } from '../../services/tts/types';
 import './VoicePicker.css';
@@ -63,11 +64,8 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       setError(null);
 
       try {
-        // Busca vozes de TODOS os provedores
         const allVoices = await ttsService.getVoices();
-        
-        console.log('[VoicePicker] Loaded', allVoices.length, 'voices from all providers');
-        
+
         setVoices(allVoices);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Erro ao carregar vozes');
@@ -138,74 +136,34 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       });
     }
 
-    if (variant === 'toolbar') {
-      if (loading) {
-        return (
-          <div className="voice-picker-toolbar" role="status" aria-live="polite">
-            <span className="loading-spinner" aria-hidden="true" />
-            <span className="sr-only">Carregando vozes...</span>
-          </div>
-        );
-      }
-
-      if (error) {
-        return (
-          <div className="voice-picker-toolbar voice-picker-error" role="alert">
-            <span>⚠️</span>
-            <button onClick={loadVoices} className="retry-btn">
-              Tentar novamente
-            </button>
-          </div>
-        );
-      }
-
-      return (
-        <Combobox
-          items={items}
-          selected={value}
-          onSelect={onChange}
-          label={label}
-          icon={icon}
-          maxWidth={maxWidth}
-          onAnnounce={onAnnounce}
-        />
-      );
-    }
-
-    // Form variant
     return (
-      <div className="voice-picker-form">
-        <label className="voice-picker-label">
-          {icon && <span className="voice-picker-icon">{icon}</span>}
-          {label}
-        </label>
-        
-        {loading ? (
-          <div className="loading-state" role="status" aria-live="polite">
-            <span className="loading-spinner" aria-hidden="true" />
-            <span>Carregando vozes...</span>
-          </div>
-        ) : error ? (
-          <div className="error-state" role="alert">
-            <span className="error-icon">⚠️</span>
-            <span>{error}</span>
-            <button onClick={loadVoices} className="retry-btn">
-              Tentar novamente
-            </button>
-          </div>
-        ) : (
-          <Combobox
-            items={items}
-            selected={value}
-            onSelect={onChange}
-            label={label}
-            icon={icon}
-            onAnnounce={onAnnounce}
-          />
-        )}
-        
-        {helpText && <p className="help-text">{helpText}</p>}
-      </div>
+      <BasePicker
+        variant={variant}
+        items={items}
+        selected={value}
+        onSelect={onChange}
+        label={label}
+        icon={icon}
+        maxWidth={maxWidth}
+        onAnnounce={onAnnounce}
+        loading={loading}
+        error={error}
+        onRetry={loadVoices}
+        showFormLabel={variant === 'form'}
+        formClassName="voice-picker-form"
+        formLabelClassName="voice-picker-label"
+        formLabelIconClassName="voice-picker-icon"
+        helpText={variant === 'form' ? helpText : undefined}
+        helpTextClassName="help-text"
+        loadingLabel={{ form: 'Carregando vozes...', toolbar: 'Carregando vozes...' }}
+        loadingLabelVisuallyHidden={{ toolbar: true }}
+        loadingClassName={{ form: 'loading-state', toolbar: 'voice-picker-toolbar' }}
+        errorClassName={{ form: 'error-state', toolbar: 'voice-picker-toolbar voice-picker-error' }}
+        errorLabel={{ form: error || 'Erro ao carregar vozes', toolbar: '' }}
+        errorLabelVisuallyHidden={{ toolbar: true }}
+        errorIcon={{ form: '⚠️', toolbar: '⚠️' }}
+        retryClassName="retry-btn"
+      />
     );
   }
 );

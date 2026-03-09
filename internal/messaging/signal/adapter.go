@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/credentials"
+	httpclient "assistente/internal/tools/http"
 	"assistente/internal/messaging"
 
 	"github.com/gorilla/websocket"
@@ -40,7 +42,7 @@ type SignalAdapter struct {
 	status  messaging.ConnectionStatus
 
 	wsConn *websocket.Conn
-	client *http.Client
+	client *httpclient.Client
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -50,17 +52,24 @@ type SignalAdapter struct {
 // NewAdapter cria um novo adapter para o Signal via REST API.
 // baseURL é a URL base da signal-cli-rest-api (ex: "http://signal-api:8080").
 // account é o número de telefone vinculado (ex: "+5511999999999").
-func NewAdapter(baseURL, account string) *SignalAdapter {
+func NewAdapter(baseURL, account string, credMgr *credentials.Manager) *SignalAdapter {
 	// Remove trailing slash
 	baseURL = strings.TrimRight(baseURL, "/")
+
+	if credMgr == nil {
+		credMgr = credentials.NewManager(nil)
+	}
+
+	client := httpclient.New(&httpclient.Config{
+		CredentialManager: credMgr,
+		Timeout:           30 * time.Second,
+	}, map[string]string{})
 
 	return &SignalAdapter{
 		baseURL: baseURL,
 		account: account,
 		status:  messaging.StatusDisconnected,
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-		},
+		client:  client,
 	}
 }
 
@@ -151,7 +160,7 @@ func (s *SignalAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := s.client.Do(req)
+	resp, err := s.client.Do(s.ctx, req)
 	if err != nil {
 		return fmt.Errorf("erro ao enviar mensagem Signal para %s: %w", msg.ChatID, err)
 	}
@@ -173,7 +182,7 @@ func (s *SignalAdapter) downloadAttachment(attachmentID string) ([]byte, error) 
 		return nil, err
 	}
 
-	resp, err := s.client.Do(req)
+	resp, err := s.client.Do(s.ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao baixar attachment: %w", err)
 	}
@@ -216,7 +225,7 @@ func (s *SignalAdapter) healthCheckAndDetectMode() (string, error) {
 		return "", err
 	}
 
-	resp, err := s.client.Do(req)
+	resp, err := s.client.Do(s.ctx, req)
 	if err != nil {
 		return "", err
 	}
@@ -395,7 +404,7 @@ func (s *SignalAdapter) handleWSMessage(data []byte) {
 	}
 
 	msg := messaging.IncomingMessage{
-		ID:          fmt.Sprintf("%d", env.Timestamp),
+		ID: fmt.Sprintf("%d", env.Timestamp),
 		From: messaging.Contact{
 			ID:          contactID,
 			DisplayName: env.SourceName,
@@ -439,7 +448,7 @@ func (s *SignalAdapter) pollMessages() {
 		return
 	}
 
-	resp, err := s.client.Do(req)
+	resp, err := s.client.Do(s.ctx, req)
 	if err != nil {
 		if s.ctx.Err() == nil {
 			fmt.Printf("[Signal] Erro no polling: %v\n", err)

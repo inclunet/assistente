@@ -1,0 +1,119 @@
+import { forwardRef, useCallback, useEffect, useMemo } from 'react';
+import { EditorContent, useEditor } from '@tiptap/react';
+
+import { applyMermaidById as applyMermaidByIdInEditor, removeMermaidById as removeMermaidByIdInEditor } from './richMermaidById';
+import { useRichLinkDialog } from './useRichLinkDialog';
+import { buildRichTextExtensions } from './buildRichTextExtensions';
+import { useRichMarkdownSync } from './useRichMarkdownSync';
+import { useRichTextEditorHandle } from './useRichTextEditorHandle';
+
+import './RichTextEditor.css';
+
+export interface RichTextEditorProps {
+  markdown: string;
+  onMarkdownChange: (markdown: string) => void;
+  readOnly?: boolean;
+  placeholder?: string;
+  ariaLabel?: string;
+  onEditorReady?: (editor: any | null) => void;
+  onRequestEditMermaid?: (ctx: {
+    mermaidBlockId: string;
+    code: string;
+    insertText?: string;
+    apply: (nextCode: string) => void;
+    remove: () => void;
+  }) => void;
+}
+
+export type RichTextEditorHandle = {
+  getMarkdown: () => string;
+  flushMarkdown: () => void;
+  openLinkDialog: () => Promise<void>;
+  applyMermaidById: (mermaidBlockId: string, nextCode: string) => boolean;
+  removeMermaidById: (mermaidBlockId: string) => boolean;
+};
+
+export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(function RichTextEditor(
+  {
+    markdown,
+    onMarkdownChange,
+    readOnly = false,
+    placeholder = 'Escreva…',
+    ariaLabel = 'Editor de texto rico',
+    onEditorReady,
+    onRequestEditMermaid,
+  }: RichTextEditorProps,
+  ref
+) {
+  const markdownSync = useRichMarkdownSync({
+    markdown,
+    onMarkdownChange,
+    debounceMs: 300,
+  });
+
+  const extensions = useMemo(() => {
+    return buildRichTextExtensions({
+      placeholder,
+      onRequestEditMermaid,
+    });
+  }, [placeholder, onRequestEditMermaid]);
+
+  const editor = useEditor({
+    extensions,
+    content: markdown,
+    editable: !readOnly,
+    onUpdate: markdownSync.onUpdate as any,
+  });
+
+  const openLinkDialog = useRichLinkDialog({ editor, readOnly });
+
+  const applyMermaidById = useCallback(
+    (mermaidBlockId: string, nextCode: string) => applyMermaidByIdInEditor(editor, mermaidBlockId, nextCode),
+    [editor]
+  );
+
+  const removeMermaidById = useCallback(
+    (mermaidBlockId: string) => removeMermaidByIdInEditor(editor, mermaidBlockId),
+    [editor]
+  );
+
+  useRichTextEditorHandle({
+    ref,
+    editor,
+    markdown,
+    markdownSync,
+    openLinkDialog,
+    applyMermaidById,
+    removeMermaidById,
+  });
+
+  useEffect(() => {
+    onEditorReady?.(editor || null);
+    return () => onEditorReady?.(null);
+  }, [editor, onEditorReady]);
+
+  useEffect(() => {
+    if (!editor) return;
+    editor.setEditable(!readOnly);
+  }, [editor, readOnly]);
+
+  useEffect(() => {
+    markdownSync.syncFromExternal(editor as any, markdown);
+  }, [editor, markdown, markdownSync]);
+
+  return (
+    <div
+      className="rich-text-editor"
+      role="region"
+      aria-label={ariaLabel}
+      onKeyDown={(e) => {
+        if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
+          e.preventDefault();
+          void openLinkDialog();
+        }
+      }}
+    >
+      <EditorContent editor={editor} className="rich-text-editor__content" />
+    </div>
+  );
+});

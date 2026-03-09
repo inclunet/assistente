@@ -1,24 +1,36 @@
 {
-  "_builtin_version": "1.0.0",
+  "_builtin_version": "2.1.0",
   "name": "Padrão",
   "description": "Configuração padrão.",
   "icon": "chatbox",
   "chat": {
+    "llm_provider": "litellm-1773012882477",
+    "model": "gpt-5.2",
     "temperature": 0.7,
     "max_tokens": 4096,
-    "top_p": 1.0,
+    "context_window": 120000,
+    "max_context_messages": 60,
+    "min_context_messages": 20,
+    "top_p": 1,
     "response_timeout": 180,
-    "enable_thinking": false,
-    "system_prompt_position": "after"
+    "system_prompt_position": "after",
+    "enabled_tools": null,
+    "enabled_skills": [
+      "memory"
+    ]
   },
   "voice": {
     "provider": "disabled",
-    "rate": 1.0,
-    "pitch": 1.0,
-    "volume": 1.0
+    "llm_provider_id": "openai-default",
+    "rate": 1,
+    "pitch": 1,
+    "volume": 1,
+    "enabled_for_agent": false,
+    "enabled_for_user": false
   },
   "interaction": {
     "stt_provider": "webspeech",
+    "llm_provider_id": "openai-default",
     "language": "pt-BR",
     "feedback_sounds": true
   }

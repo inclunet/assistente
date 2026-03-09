@@ -8,6 +8,9 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"assistente/internal/credentials"
+	httpclient "assistente/internal/tools/http"
 )
 
 // TTSVoice representa uma voz disponível no OpenAI TTS
@@ -55,7 +58,7 @@ type TTSConfig struct {
 // TTSClient cliente para síntese de voz via OpenAI TTS
 type TTSClient struct {
 	config     TTSConfig
-	httpClient *http.Client
+	httpClient *httpclient.Client
 }
 
 // TTSRequest requisição para a API de TTS
@@ -77,7 +80,7 @@ type TTSVoiceInfo struct {
 }
 
 // NewTTSClient cria um novo cliente TTS
-func NewTTSClient(config TTSConfig) *TTSClient {
+func NewTTSClient(config TTSConfig, credMgr *credentials.Manager) *TTSClient {
 	if config.APIBaseURL == "" {
 		config.APIBaseURL = "https://api.openai.com/v1"
 	}
@@ -94,14 +97,14 @@ func NewTTSClient(config TTSConfig) *TTSClient {
 		config.Speed = 1.0
 	}
 
+	client := httpclient.New(&httpclient.Config{
+		CredentialManager: credMgr,
+		Timeout:           60 * time.Second,
+	}, map[string]string{})
+
 	return &TTSClient{
-		config: config,
-		httpClient: &http.Client{
-			Timeout: 60 * time.Second,
-			Transport: &http.Transport{
-				DisableKeepAlives: true,
-			},
-		},
+		config:     config,
+		httpClient: client,
 	}
 }
 
@@ -146,7 +149,7 @@ func (c *TTSClient) Synthesize(text string) ([]byte, error) {
 	req.Header.Set("Content-Type", "application/json")
 
 	// Envia a requisição
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(context.Background(), req)
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request: %w", err)
 	}
@@ -222,7 +225,7 @@ func (c *TTSClient) SynthesizeStream(ctx context.Context, text string, callbacks
 	req.Header.Set("Content-Type", "application/json")
 
 	// Envia a requisição
-	resp, err := c.httpClient.Do(req)
+	resp, err := c.httpClient.Do(ctx, req)
 	if err != nil {
 		return fmt.Errorf("failed to send request: %w", err)
 	}

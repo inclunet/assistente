@@ -7,11 +7,12 @@
 
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
-import { WindowSetTitle } from '../../wailsjs/runtime/runtime';
+import { WindowSetTitle } from '@wailsjs/runtime/runtime';
 import { useChatStore } from '../store/chatStore';
 
 const PAGE_TITLES: Record<string, string> = {
   '/': 'Chat',
+  '/editor': 'Editor',
   '/settings': 'Configurações',
   '/profiles': 'Perfis',
   '/history': 'Histórico',

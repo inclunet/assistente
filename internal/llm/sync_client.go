@@ -7,22 +7,53 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
+	"time"
+
+	"assistente/internal/credentials"
+	httpclient "assistente/internal/tools/http"
 )
+
+// extractDomain extrai o domínio de uma URL (ex: "https://api.openai.com/v1" -> "api.openai.com")
+func extractDomain(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return u.Host
+}
 
 // SyncClient implementa um cliente LLM síncrono para uso em agentes
 // Diferente do cliente com streaming, este retorna a resposta completa
 type SyncClient struct {
-	BaseURL string
-	APIKey  string
-	Client  *http.Client
+	provider   *ProviderConfig
+	credMgr    *credentials.Manager
+	httpClient *httpclient.Client
 }
 
-// NewSyncClient cria um novo cliente LLM síncrono usando o pool de conexões compartilhado
-func NewSyncClient(baseURL, apiKey string) *SyncClient {
+// NewSyncClient cria um novo cliente LLM síncrono usando um ProviderConfig
+func NewSyncClient(provider *ProviderConfig, credMgr *credentials.Manager) *SyncClient {
+	// Extract domain from provider baseURL for credential pattern matching
+	domain := extractDomain(provider.BaseURL)
+
+	timeout := time.Duration(provider.Timeout) * time.Second
+	if timeout == 0 {
+		timeout = 3 * time.Minute
+	}
+
+	// Use provider's CredentialPattern (hostname) if available, otherwise fall back to extracted domain
+	hostname := provider.CredentialPattern
+	if hostname == "" {
+		hostname = domain
+	}
+
 	return &SyncClient{
-		BaseURL: baseURL,
-		APIKey:  apiKey,
-		Client:  SharedHTTPClient, // Usa o pool compartilhado
+		provider: provider,
+		credMgr:  credMgr,
+		httpClient: httpclient.New(&httpclient.Config{
+			CredentialManager: credMgr,
+			Timeout:           timeout,
+		}, map[string]string{domain: hostname}), // Map request domain to credential hostname
 	}
 }
 
@@ -89,15 +120,16 @@ func (c *SyncClient) sendRequest(ctx context.Context, model string, messages []s
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, "POST", c.BaseURL+"/chat/completions", bytes.NewBuffer(jsonBody))
+	endpoint := BuildEndpoint(c.provider.BaseURL, "chat/completions")
+	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return nil, err
 	}
 
 	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Authorization", "Bearer "+c.APIKey)
+	// NOTE: Authorization header is injected automatically by httpclient via credMgr
 
-	resp, err := c.Client.Do(req)
+	resp, err := c.httpClient.Do(ctx, req)
 	if err != nil {
 		return nil, err
 	}

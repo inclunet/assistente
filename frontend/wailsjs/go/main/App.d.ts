@@ -3,15 +3,16 @@
 import {database} from '../models';
 import {updater} from '../models';
 import {allowlist} from '../models';
-import {profiles} from '../models';
 import {main} from '../models';
+import {profiles} from '../models';
 import {terminal} from '../models';
+import {context} from '../models';
 import {channels} from '../models';
 import {contacts} from '../models';
 import {config} from '../models';
+import {llm} from '../models';
 import {mcp} from '../models';
 import {skills} from '../models';
-import {llm} from '../models';
 
 export function AddChildMessage(arg1:number,arg2:number,arg3:string,arg4:string,arg5:string):Promise<database.ChatMessage>;
 
@@ -33,9 +34,19 @@ export function CheckContextWindowThreshold(arg1:number,arg2:number):Promise<boo
 
 export function CheckForUpdates():Promise<updater.UpdateInfo>;
 
+export function ClearAllChannels():Promise<void>;
+
+export function ClearAllCredentials():Promise<void>;
+
+export function ClearAllProfiles():Promise<void>;
+
+export function ClearAllSkills():Promise<void>;
+
 export function ClearConversation(arg1:number):Promise<void>;
 
 export function ClearMCPTest(arg1:string):Promise<void>;
+
+export function ClearMessages():Promise<void>;
 
 export function ClearTab(arg1:number):Promise<void>;
 
@@ -47,7 +58,13 @@ export function ConnectMCPServer(arg1:string):Promise<void>;
 
 export function CreateAllowlist(arg1:allowlist.Allowlist):Promise<string>;
 
+export function CreateChannelFromTemplate(arg1:string,arg2:Record<string, any>):Promise<void>;
+
 export function CreateConversation(arg1:string,arg2:string):Promise<database.Conversation>;
+
+export function CreateDefaultLLMProvider(arg1:string,arg2:string):Promise<void>;
+
+export function CreateLLMProvider(arg1:main.CreateLLMProviderRequest):Promise<Record<string, any>>;
 
 export function CreateMessage(arg1:number,arg2:string,arg3:string):Promise<database.ChatMessage>;
 
@@ -65,6 +82,10 @@ export function DeleteAllowlist(arg1:string):Promise<void>;
 
 export function DeleteConversation(arg1:number):Promise<void>;
 
+export function DeleteCredential(arg1:string):Promise<void>;
+
+export function DeleteLLMProvider(arg1:context.Context,arg2:string):Promise<void>;
+
 export function DeleteMCPServer(arg1:string):Promise<void>;
 
 export function DeleteMessage(arg1:number):Promise<void>;
@@ -77,6 +98,32 @@ export function DeleteSkill(arg1:string):Promise<void>;
 
 export function DisconnectMCPServer(arg1:string):Promise<void>;
 
+export function EditorDeleteDraft(arg1:string):Promise<void>;
+
+export function EditorGetFileInfo(arg1:string):Promise<main.EditorFileInfo>;
+
+export function EditorLoadSession():Promise<main.EditorSession>;
+
+export function EditorOpenFile():Promise<main.EditorOpenResult>;
+
+export function EditorReadDraft(arg1:string):Promise<string>;
+
+export function EditorReadFile(arg1:string):Promise<string>;
+
+export function EditorRenameFile(arg1:string,arg2:string):Promise<string>;
+
+export function EditorSaveFileDialog(arg1:string):Promise<string>;
+
+export function EditorSaveSession(arg1:main.EditorSession):Promise<void>;
+
+export function EditorUnwatchFile(arg1:string):Promise<void>;
+
+export function EditorWatchFile(arg1:string):Promise<void>;
+
+export function EditorWriteDraft(arg1:string,arg2:string):Promise<void>;
+
+export function EditorWriteFile(arg1:string,arg2:string):Promise<void>;
+
 export function ExportConversations(arg1:Array<number>):Promise<string>;
 
 export function GenerateAndSaveMessageAudio(arg1:number,arg2:string):Promise<main.AudioResult>;
@@ -84,6 +131,8 @@ export function GenerateAndSaveMessageAudio(arg1:number,arg2:string):Promise<mai
 export function GetActiveProfile():Promise<profiles.Profile>;
 
 export function GetActiveProfileSlug():Promise<string>;
+
+export function GetActiveProviderInfo():Promise<Record<string, any>>;
 
 export function GetActiveTab():Promise<database.ChatTab>;
 
@@ -109,6 +158,10 @@ export function GetAvailableTools():Promise<Array<main.ToolInfo>>;
 
 export function GetChannelConfig(arg1:string):Promise<channels.ChannelConfig>;
 
+export function GetChannelConfigAsMap(arg1:string):Promise<Record<string, any>>;
+
+export function GetChannelTemplates():Promise<Array<channels.ChannelTemplate>>;
+
 export function GetConfig():Promise<config.Config>;
 
 export function GetConversation(arg1:number):Promise<database.Conversation>;
@@ -131,6 +184,12 @@ export function GetCurrentTabID():Promise<number>;
 
 export function GetEffectiveModel():Promise<string>;
 
+export function GetLLMProvider(arg1:string):Promise<llm.ProviderConfig>;
+
+export function GetLLMProviders():Promise<Array<llm.ProviderConfig>>;
+
+export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
+
 export function GetLLMSettings():Promise<main.LLMSettings>;
 
 export function GetMCPPrompt(arg1:string,arg2:string,arg3:Record<string, string>):Promise<Array<string>>;
@@ -150,6 +209,8 @@ export function GetMessages(arg1:number,arg2:any):Promise<Array<main.MessageNode
 export function GetMessagingStatus():Promise<Record<string, string>>;
 
 export function GetModels():Promise<Array<string>>;
+
+export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
 
 export function GetNativeMCPServers():Promise<Array<Record<string, any>>>;
 
@@ -185,11 +246,15 @@ export function ImportConversations(arg1:string):Promise<main.ImportResult>;
 
 export function InitSpeechManager(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
+export function InitSpeechManagerFromProfile():Promise<void>;
+
 export function InterruptTerminalCommand(arg1:string):Promise<void>;
 
 export function IsGlobalHotkeySupported():Promise<boolean>;
 
 export function IsSAPI5Speaking():Promise<boolean>;
+
+export function ListCredentials():Promise<Array<main.CredentialSummary>>;
 
 export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
 
@@ -267,19 +332,19 @@ export function SetSAPI5Rate(arg1:number):Promise<void>;
 
 export function SetSAPI5Volume(arg1:number):Promise<void>;
 
-export function SignalCheckAPI(arg1:string):Promise<Record<string, any>>;
+export function SignalCheckAPI(arg1:string,arg2:string):Promise<Record<string, any>>;
 
-export function SignalLink(arg1:string,arg2:string):Promise<string>;
+export function SignalLink(arg1:string,arg2:string,arg3:string):Promise<string>;
 
-export function SignalLinkRaw(arg1:string,arg2:string):Promise<string>;
+export function SignalLinkRaw(arg1:string,arg2:string,arg3:string):Promise<string>;
 
-export function SignalListAccounts(arg1:string):Promise<Array<string>>;
+export function SignalListAccounts(arg1:string,arg2:string):Promise<Array<string>>;
 
-export function SignalRegister(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
+export function SignalRegister(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
-export function SignalUnregister(arg1:string,arg2:string,arg3:boolean):Promise<void>;
+export function SignalUnregister(arg1:string,arg2:string,arg3:boolean,arg4:string):Promise<void>;
 
-export function SignalVerify(arg1:string,arg2:string,arg3:string):Promise<void>;
+export function SignalVerify(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function SpeakSAPI5(arg1:string,arg2:string):Promise<void>;
 
@@ -301,6 +366,8 @@ export function TestConnection():Promise<boolean>;
 
 export function TestConnectionWithModels():Promise<Array<string>>;
 
+export function TestLLMProvider(arg1:main.TestLLMProviderRequest):Promise<boolean>;
+
 export function TestMCPNativeSupport(arg1:string):Promise<boolean>;
 
 export function TranscribeWhisper(arg1:string,arg2:string):Promise<main.TranscriptionResultInfo>;
@@ -315,6 +382,8 @@ export function UpdateConversation(arg1:number,arg2:string,arg3:string):Promise<
 
 export function UpdateConversationModel(arg1:number,arg2:string):Promise<void>;
 
+export function UpdateLLMProvider(arg1:string,arg2:main.UpdateLLMProviderRequest):Promise<Record<string, any>>;
+
 export function UpdateMessage(arg1:number,arg2:string):Promise<void>;
 
 export function UpdateProfile(arg1:string,arg2:profiles.Profile):Promise<void>;
@@ -324,3 +393,5 @@ export function UpdateProfileMediaSupport(arg1:string,arg2:boolean):Promise<void
 export function UpdateSkill(arg1:string,arg2:main.SkillCreateRequest):Promise<void>;
 
 export function UpdateTabTitle(arg1:number,arg2:string):Promise<void>;
+
+export function UpsertCredential(arg1:main.CredentialInput):Promise<void>;

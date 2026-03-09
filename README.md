@@ -84,7 +84,7 @@ A meta era **escrever o mínimo de código manualmente possível**, delegando a 
 - 🔄 **Auto-update** - atualizações automáticas via GitHub Releases
 - 🎯 **Streaming opcional** - pode ser desativado para melhor acessibilidade
 - 🔌 **Suporte a múltiplos provedores** (OpenAI, Ollama, LM Studio, Azure, etc.)
-- 💬 **Integração com mensageiros** - Telegram e Signal
+- 💬 **Integração com mensageiros** - Telegram, Signal e Slack (guia em [docs/SLACK_CHANNEL_SETUP.md](docs/SLACK_CHANNEL_SETUP.md))
 - 🎭 **Perfis de interação** - personalize o comportamento do assistente
 - 🛠️ **Model Context Protocol (MCP)** - use ferramentas externas
 - 🌍 **Multiplataforma** - Windows, macOS e Linux
@@ -143,6 +143,16 @@ cd ..
 
 # Execute em modo desenvolvimento
 wails dev
+
+# Se a geração de bindings do Wails estiver muito verbosa (ex.: mensagens "KnownStructs" / "Not found: time.Time"),
+# você pode reduzir o barulho sem alterar modelos Go:
+wails dev -loglevel Warning
+
+# Ou, via scripts npm (útil para padronizar em time/CI local):
+npm run dev:quiet
+
+# Em dias que você não mudou assinaturas/structs expostos ao frontend, dá para pular a geração de bindings:
+npm run dev:nobindings
 
 # Ou compile para produção
 wails build

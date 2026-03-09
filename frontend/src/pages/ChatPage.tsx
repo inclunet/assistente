@@ -1,23 +1,26 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
+import { useEditorStore } from '../store/editorStore';
 import { ttsService } from '../services/tts';
 import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
 import { ChatToolbar } from '../components/chat/ChatToolbar';
 import { ChatTabs } from '../components/tabs/ChatTabs';
-import { ContextMenu } from '../components/ui/ContextMenu';
+import { ContextMenu } from '../components/menu';
 import { KeyboardShortcutsHelp } from '../components/ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../hooks/useChatKeyboardNav';
 import { useTabsKeyboardShortcuts } from '../hooks/useTabsKeyboardShortcuts';
 import { useContextMenu, useMessageActions } from '../hooks/useContextMenu';
 import { MediaFile } from '../services/mediaService';
-import { DeleteMessage } from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+import { DeleteMessage } from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../utils/errorHandler';
 import './ChatPage.css';
 
 export default function ChatPage() {
+  const navigate = useNavigate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const hasAutoFocusedRef = useRef(false);
@@ -41,7 +44,6 @@ export default function ChatPage() {
   // Estado do painel de ajuda de atalhos
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
 
-  
 
   // Estado de erro para recovery
   const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
@@ -54,7 +56,7 @@ export default function ChatPage() {
 
   // Ações de mensagem
   const { copyMessage, speakMessage } = useMessageActions({
-    onAnnounce: (msg) => console.log('Anúncio:', msg),
+    onAnnounce: announce,
   });
 
   // Função para deletar mensagem (usada tanto no menu quanto no teclado)
@@ -88,6 +90,39 @@ export default function ChatPage() {
   }, [announce, getActiveTab, loadConversationInActiveTab]);
 
   // Menu de contexto
+  const sendToEditor = useCallback(
+    (payload: {
+      target: 'current' | 'new_tab';
+      format: 'markdown' | 'html' | 'plain';
+      title?: string;
+      content: string;
+    }) => {
+      const chatState = useChatStore.getState();
+      const chatTabId = chatState.activeTabId;
+      const chatTab = chatTabId ? chatState.tabs.find((t) => t.id === chatTabId) : undefined;
+      const conversationId = typeof chatTab?.conversationId === 'number' ? chatTab.conversationId : null;
+
+      const content = String(payload?.content ?? '');
+      if (!content) return;
+
+      useEditorStore.getState().requestInsert({
+        target: payload.target,
+        format: payload.format,
+        title: payload.title || 'Do chat',
+        content,
+        focus: true,
+        source: {
+          chatTabId: chatTabId ?? null,
+          conversationId,
+          messageId: null,
+        },
+      });
+
+      navigate('/editor');
+    },
+    [navigate]
+  );
+
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
     onCopy: copyMessage,
     onReadMessage: (message) => {
@@ -105,10 +140,10 @@ export default function ChatPage() {
       }
     },
     onDelete: handleDeleteMessage,
-    onPin: (message) => {
+    onSendToEditor: (payload) => sendToEditor(payload),
+    onPin: (_message) => {
       // Pin requer campo adicional no modelo ChatMessage
       // Deixar para implementação futura
-      console.log('Fixar/desafixar mensagem:', message);
       announce('Funcionalidade de fixar mensagem será implementada em breve');
     },
     onToggleReasoning: (message) => {
@@ -174,8 +209,6 @@ export default function ChatPage() {
   // Listen for message:updated events from backend
   useEffect(() => {
     const handleMessageUpdated = (data: any) => {
-      console.log('[ChatPage] Message updated:', data);
-      
       // Em vez de recarregar toda a conversa, atualiza apenas a mensagem na store
       // Isso preserva o estado de foco e evita re-renders desnecessários
       const activeTab = getActiveTab();
@@ -267,6 +300,7 @@ export default function ChatPage() {
         onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
         onSpeak={speakMessage}
         onDelete={handleDeleteMessage}
+        onSendToEditor={(payload) => sendToEditor(payload)}
       />
 
       {/* Error banner with retry */}

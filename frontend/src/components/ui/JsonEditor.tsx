@@ -1,5 +1,5 @@
 import { useRef, useEffect } from 'react';
-import Editor from '@monaco-editor/react';
+import { CodeEditor } from './CodeEditor';
 import './JsonEditor.css';
 
 interface JsonEditorProps {
@@ -117,47 +117,19 @@ export function JsonEditor({
     }
   };
 
-  const handleEditorChange = (newValue: string | undefined) => {
-    if (newValue !== undefined) {
-      onChange(newValue);
-    }
-  };
-
   return (
     <div className="json-editor" role="region" aria-label="Editor de JSON">
-      <Editor
+      <CodeEditor
         height={height}
         language={language}
         value={value}
-        onChange={handleEditorChange}
+        onChange={onChange}
         onMount={handleEditorDidMount}
         theme="vs-dark"
-        options={{
-          minimap: { enabled: false },
-          scrollBeyondLastLine: false,
-          fontSize: 14,
-          readOnly,
-          wordWrap: 'on',
-          formatOnPaste: true,
-          formatOnType: true,
-          suggest: {
-            showWords: true,
-            showKeywords: true,
-          },
-          quickSuggestions: {
-            other: true,
-            comments: false,
-            strings: true,
-          },
-          // Opções de acessibilidade
-          accessibilitySupport: 'on',
-          accessibilityPageSize: 10,
-          ariaLabel: readOnly ? 'Editor de código somente leitura' : 'Editor de código',
-        }}
+        readOnly={readOnly}
+        placeholder={placeholder}
+        ariaLabel={readOnly ? 'Editor de código somente leitura' : 'Editor de código'}
       />
-      {!value && placeholder && (
-        <div className="json-editor-placeholder">{placeholder}</div>
-      )}
     </div>
   );
 }

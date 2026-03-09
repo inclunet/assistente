@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   GetSkills,
@@ -7,15 +7,19 @@ import {
   UpdateSkill,
   DeleteSkill,
   GetSkillSearchPaths,
-} from '../../wailsjs/go/main/App';
+} from '@wailsjs/go/main/App';
 import { skills, main } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
-import { SimpleModal } from '../components/ui/SimpleModal';
+import { Modal } from '../components/ui/Modal';
+import { EditorPanelFooter } from '../components/ui/EditorPanel';
+import { SkillGeneralSection } from '../components/skills/SkillGeneralSection';
+import { SkillContentSection } from '../components/skills/SkillContentSection';
+import { SkillToolsSection } from '../components/skills/SkillToolsSection';
 import { useGridFocus } from '../hooks/useGridFocus';
-import { useAnnouncer } from '../hooks/useAnnouncer';
-import { useUIStore } from '../store/uiStore';
+import { useEditableList } from '../hooks/useEditableList';
+import { useState } from 'react';
 import './SkillsPage.css';
 
 type SkillInfo = skills.SkillInfo;
@@ -28,174 +32,131 @@ interface SkillRow {
   auto: boolean;
   source: string;
   tools: string[];
+  // Campos para edição (só preenchidos após loadItem)
+  content?: string;
+  toolsString?: string;
+}
+
+interface SkillFormData {
+  name: string;
+  description: string;
+  auto: boolean;
+  disableModelInvocation?: boolean;
+  content?: string;
+  toolsString?: string;
 }
 
 export default function SkillsPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
-  const { announce } = useAnnouncer();
   const { focusFirstCell, handleGridReady } = useGridFocus();
 
-  // Grid state
-  const [rows, setRows] = useState<SkillRow[]>([]);
-  const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [searchPaths, setSearchPaths] = useState<string[]>([]);
 
-  // Editor state
-  const [editingSkill, setEditingSkill] = useState<{
-    name: string;
-    description: string;
-    auto: boolean;
-    tools: string;
-    content: string;
-  } | null>(null);
-  const [editingSlug, setEditingSlug] = useState<string | null>(null);
-  const [isNew, setIsNew] = useState(false);
-  const [saving, setSaving] = useState(false);
-
-  const loadSkills = useCallback(async () => {
-    setLoading(true);
-    try {
-      const [list, paths] = await Promise.all([
-        GetSkills(),
-        GetSkillSearchPaths(),
-      ]);
-      setSearchPaths(paths || []);
-
-      const mapped: SkillRow[] = (list || []).map((s: SkillInfo) => ({
-        id: s.slug,
-        slug: s.slug,
-        name: s.name,
-        description: s.description || '',
-        auto: !s.disableModelInvocation,
-        source: s.source,
-        tools: (s.tools as any)?.allowed || [],
-      }));
-      setRows(mapped);
-    } catch (error) {
-      console.error('Erro ao carregar skills:', error);
-      addToast(t('skills.loadError', 'Erro ao carregar skills'), 'error');
-    } finally {
-      setLoading(false);
+  // useEditableList hook gerencia todo estado CRUD
+  const crud = useEditableList<SkillRow, SkillFormData, SkillFormData>(
+    {
+      loadItems: async () => {
+        const list = await GetSkills();
+        return (list || []).map((s: SkillInfo) => ({
+          id: s.slug,
+          slug: s.slug,
+          name: s.name,
+          description: s.description || '',
+          auto: !s.disableModelInvocation,
+          source: s.source,
+          tools: (s.tools as any)?.allowed || [],
+        }));
+      },
+      loadItem: async (id) => {
+        const skill = await GetSkill(id as string);
+        return {
+          id: skill.slug,
+          slug: skill.slug,
+          name: skill.name,
+          description: skill.description,
+          auto: !skill.disableModelInvocation,
+          source: skill.source,
+          tools: (skill.tools as any)?.allowed || [],
+          content: skill.content,
+          toolsString: ((skill.tools as any)?.allowed || []).join(', '),
+        };
+      },
+      createItem: async (data) => {
+        const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
+        const req = main.SkillCreateRequest.createFrom({
+          name: data.name.trim(),
+          description: data.description.trim(),
+          disableModelInvocation: !data.auto,
+          tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
+          content: data.content || '',
+        });
+        return await CreateSkill(req);
+      },
+      updateItem: async (id, data) => {
+        const toolsList = (data.toolsString || '').split(',').map(s => s.trim()).filter(Boolean);
+        const req = main.SkillCreateRequest.createFrom({
+          name: data.name.trim(),
+          description: data.description.trim(),
+          disableModelInvocation: !data.auto,
+          tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
+          content: data.content || '',
+        });
+        await UpdateSkill(id as string, req);
+      },
+      deleteItem: async (id) => {
+        await DeleteSkill(id as string);
+      },
+    },
+    {
+      entityName: 'Skill',
+      messages: {
+        loadError: t('skills.loadError', 'Erro ao carregar skills'),
+        createSuccess: t('skills.created', 'Skill criado com sucesso!'),
+        createError: t('skills.saveError', 'Erro ao criar skill'),
+        updateSuccess: t('skills.updated', 'Skill atualizado com sucesso!'),
+        updateError: t('skills.saveError', 'Erro ao atualizar skill'),
+        deleteSuccess: t('skills.deleted', 'Skill excluído!'),
+        deleteError: t('skills.deleteError', 'Erro ao excluir skill'),
+      },
+      canDelete: (item) => {
+        const confirmed = confirm(
+          t('skills.confirmDelete', `Tem certeza que deseja excluir o skill "${item.name}"?`)
+        );
+        return confirmed ? true : 'Cancelado';
+      },
+      validate: (item) => {
+        if (!item.name.trim()) {
+          return t('skills.nameRequired', 'Nome é obrigatório');
+        }
+        if (!item.description.trim()) {
+          return t('skills.descriptionRequired', 'Descrição é obrigatória');
+        }
+        return null;
+      },
+      createDefault: () => ({
+        id: '',
+        slug: '',
+        name: '',
+        description: '',
+        auto: false,
+        source: 'workdir',
+        tools: [],
+        content: '',
+        toolsString: '',
+      }),
+      onSuccess: () => {
+        setTimeout(() => focusFirstCell?.(), 50);
+      },
     }
-  }, [addToast, t]);
+  );
 
+  // Carregar skills e search paths no mount
   useEffect(() => {
-    loadSkills();
-  }, [loadSkills]);
-
-  // --- Grid actions ---
-
-  const handleEditSkill = async (row: SkillRow) => {
-    try {
-      const skill = await GetSkill(row.slug);
-      setEditingSlug(row.slug);
-      setIsNew(false);
-      setEditingSkill({
-        name: skill.name,
-        description: skill.description,
-        auto: !skill.disableModelInvocation,
-        tools: ((skill.tools as any)?.allowed || []).join(', '),
-        content: skill.content,
-      });
-      announce(t('skills.editorOpened', `Editor aberto para ${row.name}`));
-    } catch (error) {
-      console.error('Erro ao carregar skill:', error);
-      addToast(t('skills.loadOneError', 'Erro ao carregar skill'), 'error');
-    }
-  };
-
-  const handleNewSkill = () => {
-    setEditingSlug(null);
-    setIsNew(true);
-    setEditingSkill({
-      name: '',
-      description: '',
-      auto: false,
-      tools: '',
-      content: '',
-    });
-    announce(t('skills.newSkillAnnounce', 'Editor aberto para novo skill'));
-  };
-
-  const handleDeleteSkill = async (row: SkillRow) => {
-    if (!confirm(t('skills.confirmDelete', `Tem certeza que deseja excluir o skill "${row.name}"?`))) return;
-
-    try {
-      await DeleteSkill(row.slug);
-      addToast(t('skills.deleted', 'Skill excluído!'), 'success');
-      announce(t('skills.deletedAnnounce', 'Skill excluído'));
-
-      if (editingSlug === row.slug) {
-        setEditingSlug(null);
-        setEditingSkill(null);
-      }
-      await loadSkills();
-    } catch (error: any) {
-      console.error('Erro ao excluir skill:', error);
-      addToast(error.message || t('skills.deleteError', 'Erro ao excluir skill'), 'error');
-    }
-  };
-
-  // --- Editor actions ---
-
-  const handleSave = async () => {
-    if (!editingSkill) return;
-
-    if (!editingSkill.name.trim()) {
-      addToast(t('skills.nameRequired', 'Nome é obrigatório'), 'error');
-      return;
-    }
-    if (!editingSkill.description.trim()) {
-      addToast(t('skills.descriptionRequired', 'Descrição é obrigatória'), 'error');
-      return;
-    }
-
-    setSaving(true);
-    try {
-      const toolsList = editingSkill.tools.split(',').map(s => s.trim()).filter(Boolean);
-
-      const req = main.SkillCreateRequest.createFrom({
-        name: editingSkill.name.trim(),
-        description: editingSkill.description.trim(),
-        disableModelInvocation: !editingSkill.auto,
-        tools: toolsList.length > 0 ? { allowed: toolsList } : undefined,
-        content: editingSkill.content,
-      });
-
-      if (isNew) {
-        const slug = await CreateSkill(req);
-        addToast(t('skills.created', `Skill "${editingSkill.name}" criado!`), 'success');
-        announce(t('skills.createdAnnounce', `Skill ${editingSkill.name} criado`));
-        setIsNew(false);
-        setEditingSlug(slug);
-      } else if (editingSlug) {
-        await UpdateSkill(editingSlug, req);
-        addToast(t('skills.updated', `Skill "${editingSkill.name}" atualizado!`), 'success');
-        announce(t('skills.updatedAnnounce', `Skill ${editingSkill.name} atualizado`));
-      }
-      await loadSkills();
-    } catch (error: any) {
-      console.error('Erro ao salvar skill:', error);
-      addToast(error.message || t('skills.saveError', 'Erro ao salvar skill'), 'error');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const handleCloseEditor = () => {
-    setEditingSkill(null);
-    setEditingSlug(null);
-    setIsNew(false);
-    announce(t('skills.editorClosed', 'Editor fechado'));
-  };
-
-  const updateField = (field: string, value: any) => {
-    if (!editingSkill) return;
-    setEditingSkill({ ...editingSkill, [field]: value });
-  };
+    crud.loadItems();
+    GetSkillSearchPaths().then(paths => setSearchPaths(paths || []));
+  }, []);
 
   // --- Grid columns ---
 
@@ -232,10 +193,14 @@ export default function SkillsPage() {
       width: '13%',
       format: (value: any) => {
         switch (value) {
-          case 'workdir': return t('skills.sourceWorkdir', 'Projeto');
-          case 'home': return t('skills.sourceHome', 'Global');
-          case 'exe': return t('skills.sourceExe', 'Embutido');
-          default: return value;
+          case 'workdir':
+            return t('skills.sourceWorkdir', 'Projeto');
+          case 'home':
+            return t('skills.sourceHome', 'Global');
+          case 'exe':
+            return t('skills.sourceExe', 'Embutido');
+          default:
+            return value;
         }
       },
     },
@@ -259,43 +224,44 @@ export default function SkillsPage() {
 
   const handleCellAction = (item: SkillRow, column: DataGridColumn<SkillRow>) => {
     if (column.key === 'edit') {
-      handleEditSkill(item);
+      crud.openEdit(item);
     } else if (column.key === 'delete') {
-      handleDeleteSkill(item);
+      crud.deleteItem(item);
     }
   };
 
   // --- Filtering ---
 
-  const filteredRows = rows.filter(row =>
-    row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    row.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    row.slug.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredRows = crud.items.filter(
+    row =>
+      row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      row.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      row.slug.toLowerCase().includes(searchTerm.toLowerCase())
   );
 
   // --- Loading ---
 
-  if (loading) {
+  if (crud.loading && crud.items.length === 0) {
     return (
       <div className="skills-page">
-        <div className="loading" role="status">{t('skills.loading', 'Carregando skills...')}</div>
+        <div className="loading" role="status">
+          {t('skills.loading', 'Carregando skills...')}
+        </div>
       </div>
     );
   }
 
   // --- Render ---
 
-  const editorTitle = isNew
+  const editorTitle = crud.isNew
     ? t('skills.newSkillTitle', 'Novo Skill')
-    : editingSkill?.name || '';
+    : crud.editingItem?.name || '';
 
   return (
     <div className="skills-page">
       <Toolbar
         left={
-          <h1 className="page-toolbar__title">
-            {t('skills.pageTitle', 'Skills')}
-          </h1>
+          <h1 className="page-toolbar__title">{t('skills.pageTitle', 'Skills')}</h1>
         }
         searchPlaceholder={t('skills.search', 'Buscar skills...')}
         searchValue={searchTerm}
@@ -306,7 +272,7 @@ export default function SkillsPage() {
             key: 'new-skill',
             label: t('skills.newSkill', 'Novo Skill'),
             icon: '➕',
-            onClick: handleNewSkill,
+            onClick: crud.openNew,
             variant: 'primary',
           },
         ]}
@@ -316,157 +282,96 @@ export default function SkillsPage() {
         items={filteredRows}
         columns={columns}
         label={t('skills.gridLabel', 'Lista de skills')}
-        getItemId={(item) => item.id}
+        getItemId={item => item.id}
         selectedIds={selectedIds}
         onSelectionChange={setSelectedIds}
-        onActivate={(item) => handleEditSkill(item)}
-        onDelete={(item) => handleDeleteSkill(item)}
+        onActivate={item => crud.openEdit(item)}
+        onDelete={item => crud.deleteItem(item)}
         onCellAction={handleCellAction}
         onGridReady={handleGridReady}
       />
 
       {/* Editor Modal */}
-      <SimpleModal
-        isOpen={!!editingSkill}
-        onClose={handleCloseEditor}
+      <Modal
+        isOpen={!!crud.editingItem}
+        onClose={crud.closeEditor}
         title={editorTitle}
         size="lg"
       >
-        {editingSkill && (
+        {crud.editingItem && (
           <div className="skills-editor" aria-live="polite">
-            {/* General Section */}
-            <section className="skills-section" aria-labelledby="section-general">
-              <h3 id="section-general">{t('skills.sectionGeneral', 'Geral')}</h3>
-              <div className="skills-fields">
-                <div className="skills-field">
-                  <label htmlFor="sk-name" className="skills-field__label">
-                    {t('skills.fieldName', 'Nome')}
-                  </label>
-                  <input
-                    id="sk-name"
-                    type="text"
-                    className="skills-field__input"
-                    value={editingSkill.name}
-                    onChange={(e) => updateField('name', e.target.value)}
-                    placeholder={t('skills.namePlaceholder', 'Ex: Criar Componente React')}
-                  />
-                </div>
-                <div className="skills-field">
-                  <label htmlFor="sk-description" className="skills-field__label">
-                    {t('skills.fieldDescription', 'Descrição')}
-                  </label>
-                  <input
-                    id="sk-description"
-                    type="text"
-                    className="skills-field__input"
-                    value={editingSkill.description}
-                    onChange={(e) => updateField('description', e.target.value)}
-                    placeholder={t('skills.descriptionPlaceholder', 'Quando este skill deve ser usado')}
-                  />
-                </div>
-                <div className="skills-field skills-field--checkbox">
-                  <input
-                    id="sk-auto"
-                    type="checkbox"
-                    checked={editingSkill.auto}
-                    onChange={(e) => updateField('auto', e.target.checked)}
-                  />
-                  <label htmlFor="sk-auto" className="skills-field__label">
-                    {t('skills.fieldAuto', 'Auto — injetar automaticamente no system prompt')}
-                  </label>
-                </div>
-                <p className="skills-field__hint">
-                  {editingSkill.auto
-                    ? t('skills.autoHint', 'O conteúdo deste skill será incluído em toda conversa.')
-                    : t('skills.manualHint', 'O assistente lerá este skill sob demanda quando for relevante.')}
-                </p>
-              </div>
-            </section>
+            <SkillGeneralSection
+              item={crud.editingItem}
+              onFieldChange={(field, value) => {
+                crud.updateField(field as any, value);
+              }}
+            />
 
-            {/* Metadata Section */}
-            <section className="skills-section" aria-labelledby="section-metadata">
-              <h3 id="section-metadata">{t('skills.sectionMetadata', 'Metadados')}</h3>
-              <div className="skills-fields">
-                <div className="skills-field">
-                  <label htmlFor="sk-tools" className="skills-field__label">
-                    {t('skills.fieldTools', 'Ferramentas associadas')}
-                  </label>
-                  <input
-                    id="sk-tools"
-                    type="text"
-                    className="skills-field__input"
-                    value={editingSkill.tools}
-                    onChange={(e) => updateField('tools', e.target.value)}
-                    placeholder={t('skills.toolsPlaceholder', 'read_file, write_file (separar por vírgula)')}
-                  />
-                  <span className="skills-field__hint">
-                    {t('skills.toolsHint', 'Informativo — indica quais tools o skill utiliza.')}
-                  </span>
-                </div>
-              </div>
-            </section>
+            <SkillContentSection
+              content={crud.editingItem.content || ''}
+              onContentChange={(content) => crud.updateField('content' as any, content)}
+            />
 
-            {/* Content Section */}
-            <section className="skills-section" aria-labelledby="section-content">
-              <h3 id="section-content">{t('skills.sectionContent', 'Conteúdo')}</h3>
-              <div className="skills-fields">
-                <div className="skills-field">
-                  <label htmlFor="sk-content" className="skills-field__label">
-                    {t('skills.fieldContent', 'Instruções (Markdown)')}
-                  </label>
-                  <textarea
-                    id="sk-content"
-                    className="skills-field__textarea"
-                    value={editingSkill.content}
-                    onChange={(e) => updateField('content', e.target.value)}
-                    placeholder={t('skills.contentPlaceholder', '# Instruções\n\nDescreva aqui o que o assistente deve fazer...')}
-                    rows={12}
-                  />
-                </div>
-              </div>
-            </section>
+            <SkillToolsSection
+              toolsString={crud.editingItem.toolsString || ''}
+              onToolsChange={(toolsString) => crud.updateField('toolsString' as any, toolsString)}
+            />
 
-            <div className="skills-editor__footer">
-              {editingSlug && (
+            <EditorPanelFooter className="skills-editor__footer">
+              {crud.editingId && (
                 <Button
                   variant="danger"
                   onClick={() => {
-                    const row = rows.find(r => r.slug === editingSlug);
-                    if (row) handleDeleteSkill(row);
+                    if (crud.editingItem) crud.deleteItem(crud.editingItem);
                   }}
-                  aria-label={t('skills.deleteBtnLabel', `Excluir skill ${editingSkill.name}`)}
+                  aria-label={t(
+                    'skills.deleteBtnLabel',
+                    `Excluir skill ${crud.editingItem.name}`
+                  )}
                 >
                   {t('skills.deleteBtn', 'Excluir')}
                 </Button>
               )}
               <Button
                 variant="ghost"
-                onClick={handleCloseEditor}
+                onClick={crud.closeEditor}
                 aria-label={t('skills.closeBtnLabel', 'Fechar editor, Escape')}
               >
                 {t('skills.closeBtn', 'Fechar')}
               </Button>
-              <Button onClick={handleSave} loading={saving}>
+              <Button onClick={crud.save} loading={crud.saving}>
                 {t('skills.saveBtn', 'Salvar')}
               </Button>
-            </div>
+            </EditorPanelFooter>
           </div>
         )}
-      </SimpleModal>
+      </Modal>
 
       {/* Empty state when no skill is being edited */}
-      {!editingSkill && rows.length > 0 && (
+      {!crud.editingItem && crud.items.length > 0 && (
         <div className="skills-empty" role="status">
-          <p>{t('skills.selectHint', 'Pressione Enter ou clique ✏️ para editar um skill.')}</p>
+          <p>
+            {t(
+              'skills.selectHint',
+              'Pressione Enter ou clique ✏️ para editar um skill.'
+            )}
+          </p>
         </div>
       )}
 
       {/* Empty state when no skills exist */}
-      {!editingSkill && rows.length === 0 && (
+      {!crud.editingItem && crud.items.length === 0 && (
         <div className="skills-empty" role="status">
           <p>
-            {t('skills.noSkills', 'Nenhum skill encontrado. Crie arquivos .md em')}{' '}
-            <code>{searchPaths.length > 0 ? searchPaths[searchPaths.length - 1] : '.assistente/skills/'}</code>{' '}
+            {t(
+              'skills.noSkills',
+              'Nenhum skill encontrado. Crie arquivos .md em'
+            )}{' '}
+            <code>
+              {searchPaths.length > 0
+                ? searchPaths[searchPaths.length - 1]
+                : '.assistente/skills/'}
+            </code>{' '}
             {t('skills.orUseButton', 'ou use o botão "Novo Skill".')}
           </p>
         </div>
@@ -474,12 +379,18 @@ export default function SkillsPage() {
 
       {/* Search paths footer */}
       {searchPaths.length > 0 && (
-        <div className="skills-search-paths" role="contentinfo" aria-label={t('skills.searchPathsLabel', 'Caminhos de busca de skills')}>
+        <div
+          className="skills-search-paths"
+          role="contentinfo"
+          aria-label={t('skills.searchPathsLabel', 'Caminhos de busca de skills')}
+        >
           <p className="skills-search-paths__title">
             {t('skills.searchPaths', 'Caminhos de busca:')}
           </p>
           {searchPaths.map((path, i) => (
-            <p key={i} className="skills-search-paths__item">{path}</p>
+            <p key={i} className="skills-search-paths__item">
+              {path}
+            </p>
           ))}
         </div>
       )}

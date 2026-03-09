@@ -27,29 +27,31 @@ type ResolvedFile struct {
 // Resolver resolve arquivos dentro de pastas .assistente/ nos 3 diretórios.
 // Opera EXCLUSIVAMENTE dentro de .assistente/ — nunca acessa arquivos fora desse escopo.
 type Resolver struct {
-	subdir string   // "" para raiz, "profiles" para subdir, etc.
-	paths  []string // caminhos completos dos 3 diretórios (com subdir)
+	subdir string // "" para raiz, "profiles" para subdir, etc.
 }
 
 // NewResolver cria um resolver para um subdiretório de .assistente/.
 // subdir="" resolve na raiz de .assistente/ (config.json, conversations.db).
 // subdir="profiles" resolve em .assistente/profiles/.
 func NewResolver(subdir string) *Resolver {
+	return &Resolver{
+		subdir: subdir,
+	}
+}
+
+func (r *Resolver) getPaths() []string {
 	basePaths := GetBasePaths()
 	paths := make([]string, 0, len(basePaths))
 
 	for _, base := range basePaths {
-		if subdir != "" {
-			paths = append(paths, filepath.Join(base, subdir))
+		if r.subdir != "" {
+			paths = append(paths, filepath.Join(base, r.subdir))
 		} else {
 			paths = append(paths, base)
 		}
 	}
 
-	return &Resolver{
-		subdir: subdir,
-		paths:  paths,
-	}
+	return paths
 }
 
 // SourceForPath determina a Source com base no diretório base.
@@ -70,8 +72,9 @@ func SourceForPath(dirPath string) Source {
 	return SourceHome // fallback
 }
 
-// validateFilename verifica que o nome de arquivo é seguro (sem path traversal)
-func validateFilename(filename string) error {
+// ValidateFilename verifica que o nome de arquivo é seguro (sem path traversal).
+// Útil para operações de filesystem que aceitam apenas basename (sem diretórios).
+func ValidateFilename(filename string) error {
 	if filename == "" {
 		return fmt.Errorf("filename cannot be empty")
 	}
@@ -99,14 +102,15 @@ func slugFromFilename(filename string) string {
 // Resolve encontra o arquivo válido (maior prioridade) entre os 3 diretórios.
 // Retorna erro se o arquivo não existir em nenhum diretório.
 func (r *Resolver) Resolve(filename string) (*ResolvedFile, error) {
-	if err := validateFilename(filename); err != nil {
+	if err := ValidateFilename(filename); err != nil {
 		return nil, err
 	}
 
 	var result *ResolvedFile
+	paths := r.getPaths()
 
 	// Itera na ordem de prioridade crescente — o último encontrado ganha
-	for _, dir := range r.paths {
+	for _, dir := range paths {
 		fullPath := filepath.Join(dir, filename)
 		if _, err := os.Stat(fullPath); err == nil {
 			result = &ResolvedFile{
@@ -129,9 +133,10 @@ func (r *Resolver) Resolve(filename string) (*ResolvedFile, error) {
 // Arquivos com mesmo nome: o de maior prioridade prevalece.
 func (r *Resolver) List() ([]ResolvedFile, error) {
 	resolved := map[string]ResolvedFile{} // filename -> ResolvedFile
+	paths := r.getPaths()
 
 	// Itera na ordem de prioridade crescente — o último encontrado sobrescreve
-	for _, dir := range r.paths {
+	for _, dir := range paths {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			// Diretório não existe — tudo bem, pula
@@ -183,7 +188,7 @@ func (r *Resolver) Read(filename string) ([]byte, *ResolvedFile, error) {
 // Write escreve no arquivo válido (maior prioridade existente).
 // Se o arquivo não existir em nenhum diretório, cria no home (~/.assistente/).
 func (r *Resolver) Write(filename string, data []byte) error {
-	if err := validateFilename(filename); err != nil {
+	if err := ValidateFilename(filename); err != nil {
 		return err
 	}
 
@@ -199,7 +204,7 @@ func (r *Resolver) Write(filename string, data []byte) error {
 
 // Create cria um novo arquivo sempre no diretório home (~/.assistente/[subdir]/).
 func (r *Resolver) Create(filename string, data []byte) error {
-	if err := validateFilename(filename); err != nil {
+	if err := ValidateFilename(filename); err != nil {
 		return err
 	}
 
@@ -235,8 +240,9 @@ func (r *Resolver) Delete(filename string) error {
 
 // GetSearchPaths retorna os caminhos de busca em ordem de prioridade crescente.
 func (r *Resolver) GetSearchPaths() []string {
-	result := make([]string, len(r.paths))
-	copy(result, r.paths)
+	paths := r.getPaths()
+	result := make([]string, len(paths))
+	copy(result, paths)
 	return result
 }
 
@@ -275,13 +281,14 @@ func (r *Resolver) Exists(filename string) bool {
 // ResolveAll retorna todas as versões do arquivo em todos os diretórios onde existe,
 // em ordem de prioridade crescente. Útil para debug/UI.
 func (r *Resolver) ResolveAll(filename string) ([]ResolvedFile, error) {
-	if err := validateFilename(filename); err != nil {
+	if err := ValidateFilename(filename); err != nil {
 		return nil, err
 	}
 
 	var results []ResolvedFile
+	paths := r.getPaths()
 
-	for _, dir := range r.paths {
+	for _, dir := range paths {
 		fullPath := filepath.Join(dir, filename)
 		if _, err := os.Stat(fullPath); err == nil {
 			results = append(results, ResolvedFile{

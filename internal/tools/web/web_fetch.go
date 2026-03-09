@@ -8,32 +8,33 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
+	"assistente/internal/credentials"
 	"assistente/internal/tools"
+	httpclient "assistente/internal/tools/http"
 
 	"golang.org/x/net/html"
 )
 
 // WebFetch busca o conteúdo de uma URL e extrai texto legível.
 // Remove HTML, scripts, estilos e retorna conteúdo limpo em texto/markdown.
+// Usa cliente HTTP centralizado com suporte a autenticação automática.
 type WebFetch struct {
-	client            *http.Client
-	allowPrivateHosts bool // Para testes com httptest (padrão: false)
+	client            *httpclient.Client // Cliente HTTP centralizado com auth/retry
+	allowPrivateHosts bool               // Para testes com httptest (padrão: false)
 }
 
 // NewWebFetch cria uma nova instância de WebFetch.
-func NewWebFetch() *WebFetch {
+func NewWebFetch(credMgr *credentials.Manager) *WebFetch {
+	if credMgr == nil {
+		credMgr = credentials.NewManager(nil) // Cria manager vazio se não fornecido
+	}
+	// Usar cliente HTTP centralizado com retry policy
+	client := httpclient.New(&httpclient.Config{
+		CredentialManager: credMgr,
+	}, map[string]string{})
 	return &WebFetch{
-		client: &http.Client{
-			Timeout: 30 * time.Second,
-			CheckRedirect: func(req *http.Request, via []*http.Request) error {
-				if len(via) >= 5 {
-					return fmt.Errorf("muitos redirects (limite: 5)")
-				}
-				return nil
-			},
-		},
+		client: client,
 	}
 }
 
@@ -124,7 +125,8 @@ func (t *WebFetch) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	req.Header.Set("Accept", "text/html,application/xhtml+xml,application/xml;q=0.9,text/plain;q=0.8,*/*;q=0.7")
 	req.Header.Set("Accept-Language", "pt-BR,pt;q=0.9,en;q=0.8")
 
-	resp, err := t.client.Do(req)
+	// Usa cliente HTTP centralizado (com auth/retry automático)
+	resp, err := t.client.Do(ctx, req)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao acessar URL: %v", err), IsError: true}, nil
 	}

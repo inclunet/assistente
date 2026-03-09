@@ -11,7 +11,7 @@
  *   4. Sem TTS -> aviso ao usuario
  */
 
-import { GetMessageAudio, GenerateAndSaveMessageAudio, SaveMessageAudio } from '../../../wailsjs/go/main/App';
+import { GetMessageAudio, GenerateAndSaveMessageAudio, SaveMessageAudio } from '@wailsjs/go/main/App';
 
 // Player global
 let currentPlayer: HTMLAudioElement | null = null;

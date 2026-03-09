@@ -33,9 +33,9 @@ type FunctionCall struct {
 // ToolCallDelta representa um delta incremental de tool_call durante streaming.
 // O LLM envia os argumentos em fragmentos que precisam ser acumulados.
 type ToolCallDelta struct {
-	Index    int           `json:"index"`
-	ID       string        `json:"id,omitempty"`
-	Type     string        `json:"type,omitempty"`
+	Index    int            `json:"index"`
+	ID       string         `json:"id,omitempty"`
+	Type     string         `json:"type,omitempty"`
 	Function *FunctionDelta `json:"function,omitempty"`
 }
 
@@ -111,17 +111,18 @@ type StreamOptions struct {
 
 // ChatRequest representa a requisição para a API da OpenAI
 type ChatRequest struct {
-	Model         string           `json:"model"`
-	Messages      []Message        `json:"messages"`
-	MaxTokens     int              `json:"max_tokens,omitempty"`
-	Temperature   float64          `json:"temperature,omitempty"`
-	TopP          *float64         `json:"top_p,omitempty"` // Ponteiro para omitir quando nil
-	Stream        bool             `json:"stream"`
-	StreamOptions *StreamOptions   `json:"stream_options,omitempty"`
-	Think            *bool            `json:"think,omitempty"`             // Ollama: habilita reasoning/thinking
-	ReasoningEffort  string           `json:"reasoning_effort,omitempty"`  // OpenAI/LiteLLM: low, medium, high
-	Tools            []ToolDefinition `json:"tools,omitempty"`             // Ferramentas disponíveis para o LLM
-	ToolChoice    interface{}      `json:"tool_choice,omitempty"`    // "auto", "none", "required" ou objeto
+	Model               string           `json:"model"`
+	Messages            []Message        `json:"messages"`
+	MaxTokens           int              `json:"max_tokens,omitempty"`            // Modelos antigos (GPT-3.5, GPT-4, etc)
+	MaxCompletionTokens int              `json:"max_completion_tokens,omitempty"` // Modelos novos (GPT-4o, o1, etc)
+	Temperature         float64          `json:"temperature,omitempty"`
+	TopP                *float64         `json:"top_p,omitempty"` // Ponteiro para omitir quando nil
+	Stream              bool             `json:"stream"`
+	StreamOptions       *StreamOptions   `json:"stream_options,omitempty"`
+	Think               *bool            `json:"think,omitempty"`            // Ollama: habilita reasoning/thinking
+	ReasoningEffort     string           `json:"reasoning_effort,omitempty"` // OpenAI/LiteLLM: low, medium, high
+	Tools               []ToolDefinition `json:"tools,omitempty"`            // Ferramentas disponíveis para o LLM
+	ToolChoice          interface{}      `json:"tool_choice,omitempty"`      // "auto", "none", "required" ou objeto
 }
 
 // ChatChoice representa uma escolha na resposta
@@ -186,12 +187,13 @@ type ModelsResponse struct {
 
 // ChatParams contém os parâmetros para uma requisição de chat
 type ChatParams struct {
-	Model          string  `json:"model"`
-	MaxTokens      int     `json:"maxTokens"`
-	Temperature    float64 `json:"temperature"`
-	TopP           float64 `json:"topP,omitempty"`
-	ReasoningEffort string `json:"reasoningEffort,omitempty"` // off, low, medium, high
-	ProfileSlug    string  `json:"profileSlug,omitempty"`    // Perfil específico (canais). Vazio = perfil ativo global
+	Model           string  `json:"model"`
+	MaxTokens       int     `json:"maxTokens"`
+	MaxTokensMode   string  `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
+	Temperature     float64 `json:"temperature"`
+	TopP            float64 `json:"topP,omitempty"`
+	ReasoningEffort string  `json:"reasoningEffort,omitempty"` // off, low, medium, high
+	ProfileSlug     string  `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
 }
 
 // SettingsInput representa os parâmetros de entrada para salvar configurações

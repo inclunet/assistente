@@ -1,5 +1,6 @@
 export { Combobox } from './Combobox';
 export type { ComboboxItem, ComboboxProps } from './Combobox';
+export { BasePicker } from './BasePicker';
 export { ModelPicker } from './ModelPicker';
 export type { ModelPickerProps, ModelPickerRef } from './ModelPicker';
 export { VoicePicker, VOICE_DISABLED } from './VoicePicker';

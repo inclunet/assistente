@@ -6,8 +6,8 @@ import {
   SendTerminalInput,
   InterruptTerminalCommand,
   GetTerminalHistory,
-} from '../../wailsjs/go/main/App';
-import { EventsOn } from '../../wailsjs/runtime/runtime';
+} from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import { terminal } from '../../wailsjs/go/models';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { announce } from '../hooks/useAnnouncer';

@@ -33,6 +33,7 @@ export const LIMITS = {
 // Keyboard shortcuts
 export const SHORTCUTS = {
   NEW_TAB: 'Ctrl+N',
+  CLEAR_CONVERSATION: 'Ctrl+L',
   PREV_TAB: 'Ctrl+P',
   HISTORY: 'Ctrl+H',
   MODELS: 'Ctrl+M',

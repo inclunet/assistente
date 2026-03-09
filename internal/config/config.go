@@ -15,30 +15,47 @@ var rootResolver = configdir.NewResolver("")
 const configFilename = "config.json"
 
 // ModelParams representa os parâmetros de um modelo LLM
+// DEPRECATED: Use ChatConfig em Profile ao invés
 type ModelParams struct {
 	Model       string  `json:"model,omitempty"`
-	Temperature float64 `json:"temperature,omitempty"` // 0.0 a 2.0
-	MaxTokens   int     `json:"max_tokens,omitempty"`  // Limite de tokens na resposta
-	TopP        float64 `json:"top_p,omitempty"`       // 0.0 a 1.0
+	Temperature float64 `json:"temperature,omitempty"`
+	MaxTokens   int     `json:"max_tokens,omitempty"`
+	TopP        float64 `json:"top_p,omitempty"`
 }
 
 // STTParams representa os parâmetros de transcrição
+// DEPRECATED: Use Voice + Interaction em Profile ao invés
 type STTParams struct {
-	Provider      string `json:"provider,omitempty"`       // "webspeech" ou "whisper"
-	RecordingMode string `json:"recording_mode,omitempty"` // "ptt", "toggle", "vad_silence", "vad_activity"
+	Provider      string `json:"provider,omitempty"`
+	RecordingMode string `json:"recording_mode,omitempty"`
 }
 
 // Config representa a configuração da aplicação.
 // NOTA: Configuração de canais de mensageria foi movida para .assistente/channels/<nome>/config.json
 // (pacote internal/channels). Contatos autorizados em .assistente/contacts.json (pacote internal/contacts).
+//
+// ⚠️ DEPRECATED: config.json está sendo ELIMINADO (Fase 6 completa)
+// Todos os campos abaixo foram movidos para o sistema de profiles + provider registry:
+// - APIKey, APIBaseURL → Credentials Manager + Provider Registry
+// - DefaultModel, ResponseTimeout → Profile.Chat
+// - STTParams → Profile.Voice + Profile.Interaction
+// - ActiveProfile → Profile.Active field
+//
+// A migração automática acontece no startup via App.migrateLegacyConfig():
+// - APIKey é registrado no credentials.Manager (encrypted)
+// - Providers já existentes são usados
+// - Perfis controlam toda a configuração
+//
+// Este arquivo permanece apenas para compatibilidade temporária.
 type Config struct {
-	APIKey          string      `json:"api_key"`
-	APIBaseURL      string      `json:"api_base_url"`
-	DefaultModel    string      `json:"default_model,omitempty"`
-	ResponseTimeout int         `json:"response_timeout,omitempty"` // Timeout em segundos para aguardar resposta da API (padrão: 180)
-	ActiveProfile   string      `json:"active_profile,omitempty"`   // Nome (slug) do perfil de conversa ativo
-	ChatParams      ModelParams `json:"chat_params,omitempty"`
-	STTParams       STTParams   `json:"stt_params,omitempty"`
+	// ⚠️ DEPRECATED - Todos os campos abaixo não são mais usados
+	APIKey          string      `json:"api_key,omitempty"`          // DEPRECATED: Migrado para credentials.Manager
+	APIBaseURL      string      `json:"api_base_url,omitempty"`     // DEPRECATED: Migrado para Provider Registry
+	DefaultModel    string      `json:"default_model,omitempty"`    // DEPRECATED: Migrado para Profile.Chat.Model
+	ResponseTimeout int         `json:"response_timeout,omitempty"` // DEPRECATED: Migrado para Profile.Chat.ResponseTimeout
+	ActiveProfile   string      `json:"active_profile,omitempty"`   // DEPRECATED: Migrado para Profile.Active
+	ChatParams      ModelParams `json:"chat_params,omitempty"`      // DEPRECATED: Migrado para Profile.Chat
+	STTParams       STTParams   `json:"stt_params,omitempty"`       // DEPRECATED: Migrado para Profile.Voice + Profile.Interaction
 }
 
 // DefaultConfig retorna a configuração padrão
@@ -115,7 +132,6 @@ func saveUnsafe(config *Config) error {
 	if err != nil {
 		return err
 	}
-
 	return rootResolver.Write(configFilename, data)
 }
 
@@ -135,9 +151,10 @@ func Update(updateFn func(*Config) *Config) error {
 }
 
 // GetResponseTimeout retorna o timeout de resposta em segundos (padrão: 180)
+// DEPRECATED: Use profile.Chat.ResponseTimeout ao invés
 func (c *Config) GetResponseTimeout() int {
 	if c.ResponseTimeout <= 0 {
-		return 180 // Padrão de 3 minutos
+		return 180
 	}
 	return c.ResponseTimeout
 }

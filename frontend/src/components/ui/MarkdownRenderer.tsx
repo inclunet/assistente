@@ -1,42 +1,72 @@
-import { useEffect, useRef, useMemo } from 'react';
-
+import { useCallback, useEffect, useMemo, useRef } from 'react';
 import MarkdownIt from 'markdown-it';
 import DOMPurify from 'dompurify';
 import mermaid from 'mermaid';
 import * as monaco from 'monaco-editor';
+import { Menu, type MenuItem } from '../menu';
+import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import './MarkdownRenderer.css';
 
 interface MarkdownRendererProps {
   content: string;
   className?: string;
-  interactiveButtons?: boolean; // Se true, botões de copiar são focáveis e Monaco Editor é habilitado
+  interactiveButtons?: boolean;
+  focusableMermaid?: boolean;
+  enableSendToEditorButtons?: boolean;
+  onSendToEditor?: (payload: {
+    target: 'current' | 'new_tab';
+    format: 'markdown' | 'html' | 'plain';
+    title?: string;
+    content: string;
+  }) => void;
 }
 
-// Configuração do markdown-it
 const md = new MarkdownIt({
-  html: false,        // Não permite HTML raw
+  html: false,
   xhtmlOut: false,
-  breaks: false,      // Não converte \n em <br> (interfere com tabelas)
-  linkify: true,      // Converte URLs em links automaticamente
-  typographer: true   // Substituições tipográficas
+  breaks: false,
+  linkify: true,
+  typographer: true,
 });
 
-// Configuração do DOMPurify
 const purifyConfig = {
   ALLOWED_TAGS: [
-    'p', 'br', 'strong', 'em', 'b', 'i', 'u', 's', 'del',
-    'h1', 'h2', 'h3', 'h4', 'h5', 'h6',
-    'ul', 'ol', 'li',
-    'a', 'img',
-    'pre', 'code',
+    'p',
+    'br',
+    'strong',
+    'em',
+    'b',
+    'i',
+    'u',
+    's',
+    'del',
+    'h1',
+    'h2',
+    'h3',
+    'h4',
+    'h5',
+    'h6',
+    'ul',
+    'ol',
+    'li',
+    'a',
+    'img',
+    'pre',
+    'code',
     'blockquote',
-    'table', 'thead', 'tbody', 'tr', 'th', 'td',
-    'hr', 'div', 'span'
+    'table',
+    'thead',
+    'tbody',
+    'tr',
+    'th',
+    'td',
+    'hr',
+    'div',
+    'span',
   ],
-  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel', 'tabindex']
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel', 'tabindex'],
 };
 
-// Hook DOMPurify para adicionar tabindex e abrir links em nova aba
 DOMPurify.addHook('afterSanitizeAttributes', (node: Element) => {
   if (node.tagName === 'A') {
     node.setAttribute('tabindex', '-1');
@@ -45,432 +75,717 @@ DOMPurify.addHook('afterSanitizeAttributes', (node: Element) => {
   }
 });
 
-let mermaidInitialized = false;
-
-function initMermaid() {
-  if (mermaidInitialized) return;
-  mermaid.initialize({
-    startOnLoad: false,
-    theme: 'dark',
-    securityLevel: 'strict', // 'strict' previne execução de código malicioso em diagramas
-    fontFamily: 'inherit'
-  });
-  mermaidInitialized = true;
-}
-
-function renderMarkdown(text: string): string {
-  if (!text) return '';
-  
-  let processed = text;
-  
-  // 1. Extrai tabelas de dentro de blocos de código markdown/md APENAS
-  processed = processed.replace(/```(markdown|md)\s*\n([\s\S]*?)```/gi, (match, _lang, content) => {
-    const trimmedContent = content.trim();
-    const hasTableSyntax = trimmedContent.includes('|') && 
-                           (trimmedContent.includes('|---') || trimmedContent.includes('| ---') || trimmedContent.includes('|:--'));
-    if (hasTableSyntax) {
-      return '\n' + trimmedContent + '\n';
-    }
-    return match;
-  });
-  
-  // 2. Remove linhas vazias dentro de tabelas
-  const lines = processed.split('\n');
-  const result: string[] = [];
-  let inTable = false;
-  
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim();
-    const isTableLine = line.startsWith('|') && line.endsWith('|');
-    const isEmpty = line === '';
-    
-    if (isTableLine) {
-      inTable = true;
-      result.push(lines[i]);
-    } else if (isEmpty && inTable) {
-      let nextNonEmpty = '';
-      for (let j = i + 1; j < lines.length; j++) {
-        if (lines[j].trim() !== '') {
-          nextNonEmpty = lines[j].trim();
-          break;
-        }
-      }
-      if (nextNonEmpty.startsWith('|') && nextNonEmpty.endsWith('|')) {
-        continue;
-      } else {
-        inTable = false;
-        result.push(lines[i]);
-      }
-    } else {
-      inTable = false;
-      result.push(lines[i]);
-    }
-  }
-  
-  processed = result.join('\n');
-  
-  const parsed = md.render(processed);
-  return DOMPurify.sanitize(parsed, purifyConfig);
-}
-
-export function MarkdownRenderer({ content, className = '', interactiveButtons = false }: MarkdownRendererProps) {
+export function MarkdownRenderer({
+  content,
+  className = '',
+  interactiveButtons = false,
+  focusableMermaid: _focusableMermaid = false,
+  enableSendToEditorButtons = false,
+  onSendToEditor,
+}: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
+  const mermaidInitializedRef = useRef(false);
   const editorsRef = useRef<Map<string, monaco.editor.IStandaloneCodeEditor>>(new Map());
 
-  // Cache de markdown: só re-processa quando content muda (useMemo ao invés de useEffect)
-  const html = useMemo(() => renderMarkdown(content), [content]);
+  const canSendToEditor = Boolean(enableSendToEditorButtons && onSendToEditor);
+
+  const {
+    menu: menuState,
+    openAtPoint: openMenuAtPoint,
+    closeMenu,
+    onSelectItem: onSelectMenuItem,
+  } = useAnchoredContextMenu();
+
+  const openMenu = useCallback(
+    (x: number, y: number, ariaLabel: string, items: MenuItem[]) => {
+      openMenuAtPoint(x, y, ariaLabel, items);
+    },
+    [openMenuAtPoint]
+  );
+
+  const copyToClipboard = useCallback(async (value: string) => {
+    try {
+      await navigator.clipboard.writeText(value);
+    } catch {
+      // best-effort
+    }
+  }, []);
+
+  const fencedCode = useCallback((language: string, code: string) => {
+    const lang = String(language || '').trim();
+    const body = String(code || '').replace(/\n$/, '');
+    return `\n\`\`\`${lang}\n${body}\n\`\`\`\n`;
+  }, []);
+
+  const generateTableMarkdown = useCallback((tableEl: HTMLTableElement) => {
+    const rows: string[] = [];
+    tableEl.querySelectorAll('tr').forEach((tr: Element) => {
+      const cells: string[] = [];
+      tr.querySelectorAll('th, td').forEach((cell: Element) => {
+        cells.push((cell.textContent || '').trim());
+      });
+      rows.push('| ' + cells.join(' | ') + ' |');
+    });
+
+    if (rows.length > 1) {
+      const thCount = tableEl.querySelectorAll('th').length;
+      const separators = Array(thCount > 0 ? thCount : Math.max(1, rows[0].split('|').length - 2)).fill('---');
+      rows.splice(1, 0, '| ' + separators.join(' | ') + ' |');
+    }
+
+    return rows.join('\n');
+  }, []);
+
+  const ensureMonacoEditor = useCallback(
+    (key: string, container: HTMLDivElement, initialValue: string, language: string) => {
+      const existing = editorsRef.current.get(key);
+      if (existing) {
+        existing.setValue(initialValue);
+        return existing;
+      }
+
+      const editor = monaco.editor.create(container, {
+        value: initialValue,
+        language: language || 'plaintext',
+        theme: 'vs-dark',
+        readOnly: false,
+        minimap: { enabled: false },
+        lineNumbers: 'on',
+        scrollBeyondLastLine: false,
+        wordWrap: 'on',
+        fontSize: 14,
+        fontFamily: "'Fira Code', 'Consolas', monospace",
+        padding: { top: 8, bottom: 8 },
+        automaticLayout: true,
+      });
+
+      editorsRef.current.set(key, editor);
+      return editor;
+    },
+    []
+  );
+
+  const initMermaid = useCallback(() => {
+    if (mermaidInitializedRef.current) return;
+    mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+    mermaidInitializedRef.current = true;
+  }, []);
+
+  const addContextMenus = useCallback(
+    (cleanups: Array<() => void>) => {
+      if (!containerRef.current) return;
+      const root = containerRef.current;
+
+      root.querySelectorAll('pre').forEach((pre: Element, index: number) => {
+        const preEl = pre as HTMLPreElement;
+        if (preEl.parentElement?.classList?.contains('code-block')) return;
+        if (preEl.parentElement?.classList?.contains('mermaid-diagram')) return;
+
+        const codeEl = preEl.querySelector('code');
+        const classMatch = codeEl?.className?.match(/language-([^\s]+)/i);
+        const lang = classMatch ? classMatch[1].toLowerCase() : '';
+        if (lang === 'mermaid') return;
+
+        const languageLabel = classMatch
+          ? classMatch[1].charAt(0).toUpperCase() + classMatch[1].slice(1)
+          : 'Código';
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'code-block';
+        wrapper.setAttribute('role', 'group');
+        wrapper.setAttribute('aria-label', languageLabel);
+        preEl.parentNode!.insertBefore(wrapper, preEl);
+        wrapper.appendChild(preEl);
+
+        const editorKey = interactiveButtons ? `code-${index}` : null;
+        const monacoContainer = interactiveButtons
+          ? (() => {
+              const el = document.createElement('div');
+              el.className = 'monaco-inline-container';
+              el.style.display = 'none';
+              wrapper.insertBefore(el, preEl);
+              return el;
+            })()
+          : null;
+        let isEditorMode = false;
+
+        const onContextMenu = (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          const codeText = preEl.textContent || '';
+          const items: MenuItem[] = [
+            {
+              id: `code-${index}-copy`,
+              label: 'Copiar',
+              ariaLabel: `Copiar código ${languageLabel}`,
+              action: () => void copyToClipboard(codeText),
+            },
+          ];
+
+          if (canSendToEditor) {
+            items.push({
+              id: `code-${index}-send`,
+              label: 'Enviar ao editor',
+              submenu: [
+                {
+                  id: `code-${index}-send-current`,
+                  label: 'Inserir no cursor',
+                  action: () =>
+                    onSendToEditor?.({
+                      target: 'current',
+                      format: 'markdown',
+                      title: `Código ${languageLabel}`,
+                      content: fencedCode(lang || 'plaintext', codeText),
+                    }),
+                },
+                {
+                  id: `code-${index}-send-new`,
+                  label: 'Novo documento',
+                  action: () =>
+                    onSendToEditor?.({
+                      target: 'new_tab',
+                      format: 'markdown',
+                      title: `Código ${languageLabel}`,
+                      content: fencedCode(lang || 'plaintext', codeText),
+                    }),
+                },
+              ],
+            });
+          }
+
+          if (interactiveButtons && monacoContainer && editorKey) {
+            items.push({ separator: true, id: `code-${index}-sep-1` });
+            items.push({
+              id: `code-${index}-toggle`,
+              label: isEditorMode ? 'Visualizar' : 'Editar',
+              action: () => {
+                isEditorMode = !isEditorMode;
+                if (isEditorMode) {
+                  preEl.style.display = 'none';
+                  monacoContainer.style.display = 'block';
+                  const editor = ensureMonacoEditor(
+                    editorKey,
+                    monacoContainer,
+                    codeText,
+                    lang || 'plaintext'
+                  );
+                  setTimeout(() => editor.focus(), 30);
+                } else {
+                  preEl.style.display = '';
+                  monacoContainer.style.display = 'none';
+                }
+              },
+            });
+          }
+
+          openMenu(e.clientX, e.clientY, `Ações: ${languageLabel}`, items);
+        };
+
+        wrapper.addEventListener('contextmenu', onContextMenu);
+        cleanups.push(() => wrapper.removeEventListener('contextmenu', onContextMenu));
+      });
+
+      root.querySelectorAll('table').forEach((table: Element, index: number) => {
+        const tableEl = table as HTMLTableElement;
+        if (tableEl.parentElement?.classList?.contains('table-block')) return;
+
+        const wrapper = document.createElement('div');
+        wrapper.className = 'table-block';
+        wrapper.setAttribute('role', 'group');
+        wrapper.setAttribute('aria-label', 'Tabela');
+        tableEl.parentNode!.insertBefore(wrapper, tableEl);
+        wrapper.appendChild(tableEl);
+
+        const editorKey = interactiveButtons ? `table-${index}` : null;
+        const monacoContainer = interactiveButtons
+          ? (() => {
+              const el = document.createElement('div');
+              el.className = 'monaco-inline-container';
+              el.style.display = 'none';
+              wrapper.insertBefore(el, tableEl);
+              return el;
+            })()
+          : null;
+        let isEditorMode = false;
+
+        const onContextMenu = (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          const mdTable = generateTableMarkdown(tableEl);
+          const items: MenuItem[] = [
+            {
+              id: `table-${index}-copy`,
+              label: 'Copiar (Markdown)',
+              action: () => void copyToClipboard(mdTable),
+            },
+          ];
+
+          if (canSendToEditor) {
+            items.push({
+              id: `table-${index}-send`,
+              label: 'Enviar ao editor',
+              submenu: [
+                {
+                  id: `table-${index}-send-current`,
+                  label: 'Inserir no cursor',
+                  action: () =>
+                    onSendToEditor?.({
+                      target: 'current',
+                      format: 'markdown',
+                      title: 'Tabela',
+                      content: `\n${mdTable}\n`,
+                    }),
+                },
+                {
+                  id: `table-${index}-send-new`,
+                  label: 'Novo documento',
+                  action: () =>
+                    onSendToEditor?.({
+                      target: 'new_tab',
+                      format: 'markdown',
+                      title: 'Tabela',
+                      content: `\n${mdTable}\n`,
+                    }),
+                },
+              ],
+            });
+          }
+
+          if (interactiveButtons && monacoContainer && editorKey) {
+            items.push({ separator: true, id: `table-${index}-sep-1` });
+            items.push({
+              id: `table-${index}-toggle`,
+              label: isEditorMode ? 'Ver tabela' : 'Ver código',
+              action: () => {
+                isEditorMode = !isEditorMode;
+                if (isEditorMode) {
+                  tableEl.style.display = 'none';
+                  monacoContainer.style.display = 'block';
+                  const editor = ensureMonacoEditor(editorKey, monacoContainer, mdTable, 'markdown');
+                  setTimeout(() => editor.focus(), 30);
+                } else {
+                  tableEl.style.display = '';
+                  monacoContainer.style.display = 'none';
+                }
+              },
+            });
+          }
+
+          openMenu(e.clientX, e.clientY, 'Ações: Tabela', items);
+        };
+
+        wrapper.addEventListener('contextmenu', onContextMenu);
+        cleanups.push(() => wrapper.removeEventListener('contextmenu', onContextMenu));
+      });
+
+      root.querySelectorAll('a').forEach((anchor: Element, index: number) => {
+        const a = anchor as HTMLAnchorElement;
+        const href = a.getAttribute('href') || '';
+        if (!href) return;
+        const text = (a.textContent || '').trim() || href;
+        const mdLink = `[${text}](${href})`;
+
+        const onContextMenu = (e: MouseEvent) => {
+          e.preventDefault();
+          e.stopPropagation();
+
+          const items: MenuItem[] = [
+            {
+              id: `link-${index}-copy-url`,
+              label: 'Copiar URL',
+              action: () => void copyToClipboard(href),
+            },
+            {
+              id: `link-${index}-copy-md`,
+              label: 'Copiar link (Markdown)',
+              action: () => void copyToClipboard(mdLink),
+            },
+          ];
+
+          if (canSendToEditor) {
+            items.push({
+              id: `link-${index}-send`,
+              label: 'Enviar ao editor',
+              submenu: [
+                {
+                  id: `link-${index}-send-current`,
+                  label: 'Inserir no cursor',
+                  action: () =>
+                    onSendToEditor?.({
+                      target: 'current',
+                      format: 'markdown',
+                      title: 'Link',
+                      content: mdLink,
+                    }),
+                },
+                {
+                  id: `link-${index}-send-new`,
+                  label: 'Novo documento',
+                  action: () =>
+                    onSendToEditor?.({
+                      target: 'new_tab',
+                      format: 'markdown',
+                      title: 'Link',
+                      content: mdLink,
+                    }),
+                },
+              ],
+            });
+          }
+
+          openMenu(e.clientX, e.clientY, 'Ações: Link', items);
+        };
+
+        a.addEventListener('contextmenu', onContextMenu);
+        cleanups.push(() => a.removeEventListener('contextmenu', onContextMenu));
+      });
+    },
+    [
+      canSendToEditor,
+      copyToClipboard,
+      ensureMonacoEditor,
+      fencedCode,
+      generateTableMarkdown,
+      interactiveButtons,
+      onSendToEditor,
+      openMenu,
+    ]
+  );
+
+  const renderMermaidDiagrams = useCallback(
+    async (cleanups: Array<() => void>) => {
+      if (!containerRef.current) return;
+      initMermaid();
+
+      const mermaidBlocks = containerRef.current.querySelectorAll('code.language-mermaid');
+
+      const getErrorText = (err: unknown) => {
+        if (!err) return 'Erro desconhecido';
+        if (err instanceof Error) return String(err.stack || err.message || 'Erro');
+        try {
+          return typeof err === 'string' ? err : JSON.stringify(err, null, 2);
+        } catch {
+          return String(err);
+        }
+      };
+
+      const truncate = (text: string, maxChars = 8000) => {
+        const s = String(text || '');
+        if (s.length <= maxChars) return s;
+        return s.slice(0, maxChars) + `\n… (truncado; ${s.length} chars)`;
+      };
+
+      for (let i = 0; i < mermaidBlocks.length; i++) {
+        const codeBlock = mermaidBlocks[i] as HTMLElement;
+        const pre = codeBlock.parentElement as HTMLPreElement;
+        if (!pre || pre.dataset.mermaidRendered) continue;
+
+        const mermaidCode = codeBlock.textContent || '';
+
+        try {
+          const id = `mermaid-${Date.now()}-${i}`;
+          const { svg } = await mermaid.render(id, mermaidCode);
+
+          const diagramWrapper = document.createElement('div');
+          diagramWrapper.className = 'mermaid-diagram';
+          diagramWrapper.setAttribute('role', 'group');
+          diagramWrapper.setAttribute('aria-label', 'Diagrama Mermaid');
+          diagramWrapper.dataset.mermaidIndex = String(i);
+          diagramWrapper.dataset.mermaidCode = mermaidCode;
+          diagramWrapper.tabIndex = -1;
+          diagramWrapper.innerHTML = svg;
+
+          pre.parentNode!.insertBefore(diagramWrapper, pre);
+          pre.style.display = 'none';
+          pre.dataset.mermaidRendered = 'true';
+
+          const svgElement = diagramWrapper.querySelector('svg') as SVGElement | null;
+          const editorKey = interactiveButtons ? `mermaid-${i}` : null;
+          const monacoContainer = interactiveButtons
+            ? (() => {
+                const el = document.createElement('div');
+                el.className = 'monaco-inline-container';
+                el.style.display = 'none';
+                if (svgElement) diagramWrapper.insertBefore(el, svgElement);
+                else diagramWrapper.appendChild(el);
+                return el;
+              })()
+            : null;
+          let isEditorMode = false;
+
+          const onContextMenu = (e: MouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const items: MenuItem[] = [
+              {
+                id: `mermaid-${i}-copy`,
+                label: 'Copiar código',
+                action: () => void copyToClipboard(mermaidCode),
+              },
+            ];
+
+            if (canSendToEditor) {
+              items.push({
+                id: `mermaid-${i}-send`,
+                label: 'Enviar ao editor',
+                submenu: [
+                  {
+                    id: `mermaid-${i}-send-current`,
+                    label: 'Inserir no cursor',
+                    action: () =>
+                      onSendToEditor?.({
+                        target: 'current',
+                        format: 'markdown',
+                        title: 'Mermaid',
+                        content: fencedCode('mermaid', mermaidCode),
+                      }),
+                  },
+                  {
+                    id: `mermaid-${i}-send-new`,
+                    label: 'Novo documento',
+                    action: () =>
+                      onSendToEditor?.({
+                        target: 'new_tab',
+                        format: 'markdown',
+                        title: 'Mermaid',
+                        content: fencedCode('mermaid', mermaidCode),
+                      }),
+                  },
+                ],
+              });
+            }
+
+            if (interactiveButtons && monacoContainer && editorKey) {
+              items.push({ separator: true, id: `mermaid-${i}-sep-1` });
+              items.push({
+                id: `mermaid-${i}-toggle`,
+                label: isEditorMode ? 'Ver diagrama' : 'Ver código',
+                action: () => {
+                  isEditorMode = !isEditorMode;
+                  if (isEditorMode) {
+                    if (svgElement) (svgElement as any).style.display = 'none';
+                    monacoContainer.style.display = 'block';
+                    const editor = ensureMonacoEditor(
+                      editorKey,
+                      monacoContainer,
+                      mermaidCode,
+                      'plaintext'
+                    );
+                    setTimeout(() => editor.focus(), 30);
+                  } else {
+                    if (svgElement) (svgElement as any).style.display = '';
+                    monacoContainer.style.display = 'none';
+                  }
+                },
+              });
+            }
+
+            openMenu(e.clientX, e.clientY, 'Ações: Mermaid', items);
+          };
+
+          diagramWrapper.addEventListener('contextmenu', onContextMenu);
+          cleanups.push(() => diagramWrapper.removeEventListener('contextmenu', onContextMenu));
+        } catch (err) {
+          console.error('Erro ao renderizar Mermaid:', err);
+          const errorText = truncate(getErrorText(err));
+
+          const diagramWrapper = document.createElement('div');
+          diagramWrapper.className = 'mermaid-diagram mermaid-diagram--error';
+          diagramWrapper.setAttribute('role', 'group');
+          diagramWrapper.setAttribute('aria-label', 'Diagrama Mermaid (erro)');
+          diagramWrapper.dataset.mermaidIndex = String(i);
+          diagramWrapper.dataset.mermaidCode = mermaidCode;
+          diagramWrapper.tabIndex = -1;
+
+          const titleEl = document.createElement('div');
+          titleEl.className = 'mermaid-diagram__error-title';
+          titleEl.textContent = 'Erro ao renderizar Mermaid';
+
+          const msgEl = document.createElement('div');
+          msgEl.className = 'mermaid-diagram__error-message';
+          msgEl.textContent = 'O preview não pôde ser gerado. Você ainda pode copiar/enviar o código.';
+
+          const preEl = document.createElement('pre');
+          preEl.className = 'mermaid-diagram__error-pre';
+          preEl.textContent = errorText;
+
+          diagramWrapper.appendChild(titleEl);
+          diagramWrapper.appendChild(msgEl);
+          diagramWrapper.appendChild(preEl);
+
+          const editorKey = interactiveButtons ? `mermaid-${i}` : null;
+          const monacoContainer = interactiveButtons
+            ? (() => {
+                const el = document.createElement('div');
+                el.className = 'monaco-inline-container';
+                el.style.display = 'none';
+                diagramWrapper.appendChild(el);
+                return el;
+              })()
+            : null;
+          let isEditorMode = false;
+
+          const onContextMenu = (e: MouseEvent) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const items: MenuItem[] = [
+              {
+                id: `mermaid-${i}-err-copy-code`,
+                label: 'Copiar código',
+                action: () => void copyToClipboard(mermaidCode),
+              },
+              {
+                id: `mermaid-${i}-err-copy-error`,
+                label: 'Copiar erro',
+                action: () => void copyToClipboard(errorText),
+              },
+              {
+                id: `mermaid-${i}-err-rerender`,
+                label: 'Re-renderizar',
+                action: () => {
+                  pre.style.display = '';
+                  pre.removeAttribute('data-mermaid-rendered');
+                  diagramWrapper.remove();
+                  void renderMermaidDiagrams(cleanups);
+                },
+              },
+            ];
+
+            if (canSendToEditor) {
+              items.push({ separator: true, id: `mermaid-${i}-err-sep-1` });
+              items.push({
+                id: `mermaid-${i}-err-send`,
+                label: 'Enviar ao editor',
+                submenu: [
+                  {
+                    id: `mermaid-${i}-err-send-current`,
+                    label: 'Inserir no cursor',
+                    action: () =>
+                      onSendToEditor?.({
+                        target: 'current',
+                        format: 'markdown',
+                        title: 'Mermaid',
+                        content: fencedCode('mermaid', mermaidCode),
+                      }),
+                  },
+                  {
+                    id: `mermaid-${i}-err-send-new`,
+                    label: 'Novo documento',
+                    action: () =>
+                      onSendToEditor?.({
+                        target: 'new_tab',
+                        format: 'markdown',
+                        title: 'Mermaid',
+                        content: fencedCode('mermaid', mermaidCode),
+                      }),
+                  },
+                ],
+              });
+            }
+
+            if (interactiveButtons && monacoContainer && editorKey) {
+              items.push({ separator: true, id: `mermaid-${i}-err-sep-2` });
+              items.push({
+                id: `mermaid-${i}-err-toggle`,
+                label: isEditorMode ? 'Ocultar editor' : 'Abrir no editor',
+                action: () => {
+                  isEditorMode = !isEditorMode;
+                  if (isEditorMode) {
+                    preEl.style.display = 'none';
+                    monacoContainer.style.display = 'block';
+                    const editor = ensureMonacoEditor(
+                      editorKey,
+                      monacoContainer,
+                      mermaidCode,
+                      'plaintext'
+                    );
+                    setTimeout(() => editor.focus(), 30);
+                  } else {
+                    preEl.style.display = '';
+                    monacoContainer.style.display = 'none';
+                  }
+                },
+              });
+            }
+
+            openMenu(e.clientX, e.clientY, 'Ações: Mermaid (erro)', items);
+          };
+
+          diagramWrapper.addEventListener('contextmenu', onContextMenu);
+          cleanups.push(() => diagramWrapper.removeEventListener('contextmenu', onContextMenu));
+
+          pre.parentNode!.insertBefore(diagramWrapper, pre);
+          pre.style.display = 'none';
+          pre.dataset.mermaidRendered = 'true';
+        }
+      }
+    },
+    [
+      canSendToEditor,
+      copyToClipboard,
+      ensureMonacoEditor,
+      fencedCode,
+      initMermaid,
+      interactiveButtons,
+      onSendToEditor,
+      openMenu,
+    ]
+  );
+
+  const html = useMemo(() => {
+    const rendered = md.render(content || '');
+    return DOMPurify.sanitize(rendered, purifyConfig);
+  }, [content]);
 
   useEffect(() => {
-    if (!containerRef.current || !html) return;
+    const cleanups: Array<() => void> = [];
+    closeMenu();
 
-    addCopyButtons();
-    renderMermaidDiagrams();
+    if (containerRef.current) {
+      containerRef.current
+        .querySelectorAll('.code-buttons, .send-to-editor-link, .send-to-editor-inline')
+        .forEach((el) => el.remove());
+    }
+
+    addContextMenus(cleanups);
+    void renderMermaidDiagrams(cleanups);
 
     return () => {
-      // Limpa editores Monaco quando o componente é desmontado
-      editorsRef.current.forEach(editor => editor.dispose());
+      cleanups.forEach((fn) => fn());
+      editorsRef.current.forEach((ed) => {
+        try {
+          ed.dispose();
+        } catch {
+          // ignore
+        }
+      });
       editorsRef.current.clear();
     };
-  }, [html, interactiveButtons]);
-
-  function addCopyButtons() {
-    if (!containerRef.current) return;
-
-    // Remove botões existentes
-    containerRef.current.querySelectorAll('.copy-btn').forEach(btn => btn.remove());
-
-    // Adiciona botões em blocos de código
-    containerRef.current.querySelectorAll('pre').forEach((pre: Element, index: number) => {
-      const preEl = pre as HTMLPreElement;
-      
-      if (preEl.parentElement?.classList?.contains('code-block')) return;
-      if (preEl.parentElement?.classList?.contains('mermaid-diagram')) return;
-
-      const codeElement = preEl.querySelector('code');
-      let language = 'Código';
-      
-      if (codeElement && codeElement.className) {
-        const classMatch = codeElement.className.match(/language-(\w+)/i);
-        if (classMatch) {
-          const lang = classMatch[1].toLowerCase();
-          if (lang === 'mermaid') return;
-          language = classMatch[1].charAt(0).toUpperCase() + classMatch[1].slice(1);
-        }
-      }
-
-      const wrapper = document.createElement('div');
-      wrapper.className = 'code-block';
-      wrapper.setAttribute('role', 'group');
-      wrapper.setAttribute('aria-label', language);
-      preEl.parentNode!.insertBefore(wrapper, preEl);
-      wrapper.appendChild(preEl);
-
-      const btnContainer = document.createElement('div');
-      btnContainer.className = 'code-buttons';
-
-      const copyBtn = document.createElement('button');
-      copyBtn.className = 'copy-btn';
-      copyBtn.textContent = 'Copiar';
-      copyBtn.setAttribute('tabindex', interactiveButtons ? '0' : '-1');
-      copyBtn.setAttribute('aria-label', `Copiar código ${language}`);
-      copyBtn.onclick = async () => {
-        const code = preEl.textContent || '';
-        try {
-          await navigator.clipboard.writeText(code);
-          copyBtn.textContent = 'Copiado!';
-          setTimeout(() => { copyBtn.textContent = 'Copiar'; }, 2000);
-        } catch (err) {
-          copyBtn.textContent = 'Erro';
-          setTimeout(() => { copyBtn.textContent = 'Copiar'; }, 2000);
-        }
-      };
-      btnContainer.appendChild(copyBtn);
-
-      if (interactiveButtons) {
-        const code = preEl.textContent || '';
-        const langLower = language.toLowerCase();
-        
-        const monacoContainer = document.createElement('div');
-        monacoContainer.className = 'monaco-inline-container';
-        monacoContainer.style.display = 'none';
-        wrapper.insertBefore(monacoContainer, preEl);
-        
-        let editor: monaco.editor.IStandaloneCodeEditor | null = null;
-        let isEditorMode = false;
-        const editorKey = `code-${index}`;
-        
-        const toggleBtn = document.createElement('button');
-        toggleBtn.className = 'copy-btn toggle-editor-btn';
-        toggleBtn.textContent = 'Editar';
-        toggleBtn.setAttribute('tabindex', '0');
-        toggleBtn.setAttribute('aria-label', `Editar código ${language} no Monaco Editor`);
-        toggleBtn.onclick = () => {
-          isEditorMode = !isEditorMode;
-          
-          if (isEditorMode) {
-            preEl.style.display = 'none';
-            monacoContainer.style.display = 'block';
-            toggleBtn.textContent = 'Visualizar';
-            
-            if (!editor) {
-              editor = monaco.editor.create(monacoContainer, {
-                value: code,
-                language: langLower === 'código' ? 'plaintext' : langLower,
-                theme: 'vs-dark',
-                readOnly: false,
-                minimap: { enabled: false },
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                wordWrap: 'on',
-                fontSize: 14,
-                fontFamily: "'Fira Code', 'Consolas', monospace",
-                padding: { top: 8, bottom: 8 },
-                automaticLayout: true,
-              });
-              editorsRef.current.set(editorKey, editor);
-              setTimeout(() => editor!.focus(), 50);
-            } else {
-              editor.focus();
-            }
-          } else {
-            preEl.style.display = 'block';
-            monacoContainer.style.display = 'none';
-            toggleBtn.textContent = 'Editar';
-          }
-        };
-        btnContainer.appendChild(toggleBtn);
-      }
-
-      wrapper.appendChild(btnContainer);
-    });
-
-    // Adiciona botões em tabelas
-    containerRef.current.querySelectorAll('table').forEach((table: Element, index: number) => {
-      const tableEl = table as HTMLTableElement;
-      
-      if (tableEl.parentElement?.classList?.contains('table-block')) return;
-
-      const wrapper = document.createElement('div');
-      wrapper.className = 'table-block';
-      wrapper.setAttribute('role', 'group');
-      wrapper.setAttribute('aria-label', 'Tabela');
-      tableEl.parentNode!.insertBefore(wrapper, tableEl);
-      wrapper.appendChild(tableEl);
-
-      const btnContainer = document.createElement('div');
-      btnContainer.className = 'code-buttons';
-
-      const generateMarkdown = () => {
-        const rows: string[] = [];
-        tableEl.querySelectorAll('tr').forEach((tr: Element) => {
-          const cells: string[] = [];
-          tr.querySelectorAll('th, td').forEach((cell: Element) => {
-            cells.push(cell.textContent || '');
-          });
-          rows.push('| ' + cells.join(' | ') + ' |');
-        });
-        
-        if (rows.length > 1) {
-          const separators = Array(tableEl.querySelectorAll('th').length).fill('---');
-          rows.splice(1, 0, '| ' + separators.join(' | ') + ' |');
-        }
-        
-        return rows.join('\n');
-      };
-
-      const copyBtn = document.createElement('button');
-      copyBtn.className = 'copy-btn';
-      copyBtn.textContent = 'Copiar';
-      copyBtn.setAttribute('tabindex', interactiveButtons ? '0' : '-1');
-      copyBtn.setAttribute('aria-label', 'Copiar Markdown da tabela');
-      copyBtn.onclick = async () => {
-        try {
-          await navigator.clipboard.writeText(generateMarkdown());
-          copyBtn.textContent = 'Copiado!';
-          setTimeout(() => { copyBtn.textContent = 'Copiar'; }, 2000);
-        } catch (err) {
-          copyBtn.textContent = 'Erro';
-          setTimeout(() => { copyBtn.textContent = 'Copiar'; }, 2000);
-        }
-      };
-      btnContainer.appendChild(copyBtn);
-
-      if (interactiveButtons) {
-        const monacoContainer = document.createElement('div');
-        monacoContainer.className = 'monaco-inline-container';
-        monacoContainer.style.display = 'none';
-        wrapper.insertBefore(monacoContainer, tableEl);
-        
-        let editor: monaco.editor.IStandaloneCodeEditor | null = null;
-        let isEditorMode = false;
-        const editorKey = `table-${index}`;
-        
-        const toggleBtn = document.createElement('button');
-        toggleBtn.className = 'copy-btn toggle-editor-btn';
-        toggleBtn.textContent = 'Ver código';
-        toggleBtn.setAttribute('tabindex', '0');
-        toggleBtn.setAttribute('aria-label', 'Ver código Markdown da tabela');
-        toggleBtn.onclick = () => {
-          isEditorMode = !isEditorMode;
-          
-          if (isEditorMode) {
-            tableEl.style.display = 'none';
-            monacoContainer.style.display = 'block';
-            toggleBtn.textContent = 'Ver tabela';
-            
-            if (!editor) {
-              editor = monaco.editor.create(monacoContainer, {
-                value: generateMarkdown(),
-                language: 'markdown',
-                theme: 'vs-dark',
-                readOnly: false,
-                minimap: { enabled: false },
-                lineNumbers: 'on',
-                scrollBeyondLastLine: false,
-                wordWrap: 'on',
-                fontSize: 14,
-                fontFamily: "'Fira Code', 'Consolas', monospace",
-                padding: { top: 8, bottom: 8 },
-                automaticLayout: true,
-              });
-              editorsRef.current.set(editorKey, editor);
-              setTimeout(() => editor!.focus(), 50);
-            } else {
-              editor.setValue(generateMarkdown());
-              editor.focus();
-            }
-          } else {
-            tableEl.style.display = '';
-            monacoContainer.style.display = 'none';
-            toggleBtn.textContent = 'Ver código';
-          }
-        };
-        btnContainer.appendChild(toggleBtn);
-      }
-
-      wrapper.appendChild(btnContainer);
-    });
-  }
-
-  async function renderMermaidDiagrams() {
-    if (!containerRef.current) return;
-
-    initMermaid();
-
-    const mermaidBlocks = containerRef.current.querySelectorAll('code.language-mermaid');
-
-    for (let i = 0; i < mermaidBlocks.length; i++) {
-      const codeBlock = mermaidBlocks[i] as HTMLElement;
-      const pre = codeBlock.parentElement as HTMLPreElement;
-
-      if (pre.dataset.mermaidRendered) continue;
-
-      const mermaidCode = codeBlock.textContent || '';
-
-      try {
-        const id = `mermaid-${Date.now()}-${i}`;
-        const { svg } = await mermaid.render(id, mermaidCode);
-
-        const diagramWrapper = document.createElement('div');
-        diagramWrapper.className = 'mermaid-diagram';
-        diagramWrapper.setAttribute('role', 'group');
-        diagramWrapper.setAttribute('aria-label', 'Diagrama Mermaid');
-        diagramWrapper.innerHTML = svg;
-
-        pre.parentNode!.insertBefore(diagramWrapper, pre);
-        pre.style.display = 'none';
-        pre.dataset.mermaidRendered = 'true';
-
-        const btnContainer = document.createElement('div');
-        btnContainer.className = 'code-buttons';
-
-        const copyBtn = document.createElement('button');
-        copyBtn.className = 'copy-btn';
-        copyBtn.textContent = 'Copiar';
-        copyBtn.setAttribute('tabindex', interactiveButtons ? '0' : '-1');
-        copyBtn.setAttribute('aria-label', 'Copiar código Mermaid');
-        copyBtn.onclick = async () => {
-          try {
-            await navigator.clipboard.writeText(mermaidCode);
-            copyBtn.textContent = 'Copiado!';
-            setTimeout(() => { copyBtn.textContent = 'Copiar'; }, 2000);
-          } catch (err) {
-            copyBtn.textContent = 'Erro';
-            setTimeout(() => { copyBtn.textContent = 'Copiar'; }, 2000);
-          }
-        };
-        btnContainer.appendChild(copyBtn);
-
-        if (interactiveButtons) {
-          const monacoContainer = document.createElement('div');
-          monacoContainer.className = 'monaco-inline-container';
-          monacoContainer.style.display = 'none';
-
-          const svgElement = diagramWrapper.querySelector('svg');
-          if (svgElement) {
-            diagramWrapper.insertBefore(monacoContainer, svgElement);
-          } else {
-            diagramWrapper.appendChild(monacoContainer);
-          }
-
-          let editor: monaco.editor.IStandaloneCodeEditor | null = null;
-          let isEditorMode = false;
-          const editorKey = `mermaid-${i}`;
-
-          const toggleBtn = document.createElement('button');
-          toggleBtn.className = 'copy-btn toggle-editor-btn';
-          toggleBtn.textContent = 'Ver código';
-          toggleBtn.setAttribute('tabindex', '0');
-          toggleBtn.setAttribute('aria-label', 'Ver código Mermaid no editor');
-          toggleBtn.onclick = () => {
-            isEditorMode = !isEditorMode;
-
-            if (isEditorMode) {
-              if (svgElement) svgElement.style.display = 'none';
-              monacoContainer.style.display = 'block';
-              toggleBtn.textContent = 'Ver diagrama';
-
-              if (!editor) {
-                editor = monaco.editor.create(monacoContainer, {
-                  value: mermaidCode,
-                  language: 'markdown',
-                  theme: 'vs-dark',
-                  readOnly: false,
-                  minimap: { enabled: false },
-                  lineNumbers: 'on',
-                  scrollBeyondLastLine: false,
-                  wordWrap: 'on',
-                  fontSize: 14,
-                  fontFamily: "'Fira Code', 'Consolas', monospace",
-                  padding: { top: 8, bottom: 8 },
-                  automaticLayout: true,
-                });
-                editorsRef.current.set(editorKey, editor);
-                setTimeout(() => editor!.focus(), 50);
-              } else {
-                editor.focus();
-              }
-            } else {
-              if (svgElement) svgElement.style.display = '';
-              monacoContainer.style.display = 'none';
-              toggleBtn.textContent = 'Ver código';
-            }
-          };
-          btnContainer.appendChild(toggleBtn);
-        }
-
-        diagramWrapper.appendChild(btnContainer);
-      } catch (err) {
-        console.error('Erro ao renderizar Mermaid:', err);
-      }
-    }
-  }
+  }, [addContextMenus, closeMenu, html, renderMermaidDiagrams]);
 
   return (
-    <div 
-      ref={containerRef}
-      className={`markdown-content ${className}`}
-      dangerouslySetInnerHTML={{ __html: html }}
-    />
+    <>
+      <div
+        ref={containerRef}
+        className={`markdown-content ${className}`}
+        dangerouslySetInnerHTML={{ __html: html }}
+      />
+      <Menu
+        items={menuState.items}
+        x={menuState.x}
+        y={menuState.y}
+        visible={menuState.visible}
+        ariaLabel={menuState.ariaLabel}
+        onClose={closeMenu}
+        onSelect={onSelectMenuItem}
+      />
+    </>
   );
 }
+
+export default MarkdownRenderer;
+

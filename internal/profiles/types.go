@@ -13,6 +13,7 @@ type Profile struct {
 	Name           string            `json:"name"`
 	Description    string            `json:"description,omitempty"`
 	Icon           string            `json:"icon,omitempty"`
+	Active         bool              `json:"active,omitempty"` // Marca se este é o perfil ativo
 	Chat           ChatConfig        `json:"chat"`
 	Voice          VoiceConfig       `json:"voice"`
 	Interaction    InteractionConfig `json:"interaction"`
@@ -33,23 +34,25 @@ type MediaSupport struct {
 
 // ChatConfig define as configurações do modelo LLM
 type ChatConfig struct {
-	Model                string   `json:"model,omitempty"`
-	Temperature          float64  `json:"temperature"`                      // 0.0 a 2.0
-	MaxTokens            int      `json:"max_tokens"`                       // Limite de tokens na resposta
-	ContextWindow        int      `json:"context_window,omitempty"`         // Tamanho da janela de contexto do modelo (0 = não definido)
-	MaxContextMessages   int      `json:"max_context_messages,omitempty"`   // Máx de mensagens no contexto (0 = padrão 50)
-	MinContextMessages   int      `json:"min_context_messages,omitempty"`   // Mín de mensagens preservadas após sumarização (0 = padrão 10)
-	TopP                 float64  `json:"top_p"`                            // 0.0 a 1.0
-	ResponseTimeout      int      `json:"response_timeout"`                 // Timeout em segundos
-	ReasoningEffort      string   `json:"reasoning_effort,omitempty"`       // off, low, medium, high (vazio = off)
-	SystemPrompt         string   `json:"system_prompt,omitempty"`          // Prompt customizado
-	SystemPromptPosition string   `json:"system_prompt_position,omitempty"` // "before" ou "after"
-	EnabledTools         []string `json:"enabled_tools"`                    // Ferramentas habilitadas (nil = todas)
-	EnabledSkills         []string `json:"enabled_skills"`                    // Skills autoload ordenados (nil = usa auto_load do skill, [] = nenhum autoload)
-	DisableTools          bool     `json:"disable_tools,omitempty"`           // Desabilita completamente tool calling
-	DisableSkills         bool     `json:"disable_skills,omitempty"`          // Desabilita injeção de skills no prompt
+	LLMProvider           string   `json:"llm_provider"` // ID do provedor LLM a usar (ex: "openai-default")
+	Model                 string   `json:"model,omitempty"`
+	Temperature           float64  `json:"temperature"`                        // 0.0 a 2.0
+	MaxTokens             int      `json:"max_tokens"`                         // Limite de tokens na resposta
+	MaxTokensMode         string   `json:"max_tokens_mode,omitempty"`          // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
+	ContextWindow         int      `json:"context_window,omitempty"`           // Tamanho da janela de contexto do modelo (0 = não definido)
+	MaxContextMessages    int      `json:"max_context_messages,omitempty"`     // Máx de mensagens no contexto (0 = padrão 50)
+	MinContextMessages    int      `json:"min_context_messages,omitempty"`     // Mín de mensagens preservadas após sumarização (0 = padrão 10)
+	TopP                  float64  `json:"top_p"`                              // 0.0 a 1.0
+	ResponseTimeout       int      `json:"response_timeout"`                   // Timeout em segundos
+	ReasoningEffort       string   `json:"reasoning_effort,omitempty"`         // off, low, medium, high (vazio = off)
+	SystemPrompt          string   `json:"system_prompt,omitempty"`            // Prompt customizado
+	SystemPromptPosition  string   `json:"system_prompt_position,omitempty"`   // "before" ou "after"
+	EnabledTools          []string `json:"enabled_tools"`                      // Ferramentas habilitadas (nil = todas)
+	EnabledSkills         []string `json:"enabled_skills"`                     // Skills autoload ordenados (nil = usa auto_load do skill, [] = nenhum autoload)
+	DisableTools          bool     `json:"disable_tools,omitempty"`            // Desabilita completamente tool calling
+	DisableSkills         bool     `json:"disable_skills,omitempty"`           // Desabilita injeção de skills no prompt
 	DisableOnDemandSkills bool     `json:"disable_on_demand_skills,omitempty"` // Desabilita skills sob demanda (apenas autoload)
-	CommandAllowlist     string   `json:"command_allowlist,omitempty"`      // Slug da allowlist de comandos
+	CommandAllowlist      string   `json:"command_allowlist,omitempty"`        // Slug da allowlist de comandos
 
 	// MCP Mode: "adapter" (padrão) ou "native"
 	// - "adapter": Tools MCP via bridge (compatível com qualquer modelo)
@@ -67,14 +70,15 @@ type ChatConfig struct {
 
 // VoiceConfig define as configurações de voz TTS
 type VoiceConfig struct {
-	Disabled        bool    `json:"disabled,omitempty"`  // Desabilita completamente TTS neste perfil
-	Provider        string  `json:"provider"`            // disabled, webspeech, sapi5, openai
-	VoiceID         string  `json:"voice_id,omitempty"`  // ID da voz
-	Rate            float64 `json:"rate"`               // Velocidade
-	Pitch           float64 `json:"pitch"`              // Tom
-	Volume          float64 `json:"volume"`             // Volume (0-1)
-	EnabledForAgent bool    `json:"enabled_for_agent"`  // TTS para mensagens do assistente
-	EnabledForUser  bool    `json:"enabled_for_user"`   // TTS para mensagens do usuário
+	Disabled        bool    `json:"disabled,omitempty"`        // Desabilita completamente TTS neste perfil
+	Provider        string  `json:"provider"`                  // disabled, webspeech, sapi5, openai
+	LLMProviderID   string  `json:"llm_provider_id,omitempty"` // ID do provedor LLM para TTS (ex: "openai-default", independente do chat)
+	VoiceID         string  `json:"voice_id,omitempty"`        // ID da voz
+	Rate            float64 `json:"rate"`                      // Velocidade
+	Pitch           float64 `json:"pitch"`                     // Tom
+	Volume          float64 `json:"volume"`                    // Volume (0-1)
+	EnabledForAgent bool    `json:"enabled_for_agent"`         // TTS para mensagens do assistente
+	EnabledForUser  bool    `json:"enabled_for_user"`          // TTS para mensagens do usuário
 
 	// ChannelResponseMode define como o canal externo responde em relação ao formato de mídia.
 	// Afeta apenas conversas via canais (Signal, Telegram, etc.) — não afeta o desktop.
@@ -100,11 +104,12 @@ const (
 
 // InteractionConfig define as configurações de interação por voz
 type InteractionConfig struct {
-	Disabled       bool            `json:"disabled,omitempty"`  // Desabilita completamente STT/interação neste perfil
-	STTProvider    string          `json:"stt_provider"`        // webspeech, whisper_api
-	Language       string          `json:"language"`            // Idioma (ex: pt-BR)
-	FeedbackSounds bool            `json:"feedback_sounds"`     // Sons de início/fim
-	Triggers       []TriggerConfig `json:"triggers,omitempty"`  // Lista de triggers
+	Disabled       bool            `json:"disabled,omitempty"`        // Desabilita completamente STT/interação neste perfil
+	STTProvider    string          `json:"stt_provider"`              // webspeech, whisper_api
+	LLMProviderID  string          `json:"llm_provider_id,omitempty"` // ID do provedor LLM para Whisper (ex: "openai-default", independente do chat)
+	Language       string          `json:"language"`                  // Idioma (ex: pt-BR)
+	FeedbackSounds bool            `json:"feedback_sounds"`           // Sons de início/fim
+	Triggers       []TriggerConfig `json:"triggers,omitempty"`        // Lista de triggers
 }
 
 // TriggerConfig define uma forma de ativar interação por voz
@@ -157,6 +162,7 @@ func DefaultProfile() *Profile {
 		Description: "Configuração padrão.",
 		Icon:        "chatbox",
 		Chat: ChatConfig{
+			LLMProvider:          "openai-default",
 			Model:                "",
 			Temperature:          0.7,
 			MaxTokens:            4096,
@@ -168,6 +174,7 @@ func DefaultProfile() *Profile {
 		},
 		Voice: VoiceConfig{
 			Provider:        "disabled",
+			LLMProviderID:   "openai-default", // TTS usa OpenAI por padrão (quando habilitado)
 			VoiceID:         "",
 			Rate:            1.0,
 			Pitch:           1.0,
@@ -177,6 +184,7 @@ func DefaultProfile() *Profile {
 		},
 		Interaction: InteractionConfig{
 			STTProvider:    "webspeech",
+			LLMProviderID:  "openai-default", // Whisper usa OpenAI por padrão (quando usado)
 			Language:       "pt-BR",
 			FeedbackSounds: true,
 			Triggers:       []TriggerConfig{},
@@ -191,6 +199,9 @@ func (p *Profile) Validate() error {
 	}
 
 	// Validação do chat
+	if p.Chat.LLMProvider == "" {
+		return fmt.Errorf("chat.llm_provider is required (ex: 'openai-default')")
+	}
 	if p.Chat.Temperature < 0 || p.Chat.Temperature > 2 {
 		return fmt.Errorf("chat.temperature must be between 0 and 2")
 	}

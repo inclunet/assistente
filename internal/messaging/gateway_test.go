@@ -11,17 +11,18 @@ import (
 	"time"
 
 	"assistente/internal/channels"
+	"assistente/internal/configdir"
 	"assistente/internal/contacts"
 	"assistente/internal/database"
 	"assistente/internal/llm"
 )
 
 type fakeMessenger struct {
-	name   string
-	status ConnectionStatus
+	name    string
+	status  ConnectionStatus
 	handler IncomingMessageHandler
-	sentCh chan OutgoingMessage
-	sent   []OutgoingMessage
+	sentCh  chan OutgoingMessage
+	sent    []OutgoingMessage
 }
 
 func (f *fakeMessenger) Name() string { return f.name }
@@ -58,6 +59,7 @@ func TestMain(m *testing.M) {
 	_ = os.Setenv("HOME", tempDir)
 	_ = os.Setenv("USERPROFILE", tempDir)
 	_ = os.Chdir(tempDir)
+	configdir.ResetForTests()
 
 	_ = os.RemoveAll(filepath.Join(tempDir, ".assistente"))
 	if err := database.Init(); err != nil {

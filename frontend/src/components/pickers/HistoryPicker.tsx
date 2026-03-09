@@ -1,8 +1,9 @@
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
-import { Combobox, ComboboxItem } from './Combobox';
-import { GetConversations } from '../../../wailsjs/go/main/App';
+import { ComboboxItem } from './Combobox';
+import { BasePicker } from './BasePicker';
+import { GetConversations } from '@wailsjs/go/main/App';
 import { database } from '../../../wailsjs/go/models';
-import { EventsOn, EventsOff } from '../../../wailsjs/runtime/runtime';
+import { EventsOn, EventsOff } from '@wailsjs/runtime/runtime';
 
 export interface HistoryPickerProps {
   value?: number; // ID da conversa atual
@@ -42,7 +43,6 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
         return dateB - dateA;
       });
       setConversations(sorted);
-      console.log('[HistoryPicker] Conversas carregadas:', sorted.length);
     } catch (error) {
       console.error('[HistoryPicker] Erro ao carregar conversas:', error);
     } finally {
@@ -58,17 +58,14 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   // Escuta eventos de novas conversas criadas
   useEffect(() => {
     const handleConversationCreated = () => {
-      console.log('[HistoryPicker] Nova conversa criada, recarregando lista...');
       loadConversations();
     };
 
     const handleConversationRenamed = () => {
-      console.log('[HistoryPicker] Conversa renomeada, recarregando lista...');
       loadConversations();
     };
 
     const handleConversationDeleted = () => {
-      console.log('[HistoryPicker] Conversa deletada, recarregando lista...');
       loadConversations();
     };
 
@@ -85,7 +82,6 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
 
   // Callback quando o picker é aberto - recarrega conversas
   const handleOpen = useCallback(() => {
-    console.log('[HistoryPicker] Picker aberto, recarregando conversas...');
     loadConversations();
   }, [loadConversations]);
 
@@ -134,17 +130,21 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   };
 
   return (
-    <Combobox
-      icon="📜"
-      label={label}
+    <BasePicker
+      variant="toolbar"
       items={items}
       selected={selectedValue}
       onSelect={handleSelect}
+      label={label}
+      icon="📜"
       placeholder={isLoading ? 'Carregando...' : 'Buscar conversa...'}
       disabled={disabled || isLoading}
       maxWidth={maxWidth}
       onAnnounce={onAnnounce}
       onOpen={handleOpen}
+      showLoadingState={false}
+      showEmptyState={false}
+      wrapCombobox={false}
     />
   );
 });

@@ -1,5 +1,6 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
-import { Combobox, ComboboxItem } from './Combobox';
+import { ComboboxItem } from './Combobox';
+import { BasePicker } from './BasePicker';
 import './STTProviderPicker.css';
 
 // Constantes de provedores STT
@@ -51,22 +52,21 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
       setError(null);
 
       try {
-        // Provedores disponíveis
         const providersList: STTProvider[] = [
-          { 
-            id: STT_WEBSPEECH, 
-            name: 'WebSpeech', 
+          {
+            id: STT_WEBSPEECH,
+            name: 'WebSpeech',
             description: 'Navegador (grátis)',
             icon: '🌐'
           },
-          { 
-            id: STT_WHISPER, 
-            name: 'Whisper', 
+          {
+            id: STT_WHISPER,
+            name: 'Whisper',
             description: 'OpenAI (premium)',
             icon: '🤖'
           },
         ];
-        
+
         setProviders(providersList);
       } catch (err) {
         setError(err instanceof Error ? err.message : 'Erro ao carregar provedores');
@@ -90,74 +90,34 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
       sublabel: provider.description,
     }));
 
-    if (variant === 'toolbar') {
-      if (loading) {
-        return (
-          <div className="stt-picker-toolbar" role="status" aria-live="polite">
-            <span className="loading-spinner" aria-hidden="true" />
-            <span className="sr-only">Carregando provedores...</span>
-          </div>
-        );
-      }
-
-      if (error) {
-        return (
-          <div className="stt-picker-toolbar stt-picker-error" role="alert">
-            <span>⚠️</span>
-            <button onClick={loadProviders} className="retry-btn">
-              Tentar novamente
-            </button>
-          </div>
-        );
-      }
-
-      return (
-        <Combobox
-          items={items}
-          selected={value}
-          onSelect={onChange}
-          label={label}
-          icon={icon}
-          maxWidth={maxWidth}
-          onAnnounce={onAnnounce}
-        />
-      );
-    }
-
-    // Form variant
     return (
-      <div className="stt-picker-form">
-        <label className="stt-picker-label">
-          {icon && <span className="stt-picker-icon">{icon}</span>}
-          {label}
-        </label>
-        
-        {loading ? (
-          <div className="loading-state" role="status" aria-live="polite">
-            <span className="loading-spinner" aria-hidden="true" />
-            <span>Carregando provedores...</span>
-          </div>
-        ) : error ? (
-          <div className="error-state" role="alert">
-            <span className="error-icon">⚠️</span>
-            <span>{error}</span>
-            <button onClick={loadProviders} className="retry-btn">
-              Tentar novamente
-            </button>
-          </div>
-        ) : (
-          <Combobox
-            items={items}
-            selected={value}
-            onSelect={onChange}
-            label={label}
-            icon={icon}
-            onAnnounce={onAnnounce}
-          />
-        )}
-        
-        {helpText && <p className="help-text">{helpText}</p>}
-      </div>
+      <BasePicker
+        variant={variant}
+        items={items}
+        selected={value}
+        onSelect={onChange}
+        label={label}
+        icon={icon}
+        maxWidth={maxWidth}
+        onAnnounce={onAnnounce}
+        loading={loading}
+        error={error}
+        onRetry={loadProviders}
+        showFormLabel={variant === 'form'}
+        formClassName="stt-picker-form"
+        formLabelClassName="stt-picker-label"
+        formLabelIconClassName="stt-picker-icon"
+        helpText={variant === 'form' ? helpText : undefined}
+        helpTextClassName="help-text"
+        loadingLabel={{ form: 'Carregando provedores...', toolbar: 'Carregando provedores...' }}
+        loadingLabelVisuallyHidden={{ toolbar: true }}
+        loadingClassName={{ form: 'loading-state', toolbar: 'stt-picker-toolbar' }}
+        errorClassName={{ form: 'error-state', toolbar: 'stt-picker-toolbar stt-picker-error' }}
+        errorLabel={{ form: error || 'Erro ao carregar provedores', toolbar: '' }}
+        errorLabelVisuallyHidden={{ toolbar: true }}
+        errorIcon={{ form: '⚠️', toolbar: '⚠️' }}
+        retryClassName="retry-btn"
+      />
     );
   }
 );

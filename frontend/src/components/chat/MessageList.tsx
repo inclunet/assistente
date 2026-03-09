@@ -17,6 +17,12 @@ export interface MessageListProps {
   onContextMenu?: (event: React.MouseEvent, message: Message) => void;
   onSpeak?: (message: Message) => void;
   onDelete?: (message: Message) => void;
+  onSendToEditor?: (payload: {
+    target: 'current' | 'new_tab';
+    format: 'markdown' | 'html' | 'plain';
+    title?: string;
+    content: string;
+  }) => void;
 }
 
 /**
@@ -137,7 +143,7 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 }
 
 export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
-  { isLoading = false, loadingText = 'Assistente está digitando', threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak, onDelete },
+  { isLoading = false, loadingText = 'Assistente está digitando', threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak, onDelete, onSendToEditor },
   ref
 ) => {
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -218,6 +224,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
               onContextMenu={onContextMenu}
               onSpeak={onSpeak}
               onDelete={onDelete}
+              onSendToEditor={onSendToEditor}
             />
           ))}
         </div>

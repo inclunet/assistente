@@ -1,0 +1,31 @@
+{
+  "_builtin_version": "1.0.0",
+  "name": "Canais de comunicação",
+  "description": "Perfil enxuto e seguro para mensagens em canais externos (Signal/Telegram/etc.).",
+  "icon": "chatbox-ellipses",
+  "chat": {
+    "temperature": 0.3,
+    "max_tokens": 2048,
+    "top_p": 1.0,
+    "response_timeout": 180,
+    "enable_thinking": false,
+    "system_prompt": "Você está respondendo por canais externos de comunicação. Seja direto, breve e educado. Evite conteúdos sensíveis e não exponha informações internas. Se precisar de confirmação do usuário, faça uma pergunta objetiva. Não use ferramentas a menos que seja explicitamente solicitado.",
+    "system_prompt_position": "before",
+    "enabled_tools": [],
+    "enabled_skills": []
+  },
+  "voice": {
+    "provider": "disabled",
+    "rate": 1.0,
+    "pitch": 1.0,
+    "volume": 1.0,
+    "enabled_for_agent": false,
+    "enabled_for_user": false,
+    "channel_response_mode": "always_text"
+  },
+  "interaction": {
+    "stt_provider": "webspeech",
+    "language": "pt-BR",
+    "feedback_sounds": true
+  }
+}

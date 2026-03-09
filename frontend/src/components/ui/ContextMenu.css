@@ -42,6 +42,16 @@
   outline: none;
 }
 
+.context-menu__item:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
+}
+
+.context-menu__item:disabled:hover,
+.context-menu__item:disabled:focus {
+  background: transparent;
+}
+
 .context-menu__item--danger {
   color: var(--error-color, #f44336);
 }
@@ -60,6 +70,12 @@
 
 .context-menu__label {
   flex: 1;
+}
+
+.context-menu__check {
+  flex-shrink: 0;
+  font-size: 12px;
+  opacity: 0.9;
 }
 
 .context-menu__shortcut {

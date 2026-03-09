@@ -5,8 +5,12 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
+	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"assistente/internal/allowlist"
@@ -14,12 +18,14 @@ import (
 	"assistente/internal/config"
 	"assistente/internal/configdir"
 	"assistente/internal/contacts"
+	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/messaging/signal"
+	"assistente/internal/messaging/slack"
 	"assistente/internal/messaging/telegram"
 	"assistente/internal/profiles"
 	"assistente/internal/questionnaire"
@@ -27,6 +33,7 @@ import (
 	"assistente/internal/speech"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
+	"assistente/internal/tools/editor"
 	"assistente/internal/tools/filesystem"
 	msgtool "assistente/internal/tools/messaging"
 	questiontool "assistente/internal/tools/questionnaire"
@@ -44,10 +51,34 @@ var (
 	AppVersion = "dev"
 )
 
+// Request structs for LLM Provider Management
+type CreateLLMProviderRequest struct {
+	ID      string `json:"id"`
+	Name    string `json:"name"`
+	Type    string `json:"type"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key,omitempty"`
+}
+
+type TestLLMProviderRequest struct {
+	Type    string `json:"type"`
+	BaseURL string `json:"base_url"`
+	APIKey  string `json:"api_key,omitempty"`
+}
+
+type UpdateLLMProviderRequest struct {
+	Name    string `json:"name,omitempty"`
+	Type    string `json:"type,omitempty"`
+	BaseURL string `json:"base_url,omitempty"`
+	APIKey  string `json:"api_key,omitempty"`
+}
+
 // App struct
 type App struct {
 	ctx                   context.Context
 	llmClient             *llm.SyncClient
+	llmStreamClient       *llm.Client
+	llmRegistry           *llm.ProviderRegistry // Registro de provedores LLM
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
 	profileManager        *profiles.Manager
@@ -64,9 +95,16 @@ type App struct {
 	voiceHotkeyID         int
 	currentConversationID uint // ID da conversa atual
 
+	credMgr   *credentials.Manager
+	credStore credentials.Store
+
 	// Throttle para hotkeys - evita disparo repetido quando segura a tecla
 	hotkeyLastFired  map[uint]time.Time
 	hotkeyThrottleMs int64 // tempo mínimo entre disparos (em ms)
+
+	// Watcher de arquivos do editor (mudanças externas)
+	editorWatchMu    sync.Mutex
+	editorDirWatches map[string]*editorDirWatch
 }
 
 // ==================== Tipos para Threads ====================
@@ -125,6 +163,7 @@ func NewApp() *App {
 		hotkeyLastFired:  make(map[uint]time.Time),
 		hotkeyThrottleMs: 1000,
 		profileManager:   profiles.NewManager(),
+		llmRegistry:      llm.NewProviderRegistry(),
 	}
 }
 
@@ -136,6 +175,9 @@ func (a *App) startup(ctx context.Context) {
 	if err := InitDatabase(); err != nil {
 		log.Printf("Erro ao inicializar banco de dados: %v", err)
 	}
+	if err := a.cleanupEditorOrphanDraftsOnStartup(); err != nil {
+		log.Printf("Erro ao limpar drafts órfãos do editor no startup: %v", err)
+	}
 
 	// Instala/atualiza perfis embutidos em ~/.assistente/profiles/
 	a.installBuiltinProfiles()
@@ -145,8 +187,17 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("Erro ao garantir diretório de perfis: %v", err)
 	}
 
-	// Inicializa o cliente LLM
+	// Inicializa Credential Manager PRIMEIRO (antes de qualquer uso)
+	a.initCredentialManager()
+
+	// Inicializa os provedores LLM (Provider Registry) ANTES do client
+	a.initLLMProviders()
+
+	// Inicializa o cliente LLM (usa credMgr + registry já populado)
 	a.initLLMClient()
+
+	// Migra config.json legado para novo sistema (se necessário)
+	a.migrateLegacyConfig()
 
 	// Inicializa managers de terminal, confirmação e allowlists
 	a.initTerminalAndAllowlists()
@@ -179,7 +230,7 @@ func (a *App) startup(ctx context.Context) {
 	go a.checkForUpdatesOnStartup()
 }
 
-// initLLMClient inicializa o cliente LLM
+// initLLMClient inicializa o cliente LLM usando o provider do perfil ativo
 func (a *App) initLLMClient() {
 	cfg, err := config.Load()
 	if err != nil {
@@ -187,21 +238,200 @@ func (a *App) initLLMClient() {
 		return
 	}
 
-	llm.ConfigureResponseTimeout(cfg.GetResponseTimeout())
-	log.Printf("HTTP Response Timeout configurado para %d segundos", cfg.GetResponseTimeout())
-
-	if cfg.APIKey == "" {
-		log.Printf("API Key não configurada")
+	// Load active profile to get provider
+	activeProfile, err := a.profileManager.GetActive()
+	if err != nil || activeProfile == nil {
+		log.Printf("Erro ao carregar perfil ativo: %v", err)
 		return
 	}
 
-	a.llmClient = llm.NewSyncClient(cfg.APIBaseURL, cfg.APIKey)
-	log.Printf("LLM Client inicializado")
+	// Get provider from registry
+	provider := a.llmRegistry.Get(activeProfile.Chat.LLMProvider)
+	if provider == nil {
+		log.Printf("Provedor LLM não encontrado: %s", activeProfile.Chat.LLMProvider)
+		return
+	}
+
+	// Create clients with provider config
+	a.llmClient = llm.NewSyncClient(provider, a.credMgr)
+	a.llmStreamClient = llm.NewClient(provider, cfg, a.credMgr)
+	log.Printf("LLM Client inicializado com provedor: %s", provider.Name)
 }
 
 // ReloadLLMClient recarrega o cliente LLM (chamado quando config muda)
 func (a *App) ReloadLLMClient() {
 	a.initLLMClient()
+}
+
+// initLLMProviders inicializa o registro de provedores LLM com os provedores padrão
+func (a *App) initLLMProviders() {
+	// Tentar carregar provedores do SQLite
+	if err := a.loadLLMProviders(); err == nil {
+		return
+	}
+
+	// Se não houver provedores, verificar se já passou pelo wizard
+	// Se não passou, o wizard criará o primeiro provedor
+	count, err := database.CountLLMProviders()
+	if err != nil || count == 0 {
+		log.Printf("Nenhum provedor encontrado. Configure um provedor nas configurações ou crie um perfil.")
+	}
+}
+
+// CreateDefaultLLMProvider cria o primeiro provedor durante o wizard
+func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
+	var provider *llm.ProviderConfig
+
+	switch providerType {
+	case "openai":
+		provider = &llm.ProviderConfig{
+			ID:                "openai-default",
+			Name:              "OpenAI",
+			Type:              llm.ProviderOpenAI,
+			BaseURL:           "https://api.openai.com/v1",
+			Model:             "gpt-4o-mini",
+			Timeout:           180,
+			CredentialPattern: "api.openai.com",
+		}
+	case "claude":
+		provider = &llm.ProviderConfig{
+			ID:                "anthropic-claude",
+			Name:              "Claude (Anthropic)",
+			Type:              llm.ProviderClaude,
+			BaseURL:           "https://api.anthropic.com/v1",
+			Model:             "claude-3-7-sonnet-20250219",
+			Timeout:           180,
+			CredentialPattern: "api.anthropic.com",
+		}
+	case "ollama":
+		provider = &llm.ProviderConfig{
+			ID:                "ollama-local",
+			Name:              "Ollama (Local)",
+			Type:              llm.ProviderOllama,
+			BaseURL:           "http://localhost:11434/api",
+			Model:             "llama2",
+			Timeout:           300,
+			CredentialPattern: "",
+		}
+	default:
+		return fmt.Errorf("tipo de provedor inválido: %s", providerType)
+	}
+
+	// Registrar no registry
+	if err := a.llmRegistry.Register(provider); err != nil {
+		return fmt.Errorf("erro ao registrar provedor: %w", err)
+	}
+
+	// Salvar API key se fornecida
+	if apiKey != "" && provider.CredentialPattern != "" {
+		authCfg := &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: apiKey,
+		}
+		if err := a.credMgr.RegisterPatternWithContext(a.ctx, provider.CredentialPattern, authCfg); err != nil {
+			return fmt.Errorf("erro ao salvar credencial: %w", err)
+		}
+	}
+
+	// Salvar no SQLite
+	if err := a.saveLLMProviders(); err != nil {
+		return fmt.Errorf("erro ao salvar provedor: %w", err)
+	}
+
+	log.Printf("[Wizard] Provedor '%s' criado com sucesso", provider.ID)
+	return nil
+}
+
+// initCredentialManager inicializa o gerenciador de credenciais com persistência
+func (a *App) initCredentialManager() {
+	a.credStore = credentials.NewDBStore()
+	persist := true
+	dek, err := credentials.LoadDEKFromKeychain()
+	if err != nil {
+		if !credentials.IsKeychainNotFound(err) {
+			log.Printf("[Credentials] Erro ao acessar keychain: %v", err)
+		}
+		persist = false
+		dek = nil
+	}
+
+	a.credMgr = credentials.NewManagerWithStore(dek, a.credStore, persist)
+	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {
+		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
+	}
+	a.registerEnvCredentials(a.credMgr)
+}
+
+// migrateLegacyConfig detecta config.json com campos legados e migra para novo sistema
+// Migração:
+// 1. Se APIKey existir → registra como credencial no credentials.Manager
+// 2. Se APIKey existir → garante que provider default está usando as credenciais
+// 3. Limpa campos legados do config.json
+func (a *App) migrateLegacyConfig() {
+	cfg, err := config.Load()
+	if err != nil {
+		// Sem config, sem migração necessária
+		return
+	}
+
+	needsMigration := false
+	migratedFields := []string{}
+
+	// Verificar se tem APIKey (campo principal legado)
+	if cfg.APIKey != "" {
+		needsMigration = true
+		migratedFields = append(migratedFields, "APIKey")
+
+		// Extrair domínio do BaseURL
+		baseURL := cfg.APIBaseURL
+		if baseURL == "" {
+			baseURL = "https://api.openai.com/v1"
+		}
+
+		// Determinar pattern baseado no baseURL
+		pattern := "*.openai.com" // default
+		if strings.Contains(baseURL, "anthropic") {
+			pattern = "*.anthropic.com"
+		} else if strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1") {
+			pattern = "" // local, sem pattern
+		}
+
+		// Registrar credencial no credentials.Manager
+		if pattern != "" {
+			authCfg := &credentials.AuthConfig{
+				Type:  "bearer",
+				Token: cfg.APIKey,
+			}
+			if err := a.credMgr.RegisterPatternWithContext(a.ctx, pattern, authCfg); err != nil {
+				log.Printf("[Migration] Erro ao registrar credencial do config.json: %v", err)
+			} else {
+				log.Printf("[Migration] ✓ APIKey migrado para credentials.Manager (pattern: %s)", pattern)
+			}
+		}
+	}
+
+	// Verificar outros campos legados
+	if cfg.APIBaseURL != "" && cfg.APIBaseURL != "https://api.openai.com/v1" {
+		migratedFields = append(migratedFields, "APIBaseURL")
+	}
+	if cfg.DefaultModel != "" && cfg.DefaultModel != "gpt-4o-mini" {
+		migratedFields = append(migratedFields, "DefaultModel")
+	}
+	if cfg.ResponseTimeout != 0 && cfg.ResponseTimeout != 180 {
+		migratedFields = append(migratedFields, "ResponseTimeout")
+	}
+	if cfg.ActiveProfile != "" && cfg.ActiveProfile != "padrao" {
+		migratedFields = append(migratedFields, "ActiveProfile")
+	}
+
+	if needsMigration {
+		log.Printf("[Migration] Config.json legado detectado — campos migrados: %v", migratedFields)
+		log.Printf("[Migration] Novas configurações devem ser feitas via Perfis e Provider Registry")
+		log.Printf("[Migration] Os campos legados em config.json não serão mais usados")
+
+		// Não vamos deletar o config.json ainda, apenas marcar como migrado
+		// Isso permite que usuários vejam o arquivo e entendam a mudança
+	}
 }
 
 // initTerminalAndAllowlists inicializa os managers de terminal, questionário e allowlists.
@@ -334,19 +564,19 @@ func (a *App) initMessaging() {
 		if identifier == "" {
 			identifier = username
 		}
-		message := fmt.Sprintf("O contato %s enviou uma mensagem via %s, mas nenhum contato está autorizado para este canal.\n\nIdentificador: %s\n\nDeseja definir este contato como o contato autorizado do %s? (Apenas um contato é permitido por canal.)",
-			name, channel, identifier, channel)
+		message := fmt.Sprintf("O contato %s enviou uma mensagem via %s.\n\nIdentificador: %s\n\nPara autorizar este contato, digite o código de pareamento que foi enviado para a pessoa.",
+			name, channel, identifier)
 		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-			Title:       "Contato não autorizado",
+			Title:       "Novo contato - Pareamento requerido",
 			Description: message,
 			AllowCancel: true,
 			SubmitLabel: "Autorizar",
-			CancelLabel: "Ignorar",
+			CancelLabel: "Recusar",
 			Questions: []questionnaire.Question{
 				{
-					ID:       "approve",
-					Type:     "boolean",
-					Prompt:   fmt.Sprintf("Autorizar este contato no canal %s?", channel),
+					ID:       "pairing_code",
+					Type:     "text",
+					Prompt:   "Código de pareamento (6 dígitos):",
 					Required: true,
 				},
 			},
@@ -357,11 +587,23 @@ func (a *App) initMessaging() {
 		if resp.Cancelled {
 			return false, nil
 		}
-		approved, ok := resp.Answers["approve"].(bool)
+
+		// Valida o código fornecido
+		providedCode, ok := resp.Answers["pairing_code"].(string)
 		if !ok {
-			return false, fmt.Errorf("resposta inválida para autorização de contato")
+			return false, fmt.Errorf("código de pareamento inválido")
 		}
-		return approved, nil
+
+		// Valida usando a função que retorna (bool, error)
+		valid, validateErr := contacts.ValidatePairingCode(channel, contactID, providedCode)
+		if !valid {
+			if validateErr != nil {
+				return false, fmt.Errorf("pareamento falhou: %v", validateErr)
+			}
+			return false, fmt.Errorf("código de pareamento incorreto")
+		}
+
+		return true, nil
 	}
 
 	a.msgGateway = messaging.NewGateway(
@@ -380,22 +622,28 @@ func (a *App) initMessaging() {
 	}
 
 	// Telegram
-	if cfg, ok := enabledChannels["telegram"]; ok && cfg.BotToken != "" {
-		adapter := telegram.NewAdapter(cfg.BotToken)
-		a.msgGateway.Register("telegram", adapter)
-		go func() {
-			if err := adapter.Connect(a.ctx); err != nil {
-				log.Printf("[Messaging] Erro ao conectar Telegram: %v", err)
-			}
-		}()
-		log.Printf("[Messaging] Telegram habilitado")
-	} else {
-		log.Printf("[Messaging] Telegram não configurado ou desabilitado")
+	if cfg, ok := enabledChannels["telegram"]; ok {
+		botToken := cfg.BotToken
+		if botToken == "" && cfg.BotTokenRef != "" {
+			botToken = a.resolveCredentialRef(cfg.BotTokenRef)
+		}
+		if botToken == "" {
+			log.Printf("[Messaging] Telegram não configurado ou desabilitado")
+		} else {
+			adapter := telegram.NewAdapter(botToken)
+			a.msgGateway.Register("telegram", adapter)
+			go func() {
+				if err := adapter.Connect(a.ctx); err != nil {
+					log.Printf("[Messaging] Erro ao conectar Telegram: %v", err)
+				}
+			}()
+			log.Printf("[Messaging] Telegram habilitado")
+		}
 	}
 
 	// Signal (via signal-cli-rest-api HTTP + WebSocket)
 	if cfg, ok := enabledChannels["signal"]; ok && cfg.Account != "" && cfg.APIURL != "" {
-		adapter := signal.NewAdapter(cfg.APIURL, cfg.Account)
+		adapter := signal.NewAdapter(cfg.APIURL, cfg.Account, a.credMgr)
 		a.msgGateway.Register("signal", adapter)
 		go func() {
 			if err := adapter.Connect(a.ctx); err != nil {
@@ -407,11 +655,40 @@ func (a *App) initMessaging() {
 		log.Printf("[Messaging] Signal não configurado ou desabilitado")
 	}
 
+	// Slack (Socket Mode)
+	if cfg, ok := enabledChannels["slack"]; ok {
+		botToken := cfg.BotToken
+		appToken := cfg.AppToken
+		if botToken == "" && cfg.BotTokenRef != "" {
+			botToken = a.resolveCredentialRef(cfg.BotTokenRef)
+		}
+		if appToken == "" && cfg.AppTokenRef != "" {
+			appToken = a.resolveCredentialRef(cfg.AppTokenRef)
+		}
+		if botToken == "" || appToken == "" {
+			log.Printf("[Messaging] Slack não configurado ou desabilitado")
+		} else {
+			adapter := slack.NewAdapter(botToken, appToken)
+			a.msgGateway.Register("slack", adapter)
+			go func() {
+				if err := adapter.Connect(a.ctx); err != nil {
+					log.Printf("[Messaging] Erro ao conectar Slack: %v", err)
+				}
+			}()
+			log.Printf("[Messaging] Slack habilitado")
+		}
+	}
+
 	// Registra a tool send_message no registry de ferramentas
 	if a.toolRegistry != nil {
 		sendMsgTool := msgtool.NewSendMessageTool(a.msgGateway)
 		a.toolRegistry.MustRegister(sendMsgTool)
 		log.Printf("[Messaging] Tool 'send_message' registrada")
+
+		// Registra a tool validate_pairing_code
+		pairingTool := msgtool.NewValidatePairingCodeTool()
+		a.toolRegistry.MustRegister(pairingTool)
+		log.Printf("[Messaging] Tool 'validate_pairing_code' registrada")
 	}
 
 	log.Printf("[Messaging] Gateway inicializado")
@@ -442,13 +719,153 @@ func (a *App) GetChannelConfig(channelName string) (*channels.ChannelConfig, err
 	return cfg, nil
 }
 
+// ListCredentials retorna credenciais registradas (sem valores sensíveis).
+func (a *App) ListCredentials() ([]CredentialSummary, error) {
+	if a.credMgr == nil {
+		return []CredentialSummary{}, nil
+	}
+
+	list, err := a.credMgr.ListCredentials()
+	if err != nil {
+		return nil, err
+	}
+
+	result := make([]CredentialSummary, 0, len(list))
+	for _, entry := range list {
+		if entry.Auth == nil {
+			continue
+		}
+		result = append(result, CredentialSummary{
+			Pattern: entry.Pattern,
+			Type:    entry.Auth.Type,
+			Masked:  summarizeAuth(entry.Auth),
+		})
+	}
+
+	return result, nil
+}
+
+// UpsertCredential cria ou atualiza uma credencial no credential manager.
+func (a *App) UpsertCredential(input CredentialInput) error {
+	if a.credMgr == nil {
+		return fmt.Errorf("credential manager não inicializado")
+	}
+	if !a.credMgr.CanPersist() {
+		return fmt.Errorf("cofre de credenciais indisponível: configure a senha mestre")
+	}
+
+	pattern := strings.TrimSpace(input.Pattern)
+	if pattern == "" {
+		return fmt.Errorf("pattern é obrigatório")
+	}
+
+	auth := &credentials.AuthConfig{Type: strings.TrimSpace(input.Type)}
+	switch auth.Type {
+	case "bearer", "oauth2", "secret":
+		if strings.TrimSpace(input.Token) == "" {
+			return fmt.Errorf("token é obrigatório")
+		}
+		auth.Token = input.Token
+	case "basic":
+		if strings.TrimSpace(input.Username) == "" || strings.TrimSpace(input.Password) == "" {
+			return fmt.Errorf("usuário e senha são obrigatórios")
+		}
+		auth.Username = input.Username
+		auth.Password = input.Password
+	case "custom":
+		if strings.TrimSpace(input.HeaderName) == "" || strings.TrimSpace(input.HeaderValue) == "" {
+			return fmt.Errorf("header e valor são obrigatórios")
+		}
+		auth.Headers = map[string]string{input.HeaderName: input.HeaderValue}
+	default:
+		return fmt.Errorf("tipo de credencial inválido")
+	}
+
+	return a.credMgr.RegisterPatternWithContext(context.Background(), pattern, auth)
+}
+
+// DeleteCredential remove uma credencial pelo padrão.
+func (a *App) DeleteCredential(pattern string) error {
+	if a.credMgr == nil {
+		return fmt.Errorf("credential manager não inicializado")
+	}
+	return a.credMgr.DeletePattern(context.Background(), pattern)
+}
+
 // SaveChannelConfig salva a configuração de um canal e reconecta automaticamente.
 func (a *App) SaveChannelConfig(channelName string, cfg *channels.ChannelConfig) error {
+	if err := a.persistChannelCredentials(channelName, cfg); err != nil {
+		return err
+	}
 	if err := channels.Save(channelName, cfg); err != nil {
 		return err
 	}
 	// Reconecta o canal com a nova configuração
 	a.restartChannel(channelName, cfg)
+	return nil
+}
+
+func (a *App) persistChannelCredentials(channelName string, cfg *channels.ChannelConfig) error {
+	if cfg == nil || a.credMgr == nil || !a.credMgr.CanPersist() {
+		return nil
+	}
+
+	ctx := context.Background()
+
+	switch channelName {
+	case "telegram":
+		if cfg.BotTokenRef == "" && cfg.BotToken != "" {
+			cfg.BotTokenRef = fmt.Sprintf("channel:%s:bot_token", channelName)
+		}
+		if cfg.BotTokenRef != "" && cfg.BotToken != "" {
+			if err := a.credMgr.RegisterPatternWithContext(ctx, cfg.BotTokenRef, &credentials.AuthConfig{
+				Type:  "secret",
+				Token: cfg.BotToken,
+			}); err != nil {
+				return err
+			}
+			cfg.BotToken = ""
+		}
+	case "slack":
+		if cfg.BotTokenRef == "" && cfg.BotToken != "" {
+			cfg.BotTokenRef = fmt.Sprintf("channel:%s:bot_token", channelName)
+		}
+		if cfg.AppTokenRef == "" && cfg.AppToken != "" {
+			cfg.AppTokenRef = fmt.Sprintf("channel:%s:app_token", channelName)
+		}
+		if cfg.BotTokenRef != "" && cfg.BotToken != "" {
+			if err := a.credMgr.RegisterPatternWithContext(ctx, cfg.BotTokenRef, &credentials.AuthConfig{
+				Type:  "secret",
+				Token: cfg.BotToken,
+			}); err != nil {
+				return err
+			}
+			cfg.BotToken = ""
+		}
+		if cfg.AppTokenRef != "" && cfg.AppToken != "" {
+			if err := a.credMgr.RegisterPatternWithContext(ctx, cfg.AppTokenRef, &credentials.AuthConfig{
+				Type:  "secret",
+				Token: cfg.AppToken,
+			}); err != nil {
+				return err
+			}
+			cfg.AppToken = ""
+		}
+	case "signal":
+		if cfg.APITokenRef == "" && cfg.APIToken != "" {
+			cfg.APITokenRef = fmt.Sprintf("channel:%s:api_token", channelName)
+		}
+		if cfg.APITokenRef != "" && cfg.APIToken != "" {
+			if err := a.credMgr.RegisterPatternWithContext(ctx, cfg.APITokenRef, &credentials.AuthConfig{
+				Type:  "secret",
+				Token: cfg.APIToken,
+			}); err != nil {
+				return err
+			}
+			cfg.APIToken = ""
+		}
+	}
+
 	return nil
 }
 
@@ -482,11 +899,15 @@ func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 
 	switch channelName {
 	case "telegram":
-		if cfg.BotToken == "" {
+		botToken := cfg.BotToken
+		if botToken == "" && cfg.BotTokenRef != "" {
+			botToken = a.resolveCredentialRef(cfg.BotTokenRef)
+		}
+		if botToken == "" {
 			log.Printf("[Messaging] Telegram: bot token vazio, não conectando")
 			return
 		}
-		adapter := telegram.NewAdapter(cfg.BotToken)
+		adapter := telegram.NewAdapter(botToken)
 		a.msgGateway.Register("telegram", adapter)
 		go func() {
 			if err := adapter.Connect(a.ctx); err != nil {
@@ -500,7 +921,7 @@ func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 			log.Printf("[Messaging] Signal: conta ou URL da API vazios, não conectando")
 			return
 		}
-		adapter := signal.NewAdapter(cfg.APIURL, cfg.Account)
+		adapter := signal.NewAdapter(cfg.APIURL, cfg.Account, a.credMgr)
 		a.msgGateway.Register("signal", adapter)
 		go func() {
 			if err := adapter.Connect(a.ctx); err != nil {
@@ -508,6 +929,28 @@ func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 			}
 		}()
 		log.Printf("[Messaging] Signal reconectado (api=%s, account=%s)", cfg.APIURL, maskIdentifier(cfg.Account))
+
+	case "slack":
+		botToken := cfg.BotToken
+		appToken := cfg.AppToken
+		if botToken == "" && cfg.BotTokenRef != "" {
+			botToken = a.resolveCredentialRef(cfg.BotTokenRef)
+		}
+		if appToken == "" && cfg.AppTokenRef != "" {
+			appToken = a.resolveCredentialRef(cfg.AppTokenRef)
+		}
+		if botToken == "" || appToken == "" {
+			log.Printf("[Messaging] Slack: bot/app token vazios, não conectando")
+			return
+		}
+		adapter := slack.NewAdapter(botToken, appToken)
+		a.msgGateway.Register("slack", adapter)
+		go func() {
+			if err := adapter.Connect(a.ctx); err != nil {
+				log.Printf("[Messaging] Erro ao conectar Slack: %v", err)
+			}
+		}()
+		log.Printf("[Messaging] Slack reconectado")
 
 	default:
 		log.Printf("[Messaging] Canal desconhecido: %s", channelName)
@@ -519,43 +962,86 @@ func (a *App) GetAllChannelConfigs() (map[string]*channels.ChannelConfig, error)
 	return channels.ListAll()
 }
 
+// GetChannelTemplates retorna todos os templates disponíveis para criar novos canais.
+func (a *App) GetChannelTemplates() []channels.ChannelTemplate {
+	all := channels.GetAvailableTemplates()
+	supported := a.getSupportedChannelTypes()
+	filtered := make([]channels.ChannelTemplate, 0, len(all))
+	for _, t := range all {
+		if _, ok := supported[t.Type]; ok {
+			t.Supported = true
+			filtered = append(filtered, t)
+		}
+	}
+	return filtered
+}
+
+// getSupportedChannelTypes retorna os tipos de canais suportados pelo backend.
+// Mantém este mapa alinhado com os adapters disponíveis (initMessaging/restartChannel).
+func (a *App) getSupportedChannelTypes() map[string]struct{} {
+	return map[string]struct{}{
+		"telegram": {},
+		"signal":   {},
+		"slack":    {},
+	}
+}
+
+// CreateChannelFromTemplate cria um novo canal a partir de um template.
+// templateType: "telegram", "signal", "whatsapp", "slack", "teams", "email"
+// values: mapa com os valores dos campos (ex: {"bot_token": "xxx", "max_contacts": 5})
+func (a *App) CreateChannelFromTemplate(templateType string, values map[string]interface{}) error {
+	if err := channels.CreateFromTemplate(templateType, values); err != nil {
+		return err
+	}
+
+	// Emite evento para atualizar UI
+	runtime.EventsEmit(a.ctx, "channel:created", map[string]string{"type": templateType})
+
+	return nil
+}
+
+// GetChannelConfigAsMap retorna a configuração de um canal como mapa para exibir na UI.
+func (a *App) GetChannelConfigAsMap(channelName string) (map[string]interface{}, error) {
+	return channels.GetChannelConfigAsMap(channelName)
+}
+
 // SignalRegister inicia o registro de uma conta Signal via signal-cli-rest-api.
 // mode: "sms" (padrão) ou "voice" para receber o código por ligação.
 // captcha: token de verificação exigido pelo Signal (signalcaptcha://...).
-func (a *App) SignalRegister(apiURL, number, mode, captcha string) error {
-	return signal.Register(apiURL, number, mode, captcha)
+func (a *App) SignalRegister(apiURL, number, mode, captcha, apiToken string) error {
+	return signal.Register(apiURL, number, mode, captcha, apiToken)
 }
 
 // SignalVerify verifica o código recebido via SMS/ligação.
-func (a *App) SignalVerify(apiURL, number, code string) error {
-	return signal.Verify(apiURL, number, code)
+func (a *App) SignalVerify(apiURL, number, code, apiToken string) error {
+	return signal.Verify(apiURL, number, code, apiToken)
 }
 
 // SignalLink gera o QR code para vincular como dispositivo secundário.
 // Retorna a imagem QR code em base64 (PNG).
-func (a *App) SignalLink(apiURL, deviceName string) (string, error) {
-	return signal.GetLinkQRCode(apiURL, deviceName)
+func (a *App) SignalLink(apiURL, deviceName, apiToken string) (string, error) {
+	return signal.GetLinkQRCode(apiURL, deviceName, apiToken)
 }
 
 // SignalLinkRaw gera a URI texto para vincular como dispositivo secundário.
 // Alternativa acessível ao QR code.
-func (a *App) SignalLinkRaw(apiURL, deviceName string) (string, error) {
-	return signal.GetLinkRawURI(apiURL, deviceName)
+func (a *App) SignalLinkRaw(apiURL, deviceName, apiToken string) (string, error) {
+	return signal.GetLinkRawURI(apiURL, deviceName, apiToken)
 }
 
 // SignalUnregister remove uma conta da signal-cli-rest-api.
-func (a *App) SignalUnregister(apiURL, number string, deleteLocalData bool) error {
-	return signal.Unregister(apiURL, number, deleteLocalData)
+func (a *App) SignalUnregister(apiURL, number string, deleteLocalData bool, apiToken string) error {
+	return signal.Unregister(apiURL, number, deleteLocalData, apiToken)
 }
 
 // SignalCheckAPI verifica se a signal-cli-rest-api está acessível na URL informada.
-func (a *App) SignalCheckAPI(apiURL string) (map[string]interface{}, error) {
-	return signal.CheckAPI(apiURL)
+func (a *App) SignalCheckAPI(apiURL, apiToken string) (map[string]interface{}, error) {
+	return signal.CheckAPI(apiURL, apiToken)
 }
 
 // SignalListAccounts retorna as contas já registradas na signal-cli-rest-api.
-func (a *App) SignalListAccounts(apiURL string) ([]string, error) {
-	return signal.ListAccounts(apiURL)
+func (a *App) SignalListAccounts(apiURL, apiToken string) ([]string, error) {
+	return signal.ListAccounts(apiURL, apiToken)
 }
 
 // AuthorizeMessagingContactFull autoriza um contato em um canal.
@@ -716,6 +1202,24 @@ type AudioResult struct {
 	MimeType string `json:"mimeType"`
 }
 
+// CredentialSummary descreve uma credencial para exibição (sem dados sensíveis).
+type CredentialSummary struct {
+	Pattern string `json:"pattern"`
+	Type    string `json:"type"`
+	Masked  string `json:"masked"`
+}
+
+// CredentialInput descreve a entrada para criar/atualizar credenciais.
+type CredentialInput struct {
+	Pattern     string `json:"pattern"`
+	Type        string `json:"type"`
+	Token       string `json:"token,omitempty"`
+	Username    string `json:"username,omitempty"`
+	Password    string `json:"password,omitempty"`
+	HeaderName  string `json:"headerName,omitempty"`
+	HeaderValue string `json:"headerValue,omitempty"`
+}
+
 // GetMessageAudio retorna o áudio base64 e MIME type de uma mensagem.
 func (a *App) GetMessageAudio(messageID uint) (*AudioResult, error) {
 	audio, mime, err := database.GetMessageAudio(messageID)
@@ -775,10 +1279,56 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(filesystem.NewGrepSearch(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewWriteFile(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewEditFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewMoveFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewCopyFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewDeleteFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewMakeDirectory(workDir))
 
-	// Registra ferramentas web
-	a.toolRegistry.MustRegister(web.NewWebFetch())
-	a.toolRegistry.MustRegister(web.NewWebSearch())
+	// Registra ferramentas web (credMgr já foi inicializado antes)
+	a.toolRegistry.MustRegister(web.NewWebFetch(a.credMgr)) // GET simples, foco em leitura
+
+	// HTTPRequest com CredentialManager (autenticação automática por domínio)
+	httpReqTool := web.NewHTTPRequest(a.credMgr)
+
+	// Confirmação para operações destrutivas
+	httpReqTool.SetConfirmFunc(func(ctx context.Context, method, url, body string) (bool, error) {
+		if a.questionnaireMgr == nil {
+			return false, fmt.Errorf("questionnaire manager não inicializado")
+		}
+		bodyPreview := body
+		if bodyPreview == "" {
+			bodyPreview = "(sem body)"
+		}
+		resp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+			Title:       fmt.Sprintf("Confirmar operação %s", method),
+			Description: fmt.Sprintf("O assistente quer executar:\n\n%s %s\n\nBody:\n%s", method, url, bodyPreview),
+			AllowCancel: true,
+			SubmitLabel: "Permitir",
+			CancelLabel: "Negar",
+			Questions: []questionnaire.Question{
+				{
+					ID:       "approve",
+					Type:     "boolean",
+					Prompt:   fmt.Sprintf("Permitir esta operação %s?", method),
+					Required: true,
+				},
+			},
+		})
+		if err != nil {
+			return false, err
+		}
+		if resp.Cancelled {
+			return false, nil
+		}
+		approved, ok := resp.Answers["approve"].(bool)
+		if !ok {
+			return false, fmt.Errorf("resposta inválida para aprovação")
+		}
+		return approved, nil
+	})
+	a.toolRegistry.MustRegister(httpReqTool)
+
+	a.toolRegistry.MustRegister(web.NewWebSearch(a.credMgr))
 
 	// Registra ferramenta de shell (run_command)
 	confirmFn := func(ctx context.Context, cmd, wd string) (bool, error) {
@@ -842,7 +1392,79 @@ func (a *App) initToolRegistry() {
 	// Registra ferramenta de questionário (collect_responses)
 	a.toolRegistry.MustRegister(questiontool.NewCollectResponses(a.questionnaireMgr))
 
+	// Registra ferramenta de edição de texto (para contexto de editor)
+	a.toolRegistry.MustRegister(editor.NewTextEdit(a.questionnaireMgr))
+
 	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
+}
+
+func (a *App) registerEnvCredentials(credMgr *credentials.Manager) {
+	if credMgr == nil {
+		return
+	}
+
+	// GITHUB_TOKEN -> *.github.com, github.com
+	if ghToken := os.Getenv("GITHUB_TOKEN"); ghToken != "" {
+		_ = credMgr.RegisterPattern("*.github.com", &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: ghToken,
+		})
+		_ = credMgr.RegisterPattern("github.com", &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: ghToken,
+		})
+	}
+
+	// GITLAB_TOKEN -> *.gitlab.com, gitlab.com
+	if glToken := os.Getenv("GITLAB_TOKEN"); glToken != "" {
+		_ = credMgr.RegisterPattern("*.gitlab.com", &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: glToken,
+		})
+		_ = credMgr.RegisterPattern("gitlab.com", &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: glToken,
+		})
+	}
+
+	// BITBUCKET_TOKEN -> *.bitbucket.org, bitbucket.org
+	if bbToken := os.Getenv("BITBUCKET_TOKEN"); bbToken != "" {
+		_ = credMgr.RegisterPattern("*.bitbucket.org", &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: bbToken,
+		})
+		_ = credMgr.RegisterPattern("bitbucket.org", &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: bbToken,
+		})
+	}
+
+	// API genérica - X_API_KEY para qualquer host (fallback)
+	// Usar com cuidado - preferir padrões específicos acima
+	if apiKey := os.Getenv("GENERIC_API_KEY"); apiKey != "" {
+		_ = credMgr.RegisterPattern("*", &credentials.AuthConfig{
+			Type: "custom",
+			Headers: map[string]string{
+				"X-API-Key": apiKey,
+			},
+		})
+	}
+}
+
+func (a *App) configureCredentialManager(dek []byte, persist bool) {
+	if a.credStore == nil {
+		a.credStore = credentials.NewDBStore()
+	}
+	if a.credMgr == nil {
+		a.credMgr = credentials.NewManagerWithStore(dek, a.credStore, persist)
+	} else {
+		a.credMgr.Reset(dek, persist)
+	}
+
+	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {
+		log.Printf("[Credentials] Erro ao carregar credenciais persistidas: %v", err)
+	}
+	a.registerEnvCredentials(a.credMgr)
 }
 
 // ToolInfo é um resumo de uma ferramenta para listagem no frontend.
@@ -871,6 +1493,8 @@ func (a *App) GetAvailableTools() []ToolInfo {
 
 // shutdown é chamado quando o app fecha
 func (a *App) shutdown(_ context.Context) {
+	a.stopAllEditorWatches()
+
 	if a.hotkeyManager != nil {
 		a.hotkeyManager.Stop()
 	}
@@ -969,6 +1593,59 @@ func (a *App) SendTerminalInput(sessionID string, input string) error {
 		log.Printf("[Terminal] Erro ao enviar input: %v", err)
 		return err
 	}
+	return nil
+}
+
+// saveLLMProviders salva os provedores no SQLite
+func (a *App) saveLLMProviders() error {
+	providers := a.llmRegistry.List()
+
+	for _, p := range providers {
+		dbProvider := &database.LLMProvider{
+			ID:                p.ID,
+			Name:              p.Name,
+			Type:              string(p.Type),
+			BaseURL:           p.BaseURL,
+			Model:             p.Model,
+			Timeout:           p.Timeout,
+			CredentialPattern: p.CredentialPattern,
+		}
+		if err := database.SaveLLMProvider(dbProvider); err != nil {
+			log.Printf("Erro ao salvar provedor %s: %v", p.ID, err)
+			return err
+		}
+	}
+
+	return nil
+}
+
+// loadLLMProviders carrega provedores do SQLite
+func (a *App) loadLLMProviders() error {
+	providers, err := database.GetLLMProviders()
+	if err != nil {
+		return err
+	}
+
+	if len(providers) == 0 {
+		return fmt.Errorf("nenhum provedor encontrado")
+	}
+
+	for _, dbProvider := range providers {
+		p := &llm.ProviderConfig{
+			ID:                dbProvider.ID,
+			Name:              dbProvider.Name,
+			Type:              llm.ProviderType(dbProvider.Type),
+			BaseURL:           dbProvider.BaseURL,
+			Model:             dbProvider.Model,
+			Timeout:           dbProvider.Timeout,
+			CredentialPattern: dbProvider.CredentialPattern,
+		}
+		if err := a.llmRegistry.Register(p); err != nil {
+			log.Printf("Erro ao registrar provedor %s: %v", p.ID, err)
+		}
+	}
+
+	log.Printf("Provedores LLM carregados do SQLite: %d", len(providers))
 	return nil
 }
 
@@ -1700,6 +2377,7 @@ type SynthesisResultInfo struct {
 }
 
 // InitSpeechManager inicializa o gerenciador de speech com as configurações
+// DEPRECATED: Use InitSpeechManagerFromProfile() que usa providers do perfil
 func (a *App) InitSpeechManager(apiKey, apiBaseURL, whisperLanguage, ttsVoice, ttsModel string) error {
 	config := speech.SpeechConfig{
 		STTProvider:      speech.STTProviderWhisper,
@@ -1712,28 +2390,99 @@ func (a *App) InitSpeechManager(apiKey, apiBaseURL, whisperLanguage, ttsVoice, t
 		TTSVoice:         ttsVoice,
 	}
 
-	a.speechManager = speech.NewSpeechManager(config)
+	a.speechManager = speech.NewSpeechManager(config, a.credMgr)
 	log.Printf("Speech Manager inicializado (STT: whisper, TTS: openai)")
 	return nil
 }
 
+// InitSpeechManagerFromProfile inicializa o gerenciador de speech usando providers do perfil ativo
+// Permite TTS e STT usarem providers diferentes do LLM (ex: Claude para chat, OpenAI para vozes)
+func (a *App) InitSpeechManagerFromProfile() error {
+	// Carregar perfil ativo
+	activeProfile, err := a.profileManager.GetActive()
+	if err != nil || activeProfile == nil {
+		return fmt.Errorf("perfil ativo não encontrado: %w", err)
+	}
+
+	// Provider para TTS (se habilitado e usar OpenAI)
+	var ttsProviderConfig *llm.ProviderConfig
+	if activeProfile.Voice.Provider == "openai" && activeProfile.Voice.LLMProviderID != "" {
+		ttsProviderConfig = a.llmRegistry.Get(activeProfile.Voice.LLMProviderID)
+		if ttsProviderConfig == nil {
+			log.Printf("[Speech] TTS provider não encontrado: %s, usando fallback", activeProfile.Voice.LLMProviderID)
+		}
+	}
+
+	// Provider para STT (se usar whisper_api)
+	var sttProviderConfig *llm.ProviderConfig
+	if activeProfile.Interaction.STTProvider == "whisper_api" && activeProfile.Interaction.LLMProviderID != "" {
+		sttProviderConfig = a.llmRegistry.Get(activeProfile.Interaction.LLMProviderID)
+		if sttProviderConfig == nil {
+			log.Printf("[Speech] STT provider não encontrado: %s, usando fallback", activeProfile.Interaction.LLMProviderID)
+		}
+	}
+
+	// Usar provider de TTS se disponível, senão fallback para config global (migração)
+	apiKey := ""
+	apiBaseURL := ""
+	if ttsProviderConfig != nil {
+		apiBaseURL = ttsProviderConfig.BaseURL
+		// Credentials serão resolvidas automaticamente pelo httpclient via credMgr
+	} else if sttProviderConfig != nil {
+		apiBaseURL = sttProviderConfig.BaseURL
+	} else {
+		// Fallback: carregar da config global (compatibilidade)
+		cfg, _ := config.Load()
+		if cfg != nil {
+			apiKey = cfg.APIKey
+			apiBaseURL = cfg.APIBaseURL
+		}
+	}
+
+	// Configurar speech manager
+	config := speech.SpeechConfig{
+		STTProvider:      speech.STTProvider(activeProfile.Interaction.STTProvider),
+		TTSProvider:      speech.TTSProvider(activeProfile.Voice.Provider),
+		OpenAIAPIKey:     apiKey, // Usado apenas em fallback legacy
+		OpenAIAPIBaseURL: apiBaseURL,
+		WhisperModel:     "whisper-1",
+		WhisperLanguage:  activeProfile.Interaction.Language,
+		TTSModel:         "tts-1",
+		TTSVoice:         activeProfile.Voice.VoiceID,
+	}
+
+	a.speechManager = speech.NewSpeechManager(config, a.credMgr)
+
+	ttsInfo := "disabled"
+	if ttsProviderConfig != nil {
+		ttsInfo = fmt.Sprintf("%s (%s)", activeProfile.Voice.Provider, ttsProviderConfig.Name)
+	} else if activeProfile.Voice.Provider != "disabled" {
+		ttsInfo = activeProfile.Voice.Provider
+	}
+
+	sttInfo := activeProfile.Interaction.STTProvider
+	if sttProviderConfig != nil {
+		sttInfo = fmt.Sprintf("%s (%s)", sttInfo, sttProviderConfig.Name)
+	}
+
+	log.Printf("[Speech] Manager inicializado | TTS: %s | STT: %s", ttsInfo, sttInfo)
+	return nil
+}
+
 // ensureSpeechManager garante que o speechManager está inicializado.
-// Se não estiver, tenta inicializar a partir da config.
+// Tenta inicializar a partir do perfil ativo.
 // Retorna true se disponível, false caso contrário.
 func (a *App) ensureSpeechManager() bool {
 	if a.speechManager != nil {
 		return true
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		log.Printf("[Speech] Erro ao carregar config para inicializar speechManager: %v", err)
+
+	// Tentar inicializar do perfil ativo
+	if err := a.InitSpeechManagerFromProfile(); err != nil {
+		log.Printf("[Speech] Erro ao inicializar speechManager do perfil: %v", err)
 		return false
 	}
-	if cfg.APIKey == "" {
-		log.Printf("[Speech] API key não configurada — speechManager indisponível")
-		return false
-	}
-	a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", "nova", "tts-1")
+
 	return a.speechManager != nil
 }
 
@@ -1748,17 +2497,81 @@ func maskIdentifier(value string) string {
 	return strings.Repeat("*", len(value)-4) + visible
 }
 
+func maskCredentialValue(value string) string {
+	if value == "" {
+		return ""
+	}
+	if len(value) <= 4 {
+		return "••••"
+	}
+	return "••••" + value[len(value)-4:]
+}
+
+func summarizeAuth(auth *credentials.AuthConfig) string {
+	if auth == nil {
+		return ""
+	}
+	switch auth.Type {
+	case "bearer", "oauth2", "secret":
+		return maskCredentialValue(auth.Token)
+	case "basic":
+		if auth.Username == "" && auth.Password == "" {
+			return ""
+		}
+		return fmt.Sprintf("%s:%s", auth.Username, maskCredentialValue(auth.Password))
+	case "custom":
+		if len(auth.Headers) == 0 {
+			return ""
+		}
+		keys := make([]string, 0, len(auth.Headers))
+		for k := range auth.Headers {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		first := keys[0]
+		return fmt.Sprintf("%s: %s", first, maskCredentialValue(auth.Headers[first]))
+	default:
+		return ""
+	}
+}
+
+func resolveSecretFromAuth(auth *credentials.AuthConfig) string {
+	if auth == nil {
+		return ""
+	}
+	if auth.Token != "" {
+		return auth.Token
+	}
+	if auth.Password != "" {
+		return auth.Password
+	}
+	if len(auth.Headers) == 0 {
+		return ""
+	}
+	keys := make([]string, 0, len(auth.Headers))
+	for k := range auth.Headers {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return auth.Headers[keys[0]]
+}
+
+func (a *App) resolveCredentialRef(ref string) string {
+	if ref == "" || a.credMgr == nil {
+		return ""
+	}
+	auth, err := a.credMgr.GetByPattern(ref)
+	if err != nil {
+		log.Printf("[Credentials] Erro ao resolver referência %s: %v", ref, err)
+		return ""
+	}
+	return resolveSecretFromAuth(auth)
+}
+
 // TranscribeWhisper transcreve áudio usando OpenAI Whisper
 func (a *App) TranscribeWhisper(audioBase64 string, filename string) (*TranscriptionResultInfo, error) {
-	if a.speechManager == nil {
-		cfg, err := config.Load()
-		if err != nil {
-			return nil, fmt.Errorf("speech manager not initialized")
-		}
-		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("API key not configured")
-		}
-		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", "nova", "tts-1")
+	if !a.ensureSpeechManager() {
+		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
 	}
 
 	result, err := a.speechManager.Transcribe(audioBase64, filename)
@@ -1776,15 +2589,8 @@ func (a *App) TranscribeWhisper(audioBase64 string, filename string) (*Transcrip
 
 // SynthesizeOpenAI sintetiza texto usando OpenAI TTS
 func (a *App) SynthesizeOpenAI(text string) (*SynthesisResultInfo, error) {
-	if a.speechManager == nil {
-		cfg, err := config.Load()
-		if err != nil {
-			return nil, fmt.Errorf("speech manager not initialized")
-		}
-		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("API key not configured")
-		}
-		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", "nova", "tts-1")
+	if !a.ensureSpeechManager() {
+		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
 	}
 
 	result, err := a.speechManager.Synthesize(text)
@@ -1801,15 +2607,8 @@ func (a *App) SynthesizeOpenAI(text string) (*SynthesisResultInfo, error) {
 
 // SynthesizeOpenAIWithVoice sintetiza texto usando OpenAI TTS com uma voz específica
 func (a *App) SynthesizeOpenAIWithVoice(text string, voice string) (*SynthesisResultInfo, error) {
-	if a.speechManager == nil {
-		cfg, err := config.Load()
-		if err != nil {
-			return nil, fmt.Errorf("speech manager not initialized")
-		}
-		if cfg.APIKey == "" {
-			return nil, fmt.Errorf("API key not configured")
-		}
-		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voice, "tts-1")
+	if !a.ensureSpeechManager() {
+		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
 	}
 
 	result, err := a.speechManager.SynthesizeWithVoice(text, voice)
@@ -1835,23 +2634,12 @@ type TTSStreamEvent struct {
 
 // SynthesizeOpenAIStream sintetiza texto usando OpenAI TTS com streaming
 func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string) error {
-	if a.speechManager == nil {
-		cfg, err := config.Load()
-		if err != nil {
-			runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
-				SessionID: sessionID,
-				Error:     "speech manager not initialized",
-			})
-			return fmt.Errorf("speech manager not initialized")
-		}
-		if cfg.APIKey == "" {
-			runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
-				SessionID: sessionID,
-				Error:     "API key not configured",
-			})
-			return fmt.Errorf("API key not configured")
-		}
-		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voice, "tts-1")
+	if !a.ensureSpeechManager() {
+		runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+			SessionID: sessionID,
+			Error:     "speech manager não disponível - configure um provedor no perfil",
+		})
+		return fmt.Errorf("speech manager não disponível")
 	}
 
 	if !a.speechManager.SupportsStreaming() {
@@ -1988,6 +2776,14 @@ func (a *App) SetActiveProfile(slug string) error {
 		return err
 	}
 
+	// Recarrega o cliente LLM para usar o provedor do novo perfil ativo
+	a.initLLMClient()
+
+	// Recarrega o speech manager com os providers do novo perfil (TTS/STT podem ser independentes do LLM)
+	if err := a.InitSpeechManagerFromProfile(); err != nil {
+		log.Printf("[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
+	}
+
 	// Re-registra hotkeys do novo perfil
 	a.registerActiveProfileHotkeys()
 
@@ -2054,6 +2850,326 @@ func (a *App) DeleteProfile(slug string) error {
 // GetProfileSearchPaths retorna os caminhos de busca dos perfis
 func (a *App) GetProfileSearchPaths() []string {
 	return a.profileManager.GetSearchPaths()
+}
+
+// ============================================================================
+// LLM Provider API
+// ============================================================================
+
+// GetLLMProviders retorna todos os provedores LLM disponíveis
+func (a *App) GetLLMProviders() []*llm.ProviderConfig {
+	if a.llmRegistry == nil {
+		return []*llm.ProviderConfig{}
+	}
+	return a.llmRegistry.List()
+}
+
+// GetLLMProvider retorna um provedor LLM pelo ID
+func (a *App) GetLLMProvider(id string) *llm.ProviderConfig {
+	if a.llmRegistry == nil {
+		return nil
+	}
+	return a.llmRegistry.Get(id)
+}
+
+// GetActiveProviderInfo retorna informações sobre o provedor LLM ativo
+// (baseado no perfil ativo)
+func (a *App) GetActiveProviderInfo() map[string]interface{} {
+	activeProfile, err := a.profileManager.GetActive()
+	if err != nil || activeProfile == nil {
+		return map[string]interface{}{
+			"error": "perfil ativo não encontrado",
+		}
+	}
+
+	provider := a.llmRegistry.Get(activeProfile.Chat.LLMProvider)
+	if provider == nil {
+		return map[string]interface{}{
+			"error":      "provedor não encontrado",
+			"providerID": activeProfile.Chat.LLMProvider,
+		}
+	}
+
+	return map[string]interface{}{
+		"id":       provider.ID,
+		"name":     provider.Name,
+		"type":     provider.Type,
+		"base_url": provider.BaseURL,
+		"model":    provider.Model,
+	}
+}
+
+// extractDomainPattern extrai o pattern de domínio de uma base URL
+func extractHostname(baseURL string) (string, error) {
+	if baseURL == "" {
+		return "", fmt.Errorf("base_url vazio")
+	}
+
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("base_url inválido: %w", err)
+	}
+
+	host := parsedURL.Hostname()
+	if host == "" {
+		return "", fmt.Errorf("host não encontrado no base_url")
+	}
+
+	return host, nil
+}
+
+// TestLLMProvider testa a conexão com um provider LLM
+func (a *App) TestLLMProvider(req TestLLMProviderRequest) (bool, error) {
+	// Validação básica
+	if req.BaseURL == "" {
+		return false, fmt.Errorf("base_url é obrigatório")
+	}
+
+	// Validar URL
+	if _, err := url.Parse(req.BaseURL); err != nil {
+		return false, fmt.Errorf("URL inválida: %w", err)
+	}
+
+	// Criar cliente temporário para teste
+	client := &http.Client{
+		Timeout: time.Duration(10) * time.Second,
+	}
+	defer client.CloseIdleConnections()
+
+	// Montar URL de health check (simples GET para a base URL)
+	req_url := req.BaseURL
+	if !strings.HasSuffix(req_url, "/") {
+		req_url += "/"
+	}
+
+	httpReq, err := http.NewRequestWithContext(a.ctx, http.MethodGet, req_url, nil)
+	if err != nil {
+		return false, fmt.Errorf("erro ao criar requisição: %w", err)
+	}
+
+	// Adicionar header de autenticação se chave fornecida
+	if req.APIKey != "" {
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", req.APIKey))
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return false, fmt.Errorf("erro ao conectar: %w", err)
+	}
+	defer resp.Body.Close()
+
+	// Qualquer status 2xx, 3xx ou 4xx é considerado sucesso
+	// (4xx pode indicar chave ruim, mas servidor respondeu)
+	// Apenas 5xx ou timeouts são falha
+	if resp.StatusCode >= 500 {
+		return false, fmt.Errorf("servidor retornou erro: %d", resp.StatusCode)
+	}
+
+	if resp.StatusCode == http.StatusUnauthorized {
+		return false, fmt.Errorf("API Key inválida ou não autorizada")
+	}
+
+	// Se chegou aqui, servidor respondeu
+	return true, nil
+}
+
+// CreateLLMProvider cria um novo provider com auto-salvamento de credenciais
+func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interface{}, error) {
+	// Validação
+	if req.ID == "" || req.Name == "" || req.BaseURL == "" {
+		return nil, fmt.Errorf("campos obrigatórios faltando (id, name, base_url)")
+	}
+
+	// Verificar se já existe
+	if a.llmRegistry.Get(req.ID) != nil {
+		return nil, fmt.Errorf("provider com ID '%s' já existe", req.ID)
+	}
+
+	// Extrair hostname exato do base_url
+	hostname, err := extractHostname(req.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
+	}
+
+	// Salvar API key se fornecida
+	credConfigured := false
+	if req.APIKey != "" {
+		authCfg := &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: req.APIKey,
+		}
+		err = a.credMgr.RegisterPatternWithContext(a.ctx, hostname, authCfg)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao salvar credencial: %w", err)
+		}
+		credConfigured = true
+	}
+
+	// Timeout default
+	timeout := 180
+
+	// Criar provider config
+	provider := &llm.ProviderConfig{
+		ID:                req.ID,
+		Name:              req.Name,
+		Type:              llm.ProviderType(req.Type),
+		BaseURL:           req.BaseURL,
+		Model:             "", // Modelo não é definido ao criar provider
+		Timeout:           timeout,
+		CredentialPattern: hostname, // Armazena hostname exato
+	}
+
+	// Registrar no registry
+	err = a.llmRegistry.Register(provider)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
+	}
+
+	// Salvar provedores em disco
+	if err := a.saveLLMProviders(); err != nil {
+		log.Printf("[ProviderManager] Erro ao salvar provedores: %v", err)
+	}
+
+	log.Printf("[ProviderManager] Provider '%s' criado com hostname '%s'", req.ID, hostname)
+
+	return map[string]interface{}{
+		"id":                    provider.ID,
+		"name":                  provider.Name,
+		"type":                  string(provider.Type),
+		"base_url":              provider.BaseURL,
+		"model":                 provider.Model,
+		"timeout":               provider.Timeout,
+		"credential_pattern":    hostname,
+		"credential_configured": credConfigured,
+	}, nil
+}
+
+// UpdateLLMProvider atualiza um provider existente
+func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[string]interface{}, error) {
+	// Buscar provider existente
+	existing := a.llmRegistry.Get(id)
+	if existing == nil {
+		return nil, fmt.Errorf("provider '%s' não encontrado", id)
+	}
+
+	// Atualizar campos fornecidos
+	updated := &llm.ProviderConfig{
+		ID:                existing.ID,
+		Name:              existing.Name,
+		Type:              existing.Type,
+		BaseURL:           existing.BaseURL,
+		Model:             existing.Model,
+		Timeout:           existing.Timeout,
+		CredentialPattern: existing.CredentialPattern,
+	}
+
+	if req.Name != "" {
+		updated.Name = req.Name
+	}
+	if req.Type != "" {
+		updated.Type = llm.ProviderType(req.Type)
+	}
+	if req.BaseURL != "" {
+		updated.BaseURL = req.BaseURL
+		// Re-extrair hostname se base_url mudou
+		hostname, err := extractHostname(req.BaseURL)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
+		}
+		updated.CredentialPattern = hostname
+		log.Printf("[UpdateLLMProvider] Base URL mudou, novo hostname: '%s'", hostname)
+	}
+
+	// Atualizar credencial se fornecida
+	credConfigured := false
+	if req.APIKey != "" {
+		authCfg := &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: req.APIKey,
+		}
+		err := a.credMgr.RegisterPatternWithContext(a.ctx, updated.CredentialPattern, authCfg)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao atualizar credencial: %w", err)
+		}
+		credConfigured = true
+	} else {
+		// Verificar se credencial já existe
+		_, err := a.credMgr.GetByPattern(updated.CredentialPattern)
+		credConfigured = (err == nil)
+	}
+
+	// Remover provider antigo e registrar atualizado
+	a.llmRegistry.Remove(id)
+	err := a.llmRegistry.Register(updated)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
+	}
+
+	// Salvar provedores em disco
+	if err := a.saveLLMProviders(); err != nil {
+		log.Printf("[ProviderManager] Erro ao salvar provedores: %v", err)
+	}
+
+	log.Printf("[ProviderManager] Provider '%s' atualizado", id)
+
+	return map[string]interface{}{
+		"id":                    updated.ID,
+		"name":                  updated.Name,
+		"type":                  string(updated.Type),
+		"base_url":              updated.BaseURL,
+		"model":                 updated.Model,
+		"timeout":               updated.Timeout,
+		"credential_pattern":    updated.CredentialPattern,
+		"credential_configured": credConfigured,
+	}, nil
+}
+
+// DeleteLLMProvider remove um provider do registry
+func (a *App) DeleteLLMProvider(ctx context.Context, id string) error {
+	provider := a.llmRegistry.Get(id)
+	if provider == nil {
+		return fmt.Errorf("provider '%s' não encontrado", id)
+	}
+
+	// Remover do registry
+	err := a.llmRegistry.Remove(id)
+	if err != nil {
+		return fmt.Errorf("erro ao remover provider: %w", err)
+	}
+
+	// Nota: Não removemos a credencial do credentials.Manager pois pode ser usada por outros providers
+	// Se quiser remover, adicionar: a.credMgr.DeletePattern(provider.CredentialPattern)
+
+	log.Printf("[ProviderManager] Provider '%s' removido", id)
+	return nil
+}
+
+// GetLLMProvidersWithStatus retorna todos os providers com status de credencial
+func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
+	providers := a.GetLLMProviders()
+	result := make([]map[string]interface{}, 0, len(providers))
+
+	for _, p := range providers {
+		// Verificar se credencial está configurada
+		credConfigured := false
+		if p.CredentialPattern != "" {
+			_, err := a.credMgr.GetByPattern(p.CredentialPattern)
+			credConfigured = (err == nil)
+		}
+
+		result = append(result, map[string]interface{}{
+			"id":                    p.ID,
+			"name":                  p.Name,
+			"type":                  string(p.Type),
+			"base_url":              p.BaseURL,
+			"model":                 p.Model,
+			"timeout":               p.Timeout,
+			"credential_pattern":    p.CredentialPattern,
+			"credential_configured": credConfigured,
+		})
+	}
+
+	return result
 }
 
 // PreviewVoiceSettings reproduz um texto de teste com configurações ad-hoc
@@ -2218,7 +3334,7 @@ func (a *App) ReorderTabs(orderedIds []uint) error {
 func (a *App) initUpdater() {
 	// AppVersion é injetada via ldflags durante o build
 	// Em dev, permanece como "dev"
-	a.updater = updater.New(AppVersion)
+	a.updater = updater.New(AppVersion, a.credMgr)
 
 	// Configura callback de progresso
 	a.updater.SetProgressCallback(func(bytesDownloaded, totalBytes int64, phase string) {
@@ -2447,7 +3563,7 @@ func (a *App) GetAppVersion() string {
 // ==================== Welcome Wizard ====================
 
 // NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas
-// Retorna true se não houver provedor ou token configurado
+// Retorna true se não houver chave mestra ou provedor configurado
 func (a *App) NeedsWelcomeWizard() bool {
 	cfg, err := config.Load()
 	if err != nil {
@@ -2456,7 +3572,14 @@ func (a *App) NeedsWelcomeWizard() bool {
 
 	// Verifica se tem API key e base URL configurados
 	hasConfig := cfg.APIKey != "" && cfg.APIBaseURL != ""
-	return !hasConfig
+
+	store := credentials.NewDBStore()
+	hasMasterKey, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster)
+	if err != nil {
+		return true
+	}
+
+	return !hasConfig || !hasMasterKey
 }
 
 // RunWelcomeWizard executa o wizard de boas-vindas
@@ -2469,13 +3592,99 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 	var baseURL string
 	var apiKey string
 	var defaultModel string
+	var recoveryKey string
+	var passwordError string
+
+	store := credentials.NewDBStore()
+	masterKeyConfigured, _ := store.HasKeyWrap(ctx, credentials.KeyWrapKindMaster)
 
 	// Controle de navegação entre etapas
-	currentStep := 1
+	currentStep := 0
+	if masterKeyConfigured {
+		currentStep = 2
+	}
 
-	for currentStep > 0 {
+	for currentStep >= 0 {
 		switch currentStep {
-		case 1: // Etapa 1: Escolher provedor
+		case 0: // Etapa 0: Senha mestre
+			description := "Defina uma senha mestre para criptografar credenciais locais. Guarde com cuidado."
+			if passwordError != "" {
+				description = passwordError
+			}
+
+			passwordResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+				Title:       "Segurança: senha mestre",
+				Description: description,
+				Questions: []questionnaire.Question{
+					{
+						ID:          "masterPassword",
+						Type:        "password",
+						Prompt:      "Senha mestre",
+						Required:    true,
+						Placeholder: "Digite uma senha forte",
+					},
+					{
+						ID:          "confirmPassword",
+						Type:        "password",
+						Prompt:      "Confirmar senha mestre",
+						Required:    true,
+						Placeholder: "Repita a senha",
+					},
+				},
+				AllowCancel: true,
+				SubmitLabel: "Continuar",
+				CancelLabel: "Cancelar",
+			})
+
+			if err != nil || passwordResp.Cancelled {
+				return false, err
+			}
+
+			masterPassword, _ := passwordResp.Answers["masterPassword"].(string)
+			confirmPassword, _ := passwordResp.Answers["confirmPassword"].(string)
+			if strings.TrimSpace(masterPassword) == "" || masterPassword != confirmPassword {
+				passwordError = "As senhas não conferem. Tente novamente."
+				currentStep = 0
+				continue
+			}
+
+			setupResult, err := credentials.SetupMasterKey(store, masterPassword)
+			if err != nil {
+				return false, err
+			}
+
+			recoveryKey = setupResult.RecoveryKey
+			a.configureCredentialManager(setupResult.DEK, true)
+			passwordError = ""
+			currentStep = 1
+
+		case 1: // Etapa 1: Código de recuperação
+			_, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+				Title:       "Código de recuperação",
+				Description: "Guarde este código em local seguro. Ele permite recuperar suas credenciais se você esquecer a senha mestre.",
+				Questions: []questionnaire.Question{
+					{
+						ID:      "recoveryCode",
+						Type:    "readonly_code",
+						Prompt:  "Código de recuperação",
+						Content: recoveryKey,
+					},
+					{
+						ID:       "confirmed",
+						Type:     "boolean",
+						Prompt:   "Eu salvei o código de recuperação em local seguro",
+						Required: true,
+					},
+				},
+				AllowCancel: false,
+				SubmitLabel: "Continuar",
+			})
+			if err != nil {
+				return false, err
+			}
+			currentStep = 2
+
+		case 2: // Etapa 2: Escolher provedor
 			providerResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
 				Title:       "Bem-vindo ao Assistente!",
 				Description: "Vamos configurar seu assistente em alguns passos simples.",
@@ -2526,14 +3735,14 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				baseURL = "" // Usuário precisará fornecer
 			}
 
-			currentStep = 2
+			currentStep = 3
 
-		case 2: // Etapa 2: URL personalizada (se necessário)
+		case 3: // Etapa 3: URL personalizada (se necessário)
 			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
 
 			if !needsCustomURL {
 				// Pula para próxima etapa se não precisa de URL customizada
-				currentStep = 3
+				currentStep = 4
 				continue
 			}
 
@@ -2569,14 +3778,14 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			}
 
 			if urlResp.Cancelled {
-				currentStep = 1 // Volta para etapa anterior
+				currentStep = 2 // Volta para etapa anterior
 				continue
 			}
 
 			baseURL = urlResp.Answers["baseURL"].(string)
-			currentStep = 3
+			currentStep = 4
 
-		case 3: // Etapa 3: API Key
+		case 4: // Etapa 4: API Key
 			keyDescription := "Informe sua chave de API. Deixe em branco se o servidor não requer autenticação."
 			if provider == "Ollama (Local)" {
 				keyDescription = "Ollama local geralmente não precisa de chave. Você pode deixar em branco."
@@ -2608,9 +3817,9 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				// Volta para etapa anterior (URL customizada ou provedor)
 				needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
 				if needsCustomURL {
-					currentStep = 2
+					currentStep = 3
 				} else {
-					currentStep = 1
+					currentStep = 2
 				}
 				continue
 			}
@@ -2619,16 +3828,26 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				apiKey = keyResp.Answers["apiKey"].(string)
 			}
 
-			currentStep = 4
+			currentStep = 5
 
-		case 4: // Etapa 4: Listar e escolher modelo
+		case 5: // Etapa 5: Listar e escolher modelo
+			// Cria um provider temporário para testar a conexão e listar modelos
+			tempProvider := &llm.ProviderConfig{
+				ID:      "temp-wizard",
+				Name:    "Temporary Provider",
+				Type:    llm.ProviderOpenAI, // Assume OpenAI-compatible
+				BaseURL: baseURL,
+				Timeout: 180,
+			}
+
 			// Salva configuração temporária para testar modelos
 			tempCfg := &config.Config{
 				APIKey:     apiKey,
 				APIBaseURL: baseURL,
 			}
 
-			models, err := llm.GetModels(tempCfg)
+			tempClient := llm.NewClient(tempProvider, tempCfg, a.credMgr)
+			models, err := tempClient.GetModels(ctx)
 			if err != nil {
 				// Se falhou ao listar modelos, pergunta se quer continuar mesmo assim
 				errorResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
@@ -2654,7 +3873,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				}
 
 				if errorResp.Cancelled {
-					currentStep = 3 // Volta para API key
+					currentStep = 4 // Volta para API key
 					continue
 				}
 
@@ -2704,7 +3923,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			}
 
 			if modelResp.Cancelled {
-				currentStep = 3 // Volta para API key
+				currentStep = 4 // Volta para API key
 				continue
 			}
 

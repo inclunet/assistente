@@ -80,7 +80,7 @@ func (t *ListDirectory) Execute(ctx context.Context, args json.RawMessage) (tool
 	}
 
 	// Valida segurança
-	if err := validatePath(fullPath, t.workDir); err != nil {
+	if err := validatePathWithPolicy(ctx, fullPath, t.workDir, ToolPolicy(), "list"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
@@ -102,14 +102,14 @@ func (t *ListDirectory) Execute(ctx context.Context, args json.RawMessage) (tool
 	}
 
 	if a.Recursive {
-		return t.listRecursive(fullPath, dirPath, maxDepth)
+		return t.listRecursive(ctx, fullPath, dirPath, maxDepth)
 	}
 
-	return t.listFlat(fullPath, dirPath)
+	return t.listFlat(ctx, fullPath, dirPath)
 }
 
 // listFlat lista apenas o nível imediato do diretório
-func (t *ListDirectory) listFlat(fullPath, displayPath string) (tools.ToolResult, error) {
+func (t *ListDirectory) listFlat(ctx context.Context, fullPath, displayPath string) (tools.ToolResult, error) {
 	entries, err := os.ReadDir(fullPath)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler diretório: %v", err), IsError: true}, nil
@@ -117,8 +117,20 @@ func (t *ListDirectory) listFlat(fullPath, displayPath string) (tools.ToolResult
 
 	var lines []string
 	dirCount, fileCount := 0, 0
+	skippedSensitive := 0
+	skippedBySkill := 0
 
 	for _, entry := range entries {
+		entryPath := filepath.Join(fullPath, entry.Name())
+		if err := validateSkillFilesystemAllowlist(ctx, entryPath, t.workDir, "list"); err != nil {
+			skippedBySkill++
+			continue
+		}
+		if ToolPolicy().BlockSensitive && isSensitiveFile(entryPath) {
+			skippedSensitive++
+			continue
+		}
+
 		info, err := entry.Info()
 		if err != nil {
 			continue
@@ -144,20 +156,31 @@ func (t *ListDirectory) listFlat(fullPath, displayPath string) (tools.ToolResult
 	})
 
 	header := fmt.Sprintf("Diretório: %s (%d diretórios, %d arquivos)\n", displayPath, dirCount, fileCount)
+	if skippedSensitive > 0 {
+		header += fmt.Sprintf("(%d arquivo(s) sensível(is) omitido(s))\n", skippedSensitive)
+	}
+	if skippedBySkill > 0 {
+		header += fmt.Sprintf("(%d entrada(s) omitida(s) por permissões do skill)\n", skippedBySkill)
+	}
 	return tools.ToolResult{
 		Content: header + strings.Join(lines, "\n"),
 		Metadata: map[string]any{
-			"directories": dirCount,
-			"files":       fileCount,
+			"directories":       dirCount,
+			"files":             fileCount,
+			"skipped":           skippedSensitive + skippedBySkill,
+			"skipped_sensitive": skippedSensitive,
+			"skipped_by_skill":  skippedBySkill,
 		},
 	}, nil
 }
 
 // listRecursive lista recursivamente com indentação em árvore
-func (t *ListDirectory) listRecursive(fullPath, displayPath string, maxDepth int) (tools.ToolResult, error) {
+func (t *ListDirectory) listRecursive(ctx context.Context, fullPath, displayPath string, maxDepth int) (tools.ToolResult, error) {
 	var lines []string
 	totalFiles, totalDirs := 0, 0
 	truncated := false
+	skippedSensitive := 0
+	skippedBySkill := 0
 
 	var walk func(dir string, depth int) error
 	walk = func(dir string, depth int) error {
@@ -181,6 +204,17 @@ func (t *ListDirectory) listRecursive(fullPath, displayPath string, maxDepth int
 				return nil
 			}
 
+			entryPath := filepath.Join(dir, entry.Name())
+			if err := validateSkillFilesystemAllowlist(ctx, entryPath, t.workDir, "list"); err != nil {
+				if entry.IsDir() {
+					// Não desce em diretórios fora do escopo do skill.
+					skippedBySkill++
+					continue
+				}
+				skippedBySkill++
+				continue
+			}
+
 			// Ignora diretórios comuns que poluem a listagem
 			name := entry.Name()
 			if entry.IsDir() && shouldSkipDir(name) {
@@ -191,10 +225,15 @@ func (t *ListDirectory) listRecursive(fullPath, displayPath string, maxDepth int
 			if entry.IsDir() {
 				lines = append(lines, fmt.Sprintf("%s%s/", indent, name))
 				totalDirs++
-				if err := walk(filepath.Join(dir, name), depth+1); err != nil {
+				if err := walk(entryPath, depth+1); err != nil {
 					return err
 				}
 			} else {
+				if ToolPolicy().BlockSensitive && isSensitiveFile(entryPath) {
+					skippedSensitive++
+					continue
+				}
+
 				info, _ := entry.Info()
 				size := int64(0)
 				if info != nil {
@@ -213,6 +252,12 @@ func (t *ListDirectory) listRecursive(fullPath, displayPath string, maxDepth int
 
 	header := fmt.Sprintf("Diretório: %s (recursivo, profundidade máx: %d)\n%d diretórios, %d arquivos\n",
 		displayPath, maxDepth, totalDirs, totalFiles)
+	if skippedSensitive > 0 {
+		header += fmt.Sprintf("(%d arquivo(s) sensível(is) omitido(s))\n", skippedSensitive)
+	}
+	if skippedBySkill > 0 {
+		header += fmt.Sprintf("(%d entrada(s) omitida(s) por permissões do skill)\n", skippedBySkill)
+	}
 
 	if truncated {
 		header += fmt.Sprintf("(TRUNCADO: limite de %d entradas atingido)\n", maxEntries)
@@ -221,9 +266,12 @@ func (t *ListDirectory) listRecursive(fullPath, displayPath string, maxDepth int
 	return tools.ToolResult{
 		Content: header + strings.Join(lines, "\n"),
 		Metadata: map[string]any{
-			"directories": totalDirs,
-			"files":       totalFiles,
-			"truncated":   truncated,
+			"directories":       totalDirs,
+			"files":             totalFiles,
+			"truncated":         truncated,
+			"skipped":           skippedSensitive + skippedBySkill,
+			"skipped_sensitive": skippedSensitive,
+			"skipped_by_skill":  skippedBySkill,
 		},
 	}, nil
 }

@@ -1,14 +1,25 @@
 import { useEffect, useMemo, useState } from 'react';
-import { SimpleModal } from './SimpleModal';
+import { Modal } from './Modal';
 import './QuestionnaireDialog.css';
 
-export type QuestionnaireQuestionType = 'text' | 'long_text' | 'number' | 'boolean' | 'single_choice' | 'multiple_choice' | 'scale' | 'date';
+export type QuestionnaireQuestionType =
+  | 'text'
+  | 'password'
+  | 'long_text'
+  | 'number'
+  | 'boolean'
+  | 'single_choice'
+  | 'multiple_choice'
+  | 'scale'
+  | 'date'
+  | 'readonly_code';
 
 export interface QuestionnaireQuestion {
   id: string;
   type: QuestionnaireQuestionType;
   prompt: string;
   description?: string;
+  content?: string;
   required?: boolean;
   options?: string[];
   min?: number;
@@ -106,7 +117,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
   if (!data) return null;
 
   return (
-    <SimpleModal
+    <Modal
       isOpen={isOpen}
       onClose={handleCancel}
       title={title}
@@ -130,10 +141,20 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           handleSubmit();
         }}
       >
-        {questions.map((q, index) => (
+        {questions.map((q, index) => {
+          const labelId = `question-label-${q.id}`;
+          const controlId = (q.type === 'text' || q.type === 'password' || q.type === 'long_text' || q.type === 'number' || q.type === 'scale' || q.type === 'date')
+            ? `question-${q.id}`
+            : undefined;
+
+          return (
           <div key={q.id} className="questionnaire-dialog__question">
             <div className="questionnaire-dialog__header">
-              <label className="questionnaire-dialog__label" htmlFor={`question-${q.id}`}>
+              <label
+                id={labelId}
+                className="questionnaire-dialog__label"
+                {...(controlId ? { htmlFor: controlId } : {})}
+              >
                 {index + 1}. {q.prompt}{q.required ? ' *' : ''}
               </label>
               {q.description && <div className="questionnaire-dialog__hint">{q.description}</div>}
@@ -143,6 +164,18 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
               <input
                 id={`question-${q.id}`}
                 type="text"
+                value={answers[q.id] ?? ''}
+                placeholder={q.placeholder}
+                onChange={(e) => updateAnswer(q.id, e.target.value)}
+                className="questionnaire-dialog__input"
+                autoFocus={index === 0}
+              />
+            )}
+
+            {q.type === 'password' && (
+              <input
+                id={`question-${q.id}`}
+                type="password"
                 value={answers[q.id] ?? ''}
                 placeholder={q.placeholder}
                 onChange={(e) => updateAnswer(q.id, e.target.value)}
@@ -161,6 +194,18 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                 rows={4}
                 autoFocus={index === 0}
               />
+            )}
+
+            {q.type === 'readonly_code' && (
+              <pre
+                id={`question-${q.id}`}
+                className="questionnaire-dialog__readonly"
+                tabIndex={0}
+                role="region"
+                aria-labelledby={labelId}
+              >
+                {q.content ?? ''}
+              </pre>
             )}
 
             {q.type === 'number' && (
@@ -257,7 +302,8 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
 
             {errors[q.id] && <div className="questionnaire-dialog__error" role="alert">{errors[q.id]}</div>}
           </div>
-        ))}
+          );
+        })}
 
         <div className="questionnaire-dialog__footer">
           {allowCancel && (
@@ -270,6 +316,6 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           </button>
         </div>
       </form>
-    </SimpleModal>
+    </Modal>
   );
 }

@@ -74,8 +74,8 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
-	// Valida segurança do caminho
-	if err := validatePath(fullPath, t.workDir); err != nil {
+	// Valida segurança do caminho (toolcalling estrito)
+	if err := validatePathWithPolicy(ctx, fullPath, t.workDir, ToolPolicy(), "read"); err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
@@ -92,7 +92,7 @@ func (t *ReadFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	// Lê o arquivo
-	data, err := os.ReadFile(fullPath)
+	data, err := ReadFileBytes(fullPath)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao ler arquivo: %v", err), IsError: true}, nil
 	}

@@ -5,6 +5,8 @@ import (
 	"encoding/base64"
 	"fmt"
 	"sync"
+
+	"assistente/internal/credentials"
 )
 
 // STTProvider tipos de provedores de STT
@@ -51,6 +53,7 @@ type SpeechManager struct {
 	config        SpeechConfig
 	whisperClient *WhisperClient
 	ttsClient     *TTSClient
+	credMgr       *credentials.Manager
 	mu            sync.RWMutex
 }
 
@@ -71,9 +74,10 @@ type SynthesisResult struct {
 }
 
 // NewSpeechManager cria um novo gerenciador de speech
-func NewSpeechManager(config SpeechConfig) *SpeechManager {
+func NewSpeechManager(config SpeechConfig, credMgr *credentials.Manager) *SpeechManager {
 	sm := &SpeechManager{
-		config: config,
+		config:  config,
+		credMgr: credMgr,
 	}
 
 	// Inicializa clientes se API key disponível
@@ -83,7 +87,7 @@ func NewSpeechManager(config SpeechConfig) *SpeechManager {
 			APIBaseURL: config.OpenAIAPIBaseURL,
 			Model:      config.WhisperModel,
 			Language:   config.WhisperLanguage,
-		})
+		}, credMgr)
 
 		sm.ttsClient = NewTTSClient(TTSConfig{
 			APIKey:     config.OpenAIAPIKey,
@@ -91,7 +95,7 @@ func NewSpeechManager(config SpeechConfig) *SpeechManager {
 			Model:      TTSModel(config.TTSModel),
 			Voice:      TTSVoice(config.TTSVoice),
 			Speed:      sm.rateToSpeed(config.TTSRate),
-		})
+		}, credMgr)
 	}
 
 	return sm
@@ -111,7 +115,7 @@ func (sm *SpeechManager) UpdateConfig(config SpeechConfig) {
 			APIBaseURL: config.OpenAIAPIBaseURL,
 			Model:      config.WhisperModel,
 			Language:   config.WhisperLanguage,
-		})
+		}, sm.credMgr)
 
 		sm.ttsClient = NewTTSClient(TTSConfig{
 			APIKey:     config.OpenAIAPIKey,
@@ -119,7 +123,7 @@ func (sm *SpeechManager) UpdateConfig(config SpeechConfig) {
 			Model:      TTSModel(config.TTSModel),
 			Voice:      TTSVoice(config.TTSVoice),
 			Speed:      sm.rateToSpeed(config.TTSRate),
-		})
+		}, sm.credMgr)
 	}
 }
 

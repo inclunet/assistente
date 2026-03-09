@@ -1,0 +1,17 @@
+.code-editor {
+  position: relative;
+}
+
+.code-editor .monaco-editor {
+  font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+}
+
+.code-editor__placeholder {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  right: 10px;
+  pointer-events: none;
+  opacity: 0.55;
+  font-size: 13px;
+}

@@ -2,6 +2,7 @@ package signal
 
 import (
 	"bytes"
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -11,9 +12,18 @@ import (
 	"net/url"
 	"strings"
 	"time"
+
+	"assistente/internal/credentials"
+	httpclient "assistente/internal/tools/http"
 )
 
-var httpClient = &http.Client{Timeout: 30 * time.Second}
+// getHTTPClient cria um cliente HTTP centralizado para as funções de registro
+func getHTTPClient() *httpclient.Client {
+	return httpclient.New(&httpclient.Config{
+		CredentialManager: credentials.NewManager(nil),
+		Timeout:           30 * time.Second,
+	}, map[string]string{})
+}
 
 // registerRequest é o payload de POST /v1/register/{number}.
 type registerRequest struct {
@@ -24,7 +34,9 @@ type registerRequest struct {
 // Register inicia o registro de uma conta Signal via signal-cli-rest-api.
 // mode: "sms" (padrão) ou "voice" para receber o código por ligação.
 // captcha: token do Signal (signalcaptcha://...), exigido pela plataforma.
-func Register(apiURL, number, mode, captcha string) error {
+func Register(apiURL, number, mode, captcha, apiToken string) error {
+	ctx := context.Background()
+	client := getHTTPClient()
 	apiURL = strings.TrimRight(apiURL, "/")
 
 	payload := registerRequest{
@@ -41,13 +53,13 @@ func Register(apiURL, number, mode, captcha string) error {
 	log.Printf("[Signal] Register: POST %s (number=%s, mode=%s, use_voice=%v, has_captcha=%v)",
 		reqURL, maskIdentifier(number), mode, payload.UseVoice, captcha != "")
 
-	req, err := http.NewRequest("POST", reqURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, bytes.NewReader(body))
 	if err != nil {
 		return fmt.Errorf("erro ao criar request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(ctx, req)
 	if err != nil {
 		log.Printf("[Signal] Register: erro de rede: %v", err)
 		return fmt.Errorf("erro ao registrar número %s: %w", number, err)
@@ -70,20 +82,22 @@ func Register(apiURL, number, mode, captcha string) error {
 }
 
 // Verify verifica o código recebido via SMS ou ligação.
-func Verify(apiURL, number, code string) error {
+func Verify(apiURL, number, code, apiToken string) error {
+	ctx := context.Background()
+	client := getHTTPClient()
 	apiURL = strings.TrimRight(apiURL, "/")
 
 	reqURL := fmt.Sprintf("%s/v1/register/%s/verify/%s",
 		apiURL, url.PathEscape(number), url.PathEscape(code))
 	log.Printf("[Signal] Verify: POST %s (number=%s)", reqURL, maskIdentifier(number))
 
-	req, err := http.NewRequest("POST", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, nil)
 	if err != nil {
 		return fmt.Errorf("erro ao criar request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(ctx, req)
 	if err != nil {
 		log.Printf("[Signal] Verify: erro de rede: %v", err)
 		return fmt.Errorf("erro ao verificar número %s: %w", number, err)
@@ -107,20 +121,22 @@ func Verify(apiURL, number, code string) error {
 
 // Unregister remove uma conta da signal-cli-rest-api.
 // deleteLocalData: se true, também apaga os dados locais da conta.
-func Unregister(apiURL, number string, deleteLocalData bool) error {
+func Unregister(apiURL, number string, deleteLocalData bool, apiToken string) error {
+	ctx := context.Background()
+	client := getHTTPClient()
 	apiURL = strings.TrimRight(apiURL, "/")
 
 	// POST /v1/unregister/{number}
 	reqURL := fmt.Sprintf("%s/v1/unregister/%s", apiURL, url.PathEscape(number))
 	log.Printf("[Signal] Unregister: POST %s (number=%s, deleteLocalData=%v)", reqURL, maskIdentifier(number), deleteLocalData)
 
-	req, err := http.NewRequest("POST", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "POST", reqURL, nil)
 	if err != nil {
 		return fmt.Errorf("erro ao criar request: %w", err)
 	}
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(ctx, req)
 	if err != nil {
 		log.Printf("[Signal] Unregister: erro de rede: %v", err)
 		return fmt.Errorf("erro ao descadastrar %s: %w", number, err)
@@ -143,12 +159,12 @@ func Unregister(apiURL, number string, deleteLocalData bool) error {
 		delURL := fmt.Sprintf("%s/v1/devices/%s/local-data", apiURL, url.PathEscape(number))
 		log.Printf("[Signal] Unregister: DELETE %s", delURL)
 
-		delReq, err := http.NewRequest("DELETE", delURL, nil)
+		delReq, err := http.NewRequestWithContext(ctx, "DELETE", delURL, nil)
 		if err != nil {
 			return fmt.Errorf("descadastrado, mas erro ao limpar dados locais: %w", err)
 		}
 
-		delResp, err := httpClient.Do(delReq)
+		delResp, err := client.Do(ctx, delReq)
 		if err != nil {
 			return fmt.Errorf("descadastrado, mas erro ao limpar dados locais: %w", err)
 		}
@@ -165,19 +181,21 @@ func Unregister(apiURL, number string, deleteLocalData bool) error {
 // GetLinkQRCode gera um QR code para vincular como dispositivo secundário.
 // Retorna a imagem PNG em base64 (data URI).
 // O signal-cli inicia o provisioning em background no servidor.
-func GetLinkQRCode(apiURL, deviceName string) (string, error) {
+func GetLinkQRCode(apiURL, deviceName, apiToken string) (string, error) {
+	ctx := context.Background()
+	client := getHTTPClient()
 	apiURL = strings.TrimRight(apiURL, "/")
 
 	reqURL := fmt.Sprintf("%s/v1/qrcodelink?device_name=%s",
 		apiURL, url.QueryEscape(deviceName))
 	log.Printf("[Signal] GetLinkQRCode: GET %s", reqURL)
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("erro ao criar request: %w", err)
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(ctx, req)
 	if err != nil {
 		log.Printf("[Signal] GetLinkQRCode: erro: %v", err)
 		return "", fmt.Errorf("erro ao gerar QR code: %w", err)
@@ -211,19 +229,21 @@ func GetLinkQRCode(apiURL, deviceName string) (string, error) {
 
 // GetLinkRawURI gera a URI de vinculação como dispositivo secundário (sem QR code).
 // Retorna a URI texto que pode ser usada para vincular o dispositivo.
-func GetLinkRawURI(apiURL, deviceName string) (string, error) {
+func GetLinkRawURI(apiURL, deviceName, apiToken string) (string, error) {
+	ctx := context.Background()
+	client := getHTTPClient()
 	apiURL = strings.TrimRight(apiURL, "/")
 
 	reqURL := fmt.Sprintf("%s/v1/qrcodelink/raw?device_name=%s",
 		apiURL, url.QueryEscape(deviceName))
 	log.Printf("[Signal] GetLinkRawURI: GET %s", reqURL)
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return "", fmt.Errorf("erro ao criar request: %w", err)
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("erro ao gerar URI de vinculação: %w", err)
 	}
@@ -253,18 +273,20 @@ func GetLinkRawURI(apiURL, deviceName string) (string, error) {
 }
 
 // ListAccounts retorna as contas já registradas/vinculadas na signal-cli-rest-api.
-func ListAccounts(apiURL string) ([]string, error) {
+func ListAccounts(apiURL, apiToken string) ([]string, error) {
+	ctx := context.Background()
+	client := getHTTPClient()
 	apiURL = strings.TrimRight(apiURL, "/")
 
 	reqURL := apiURL + "/v1/accounts"
 	log.Printf("[Signal] ListAccounts: GET %s", reqURL)
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar request: %w", err)
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(ctx, req)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao listar contas: %w", err)
 	}
@@ -286,27 +308,29 @@ func ListAccounts(apiURL string) ([]string, error) {
 }
 
 // CheckAPI verifica se a signal-cli-rest-api está acessível e retorna informações.
-func CheckAPI(apiURL string) (map[string]interface{}, error) {
+func CheckAPI(apiURL, apiToken string) (map[string]interface{}, error) {
+	ctx := context.Background()
+	client := getHTTPClient()
 	apiURL = strings.TrimRight(apiURL, "/")
 
 	// Tenta primeiro /v1/about (signal-cli-rest-api padrão)
 	reqURL := apiURL + "/v1/about"
 	log.Printf("[Signal] CheckAPI: tentando GET %s", reqURL)
 
-	req, err := http.NewRequest("GET", reqURL, nil)
+	req, err := http.NewRequestWithContext(ctx, "GET", reqURL, nil)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar request: %w", err)
 	}
 
-	resp, err := httpClient.Do(req)
+	resp, err := client.Do(ctx, req)
 	if err != nil {
 		// Se /v1/about falhar, tenta /api/v1/about (caso haja um prefixo)
 		log.Printf("[Signal] CheckAPI: GET %s falhou: %v", reqURL, err)
 
 		// Tenta também a raiz para diagnóstico
-		rootReq, rootErr := http.NewRequest("GET", apiURL, nil)
+		rootReq, rootErr := http.NewRequestWithContext(ctx, "GET", apiURL, nil)
 		if rootErr == nil {
-			rootResp, rootRespErr := httpClient.Do(rootReq)
+			rootResp, rootRespErr := client.Do(ctx, rootReq)
 			if rootRespErr == nil {
 				rootBody, _ := io.ReadAll(rootResp.Body)
 				rootResp.Body.Close()

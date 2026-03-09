@@ -5,8 +5,8 @@ import { ThreadIndicator } from './ThreadIndicator';
 import { ReasoningSection } from './ReasoningSection';
 import { ToolCallsSection, ToolCallStatus } from './ToolCallsSection';
 import { isAgentMessage } from '../../lib/chatUtils';
-import { stripMarkdown } from '../../lib/stripMarkdown';
 import { formatRelativeTime } from '../../lib/dateUtils';
+import { buildChatMessageAriaLabel } from '../../lib/chatMessageAriaLabel';
 import './ChatMessage.css';
 
 export interface ChatMessageProps {
@@ -38,6 +38,14 @@ export interface ChatMessageProps {
   completedSegments?: TurnSegment[]; // Completed segments from previous agentic iterations (streaming)
   // Audio playback
   isPlayingAudio?: boolean; // Se está reproduzindo áudio desta mensagem
+
+  // Envio de blocos para o editor
+  onSendToEditor?: (payload: {
+    target: 'current' | 'new_tab';
+    format: 'markdown' | 'html' | 'plain';
+    title?: string;
+    content: string;
+  }) => void;
 }
 
 export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
@@ -62,10 +70,18 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   activeToolCalls,
   completedSegments: _completedSegmentsProp,
   isPlayingAudio = false,
+  onSendToEditor,
 }) => {
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const messageId = message.id;
+
+  // Snapshot live de campos que são atualizados in-place na store.
+  // Isso garante que aria-label e conteúdo reflitam streaming mesmo com React.memo acima.
+  const [liveContent, setLiveContent] = useState<string | null>(null);
+  const [liveIsStreaming, setLiveIsStreaming] = useState<boolean | null>(null);
+  const [liveReasoning, setLiveReasoning] = useState<string | null>(null);
+  const [liveToolCallsRaw, setLiveToolCallsRaw] = useState<string | null>(null);
 
   // Manual subscribe to completedSegments — bypasses useSyncExternalStore/React.memo entirely.
   // useState + subscribe guarantees re-render when segments change.
@@ -97,14 +113,84 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     return unsub;
   }, [messageId]);
 
+  useEffect(() => {
+    const trackingRef = { current: !!isStreaming };
+
+    const findMessageInState = (state: ReturnType<typeof useChatStore.getState>) => {
+      const targetId = String(messageId);
+      const visit = (nodes: any[]): any | null => {
+        for (const n of nodes || []) {
+          const msg = n?.message;
+          if (msg && String(msg.id) === targetId) return msg;
+          if (n?.children?.length) {
+            const hit = visit(n.children);
+            if (hit) return hit;
+          }
+        }
+        return null;
+      };
+
+      for (const tab of state.tabs || []) {
+        const hit = visit((tab as any).threadedMessages || []);
+        if (hit) return hit;
+      }
+      return null;
+    };
+
+    const sync = (state: ReturnType<typeof useChatStore.getState>) => {
+      const msg = findMessageInState(state);
+      if (!msg) return;
+
+      const nextContent = typeof msg.content === 'string' ? msg.content : '';
+      const nextIsStreaming = !!msg.isStreaming;
+      const nextReasoning = typeof msg.reasoning === 'string' ? msg.reasoning : '';
+      const nextToolCalls = typeof msg.toolCalls === 'string' ? msg.toolCalls : null;
+
+      setLiveContent((prev) => (prev === nextContent ? prev : nextContent));
+      setLiveIsStreaming((prev) => (prev === nextIsStreaming ? prev : nextIsStreaming));
+      setLiveReasoning((prev) => (prev === nextReasoning ? prev : nextReasoning));
+      setLiveToolCallsRaw((prev) => (prev === nextToolCalls ? prev : nextToolCalls));
+
+      // Desarma tracking após obter o estado final (best-effort).
+      if (!nextIsStreaming && state.streamingMessageId !== messageId) {
+        trackingRef.current = false;
+      }
+    };
+
+    // Sync inicial (cobre caso de re-render tardio)
+    sync(useChatStore.getState());
+
+    const unsub = useChatStore.subscribe((state) => {
+      if (state.streamingMessageId === messageId) trackingRef.current = true;
+      if (!trackingRef.current) return;
+      sync(state);
+    });
+
+    return unsub;
+  }, [messageId, isStreaming]);
+
   const completedSegments = liveSegments.length > 0 ? liveSegments : _completedSegmentsProp;
   const effectiveToolCalls = liveToolCalls.length > 0 ? liveToolCalls : activeToolCalls;
 
+  const effectiveContent = liveContent !== null ? liveContent : content;
+  const effectiveIsStreaming = liveIsStreaming !== null ? liveIsStreaming : isStreaming;
+  const effectiveReasoning = liveReasoning !== null ? liveReasoning : reasoning;
+  const effectiveToolCallsRaw = liveToolCallsRaw !== null ? liveToolCallsRaw : toolCalls;
+
   const hasAgenticSegments = !!(message._turnSegments || (completedSegments && completedSegments.length > 0));
-  const isAgenticStreaming = isStreaming && hasAgenticSegments;
+  const isAgenticStreaming = effectiveIsStreaming && hasAgenticSegments;
 
   // Usa editContent externo se está editando
-  const editContent = isEditing ? externalEditContent : content;
+  const editContent = isEditing ? externalEditContent : effectiveContent;
+
+  const toolCallsHasTextEdit =
+    role === 'assistant' &&
+    typeof effectiveToolCallsRaw === 'string' &&
+    /"name"\s*:\s*"text_edit"/i.test(effectiveToolCallsRaw);
+
+  // Quando `text_edit` é usado, o conteúdo do assistente pode vir poluído com fences (ex.: ```markdown).
+  // Como a UI já mostra as tool calls, omitimos o corpo textual para evitar ruído.
+  const displayContent = isEditing ? externalEditContent : (toolCallsHasTextEdit ? '' : effectiveContent);
 
   const formatTime = (timestamp: number) => {
     const date = new Date(timestamp);
@@ -130,20 +216,22 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   const getAriaLabel = () => {
     const roleLabel = getDisplayRole();
-    const contentPreview = content ? stripMarkdown(content) : 'Escrevendo';
-    const playHint = role === 'assistant' && !isStreaming ? ' Pressione Espaço para reproduzir áudio.' : '';
-
-    // Timestamp relativo com prefixo
     const relativeTime = formatRelativeTime(timestamp);
     const timePrefix = role === 'user' ? 'enviado' : 'recebido';
 
-    // Inclui reasoning no aria-label quando expandido
-    const reasoningText = reasoning || streamingReasoning;
-    const reasoningLabel = (isReasoningExpanded && reasoningText) 
-      ? ` Raciocínio: ${stripMarkdown(reasoningText)}.` 
-      : '';
-
-    return `${roleLabel}: ${contentPreview}.${reasoningLabel} ${timePrefix} ${relativeTime}.${playHint}`;
+    return buildChatMessageAriaLabel({
+      roleLabel,
+      role,
+      displayContent,
+      isStreaming: effectiveIsStreaming,
+      timePrefix,
+      relativeTime,
+      isReasoningExpanded,
+      reasoning: effectiveReasoning,
+      streamingReasoning,
+      toolCallsRaw: effectiveToolCallsRaw,
+      toolCallsHasTextEdit,
+    });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -192,7 +280,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
     // Teclas quando NÃO está editando
     // Spacebar - reproduz TTS da mensagem (assistente ou usuário)
-    if (e.key === ' ' && !isStreaming) {
+    if (e.key === ' ' && !effectiveIsStreaming) {
       e.preventDefault();
       if (onSpeak) {
         onSpeak(message);
@@ -252,8 +340,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     <div
       className={`chat-message chat-message--${role} ${isEditing ? 'chat-message--editing' : ''} ${isReading ? 'chat-message--reading' : ''}`}
       aria-label={isEditing ? undefined : getAriaLabel()}
-      aria-live={isStreaming && !isAgenticStreaming ? 'polite' : 'off'}
-      aria-busy={isStreaming && !isAgenticStreaming}
+      aria-live={effectiveIsStreaming && !isAgenticStreaming ? 'polite' : 'off'}
+      aria-busy={effectiveIsStreaming && !isAgenticStreaming}
       onKeyDown={handleKeyDown}
       onKeyUp={handleKeyUp}
       onContextMenu={handleContextMenuEvent}
@@ -293,7 +381,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           <span className="chat-message__timestamp">
             {formatTime(timestamp)}
           </span>
-          {!isStreaming && !isEditing && content && onSpeak && (
+          {!effectiveIsStreaming && !isEditing && displayContent && onSpeak && (
             <button
               className={`chat-message__play-btn${isPlayingAudio ? ' chat-message__play-btn--playing' : ''}`}
               onClick={(e) => { e.stopPropagation(); onSpeak(message); }}
@@ -315,9 +403,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         </div>
 
         {/* Seção de Reasoning/Thinking - exibe cadeia de pensamento do modelo */}
-        {role === 'assistant' && (streamingReasoning || reasoning) && (
+        {role === 'assistant' && (streamingReasoning || effectiveReasoning) && (
           <ReasoningSection 
-            reasoning={streamingReasoning || reasoning || ''} 
+            reasoning={streamingReasoning || effectiveReasoning || ''} 
             isStreaming={isThinking}
             isExpanded={isThinking || isReasoningExpanded}
             onToggle={onToggleReasoning}
@@ -342,7 +430,13 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                       className="chat-message__text chat-message__text--segment"
                       aria-label={`Passo ${Math.floor(idx / 2) + 1}`}
                     >
-                      <MarkdownRenderer content={seg.content} />
+                      <MarkdownRenderer
+                        content={seg.content}
+                        interactiveButtons={!!onSendToEditor}
+                        focusableMermaid={!!onSendToEditor}
+                        enableSendToEditorButtons={!!onSendToEditor}
+                        onSendToEditor={onSendToEditor}
+                      />
                     </section>
                   )}
                   {seg.type === 'tool_calls' && seg.toolCalls && (
@@ -355,17 +449,23 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             </div>
 
             {/* Current iteration — aria-busy suppresses char-by-char updates */}
-            <div aria-busy={isStreaming} aria-live={isStreaming ? 'polite' : 'off'}>
-              {isStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
+            <div aria-busy={effectiveIsStreaming} aria-live={effectiveIsStreaming ? 'polite' : 'off'}>
+              {effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0 && (
                 <ToolCallsSection activeToolCalls={effectiveToolCalls} />
               )}
 
-              {isStreaming && content && !message._turnSegments && (
+              {effectiveIsStreaming && displayContent && !message._turnSegments && (
                 <div className="chat-message__text">
-                  <MarkdownRenderer content={content} />
+                  <MarkdownRenderer
+                    content={displayContent}
+                    interactiveButtons={!!onSendToEditor}
+                    focusableMermaid={!!onSendToEditor}
+                    enableSendToEditorButtons={!!onSendToEditor}
+                    onSendToEditor={onSendToEditor}
+                  />
                 </div>
               )}
-              {isStreaming && !content && !message._turnSegments && (
+              {effectiveIsStreaming && !displayContent && !message._turnSegments && (
                 <div className="chat-message__text">
                   <span className="chat-message__cursor">▋</span>
                 </div>
@@ -375,10 +475,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         ) : (
           <>
             {/* Non-agentic messages: flat layout (reasoning → tools → content) */}
-            {role === 'assistant' && (toolCalls || (isStreaming && effectiveToolCalls && effectiveToolCalls.length > 0)) && (
+            {role === 'assistant' && (effectiveToolCallsRaw || (effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0)) && (
               <ToolCallsSection
-                toolCallsJson={toolCalls}
-                activeToolCalls={isStreaming ? effectiveToolCalls : undefined}
+                toolCallsJson={effectiveToolCallsRaw as any}
+                activeToolCalls={effectiveIsStreaming ? effectiveToolCalls : undefined}
               />
             )}
 
@@ -415,10 +515,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 </div>
               ) : (
                 <>
-                  {role === 'assistant' && content ? (
-                    <MarkdownRenderer content={content} />
+                  {role === 'assistant' && displayContent ? (
+                    <MarkdownRenderer
+                      content={displayContent}
+                      interactiveButtons={!!onSendToEditor}
+                      focusableMermaid={!!onSendToEditor}
+                      enableSendToEditorButtons={!!onSendToEditor}
+                      onSendToEditor={onSendToEditor}
+                    />
                   ) : (
-                    content || (isStreaming && <span className="chat-message__cursor">▋</span>)
+                    displayContent || (effectiveIsStreaming && <span className="chat-message__cursor">▋</span>)
                   )}
                 </>
               )}

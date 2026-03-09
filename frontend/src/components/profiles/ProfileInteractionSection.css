@@ -1,0 +1,73 @@
+.profile-interaction-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md, 1rem);
+}
+
+.profile-interaction-section__field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-xs, 0.5rem);
+}
+
+.profile-interaction-section__field--checkbox {
+  gap: var(--spacing-xxs, 0.25rem);
+}
+
+.profile-interaction-section__label {
+  font-weight: 500;
+  font-size: 0.875rem;
+  color: var(--text-primary, #333);
+}
+
+.profile-interaction-section__select {
+  padding: 0.5rem;
+  border: 1px solid var(--border-color, #ccc);
+  border-radius: 4px;
+  font-size: 0.875rem;
+  background-color: var(--background-secondary, #fff);
+  color: var(--text-primary, #333);
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.profile-interaction-section__select:focus {
+  outline: none;
+  border-color: var(--primary-color, #007acc);
+  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+}
+
+.profile-interaction-section__select:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  background-color: var(--background-tertiary, #f5f5f5);
+}
+
+.profile-interaction-section__checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.875rem;
+  cursor: pointer;
+  user-select: none;
+}
+
+.profile-interaction-section__checkbox-label input[type="checkbox"] {
+  width: 1.125rem;
+  height: 1.125rem;
+  cursor: pointer;
+}
+
+.profile-interaction-section__checkbox-label input[type="checkbox"]:disabled {
+  cursor: not-allowed;
+}
+
+.profile-interaction-section__hint {
+  font-size: 0.8125rem;
+  color: var(--text-secondary, #666);
+  margin-top: 0.25rem;
+}
+
+/* Disabled state */
+.profile-interaction-section:has(input:disabled, select:disabled) {
+  opacity: 0.6;
+}
