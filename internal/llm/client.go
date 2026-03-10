@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"math/rand"
 	"net/http"
 	"net/url"
@@ -53,11 +54,12 @@ func NewClient(provider *ProviderConfig, cfg *config.Config, credMgr *credential
 		httpClient: httpclient.New(&httpclient.Config{
 			CredentialManager: credMgr,
 			Timeout:           timeout,
-		}, map[string]string{domain: hostname}), // Map request domain to credential hostname
+			LogFn: func(msg string) {
+				log.Printf("[LLM-HTTP:%s] %s", provider.ID, msg)
+			},
+		}, map[string]string{domain: hostname}),
 	}
 }
-
-// Removed: getToken() - now handled automatically by httpclient
 
 // GetModels retorna a lista de modelos disponíveis na API
 func (c *Client) GetModels(ctx context.Context) ([]string, error) {

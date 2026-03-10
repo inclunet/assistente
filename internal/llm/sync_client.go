@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"time"
@@ -53,7 +54,10 @@ func NewSyncClient(provider *ProviderConfig, credMgr *credentials.Manager) *Sync
 		httpClient: httpclient.New(&httpclient.Config{
 			CredentialManager: credMgr,
 			Timeout:           timeout,
-		}, map[string]string{domain: hostname}), // Map request domain to credential hostname
+			LogFn: func(msg string) {
+				log.Printf("[LLM-Sync:%s] %s", provider.ID, msg)
+			},
+		}, map[string]string{domain: hostname}),
 	}
 }
 

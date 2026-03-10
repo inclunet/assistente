@@ -303,6 +303,16 @@ func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
 			Timeout:           180,
 			CredentialPattern: "api.anthropic.com",
 		}
+	case "google":
+		provider = &llm.ProviderConfig{
+			ID:                "google-gemini",
+			Name:              "Google (Gemini)",
+			Type:              llm.ProviderOpenAI,
+			BaseURL:           "https://generativelanguage.googleapis.com/v1beta/openai",
+			Model:             "gemini-2.0-flash",
+			Timeout:           180,
+			CredentialPattern: "generativelanguage.googleapis.com",
+		}
 	case "ollama":
 		provider = &llm.ProviderConfig{
 			ID:                "ollama-local",
@@ -389,11 +399,16 @@ func (a *App) migrateLegacyConfig() {
 		}
 
 		// Determinar pattern baseado no baseURL
-		pattern := "*.openai.com" // default
-		if strings.Contains(baseURL, "anthropic") {
-			pattern = "*.anthropic.com"
+		// Usa extractHostname para padrão exato, consistente com CreateLLMProvider
+		pattern := ""
+		if extractedHost, hostErr := extractHostname(baseURL); hostErr == nil && extractedHost != "" {
+			pattern = extractedHost
+		} else if strings.Contains(baseURL, "anthropic") {
+			pattern = "api.anthropic.com"
 		} else if strings.Contains(baseURL, "localhost") || strings.Contains(baseURL, "127.0.0.1") {
 			pattern = "" // local, sem pattern
+		} else {
+			pattern = "api.openai.com" // fallback para OpenAI
 		}
 
 		// Registrar credencial no credentials.Manager
@@ -3193,9 +3208,9 @@ func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[st
 		}
 		credConfigured = true
 	} else {
-		// Verificar se credencial já existe
-		_, err := a.credMgr.GetByPattern(updated.CredentialPattern)
-		credConfigured = (err == nil)
+		// Verificar se credencial já existe (GetByPattern retorna nil,nil se não encontrada)
+		auth, err := a.credMgr.GetByPattern(updated.CredentialPattern)
+		credConfigured = (err == nil && auth != nil)
 	}
 
 	// Remover provider antigo e registrar atualizado
@@ -3250,11 +3265,11 @@ func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 	result := make([]map[string]interface{}, 0, len(providers))
 
 	for _, p := range providers {
-		// Verificar se credencial está configurada
+		// Verificar se credencial está configurada (GetByPattern retorna nil,nil se não encontrada)
 		credConfigured := false
 		if p.CredentialPattern != "" {
-			_, err := a.credMgr.GetByPattern(p.CredentialPattern)
-			credConfigured = (err == nil)
+			auth, err := a.credMgr.GetByPattern(p.CredentialPattern)
+			credConfigured = (err == nil && auth != nil)
 		}
 
 		result = append(result, map[string]interface{}{
@@ -3931,16 +3946,32 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			currentStep = 5
 
 		case 5: // Etapa 5: Listar e escolher modelo
-			// Cria um provider temporário para testar a conexão e listar modelos
-			tempProvider := &llm.ProviderConfig{
-				ID:      "temp-wizard",
-				Name:    "Temporary Provider",
-				Type:    llm.ProviderOpenAI, // Assume OpenAI-compatible
-				BaseURL: baseURL,
-				Timeout: 180,
+			// Extrai hostname para registrar credencial temporária no credMgr
+			wizardHostname, err := extractHostname(baseURL)
+			if err != nil {
+				wizardHostname = ""
 			}
 
-			// Salva configuração temporária para testar modelos
+			// Registra credencial no credMgr para que o httpClient consiga autenticar
+			if apiKey != "" && wizardHostname != "" {
+				wizardAuth := &credentials.AuthConfig{
+					Type:  "bearer",
+					Token: apiKey,
+				}
+				if err := a.credMgr.RegisterPatternWithContext(ctx, wizardHostname, wizardAuth); err != nil {
+					log.Printf("[Wizard] Erro ao registrar credencial temporária: %v", err)
+				}
+			}
+
+			tempProvider := &llm.ProviderConfig{
+				ID:                "temp-wizard",
+				Name:              "Temporary Provider",
+				Type:              llm.ProviderOpenAI,
+				BaseURL:           baseURL,
+				Timeout:           180,
+				CredentialPattern: wizardHostname,
+			}
+
 			tempCfg := &config.Config{
 				APIKey:     apiKey,
 				APIBaseURL: baseURL,
