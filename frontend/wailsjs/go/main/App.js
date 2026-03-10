@@ -486,6 +486,10 @@ export function ListCredentials() {
   return window['go']['main']['App']['ListCredentials']();
 }
 
+export function ListExternalSources(arg1) {
+  return window['go']['main']['App']['ListExternalSources'](arg1);
+}
+
 export function ListMCPServers() {
   return window['go']['main']['App']['ListMCPServers']();
 }

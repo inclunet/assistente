@@ -4,6 +4,7 @@ go 1.24.1
 
 require (
 	github.com/KennethanCeyer/ptyx v0.2.0
+	github.com/danieljoos/wincred v1.1.2
 	github.com/fsnotify/fsnotify v1.9.0
 	github.com/glebarez/sqlite v1.11.0
 	github.com/go-ole/go-ole v1.3.0
@@ -26,7 +27,6 @@ require (
 require (
 	github.com/alessio/shellescape v1.4.1 // indirect
 	github.com/bep/debounce v1.2.1 // indirect
-	github.com/danieljoos/wincred v1.1.2 // indirect
 	github.com/dustin/go-humanize v1.0.1 // indirect
 	github.com/glebarez/go-sqlite v1.21.2 // indirect
 	github.com/godbus/dbus/v5 v5.1.0 // indirect

@@ -256,6 +256,8 @@ export function IsSAPI5Speaking():Promise<boolean>;
 
 export function ListCredentials():Promise<Array<main.CredentialSummary>>;
 
+export function ListExternalSources(arg1:string):Promise<Array<main.ExternalSourceSuggestion>>;
+
 export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
 
 export function ListTerminalSessions():Promise<Array<terminal.SessionInfo>>;

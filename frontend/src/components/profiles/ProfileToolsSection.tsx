@@ -1,6 +1,8 @@
+import { useCallback } from 'react';
 import { main, allowlist } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
+import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 
 export interface ProfileToolsSectionProps {
   availableTools: main.ToolInfo[];
@@ -10,6 +12,12 @@ export interface ProfileToolsSectionProps {
   availableAllowlists: allowlist.AllowlistInfo[];
   onChange: (field: 'enabled_tools' | 'command_allowlist' | 'disable_tools', value: any) => void;
   disabled?: boolean;
+}
+
+interface ToolRow {
+  id: string;
+  name: string;
+  description: string;
 }
 
 export function ProfileToolsSection({
@@ -29,20 +37,62 @@ export function ProfileToolsSection({
   const showSelectAll = !allSelected;
   const showDeselectAll = !noneSelected;
 
-  const handleToggleTool = (toolName: string) => {
-    if (!enabledTools) {
-      // All enabled, so disable this one
-      onChange('enabled_tools', allNames.filter(n => n !== toolName));
-    } else if (enabledTools.includes(toolName)) {
-      // Enabled, so disable it
-      onChange('enabled_tools', enabledTools.filter(n => n !== toolName));
+  const toolRows: ToolRow[] = availableTools.map(tool => ({
+    id: tool.name,
+    name: tool.name,
+    description: tool.description || '',
+  }));
+
+  const selectedIds: Set<string | number> = !enabledTools
+    ? new Set<string | number>(allNames)
+    : new Set<string | number>(enabledTools);
+
+  const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
+    if (newSelectedIds.size === allNames.length) {
+      onChange('enabled_tools', null);
+    } else if (newSelectedIds.size === 0) {
+      onChange('enabled_tools', []);
     } else {
-      // Disabled, so enable it
-      const newList = [...enabledTools, toolName];
-      // If all tools selected, send null (means all enabled)
-      onChange('enabled_tools', newList.length === allNames.length ? null : newList);
+      onChange('enabled_tools', Array.from(newSelectedIds) as string[]);
     }
-  };
+  }, [allNames.length, onChange]);
+
+  const isToolEnabled = useCallback((name: string) => {
+    return !enabledTools || enabledTools.includes(name);
+  }, [enabledTools]);
+
+  const columns: DataGridColumn<ToolRow>[] = [
+    {
+      key: 'checked',
+      label: '',
+      width: '40px',
+      format: (_: any, item: ToolRow) => {
+        const checked = isToolEnabled(item.name);
+        return (
+          <input
+            type="checkbox"
+            checked={checked}
+            readOnly
+            tabIndex={-1}
+            aria-label={checked
+              ? t('profiles.toolEnabled', `${item.name} ativada`)
+              : t('profiles.toolDisabled', `${item.name} desativada`)}
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      },
+    },
+    {
+      key: 'name',
+      label: t('profiles.toolColName', 'Nome'),
+      width: '30%',
+    },
+    {
+      key: 'description',
+      label: t('profiles.toolColDesc', 'Descrição'),
+      truncate: true,
+    },
+  ];
 
   return (
     <CollapsibleSection
@@ -88,40 +138,19 @@ export function ProfileToolsSection({
               </button>
             )}
           </div>
-          <div
-            className="profiles-field__tools-grid"
-            role="group"
-            aria-label={t('profiles.toolsGridLabel', 'Lista de ferramentas disponíveis')}
-            data-testid="tools-grid"
-          >
-            {availableTools.map((tool) => {
-              const isEnabled = !enabledTools || enabledTools.includes(tool.name);
-              return (
-                <div key={tool.name} className="profiles-field__tool-item">
-                  <input
-                    type="checkbox"
-                    id={`pf-tool-${tool.name}`}
-                    checked={isEnabled}
-                    onChange={() => handleToggleTool(tool.name)}
-                    disabled={disabled}
-                    aria-labelledby={`pf-tool-name-${tool.name}`}
-                    aria-describedby={`pf-tool-desc-${tool.name}`}
-                    data-testid={`tool-checkbox-${tool.name}`}
-                  />
-                  <label htmlFor={`pf-tool-${tool.name}`} className="profiles-field__tool-label">
-                    <span id={`pf-tool-name-${tool.name}`} className="profiles-field__tool-name">
-                      {tool.name}
-                    </span>
-                    <span id={`pf-tool-desc-${tool.name}`} className="profiles-field__tool-desc">
-                      {tool.description}
-                    </span>
-                  </label>
-                </div>
-              );
-            })}
-          </div>
+          <DataGrid<ToolRow>
+            items={toolRows}
+            columns={columns}
+            label={t('profiles.toolsGridLabel', 'Lista de ferramentas disponíveis')}
+            getItemId={(item) => item.name}
+            selectedIds={selectedIds}
+            selectionMode="checkbox"
+            onSelectionChange={handleSelectionChange}
+            showHeader={true}
+            autoFocusOnMount={false}
+            className="profiles-tools-datagrid"
+          />
 
-          {/* Allowlist de Comandos */}
           <div className="profiles-field" style={{ marginTop: '0.75rem' }}>
             <label htmlFor="pf-command-allowlist" className="profiles-field__label">
               {t('profiles.fieldCommandAllowlist', 'Allowlist de Comandos')}

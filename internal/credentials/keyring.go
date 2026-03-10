@@ -31,3 +31,9 @@ func SaveDEKToKeychain(dek []byte) error {
 func IsKeychainNotFound(err error) bool {
 	return errors.Is(err, keyring.ErrNotFound)
 }
+
+// KeyringEntry representa uma entrada do keyring do SO.
+type KeyringEntry struct {
+	Target string
+	User   string
+}

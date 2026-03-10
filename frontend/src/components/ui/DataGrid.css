@@ -168,6 +168,20 @@
   outline: none;
 }
 
+/* Checkbox mode: auto-height, compact */
+.datagrid-container--checkbox {
+  height: auto;
+}
+
+.datagrid-container--checkbox .datagrid-body {
+  overflow-y: visible;
+}
+
+.datagrid-container--checkbox .datagrid-row.selected {
+  background: var(--accent-light, #e3f2fd);
+  border-left: 3px solid var(--accent-color, #007bff);
+}
+
 .datagrid-empty {
   display: flex;
   align-items: center;
@@ -245,5 +259,10 @@
     background: var(--bg-primary-dark, #1e1e1e);
     border-color: var(--border-color-dark, #3a3a3a);
     color: var(--text-secondary-dark, #a0a0a0);
+  }
+
+  .datagrid-container--checkbox .datagrid-row.selected {
+    background: var(--accent-dark, #1a3a52);
+    border-left-color: var(--accent-color, #4a9eff);
   }
 }

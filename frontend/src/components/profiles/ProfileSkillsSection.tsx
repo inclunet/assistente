@@ -1,6 +1,8 @@
+import { useState, useCallback } from 'react';
 import { skills } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
+import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 
 export interface ProfileSkillsSectionProps {
   availableSkills: skills.SkillInfo[];
@@ -9,6 +11,13 @@ export interface ProfileSkillsSectionProps {
   skillsDisabled?: boolean;
   onChange: (field: 'enabled_skills' | 'disable_on_demand_skills' | 'disable_skills', value: any) => void;
   disabled?: boolean;
+}
+
+interface SkillRow {
+  id: string;
+  slug: string;
+  name: string;
+  description: string;
 }
 
 export function ProfileSkillsSection({
@@ -20,33 +29,128 @@ export function ProfileSkillsSection({
   disabled = false,
 }: ProfileSkillsSectionProps) {
   const { t } = useTranslation();
+  const [focusedSlug, setFocusedSlug] = useState<string | null>(null);
 
-  const handleToggleSkill = (slug: string) => {
-    const allSlugs = availableSkills.map(s => s.slug);
-    const autoloadSet = new Set(enabledSkills);
+  const autoloadSet = new Set(enabledSkills);
 
-    if (autoloadSet.has(slug)) {
-      const newList = enabledSkills.filter(s => s !== slug);
-      onChange('enabled_skills', newList);
-    } else {
-      const newList = [...enabledSkills, slug];
-      // If all skills selected, send all slugs
-      onChange('enabled_skills', newList.length === allSlugs.length ? allSlugs : newList);
-    }
-  };
+  const autoloadSkills = enabledSkills
+    .map(slug => availableSkills.find(s => s.slug === slug))
+    .filter(Boolean) as skills.SkillInfo[];
+  const onDemandSkills = availableSkills.filter(s => !autoloadSet.has(s.slug));
+  const sortedSkills: SkillRow[] = [...autoloadSkills, ...onDemandSkills].map(s => ({
+    id: s.slug,
+    slug: s.slug,
+    name: s.name,
+    description: s.description || '',
+  }));
+
+  const selectedIds = new Set<string | number>(enabledSkills);
 
   const allSlugs = availableSkills.map(s => s.slug);
-  const autoloadSet = new Set(enabledSkills);
   const allAutoloaded = enabledSkills.length === allSlugs.length && allSlugs.length > 0;
   const noneAutoloaded = enabledSkills.length === 0;
   const showSelectAll = !allAutoloaded;
   const showDeselectAll = !noneAutoloaded;
 
-  const autoloadSkills = (enabledSkills || [])
-    .map(slug => availableSkills.find(s => s.slug === slug))
-    .filter(Boolean) as skills.SkillInfo[];
-  const onDemandSkills = availableSkills.filter(s => !autoloadSet.has(s.slug));
-  const sortedSkills = [...autoloadSkills, ...onDemandSkills];
+  const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
+    const prevSet = new Set(enabledSkills);
+    const newSet = newSelectedIds as Set<string>;
+
+    let added: string | null = null;
+    let removed: string | null = null;
+    for (const id of newSet) {
+      if (!prevSet.has(id)) { added = id; break; }
+    }
+    for (const id of prevSet) {
+      if (!newSet.has(id as string)) { removed = id; break; }
+    }
+
+    if (added) {
+      const newList = [...enabledSkills, added];
+      onChange('enabled_skills', newList.length === allSlugs.length ? allSlugs : newList);
+    } else if (removed) {
+      onChange('enabled_skills', enabledSkills.filter(s => s !== removed));
+    }
+  }, [enabledSkills, allSlugs, onChange]);
+
+  const handleMoveItem = useCallback((fromIndex: number, toIndex: number) => {
+    const item = sortedSkills[fromIndex];
+    const target = sortedSkills[toIndex];
+    if (!item || !target) return;
+    if (!autoloadSet.has(item.slug) || !autoloadSet.has(target.slug)) return;
+
+    const fromEnabledIdx = enabledSkills.indexOf(item.slug);
+    const toEnabledIdx = enabledSkills.indexOf(target.slug);
+    if (fromEnabledIdx < 0 || toEnabledIdx < 0) return;
+
+    const newList = [...enabledSkills];
+    [newList[fromEnabledIdx], newList[toEnabledIdx]] = [newList[toEnabledIdx], newList[fromEnabledIdx]];
+    onChange('enabled_skills', newList);
+  }, [sortedSkills, autoloadSet, enabledSkills, onChange]);
+
+  const handleMoveButton = useCallback((direction: 'up' | 'down') => {
+    if (!focusedSlug || !autoloadSet.has(focusedSlug)) return;
+    const idx = enabledSkills.indexOf(focusedSlug);
+    if (idx < 0) return;
+    const newIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (newIdx < 0 || newIdx >= enabledSkills.length) return;
+
+    const newList = [...enabledSkills];
+    [newList[idx], newList[newIdx]] = [newList[newIdx], newList[idx]];
+    onChange('enabled_skills', newList);
+  }, [focusedSlug, autoloadSet, enabledSkills, onChange]);
+
+  const handleFocusChange = useCallback((item: SkillRow | null) => {
+    setFocusedSlug(item?.slug ?? null);
+  }, []);
+
+  const focusedIsEnabled = focusedSlug ? autoloadSet.has(focusedSlug) : false;
+  const focusedEnabledIdx = focusedSlug ? enabledSkills.indexOf(focusedSlug) : -1;
+  const canMoveUp = focusedIsEnabled && focusedEnabledIdx > 0;
+  const canMoveDown = focusedIsEnabled && focusedEnabledIdx >= 0 && focusedEnabledIdx < enabledSkills.length - 1;
+
+  const columns: DataGridColumn<SkillRow>[] = [
+    {
+      key: 'checked',
+      label: '',
+      width: '40px',
+      format: (_: any, item: SkillRow) => {
+        const idx = enabledSkills.indexOf(item.slug);
+        const checked = idx >= 0;
+        return (
+          <input
+            type="checkbox"
+            checked={checked}
+            readOnly
+            tabIndex={-1}
+            aria-label={checked
+              ? t('profiles.skillAutoload', `${item.name} autoload #${idx + 1}`)
+              : t('profiles.skillOnDemand', `${item.name} sob demanda`)}
+            style={{ pointerEvents: 'none' }}
+          />
+        );
+      },
+    },
+    {
+      key: 'order',
+      label: '#',
+      width: '40px',
+      format: (_: any, item: SkillRow) => {
+        const idx = enabledSkills.indexOf(item.slug);
+        return idx >= 0 ? `${idx + 1}` : '';
+      },
+    },
+    {
+      key: 'name',
+      label: t('profiles.skillColName', 'Nome'),
+      width: '28%',
+    },
+    {
+      key: 'description',
+      label: t('profiles.skillColDesc', 'Descrição'),
+      truncate: true,
+    },
+  ];
 
   return (
     <CollapsibleSection
@@ -93,6 +197,28 @@ export function ProfileSkillsSection({
             )}
             <button
               type="button"
+              className="profiles-field__tools-toggle"
+              tabIndex={-1}
+              onClick={() => handleMoveButton('up')}
+              disabled={disabled || !canMoveUp}
+              aria-label={t('profiles.skillMoveUp', 'Subir skill')}
+              data-testid="skills-move-up"
+            >
+              ↑
+            </button>
+            <button
+              type="button"
+              className="profiles-field__tools-toggle"
+              tabIndex={-1}
+              onClick={() => handleMoveButton('down')}
+              disabled={disabled || !canMoveDown}
+              aria-label={t('profiles.skillMoveDown', 'Descer skill')}
+              data-testid="skills-move-down"
+            >
+              ↓
+            </button>
+            <button
+              type="button"
               className={`profiles-field__tools-toggle ${disableOnDemand ? 'profiles-field__tools-toggle--active' : ''}`}
               tabIndex={-1}
               onClick={() => onChange('disable_on_demand_skills', !disableOnDemand)}
@@ -105,39 +231,20 @@ export function ProfileSkillsSection({
                 : t('profiles.skillsOnDemandOn', 'Sob demanda: ativado')}
             </button>
           </div>
-          <div
-            className="profiles-field__tools-grid"
-            role="group"
-            aria-label={t('profiles.skillsGridLabel', 'Lista de skills')}
-            data-testid="skills-grid"
-          >
-            {sortedSkills.map((skill) => {
-              const isAutoload = autoloadSet.has(skill.slug);
-              return (
-                <div key={skill.slug} className={`profiles-field__tool-item ${isAutoload ? 'profiles-field__tool-item--autoload' : ''}`}>
-                  <input
-                    type="checkbox"
-                    id={`pf-skill-${skill.slug}`}
-                    checked={isAutoload}
-                    onChange={() => handleToggleSkill(skill.slug)}
-                    disabled={disabled}
-                    aria-labelledby={`pf-skill-name-${skill.slug}`}
-                    aria-describedby={`pf-skill-desc-${skill.slug}`}
-                    data-testid={`skill-checkbox-${skill.slug}`}
-                  />
-                  <label htmlFor={`pf-skill-${skill.slug}`} className="profiles-field__tool-label">
-                    <span id={`pf-skill-name-${skill.slug}`} className="profiles-field__tool-name">
-                      {skill.name}
-                    </span>
-                    <span id={`pf-skill-desc-${skill.slug}`} className="profiles-field__tool-desc">
-                      {skill.description}
-                      {isAutoload && <span className="profiles-field__skill-badge"> (autoload)</span>}
-                    </span>
-                  </label>
-                </div>
-              );
-            })}
-          </div>
+          <DataGrid<SkillRow>
+            items={sortedSkills}
+            columns={columns}
+            label={t('profiles.skillsGridLabel', 'Lista de skills')}
+            getItemId={(item) => item.slug}
+            selectedIds={selectedIds}
+            selectionMode="checkbox"
+            onSelectionChange={handleSelectionChange}
+            onMoveItem={handleMoveItem}
+            onFocusChange={handleFocusChange}
+            showHeader={true}
+            autoFocusOnMount={false}
+            className="profiles-skills-datagrid"
+          />
         </>
       ) : (
         <p className="profiles-field__hint" style={{ margin: 0 }}>

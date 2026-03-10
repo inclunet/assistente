@@ -22,12 +22,17 @@ export interface DataGridProps<T = any> {
   getItemId?: (item: T) => string | number;
   selectedIds?: Set<string | number>;
   multiSelect?: boolean;
+  selectionMode?: 'list' | 'checkbox';
   onSelectionChange?: (selectedIds: Set<string | number>) => void;
   onActivate?: (item: T, rowIndex: number) => void;
   onDelete?: (item: T, rowIndex: number) => void;
   onCellAction?: (item: T, column: DataGridColumn<T>, rowIndex: number, colIndex: number) => void;
   onCellEdit?: (item: T, column: DataGridColumn<T>, newValue: string, rowIndex: number, colIndex: number) => void;
   onGridReady?: (focusFirstCell: () => void) => void;
+  onMoveItem?: (fromIndex: number, toIndex: number) => void;
+  onFocusChange?: (item: T | null, rowIndex: number) => void;
+  className?: string;
+  showHeader?: boolean;
 }
 
 export function DataGrid<T = any>({
@@ -38,12 +43,17 @@ export function DataGrid<T = any>({
   getItemId = (item: any) => item.id,
   selectedIds,
   multiSelect = false,
+  selectionMode = 'list',
   onSelectionChange,
   onActivate,
   onDelete,
   onCellAction,
   onCellEdit,
   onGridReady,
+  onMoveItem,
+  onFocusChange,
+  className,
+  showHeader = true,
 }: DataGridProps<T>) {
   const [focusedRow, setFocusedRow] = useState(0);
   const [focusedCol, setFocusedCol] = useState(0);
@@ -57,7 +67,15 @@ export function DataGrid<T = any>({
   const editInputRef = useRef<HTMLInputElement>(null);
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const announceTimerRef = useRef<NodeJS.Timeout>();
-  const hasInitializedRef = useRef(false); // Para garantir foco inicial apenas uma vez
+  const hasInitializedRef = useRef(false);
+  const focusedItemIdRef = useRef<string | number | null>(null);
+  const onFocusChangeRef = useRef(onFocusChange);
+  onFocusChangeRef.current = onFocusChange;
+  const focusedRowRef = useRef(focusedRow);
+  const focusedColRef = useRef(focusedCol);
+
+  const isCheckboxMode = selectionMode === 'checkbox';
+  const isMultiSelect = multiSelect || isCheckboxMode;
 
   const rowCount = items.length;
   const columnCount = columns.length;
@@ -138,6 +156,36 @@ export function DataGrid<T = any>({
       setLocalSelectedIds(new Set(selectedIds));
     }
   }, [selectedIds ? Array.from(selectedIds).join(',') : '']);
+
+  // Mantém refs de focusedRow/Col atualizadas
+  useEffect(() => {
+    focusedRowRef.current = focusedRow;
+    focusedColRef.current = focusedCol;
+  }, [focusedRow, focusedCol]);
+
+  // Rastreia qual item está focado por ID e notifica o pai
+  useEffect(() => {
+    if (items.length > 0 && focusedRow >= 0 && focusedRow < items.length) {
+      focusedItemIdRef.current = getItemId(items[focusedRow]);
+      onFocusChangeRef.current?.(items[focusedRow], focusedRow);
+    }
+  }, [focusedRow, items, getItemId]);
+
+  // Segue o item quando a lista é reordenada
+  useEffect(() => {
+    if (focusedItemIdRef.current === null || items.length === 0) return;
+
+    const row = focusedRowRef.current;
+    const currentItem = row >= 0 && row < items.length ? items[row] : null;
+    if (currentItem && getItemId(currentItem) === focusedItemIdRef.current) return;
+
+    const newIndex = items.findIndex(item => getItemId(item) === focusedItemIdRef.current);
+    if (newIndex >= 0 && newIndex !== row) {
+      setFocusedRow(newIndex);
+      setTimeout(() => focusCell(newIndex, focusedColRef.current), 0);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [items, getItemId]);
 
   // Foca no input ao editar
   useEffect(() => {
@@ -242,7 +290,9 @@ export function DataGrid<T = any>({
     switch (event.key) {
       case ' ':
         event.preventDefault();
-        if (event.ctrlKey && multiSelect) {
+        if (isCheckboxMode) {
+          toggleSelection(focusedRow);
+        } else if (event.ctrlKey && isMultiSelect) {
           toggleSelection(focusedRow);
         } else {
           const col = columns[focusedCol];
@@ -276,13 +326,13 @@ export function DataGrid<T = any>({
 
       case 'Escape':
         event.preventDefault();
-        if (multiSelect) {
+        if (isMultiSelect) {
           clearSelection();
         }
         return;
 
       case 'a':
-        if (event.ctrlKey && multiSelect) {
+        if (event.ctrlKey && isMultiSelect) {
           event.preventDefault();
           selectAll();
           return;
@@ -294,7 +344,7 @@ export function DataGrid<T = any>({
           event.preventDefault();
           // Ctrl+C: copiar célula atual
           // Ctrl+Shift+C: copiar todas as células selecionadas
-          if (event.shiftKey && multiSelect && localSelectedIds.size > 0) {
+          if (event.shiftKey && isMultiSelect && localSelectedIds.size > 0) {
             // Copiar todas as linhas selecionadas
             const selectedItems = items.filter(item => localSelectedIds.has(getItemId(item)));
             const textToCopy = selectedItems.map(item => {
@@ -320,6 +370,18 @@ export function DataGrid<T = any>({
 
       case 'ArrowUp':
         event.preventDefault();
+        if (event.altKey && onMoveItem) {
+          if (focusedRow > 0) {
+            onMoveItem(focusedRow, focusedRow - 1);
+            const movedRow = focusedRow - 1;
+            setFocusedRow(movedRow);
+            setTimeout(() => focusCell(movedRow, focusedCol), 0);
+            announce('Movido para cima');
+          } else {
+            playBumpSound();
+          }
+          return;
+        }
         if (focusedRow === 0) {
           playBumpSound();
           return;
@@ -330,6 +392,18 @@ export function DataGrid<T = any>({
 
       case 'ArrowDown':
         event.preventDefault();
+        if (event.altKey && onMoveItem) {
+          if (focusedRow < rowCount - 1) {
+            onMoveItem(focusedRow, focusedRow + 1);
+            const movedRow = focusedRow + 1;
+            setFocusedRow(movedRow);
+            setTimeout(() => focusCell(movedRow, focusedCol), 0);
+            announce('Movido para baixo');
+          } else {
+            playBumpSound();
+          }
+          return;
+        }
         if (focusedRow === rowCount - 1) {
           playBumpSound();
           return;
@@ -425,10 +499,9 @@ export function DataGrid<T = any>({
       // Foca a nova célula após atualizar o estado
       setTimeout(() => focusCell(newRow, newCol), 0);
 
-      // Seleção durante navegação
-      if (multiSelect && newRow !== oldRow) {
+      // Seleção durante navegação — apenas no modo list
+      if (!isCheckboxMode && isMultiSelect && newRow !== oldRow) {
         if (event.shiftKey) {
-          // Shift: seleciona intervalo
           const start = Math.min(oldRow, newRow);
           const end = Math.max(oldRow, newRow);
           const newSelected = new Set(localSelectedIds);
@@ -438,7 +511,6 @@ export function DataGrid<T = any>({
           setLocalSelectedIds(newSelected);
           onSelectionChange?.(newSelected);
         } else if (!event.ctrlKey) {
-          // Sem modificadores: seleciona só o atual
           const itemId = getItemId(items[newRow]);
           const newSelected = new Set([itemId]);
           setLocalSelectedIds(newSelected);
@@ -469,10 +541,11 @@ export function DataGrid<T = any>({
     // Foca a célula clicada
     setTimeout(() => focusCell(rowIndex, colIndex), 0);
 
-    if (event.detail === 2) {
-      // Double click para editar
+    if (isCheckboxMode) {
+      toggleSelection(rowIndex);
+    } else if (event.detail === 2) {
       startEditing(rowIndex, colIndex);
-    } else if (multiSelect && event.ctrlKey) {
+    } else if (isMultiSelect && event.ctrlKey) {
       toggleSelection(rowIndex);
     }
   };
@@ -539,7 +612,7 @@ export function DataGrid<T = any>({
   return (
     <div
       ref={gridRef}
-      className="datagrid-container"
+      className={`datagrid-container${isCheckboxMode ? ' datagrid-container--checkbox' : ''}${className ? ` ${className}` : ''}`}
       role="grid"
       aria-label={label}
       aria-rowcount={rowCount}
@@ -547,13 +620,11 @@ export function DataGrid<T = any>({
       aria-describedby="datagrid-instructions"
       onKeyDown={handleKeyDown}
       onClick={() => {
-        // Foca a célula quando o grid é clicado
         if (items.length > 0 && columns.length > 0) {
           focusCell(focusedRow, focusedCol);
         }
       }}
     >
-      {/* Screen reader announcements - Usa dois elementos alternados para garantir que sempre haja mudança no DOM */}
       <div
         role="status"
         aria-live="assertive"
@@ -571,36 +642,39 @@ export function DataGrid<T = any>({
         style={{ position: 'absolute' }}
         key="announce-2"
       >
-        {/* Reserva para anúncios urgentes */}
       </div>
 
-      {/* Keyboard instructions */}
       <div id="datagrid-instructions" className="sr-only">
         Grade de dados com {rowCount} linhas e {columnCount} colunas. 
         Use as setas verticais para navegar entre linhas. 
         Use as setas horizontais para navegar entre colunas. 
         Pressione Enter para ativar um item. 
-        Pressione Espaço para marcar ou desmarcar. 
-        {multiSelect && 'Pressione Ctrl+A para selecionar todos. '} 
+        {isCheckboxMode
+          ? 'Pressione Espaço para marcar ou desmarcar. '
+          : 'Pressione Ctrl+Espaço para marcar ou desmarcar. '}
+        {isMultiSelect && 'Pressione Ctrl+A para selecionar todos. '}
+        {onMoveItem && 'Pressione Alt+Seta para mover o item. '}
         Pressione Delete para remover. 
         Pressione F2 para editar. 
         Pressione Escape para limpar a seleção.
       </div>
 
-      <div className="datagrid-header" role="row" aria-rowindex={0}>
-        {columns.map((column, colIndex) => (
-          <div
-            key={column.key}
-            className="datagrid-header-cell"
-            role="columnheader"
-            style={{ width: column.width }}
-            aria-colindex={colIndex + 1}
-            tabIndex={-1}  // Headers não devem ser focáveis via Tab/setas
-          >
-            {column.label}
-          </div>
-        ))}
-      </div>
+      {showHeader && (
+        <div className="datagrid-header" role="row" aria-rowindex={0}>
+          {columns.map((column, colIndex) => (
+            <div
+              key={column.key}
+              className="datagrid-header-cell"
+              role="columnheader"
+              style={{ width: column.width }}
+              aria-colindex={colIndex + 1}
+              tabIndex={-1}
+            >
+              {column.label}
+            </div>
+          ))}
+        </div>
+      )}
       
       <div className="datagrid-body">
         {items.map((item, rowIndex) => {

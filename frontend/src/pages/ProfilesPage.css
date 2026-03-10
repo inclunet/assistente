@@ -243,6 +243,39 @@
   color: var(--accent-color, #4a9eff);
 }
 
+/* DataGrid inline no editor de perfil (skills e tools) */
+.profiles-skills-datagrid.datagrid-container,
+.profiles-tools-datagrid.datagrid-container {
+  height: auto;
+  max-height: 320px;
+  border-radius: 6px;
+  font-size: 0.875rem;
+}
+
+.profiles-skills-datagrid .datagrid-body,
+.profiles-tools-datagrid .datagrid-body {
+  overflow-y: auto;
+}
+
+.profiles-skills-datagrid .datagrid-header-cell,
+.profiles-skills-datagrid .datagrid-cell,
+.profiles-tools-datagrid .datagrid-header-cell,
+.profiles-tools-datagrid .datagrid-cell {
+  padding: 8px 12px;
+}
+
+.profiles-skills-datagrid .datagrid-row.selected,
+.profiles-tools-datagrid .datagrid-row.selected {
+  background: var(--accent-light, rgba(74, 158, 255, 0.1));
+  border-left: 3px solid var(--accent-color, #4a9eff);
+}
+
+.profiles-skills-datagrid .datagrid-cell input[type="checkbox"],
+.profiles-tools-datagrid .datagrid-cell input[type="checkbox"] {
+  margin: 0;
+  accent-color: var(--accent-color, #4a9eff);
+}
+
 .profiles-field__tool-desc {
   font-size: 0.75rem;
   color: var(--text-muted, #71717a);

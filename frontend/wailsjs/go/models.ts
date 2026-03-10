@@ -1017,6 +1017,20 @@ export namespace main {
 	}
 	
 	
+	export class ExternalSourceSuggestion {
+	    value: string;
+	    label: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ExternalSourceSuggestion(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.value = source["value"];
+	        this.label = source["label"];
+	    }
+	}
 	export class ImportResult {
 	    success: boolean;
 	    imported: number;

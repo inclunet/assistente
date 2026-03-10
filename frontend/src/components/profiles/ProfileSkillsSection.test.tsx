@@ -10,6 +10,10 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+vi.mock('../../services/audioFeedback', () => ({
+  playBumpSound: vi.fn(),
+}));
+
 const mockSkills = [
   { name: 'Skill 1', slug: 'skill-1', description: 'First skill' },
   { name: 'Skill 2', slug: 'skill-2', description: 'Second skill' },
@@ -29,7 +33,7 @@ describe('ProfileSkillsSection', () => {
     expect(screen.getByTestId('collapsible-section')).toBeInTheDocument();
   });
 
-  it('renderiza todas as skills do grid', () => {
+  it('renderiza DataGrid com todas as skills', () => {
     const onChange = vi.fn();
     render(
       <ProfileSkillsSection
@@ -38,9 +42,10 @@ describe('ProfileSkillsSection', () => {
         onChange={onChange}
       />
     );
-    expect(screen.getByTestId('skill-checkbox-skill-1')).toBeInTheDocument();
-    expect(screen.getByTestId('skill-checkbox-skill-2')).toBeInTheDocument();
-    expect(screen.getByTestId('skill-checkbox-skill-3')).toBeInTheDocument();
+    expect(screen.getByRole('grid')).toBeInTheDocument();
+    expect(screen.getByText('Skill 1')).toBeInTheDocument();
+    expect(screen.getByText('Skill 2')).toBeInTheDocument();
+    expect(screen.getByText('Skill 3')).toBeInTheDocument();
   });
 
   it('mostra nomes e descrições das skills', () => {
@@ -57,7 +62,7 @@ describe('ProfileSkillsSection', () => {
     expect(screen.getByText('Third skill')).toBeInTheDocument();
   });
 
-  it('marca checkboxes com skills enabled', () => {
+  it('marca rows como selecionados para skills enabled', () => {
     const onChange = vi.fn();
     render(
       <ProfileSkillsSection
@@ -66,12 +71,14 @@ describe('ProfileSkillsSection', () => {
         onChange={onChange}
       />
     );
-    expect((screen.getByTestId('skill-checkbox-skill-1') as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByTestId('skill-checkbox-skill-2') as HTMLInputElement).checked).toBe(false);
-    expect((screen.getByTestId('skill-checkbox-skill-3') as HTMLInputElement).checked).toBe(true);
+    const rows = screen.getAllByRole('row');
+    // row[0] is header, row[1] is skill-1 (enabled), row[2] is skill-3 (enabled), row[3] is skill-2 (not enabled)
+    expect(rows[1]).toHaveAttribute('aria-selected', 'true');
+    expect(rows[2]).toHaveAttribute('aria-selected', 'true');
+    expect(rows[3]).toHaveAttribute('aria-selected', 'false');
   });
 
-  it('chama onChange ao marcar uma skill', () => {
+  it('chama onChange ao selecionar uma skill via Space', () => {
     const onChange = vi.fn();
     render(
       <ProfileSkillsSection
@@ -80,12 +87,12 @@ describe('ProfileSkillsSection', () => {
         onChange={onChange}
       />
     );
-    const checkbox = screen.getByTestId('skill-checkbox-skill-1');
-    fireEvent.click(checkbox);
+    const grid = screen.getByRole('grid');
+    fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-1']);
   });
 
-  it('chama onChange ao desmarcar uma skill', () => {
+  it('chama onChange ao desmarcar uma skill via Space', () => {
     const onChange = vi.fn();
     render(
       <ProfileSkillsSection
@@ -94,8 +101,9 @@ describe('ProfileSkillsSection', () => {
         onChange={onChange}
       />
     );
-    const checkbox = screen.getByTestId('skill-checkbox-skill-1');
-    fireEvent.click(checkbox);
+    const grid = screen.getByRole('grid');
+    // First item is skill-1 (enabled, focused by default)
+    fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-2']);
   });
 
@@ -218,7 +226,7 @@ describe('ProfileSkillsSection', () => {
     expect(screen.getByText('Nenhum skill encontrado.')).toBeInTheDocument();
   });
 
-  it('desabilita todos os campos quando disabled é true', () => {
+  it('desabilita botões da toolbar quando disabled é true', () => {
     const onChange = vi.fn();
     render(
       <ProfileSkillsSection
@@ -228,37 +236,104 @@ describe('ProfileSkillsSection', () => {
         disabled={true}
       />
     );
-    expect(screen.getByTestId('skill-checkbox-skill-1')).toBeDisabled();
     expect(screen.getByTestId('skills-select-all')).toBeDisabled();
     expect(screen.getByTestId('skills-toggle-on-demand')).toBeDisabled();
   });
 
   it('ordena skills colocando autoload primeiro', () => {
     const onChange = vi.fn();
-    const { container } = render(
+    render(
       <ProfileSkillsSection
         availableSkills={mockSkills}
         enabledSkills={['skill-3']}
         onChange={onChange}
       />
     );
-    const grid = container.querySelector('[data-testid="skills-grid"]');
-    const items = grid?.querySelectorAll('.profiles-field__tool-item');
-    // Primeiro item deve ser skill-3 (autoload)
-    expect(items?.[0]?.querySelector('[data-testid="skill-checkbox-skill-3"]')).toBeInTheDocument();
+    const rows = screen.getAllByRole('row');
+    // row[0] = header, row[1] = skill-3 (autoload), row[2] = skill-1, row[3] = skill-2
+    expect(rows[1]).toHaveTextContent('Skill 3');
+    expect(rows[1]).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('mostra badge "autoload" para skills enabled', () => {
+  it('mostra checkboxes e número de ordem para skills enabled', () => {
     const onChange = vi.fn();
     render(
       <ProfileSkillsSection
         availableSkills={mockSkills}
-        enabledSkills={['skill-1']}
+        enabledSkills={['skill-2', 'skill-1']}
         onChange={onChange}
       />
     );
-    const badges = screen.getAllByText('(autoload)');
-    expect(badges.length).toBe(1);
-    expect(badges[0]).toBeInTheDocument();
+    const checkboxes = screen.getAllByRole('checkbox');
+    const skill2Cb = checkboxes.find(cb => cb.getAttribute('aria-label')?.includes('Skill 2'));
+    expect(skill2Cb).toBeTruthy();
+    expect((skill2Cb as HTMLInputElement).checked).toBe(true);
+
+    const skill3Cb = checkboxes.find(cb => cb.getAttribute('aria-label')?.includes('Skill 3'));
+    expect(skill3Cb).toBeTruthy();
+    expect((skill3Cb as HTMLInputElement).checked).toBe(false);
+
+    const rows = screen.getAllByRole('row');
+    // row[1] = skill-2 (order 1), row[2] = skill-1 (order 2), row[3] = skill-3 (no order)
+    expect(rows[1]).toHaveTextContent('1');
+    expect(rows[2]).toHaveTextContent('2');
+  });
+
+  // ─── Move buttons ──────────────────────────────────────────────
+
+  it('mostra botões ↑ e ↓ na toolbar', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileSkillsSection
+        availableSkills={mockSkills}
+        enabledSkills={['skill-1', 'skill-2']}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getByTestId('skills-move-up')).toBeInTheDocument();
+    expect(screen.getByTestId('skills-move-down')).toBeInTheDocument();
+  });
+
+  it('botões ↑/↓ desabilitados quando nenhum item focado é enabled', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileSkillsSection
+        availableSkills={mockSkills}
+        enabledSkills={[]}
+        onChange={onChange}
+      />
+    );
+    expect(screen.getByTestId('skills-move-up')).toBeDisabled();
+    expect(screen.getByTestId('skills-move-down')).toBeDisabled();
+  });
+
+  it('move item via Alt+Down no DataGrid', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileSkillsSection
+        availableSkills={mockSkills}
+        enabledSkills={['skill-1', 'skill-2', 'skill-3']}
+        onChange={onChange}
+      />
+    );
+    const grid = screen.getByRole('grid');
+    fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
+    expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-2', 'skill-1', 'skill-3']);
+  });
+
+  it('move item via Alt+Up no DataGrid', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileSkillsSection
+        availableSkills={mockSkills}
+        enabledSkills={['skill-1', 'skill-2', 'skill-3']}
+        onChange={onChange}
+      />
+    );
+    const grid = screen.getByRole('grid');
+    // Navigate to row 1 (skill-2) first
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'ArrowUp', altKey: true });
+    expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-2', 'skill-1', 'skill-3']);
   });
 });

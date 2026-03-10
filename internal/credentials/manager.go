@@ -160,14 +160,15 @@ func (m *Manager) ListPatterns() []string {
 	return patterns
 }
 
-// ListCredentials retorna credenciais descriptografadas (para uso interno/administrativo).
+// ListCredentials retorna credenciais descriptografadas sem resolver referências externas.
+// Refs como keyring://... e env://... ficam visíveis para exibição na UI.
 func (m *Manager) ListCredentials() ([]StoredCredential, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
 	result := make([]StoredCredential, 0, len(m.credentials))
 	for _, dc := range m.credentials {
-		auth, err := m.decryptAuth(dc.Auth)
+		auth, err := m.decryptAuthRaw(dc.Auth)
 		if err != nil {
 			return nil, err
 		}
@@ -339,7 +340,56 @@ func (m *Manager) decryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 
 	decrypted := *auth
 
-	// Descriptografa token
+	if auth.Token != "" {
+		token, err := m.decrypt(auth.Token)
+		if err != nil {
+			return nil, err
+		}
+		token, err = ResolveExternalRef(token)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao resolver referência do token: %w", err)
+		}
+		decrypted.Token = token
+	}
+
+	if auth.Password != "" {
+		pwd, err := m.decrypt(auth.Password)
+		if err != nil {
+			return nil, err
+		}
+		pwd, err = ResolveExternalRef(pwd)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao resolver referência da senha: %w", err)
+		}
+		decrypted.Password = pwd
+	}
+
+	if len(auth.Headers) > 0 {
+		decrypted.Headers = make(map[string]string)
+		for k, v := range auth.Headers {
+			decV, err := m.decrypt(v)
+			if err != nil {
+				return nil, err
+			}
+			decV, err = ResolveExternalRef(decV)
+			if err != nil {
+				return nil, fmt.Errorf("erro ao resolver referência do header %s: %w", k, err)
+			}
+			decrypted.Headers[k] = decV
+		}
+	}
+
+	return &decrypted, nil
+}
+
+// decryptAuthRaw descriptografa credenciais sem resolver referências externas.
+// Usado para listagem/exibição onde queremos ver a ref original (keyring://..., env://...).
+func (m *Manager) decryptAuthRaw(auth *AuthConfig) (*AuthConfig, error) {
+	if auth == nil {
+		return nil, nil
+	}
+	decrypted := *auth
+
 	if auth.Token != "" {
 		token, err := m.decrypt(auth.Token)
 		if err != nil {
@@ -347,8 +397,6 @@ func (m *Manager) decryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 		}
 		decrypted.Token = token
 	}
-
-	// Descriptografa password
 	if auth.Password != "" {
 		pwd, err := m.decrypt(auth.Password)
 		if err != nil {
@@ -356,8 +404,6 @@ func (m *Manager) decryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 		}
 		decrypted.Password = pwd
 	}
-
-	// Descriptografa headers
 	if len(auth.Headers) > 0 {
 		decrypted.Headers = make(map[string]string)
 		for k, v := range auth.Headers {
@@ -368,7 +414,6 @@ func (m *Manager) decryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 			decrypted.Headers[k] = decV
 		}
 	}
-
 	return &decrypted, nil
 }
 

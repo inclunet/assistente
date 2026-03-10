@@ -4,8 +4,8 @@
   "description": "Configuração padrão.",
   "icon": "chatbox",
   "chat": {
-    "llm_provider": "litellm-1773012882477",
-    "model": "gpt-5.2",
+    "llm_provider": "litellm-1773064146890",
+    "model": "openai/gpt-5.4",
     "temperature": 0.7,
     "max_tokens": 4096,
     "context_window": 120000,

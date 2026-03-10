@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ProfileToolsSection } from './ProfileToolsSection';
 
@@ -9,6 +9,14 @@ vi.mock('react-i18next', () => ({
     t: (_key: string, defaultValue: string) => defaultValue,
   }),
 }));
+
+vi.mock('../../services/audioFeedback', () => ({
+  playBumpSound: vi.fn(),
+}));
+
+beforeAll(() => {
+  Element.prototype.scrollIntoView = vi.fn();
+});
 
 const mockTools = [
   { name: 'Tool 1', description: 'First tool' },
@@ -22,7 +30,7 @@ const mockAllowlists = [
 ] as any;
 
 describe('ProfileToolsSection', () => {
-  it('renderiza a seção de ferramentas', () => {
+  it('renderiza a seção de ferramentas com DataGrid', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -32,10 +40,10 @@ describe('ProfileToolsSection', () => {
         onChange={onChange}
       />
     );
-    expect(screen.getByTestId('tools-grid')).toBeInTheDocument();
+    expect(screen.getByRole('grid')).toBeInTheDocument();
   });
 
-  it('renderiza todas as ferramentas do grid', () => {
+  it('renderiza todas as ferramentas no grid', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -45,9 +53,9 @@ describe('ProfileToolsSection', () => {
         onChange={onChange}
       />
     );
-    expect(screen.getByTestId('tool-checkbox-Tool 1')).toBeInTheDocument();
-    expect(screen.getByTestId('tool-checkbox-Tool 2')).toBeInTheDocument();
-    expect(screen.getByTestId('tool-checkbox-Tool 3')).toBeInTheDocument();
+    expect(screen.getByText('Tool 1')).toBeInTheDocument();
+    expect(screen.getByText('Tool 2')).toBeInTheDocument();
+    expect(screen.getByText('Tool 3')).toBeInTheDocument();
   });
 
   it('mostra nomes e descrições das ferramentas', () => {
@@ -75,9 +83,11 @@ describe('ProfileToolsSection', () => {
         onChange={onChange}
       />
     );
-    expect((screen.getByTestId('tool-checkbox-Tool 1') as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByTestId('tool-checkbox-Tool 2') as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByTestId('tool-checkbox-Tool 3') as HTMLInputElement).checked).toBe(true);
+    const rows = screen.getAllByRole('row');
+    // row[0] is header, rows 1-3 are tools — all selected
+    expect(rows[1]).toHaveAttribute('aria-selected', 'true');
+    expect(rows[2]).toHaveAttribute('aria-selected', 'true');
+    expect(rows[3]).toHaveAttribute('aria-selected', 'true');
   });
 
   it('marca apenas ferramentas em enabledTools', () => {
@@ -90,12 +100,33 @@ describe('ProfileToolsSection', () => {
         onChange={onChange}
       />
     );
-    expect((screen.getByTestId('tool-checkbox-Tool 1') as HTMLInputElement).checked).toBe(true);
-    expect((screen.getByTestId('tool-checkbox-Tool 2') as HTMLInputElement).checked).toBe(false);
-    expect((screen.getByTestId('tool-checkbox-Tool 3') as HTMLInputElement).checked).toBe(true);
+    const rows = screen.getAllByRole('row');
+    expect(rows[1]).toHaveAttribute('aria-selected', 'true');
+    expect(rows[2]).toHaveAttribute('aria-selected', 'false');
+    expect(rows[3]).toHaveAttribute('aria-selected', 'true');
   });
 
-  it('chama onChange ao desmarcar uma ferramenta de todas selecionadas', () => {
+  it('renderiza checkboxes acessíveis dentro das células', () => {
+    const onChange = vi.fn();
+    render(
+      <ProfileToolsSection
+        availableTools={mockTools}
+        enabledTools={['Tool 1']}
+        availableAllowlists={mockAllowlists}
+        onChange={onChange}
+      />
+    );
+    const checkboxes = screen.getAllByRole('checkbox');
+    const tool1Cb = checkboxes.find(cb => cb.getAttribute('aria-label')?.includes('Tool 1'));
+    expect(tool1Cb).toBeTruthy();
+    expect((tool1Cb as HTMLInputElement).checked).toBe(true);
+
+    const tool2Cb = checkboxes.find(cb => cb.getAttribute('aria-label')?.includes('Tool 2'));
+    expect(tool2Cb).toBeTruthy();
+    expect((tool2Cb as HTMLInputElement).checked).toBe(false);
+  });
+
+  it('chama onChange ao desmarcar ferramenta de todas selecionadas via Space', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -105,13 +136,13 @@ describe('ProfileToolsSection', () => {
         onChange={onChange}
       />
     );
-    const checkbox = screen.getByTestId('tool-checkbox-Tool 1');
-    fireEvent.click(checkbox);
-    // When all are selected (null) and we uncheck one, it should send all except that one
+    const grid = screen.getByRole('grid');
+    // Space toggles first tool (Tool 1) — removes it from "all"
+    fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_tools', ['Tool 2', 'Tool 3']);
   });
 
-  it('chama onChange ao desmarcar uma ferramenta específica', () => {
+  it('chama onChange ao desmarcar uma ferramenta específica via Space', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -121,8 +152,8 @@ describe('ProfileToolsSection', () => {
         onChange={onChange}
       />
     );
-    const checkbox = screen.getByTestId('tool-checkbox-Tool 1');
-    fireEvent.click(checkbox);
+    const grid = screen.getByRole('grid');
+    fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_tools', ['Tool 2']);
   });
 
@@ -136,8 +167,10 @@ describe('ProfileToolsSection', () => {
         onChange={onChange}
       />
     );
-    const checkbox = screen.getByTestId('tool-checkbox-Tool 2');
-    fireEvent.click(checkbox);
+    const grid = screen.getByRole('grid');
+    // Navigate to Tool 2 (row 1) then Space
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_tools', ['Tool 1', 'Tool 2']);
   });
 
@@ -151,8 +184,11 @@ describe('ProfileToolsSection', () => {
         onChange={onChange}
       />
     );
-    const checkbox = screen.getByTestId('tool-checkbox-Tool 3');
-    fireEvent.click(checkbox);
+    const grid = screen.getByRole('grid');
+    // Navigate to Tool 3 (row 2) then Space to select all
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: 'ArrowDown' });
+    fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_tools', null);
   });
 
@@ -184,7 +220,7 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByTestId('badge-off')).toBeInTheDocument();
   });
 
-  it('mostra botão "Selecionar todas" quando nenhuma ferramenta selecionada', () => {
+  it('mostra botão "Selecionar todas" quando há ferramentas desmarcadas', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
@@ -286,18 +322,18 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByText('Nenhuma ferramenta encontrada.')).toBeInTheDocument();
   });
 
-  it('desabilita todos os campos quando disabled é true', () => {
+  it('desabilita botões da toolbar quando disabled é true', () => {
     const onChange = vi.fn();
     render(
       <ProfileToolsSection
         availableTools={mockTools}
-        enabledTools={null}
+        enabledTools={[]}
         availableAllowlists={mockAllowlists}
         onChange={onChange}
         disabled={true}
       />
     );
-    expect(screen.getByTestId('tool-checkbox-Tool 1')).toBeDisabled();
+    expect(screen.getByTestId('tools-select-all')).toBeDisabled();
     expect(screen.getByTestId('allowlist-select')).toBeDisabled();
   });
 });
