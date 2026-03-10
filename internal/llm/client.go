@@ -94,6 +94,7 @@ func (c *Client) GetModels(ctx context.Context) ([]string, error) {
 			strings.Contains(id, "llama") ||
 			strings.Contains(id, "claude") ||
 			strings.Contains(id, "mistral") ||
+			strings.Contains(id, "gemini") ||
 			strings.Contains(id, "gemma") ||
 			strings.Contains(id, "qwen") ||
 			strings.Contains(id, "phi") ||

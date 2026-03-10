@@ -55,7 +55,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
   },
   google: {
     label: 'Google (Gemini)',
-    defaultUrl: 'https://generativelanguage.googleapis.com',
+    defaultUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
     urlEditable: false,
     apiKeyRequired: true,
     testRequiresApiKey: true,

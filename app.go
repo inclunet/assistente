@@ -3824,7 +3824,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			case "Anthropic (Claude)":
 				baseURL = "https://api.anthropic.com/v1"
 			case "Google (Gemini)":
-				baseURL = "https://generativelanguage.googleapis.com/v1beta"
+				baseURL = "https://generativelanguage.googleapis.com/v1beta/openai"
 			case "Azure OpenAI":
 				baseURL = "" // Usuário precisará fornecer
 			case "Ollama (Local)":
