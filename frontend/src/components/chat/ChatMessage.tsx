@@ -429,6 +429,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                     <section
                       className="chat-message__text chat-message__text--segment"
                       aria-label={`Passo ${Math.floor(idx / 2) + 1}`}
+                      tabIndex={-1}
                     >
                       <MarkdownRenderer
                         content={seg.content}

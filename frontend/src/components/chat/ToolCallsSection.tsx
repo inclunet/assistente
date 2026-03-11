@@ -105,6 +105,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
     <div
       className={`tool-calls-section ${isExpanded ? 'tool-calls-section--expanded' : ''} ${isRunning ? 'tool-calls-section--running' : ''}`}
       aria-label={isRunning ? 'Ferramentas em execução' : 'Ferramentas utilizadas'}
+      tabIndex={-1}
     >
       <button
         className="tool-calls-section__header"

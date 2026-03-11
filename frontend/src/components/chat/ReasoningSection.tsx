@@ -39,6 +39,7 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
     <div 
       className={`reasoning-section ${isExpanded ? 'reasoning-section--expanded' : ''} ${isStreaming ? 'reasoning-section--streaming' : ''}`}
       aria-label={isStreaming ? 'O modelo está pensando' : 'Raciocínio do modelo'}
+      tabIndex={-1}
     >
       <button
         className="reasoning-section__header"

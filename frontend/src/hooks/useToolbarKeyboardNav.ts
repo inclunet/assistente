@@ -14,11 +14,12 @@ export const useToolbarKeyboardNav = (onFocusGrid?: (() => void) | null) => {
   const [focusedIndex, setFocusedIndex] = useState(0);
 
   // Obtém todos os elementos focáveis na toolbar (EXCETO campo de busca para navegação por setas)
+  // Inclui botões desabilitados para manter navegabilidade mesmo durante streaming
   const getFocusableItems = (): HTMLElement[] => {
     if (!toolbarRef.current) return [];
     return Array.from(
       toolbarRef.current.querySelectorAll<HTMLElement>(
-        'button:not([disabled]), [role="combobox"]:not([aria-disabled="true"]), input[role="combobox"]'
+        'button, [role="combobox"]:not([aria-disabled="true"]), input[role="combobox"]'
       )
     );
   };

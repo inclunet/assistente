@@ -94,6 +94,8 @@ export interface ToolbarProps {
   className?: string;
   /** Callback para focar o grid ao pressionar Enter no campo de busca */
   onFocusGrid?: (() => void) | null;
+  /** Indica se a toolbar está em estado de carregamento/processamento */
+  isLoading?: boolean;
 }
 
 export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
@@ -107,6 +109,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
   ariaLabel = 'Barra de ferramentas. Use setas para navegar entre os botões',
   className = '',
   onFocusGrid,
+  isLoading = false,
 }, ref) => {
   const toolbarRef = useToolbarKeyboardNav(onFocusGrid);
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -141,6 +144,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
       className={`toolbar ${className}`}
       role="toolbar"
       aria-label={ariaLabel}
+      aria-busy={isLoading}
       ref={combinedRef}
     >
       {left && (

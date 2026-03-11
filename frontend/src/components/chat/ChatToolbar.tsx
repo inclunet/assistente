@@ -27,17 +27,6 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const activeTab = getActiveTab();
   const conversationTitle = activeTab?.title || 'Nova conversa';
 
-  // Debug: log activeTab
-  useEffect(() => {
-    console.log('[ChatToolbar] activeTab mudou:', {
-      id: activeTab?.id,
-      conversationId: activeTab?.conversationId,
-      title: activeTab?.title,
-      hasConversationId: !!activeTab?.conversationId
-    });
-  }, [activeTab]);
-
-  // Refs para os pickers
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
 
@@ -162,6 +151,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     <>
       <Toolbar
         ariaLabel="Ferramentas do chat. Use setas para navegar entre os botões"
+        isLoading={isLoading}
         left={
           <h2 className="chat-toolbar__title" id="chat-heading">
             {conversationTitle}
