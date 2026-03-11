@@ -77,7 +77,7 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 // applyAuth aplica autenticação baseada no domínio da requisição
 func (c *Client) applyAuth(req *http.Request) {
 	if c.credMgr == nil {
-		return // sem credential manager, sem auth
+		return
 	}
 
 	domain := req.URL.Host
@@ -85,34 +85,40 @@ func (c *Client) applyAuth(req *http.Request) {
 		return
 	}
 
-	// Encontrar padrão para o domínio
+	// Se já tem Authorization explícito, não sobrescrever
+	if req.Header.Get("Authorization") != "" {
+		return
+	}
+
+	var auth *credentials.AuthConfig
+
+	// 1) Busca por domainPatterns (mapeamento explícito)
 	pattern := ""
-	
-	// Busca exata primeiro
 	if p, ok := c.domainPatterns[domain]; ok {
 		pattern = p
-	} else {
-		// Busca genérica/wildcard
-		if p, ok := c.domainPatterns["*"]; ok {
-			pattern = p
+	} else if p, ok := c.domainPatterns["*"]; ok {
+		pattern = p
+	}
+
+	if pattern != "" {
+		resolved, err := c.credMgr.GetByPattern(pattern)
+		if err == nil {
+			auth = resolved
 		}
 	}
 
-	if pattern == "" {
-		return // sem padrão configurado para este domínio
+	// 2) Fallback: resolve por URL (regex/wildcard matching no credential manager)
+	if auth == nil {
+		resolved, err := c.credMgr.ResolveForURL(req.URL.String())
+		if err == nil {
+			auth = resolved
+		}
 	}
 
-	// Resolver credencial
-	auth, err := c.credMgr.GetByPattern(pattern)
-	if err != nil {
-		// Erro ao resolver, não é fatal
-		return
-	}
 	if auth == nil {
 		return
 	}
 
-	// Aplicar header de autenticação baseado no tipo
 	switch auth.Type {
 	case "bearer":
 		if auth.Token != "" {
@@ -127,7 +133,6 @@ func (c *Client) applyAuth(req *http.Request) {
 			req.SetBasicAuth(auth.Username, auth.Password)
 		}
 	case "custom":
-		// Aplicar headers customizados
 		for key, val := range auth.Headers {
 			req.Header.Set(key, val)
 		}

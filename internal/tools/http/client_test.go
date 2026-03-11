@@ -131,6 +131,74 @@ func TestClient_Do_WithServer(t *testing.T) {
 	}
 }
 
+func TestClient_ApplyAuth_FallbackResolveForURL(t *testing.T) {
+	mgr := credentials.NewManager(nil)
+
+	auth := &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "github-token-from-keyring",
+	}
+	mgr.RegisterPattern("api.github.com", auth)
+
+	// Empty domainPatterns simulates how http_request tool creates the client
+	client := New(&Config{
+		CredentialManager: mgr,
+	}, map[string]string{})
+
+	req, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
+	client.applyAuth(req)
+
+	headerAuth := req.Header.Get("Authorization")
+	if headerAuth != "Bearer github-token-from-keyring" {
+		t.Errorf("Expected 'Bearer github-token-from-keyring', got '%s'", headerAuth)
+	}
+}
+
+func TestClient_ApplyAuth_FallbackWildcard(t *testing.T) {
+	mgr := credentials.NewManager(nil)
+
+	auth := &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "wildcard-github-token",
+	}
+	mgr.RegisterPattern("*.github.com", auth)
+
+	client := New(&Config{
+		CredentialManager: mgr,
+	}, map[string]string{})
+
+	req, _ := http.NewRequest("GET", "https://api.github.com/repos", nil)
+	client.applyAuth(req)
+
+	headerAuth := req.Header.Get("Authorization")
+	if headerAuth != "Bearer wildcard-github-token" {
+		t.Errorf("Expected 'Bearer wildcard-github-token', got '%s'", headerAuth)
+	}
+}
+
+func TestClient_ApplyAuth_ExistingAuthNotOverwritten(t *testing.T) {
+	mgr := credentials.NewManager(nil)
+
+	auth := &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "from-credential-manager",
+	}
+	mgr.RegisterPattern("api.github.com", auth)
+
+	client := New(&Config{
+		CredentialManager: mgr,
+	}, map[string]string{})
+
+	req, _ := http.NewRequest("GET", "https://api.github.com/user", nil)
+	req.Header.Set("Authorization", "Bearer explicit-user-token")
+	client.applyAuth(req)
+
+	headerAuth := req.Header.Get("Authorization")
+	if headerAuth != "Bearer explicit-user-token" {
+		t.Errorf("Expected explicit token to be preserved, got '%s'", headerAuth)
+	}
+}
+
 func TestClient_AddDomainPattern(t *testing.T) {
 	mgr := credentials.NewManager(nil)
 	
