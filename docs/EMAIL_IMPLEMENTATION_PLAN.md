@@ -560,8 +560,7 @@ Um perfil específico para emails (como `canais-comunicacao.json`):
     "search",
     "memory"
   ],
-  "channel_response_mode": "always_text",
-  "system_prompt": "Você é um assistente de email. Respostas claras, profissionais e concisas. Sem emojis."
+  "channel_response_mode": "always_text"
 }
 ```
 

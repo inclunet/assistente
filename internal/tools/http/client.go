@@ -20,17 +20,17 @@ type Config struct {
 
 // RetryPolicy define política de retry
 type RetryPolicy struct {
-	MaxAttempts       int
+	MaxAttempts      int
 	BackoffMultiplier float64
-	InitialBackoff    time.Duration
+	InitialBackoff   time.Duration
 }
 
 // Client é o cliente HTTP centralizado com interceptor de autenticação
 type Client struct {
-	baseClient     *http.Client
-	credMgr        *credentials.Manager
-	retryPolicy    *RetryPolicy
-	logFn          func(msg string)
+	baseClient    *http.Client
+	credMgr       *credentials.Manager
+	retryPolicy   *RetryPolicy
+	logFn         func(msg string)
 	domainPatterns map[string]string // domínio → padrão de credencial
 }
 
@@ -74,64 +74,45 @@ func (c *Client) Do(ctx context.Context, req *http.Request) (*http.Response, err
 	return c.doWithRetry(ctx, req)
 }
 
-// applyAuth aplica autenticação baseada no domínio da requisição.
-// Estratégia em camadas:
-//  1. domainPatterns (mapa explícito domain→pattern) — busca exata, depois wildcard "*"
-//  2. credMgr.ResolveForURL (fallback) — match por wildcard patterns registrados (*.github.com, etc)
+// applyAuth aplica autenticação baseada no domínio da requisição
 func (c *Client) applyAuth(req *http.Request) {
 	if c.credMgr == nil {
+		return // sem credential manager, sem auth
+	}
+
+	domain := req.URL.Host
+	if domain == "" {
 		return
 	}
 
-	if req.URL.Host == "" {
-		return
-	}
-
-	// Se o caller já definiu Authorization header, respeitar
-	if req.Header.Get("Authorization") != "" {
-		return
-	}
-
-	var auth *credentials.AuthConfig
-
-	// Camada 1: domainPatterns explícitos
-	if pattern := c.findDomainPattern(req.URL.Host); pattern != "" {
-		if a, err := c.credMgr.GetByPattern(pattern); err != nil {
-			c.logFn(fmt.Sprintf("auth: falha ao resolver credencial (pattern=%s): %v", pattern, err))
-		} else if a != nil {
-			auth = a
+	// Encontrar padrão para o domínio
+	pattern := ""
+	
+	// Busca exata primeiro
+	if p, ok := c.domainPatterns[domain]; ok {
+		pattern = p
+	} else {
+		// Busca genérica/wildcard
+		if p, ok := c.domainPatterns["*"]; ok {
+			pattern = p
 		}
 	}
 
-	// Camada 2: fallback para ResolveForURL (wildcard match no credMgr)
-	if auth == nil {
-		if a, err := c.credMgr.ResolveForURL(req.URL.String()); err != nil {
-			c.logFn(fmt.Sprintf("auth: falha ao resolver credencial (url=%s): %v", req.URL.Host, err))
-		} else if a != nil {
-			auth = a
-		}
+	if pattern == "" {
+		return // sem padrão configurado para este domínio
 	}
 
+	// Resolver credencial
+	auth, err := c.credMgr.GetByPattern(pattern)
+	if err != nil {
+		// Erro ao resolver, não é fatal
+		return
+	}
 	if auth == nil {
 		return
 	}
 
-	applyAuthConfig(req, auth)
-}
-
-// findDomainPattern busca nos domainPatterns configurados (exato, depois wildcard "*").
-func (c *Client) findDomainPattern(host string) string {
-	if p, ok := c.domainPatterns[host]; ok {
-		return p
-	}
-	if p, ok := c.domainPatterns["*"]; ok {
-		return p
-	}
-	return ""
-}
-
-// applyAuthConfig aplica o AuthConfig ao request.
-func applyAuthConfig(req *http.Request, auth *credentials.AuthConfig) {
+	// Aplicar header de autenticação baseado no tipo
 	switch auth.Type {
 	case "bearer":
 		if auth.Token != "" {
@@ -146,6 +127,7 @@ func applyAuthConfig(req *http.Request, auth *credentials.AuthConfig) {
 			req.SetBasicAuth(auth.Username, auth.Password)
 		}
 	case "custom":
+		// Aplicar headers customizados
 		for key, val := range auth.Headers {
 			req.Header.Set(key, val)
 		}

@@ -6,7 +6,7 @@
     });
     return Promise.race([promise, timeoutPromise]);
   };
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { Input, Select, Button, FormField } from '../';
 import { CreateLLMProvider, UpdateLLMProvider, TestLLMProvider } from '@wailsjs/go/main/App';
 import './ProviderForm.css';
@@ -55,7 +55,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
   },
   google: {
     label: 'Google (Gemini)',
-    defaultUrl: 'https://generativelanguage.googleapis.com/v1beta/openai',
+    defaultUrl: 'https://generativelanguage.googleapis.com/v1beta/openai/',
     urlEditable: false,
     apiKeyRequired: true,
     testRequiresApiKey: true,
@@ -144,6 +144,8 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   const [saving, setSaving] = useState(false);
   const [testing, setTesting] = useState(false);
   const [apiTested, setApiTested] = useState(false);
+  const [apiKeyChangedInThisSession, setApiKeyChangedInThisSession] = useState(false);
+  const apiKeyInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (provider) {
@@ -154,9 +156,10 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         base_url: provider.base_url,
         api_key: '', // Não carrega API key por segurança
       });
-      // Em modo edição, se não alterou a key (campo oculto), considera já testado
+      // Em modo edição, requer reteste apenas se mudar a key
       setApiTested(true);
       setShowApiKeyField(false); // Oculta campo, mostra indicador
+      setApiKeyChangedInThisSession(false);
     } else {
       // Novo provider - define URL padrão baseado no tipo
       const defaultType = 'openai';
@@ -169,8 +172,23 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       });
       setApiTested(false);
       setShowApiKeyField(true); // Mostra campo em modo criação
+      setApiKeyChangedInThisSession(false);
     }
   }, [provider]);
+
+  // Auto-foca no campo de token quando clica "Alterar Chave"
+  useEffect(() => {
+    if (showApiKeyField && apiKeyInputRef.current) {
+      // Pequeno delay para garantir que o DOM foi atualizado
+      setTimeout(() => {
+        apiKeyInputRef.current?.focus();
+        // Seleciona todo o texto se já existe algo
+        if (apiKeyInputRef.current?.value) {
+          apiKeyInputRef.current?.select();
+        }
+      }, 0);
+    }
+  }, [showApiKeyField]);
 
   // Atualiza URL quando tipo de provedor muda
   useEffect(() => {
@@ -185,12 +203,33 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     }
   }, [formData.type, provider]);
 
+  // Retorna a URL canônica que será REALMENTE salva no banco
+  // Isso garante que URLs do Google sempre sejam corretas, etc.
+  const getCanonicalUrl = (type: string): string => {
+    const config = PROVIDER_CONFIG[type] || PROVIDER_CONFIG.custom;
+    
+    // Para provedores com URL não editável (comerciais), retorna a URL padrão
+    if (!config.urlEditable) {
+      return config.defaultUrl;
+    }
+    
+    // Para provedores editáveis, usa o que o usuário digitou
+    return formData.base_url;
+  };
+
   const handleChange = (field: keyof ProviderFormData, value: any) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Limpa erro do campo
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: '' }));
     }
+  };
+
+  const handleApiKeyChange = (value: string) => {
+    handleChange('api_key', value);
+    // Marca que a chave foi alterada nesta sessão
+    setApiKeyChangedInThisSession(true);
+    setApiTested(false); // Precisa testar de novo
   };
 
   const handleTestApi = async () => {
@@ -273,11 +312,13 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       newErrors.name = 'Nome é obrigatório';
     }
 
-    if (!formData.base_url.trim()) {
+    // URL é sempre validada, mas sempre usa a URL canônica
+    const canonicalUrl = getCanonicalUrl(formData.type);
+    if (!canonicalUrl.trim()) {
       newErrors.base_url = 'URL é obrigatória';
     } else {
       try {
-        new URL(formData.base_url);
+        new URL(canonicalUrl);
       } catch {
         newErrors.base_url = 'URL inválida';
       }
@@ -288,9 +329,13 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       newErrors.api_key = `API Key é obrigatória para ${config.label}`;
     }
 
-    // Valida se API foi testada (se requer teste)
-    // Em modo edição, se não está mostrando campo de API key, não exige reteste
-    const needsTest = !formData.id || (formData.id && showApiKeyField && formData.api_key.trim());
+    // Valida se API foi testada
+    // EM MODO EDIÇÃO SEM MUDAR CHAVE: não exige reteste (chave já estava salva)
+    // EM MODO EDIÇÃO COM MUDANÇA DE CHAVE: exige reteste
+    // EM MODO CRIAÇÃO: sempre exige teste
+    const isEditingWithoutChangingKey = formData.id && !apiKeyChangedInThisSession;
+    const needsTest = !isEditingWithoutChangingKey;
+    
     if (!apiTested && needsTest) {
       newErrors.api = 'Por favor, teste a conexão com a API antes de salvar';
     }
@@ -306,13 +351,17 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
 
     setSaving(true);
     try {
+      // IMPORTANTE: Sempre usa a URL canônica ao salvar
+      // Isso garante que URLs incorretas (ex: Google incompleto) sejam corrigidas automaticamente
+      const canonicalUrl = getCanonicalUrl(formData.type);
+      
       if (formData.id) {
         // Update
         await withTimeout(
           UpdateLLMProvider(formData.id, {
             name: formData.name,
             type: formData.type,
-            base_url: formData.base_url,
+            base_url: canonicalUrl,
             api_key: formData.api_key || undefined,
           }),
           15000,
@@ -325,7 +374,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             id: `${formData.type}-${Date.now()}`,
             name: formData.name,
             type: formData.type,
-            base_url: formData.base_url,
+            base_url: canonicalUrl,
             api_key: formData.api_key || undefined,
           }),
           15000,
@@ -393,6 +442,21 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         )}
       </FormField>
 
+      {/* Display URL que será salva no banco */}
+      <FormField label="URL que será salva" description="Este é o endpoint que será usar para requisições">
+        <Input
+          value={getCanonicalUrl(formData.type)}
+          readOnly
+          disabled
+          fullWidth
+          aria-label="URL canônica que será salva"
+          className="provider-form__read-only-url"
+        />
+        <span className="provider-form__info" style={{ marginTop: '8px', display: 'block' }}>
+          ℹ️ Esta URL é calculada automaticamente e será SALVA no banco
+        </span>
+      </FormField>
+
       {/* API Key Field - mostrado quando obrigatório OU opcional */}
       {requiresApiKey ? (
         <FormField
@@ -420,9 +484,10 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           ) : (
           <div className="provider-form__password-field">
             <Input
+              ref={apiKeyInputRef}
               type={showPassword ? 'text' : 'password'}
               value={formData.api_key}
-              onChange={(e) => handleChange('api_key', e.target.value)}
+              onChange={(e) => handleApiKeyChange(e.target.value)}
               onBlur={handleApiKeyBlur}
               placeholder={formData.id ? '••••••••' : 'sk-...'}
               fullWidth
@@ -472,9 +537,10 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           ) : (
           <div className="provider-form__password-field">
             <Input
+              ref={apiKeyInputRef}
               type={showPassword ? 'text' : 'password'}
               value={formData.api_key}
-              onChange={(e) => handleChange('api_key', e.target.value)}
+              onChange={(e) => handleApiKeyChange(e.target.value)}
               onBlur={handleApiKeyBlur}
               placeholder="Deixar em branco se não usar chave"
               fullWidth
@@ -508,15 +574,23 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           type="button"
           variant="secondary"
           onClick={handleTestApi}
-          disabled={testing || !formData.base_url.trim()}
-          title={!formData.base_url.trim() ? 'Preenchea URL primeiro' : 'Testar conexão'}
+          disabled={testing || !getCanonicalUrl(formData.type).trim()}
+          title={!getCanonicalUrl(formData.type).trim() ? 'Preenchea URL primeiro' : 'Testar conexão'}
           aria-label="Testar conexão com API"
         >
-          {testing ? 'Testando...' : 'Testar Conexão'}
+          {testing ? 'Testando...' : '🧪 Testar Conexão'}
         </Button>
-        {testRequiresApiKey && !formData.api_key.trim() && (
-          <span className="provider-form__info">
-            ℹ️ Preenchaa API Key para testar este provedor
+        
+        {/* Info sobre o que será testado */}
+        {formData.id && !apiKeyChangedInThisSession && (
+          <span className="provider-form__info" style={{ marginLeft: '12px' }}>
+            ℹ️ Testará com a chave já configurada (não alterada nesta sessão)
+          </span>
+        )}
+        
+        {testRequiresApiKey && !formData.api_key.trim() && showApiKeyField && (
+          <span className="provider-form__info" style={{ marginLeft: '12px' }}>
+            ℹ️ Preencha a API Key para testar este provedor
           </span>
         )}
       </div>

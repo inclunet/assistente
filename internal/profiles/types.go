@@ -45,8 +45,6 @@ type ChatConfig struct {
 	TopP                  float64  `json:"top_p"`                              // 0.0 a 1.0
 	ResponseTimeout       int      `json:"response_timeout"`                   // Timeout em segundos
 	ReasoningEffort       string   `json:"reasoning_effort,omitempty"`         // off, low, medium, high (vazio = off)
-	SystemPrompt          string   `json:"system_prompt,omitempty"`            // Prompt customizado
-	SystemPromptPosition  string   `json:"system_prompt_position,omitempty"`   // "before" ou "after"
 	EnabledTools          []string `json:"enabled_tools"`                      // Ferramentas habilitadas (nil = todas)
 	EnabledSkills         []string `json:"enabled_skills"`                     // Skills autoload ordenados (nil = usa auto_load do skill, [] = nenhum autoload)
 	DisableTools          bool     `json:"disable_tools,omitempty"`            // Desabilita completamente tool calling
@@ -162,15 +160,13 @@ func DefaultProfile() *Profile {
 		Description: "Configuração padrão.",
 		Icon:        "chatbox",
 		Chat: ChatConfig{
-			LLMProvider:          "openai-default",
-			Model:                "",
-			Temperature:          0.7,
-			MaxTokens:            4096,
-			TopP:                 1.0,
-			ResponseTimeout:      180,
-			ReasoningEffort:      "",
-			SystemPrompt:         "",
-			SystemPromptPosition: "after",
+			LLMProvider:     "openai-default",
+			Model:           "",
+			Temperature:     0.7,
+			MaxTokens:       4096,
+			TopP:            1.0,
+			ResponseTimeout: 180,
+			ReasoningEffort: "",
 		},
 		Voice: VoiceConfig{
 			Provider:        "disabled",
@@ -225,9 +221,6 @@ func (p *Profile) Validate() error {
 	}
 	if p.Chat.ResponseTimeout < 10 {
 		return fmt.Errorf("chat.response_timeout must be at least 10 seconds")
-	}
-	if p.Chat.SystemPromptPosition != "" && p.Chat.SystemPromptPosition != "before" && p.Chat.SystemPromptPosition != "after" {
-		return fmt.Errorf("chat.system_prompt_position must be 'before' or 'after'")
 	}
 	validReasoningEfforts := []string{"", "off", "none", "low", "medium", "high", "max", "ollama"}
 	if !containsStr(validReasoningEfforts, p.Chat.ReasoningEffort) {

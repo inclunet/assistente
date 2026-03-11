@@ -308,7 +308,7 @@ func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
 			ID:                "google-gemini",
 			Name:              "Google (Gemini)",
 			Type:              llm.ProviderOpenAI,
-			BaseURL:           "https://generativelanguage.googleapis.com/v1beta/openai",
+			BaseURL:           "https://generativelanguage.googleapis.com/v1beta/openai/",
 			Model:             "gemini-2.0-flash",
 			Timeout:           180,
 			CredentialPattern: "generativelanguage.googleapis.com",
@@ -3839,7 +3839,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			case "Anthropic (Claude)":
 				baseURL = "https://api.anthropic.com/v1"
 			case "Google (Gemini)":
-				baseURL = "https://generativelanguage.googleapis.com/v1beta/openai"
+				baseURL = "https://generativelanguage.googleapis.com/v1beta/openai/"
 			case "Azure OpenAI":
 				baseURL = "" // Usuário precisará fornecer
 			case "Ollama (Local)":

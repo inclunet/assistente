@@ -702,23 +702,16 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	}
 
 	// 4. Compõe system prompt completo (com skills do perfil)
-	var profileSystemPrompt string
-	var systemPromptPosition string
 	var enabledSkills []string
 	var disableOnDemand bool
 	if activeProfile != nil {
-		profileSystemPrompt = activeProfile.Chat.SystemPrompt
-		systemPromptPosition = activeProfile.Chat.SystemPromptPosition
-		if systemPromptPosition == "" {
-			systemPromptPosition = "before"
-		}
 		enabledSkills = activeProfile.Chat.EnabledSkills
 		disableOnDemand = activeProfile.Chat.DisableOnDemandSkills
 		if activeProfile.Chat.DisableSkills {
 			enabledSkills = []string{}
 		}
 	}
-	messages = a.buildFullSystemPrompt(messages, profileSystemPrompt, systemPromptPosition, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, conversationSummary)
+	messages = a.buildFullSystemPrompt(messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, conversationSummary)
 
 	// 5. Pré-processamento de mídia:
 	//    a) Converte formatos de áudio não suportados (aac, ogg, etc.) para texto via Whisper
@@ -729,20 +722,17 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// Determina quais ferramentas estão habilitadas pelo perfil ativo
 	var llmToolDefs []llm.ToolDefinition
 	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
+
 	if !disableTools && a.toolRegistry != nil && a.toolRegistry.Count() > 0 {
 		var toolDefs []tools.ToolDefinition
 
-		// Filtra ferramentas pelo perfil: nil = todas, lista = apenas as listadas
+		// Filtra ferramentas pelo perfil: nil/não especificado = todas, lista = apenas as listadas
 		if activeProfile != nil && activeProfile.Chat.EnabledTools != nil {
 			toolDefs = a.toolRegistry.FilterByNames(activeProfile.Chat.EnabledTools)
-			fmt.Printf("[Tools] Perfil '%s': %d ferramenta(s) habilitada(s) de %d\n",
-				activeProfile.Name, len(toolDefs), a.toolRegistry.Count())
 		} else {
 			toolDefs = a.toolRegistry.ToDefinitions()
-			fmt.Printf("[Tools] Perfil sem restrição: todas as %d ferramentas habilitadas\n", len(toolDefs))
 		}
 
-		// Converte para formato llm.ToolDefinition
 		llmToolDefs = make([]llm.ToolDefinition, len(toolDefs))
 		for i, td := range toolDefs {
 			llmToolDefs[i] = llm.ToolDefinition{
@@ -755,6 +745,8 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 			}
 		}
 	}
+
+
 
 	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
 	if len(llmToolDefs) > 0 {
@@ -787,20 +779,20 @@ Key behaviors:
 - Use markdown formatting for better readability
 - Adapt your communication style to the user's needs`
 
-// buildFullSystemPrompt composes the complete system prompt with base prompt, custom prompt, skills, invoked skill, and conversation summary.
+// buildFullSystemPrompt composes the complete system prompt with DefaultSystemPrompt, skills injection, invoked skill, and conversation summary.
 // enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
 // slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
 // conversationSummary: resumo de mensagens antigas da conversa (rolling context).
-func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, customPosition string, enabledSkills []string, disableOnDemand bool, skillTplData any, slashSkillContent string, conversationSummary string) []Message {
+func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, disableOnDemand bool, skillTplData any, slashSkillContent string, conversationSummary string) []Message {
 	// Build the system prompt parts
 	var parts []string
 
-	// 1. Base prompt (custom or default)
-	basePrompt := customPrompt
-	if basePrompt == "" {
-		basePrompt = DefaultSystemPrompt
+	// 1. Base prompt (DefaultSystemPrompt)
+	// Only add DefaultSystemPrompt if skills are present or slash skill is invoked
+	// (avoids "Developer instruction not enabled" on simple models)
+	if len(enabledSkills) > 0 || slashSkillContent != "" {
+		parts = append(parts, DefaultSystemPrompt)
 	}
-	parts = append(parts, basePrompt)
 
 	// 2. Skills injection (auto + available)
 	skillsSection := a.buildSkillsPromptSection(enabledSkills, disableOnDemand, skillTplData)
@@ -820,6 +812,11 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 
 	// Combine all parts
 	fullSystemPrompt := strings.Join(parts, "")
+
+	// If no system prompt was built, don't add a system message at all
+	if fullSystemPrompt == "" {
+		return messages
+	}
 
 	// Find existing system message or create new one
 	systemIndex := -1
@@ -853,13 +850,8 @@ func (a *App) buildFullSystemPrompt(messages []Message, customPrompt string, cus
 	}
 
 	var combinedContent string
-	if customPosition == "after" {
-		// Custom prompt goes after existing content
-		combinedContent = existingContent + "\n\n" + fullSystemPrompt
-	} else {
-		// "before" is the default - custom prompt goes before existing content
-		combinedContent = fullSystemPrompt + "\n\n" + existingContent
-	}
+	// Always prepend system prompt before existing content
+	combinedContent = fullSystemPrompt + "\n\n" + existingContent
 
 	// Create new slice to avoid modifying the original
 	newMessages := make([]Message, len(messages))
@@ -914,15 +906,15 @@ func (a *App) computeEnabledToolNames(activeProfile *profiles.Profile) []string 
 }
 
 // buildSkillsPromptSection constrói a seção de skills para o system prompt.
-// enabledSkills: nil = usa auto_load do skill, [] = nenhum, ["slug1","slug2"] = autoload ordenado pelo perfil.
+// enabledSkills: nil = usa auto_load do skill, [] = nenhum (skills desabilitados), ["slug1","slug2"] = autoload ordenado.
 // disableOnDemand: true = não incluir skills sob demanda.
 func (a *App) buildSkillsPromptSection(enabledSkills []string, disableOnDemand bool, skillTemplateData any) string {
 	if a.skillMgr == nil {
 		return ""
 	}
 
-	// Se enabledSkills é um slice vazio (não nil), nenhum skill habilitado
-	if enabledSkills != nil && len(enabledSkills) == 0 && disableOnDemand {
+	// Se enabledSkills é um slice vazio (não nil), skills estão explicitamente desabilitados
+	if enabledSkills != nil && len(enabledSkills) == 0 {
 		return ""
 	}
 

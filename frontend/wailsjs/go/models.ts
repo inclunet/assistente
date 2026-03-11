@@ -1593,8 +1593,6 @@ export namespace profiles {
 	    top_p: number;
 	    response_timeout: number;
 	    reasoning_effort?: string;
-	    system_prompt?: string;
-	    system_prompt_position?: string;
 	    enabled_tools: string[];
 	    enabled_skills: string[];
 	    disable_tools?: boolean;
@@ -1621,8 +1619,6 @@ export namespace profiles {
 	        this.top_p = source["top_p"];
 	        this.response_timeout = source["response_timeout"];
 	        this.reasoning_effort = source["reasoning_effort"];
-	        this.system_prompt = source["system_prompt"];
-	        this.system_prompt_position = source["system_prompt_position"];
 	        this.enabled_tools = source["enabled_tools"];
 	        this.enabled_skills = source["enabled_skills"];
 	        this.disable_tools = source["disable_tools"];

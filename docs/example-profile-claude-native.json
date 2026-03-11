@@ -9,8 +9,6 @@
     "top_p": 1.0,
     "response_timeout": 180,
     "enable_thinking": true,
-    "system_prompt": "",
-    "system_prompt_position": "after",
     "enabled_tools": null,
     "enabled_skills": null,
     "command_allowlist": "",

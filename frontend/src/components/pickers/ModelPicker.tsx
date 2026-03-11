@@ -38,6 +38,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [endpointNotSupported, setEndpointNotSupported] = useState(false);
 
   const loadModels = async () => {
     // Se estamos no modo form e não há providerID, não tenta carregar
@@ -45,11 +46,13 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       setLoading(false);
       setError('Selecione um provedor primeiro');
       setModels([]);
+      setEndpointNotSupported(false);
       return;
     }
 
     setLoading(true);
     setError('');
+    setEndpointNotSupported(false);
     try {
       let modelsList: string[];
       
@@ -71,14 +74,21 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     } catch (e: any) {
       const errorMsg = e?.message || String(e) || 'Erro desconhecido';
       
-      // Detecta erro de credencial não configurada
-      if (errorMsg.includes('credencial não configurada') || errorMsg.includes('Missing bearer authentication')) {
+      // Detecta se o endpoint de modelos não é suportado (404)
+      if (errorMsg.includes('models_endpoint_not_supported')) {
+        setEndpointNotSupported(true);
+        setError('');
+        setModels([]);
+      } else if (errorMsg.includes('credencial não configurada') || errorMsg.includes('Missing bearer authentication')) {
+        // Detecta erro de credencial não configurada
         setError('Configure a API key deste provedor em Configurações → Credenciais');
+        setEndpointNotSupported(false);
+        setModels([]);
       } else {
         setError(`Erro ao carregar modelos: ${errorMsg}`);
+        setEndpointNotSupported(false);
+        setModels([]);
       }
-      
-      setModels([]);
     } finally {
       setLoading(false);
     }
@@ -106,19 +116,21 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       onSelect={handleSelect}
       label={label}
       icon={icon}
-      placeholder={placeholder}
+      placeholder={endpointNotSupported ? 'Digite o modelo...' : placeholder}
       disabled={disabled}
       maxWidth={variant === 'form' ? '100%' : maxWidth}
-      helpText={variant === 'form' ? helpText : undefined}
+      helpText={variant === 'form' ? (endpointNotSupported ? 'Modelos não carregados. Digite manualmente o nome do modelo.' : helpText) : undefined}
       onAnnounce={onAnnounce}
-      loading={loading}
-      error={error || null}
-      onRetry={loadModels}
+      loading={loading && !endpointNotSupported}
+      error={endpointNotSupported ? null : (error || null)}
+      onRetry={endpointNotSupported ? undefined : loadModels}
       retryLabel="🔄 Tentar novamente"
       showFormLabel={variant === 'form'}
       showFormLabelIcon={false}
-      formClassName="model-picker-form"
-      toolbarClassName="model-picker-toolbar"
+      showEmptyState={!endpointNotSupported}
+      allowFreeInput={endpointNotSupported}
+      formClassName={`model-picker-form${endpointNotSupported ? ' models-not-available' : ''}`}
+      toolbarClassName={`model-picker-toolbar${endpointNotSupported ? ' models-not-available' : ''}`}
       loadingClassName={{ form: 'loading-state', toolbar: 'model-picker-toolbar loading' }}
       errorClassName={{ form: 'error-state', toolbar: 'model-picker-toolbar error' }}
       helpTextClassName="help-text"

@@ -8,8 +8,7 @@
     "max_tokens": 4096,
     "top_p": 1.0,
     "response_timeout": 180,
-    "enable_thinking": false,
-    "system_prompt_position": "after"
+    "enable_thinking": false
   },
   "voice": {
     "provider": "disabled",

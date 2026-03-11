@@ -89,3 +89,19 @@
 .model-picker-toolbar.error {
     color: var(--color-error);
 }
+
+/* State when models endpoint is not supported (e.g., Google AI Studio) */
+.model-picker-form.models-not-available {
+    opacity: 0.9;
+}
+
+.model-picker-form.models-not-available input,
+.model-picker-toolbar.models-not-available {
+    border-color: var(--color-warning, #d4a574);
+    background: rgba(212, 165, 116, 0.05);
+}
+
+.model-picker-form.models-not-available .help-text {
+    color: var(--color-warning, #d4a574);
+    font-style: italic;
+}

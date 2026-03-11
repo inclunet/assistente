@@ -20,6 +20,7 @@ export interface ComboboxProps {
     maxWidth?: string;
     onAnnounce?: (message: string) => void;
     onOpen?: () => void; // Callback quando o picker é aberto
+    allowFreeInput?: boolean; // Permite entrada livre quando não há itens
 }
 
 export const Combobox = ({
@@ -32,7 +33,8 @@ export const Combobox = ({
     disabled = false,
     maxWidth = '180px',
     onAnnounce,
-    onOpen
+    onOpen,
+    allowFreeInput = false
 }: ComboboxProps) => {
     const [isOpen, setIsOpen] = useState(false);
     const [filter, setFilter] = useState('');
@@ -52,7 +54,8 @@ export const Combobox = ({
 
     // Label do item selecionado
     const selectedItem = items.find(i => i.value === selected);
-    const selectedLabel = selectedItem?.label || label;
+    // Se allowFreeInput está ativo e há um valor selecionado mas não está em items, usa o valor direto
+    const selectedLabel = selectedItem?.label || (allowFreeInput && selected ? selected : label);
     const displayLabel = selectedLabel.length > 20
         ? selectedLabel.substring(0, 17) + '...'
         : selectedLabel;
@@ -107,7 +110,13 @@ export const Combobox = ({
 
     const scrollToOption = () => {
         const option = document.getElementById(`${uniqueId}-option-${highlightIndex}`);
-        option?.scrollIntoView({ block: 'nearest' });
+        if (option && typeof option.scrollIntoView === 'function') {
+            try {
+                option.scrollIntoView({ block: 'nearest' });
+            } catch {
+                // Ignora erros de scroll (pode falhar em jsdom ou em alguns navegadores)
+            }
+        }
     };
 
     // Detecta cliques fora do componente
@@ -182,6 +191,10 @@ export const Combobox = ({
                 selectItem(filteredItems[highlightIndex]);
             } else if (filteredItems.length === 1) {
                 selectItem(filteredItems[0]);
+            } else if (allowFreeInput && filter.trim()) {
+                // Modo entrada livre: registra o texto digitado
+                onSelect(filter.trim(), { value: filter.trim(), label: filter.trim() });
+                close();
             }
         } else if (event.key === 'Escape') {
             event.preventDefault();
@@ -190,7 +203,13 @@ export const Combobox = ({
         } else if (event.key === 'Tab') {
             event.preventDefault();
             event.stopPropagation();
-            close();
+            if (allowFreeInput && filter.trim() && filteredItems.length === 0) {
+                // Modo entrada livre: registra o texto digitado ao dar Tab
+                onSelect(filter.trim(), { value: filter.trim(), label: filter.trim() });
+                close();
+            } else {
+                close();
+            }
         } else if (event.key === 'Home') {
             event.preventDefault();
             event.stopPropagation();

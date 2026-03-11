@@ -54,16 +54,17 @@ func NewClient(provider *ProviderConfig, cfg *config.Config, credMgr *credential
 		httpClient: httpclient.New(&httpclient.Config{
 			CredentialManager: credMgr,
 			Timeout:           timeout,
-			LogFn: func(msg string) {
-				log.Printf("[LLM-HTTP:%s] %s", provider.ID, msg)
-			},
-		}, map[string]string{domain: hostname}),
+		}, map[string]string{domain: hostname}), // Map request domain to credential hostname
 	}
 }
+
+// Removed: getToken() - now handled automatically by httpclient
 
 // GetModels retorna a lista de modelos disponíveis na API
 func (c *Client) GetModels(ctx context.Context) ([]string, error) {
 	endpoint := BuildEndpoint(c.provider.BaseURL, "models")
+	log.Printf("[GetModels] Endpoint: %s", endpoint)
+	
 	req, err := http.NewRequestWithContext(ctx, "GET", endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -79,6 +80,14 @@ func (c *Client) GetModels(ctx context.Context) ([]string, error) {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		
+		log.Printf("[GetModels] Status: %d", resp.StatusCode)
+		if resp.StatusCode == http.StatusNotFound {
+			log.Printf("[GetModels] ⚠️  Endpoint não suportado (404)")
+			return nil, fmt.Errorf("models_endpoint_not_supported")
+		}
+
+		// Para outros erros (401, 5xx, etc), retorna erro normal
 		return nil, fmt.Errorf("%s", summarizeHTTPError(resp.StatusCode, body))
 	}
 
@@ -96,7 +105,6 @@ func (c *Client) GetModels(ctx context.Context) ([]string, error) {
 			strings.Contains(id, "llama") ||
 			strings.Contains(id, "claude") ||
 			strings.Contains(id, "mistral") ||
-			strings.Contains(id, "gemini") ||
 			strings.Contains(id, "gemma") ||
 			strings.Contains(id, "qwen") ||
 			strings.Contains(id, "phi") ||
@@ -144,6 +152,8 @@ func (c *Client) SendMessageSync(ctx context.Context, messages []Message, params
 	}
 
 	endpoint := BuildEndpoint(c.provider.BaseURL, "chat/completions")
+	log.Printf("[SendMessageSync] Endpoint: %s | Model: %s | Stream: false", endpoint, params.Model)
+
 	req, err := http.NewRequestWithContext(ctx, "POST", endpoint, bytes.NewBuffer(jsonBody))
 	if err != nil {
 		return "", err
@@ -160,6 +170,8 @@ func (c *Client) SendMessageSync(ctx context.Context, messages []Message, params
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
+		log.Printf("[SendMessageSync] Status: %d | Model: %s | Body vazio: %v", 
+			resp.StatusCode, params.Model, len(body) == 0)
 		return "", fmt.Errorf("%s", summarizeHTTPError(resp.StatusCode, body))
 	}
 
@@ -265,6 +277,7 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, params Chat
 	}
 
 	endpoint := BuildEndpoint(c.provider.BaseURL, "chat/completions")
+	log.Printf("[StreamChat] Endpoint: %s | Model: %s | Stream: true", endpoint, model)
 
 	// Retry do streaming (principalmente para 524/5xx e falhas de rede) —
 	// só é seguro fazer retry se ainda não emitimos nada (para evitar duplicação no chat).
@@ -304,6 +317,9 @@ func (c *Client) StreamChat(ctx context.Context, messages []Message, params Chat
 		if resp.StatusCode != http.StatusOK {
 			body, _ := io.ReadAll(resp.Body)
 			_ = resp.Body.Close()
+
+			log.Printf("[StreamChat] Tentativa %d/%d - Status: %d | Modelo: %s | Body vazio: %v", 
+				attempt, maxAttempts, resp.StatusCode, model, len(body) == 0)
 
 			// Alguns proxies/modelos OpenAI-compat não suportam tool_choice="required".
 			// Para não quebrar o perfil do editor, fazemos downgrade para "auto" e tentamos novamente.
