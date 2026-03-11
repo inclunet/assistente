@@ -176,6 +176,7 @@ interface ChatStore {
   handleConversationDeleted: (conversationId: number) => void;
   handleConversationCleared: (conversationId: number) => void;
   handleConversationRenamed: (conversationId: number, newTitle: string) => void;
+  handleTabTitleUpdated: (backendTabId: number, newTitle: string) => void;
   handleDatabaseReset: () => void;
   handleTabClosed: (tabId: number) => void;
   consolidateEmptyTabs: () => void;
@@ -198,6 +199,9 @@ const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9
 
 // Mapa para rastrear cleanup functions de cada tab (previne acúmulo de listeners)
 const activeListeners = new Map<string, () => void>();
+
+// Flag de reentrância para consolidateEmptyTabs
+let consolidatingEmptyTabs = false;
 
 // Contador global de listeners para debug
 let activeListenerCount = 0;
@@ -288,6 +292,50 @@ const flushPendingUpdate = (
     pendingStreamUpdates.delete(key);
   }
 };
+
+// Helper extraído: remove uma tab do state e limpa seus listeners.
+// Usado por handleTabClosed (caminho principal) e deleteTab (fallback para tabs locais).
+function removeTabFromState(
+  tabId: string,
+  get: () => ChatStore,
+  set: (fn: (state: ChatStore) => Partial<ChatStore>) => void,
+  listeners: Map<string, () => void>,
+) {
+  const cleanup = listeners.get(tabId);
+  if (cleanup) {
+    cleanup();
+    listeners.delete(tabId);
+  }
+
+  set((s) => {
+    const tabIndex = s.tabs.findIndex(t => t.id === tabId);
+    const newTabs = s.tabs.filter(t => t.id !== tabId);
+    let newActiveTabId = s.activeTabId;
+    if (s.activeTabId === tabId) {
+      const nextIndex = Math.min(tabIndex, newTabs.length - 1);
+      newActiveTabId = newTabs[nextIndex]?.id || null;
+    }
+    return { tabs: newTabs, activeTabId: newActiveTabId };
+  });
+
+  // Foca na nova guia ativa
+  setTimeout(() => {
+    const newActiveTabId = get().activeTabId;
+    if (newActiveTabId) {
+      const escaped =
+        (globalThis as any).CSS?.escape?.(newActiveTabId) ??
+        newActiveTabId.replace(/"/g, '\\"');
+      const tabButton =
+        (document.querySelector(
+          `button[role="tab"][data-tab-value="${escaped}"]`
+        ) as HTMLButtonElement | null) ??
+        (document.querySelector(
+          `[data-tab-id="${escaped}"]`
+        ) as HTMLButtonElement | null);
+      tabButton?.focus();
+    }
+  }, 50);
+}
 
 export const useChatStore = create<ChatStore>()((set, get) => {
   // Limpa localStorage relacionado ao chat na inicialização
@@ -413,6 +461,22 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   },
 
   createTab: async (activate = true) => {
+    // Evita proliferação de tabs vazias:
+    // - activate=false (background): retorna tab vazia existente se houver
+    // - activate=true (foreground): se a tab ativa já estiver vazia, apenas retorna ela
+    if (!activate) {
+      const existingEmpty = get().tabs.find(tab => !tab.conversationId && tab.threadedMessages.length === 0);
+      if (existingEmpty) {
+        return existingEmpty.id;
+      }
+    } else {
+      const { activeTabId, tabs } = get();
+      const activeTab = tabs.find(t => t.id === activeTabId);
+      if (activeTab && !activeTab.conversationId && activeTab.threadedMessages.length === 0) {
+        return activeTab.id;
+      }
+    }
+
     try {
       const backendTab = await CreateTab('Nova Conversa', '💬', activate);
       const newTab = backendTabToFrontend(backendTab);
@@ -443,67 +507,22 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   deleteTab: async (tabId) => {
     const state = get();
     const tab = state.tabs.find(t => t.id === tabId);
-    if (!tab) return;
+    if (!tab || state.tabs.length <= 1) return;
 
-    // Não permite fechar se for a única aba
-    if (state.tabs.length <= 1) {
-      return;
-    }
-
-    // Limpa listeners desta tab se existirem
-    const existingCleanup = activeListeners.get(tabId);
-    if (existingCleanup) {
-      existingCleanup();
-      activeListeners.delete(tabId);
-    }
-
-    try {
-      // Note: OnTabClosed was removed from backend - embedding generation happens automatically
-      
-      if (tab.backendId) {
+    if (tab.backendId) {
+      // Delega ao backend — o evento tab_closed será tratado por handleTabClosed,
+      // que é o ÚNICO ponto de remoção de tabs do state.
+      // Round-trip Wails é < 1ms (mesmo processo): sem necessidade de optimistic update.
+      try {
         await CloseTab(tab.backendId);
+      } catch (error) {
+        console.error('[Chat] Error closing tab in backend:', error);
       }
-    } catch (error) {
-      console.error('[Chat] Error closing tab in backend:', error);
+    } else {
+      // Tab local sem backendId (fallback raro quando CreateTab falha).
+      // Não há evento do backend, então remove direto do state.
+      removeTabFromState(tabId, get, set, activeListeners);
     }
-
-    // Remove localmente (mesmo que backend falhe)
-    set((state) => {
-      const tabIndex = state.tabs.findIndex((t) => t.id === tabId);
-      const newTabs = state.tabs.filter((t) => t.id !== tabId);
-      
-      // Se a guia deletada era a ativa, escolhe a próxima guia baseado na posição
-      let newActiveTabId = state.activeTabId;
-      if (state.activeTabId === tabId) {
-        // Tenta pegar a guia seguinte, se não houver pega a anterior
-        const nextIndex = Math.min(tabIndex, newTabs.length - 1);
-        newActiveTabId = newTabs[nextIndex]?.id || null;
-      }
-
-      return {
-        tabs: newTabs,
-        activeTabId: newActiveTabId,
-      };
-    });
-
-    // Foca na nova guia ativa após a remoção
-    setTimeout(() => {
-      const newActiveTabId = get().activeTabId;
-      if (newActiveTabId) {
-        const escaped =
-          (globalThis as any).CSS?.escape?.(newActiveTabId) ??
-          newActiveTabId.replace(/"/g, '\\"');
-
-        const tabButton =
-          (document.querySelector(
-            `button[role="tab"][data-tab-value="${escaped}"]`
-          ) as HTMLButtonElement | null) ??
-          (document.querySelector(
-            `[data-tab-id="${escaped}"]`
-          ) as HTMLButtonElement | null);
-        tabButton?.focus();
-      }
-    }, 50);
   },
 
   setActiveTab: async (tabId) => {
@@ -1641,23 +1660,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     // Chamado quando uma conversa é deletada pelo backend
     handleConversationDeleted: (conversationId: number) => {
-      // Anuncia para acessibilidade
       announce('Conversa apagada permanentemente');
       
       const state = get();
-      
       const tabToClose = state.tabs.find(tab => tab.conversationId === conversationId);
       
-      if (!tabToClose) {
-        return;
-      }
+      if (!tabToClose) return;
 
-      // Se houver mais de uma aba, fecha a aba da conversa deletada
-      if (state.tabs.length > 1) {
-        // Usa deleteTab para fechar corretamente
-        get().deleteTab(tabToClose.id);
+      if (state.tabs.length > 1 && tabToClose.backendId) {
+        // Delega ao backend — handleTabClosed cuidará da remoção do state
+        CloseTab(tabToClose.backendId).catch(err => {
+          console.error('[Chat] Error closing tab for deleted conversation:', err);
+        });
+      } else if (state.tabs.length > 1) {
+        // Tab sem backendId: remove direto
+        removeTabFromState(tabToClose.id, get, set, activeListeners);
       } else {
-        // Se for a única aba, apenas limpa
+        // Única aba: apenas limpa
         set((s) => ({
           tabs: s.tabs.map(tab => 
             tab.id === tabToClose.id
@@ -1672,18 +1691,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           ),
         }));
       }
-
-      // Garante que só há uma aba vazia
-      setTimeout(() => {
-        get().consolidateEmptyTabs();
-      }, 100);
       
-      // Foca no input de mensagem após um pequeno delay
       setTimeout(() => {
         const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
-        if (input) {
-          input.focus();
-        }
+        if (input) input.focus();
       }, 200);
     },
 
@@ -1717,7 +1728,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }, 200);
     },
 
-    // Chamado quando uma conversa é renomeada
+    // Chamado quando uma conversa é renomeada (match por conversationId)
     handleConversationRenamed: (conversationId: number, newTitle: string) => {
       set((state) => {
         const updatedTabs: ChatTab[] = state.tabs.map(tab => {
@@ -1732,9 +1743,28 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         });
         return { tabs: updatedTabs };
       });
-      
-      // Anuncia para acessibilidade
-      announce(`Conversa renomeada para ${newTitle}`);
+    },
+
+    // Chamado quando o título de uma aba é atualizado (match por backendId — mais confiável)
+    handleTabTitleUpdated: (backendTabId: number, newTitle: string) => {
+      set((state) => {
+        const updatedTabs: ChatTab[] = state.tabs.map(tab => {
+          if (tab.backendId === backendTabId) {
+            return {
+              ...tab,
+              title: newTitle,
+              updatedAt: Date.now(),
+            };
+          }
+          return tab;
+        });
+        return { tabs: updatedTabs };
+      });
+
+      // Anuncia com assertive e delay para não ser sobrescrito por eventos de streaming
+      setTimeout(() => {
+        announce(`Conversa renomeada para ${newTitle}`, 'assertive');
+      }, 150);
     },
 
     // Chamado quando o banco de dados é resetado
@@ -1766,16 +1796,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       announce('Banco de dados resetado. Conversas reinicializadas.');
     },
 
-    // Chamado quando uma tab é fechada externamente (via ChatManager ou outro)
+    // ÚNICO ponto de remoção de tabs do state (exceto fallback local em deleteTab).
+    // Disparado pelo evento tab_closed do backend — seja via deleteTab, tool close_tab, ou qualquer outro caminho.
     handleTabClosed: (backendTabId: number) => {
       const state = get();
       const tabToClose = state.tabs.find(t => t.backendId === backendTabId);
       
-      if (!tabToClose) {
-        return;
-      }
+      if (!tabToClose) return;
       
-      // Não permite fechar se for a última aba
+      // Última aba: apenas limpa o conteúdo sem removê-la
       if (state.tabs.length <= 1) {
         set((s) => ({
           tabs: s.tabs.map(tab => 
@@ -1793,57 +1822,45 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         return;
       }
       
-      // Limpa listeners se existirem
-      const existingCleanup = activeListeners.get(tabToClose.id);
-      if (existingCleanup) {
-        existingCleanup();
-        activeListeners.delete(tabToClose.id);
-      }
+      removeTabFromState(tabToClose.id, get, set, activeListeners);
       
-      // Define próxima aba ativa se a tab fechada era a ativa
-      let newActiveTabId = state.activeTabId;
-      if (state.activeTabId === tabToClose.id) {
-        const remainingTabs = state.tabs.filter(t => t.id !== tabToClose.id);
-        const currentIndex = state.tabs.findIndex(t => t.id === tabToClose.id);
-        const nextTab = remainingTabs[Math.min(currentIndex, remainingTabs.length - 1)];
-        newActiveTabId = nextTab?.id || null;
-      }
-      
-      // Remove a tab
-      set((s) => ({
-        tabs: s.tabs.filter(t => t.id !== tabToClose.id),
-        activeTabId: newActiveTabId,
-      }));
-      
-      // Consolida abas vazias
+      // Safety net: consolida tabs vazias se houver mais de uma
       setTimeout(() => get().consolidateEmptyTabs(), 100);
       
-      // Anuncia para acessibilidade
       announce('Aba fechada');
     },
 
-    // Consolida abas vazias - mantém apenas uma (a última)
+    // Safety net: se houver mais de uma tab vazia, fecha as extras via backend.
+    // Com a guarda em createTab, isso raramente deveria disparar.
+    // Cada CloseTab gera um evento tab_closed → handleTabClosed remove do state.
+    // Para evitar cascata (handleTabClosed → consolidateEmptyTabs → handleTabClosed → ...),
+    // usa um flag de reentrância.
     consolidateEmptyTabs: () => {
+      if (consolidatingEmptyTabs) return;
+
       const state = get();
-      
-      // Encontra todas as abas vazias (sem conversationId)
-      const emptyTabs = state.tabs.filter(tab => !tab.conversationId);
-      
-      // Se houver mais de uma aba vazia, fecha as extras (mantém a última)
-      if (emptyTabs.length > 1) {
-        // Mantém a última aba vazia (mais recente por updatedAt)
-        const sortedEmpty = [...emptyTabs].sort((a, b) => b.updatedAt - a.updatedAt);
-        const tabsToClose = sortedEmpty.slice(1); // Fecha todas exceto a mais recente
-        
-        // Fecha cada aba extra (precisa fazer sequencialmente para evitar race condition)
-        for (const tab of tabsToClose) {
-          const currentState = get();
-          // Só fecha se não for a última aba total
-          if (currentState.tabs.length > 1) {
-            get().deleteTab(tab.id);
-          }
+      const emptyTabs = state.tabs.filter(tab => !tab.conversationId && tab.threadedMessages.length === 0);
+      if (emptyTabs.length <= 1) return;
+
+      consolidatingEmptyTabs = true;
+
+      const sortedEmpty = [...emptyTabs].sort((a, b) => b.updatedAt - a.updatedAt);
+      const tabsToRemove = sortedEmpty.slice(1);
+
+      // Tabs com backendId: delega ao backend (handleTabClosed faz o state update)
+      // Tabs sem backendId: remove direto do state
+      for (const tab of tabsToRemove) {
+        if (tab.backendId) {
+          CloseTab(tab.backendId).catch(err => {
+            console.error('[Chat] consolidateEmptyTabs: error closing tab:', err);
+          });
+        } else {
+          removeTabFromState(tab.id, get, set, activeListeners);
         }
       }
+
+      // Libera o flag depois que os eventos tiverem tempo de ser processados
+      setTimeout(() => { consolidatingEmptyTabs = false; }, 500);
     },
 
     // Recarrega mensagens da aba ativa a partir do banco de dados.
