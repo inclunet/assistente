@@ -15,7 +15,7 @@ function App() {
     const navigate = useNavigate();
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
-    const { initializeTabs, isInitialized, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleTabClosed, handleExternalIncoming } = useChatStore();
+    const { initializeTabs, isInitialized, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleTabTitleUpdated, handleDatabaseReset, handleTabClosed, handleExternalIncoming } = useChatStore();
     const wasQuestionnaireOpenRef = useRef(false);
     const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 
@@ -106,6 +106,12 @@ function App() {
             }
         });
 
+        EventsOn('tab:title_updated', (data: any) => {
+            if (data.tab_id && data.new_title) {
+                handleTabTitleUpdated(data.tab_id, data.new_title);
+            }
+        });
+
         EventsOn('database:reset', () => {
             handleDatabaseReset();
         });
@@ -136,6 +142,7 @@ function App() {
             EventsOff('conversation:deleted');
             EventsOff('conversation:cleared');
             EventsOff('conversation:renamed');
+            EventsOff('tab:title_updated');
             EventsOff('database:reset');
             EventsOff('tab_closed');
             EventsOff('navigate:update');
@@ -143,7 +150,7 @@ function App() {
             EventsOff('chat:summary_completed');
             EventsOff('chat:summary_error');
         };
-    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleTabClosed, navigate]);
+    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleTabTitleUpdated, handleDatabaseReset, handleTabClosed, navigate]);
 
     // Listener para mensagens de canais externos (Signal, Telegram).
     // Quando messaging:incoming chega, delega ao chatStore que monta placeholders

@@ -38,6 +38,7 @@ import (
 	msgtool "assistente/internal/tools/messaging"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
+	tabstool "assistente/internal/tools/tabs"
 	"assistente/internal/tools/web"
 	"assistente/internal/updater"
 
@@ -1364,6 +1365,51 @@ func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioRe
 	return &AudioResult{Audio: result.AudioBase64, MimeType: mimeType}, nil
 }
 
+// appTabManager adapta o App para a interface tabstool.TabManager
+type appTabManager struct {
+	app *App
+}
+
+func (m *appTabManager) GetAllTabs() ([]tabstool.TabInfo, error) {
+	dbTabs, err := database.GetAllTabs()
+	if err != nil {
+		return nil, err
+	}
+	result := make([]tabstool.TabInfo, len(dbTabs))
+	for i, t := range dbTabs {
+		result[i] = tabstool.TabInfo{
+			ID:             t.ID,
+			Title:          t.Title,
+			IsActive:       t.IsActive,
+			Position:       t.Position,
+			ConversationID: t.ConversationID,
+		}
+	}
+	return result, nil
+}
+
+func (m *appTabManager) GetActiveTab() (*tabstool.TabInfo, error) {
+	tab, err := database.GetActiveTab()
+	if err != nil {
+		return nil, err
+	}
+	return &tabstool.TabInfo{
+		ID:             tab.ID,
+		Title:          tab.Title,
+		IsActive:       tab.IsActive,
+		Position:       tab.Position,
+		ConversationID: tab.ConversationID,
+	}, nil
+}
+
+func (m *appTabManager) UpdateTabTitle(id uint, title string) error {
+	return m.app.UpdateTabTitle(id, title)
+}
+
+func (m *appTabManager) CloseTab(id uint) error {
+	return m.app.CloseTab(id)
+}
+
 // initToolRegistry inicializa o registro de ferramentas disponíveis
 func (a *App) initToolRegistry() {
 	a.toolRegistry = tools.NewRegistry()
@@ -1498,6 +1544,11 @@ func (a *App) initToolRegistry() {
 
 	// Registra ferramenta de edição de texto (para contexto de editor)
 	a.toolRegistry.MustRegister(editor.NewTextEdit(a.questionnaireMgr))
+
+	// Registra ferramentas de gerenciamento de abas
+	tabMgr := &appTabManager{app: a}
+	a.toolRegistry.MustRegister(tabstool.NewRenameConversation(tabMgr))
+	a.toolRegistry.MustRegister(tabstool.NewCloseTab(tabMgr))
 
 	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
 }
@@ -3392,6 +3443,12 @@ func (a *App) UpdateTabTitle(id uint, title string) error {
 	if err != nil {
 		return err
 	}
+
+	// Emite evento de aba atualizada (sempre, independente de ter conversa)
+	runtime.EventsEmit(a.ctx, "tab:title_updated", map[string]interface{}{
+		"tab_id":    id,
+		"new_title": title,
+	})
 
 	if tab.ConversationID != nil && *tab.ConversationID > 0 {
 		runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
