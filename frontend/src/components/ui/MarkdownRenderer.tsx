@@ -194,6 +194,7 @@ export function MarkdownRenderer({
         wrapper.className = 'code-block';
         wrapper.setAttribute('role', 'group');
         wrapper.setAttribute('aria-label', languageLabel);
+        wrapper.setAttribute('tabindex', '-1');
         preEl.parentNode!.insertBefore(wrapper, preEl);
         wrapper.appendChild(preEl);
 
@@ -203,6 +204,7 @@ export function MarkdownRenderer({
               const el = document.createElement('div');
               el.className = 'monaco-inline-container';
               el.style.display = 'none';
+              el.setAttribute('tabindex', '-1');
               wrapper.insertBefore(el, preEl);
               return el;
             })()
@@ -294,6 +296,7 @@ export function MarkdownRenderer({
         wrapper.className = 'table-block';
         wrapper.setAttribute('role', 'group');
         wrapper.setAttribute('aria-label', 'Tabela');
+        wrapper.setAttribute('tabindex', '-1');
         tableEl.parentNode!.insertBefore(wrapper, tableEl);
         wrapper.appendChild(tableEl);
 
@@ -303,6 +306,7 @@ export function MarkdownRenderer({
               const el = document.createElement('div');
               el.className = 'monaco-inline-container';
               el.style.display = 'none';
+              el.setAttribute('tabindex', '-1');
               wrapper.insertBefore(el, tableEl);
               return el;
             })()
@@ -508,6 +512,7 @@ export function MarkdownRenderer({
                 const el = document.createElement('div');
                 el.className = 'monaco-inline-container';
                 el.style.display = 'none';
+                el.setAttribute('tabindex', '-1');
                 if (svgElement) diagramWrapper.insertBefore(el, svgElement);
                 else diagramWrapper.appendChild(el);
                 return el;
@@ -622,6 +627,7 @@ export function MarkdownRenderer({
                 const el = document.createElement('div');
                 el.className = 'monaco-inline-container';
                 el.style.display = 'none';
+                el.setAttribute('tabindex', '-1');
                 diagramWrapper.appendChild(el);
                 return el;
               })()
