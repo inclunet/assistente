@@ -1548,7 +1548,7 @@ func (a *App) initToolRegistry() {
 	// Registra ferramentas de gerenciamento de abas
 	tabMgr := &appTabManager{app: a}
 	a.toolRegistry.MustRegister(tabstool.NewRenameConversation(tabMgr))
-	a.toolRegistry.MustRegister(tabstool.NewCloseTab(tabMgr))
+	a.toolRegistry.MustRegister(tabstool.NewCloseConversation(tabMgr))
 
 	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
 }

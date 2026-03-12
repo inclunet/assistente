@@ -161,21 +161,21 @@ func TestRenameConversation_InvalidJSON(t *testing.T) {
 	}
 }
 
-// ==================== CloseTab Tests ====================
+// ==================== CloseConversation Tests ====================
 
-func TestCloseTab_Name(t *testing.T) {
-	tool := NewCloseTab(nil)
-	if tool.Name() != "close_tab" {
-		t.Fatalf("expected name 'close_tab', got '%s'", tool.Name())
+func TestCloseConversation_Name(t *testing.T) {
+	tool := NewCloseConversation(nil)
+	if tool.Name() != "close_conversation" {
+		t.Fatalf("expected name 'close_conversation', got '%s'", tool.Name())
 	}
 }
 
-func TestCloseTab_CloseCurrent(t *testing.T) {
+func TestCloseConversation_CloseCurrent(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 10, Title: "Aba A", IsActive: true, Position: 0},
 		TabInfo{ID: 20, Title: "Aba B", IsActive: false, Position: 1},
 	)
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
@@ -185,16 +185,16 @@ func TestCloseTab_CloseCurrent(t *testing.T) {
 		t.Fatalf("expected success, got error: %s", result.Content)
 	}
 	if len(mgr.closedIDs) != 1 || mgr.closedIDs[0] != 10 {
-		t.Fatalf("expected tab 10 closed, got: %v", mgr.closedIDs)
+		t.Fatalf("expected conversation 10 closed, got: %v", mgr.closedIDs)
 	}
 }
 
-func TestCloseTab_CloseByName_ExactMatch(t *testing.T) {
+func TestCloseConversation_CloseByName_ExactMatch(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 1, Title: "Deploy", IsActive: true, Position: 0},
 		TabInfo{ID: 2, Title: "Revisão de código", IsActive: false, Position: 1},
 	)
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"Revisão de código"}`))
 	if err != nil {
@@ -204,15 +204,15 @@ func TestCloseTab_CloseByName_ExactMatch(t *testing.T) {
 		t.Fatalf("expected success, got error: %s", result.Content)
 	}
 	if len(mgr.closedIDs) != 1 || mgr.closedIDs[0] != 2 {
-		t.Fatalf("expected tab 2 closed, got: %v", mgr.closedIDs)
+		t.Fatalf("expected conversation 2 closed, got: %v", mgr.closedIDs)
 	}
 }
 
-func TestCloseTab_CloseByName_CaseInsensitive(t *testing.T) {
+func TestCloseConversation_CloseByName_CaseInsensitive(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 1, Title: "Deploy Prod", IsActive: true, Position: 0},
 	)
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"deploy prod"}`))
 	if err != nil {
@@ -222,16 +222,16 @@ func TestCloseTab_CloseByName_CaseInsensitive(t *testing.T) {
 		t.Fatalf("expected success, got error: %s", result.Content)
 	}
 	if len(mgr.closedIDs) != 1 || mgr.closedIDs[0] != 1 {
-		t.Fatalf("expected tab 1 closed, got: %v", mgr.closedIDs)
+		t.Fatalf("expected conversation 1 closed, got: %v", mgr.closedIDs)
 	}
 }
 
-func TestCloseTab_CloseByName_PartialMatch(t *testing.T) {
+func TestCloseConversation_CloseByName_PartialMatch(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 1, Title: "Análise de performance", IsActive: true, Position: 0},
 		TabInfo{ID: 2, Title: "Bug fix #123", IsActive: false, Position: 1},
 	)
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"performance"}`))
 	if err != nil {
@@ -241,34 +241,34 @@ func TestCloseTab_CloseByName_PartialMatch(t *testing.T) {
 		t.Fatalf("expected success, got error: %s", result.Content)
 	}
 	if len(mgr.closedIDs) != 1 || mgr.closedIDs[0] != 1 {
-		t.Fatalf("expected tab 1 closed, got: %v", mgr.closedIDs)
+		t.Fatalf("expected conversation 1 closed, got: %v", mgr.closedIDs)
 	}
 }
 
-func TestCloseTab_CloseByName_NotFound(t *testing.T) {
+func TestCloseConversation_CloseByName_NotFound(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 1, Title: "Aba 1", IsActive: true, Position: 0},
 	)
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"inexistente"}`))
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 	if !result.IsError {
-		t.Fatal("expected error when tab not found by name")
+		t.Fatal("expected error when conversation not found by name")
 	}
-	if !strings.Contains(result.Content, "Nenhuma aba encontrada") {
+	if !strings.Contains(result.Content, "Nenhuma conversa encontrada") {
 		t.Fatalf("expected 'not found' message, got: %s", result.Content)
 	}
 }
 
-func TestCloseTab_CloseByName_MultipleMatches(t *testing.T) {
+func TestCloseConversation_CloseByName_MultipleMatches(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 1, Title: "Deploy Staging", IsActive: true, Position: 0},
 		TabInfo{ID: 2, Title: "Deploy Prod", IsActive: false, Position: 1},
 	)
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"Deploy"}`))
 	if err != nil {
@@ -277,18 +277,18 @@ func TestCloseTab_CloseByName_MultipleMatches(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected error for ambiguous name match")
 	}
-	if !strings.Contains(result.Content, "Múltiplas abas") {
+	if !strings.Contains(result.Content, "Múltiplas conversas") {
 		t.Fatalf("expected ambiguity message, got: %s", result.Content)
 	}
 }
 
-func TestCloseTab_CloseByIndex(t *testing.T) {
+func TestCloseConversation_CloseByIndex(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 10, Title: "Primeira", IsActive: true, Position: 0},
 		TabInfo{ID: 20, Title: "Segunda", IsActive: false, Position: 1},
 		TabInfo{ID: 30, Title: "Terceira", IsActive: false, Position: 2},
 	)
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"index":2}`))
 	if err != nil {
@@ -298,15 +298,15 @@ func TestCloseTab_CloseByIndex(t *testing.T) {
 		t.Fatalf("expected success, got error: %s", result.Content)
 	}
 	if len(mgr.closedIDs) != 1 || mgr.closedIDs[0] != 20 {
-		t.Fatalf("expected tab 20 (index 2) closed, got: %v", mgr.closedIDs)
+		t.Fatalf("expected conversation 20 (index 2) closed, got: %v", mgr.closedIDs)
 	}
 }
 
-func TestCloseTab_CloseByIndex_OutOfRange(t *testing.T) {
+func TestCloseConversation_CloseByIndex_OutOfRange(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 1, Title: "Única", IsActive: true, Position: 0},
 	)
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"index":5}`))
 	if err != nil {
@@ -317,11 +317,11 @@ func TestCloseTab_CloseByIndex_OutOfRange(t *testing.T) {
 	}
 }
 
-func TestCloseTab_CloseByIndex_Zero(t *testing.T) {
+func TestCloseConversation_CloseByIndex_Zero(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 1, Title: "Aba", IsActive: true, Position: 0},
 	)
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"index":0}`))
 	if err != nil {
@@ -332,9 +332,9 @@ func TestCloseTab_CloseByIndex_Zero(t *testing.T) {
 	}
 }
 
-func TestCloseTab_BothNameAndIndex(t *testing.T) {
+func TestCloseConversation_BothNameAndIndex(t *testing.T) {
 	mgr := newFakeTabManager()
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"test","index":1}`))
 	if err != nil {
@@ -345,9 +345,9 @@ func TestCloseTab_BothNameAndIndex(t *testing.T) {
 	}
 }
 
-func TestCloseTab_InvalidJSON(t *testing.T) {
+func TestCloseConversation_InvalidJSON(t *testing.T) {
 	mgr := newFakeTabManager()
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{invalid}`))
 	if err != nil {
@@ -358,10 +358,10 @@ func TestCloseTab_InvalidJSON(t *testing.T) {
 	}
 }
 
-func TestCloseTab_CloseError(t *testing.T) {
+func TestCloseConversation_CloseError(t *testing.T) {
 	mgr := newFakeTabManager(TabInfo{ID: 1, Title: "Aba", IsActive: true, Position: 0})
 	mgr.closeTabErr = fmt.Errorf("cannot close")
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
@@ -372,9 +372,9 @@ func TestCloseTab_CloseError(t *testing.T) {
 	}
 }
 
-func TestCloseTab_EmptyName(t *testing.T) {
+func TestCloseConversation_EmptyName(t *testing.T) {
 	mgr := newFakeTabManager()
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":""}`))
 	if err != nil {
@@ -385,10 +385,10 @@ func TestCloseTab_EmptyName(t *testing.T) {
 	}
 }
 
-func TestCloseTab_CloseCurrent_GetActiveTabError(t *testing.T) {
+func TestCloseConversation_CloseCurrent_GetActiveTabError(t *testing.T) {
 	mgr := newFakeTabManager()
 	mgr.getActiveTabErr = fmt.Errorf("db connection lost")
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{}`))
 	if err != nil {
@@ -402,10 +402,10 @@ func TestCloseTab_CloseCurrent_GetActiveTabError(t *testing.T) {
 	}
 }
 
-func TestCloseTab_CloseByName_GetAllTabsError(t *testing.T) {
+func TestCloseConversation_CloseByName_GetAllTabsError(t *testing.T) {
 	mgr := newFakeTabManager()
 	mgr.getAllTabsErr = fmt.Errorf("db timeout")
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"qualquer"}`))
 	if err != nil {
@@ -419,29 +419,29 @@ func TestCloseTab_CloseByName_GetAllTabsError(t *testing.T) {
 	}
 }
 
-func TestCloseTab_CloseByName_CloseError(t *testing.T) {
+func TestCloseConversation_CloseByName_CloseError(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 5, Title: "Minha Aba", IsActive: true, Position: 0},
 	)
 	mgr.closeTabErr = fmt.Errorf("permission denied")
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"name":"Minha Aba"}`))
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 	if !result.IsError {
-		t.Fatal("expected error when CloseTab fails after name match")
+		t.Fatal("expected error when close fails after name match")
 	}
 	if !strings.Contains(result.Content, "permission denied") {
 		t.Fatalf("expected original error in message, got: %s", result.Content)
 	}
 }
 
-func TestCloseTab_CloseByIndex_GetAllTabsError(t *testing.T) {
+func TestCloseConversation_CloseByIndex_GetAllTabsError(t *testing.T) {
 	mgr := newFakeTabManager()
 	mgr.getAllTabsErr = fmt.Errorf("disk full")
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"index":1}`))
 	if err != nil {
@@ -455,30 +455,30 @@ func TestCloseTab_CloseByIndex_GetAllTabsError(t *testing.T) {
 	}
 }
 
-func TestCloseTab_CloseByIndex_CloseError(t *testing.T) {
+func TestCloseConversation_CloseByIndex_CloseError(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 7, Title: "Aba Protegida", IsActive: true, Position: 0},
 	)
 	mgr.closeTabErr = fmt.Errorf("tab is pinned")
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"index":1}`))
 	if err != nil {
 		t.Fatalf("expected nil error, got %v", err)
 	}
 	if !result.IsError {
-		t.Fatal("expected error when CloseTab fails after index lookup")
+		t.Fatal("expected error when close fails after index lookup")
 	}
 	if !strings.Contains(result.Content, "tab is pinned") {
 		t.Fatalf("expected original error in message, got: %s", result.Content)
 	}
 }
 
-func TestCloseTab_CloseByIndex_Negative(t *testing.T) {
+func TestCloseConversation_CloseByIndex_Negative(t *testing.T) {
 	mgr := newFakeTabManager(
 		TabInfo{ID: 1, Title: "Aba", IsActive: true, Position: 0},
 	)
-	tool := NewCloseTab(mgr)
+	tool := NewCloseConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"index":-1}`))
 	if err != nil {
