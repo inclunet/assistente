@@ -67,18 +67,18 @@ func (f *fakeTabManager) CloseTab(id uint) error {
 	return nil
 }
 
-// ==================== SetTabTitle Tests ====================
+// ==================== RenameConversation Tests ====================
 
-func TestSetTabTitle_Name(t *testing.T) {
-	tool := NewSetTabTitle(nil)
-	if tool.Name() != "set_tab_title" {
-		t.Fatalf("expected name 'set_tab_title', got '%s'", tool.Name())
+func TestRenameConversation_Name(t *testing.T) {
+	tool := NewRenameConversation(nil)
+	if tool.Name() != "rename_conversation" {
+		t.Fatalf("expected name 'rename_conversation', got '%s'", tool.Name())
 	}
 }
 
-func TestSetTabTitle_EmptyTitle(t *testing.T) {
+func TestRenameConversation_EmptyTitle(t *testing.T) {
 	mgr := newFakeTabManager(TabInfo{ID: 1, Title: "Aba 1", IsActive: true})
-	tool := NewSetTabTitle(mgr)
+	tool := NewRenameConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"title":""}`))
 	if err != nil {
@@ -89,9 +89,9 @@ func TestSetTabTitle_EmptyTitle(t *testing.T) {
 	}
 }
 
-func TestSetTabTitle_WhitespaceTitle(t *testing.T) {
+func TestRenameConversation_WhitespaceTitle(t *testing.T) {
 	mgr := newFakeTabManager(TabInfo{ID: 1, Title: "Aba 1", IsActive: true})
-	tool := NewSetTabTitle(mgr)
+	tool := NewRenameConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"title":"   "}`))
 	if err != nil {
@@ -102,9 +102,9 @@ func TestSetTabTitle_WhitespaceTitle(t *testing.T) {
 	}
 }
 
-func TestSetTabTitle_NoActiveTab(t *testing.T) {
+func TestRenameConversation_NoActiveTab(t *testing.T) {
 	mgr := newFakeTabManager()
-	tool := NewSetTabTitle(mgr)
+	tool := NewRenameConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"title":"Novo Título"}`))
 	if err != nil {
@@ -115,9 +115,9 @@ func TestSetTabTitle_NoActiveTab(t *testing.T) {
 	}
 }
 
-func TestSetTabTitle_Success(t *testing.T) {
+func TestRenameConversation_Success(t *testing.T) {
 	mgr := newFakeTabManager(TabInfo{ID: 42, Title: "Antiga", IsActive: true})
-	tool := NewSetTabTitle(mgr)
+	tool := NewRenameConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"title":"Deploy v2.0"}`))
 	if err != nil {
@@ -134,10 +134,10 @@ func TestSetTabTitle_Success(t *testing.T) {
 	}
 }
 
-func TestSetTabTitle_UpdateError(t *testing.T) {
+func TestRenameConversation_UpdateError(t *testing.T) {
 	mgr := newFakeTabManager(TabInfo{ID: 1, Title: "Aba", IsActive: true})
 	mgr.updateTitleErr = fmt.Errorf("db error")
-	tool := NewSetTabTitle(mgr)
+	tool := NewRenameConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{"title":"Teste"}`))
 	if err != nil {
@@ -148,9 +148,9 @@ func TestSetTabTitle_UpdateError(t *testing.T) {
 	}
 }
 
-func TestSetTabTitle_InvalidJSON(t *testing.T) {
+func TestRenameConversation_InvalidJSON(t *testing.T) {
 	mgr := newFakeTabManager()
-	tool := NewSetTabTitle(mgr)
+	tool := NewRenameConversation(mgr)
 
 	result, err := tool.Execute(context.Background(), json.RawMessage(`{invalid}`))
 	if err != nil {
