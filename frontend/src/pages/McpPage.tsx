@@ -1,6 +1,12 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useMCPStore } from '../store/mcpStore';
 import { mcp } from '../../wailsjs/go/models';
+import {
+  SaveMCPServerAuth,
+  DeleteMCPServerAuth,
+  GetMCPServerAuthInfo,
+  DiscoverMCPServerAuth,
+} from '@wailsjs/go/main/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
@@ -61,6 +67,7 @@ export default function McpPage() {
     reconnect,
     save,
     remove,
+    getConfig,
     setupEventListeners,
   } = useMCPStore();
 
@@ -81,6 +88,30 @@ export default function McpPage() {
   const [formUrl, setFormUrl] = useState('');
   const [formEnabled, setFormEnabled] = useState(true);
   const [formAutoConnect, setFormAutoConnect] = useState(true);
+
+  // Auth fields (armazenados no credential manager, não no config JSON)
+  const [formAuthType, setFormAuthType] = useState('none');
+  const [formAuthToken, setFormAuthToken] = useState('');
+  const [formAuthUsername, setFormAuthUsername] = useState('');
+  const [formAuthPassword, setFormAuthPassword] = useState('');
+  const [hasExistingAuth, setHasExistingAuth] = useState(false);
+
+  // OAuth2 fields (config JSON para não-sensíveis, credential manager para secrets)
+  const [formOAuth2ClientId, setFormOAuth2ClientId] = useState('');
+  const [formOAuth2ClientSecret, setFormOAuth2ClientSecret] = useState('');
+  const [formOAuth2TokenUrl, setFormOAuth2TokenUrl] = useState('');
+  const [formOAuth2AuthUrl, setFormOAuth2AuthUrl] = useState('');
+  const [formOAuth2Scopes, setFormOAuth2Scopes] = useState('');
+  const [formOAuth2CallbackPort, setFormOAuth2CallbackPort] = useState('');
+  const [formOAuth2CallbackHost, setFormOAuth2CallbackHost] = useState('');
+
+  // OAuth auto-discovery
+  type DiscoveryStatus = 'idle' | 'loading' | 'found' | 'not_found';
+  const [discoveryStatus, setDiscoveryStatus] = useState<DiscoveryStatus>('idle');
+  const [discoveredFields, setDiscoveredFields] = useState<Set<string>>(new Set());
+  const [discoveryResourceName, setDiscoveryResourceName] = useState('');
+  const [discoveryRegistrationUrl, setDiscoveryRegistrationUrl] = useState('');
+  const [lastDiscoveredUrl, setLastDiscoveredUrl] = useState('');
 
   useEffect(() => {
     loadServers();
@@ -118,10 +149,45 @@ export default function McpPage() {
     setFormUrl(config?.url || '');
     setFormEnabled(config?.enabled ?? true);
     setFormAutoConnect(config?.auto_connect ?? true);
+
+    setFormAuthToken('');
+    setFormAuthUsername('');
+    setFormAuthPassword('');
+    setFormAuthType(config?.auth_type || 'none');
+    setHasExistingAuth(false);
+
+    setFormOAuth2ClientId(config?.oauth2_client_id || '');
+    setFormOAuth2ClientSecret('');
+    setFormOAuth2TokenUrl(config?.oauth2_token_url || '');
+    setFormOAuth2AuthUrl(config?.oauth2_auth_url || '');
+    setFormOAuth2Scopes(config?.oauth2_scopes?.join(' ') || '');
+    setFormOAuth2CallbackPort(config?.oauth2_callback_port ? String(config.oauth2_callback_port) : '');
+    setFormOAuth2CallbackHost(config?.oauth2_callback_host || '');
+
+    setDiscoveryStatus('idle');
+    setDiscoveredFields(new Set());
+    setDiscoveryResourceName('');
+    setDiscoveryRegistrationUrl(config?.oauth2_registration_url || '');
+    setLastDiscoveredUrl('');
   };
 
-  const handleEdit = useCallback((row: ServerRow) => {
-    const config = new mcp.ServerConfig({
+  const loadAuthInfo = useCallback(async (slug: string, configAuthType?: string) => {
+    try {
+      const info = await GetMCPServerAuthInfo(slug);
+      if (info?.hasAuth) {
+        setHasExistingAuth(true);
+        if (!configAuthType || configAuthType === 'none') {
+          setFormAuthType(info.authType || 'bearer');
+        }
+      }
+    } catch {
+      // auth info not available
+    }
+  }, []);
+
+  const handleEdit = useCallback(async (row: ServerRow) => {
+    const fullConfig = await getConfig(row.slug);
+    const config = fullConfig ?? new mcp.ServerConfig({
       name: row.name,
       description: row.description,
       transport: row.transport,
@@ -135,7 +201,12 @@ export default function McpPage() {
     setEditingSlug(row.slug);
     setIsNew(false);
     populateForm(config, row.slug);
-  }, []);
+
+    const isHTTP = config.transport === 'streamable' || config.transport === 'sse';
+    if (isHTTP && !isNew) {
+      loadAuthInfo(row.slug, config.auth_type);
+    }
+  }, [getConfig, loadAuthInfo, isNew]);
 
   const handleNew = useCallback(() => {
     setEditing(new mcp.ServerConfig({
@@ -158,6 +229,67 @@ export default function McpPage() {
     announce('Editor fechado');
   }, [announce]);
 
+  const runDiscovery = useCallback(async (urlToDiscover: string) => {
+    if (!urlToDiscover || !urlToDiscover.startsWith('https://')) return;
+    if (urlToDiscover === lastDiscoveredUrl) return;
+
+    setDiscoveryStatus('loading');
+    setLastDiscoveredUrl(urlToDiscover);
+
+    try {
+      const result = await DiscoverMCPServerAuth(urlToDiscover);
+      if (result.found) {
+        const fields = new Set<string>();
+
+        if (result.authType) {
+          setFormAuthType(result.authType);
+          fields.add('authType');
+        }
+        if (result.authUrl) {
+          setFormOAuth2AuthUrl(result.authUrl);
+          fields.add('oauth2AuthUrl');
+        }
+        if (result.tokenUrl) {
+          setFormOAuth2TokenUrl(result.tokenUrl);
+          fields.add('oauth2TokenUrl');
+        }
+        if (result.scopes?.length > 0) {
+          setFormOAuth2Scopes(result.scopes.join(' '));
+          fields.add('oauth2Scopes');
+        }
+        setDiscoveredFields(fields);
+        setDiscoveryResourceName(result.resourceName || '');
+        setDiscoveryRegistrationUrl(result.registrationUrl || '');
+        setDiscoveryStatus('found');
+      } else {
+        setDiscoveryStatus('not_found');
+      }
+    } catch {
+      setDiscoveryStatus('not_found');
+    }
+  }, [lastDiscoveredUrl]);
+
+  const handleUrlBlur = useCallback(() => {
+    const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
+    if (isHTTP && formUrl.trim()) {
+      runDiscovery(formUrl.trim());
+    }
+  }, [formTransport, formUrl, runDiscovery]);
+
+  const handleManualOverride = useCallback(() => {
+    setDiscoveredFields(new Set());
+    setDiscoveryStatus('idle');
+  }, []);
+
+  // Dispara discovery quando transport muda para HTTP e URL já está preenchida
+  useEffect(() => {
+    const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
+    if (isHTTP && formUrl.trim() && formUrl.trim().startsWith('https://') && editing) {
+      runDiscovery(formUrl.trim());
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [formTransport]);
+
   const handleSave = useCallback(async () => {
     const slug = isNew
       ? formSlug.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
@@ -171,6 +303,8 @@ export default function McpPage() {
       addToast('Nome é obrigatório', 'error');
       return;
     }
+
+    const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
 
     // Parse env
     const env: Record<string, string> = {};
@@ -187,6 +321,9 @@ export default function McpPage() {
 
     const argsArr = formArgs.trim() ? formArgs.trim().split(/\s+/) : [];
 
+    const isOAuth2 = formAuthType === 'oauth2_client_credentials' || formAuthType === 'oauth2_pkce';
+    const scopesArr = formOAuth2Scopes.trim() ? formOAuth2Scopes.trim().split(/\s+/) : undefined;
+
     const config = new mcp.ServerConfig({
       name: formName.trim(),
       description: formDescription.trim() || undefined,
@@ -194,14 +331,55 @@ export default function McpPage() {
       command: formTransport === 'stdio' ? formCommand.trim() : undefined,
       args: formTransport === 'stdio' ? argsArr : undefined,
       env: Object.keys(env).length > 0 ? env : undefined,
-      url: formTransport === 'sse' ? formUrl.trim() : undefined,
+      url: isHTTP ? formUrl.trim() : undefined,
       enabled: formEnabled,
       auto_connect: formAutoConnect,
+      auth_type: isHTTP ? formAuthType : undefined,
+      oauth2_client_id: isHTTP && isOAuth2 ? formOAuth2ClientId.trim() || undefined : undefined,
+      oauth2_token_url: isHTTP && isOAuth2 ? formOAuth2TokenUrl.trim() || undefined : undefined,
+      oauth2_auth_url: isHTTP && formAuthType === 'oauth2_pkce' ? formOAuth2AuthUrl.trim() || undefined : undefined,
+      oauth2_scopes: isHTTP && isOAuth2 ? scopesArr : undefined,
+      oauth2_registration_url: isHTTP && formAuthType === 'oauth2_pkce' ? discoveryRegistrationUrl || undefined : undefined,
+      oauth2_callback_port: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackPort
+        ? parseInt(formOAuth2CallbackPort, 10) || undefined
+        : undefined,
+      oauth2_callback_host: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackHost
+        ? formOAuth2CallbackHost
+        : undefined,
     });
 
     setSaving(true);
     try {
       await save(slug, config);
+
+      // Salva auth no credential manager (separado do config JSON)
+      if (isHTTP && formAuthType !== 'none') {
+        if (formAuthType === 'oauth2_client_credentials') {
+          if (formOAuth2ClientSecret.trim()) {
+            await SaveMCPServerAuth(slug, formAuthType, '', '', '', formOAuth2ClientSecret.trim());
+          }
+        } else if (formAuthType === 'oauth2_pkce') {
+          if (formOAuth2ClientSecret.trim()) {
+            await SaveMCPServerAuth(slug, formAuthType, '', '', '', formOAuth2ClientSecret.trim());
+          }
+        } else {
+          const hasNewCredentials =
+            formAuthToken.trim() || formAuthUsername.trim() || formAuthPassword.trim();
+          if (hasNewCredentials) {
+            await SaveMCPServerAuth(
+              slug,
+              formAuthType,
+              formAuthToken.trim(),
+              formAuthUsername.trim(),
+              formAuthPassword.trim(),
+              '',
+            );
+          }
+        }
+      } else if (isHTTP && formAuthType === 'none' && hasExistingAuth) {
+        await DeleteMCPServerAuth(slug);
+      }
+
       addToast(isNew ? 'Servidor MCP criado!' : 'Servidor MCP atualizado!', 'success');
       announce(isNew ? 'Servidor criado com sucesso' : 'Servidor atualizado com sucesso');
       handleCloseEditor();
@@ -210,7 +388,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, save, addToast, announce, handleCloseEditor]);
+  }, [isNew, editingSlug, formSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({
@@ -349,7 +527,9 @@ export default function McpPage() {
   if (isLoading && rows.length === 0) {
     return (
       <div className="mcp-page">
-        <div className="loading">Carregando servidores MCP...</div>
+        <div className="loading" role="status" aria-live="polite">
+          <span>Carregando servidores MCP…</span>
+        </div>
       </div>
     );
   }
@@ -395,7 +575,7 @@ export default function McpPage() {
         size="lg"
       >
         {editing && (
-          <div className="mcp-editor" aria-live="polite">
+          <div className="mcp-editor">
             <McpGeneralSection
               isNew={isNew}
               slug={formSlug}
@@ -416,12 +596,41 @@ export default function McpPage() {
               envText={formEnvText}
               enabled={formEnabled}
               autoConnect={formAutoConnect}
+              authType={formAuthType}
+              authToken={formAuthToken}
+              authUsername={formAuthUsername}
+              authPassword={formAuthPassword}
+              hasExistingAuth={hasExistingAuth}
+              oauth2ClientId={formOAuth2ClientId}
+              oauth2ClientSecret={formOAuth2ClientSecret}
+              oauth2TokenUrl={formOAuth2TokenUrl}
+              oauth2AuthUrl={formOAuth2AuthUrl}
+              oauth2Scopes={formOAuth2Scopes}
+              discoveryStatus={discoveryStatus}
+              discoveredFields={discoveredFields}
+              discoveryResourceName={discoveryResourceName}
+              discoveryRegistrationUrl={discoveryRegistrationUrl}
               onCommandChange={setFormCommand}
               onArgsChange={setFormArgs}
               onUrlChange={setFormUrl}
               onEnvTextChange={setFormEnvText}
               onEnabledChange={setFormEnabled}
               onAutoConnectChange={setFormAutoConnect}
+              onAuthTypeChange={setFormAuthType}
+              onAuthTokenChange={setFormAuthToken}
+              onAuthUsernameChange={setFormAuthUsername}
+              onAuthPasswordChange={setFormAuthPassword}
+              onOAuth2ClientIdChange={setFormOAuth2ClientId}
+              onOAuth2ClientSecretChange={setFormOAuth2ClientSecret}
+              onOAuth2TokenUrlChange={setFormOAuth2TokenUrl}
+              onOAuth2AuthUrlChange={setFormOAuth2AuthUrl}
+              onOAuth2ScopesChange={setFormOAuth2Scopes}
+              oauth2CallbackPort={formOAuth2CallbackPort}
+              oauth2CallbackHost={formOAuth2CallbackHost}
+              onOAuth2CallbackPortChange={setFormOAuth2CallbackPort}
+              onOAuth2CallbackHostChange={setFormOAuth2CallbackHost}
+              onUrlBlur={handleUrlBlur}
+              onManualOverride={handleManualOverride}
             />
 
             <EditorPanelFooter className="mcp-editor__footer">
@@ -429,12 +638,21 @@ export default function McpPage() {
                 <Button
                   variant="danger"
                   onClick={() => void handleDelete(editingSlug, formName || editingSlug)}
+                  aria-label={`Excluir servidor ${formName || editingSlug}`}
                 >
                   Excluir
                 </Button>
               )}
-              <Button variant="ghost" onClick={handleCloseEditor}>Fechar</Button>
-              <Button onClick={handleSave} loading={saving}>Salvar</Button>
+              <Button variant="ghost" onClick={handleCloseEditor} aria-label="Fechar editor">
+                Fechar
+              </Button>
+              <Button
+                onClick={handleSave}
+                loading={saving}
+                aria-label={saving ? 'Salvando…' : `Salvar servidor ${formName || 'MCP'}`}
+              >
+                Salvar
+              </Button>
             </EditorPanelFooter>
           </div>
         )}

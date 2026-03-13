@@ -11,40 +11,53 @@
 .input__label {
   font-size: 0.875rem;
   font-weight: 500;
-  color: #374151;
+  color: var(--text-secondary, #e4e4e7);
 }
 
 .input {
   padding: 0.5rem 0.75rem;
-  border: 1px solid #d1d5db;
+  border: 1px solid var(--border-color, #3f3f46);
   border-radius: 6px;
   font-size: 0.9375rem;
   font-family: inherit;
-  transition: all 0.2s;
-  background: white;
+  transition: border-color 0.2s, box-shadow 0.2s;
+  background: var(--bg-input, #18181b);
+  color: var(--text-primary, #e4e4e7);
 }
 
-.input:focus {
-  outline: none;
-  border-color: #3b82f6;
-  box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+.input:focus-visible {
+  outline: 2px solid var(--accent, #60a5fa);
+  outline-offset: 1px;
+  border-color: var(--accent, #60a5fa);
+  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
 }
 
 .input--error {
   border-color: #ef4444;
 }
 
-.input--error:focus {
+.input--error:focus-visible {
+  outline-color: #ef4444;
   border-color: #ef4444;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.15);
+}
+
+.input__hint {
+  font-size: 0.8125rem;
+  color: var(--text-muted, #a1a1aa);
 }
 
 .input__error {
-  font-size: 0.875rem;
-  color: #ef4444;
+  font-size: 0.8125rem;
+  color: #f87171;
 }
 
-.input:disabled {
-  background: #f3f4f6;
+.input:disabled,
+.input[readonly] {
+  opacity: 0.6;
   cursor: not-allowed;
+}
+
+.input::placeholder {
+  color: var(--text-muted, #71717a);
 }

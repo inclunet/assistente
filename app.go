@@ -480,12 +480,15 @@ func (a *App) initMCP() {
 		runtime.EventsEmit(a.ctx, event, data)
 	}
 
-	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, emitEvent)
+	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, a.credMgr, emitEvent)
 
 	// Carrega configs e auto-conecta servidores habilitados
 	if err := a.mcpMgr.LoadConfigs(); err != nil {
 		log.Printf("[MCP] Erro ao carregar configurações: %v", err)
 	}
+
+	// Observa mudanças externas nos arquivos de config
+	go a.mcpMgr.WatchConfigs()
 
 	log.Printf("[MCP] Manager inicializado")
 }
@@ -2335,6 +2338,49 @@ func (a *App) UnsubscribeFromMCPResource(slug, uri string) error {
 		return fmt.Errorf("MCP manager não inicializado")
 	}
 	return a.mcpMgr.UnsubscribeFromResource(slug, uri)
+}
+
+// SaveMCPServerAuth salva credenciais de autenticação para um servidor MCP.
+// As credenciais são armazenadas de forma segura no credential manager,
+// usando o hostname da URL do servidor como padrão de resolução.
+func (a *App) SaveMCPServerAuth(slug, authType, token, username, password, clientSecret string) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager não inicializado")
+	}
+	if a.credMgr == nil {
+		return fmt.Errorf("credential manager não inicializado")
+	}
+	return a.mcpMgr.SaveServerAuth(slug, authType, token, username, password, clientSecret)
+}
+
+// DeleteMCPServerAuth remove credenciais de autenticação de um servidor MCP.
+func (a *App) DeleteMCPServerAuth(slug string) error {
+	if a.mcpMgr == nil {
+		return fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.DeleteServerAuth(slug)
+}
+
+// GetMCPServerAuthInfo retorna informações sobre a autenticação de um servidor MCP
+// (tipo e se existe, sem expor valores sensíveis).
+func (a *App) GetMCPServerAuthInfo(slug string) (map[string]any, error) {
+	if a.mcpMgr == nil {
+		return nil, fmt.Errorf("MCP manager não inicializado")
+	}
+	authType, hasAuth, err := a.mcpMgr.GetServerAuthInfo(slug)
+	if err != nil {
+		return nil, err
+	}
+	return map[string]any{
+		"hasAuth":  hasAuth,
+		"authType": authType,
+	}, nil
+}
+
+// DiscoverMCPServerAuth consulta os endpoints well-known de um servidor MCP
+// para auto-discovery de configuração OAuth.
+func (a *App) DiscoverMCPServerAuth(serverURL string) mcpmgr.OAuthDiscoveryResult {
+	return mcpmgr.DiscoverOAuth(serverURL)
 }
 
 // initGlobalHotkeys inicializa o gerenciador de hotkeys

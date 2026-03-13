@@ -154,6 +154,10 @@ export function DeleteMCPServer(arg1) {
   return window['go']['main']['App']['DeleteMCPServer'](arg1);
 }
 
+export function DeleteMCPServerAuth(arg1) {
+  return window['go']['main']['App']['DeleteMCPServerAuth'](arg1);
+}
+
 export function DeleteMessage(arg1) {
   return window['go']['main']['App']['DeleteMessage'](arg1);
 }
@@ -172,6 +176,10 @@ export function DeleteSkill(arg1) {
 
 export function DisconnectMCPServer(arg1) {
   return window['go']['main']['App']['DisconnectMCPServer'](arg1);
+}
+
+export function DiscoverMCPServerAuth(arg1) {
+  return window['go']['main']['App']['DiscoverMCPServerAuth'](arg1);
 }
 
 export function EditorDeleteDraft(arg1) {
@@ -364,6 +372,10 @@ export function GetLLMSettings() {
 
 export function GetMCPPrompt(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetMCPPrompt'](arg1, arg2, arg3);
+}
+
+export function GetMCPServerAuthInfo(arg1) {
+  return window['go']['main']['App']['GetMCPServerAuthInfo'](arg1);
 }
 
 export function GetMCPServerConfig(arg1) {
@@ -584,6 +596,10 @@ export function SaveChannelConfig(arg1, arg2) {
 
 export function SaveMCPServer(arg1, arg2) {
   return window['go']['main']['App']['SaveMCPServer'](arg1, arg2);
+}
+
+export function SaveMCPServerAuth(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['SaveMCPServerAuth'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function SaveMessageAudio(arg1, arg2, arg3) {

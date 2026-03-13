@@ -1512,6 +1512,36 @@ export namespace mcp {
 	        this.serverSlug = source["serverSlug"];
 	    }
 	}
+	export class OAuthDiscoveryResult {
+	    found: boolean;
+	    authType: string;
+	    authUrl: string;
+	    tokenUrl: string;
+	    scopes: string[];
+	    clientId?: string;
+	    registrationUrl?: string;
+	    resourceName?: string;
+	    supportsPkce: boolean;
+	    error?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new OAuthDiscoveryResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.found = source["found"];
+	        this.authType = source["authType"];
+	        this.authUrl = source["authUrl"];
+	        this.tokenUrl = source["tokenUrl"];
+	        this.scopes = source["scopes"];
+	        this.clientId = source["clientId"];
+	        this.registrationUrl = source["registrationUrl"];
+	        this.resourceName = source["resourceName"];
+	        this.supportsPkce = source["supportsPkce"];
+	        this.error = source["error"];
+	    }
+	}
 	export class Root {
 	    uri: string;
 	    name?: string;
@@ -1536,6 +1566,14 @@ export namespace mcp {
 	    url?: string;
 	    enabled: boolean;
 	    auto_connect: boolean;
+	    auth_type?: string;
+	    oauth2_client_id?: string;
+	    oauth2_token_url?: string;
+	    oauth2_auth_url?: string;
+	    oauth2_scopes?: string[];
+	    oauth2_registration_url?: string;
+	    oauth2_callback_port?: number;
+	    oauth2_callback_host?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ServerConfig(source);
@@ -1552,6 +1590,14 @@ export namespace mcp {
 	        this.url = source["url"];
 	        this.enabled = source["enabled"];
 	        this.auto_connect = source["auto_connect"];
+	        this.auth_type = source["auth_type"];
+	        this.oauth2_client_id = source["oauth2_client_id"];
+	        this.oauth2_token_url = source["oauth2_token_url"];
+	        this.oauth2_auth_url = source["oauth2_auth_url"];
+	        this.oauth2_scopes = source["oauth2_scopes"];
+	        this.oauth2_registration_url = source["oauth2_registration_url"];
+	        this.oauth2_callback_port = source["oauth2_callback_port"];
+	        this.oauth2_callback_host = source["oauth2_callback_host"];
 	    }
 	}
 	export class ServerInfo {
@@ -1574,6 +1620,8 @@ export namespace mcp {
 	    command?: string;
 	    args?: string[];
 	    url?: string;
+	    authType?: string;
+	    hasAuth: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new ServerInfo(source);
@@ -1600,6 +1648,8 @@ export namespace mcp {
 	        this.command = source["command"];
 	        this.args = source["args"];
 	        this.url = source["url"];
+	        this.authType = source["authType"];
+	        this.hasAuth = source["hasAuth"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

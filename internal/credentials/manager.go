@@ -17,13 +17,15 @@ import (
 
 // AuthConfig descreve como autenticar em um domínio
 type AuthConfig struct {
-	Type       string            // "bearer", "basic", "oauth2", "custom", "none"
-	Token      string            // para bearer, oauth2
-	Username   string            // para basic auth
-	Password   string            // para basic auth
-	Headers    map[string]string // headers customizados (já com valores)
-	ExpiresAt  int64             // unix timestamp, 0 = sem expiração
-	RefreshURL string            // para oauth2 refresh
+	Type         string            // "bearer", "basic", "oauth2", "custom", "none"
+	Token        string            // para bearer, oauth2
+	Username     string            // para basic auth
+	Password     string            // para basic auth
+	Headers      map[string]string // headers customizados (já com valores)
+	ExpiresAt    int64             // unix timestamp, 0 = sem expiração
+	RefreshURL   string            // para oauth2 refresh
+	ClientSecret string            // para oauth2 client credentials (criptografado)
+	ClientID     string            // para oauth2 DCR (dynamic client registration)
 }
 
 // DomainCredential mapeia um padrão de domínio a credenciais
@@ -317,6 +319,15 @@ func (m *Manager) encryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 		encrypted.Password = pwd
 	}
 
+	// Criptografa client_secret
+	if auth.ClientSecret != "" {
+		cs, err := m.encrypt(auth.ClientSecret)
+		if err != nil {
+			return nil, err
+		}
+		encrypted.ClientSecret = cs
+	}
+
 	// Criptografa valores dos headers customizados
 	if len(auth.Headers) > 0 {
 		encrypted.Headers = make(map[string]string)
@@ -364,6 +375,18 @@ func (m *Manager) decryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 		decrypted.Password = pwd
 	}
 
+	if auth.ClientSecret != "" {
+		cs, err := m.decrypt(auth.ClientSecret)
+		if err != nil {
+			return nil, err
+		}
+		cs, err = ResolveExternalRef(cs)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao resolver referência do client_secret: %w", err)
+		}
+		decrypted.ClientSecret = cs
+	}
+
 	if len(auth.Headers) > 0 {
 		decrypted.Headers = make(map[string]string)
 		for k, v := range auth.Headers {
@@ -403,6 +426,13 @@ func (m *Manager) decryptAuthRaw(auth *AuthConfig) (*AuthConfig, error) {
 			return nil, err
 		}
 		decrypted.Password = pwd
+	}
+	if auth.ClientSecret != "" {
+		cs, err := m.decrypt(auth.ClientSecret)
+		if err != nil {
+			return nil, err
+		}
+		decrypted.ClientSecret = cs
 	}
 	if len(auth.Headers) > 0 {
 		decrypted.Headers = make(map[string]string)

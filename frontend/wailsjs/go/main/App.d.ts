@@ -7,11 +7,11 @@ import {main} from '../models';
 import {profiles} from '../models';
 import {terminal} from '../models';
 import {context} from '../models';
+import {mcp} from '../models';
 import {channels} from '../models';
 import {contacts} from '../models';
 import {config} from '../models';
 import {llm} from '../models';
-import {mcp} from '../models';
 import {skills} from '../models';
 
 export function AddChildMessage(arg1:number,arg2:number,arg3:string,arg4:string,arg5:string):Promise<database.ChatMessage>;
@@ -90,6 +90,8 @@ export function DeleteLLMProvider(arg1:context.Context,arg2:string):Promise<void
 
 export function DeleteMCPServer(arg1:string):Promise<void>;
 
+export function DeleteMCPServerAuth(arg1:string):Promise<void>;
+
 export function DeleteMessage(arg1:number):Promise<void>;
 
 export function DeleteMessages(arg1:number,arg2:Array<number>):Promise<void>;
@@ -99,6 +101,8 @@ export function DeleteProfile(arg1:string):Promise<void>;
 export function DeleteSkill(arg1:string):Promise<void>;
 
 export function DisconnectMCPServer(arg1:string):Promise<void>;
+
+export function DiscoverMCPServerAuth(arg1:string):Promise<mcp.OAuthDiscoveryResult>;
 
 export function EditorDeleteDraft(arg1:string):Promise<void>;
 
@@ -195,6 +199,8 @@ export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
 export function GetLLMSettings():Promise<main.LLMSettings>;
 
 export function GetMCPPrompt(arg1:string,arg2:string,arg3:Record<string, string>):Promise<Array<string>>;
+
+export function GetMCPServerAuthInfo(arg1:string):Promise<Record<string, any>>;
 
 export function GetMCPServerConfig(arg1:string):Promise<mcp.ServerConfig>;
 
@@ -305,6 +311,8 @@ export function RunWelcomeWizard():Promise<boolean>;
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
 
 export function SaveMCPServer(arg1:string,arg2:mcp.ServerConfig):Promise<void>;
+
+export function SaveMCPServerAuth(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string):Promise<void>;
 
 export function SaveMessageAudio(arg1:number,arg2:string,arg3:string):Promise<void>;
 

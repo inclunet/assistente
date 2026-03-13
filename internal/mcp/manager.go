@@ -5,11 +5,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
+	"net/url"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
 	"assistente/internal/configdir"
+	"assistente/internal/credentials"
 	"assistente/internal/tools"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -64,21 +68,27 @@ type Manager struct {
 	mu          sync.RWMutex
 	resolver    *configdir.Resolver
 	registry    *tools.Registry
+	credMgr     *credentials.Manager
 	emitEvent   emitFunc
-	llmHandler  func(context.Context, SamplingRequest) (string, error) // handler para sampling requests
-	servers     map[string]*ServerStatus     // slug -> status
-	connections map[string]*serverConnection // slug -> connection ativa
+	llmHandler  func(context.Context, SamplingRequest) (string, error)
+	servers     map[string]*ServerStatus
+	connections map[string]*serverConnection
 	ctx         context.Context
 	cancel      context.CancelFunc
-	roots       []Root // workspace roots globais
+	roots       []Root
+
+	// lastSelfWrite rastreia quando o próprio manager escreveu configs,
+	// para o file watcher ignorar eventos causados pelo app.
+	lastSelfWrite time.Time
 }
 
 // NewManager cria um novo gerenciador de servidores MCP.
-func NewManager(registry *tools.Registry, emitEvent emitFunc) *Manager {
+func NewManager(registry *tools.Registry, credMgr *credentials.Manager, emitEvent emitFunc) *Manager {
 	ctx, cancel := context.WithCancel(context.Background())
 	return &Manager{
 		resolver:    configdir.NewResolver(configSubdir),
 		registry:    registry,
+		credMgr:     credMgr,
 		emitEvent:   emitEvent,
 		servers:     make(map[string]*ServerStatus),
 		connections: make(map[string]*serverConnection),
@@ -167,10 +177,11 @@ func (m *Manager) LoadConfigs() error {
 		slug := f.Name
 		m.mu.Lock()
 		m.servers[slug] = &ServerStatus{
-			Slug:   slug,
-			Config: cfg,
-			Status: StatusDisconnected,
-			Tools:  []MCPToolInfo{},
+			Slug:    slug,
+			Config:  cfg,
+			Status:  StatusDisconnected,
+			Tools:   []MCPToolInfo{},
+			HasAuth: m.hasAuthForURL(cfg.URL),
 		}
 		m.mu.Unlock()
 
@@ -228,7 +239,7 @@ func (m *Manager) Connect(slug string) error {
 	)
 
 	// Cria o transport com base no tipo
-	transport, err := m.createTransport(cfg)
+	transport, err := m.createTransport(slug, cfg)
 	if err != nil {
 		m.setError(slug, fmt.Sprintf("erro ao criar transport: %v", err))
 		return err
@@ -503,6 +514,10 @@ func (m *Manager) SaveConfig(slug string, cfg ServerConfig) error {
 	}
 	m.mu.Unlock()
 
+	m.mu.Lock()
+	m.lastSelfWrite = time.Now()
+	m.mu.Unlock()
+
 	log.Printf("[MCP] Configuração salva: %s", slug)
 	m.emit("mcp:config_changed", map[string]string{"slug": slug})
 
@@ -524,6 +539,10 @@ func (m *Manager) DeleteConfig(slug string) error {
 
 	m.mu.Lock()
 	delete(m.servers, slug)
+	m.mu.Unlock()
+
+	m.mu.Lock()
+	m.lastSelfWrite = time.Now()
 	m.mu.Unlock()
 
 	log.Printf("[MCP] Configuração removida: %s", slug)
@@ -553,7 +572,7 @@ func (m *Manager) CloseAll() {
 }
 
 // createTransport cria o transport apropriado para o tipo de servidor.
-func (m *Manager) createTransport(cfg ServerConfig) (mcpsdk.Transport, error) {
+func (m *Manager) createTransport(slug string, cfg ServerConfig) (mcpsdk.Transport, error) {
 	switch cfg.Transport {
 	case TransportStdio:
 		if cfg.Command == "" {
@@ -562,7 +581,6 @@ func (m *Manager) createTransport(cfg ServerConfig) (mcpsdk.Transport, error) {
 
 		cmd := exec.CommandContext(m.ctx, cfg.Command, cfg.Args...)
 
-		// Herda ambiente do sistema e adiciona vars extras do config
 		if len(cfg.Env) > 0 {
 			cmd.Env = buildEnv(cfg.Env)
 		}
@@ -574,13 +592,236 @@ func (m *Manager) createTransport(cfg ServerConfig) (mcpsdk.Transport, error) {
 			return nil, fmt.Errorf("campo 'url' é obrigatório para transport sse")
 		}
 
+		httpClient, err := m.buildHTTPClientForAuth(slug, cfg)
+		if err != nil {
+			return nil, err
+		}
+
 		return &mcpsdk.SSEClientTransport{
-			Endpoint: cfg.URL,
+			Endpoint:   cfg.URL,
+			HTTPClient: httpClient,
+		}, nil
+
+	case TransportStreamable:
+		if cfg.URL == "" {
+			return nil, fmt.Errorf("campo 'url' é obrigatório para transport streamable")
+		}
+
+		httpClient, err := m.buildHTTPClientForAuth(slug, cfg)
+		if err != nil {
+			return nil, err
+		}
+
+		return &mcpsdk.StreamableClientTransport{
+			Endpoint:   cfg.URL,
+			HTTPClient: httpClient,
 		}, nil
 
 	default:
-		return nil, fmt.Errorf("transport desconhecido: '%s' (use 'stdio' ou 'sse')", cfg.Transport)
+		return nil, fmt.Errorf("transport desconhecido: '%s' (use 'stdio', 'sse' ou 'streamable')", cfg.Transport)
 	}
+}
+
+// buildHTTPClientForAuth cria o http.Client adequado ao auth_type configurado.
+func (m *Manager) buildHTTPClientForAuth(slug string, cfg ServerConfig) (*http.Client, error) {
+	switch cfg.AuthType {
+	case AuthOAuth2ClientCredentials:
+		clientSecret, err := m.resolveClientSecret(cfg.URL)
+		if err != nil {
+			return nil, fmt.Errorf("client_secret não encontrado para OAuth2 Client Credentials: %w", err)
+		}
+		log.Printf("[MCP:%s] Usando OAuth2 Client Credentials (client_id=%s)", slug, cfg.OAuth2ClientID)
+		return buildClientCredentialsHTTPClient(cfg, clientSecret), nil
+
+	case AuthOAuth2PKCE:
+		log.Printf("[MCP:%s] Usando OAuth2 Authorization Code + PKCE (client_id=%s)", slug, cfg.OAuth2ClientID)
+		onConfigUpdate := func(updated ServerConfig) {
+			if err := m.SaveConfig(slug, updated); err != nil {
+				log.Printf("[MCP:%s] Erro ao persistir config após DCR: %v", slug, err)
+			}
+		}
+		return buildPKCEHTTPClient(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate), nil
+
+	default:
+		return m.buildAuthHTTPClient(), nil
+	}
+}
+
+// resolveClientSecret busca o client_secret armazenado no credential manager.
+func (m *Manager) resolveClientSecret(serverURL string) (string, error) {
+	if m.credMgr == nil {
+		return "", fmt.Errorf("credential manager não disponível")
+	}
+	auth, err := m.credMgr.ResolveForURL(serverURL)
+	if err != nil {
+		return "", err
+	}
+	if auth == nil {
+		return "", fmt.Errorf("nenhuma credencial encontrada")
+	}
+	if auth.ClientSecret != "" {
+		return auth.ClientSecret, nil
+	}
+	if auth.Token != "" {
+		return auth.Token, nil
+	}
+	return "", fmt.Errorf("client_secret não encontrado na credencial")
+}
+
+// credentialRoundTripper é um http.RoundTripper que resolve e injeta
+// credenciais do credential manager centralizado em cada request HTTP.
+// Usa o mesmo padrão do interceptor HTTP em internal/tools/http/client.go.
+type credentialRoundTripper struct {
+	base    http.RoundTripper
+	credMgr *credentials.Manager
+}
+
+func (rt *credentialRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	if rt.credMgr != nil && req.Header.Get("Authorization") == "" {
+		if auth, err := rt.credMgr.ResolveForURL(req.URL.String()); err == nil && auth != nil {
+			switch auth.Type {
+			case "bearer":
+				if auth.Token != "" {
+					if !strings.HasPrefix(auth.Token, "Bearer ") {
+						req.Header.Set("Authorization", "Bearer "+auth.Token)
+					} else {
+						req.Header.Set("Authorization", auth.Token)
+					}
+				}
+			case "basic":
+				if auth.Username != "" && auth.Password != "" {
+					req.SetBasicAuth(auth.Username, auth.Password)
+				}
+			case "custom":
+				for key, val := range auth.Headers {
+					req.Header.Set(key, val)
+				}
+			}
+		}
+	}
+	return rt.base.RoundTrip(req)
+}
+
+// buildAuthHTTPClient cria um *http.Client que injeta credenciais via credential manager.
+func (m *Manager) buildAuthHTTPClient() *http.Client {
+	return &http.Client{
+		Transport: &credentialRoundTripper{
+			base:    http.DefaultTransport,
+			credMgr: m.credMgr,
+		},
+	}
+}
+
+// hostnameFromURL extrai o hostname (sem porta) de uma URL.
+func hostnameFromURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return u.Hostname()
+}
+
+// hasAuthForURL verifica se existe credencial registrada para o hostname da URL.
+func (m *Manager) hasAuthForURL(rawURL string) bool {
+	if m.credMgr == nil || rawURL == "" {
+		return false
+	}
+	auth, err := m.credMgr.ResolveForURL(rawURL)
+	return err == nil && auth != nil
+}
+
+// SaveServerAuth salva credenciais para um servidor MCP no credential manager.
+// Usa o hostname da URL como padrão de credencial.
+func (m *Manager) SaveServerAuth(slug string, authType, token, username, password, clientSecret string) error {
+	m.mu.RLock()
+	status, ok := m.servers[slug]
+	if !ok {
+		m.mu.RUnlock()
+		return fmt.Errorf("servidor MCP '%s' não encontrado", slug)
+	}
+	serverURL := status.Config.URL
+	m.mu.RUnlock()
+
+	hostname := hostnameFromURL(serverURL)
+	if hostname == "" {
+		return fmt.Errorf("servidor '%s' não tem URL configurada", slug)
+	}
+
+	auth := &credentials.AuthConfig{
+		Type:         authType,
+		Token:        token,
+		Username:     username,
+		Password:     password,
+		ClientSecret: clientSecret,
+	}
+
+	if err := m.credMgr.RegisterPatternWithContext(context.Background(), hostname, auth); err != nil {
+		return fmt.Errorf("erro ao salvar credencial: %w", err)
+	}
+
+	m.mu.Lock()
+	status.HasAuth = true
+	m.mu.Unlock()
+
+	log.Printf("[MCP] Credenciais salvas para '%s' (pattern: %s)", slug, hostname)
+	m.emit("mcp:auth_changed", map[string]string{"slug": slug})
+	return nil
+}
+
+// DeleteServerAuth remove credenciais de um servidor MCP do credential manager.
+func (m *Manager) DeleteServerAuth(slug string) error {
+	m.mu.RLock()
+	status, ok := m.servers[slug]
+	if !ok {
+		m.mu.RUnlock()
+		return fmt.Errorf("servidor MCP '%s' não encontrado", slug)
+	}
+	serverURL := status.Config.URL
+	m.mu.RUnlock()
+
+	hostname := hostnameFromURL(serverURL)
+	if hostname == "" {
+		return nil
+	}
+
+	if err := m.credMgr.DeletePattern(context.Background(), hostname); err != nil {
+		return fmt.Errorf("erro ao remover credencial: %w", err)
+	}
+
+	m.mu.Lock()
+	status.HasAuth = false
+	m.mu.Unlock()
+
+	log.Printf("[MCP] Credenciais removidas para '%s' (pattern: %s)", slug, hostname)
+	m.emit("mcp:auth_changed", map[string]string{"slug": slug})
+	return nil
+}
+
+// GetServerAuthInfo retorna informações sobre a autenticação de um servidor
+// (tipo e se existe, sem expor valores sensíveis).
+func (m *Manager) GetServerAuthInfo(slug string) (authType string, hasAuth bool, err error) {
+	m.mu.RLock()
+	status, ok := m.servers[slug]
+	if !ok {
+		m.mu.RUnlock()
+		return "", false, fmt.Errorf("servidor MCP '%s' não encontrado", slug)
+	}
+	serverURL := status.Config.URL
+	m.mu.RUnlock()
+
+	if m.credMgr == nil || serverURL == "" {
+		return "", false, nil
+	}
+
+	auth, resolveErr := m.credMgr.ResolveForURL(serverURL)
+	if resolveErr != nil || auth == nil {
+		return "", false, nil
+	}
+
+	return auth.Type, true, nil
 }
 
 // setError atualiza o status de um servidor para erro.
@@ -949,8 +1190,7 @@ func (m *Manager) GetNativeServerInfo() []map[string]any {
 			},
 		}
 
-		// Inclui informação de transporte para acesso direto
-		if status.Config.Transport == TransportSSE {
+		if status.Config.Transport == TransportSSE || status.Config.Transport == TransportStreamable {
 			serverInfo["endpoint"] = status.Config.URL
 		}
 

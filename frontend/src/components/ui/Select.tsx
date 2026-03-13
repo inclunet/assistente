@@ -1,4 +1,4 @@
-import { forwardRef, SelectHTMLAttributes } from 'react';
+import { forwardRef, SelectHTMLAttributes, useId } from 'react';
 import './Select.css';
 
 export interface SelectOption {
@@ -10,18 +10,38 @@ export interface SelectOption {
 export interface SelectProps extends SelectHTMLAttributes<HTMLSelectElement> {
   label?: string;
   error?: string;
+  hint?: string;
   fullWidth?: boolean;
   options: SelectOption[];
 }
 
 export const Select = forwardRef<HTMLSelectElement, SelectProps>(
-  ({ label, error, fullWidth, options, className = '', ...props }, ref) => {
+  ({ label, error, hint, fullWidth, options, className = '', id: externalId, ...props }, ref) => {
+    const autoId = useId();
+    const selectId = externalId || autoId;
+    const errorId = error ? `${selectId}-error` : undefined;
+    const hintId = hint ? `${selectId}-hint` : undefined;
+
+    const describedBy = [
+      props['aria-describedby'],
+      errorId,
+      hintId,
+    ].filter(Boolean).join(' ') || undefined;
+
     return (
       <div className={`select-wrapper ${fullWidth ? 'select-wrapper--full' : ''}`}>
-        {label && <label className="select-label">{label}</label>}
+        {label && (
+          <label htmlFor={selectId} className="select-label">
+            {label}
+            {props.required && <span aria-hidden="true"> *</span>}
+          </label>
+        )}
         <select
           ref={ref}
+          id={selectId}
           className={`select ${error ? 'select--error' : ''} ${className}`}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={describedBy}
           {...props}
         >
           {options.map((option) => (
@@ -30,7 +50,8 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             </option>
           ))}
         </select>
-        {error && <span className="select-error">{error}</span>}
+        {hint && <span id={hintId} className="select-hint">{hint}</span>}
+        {error && <span id={errorId} className="select-error" role="alert">{error}</span>}
       </div>
     );
   }

@@ -28,20 +28,16 @@ export function McpGeneralSection({
       <h3 id="mcp-section-general">Geral</h3>
       <div className="mcp-fields">
         {isNew && (
-          <div>
-            <Input
-              label="Slug (identificador)"
-              type="text"
-              value={slug}
-              onChange={(e) => onSlugChange(e.target.value)}
-              placeholder="ex: github, filesystem"
-              required
-              fullWidth
-            />
-            <p className="mcp-hint">
-              Identificador único. Apenas letras minúsculas, números, - e _
-            </p>
-          </div>
+          <Input
+            label="Slug (identificador)"
+            type="text"
+            value={slug}
+            onChange={(e) => onSlugChange(e.target.value)}
+            placeholder="ex: github, filesystem"
+            hint="Identificador único. Apenas letras minúsculas, números, - e _"
+            required
+            fullWidth
+          />
         )}
 
         <Input
@@ -70,7 +66,8 @@ export function McpGeneralSection({
           fullWidth
           options={[
             { value: 'stdio', label: 'stdio (processo local)' },
-            { value: 'sse', label: 'SSE (servidor remoto)' },
+            { value: 'streamable', label: 'Streamable HTTP (recomendado)' },
+            { value: 'sse', label: 'SSE (legado)' },
           ]}
         />
       </div>
