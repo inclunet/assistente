@@ -2,12 +2,13 @@ import { create } from 'zustand';
 import { 
   SendMessage, 
   GetAllTabs,
-  CreateTab,
+  CreateTabWithConversation,
   CloseTab,
   SetActiveTab,
   UpdateTabTitle as BackendUpdateTabTitle,
   GetMessages,
   LoadConversationInTab,
+  OpenConversationInNewTab,
   AssignConversationToChannel,
   UnassignConversationFromChannel,
 	GetMessageChildren,
@@ -150,6 +151,7 @@ interface ChatStore {
   clearMessages: (tabId: string) => void;
   clearActiveTab: () => void;
   loadConversationInActiveTab: (conversationId: number, conversationTitle: string) => Promise<void>;
+  openConversationInNewTab: (conversationId: number, title?: string) => Promise<void>;
   
   // Thread management
   toggleThreadExpanded: (messageId: string) => void;
@@ -179,7 +181,6 @@ interface ChatStore {
   handleTabTitleUpdated: (backendTabId: number, newTitle: string) => void;
   handleDatabaseReset: () => void;
   handleTabClosed: (tabId: number) => void;
-  consolidateEmptyTabs: () => void;
 
   // Channel assignment (bridge bidirecional)
   assignChannelToTab: (tabId: string, channel: string, contactId: string) => Promise<void>;
@@ -200,8 +201,6 @@ const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9
 // Mapa para rastrear cleanup functions de cada tab (previne acúmulo de listeners)
 const activeListeners = new Map<string, () => void>();
 
-// Flag de reentrância para consolidateEmptyTabs
-let consolidatingEmptyTabs = false;
 
 // Contador global de listeners para debug
 let activeListenerCount = 0;
@@ -399,9 +398,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       let tabs = backendTabs.map(backendTabToFrontend);
       
-      // Se não houver tabs, cria uma aba em branco (ativa)
+      // Se não houver tabs, cria uma com conversa associada
       if (tabs.length === 0) {
-        const newBackendTab = await CreateTab('Nova Conversa', '💬', true);
+        const newBackendTab = await CreateTabWithConversation();
         tabs = [backendTabToFrontend(newBackendTab)];
       }
       
@@ -420,65 +419,31 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         try {
           const messageNodes = await GetMessages(initialActiveTab.conversationId, null);
           
-          // Backend já manda MessageNode[] pronto - adiciona apenas originalIndex
           const nodes: MessageNode[] = (messageNodes || []).map((node, index) => {
             (node as any).originalIndex = index;
             return node;
           });
           
-          // Atualiza a tab com os nodes hierárquicos
           set((state) => ({
             tabs: state.tabs.map((t) =>
               t.id === initialActiveTab.id
-                ? { 
-                    ...t, 
-                    threadedMessages: nodes, // Guarda MessageNode[] do backend com childCount
-                    updatedAt: Date.now() 
-                  }
+                ? { ...t, threadedMessages: nodes, updatedAt: Date.now() }
                 : t
             ),
           }));
         } catch (error) {
-          console.error('[Chat] ❌ Erro ao carregar mensagens da tab ativa:', error);
+          console.error('[Chat] Erro ao carregar mensagens da tab ativa:', error);
         }
       }
     } catch (error) {
       console.error('[Chat] Error initializing tabs:', error);
-      // Se falhar, cria uma aba padrão localmente
-      const defaultTab: ChatTab = {
-        id: generateId(),
-        title: 'Nova Conversa',
-        threadedMessages: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      set({
-        tabs: [defaultTab],
-        activeTabId: defaultTab.id,
-        isInitialized: true,
-      });
+      set({ isInitialized: true });
     }
   },
 
   createTab: async (activate = true) => {
-    // Evita proliferação de tabs vazias:
-    // - activate=false (background): retorna tab vazia existente se houver
-    // - activate=true (foreground): se a tab ativa já estiver vazia, apenas retorna ela
-    if (!activate) {
-      const existingEmpty = get().tabs.find(tab => !tab.conversationId && tab.threadedMessages.length === 0);
-      if (existingEmpty) {
-        return existingEmpty.id;
-      }
-    } else {
-      const { activeTabId, tabs } = get();
-      const activeTab = tabs.find(t => t.id === activeTabId);
-      if (activeTab && !activeTab.conversationId && activeTab.threadedMessages.length === 0) {
-        return activeTab.id;
-      }
-    }
-
     try {
-      const backendTab = await CreateTab('Nova Conversa', '💬', activate);
+      const backendTab = await CreateTabWithConversation();
       const newTab = backendTabToFrontend(backendTab);
       
       set((state) => ({
@@ -488,19 +453,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return newTab.id;
     } catch (error) {
       console.error('[Chat] Error creating tab:', error);
-      // Fallback: cria tab local
-      const localTab: ChatTab = {
-        id: generateId(),
-        title: 'Nova Conversa',
-        threadedMessages: [],
-        createdAt: Date.now(),
-        updatedAt: Date.now(),
-      };
-      set((state) => ({
-        tabs: [...state.tabs, localTab],
-        activeTabId: activate ? localTab.id : state.activeTabId,
-      }));
-      return localTab.id;
+      throw error;
     }
   },
 
@@ -910,7 +863,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
   },
 
   loadConversationInActiveTab: async (conversationId, conversationTitle) => {
-    const { activeTabId, tabs, createTab } = get();
+    const { activeTabId, tabs } = get();
     
     if (!activeTabId) {
       console.error('[Chat] Nenhuma aba ativa para carregar conversa');
@@ -923,43 +876,20 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       return;
     }
 
-    // Detecta se estamos carregando uma conversa em uma aba vazia
-    const isBlankTab = !activeTab.conversationId && activeTab.threadedMessages.length === 0;
-
     try {
-      // Se conversationId é 0, limpa a aba (nova conversa)
-      if (conversationId === 0) {
-        set((state) => ({
-          tabs: state.tabs.map((t) =>
-            t.id === activeTabId
-              ? {
-                  ...t,
-                  conversationId: undefined,
-                  threadedMessages: [],
-                  title: 'Nova Conversa',
-                  updatedAt: Date.now(),
-                }
-              : t
-          ),
-        }));
-        return;
-      }
-
-      // Carrega conversa no backend
+      // Carrega conversa no backend (vincula conversa à tab)
       await LoadConversationInTab(activeTab.backendId, conversationId);
 
       // Carrega mensagens da conversa
       const backendNodes = await GetMessages(conversationId, null);
-
-      // Adiciona originalIndex aos nodes do backend
       const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
         (node as any).originalIndex = index;
         return node;
       });
 
       // Atualiza a aba com a nova conversa
-      set((state) => {
-        const newTabs = state.tabs.map((t) =>
+      set((state) => ({
+        tabs: state.tabs.map((t) =>
           t.id === activeTabId
             ? {
                 ...t,
@@ -969,24 +899,43 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 updatedAt: Date.now(),
               }
             : t
-        );
-        return { tabs: newTabs };
-      });
-
-      // Se era uma aba em branco, cria uma nova aba em branco para futuras conversas
-      if (isBlankTab) {
-        setTimeout(() => {
-          createTab(false).then(() => {
-          }).catch((err: any) => {
-            console.error('[Chat] Error creating new blank tab:', err);
-          });
-        }, 100);
-      }
+        ),
+      }));
       
-      // Anuncia para acessibilidade
       announce(`Conversa aberta: ${conversationTitle || 'Conversa carregada'}`);
     } catch (error) {
-      console.error('[Chat] ❌ Erro ao carregar conversa na aba ativa:', error);
+      console.error('[Chat] Erro ao carregar conversa na aba ativa:', error);
+      throw error;
+    }
+  },
+
+  openConversationInNewTab: async (conversationId, title) => {
+    try {
+      const backendTab = await OpenConversationInNewTab(conversationId);
+      const newTab = backendTabToFrontend(backendTab);
+      if (title) newTab.title = title;
+      newTab.conversationId = conversationId;
+
+      set(state => ({
+        tabs: [...state.tabs.filter(t => t.backendId !== backendTab.id), newTab],
+        activeTabId: newTab.id,
+      }));
+
+      const backendNodes = await GetMessages(conversationId, null);
+      const messageNodes: MessageNode[] = (backendNodes || []).map((node, index) => {
+        (node as any).originalIndex = index;
+        return node;
+      });
+
+      set(state => ({
+        tabs: state.tabs.map(t =>
+          t.id === newTab.id ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() } : t
+        ),
+      }));
+
+      announce(`Conversa aberta em nova aba: ${title || 'Conversa'}`);
+    } catch (error) {
+      console.error('[Chat] Erro ao abrir conversa em nova aba:', error);
       throw error;
     }
   },
@@ -996,7 +945,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       },
 
   sendMessageWithParams: async (content, mediaFiles, paramsOverride) => {
-        const { activeTabId, addMessage, createTab, updateTabTitle, tabs } = get();
+        const { activeTabId, addMessage, createTab } = get();
 
         // Validação de tamanho do conteúdo
         if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
@@ -1035,27 +984,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           role: 'user',
           content,
         });
-        
-        // Detecta se esta é uma aba em branco (sem conversationId) recebendo sua primeira mensagem
-        const currentTab = tabs.find(t => t.id === currentTabId);
-        const isBlankTab = currentTab && !currentTab.conversationId && currentTab.threadedMessages.length <= 1;
-        
-        // Auto-generate title from first message if it's still "Nova Conversa"
-        if (currentTab && currentTab.threadedMessages.length === 0 && currentTab.title === 'Nova Conversa') {
-          const title = content.slice(0, 50) + (content.length > 50 ? '...' : '');
-          updateTabTitle(currentTabId, title);
-        }
-        
-        // Se for uma aba em branco recebendo sua primeira mensagem,
-        // cria uma nova aba em branco para futuras conversas (sem ativar)
-        if (isBlankTab) {
-          setTimeout(() => {
-            createTab(false).then(() => {
-            }).catch(err => {
-              console.error('[Chat] Error creating new blank tab:', err);
-            });
-          }, 500); // Pequeno delay para não interferir com o envio da mensagem
-        }
 
         // Add empty assistant message for streaming
         const assistantMessageId = addMessage(currentTabId, {
@@ -1067,37 +995,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         set({ isLoading: true, streamingMessageId: assistantMessageId });
 
         let unsubscribe: (() => void) | null = null;
-        
-        // IMPORTANTE: Registrar listeners ANTES de enviar mensagem
-        // para garantir que capturamos todos os eventos
-        
-        // Listen for conversation created event
-        const unsubscribeConvCreated = EventsOn('chat:conversation_created', (data: any) => {
-          if (data.id && data.title) {
-            const tabIdToUpdate = currentTabId;
-            set((state) => ({
-              tabs: state.tabs.map((t) =>
-                t.id === tabIdToUpdate
-                  ? { ...t, conversationId: data.id, title: data.title, updatedAt: Date.now() }
-                  : t
-              ),
-            }));
-          }
-        });
-
-        // Listen for conversation loaded in tab (backend vincula conversa à tab)
-        const unsubscribeConvLoaded = EventsOn('conversation_loaded_in_tab', (data: any) => {
-          if (data.tabId && data.conversationId) {
-            // Encontra a tab pelo backendId e atualiza conversationId
-            set((state) => ({
-              tabs: state.tabs.map((t) =>
-                t.backendId === data.tabId
-                  ? { ...t, conversationId: data.conversationId, title: data.title || t.title, updatedAt: Date.now() }
-                  : t
-              ),
-            }));
-          }
-        });
 
         // Listen for messages_ready - atualiza IDs das mensagens para IDs reais do banco
         // CRÍTICO: Isso permite que mensagens internas (com parentId do banco) encontrem o pai correto
@@ -1467,8 +1364,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           // Store cleanup function for use in error handler
           unsubscribe = () => {
             cleanup();
-            if (unsubscribeConvCreated) unsubscribeConvCreated();
-            if (unsubscribeConvLoaded) unsubscribeConvLoaded();
             if (unsubscribeMessagesReady) unsubscribeMessagesReady();
           };
 
@@ -1667,29 +1562,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       
       if (!tabToClose) return;
 
-      if (state.tabs.length > 1 && tabToClose.backendId) {
-        // Delega ao backend — handleTabClosed cuidará da remoção do state
+      if (tabToClose.backendId) {
         CloseTab(tabToClose.backendId).catch(err => {
           console.error('[Chat] Error closing tab for deleted conversation:', err);
         });
-      } else if (state.tabs.length > 1) {
-        // Tab sem backendId: remove direto
-        removeTabFromState(tabToClose.id, get, set, activeListeners);
       } else {
-        // Única aba: apenas limpa
-        set((s) => ({
-          tabs: s.tabs.map(tab => 
-            tab.id === tabToClose.id
-              ? {
-                  ...tab,
-                  conversationId: undefined,
-                  title: 'Nova Conversa',
-                  threadedMessages: [] as MessageNode[],
-                  updatedAt: Date.now(),
-                }
-              : tab
-          ),
-        }));
+        removeTabFromState(tabToClose.id, get, set, activeListeners);
       }
       
       setTimeout(() => {
@@ -1797,71 +1675,25 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     // ÚNICO ponto de remoção de tabs do state (exceto fallback local em deleteTab).
-    // Disparado pelo evento tab_closed do backend — seja via deleteTab, tool close_tab, ou qualquer outro caminho.
+    // Disparado pelo evento tab_closed do backend — seja via deleteTab, tool close_conversation, ou qualquer outro caminho.
     handleTabClosed: (backendTabId: number) => {
       const state = get();
       const tabToClose = state.tabs.find(t => t.backendId === backendTabId);
       
       if (!tabToClose) return;
       
-      // Última aba: apenas limpa o conteúdo sem removê-la
-      if (state.tabs.length <= 1) {
-        set((s) => ({
-          tabs: s.tabs.map(tab => 
-            tab.backendId === backendTabId
-              ? {
-                  ...tab,
-                  conversationId: undefined,
-                  title: 'Nova Conversa',
-                  threadedMessages: [] as MessageNode[],
-                  updatedAt: Date.now(),
-                }
-              : tab
-          ),
-        }));
-        return;
-      }
-      
       removeTabFromState(tabToClose.id, get, set, activeListeners);
       
-      // Safety net: consolida tabs vazias se houver mais de uma
-      setTimeout(() => get().consolidateEmptyTabs(), 100);
+      // Se era a última aba, cria uma nova com conversa
+      if (get().tabs.length === 0) {
+        get().createTab().catch(err => {
+          console.error('[Chat] Erro ao criar tab após fechar última:', err);
+        });
+      }
       
       announce('Aba fechada');
     },
 
-    // Safety net: se houver mais de uma tab vazia, fecha as extras via backend.
-    // Com a guarda em createTab, isso raramente deveria disparar.
-    // Cada CloseTab gera um evento tab_closed → handleTabClosed remove do state.
-    // Para evitar cascata (handleTabClosed → consolidateEmptyTabs → handleTabClosed → ...),
-    // usa um flag de reentrância.
-    consolidateEmptyTabs: () => {
-      if (consolidatingEmptyTabs) return;
-
-      const state = get();
-      const emptyTabs = state.tabs.filter(tab => !tab.conversationId && tab.threadedMessages.length === 0);
-      if (emptyTabs.length <= 1) return;
-
-      consolidatingEmptyTabs = true;
-
-      const sortedEmpty = [...emptyTabs].sort((a, b) => b.updatedAt - a.updatedAt);
-      const tabsToRemove = sortedEmpty.slice(1);
-
-      // Tabs com backendId: delega ao backend (handleTabClosed faz o state update)
-      // Tabs sem backendId: remove direto do state
-      for (const tab of tabsToRemove) {
-        if (tab.backendId) {
-          CloseTab(tab.backendId).catch(err => {
-            console.error('[Chat] consolidateEmptyTabs: error closing tab:', err);
-          });
-        } else {
-          removeTabFromState(tab.id, get, set, activeListeners);
-        }
-      }
-
-      // Libera o flag depois que os eventos tiverem tempo de ser processados
-      setTimeout(() => { consolidatingEmptyTabs = false; }, 500);
-    },
 
     // Recarrega mensagens da aba ativa a partir do banco de dados.
     // Usado quando mensagens chegam de canais externos (Signal, Telegram).

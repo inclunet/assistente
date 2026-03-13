@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations } from '@wailsjs/go/main/App';
+import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations, SearchConversationHistory } from '@wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useGridFocus } from '../hooks/useGridFocus';
+import { useChatStore } from '../store/chatStore';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './HistoryPage.css';
@@ -15,6 +16,7 @@ interface Conversation {
   created_at: string;
   updated_at: string;
   message_count: number;
+  snippet?: string;
 }
 
 export default function HistoryPage() {
@@ -24,11 +26,62 @@ export default function HistoryPage() {
   const [loading, setLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+  const [searchResultIds, setSearchResultIds] = useState<Set<number> | null>(null);
+  const [snippetsMap, setSnippetsMap] = useState<Map<number, string>>(new Map());
+  const [searching, setSearching] = useState(false);
+  const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { focusFirstCell, handleGridReady } = useGridFocus();
+  const openConversationInNewTab = useChatStore(state => state.openConversationInNewTab);
 
   useEffect(() => {
     loadConversations();
   }, []);
+
+  const doSearch = useCallback(async (query: string) => {
+    if (!query.trim()) {
+      setSearchResultIds(null);
+      setSnippetsMap(new Map());
+      return;
+    }
+    setSearching(true);
+    try {
+      const results = await SearchConversationHistory(query, 50);
+      if (!results || results.length === 0) {
+        setSearchResultIds(new Set());
+        setSnippetsMap(new Map());
+      } else {
+        const ids = new Set<number>();
+        const snippets = new Map<number, string>();
+        for (const r of results) {
+          ids.add(r.conversation_id);
+          if (!snippets.has(r.conversation_id)) {
+            const snippet = (r.snippet || '')
+              .replace(/>>>/g, '\u00AB').replace(/<<</g, '\u00BB');
+            snippets.set(r.conversation_id, snippet);
+          }
+        }
+        setSearchResultIds(ids);
+        setSnippetsMap(snippets);
+      }
+    } catch (error) {
+      console.error('Erro na busca:', error);
+      setSearchResultIds(new Set());
+      setSnippetsMap(new Map());
+    } finally {
+      setSearching(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
+    if (!searchTerm.trim()) {
+      setSearchResultIds(null);
+      setSnippetsMap(new Map());
+      return;
+    }
+    searchDebounceRef.current = setTimeout(() => doSearch(searchTerm), 300);
+    return () => { if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current); };
+  }, [searchTerm, doSearch]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -61,12 +114,16 @@ export default function HistoryPage() {
     }
   };
 
-  const handleOpenConversation = (conversationId: number) => {
-    navigate(`/?conversation=${conversationId}`);
+  const handleOpenConversation = async (conversationId: number, title?: string) => {
+    try {
+      await openConversationInNewTab(conversationId, title);
+      navigate('/');
+    } catch (error) {
+      console.error('Erro ao abrir conversa:', error);
+    }
   };
 
   const handleNewConversation = () => {
-    // Navega para o chat sem ID de conversa (cria nova)
     navigate('/');
   };
 
@@ -137,9 +194,10 @@ export default function HistoryPage() {
     }
   };
 
-  const filteredConversations = conversations.filter(conv =>
-    conv.title.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  const isSearching = searchResultIds !== null;
+  const displayItems = isSearching
+    ? conversations.filter(c => searchResultIds.has(c.id))
+    : conversations;
 
   const columns: DataGridColumn<Conversation>[] = [
     {
@@ -147,6 +205,18 @@ export default function HistoryPage() {
       label: t('history.title', 'Título'),
       width: '40%',
       editable: true,
+      format: (_value, item) => {
+        const snippet = snippetsMap.get(item.id);
+        if (snippet) {
+          return (
+            <span className="history-page__title-cell">
+              <span className="history-page__title-text">{item.title}</span>
+              <span className="history-page__title-snippet">{snippet}</span>
+            </span>
+          );
+        }
+        return item.title;
+      },
     },
     {
       key: 'message_count',
@@ -172,7 +242,7 @@ export default function HistoryPage() {
       width: '2.5%',
       action: true,
       actionIcon: '📂',
-      actionLabel: 'Abrir conversa',
+      actionLabel: t('history.openConversation', 'Abrir conversa'),
     },
     {
       key: 'delete',
@@ -180,13 +250,13 @@ export default function HistoryPage() {
       width: '2.5%',
       action: true,
       actionIcon: '🗑️',
-      actionLabel: 'Excluir conversa',
+      actionLabel: t('history.deleteConversation', 'Excluir conversa'),
     },
   ];
 
   const handleCellAction = (item: Conversation, column: DataGridColumn<Conversation>) => {
     if (column.key === 'open') {
-      handleOpenConversation(item.id);
+      handleOpenConversation(item.id, item.title);
     } else if (column.key === 'delete') {
       handleDeleteConversation(item.id);
     }
@@ -195,9 +265,7 @@ export default function HistoryPage() {
   const handleCellEdit = async (item: Conversation, column: DataGridColumn<Conversation>, newValue: string) => {
     if (column.key === 'title') {
       try {
-        // Atualiza no backend
         await UpdateConversation(item.id, newValue, '');
-        // Atualiza no estado local
         setConversations(prev => 
           prev.map(conv => 
             conv.id === item.id ? { ...conv, title: newValue } : conv
@@ -263,8 +331,12 @@ export default function HistoryPage() {
         ]}
       />
 
+      {searching && (
+        <div className="history-page__search-status">{t('history.searching', 'Buscando...')}</div>
+      )}
+
       <DataGrid
-        items={filteredConversations}
+        items={displayItems}
         columns={columns}
         onCellAction={handleCellAction}
         onCellEdit={handleCellEdit}

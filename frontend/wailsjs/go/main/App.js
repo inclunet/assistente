@@ -126,6 +126,10 @@ export function CreateTab(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateTab'](arg1, arg2, arg3);
 }
 
+export function CreateTabWithConversation() {
+  return window['go']['main']['App']['CreateTabWithConversation']();
+}
+
 export function CreateTerminalSession(arg1) {
   return window['go']['main']['App']['CreateTerminalSession'](arg1);
 }
@@ -522,6 +526,10 @@ export function ReadMCPResource(arg1, arg2) {
   return window['go']['main']['App']['ReadMCPResource'](arg1, arg2);
 }
 
+export function RebuildSearchIndex() {
+  return window['go']['main']['App']['RebuildSearchIndex']();
+}
+
 export function ReconnectMCPServer(arg1) {
   return window['go']['main']['App']['ReconnectMCPServer'](arg1);
 }
@@ -584,6 +592,10 @@ export function SaveMessageAudio(arg1, arg2, arg3) {
 
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function SearchConversationHistory(arg1, arg2) {
+  return window['go']['main']['App']['SearchConversationHistory'](arg1, arg2);
 }
 
 export function SendMessage(arg1, arg2, arg3, arg4) {

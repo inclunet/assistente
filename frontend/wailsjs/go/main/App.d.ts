@@ -76,6 +76,8 @@ export function CreateSkill(arg1:main.SkillCreateRequest):Promise<string>;
 
 export function CreateTab(arg1:string,arg2:string,arg3:boolean):Promise<database.ChatTab>;
 
+export function CreateTabWithConversation():Promise<database.ChatTab>;
+
 export function CreateTerminalSession(arg1:string):Promise<terminal.SessionInfo>;
 
 export function DeleteAllowlist(arg1:string):Promise<void>;
@@ -268,11 +270,13 @@ export function NeedsWelcomeWizard():Promise<boolean>;
 
 export function OpenConversationInCurrentTab(arg1:number):Promise<void>;
 
-export function OpenConversationInNewTab(arg1:number):Promise<number>;
+export function OpenConversationInNewTab(arg1:number):Promise<database.ChatTab>;
 
 export function PreviewVoiceSettings(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number,arg6:string):Promise<void>;
 
 export function ReadMCPResource(arg1:string,arg2:string):Promise<string>;
+
+export function RebuildSearchIndex():Promise<void>;
 
 export function ReconnectMCPServer(arg1:string):Promise<void>;
 
@@ -305,6 +309,8 @@ export function SaveMCPServer(arg1:string,arg2:mcp.ServerConfig):Promise<void>;
 export function SaveMessageAudio(arg1:number,arg2:string,arg3:string):Promise<void>;
 
 export function SaveSettings(arg1:llm.SettingsInput):Promise<void>;
+
+export function SearchConversationHistory(arg1:string,arg2:number):Promise<Array<database.MessageSearchResult>>;
 
 export function SendMessage(arg1:number,arg2:string,arg3:string,arg4:llm.ChatParams):Promise<number>;
 

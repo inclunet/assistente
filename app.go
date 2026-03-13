@@ -35,6 +35,7 @@ import (
 	"assistente/internal/tools"
 	"assistente/internal/tools/editor"
 	"assistente/internal/tools/filesystem"
+	"assistente/internal/tools/history"
 	msgtool "assistente/internal/tools/messaging"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
@@ -1549,6 +1550,9 @@ func (a *App) initToolRegistry() {
 	tabMgr := &appTabManager{app: a}
 	a.toolRegistry.MustRegister(tabstool.NewRenameConversation(tabMgr))
 	a.toolRegistry.MustRegister(tabstool.NewCloseConversation(tabMgr))
+
+	// Registra ferramenta de busca no histórico de conversas
+	a.toolRegistry.MustRegister(history.NewSearchConversations())
 
 	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
 }

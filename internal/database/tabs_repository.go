@@ -30,10 +30,10 @@ func GetActiveTab() (*ChatTab, error) {
 	return &tab, err
 }
 
-// GetTab retorna uma aba pelo ID
+// GetTab retorna uma aba pelo ID (com Conversation preloaded)
 func GetTab(id uint) (*ChatTab, error) {
 	var tab ChatTab
-	err := db.First(&tab, id).Error
+	err := db.Preload("Conversation").First(&tab, id).Error
 	if err != nil {
 		return nil, err
 	}

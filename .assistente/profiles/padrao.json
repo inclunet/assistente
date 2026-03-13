@@ -13,7 +13,6 @@
     "min_context_messages": 20,
     "top_p": 1,
     "response_timeout": 180,
-    "system_prompt_position": "after",
     "enabled_tools": null,
     "enabled_skills": [
       "memory"

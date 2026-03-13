@@ -15,7 +15,35 @@
   color: var(--text-secondary);
 }
 
-/* Dark mode support */
+.history-page__search-status {
+  padding: 0.5rem 1rem;
+  font-size: 0.8rem;
+  color: var(--text-secondary, #666);
+  border-bottom: 1px solid var(--border-color, #e0e0e0);
+}
+
+/* Célula de título com snippet */
+.history-page__title-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  line-height: 1.3;
+}
+
+.history-page__title-text {
+  font-weight: 500;
+}
+
+.history-page__title-snippet {
+  font-size: 0.8em;
+  color: var(--text-secondary, #777);
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Dark mode */
 @media (prefers-color-scheme: dark) {
   .history-page {
     background-color: var(--background-dark, #1a1a1a);
@@ -23,5 +51,14 @@
   
   .history-page .loading {
     color: var(--text-secondary-dark, #aaa);
+  }
+
+  .history-page__search-status {
+    color: var(--text-secondary-dark, #aaa);
+    border-bottom-color: var(--border-color-dark, #444);
+  }
+
+  .history-page__title-snippet {
+    color: var(--text-secondary-dark, #999);
   }
 }

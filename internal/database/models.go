@@ -30,7 +30,7 @@ type Conversation struct {
 	CreatedAt    time.Time     `json:"created_at"`
 	UpdatedAt    time.Time     `json:"updated_at"`
 	Messages     []ChatMessage `json:"messages,omitempty" gorm:"foreignKey:ConversationID"`
-	MessageCount int           `json:"message_count" gorm:"-"` // Campo calculado, não persiste no banco
+	MessageCount int           `json:"message_count" gorm:"-:migration;->"` // Campo calculado, não persiste no banco
 
 	// Rolling Context: sumarização automática de mensagens antigas
 	Summary               string `json:"summary,omitempty" gorm:"type:text"`                     // Resumo acumulativo da conversa

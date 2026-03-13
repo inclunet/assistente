@@ -396,22 +396,27 @@ func (a *App) SwitchToTab(tabID uint) error {
 	return database.SetActiveTab(tabID)
 }
 
-func (a *App) OpenConversationInNewTab(conversationID uint) (uint, error) {
+func (a *App) OpenConversationInNewTab(conversationID uint) (*database.ChatTab, error) {
 	conv, err := database.GetConversation(conversationID)
 	if err != nil {
-		return 0, fmt.Errorf("conversa não encontrada: %w", err)
+		return nil, fmt.Errorf("conversa não encontrada: %w", err)
 	}
 
 	tab, err := database.CreateTab(conv.Title, "💬", true)
 	if err != nil {
-		return 0, fmt.Errorf("erro ao criar aba: %w", err)
+		return nil, fmt.Errorf("erro ao criar aba: %w", err)
 	}
 
 	if err := database.LoadConversationInTab(tab.ID, conversationID); err != nil {
-		return 0, fmt.Errorf("erro ao carregar conversa: %w", err)
+		return nil, fmt.Errorf("erro ao carregar conversa: %w", err)
 	}
 
-	return tab.ID, nil
+	fullTab, err := database.GetTab(tab.ID)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao recarregar aba: %w", err)
+	}
+
+	return fullTab, nil
 }
 
 func (a *App) OpenConversationInCurrentTab(conversationID uint) error {
@@ -478,21 +483,45 @@ func (a *App) GetCurrentConversationID() (uint, error) {
 }
 
 func (a *App) CreateNewConversation(title string) (uint, error) {
-	conv, err := database.CreateConversation(title, "gpt-4o-mini")
+	tab, err := a.CreateTabWithConversation()
 	if err != nil {
-		return 0, fmt.Errorf("erro ao criar conversa: %w", err)
+		return 0, err
+	}
+	if title != "" && title != "Nova Conversa" {
+		_ = database.UpdateTabTitle(tab.ID, title)
+	}
+	return *tab.ConversationID, nil
+}
+
+// CreateTabWithConversation cria atomicamente uma conversa + tab vinculada.
+// Toda tab nasce com uma conversa associada (backend-driven).
+func (a *App) CreateTabWithConversation() (*database.ChatTab, error) {
+	conv, err := database.CreateConversation("Nova Conversa", "")
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar conversa: %w", err)
 	}
 
-	tab, err := database.CreateTab(title, "💬", true)
+	tab, err := database.CreateTab(conv.Title, "💬", true)
 	if err != nil {
-		return 0, fmt.Errorf("erro ao criar aba: %w", err)
+		return nil, fmt.Errorf("erro ao criar aba: %w", err)
 	}
 
 	if err := database.LoadConversationInTab(tab.ID, conv.ID); err != nil {
-		return 0, fmt.Errorf("erro ao carregar conversa: %w", err)
+		return nil, fmt.Errorf("erro ao vincular conversa à aba: %w", err)
 	}
 
-	return conv.ID, nil
+	fullTab, err := database.GetTab(tab.ID)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao recarregar aba: %w", err)
+	}
+
+	runtime.EventsEmit(a.ctx, "tab_created", map[string]interface{}{
+		"id":              fullTab.ID,
+		"title":           fullTab.Title,
+		"conversation_id": conv.ID,
+	})
+
+	return fullTab, nil
 }
 
 func (a *App) RenameConversation(conversationID uint, newTitle string) error {
@@ -518,6 +547,22 @@ func (a *App) DeleteMessages(conversationID uint, messageIDs []uint) error {
 		}
 	}
 	return nil
+}
+
+// ==================== Search ====================
+
+// MessageSearchResult re-exporta o tipo do database
+type MessageSearchResult = database.MessageSearchResult
+
+// SearchConversationHistory busca no conteúdo de todas as mensagens usando FTS5.
+// Suporta palavras, "frases exatas", prefixo*, operadores OR/AND/NOT.
+func (a *App) SearchConversationHistory(query string, limit int) ([]MessageSearchResult, error) {
+	return database.SearchMessageContent(query, limit)
+}
+
+// RebuildSearchIndex reconstrói o índice de busca full-text.
+func (a *App) RebuildSearchIndex() error {
+	return database.RebuildFTSIndex()
 }
 
 // ==================== Model ====================

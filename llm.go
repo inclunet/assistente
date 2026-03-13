@@ -529,6 +529,32 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		})
 	}
 
+	// Auto-rename: se a conversa tem título genérico, atualiza com o conteúdo da primeira mensagem.
+	// Garante título significativo mesmo quando tool calling está desabilitado no perfil.
+	if !createdNew && conversationID > 0 && userContent != "" {
+		conv, convErr := database.GetConversationInfo(conversationID)
+		if convErr == nil && conv != nil && conv.Title == "Nova Conversa" {
+			title := userContent
+			if len(title) > 50 {
+				title = title[:50]
+			}
+			if err := database.UpdateConversation(conversationID, title, ""); err == nil {
+				activeTab, tabErr := database.GetActiveTab()
+				if tabErr == nil && activeTab != nil && activeTab.ConversationID != nil && *activeTab.ConversationID == conversationID {
+					_ = database.UpdateTabTitle(activeTab.ID, title)
+					runtime.EventsEmit(a.ctx, "tab:title_updated", map[string]interface{}{
+						"tab_id":    activeTab.ID,
+						"new_title": title,
+					})
+				}
+				runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
+					"conversation_id": conversationID,
+					"new_title":       title,
+				})
+			}
+		}
+	}
+
 	// Obtém o perfil: usa profileSlug se especificado (canais), senão o ativo global
 	var activeProfile *profiles.Profile
 	var profileErr error
