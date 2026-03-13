@@ -9,22 +9,22 @@
   align-items: center;
   justify-content: center;
   padding: 8px;
-  background: var(--button-background, transparent);
-  border: 1px solid var(--border-color, #ccc);
+  background: transparent;
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
-  color: var(--text-color, #333);
+  color: var(--text-primary);
 }
 
 .tts-button:hover {
-  background: var(--button-hover-background, rgba(0, 0, 0, 0.05));
+  background: var(--bg-hover);
 }
 
 .tts-button.active {
-  background: var(--button-active-background, #007bff);
-  color: var(--button-active-text, white);
-  border-color: var(--button-active-background, #007bff);
+  background: var(--accent);
+  color: var(--text-inverse);
+  border-color: var(--accent);
 }
 
 .tts-button:disabled {
@@ -37,12 +37,12 @@
 }
 
 .tts-button.stop {
-  background: var(--button-stop-background, #dc3545);
-  color: white;
-  border-color: var(--button-stop-background, #dc3545);
+  background: var(--color-danger);
+  color: var(--text-inverse);
+  border-color: var(--color-danger);
 }
 
 .tts-button.stop:hover {
-  background: var(--button-stop-hover-background, #c82333);
-  border-color: var(--button-stop-hover-background, #c82333);
+  background: var(--color-danger-hover);
+  border-color: var(--color-danger-hover);
 }

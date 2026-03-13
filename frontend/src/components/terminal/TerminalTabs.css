@@ -1,19 +1,19 @@
 .terminal-tabs {
   /* Aliases de tokens para convergir com `ui/tabs` (sem mudar o visual). */
-  --tab-accent: var(--color-accent, #2196f3);
-  --tab-bg: var(--color-bg-tertiary, #e8e8e8);
-  --tab-bg-hover: var(--color-bg-hover, #ddd);
-  --tab-bg-active: var(--color-bg-primary, #fff);
-  --tab-border-active: var(--color-border, #ddd);
-  --tab-color-muted: var(--color-text-tertiary, #999);
+  --tab-accent: var(--color-accent, var(--accent));
+  --tab-bg: var(--color-bg-tertiary, var(--bg-elevated));
+  --tab-bg-hover: var(--color-bg-hover, var(--bg-hover));
+  --tab-bg-active: var(--color-bg-primary, var(--bg-surface));
+  --tab-border-active: var(--color-border, var(--border-default));
+  --tab-color-muted: var(--color-text-tertiary, var(--text-muted));
 
   --tabs-focus-outline: 2px solid var(--tab-accent);
   --tabs-focus-outline-offset: -2px;
 
   display: flex;
   align-items: center;
-  background-color: var(--tabs-bar-bg, var(--color-bg-secondary, #f0f0f0));
-  border-bottom: 1px solid var(--tabs-bar-border, var(--color-border, #ddd));
+  background-color: var(--tabs-bar-bg, var(--color-bg-secondary, var(--bg-surface)));
+  border-bottom: 1px solid var(--tabs-bar-border, var(--color-border, var(--border-default)));
   min-height: 36px;
   padding: 0 4px;
 }
@@ -94,7 +94,7 @@
 .terminal-tabs__tab-state {
   font-size: 0.6rem;
   line-height: 1;
-  color: var(--color-accent, #2196f3);
+  color: var(--accent);
   animation: terminal-tab-pulse 1s infinite;
 }
 
@@ -132,8 +132,8 @@
 }
 
 .terminal-tabs__tab-close:hover {
-  background-color: var(--color-error-bg, #ffebee);
-  color: var(--color-error, #c62828);
+  background-color: var(--color-error-bg, var(--color-danger-dim));
+  color: var(--color-error, var(--color-danger));
 }
 
 .terminal-tabs__new-btn {
@@ -144,41 +144,23 @@
   height: 28px;
   padding: 0;
   margin-left: 4px;
-  border: 1px dashed var(--color-border, #ccc);
+  border: 1px dashed var(--color-border, var(--border-default));
   background: none;
   border-radius: 6px;
   cursor: pointer;
   font-size: 1.1rem;
-  color: var(--color-text-secondary, #888);
+  color: var(--color-text-secondary, var(--text-secondary));
   transition: all 0.15s ease;
   flex-shrink: 0;
 }
 
 .terminal-tabs__new-btn:hover {
-  background-color: var(--color-bg-hover, #e8e8e8);
-  border-color: var(--color-accent, #2196f3);
-  color: var(--color-accent, #2196f3);
+  background-color: var(--color-bg-hover, var(--bg-hover));
+  border-color: var(--color-accent, var(--accent));
+  color: var(--color-accent, var(--accent));
 }
 
 .terminal-tabs__new-btn:focus-visible {
-  outline: 2px solid var(--color-accent, #2196f3);
+  outline: 2px solid var(--color-accent, var(--accent));
   outline-offset: 2px;
-}
-
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  .terminal-tabs {
-    background-color: var(--tabs-bar-bg, var(--color-bg-secondary-dark, #1a1a1a));
-    border-bottom-color: var(--tabs-bar-border, var(--color-border-dark, #333));
-
-    --tab-bg: var(--color-bg-tertiary-dark, #252525);
-    --tab-bg-hover: var(--color-bg-hover-dark, #333);
-    --tab-bg-active: var(--color-bg-primary-dark, #1e1e1e);
-    --tab-border-active: var(--color-border-dark, #444);
-  }
-
-  .terminal-tabs__tab-close:hover {
-    background-color: rgba(198, 40, 40, 0.2);
-    color: #ef9a9a;
-  }
 }

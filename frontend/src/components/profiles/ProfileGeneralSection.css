@@ -13,31 +13,31 @@
 .profile-general-section__label {
   font-size: 13px;
   font-weight: 500;
-  color: var(--text-primary, #333);
+  color: var(--text-primary);
 }
 
 .profile-general-section__input {
   padding: 8px 12px;
-  border: 1px solid var(--border-color, #ccc);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   font-size: 14px;
-  background-color: var(--bg-primary, white);
-  color: var(--text-primary, #333);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
   transition: border-color 0.2s ease;
 }
 
 .profile-general-section__input:focus {
   outline: none;
-  border-color: var(--color-primary, #2196f3);
-  box-shadow: 0 0 0 2px var(--color-focus, rgba(33, 150, 243, 0.2));
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .profile-general-section__input:disabled {
-  background-color: var(--bg-disabled, #f5f5f5);
-  color: var(--text-disabled, #999);
+  background-color: var(--bg-muted);
+  color: var(--text-muted);
   cursor: not-allowed;
 }
 
 .profile-general-section__input::placeholder {
-  color: var(--text-placeholder, #999);
+  color: var(--text-muted);
 }

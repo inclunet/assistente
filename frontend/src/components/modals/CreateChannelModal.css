@@ -34,9 +34,9 @@
 
 .template-card:hover {
   background: var(--bg-hover);
-  border-color: var(--primary);
+  border-color: var(--accent);
   transform: translateY(-2px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 12px var(--bg-overlay);
 }
 
 .template-card:active {
@@ -96,7 +96,7 @@
   align-items: center;
   gap: 0.25rem;
   font-size: 0.85rem;
-  color: var(--primary);
+  color: var(--accent);
   text-decoration: none;
   transition: opacity 0.2s ease;
 }
@@ -127,10 +127,10 @@
 
 .error-message {
   padding: 0.875rem 1rem;
-  background: rgba(239, 68, 68, 0.1);
-  border: 1px solid rgba(239, 68, 68, 0.3);
+  background: var(--color-danger-dim);
+  border: 1px solid var(--color-danger);
   border-radius: 6px;
-  color: #ef4444;
+  color: var(--color-danger);
   font-size: 0.9rem;
   line-height: 1.4;
 }

@@ -18,8 +18,8 @@
 .history-page__search-status {
   padding: 0.5rem 1rem;
   font-size: 0.8rem;
-  color: var(--text-secondary, #666);
-  border-bottom: 1px solid var(--border-color, #e0e0e0);
+  color: var(--text-secondary);
+  border-bottom: 1px solid var(--border-default);
 }
 
 /* Célula de título com snippet */
@@ -36,29 +36,10 @@
 
 .history-page__title-snippet {
   font-size: 0.8em;
-  color: var(--text-secondary, #777);
+  color: var(--text-muted);
   opacity: 0.85;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  .history-page {
-    background-color: var(--background-dark, #1a1a1a);
-  }
-  
-  .history-page .loading {
-    color: var(--text-secondary-dark, #aaa);
-  }
-
-  .history-page__search-status {
-    color: var(--text-secondary-dark, #aaa);
-    border-bottom-color: var(--border-color-dark, #444);
-  }
-
-  .history-page__title-snippet {
-    color: var(--text-secondary-dark, #999);
-  }
-}

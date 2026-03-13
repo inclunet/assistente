@@ -1,10 +1,10 @@
 .context-menu {
   position: fixed;
   z-index: 10000;
-  background: var(--bg-secondary, #1e1e1e);
-  border: 1px solid var(--border-color, #3e3e3e);
+  background: var(--bg-secondary, var(--bg-elevated));
+  border: 1px solid var(--border-color, var(--border-default));
   border-radius: 8px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  box-shadow: 0 4px 12px var(--bg-overlay);
   padding: 4px;
   min-width: 200px;
   max-width: 320px;
@@ -25,7 +25,7 @@
   padding: 8px 12px;
   background: transparent;
   border: none;
-  color: var(--text-primary, #e4e4e4);
+  color: var(--text-primary);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -38,7 +38,7 @@
 
 .context-menu__item:hover,
 .context-menu__item:focus {
-  background: var(--hover-bg, #2a2a2a);
+  background: var(--hover-bg, var(--bg-hover));
   outline: none;
 }
 
@@ -53,12 +53,12 @@
 }
 
 .context-menu__item--danger {
-  color: var(--error-color, #f44336);
+  color: var(--color-danger);
 }
 
 .context-menu__item--danger:hover,
 .context-menu__item--danger:focus {
-  background: rgba(244, 67, 54, 0.1);
+  background: var(--color-danger-dim);
 }
 
 .context-menu__icon {
@@ -94,13 +94,13 @@
 
 .context-menu__separator {
   height: 1px;
-  background: var(--border-color, #3e3e3e);
+  background: var(--border-color, var(--border-default));
   margin: 4px 0;
 }
 
 /* Acessibilidade */
 .context-menu__item:focus-visible {
-  outline: 2px solid var(--primary-color, #007acc);
+  outline: 2px solid var(--primary-color, var(--accent));
   outline-offset: -2px;
 }
 

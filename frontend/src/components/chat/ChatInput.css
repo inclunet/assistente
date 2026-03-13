@@ -3,21 +3,21 @@
   flex-direction: column;
   gap: 12px;
   padding: 16px;
-  border-top: 1px solid var(--border-color, #e0e0e0);
-  background-color: var(--bg-primary, #fff);
+  border-top: 1px solid var(--border-default);
+  background-color: var(--bg-surface);
   position: relative;
 }
 
 .chat-input.dragging {
-  background-color: var(--bg-secondary, #f5f5f5);
+  background-color: var(--bg-elevated);
 }
 
 .drag-overlay {
   position: absolute;
   inset: 0;
   z-index: 10;
-  background: rgba(102, 126, 234, 0.1);
-  border: 2px dashed var(--primary-color, #667eea);
+  background: var(--accent-dim);
+  border: 2px dashed var(--accent);
   border-radius: 12px;
   display: flex;
   align-items: center;
@@ -28,11 +28,11 @@
 .drag-overlay__content {
   font-size: 18px;
   font-weight: 600;
-  color: var(--primary-color, #667eea);
+  color: var(--accent);
   padding: 24px;
-  background: var(--bg-primary, #fff);
+  background: var(--bg-surface);
   border-radius: 12px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 16px color-mix(in srgb, var(--bg-base) 20%, transparent);
 }
 
 .chat-input__container {
@@ -48,9 +48,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  border: 2px solid var(--border-color, #e0e0e0);
-  background: var(--bg-primary, #fff);
-  color: var(--text-secondary, #666);
+  border: 2px solid var(--border-default);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
   border-radius: 12px;
   cursor: pointer;
   font-size: 20px;
@@ -59,9 +59,9 @@
 }
 
 .chat-input__attach-button:hover:not(:disabled) {
-  background: var(--bg-hover, #f5f5f5);
-  border-color: var(--primary-color, #667eea);
-  color: var(--primary-color, #667eea);
+  background: var(--bg-hover);
+  border-color: var(--accent);
+  color: var(--accent);
   transform: scale(1.05);
 }
 
@@ -71,7 +71,7 @@
 }
 
 .chat-input__attach-button:focus-visible {
-  outline: 2px solid var(--primary-color, #667eea);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -80,7 +80,7 @@
   min-height: 44px;
   max-height: 200px; /* DIMENSIONS.TEXTAREA_MAX_HEIGHT */
   padding: 12px 16px;
-  border: 2px solid var(--border-color, #e0e0e0);
+  border: 2px solid var(--border-default);
   border-radius: 12px;
   font-family: inherit;
   font-size: 15px;
@@ -88,23 +88,23 @@
   resize: none;
   overflow-y: auto;
   transition: border-color 0.2s ease;
-  background-color: var(--bg-primary, #fff);
-  color: var(--text-primary, #333);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
 }
 
 .chat-input__textarea:focus {
   outline: none;
-  border-color: var(--primary-color, #667eea);
+  border-color: var(--accent);
 }
 
 .chat-input__textarea:disabled {
-  background-color: var(--bg-disabled, #f5f5f5);
+  background-color: var(--bg-muted);
   cursor: not-allowed;
   opacity: 0.6;
 }
 
 .chat-input__textarea::placeholder {
-  color: var(--text-tertiary, #999);
+  color: var(--text-muted);
 }
 
 .chat-input__button {
@@ -135,7 +135,7 @@
 .chat-input__hint {
   margin-top: 8px;
   font-size: 12px;
-  color: var(--text-tertiary, #999);
+  color: var(--text-muted);
   text-align: center;
 }
 
@@ -149,51 +149,6 @@
 }
 
 .chat-input__textarea::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--border-default);
   border-radius: 3px;
-}
-
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  .chat-input {
-    border-top-color: rgba(255, 255, 255, 0.1);
-    background-color: var(--bg-primary, #1a1a1a);
-  }
-
-  .chat-input.dragging {
-    background-color: rgba(255, 255, 255, 0.05);
-  }
-
-  .drag-overlay__content {
-    background: var(--bg-primary, #1a1a1a);
-    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
-  }
-
-  .chat-input__attach-button {
-    border-color: rgba(255, 255, 255, 0.2);
-    background: rgba(255, 255, 255, 0.05);
-    color: var(--text-secondary, #aaa);
-  }
-
-  .chat-input__attach-button:hover:not(:disabled) {
-    background: rgba(255, 255, 255, 0.1);
-  }
-
-  .chat-input__textarea {
-    border-color: rgba(255, 255, 255, 0.2);
-    background-color: rgba(255, 255, 255, 0.05);
-    color: var(--text-primary, #e0e0e0);
-  }
-
-  .chat-input__textarea:focus {
-    border-color: var(--primary-color, #667eea);
-  }
-
-  .chat-input__textarea:disabled {
-    background-color: rgba(255, 255, 255, 0.02);
-  }
-
-  .chat-input__textarea::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.2);
-  }
 }

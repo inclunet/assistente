@@ -24,14 +24,14 @@
 
 .provider-form__testing {
   font-size: 0.875rem;
-  color: var(--text-secondary, #d4d4d8);
+  color: var(--text-secondary);
   padding-left: 0.5rem;
   white-space: nowrap;
 }
 
 .provider-form__success {
   font-size: 0.875rem;
-  color: var(--color-success, #22c55e);
+  color: var(--color-success);
   padding-left: 0.5rem;
   white-space: nowrap;
   font-weight: 500;
@@ -39,25 +39,25 @@
 
 .provider-form__error {
   padding: 0.75rem;
-  background-color: var(--color-error-bg, rgba(239, 68, 68, 0.1));
-  color: var(--color-error-text, #ef4444);
+  background-color: var(--color-error-bg, var(--color-danger-dim));
+  color: var(--color-error, var(--color-danger));
   border-radius: 4px;
   font-size: 0.9rem;
-  border-left: 3px solid var(--color-error-text, #ef4444);
+  border-left: 3px solid var(--color-error, var(--color-danger));
 }
 
 .provider-form__info {
   padding: 0.75rem;
-  background-color: var(--color-info-bg, rgba(59, 130, 246, 0.1));
-  color: var(--color-info-text, #3b82f6);
+  background-color: var(--color-info-bg, var(--color-info-dim));
+  color: var(--color-info);
   border-radius: 4px;
   font-size: 0.9rem;
-  border-left: 3px solid var(--color-info-text, #3b82f6);
+  border-left: 3px solid var(--color-info);
 }
 
 .provider-form__read-only-note {
   font-size: 0.8rem;
-  color: var(--text-secondary, #a1a1a1);
+  color: var(--text-secondary);
   display: block;
   margin-top: 0.25rem;
 }
@@ -80,7 +80,7 @@
   border: none;
   background-color: transparent;
   border-left: none;
-  color: var(--text-secondary, #d4d4d8);
+  color: var(--text-secondary);
   font-size: 0.85rem;
 }
 
@@ -90,7 +90,7 @@
   justify-content: flex-end;
   margin-top: 1rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--border-color, #3f3f46);
+  border-top: 1px solid var(--border-default);
 }
 
 .provider-form__actions button:disabled {

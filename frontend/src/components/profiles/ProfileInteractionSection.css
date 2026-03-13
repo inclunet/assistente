@@ -17,29 +17,29 @@
 .profile-interaction-section__label {
   font-weight: 500;
   font-size: 0.875rem;
-  color: var(--text-primary, #333);
+  color: var(--text-primary);
 }
 
 .profile-interaction-section__select {
   padding: 0.5rem;
-  border: 1px solid var(--border-color, #ccc);
+  border: 1px solid var(--border-default);
   border-radius: 4px;
   font-size: 0.875rem;
-  background-color: var(--background-secondary, #fff);
-  color: var(--text-primary, #333);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
   transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .profile-interaction-section__select:focus {
   outline: none;
-  border-color: var(--primary-color, #007acc);
-  box-shadow: 0 0 0 2px rgba(0, 122, 204, 0.2);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 .profile-interaction-section__select:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-  background-color: var(--background-tertiary, #f5f5f5);
+  background-color: var(--bg-muted);
 }
 
 .profile-interaction-section__checkbox-label {
@@ -63,7 +63,7 @@
 
 .profile-interaction-section__hint {
   font-size: 0.8125rem;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
   margin-top: 0.25rem;
 }
 

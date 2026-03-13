@@ -1,23 +1,23 @@
 .reasoning-section {
   margin-bottom: 8px;
   border-radius: 8px;
-  background-color: var(--color-surface-secondary, #f5f5f5);
-  border: 1px solid var(--color-border-subtle, #e0e0e0);
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   overflow: hidden;
   font-size: 0.9em;
 }
 
 .reasoning-section--streaming {
-  border-color: var(--color-accent, #2196f3);
+  border-color: var(--accent);
   animation: reasoning-pulse 2s ease-in-out infinite;
 }
 
 @keyframes reasoning-pulse {
   0%, 100% {
-    border-color: var(--color-accent, #2196f3);
+    border-color: var(--accent);
   }
   50% {
-    border-color: var(--color-accent-light, #64b5f6);
+    border-color: var(--accent-hover);
   }
 }
 
@@ -31,17 +31,17 @@
   border: none;
   cursor: pointer;
   text-align: left;
-  color: var(--color-text-secondary, #666);
+  color: var(--text-secondary);
   font-size: 0.85em;
   transition: background-color 0.2s ease;
 }
 
 .reasoning-section__header:hover {
-  background-color: var(--color-surface-hover, #eee);
+  background-color: var(--bg-hover);
 }
 
 .reasoning-section__header:focus {
-  outline: 2px solid var(--color-accent, #2196f3);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -51,12 +51,12 @@
 
 .reasoning-section__title {
   font-weight: 500;
-  color: var(--color-text-primary, #333);
+  color: var(--text-primary);
 }
 
 .reasoning-section__summary {
   flex: 1;
-  color: var(--color-text-tertiary, #999);
+  color: var(--text-muted);
   font-size: 0.9em;
 }
 
@@ -72,15 +72,15 @@
 .reasoning-section__content {
   padding: 12px;
   padding-top: 0;
-  color: var(--color-text-secondary, #666);
+  color: var(--text-secondary);
   max-height: 400px;
   overflow-y: auto;
-  border-top: 1px solid var(--color-border-subtle, #e0e0e0);
-  background-color: var(--color-surface-tertiary, #fafafa);
+  border-top: 1px solid var(--border-subtle);
+  background-color: var(--bg-elevated);
 }
 
 .reasoning-section__content pre {
-  background-color: var(--color-surface-code, #f0f0f0);
+  background-color: var(--bg-elevated);
   padding: 8px;
   border-radius: 4px;
   overflow-x: auto;
@@ -89,31 +89,10 @@
 .reasoning-section__cursor {
   display: inline-block;
   animation: blink 1s step-end infinite;
-  color: var(--color-accent, #2196f3);
+  color: var(--accent);
 }
 
 @keyframes blink {
   0%, 50% { opacity: 1; }
   51%, 100% { opacity: 0; }
-}
-
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  .reasoning-section {
-    background-color: var(--color-surface-secondary, #2a2a2a);
-    border-color: var(--color-border-subtle, #444);
-  }
-
-  .reasoning-section__header:hover {
-    background-color: var(--color-surface-hover, #333);
-  }
-
-  .reasoning-section__content {
-    background-color: var(--color-surface-tertiary, #252525);
-    border-color: var(--color-border-subtle, #444);
-  }
-
-  .reasoning-section__content pre {
-    background-color: var(--color-surface-code, #1e1e1e);
-  }
 }

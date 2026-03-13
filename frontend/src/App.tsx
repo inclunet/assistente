@@ -10,8 +10,10 @@ import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
 import { ConfirmHost } from './components/ui/ConfirmHost';
 import { QuestionnaireDialog, QuestionnairePayload } from './components/ui/QuestionnaireDialog';
 import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
+import { useTheme } from './hooks/useTheme';
 
 function App() {
+    useTheme();
     const navigate = useNavigate();
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
@@ -63,7 +65,7 @@ function App() {
                     temperature: config.chat_params?.temperature || 0.7,
                     maxTokens: config.chat_params?.max_tokens || 2000,
                     streamEnabled: config.chat_params?.stream ?? true,
-                    theme: 'system',
+                    theme: 'assistente',
                     language: 'pt-BR',
                 });
                 addToast('Configuração carregada!', 'success', 3000);

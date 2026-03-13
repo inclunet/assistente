@@ -59,17 +59,65 @@ export default function MinhaPage() {
 </div>
 ```
 
-## CSS
+## CSS e Sistema de Temas
 
 - **BEM-like**: `.bloco`, `.bloco__elemento`, `.bloco--modificador`
 - **Um arquivo CSS por página/componente**: `MinhaPage.css` importado no `.tsx`
-- **Variáveis CSS do tema**: `var(--bg-primary)`, `var(--text-primary)`, `var(--border-color)`, etc.
-- **Dark mode**: `@media (prefers-color-scheme: dark)` com variáveis `-dark`
 - **NUNCA inline styles** — use classes CSS
 - **Classe raiz**: `.nome-da-pagina-page` (ex: `history-page`, `profiles-page`)
 
-## Acessibilidade (obrigatório)
+### Design Tokens (OBRIGATÓRIO)
 
+Todas as cores DEVEM vir de variáveis CSS definidas em `frontend/src/theme.css`. **NUNCA use cores hardcoded** (`#hex`, `rgb()`, `rgba()`, nomes de cor) em arquivos CSS ou inline styles.
+
+| Categoria | Variáveis |
+|---|---|
+| Backgrounds | `--bg-base`, `--bg-surface`, `--bg-elevated`, `--bg-hover`, `--bg-muted`, `--bg-input`, `--bg-overlay` |
+| Texto | `--text-primary`, `--text-secondary`, `--text-muted`, `--text-inverse`, `--text-code` |
+| Bordas | `--border-subtle`, `--border-default`, `--border-strong` |
+| Acento | `--accent`, `--accent-hover`, `--accent-dim`, `--accent-strong` |
+| Semântico | `--color-success`, `--color-warning`, `--color-danger`, `--color-info` (+ `-hover`, `-dim`) |
+| Foco | `--focus-ring`, `--color-focus` |
+| Raio | `--radius-sm` (4px), `--radius-md` (6px), `--radius-lg` (8px), `--radius-xl` (12px) |
+| Tipografia | `--font-size-xs`, `--font-size-sm`, `--font-size-base`, `--font-size-lg`, `--font-size-xl`, `--font-mono` |
+
+```css
+/* ✅ CORRETO */
+.meu-componente {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+}
+
+/* ❌ ERRADO */
+.meu-componente {
+  background: #1a1a2e;
+  color: white;
+  border: 1px solid #333;
+  border-radius: 6px;
+}
+```
+
+### Temas
+
+- 5 temas disponíveis: Assistente (padrão), Ametista, Meia-Noite, Claro, Alto Contraste
+- Temas são ativados via atributo `data-theme` no `<html>`
+- **NUNCA use `@media (prefers-color-scheme: dark/light)`** — o sistema de temas substitui isso
+- Para trocar tema no código: `useTheme()` hook de `hooks/useTheme.ts`
+
+## Acessibilidade (OBRIGATÓRIO — nunca negligenciar)
+
+A acessibilidade é um requisito fundamental, não opcional. Toda mudança no frontend DEVE respeitar:
+
+### Contraste WCAG 2.1
+- `--text-primary` sobre `--bg-surface` ≥ 12:1 (AAA)
+- `--text-secondary` sobre `--bg-surface` ≥ 6:1 (AA)
+- `--text-muted` sobre `--bg-surface` ≥ 4.5:1 (AA para texto normal)
+- `--accent` sobre `--bg-surface` ≥ 4.5:1 (AA para texto normal)
+- Ao criar novos estilos, sempre verificar se o contraste é suficiente
+
+### ARIA e Semântica
 - Todo `<label>` DEVE ter `htmlFor` ligado ao `id` do input
 - Todo `<input type="range">` DEVE ter `aria-valuetext` com valor formatado
 - Toda `<section>` com `<h3>` DEVE usar `aria-labelledby` ligado ao id do heading
@@ -78,6 +126,17 @@ export default function MinhaPage() {
 - Listas e grids DEVEM usar `DataGrid` (já tem `role="grid"` e navegação por teclado)
 - Modais DEVEM usar `Modal` ou `SimpleModal` (já têm focus trap e ESC)
 - Classe `.sr-only` para textos visíveis apenas para leitores de tela
+
+### Navegação por teclado
+- Todo elemento interativo DEVE ser acessível por Tab
+- Menus e listas DEVEM suportar navegação por setas (Arrow keys)
+- ESC DEVE fechar modais, menus e popups
+- Foco DEVE ser restaurado ao fechar modal/menu (ver `restoreFocus` em App.tsx)
+
+### Deficiências visuais
+- Nunca use apenas cor para transmitir informação — adicione ícones ou texto
+- O tema "Alto Contraste" existe especificamente para baixa visão
+- Bordas de foco (`--focus-ring`) DEVEM ser visíveis e contrastantes
 
 ## Hooks disponíveis
 

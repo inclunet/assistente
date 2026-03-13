@@ -12,15 +12,17 @@ import { useChatStore } from '../store/chatStore';
 import { Button } from '../components';
 import { CollapsibleSection } from '../components/ui/CollapsibleSection';
 import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useTheme, THEMES, type ThemeId } from '../hooks/useTheme';
 import './RestoreDefaultsPage.css';
 
 export default function RestoreDefaultsPage() {
   const { addToast } = useUIStore();
   const { handleDatabaseReset } = useChatStore();
   const { announce } = useAnnouncer();
+  const { theme: currentTheme, setTheme } = useTheme();
 
   const [loadingOps, setLoadingOps] = useState<Set<string>>(new Set());
-  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['quick']));
+  const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['appearance', 'quick']));
 
   const isLoading = (opId: string) => loadingOps.has(opId);
 
@@ -141,6 +143,74 @@ export default function RestoreDefaultsPage() {
       </header>
 
       <main className="restore-content">
+        {/* Appearance - Aparência */}
+        <CollapsibleSection
+          title="🎨 Aparência"
+          isOpen={isSectionOpen('appearance')}
+          onToggle={() => toggleSection('appearance')}
+          ariaLabel="Aparência - escolha o tema visual"
+        >
+          <div className="theme-grid" role="radiogroup" aria-label="Selecionar tema">
+            {THEMES.map((t) => (
+              <button
+                key={t.id}
+                className={`theme-card${currentTheme === t.id ? ' theme-card--active' : ''}`}
+                role="radio"
+                aria-checked={currentTheme === t.id}
+                onClick={() => {
+                  setTheme(t.id as ThemeId);
+                  announce(`Tema alterado para ${t.label}`);
+                }}
+              >
+                <div className="theme-card__preview">
+                  {t.id === 'assistente' && (
+                    <>
+                      <div className="theme-card__swatch" style={{ background: '#0a1628' }} />
+                      <div className="theme-card__swatch" style={{ background: '#0f1f3a' }} />
+                      <div className="theme-card__swatch" style={{ background: '#2b7ef4' }} />
+                      <div className="theme-card__swatch" style={{ background: '#eef2f9' }} />
+                    </>
+                  )}
+                  {t.id === 'amethyst' && (
+                    <>
+                      <div className="theme-card__swatch" style={{ background: '#12082a' }} />
+                      <div className="theme-card__swatch" style={{ background: '#1c1040' }} />
+                      <div className="theme-card__swatch" style={{ background: '#a78bfa' }} />
+                      <div className="theme-card__swatch" style={{ background: '#f0ecf9' }} />
+                    </>
+                  )}
+                  {t.id === 'midnight' && (
+                    <>
+                      <div className="theme-card__swatch" style={{ background: '#0c0f14' }} />
+                      <div className="theme-card__swatch" style={{ background: '#151921' }} />
+                      <div className="theme-card__swatch" style={{ background: '#60a5fa' }} />
+                      <div className="theme-card__swatch" style={{ background: '#e8ecf2' }} />
+                    </>
+                  )}
+                  {t.id === 'light' && (
+                    <>
+                      <div className="theme-card__swatch" style={{ background: '#f0f4fa' }} />
+                      <div className="theme-card__swatch" style={{ background: '#ffffff' }} />
+                      <div className="theme-card__swatch" style={{ background: '#2b7ef4' }} />
+                      <div className="theme-card__swatch" style={{ background: '#0a1628' }} />
+                    </>
+                  )}
+                  {t.id === 'high-contrast' && (
+                    <>
+                      <div className="theme-card__swatch" style={{ background: '#000000' }} />
+                      <div className="theme-card__swatch" style={{ background: '#1a1a1a' }} />
+                      <div className="theme-card__swatch" style={{ background: '#5babff' }} />
+                      <div className="theme-card__swatch" style={{ background: '#ffffff' }} />
+                    </>
+                  )}
+                </div>
+                <span className="theme-card__name">{t.label}</span>
+                <span className="theme-card__desc">{t.description}</span>
+              </button>
+            ))}
+          </div>
+        </CollapsibleSection>
+
         {/* Quick Actions - Operações Rápidas */}
         <CollapsibleSection
           title="⚡ Operações Rápidas"

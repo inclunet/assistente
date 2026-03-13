@@ -63,7 +63,7 @@
     background-color: var(--color-bg-secondary);
     border: 1px solid var(--color-border);
     border-radius: var(--border-radius);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 4px 12px var(--bg-overlay);
     display: flex;
     flex-direction: column;
 }
@@ -115,12 +115,12 @@
 }
 
 .picker-dropdown li.selected {
-    background-color: rgba(88, 166, 255, 0.15);
+    background-color: var(--accent-dim);
 }
 
 .picker-dropdown li.highlighted.selected {
-    background-color: var(--color-accent);
-    color: var(--color-bg-primary);
+    background-color: var(--accent);
+    color: var(--text-inverse);
 }
 
 .picker-dropdown li.no-results {
@@ -150,6 +150,6 @@
 }
 
 .highlighted.selected .option-sublabel {
-    background: rgba(255, 255, 255, 0.2);
+    background: var(--accent-dim);
     color: inherit;
 }

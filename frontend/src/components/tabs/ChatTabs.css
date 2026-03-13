@@ -1,20 +1,20 @@
 .chat-tabs {
   /* Aliases de tokens para convergir com `ui/tabs` (sem mudar o visual). */
-  --tab-accent: var(--accent-color, #58a6ff);
+  --tab-accent: var(--accent-color, var(--accent));
   --tab-radius: 6px;
   --tab-bg: transparent;
-  --tab-bg-hover: var(--bg-hover, #2a2a2a);
-  --tab-bg-active: var(--bg-primary, #252525);
-  --tab-color: var(--text-primary, #e0e0e0);
-  --tab-color-muted: var(--text-secondary, #999);
+  --tab-bg-hover: var(--bg-hover);
+  --tab-bg-active: var(--bg-elevated);
+  --tab-color: var(--text-primary);
+  --tab-color-muted: var(--text-secondary);
 
   --tabs-focus-outline: 2px solid var(--tab-accent);
   --tabs-focus-outline-offset: -2px;
 
   display: flex;
   align-items: center;
-  background-color: var(--tabs-bar-bg, var(--bg-secondary, #1e1e1e));
-  border-bottom: 1px solid var(--tabs-bar-border, var(--border-color, #333));
+  background-color: var(--tabs-bar-bg, var(--bg-elevated));
+  border-bottom: 1px solid var(--tabs-bar-border, var(--border-default));
   overflow-x: auto;
   overflow-y: hidden;
   height: var(--tabs-height, 44px);
@@ -28,7 +28,7 @@
   padding: 0 8px;
   overflow-x: auto;
   scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb, #555) transparent;
+  scrollbar-color: var(--scrollbar-thumb, var(--border-default)) transparent;
 }
 
 .chat-tabs__tab-wrapper {
@@ -46,7 +46,7 @@
 }
 
 .chat-tabs__list::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb, #555);
+  background-color: var(--scrollbar-thumb, var(--border-default));
   border-radius: 3px;
 }
 
@@ -124,7 +124,7 @@
 
 .chat-tabs__tab-close:hover {
   opacity: 1;
-  background-color: var(--tab-bg-hover, rgba(255, 255, 255, 0.1));
+  background-color: var(--tab-bg-hover);
 }
 
 .chat-tabs__tab-close:focus-visible {
@@ -142,9 +142,9 @@
   height: 32px;
   padding: 0;
   background-color: transparent;
-  border: 1px solid var(--border-color, #333);
+  border: 1px solid var(--border-default);
   border-radius: 6px;
-  color: var(--text-secondary, #999);
+  color: var(--text-secondary);
   font-size: 1.25rem;
   font-weight: 300;
   cursor: pointer;
@@ -176,7 +176,7 @@
 }
 
 .chat-tabs__tab--drop-target {
-  border-left: 2px solid var(--accent-color, #58a6ff);
+  border-left: 2px solid var(--accent-color, var(--accent));
   position: absolute;
   top: 4px;
   bottom: 4px;
@@ -192,7 +192,7 @@
 .chat-tabs__tab-edit {
   flex: 1;
   padding: 4px 8px;
-  background-color: var(--bg-tertiary, #2d2d2d);
+  background-color: var(--bg-tertiary, var(--bg-elevated));
   border: 1px solid var(--tab-accent);
   border-radius: 4px;
   color: var(--tab-color);
@@ -204,7 +204,7 @@
 
 .chat-tabs__tab-edit:focus {
   border-color: var(--accent-bright, var(--tab-accent));
-  box-shadow: 0 0 0 2px rgba(88, 166, 255, 0.2);
+  box-shadow: 0 0 0 2px var(--focus-ring);
 }
 
 /* Aba vinculada a canal externo */

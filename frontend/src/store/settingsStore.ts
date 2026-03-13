@@ -8,7 +8,7 @@ export interface AppConfig {
   temperature: number;
   maxTokens: number;
   streamEnabled: boolean;
-  theme: 'light' | 'dark' | 'system';
+  theme: 'assistente' | 'amethyst' | 'midnight' | 'light' | 'high-contrast';
   language: string;
   // Nota: voz/TTS e STT agora vêm do perfil global (ttsService / useInteractionProfile)
 }
@@ -33,7 +33,7 @@ const defaultConfig: AppConfig = {
   temperature: 0.7,
   maxTokens: 2000,
   streamEnabled: true,
-  theme: 'system',
+  theme: 'assistente',
   language: 'pt-BR',
   // Nota: voz/TTS e STT agora vêm do perfil global
 };
@@ -60,6 +60,13 @@ export const useSettingsStore = create<SettingsState>()(
     }),
     {
       name: 'assistente-settings',
+      version: 1,
+      migrate: (persisted: any, version: number) => {
+        if (version === 0 && persisted?.config?.theme === 'amethyst') {
+          persisted.config.theme = 'assistente';
+        }
+        return persisted as { config: AppConfig | null };
+      },
       partialize: (state) => ({ config: state.config }),
     }
   )

@@ -58,7 +58,7 @@
 
 .slider__input::-webkit-slider-thumb:hover {
   transform: scale(1.1);
-  box-shadow: 0 0 0 4px var(--primary-alpha, rgba(59, 130, 246, 0.2));
+  box-shadow: 0 0 0 4px var(--accent-dim);
 }
 
 .slider__input:active::-webkit-slider-thumb {
@@ -83,7 +83,7 @@
 
 .slider__input::-moz-range-thumb:hover {
   transform: scale(1.1);
-  box-shadow: 0 0 0 4px var(--primary-alpha, rgba(59, 130, 246, 0.2));
+  box-shadow: 0 0 0 4px var(--accent-dim);
 }
 
 .slider__input:active::-moz-range-thumb {

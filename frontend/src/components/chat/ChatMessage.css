@@ -24,9 +24,9 @@
 
 .chat-message:focus,
 .chat-message--focused {
-  outline: 2px solid var(--accent-color, #667eea);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
-  box-shadow: 0 0 0 4px rgba(102, 126, 234, 0.1);
+  box-shadow: 0 0 0 4px var(--accent-dim);
 }
 
 @keyframes messageSlideIn {
@@ -41,7 +41,7 @@
 }
 
 .chat-message--user {
-  background-color: var(--bg-secondary, #f5f5f5);
+  background-color: var(--bg-elevated);
 }
 
 .chat-message--assistant {
@@ -51,11 +51,11 @@
 }
 
 .chat-message--assistant:focus {
-  background-color: rgba(102, 126, 234, 0.05);
+  background-color: var(--accent-dim);
 }
 
 .chat-message--assistant:hover {
-  background-color: rgba(102, 126, 234, 0.03);
+  background-color: var(--accent-dim);
 }
 
 .chat-message--assistant::after {
@@ -89,19 +89,19 @@
   justify-content: center;
   font-weight: 600;
   font-size: 14px;
-  color: white;
+  color: var(--text-inverse);
 }
 
 .chat-message__avatar-user {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, var(--accent) 0%, var(--color-purple) 100%);
 }
 
 .chat-message__avatar-assistant {
-  background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+  background: linear-gradient(135deg, var(--color-purple) 0%, var(--color-danger) 100%);
 }
 
 .chat-message__avatar-tool {
-  background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%);
+  background: linear-gradient(135deg, var(--color-info) 0%, var(--accent) 100%);
   font-size: 18px;
 }
 
@@ -121,7 +121,7 @@
 .chat-message__role {
   font-weight: 600;
   font-size: 14px;
-  color: var(--text-primary, #333);
+  color: var(--text-primary);
 }
 
 .chat-message__source-badge {
@@ -132,8 +132,8 @@
   font-weight: 500;
   padding: 1px 8px;
   border-radius: 10px;
-  background-color: var(--accent-bg, rgba(102, 126, 234, 0.1));
-  color: var(--accent-color, #667eea);
+  background-color: var(--accent-dim);
+  color: var(--accent);
   letter-spacing: 0.3px;
 }
 
@@ -143,13 +143,13 @@
 
 .chat-message__timestamp {
   font-size: 12px;
-  color: var(--text-tertiary, #999);
+  color: var(--text-muted);
 }
 
 .chat-message__text {
   font-size: 15px;
   line-height: 1.6;
-  color: var(--text-secondary, #555);
+  color: var(--text-secondary);
   white-space: pre-wrap;
   word-wrap: break-word;
 }
@@ -157,7 +157,7 @@
 .chat-message__cursor {
   display: inline-block;
   animation: blink 1s infinite;
-  color: var(--primary-color, #667eea);
+  color: var(--accent);
 }
 
 @keyframes blink {
@@ -171,8 +171,8 @@
 
 /* Reading mode (virtual modal) */
 .chat-message--reading {
-  background-color: var(--reading-bg, rgba(102, 126, 234, 0.06));
-  border: 2px solid var(--accent-color, #667eea);
+  background-color: var(--reading-bg);
+  border: 2px solid var(--accent);
   border-radius: 8px;
   position: relative;
 }
@@ -181,8 +181,8 @@
   position: absolute;
   top: 8px;
   right: 12px;
-  background-color: var(--accent-color, #667eea);
-  color: white;
+  background-color: var(--accent);
+  color: var(--text-inverse);
   font-size: 11px;
   font-weight: 600;
   padding: 2px 10px;
@@ -207,8 +207,8 @@
 
 /* Edit mode inline */
 .chat-message--editing {
-  background-color: var(--info-bg, #e7f3ff) !important;
-  border: 2px solid var(--primary-color, #007bff);
+  background-color: var(--color-info-dim) !important;
+  border: 2px solid var(--accent);
 }
 
 .chat-message__edit {
@@ -221,20 +221,20 @@
   width: 100%;
   min-height: 80px;
   padding: 12px;
-  border: 2px solid var(--border-color, #d0d0d0);
+  border: 2px solid var(--border-default);
   border-radius: 8px;
   font-family: inherit;
   font-size: 15px;
   line-height: 1.5;
   resize: vertical;
   transition: border-color 0.2s;
-  background-color: var(--bg-primary, #fff);
-  color: var(--text-primary, #1a1a1a);
+  background-color: var(--bg-surface);
+  color: var(--text-primary);
 }
 
 .chat-message__edit-textarea:focus {
   outline: none;
-  border-color: var(--primary-color, #007bff);
+  border-color: var(--accent);
 }
 
 .chat-message__edit-actions {
@@ -254,70 +254,27 @@
 }
 
 .chat-message__edit-button--cancel {
-  background-color: var(--bg-secondary, #f5f5f5);
-  color: var(--text-primary, #1a1a1a);
+  background-color: var(--bg-elevated);
+  color: var(--text-primary);
 }
 
 .chat-message__edit-button--cancel:hover {
-  background-color: var(--bg-hover, #e0e0e0);
+  background-color: var(--bg-hover);
 }
 
 .chat-message__edit-button--save {
-  background-color: var(--primary-color, #007bff);
-  color: white;
+  background-color: var(--accent);
+  color: var(--text-inverse);
 }
 
 .chat-message__edit-button--save:hover:not(:disabled) {
-  background-color: var(--primary-hover, #0056b3);
+  background-color: var(--accent-hover);
   transform: translateY(-1px);
 }
 
 .chat-message__edit-button--save:disabled {
   opacity: 0.5;
   cursor: not-allowed;
-}
-
-/* Dark mode support */
-@media (prefers-color-scheme: dark) {
-  .chat-message--user {
-    background-color: rgba(255, 255, 255, 0.05);
-  }
-
-  .chat-message__role {
-    color: var(--text-primary, #e0e0e0);
-  }
-
-  .chat-message__text {
-    color: var(--text-secondary, #b0b0b0);
-  }
-
-  .chat-message--reading {
-    background-color: rgba(102, 126, 234, 0.12);
-    border-color: var(--accent-color, #667eea);
-  }
-
-  .chat-message__reading-badge {
-    background-color: var(--accent-color, #7b93f5);
-  }
-
-  .chat-message--editing {
-    background-color: rgba(0, 123, 255, 0.15) !important;
-  }
-
-  .chat-message__edit-textarea {
-    background-color: var(--bg-secondary, #2a2a2a);
-    color: var(--text-primary, #e0e0e0);
-    border-color: var(--border-color, #444);
-  }
-
-  .chat-message__edit-button--cancel {
-    background-color: var(--bg-secondary, #2a2a2a);
-    color: var(--text-primary, #e0e0e0);
-  }
-
-  .chat-message__edit-button--cancel:hover {
-    background-color: var(--bg-hover, #3a3a3a);
-  }
 }
 
 /* Botao de play audio */
@@ -337,8 +294,8 @@
 .chat-message__play-btn:hover,
 .chat-message__play-btn:focus-visible {
   opacity: 1;
-  background-color: var(--bg-hover, rgba(0, 0, 0, 0.08));
-  outline: 2px solid var(--accent-color, #667eea);
+  background-color: var(--bg-hover);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
 }
 

@@ -1,6 +1,6 @@
 .sidebar {
-  background: white;
-  border-right: 1px solid #e5e7eb;
+  background: var(--bg-surface);
+  border-right: 1px solid var(--border-default);
   display: flex;
   flex-direction: column;
   overflow-y: auto;
@@ -18,18 +18,19 @@
   align-items: center;
   gap: 0.75rem;
   padding: 0.75rem 1rem;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   text-decoration: none;
-  color: #374151;
+  color: var(--text-secondary);
   font-weight: 500;
   transition: all 0.2s;
 }
 
 .sidebar__link:hover {
-  background: #f3f4f6;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .sidebar__link--active {
-  background: #eff6ff;
-  color: #3b82f6;
+  background: var(--accent-dim);
+  color: var(--accent);
 }

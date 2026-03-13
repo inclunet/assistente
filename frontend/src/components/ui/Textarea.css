@@ -11,15 +11,15 @@
 .textarea-label {
   font-size: 0.875rem;
   font-weight: 500;
-  color: #e4e4e7;
+  color: var(--text-secondary);
 }
 
 .textarea {
   padding: 0.625rem 0.875rem;
-  border: 1px solid #3f3f46;
-  border-radius: 6px;
-  background: #18181b;
-  color: #e4e4e7;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  background: var(--bg-input);
+  color: var(--text-primary);
   font-family: inherit;
   font-size: 0.9375rem;
   line-height: 1.5;
@@ -29,15 +29,15 @@
 }
 
 .textarea:focus-visible {
-  outline: 2px solid var(--accent, #60a5fa);
+  outline: 2px solid var(--accent);
   outline-offset: 1px;
-  border-color: var(--accent, #60a5fa);
-  box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.15);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--focus-ring);
 }
 
 .textarea-hint {
   font-size: 0.8125rem;
-  color: var(--text-muted, #a1a1aa);
+  color: var(--text-muted);
 }
 
 .textarea:disabled {
@@ -46,17 +46,17 @@
 }
 
 .textarea--error {
-  border-color: #ef4444;
+  border-color: var(--color-danger);
 }
 
 .textarea--error:focus {
-  border-color: #ef4444;
-  box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.1);
+  border-color: var(--color-danger);
+  box-shadow: 0 0 0 3px var(--color-danger-dim);
 }
 
 .textarea-error {
   font-size: 0.8125rem;
-  color: #ef4444;
+  color: var(--color-danger);
 }
 
 .textarea--resize-none {

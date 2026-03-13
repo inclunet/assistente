@@ -11,25 +11,25 @@
   align-items: flex-start;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--border-color, #ddd);
+  border: 1px solid var(--border-color, var(--border-default));
   border-radius: 4px;
-  background-color: var(--bg-primary, white);
+  background-color: var(--bg-primary, var(--bg-surface));
   transition: background-color 0.2s ease, border-color 0.2s ease;
 }
 
 .checkbox-grid__item:has(.checkbox-grid__checkbox:checked) {
-  background-color: var(--color-primary-light, #e3f2fd);
-  border-color: var(--color-primary, #2196f3);
+  background-color: var(--color-primary-light, var(--color-info-dim));
+  border-color: var(--color-primary, var(--accent));
 }
 
 .checkbox-grid__item:has(.checkbox-grid__checkbox:focus-visible) {
-  box-shadow: 0 0 0 2px var(--color-focus, rgba(33, 150, 243, 0.5));
+  box-shadow: 0 0 0 2px var(--color-focus, var(--focus-ring));
 }
 
 .checkbox-grid__checkbox {
   margin-top: 2px;
   cursor: pointer;
-  accent-color: var(--color-primary, #2196f3);
+  accent-color: var(--color-primary, var(--accent));
 }
 
 .checkbox-grid__label {
@@ -43,19 +43,19 @@
 .checkbox-grid__label-text {
   font-weight: 500;
   font-size: 13px;
-  color: var(--text-primary, #333);
+  color: var(--text-primary);
 }
 
 .checkbox-grid__description {
   font-size: 12px;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
 .checkbox-grid__badge {
   font-size: 11px;
-  background-color: var(--color-secondary, #ff9800);
-  color: white;
+  background-color: var(--color-secondary, var(--color-warning));
+  color: var(--text-inverse);
   padding: 2px 6px;
   border-radius: 3px;
   white-space: nowrap;
@@ -65,6 +65,6 @@
   grid-column: 1 / -1;
   padding: 32px;
   text-align: center;
-  color: var(--text-secondary, #999);
+  color: var(--text-secondary);
   font-size: 14px;
 }

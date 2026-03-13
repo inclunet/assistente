@@ -18,8 +18,8 @@
   padding: 0;
   border: none;
   border-radius: 50%;
-  background: var(--bg-tertiary, #374151);
-  color: var(--text-primary, #f9fafb);
+  background: var(--bg-elevated);
+  color: var(--text-primary);
   cursor: pointer;
   transition: all 0.2s ease;
   overflow: visible;
@@ -28,12 +28,12 @@
 }
 
 .voice-button:hover:not(:disabled) {
-  background: var(--bg-hover, #4b5563);
+  background: var(--bg-hover);
   transform: scale(1.05);
 }
 
 .voice-button:focus-visible {
-  outline: 2px solid var(--focus-ring, #3b82f6);
+  outline: 2px solid var(--focus-ring);
   outline-offset: 2px;
 }
 
@@ -44,81 +44,81 @@
 
 /* Estado de gravação */
 .voice-button--recording {
-  background: var(--color-danger, #ef4444);
+  background: var(--color-danger);
   animation: pulse-recording 1.5s ease-in-out infinite;
 }
 
 .voice-button--recording:hover:not(:disabled) {
-  background: var(--color-danger-hover, #dc2626);
+  background: var(--color-danger-hover);
 }
 
 @keyframes pulse-recording {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4);
+    box-shadow: 0 0 0 0 var(--color-danger-dim);
   }
   50% {
-    box-shadow: 0 0 0 12px rgba(239, 68, 68, 0);
+    box-shadow: 0 0 0 12px transparent;
   }
 }
 
 /* Estado de escuta (VAD/Wakeword aguardando fala) */
 .voice-button--listening {
-  background: var(--color-success, #22c55e);
+  background: var(--color-success);
   animation: pulse-listening 2s ease-in-out infinite;
 }
 
 .voice-button--listening:hover:not(:disabled) {
-  background: var(--color-success-hover, #16a34a);
+  background: var(--color-success-hover);
 }
 
 @keyframes pulse-listening {
   0%, 100% {
-    box-shadow: 0 0 0 0 rgba(34, 197, 94, 0.4);
+    box-shadow: 0 0 0 0 var(--color-success-dim);
   }
   50% {
-    box-shadow: 0 0 0 8px rgba(34, 197, 94, 0);
+    box-shadow: 0 0 0 8px transparent;
   }
 }
 
 /* Estado de processamento */
 .voice-button--processing {
-  background: var(--color-warning, #f59e0b);
+  background: var(--color-warning);
   cursor: wait;
 }
 
 /* Modo PTT - visual diferenciado */
 .voice-button--ptt {
-  border: 2px dashed var(--border-color, #4b5563);
+  border: 2px dashed var(--border-default);
 }
 
 .voice-button--ptt.voice-button--recording {
-  border: 2px solid var(--color-danger, #ef4444);
+  border: 2px solid var(--color-danger);
 }
 
 /* Modo VAD - visual com ondas */
 .voice-button--vad {
-  border: 2px solid var(--color-info, #3b82f6);
+  border: 2px solid var(--color-info);
 }
 
 .voice-button--vad.voice-button--listening {
-  border-color: var(--color-success, #22c55e);
+  border-color: var(--color-success);
 }
 
 .voice-button--vad.voice-button--recording {
-  border-color: var(--color-danger, #ef4444);
+  border-color: var(--color-danger);
 }
 
 /* Modo Wakeword - visual com indicador de palavra */
 .voice-button--wakeword {
-  border: 2px solid var(--color-purple, #8b5cf6);
+  border: 2px solid var(--color-purple);
 }
 
 .voice-button--wakeword.voice-button--listening {
-  border-color: var(--color-success, #22c55e);
+  border-color: var(--color-success);
 }
 
 .voice-button--wakeword.voice-button--recording {
-  border-color: var(--color-danger, #ef4444);
+  border-color: var(--color-danger);
 }
 
 /* Indicador de volume */
@@ -129,7 +129,7 @@
   width: 100%;
   height: 100%;
   border-radius: 50%;
-  background: rgba(239, 68, 68, 0.3);
+  background: var(--color-danger-dim);
   transform: translate(-50%, -50%) scale(1);
   transform-origin: center;
   pointer-events: none;
@@ -157,22 +157,22 @@
   right: -2px;
   font-size: 8px;
   font-weight: 700;
-  background: var(--bg-secondary, #1f2937);
-  color: var(--text-muted, #9ca3af);
+  background: var(--bg-elevated);
+  color: var(--text-muted);
   padding: 1px 3px;
   border-radius: 3px;
   line-height: 1;
 }
 
 .voice-button--recording .voice-button__mode-label {
-  background: var(--color-danger-dark, #991b1b);
-  color: white;
+  background: var(--color-danger-dark);
+  color: var(--text-inverse);
 }
 
 /* Dica visual (Segure) */
 .voice-button__hint {
   font-size: 10px;
-  color: var(--text-muted, #9ca3af);
+  color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -185,16 +185,16 @@
   transform: translateX(-50%);
   margin-bottom: 8px;
   padding: 8px 12px;
-  background: var(--bg-secondary, #1f2937);
-  border: 1px solid var(--border-color, #374151);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
-  color: var(--text-primary, #f9fafb);
+  color: var(--text-primary);
   font-size: 14px;
   max-width: 300px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+  box-shadow: 0 4px 6px -1px color-mix(in srgb, var(--bg-base) 10%, transparent);
   z-index: 10;
   animation: fadeIn 0.2s ease;
 }
@@ -206,7 +206,7 @@
   left: 50%;
   transform: translateX(-50%);
   border: 6px solid transparent;
-  border-top-color: var(--bg-secondary, #1f2937);
+  border-top-color: var(--bg-elevated);
 }
 
 @keyframes fadeIn {
@@ -245,7 +245,7 @@
   }
   
   .voice-button--recording {
-    border-color: var(--color-danger, #ef4444);
+    border-color: var(--color-danger);
   }
 }
 

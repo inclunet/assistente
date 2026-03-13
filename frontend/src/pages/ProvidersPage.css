@@ -47,16 +47,16 @@
 }
 
 .provider-status--configured {
-  background-color: rgba(34, 197, 94, 0.1);
-  color: #22c55e;
+  background-color: var(--color-success-dim);
+  color: var(--color-success);
 }
 
 .provider-status--missing {
-  background-color: rgba(239, 68, 68, 0.1);
-  color: #ef4444;
+  background-color: var(--color-danger-dim);
+  color: var(--color-danger);
 }
 
 .provider-status--none {
-  background-color: rgba(156, 163, 175, 0.1);
-  color: #9ca3af;
+  background-color: var(--bg-muted);
+  color: var(--text-muted);
 }

@@ -32,13 +32,13 @@
 .message-list__empty-title {
   font-size: 24px;
   font-weight: 600;
-  color: var(--text-primary, #333);
+  color: var(--text-primary);
   margin: 0 0 8px 0;
 }
 
 .message-list__empty-description {
   font-size: 16px;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
   margin: 0;
   line-height: 1.5;
 }
@@ -54,7 +54,7 @@
   display: flex;
   gap: 6px;
   padding: 12px 16px;
-  background-color: var(--bg-secondary, #f5f5f5);
+  background-color: var(--bg-elevated);
   border-radius: 18px;
   margin-left: 44px; /* Align with assistant avatar */
 }
@@ -62,7 +62,7 @@
 .message-list__loading-dots span {
   width: 8px;
   height: 8px;
-  background-color: var(--text-tertiary, #999);
+  background-color: var(--text-muted);
   border-radius: 50%;
   animation: loadingDot 1.4s infinite ease-in-out both;
 }
@@ -79,7 +79,7 @@
   margin-left: 44px; /* Align with assistant avatar */
   padding: 0 16px 4px;
   font-size: 13px;
-  color: var(--text-tertiary, #999);
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -104,33 +104,10 @@
 }
 
 .message-list::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.2);
+  background-color: var(--border-default);
   border-radius: 4px;
 }
 
 .message-list::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.3);
-}
-
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  .message-list__empty-title {
-    color: var(--text-primary, #e0e0e0);
-  }
-
-  .message-list__empty-description {
-    color: var(--text-secondary, #b0b0b0);
-  }
-
-  .message-list__loading-dots {
-    background-color: rgba(255, 255, 255, 0.05);
-  }
-
-  .message-list::-webkit-scrollbar-thumb {
-    background-color: rgba(255, 255, 255, 0.2);
-  }
-
-  .message-list::-webkit-scrollbar-thumb:hover {
-    background-color: rgba(255, 255, 255, 0.3);
-  }
+  background-color: var(--border-strong);
 }

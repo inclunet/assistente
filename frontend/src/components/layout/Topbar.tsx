@@ -1,12 +1,14 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useRef } from 'react';
 import { MenuButton, MenuItem, MenuButtonRef } from './MenuButton';
+import { useTheme, THEMES, type ThemeId } from '../../hooks/useTheme';
 import './Topbar.css';
 
 export function Topbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const menuButtonRef = useRef<MenuButtonRef>(null);
+  const { theme: currentTheme, setTheme } = useTheme();
 
   // Atalho Alt+M para abrir/fechar o menu e F1 para ajuda
   useEffect(() => {
@@ -111,6 +113,17 @@ export function Topbar() {
       label: 'Provedores LLM',
       icon: '🤖',
       onClick: () => navigate('/providers'),
+    },
+    {
+      id: 'theme',
+      label: 'Tema',
+      icon: '🎨',
+      submenu: THEMES.map((t) => ({
+        id: `theme-${t.id}`,
+        label: `${currentTheme === t.id ? '● ' : ''}${t.label}`,
+        icon: currentTheme === t.id ? '✓' : ' ',
+        onClick: () => setTheme(t.id as ThemeId),
+      })),
     },
     {
       id: 'settings',

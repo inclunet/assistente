@@ -10,7 +10,7 @@
   gap: var(--spacing-xs, 6px);
   font-weight: 600;
   font-size: 14px;
-  color: var(--text-primary, #333);
+  color: var(--text-primary);
 }
 
 .stt-picker-icon {
@@ -24,7 +24,7 @@
 }
 
 .stt-picker-error {
-  color: var(--error-color, #dc2626);
+  color: var(--color-danger);
 }
 
 .loading-state,
@@ -33,24 +33,24 @@
   align-items: center;
   gap: var(--spacing-sm, 8px);
   padding: var(--spacing-md, 12px);
-  border: 1px solid var(--border-color, #e5e5e5);
+  border: 1px solid var(--border-default);
   border-radius: var(--border-radius, 8px);
-  background-color: var(--bg-secondary, #f9f9f9);
+  background-color: var(--bg-surface);
 }
 
 .loading-spinner {
   width: 16px;
   height: 16px;
-  border: 2px solid var(--border-color, #e5e5e5);
-  border-top-color: var(--accent-color, #667eea);
+  border: 2px solid var(--border-default);
+  border-top-color: var(--accent);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }
 
 .error-state {
-  background-color: #fef2f2;
-  border-color: #fecaca;
-  color: var(--error-color, #dc2626);
+  background-color: var(--color-danger-dim);
+  border-color: var(--color-danger);
+  color: var(--color-danger);
 }
 
 .error-icon {
@@ -61,27 +61,27 @@
   padding: 4px 8px;
   font-size: 12px;
   font-weight: 500;
-  color: var(--accent-color, #667eea);
+  color: var(--accent);
   background: transparent;
-  border: 1px solid var(--accent-color, #667eea);
+  border: 1px solid var(--accent);
   border-radius: 4px;
   cursor: pointer;
   transition: all 0.2s ease;
 }
 
 .retry-btn:hover {
-  background-color: var(--accent-color, #667eea);
+  background-color: var(--accent);
   color: white;
 }
 
 .retry-btn:focus {
-  outline: 2px solid var(--accent-color, #667eea);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .help-text {
   font-size: 13px;
-  color: var(--text-tertiary, #999);
+  color: var(--text-muted);
   margin: 0;
 }
 

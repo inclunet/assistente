@@ -12,7 +12,7 @@
 }
 
 .terminal-history__loading-text {
-  color: var(--color-text-secondary, #666);
+  color: var(--text-secondary);
   font-style: italic;
 }
 
@@ -28,11 +28,11 @@
 .terminal-history__empty-icon {
   font-size: 3rem;
   font-family: monospace;
-  color: var(--color-text-tertiary, #ccc);
+  color: var(--text-muted);
 }
 
 .terminal-history__empty-text {
-  color: var(--color-text-secondary, #888);
+  color: var(--text-muted);
   font-size: 0.95rem;
   line-height: 1.6;
   margin: 0;

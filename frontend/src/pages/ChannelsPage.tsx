@@ -893,84 +893,84 @@ export default function ChannelsPage() {
             </Tab>
           ))}
         </TabList>
-      </Tabs>
 
-      <Toolbar
-        left={<h1 className="page-toolbar__title">Canais de Comunicação</h1>}
-        right={
-          <ToolbarButton
-            ref={createMenuButtonRef}
-            label="Novo"
-            icon="➕"
-            endIcon="▾"
-            shortcut="Ctrl+N"
-            variant="primary"
-            onClick={openCreateMenu}
-            aria-haspopup="menu"
-            aria-expanded={createMenuVisible}
-            aria-label="Novo canal"
-          />
-        }
-        actions={[
-          {
-            key: 'reload',
-            label: 'Recarregar',
-            icon: '🔄',
-            variant: 'secondary',
-            onClick: loadAll,
-          },
-        ]}
-        ariaLabel="Barra de ferramentas de canais"
-        onFocusGrid={activeTab === 'channels' ? channelsFocusFirstCell : contactsFocusFirstCell}
-      />
+        <Toolbar
+          left={<h1 className="page-toolbar__title">Canais de Comunicação</h1>}
+          right={
+            <ToolbarButton
+              ref={createMenuButtonRef}
+              label="Novo"
+              icon="➕"
+              endIcon="▾"
+              shortcut="Ctrl+N"
+              variant="primary"
+              onClick={openCreateMenu}
+              aria-haspopup="menu"
+              aria-expanded={createMenuVisible}
+              aria-label="Novo canal"
+            />
+          }
+          actions={[
+            {
+              key: 'reload',
+              label: 'Recarregar',
+              icon: '🔄',
+              variant: 'secondary',
+              onClick: loadAll,
+            },
+          ]}
+          ariaLabel="Barra de ferramentas de canais"
+          onFocusGrid={activeTab === 'channels' ? channelsFocusFirstCell : contactsFocusFirstCell}
+        />
 
-      {/* Channels tab panel */}
-      {activeTab === 'channels' && (
-        <TabPanel value="channels" className="channels-page__content">
-          <DataGrid
-            items={channelRows}
-            columns={channelColumns}
-            label="Canais de comunicação"
-            autoFocusOnMount={false}
-            getItemId={(item) => item.id}
-            onActivate={(item) => handleEditChannel(item)}
-            onCellAction={(item, column) => {
-              if (column.key === '_reconnect') {
-                handleReconnectChannel(item.name);
-              }
-            }}
-            onGridReady={channelsHandleGridReady}
-          />
-        </TabPanel>
-      )}
-
-      {/* Contacts tab panel */}
-      {activeTab === 'contacts' && (
-        <TabPanel value="contacts" className="channels-page__content">
-          <p className="channels-page__tab-description">
-            Contatos que podem se comunicar com o assistente por cada canal.
-            Remova um contato para liberar uma vaga para novas autorizações.
-          </p>
-          {contactRows.length > 0 ? (
+        {/* Channels tab panel */}
+        {activeTab === 'channels' && (
+          <TabPanel value="channels" className="channels-page__content">
             <DataGrid
-              items={contactRows}
-              columns={contactColumns}
-              label="Contatos autorizados"
+              items={channelRows}
+              columns={channelColumns}
+              label="Canais de comunicação"
               autoFocusOnMount={false}
               getItemId={(item) => item.id}
-              onCellAction={(item) => {
-                void handleDeleteContact(item);
+              onActivate={(item) => handleEditChannel(item)}
+              onCellAction={(item, column) => {
+                if (column.key === '_reconnect') {
+                  handleReconnectChannel(item.name);
+                }
               }}
-              onDelete={(item) => {
-                void handleDeleteContact(item);
-              }}
-              onGridReady={contactsHandleGridReady}
+              onGridReady={channelsHandleGridReady}
             />
-          ) : (
-            <p className="channels-page__empty" role="status">Nenhum contato autorizado.</p>
-          )}
-        </TabPanel>
-      )}
+          </TabPanel>
+        )}
+
+        {/* Contacts tab panel */}
+        {activeTab === 'contacts' && (
+          <TabPanel value="contacts" className="channels-page__content">
+            <p className="channels-page__tab-description">
+              Contatos que podem se comunicar com o assistente por cada canal.
+              Remova um contato para liberar uma vaga para novas autorizações.
+            </p>
+            {contactRows.length > 0 ? (
+              <DataGrid
+                items={contactRows}
+                columns={contactColumns}
+                label="Contatos autorizados"
+                autoFocusOnMount={false}
+                getItemId={(item) => item.id}
+                onCellAction={(item) => {
+                  void handleDeleteContact(item);
+                }}
+                onDelete={(item) => {
+                  void handleDeleteContact(item);
+                }}
+                onGridReady={contactsHandleGridReady}
+              />
+            ) : (
+              <p className="channels-page__empty" role="status">Nenhum contato autorizado.</p>
+            )}
+          </TabPanel>
+        )}
+      </Tabs>
 
       {/* Editor Modal */}
       <Modal

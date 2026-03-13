@@ -4,7 +4,7 @@
   justify-content: center;
   gap: 0.5rem;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-weight: 500;
   cursor: pointer;
   transition: all 0.2s;
@@ -34,52 +34,52 @@
 
 /* Variants */
 .btn--primary {
-  background: #3b82f6;
-  color: white;
+  background: var(--accent);
+  color: var(--text-inverse);
 }
 
 .btn--primary:hover:not(:disabled) {
-  background: #2563eb;
+  background: var(--accent-strong);
 }
 
 .btn--secondary {
-  background: #6b7280;
-  color: white;
+  background: var(--bg-muted);
+  color: var(--text-primary);
 }
 
 .btn--secondary:hover:not(:disabled) {
-  background: #4b5563;
+  background: var(--bg-hover);
 }
 
 .btn--danger {
-  background: #ef4444;
-  color: white;
+  background: var(--color-danger);
+  color: var(--text-inverse);
 }
 
 .btn--danger:hover:not(:disabled) {
-  background: #dc2626;
+  background: var(--color-danger-hover);
 }
 
 .btn--ghost {
   background: transparent;
-  color: #a1a1aa;
-  border: 1px solid #3f3f46;
+  color: var(--text-secondary);
+  border: 1px solid var(--border-default);
 }
 
 .btn--ghost:hover:not(:disabled) {
-  background: #27272a;
-  color: #e4e4e7;
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }
 
 .btn--outline {
   background: transparent;
-  color: #e4e4e7;
-  border: 1px solid #3f3f46;
+  color: var(--text-primary);
+  border: 1px solid var(--border-default);
 }
 
 .btn--outline:hover:not(:disabled) {
-  background: #27272a;
-  border-color: #52525b;
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
 }
 
 /* Full width */
@@ -97,8 +97,8 @@
   position: absolute;
   width: 1rem;
   height: 1rem;
-  border: 2px solid rgba(255, 255, 255, 0.3);
-  border-top-color: white;
+  border: 2px solid color-mix(in srgb, var(--text-inverse) 30%, transparent);
+  border-top-color: var(--text-inverse);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
 }

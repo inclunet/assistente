@@ -5,7 +5,7 @@
 }
 
 .editor-page__toolbar {
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .editor-page__title {
@@ -40,9 +40,9 @@
 .editor-page__pane {
   display: flex;
   flex-direction: column;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-subtle);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-muted);
   overflow: hidden;
   min-height: 0;
 }
@@ -50,7 +50,7 @@
 .editor-page__pane-title {
   padding: 8px 10px;
   font-weight: 600;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .editor-page__pane-body {
@@ -78,9 +78,9 @@
 
 .editor-page__rich-placeholder {
   padding: 16px;
-  border: 1px dashed rgba(255, 255, 255, 0.25);
+  border: 1px dashed var(--border-default);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-muted);
 }
 
 @media (max-width: 920px) {

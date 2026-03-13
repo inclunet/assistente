@@ -8,7 +8,8 @@ export interface MenuItem {
   label: string;
   icon: string;
   shortcut?: string;
-  onClick: () => void;
+  onClick?: () => void;
+  submenu?: MenuItem[];
 }
 
 interface MenuButtonProps {
@@ -37,8 +38,8 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
   function MenuButton({ items, currentItemId, buttonLabel = 'Menu de navegação' }, ref) {
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
-  const menuItems: MenuModelItem[] = useMemo(() => {
-    return items.map((item) => ({
+  const mapItems = (srcItems: MenuItem[]): MenuModelItem[] =>
+    srcItems.map((item) => ({
       id: item.id,
       label: item.label,
       icon: item.icon,
@@ -46,8 +47,13 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
       checked: currentItemId === item.id,
       ariaLabel: item.label,
       action: item.onClick,
+      submenu: item.submenu ? mapItems(item.submenu) : undefined,
     }));
-  }, [items, currentItemId]);
+
+  const menuItems: MenuModelItem[] = useMemo(
+    () => mapItems(items),
+    [items, currentItemId],
+  );
 
   const {
     menu,

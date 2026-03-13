@@ -23,51 +23,42 @@
 .allowlist-page__label {
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--color-text-secondary, #555);
+  color: var(--text-secondary);
 }
 
 .allowlist-page__input {
   padding: 8px 12px;
-  border: 1px solid var(--color-border, #ddd);
-  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   font-size: 0.9rem;
-  background-color: var(--color-bg-primary, #fff);
-  color: var(--color-text-primary, #333);
+  background-color: var(--bg-input);
+  color: var(--text-primary);
 }
 
 .allowlist-page__input:focus {
-  outline: 2px solid var(--color-accent, #2196f3);
+  outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
 
 .allowlist-page__textarea {
   padding: 8px 12px;
-  border: 1px solid var(--color-border, #ddd);
-  border-radius: 6px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   font-size: 0.85rem;
   font-family: 'Cascadia Code', 'Fira Code', 'Consolas', monospace;
   line-height: 1.5;
   resize: vertical;
-  background-color: var(--color-bg-primary, #fff);
-  color: var(--color-text-primary, #333);
+  background-color: var(--bg-input);
+  color: var(--text-primary);
 }
 
 .allowlist-page__textarea:focus {
-  outline: 2px solid var(--color-accent, #2196f3);
+  outline: 2px solid var(--accent);
   outline-offset: -1px;
 }
 
 .allowlist-page__hint {
   font-size: 0.75rem;
-  color: var(--color-text-tertiary, #999);
+  color: var(--text-muted);
 }
 
-/* Dark mode */
-@media (prefers-color-scheme: dark) {
-  .allowlist-page__input,
-  .allowlist-page__textarea {
-    background-color: var(--color-bg-primary-dark, #1e1e1e);
-    border-color: var(--color-border-dark, #444);
-    color: var(--color-text-primary-dark, #e0e0e0);
-  }
-}

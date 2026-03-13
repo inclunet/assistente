@@ -1,10 +1,10 @@
 .editor-tabs {
-  --tabs-bar-border: rgba(255, 255, 255, 0.08);
+  --tabs-bar-border: var(--border-subtle);
   --tab-radius: 10px;
-  --tab-border: rgba(255, 255, 255, 0.10);
-  --tab-border-active: rgba(255, 255, 255, 0.22);
-  --tab-bg: rgba(255, 255, 255, 0.03);
-  --tab-bg-active: rgba(255, 255, 255, 0.06);
+  --tab-border: var(--border-subtle);
+  --tab-border-active: var(--border-default);
+  --tab-bg: var(--bg-muted);
+  --tab-bg-active: var(--bg-hover);
 
   display: flex;
   gap: 6px;
@@ -55,14 +55,14 @@
   appearance: none;
   border: 0;
   background: transparent;
-  color: rgba(255, 255, 255, 0.75);
+  color: var(--text-secondary);
   cursor: pointer;
   padding: 6px 10px;
-  border-left: 1px solid rgba(255, 255, 255, 0.08);
+  border-left: 1px solid var(--border-subtle);
 }
 
 .editor-tabs__close:hover {
-  color: rgba(255, 255, 255, 0.95);
+  color: var(--text-primary);
 }
 
 .editor-tabs__edit {
@@ -73,6 +73,6 @@
   min-width: 0;
   padding: 6px 10px;
   border: 0;
-  background: rgba(0, 0, 0, 0.25);
+  background: var(--bg-overlay);
   color: inherit;
 }

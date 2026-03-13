@@ -17,9 +17,9 @@
 .mermaid-editor-modal__pane {
   display: flex;
   flex-direction: column;
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid var(--border-subtle);
   border-radius: 12px;
-  background: rgba(255, 255, 255, 0.03);
+  background: var(--bg-muted);
   overflow: hidden;
   min-height: 0;
 }
@@ -27,7 +27,7 @@
 .mermaid-editor-modal__pane-title {
   padding: 8px 10px;
   font-weight: 600;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .mermaid-editor-modal__pane-body {
@@ -58,8 +58,8 @@
 .mermaid-editor-modal__primary,
 .mermaid-editor-modal__secondary,
 .mermaid-editor-modal__danger {
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-default);
+  background: var(--bg-muted);
   color: inherit;
   padding: 8px 12px;
   border-radius: 10px;
@@ -67,13 +67,13 @@
 }
 
 .mermaid-editor-modal__primary {
-  background: rgba(80, 180, 255, 0.18);
-  border-color: rgba(80, 180, 255, 0.3);
+  background: var(--accent-dim);
+  border-color: var(--accent);
 }
 
 .mermaid-editor-modal__danger {
-  background: rgba(255, 90, 90, 0.16);
-  border-color: rgba(255, 90, 90, 0.3);
+  background: var(--color-danger-dim);
+  border-color: var(--color-danger);
 }
 
 .mermaid-editor-modal__primary:hover,

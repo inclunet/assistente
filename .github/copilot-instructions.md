@@ -1,5 +1,20 @@
 # Instruções para GitHub Copilot (assistente)
 
+## Sistema de Temas e Cores (OBRIGATÓRIO)
+- NUNCA use cores hardcoded (`#hex`, `rgb()`, `rgba()`, nomes de cor) em arquivos CSS.
+- Todas as cores DEVEM vir das variáveis CSS definidas em `frontend/src/theme.css`.
+- Variáveis principais: `--bg-base`, `--bg-surface`, `--bg-elevated`, `--bg-hover`, `--text-primary`, `--text-secondary`, `--text-muted`, `--border-subtle`, `--border-default`, `--accent`, `--color-success`, `--color-warning`, `--color-danger`, `--color-info`, `--focus-ring`.
+- NUNCA use `@media (prefers-color-scheme: dark/light)` — o app usa `data-theme` no `<html>`.
+- Use `var(--radius-sm)` / `var(--radius-md)` / `var(--radius-lg)` para border-radius.
+
+## Acessibilidade (NUNCA negligenciar)
+- Contraste mínimo: texto sobre fundo ≥ 4.5:1 (AA WCAG 2.1); preferir ≥ 7:1 (AAA).
+- Todo elemento interativo deve ser acessível por teclado (Tab, Enter, ESC, setas).
+- Usar `announce()` via `useAnnouncer` para feedback de ações para leitores de tela.
+- Nunca usar apenas cor para transmitir informação — combinar com ícones ou texto.
+- Usar componentes existentes (`DataGrid`, `Modal`, `Button`, `Toolbar`) que já têm ARIA correto.
+- Labels obrigatórios: `htmlFor` em `<label>`, `aria-label` em botões sem texto visível.
+
 ## Logs (performance + ruído)
 - Evite adicionar `console.log` em código de produção.
 - Ao mexer em um recurso/arquivo, remova `console.log` existentes no trecho tocado.

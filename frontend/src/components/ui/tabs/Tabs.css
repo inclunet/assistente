@@ -1,17 +1,17 @@
 .tabs {
   /* Tokens comuns (com fallbacks) para estilos de “tab bars”.
      Componentes de domínio podem sobrescrever esses valores localmente. */
-  --tabs-bar-bg: var(--color-bg-secondary, var(--bg-secondary, #1e1e1e));
-  --tabs-bar-border: var(--color-border, var(--border-color, #333));
+  --tabs-bar-bg: var(--color-bg-secondary, var(--bg-secondary, var(--bg-elevated)));
+  --tabs-bar-border: var(--color-border, var(--border-color, var(--border-subtle)));
   --tabs-height: 44px;
 
   --tab-radius: 6px;
   --tab-bg: transparent;
-  --tab-bg-hover: var(--color-bg-hover, var(--bg-hover, rgba(255, 255, 255, 0.06)));
-  --tab-bg-active: var(--color-bg-primary, var(--bg-primary, rgba(255, 255, 255, 0.08)));
+  --tab-bg-hover: var(--color-bg-hover, var(--bg-hover));
+  --tab-bg-active: var(--color-bg-primary, var(--bg-primary));
   --tab-border: transparent;
-  --tab-border-active: var(--color-border, var(--border-color, rgba(255, 255, 255, 0.22)));
-  --tab-accent: var(--color-accent, var(--accent-color, #60a5fa));
+  --tab-border-active: var(--color-border, var(--border-color));
+  --tab-accent: var(--color-accent, var(--accent-color, var(--accent)));
   --tab-color: inherit;
 
   --tabs-focus-outline: 2px solid var(--tab-accent);

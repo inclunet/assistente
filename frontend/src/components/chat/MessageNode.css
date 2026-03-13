@@ -54,15 +54,15 @@
 
 /* Indicador de profundidade visual */
 .message-node--level-1 .message-node__children {
-  border-left-color: var(--primary-dim, rgba(102, 126, 234, 0.3));
+  border-left-color: var(--accent-dim);
 }
 
 .message-node--level-2 .message-node__children {
-  border-left-color: var(--primary-dim, rgba(102, 126, 234, 0.2));
+  border-left-color: var(--accent-dim);
 }
 
 .message-node--level-3 .message-node__children {
-  border-left-color: var(--primary-dim, rgba(102, 126, 234, 0.1));
+  border-left-color: var(--accent-dim);
 }
 
 /* Modo de leitura (virtual modal) */
@@ -78,7 +78,7 @@
   left: 0;
   right: 0;
   bottom: 0;
-  background-color: rgba(0, 0, 0, 0.05);
+  background-color: color-mix(in srgb, var(--bg-base) 95%, transparent);
   z-index: -1;
   pointer-events: none;
   animation: overlayFadeIn 0.2s ease-out;

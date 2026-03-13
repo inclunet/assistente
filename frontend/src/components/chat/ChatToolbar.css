@@ -34,18 +34,18 @@
   right: 0;
   z-index: 100;
   min-width: 260px;
-  background: var(--bg-secondary, #1e1e2e);
-  border: 1px solid var(--border-color, #333);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
   padding: 12px 16px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 8px 24px color-mix(in srgb, var(--bg-base) 35%, transparent);
 }
 
 .chat-toolbar__stats-title {
   margin: 0 0 8px;
   font-size: 0.85rem;
   font-weight: 600;
-  color: var(--text-secondary, #aaa);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -60,11 +60,11 @@
   justify-content: space-between;
   padding: 4px 0;
   font-size: 0.9rem;
-  color: var(--text-primary, #eee);
+  color: var(--text-primary);
 }
 
 .chat-toolbar__stats-row dt {
-  color: var(--text-secondary, #aaa);
+  color: var(--text-secondary);
 }
 
 .chat-toolbar__stats-row dd {
@@ -74,24 +74,24 @@
 }
 
 .chat-toolbar__stats-row--total {
-  border-top: 1px solid var(--border-color, #333);
+  border-top: 1px solid var(--border-subtle);
   margin-top: 4px;
   padding-top: 6px;
   font-weight: 700;
 }
 
 .chat-toolbar__stats-row--total dt {
-  color: var(--text-primary, #eee);
+  color: var(--text-primary);
 }
 
 .chat-toolbar__stats-empty {
-  color: var(--text-secondary, #888);
+  color: var(--text-muted);
   font-size: 0.85rem;
   margin: 4px 0;
 }
 
 .chat-toolbar__stats-summary {
-  border-top: 1px solid var(--border-color, #333);
+  border-top: 1px solid var(--border-subtle);
   margin-top: 8px;
   padding-top: 8px;
 }
@@ -100,7 +100,7 @@
   margin: 0 0 4px;
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--text-secondary, #aaa);
+  color: var(--text-secondary);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -108,12 +108,12 @@
 .chat-toolbar__stats-summary p {
   margin: 0;
   font-size: 0.82rem;
-  color: var(--text-primary, #ccc);
+  color: var(--text-primary);
   line-height: 1.4;
 }
 
 .chat-toolbar__stats-progress {
-  color: var(--accent-color, #7c6df5);
+  color: var(--accent);
   font-size: 0.82rem;
   font-style: italic;
   margin: 6px 0 0;

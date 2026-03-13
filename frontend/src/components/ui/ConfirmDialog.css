@@ -3,15 +3,15 @@
 }
 
 .modal-content.confirm-dialog-modal--danger {
-  border-top: 4px solid var(--danger-color, #dc3545);
+  border-top: 4px solid var(--color-danger);
 }
 
 .modal-content.confirm-dialog-modal--warning {
-  border-top: 4px solid var(--warning-color, #ffc107);
+  border-top: 4px solid var(--color-warning);
 }
 
 .modal-content.confirm-dialog-modal--info {
-  border-top: 4px solid var(--info-color, #0dcaf0);
+  border-top: 4px solid var(--color-info);
 }
 
 .confirm-dialog__body {
@@ -22,7 +22,7 @@
   margin: 0;
   font-size: 15px;
   line-height: 1.5;
-  color: var(--text-secondary, #666);
+  color: var(--text-secondary);
 }
 
 .confirm-dialog__footer {

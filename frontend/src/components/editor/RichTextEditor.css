@@ -1,8 +1,8 @@
 .rich-text-editor {
   height: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: rgba(0, 0, 0, 0.15);
+  background: var(--bg-elevated);
   overflow: auto;
 }
 
@@ -32,13 +32,13 @@
 }
 
 .rich-text-editor__content .ProseMirror code {
-  background: rgba(255, 255, 255, 0.08);
+  background: var(--bg-muted);
   border-radius: 6px;
   padding: 1px 5px;
 }
 
 .rich-text-editor__content .ProseMirror pre {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-base);
   border-radius: 8px;
   padding: 10px 12px;
   overflow: auto;
@@ -52,9 +52,9 @@
 
 /* NodeView: Mermaid como card */
 .rich-text-editor__content .ProseMirror .rich-mermaid-block {
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  border: 1px solid var(--border-default);
   border-radius: 10px;
-  background: rgba(0, 0, 0, 0.18);
+  background: var(--bg-base);
   overflow: hidden;
   margin: 0 0 12px 0;
 }
@@ -65,8 +65,8 @@
   justify-content: space-between;
   gap: 12px;
   padding: 8px 10px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.10);
-  background: rgba(255, 255, 255, 0.04);
+  border-bottom: 1px solid var(--border-subtle);
+  background: var(--bg-muted);
 }
 
 .rich-text-editor__content .ProseMirror .rich-mermaid-block__title {
@@ -81,8 +81,8 @@
 }
 
 .rich-text-editor__content .ProseMirror .rich-mermaid-block__button {
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--border-default);
+  background: var(--bg-muted);
   color: inherit;
   border-radius: 8px;
   padding: 6px 10px;
@@ -91,12 +91,12 @@
 }
 
 .rich-text-editor__content .ProseMirror .rich-mermaid-block__button:hover {
-  background: rgba(255, 255, 255, 0.10);
+  background: var(--bg-hover);
 }
 
 .rich-text-editor__content .ProseMirror .rich-mermaid-block__button--danger {
-  border-color: rgba(255, 120, 120, 0.35);
-  background: rgba(255, 60, 60, 0.10);
+  border-color: var(--color-danger);
+  background: var(--color-danger-dim);
 }
 
 .rich-text-editor__content .ProseMirror .rich-mermaid-block__preview {
@@ -105,15 +105,15 @@
 }
 
 .rich-text-editor__content .ProseMirror .rich-mermaid-block__preview:focus-visible {
-  outline: 2px solid rgba(120, 180, 255, 0.75);
+  outline: 2px solid var(--focus-ring);
   outline-offset: -2px;
 }
 
 .rich-text-editor__content .ProseMirror pre.rich-mermaid-block__code {
   margin: 0;
-  border-top: 1px solid rgba(255, 255, 255, 0.10);
+  border-top: 1px solid var(--border-subtle);
   border-radius: 0;
-  background: rgba(255, 255, 255, 0.04);
+  background: var(--bg-muted);
 }
 
 .rich-text-editor__content .ProseMirror pre.rich-code-block {
@@ -130,20 +130,20 @@
   border-collapse: collapse;
   width: 100%;
   min-width: 420px;
-  background: rgba(0, 0, 0, 0.08);
-  border: 1px solid rgba(255, 255, 255, 0.14);
+  background: var(--bg-base);
+  border: 1px solid var(--border-default);
   border-radius: 8px;
 }
 
 .rich-text-editor__content .ProseMirror th,
 .rich-text-editor__content .ProseMirror td {
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid var(--border-subtle);
   padding: 8px 10px;
   vertical-align: top;
 }
 
 .rich-text-editor__content .ProseMirror th {
-  background: rgba(255, 255, 255, 0.06);
+  background: var(--bg-muted);
   font-weight: 600;
 }
 
@@ -154,9 +154,9 @@
 
 .rich-text-editor__content .ProseMirror td.is-selected,
 .rich-text-editor__content .ProseMirror th.is-selected {
-  background: rgba(80, 140, 220, 0.14);
+  background: var(--color-info-dim);
 }
 
 .rich-text-editor__content .ProseMirror .selectedCell:after {
-  background: rgba(80, 140, 220, 0.22);
+  background: var(--accent-dim);
 }

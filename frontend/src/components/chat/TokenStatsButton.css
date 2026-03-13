@@ -48,21 +48,21 @@
 
 /* Status colors */
 .token-stats-button--warning {
-  border-color: var(--warning-border, #f59e0b);
-  background: var(--warning-background, rgba(245, 158, 11, 0.1));
+  border-color: var(--color-warning);
+  background: var(--color-warning-dim);
 }
 
 .token-stats-button--warning:hover {
-  background: var(--warning-background-hover, rgba(245, 158, 11, 0.2));
+  background: var(--warning-background-hover);
 }
 
 .token-stats-button--critical {
-  border-color: var(--error-border, #ef4444);
-  background: var(--error-background, rgba(239, 68, 68, 0.1));
+  border-color: var(--color-danger);
+  background: var(--color-danger-dim);
 }
 
 .token-stats-button--critical:hover {
-  background: var(--error-background-hover, rgba(239, 68, 68, 0.2));
+  background: var(--error-background-hover);
 }
 
 .token-stats-button--loading {
