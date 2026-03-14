@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   GetChannelConfig,
   SaveChannelConfig,
@@ -92,6 +93,7 @@ type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying'
 // ─── Component ───────────────────────────────────────────────────────
 
 export default function ChannelsPage() {
+  const { t } = useTranslation();
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { focusFirstCell: channelsFocusFirstCell, handleGridReady: channelsHandleGridReady } = useGridFocus();
@@ -104,8 +106,8 @@ export default function ChannelsPage() {
   // ── Tab ──────────────────────────────────────────────────────────
   const [activeTab, setActiveTab] = useState<ActiveTab>('channels');
   const tabs: { id: ActiveTab; label: string }[] = [
-    { id: 'channels', label: 'Canais' },
-    { id: 'contacts', label: 'Contatos' },
+    { id: 'channels', label: t('channels.tabs.channels') },
+    { id: 'contacts', label: t('channels.tabs.contacts') },
   ];
 
   // ── Loading ──────────────────────────────────────────────────────
@@ -246,21 +248,21 @@ export default function ChannelsPage() {
           name: 'telegram',
           label: 'Telegram',
           enabled: tgEnabled,
-          status: status['telegram'] || 'desconectado',
+          status: status['telegram'] || t('channels.status.disconnected'),
         },
         {
           id: 'signal',
           name: 'signal',
           label: 'Signal',
           enabled: sigEnabled,
-          status: status['signal'] || 'desconectado',
+          status: status['signal'] || t('channels.status.disconnected'),
         },
         {
           id: 'slack',
           name: 'slack',
           label: 'Slack',
           enabled: slackEnabled,
-          status: status['slack'] || 'desconectado',
+          status: status['slack'] || t('channels.status.disconnected'),
         },
       ]);
 
@@ -291,7 +293,7 @@ export default function ChannelsPage() {
       }
     } catch (error) {
       console.error('Erro ao carregar canais:', error);
-      addToast('Erro ao carregar canais', 'error');
+      addToast(t('channels.error.loadFailed'), 'error');
     } finally {
       setLoading(false);
     }
@@ -311,8 +313,8 @@ export default function ChannelsPage() {
   // ── Create Channel Handler ───────────────────────────────────────
 
   const handleChannelCreated = () => {
-    addToast('Canal criado com sucesso!', 'success');
-    announce('Canal criado');
+    addToast(t('channels.toast.channelCreated'), 'success');
+    announce(t('channels.announce.channelCreated'));
     setCreateModalTemplateType(null);
     setShowCreateChannelModal(false);
     loadAll();
@@ -387,9 +389,9 @@ export default function ChannelsPage() {
       const tab = tabs.find((t) => t.id === tabId);
       setActiveTab(tabId);
       setEditingChannel(null);
-      announce(`Aba ${tab?.label ?? tabId} selecionada`);
+      announce(t('channels.announce.tabSelected', { label: tab?.label ?? tabId }));
     },
-    [announce, tabs]
+    [announce, tabs, t]
   );
 
   // ── Save channel ─────────────────────────────────────────────────
@@ -410,7 +412,7 @@ export default function ChannelsPage() {
               token: botToken,
             });
           } else if (telegramForm.enabled && !storedBot) {
-            throw new Error('Informe o token do Telegram ou desative o cofre.');
+            throw new Error(t('channels.error.telegramTokenRequired'));
           }
         }
 
@@ -458,7 +460,7 @@ export default function ChannelsPage() {
           }
 
           if (slackForm.enabled && ((!storedBot && !botToken) || (!storedApp && !appToken))) {
-            throw new Error('Informe os tokens do Slack ou desative o cofre.');
+            throw new Error(t('channels.error.slackTokensRequired'));
           }
         }
 
@@ -473,8 +475,8 @@ export default function ChannelsPage() {
           max_contacts: slackForm.maxContacts,
         }));
       }
-      addToast(`Canal ${channelName} salvo!`, 'success');
-      announce(`Canal ${channelName} salvo`);
+      addToast(t('channels.toast.channelSaved', { name: channelName }), 'success');
+      announce(t('channels.toast.channelSaved', { name: channelName }));
       await loadAll();
       setEditingChannel(null);
       setActiveTab('channels');
@@ -490,20 +492,20 @@ export default function ChannelsPage() {
 
   const handleEditChannel = (row: ChannelRow) => {
     setEditingChannel(row.name);
-    announce(`Editor aberto para ${row.label}`);
+    announce(t('channels.announce.editorOpened', { label: row.label }));
   };
 
   const handleCloseEditor = () => {
     setEditingChannel(null);
-    announce('Editor fechado');
+    announce(t('channels.announce.editorClosed'));
   };
 
   const handleReconnectChannel = async (channelName: string) => {
     setReconnecting(true);
     try {
       await RestartChannel(channelName);
-      addToast(`Canal ${channelName} reconectado!`, 'success');
-      announce(`Canal ${channelName} reconectado`);
+      addToast(t('channels.toast.channelReconnected', { name: channelName }), 'success');
+      announce(t('channels.toast.channelReconnected', { name: channelName }));
       await loadAll();
     } catch (error: any) {
       addToast(error.message || `Erro ao reconectar ${channelName}`, 'error');
@@ -516,7 +518,7 @@ export default function ChannelsPage() {
 
   const handleSignalCheckAPI = async () => {
     if (!signalForm.apiURL) {
-      addToast('Informe a URL da API Signal', 'error');
+      addToast(t('channels.error.signalApiUrlRequired'), 'error');
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -641,7 +643,7 @@ export default function ChannelsPage() {
 
   const handleSignalLink = async () => {
     if (!signalForm.apiURL) {
-      setSignalRegError('Informe a URL da API Signal');
+      setSignalRegError(t('channels.error.signalApiUrlRequired'));
       return;
     }
     const apiToken = signalForm.apiToken.trim();
@@ -663,7 +665,7 @@ export default function ChannelsPage() {
 
   const handleSignalUnregister = async (account: string) => {
     const shouldRemove = await requestConfirm({
-      title: 'Remover conta do Signal',
+      title: t('channels.confirm.removeSignalAccountTitle'),
       message: `Remover a conta ${account} do servidor Signal?\n\nIsto irá desregistrar e apagar os dados locais.`,
       confirmText: 'Remover',
       cancelText: 'Cancelar',
@@ -693,7 +695,7 @@ export default function ChannelsPage() {
   const handleDeleteContact = useCallback(async (row: ContactRow) => {
     const name = row.displayName || row.contactId;
     const shouldRemove = await requestConfirm({
-      title: 'Remover Contato',
+      title: t('channels.confirm.removeContactTitle'),
       message: `Remover ${name} do canal ${row.channel}?`,
       confirmText: 'Remover',
       cancelText: 'Cancelar',
@@ -704,17 +706,17 @@ export default function ChannelsPage() {
 
     try {
       await RemoveAuthorizedContact(row.channel, row.contactId);
-      addToast('Contato removido', 'success');
-      announce('Contato removido');
+      addToast(t('channels.toast.contactRemoved'), 'success');
+      announce(t('channels.announce.contactRemoved'));
       await loadAll();
     } catch (error: any) {
       addToast(error.message || 'Erro ao remover contato', 'error');
     }
-  }, [addToast, announce, loadAll, requestConfirm]);
+  }, [addToast, announce, loadAll, requestConfirm, t]);
 
   const handleRemoveCredential = useCallback(async (pattern: string, label: string) => {
     const shouldRemove = await requestConfirm({
-      title: 'Remover credencial',
+      title: t('channels.confirm.removeCredentialTitle'),
       message: `Remover a credencial ${label}?`,
       confirmText: 'Remover',
       cancelText: 'Cancelar',
@@ -725,37 +727,37 @@ export default function ChannelsPage() {
 
     try {
       await DeleteCredential(pattern);
-      addToast('Credencial removida', 'success');
-      announce('Credencial removida');
+      addToast(t('channels.toast.credentialRemoved'), 'success');
+      announce(t('channels.announce.credentialRemoved'));
       await loadAll();
     } catch (error: any) {
       addToast(error.message || 'Erro ao remover credencial', 'error');
     }
-  }, [addToast, announce, loadAll, requestConfirm]);
+  }, [addToast, announce, loadAll, requestConfirm, t]);
 
   // ── Grid columns ─────────────────────────────────────────────────
 
   const channelColumns: DataGridColumn<ChannelRow>[] = [
-    { key: 'label', label: 'Canal', width: '150px' },
+    { key: 'label', label: t('channels.columns.channel'), width: '150px' },
     {
-      key: 'enabled', label: 'Habilitado', width: '100px',
-      format: (val) => val ? '✓ Sim' : '✗ Não',
+      key: 'enabled', label: t('channels.columns.enabled'), width: '100px',
+      format: (val) => val ? t('channels.format.yes') : t('channels.format.no'),
     },
-    { key: 'status', label: 'Status', width: '200px', truncate: true },
+    { key: 'status', label: t('channels.columns.status'), width: '200px', truncate: true },
     {
-      key: '_reconnect', label: 'Reconectar', width: '80px',
-      action: true, actionIcon: '🔄', actionLabel: 'Reconectar canal',
+      key: '_reconnect', label: t('channels.columns.reconnect'), width: '80px',
+      action: true, actionIcon: '🔄', actionLabel: t('channels.actions.reconnectChannel'),
     },
   ];
 
   const contactColumns: DataGridColumn<ContactRow>[] = [
-    { key: 'channel', label: 'Canal', width: '100px' },
-    { key: 'displayName', label: 'Nome', width: '200px', truncate: true },
-    { key: 'username', label: 'Usuário', width: '150px', truncate: true },
-    { key: 'contactId', label: 'ID', width: '200px', truncate: true },
+    { key: 'channel', label: t('channels.columns.channel'), width: '100px' },
+    { key: 'displayName', label: t('channels.columns.name'), width: '200px', truncate: true },
+    { key: 'username', label: t('channels.columns.username'), width: '150px', truncate: true },
+    { key: 'contactId', label: t('channels.columns.id'), width: '200px', truncate: true },
     {
-      key: '_delete', label: 'Remover', width: '80px',
-      action: true, actionIcon: '🗑️', actionLabel: 'Remover contato',
+      key: '_delete', label: t('common.remove'), width: '80px',
+      action: true, actionIcon: '🗑️', actionLabel: t('channels.actions.removeContact'),
     },
   ];
 
@@ -769,9 +771,9 @@ export default function ChannelsPage() {
     }))
     : [{
       id: 'no-templates',
-      label: 'Nenhum canal disponível',
+      label: t('channels.empty.noChannels'),
       icon: '⚠️',
-      ariaLabel: 'Nenhum canal disponível',
+      ariaLabel: t('channels.empty.noChannels'),
       action: closeCreateMenu,
     }];
 

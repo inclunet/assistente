@@ -1,4 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Message, TurnSegment, useChatStore } from '../../store/chatStore';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
@@ -72,6 +73,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
   isPlayingAudio = false,
   onSendToEditor,
 }) => {
+  const { t } = useTranslation();
   const { role, content, timestamp, isStreaming, reasoning, toolCalls } = message;
   const editTextareaRef = useRef<HTMLTextAreaElement>(null);
   const messageId = message.id;
@@ -202,16 +204,16 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
   const getDisplayRole = () => {
     // Usuário
-    if (role === 'user') return 'Você';
+    if (role === 'user') return t('chat.you');
 
     // Resposta de ferramenta — mostra ID do call
-    if (role === 'tool') return 'Resultado';
+    if (role === 'tool') return t('chat.result');
 
     // Assistente com tool calls pendentes
-    if (role === 'assistant' && toolCalls) return 'Assistente';
+    if (role === 'assistant' && toolCalls) return t('chat.assistant');
 
     // Assistente padrão
-    return 'Assistente';
+    return t('chat.assistant');
   };
 
   const getAriaLabel = () => {
@@ -350,7 +352,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
     >
       {isReading && (
         <div className="chat-message__reading-badge" aria-hidden="true">
-          Lendo
+          {t('chat.reading')}
         </div>
       )}
       <div className="chat-message__avatar" aria-hidden="true">
@@ -370,7 +372,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             {getDisplayRole()}
           </h3>
           {message.source && message.source !== 'wails' && message.source !== '' && (
-            <span className="chat-message__source-badge" aria-label={`Via ${message.source}`}>
+            <span className="chat-message__source-badge" aria-label={`${t('chat.via')} ${message.source}`}>
               {message.source === 'telegram' && '✈'}
               {message.source === 'signal' && '🔒'}
               {message.source === 'whatsapp' && '💬'}
@@ -385,8 +387,8 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             <button
               className={`chat-message__play-btn${isPlayingAudio ? ' chat-message__play-btn--playing' : ''}`}
               onClick={(e) => { e.stopPropagation(); onSpeak(message); }}
-              aria-label={isPlayingAudio ? 'Parar áudio' : 'Reproduzir áudio'}
-              title={isPlayingAudio ? 'Parar' : 'Ouvir'}
+              aria-label={isPlayingAudio ? t('chat.stopAudio') : t('chat.playAudio')}
+              title={isPlayingAudio ? t('chat.stop') : t('chat.listen')}
               tabIndex={-1}
             >
               {isPlayingAudio ? '⏹' : '🔊'}
@@ -419,7 +421,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                 and browse mode users can navigate segment by segment */}
             <div
               role="log"
-              aria-label="Progresso do assistente"
+              aria-label={t('chat.progressLabel')}
               aria-relevant="additions"
               className="chat-message__segments-log"
             >
@@ -428,7 +430,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                   {seg.type === 'text' && seg.content && (
                     <section
                       className="chat-message__text chat-message__text--segment"
-                      aria-label={`Passo ${Math.floor(idx / 2) + 1}`}
+                      aria-label={`${t('chat.step')} ${Math.floor(idx / 2) + 1}`}
                       tabIndex={-1}
                     >
                       <MarkdownRenderer
@@ -491,26 +493,26 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                     className="chat-message__edit-textarea"
                     value={editContent}
                     onChange={(e) => onEditContentChange?.(e.target.value)}
-                    placeholder="Edite sua mensagem..."
+                    placeholder={t('chat.editPlaceholder')}
                     rows={3}
                     tabIndex={0}
-                    aria-label="Editar mensagem"
+                    aria-label={t('chat.editMessage')}
                   />
                   <div className="chat-message__edit-actions">
                     <button
                       className="chat-message__edit-button chat-message__edit-button--cancel"
                       onClick={onCancelEdit}
-                      aria-label="Cancelar"
+                      aria-label={t('common.cancel')}
                     >
-                      Cancelar
+                      {t('common.cancel')}
                     </button>
                     <button
                       className="chat-message__edit-button chat-message__edit-button--save"
                       onClick={onSaveEdit}
                       disabled={!editContent.trim()}
-                      aria-label="Salvar"
+                      aria-label={t('common.save')}
                     >
-                      Salvar
+                      {t('common.save')}
                     </button>
                   </div>
                 </div>

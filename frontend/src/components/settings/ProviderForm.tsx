@@ -1,15 +1,16 @@
-
-  // Wrapper com timeout para operações que podem travar
-  const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, operationName: string): Promise<T> => {
-    const timeoutPromise = new Promise<never>((_, reject) => {
-      setTimeout(() => reject(new Error(`Timeout após ${timeoutMs/1000}s em ${operationName}`)), timeoutMs);
-    });
-    return Promise.race([promise, timeoutPromise]);
-  };
 import { useState, useEffect, useRef } from 'react';
-import { Input, Select, Button, FormField } from '../';
+import { useTranslation } from 'react-i18next';
 import { CreateLLMProvider, UpdateLLMProvider, TestLLMProvider } from '@wailsjs/go/main/App';
+import { Input, Select, Button, FormField } from '../';
 import './ProviderForm.css';
+
+// Wrapper com timeout para operações que podem travar
+const withTimeout = async <T,>(promise: Promise<T>, timeoutMs: number, operationName: string): Promise<T> => {
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    setTimeout(() => reject(new Error(`Timeout após ${timeoutMs/1000}s em ${operationName}`)), timeoutMs);
+  });
+  return Promise.race([promise, timeoutPromise]);
+};
 
 export interface ProviderFormData {
   id?: string;
@@ -132,6 +133,7 @@ const PROVIDER_TYPES = Object.entries(PROVIDER_CONFIG).map(([key, config]) => ({
 }));
 
 export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) => {
+  const { t } = useTranslation();
   const [formData, setFormData] = useState<ProviderFormData>({
     name: '',
     type: 'openai',
@@ -309,18 +311,18 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
 
     if (!formData.name.trim()) {
-      newErrors.name = 'Nome é obrigatório';
+      newErrors.name = t('providerForm.error.nameRequired');
     }
 
     // URL é sempre validada, mas sempre usa a URL canônica
     const canonicalUrl = getCanonicalUrl(formData.type);
     if (!canonicalUrl.trim()) {
-      newErrors.base_url = 'URL é obrigatória';
+      newErrors.base_url = t('providerForm.error.urlRequired');
     } else {
       try {
         new URL(canonicalUrl);
       } catch {
-        newErrors.base_url = 'URL inválida';
+        newErrors.base_url = t('providerForm.error.urlInvalid');
       }
     }
 
@@ -337,7 +339,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     const needsTest = !isEditingWithoutChangingKey;
     
     if (!apiTested && needsTest) {
-      newErrors.api = 'Por favor, teste a conexão com a API antes de salvar';
+      newErrors.api = t('providerForm.error.testFirst');
     }
 
     setErrors(newErrors);
@@ -398,19 +400,19 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   return (
     <form className="provider-form" onSubmit={handleSubmit}>
       <FormField
-        label="Nome"
+        label={t('providerForm.name')}
         required
         error={errors.name}
       >
         <Input
           value={formData.name}
           onChange={(e) => handleChange('name', e.target.value)}
-          placeholder="Meu Provedor OpenAI"
+          placeholder={t('providerForm.namePlaceholder')}
           fullWidth
         />
       </FormField>
 
-      <FormField label="Tipo de Provedor" required>
+      <FormField label={t('providerForm.providerType')} required>
         <Select
           options={PROVIDER_TYPES}
           value={formData.type}
@@ -420,7 +422,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       </FormField>
 
       <FormField
-        label="Base URL"
+        label={t('providerForm.baseUrl')}
         required
         error={errors.base_url}
         description={config.helpText}
@@ -428,7 +430,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         <Input
           value={formData.base_url}
           onChange={(e) => handleChange('base_url', e.target.value)}
-          placeholder="https://api.openai.com/v1"
+          placeholder={t('providerForm.defaultUrl')}
           fullWidth
           readOnly={isUrlReadonly}
           disabled={isUrlReadonly}

@@ -1,4 +1,5 @@
 import { forwardRef, useCallback, useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { EditorContent, useEditor } from '@tiptap/react';
 
 import { applyMermaidById as applyMermaidByIdInEditor, removeMermaidById as removeMermaidByIdInEditor } from './richMermaidById';
@@ -38,13 +39,16 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     markdown,
     onMarkdownChange,
     readOnly = false,
-    placeholder = 'Escreva…',
-    ariaLabel = 'Editor de texto rico',
+    placeholder,
+    ariaLabel,
     onEditorReady,
     onRequestEditMermaid,
   }: RichTextEditorProps,
   ref
 ) {
+  const { t } = useTranslation();
+  const resolvedPlaceholder = placeholder ?? t('editor.richText.placeholder');
+  const resolvedAriaLabel = ariaLabel ?? t('editor.richText.label');
   const markdownSync = useRichMarkdownSync({
     markdown,
     onMarkdownChange,
@@ -53,10 +57,10 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
   const extensions = useMemo(() => {
     return buildRichTextExtensions({
-      placeholder,
+      placeholder: resolvedPlaceholder,
       onRequestEditMermaid,
     });
-  }, [placeholder, onRequestEditMermaid]);
+  }, [resolvedPlaceholder, onRequestEditMermaid]);
 
   const editor = useEditor({
     extensions,
@@ -105,7 +109,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     <div
       className="rich-text-editor"
       role="region"
-      aria-label={ariaLabel}
+      aria-label={resolvedAriaLabel}
       onKeyDown={(e) => {
         if ((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')) {
           e.preventDefault();

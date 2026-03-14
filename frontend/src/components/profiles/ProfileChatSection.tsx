@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { LLMProviderPicker } from '../pickers/LLMProviderPicker';
 import { ModelPicker } from '../pickers/ModelPicker';
 import { RangeSlider } from '../ui/RangeSlider';
@@ -53,6 +54,7 @@ export function ProfileChatSection({
   onMultiChange,
   disabled = false,
 }: ProfileChatSectionProps) {
+  const { t } = useTranslation();
   const temperatureValue = temperature ?? 0.7;
   const topPValue = topP ?? 1.0;
   const maxTokensValue = maxTokens ?? 4096;
@@ -80,7 +82,7 @@ export function ProfileChatSection({
               onChange('model', '');
             }
           }}
-          label="Provedor LLM"
+          label={t('profiles.chatSection.provider')}
           variant="form"
           disabled={disabled}
         />
@@ -93,19 +95,19 @@ export function ProfileChatSection({
             console.log('[ProfileChatSection] Modelo selecionado:', value);
             onChange('model', value);
           }}
-          label="Modelo"
-          placeholder="Filtrar modelos..."
+          label={t('profiles.chatSection.model')}
+          placeholder={t('profiles.chatSection.filterModels')}
           variant="form"
           disabled={disabled || !llmProvider}
           providerID={llmProvider}
-          helpText={!llmProvider ? 'Selecione um provedor primeiro' : ''}
+          helpText={!llmProvider ? t('profiles.chatSection.selectProvider') : ''}
         />
       </div>
 
       <div className="profiles-field">
         <RangeSlider
           id="chat-temperature"
-          label="Temperatura"
+          label={t('profiles.chatSection.temperature')}
           value={temperatureValue}
           min={0}
           max={2}
@@ -118,7 +120,7 @@ export function ProfileChatSection({
 
       <div className="profiles-field">
         <label htmlFor="chat-max-tokens" className="profiles-field__label">
-          Max Tokens
+          {t('profiles.chatSection.maxTokens')}
         </label>
         <input
           id="chat-max-tokens"
@@ -134,7 +136,7 @@ export function ProfileChatSection({
 
       <div className="profiles-field">
         <label htmlFor="chat-max-tokens-mode" className="profiles-field__label">
-          Formato do parâmetro max_tokens
+          {t('profiles.chatSection.maxTokensFormat')}
         </label>
         <select
           id="chat-max-tokens-mode"
@@ -143,17 +145,17 @@ export function ProfileChatSection({
           onChange={(e) => onChange('max_tokens_mode', e.target.value)}
           disabled={disabled}
         >
-          <option value="legacy">Legacy (max_tokens) - Padrão</option>
-          <option value="completion_tokens">Completion Tokens (max_completion_tokens) - GPT-4o, o1, etc</option>
+          <option value="legacy">{t('profiles.chatSection.maxTokensLegacy')}</option>
+          <option value="completion_tokens">{t('profiles.chatSection.maxTokensCompletion')}</option>
         </select>
         <span className="profiles-field__hint">
-          "legacy" usa max_tokens (maioria dos modelos). "completion_tokens" usa max_completion_tokens (GPT-4o, o1, modelos novos OpenAI).
+          {t('profiles.chatSection.maxTokensHint')}
         </span>
       </div>
 
       <div className="profiles-field">
         <label htmlFor="chat-context-window" className="profiles-field__label">
-          Janela de Contexto (tokens)
+          {t('profiles.chatSection.contextWindow')}
         </label>
         <input
           id="chat-context-window"
@@ -167,13 +169,13 @@ export function ProfileChatSection({
           disabled={disabled}
         />
         <span className="profiles-field__hint">
-          Total de tokens suportados pelo modelo (ex: 128000). 0 = não definido. Quando definido, ativa sumarização automática.
+          {t('profiles.chatSection.contextWindowHint')}
         </span>
       </div>
 
       <div className="profiles-field">
         <label htmlFor="chat-max-context-messages" className="profiles-field__label">
-          Máx. Mensagens no Contexto
+          {t('profiles.chatSection.maxMessages')}
         </label>
         <input
           id="chat-max-context-messages"
@@ -187,13 +189,13 @@ export function ProfileChatSection({
           disabled={disabled}
         />
         <span className="profiles-field__hint">
-          Limite de mensagens enviadas ao modelo. 0 = padrão (50).
+          {t('profiles.chatSection.maxMessagesHint')}
         </span>
       </div>
 
       <div className="profiles-field">
         <label htmlFor="chat-min-context-messages" className="profiles-field__label">
-          Mín. Mensagens Preservadas
+          {t('profiles.chatSection.minPreserved')}
         </label>
         <input
           id="chat-min-context-messages"
@@ -207,14 +209,14 @@ export function ProfileChatSection({
           disabled={disabled}
         />
         <span className="profiles-field__hint">
-          Mínimo de mensagens mantidas após sumarização. 0 = padrão (10).
+          {t('profiles.chatSection.minPreservedHint')}
         </span>
       </div>
 
       <div className="profiles-field">
         <RangeSlider
           id="chat-top-p"
-          label="Top P"
+          label={t('profiles.chatSection.topP')}
           value={topPValue}
           min={0}
           max={1}
@@ -227,7 +229,7 @@ export function ProfileChatSection({
 
       <div className="profiles-field">
         <label htmlFor="chat-timeout" className="profiles-field__label">
-          Timeout (segundos)
+          {t('profiles.chatSection.timeout')}
         </label>
         <input
           id="chat-timeout"
@@ -243,7 +245,7 @@ export function ProfileChatSection({
 
       <div className="profiles-field">
         <label htmlFor="chat-reasoning" className="profiles-field__label">
-          Raciocínio (Reasoning)
+          {t('profiles.chatSection.reasoning')}
         </label>
         <select
           id="chat-reasoning"
@@ -252,16 +254,16 @@ export function ProfileChatSection({
           onChange={(e) => onChange('reasoning_effort', e.target.value === 'off' ? '' : e.target.value)}
           disabled={disabled}
         >
-          <option value="ollama">Ativado (Ollama)</option>
-          <option value="off">Desativado</option>
-          <option value="none">Mínimo (none)</option>
-          <option value="low">Baixo (low)</option>
-          <option value="medium">Médio (medium)</option>
-          <option value="high">Alto (high)</option>
-          <option value="max">Máximo (max)</option>
+          <option value="ollama">{t('profiles.chatSection.reasoningOllama')}</option>
+          <option value="off">{t('profiles.chatSection.reasoningOff')}</option>
+          <option value="none">{t('profiles.chatSection.reasoningNone')}</option>
+          <option value="low">{t('profiles.chatSection.reasoningLow')}</option>
+          <option value="medium">{t('profiles.chatSection.reasoningMedium')}</option>
+          <option value="high">{t('profiles.chatSection.reasoningHigh')}</option>
+          <option value="max">{t('profiles.chatSection.reasoningMax')}</option>
         </select>
         <span className="profiles-field__hint">
-          Baixo/Médio/Alto envia reasoning_effort (OpenAI, Anthropic, LiteLLM). Ollama envia think=true.
+          {t('profiles.chatSection.reasoningHint')}
         </span>
       </div>
     </div>

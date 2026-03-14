@@ -11,6 +11,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../../store/terminalStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playBumpSound } from '../../services/audioFeedback';
@@ -18,6 +19,7 @@ import { Tabs, TabList, Tab } from '../ui/tabs';
 import './TerminalTabs.css';
 
 export function TerminalTabs() {
+  const { t } = useTranslation();
   const { sessions, activeSessionId, setActiveSession, closeSession, createSession } = useTerminalStore();
   const tabListRef = useRef<HTMLDivElement>(null);
   const { announce } = useAnnouncer();
@@ -56,7 +58,7 @@ export function TerminalTabs() {
       // Mensagem no mesmo formato do componente anterior.
       if (nextFocusSession && sessions.length > 1) {
         const newTabNumber = Math.min(nextFocusIndex + 1, sessions.length - 1);
-        pendingCloseAnnouncementRef.current = `Terminal fechado. ${nextFocusSession.name}, ${newTabNumber} de ${sessions.length - 1}`;
+        pendingCloseAnnouncementRef.current = `${t('terminal.tabs.closed')} ${nextFocusSession.name}, ${newTabNumber} ${t('terminal.tabs.of')} ${sessions.length - 1}`;
       } else {
         pendingCloseAnnouncementRef.current = null;
       }
@@ -95,7 +97,7 @@ export function TerminalTabs() {
       const idx = sessions.findIndex((s) => s.id === sessionId);
       const session = sessionsById.get(sessionId);
       if (idx >= 0 && session) {
-        announce(`${session.name}, ${idx + 1} de ${sessions.length}`);
+        announce(`${session.name}, ${idx + 1} ${t('terminal.tabs.of')} ${sessions.length}`);
       }
     },
     [announce, sessions, sessionsById, setActiveSession]
@@ -128,11 +130,11 @@ export function TerminalTabs() {
       onDelete={handleDelete}
       pageJump={10}
     >
-      <div className="terminal-tabs" role="region" aria-label="Terminais">
+      <div className="terminal-tabs" role="region" aria-label={t('terminal.tabs.label')}>
         <TabList
           listRef={tabListRef}
           className="terminal-tabs__list"
-          ariaLabel="Lista de terminais abertos"
+          ariaLabel={t('terminal.tabs.listLabel')}
         >
           {sessions.map((session) => (
             <div
@@ -155,7 +157,7 @@ export function TerminalTabs() {
                   {session.name}
                 </span>
                 {session.state === 'busy' && (
-                  <span className="terminal-tabs__tab-state" aria-label="Executando">
+                  <span className="terminal-tabs__tab-state" aria-label={t('terminal.tabs.running')}>
                     ●
                   </span>
                 )}
@@ -165,7 +167,7 @@ export function TerminalTabs() {
                 <button
                   className="terminal-tabs__tab-close"
                   onClick={(e) => handleCloseClick(e, session.id)}
-                  aria-label={`Fechar ${session.name}`}
+                  aria-label={`${t('terminal.tabs.close')} ${session.name}`}
                   tabIndex={-1}
                   type="button"
                 >
@@ -179,8 +181,8 @@ export function TerminalTabs() {
         <button
           className="terminal-tabs__new-btn"
           onClick={() => createSession()}
-          aria-label="Criar novo terminal, Ctrl+T"
-          title="Novo terminal (Ctrl+T)"
+          aria-label={t('terminal.tabs.newShortcut')}
+          title={t('terminal.tabs.newTooltip')}
           type="button"
         >
           +

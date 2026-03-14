@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import './ToolCallsSection.css';
 
 /**
@@ -48,6 +49,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
   toolCallsJson,
   activeToolCalls,
 }) => {
+  const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
 
@@ -98,13 +100,13 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
 
   const uniqueNames = [...new Set(toolNames)];
   const summaryText = isRunning
-    ? `Executando ${toolCount} ferramenta(s)...`
-    : `${toolCount} ferramenta(s) usada(s)`;
+    ? `${t('chat.executing')} ${toolCount} ${t('chat.toolsRunning')}`
+    : `${toolCount} ${t('chat.toolsUsed')}`;
 
   return (
     <div
       className={`tool-calls-section ${isExpanded ? 'tool-calls-section--expanded' : ''} ${isRunning ? 'tool-calls-section--running' : ''}`}
-      aria-label={isRunning ? 'Ferramentas em execução' : 'Ferramentas utilizadas'}
+      aria-label={isRunning ? t('chat.toolsRunningLabel') : t('chat.toolsUsedLabel')}
       tabIndex={-1}
     >
       <button
@@ -133,7 +135,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
       </button>
 
       {isExpanded && (
-        <div className="tool-calls-section__content" role="region" aria-label="Detalhes das ferramentas">
+        <div className="tool-calls-section__content" role="region" aria-label={t('chat.toolDetails')}>
           {hasActiveCalls ? (
             // Modo streaming: mostra status em tempo real
             <ul className="tool-calls-section__list">
@@ -150,7 +152,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
                   </div>
                   {tc.args && (
                     <div className="tool-calls-section__section">
-                      <h4 className="tool-calls-section__section-heading">Parâmetros</h4>
+                      <h4 className="tool-calls-section__section-heading">{t('chat.parameters')}</h4>
                       <pre className="tool-calls-section__args">{formatArgs(tc.args)}</pre>
                     </div>
                   )}
@@ -175,7 +177,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
                     {/* Parâmetros da chamada */}
                     {tc.function.arguments && (
                       <div className="tool-calls-section__section">
-                        <h4 className="tool-calls-section__section-heading">Parâmetros</h4>
+                        <h4 className="tool-calls-section__section-heading">{t('chat.parameters')}</h4>
                         <pre className="tool-calls-section__args">{formatArgs(tc.function.arguments)}</pre>
                       </div>
                     )}
@@ -183,7 +185,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
                     {/* Resultado retornado pela ferramenta */}
                     {hasResult && (
                       <div className="tool-calls-section__section">
-                        <h4 className="tool-calls-section__section-heading">Resposta</h4>
+                        <h4 className="tool-calls-section__section-heading">{t('chat.response')}</h4>
                         <pre className="tool-calls-section__result-content">
                           {isLongResult && !isResultExpanded
                             ? normalizeResult(tc.result!.slice(0, RESULT_PREVIEW_LENGTH)) + '…'
@@ -196,7 +198,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
                             type="button"
                             tabIndex={-1}
                           >
-                            {isResultExpanded ? 'Mostrar menos' : `Mostrar tudo (${formatSize(tc.result!.length)})`}
+                            {isResultExpanded ? t('chat.showLess') : `${t('chat.showAll')} (${formatSize(tc.result!.length)})`}
                           </button>
                         )}
                       </div>

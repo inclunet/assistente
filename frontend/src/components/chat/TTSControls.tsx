@@ -4,10 +4,12 @@
  */
 
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { useTTS } from '../../hooks/useTTS';
 import './TTSControls.css';
 
 export const TTSControls: React.FC = () => {
+  const { t } = useTranslation();
   const {
     isEnabled,
     isAutoReadEnabled,
@@ -45,8 +47,8 @@ export const TTSControls: React.FC = () => {
       <button
         className={`tts-button ${isEnabled ? 'active' : ''}`}
         onClick={handleToggle}
-        title={isEnabled ? 'Desabilitar TTS' : 'Habilitar TTS'}
-        aria-label={isEnabled ? 'Desabilitar leitura de texto' : 'Habilitar leitura de texto'}
+        title={isEnabled ? t('chat.disableTTS') : t('chat.enableTTS')}
+        aria-label={isEnabled ? t('chat.disableTTSLabel') : t('chat.enableTTSLabel')}
         tabIndex={-1}
       >
         <svg
@@ -80,8 +82,8 @@ export const TTSControls: React.FC = () => {
           <button
             className={`tts-button auto-read ${isAutoReadEnabled ? 'active' : ''}`}
             onClick={handleAutoReadToggle}
-            title={isAutoReadEnabled ? 'Desabilitar leitura automática' : 'Habilitar leitura automática'}
-            aria-label={isAutoReadEnabled ? 'Desabilitar leitura automática de respostas' : 'Habilitar leitura automática de respostas'}
+            title={isAutoReadEnabled ? t('chat.disableAutoRead') : t('chat.enableAutoRead')}
+            aria-label={isAutoReadEnabled ? t('chat.disableAutoReadLabel') : t('chat.enableAutoReadLabel')}
             tabIndex={-1}
           >
             <svg
@@ -103,8 +105,8 @@ export const TTSControls: React.FC = () => {
             <button
               className="tts-button stop"
               onClick={handleStop}
-              title="Parar leitura"
-              aria-label="Parar leitura de texto"
+              title={t('chat.stopReading')}
+              aria-label={t('chat.stopReadingLabel')}
               tabIndex={-1}
             >
               <svg

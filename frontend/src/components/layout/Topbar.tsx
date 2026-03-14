@@ -1,14 +1,25 @@
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MenuButton, MenuItem, MenuButtonRef } from './MenuButton';
 import { useTheme, THEMES, type ThemeId } from '../../hooks/useTheme';
+import { LANGUAGES, type LanguageId } from '../../lib/i18n';
+import { useSettingsStore } from '../../store/settingsStore';
 import './Topbar.css';
 
 export function Topbar() {
   const navigate = useNavigate();
   const location = useLocation();
   const menuButtonRef = useRef<MenuButtonRef>(null);
+  const { t, i18n } = useTranslation();
   const { theme: currentTheme, setTheme } = useTheme();
+  const updateConfig = useSettingsStore((s) => s.updateConfig);
+  const currentLang = i18n.language as LanguageId;
+
+  const setLanguage = (id: LanguageId) => {
+    i18n.changeLanguage(id);
+    updateConfig({ language: id });
+  };
 
   // Atalho Alt+M para abrir/fechar o menu e F1 para ajuda
   useEffect(() => {
@@ -50,97 +61,108 @@ export function Topbar() {
   const menuItems: MenuItem[] = [
     {
       id: 'chat',
-      label: 'Chat',
+      label: t('menu.chat'),
       icon: '💬',
       onClick: () => navigate('/'),
     },
     {
       id: 'terminal',
-      label: 'Terminal',
+      label: t('menu.terminal'),
       icon: '>_',
       onClick: () => navigate('/terminal'),
     },
     {
       id: 'editor',
-      label: 'Editor',
+      label: t('menu.editor'),
       icon: '📝',
       onClick: () => navigate('/editor'),
     },
     {
       id: 'history',
-      label: 'Histórico',
+      label: t('menu.history'),
       icon: '📜',
       onClick: () => navigate('/history'),
     },
     {
       id: 'profiles',
-      label: 'Perfis',
+      label: t('menu.profiles'),
       icon: '🎭',
       onClick: () => navigate('/profiles'),
     },
     {
       id: 'allowlists',
-      label: 'Allowlists',
+      label: t('menu.allowlists'),
       icon: '🛡️',
       onClick: () => navigate('/allowlists'),
     },
     {
       id: 'skills',
-      label: 'Skills',
+      label: t('menu.skills'),
       icon: '🧠',
       onClick: () => navigate('/skills'),
     },
     {
       id: 'mcp',
-      label: 'MCP',
+      label: t('menu.mcp'),
       icon: '🔌',
       onClick: () => navigate('/mcp'),
     },
     {
       id: 'channels',
-      label: 'Canais',
+      label: t('menu.channels'),
       icon: '📡',
       onClick: () => navigate('/channels'),
     },
     {
       id: 'credentials',
-      label: 'Credenciais',
+      label: t('menu.credentials'),
       icon: '🔐',
       onClick: () => navigate('/credentials'),
     },
     {
       id: 'providers',
-      label: 'Provedores LLM',
+      label: t('menu.providers'),
       icon: '🤖',
       onClick: () => navigate('/providers'),
     },
     {
       id: 'theme',
-      label: 'Tema',
+      label: t('menu.theme'),
       icon: '🎨',
-      submenu: THEMES.map((t) => ({
-        id: `theme-${t.id}`,
-        label: `${currentTheme === t.id ? '● ' : ''}${t.label}`,
-        icon: currentTheme === t.id ? '✓' : ' ',
-        onClick: () => setTheme(t.id as ThemeId),
+      submenu: THEMES.map((th) => ({
+        id: `theme-${th.id}`,
+        label: `${currentTheme === th.id ? '● ' : ''}${th.label}`,
+        icon: currentTheme === th.id ? '✓' : ' ',
+        onClick: () => setTheme(th.id as ThemeId),
+      })),
+    },
+    {
+      id: 'language',
+      label: t('menu.language'),
+      icon: '🌐',
+      submenu: LANGUAGES.map((lang) => ({
+        id: `lang-${lang.id}`,
+        label: `${currentLang === lang.id ? '● ' : ''}${lang.nativeLabel}`,
+        icon: currentLang === lang.id ? '✓' : ' ',
+        onClick: () => setLanguage(lang.id),
       })),
     },
     {
       id: 'settings',
-      label: 'Restaurar Padrões',
+      label: t('menu.restoreDefaults'),
       icon: '↩️',
       onClick: () => navigate('/settings'),
     },
     {
       id: 'help',
-      label: 'Ajuda',
+      label: t('menu.help'),
       icon: '📚',
       shortcut: 'F1',
       onClick: () => navigate('/help'),
     },
     {
       id: 'about',
-      label: 'Sobre',
+      label: t('menu.about'),
       icon: 'ℹ️',
       onClick: () => navigate('/about'),
     },
@@ -153,9 +175,9 @@ export function Topbar() {
           ref={menuButtonRef}
           items={menuItems} 
           currentItemId={getCurrentPage()}
-          buttonLabel="Menu de navegação (Alt+M)"
+          buttonLabel={t('menu.navLabel')}
         />
-        <h1 className="topbar__title">Assistente IA</h1>
+        <h1 className="topbar__title">{t('menu.appTitle')}</h1>
       </div>
     </header>
   );

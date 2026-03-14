@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useMCPStore } from '../store/mcpStore';
 import { mcp } from '../../wailsjs/go/models';
 import {
@@ -39,17 +40,18 @@ interface ServerRow {
   error?: string;
 }
 
-function statusLabel(status: string): string {
+function statusLabel(status: string, t: (key: string) => string): string {
   const labels: Record<string, string> = {
-    connected: 'Conectado',
-    connecting: 'Conectando...',
-    disconnected: 'Desconectado',
-    error: 'Erro',
+    connected: t('mcp.status.connected'),
+    connecting: t('mcp.status.connecting'),
+    disconnected: t('mcp.status.disconnected'),
+    error: t('mcp.status.error'),
   };
   return labels[status] || status;
 }
 
 export default function McpPage() {
+  const { t } = useTranslation();
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { focusFirstCell, handleGridReady } = useGridFocus();
@@ -296,11 +298,11 @@ export default function McpPage() {
       : editingSlug;
 
     if (!slug) {
-      addToast('Slug (identificador) é obrigatório', 'error');
+      addToast(t('mcp.error.slugRequired'), 'error');
       return;
     }
     if (!formName.trim()) {
-      addToast('Nome é obrigatório', 'error');
+      addToast(t('mcp.error.nameRequired'), 'error');
       return;
     }
 
@@ -380,8 +382,8 @@ export default function McpPage() {
         await DeleteMCPServerAuth(slug);
       }
 
-      addToast(isNew ? 'Servidor MCP criado!' : 'Servidor MCP atualizado!', 'success');
-      announce(isNew ? 'Servidor criado com sucesso' : 'Servidor atualizado com sucesso');
+      addToast(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'), 'success');
+      announce(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'));
       handleCloseEditor();
     } catch (error: any) {
       addToast(error?.message || 'Erro ao salvar', 'error');
@@ -403,7 +405,7 @@ export default function McpPage() {
 
     try {
       await remove(slug);
-      addToast('Servidor MCP removido!', 'success');
+      addToast(t('mcp.toast.removed'), 'success');
       announce('Servidor removido');
       if (editingSlug === slug) {
         setEditing(null);
@@ -448,28 +450,28 @@ export default function McpPage() {
   const columns: DataGridColumn<ServerRow>[] = [
     {
       key: 'name',
-      label: 'Nome',
+      label: t('mcp.columns.name'),
       width: '30%',
     },
     {
       key: 'transport',
-      label: 'Transporte',
+      label: t('mcp.columns.transport'),
       width: '12%',
       format: (val) => String(val).toUpperCase(),
     },
     {
       key: 'status',
-      label: 'Status',
+      label: t('mcp.columns.status'),
       width: '15%',
       format: (val) => {
-        const label = statusLabel(String(val));
+        const label = statusLabel(String(val), t);
         const statusClass = `mcp-badge mcp-badge--${String(val)}`;
         return <span className={statusClass}>{label}</span>;
       },
     },
     {
       key: 'toolCount',
-      label: 'Ferramentas',
+      label: t('mcp.columns.tools'),
       width: '12%',
       format: (val) => `${val}`,
     },
@@ -479,7 +481,7 @@ export default function McpPage() {
       width: '3%',
       action: true,
       actionIcon: '🔌',
-      actionLabel: 'Conectar/Desconectar',
+      actionLabel: t('mcp.actions.connectDisconnect'),
     },
     {
       key: 'reconnect',
@@ -487,7 +489,7 @@ export default function McpPage() {
       width: '3%',
       action: true,
       actionIcon: '🔄',
-      actionLabel: 'Reconectar',
+      actionLabel: t('mcp.actions.reconnect'),
     },
     {
       key: 'delete',
@@ -495,7 +497,7 @@ export default function McpPage() {
       width: '3%',
       action: true,
       actionIcon: '🗑️',
-      actionLabel: 'Remover servidor',
+      actionLabel: t('mcp.actions.removeServer'),
     },
   ];
 
@@ -528,7 +530,7 @@ export default function McpPage() {
     return (
       <div className="mcp-page">
         <div className="loading" role="status" aria-live="polite">
-          <span>Carregando servidores MCP…</span>
+          <span>{t('mcp.loading')}</span>
         </div>
       </div>
     );
@@ -537,16 +539,16 @@ export default function McpPage() {
   return (
     <div className="mcp-page">
       <Toolbar
-        left={<h1 className="page-toolbar__title">Servidores MCP</h1>}
-        ariaLabel="Barra de ferramentas de MCP"
-        searchPlaceholder="Buscar servidores..."
+        left={<h1 className="page-toolbar__title">{t('mcp.pageTitle')}</h1>}
+        ariaLabel={t('mcp.aria.toolbar')}
+        searchPlaceholder={t('mcp.searchPlaceholder')}
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
         onFocusGrid={focusFirstCell}
         actions={[
           {
             key: 'new',
-            label: 'Novo Servidor',
+            label: t('mcp.buttons.newServer'),
             icon: '➕',
             onClick: handleNew,
             variant: 'primary',
@@ -565,13 +567,13 @@ export default function McpPage() {
         }}
         onCellAction={handleCellAction}
         onGridReady={handleGridReady}
-        label="Servidores MCP"
+        label={t('mcp.pageTitle')}
       />
 
       <Modal
         isOpen={!!editing}
         onClose={handleCloseEditor}
-        title={isNew ? 'Novo Servidor MCP' : `Editando: ${formName || editingSlug}`}
+        title={isNew ? t('mcp.modal.newTitle') : t('mcp.modal.editTitle', { name: formName || editingSlug })}
         size="lg"
       >
         {editing && (

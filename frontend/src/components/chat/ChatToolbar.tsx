@@ -1,4 +1,5 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../store/chatStore';
 import { ClearConversation } from '@wailsjs/go/main/App';
@@ -21,11 +22,12 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   onNewConversation,
   inputRef,
 }) => {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab } = useChatStore();
   const { announce } = useAnnouncer();
   const activeTab = getActiveTab();
-  const conversationTitle = activeTab?.title || 'Nova conversa';
+  const conversationTitle = activeTab?.title || t('chat.newConversation');
 
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
@@ -43,24 +45,24 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const getProfileMenuItems = useCallback((): MenuItem[] => [
     {
       id: 'manage-profiles',
-      label: 'Gerenciar perfis',
+      label: t('chat.manageProfiles'),
       icon: '⚙️',
       action: () => {
         navigate('/profiles');
       },
     },
-  ], [navigate]);
+  ], [navigate, t]);
 
   const handleProfileContextMenu = useCallback((e: React.MouseEvent<HTMLElement>) => {
     e.preventDefault();
-    openContextMenu(e.clientX, e.clientY, 'Menu de opções do perfil', getProfileMenuItems(), e.currentTarget);
+    openContextMenu(e.clientX, e.clientY, t('chat.profileMenuLabel'), getProfileMenuItems(), e.currentTarget);
   }, [openContextMenu, getProfileMenuItems]);
 
   const handleProfileKeyDown = useCallback((e: React.KeyboardEvent<HTMLDivElement>) => {
     if (e.key === 'ContextMenu' || (e.shiftKey && e.key === 'F10')) {
       e.preventDefault();
       const rect = e.currentTarget.getBoundingClientRect();
-      openContextMenu(rect.left, rect.bottom, 'Menu de opções do perfil', getProfileMenuItems(), e.currentTarget);
+      openContextMenu(rect.left, rect.bottom, t('chat.profileMenuLabel'), getProfileMenuItems(), e.currentTarget);
     }
   }, [openContextMenu, getProfileMenuItems]);
 
@@ -75,10 +77,10 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       onNewConversation();
     } else {
       // conversa nova "de verdade": limpa conversationId e mensagens na aba ativa
-      void loadConversationInActiveTab(0, 'Nova Conversa');
+      void loadConversationInActiveTab(0, t('chat.newConversation'));
     }
     focusInput();
-  }, [focusInput, loadConversationInActiveTab, onNewConversation]);
+  }, [focusInput, loadConversationInActiveTab, onNewConversation, t]);
 
   const handleClearConversation = useCallback(async () => {
     try {
@@ -86,15 +88,15 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
       if (tab?.conversationId) {
         await ClearConversation(tab.conversationId);
-        await loadConversationInActiveTab(tab.conversationId, tab.title || 'Conversa');
+        await loadConversationInActiveTab(tab.conversationId, tab.title || t('chat.conversation'));
       } else {
         clearActiveTab();
       }
 
-      announce('Conversa limpa');
+      announce(t('chat.conversationCleared'));
     } catch (error) {
       console.error('[ChatToolbar] Erro ao limpar conversa:', error);
-      announce('Erro ao limpar conversa');
+      announce(t('chat.clearError'));
     }
     focusInput();
   }, [announce, clearActiveTab, focusInput, getActiveTab, loadConversationInActiveTab]);
@@ -111,19 +113,19 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       }
       else if (e.ctrlKey && e.key === 'h') {
         e.preventDefault();
-        const historyPicker = document.querySelector('[aria-label*="Histórico"]') as HTMLElement;
+        const historyPicker = document.querySelector(`[aria-label*="${t('chat.historyLabel')}"]`) as HTMLElement;
         historyPicker?.click();
       }
       else if (e.ctrlKey && e.key === 't') {
         e.preventDefault();
         if (activeTab?.conversationId) {
           setIsTokenModalOpen(true);
-          announce('Modal de estatísticas de tokens aberto');
+          announce(t('chat.tokenStatsOpened'));
         }
       }
       else if (e.ctrlKey && e.key === 'p') {
         e.preventDefault();
-        const profilePicker = document.querySelector('[aria-label*="Perfil"]') as HTMLElement;
+        const profilePicker = document.querySelector(`[aria-label*="${t('chat.profileLabel')}"]`) as HTMLElement;
         profilePicker?.click();
       }
     };
@@ -138,11 +140,11 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
   const handleHistoryChange = async (conversationId: number, conversation: any) => {
     try {
-      await loadConversationInActiveTab(conversationId, conversation.title || 'Conversa carregada');
-      announce(`Conversa carregada: ${conversation.title || 'Conversa carregada'}`);
+      await loadConversationInActiveTab(conversationId, conversation.title || t('chat.conversationLoaded'));
+      announce(`${t('chat.conversationLoaded')}: ${conversation.title || t('chat.conversationLoaded')}`);
     } catch (error) {
       console.error('[ChatToolbar] Erro ao carregar conversa:', error);
-      announce('Erro ao carregar conversa');
+      announce(t('chat.loadError'));
     }
     focusInput();
   };
@@ -150,7 +152,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   return (
     <>
       <Toolbar
-        ariaLabel="Ferramentas do chat. Use setas para navegar entre os botões"
+        ariaLabel={t('chat.toolbarLabel')}
         isLoading={isLoading}
         left={
           <h2 className="chat-toolbar__title" id="chat-heading">
@@ -160,7 +162,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         right={
           <>
             <ToolbarButton
-              label="Nova"
+              label={t('chat.newBtn')}
               icon="➕"
               shortcut="Ctrl+N"
               onClick={handleNewConversation}
@@ -168,7 +170,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             />
 
             <ToolbarButton
-              label="Limpar"
+              label={t('chat.clearBtn')}
               icon="🧹"
               shortcut="Ctrl+L"
               variant="danger"
@@ -181,7 +183,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 ref={historyPickerRef}
                 value={activeTab?.conversationId}
                 onChange={handleHistoryChange}
-                label="Histórico, Ctrl+H"
+                label={t('chat.historyBtn')}
                 maxWidth="200px"
                 onAnnounce={announce}
                 disabled={isLoading}
@@ -205,7 +207,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 ref={profilePickerRef}
                 onChange={handleProfileChange}
                 variant="toolbar"
-                label="Perfil, Ctrl+P"
+                label={t('chat.profileBtn')}
                 icon="💬"
                 maxWidth="180px"
                 onAnnounce={announce}

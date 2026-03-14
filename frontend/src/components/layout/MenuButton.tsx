@@ -1,4 +1,5 @@
 import { useMemo, useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import './MenuButton.css';
 import { Menu, type MenuItem as MenuModelItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
@@ -35,7 +36,9 @@ export interface MenuButtonRef {
  * - Tab: Fecha menu e move foco
  */
 export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
-  function MenuButton({ items, currentItemId, buttonLabel = 'Menu de navegação' }, ref) {
+  function MenuButton({ items, currentItemId, buttonLabel }, ref) {
+  const { t } = useTranslation();
+  const resolvedButtonLabel = buttonLabel ?? t('menu.navLabel');
   const menuButtonRef = useRef<HTMLButtonElement>(null);
 
   const mapItems = (srcItems: MenuItem[]): MenuModelItem[] =>
@@ -69,8 +72,8 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
   const openMenu = useCallback(() => {
     const trigger = menuButtonRef.current;
     if (!trigger) return;
-    openForTrigger(trigger, buttonLabel, menuItems);
-  }, [buttonLabel, menuItems, openForTrigger]);
+    openForTrigger(trigger, resolvedButtonLabel, menuItems);
+  }, [resolvedButtonLabel, menuItems, openForTrigger]);
 
   const toggleMenu = useCallback(() => {
     if (menu.visible) {
@@ -94,8 +97,8 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
         onClick={toggleMenu}
         aria-expanded={menu.visible}
         aria-haspopup="menu"
-        aria-label={buttonLabel}
-        title={buttonLabel}
+        aria-label={resolvedButtonLabel}
+        title={resolvedButtonLabel}
       >
         <span className="menu-icon" aria-hidden="true">
           ☰
@@ -107,7 +110,7 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
         x={menu.x}
         y={menu.y}
         visible={menu.visible}
-        ariaLabel={menu.ariaLabel || 'Navegação principal'}
+        ariaLabel={menu.ariaLabel || t('menu.navMain')}
         initialFocusItemId={currentItemId}
         onClose={closeMenu}
         onSelect={onSelectItem}

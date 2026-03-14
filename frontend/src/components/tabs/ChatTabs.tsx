@@ -13,6 +13,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useChatStore, ChatTab } from '../../store/chatStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { playBumpSound } from '../../services/audioFeedback';
@@ -29,6 +30,7 @@ const channelIcons: Record<string, string> = {
 };
 
 export function ChatTabs() {
+  const { t } = useTranslation();
   const { tabs, activeTabId, isLoading, deleteTab, setActiveTab, updateTabTitle, assignChannelToTab, unassignChannelFromTab } = useChatStore();
   const { addToast } = useUIStore();
   const tabListRef = useRef<HTMLDivElement>(null);
@@ -77,8 +79,8 @@ export function ChatTabs() {
     if (!msg) return;
     pendingCloseAnnouncementRef.current = null;
     // Aguarda a store atualizar `activeTabId` e foco.
-    const t = window.setTimeout(() => announce(msg), 50);
-    return () => window.clearTimeout(t);
+    const timerId = window.setTimeout(() => announce(msg), 50);
+    return () => window.clearTimeout(timerId);
   }, [announce, tabs]);
 
   /**
@@ -92,7 +94,7 @@ export function ChatTabs() {
       editInputRef.current?.focus();
       editInputRef.current?.select();
     }, 10);
-    announce('Editando título da conversa. Digite o novo título e pressione Enter para confirmar ou Escape para cancelar.');
+    announce(t('chatTabs.renamingHint'));
   };
 
   /**
@@ -101,7 +103,7 @@ export function ChatTabs() {
   const cancelEditingTab = () => {
     setEditingTabId(null);
     setEditingTitle('');
-    announce('Edição cancelada');
+    announce(t('chatTabs.editCancelled'));
   };
 
   /**
@@ -113,7 +115,7 @@ export function ChatTabs() {
     
     if (editingTabId && editingTitle.trim()) {
       updateTabTitle(editingTabId, editingTitle.trim());
-      announce(`Título alterado para: ${editingTitle.trim()}`);
+      announce(`${t('chatTabs.titleChanged')} ${editingTitle.trim()}`);
     }
     
     setEditingTabId(null);
@@ -140,16 +142,16 @@ export function ChatTabs() {
       const nextFocusTab = tabs[nextFocusIndex];
 
       if (nextFocusTab && tabs.length > 1) {
-        const tabTitle = nextFocusTab.title || 'Nova conversa';
+        const tabTitle = nextFocusTab.title || t('chatTabs.newConversation');
         const newTabNumber = Math.min(nextFocusIndex + 1, tabs.length - 1);
-        pendingCloseAnnouncementRef.current = `Guia fechada. ${tabTitle}, ${newTabNumber} de ${tabs.length - 1}`;
+        pendingCloseAnnouncementRef.current = `${t('chatTabs.tabClosed')} ${tabTitle}, ${newTabNumber} ${t('chatTabs.of')} ${tabs.length - 1}`;
       } else {
         pendingCloseAnnouncementRef.current = null;
       }
 
       void deleteTab(tabId);
     },
-    [deleteTab, tabs]
+    [deleteTab, tabs, t]
   );
 
   /**
@@ -186,8 +188,8 @@ export function ChatTabs() {
 
       if (event.key === 'F2') {
         event.preventDefault();
-        const tab = tabs.find((t) => t.id === tabId);
-        startEditingTab(tabId, tab?.title || 'Nova conversa');
+        const tab = tabs.find((tabItem) => tabItem.id === tabId);
+        startEditingTab(tabId, tab?.title || t('chatTabs.newConversation'));
         return;
       }
 
@@ -221,16 +223,16 @@ export function ChatTabs() {
    * Constrói os items do menu de contexto para uma aba
    */
   const buildContextMenuItems = (tab: ChatTab): MenuItem[] => {
-    const items: MenuItem[] = [
+    const       items: MenuItem[] = [
       {
         id: 'rename',
-        label: 'Renomear',
+        label: t('chatTabs.rename'),
         icon: '✏️',
         shortcut: 'F2',
-        ariaLabel: 'Renomear conversa',
+        ariaLabel: t('chatTabs.renameConversation'),
         action: () => {
           closeContextMenu();
-          startEditingTab(tab.id, tab.title || 'Nova conversa');
+          startEditingTab(tab.id, tab.title || t('chatTabs.newConversation'));
         },
       },
     ];
@@ -238,10 +240,10 @@ export function ChatTabs() {
     if (tabs.length > 1) {
       items.push({
         id: 'close',
-        label: 'Fechar',
+        label: t('chatTabs.close'),
         icon: '✕',
         shortcut: 'Delete',
-        ariaLabel: 'Fechar conversa',
+        ariaLabel: t('chatTabs.closeConversation'),
         danger: true,
         action: () => {
           closeContextMenu();
@@ -258,23 +260,23 @@ export function ChatTabs() {
       items.push({ id: 'sep-channel', separator: true });
       items.push({
         id: 'channel-info',
-        label: `Canal: ${tab.channel}`,
+        label: `${t('chatTabs.channelLabel')} ${tab.channel}`,
         icon: channelIcons[tab.channel] || '🔗',
-        ariaLabel: `Canal atribuído: ${tab.channel}`,
+        ariaLabel: `${t('chatTabs.channelAssigned')} ${tab.channel}`,
       });
       items.push({
         id: 'unassign-channel',
-        label: 'Remover canal',
+        label: t('chatTabs.removeChannel'),
         icon: '🚫',
         ariaLabel: 'Remover vinculação de canal',
         action: async () => {
           closeContextMenu();
           try {
             await unassignChannelFromTab(tab.id);
-            addToast('Canal removido da conversa', 'success');
-            announce('Canal removido da conversa');
+            addToast(t('chatTabs.channelRemoved'), 'success');
+            announce(t('chatTabs.channelRemoved'));
           } catch (err: any) {
-            addToast(err.message || 'Erro ao remover canal', 'error');
+            addToast(err.message || t('chatTabs.removeChannelError'), 'error');
           }
         },
       });
@@ -292,15 +294,15 @@ export function ChatTabs() {
             id: `assign-${ch.name}`,
             label: `${ch.name} (${contactLabel})`,
             icon: channelIcons[ch.name] || '🔗',
-            ariaLabel: `Atribuir ao ${ch.name}, contato ${contactLabel}`,
+            ariaLabel: `${t('chatTabs.assignTo')} ${ch.name}, ${t('chatTabs.contact')} ${contactLabel}`,
             action: async () => {
               closeContextMenu();
               try {
                 await assignChannelToTab(tab.id, ch.name, c.id);
-                addToast(`Conversa vinculada ao ${ch.name}`, 'success');
-                announce(`Conversa vinculada ao ${ch.name}`);
+                addToast(`${t('chatTabs.assignedTo')} ${ch.name}`, 'success');
+                announce(`${t('chatTabs.assignedTo')} ${ch.name}`);
               } catch (err: any) {
-                addToast(err.message || 'Erro ao atribuir canal', 'error');
+                addToast(err.message || t('chatTabs.assignError'), 'error');
               }
             },
           };
@@ -314,15 +316,15 @@ export function ChatTabs() {
             submenu: chContacts.map((c) => ({
               id: `assign-${ch.name}-${c.id}`,
               label: c.display_name || c.id,
-              ariaLabel: `Contato ${c.display_name || c.id}`,
+              ariaLabel: `${t('chatTabs.contact')} ${c.display_name || c.id}`,
               action: async () => {
                 closeContextMenu();
                 try {
                   await assignChannelToTab(tab.id, ch.name, c.id);
-                  addToast(`Conversa vinculada ao ${ch.name}`, 'success');
-                  announce(`Conversa vinculada ao ${ch.name}`);
+                  addToast(`${t('chatTabs.assignedTo')} ${ch.name}`, 'success');
+                  announce(`${t('chatTabs.assignedTo')} ${ch.name}`);
                 } catch (err: any) {
-                  addToast(err.message || 'Erro ao atribuir canal', 'error');
+                  addToast(err.message || t('chatTabs.assignError'), 'error');
                 }
               },
             })),
@@ -331,7 +333,7 @@ export function ChatTabs() {
         // Sem contatos autorizados — item desabilitado
         return {
           id: `assign-${ch.name}`,
-          label: `${ch.name} (sem contatos)`,
+          label: `${ch.name} (${t('chatTabs.noContacts')})`,
           icon: channelIcons[ch.name] || '🔗',
           ariaLabel: `${ch.name} sem contatos autorizados`,
         };
@@ -339,9 +341,9 @@ export function ChatTabs() {
 
       items.push({
         id: 'assign-channel',
-        label: 'Atribuir a canal',
+        label: t('chatTabs.assignChannel'),
         icon: '🔗',
-        ariaLabel: 'Atribuir conversa a um canal de mensageria',
+        ariaLabel: t('chatTabs.assignChannelLabel'),
         submenu: channelSubmenu,
       });
     }
@@ -399,12 +401,12 @@ export function ChatTabs() {
       <div
         className={`chat-tabs ${isLoading ? 'chat-tabs--loading' : ''}`}
         role="region"
-        aria-label="Abas de conversa"
+        aria-label={t('chatTabs.tabsLabel')}
       >
         <TabList
           listRef={tabListRef}
           className="chat-tabs__list"
-          ariaLabel="Lista de conversas abertas"
+          ariaLabel={t('chatTabs.listLabel')}
           onKeyDown={handleListKeyDown}
         >
           {tabs.map((tab) => {
@@ -425,7 +427,7 @@ export function ChatTabs() {
                     tab.channel ? ' chat-tabs__tab--channel' : ''
                   }`}
                   controlsId={null}
-                  ariaDescription={tab.channel ? `Canal: ${tab.channel}` : undefined}
+                  ariaDescription={tab.channel ? `${t('chatTabs.channelLabel')} ${tab.channel}` : undefined}
                   onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
                 >
                   <span className="chat-tabs__tab-icon" aria-hidden="true">
@@ -446,7 +448,7 @@ export function ChatTabs() {
                     onBlur={confirmEditingTab}
                     onClick={(e) => e.stopPropagation()}
                     onContextMenu={(e) => e.stopPropagation()}
-                    aria-label="Editar título da conversa"
+                    aria-label={t('chatTabs.editTitle')}
                   />
                 )}
 
@@ -458,7 +460,7 @@ export function ChatTabs() {
                       e.stopPropagation();
                       requestClose(tab.id);
                     }}
-                    aria-label={`Fechar ${tab.title}`}
+                    aria-label={`${t('chatTabs.close')} ${tab.title}`}
                     tabIndex={-1}
                     type="button"
                   >
@@ -475,8 +477,8 @@ export function ChatTabs() {
           visible={contextMenu.visible}
           x={contextMenu.x}
           y={contextMenu.y}
-          items={contextMenu.visible ? buildContextMenuItems(tabs.find(t => t.id === contextMenu.tabId)!) : []}
-          ariaLabel="Menu de contexto da aba"
+          items={contextMenu.visible ? buildContextMenuItems(tabs.find(tab => tab.id === contextMenu.tabId)!) : []}
+          ariaLabel={t('chatTabs.contextMenuLabel')}
           onClose={closeContextMenu}
         />
       </div>

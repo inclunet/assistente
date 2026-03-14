@@ -1,4 +1,5 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useTranslation } from 'react-i18next';
 import { GetLLMProviders } from '@wailsjs/go/main/App';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
@@ -42,6 +43,7 @@ export const LLMProviderPicker = forwardRef<LLMProviderPickerRef, LLMProviderPic
     },
     ref
   ) => {
+    const { t } = useTranslation();
     const [providers, setProviders] = useState<LLMProvider[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -53,13 +55,13 @@ export const LLMProviderPicker = forwardRef<LLMProviderPickerRef, LLMProviderPic
       try {
         const providersList = await GetLLMProviders();
         if (!providersList || providersList.length === 0) {
-          setError('Nenhum provedor configurado. Configure um provedor primeiro.');
+          setError(t('pickers.llmProvider.noneConfigured'));
           setProviders([]);
         } else {
           setProviders(providersList as LLMProvider[]);
         }
       } catch (err) {
-        const errorMsg = err instanceof Error ? err.message : 'Erro ao carregar provedores';
+        const errorMsg = err instanceof Error ? err.message : t('pickers.llmProvider.loadError');
         setError(errorMsg);
         console.error('[LLMProviderPicker] Falha ao carregar provedores:', err);
       } finally {

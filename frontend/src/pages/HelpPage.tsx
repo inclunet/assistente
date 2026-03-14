@@ -1695,7 +1695,7 @@ export default function HelpPage() {
                 <span className="help-section-icon" aria-hidden="true">
                   {section.icon}
                 </span>
-                <h3>{section.title}</h3>
+                <h3>{t(`help.sections.${section.id}`)}</h3>
                 <span className="help-section-chevron" aria-hidden="true">
                   {isExpanded ? '▼' : '▶'}
                 </span>
@@ -1712,7 +1712,7 @@ export default function HelpPage() {
 
       <footer className="help-footer">
         <p>
-          Assistente IA • Última atualização da documentação: Fevereiro 2026
+          {t('help.footer')}
         </p>
       </footer>
     </div>

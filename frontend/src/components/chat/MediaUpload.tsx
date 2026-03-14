@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
 import './MediaUpload.css';
 
@@ -21,6 +22,7 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
   maxFiles = 5,
   acceptedTypes = 'image/*,audio/*,.pdf,.txt,.doc,.docx',
 }) => {
+  const { t } = useTranslation();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [selectedFiles, setSelectedFiles] = useState<MediaFile[]>([]);
 
@@ -87,7 +89,7 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
         accept={acceptedTypes}
         onChange={handleFileSelect}
         className="media-upload__input"
-        aria-label="Selecionar arquivos"
+        aria-label={t('mediaUpload.selectFiles')}
         disabled={disabled}
       />
 
@@ -95,23 +97,23 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
         onClick={handleClick}
         disabled={disabled || selectedFiles.length >= maxFiles}
         variant="secondary"
-        aria-label="Anexar mídia"
-        title="Anexar imagens, áudios ou documentos"
+        aria-label={t('mediaUpload.attachLabel')}
+        title={t('mediaUpload.attachTooltip')}
       >
-        📎 Anexar
+        {t('mediaUpload.attachBtn')}
       </Button>
 
       {selectedFiles.length > 0 && (
-        <div className="media-upload__preview" role="region" aria-label="Arquivos selecionados">
+        <div className="media-upload__preview" role="region" aria-label={t('mediaUpload.filesSelected')}>
           <div className="media-upload__preview-header">
-            <span>{selectedFiles.length} arquivo(s) selecionado(s)</span>
+            <span>{selectedFiles.length} {t('mediaUpload.filesCount')}</span>
             <Button
               onClick={clearAll}
               variant="ghost"
               size="sm"
-              aria-label="Limpar todos os arquivos"
+              aria-label={t('mediaUpload.clearAll')}
             >
-              ✕ Limpar
+              {t('mediaUpload.clearBtn')}
             </Button>
           </div>
 
@@ -141,7 +143,7 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
                   onClick={() => removeFile(index)}
                   variant="ghost"
                   size="sm"
-                  aria-label={`Remover ${mediaFile.file.name}`}
+                  aria-label={`${t('mediaUpload.remove')} ${mediaFile.file.name}`}
                 >
                   ✕
                 </Button>

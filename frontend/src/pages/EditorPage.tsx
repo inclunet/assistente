@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { ProfilePicker } from '../components/pickers/ProfilePicker';
 import { EditorTabs } from '../components/editor/EditorTabs';
@@ -55,6 +56,7 @@ import {
 import './EditorPage.css';
 
 export default function EditorPage() {
+  const { t } = useTranslation();
   const { addToast } = useUIStore();
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
@@ -393,17 +395,16 @@ export default function EditorPage() {
 
       const resp = await requestQuestionnaire({
         id: `ui-editor-external-change-${Date.now()}`,
-        title: 'Arquivo modificado fora do Assistente',
-        description:
-          'Este arquivo mudou no disco enquanto estava aberto aqui. Para evitar sobrescrever sem querer, o autosave deste arquivo fica travado até você decidir.',
-        submitLabel: 'Aplicar',
-        cancelLabel: 'Agora não',
+        title: t('editor.questionnaire.externalChangeTitle'),
+        description: t('editor.questionnaire.externalChangeDesc'),
+        submitLabel: t('editor.buttons.apply'),
+        cancelLabel: t('editor.buttons.notNow'),
         allowCancel: true,
         questions: [
           {
             id: 'path',
             type: 'readonly_code' as const,
-            prompt: 'Arquivo',
+            prompt: t('editor.prompts.file'),
             content: String(filePath || ''),
           },
           ...(diffPreview.preview
@@ -411,7 +412,7 @@ export default function EditorPage() {
                 {
                   id: 'diff',
                   type: 'readonly_code' as const,
-                  prompt: 'Diff (disco → minha versão)',
+                  prompt: t('editor.prompts.diff'),
                   content: diffPreview.preview,
                 },
               ]
@@ -419,39 +420,39 @@ export default function EditorPage() {
           {
             id: 'disk',
             type: 'readonly_code' as const,
-            prompt: 'Versão do disco (preview)',
+            prompt: t('editor.prompts.diskPreview'),
             content: diskPreview.preview,
           },
           {
             id: 'local',
             type: 'readonly_code' as const,
-            prompt: 'Sua versão (preview)',
+            prompt: t('editor.prompts.localPreview'),
             content: localPreview.preview,
           },
           {
             id: 'choice',
             type: 'single_choice' as const,
-            prompt: 'Ação',
+            prompt: t('editor.prompts.action'),
             required: true,
             options: [
-              'Usar versão do disco',
-              'Resolver conflitos (estilo Git)',
-              'Usar minha versão',
-              'Salvar como…',
+              t('editor.options.useDisk'),
+              t('editor.options.resolveMerge'),
+              t('editor.options.useMine'),
+              t('editor.options.saveAs'),
             ],
-            default: 'Usar versão do disco',
+            default: t('editor.options.useDisk'),
           },
         ],
       });
 
       if (resp.cancelled) {
-        addToast('Arquivo mudou fora do Assistente. Autosave travado até você decidir.', 'warning');
+        addToast(t('editor.toast.externalChange'), 'warning');
         return;
       }
 
       const choice = String(resp.answers?.choice || '').trim();
 
-      if (choice.startsWith('Resolver conflitos')) {
+      if (choice === t('editor.options.resolveMerge')) {
         if (diskReadError) {
           addToast('Não foi possível ler do disco. Tente novamente.', 'error');
           return;
@@ -465,7 +466,7 @@ export default function EditorPage() {
         return;
       }
 
-      if (choice.startsWith('Usar versão do disco')) {
+      if (choice === t('editor.options.useDisk')) {
         if (diskReadError) {
           addToast('Não foi possível ler do disco. Tente novamente.', 'error');
           return;
@@ -487,7 +488,7 @@ export default function EditorPage() {
         return;
       }
 
-      if (choice.startsWith('Salvar como')) {
+      if (choice.startsWith(t('editor.options.saveAs'))) {
         const suggested = basenameFromPath(filePath) || 'documento.md';
         const newPath = String(await EditorSaveFileDialog(suggested) || '').trim();
         if (!newPath) return;
@@ -2478,18 +2479,18 @@ export default function EditorPage() {
 
       <Toolbar
         className="editor-page__toolbar"
-        left={<div className="editor-page__title">{activeTab?.title || 'Editor'}</div>}
+        left={<div className="editor-page__title">{activeTab?.title || t('editor.fallback.title')}</div>}
         right={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <ToolbarButton
-              label="Arquivo"
+              label={t('editor.buttons.file')}
               icon="📄"
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Arquivo', fileMenuItemsForContextMenu)}
               aria-haspopup="menu"
             />
 
             <ToolbarButton
-              label="Formatar"
+              label={t('editor.buttons.format')}
               icon="🎛️"
               disabled={!activeTab || isAsking || activeTab.mode !== 'rich' || !richEditorRef.current}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Formatar', formatMenuItemsForContextMenu)}
@@ -2497,7 +2498,7 @@ export default function EditorPage() {
             />
 
             <ToolbarButton
-              label="Inserir"
+              label={t('editor.buttons.insert')}
               icon="➕"
               disabled={!activeTab || isAsking || activeTab.mode === 'view'}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Inserir', insertMenuItemsForContextMenu)}
@@ -2505,7 +2506,7 @@ export default function EditorPage() {
             />
 
             <ToolbarButton
-              label="Modo"
+              label={t('editor.buttons.mode')}
               icon="🧭"
               disabled={!activeTab || isAsking}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Modo', modeMenuItemsForContextMenu)}
@@ -2515,28 +2516,28 @@ export default function EditorPage() {
             <ProfilePicker
               value={editorProfileSlug}
               onChange={(slug) => setEditorProfileSlug(slug)}
-              label="Perfil (editor)"
+              label={t('editor.labels.profile')}
               icon="✍️"
               maxWidth="280px"
             />
           </div>
         }
         actions={actions}
-        ariaLabel="Barra de ferramentas do editor"
+        ariaLabel={t('editor.aria.toolbar')}
       />
 
       <div className="editor-page__content">
         {!activeTab ? (
-          <div className="editor-page__empty">Nenhuma aba aberta</div>
+          <div className="editor-page__empty">{t('editor.empty.noTabs')}</div>
         ) : activeTab.mode === 'markdown' ? (
           <div className={'editor-page__single'}>
             <div className="editor-page__pane" role="region" aria-label="Editor Markdown">
-              <div className="editor-page__pane-title">Markdown</div>
+              <div className="editor-page__pane-title">{t('editor.panes.markdown')}</div>
               <div className="editor-page__pane-body">
                 <CodeEditor
                   height="100%"
                   language="markdown"
-                  ariaLabel="Editor Markdown"
+                  ariaLabel={t('editor.aria.markdownEditor')}
                   value={activeTab.markdown}
                   pasteUrlAsMarkdownLink={true}
                   onChange={(v) => {
@@ -2549,7 +2550,7 @@ export default function EditorPage() {
                       setTabDirty(activeTab.id, true);
                     }
                   }}
-                  placeholder="Escreva em Markdown..."
+                  placeholder={t('editor.placeholders.markdown')}
                   readOnly={isAsking}
                   onMount={(editor, monaco) => {
                     editorRef.current = editor;
@@ -2565,7 +2566,7 @@ export default function EditorPage() {
             <div
               className="editor-page__pane"
               role="region"
-              aria-label="Visualização renderizada"
+              aria-label={t('editor.aria.preview')}
               onDoubleClick={(e) => {
                 const target = e.target as HTMLElement | null;
                 const wrapper = target?.closest?.('.mermaid-diagram') as HTMLElement | null;
@@ -2609,10 +2610,10 @@ export default function EditorPage() {
                 }
               }}
             >
-              <div className="editor-page__pane-title">Visualização</div>
+              <div className="editor-page__pane-title">{t('editor.panes.preview')}</div>
               <div className="editor-page__preview">
                 <div className="editor-page__preview-hint">
-                  Conteúdo renderizado para navegação. Dê duplo clique (ou Enter) em Mermaid para editar.
+                  {t('editor.hints.previewMermaid')}
                 </div>
                 <MarkdownRenderer
                   content={debouncedMarkdownForPreview}
@@ -2624,12 +2625,12 @@ export default function EditorPage() {
           </div>
         ) : (
           <div className="editor-page__single">
-            <div className="editor-page__pane" role="region" aria-label="Editor rico">
-              <div className="editor-page__pane-title">Rico</div>
+            <div className="editor-page__pane" role="region" aria-label={t('editor.aria.richEditor')}>
+              <div className="editor-page__pane-title">{t('editor.panes.rich')}</div>
               <div className="editor-page__pane-body">
                 <RichTextEditor
                   ref={richEditorHandleRef}
-                  ariaLabel="Editor rico"
+                  ariaLabel={t('editor.richText.label')}
                   markdown={activeTab.markdown}
                   onMarkdownChange={(md) => {
                     setTabMarkdown(activeTab.id, md);
@@ -2642,7 +2643,7 @@ export default function EditorPage() {
                     }
                   }}
                   readOnly={isAsking}
-                  placeholder="Escreva…"
+                  placeholder={t('editor.placeholders.rich')}
                   onEditorReady={(ed) => {
                     richEditorRef.current = ed;
                     setEditorReadyNonce((n) => n + 1);

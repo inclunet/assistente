@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Input, Button, Checkbox } from '../index';
 import { ProfilePicker } from '../pickers/ProfilePicker';
 import { SignalRegistrationFlow } from './SignalRegistrationFlow';
@@ -97,6 +98,7 @@ export function ChannelsSignalSection({
   onUnregister,
   onStopLinkPolling,
 }: ChannelsSignalSectionProps) {
+  const { t } = useTranslation();
   const resetRegistration = () => {
     onSetRegStep('idle');
     onSetRegCode('');
@@ -114,14 +116,14 @@ export function ChannelsSignalSection({
   return (
     <>
       <Checkbox
-        label="Habilitado"
+        label={t('channels.signal.enabled')}
         checked={form.enabled}
         onChange={(e) => onChange({ ...form, enabled: e.target.checked })}
       />
       {form.enabled && (
         <>
           <Input
-            label="URL da API"
+            label={t('channels.signal.apiUrl')}
             value={form.apiURL}
             onChange={(e) => {
               onChange({ ...form, apiURL: e.target.value });
@@ -130,19 +132,19 @@ export function ChannelsSignalSection({
               onSetRegError('');
               onSetAccounts([]);
             }}
-            placeholder="http://localhost:8080"
+            placeholder={t('channels.signal.apiUrlPlaceholder')}
             fullWidth
           />
           <Input
-            label="Token da API (opcional)"
+            label={t('channels.signal.apiToken')}
             type="password"
             value={form.apiToken}
             onChange={(e) => onChange({ ...form, apiToken: e.target.value })}
-            placeholder="Bearer token"
+            placeholder={t('channels.signal.apiTokenPlaceholder')}
             fullWidth
           />
           <Checkbox
-            label="Salvar token no cofre de credenciais"
+            label={t('channels.signal.saveVault')}
             checked={vaultEnabled}
             onChange={(e) => onToggleVault(e.target.checked)}
           />

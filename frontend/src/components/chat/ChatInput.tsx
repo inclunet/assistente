@@ -1,4 +1,5 @@
 import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
@@ -20,9 +21,10 @@ export interface ChatInputProps {
 }
 
 export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
-  { onSend, disabled = false, placeholder = 'Digite sua mensagem...', maxFiles = 5, onArrowUp, voiceEnabled = false },
+  { onSend, disabled = false, placeholder, maxFiles = 5, onArrowUp, voiceEnabled = false },
   ref
 ) => {
+  const { t } = useTranslation();
   const [message, setMessage] = useState('');
   const [mediaFiles, setMediaFiles] = useState<MediaFile[]>([]);
   const [isDragging, setIsDragging] = useState(false);
@@ -262,7 +264,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
       {isDragging && (
         <div className="drag-overlay">
           <div className="drag-overlay__content">
-            📎 Solte os arquivos aqui
+            {t('chat.dropFiles')}
           </div>
         </div>
       )}
@@ -288,7 +290,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           accept="image/*,audio/*,video/*,application/pdf,.doc,.docx,.txt,.md,.csv,.xlsx"
           onChange={handleFileInputChange}
           style={{ display: 'none' }}
-          aria-label="Selecionar arquivos"
+          aria-label={t('chat.selectFiles')}
         />
         
         <button
@@ -296,8 +298,8 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           className="chat-input__attach-button"
           onClick={() => fileInputRef.current?.click()}
           disabled={disabled || mediaFiles.length >= maxFiles}
-          aria-label="Anexar arquivo"
-          title="Anexar arquivo"
+          aria-label={t('chat.attachFile')}
+          title={t('chat.attachFile')}
         >
           📎
         </button>
@@ -312,9 +314,9 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           }}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
-          placeholder={placeholder}
+          placeholder={placeholder || t('chat.placeholder')}
           rows={1}
-          aria-label="Mensagem"
+          aria-label={t('chat.messageLabel')}
         />
         {/* Mostra botão de voz quando input vazio, senão botão de enviar */}
         {voiceEnabled && !message.trim() && mediaFiles.length === 0 ? (
@@ -331,7 +333,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
             variant="primary"
             size="md"
             className="chat-input__button"
-            aria-label={disabled ? "Aguarde o término da resposta para enviar" : "Enviar mensagem"}
+            aria-label={disabled ? t('chat.waitResponse') : t('chat.send')}
           >
             <svg
               width="20"

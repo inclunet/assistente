@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Input, Button } from '../index';
 
 type SignalRegisterStep = 'idle' | 'registering' | 'awaiting_code' | 'verifying' | 'done';
@@ -31,12 +32,13 @@ export function SignalRegistrationFlow({
   onVerify,
   onReset,
 }: SignalRegistrationFlowProps) {
+  const { t } = useTranslation();
   return (
     <>
       <div aria-live="assertive" aria-atomic="true">
         {regError && (
           <div className="channels-page__alert" role="alert">
-            <strong>Erro:</strong> {regError}
+            <strong>{t('channels.signalRegistration.error')}</strong> {regError}
           </div>
         )}
       </div>
@@ -44,10 +46,10 @@ export function SignalRegistrationFlow({
       {regStep === 'idle' && (
         <div className="channels-page__fields">
           <Input
-            label="Token de Verificação"
+            label={t('channels.signalRegistration.verificationToken')}
             value={regCaptcha}
             onChange={(e) => onSetRegCaptcha(e.target.value)}
-            placeholder="signalcaptcha://signal-hcaptcha.abcdef..."
+            placeholder={t('channels.signalRegistration.captchaPlaceholder')}
             fullWidth
           />
           <p className="channels-page__hint">
@@ -57,10 +59,9 @@ export function SignalRegistrationFlow({
               target="_blank"
               rel="noopener noreferrer"
             >
-              esta página
+              {t('channels.signalRegistration.captchaLink')}
             </a>
-            , complete o desafio, clique direito em "Open Signal" e copie o
-            link.
+            {t('channels.signalRegistration.captchaHint')}
           </p>
           <div className="channels-page__row">
             <Button
@@ -68,7 +69,7 @@ export function SignalRegistrationFlow({
               onClick={() => onRegister('sms')}
               disabled={!apiURL || !account || !regCaptcha}
             >
-              Enviar código por SMS
+              {t('channels.signalRegistration.sendSMS')}
             </Button>
           </div>
         </div>
@@ -80,17 +81,17 @@ export function SignalRegistrationFlow({
           role="status"
           aria-live="polite"
         >
-          Enviando código...
+          {t('channels.signalRegistration.sending')}
         </p>
       )}
 
       {(regStep === 'awaiting_code' || regStep === 'verifying') && (
         <div className="channels-page__fields">
           <Input
-            label="Código de Verificação"
+            label={t('channels.signalRegistration.verificationCode')}
             value={regCode}
             onChange={(e) => onSetRegCode(e.target.value)}
-            placeholder="123-456"
+            placeholder={t('channels.signalRegistration.codePlaceholder')}
             fullWidth
           />
           <div className="channels-page__row">
@@ -100,17 +101,17 @@ export function SignalRegistrationFlow({
               loading={regStep === 'verifying'}
               disabled={!regCode}
             >
-              Verificar
+              {t('channels.signalRegistration.verify')}
             </Button>
             <Button
               variant="outline"
               onClick={() => onRegister('voice')}
               disabled={!smsSent}
             >
-              Reenviar por Ligação
+              {t('channels.signalRegistration.resendCall')}
             </Button>
             <Button variant="ghost" onClick={onReset}>
-              Cancelar
+              {t('common.cancel')}
             </Button>
           </div>
         </div>
@@ -123,10 +124,10 @@ export function SignalRegistrationFlow({
             role="status"
             aria-live="polite"
           >
-            Número {account} registrado com sucesso!
+            {account} {t('channels.signalRegistration.registeredSuccess')}
           </div>
           <Button variant="ghost" onClick={onReset}>
-            OK
+            {t('channels.signalRegistration.ok')}
           </Button>
         </div>
       )}

@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import './ReasoningSection.css';
 
@@ -15,6 +16,7 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
   isExpanded = false,
   onToggle,
 }) => {
+  const { t } = useTranslation();
   if (!reasoning && !isStreaming) return null;
 
   const handleToggle = () => {
@@ -32,13 +34,13 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
   const charCount = reasoning.length;
   const lineCount = (reasoning.match(/\n/g) || []).length + 1;
   const summaryText = isStreaming 
-    ? 'Pensando...' 
-    : `${charCount} caracteres, ${lineCount} linhas`;
+    ? t('chat.thinking') 
+    : `${charCount} ${t('chat.characters')}, ${lineCount} ${t('chat.lines')}`;
 
   return (
     <div 
       className={`reasoning-section ${isExpanded ? 'reasoning-section--expanded' : ''} ${isStreaming ? 'reasoning-section--streaming' : ''}`}
-      aria-label={isStreaming ? 'O modelo está pensando' : 'Raciocínio do modelo'}
+      aria-label={isStreaming ? t('chat.modelThinking') : t('chat.modelReasoning')}
       tabIndex={-1}
     >
       <button
@@ -54,7 +56,7 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
           {isStreaming ? '🧠' : '💭'}
         </span>
         <span className="reasoning-section__title">
-          {isStreaming ? 'Pensando...' : 'Raciocínio'}
+          {isStreaming ? t('chat.thinking') : t('chat.reasoning')}
         </span>
         <span className="reasoning-section__summary">
           {summaryText}
@@ -72,7 +74,7 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
           id="reasoning-content"
           className="reasoning-section__content"
           role="region"
-          aria-label="Conteúdo do raciocínio"
+          aria-label={t('chat.reasoningContent')}
         >
           {reasoning ? (
             <MarkdownRenderer content={reasoning} />

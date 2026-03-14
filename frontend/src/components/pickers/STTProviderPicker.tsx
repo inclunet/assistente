@@ -1,4 +1,5 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import './STTProviderPicker.css';
@@ -35,14 +36,15 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
       value,
       onChange,
       variant = 'form',
-      label = 'STT',
-      helpText = 'Selecione o provedor de reconhecimento de fala',
+      label,
+      helpText,
       icon = '🎤',
       maxWidth,
       onAnnounce,
     },
     ref
   ) => {
+    const { t } = useTranslation();
     const [providers, setProviders] = useState<STTProvider[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -55,21 +57,21 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
         const providersList: STTProvider[] = [
           {
             id: STT_WEBSPEECH,
-            name: 'WebSpeech',
-            description: 'Navegador (grátis)',
+            name: t('pickers.stt.webSpeech'),
+            description: t('pickers.stt.webSpeechDesc'),
             icon: '🌐'
           },
           {
             id: STT_WHISPER,
-            name: 'Whisper',
-            description: 'OpenAI (premium)',
+            name: t('pickers.stt.whisper'),
+            description: t('pickers.stt.whisperDesc'),
             icon: '🤖'
           },
         ];
 
         setProviders(providersList);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao carregar provedores');
+        setError(err instanceof Error ? err.message : t('pickers.stt.loadError'));
         console.error('Failed to load STT providers:', err);
       } finally {
         setLoading(false);
@@ -96,7 +98,7 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
         items={items}
         selected={value}
         onSelect={onChange}
-        label={label}
+        label={label ?? t('pickers.stt.label')}
         icon={icon}
         maxWidth={maxWidth}
         onAnnounce={onAnnounce}
@@ -107,13 +109,13 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
         formClassName="stt-picker-form"
         formLabelClassName="stt-picker-label"
         formLabelIconClassName="stt-picker-icon"
-        helpText={variant === 'form' ? helpText : undefined}
+        helpText={variant === 'form' ? (helpText ?? t('pickers.stt.description')) : undefined}
         helpTextClassName="help-text"
-        loadingLabel={{ form: 'Carregando provedores...', toolbar: 'Carregando provedores...' }}
+        loadingLabel={{ form: t('pickers.stt.loading'), toolbar: t('pickers.stt.loading') }}
         loadingLabelVisuallyHidden={{ toolbar: true }}
         loadingClassName={{ form: 'loading-state', toolbar: 'stt-picker-toolbar' }}
         errorClassName={{ form: 'error-state', toolbar: 'stt-picker-toolbar stt-picker-error' }}
-        errorLabel={{ form: error || 'Erro ao carregar provedores', toolbar: '' }}
+        errorLabel={{ form: error || t('pickers.stt.loadError'), toolbar: '' }}
         errorLabelVisuallyHidden={{ toolbar: true }}
         errorIcon={{ form: '⚠️', toolbar: '⚠️' }}
         retryClassName="retry-btn"

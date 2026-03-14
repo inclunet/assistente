@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useMemo, forwardRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
 import { main } from '../../../wailsjs/go/models';
@@ -143,9 +144,11 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
 }
 
 export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
-  { isLoading = false, loadingText = 'Assistente está digitando', threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak, onDelete, onSendToEditor },
+  { isLoading = false, loadingText, threadedMessages, onLoadChildren, onReachEnd, onContextMenu, onSpeak, onDelete, onSendToEditor },
   ref
 ) => {
+  const { t } = useTranslation();
+  const effectiveLoadingText = loadingText ?? t('chat.typing');
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const internalContainerRef = useRef<HTMLDivElement>(null);
   
@@ -177,15 +180,15 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
       <div 
         className="message-list message-list--empty"
         role="region"
-        aria-label="Lista de mensagens da conversa"
+        aria-label={t('chat.messageListLabel')}
       >
         <div className="message-list__empty-state">
           <div className="message-list__empty-icon">💬</div>
           <h3 className="message-list__empty-title">
-            Comece uma nova conversa
+            {t('chat.emptyTitle')}
           </h3>
           <p className="message-list__empty-description">
-            Digite sua mensagem abaixo para começar a conversar com o assistente de IA.
+            {t('chat.emptyDescription')}
           </p>
         </div>
       </div>
@@ -196,12 +199,12 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
     <div 
       className="message-list" 
       ref={containerRef}
-      aria-label="Lista de mensagens da conversa"
+      aria-label={t('chat.messageListLabel')}
     >
       <div className="message-list__messages">
         <div 
           role="list" 
-          aria-label="Mensagens da conversa"
+          aria-label={t('chat.messagesRegion')}
           tabIndex={0}
           onKeyDown={(e) => {
             const target = e.currentTarget;
@@ -232,14 +235,14 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
           <div
             className="message-list__loading"
             role="status"
-            aria-label={loadingText}
+            aria-label={effectiveLoadingText}
           >
             <div className="message-list__loading-dots" aria-hidden="true">
               <span></span>
               <span></span>
               <span></span>
             </div>
-            <span className="message-list__loading-text">{loadingText}...</span>
+            <span className="message-list__loading-text">{effectiveLoadingText}...</span>
           </div>
         )}
         <div ref={messagesEndRef} />

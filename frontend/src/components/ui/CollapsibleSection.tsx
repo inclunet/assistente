@@ -1,4 +1,5 @@
 import { ReactNode } from 'react';
+import { useTranslation } from 'react-i18next';
 import './CollapsibleSection.css';
 
 export interface CollapsibleSectionProps {
@@ -43,13 +44,14 @@ export function CollapsibleSection({
   children,
   ariaLabel,
 }: CollapsibleSectionProps) {
+  const { t } = useTranslation();
   return (
     <div className="collapsible-section" data-testid="collapsible-section">
       <button
         className="collapsible-section__header"
         onClick={onToggle}
         aria-expanded={isOpen}
-        aria-label={ariaLabel || `${title} - ${isOpen ? 'abrir' : 'fechar'}`}
+        aria-label={ariaLabel || `${title} - ${isOpen ? t('ui.collapsible.close') : t('ui.collapsible.open')}`}
         disabled={disabled}
       >
         <span className="collapsible-section__icon">

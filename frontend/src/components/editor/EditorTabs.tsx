@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useEditorStore } from '../../store/editorStore';
 import { useUIStore } from '../../store/uiStore';
@@ -8,6 +9,7 @@ import { Tabs, Tab, TabList } from '../ui/tabs';
 import './EditorTabs.css';
 
 export function EditorTabs() {
+  const { t } = useTranslation();
   const { addToast } = useUIStore();
   const tabs = useEditorStore((s) => s.tabs);
   const activeTabId = useEditorStore((s) => s.activeTabId);
@@ -47,11 +49,11 @@ export function EditorTabs() {
     if (!id) return;
     pendingFocusTabIdRef.current = null;
 
-    const t = window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       focusTabButton(id);
     }, 50);
 
-    return () => window.clearTimeout(t);
+    return () => window.clearTimeout(timer);
   }, [focusTabButton, tabs]);
 
   const startRenaming = (tabId: string) => {
@@ -59,13 +61,13 @@ export function EditorTabs() {
     if (!tab) return;
     setEditingTabId(tabId);
     setEditingTitle(tab.filePath ? basenameFromPath(tab.filePath) : tab.title);
-    announce(tab.filePath ? 'Renomeando arquivo. Enter confirma, Escape cancela.' : 'Editando título do documento. Enter confirma, Escape cancela.');
+    announce(tab.filePath ? t('editor.tabs.renaming') : t('editor.tabs.renamingDoc'));
   };
 
   const cancelRenaming = () => {
     setEditingTabId(null);
     setEditingTitle('');
-    announce('Edição cancelada');
+    announce(t('editor.tabs.editCancelled'));
   };
 
   const confirmRenaming = async (reason: 'enter' | 'blur') => {
@@ -89,7 +91,7 @@ export function EditorTabs() {
       renameTab(tab.id, nextTitle);
       setEditingTabId(null);
       setEditingTitle('');
-      announce(`Título alterado para: ${nextTitle}`);
+      announce(`${t('editor.tabs.titleChanged')} ${nextTitle}`);
       window.setTimeout(() => {
         focusTabButton(tabIdToFocus);
       }, 10);
@@ -98,8 +100,8 @@ export function EditorTabs() {
 
     // Renomeio de arquivo no disco
     if (/[\\/]/.test(nextTitle)) {
-      addToast('O nome não pode conter / ou \\.', 'error');
-      announce('Nome inválido');
+      addToast(t('editor.tabs.invalidName'), 'error');
+      announce(t('editor.tabs.invalidNameLabel'));
       if (reason === 'blur') cancelRenaming();
       return;
     }
@@ -120,7 +122,7 @@ export function EditorTabs() {
 
       setEditingTabId(null);
       setEditingTitle('');
-      announce(`Arquivo renomeado para: ${newBase}`);
+      announce(`${t('editor.tabs.fileRenamed')} ${newBase}`);
 
       window.setTimeout(() => {
         focusTabButton(tabIdToFocus);
@@ -128,7 +130,7 @@ export function EditorTabs() {
     } catch (e: any) {
       const msg = String(e?.message || e || 'Falha ao renomear arquivo');
       addToast(msg, 'error');
-      announce('Falha ao renomear arquivo');
+      announce(t('editor.tabs.renameFailed'));
       // No blur: não prende o usuário em campo de edição.
       if (reason === 'blur') cancelRenaming();
     }
@@ -197,7 +199,7 @@ export function EditorTabs() {
       if (event.key === 'Enter' && !event.ctrlKey && !event.metaKey && !event.altKey) {
         // Enter: ir para o editor.
         window.dispatchEvent(new Event('assistente:focus-editor'));
-        announce('Foco no editor');
+        announce(t('editor.tabs.focusEditor'));
       }
     },
     [announce, editingTabId, getFocusedTabId]
@@ -220,7 +222,7 @@ export function EditorTabs() {
       activationMode="auto"
     >
       <TabList
-        ariaLabel="Abas do editor"
+        ariaLabel={t('editor.tabs.tabsLabel')}
         className="editor-tabs"
         listRef={listRef}
         onKeyDown={handleListKeyDown}
@@ -270,7 +272,7 @@ export function EditorTabs() {
                       }
                     }}
                     onBlur={() => void confirmRenaming('blur')}
-                    aria-label="Editar título da aba"
+                    aria-label={t('editor.tabs.editTitle')}
                   />
                 )}
               </div>
@@ -280,8 +282,8 @@ export function EditorTabs() {
                 onClick={() => {
                   requestClose(tab.id, { focusEditor: true });
                 }}
-                aria-label={`Fechar ${tab.title}`}
-                title="Fechar"
+                aria-label={`${t('editor.tabs.close')} ${tab.title}`}
+                title={t('editor.tabs.close')}
                 tabIndex={-1}
                 type="button"
               >

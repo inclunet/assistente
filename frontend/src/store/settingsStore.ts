@@ -9,7 +9,7 @@ export interface AppConfig {
   maxTokens: number;
   streamEnabled: boolean;
   theme: 'assistente' | 'amethyst' | 'midnight' | 'light' | 'high-contrast';
-  language: string;
+  language: 'pt-BR' | 'en' | 'es';
   // Nota: voz/TTS e STT agora vêm do perfil global (ttsService / useInteractionProfile)
 }
 

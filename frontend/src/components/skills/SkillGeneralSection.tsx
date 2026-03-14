@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 interface SkillGeneralSectionProps {
   item: any;
   onFieldChange: (field: string, value: any) => void;
@@ -7,13 +9,14 @@ export function SkillGeneralSection({
   item,
   onFieldChange,
 }: SkillGeneralSectionProps) {
+  const { t } = useTranslation();
   return (
     <section className="skill-section" data-testid="skill-general-section">
-      <h3 className="skill-section__title">Geral</h3>
+      <h3 className="skill-section__title">{t('skills.generalSection.title')}</h3>
       <div className="skill-fields">
         <div className="skill-field">
           <label htmlFor="sk-name" className="skill-field__label">
-            Nome
+            {t('skills.generalSection.name')}
           </label>
           <input
             id="sk-name"
@@ -21,13 +24,13 @@ export function SkillGeneralSection({
             className="skill-field__input"
             value={item.name || ''}
             onChange={(e) => onFieldChange('name', e.target.value)}
-            placeholder="Ex: Criar Componente React"
+            placeholder={t('skills.generalSection.namePlaceholder')}
           />
         </div>
 
         <div className="skill-field">
           <label htmlFor="sk-description" className="skill-field__label">
-            Descrição
+            {t('skills.generalSection.description')}
           </label>
           <input
             id="sk-description"
@@ -35,7 +38,7 @@ export function SkillGeneralSection({
             className="skill-field__input"
             value={item.description || ''}
             onChange={(e) => onFieldChange('description', e.target.value)}
-            placeholder="Quando este skill deve ser usado"
+            placeholder={t('skills.generalSection.descriptionPlaceholder')}
           />
         </div>
 
@@ -47,7 +50,7 @@ export function SkillGeneralSection({
             onChange={(e) => onFieldChange('auto', e.target.checked)}
           />
           <label htmlFor="sk-auto" className="skill-field__label">
-            Auto — injetar automaticamente no system prompt
+            {t('skills.generalSection.auto')}
           </label>
         </div>
       </div>

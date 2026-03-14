@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/main/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
@@ -21,15 +22,16 @@ interface CredentialRow {
   headerValue?: string;
 }
 
-const typeOptions = [
-  { value: 'bearer', label: 'Bearer token' },
-  { value: 'basic', label: 'Basic (usuário/senha)' },
-  { value: 'custom', label: 'Header customizado' },
-  { value: 'secret', label: 'Segredo (uso interno)' },
-];
-
 export default function CredentialsPage() {
+  const { t } = useTranslation();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+
+  const typeOptions = [
+    { value: 'bearer', label: t('credentials.types.bearer') },
+    { value: 'basic', label: t('credentials.types.basic') },
+    { value: 'custom', label: t('credentials.types.custom') },
+    { value: 'secret', label: t('credentials.types.secret') },
+  ];
 
   const crud = useEditableList<CredentialRow, CredentialRow, CredentialRow>(
     {
@@ -141,17 +143,17 @@ export default function CredentialsPage() {
   }, []);
 
   const columns: DataGridColumn<CredentialRow>[] = [
-    { key: 'pattern', label: 'Pattern', width: '260px', truncate: true },
-    { key: 'type', label: 'Tipo', width: '120px' },
-    { key: 'masked', label: 'Valor', truncate: true },
+    { key: 'pattern', label: t('credentials.labels.pattern'), width: '260px', truncate: true },
+    { key: 'type', label: t('credentials.labels.type'), width: '120px' },
+    { key: 'masked', label: t('credentials.labels.value'), truncate: true },
   ];
 
   return (
     <div className="credentials-page">
       <Toolbar
-        left={<h1 className="page-toolbar__title">Credenciais</h1>}
-        right={<Button onClick={crud.openNew} variant="primary">Nova</Button>}
-        ariaLabel="Barra de ferramentas de credenciais"
+        left={<h1 className="page-toolbar__title">{t('credentials.pageTitle')}</h1>}
+        right={<Button onClick={crud.openNew} variant="primary">{t('credentials.buttons.new')}</Button>}
+        ariaLabel={t('credentials.aria.toolbar')}
         onFocusGrid={focusFirstCell}
       />
 
@@ -162,7 +164,7 @@ export default function CredentialsPage() {
           getItemId={(row) => row.id}
           onActivate={(row) => crud.openEdit(row)}
           onDelete={(row) => crud.deleteItem(row as any)}
-          label="Credenciais"
+          label={t('credentials.pageTitle')}
           onGridReady={handleGridReady}
         />
       </div>
@@ -170,21 +172,21 @@ export default function CredentialsPage() {
       <Modal
         isOpen={Boolean(crud.editingItem)}
         onClose={crud.closeEditor}
-        title={crud.isNew ? 'Nova credencial' : 'Editar credencial'}
+        title={crud.isNew ? t('credentials.modal.newTitle') : t('credentials.modal.editTitle')}
         size="md"
       >
         {crud.editingItem && (
           <div className="credentials-page__fields">
             <Input
-              label="Pattern"
+              label={t('credentials.labels.pattern')}
               value={crud.editingItem.pattern}
               onChange={(e) => crud.updateField('pattern', e.target.value)}
-              placeholder="ex: *.github.com ou channel:slack:bot_token"
+              placeholder={t('credentials.placeholders.pattern')}
               fullWidth
               disabled={!crud.isNew}
             />
             <Select
-              label="Tipo"
+              label={t('credentials.labels.type')}
               value={crud.editingItem.type}
               options={typeOptions}
               onChange={(e) => crud.updateField('type', e.target.value)}
@@ -197,7 +199,7 @@ export default function CredentialsPage() {
                 type="password"
                 value={crud.editingItem.token || ''}
                 onChange={(e) => crud.updateField('token', e.target.value)}
-                placeholder="Informe o token"
+                placeholder={t('credentials.placeholders.token')}
                 fullWidth
               />
             )}
@@ -205,13 +207,13 @@ export default function CredentialsPage() {
             {crud.editingItem.type === 'basic' && (
               <div className="credentials-page__row">
                 <Input
-                  label="Usuário"
+                  label={t('credentials.labels.username')}
                   value={crud.editingItem.username || ''}
                   onChange={(e) => crud.updateField('username', e.target.value)}
                   fullWidth
                 />
                 <Input
-                  label="Senha"
+                  label={t('credentials.labels.password')}
                   type="password"
                   value={crud.editingItem.password || ''}
                   onChange={(e) => crud.updateField('password', e.target.value)}
@@ -223,13 +225,13 @@ export default function CredentialsPage() {
             {crud.editingItem.type === 'custom' && (
               <div className="credentials-page__row">
                 <Input
-                  label="Header"
+                  label={t('credentials.labels.header')}
                   value={crud.editingItem.headerName || ''}
                   onChange={(e) => crud.updateField('headerName', e.target.value)}
                   fullWidth
                 />
                 <Input
-                  label="Valor"
+                  label={t('credentials.labels.value')}
                   type="password"
                   value={crud.editingItem.headerValue || ''}
                   onChange={(e) => crud.updateField('headerValue', e.target.value)}
@@ -239,7 +241,7 @@ export default function CredentialsPage() {
             )}
 
             <p className="credentials-page__hint">
-              Os valores sensíveis não são exibidos após salvar. Para atualizar, informe novamente.
+              {t('credentials.hint.sensitive')}
             </p>
           </div>
         )}
@@ -249,14 +251,14 @@ export default function CredentialsPage() {
               variant="danger"
               onClick={() => crud.deleteItem(crud.editingItem as any)}
             >
-              Excluir
+              {t('credentials.buttons.delete')}
             </Button>
           )}
           <Button variant="ghost" onClick={crud.closeEditor}>
-            Cancelar
+            {t('common.cancel')}
           </Button>
           <Button onClick={crud.save} loading={crud.saving}>
-            {crud.isNew ? 'Criar' : 'Salvar'}
+            {crud.isNew ? t('credentials.buttons.create') : t('common.save')}
           </Button>
         </EditorPanelFooter>
       </Modal>

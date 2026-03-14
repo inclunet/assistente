@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
 import { TerminalTabs } from '../components/terminal/TerminalTabs';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
@@ -7,6 +8,7 @@ import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolb
 import './TerminalPage.css';
 
 export default function TerminalPage() {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
 
@@ -156,10 +158,10 @@ export default function TerminalPage() {
       <TerminalTabs />
 
       <Toolbar
-        ariaLabel="Ferramentas do terminal. Use setas para navegar entre os botões"
+        ariaLabel={t('terminal.aria.toolbar')}
         left={
           <h1 className="page-toolbar__title" id="terminal-heading">
-            {activeSession?.name || 'Terminal'}
+            {activeSession?.name || t('terminal.pageTitle')}
           </h1>
         }
         right={
@@ -173,13 +175,13 @@ export default function TerminalPage() {
               </>
             )}
             <ToolbarButton
-              label="Parar"
+              label={t('terminal.buttons.stop')}
               icon="■"
               shortcut="Ctrl+C"
               onClick={() => interrupt()}
             />
             <ToolbarButton
-              label="Novo"
+              label={t('terminal.buttons.new')}
               icon="+"
               shortcut="Ctrl+T"
               onClick={handleNewTerminal}
@@ -203,8 +205,8 @@ export default function TerminalPage() {
           disabled={!activeSession}
           placeholder={
             !activeSession
-              ? 'Criando terminal...'
-              : 'Digite um comando... (Ctrl+C para interromper)'
+              ? t('terminal.placeholders.creating')
+              : t('terminal.placeholders.command')
           }
           voiceEnabled={false}
           onArrowUp={handleArrowUp}

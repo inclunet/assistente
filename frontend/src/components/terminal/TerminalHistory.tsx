@@ -7,6 +7,7 @@
  */
 
 import { useEffect, useRef, useCallback, forwardRef, useImperativeHandle, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { HistoryEntry } from '../../store/terminalStore';
 import { TerminalCommandNode, TerminalOutputNode } from './TerminalEntry';
 import { announce } from '../../hooks/useAnnouncer';
@@ -32,6 +33,7 @@ interface FlatNode {
 
 export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
   function TerminalHistory({ entries, runningCommandId: _runningCommandId, isLoading, onReachEnd }, ref) {
+    const { t } = useTranslation();
     const containerRef = useRef<HTMLDivElement>(null);
     const bottomRef = useRef<HTMLDivElement>(null);
     const nodeRefs = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -81,7 +83,7 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
       if (entries.length > prevEntryCount.current) {
         const lastEntry = entries[entries.length - 1];
         if (lastEntry) {
-          announce(`Comando: ${lastEntry.command}`);
+          announce(`${t('terminal.history.commandPrefix')} ${lastEntry.command}`);
         }
       }
       prevEntryCount.current = entries.length;
@@ -109,21 +111,21 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
 
     if (isLoading) {
       return (
-        <div className="terminal-history terminal-history--loading" role="log" aria-label="Histórico do terminal">
-          <p className="terminal-history__loading-text">Carregando...</p>
+        <div className="terminal-history terminal-history--loading" role="log" aria-label={t('terminal.history.label')}>
+          <p className="terminal-history__loading-text">{t('terminal.history.loading')}</p>
         </div>
       );
     }
 
     if (entries.length === 0) {
       return (
-        <div ref={containerRef} className="terminal-history terminal-history--empty" role="log" aria-label="Histórico do terminal">
+        <div ref={containerRef} className="terminal-history terminal-history--empty" role="log" aria-label={t('terminal.history.label')}>
           <div className="terminal-history__empty-state">
             <span className="terminal-history__empty-icon" aria-hidden="true">&gt;_</span>
             <p className="terminal-history__empty-text">
-              Nenhum comando executado.
+              {t('terminal.history.emptyTitle')}
               <br />
-              Digite um comando abaixo para começar.
+              {t('terminal.history.emptyHint')}
             </p>
           </div>
         </div>
@@ -131,7 +133,7 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
     }
 
     return (
-      <div className="terminal-history" ref={containerRef} role="list" aria-label="Histórico do terminal">
+      <div className="terminal-history" ref={containerRef} role="list" aria-label={t('terminal.history.label')}>
         {flatNodes.map((node, index) => {
           const navProps = {
             onNavigatePrev: index > 0 ? () => focusNode(index - 1) : undefined,

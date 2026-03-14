@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
 import { MessageList } from '../chat/MessageList';
 import { ChatInput } from '../chat/ChatInput';
@@ -29,20 +30,21 @@ export interface EditorInlineChatModalProps {
 
 export function EditorInlineChatModal({
   isOpen,
-  title = 'Mini-chat',
+  title,
   selectedText,
   error,
   focusNonce,
   onClose,
   onSend,
 }: EditorInlineChatModalProps) {
+  const { t } = useTranslation();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
   const { isLoading, getThreadedMessages, loadMessageChildren, getActiveTab, loadConversationInActiveTab } = useChatStore();
 
   const activeTab = getActiveTab();
-  const conversationTitle = activeTab?.title || 'Conversa';
+  const conversationTitle = activeTab?.title || t('editor.inlineChat.conversation');
 
   const { copyMessage, speakMessage } = useMessageActions({
     onAnnounce: (msg) => announce(msg),
@@ -59,20 +61,20 @@ export function EditorInlineChatModal({
         const numericId = parseInt(msgId, 10);
         if (!isNaN(numericId)) {
           await DeleteMessage(numericId);
-          announce('Mensagem excluída');
+          announce(t('editor.inlineChat.messageDeleted'));
           const tab = getActiveTab();
           if (tab?.conversationId) {
-            await loadConversationInActiveTab(tab.conversationId, tab.title || 'Conversa');
+            await loadConversationInActiveTab(tab.conversationId, tab.title || t('editor.inlineChat.conversation'));
           }
         }
       } catch (e: any) {
         console.error('[EditorInlineChatModal] delete error:', e);
-        announce('Erro ao excluir mensagem', 'assertive');
+        announce(t('editor.inlineChat.deleteError'), 'assertive');
       } finally {
         setDeleteBusyId(null);
       }
     },
-    [getActiveTab, loadConversationInActiveTab]
+    [getActiveTab, loadConversationInActiveTab, t]
   );
 
   const { showMenu, hideMenu, menuItems, menuPosition, menuVisible } = useContextMenu({
@@ -83,7 +85,7 @@ export function EditorInlineChatModal({
     onResend: async (m) => {
       if (m.content) {
         await useChatStore.getState().sendMessage(String(m.content));
-        announce('Mensagem reenviada');
+        announce(t('editor.inlineChat.messageResent'));
       }
     },
     onDelete: handleDeleteMessage,
@@ -104,11 +106,11 @@ export function EditorInlineChatModal({
 
   const handleNewConversation = useCallback(async () => {
     try {
-      await loadConversationInActiveTab(0, 'Nova Conversa');
-      announce('Nova conversa');
+      await loadConversationInActiveTab(0, t('editor.inlineChat.newConversationTitle'));
+      announce(t('editor.inlineChat.newConversation'));
     } catch (e) {
       console.error('[EditorInlineChatModal] new conversation error:', e);
-      announce('Erro ao criar nova conversa', 'assertive');
+      announce(t('editor.inlineChat.newConversationError'), 'assertive');
     } finally {
       focusInput();
     }
@@ -119,15 +121,15 @@ export function EditorInlineChatModal({
     try {
       if (tab?.conversationId) {
         await ClearConversation(tab.conversationId);
-        await loadConversationInActiveTab(tab.conversationId, tab.title || 'Conversa');
-        announce('Conversa limpa');
+        await loadConversationInActiveTab(tab.conversationId, tab.title || t('editor.inlineChat.conversation'));
+        announce(t('editor.inlineChat.conversationCleared'));
       } else {
         useChatStore.getState().clearActiveTab();
-        announce('Conversa limpa');
+        announce(t('editor.inlineChat.conversationCleared'));
       }
     } catch (e) {
       console.error('[EditorInlineChatModal] clear conversation error:', e);
-      announce('Erro ao limpar conversa', 'assertive');
+      announce(t('editor.inlineChat.clearError'), 'assertive');
     } finally {
       focusInput();
     }
@@ -182,19 +184,19 @@ export function EditorInlineChatModal({
   return (
     <Modal
       isOpen={isOpen}
-      title={`${title} — ${conversationTitle}`}
+      title={`${title ?? t('editor.inlineChat.title')} — ${conversationTitle}`}
       onClose={onClose}
       size="lg"
     >
       <div className="editor-inline-chat" onKeyDownCapture={handleKeyDownCapture}>
         <Toolbar
           className="editor-inline-chat__toolbar"
-          ariaLabel="Ferramentas do mini-chat. Use setas para navegar entre os botões"
+          ariaLabel={t('editor.inlineChat.toolbarLabel')}
           left={<h3 className="editor-inline-chat__toolbar-title">{conversationTitle}</h3>}
           actions={[
             {
               key: 'new-conversation',
-              label: 'Nova',
+              label: t('editor.inlineChat.newBtn'),
               icon: '➕',
               onClick: () => void handleNewConversation(),
               disabled: isLoading,
@@ -202,7 +204,7 @@ export function EditorInlineChatModal({
             },
             {
               key: 'clear-conversation',
-              label: 'Limpar',
+              label: t('editor.inlineChat.clearBtn'),
               icon: '🧹',
               onClick: () => void handleClearConversation(),
               disabled: isLoading,
@@ -252,7 +254,7 @@ export function EditorInlineChatModal({
           x={menuPosition.x}
           y={menuPosition.y}
           onClose={hideMenu}
-          ariaLabel="Ações da mensagem"
+          ariaLabel={t('editor.inlineChat.messageActions')}
         />
 
         {/* Evita warning de estado não usado em dev */}

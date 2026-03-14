@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { GetChannelTemplates, CreateChannelFromTemplate } from '@wailsjs/go/main/App';
 import { channels } from '../../../wailsjs/go/models';
 import { Button, Input } from '..';
@@ -13,6 +14,7 @@ interface CreateChannelModalProps {
 }
 
 export default function CreateChannelModal({ isOpen, onClose, onSuccess, initialTemplateType }: CreateChannelModalProps) {
+  const { t } = useTranslation();
   const [templates, setTemplates] = useState<channels.ChannelTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<channels.ChannelTemplate | null>(null);
   const [formValues, setFormValues] = useState<Record<string, any>>({});
@@ -43,7 +45,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
       setTemplates(result || []);
     } catch (err) {
       console.error('Erro ao carregar templates:', err);
-      setError('Erro ao carregar templates de canais');
+      setError(t('channels.createModal.loadError'));
     }
   };
 
@@ -94,7 +96,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
     <Modal
       isOpen={isOpen}
       onClose={handleClose}
-      title={selectedTemplate ? `Configurar ${selectedTemplate.display_name}` : 'Criar Novo Canal'}
+      title={selectedTemplate ? `${t('channels.createModal.configure')} ${selectedTemplate.display_name}` : t('channels.createModal.title')}
       size="md"
     >
       <div className="create-channel-modal">
@@ -107,7 +109,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
         {!selectedTemplate ? (
           <div className="template-selection">
             <p className="template-selection-description">
-              Selecione o tipo de canal que deseja configurar:
+              {t('channels.createModal.selectType')}
             </p>
             <div className="template-grid">
               {templates.map((template) => (
@@ -138,7 +140,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
                     rel="noopener noreferrer"
                     className="channel-form-docs"
                   >
-                    📚 Ver documentação
+                    {t('channels.createModal.viewDocs')}
                   </a>
                 )}
               </div>
@@ -172,10 +174,10 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
                 }}
                 disabled={loading}
               >
-                Voltar
+                {t('channels.createModal.back')}
               </Button>
               <Button type="submit" loading={loading}>
-                Criar Canal
+                {t('channels.createModal.create')}
               </Button>
             </div>
           </form>

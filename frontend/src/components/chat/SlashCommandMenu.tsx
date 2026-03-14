@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { skills } from '../../../wailsjs/go/models';
 import './SlashCommandMenu.css';
 
@@ -25,6 +26,7 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
   onClose,
   anchorRef,
 }) => {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
@@ -68,15 +70,15 @@ export const SlashCommandMenu: React.FC<SlashCommandMenuProps> = ({
 
   if (filteredSkills.length === 0) {
     return (
-      <div className="slash-menu" ref={menuRef} role="listbox" aria-label="Slash commands">
-        <div className="slash-menu__empty">Nenhum skill encontrado</div>
+      <div className="slash-menu" ref={menuRef} role="listbox" aria-label={t('chat.slashCommands')}>
+        <div className="slash-menu__empty">{t('chat.noSkillsFound')}</div>
       </div>
     );
   }
 
   return (
-    <div className="slash-menu" ref={menuRef} role="listbox" aria-label="Slash commands">
-      <div className="slash-menu__header">Skills disponíveis</div>
+    <div className="slash-menu" ref={menuRef} role="listbox" aria-label={t('chat.slashCommands')}>
+      <div className="slash-menu__header">{t('chat.availableSkills')}</div>
       <div className="slash-menu__list">
         {filteredSkills.map((skill, index) => {
           const displayName = skill.displayName || skill.name || skill.slug;

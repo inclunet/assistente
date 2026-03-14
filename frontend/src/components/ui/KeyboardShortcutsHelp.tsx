@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { SHORTCUTS } from '../../constants/chat';
 import './KeyboardShortcutsHelp.css';
 
@@ -8,6 +9,7 @@ export interface KeyboardShortcutsHelpProps {
 }
 
 export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelpProps) {
+  const { t } = useTranslation();
   React.useEffect(() => {
     if (!isOpen) return;
 
@@ -24,19 +26,19 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
   if (!isOpen) return null;
 
   const shortcuts = [
-    { keys: SHORTCUTS.NEW_TAB, description: 'Nova conversa' },
-    { keys: SHORTCUTS.CLEAR_CONVERSATION, description: 'Limpar conversa' },
-    { keys: SHORTCUTS.PREV_TAB, description: 'Navegar entre conversas' },
-    { keys: SHORTCUTS.HISTORY, description: 'Abrir histórico' },
-    { keys: SHORTCUTS.MODELS, description: 'Selecionar modelo' },
-    { keys: SHORTCUTS.PROFILES, description: 'Perfis de interação' },
-    { keys: SHORTCUTS.SPEAK_MESSAGE, description: 'Reproduzir áudio (mensagem focada)' },
-    { keys: SHORTCUTS.MESSAGE_DETAILS, description: 'Ver detalhes (mensagem focada)' },
-    { keys: 'Shift+F10', description: 'Menu de contexto (mensagem focada)' },
-    { keys: '↑', description: 'Focar mensagem anterior' },
-    { keys: '↓', description: 'Focar próxima mensagem' },
-    { keys: 'Ctrl+Enter', description: 'Enviar mensagem' },
-    { keys: SHORTCUTS.HELP, description: 'Mostrar esta ajuda' },
+    { keys: SHORTCUTS.NEW_TAB, description: t('ui.shortcuts.newConversation') },
+    { keys: SHORTCUTS.CLEAR_CONVERSATION, description: t('ui.shortcuts.clearConversation') },
+    { keys: SHORTCUTS.PREV_TAB, description: t('ui.shortcuts.navigateTabs') },
+    { keys: SHORTCUTS.HISTORY, description: t('ui.shortcuts.openHistory') },
+    { keys: SHORTCUTS.MODELS, description: t('ui.shortcuts.selectModel') },
+    { keys: SHORTCUTS.PROFILES, description: t('ui.shortcuts.interactionProfiles') },
+    { keys: SHORTCUTS.SPEAK_MESSAGE, description: t('ui.shortcuts.playAudio') },
+    { keys: SHORTCUTS.MESSAGE_DETAILS, description: t('ui.shortcuts.viewDetails') },
+    { keys: 'Shift+F10', description: t('ui.shortcuts.contextMenu') },
+    { keys: '↑', description: t('ui.shortcuts.prevMessage') },
+    { keys: '↓', description: t('ui.shortcuts.nextMessage') },
+    { keys: 'Ctrl+Enter', description: t('ui.shortcuts.sendMessage') },
+    { keys: SHORTCUTS.HELP, description: t('ui.shortcuts.showHelp') },
   ];
 
   return (
@@ -52,11 +54,11 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
         onClick={(e) => e.stopPropagation()}
       >
         <div className="keyboard-shortcuts-header">
-          <h2 id="shortcuts-title">Atalhos do Teclado</h2>
+          <h2 id="shortcuts-title">{t('ui.shortcuts.title')}</h2>
           <button
             className="keyboard-shortcuts-close"
             onClick={onClose}
-            aria-label="Fechar"
+            aria-label={t('ui.shortcuts.close')}
           >
             ✕
           </button>
@@ -72,7 +74,7 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
         </div>
 
         <div className="keyboard-shortcuts-footer">
-          <p>Pressione <kbd>Esc</kbd> para fechar</p>
+          <p>{t('ui.shortcuts.escToClose')}</p>
         </div>
       </div>
     </div>

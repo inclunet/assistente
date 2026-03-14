@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { STTProviderPicker } from '../pickers/STTProviderPicker';
 import './ProfileInteractionSection.css';
 
@@ -20,6 +21,7 @@ export function ProfileInteractionSection({
   onChange,
   disabled = false,
 }: ProfileInteractionSectionProps) {
+  const { t } = useTranslation();
   return (
     <div className="profile-interaction-section" data-testid="profile-interaction-section">
       {/* STT Provider picker */}
@@ -28,8 +30,8 @@ export function ProfileInteractionSection({
           value={sttProvider || 'webspeech'}
           onChange={(value) => onChange('sttProvider', value)}
           variant="form"
-          label="Reconhecimento de Fala (STT)"
-          helpText="Selecione o provedor de reconhecimento de fala"
+          label={t('profiles.interactionSection.sttTitle')}
+          helpText={t('profiles.interactionSection.sttDescription')}
           icon="🎤"
         />
       </div>
@@ -37,7 +39,7 @@ export function ProfileInteractionSection({
       {/* STT Language */}
       <div className="profile-interaction-section__field">
         <label htmlFor="stt-language" className="profile-interaction-section__label">
-          Idioma (STT)
+          {t('profiles.interactionSection.sttLanguage')}
         </label>
         <select
           id="stt-language"
@@ -47,12 +49,12 @@ export function ProfileInteractionSection({
           disabled={disabled}
           data-testid="stt-language-select"
         >
-          <option value="pt-BR">Português (Brasil)</option>
-          <option value="en-US">English (US)</option>
-          <option value="es-ES">Español</option>
-          <option value="fr-FR">Français</option>
-          <option value="de-DE">Deutsch</option>
-          <option value="it-IT">Italiano</option>
+          <option value="pt-BR">{t('profiles.interactionSection.ptBR')}</option>
+          <option value="en-US">{t('profiles.interactionSection.enUS')}</option>
+          <option value="es-ES">{t('profiles.interactionSection.es')}</option>
+          <option value="fr-FR">{t('profiles.interactionSection.fr')}</option>
+          <option value="de-DE">{t('profiles.interactionSection.de')}</option>
+          <option value="it-IT">{t('profiles.interactionSection.it')}</option>
         </select>
       </div>
 
@@ -66,10 +68,10 @@ export function ProfileInteractionSection({
             disabled={disabled}
             data-testid="feedback-sounds-checkbox"
           />
-          <span>Ativar sons de feedback</span>
+          <span>{t('profiles.interactionSection.feedbackSounds')}</span>
         </label>
         <span className="profile-interaction-section__hint">
-          Sons ao iniciar/parar gravação e outros eventos de interação
+          {t('profiles.interactionSection.feedbackSoundsHint')}
         </span>
       </div>
     </div>

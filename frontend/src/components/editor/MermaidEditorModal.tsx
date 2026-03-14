@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
 import { CodeEditor } from '../ui/CodeEditor';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
@@ -17,7 +18,7 @@ export interface MermaidEditorModalProps {
 
 export function MermaidEditorModal({
   isOpen,
-  title = 'Editar Mermaid',
+  title,
   initialCode,
   initialInsertText,
   onConsumeInsertText,
@@ -25,7 +26,9 @@ export function MermaidEditorModal({
   onApply,
   onRemove,
 }: MermaidEditorModalProps) {
+  const { t } = useTranslation();
   const [code, setCode] = useState(initialCode);
+  const modalTitle = title ?? t('editor.mermaid.editorTitle');
   const codeEditorRef = useRef<any>(null);
   const monacoRef = useRef<any>(null);
 
@@ -104,7 +107,7 @@ export function MermaidEditorModal({
   }, [code]);
 
   return (
-    <Modal isOpen={isOpen} onClose={onCancel} title={title} size="xl" returnFocusToGrid={false}>
+    <Modal isOpen={isOpen} onClose={onCancel} title={modalTitle} size="xl" returnFocusToGrid={false}>
       <div
         className="mermaid-editor-modal"
         onKeyDown={(e) => {
@@ -130,14 +133,14 @@ export function MermaidEditorModal({
           }
         }}
       >
-        <div className="mermaid-editor-modal__split" role="group" aria-label="Editor e preview do Mermaid">
-          <div className="mermaid-editor-modal__pane" role="region" aria-label="Código Mermaid">
-            <div className="mermaid-editor-modal__pane-title">Código</div>
+        <div className="mermaid-editor-modal__split" role="group" aria-label={t('editor.mermaid.editorPreview')}>
+          <div className="mermaid-editor-modal__pane" role="region" aria-label={t('editor.mermaid.codeLabel')}>
+            <div className="mermaid-editor-modal__pane-title">{t('editor.mermaid.code')}</div>
             <div className="mermaid-editor-modal__pane-body">
               <CodeEditor
                 height="100%"
                 language="markdown"
-                ariaLabel="Código Mermaid"
+                ariaLabel={t('editor.mermaid.codeLabel')}
                 value={code}
                 onChange={setCode}
                 onMount={(editor, monaco) => {
@@ -148,8 +151,8 @@ export function MermaidEditorModal({
             </div>
           </div>
 
-          <div className="mermaid-editor-modal__pane" role="region" aria-label="Preview Mermaid">
-            <div className="mermaid-editor-modal__pane-title">Preview</div>
+          <div className="mermaid-editor-modal__pane" role="region" aria-label={t('editor.mermaid.preview')}>
+            <div className="mermaid-editor-modal__pane-title">{t('editor.mermaid.preview')}</div>
             <div className="mermaid-editor-modal__preview">
               <MarkdownRenderer content={previewMarkdown} interactiveButtons={false} focusableMermaid={false} />
             </div>
@@ -159,16 +162,16 @@ export function MermaidEditorModal({
         <div className="mermaid-editor-modal__actions">
           {onRemove && (
             <button type="button" className="mermaid-editor-modal__danger" onClick={onRemove}>
-              Remover bloco
+              {t('editor.mermaid.removeBlock')}
             </button>
           )}
 
           <div className="mermaid-editor-modal__actions-right">
             <button type="button" className="mermaid-editor-modal__secondary" onClick={onCancel}>
-              Cancelar
+              {t('common.cancel')}
             </button>
             <button type="button" className="mermaid-editor-modal__primary" onClick={() => onApply(code)}>
-              Aplicar (Ctrl+Enter)
+              {t('editor.mermaid.applyShortcut')}
             </button>
           </div>
         </div>

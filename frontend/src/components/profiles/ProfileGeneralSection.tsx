@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import './ProfileGeneralSection.css';
 
 export interface ProfileGeneralSectionProps {
@@ -34,11 +35,12 @@ export function ProfileGeneralSection({
   onChange,
   disabled = false,
 }: ProfileGeneralSectionProps) {
+  const { t } = useTranslation();
   return (
     <section className="profile-general-section" data-testid="profile-general-section">
       <div className="profile-general-section__field">
         <label htmlFor="profile-name" className="profile-general-section__label">
-          Nome
+          {t('profiles.generalSection.name')}
         </label>
         <input
           id="profile-name"
@@ -55,7 +57,7 @@ export function ProfileGeneralSection({
 
       <div className="profile-general-section__field">
         <label htmlFor="profile-description" className="profile-general-section__label">
-          Descrição
+          {t('profiles.generalSection.description')}
         </label>
         <input
           id="profile-description"
@@ -70,7 +72,7 @@ export function ProfileGeneralSection({
 
       <div className="profile-general-section__field">
         <label htmlFor="profile-icon" className="profile-general-section__label">
-          Ícone (Ionicons)
+          {t('profiles.generalSection.icon')}
         </label>
         <input
           id="profile-icon"
@@ -78,7 +80,7 @@ export function ProfileGeneralSection({
           className="profile-general-section__input"
           value={icon}
           onChange={(e) => onChange('icon', e.target.value)}
-          placeholder="chatbox"
+          placeholder={t('profiles.generalSection.iconPlaceholder')}
           disabled={disabled}
           data-testid="input-icon"
         />

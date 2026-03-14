@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   ResetDatabase,
   ClearMessages,
@@ -16,6 +17,7 @@ import { useTheme, THEMES, type ThemeId } from '../hooks/useTheme';
 import './RestoreDefaultsPage.css';
 
 export default function RestoreDefaultsPage() {
+  const { t } = useTranslation();
   const { addToast } = useUIStore();
   const { handleDatabaseReset } = useChatStore();
   const { announce } = useAnnouncer();
@@ -138,32 +140,32 @@ export default function RestoreDefaultsPage() {
   return (
     <div className="restore-defaults-page">
       <header className="restore-header">
-        <h1>Restaurar Padrões</h1>
-        <p>Gerencie a restauração e limpeza de dados do assistente</p>
+        <h1>{t('restore.pageTitle')}</h1>
+        <p>{t('restore.description')}</p>
       </header>
 
       <main className="restore-content">
         {/* Appearance - Aparência */}
         <CollapsibleSection
-          title="🎨 Aparência"
+          title={t('restore.sections.appearance')}
           isOpen={isSectionOpen('appearance')}
           onToggle={() => toggleSection('appearance')}
-          ariaLabel="Aparência - escolha o tema visual"
+          ariaLabel={t('restore.aria.appearance')}
         >
-          <div className="theme-grid" role="radiogroup" aria-label="Selecionar tema">
-            {THEMES.map((t) => (
+          <div className="theme-grid" role="radiogroup" aria-label={t('restore.aria.selectTheme')}>
+            {THEMES.map((theme) => (
               <button
-                key={t.id}
-                className={`theme-card${currentTheme === t.id ? ' theme-card--active' : ''}`}
+                key={theme.id}
+                className={`theme-card${currentTheme === theme.id ? ' theme-card--active' : ''}`}
                 role="radio"
-                aria-checked={currentTheme === t.id}
+                aria-checked={currentTheme === theme.id}
                 onClick={() => {
-                  setTheme(t.id as ThemeId);
-                  announce(`Tema alterado para ${t.label}`);
+                  setTheme(theme.id as ThemeId);
+                  announce(t('restore.announce.themeChanged', { label: theme.label }));
                 }}
               >
                 <div className="theme-card__preview">
-                  {t.id === 'assistente' && (
+                  {theme.id === 'assistente' && (
                     <>
                       <div className="theme-card__swatch" style={{ background: '#0a1628' }} />
                       <div className="theme-card__swatch" style={{ background: '#0f1f3a' }} />
@@ -171,7 +173,7 @@ export default function RestoreDefaultsPage() {
                       <div className="theme-card__swatch" style={{ background: '#eef2f9' }} />
                     </>
                   )}
-                  {t.id === 'amethyst' && (
+                  {theme.id === 'amethyst' && (
                     <>
                       <div className="theme-card__swatch" style={{ background: '#12082a' }} />
                       <div className="theme-card__swatch" style={{ background: '#1c1040' }} />
@@ -179,7 +181,7 @@ export default function RestoreDefaultsPage() {
                       <div className="theme-card__swatch" style={{ background: '#f0ecf9' }} />
                     </>
                   )}
-                  {t.id === 'midnight' && (
+                  {theme.id === 'midnight' && (
                     <>
                       <div className="theme-card__swatch" style={{ background: '#0c0f14' }} />
                       <div className="theme-card__swatch" style={{ background: '#151921' }} />
@@ -187,7 +189,7 @@ export default function RestoreDefaultsPage() {
                       <div className="theme-card__swatch" style={{ background: '#e8ecf2' }} />
                     </>
                   )}
-                  {t.id === 'light' && (
+                  {theme.id === 'light' && (
                     <>
                       <div className="theme-card__swatch" style={{ background: '#f0f4fa' }} />
                       <div className="theme-card__swatch" style={{ background: '#ffffff' }} />
@@ -195,7 +197,7 @@ export default function RestoreDefaultsPage() {
                       <div className="theme-card__swatch" style={{ background: '#0a1628' }} />
                     </>
                   )}
-                  {t.id === 'high-contrast' && (
+                  {theme.id === 'high-contrast' && (
                     <>
                       <div className="theme-card__swatch" style={{ background: '#000000' }} />
                       <div className="theme-card__swatch" style={{ background: '#1a1a1a' }} />
@@ -204,8 +206,8 @@ export default function RestoreDefaultsPage() {
                     </>
                   )}
                 </div>
-                <span className="theme-card__name">{t.label}</span>
-                <span className="theme-card__desc">{t.description}</span>
+                <span className="theme-card__name">{theme.label}</span>
+                <span className="theme-card__desc">{theme.description}</span>
               </button>
             ))}
           </div>
@@ -213,166 +215,166 @@ export default function RestoreDefaultsPage() {
 
         {/* Quick Actions - Operações Rápidas */}
         <CollapsibleSection
-          title="⚡ Operações Rápidas"
+          title={t('restore.sections.quickActions')}
           isOpen={isSectionOpen('quick')}
           onToggle={() => toggleSection('quick')}
-          ariaLabel="Operações Rápidas - limpar mensagens e conversas"
+          ariaLabel={t('restore.aria.quickActions')}
         >
           <div className="restore-item">
             <div className="restore-item-info">
-              <h3>🗑️ Limpar Mensagens e Conversas</h3>
-              <p>Apaga todas as mensagens e conversas, mantendo perfis e credenciais</p>
+              <h3>{t('restore.items.clearMessages')}</h3>
+              <p>{t('restore.items.clearMessagesDesc')}</p>
             </div>
             <Button
               variant="outline"
               onClick={handleClearMessages}
               loading={isLoading('Limpar Mensagens')}
             >
-              Limpar
+              {t('restore.buttons.clear')}
             </Button>
           </div>
         </CollapsibleSection>
 
         {/* Granular Cleanup - Limpeza Granular */}
         <CollapsibleSection
-          title="🎛️ Limpeza Granular"
+          title={t('restore.sections.granular')}
           isOpen={isSectionOpen('granular')}
           onToggle={() => toggleSection('granular')}
-          ariaLabel="Limpeza Granular - limpar credenciais, perfis, skills e canais"
+          ariaLabel={t('restore.aria.granular')}
         >
           <div className="restore-item">
             <div className="restore-item-info">
-              <h3>🔑 Limpar Todas as Credenciais</h3>
-              <p>Remove todas as chaves de API e credenciais armazenadas. Você precisará reconfigurar os provedores.</p>
+              <h3>{t('restore.items.clearCredentials')}</h3>
+              <p>{t('restore.items.clearCredentialsDesc')}</p>
             </div>
             <Button
               variant="outline"
               onClick={handleClearCredentials}
               loading={isLoading('Limpar Credenciais')}
             >
-              Limpar
+              {t('restore.buttons.clear')}
             </Button>
           </div>
 
           <div className="restore-item">
             <div className="restore-item-info">
-              <h3>👤 Limpar Todos os Perfis</h3>
-              <p>Remove todos os perfis de chat customizados. Os padrões podem ser recriados.</p>
+              <h3>{t('restore.items.clearProfiles')}</h3>
+              <p>{t('restore.items.clearProfilesDesc')}</p>
             </div>
             <Button
               variant="outline"
               onClick={handleClearProfiles}
               loading={isLoading('Limpar Perfis')}
             >
-              Limpar
+              {t('restore.buttons.clear')}
             </Button>
           </div>
 
           <div className="restore-item">
             <div className="restore-item-info">
-              <h3>🛠️ Limpar Todos os Skills</h3>
-              <p>Remove todos os skills customizados. Skills built-in podem ser reconfigurados.</p>
+              <h3>{t('restore.items.clearSkills')}</h3>
+              <p>{t('restore.items.clearSkillsDesc')}</p>
             </div>
             <Button
               variant="outline"
               onClick={handleClearSkills}
               loading={isLoading('Limpar Skills')}
             >
-              Limpar
+              {t('restore.buttons.clear')}
             </Button>
           </div>
 
           <div className="restore-item">
             <div className="restore-item-info">
-              <h3>📱 Limpar Todos os Canais</h3>
-              <p>Remove configurações de todos os canais (Telegram, Slack, Signal, etc).</p>
+              <h3>{t('restore.items.clearChannels')}</h3>
+              <p>{t('restore.items.clearChannelsDesc')}</p>
             </div>
             <Button
               variant="outline"
               onClick={handleClearChannels}
               loading={isLoading('Limpar Canais')}
             >
-              Limpar
+              {t('restore.buttons.clear')}
             </Button>
           </div>
         </CollapsibleSection>
 
         {/* Nuclear Options - Opções Nucleares */}
         <CollapsibleSection
-          title="💣 Opções Nucleares"
+          title={t('restore.sections.nuclear')}
           isOpen={isSectionOpen('nuclear')}
           onToggle={() => toggleSection('nuclear')}
-          ariaLabel="Opções Nucleares - operações irreversíveis"
+          ariaLabel={t('restore.aria.nuclear')}
         >
           <div className="restore-item restore-item-danger">
             <div className="restore-item-info">
-              <h3>🔥 Apagar Banco de Dados Inteiro</h3>
-              <p>Remove PERMANENTEMENTE todo o banco de dados incluindo conversas, abas e históricos. Perfis e credenciais podem ser preservados.</p>
+              <h3>{t('restore.items.resetDatabase')}</h3>
+              <p>{t('restore.items.resetDatabaseDesc')}</p>
             </div>
             <Button
               variant="danger"
               onClick={handleResetDatabase}
               loading={isLoading('Apagar Banco de Dados')}
             >
-              Apagar
+              {t('restore.buttons.delete')}
             </Button>
           </div>
 
           <div className="restore-item restore-item-danger">
             <div className="restore-item-info">
-              <h3>🚨 LIMPAR TUDO (Nuclear)</h3>
-              <p>Remove PERMANENTEMENTE TUDO. Banco de dados, credenciais, perfis, skills, canais. O assistente voltará ao estado inicial de instalação.</p>
+              <h3>{t('restore.items.clearAll')}</h3>
+              <p>{t('restore.items.clearAllDesc')}</p>
             </div>
             <Button
               variant="danger"
               onClick={handleClearAll}
               loading={isLoading('Limpar Tudo')}
             >
-              LIMPAR TUDO
+              {t('restore.buttons.clearAll')}
             </Button>
           </div>
         </CollapsibleSection>
 
         {/* Master Password Management - Gerenciamento de Senha Mestre */}
         <CollapsibleSection
-          title="🔐 Segurança - Senha Mestre"
+          title={t('restore.sections.security')}
           isOpen={isSectionOpen('security')}
           onToggle={() => toggleSection('security')}
-          ariaLabel="Segurança - Gerenciamento de senha mestre"
+          ariaLabel={t('restore.aria.security')}
         >
           <div className="security-info">
             <p>
-              A senha mestre protege todas as suas credenciais criptografadas. Se você esquecer a senha, use o código de recuperação para redefini-la.
+              {t('restore.security.masterPasswordInfo')}
             </p>
           </div>
 
           <div className="restore-item">
             <div className="restore-item-info">
-              <h3>🔑 Redefinir Senha Mestre</h3>
-              <p>Define uma nova senha mestre. Você precisará fornecer a senha atual ou código de recuperação.</p>
+              <h3>{t('restore.items.resetMasterPassword')}</h3>
+              <p>{t('restore.items.resetMasterPasswordDesc')}</p>
             </div>
             <Button variant="outline" disabled>
-              Redefinir (em breve)
+              {t('restore.buttons.resetSoon')}
             </Button>
           </div>
 
           <div className="restore-item">
             <div className="restore-item-info">
-              <h3>📋 Recuperar Código de Recuperação</h3>
-              <p>Exibe o código de recuperação em caso de perda da senha mestre. Guarde em local seguro!</p>
+              <h3>{t('restore.items.recoveryCode')}</h3>
+              <p>{t('restore.items.recoveryCodeDesc')}</p>
             </div>
             <Button variant="outline" disabled>
-              Ver Código (em breve)
+              {t('restore.buttons.viewCodeSoon')}
             </Button>
           </div>
 
           <div className="restore-item restore-item-warning">
             <div className="restore-item-info">
-              <h3>🚫 Remover Senha Mestre</h3>
-              <p>Remove a proteção de senha mestre do computador. ⚠️ ATENÇÃO: As credenciais NÃO poderão ser descriptografadas ou usadas. Isso impede que o assistente use qualquer API key armazenada.</p>
+              <h3>{t('restore.items.removeMasterPassword')}</h3>
+              <p>{t('restore.items.removeMasterPasswordDesc')}</p>
             </div>
             <Button variant="outline" disabled>
-              Remover (em breve)
+              {t('restore.buttons.removeSoon')}
             </Button>
           </div>
         </CollapsibleSection>

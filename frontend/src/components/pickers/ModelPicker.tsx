@@ -1,4 +1,5 @@
 import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
+import { useTranslation } from 'react-i18next';
 import { GetModels, GetModelsByProvider } from '@wailsjs/go/main/App';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
@@ -35,6 +36,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   onAnnounce,
   providerID = '', // Provedor específico (se vazio, usa GetModels do ativo)
 }, ref) => {
+  const { t } = useTranslation();
   const [models, setModels] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -44,7 +46,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     // Se estamos no modo form e não há providerID, não tenta carregar
     if (variant === 'form' && !providerID) {
       setLoading(false);
-      setError('Selecione um provedor primeiro');
+      setError(t('pickers.model.selectProvider'));
       setModels([]);
       setEndpointNotSupported(false);
       return;
@@ -67,8 +69,8 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       setModels(modelsList || []);
       if (!modelsList || modelsList.length === 0) {
         const msg = providerID
-          ? 'Nenhum modelo disponível para este provedor.'
-          : 'Nenhum modelo disponível. Configure um provedor primeiro.';
+          ? t('pickers.model.noModels')
+          : t('pickers.model.noModelsGlobal');
         setError(msg);
       }
     } catch (e: any) {
@@ -81,11 +83,11 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
         setModels([]);
       } else if (errorMsg.includes('credencial não configurada') || errorMsg.includes('Missing bearer authentication')) {
         // Detecta erro de credencial não configurada
-        setError('Configure a API key deste provedor em Configurações → Credenciais');
+        setError(t('pickers.model.configureApiKey'));
         setEndpointNotSupported(false);
         setModels([]);
       } else {
-        setError(`Erro ao carregar modelos: ${errorMsg}`);
+        setError(`${t('pickers.model.loadError')} ${errorMsg}`);
         setEndpointNotSupported(false);
         setModels([]);
       }
@@ -116,15 +118,15 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       onSelect={handleSelect}
       label={label}
       icon={icon}
-      placeholder={endpointNotSupported ? 'Digite o modelo...' : placeholder}
+      placeholder={endpointNotSupported ? t('pickers.model.typePlaceholder') : placeholder}
       disabled={disabled}
       maxWidth={variant === 'form' ? '100%' : maxWidth}
-      helpText={variant === 'form' ? (endpointNotSupported ? 'Modelos não carregados. Digite manualmente o nome do modelo.' : helpText) : undefined}
+      helpText={variant === 'form' ? (endpointNotSupported ? t('pickers.model.notLoaded') : helpText) : undefined}
       onAnnounce={onAnnounce}
       loading={loading && !endpointNotSupported}
       error={endpointNotSupported ? null : (error || null)}
       onRetry={endpointNotSupported ? undefined : loadModels}
-      retryLabel="🔄 Tentar novamente"
+      retryLabel={t('pickers.model.retry')}
       showFormLabel={variant === 'form'}
       showFormLabelIcon={false}
       showEmptyState={!endpointNotSupported}
@@ -135,8 +137,8 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       errorClassName={{ form: 'error-state', toolbar: 'model-picker-toolbar error' }}
       helpTextClassName="help-text"
       errorIcon={{ toolbar: '❌', form: undefined }}
-      loadingLabel={{ form: 'Carregando modelos...', toolbar: 'Carregando...' }}
-      errorLabel={{ form: error || 'Erro ao carregar modelos', toolbar: 'Erro' }}
+      loadingLabel={{ form: t('pickers.model.loading'), toolbar: t('common.loading') }}
+      errorLabel={{ form: error || t('pickers.model.loadError'), toolbar: t('common.error') }}
     />
   );
 });

@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   GetAllowlists,
   CreateAllowlist,
@@ -29,6 +30,7 @@ interface AllowlistRow {
 }
 
 export default function AllowlistPage() {
+  const { t } = useTranslation();
   const { focusFirstCell, handleGridReady } = useGridFocus();
 
   const crud = useEditableList<AllowlistRow, allowlist.Allowlist, allowlist.Allowlist>(
@@ -68,10 +70,10 @@ export default function AllowlistPage() {
     {
       entityName: 'Allowlist',
       messages: {
-        loadError: 'Erro ao carregar allowlists',
-        createSuccess: 'Allowlist criada!',
-        updateSuccess: 'Allowlist atualizada!',
-        deleteSuccess: 'Allowlist excluída!',
+        loadError: t('allowlist.error.load'),
+        createSuccess: t('allowlist.toast.created'),
+        updateSuccess: t('allowlist.toast.updated'),
+        deleteSuccess: t('allowlist.toast.deleted'),
         deleteConfirm: (item) => {
           const name = (item as any).name || (item as any).slug || 'Allowlist';
           return `Tem certeza que deseja excluir a allowlist "${name}"?`;
@@ -87,7 +89,7 @@ export default function AllowlistPage() {
       validate: (item) => {
         const asAllowlist = item as any;
         if (!asAllowlist.name || !asAllowlist.name.trim()) {
-          return 'Nome é obrigatório';
+          return t('allowlist.error.nameRequired');
         }
         return null;
       },
@@ -108,21 +110,21 @@ export default function AllowlistPage() {
   };
 
   const columns: DataGridColumn<AllowlistRow>[] = [
-    { key: 'name', label: 'Nome', format: (_val, row) => row.name },
-    { key: 'description', label: 'Descrição' },
-    { key: 'ruleCount', label: 'Regras', format: (val) => `${val}` },
+    { key: 'name', label: t('allowlist.columns.name'), format: (_val, row) => row.name },
+    { key: 'description', label: t('allowlist.columns.description') },
+    { key: 'ruleCount', label: t('allowlist.columns.rules'), format: (val) => `${val}` },
   ];
 
   return (
     <div className="allowlist-page">
       <Toolbar
-        left={<h1 className="page-toolbar__title">Allowlists de Comandos</h1>}
-        ariaLabel="Barra de ferramentas de allowlists"
+        left={<h1 className="page-toolbar__title">{t('allowlist.pageTitle')}</h1>}
+        ariaLabel={t('allowlist.aria.toolbar')}
         onFocusGrid={focusFirstCell}
         actions={[
           {
             key: 'new',
-            label: 'Nova Allowlist',
+            label: t('allowlist.buttons.new'),
             icon: '+',
             onClick: crud.openNew,
           },
@@ -136,7 +138,7 @@ export default function AllowlistPage() {
           getItemId={(row) => row.id}
           onActivate={(row) => handleEdit(row)}
           onDelete={(row) => crud.deleteItem(row as any)}
-          label="Allowlists de Comandos"
+          label={t('allowlist.pageTitle')}
           onGridReady={handleGridReady}
         />
       </div>
@@ -144,7 +146,7 @@ export default function AllowlistPage() {
       <Modal
         isOpen={!!crud.editingItem}
         onClose={crud.closeEditor}
-        title={crud.isNew ? 'Nova Allowlist' : `Editando: ${(crud.editingItem as any)?.name || ''}`}
+        title={crud.isNew ? t('allowlist.modal.newTitle') : t('allowlist.modal.editTitle', { name: (crud.editingItem as any)?.name || '' })}
         size="lg"
       >
         {crud.editingItem && (
@@ -165,14 +167,14 @@ export default function AllowlistPage() {
                   variant="danger"
                   onClick={() => crud.deleteItem(crud.editingItem as any)}
                 >
-                  Excluir
+                  {t('allowlist.buttons.delete')}
                 </Button>
               )}
               <Button variant="ghost" onClick={crud.closeEditor}>
-                Cancelar
+                {t('common.cancel')}
               </Button>
               <Button onClick={crud.save} loading={crud.saving}>
-                Salvar
+                {t('common.save')}
               </Button>
             </EditorPanelFooter>
           </div>

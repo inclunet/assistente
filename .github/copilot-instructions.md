@@ -48,3 +48,11 @@
 ## Testes (regras rígidas)
 - Nunca deletar testes para “resolver” falhas.
 - Nunca simplificar testes para facilitar aprovação; corrigir o código é sempre o caminho.
+
+## i18n (Internacionalização — OBRIGATÓRIO)
+- TODAS as strings visíveis ao usuário DEVEM usar `t('namespace.key')` via `react-i18next`
+- NUNCA hardcode strings em qualquer idioma diretamente no JSX
+- Idiomas: pt-BR, en, es — locales em `frontend/src/locales/`
+- Config: `frontend/src/lib/i18n.ts`
+- Ao criar nova string, adicionar chave nos 3 locales (pt-BR.ts, en.ts, es.ts)
+- Detecção automática de idioma com fallback para inglês

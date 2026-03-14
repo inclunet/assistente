@@ -1,5 +1,6 @@
 import { NodeViewContent, NodeViewWrapper, type NodeViewProps } from '@tiptap/react';
 import { useEffect, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { useQuestionnaireUIStore } from '../../store/questionnaireUIStore';
@@ -22,6 +23,7 @@ function newMermaidBlockId(): string {
 }
 
 export function MermaidCodeBlockNodeView(props: NodeViewProps) {
+  const { t } = useTranslation();
   const { node, editor, getPos, extension } = props;
   const language = String((node.attrs as any)?.language || '').toLowerCase();
 
@@ -83,24 +85,24 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
   const confirmRemove = async () => {
     const resp = await requestQuestionnaire({
       id: `ui-rich-mermaid-remove-${Date.now()}`,
-      title: 'Remover diagrama Mermaid',
-      description: 'Tem certeza que deseja remover este bloco Mermaid do documento?',
-      submitLabel: 'Remover',
-      cancelLabel: 'Cancelar',
+      title: t('editor.mermaid.removeConfirmTitle'),
+      description: t('editor.mermaid.removeConfirmMessage'),
+      submitLabel: t('editor.mermaid.removeBtn'),
+      cancelLabel: t('common.cancel'),
       allowCancel: true,
       questions: [
         {
           id: 'note',
           type: 'readonly_code',
-          prompt: 'Dica',
-          content: 'Essa ação remove o bloco ```mermaid``` inteiro.',
+          prompt: t('editor.mermaid.removeHint'),
+          content: t('editor.mermaid.removeHint'),
         },
       ],
     });
 
     if (resp.cancelled) return;
     remove();
-    addToast('Bloco Mermaid removido', 'success');
+    addToast(t('editor.mermaid.blockRemoved'), 'success');
   };
 
   if (language === 'mermaid') {
@@ -118,17 +120,17 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
               type="button"
               className="rich-mermaid-block__button"
               onClick={() => requestEdit?.({ mermaidBlockId: ensuredId, code, apply, remove })}
-              aria-label="Editar diagrama Mermaid"
+              aria-label={t('editor.mermaid.editDiagram')}
             >
-              Editar
+              {t('editor.mermaid.editBtn')}
             </button>
             <button
               type="button"
               className="rich-mermaid-block__button rich-mermaid-block__button--danger"
               onClick={() => void confirmRemove()}
-              aria-label="Remover bloco Mermaid"
+              aria-label={t('editor.mermaid.removeBtnLabel')}
             >
-              Remover
+              {t('editor.mermaid.removeBtn')}
             </button>
           </div>
         </div>
@@ -152,7 +154,7 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
                 e.preventDefault();
                 e.stopPropagation();
                 remove();
-                addToast('Bloco Mermaid removido', 'success');
+                addToast(t('editor.mermaid.blockRemoved'), 'success');
                 return;
               }
               e.preventDefault();
@@ -175,12 +177,12 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
             }
           }}
           tabIndex={0}
-          aria-label="Preview do Mermaid. Pressione Enter para editar"
+          aria-label={t('editor.mermaid.previewLabel')}
         >
           <MarkdownRenderer content={previewMarkdown} interactiveButtons={false} focusableMermaid={false} />
         </div>
 
-        <pre className="rich-mermaid-block__code" aria-label="Código Mermaid">
+        <pre className="rich-mermaid-block__code" aria-label={t('editor.mermaid.codeLabel')}>
           <NodeViewContent />
         </pre>
       </NodeViewWrapper>

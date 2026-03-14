@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { GetAppVersion, CheckForUpdates, StartUpdate } from '@wailsjs/go/main/App';
 import { useUIStore } from '../store/uiStore';
 import './AboutPage.css';
@@ -14,6 +15,7 @@ interface UpdateInfo {
 }
 
 export default function AboutPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { addToast } = useUIStore();
   
@@ -32,7 +34,7 @@ export default function AboutPage() {
       setVersion(currentVersion);
     } catch (error) {
       console.error('Erro ao obter versão:', error);
-      setVersion('Desconhecida');
+      setVersion(t('about.versionUnknown'));
     }
   };
 
@@ -45,7 +47,7 @@ export default function AboutPage() {
       if (info.available) {
         addToast(`Nova versão disponível: ${info.latestVersion}`, 'success');
       } else {
-        addToast('Você já está usando a versão mais recente!', 'success');
+        addToast(t('about.upToDateDesc', { version: info.currentVersion }), 'success');
       }
     } catch (error: any) {
       console.error('Erro ao verificar atualizações:', error);
@@ -69,7 +71,7 @@ export default function AboutPage() {
   };
 
   const formatDate = (dateStr?: string) => {
-    if (!dateStr) return 'Desconhecida';
+    if (!dateStr) return t('about.versionUnknown');
     try {
       const date = new Date(dateStr);
       return date.toLocaleDateString('pt-BR', {
@@ -95,35 +97,35 @@ export default function AboutPage() {
       <div className="about-container">
         <div className="about-header">
           <div className="app-icon">🤖</div>
-          <h1>Assistente</h1>
-          <p className="app-tagline">Seu assistente de IA inteligente</p>
+          <h1>{t('about.pageTitle')}</h1>
+          <p className="app-tagline">{t('about.tagline')}</p>
         </div>
 
         <div className="about-content">
           <div className="info-section">
-            <h2>Informações do Aplicativo</h2>
+            <h2>{t('about.sections.appInfo')}</h2>
             <div className="info-grid">
               <div className="info-item">
-                <span className="info-label">Versão Instalada:</span>
-                <span className="info-value">{version || 'Carregando...'}</span>
+                <span className="info-label">{t('about.labels.installedVersion')}</span>
+                <span className="info-value">{version || t('about.loading')}</span>
               </div>
               <div className="info-item">
-                <span className="info-label">Desenvolvedor:</span>
+                <span className="info-label">{t('about.labels.developer')}</span>
                 <span className="info-value">Inclunet</span>
               </div>
               <div className="info-item">
-                <span className="info-label">Licença:</span>
+                <span className="info-label">{t('about.labels.license')}</span>
                 <span className="info-value">Proprietária</span>
               </div>
             </div>
           </div>
 
           <div className="update-section">
-            <h2>Atualizações</h2>
+            <h2>{t('about.sections.updates')}</h2>
             
             {!updateInfo && (
               <div className="update-check">
-                <p>Verifique se há uma nova versão disponível do aplicativo.</p>
+                <p>{t('about.checkUpdatesDesc')}</p>
                 <button 
                   className="btn-check-updates"
                   onClick={handleCheckForUpdates}
@@ -132,11 +134,11 @@ export default function AboutPage() {
                   {checking ? (
                     <>
                       <span className="btn-spinner" />
-                      Verificando...
+                      {t('about.buttons.checking')}
                     </>
                   ) : (
                     <>
-                      🔍 Verificar Atualizações
+                      {t('about.buttons.checkUpdates')}
                     </>
                   )}
                 </button>
@@ -146,14 +148,14 @@ export default function AboutPage() {
             {updateInfo && !updateInfo.available && (
               <div className="update-current">
                 <div className="status-icon">✅</div>
-                <h3>Você está atualizado!</h3>
-                <p>Versão {updateInfo.currentVersion} é a mais recente.</p>
+                <h3>{t('about.upToDateTitle')}</h3>
+                <p>{t('about.upToDateDesc', { version: updateInfo.currentVersion })}</p>
                 <button 
                   className="btn-check-again"
                   onClick={handleCheckForUpdates}
                   disabled={checking}
                 >
-                  Verificar Novamente
+                  {t('about.buttons.checkAgain')}
                 </button>
               </div>
             )}
@@ -161,26 +163,26 @@ export default function AboutPage() {
             {updateInfo && updateInfo.available && (
               <div className="update-available">
                 <div className="status-icon">🆕</div>
-                <h3>Nova Versão Disponível!</h3>
+                <h3>{t('about.newVersionTitle')}</h3>
                 
                 <div className="version-info">
                   <div className="version-row">
-                    <span>Versão Atual:</span>
+                    <span>{t('about.labels.currentVersion')}</span>
                     <strong>{updateInfo.currentVersion}</strong>
                   </div>
                   <div className="version-row">
-                    <span>Nova Versão:</span>
+                    <span>{t('about.labels.newVersion')}</span>
                     <strong className="new-version">{updateInfo.latestVersion}</strong>
                   </div>
                   {updateInfo.releaseDate && (
                     <div className="version-row">
-                      <span>Data de Lançamento:</span>
+                      <span>{t('about.labels.releaseDate')}</span>
                       <strong>{formatDate(updateInfo.releaseDate)}</strong>
                     </div>
                   )}
                   {updateInfo.downloadSize && (
                     <div className="version-row">
-                      <span>Tamanho:</span>
+                      <span>{t('about.labels.size')}</span>
                       <strong>{formatBytes(updateInfo.downloadSize)}</strong>
                     </div>
                   )}
@@ -188,7 +190,7 @@ export default function AboutPage() {
 
                 {updateInfo.releaseNotes && (
                   <div className="release-notes">
-                    <h4>Novidades desta versão:</h4>
+                    <h4>{t('about.releaseNotesTitle')}</h4>
                     <div className="notes-content">
                       {updateInfo.releaseNotes}
                     </div>
@@ -204,11 +206,11 @@ export default function AboutPage() {
                     {loading ? (
                       <>
                         <span className="btn-spinner" />
-                        Iniciando...
+                        {t('about.buttons.starting')}
                       </>
                     ) : (
                       <>
-                        ⬇️ Atualizar Agora
+                        {t('about.buttons.updateNow')}
                       </>
                     )}
                   </button>
@@ -216,7 +218,7 @@ export default function AboutPage() {
                     className="btn-update-later"
                     onClick={() => setUpdateInfo(null)}
                   >
-                    Mais Tarde
+                    {t('about.buttons.later')}
                   </button>
                 </div>
               </div>
@@ -224,7 +226,7 @@ export default function AboutPage() {
           </div>
 
           <div className="links-section">
-            <h2>Links Úteis</h2>
+            <h2>{t('about.sections.usefulLinks')}</h2>
             <div className="links-grid">
               <a 
                 href="https://github.com/inclunet/assistente" 
@@ -233,7 +235,7 @@ export default function AboutPage() {
                 className="link-item"
               >
                 <span className="link-icon">🔗</span>
-                <span>Repositório GitHub</span>
+                <span>{t('about.links.github')}</span>
               </a>
               <a 
                 href="https://github.com/inclunet/assistente/issues" 
@@ -242,7 +244,7 @@ export default function AboutPage() {
                 className="link-item"
               >
                 <span className="link-icon">🐛</span>
-                <span>Reportar Bug</span>
+                <span>{t('about.links.reportBug')}</span>
               </a>
               <a 
                 href="https://github.com/inclunet/assistente/releases" 
@@ -251,7 +253,7 @@ export default function AboutPage() {
                 className="link-item"
               >
                 <span className="link-icon">📋</span>
-                <span>Notas de Versão</span>
+                <span>{t('about.links.releaseNotes')}</span>
               </a>
             </div>
           </div>
@@ -262,7 +264,7 @@ export default function AboutPage() {
             className="btn-back"
             onClick={() => navigate('/')}
           >
-            ← Voltar
+            {t('about.buttons.back')}
           </button>
         </div>
       </div>

@@ -12,6 +12,7 @@
  */
 
 import React, { useCallback, useRef, useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useInteractionProfile } from '../../hooks/useInteractionProfile';
 import { profiles } from '../../../wailsjs/go/models';
 import './VoiceButton.css';
@@ -38,6 +39,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   className = '',
   textareaRef,
 }) => {
+  const { t } = useTranslation();
   const [isPTTActive, setIsPTTActive] = useState(false);
   const pttTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
@@ -210,36 +212,37 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const isProcessingState = isProcessing;
 
   // Labels e descrições por modo
+  const wakewordKeyword = interactionTriggers?.find((tr: TriggerConfig) => tr.type === 'wakeword')?.wakeword_keyword || t('voice.wakeWord');
   const modeLabels: Record<InteractionMode, { short: string; idle: string; active: string; hint: string }> = {
     ptt: {
       short: 'PTT',
-      idle: 'Segure para gravar mensagem de voz',
-      active: 'Gravando... Solte para enviar',
-      hint: 'Segure',
+      idle: t('voice.holdToRecord'),
+      active: t('voice.recordingRelease'),
+      hint: t('voice.hold'),
     },
     toggle: {
       short: '',
-      idle: 'Clique para gravar mensagem de voz',
-      active: 'Gravando... Clique para parar',
+      idle: t('voice.clickToRecord'),
+      active: t('voice.recordingClickStop'),
       hint: '',
     },
     vad: {
       short: 'VAD',
-      idle: 'Clique para iniciar escuta contínua',
-      active: isRecordingState ? 'Gravando... Aguarde silêncio' : 'Ouvindo... Fale para gravar',
+      idle: t('voice.clickContinuous'),
+      active: isRecordingState ? t('voice.recordingSilence') : t('voice.listeningSpeakTo'),
       hint: 'Escuta',
     },
     wakeword: {
       short: '🗣️',
-      idle: 'Clique para ativar palavra de ativação',
-      active: isRecordingState ? 'Gravando...' : `Ouvindo... Diga "${interactionTriggers?.find((t: TriggerConfig) => t.type === 'wakeword')?.wakeword_keyword || 'assistente'}"`,
+      idle: t('voice.clickWakeWord'),
+      active: isRecordingState ? t('voice.recording') : `${t('voice.listeningSay')} "${wakewordKeyword}"`,
       hint: 'Wake',
     },
   };
 
   // Label de acessibilidade
   const getAriaLabel = () => {
-    if (isProcessingState) return 'Processando transcrição...';
+    if (isProcessingState) return t('voice.processingTranscription');
     if (isRecordingState || isListeningState) {
       return modeLabels[mode].active;
     }
@@ -248,7 +251,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
 
   // Tooltip
   const getTitle = () => {
-    if (isProcessingState) return 'Processando...';
+    if (isProcessingState) return t('voice.processing');
     if (isRecordingState || isListeningState) {
       return modeLabels[mode].active;
     }

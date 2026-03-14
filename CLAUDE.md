@@ -66,3 +66,17 @@ Sempre usar componentes existentes em `frontend/src/components/ui/`:
 - **Estado**: Zustand (stores em `frontend/src/store/`)
 - **Comunicação Frontend↔Backend**: Funções Wails em `wailsjs/go/main/App`
 - **Testes**: Vitest (frontend), `go test` (backend)
+- **i18n**: react-i18next (locales em `frontend/src/locales/`)
+
+## i18n (Internacionalização — OBRIGATÓRIO)
+
+Todas as strings visíveis ao usuário DEVEM ser internacionalizadas.
+
+- Sempre usar `useTranslation()` + `t('namespace.key')` via react-i18next
+- NUNCA hardcode strings em qualquer idioma diretamente no JSX
+- Idiomas suportados: `pt-BR`, `en`, `es`
+- Locales: `frontend/src/locales/pt-BR.ts`, `en.ts`, `es.ts`
+- Config: `frontend/src/lib/i18n.ts`
+- Detecção automática do idioma da máquina, fallback para inglês
+- Ao criar nova string de UI, adicionar a chave nos 3 arquivos de locale
+- Troca de idioma via menu principal, persistida com Zustand

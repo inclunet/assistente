@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { GetConversationTokenStats } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { Modal } from '../ui/Modal';
@@ -28,6 +29,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   isOpen,
   onClose,
 }) => {
+  const { t } = useTranslation();
   const [stats, setStats] = useState<TokenStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -46,7 +48,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
         setStats(result);
       } catch (err) {
         console.error('[TokenStatsModal] Erro ao carregar estatísticas:', err);
-        setError('Erro ao carregar estatísticas');
+        setError(t('tokenStats.loadError'));
       } finally {
         setLoading(false);
       }
@@ -62,7 +64,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     });
 
     return () => unsubscribe();
-  }, [conversationId, isOpen]);
+  }, [conversationId, isOpen, t]);
 
   const formatNumber = (num: number): string => {
     return num.toLocaleString('pt-BR');
@@ -85,11 +87,11 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   } : null;
 
   return (
-    <Modal isOpen={isOpen} onClose={onClose} title="Estatísticas de Tokens" size="md">
+    <Modal isOpen={isOpen} onClose={onClose} title={t('tokenStats.title')} size="md">
       <div className="token-stats-modal__content">
         {loading && (
           <div className="token-stats-modal__loading">
-            <span>Carregando...</span>
+            <span>{t('tokenStats.loading')}</span>
           </div>
         )}
 
@@ -103,7 +105,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
           <>
             {/* Uso do contexto */}
             <section className="token-stats-section">
-              <h3>Uso do Contexto</h3>
+              <h3>{t('tokenStats.contextUsage')}</h3>
               <div className="token-stats-context">
                 <div className="token-stats-context__numbers">
                   <span className="token-stats-context__current">
@@ -130,9 +132,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                 {stats.isNearLimit && (
                   <div className="token-stats-warning">
                     {stats.isCritical ? (
-                      <span>🔴 Contexto crítico! Considere compactar o histórico.</span>
+                      <span>🔴 {t('tokenStats.contextCritical')}</span>
                     ) : (
-                      <span>🟡 Contexto próximo do limite.</span>
+                      <span>🟡 {t('tokenStats.contextWarning')}</span>
                     )}
                   </div>
                 )}
@@ -141,42 +143,42 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
 
             {/* Detalhamento de tokens */}
             <section className="token-stats-section">
-              <h3>Detalhamento</h3>
+              <h3>{t('tokenStats.breakdown')}</h3>
               <table className="token-stats-table">
                 <thead>
                   <tr>
-                    <th scope="col">Categoria</th>
-                    <th scope="col">Quantidade</th>
-                    <th scope="col">Porcentagem</th>
+                    <th scope="col">{t('tokenStats.category')}</th>
+                    <th scope="col">{t('tokenStats.quantity')}</th>
+                    <th scope="col">{t('tokenStats.percentage')}</th>
                   </tr>
                 </thead>
                 <tbody>
                   <tr>
-                    <th scope="row">Tokens de Entrada</th>
+                    <th scope="row">{t('tokenStats.inputTokens')}</th>
                     <td>{formatNumber(stats.promptTokens)}</td>
                     <td>{calculatePercentage(stats.promptTokens, stats.totalTokens)}%</td>
                   </tr>
                   <tr>
-                    <th scope="row">Tokens de Saída</th>
+                    <th scope="row">{t('tokenStats.outputTokens')}</th>
                     <td>{formatNumber(stats.completionTokens)}</td>
                     <td>{calculatePercentage(stats.completionTokens, stats.totalTokens)}%</td>
                   </tr>
                   <tr>
-                    <th scope="row">Total de Tokens</th>
+                    <th scope="row">{t('tokenStats.totalTokens')}</th>
                     <td>{formatNumber(stats.totalTokens)}</td>
                     <td>100%</td>
                   </tr>
                   <tr>
-                    <th scope="row">Mensagens</th>
+                    <th scope="row">{t('tokenStats.messages')}</th>
                     <td>{formatNumber(stats.messageCount)}</td>
                     <td>
                       {stats.messageCount > 0
-                        ? `${Math.round(stats.totalTokens / stats.messageCount)} tokens/msg`
+                        ? `${Math.round(stats.totalTokens / stats.messageCount)} ${t('tokenStats.tokensPerMsg')}`
                         : '—'}
                     </td>
                   </tr>
                   <tr>
-                    <th scope="row">Modelo Principal</th>
+                    <th scope="row">{t('tokenStats.mainModel')}</th>
                     <td colSpan={2}>{stats.mostUsedModel || 'N/A'}</td>
                   </tr>
                 </tbody>
@@ -186,43 +188,43 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
             {/* Estimativa de custo */}
             {estimatedCost && (
               <section className="token-stats-section">
-                <h3>Estimativa de Custo</h3>
+                <h3>{t('tokenStats.costEstimate')}</h3>
                 <table className="token-stats-table token-stats-table--cost">
                   <thead>
                     <tr>
-                      <th scope="col">Tipo</th>
-                      <th scope="col">Valor (USD)</th>
+                      <th scope="col">{t('tokenStats.type')}</th>
+                      <th scope="col">{t('tokenStats.valueUSD')}</th>
                     </tr>
                   </thead>
                   <tbody>
                     <tr>
-                      <th scope="row">Entrada</th>
+                      <th scope="row">{t('tokenStats.input')}</th>
                       <td>${estimatedCost.input.toFixed(4)}</td>
                     </tr>
                     <tr>
-                      <th scope="row">Saída</th>
+                      <th scope="row">{t('tokenStats.output')}</th>
                       <td>${estimatedCost.output.toFixed(4)}</td>
                     </tr>
                     <tr className="token-stats-table__total">
-                      <th scope="row">Total estimado</th>
+                      <th scope="row">{t('tokenStats.totalEstimated')}</th>
                       <td>${(estimatedCost.input + estimatedCost.output).toFixed(4)}</td>
                     </tr>
                   </tbody>
                 </table>
                 <p className="token-stats-cost__note">
-                  * Valores aproximados baseados em GPT-4
+                  {t('tokenStats.costDisclaimer')}
                 </p>
               </section>
             )}
 
             {/* Dicas */}
             <section className="token-stats-section">
-              <h3>Dicas de Gerenciamento</h3>
+              <h3>{t('tokenStats.managementTips')}</h3>
               <ul className="token-stats-tips">
-                <li>💡 Mensagens mais antigas consomem mais contexto</li>
-                <li>🔄 Considere resumir conversas longas</li>
-                <li>🗑️ Remova mensagens desnecessárias do histórico</li>
-                <li>📊 Modelos diferentes têm limites diferentes</li>
+                <li>{t('tokenStats.tip1')}</li>
+                <li>{t('tokenStats.tip2')}</li>
+                <li>{t('tokenStats.tip3')}</li>
+                <li>{t('tokenStats.tip4')}</li>
               </ul>
             </section>
           </>

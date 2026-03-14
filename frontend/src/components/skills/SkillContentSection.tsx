@@ -1,3 +1,5 @@
+import { useTranslation } from 'react-i18next';
+
 interface SkillContentSectionProps {
   content: string;
   onContentChange: (content: string) => void;
@@ -7,13 +9,14 @@ export function SkillContentSection({
   content,
   onContentChange,
 }: SkillContentSectionProps) {
+  const { t } = useTranslation();
   return (
     <section className="skill-section" data-testid="skill-content-section">
-      <h3 className="skill-section__title">Conteúdo</h3>
+      <h3 className="skill-section__title">{t('skills.contentSection.title')}</h3>
       <div className="skill-fields">
         <div className="skill-field">
           <label htmlFor="sk-content" className="skill-field__label">
-            Conteúdo do Skill
+            {t('skills.contentSection.label')}
           </label>
           <textarea
             id="sk-content"
@@ -21,10 +24,10 @@ export function SkillContentSection({
             rows={15}
             value={content || ''}
             onChange={(e) => onContentChange(e.target.value)}
-            placeholder="Descreva como este skill deve ser usado, quais são suas limitações, exemplos de uso, etc."
+            placeholder={t('skills.contentSection.placeholder')}
           />
           <span className="skill-field__hint">
-            Este conteúdo será incluído no system prompt quando o skill estiver ativo.
+            {t('skills.contentSection.hint')}
           </span>
         </div>
       </div>

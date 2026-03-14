@@ -148,12 +148,53 @@ A acessibilidade é um requisito fundamental, não opcional. Toda mudança no fr
 | `useContextMenu` | Menus de contexto com foco |
 | `useUIStore` | Toasts e loading global |
 
-## i18n
+## i18n (Internacionalização — OBRIGATÓRIO)
 
-- Sempre usar `useTranslation()` + `t('namespace.key', 'Fallback em português')`
-- Namespaces: `common`, `settings`, `chat`, `history`, `profiles`
-- Traduções ficam em `src/lib/i18n.ts`
-- NUNCA hardcode strings de UI
+Todas as strings visíveis ao usuário DEVEM ser internacionalizadas. **NUNCA hardcode strings em português, inglês ou qualquer idioma diretamente no JSX.**
+
+### Como usar
+- Sempre usar `useTranslation()` + `t('namespace.key')`
+- Para interpolação: `t('key', { name: valor })`
+- Idiomas suportados: `pt-BR`, `en`, `es`
+- Detecção automática do idioma da máquina, com fallback para inglês
+
+### Arquivos de tradução
+- `src/locales/pt-BR.ts` — Português (Brasil)
+- `src/locales/en.ts` — English
+- `src/locales/es.ts` — Español
+- Configuração: `src/lib/i18n.ts`
+
+### Namespaces (organização por área)
+| Namespace | Uso |
+|---|---|
+| `common` | Strings compartilhadas (Salvar, Cancelar, etc.) |
+| `menu` | Menu de navegação principal |
+| `chat` | Chat, mensagens, ferramentas |
+| `voice` | Gravação e botão de voz |
+| `tokenStats` | Modal de estatísticas de tokens |
+| `channels` | Canais (Telegram, Signal, Slack) |
+| `mcp` | Servidores MCP |
+| `editor` | Editor Markdown/Rico |
+| `terminal` | Terminal integrado |
+| `profiles` | Perfis de chat |
+| `skills` | Skills |
+| `allowlist` | Allowlists de comandos |
+| `credentials` | Credenciais |
+| `restore` | Restaurar padrões |
+| `about` | Sobre o app |
+| `update` | Atualização |
+| `help` | Ajuda |
+| `history` | Histórico |
+| `pickers` | Seletores (modelo, voz, provedor) |
+| `providerForm` | Formulário de provedor |
+| `chatTabs` | Abas de conversa |
+| `mediaUpload`/`mediaPreview` | Upload de arquivos |
+| `ui` | Componentes UI (modal, toast, grid, atalhos) |
+
+### Regras
+- Ao criar nova string de UI, adicionar chave nos 3 locales
+- Nunca usar `t('key', 'Fallback hardcoded')` — adicione a chave no locale
+- Para troca de idioma: `useSettingsStore` persiste e `i18n.changeLanguage()` aplica
 
 ## State Management
 

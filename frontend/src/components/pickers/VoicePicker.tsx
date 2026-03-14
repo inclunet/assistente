@@ -1,4 +1,5 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import { ttsService } from '../../services/tts';
@@ -24,13 +25,7 @@ export interface VoicePickerRef {
   reload: () => Promise<void>;
 }
 
-// Mapeia provider para label amigável
-const providerLabels: Record<TTSProvider, string> = {
-  [TTSProvider.DISABLED]: 'Desativado',
-  [TTSProvider.WEBSPEECH]: 'Sistema',
-  [TTSProvider.SAPI5]: 'Windows (SAPI5)',
-  [TTSProvider.OPENAI]: 'OpenAI (Premium)'
-};
+// Mapeia provider para label amigável (valores traduzidos via useTranslation no componente)
 
 // Ícones por provider
 const providerIcons: Record<TTSProvider, string> = {
@@ -46,8 +41,8 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       value,
       onChange,
       variant = 'form',
-      label = 'Voz',
-      helpText = 'Selecione a voz para síntese de fala',
+      label,
+      helpText,
       icon = '🔊',
       maxWidth,
       allowDisabled = true,
@@ -55,6 +50,9 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
     },
     ref
   ) => {
+    const { t } = useTranslation();
+    const effectiveLabel = label ?? t('pickers.voice.label');
+    const effectiveHelpText = helpText ?? t('pickers.voice.description');
     const [voices, setVoices] = useState<TTSVoice[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -68,7 +66,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
 
         setVoices(allVoices);
       } catch (err) {
-        setError(err instanceof Error ? err.message : 'Erro ao carregar vozes');
+        setError(err instanceof Error ? err.message : t('pickers.voice.loadError'));
         console.error('[VoicePicker] Failed to load voices:', err);
       } finally {
         setLoading(false);
@@ -93,10 +91,16 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
     }, {} as Record<TTSProvider, TTSVoice[]>);
 
     // Opção de desativado
+    const providerLabels: Record<TTSProvider, string> = {
+      [TTSProvider.DISABLED]: t('pickers.voice.disabled'),
+      [TTSProvider.WEBSPEECH]: t('pickers.voice.system'),
+      [TTSProvider.SAPI5]: t('pickers.voice.windows'),
+      [TTSProvider.OPENAI]: t('pickers.voice.openai'),
+    };
     const disabledOption: ComboboxItem = {
       value: VOICE_DISABLED,
-      label: '🔇 Desativada (usar leitor de telas)',
-      sublabel: 'Acessibilidade',
+      label: t('pickers.voice.screenReader'),
+      sublabel: t('pickers.voice.accessibility'),
     };
 
     // Constrói lista de itens com grupos por provider
@@ -131,7 +135,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
         items.push({
           value: voice.id,
           label: `${providerIcon} ${voice.name}`,
-          sublabel: `${providerLabel} • ${voice.language}${voice.premium ? ' • Premium' : ''}`
+          sublabel: `${providerLabel} • ${voice.language}${voice.premium ? ` • ${t('pickers.voice.premium')}` : ''}`
         });
       });
     }
@@ -142,7 +146,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
         items={items}
         selected={value}
         onSelect={onChange}
-        label={label}
+        label={effectiveLabel}
         icon={icon}
         maxWidth={maxWidth}
         onAnnounce={onAnnounce}
@@ -153,13 +157,13 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
         formClassName="voice-picker-form"
         formLabelClassName="voice-picker-label"
         formLabelIconClassName="voice-picker-icon"
-        helpText={variant === 'form' ? helpText : undefined}
+        helpText={variant === 'form' ? effectiveHelpText : undefined}
         helpTextClassName="help-text"
-        loadingLabel={{ form: 'Carregando vozes...', toolbar: 'Carregando vozes...' }}
+        loadingLabel={{ form: t('pickers.voice.loading'), toolbar: t('pickers.voice.loading') }}
         loadingLabelVisuallyHidden={{ toolbar: true }}
         loadingClassName={{ form: 'loading-state', toolbar: 'voice-picker-toolbar' }}
         errorClassName={{ form: 'error-state', toolbar: 'voice-picker-toolbar voice-picker-error' }}
-        errorLabel={{ form: error || 'Erro ao carregar vozes', toolbar: '' }}
+        errorLabel={{ form: error || t('pickers.voice.loadError'), toolbar: '' }}
         errorLabelVisuallyHidden={{ toolbar: true }}
         errorIcon={{ form: '⚠️', toolbar: '⚠️' }}
         retryClassName="retry-btn"

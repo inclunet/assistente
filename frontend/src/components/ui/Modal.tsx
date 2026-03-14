@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useRef, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
+import { useTranslation } from 'react-i18next';
 import './Modal.css';
 
 // Stack global simples para garantir que apenas o modal do topo
@@ -89,6 +90,7 @@ export function Modal({
   returnFocusToGrid = true,
   allowClose = true,
 }: ModalProps) {
+  const { t } = useTranslation();
   const modalRef = useRef<HTMLDivElement>(null);
   const prevOpenRef = useRef(false);
   const titleId = useId();
@@ -238,7 +240,7 @@ export function Modal({
             <button 
               className="modal-close"
               onClick={onClose}
-              aria-label="Fechar modal"
+              aria-label={t('ui.modal.close')}
             >
               ✕
             </button>

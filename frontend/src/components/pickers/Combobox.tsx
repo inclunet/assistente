@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect, useId } from 'react';
+import { useTranslation } from 'react-i18next';
 import { playBumpSound } from '../../services/audioFeedback';
 import './Combobox.css';
 
@@ -25,17 +26,20 @@ export interface ComboboxProps {
 
 export const Combobox = ({
     icon = '🔧',
-    label = 'Selecionar',
+    label,
     items,
     selected,
     onSelect,
-    placeholder = 'Filtrar...',
+    placeholder,
     disabled = false,
     maxWidth = '180px',
     onAnnounce,
     onOpen,
     allowFreeInput = false
 }: ComboboxProps) => {
+    const { t } = useTranslation();
+    const effectiveLabel = label ?? t('pickers.combobox.select');
+    const effectivePlaceholder = placeholder ?? t('pickers.combobox.filterPlaceholder');
     const [isOpen, setIsOpen] = useState(false);
     const [filter, setFilter] = useState('');
     const [highlightIndex, setHighlightIndex] = useState(0);
@@ -55,7 +59,7 @@ export const Combobox = ({
     // Label do item selecionado
     const selectedItem = items.find(i => i.value === selected);
     // Se allowFreeInput está ativo e há um valor selecionado mas não está em items, usa o valor direto
-    const selectedLabel = selectedItem?.label || (allowFreeInput && selected ? selected : label);
+    const selectedLabel = selectedItem?.label || (allowFreeInput && selected ? selected : effectiveLabel);
     const displayLabel = selectedLabel.length > 20
         ? selectedLabel.substring(0, 17) + '...'
         : selectedLabel;
@@ -104,7 +108,7 @@ export const Combobox = ({
         if (highlightIndex >= 0 && filteredItems[highlightIndex] && onAnnounce) {
             const item = filteredItems[highlightIndex];
             const sublabel = item.sublabel ? `, ${item.sublabel}` : '';
-            onAnnounce(`${item.label}${sublabel}, ${highlightIndex + 1} de ${filteredItems.length}`);
+            onAnnounce(`${item.label}${sublabel}, ${highlightIndex + 1} ${t('common.of')} ${filteredItems.length}`);
         }
     };
 
@@ -255,8 +259,8 @@ export const Combobox = ({
                     disabled={disabled}
                     aria-haspopup="listbox"
                     aria-expanded={isOpen}
-                    aria-label={`${label}: ${selectedLabel}`}
-                    title={`${label}: ${selectedLabel}`}
+                    aria-label={`${effectiveLabel}: ${selectedLabel}`}
+                    title={`${effectiveLabel}: ${selectedLabel}`}
                 >
                     <span className="picker-icon" aria-hidden="true">{icon}</span>
                     <span className="picker-label" aria-hidden="true">{displayLabel}</span>
@@ -270,19 +274,19 @@ export const Combobox = ({
                         value={filter}
                         onChange={(e) => setFilter(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder={placeholder}
+                        placeholder={effectivePlaceholder}
                         role="combobox"
                         aria-expanded="true"
                         aria-controls={`${uniqueId}-listbox`}
                         aria-activedescendant={highlightIndex >= 0 ? `${uniqueId}-option-${highlightIndex}` : ''}
                         aria-autocomplete="list"
-                        aria-label={`${label} - Filtrar opções`}
+                        aria-label={`${effectiveLabel} - ${t('pickers.combobox.filterLabel')}`}
                     />
                     <ul
                         ref={listboxRef}
                         id={`${uniqueId}-listbox`}
                         role="listbox"
-                        aria-label={`${label} disponíveis`}
+                        aria-label={`${effectiveLabel} ${t('pickers.combobox.available')}`}
                         tabIndex={-1}
                     >
                         {filteredItems.map((item, i) => (
@@ -311,7 +315,7 @@ export const Combobox = ({
                         ))}
                         {filteredItems.length === 0 && (
                             <li className="no-results" role="option" aria-disabled="true">
-                                Nenhum resultado
+                                {t('pickers.combobox.noResults')}
                             </li>
                         )}
                     </ul>

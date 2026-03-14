@@ -1,4 +1,5 @@
 import React from 'react';
+import { useTranslation } from 'react-i18next';
 import { MediaFile, MediaCategory } from '../../services/mediaService';
 import './MediaPreview.css';
 
@@ -8,10 +9,11 @@ interface MediaPreviewProps {
 }
 
 export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onRemove }) => {
+  const { t } = useTranslation();
   if (media.length === 0) return null;
 
   return (
-    <div className="pending-media" role="list" aria-label="Arquivos anexados">
+    <div className="pending-media" role="list" aria-label={t('mediaPreview.label')}>
       {media.map((item) => (
         <div 
           key={item.id} 
@@ -29,7 +31,7 @@ export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onRemove }) =
                 title={item.altText || item.fileName}
               />
               {item.generatingAlt && (
-                <span className="alt-generating" aria-label="Carregando">✨</span>
+                <span className="alt-generating" aria-label={t('mediaPreview.loading')}>✨</span>
               )}
             </div>
           )}
@@ -44,7 +46,7 @@ export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onRemove }) =
                 className="audio-mini-player"
                 title={item.fileName}
               >
-                Seu navegador não suporta áudio.
+                {t('mediaPreview.audioUnsupported')}
               </audio>
             </div>
           )}
@@ -60,7 +62,7 @@ export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onRemove }) =
           <div className="media-info">
             <span className="media-name" title={item.altText || item.fileName}>
               {item.generatingAlt ? (
-                <>✨ Carregando...</>
+                <>{t('mediaPreview.loadingFancy')}</>
               ) : item.altText && item.altText !== item.fileName ? (
                 <>
                   {item.altText.substring(0, 40)}
@@ -79,8 +81,8 @@ export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onRemove }) =
             type="button"
             className="media-remove"
             onClick={() => onRemove(item.id)}
-            aria-label={`Remover ${item.altText || item.fileName}`}
-            title="Remover arquivo"
+            aria-label={`${t('mediaPreview.remove')} ${item.altText || item.fileName}`}
+            title={t('mediaPreview.removeFile')}
           >
             ✕
           </button>

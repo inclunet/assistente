@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from './Button';
 import { Modal } from './Modal';
 import './ConfirmDialog.css';
@@ -24,6 +25,7 @@ export function ConfirmDialog({
   onConfirm,
   onCancel,
 }: ConfirmDialogProps) {
+  const { t } = useTranslation();
   const messageId = useId();
 
   return (
@@ -44,10 +46,10 @@ export function ConfirmDialog({
 
       <div className="confirm-dialog__footer">
         <Button variant="outline" onClick={onCancel}>
-          {cancelText}
+          {cancelText ?? t('common.cancel')}
         </Button>
         <Button variant={variant === 'danger' ? 'danger' : 'primary'} onClick={onConfirm}>
-          {confirmText}
+          {confirmText ?? t('common.confirm')}
         </Button>
       </div>
     </Modal>

@@ -7,6 +7,7 @@
  */
 
 import { forwardRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import type { HistoryEntry } from '../../store/terminalStore';
 import { playBumpSound } from '../../services/audioFeedback';
 import './TerminalEntry.css';
@@ -22,11 +23,11 @@ function formatDuration(ms: number): string {
 }
 
 /** Trunca texto para o aria-label (screen readers não lidam bem com textos enormes) */
-function truncateForAria(text: string, maxLen = 500): string {
+function truncateForAria(text: string, maxLen: number, truncatedLabel: string): string {
   if (!text) return '';
   const clean = text.trim();
   if (clean.length <= maxLen) return clean;
-  return clean.slice(0, maxLen) + '… truncado';
+  return clean.slice(0, maxLen) + '… ' + truncatedLabel;
 }
 
 interface NavigationProps {
@@ -80,10 +81,11 @@ export interface TerminalCommandNodeProps extends NavigationProps {
 
 export const TerminalCommandNode = forwardRef<HTMLDivElement, TerminalCommandNodeProps>(
   function TerminalCommandNode({ entry, ...nav }, ref) {
+    const { t } = useTranslation();
     const handleKeyDown = useNodeKeyboard(nav);
 
-    const sourceLabel = entry.source === 'llm' ? 'Comando LLM' : 'Comando';
-    const ariaLabel = `${sourceLabel}: ${truncateForAria(entry.command)}`;
+    const sourceLabel = entry.source === 'llm' ? t('terminal.entry.llmCommand') : t('terminal.entry.command');
+    const ariaLabel = `${sourceLabel}: ${truncateForAria(entry.command, 500, t('terminal.entry.truncated'))}`;
 
     return (
       <div
@@ -97,10 +99,10 @@ export const TerminalCommandNode = forwardRef<HTMLDivElement, TerminalCommandNod
         <div className="terminal-node__header">
           <span className="terminal-node__icon" aria-hidden="true">&gt;_</span>
           <span className="terminal-node__label">
-            {entry.source === 'llm' ? 'Comando (LLM)' : 'Comando'}
+            {entry.source === 'llm' ? t('terminal.entry.commandLLM') : t('terminal.entry.command')}
           </span>
           {entry.source === 'llm' && (
-            <span className="terminal-node__source-badge">LLM</span>
+            <span className="terminal-node__source-badge">{t('terminal.entry.llm')}</span>
           )}
         </div>
         <pre className="terminal-node__text"><code>{entry.command}</code></pre>
@@ -117,6 +119,7 @@ export interface TerminalOutputNodeProps extends NavigationProps {
 
 export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeProps>(
   function TerminalOutputNode({ entry, ...nav }, ref) {
+    const { t } = useTranslation();
     const handleKeyDown = useNodeKeyboard(nav);
 
     const isRaw = entry.source === 'user-raw';
@@ -127,20 +130,22 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
       ? formatDuration(new Date(entry.endedAt).getTime() - new Date(entry.startedAt).getTime())
       : null;
 
+    const outputLabel = t('terminal.entry.output');
+    const truncatedText = t('terminal.entry.truncated');
     // Constrói aria-label com informações relevantes
-    let ariaLabel = 'Saída';
+    let ariaLabel = outputLabel;
     if (entry.output) {
-      ariaLabel += `: ${truncateForAria(entry.output)}`;
+      ariaLabel += `: ${truncateForAria(entry.output, 500, truncatedText)}`;
     } else if (isRunning) {
-      ariaLabel += ': executando';
+      ariaLabel += `: ${t('terminal.entry.running')}`;
     } else {
-      ariaLabel += ': vazia';
+      ariaLabel += `: ${t('terminal.entry.empty')}`;
     }
     if (hasExitCode) {
-      ariaLabel += `. Código de saída: ${entry.exitCode}`;
+      ariaLabel += `. ${t('terminal.entry.exitCode')} ${entry.exitCode}`;
     }
     if (duration) {
-      ariaLabel += `. Duração: ${duration}`;
+      ariaLabel += `. ${t('terminal.entry.duration')} ${duration}`;
     }
 
     const exitBadgeClass = entry.exitCode === 0
@@ -160,10 +165,10 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
       >
         <div className="terminal-node__header">
           <span className="terminal-node__icon" aria-hidden="true">&#9638;</span>
-          <span className="terminal-node__label">Saída</span>
+          <span className="terminal-node__label">{outputLabel}</span>
           {hasExitCode && (
             <span className={`terminal-node__exit-badge ${exitBadgeClass}`}>
-              exit: {entry.exitCode}
+              {t('terminal.entry.exit')} {entry.exitCode}
             </span>
           )}
           {duration && (
@@ -172,7 +177,7 @@ export const TerminalOutputNode = forwardRef<HTMLDivElement, TerminalOutputNodeP
           {isRunning && (
             <span className="terminal-node__running-indicator" aria-hidden="true">
               <span className="terminal-node__pulse" />
-              Executando...
+              {t('terminal.entry.executing')}
             </span>
           )}
         </div>

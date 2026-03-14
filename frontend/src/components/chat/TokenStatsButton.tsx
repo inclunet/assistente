@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { GetConversationTokenStats } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import './TokenStatsButton.css';
@@ -25,6 +26,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
   conversationId,
   onOpenModal,
 }) => {
+  const { t } = useTranslation();
   const [stats, setStats] = useState<TokenStats | null>(null);
   const [isLoading, setIsLoading] = useState(false);
 
@@ -107,7 +109,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
       <button
         className="token-stats-button token-stats-button--loading"
         disabled
-        aria-label="Carregando estatísticas de tokens"
+        aria-label={t('chat.loadingTokenStats')}
       >
         <span className="token-stats-button__icon" aria-hidden="true">⏳</span>
         <span className="token-stats-button__text">...</span>
@@ -147,8 +149,8 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
     <button
       className={`token-stats-button token-stats-button--${getStatusColor()}`}
       onClick={onOpenModal}
-      aria-label={`${ariaLabel}, Ctrl+T para ver detalhes`}
-      title="Ver estatísticas detalhadas de tokens (Ctrl+T)"
+      aria-label={`${ariaLabel} ${t('chat.tokenDetailsShortcut')}`}
+      title={t('chat.tokenDetailsLabel')}
     >
       <span className="token-stats-button__icon" aria-hidden="true">
         {getStatusIcon()}

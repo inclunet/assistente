@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Input, Checkbox, Button } from '../index';
 import { ProfilePicker } from '../pickers/ProfilePicker';
 
@@ -30,50 +31,47 @@ export function ChannelsTelegramSection({
   credentialMasked,
   onRemoveCredential,
 }: ChannelsTelegramSectionProps) {
+  const { t } = useTranslation();
   return (
     <>
       <Checkbox
-        label="Habilitado"
+        label={t('channels.telegram.enabled')}
         checked={form.enabled}
         onChange={(e) => onChange({ ...form, enabled: e.target.checked })}
       />
       {form.enabled && (
         <>
           <Input
-            label="Bot Token"
+            label={t('channels.telegram.botToken')}
             type="password"
             value={form.botToken}
             onChange={(e) => onChange({ ...form, botToken: e.target.value })}
-            placeholder="123456789:ABCDEFG_xyz"
+            placeholder={t('channels.telegram.botTokenPlaceholder')}
             fullWidth
           />
           <Checkbox
-            label="Salvar token no cofre de credenciais"
+            label={t('channels.telegram.saveVault')}
             checked={vaultEnabled}
             onChange={(e) => onToggleVault(e.target.checked)}
           />
           <p className="channels-page__hint">
-            Quando habilitado, o token fica criptografado e não é salvo no arquivo do canal.
+            {t('channels.telegram.vaultHint')}
           </p>
           {credentialStored && (
             <div className="channels-page__vault-actions">
               <span className="channels-page__hint">
-                Token salvo no cofre {credentialMasked ? `(${credentialMasked})` : ''}.
+                {t('channels.telegram.tokenStored')} {credentialMasked ? `(${credentialMasked})` : ''}.
               </span>
               <Button variant="ghost" size="sm" onClick={onRemoveCredential}>
-                Remover do cofre
+                {t('channels.telegram.removeVault')}
               </Button>
             </div>
           )}
           <p className="channels-page__hint">
-            Crie um bot no @BotFather ({' '}
-            <a href="https://t.me/BotFather" target="_blank" rel="noopener noreferrer">
-              https://t.me/BotFather
-            </a>
-            ) e use seu token.
+            {t('channels.telegram.botFatherHint')}
           </p>
           <Input
-            label="Máximo de Contatos"
+            label={t('channels.telegram.maxContacts')}
             type="number"
             min="1"
             max="100"
@@ -84,21 +82,20 @@ export function ChannelsTelegramSection({
             fullWidth
           />
           <p className="channels-page__hint">
-            Ao atingir o limite, novos contatos são ignorados silenciosamente.
+            {t('channels.telegram.maxContactsHint')}
           </p>
           <ProfilePicker
             value={form.profile}
             onChange={(slug) => onChange({ ...form, profile: slug })}
-            label="Perfil do Canal"
+            label={t('channels.telegram.channelProfile')}
             maxWidth="100%"
             onAnnounce={onAnnounce}
           />
           <p className="channels-page__hint">
-            Perfil usado para conversas deste canal. Define modelo, voz, STT e
-            comportamento. Vazio usa o perfil ativo global.
+            {t('channels.telegram.channelProfileHint')}
           </p>
           <Input
-            label="Máximo de Histórico"
+            label={t('channels.telegram.maxHistory')}
             type="number"
             min="1"
             max="200"

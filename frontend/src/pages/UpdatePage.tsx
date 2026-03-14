@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { StartUpdate } from '@wailsjs/go/main/App';
 import { useUIStore } from '../store/uiStore';
@@ -15,6 +16,7 @@ interface ProgressEvent {
 type UpdatePhase = 'idle' | 'downloading' | 'verifying' | 'installing' | 'completed' | 'error';
 
 export default function UpdatePage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { addToast } = useUIStore();
   
@@ -48,7 +50,7 @@ export default function UpdatePage() {
       console.log('[UpdatePage] Update completed event:', data);
       setPhase('completed');
       setProgress(100);
-      addToast(data.message || 'Atualização concluída!', 'success');
+      addToast(data.message || t('update.phases.completed'), 'success');
     });
 
     // Escuta evento de erro
@@ -90,19 +92,19 @@ export default function UpdatePage() {
   const getPhaseText = () => {
     switch (phase) {
       case 'idle':
-        return 'Preparando atualização...';
+        return t('update.phases.preparing');
       case 'downloading':
-        return 'Baixando atualização...';
+        return t('update.phases.downloading');
       case 'verifying':
-        return 'Verificando integridade...';
+        return t('update.phases.verifying');
       case 'installing':
-        return 'Instalando atualização...';
+        return t('update.phases.installing');
       case 'completed':
-        return 'Atualização concluída!';
+        return t('update.phases.completed');
       case 'error':
-        return 'Erro na atualização';
+        return t('update.phases.error');
       default:
-        return 'Processando...';
+        return t('update.phases.processing');
     }
   };
 
@@ -118,7 +120,7 @@ export default function UpdatePage() {
     <div className="update-page">
       <div className="update-container">
         <div className="update-header">
-          <h1>🔄 Atualização do Sistema</h1>
+          <h1>{t('update.pageTitle')}</h1>
         </div>
 
         <div className="update-content">
@@ -148,7 +150,7 @@ export default function UpdatePage() {
               </div>
 
               <p className="update-message">
-                Por favor, aguarde. Não feche o aplicativo durante a atualização.
+                {t('update.message.wait')}
               </p>
             </>
           )}
@@ -156,20 +158,20 @@ export default function UpdatePage() {
           {phase === 'completed' && (
             <div className="update-success">
               <div className="success-icon">✅</div>
-              <h2>Atualização Instalada com Sucesso!</h2>
-              <p>Reinicie o aplicativo para aplicar as mudanças.</p>
+              <h2>{t('update.successTitle')}</h2>
+              <p>{t('update.successDesc')}</p>
               <div className="update-actions">
                 <button 
                   className="btn-primary"
                   onClick={() => window.location.reload()}
                 >
-                  Reiniciar Agora
+                  {t('update.buttons.restart')}
                 </button>
                 <button 
                   className="btn-secondary"
                   onClick={() => navigate('/')}
                 >
-                  Voltar ao Chat
+                  {t('update.buttons.backToChat')}
                 </button>
               </div>
             </div>
@@ -178,20 +180,20 @@ export default function UpdatePage() {
           {phase === 'error' && (
             <div className="update-error">
               <div className="error-icon">❌</div>
-              <h2>Erro na Atualização</h2>
+              <h2>{t('update.errorTitle')}</h2>
               <p className="error-message">{errorMessage}</p>
               <div className="update-actions">
                 <button 
                   className="btn-primary"
                   onClick={handleRetryUpdate}
                 >
-                  Tentar Novamente
+                  {t('update.buttons.retry')}
                 </button>
                 <button 
                   className="btn-secondary"
                   onClick={() => navigate('/')}
                 >
-                  Voltar ao Chat
+                  {t('update.buttons.backToChat')}
                 </button>
               </div>
             </div>
