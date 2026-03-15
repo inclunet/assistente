@@ -7,6 +7,9 @@
 
 import { AudioRecorderOptions } from './types';
 
+type WebkitAudioWindow = Window & { webkitAudioContext?: typeof AudioContext };
+type MediaRecorderErrorEvent = Event & { error?: DOMException | Error };
+
 export class AudioRecorder {
   private mimeType: string;
   private audioBitsPerSecond: number;
@@ -114,14 +117,13 @@ export class AudioRecorder {
       
       this.mediaRecorder.onerror = (event: Event) => {
         this._isRecording = false;
-        const error = (event as any).error || new Error('Erro no MediaRecorder');
+        const error = (event as MediaRecorderErrorEvent).error || new Error('Erro no MediaRecorder');
         this.onError(error);
       };
       
       // Setup para visualização de áudio
       this.setupAnalyser();
       
-      console.log('[AudioRecorder] Inicializado com MIME type:', this.mimeType);
       return true;
     } catch (error) {
       const message = error instanceof Error 
@@ -141,15 +143,18 @@ export class AudioRecorder {
     if (!this.stream) return;
     
     try {
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContextClass = window.AudioContext || (window as WebkitAudioWindow).webkitAudioContext;
+      if (!AudioContextClass) {
+        return;
+      }
       this.audioContext = new AudioContextClass();
       this.analyser = this.audioContext.createAnalyser();
       this.analyser.fftSize = 256;
       
       const source = this.audioContext.createMediaStreamSource(this.stream);
       source.connect(this.analyser);
-    } catch (error) {
-      console.warn('[AudioRecorder] Não foi possível criar analyser:', error);
+    } catch {
+      // best-effort
     }
   }
 
@@ -218,14 +223,12 @@ export class AudioRecorder {
    */
   releaseStream(): void {
     if (this._isRecording) {
-      console.warn('[AudioRecorder] Não é possível liberar stream durante gravação');
       return;
     }
 
     if (this.stream) {
       this.stream.getTracks().forEach(track => track.stop());
       this.stream = null;
-      console.log('[AudioRecorder] Stream do microfone liberado');
     }
     
     if (this.audioContext) {
@@ -265,8 +268,6 @@ export class AudioRecorder {
     this.mediaRecorder = null;
     this.analyser = null;
     this.chunks = [];
-    
-    console.log('[AudioRecorder] Recursos liberados');
   }
 
   /**

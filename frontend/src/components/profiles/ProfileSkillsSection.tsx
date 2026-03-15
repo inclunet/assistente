@@ -5,11 +5,17 @@ import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 
 export interface ProfileSkillsSectionProps {
-  availableSkills: skills.SkillInfo[];
+  availableSkills: Array<
+    | skills.SkillInfo
+    | { slug: string; name: string; description?: string; version?: string; source?: string }
+  >;
   enabledSkills?: string[];
   disableOnDemand?: boolean;
   skillsDisabled?: boolean;
-  onChange: (field: 'enabled_skills' | 'disable_on_demand_skills' | 'disable_skills', value: any) => void;
+  onChange: (
+    field: 'enabled_skills' | 'disable_on_demand_skills' | 'disable_skills',
+    value: string[] | boolean
+  ) => void;
   disabled?: boolean;
 }
 
@@ -35,7 +41,7 @@ export function ProfileSkillsSection({
 
   const autoloadSkills = enabledSkills
     .map(slug => availableSkills.find(s => s.slug === slug))
-    .filter(Boolean) as skills.SkillInfo[];
+    .filter(Boolean) as Array<{ slug: string; name: string; description?: string }>; 
   const onDemandSkills = availableSkills.filter(s => !autoloadSet.has(s.slug));
   const sortedSkills: SkillRow[] = [...autoloadSkills, ...onDemandSkills].map(s => ({
     id: s.slug,
@@ -114,7 +120,7 @@ export function ProfileSkillsSection({
       key: 'checked',
       label: '',
       width: '40px',
-      format: (_: any, item: SkillRow) => {
+      format: (_value: unknown, item: SkillRow) => {
         const idx = enabledSkills.indexOf(item.slug);
         const checked = idx >= 0;
         return (
@@ -135,7 +141,7 @@ export function ProfileSkillsSection({
       key: 'order',
       label: '#',
       width: '40px',
-      format: (_: any, item: SkillRow) => {
+      format: (_value: unknown, item: SkillRow) => {
         const idx = enabledSkills.indexOf(item.slug);
         return idx >= 0 ? `${idx + 1}` : '';
       },

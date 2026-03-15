@@ -43,11 +43,11 @@ export interface QuestionnairePayload {
 export interface QuestionnaireDialogProps {
   isOpen: boolean;
   data: QuestionnairePayload | null;
-  onSubmit: (answers: Record<string, any>) => void;
+  onSubmit: (answers: Record<string, unknown>) => void;
   onCancel?: () => void;
 }
 
-function isEmptyValue(value: any, type: QuestionnaireQuestionType): boolean {
+function isEmptyValue(value: unknown, type: QuestionnaireQuestionType): boolean {
   if (type === 'multiple_choice') {
     return !Array.isArray(value) || value.length === 0;
   }
@@ -58,7 +58,7 @@ function isEmptyValue(value: any, type: QuestionnaireQuestionType): boolean {
 }
 
 export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: QuestionnaireDialogProps) {
-  const [answers, setAnswers] = useState<Record<string, any>>({});
+  const [answers, setAnswers] = useState<Record<string, unknown>>({});
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const allowCancel = data?.allowCancel !== false;
@@ -71,7 +71,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
 
   useEffect(() => {
     if (!isOpen || !data) return;
-    const initial: Record<string, any> = {};
+    const initial: Record<string, unknown> = {};
     for (const q of data.questions) {
       if (q.default !== undefined) {
         initial[q.id] = q.default;
@@ -105,12 +105,13 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
     if (onCancel) onCancel();
   };
 
-  const updateAnswer = (id: string, value: any) => {
+  const updateAnswer = (id: string, value: unknown) => {
     setAnswers((prev) => ({ ...prev, [id]: value }));
     setErrors((prev) => {
       if (!prev[id]) return prev;
-      const { [id]: _, ...rest } = prev;
-      return rest;
+      const next = { ...prev };
+      delete next[id];
+      return next;
     });
   };
 
@@ -146,6 +147,12 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
           const controlId = (q.type === 'text' || q.type === 'password' || q.type === 'long_text' || q.type === 'number' || q.type === 'scale' || q.type === 'date')
             ? `question-${q.id}`
             : undefined;
+          const answer = answers[q.id];
+          const answerText = typeof answer === 'string' || typeof answer === 'number' ? String(answer) : '';
+          const answerNumber = typeof answer === 'number' ? answer : '';
+          const answerArray = Array.isArray(answer) ? answer : [];
+          const answerBoolean = typeof answer === 'boolean' ? answer : undefined;
+          const scaleValue = typeof answer === 'number' ? answer : (q.min ?? 1);
 
           return (
           <div key={q.id} className="questionnaire-dialog__question">
@@ -164,7 +171,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
               <input
                 id={`question-${q.id}`}
                 type="text"
-                value={answers[q.id] ?? ''}
+                value={answerText}
                 placeholder={q.placeholder}
                 onChange={(e) => updateAnswer(q.id, e.target.value)}
                 className="questionnaire-dialog__input"
@@ -176,7 +183,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
               <input
                 id={`question-${q.id}`}
                 type="password"
-                value={answers[q.id] ?? ''}
+                value={answerText}
                 placeholder={q.placeholder}
                 onChange={(e) => updateAnswer(q.id, e.target.value)}
                 className="questionnaire-dialog__input"
@@ -187,7 +194,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
             {q.type === 'long_text' && (
               <textarea
                 id={`question-${q.id}`}
-                value={answers[q.id] ?? ''}
+                value={answerText}
                 placeholder={q.placeholder}
                 onChange={(e) => updateAnswer(q.id, e.target.value)}
                 className="questionnaire-dialog__textarea"
@@ -212,7 +219,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
               <input
                 id={`question-${q.id}`}
                 type="number"
-                value={answers[q.id] ?? ''}
+                value={answerNumber}
                 min={q.min}
                 max={q.max}
                 step={q.step}
@@ -234,10 +241,10 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                   min={q.min ?? 1}
                   max={q.max ?? 5}
                   step={q.step ?? 1}
-                  value={answers[q.id] ?? (q.min ?? 1)}
+                  value={scaleValue}
                   onChange={(e) => updateAnswer(q.id, Number(e.target.value))}
                 />
-                <span className="questionnaire-dialog__scale-value">{answers[q.id] ?? (q.min ?? 1)}</span>
+                <span className="questionnaire-dialog__scale-value">{scaleValue}</span>
               </div>
             )}
 
@@ -245,7 +252,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
               <input
                 id={`question-${q.id}`}
                 type="date"
-                value={answers[q.id] ?? ''}
+                value={answerText}
                 onChange={(e) => updateAnswer(q.id, e.target.value)}
                 className="questionnaire-dialog__input"
               />
@@ -258,7 +265,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                     <input
                       type="radio"
                       name={`question-${q.id}`}
-                      checked={answers[q.id] === (label === 'Sim')}
+                      checked={answerBoolean === (label === 'Sim')}
                       onChange={() => updateAnswer(q.id, label === 'Sim')}
                     />
                     <span>{label}</span>
@@ -271,8 +278,8 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
               <div className="questionnaire-dialog__options" role={q.type === 'single_choice' ? 'radiogroup' : 'group'} aria-label={q.prompt}>
                 {(q.options || []).map((opt) => {
                   const selected = q.type === 'multiple_choice'
-                    ? (Array.isArray(answers[q.id]) && answers[q.id].includes(opt))
-                    : answers[q.id] === opt;
+                    ? answerArray.includes(opt)
+                    : answer === opt;
 
                   return (
                     <label key={opt} className="questionnaire-dialog__option">
@@ -285,7 +292,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
                             updateAnswer(q.id, opt);
                             return;
                           }
-                          const current = Array.isArray(answers[q.id]) ? answers[q.id] : [];
+                          const current = answerArray;
                           if (e.target.checked) {
                             updateAnswer(q.id, [...current, opt]);
                           } else {

@@ -87,7 +87,7 @@ export const TerminalHistory = forwardRef<HTMLDivElement, TerminalHistoryProps>(
         }
       }
       prevEntryCount.current = entries.length;
-    }, [entries.length]); // eslint-disable-line react-hooks/exhaustive-deps
+    }, [entries, t]);
 
     /** Registra/remove ref de nó */
     const setNodeRef = useCallback((nodeId: string, el: HTMLDivElement | null) => {

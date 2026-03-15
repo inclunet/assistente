@@ -73,8 +73,9 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
           : t('pickers.model.noModelsGlobal');
         setError(msg);
       }
-    } catch (e: any) {
-      const errorMsg = e?.message || String(e) || 'Erro desconhecido';
+    } catch (e: unknown) {
+      const err = e as { message?: unknown } | null;
+      const errorMsg = String(err?.message || e || 'Erro desconhecido');
       
       // Detecta se o endpoint de modelos não é suportado (404)
       if (errorMsg.includes('models_endpoint_not_supported')) {

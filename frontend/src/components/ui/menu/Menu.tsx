@@ -127,9 +127,16 @@ export const Menu: React.FC<MenuProps> = ({
   // Move o foco quando muda
   useEffect(() => {
     if (visible && menuRef.current) {
-      const currentItems = getCurrentItems();
-      const currentFocusIndex = getCurrentFocusIndex();
-      const targetItem = currentItems[currentFocusIndex];
+      let currentItems = items;
+      for (const submenuId of submenuStack) {
+        const parentItem = currentItems.find((item) => item.id === submenuId);
+        if (parentItem?.submenu) {
+          currentItems = parentItem.submenu;
+        }
+      }
+      const focusableItems = currentItems.filter((item) => !item.separator);
+      const currentFocusIndex = focusStack[focusStack.length - 1] || 0;
+      const targetItem = focusableItems[currentFocusIndex];
 
       if (targetItem) {
         const button = menuRef.current.querySelector(`button#${CSS.escape(targetItem.id)}`);
@@ -138,11 +145,13 @@ export const Menu: React.FC<MenuProps> = ({
         }
       }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [focusStack, visible]);
+  }, [focusStack, items, submenuStack, visible]);
 
   // Navegação por teclado
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Escape', 'Enter', ' '].includes(e.key)) {
+      e.stopPropagation();
+    }
     const currentItems = getCurrentItems();
     const currentFocusIndex = getCurrentFocusIndex();
     const currentItem = currentItems[currentFocusIndex];

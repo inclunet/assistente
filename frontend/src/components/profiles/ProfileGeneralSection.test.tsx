@@ -3,6 +3,21 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProfileGeneralSection } from './ProfileGeneralSection';
 
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) => {
+      const translations: Record<string, string> = {
+        'profiles.generalSection.name': 'Nome',
+        'profiles.generalSection.description': 'Descrição',
+        'profiles.generalSection.icon': 'Ícone (Ionicons)',
+        'profiles.generalSection.iconPlaceholder': 'chatbox',
+      };
+      return translations[key] ?? key;
+    },
+  }),
+}));
+
 describe('ProfileGeneralSection', () => {
   it('renderiza campos básicos', () => {
     const handleChange = vi.fn();

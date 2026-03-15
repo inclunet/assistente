@@ -29,8 +29,26 @@ export function MermaidEditorModal({
   const { t } = useTranslation();
   const [code, setCode] = useState(initialCode);
   const modalTitle = title ?? t('editor.mermaid.editorTitle');
-  const codeEditorRef = useRef<any>(null);
-  const monacoRef = useRef<any>(null);
+  type MonacoRange = { startLineNumber: number; startColumn: number; endLineNumber: number; endColumn: number };
+  type MonacoSelectionCtor = new (startLineNumber: number, startColumn: number, endLineNumber: number, endColumn: number) => unknown;
+  type MermaidEditorApi = {
+    getModel?: () => {
+      getLineCount?: () => number;
+      getLineMaxColumn?: (lineNumber: number) => number;
+      getFullModelRange?: () => MonacoRange | null;
+    } | null;
+    getSelection?: () => MonacoRange | null;
+    executeEdits?: (source: string, edits: Array<{ range: MonacoRange; text: string; forceMoveMarkers?: boolean }>) => void;
+    focus?: () => void;
+    setPosition?: (pos: { lineNumber: number; column: number }) => void;
+    revealPositionInCenterIfOutsideViewport?: (pos: { lineNumber: number; column: number }) => void;
+    setSelection?: (range: MonacoRange) => void;
+    getPosition?: () => { lineNumber: number; column: number } | null;
+  };
+  type MonacoApi = { Selection?: MonacoSelectionCtor };
+
+  const codeEditorRef = useRef<MermaidEditorApi | null>(null);
+  const monacoRef = useRef<MonacoApi | null>(null);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -90,7 +108,7 @@ export function MermaidEditorModal({
           // Colapsa cursor no fim da inserção.
           const pos = editor.getPosition?.();
           if (pos && monaco?.Selection) {
-            editor.setSelection?.(new monaco.Selection(pos.lineNumber, pos.column, pos.lineNumber, pos.column));
+            editor.setSelection?.(new monaco.Selection(pos.lineNumber, pos.column, pos.lineNumber, pos.column) as MonacoRange);
           }
         } else {
           setCode((prev) => prev + insert);
@@ -144,8 +162,8 @@ export function MermaidEditorModal({
                 value={code}
                 onChange={setCode}
                 onMount={(editor, monaco) => {
-                  codeEditorRef.current = editor;
-                  monacoRef.current = monaco;
+                  codeEditorRef.current = editor as unknown as MermaidEditorApi;
+                  monacoRef.current = monaco as MonacoApi;
                 }}
               />
             </div>

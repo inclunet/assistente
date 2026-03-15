@@ -136,10 +136,10 @@ export class STTService extends EventTarget {
       // NÃO inicializa o stream aqui - será feito sob demanda em startActualRecording()
 
       this._initialized = true;
-      console.log('[STTService] Inicializado');
       return true;
     } catch (error) {
-      console.error('[STTService] Erro ao inicializar:', error);
+      const message = error instanceof Error ? error.message : 'Erro ao inicializar STT';
+      this.handleError(message);
       return false;
     }
   }
@@ -337,8 +337,7 @@ export class STTService extends EventTarget {
       } else {
         await this.startActualRecording();
       }
-    } catch (error) {
-      console.error('[STTService] Erro ao iniciar VAD:', error);
+    } catch {
       // Fallback para gravação normal
       await this.startActualRecording();
     }
@@ -353,8 +352,7 @@ export class STTService extends EventTarget {
       this.vadDetector!.start();
 
       this.setState(STT_STATES.LISTENING);
-    } catch (error) {
-      console.error('[STTService] Erro ao iniciar listening:', error);
+    } catch {
       this.handleError('Erro ao acessar microfone');
     }
   }
@@ -519,8 +517,6 @@ export class STTService extends EventTarget {
     this.audioRecorder = null;
     this.vadDetector = null;
     this._initialized = false;
-
-    console.log('[STTService] Destruído');
   }
 }
 

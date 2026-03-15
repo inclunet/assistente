@@ -76,100 +76,7 @@ Arquivos de configuração ficam em:
 
 ---
 
-## Exemplo 3: Servidor Streamable HTTP (Recomendado)
-
-### Servidor remoto com autenticação
-**Arquivo:** `~/.assistente/mcp/api-server.json`
-
-```json
-{
-  "name": "API Server",
-  "description": "Servidor MCP remoto via Streamable HTTP",
-  "transport": "streamable",
-  "url": "https://api.example.com/mcp",
-  "enabled": true,
-  "auto_connect": true
-}
-```
-
-**Autenticação:** Configurada na UI do servidor MCP (seção "Autenticação") ou
-na tela de Credenciais. As credenciais são armazenadas de forma segura no
-credential manager do sistema (criptografia AES-256-GCM + keyring do OS),
-nunca em texto puro no arquivo JSON.
-
-O padrão de resolução usa o hostname da URL. Para o exemplo acima,
-credenciais registradas para `api.example.com` serão automaticamente injetadas.
-
-**Vantagens Streamable HTTP:**
-- Protocolo MCP moderno (substitui SSE legado)
-- Autenticação segura via credential manager centralizado
-- Retries automáticos com backoff exponencial
-- Suporte a server-sent events para notificações do servidor
-- Permite deployar servidor MCP em container/cloud
-- Não necessita de ferramentas como `mcp-remote`
-
-### Servidor local sem autenticação
-**Arquivo:** `~/.assistente/mcp/local-streamable.json`
-
-```json
-{
-  "name": "Local Streamable Server",
-  "description": "Servidor MCP local via Streamable HTTP",
-  "transport": "streamable",
-  "url": "http://localhost:3000/mcp",
-  "enabled": true,
-  "auto_connect": true
-}
-```
-
-### Servidor com OAuth2 Client Credentials
-**Arquivo:** `~/.assistente/mcp/api-oauth2-cc.json`
-
-```json
-{
-  "name": "API Server (OAuth2)",
-  "description": "Servidor MCP com autenticação OAuth2 Client Credentials",
-  "transport": "streamable",
-  "url": "https://api.example.com/mcp",
-  "auth_type": "oauth2_client_credentials",
-  "oauth2_client_id": "meu-app-id",
-  "oauth2_token_url": "https://auth.example.com/oauth/token",
-  "oauth2_scopes": ["read", "write"],
-  "enabled": true,
-  "auto_connect": true
-}
-```
-
-**Nota:** O `client_secret` é armazenado no credential manager (criptografado), não no JSON.
-Configure pela UI na seção de autenticação do servidor.
-
-### Servidor com OAuth2 Authorization Code (PKCE)
-**Arquivo:** `~/.assistente/mcp/api-oauth2-pkce.json`
-
-```json
-{
-  "name": "API Server (PKCE)",
-  "description": "Servidor MCP com login OAuth2 via browser",
-  "transport": "streamable",
-  "url": "https://api.example.com/mcp",
-  "auth_type": "oauth2_pkce",
-  "oauth2_client_id": "meu-app-id",
-  "oauth2_token_url": "https://auth.example.com/oauth/token",
-  "oauth2_auth_url": "https://auth.example.com/authorize",
-  "oauth2_scopes": ["openid", "profile"],
-  "enabled": true,
-  "auto_connect": false
-}
-```
-
-**Nota:** PKCE usa public client (sem client_secret). Na primeira conexão, o browser
-abrirá para o usuário se autenticar. O refresh token é salvo no credential manager
-para sessões futuras. Recomenda-se `auto_connect: false` para controlar quando o
-browser abre.
-
----
-
-## Exemplo 4: Servidor SSE (Legado)
+## Exemplo 3: Servidor SSE (HTTP)
 
 ### Custom Web Server
 **Arquivo:** `~/.assistente/mcp/custom-web.json`
@@ -177,7 +84,7 @@ browser abre.
 ```json
 {
   "name": "Custom Web Service",
-  "description": "Servidor MCP via SSE (legado)",
+  "description": "Servidor MCP customizado via HTTP",
   "transport": "sse",
   "url": "http://localhost:3000/mcp",
   "enabled": true,
@@ -185,12 +92,14 @@ browser abre.
 }
 ```
 
-**Nota:** O transporte SSE é considerado legado. Prefira `streamable` para novas configurações.
-Autenticação é gerida pelo credential manager, da mesma forma que o Streamable HTTP.
+**Vantagens SSE:**
+- Permite deployar servidor MCP em container/cloud
+- Suporte a múltiplos clientes simultaneamente
+- Facilita load balancing
 
 ---
 
-## Exemplo 5: Servidor Local Go
+## Exemplo 4: Servidor Local Go
 
 ### Database MCP Server
 **Arquivo:** `~/.assistente/mcp/database.json`
@@ -218,7 +127,7 @@ Autenticação é gerida pelo credential manager, da mesma forma que o Streamabl
 
 ---
 
-## Exemplo 6: Servidor com Múltiplos Ambientes
+## Exemplo 5: Servidor com Múltiplos Ambientes
 
 ### Development vs Production
 **Arquivo:** `~/.assistente/mcp/api-dev.json`
@@ -253,7 +162,7 @@ Autenticação é gerida pelo credential manager, da mesma forma que o Streamabl
 
 ---
 
-## Exemplo 7: Servidor Docker
+## Exemplo 6: Servidor Docker
 
 ### Containerized MCP Server
 **Arquivo:** `~/.assistente/mcp/docker-server.json`
@@ -284,7 +193,7 @@ Autenticação é gerida pelo credential manager, da mesma forma que o Streamabl
 
 ---
 
-## Exemplo 8: Servidor com Auth
+## Exemplo 7: Servidor com Auth
 
 ### Slack MCP Server
 **Arquivo:** `~/.assistente/mcp/slack.json`
@@ -312,7 +221,7 @@ Autenticação é gerida pelo credential manager, da mesma forma que o Streamabl
 
 ---
 
-## Exemplo 9: Servidor Multi-tenancy
+## Exemplo 8: Servidor Multi-tenancy
 
 ### Workspace-Specific Server
 **Arquivo:** `~/.assistente/mcp/workspace-tools.json`
@@ -454,10 +363,8 @@ servers.forEach(srv => {
 Com essas configurações, você pode integrar qualquer servidor MCP ao Assistente:
 
 - 🔧 **Stdio**: Para servidores locais (Node, Python, Go, Rust)
-- 🌐 **Streamable HTTP**: Para servidores remotos (recomendado)
-- 📡 **SSE**: Para servidores HTTP legado
-- 🔐 **Auth**: Tokens via env vars (stdio) ou credential manager (streamable/sse)
-- 🔑 **OAuth2**: Client Credentials (M2M) ou Authorization Code + PKCE (com browser)
+- 🌐 **SSE**: Para servidores HTTP/Cloud
+- 🔐 **Auth**: Tokens via env vars
 - 🐳 **Docker**: Servidores containerizados
 - 🔄 **Auto-reconnect**: Resiliência automática
 

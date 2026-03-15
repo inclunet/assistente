@@ -1,22 +1,26 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 function installDocumentMock() {
-  const originalDocument = (globalThis as any).document;
-  const originalRaf = (globalThis as any).requestAnimationFrame;
+  const globalWithDoc = globalThis as typeof globalThis & {
+    document: Document;
+    requestAnimationFrame: (cb: FrameRequestCallback) => number;
+  };
+  const originalDocument = globalWithDoc.document;
+  const originalRaf = globalWithDoc.requestAnimationFrame;
 
-  (globalThis as any).requestAnimationFrame = (cb: (t: number) => void) => {
+  globalWithDoc.requestAnimationFrame = (cb: FrameRequestCallback) => {
     cb(0);
     return 0;
   };
 
-  (globalThis as any).document = {
+  globalWithDoc.document = {
     activeElement: null,
     contains: () => true,
-  };
+  } as unknown as Document;
 
   return () => {
-    (globalThis as any).document = originalDocument;
-    (globalThis as any).requestAnimationFrame = originalRaf;
+    globalWithDoc.document = originalDocument;
+    globalWithDoc.requestAnimationFrame = originalRaf;
   };
 }
 
@@ -73,7 +77,11 @@ describe('confirmStore', () => {
     const focus = vi.fn();
     const element = { focus };
 
-    (globalThis as any).document.activeElement = element;
+    const globalWithDoc = globalThis as typeof globalThis & { document: Document };
+    Object.defineProperty(globalWithDoc.document, 'activeElement', {
+      value: element as unknown as Element,
+      configurable: true,
+    });
 
     const p = mod.requestConfirm({ title: 'X', message: 'Y' });
     mod.useConfirmStore.getState().confirm();

@@ -13,12 +13,23 @@ interface ProgressEvent {
   percentage: number;
 }
 
+interface UpdateCompletedEvent {
+  message?: string;
+}
+
+interface UpdateErrorEvent {
+  error?: string;
+}
+
 type UpdatePhase = 'idle' | 'downloading' | 'verifying' | 'installing' | 'completed' | 'error';
 
 export default function UpdatePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { addToast } = useUIStore();
+
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error ?? '');
   
   const [phase, setPhase] = useState<UpdatePhase>('idle');
   const [progress, setProgress] = useState(0);
@@ -27,11 +38,8 @@ export default function UpdatePage() {
   const [errorMessage, setErrorMessage] = useState('');
 
   useEffect(() => {
-    console.log('[UpdatePage] Componente montado');
-    
     // Escuta eventos de progresso
     const unsubProgress = EventsOn('update:progress', (data: ProgressEvent) => {
-      console.log('[UpdatePage] Progress event:', data);
       setPhase(data.phase as UpdatePhase);
       setProgress(data.percentage);
       setBytesDownloaded(data.bytesDownloaded);
@@ -40,52 +48,46 @@ export default function UpdatePage() {
 
     // Escuta evento de início
     const unsubStarted = EventsOn('update:started', () => {
-      console.log('[UpdatePage] Update started event');
       setPhase('downloading');
       setProgress(0);
     });
 
     // Escuta evento de conclusão
-    const unsubCompleted = EventsOn('update:completed', (data: any) => {
-      console.log('[UpdatePage] Update completed event:', data);
+    const unsubCompleted = EventsOn('update:completed', (data: UpdateCompletedEvent) => {
       setPhase('completed');
       setProgress(100);
       addToast(data.message || t('update.phases.completed'), 'success');
     });
 
     // Escuta evento de erro
-    const unsubError = EventsOn('update:error', (data: any) => {
-      console.log('[UpdatePage] Update error event:', data);
+    const unsubError = EventsOn('update:error', (data: UpdateErrorEvent) => {
+      const message = data.error || t('update.errors.unknown');
       setPhase('error');
-      setErrorMessage(data.error || 'Erro desconhecido');
-      addToast('Erro ao atualizar: ' + data.error, 'error');
+      setErrorMessage(message);
+      addToast(t('update.errors.failed', { error: message }), 'error');
     });
 
     // NÃO chama ApplyUpdate aqui - StartUpdate() já fez isso!
     // O AboutPage chama StartUpdate() que navega para cá e inicia o processo
-    console.log('[UpdatePage] Listeners registrados, aguardando eventos...');
-
     return () => {
-      console.log('[UpdatePage] Limpando listeners');
       unsubProgress();
       unsubStarted();
       unsubCompleted();
       unsubError();
     };
-  }, [addToast]); // Removido autoStarted da dependência
+  }, [addToast, t]); // Removido autoStarted da dependência
 
   const handleRetryUpdate = async () => {
-    console.log('[UpdatePage] Tentando atualizar novamente...');
     setPhase('idle');
     setErrorMessage('');
     try {
       await StartUpdate();
       // StartUpdate() navega para esta página e inicia o processo
-    } catch (error: any) {
-      console.error('[UpdatePage] Erro ao tentar novamente:', error);
+    } catch (error: unknown) {
+      const message = getErrorMessage(error) || t('update.errors.start');
       setPhase('error');
-      setErrorMessage(error.message || 'Erro ao iniciar atualização');
-      addToast('Erro ao iniciar atualização', 'error');
+      setErrorMessage(message);
+      addToast(message, 'error');
     }
   };
 

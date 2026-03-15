@@ -110,6 +110,21 @@ func (m *Manager) Create(profile *Profile) (string, error) {
 	return slug, nil
 }
 
+// Duplicate cria uma copia de um perfil existente no diretorio home.
+func (m *Manager) Duplicate(slug string) (string, error) {
+	profile, err := m.Get(slug)
+	if err != nil {
+		return "", err
+	}
+
+	newProfile := *profile
+	newProfile.Name = m.nextCopyName(profile.Name)
+	newProfile.Active = false
+	newProfile.BuiltinVersion = ""
+
+	return m.Create(&newProfile)
+}
+
 // Update atualiza o perfil no arquivo válido (maior prioridade)
 func (m *Manager) Update(slug string, profile *Profile) error {
 	if err := profile.Validate(); err != nil {
@@ -296,4 +311,21 @@ func Slugify(name string) string {
 	}
 
 	return result
+}
+
+func (m *Manager) nextCopyName(baseName string) string {
+	if baseName == "" {
+		baseName = "Perfil"
+	}
+
+	if candidate := baseName + " (Copia)"; !m.resolver.Exists(Slugify(candidate)+".json") {
+		return candidate
+	}
+
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s (Copia %d)", baseName, i)
+		if !m.resolver.Exists(Slugify(candidate) + ".json") {
+			return candidate
+		}
+	}
 }

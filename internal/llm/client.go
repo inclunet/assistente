@@ -642,4 +642,3 @@ func processThinkingTags(content string, isThinking *bool, thinkingBuffer, fullR
 
 	return result.String()
 }
-

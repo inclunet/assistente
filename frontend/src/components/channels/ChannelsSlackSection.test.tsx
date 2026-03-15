@@ -4,7 +4,7 @@ import userEvent from '@testing-library/user-event';
 import { ChannelsSlackSection } from './ChannelsSlackSection';
 
 vi.mock('../pickers/ProfilePicker', () => ({
-  ProfilePicker: ({ value, onChange, label }: any) => (
+  ProfilePicker: ({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) => (
     <div>
       <label htmlFor="profile-picker">{label}</label>
       <select

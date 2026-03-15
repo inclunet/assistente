@@ -1,11 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import MarkdownIt from 'markdown-it';
 import DOMPurify from 'dompurify';
-import mermaid from 'mermaid';
-import * as monaco from 'monaco-editor';
+import type { editor as MonacoEditorNamespace } from 'monaco-editor';
 import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
+import { loadMonacoLanguage } from '../../lib/monacoLanguageLoader';
 import './MarkdownRenderer.css';
+
+type MermaidModule = typeof import('mermaid');
+type MermaidApi = MermaidModule['default'];
+type MonacoModule = typeof import('monaco-editor');
+type MonacoEditor = MonacoEditorNamespace.IStandaloneCodeEditor;
 
 interface MarkdownRendererProps {
   content: string;
@@ -85,7 +90,9 @@ export function MarkdownRenderer({
 }: MarkdownRendererProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const mermaidInitializedRef = useRef(false);
-  const editorsRef = useRef<Map<string, monaco.editor.IStandaloneCodeEditor>>(new Map());
+  const editorsRef = useRef<Map<string, MonacoEditor>>(new Map());
+  const mermaidApiRef = useRef<MermaidApi | null>(null);
+  const monacoApiRef = useRef<MonacoModule | null>(null);
 
   const canSendToEditor = Boolean(enableSendToEditorButtons && onSendToEditor);
 
@@ -136,14 +143,23 @@ export function MarkdownRenderer({
     return rows.join('\n');
   }, []);
 
+  const loadMonaco = useCallback(async (): Promise<MonacoModule> => {
+    if (monacoApiRef.current) return monacoApiRef.current;
+    const mod = await import('monaco-editor');
+    monacoApiRef.current = mod;
+    return mod;
+  }, []);
+
   const ensureMonacoEditor = useCallback(
-    (key: string, container: HTMLDivElement, initialValue: string, language: string) => {
+    async (key: string, container: HTMLDivElement, initialValue: string, language: string) => {
       const existing = editorsRef.current.get(key);
       if (existing) {
         existing.setValue(initialValue);
         return existing;
       }
 
+      await loadMonacoLanguage(language);
+      const monaco = await loadMonaco();
       const editor = monaco.editor.create(container, {
         value: initialValue,
         language: language || 'plaintext',
@@ -162,13 +178,17 @@ export function MarkdownRenderer({
       editorsRef.current.set(key, editor);
       return editor;
     },
-    []
+    [loadMonaco]
   );
 
-  const initMermaid = useCallback(() => {
-    if (mermaidInitializedRef.current) return;
-    mermaid.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+  const initMermaid = useCallback(async (): Promise<MermaidApi> => {
+    if (mermaidInitializedRef.current && mermaidApiRef.current) return mermaidApiRef.current;
+    const mod = await import('mermaid');
+    const api = (mod.default ?? mod) as MermaidApi;
+    api.initialize({ startOnLoad: false, theme: 'dark', securityLevel: 'strict' });
+    mermaidApiRef.current = api;
     mermaidInitializedRef.current = true;
+    return api;
   }, []);
 
   const addContextMenus = useCallback(
@@ -266,13 +286,14 @@ export function MarkdownRenderer({
                 if (isEditorMode) {
                   preEl.style.display = 'none';
                   monacoContainer.style.display = 'block';
-                  const editor = ensureMonacoEditor(
+                  void ensureMonacoEditor(
                     editorKey,
                     monacoContainer,
                     codeText,
                     lang || 'plaintext'
-                  );
-                  setTimeout(() => editor.focus(), 30);
+                  ).then((editor) => {
+                    setTimeout(() => editor.focus(), 30);
+                  });
                 } else {
                   preEl.style.display = '';
                   monacoContainer.style.display = 'none';
@@ -367,8 +388,11 @@ export function MarkdownRenderer({
                 if (isEditorMode) {
                   tableEl.style.display = 'none';
                   monacoContainer.style.display = 'block';
-                  const editor = ensureMonacoEditor(editorKey, monacoContainer, mdTable, 'markdown');
-                  setTimeout(() => editor.focus(), 30);
+                  void ensureMonacoEditor(editorKey, monacoContainer, mdTable, 'markdown').then(
+                    (editor) => {
+                      setTimeout(() => editor.focus(), 30);
+                    }
+                  );
                 } else {
                   tableEl.style.display = '';
                   monacoContainer.style.display = 'none';
@@ -461,9 +485,11 @@ export function MarkdownRenderer({
   const renderMermaidDiagrams = useCallback(
     async (cleanups: Array<() => void>) => {
       if (!containerRef.current) return;
-      initMermaid();
-
       const mermaidBlocks = containerRef.current.querySelectorAll('code.language-mermaid');
+      if (mermaidBlocks.length === 0) return;
+
+      const mermaid = await initMermaid();
+      if (!mermaid) return;
 
       const getErrorText = (err: unknown) => {
         if (!err) return 'Erro desconhecido';
@@ -571,17 +597,18 @@ export function MarkdownRenderer({
                 action: () => {
                   isEditorMode = !isEditorMode;
                   if (isEditorMode) {
-                    if (svgElement) (svgElement as any).style.display = 'none';
+                    if (svgElement) svgElement.style.display = 'none';
                     monacoContainer.style.display = 'block';
-                    const editor = ensureMonacoEditor(
+                    void ensureMonacoEditor(
                       editorKey,
                       monacoContainer,
                       mermaidCode,
                       'plaintext'
-                    );
-                    setTimeout(() => editor.focus(), 30);
+                    ).then((editor) => {
+                      setTimeout(() => editor.focus(), 30);
+                    });
                   } else {
-                    if (svgElement) (svgElement as any).style.display = '';
+                    if (svgElement) svgElement.style.display = '';
                     monacoContainer.style.display = 'none';
                   }
                 },
@@ -703,13 +730,14 @@ export function MarkdownRenderer({
                   if (isEditorMode) {
                     preEl.style.display = 'none';
                     monacoContainer.style.display = 'block';
-                    const editor = ensureMonacoEditor(
+                    void ensureMonacoEditor(
                       editorKey,
                       monacoContainer,
                       mermaidCode,
                       'plaintext'
-                    );
-                    setTimeout(() => editor.focus(), 30);
+                    ).then((editor) => {
+                      setTimeout(() => editor.focus(), 30);
+                    });
                   } else {
                     preEl.style.display = '';
                     monacoContainer.style.display = 'none';

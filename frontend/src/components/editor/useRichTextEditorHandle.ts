@@ -1,12 +1,11 @@
 import { useImperativeHandle } from 'react';
 
 import type { RichTextEditorHandle } from './RichTextEditor';
-
-type EditorLike = unknown;
+import type { EditorLike } from './richMarkdownSync';
 
 type MarkdownSyncLike = {
-  getMarkdownNow: (editor: any) => string;
-  flushNow: (editor: any) => void;
+  getMarkdownNow: (editor: EditorLike) => string;
+  flushNow: (editor: EditorLike) => void;
 };
 
 type Args = {
@@ -33,11 +32,11 @@ export function useRichTextEditorHandle({
     () => ({
       getMarkdown: () => {
         if (!editor) return String(markdown || '');
-        return markdownSync.getMarkdownNow(editor as any);
+        return markdownSync.getMarkdownNow(editor);
       },
       flushMarkdown: () => {
         if (!editor) return;
-        markdownSync.flushNow(editor as any);
+        markdownSync.flushNow(editor);
       },
       openLinkDialog: async () => {
         await openLinkDialog();

@@ -7,13 +7,15 @@ import {
   DeleteMCPServerAuth,
   GetMCPServerAuthInfo,
   DiscoverMCPServerAuth,
+  DuplicateMCPServer,
 } from '@wailsjs/go/main/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
+import { MenuButton } from '../components/layout/MenuButton';
 import { Button } from '../components';
 import { McpConnectionSection } from '../components/mcp/McpConnectionSection';
 import { McpGeneralSection } from '../components/mcp/McpGeneralSection';
-import { Modal } from '../components/ui/Modal';
+import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -55,10 +57,14 @@ export default function McpPage() {
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error ?? '');
   const confirm = useConfirm();
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
+  const [focusedRow, setFocusedRow] = useState<ServerRow | null>(null);
 
   const {
     servers,
@@ -155,21 +161,21 @@ export default function McpPage() {
     setFormAuthToken('');
     setFormAuthUsername('');
     setFormAuthPassword('');
-    setFormAuthType(config?.auth_type || 'none');
+    setFormAuthType(config?.authType || 'none');
     setHasExistingAuth(false);
 
-    setFormOAuth2ClientId(config?.oauth2_client_id || '');
+    setFormOAuth2ClientId(config?.oauth2ClientId || '');
     setFormOAuth2ClientSecret('');
-    setFormOAuth2TokenUrl(config?.oauth2_token_url || '');
-    setFormOAuth2AuthUrl(config?.oauth2_auth_url || '');
-    setFormOAuth2Scopes(config?.oauth2_scopes?.join(' ') || '');
-    setFormOAuth2CallbackPort(config?.oauth2_callback_port ? String(config.oauth2_callback_port) : '');
-    setFormOAuth2CallbackHost(config?.oauth2_callback_host || '');
+    setFormOAuth2TokenUrl(config?.oauth2TokenUrl || '');
+    setFormOAuth2AuthUrl(config?.oauth2AuthUrl || '');
+    setFormOAuth2Scopes(config?.oauth2Scopes?.join(' ') || '');
+    setFormOAuth2CallbackPort(config?.oauth2CallbackPort ? String(config.oauth2CallbackPort) : '');
+    setFormOAuth2CallbackHost(config?.oauth2CallbackHost || '');
 
     setDiscoveryStatus('idle');
     setDiscoveredFields(new Set());
     setDiscoveryResourceName('');
-    setDiscoveryRegistrationUrl(config?.oauth2_registration_url || '');
+    setDiscoveryRegistrationUrl(config?.oauth2RegistrationUrl || '');
     setLastDiscoveredUrl('');
   };
 
@@ -206,7 +212,7 @@ export default function McpPage() {
 
     const isHTTP = config.transport === 'streamable' || config.transport === 'sse';
     if (isHTTP && !isNew) {
-      loadAuthInfo(row.slug, config.auth_type);
+      loadAuthInfo(row.slug, config.authType);
     }
   }, [getConfig, loadAuthInfo, isNew]);
 
@@ -223,6 +229,25 @@ export default function McpPage() {
     setFormEnabled(true);
     setFormAutoConnect(true);
   }, []);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isModalOpen()) return;
+      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.key !== 'n' && event.key !== 'N') return;
+      const target = event.target as HTMLElement | null;
+      const isInput =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable;
+      if (isInput) return;
+      event.preventDefault();
+      handleNew();
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [handleNew]);
 
   const handleCloseEditor = useCallback(() => {
     setEditing(null);
@@ -289,8 +314,7 @@ export default function McpPage() {
     if (isHTTP && formUrl.trim() && formUrl.trim().startsWith('https://') && editing) {
       runDiscovery(formUrl.trim());
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formTransport]);
+  }, [editing, formTransport, formUrl, runDiscovery]);
 
   const handleSave = useCallback(async () => {
     const slug = isNew
@@ -336,16 +360,16 @@ export default function McpPage() {
       url: isHTTP ? formUrl.trim() : undefined,
       enabled: formEnabled,
       auto_connect: formAutoConnect,
-      auth_type: isHTTP ? formAuthType : undefined,
-      oauth2_client_id: isHTTP && isOAuth2 ? formOAuth2ClientId.trim() || undefined : undefined,
-      oauth2_token_url: isHTTP && isOAuth2 ? formOAuth2TokenUrl.trim() || undefined : undefined,
-      oauth2_auth_url: isHTTP && formAuthType === 'oauth2_pkce' ? formOAuth2AuthUrl.trim() || undefined : undefined,
-      oauth2_scopes: isHTTP && isOAuth2 ? scopesArr : undefined,
-      oauth2_registration_url: isHTTP && formAuthType === 'oauth2_pkce' ? discoveryRegistrationUrl || undefined : undefined,
-      oauth2_callback_port: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackPort
+      authType: isHTTP ? formAuthType : undefined,
+      oauth2ClientId: isHTTP && isOAuth2 ? formOAuth2ClientId.trim() || undefined : undefined,
+      oauth2TokenUrl: isHTTP && isOAuth2 ? formOAuth2TokenUrl.trim() || undefined : undefined,
+      oauth2AuthUrl: isHTTP && formAuthType === 'oauth2_pkce' ? formOAuth2AuthUrl.trim() || undefined : undefined,
+      oauth2Scopes: isHTTP && isOAuth2 ? scopesArr : undefined,
+      oauth2RegistrationUrl: isHTTP && formAuthType === 'oauth2_pkce' ? discoveryRegistrationUrl || undefined : undefined,
+      oauth2CallbackPort: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackPort
         ? parseInt(formOAuth2CallbackPort, 10) || undefined
         : undefined,
-      oauth2_callback_host: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackHost
+      oauth2CallbackHost: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackHost
         ? formOAuth2CallbackHost
         : undefined,
     });
@@ -385,8 +409,8 @@ export default function McpPage() {
       addToast(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'), 'success');
       announce(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'));
       handleCloseEditor();
-    } catch (error: any) {
-      addToast(error?.message || 'Erro ao salvar', 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || 'Erro ao salvar', 'error');
     } finally {
       setSaving(false);
     }
@@ -412,8 +436,8 @@ export default function McpPage() {
         setEditingSlug(null);
         setIsNew(false);
       }
-    } catch (error: any) {
-      addToast(error?.message || 'Erro ao remover', 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || 'Erro ao remover', 'error');
     }
   }, [addToast, announce, confirm, editingSlug, remove]);
 
@@ -422,8 +446,8 @@ export default function McpPage() {
       await connect(row.slug);
       addToast(`Servidor "${row.name}" conectado!`, 'success');
       announce(`Servidor ${row.name} conectado`);
-    } catch (error: any) {
-      addToast(error?.message || 'Erro ao conectar', 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || 'Erro ao conectar', 'error');
     }
   }, [connect, addToast, announce]);
 
@@ -432,8 +456,8 @@ export default function McpPage() {
       await disconnect(row.slug);
       addToast(`Servidor "${row.name}" desconectado`, 'success');
       announce(`Servidor ${row.name} desconectado`);
-    } catch (error: any) {
-      addToast(error?.message || 'Erro ao desconectar', 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || 'Erro ao desconectar', 'error');
     }
   }, [disconnect, addToast, announce]);
 
@@ -442,10 +466,34 @@ export default function McpPage() {
       await reconnect(row.slug);
       addToast(`Servidor "${row.name}" reconectado!`, 'success');
       announce(`Servidor ${row.name} reconectado`);
-    } catch (error: any) {
-      addToast(error?.message || 'Erro ao reconectar', 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || 'Erro ao reconectar', 'error');
     }
   }, [reconnect, addToast, announce]);
+
+  const handleDuplicate = useCallback(async (row: ServerRow) => {
+    try {
+      const newSlug = await DuplicateMCPServer(row.slug);
+      addToast(t('mcp.toast.duplicated', 'Servidor MCP duplicado!'), 'success');
+      announce(t('mcp.toast.duplicated', 'Servidor MCP duplicado!'));
+      await loadServers();
+
+      const config = await getConfig(newSlug);
+      if (config) {
+        setEditing(config);
+        setEditingSlug(newSlug);
+        setIsNew(false);
+        populateForm(config, newSlug);
+
+        const isHTTP = config.transport === 'streamable' || config.transport === 'sse';
+        if (isHTTP) {
+          loadAuthInfo(newSlug, config.authType);
+        }
+      }
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || t('mcp.error.duplicate', 'Erro ao duplicar'), 'error');
+    }
+  }, [addToast, announce, getConfig, loadAuthInfo, loadServers, t]);
 
   const columns: DataGridColumn<ServerRow>[] = [
     {
@@ -476,44 +524,64 @@ export default function McpPage() {
       format: (val) => `${val}`,
     },
     {
-      key: 'connect',
+      key: 'actions',
       label: '',
-      width: '3%',
-      action: true,
-      actionIcon: '🔌',
-      actionLabel: t('mcp.actions.connectDisconnect'),
-    },
-    {
-      key: 'reconnect',
-      label: '',
-      width: '3%',
-      action: true,
-      actionIcon: '🔄',
-      actionLabel: t('mcp.actions.reconnect'),
-    },
-    {
-      key: 'delete',
-      label: '',
-      width: '3%',
-      action: true,
-      actionIcon: '🗑️',
-      actionLabel: t('mcp.actions.removeServer'),
+      width: '6%',
+      format: (_val, row) => (
+        <MenuButton
+          items={getRowActions(row)}
+          buttonLabel={t('mcp.actions.actions', 'Ações')}
+        />
+      ),
     },
   ];
 
-  const handleCellAction = useCallback((item: ServerRow, column: DataGridColumn<ServerRow>) => {
-    if (column.key === 'connect') {
-      if (item.status === 'connected') {
-        handleDisconnect(item);
-      } else {
-        handleConnect(item);
-      }
-    } else if (column.key === 'reconnect') {
-      handleReconnect(item);
-    } else if (column.key === 'delete') {
-      void handleDelete(item.slug, item.name);
+  function getRowActions(row: ServerRow) {
+    const actions = [];
+    if (row.status === 'connected') {
+      actions.push({
+        id: 'disconnect',
+        label: t('mcp.actions.disconnect', 'Desconectar'),
+        icon: '🔌',
+        onClick: () => handleDisconnect(row),
+      });
+    } else {
+      actions.push({
+        id: 'connect',
+        label: t('mcp.actions.connect', 'Conectar'),
+        icon: '🔌',
+        onClick: () => handleConnect(row),
+      });
     }
-  }, [handleConnect, handleDelete, handleDisconnect, handleReconnect]);
+    actions.push({
+      id: 'reconnect',
+      label: t('mcp.actions.reconnect', 'Reconectar'),
+      icon: '🔄',
+      onClick: () => handleReconnect(row),
+    });
+    actions.push({
+      id: 'duplicate',
+      label: t('mcp.actions.duplicate', 'Duplicar'),
+      icon: '📄',
+      onClick: () => handleDuplicate(row),
+    });
+    actions.push({
+      id: 'edit',
+      label: t('mcp.actions.edit', 'Editar'),
+      icon: '✏️',
+      onClick: () => handleEdit(row),
+    });
+    actions.push({
+      id: 'delete',
+      label: t('mcp.actions.removeServer', 'Remover'),
+      icon: '🗑️',
+      onClick: () => handleDelete(row.slug, row.name),
+      danger: true,
+    });
+    return actions;
+  }
+
+  // Removido: handleCellAction (não é mais necessário)
 
   const filteredRows = rows.filter((row) => {
     const query = searchTerm.trim().toLowerCase();
@@ -551,7 +619,53 @@ export default function McpPage() {
             label: t('mcp.buttons.newServer'),
             icon: '➕',
             onClick: handleNew,
+            shortcut: 'Ctrl+N',
             variant: 'primary',
+          },
+          {
+            key: 'connect-toggle',
+            label: focusedRow?.status === 'connected'
+              ? t('mcp.actions.disconnect', 'Desconectar')
+              : t('mcp.actions.connect', 'Conectar'),
+            icon: '🔌',
+            onClick: () => {
+              if (!focusedRow) return;
+              if (focusedRow.status === 'connected') {
+                void handleDisconnect(focusedRow);
+              } else {
+                void handleConnect(focusedRow);
+              }
+            },
+            disabled: !focusedRow,
+          },
+          {
+            key: 'reconnect',
+            label: t('mcp.actions.reconnect', 'Reconectar'),
+            icon: '🔄',
+            onClick: () => focusedRow && handleReconnect(focusedRow),
+            disabled: !focusedRow,
+          },
+          {
+            key: 'duplicate',
+            label: t('mcp.actions.duplicate', 'Duplicar'),
+            icon: '📄',
+            onClick: () => focusedRow && handleDuplicate(focusedRow),
+            disabled: !focusedRow,
+          },
+          {
+            key: 'edit',
+            label: t('mcp.actions.edit', 'Editar'),
+            icon: '✏️',
+            onClick: () => focusedRow && handleEdit(focusedRow),
+            disabled: !focusedRow,
+          },
+          {
+            key: 'delete',
+            label: t('mcp.actions.removeServer', 'Remover'),
+            icon: '🗑️',
+            onClick: () => focusedRow && void handleDelete(focusedRow.slug, focusedRow.name),
+            disabled: !focusedRow,
+            variant: 'danger',
           },
         ]}
       />
@@ -565,9 +679,10 @@ export default function McpPage() {
         onDelete={(row) => {
           void handleDelete(row.slug, row.name);
         }}
-        onCellAction={handleCellAction}
         onGridReady={handleGridReady}
         label={t('mcp.pageTitle')}
+        getRowActions={getRowActions}
+        onFocusChange={(row) => setFocusedRow(row as ServerRow | null)}
       />
 
       <Modal

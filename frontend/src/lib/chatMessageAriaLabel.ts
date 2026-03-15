@@ -25,9 +25,12 @@ const parseToolNames = (raw?: string | null): string[] => {
     const parsed = JSON.parse(s);
     const calls = Array.isArray(parsed) ? parsed : [parsed];
     return calls
-      .map((c: any) => c?.function?.name || c?.name)
+      .map((c) => {
+        const call = c as { function?: { name?: unknown }; name?: unknown };
+        return call.function?.name || call.name;
+      })
       .filter(Boolean)
-      .map((n: any) => String(n));
+      .map((n) => String(n));
   } catch {
     return [];
   }

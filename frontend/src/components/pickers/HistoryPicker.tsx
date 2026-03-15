@@ -38,8 +38,8 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
       // Ordena por data de atualização (mais recente primeiro)
       const sorted = result.sort((a, b) => {
         // Converte time.Time para número (timestamp)
-        const dateA = new Date((a.updated_at as any)).getTime();
-        const dateB = new Date((b.updated_at as any)).getTime();
+        const dateA = new Date(a.updated_at as string | number | Date).getTime();
+        const dateB = new Date(b.updated_at as string | number | Date).getTime();
         return dateB - dateA;
       });
       setConversations(sorted);
@@ -91,7 +91,7 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   }));
 
   // Formata data para exibição
-  const formatDate = (dateValue: any): string => {
+  const formatDate = (dateValue: string | number | Date): string => {
     const date = new Date(dateValue);
     const now = new Date();
     const diffMs = now.getTime() - date.getTime();

@@ -23,7 +23,10 @@ describe('useEditableList', () => {
     addToastMock = vi.fn();
     announceMock = vi.fn();
     confirmMock = vi.fn().mockReturnValue(true);
-    (globalThis as any).confirm = confirmMock;
+    const globalWithConfirm = globalThis as typeof globalThis & {
+      confirm: (message?: string) => boolean;
+    };
+    globalWithConfirm.confirm = confirmMock;
   });
 
   afterEach(() => {

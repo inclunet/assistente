@@ -1,8 +1,8 @@
 export type RichTextChain = {
-  focus: (position?: any) => RichTextChain;
+  focus: (position?: unknown) => RichTextChain;
   setTextSelection: (range: { from: number; to: number }) => RichTextChain;
-  insertContent: (content: any) => RichTextChain;
-  run: () => any;
+  insertContent: (content: unknown) => RichTextChain;
+  run: () => boolean;
 };
 
 export type RichTextEditorLike = {
@@ -15,7 +15,7 @@ export function applyRichTextInsert(params: {
   rich: RichTextEditorLike;
   from: number;
   to: number;
-  contentToInsert: any;
+  contentToInsert: unknown;
 }): void {
   const rich = params.rich;
   const from = Number(params.from);
@@ -30,16 +30,16 @@ export function applyRichTextInsert(params: {
   }
 }
 
-export function applyRichTextInsertAtEnd(params: { rich: RichTextEditorLike; contentToInsert: any }): void {
+export function applyRichTextInsertAtEnd(params: { rich: RichTextEditorLike; contentToInsert: unknown }): void {
   const rich = params.rich;
 
   const wasEditable = !!rich.isEditable;
   try {
     if (!wasEditable) rich.setEditable?.(true);
-    const chain: any = rich.chain();
+    const chain = rich.chain();
 
     // TipTap suporta focus('end'). Se não suportar, cai para focus() normal.
-    let focused: any;
+    let focused: RichTextChain;
     try {
       focused = chain.focus('end');
     } catch {

@@ -113,7 +113,6 @@ export class WebSpeechProvider implements ISTTProvider {
     const SpeechRecognitionClass = window.SpeechRecognition || window.webkitSpeechRecognition;
     
     if (!SpeechRecognitionClass) {
-      console.warn('[WebSpeechProvider] SpeechRecognition API não suportada');
       return false;
     }
     
@@ -176,7 +175,6 @@ export class WebSpeechProvider implements ISTTProvider {
       this.onError(message, event.error);
     };
     
-    console.log('[WebSpeechProvider] Inicializado');
     return true;
   }
 
@@ -213,8 +211,8 @@ export class WebSpeechProvider implements ISTTProvider {
     
     try {
       this.recognition.stop();
-    } catch (error) {
-      console.error('[WebSpeechProvider] Erro ao parar:', error);
+    } catch {
+      // best-effort
     }
   }
 
@@ -230,8 +228,8 @@ export class WebSpeechProvider implements ISTTProvider {
       this.recognition.abort();
       this.transcript = '';
       this.interimTranscript = '';
-    } catch (error) {
-      console.error('[WebSpeechProvider] Erro ao abortar:', error);
+    } catch {
+      // best-effort
     }
   }
 

@@ -123,7 +123,7 @@ describe('extractEditorPatch', () => {
   it('valida v/op/format/replacement', () => {
     const base = { v: 1, op: 'replace_selection', format: 'markdown', replacement: 'x' };
 
-    const cases: Array<{ patch: any; expected: string }> = [
+    const cases: Array<{ patch: Record<string, unknown>; expected: string }> = [
       { patch: { ...base, v: 2 }, expected: 'campo v deve ser 1' },
       { patch: { ...base, op: 'other' }, expected: 'op deve ser replace_selection' },
       { patch: { ...base, format: 'html' }, expected: 'format deve ser markdown ou plain' },

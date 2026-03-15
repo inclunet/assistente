@@ -3,6 +3,26 @@ import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ProviderForm, PROVIDER_CONFIG } from "./ProviderForm";
 
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) => {
+      const translations: Record<string, string> = {
+        'providerForm.name': 'Nome',
+        'providerForm.namePlaceholder': 'Nome do provedor',
+        'providerForm.providerType': 'Tipo',
+        'providerForm.baseUrl': 'Base URL',
+        'providerForm.defaultUrl': 'URL padrão',
+        'providerForm.error.nameRequired': 'Nome é obrigatório',
+        'providerForm.error.urlRequired': 'URL é obrigatória',
+        'providerForm.error.urlInvalid': 'URL inválida',
+        'providerForm.error.testFirst': 'Teste a API antes de salvar',
+      };
+      return translations[key] ?? key;
+    },
+  }),
+}));
+
 // Mock Wails API
 vi.mock("@wailsjs/go/main/App", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wailsjs/go/main/App")>();

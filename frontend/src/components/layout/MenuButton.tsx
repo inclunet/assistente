@@ -1,4 +1,4 @@
-import { useMemo, useRef, forwardRef, useImperativeHandle, useCallback } from 'react';
+import { useMemo, useRef, forwardRef, useImperativeHandle, useCallback, useLayoutEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import './MenuButton.css';
 import { Menu, type MenuItem as MenuModelItem } from '../menu';
@@ -17,6 +17,7 @@ interface MenuButtonProps {
   items: MenuItem[];
   currentItemId?: string;
   buttonLabel?: string;
+  tabIndex?: number;
 }
 
 export interface MenuButtonRef {
@@ -36,10 +37,11 @@ export interface MenuButtonRef {
  * - Tab: Fecha menu e move foco
  */
 export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
-  function MenuButton({ items, currentItemId, buttonLabel }, ref) {
+  function MenuButton({ items, currentItemId, buttonLabel, tabIndex }, ref) {
   const { t } = useTranslation();
   const resolvedButtonLabel = buttonLabel ?? t('menu.navLabel');
   const menuButtonRef = useRef<HTMLButtonElement>(null);
+  const [autoTabIndex, setAutoTabIndex] = useState<number | null>(null);
 
   const mapItems = (srcItems: MenuItem[]): MenuModelItem[] =>
     srcItems.map((item) => ({
@@ -58,6 +60,13 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
     [items, currentItemId],
   );
 
+  const resolveTriggerElement = useCallback((): HTMLElement | null => {
+    const buttonEl = menuButtonRef.current;
+    if (!buttonEl) return null;
+    const candidate = buttonEl.closest('.datagrid-cell') ?? buttonEl;
+    return candidate instanceof HTMLElement ? candidate : null;
+  }, []);
+
   const {
     menu,
     openForTrigger,
@@ -65,15 +74,18 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
     onSelectItem,
   } = useAnchoredContextMenu({
     onAfterSelect: () => {
-      menuButtonRef.current?.focus?.();
+      resolveTriggerElement()?.focus();
+    },
+    onAfterDismiss: () => {
+      resolveTriggerElement()?.focus();
     },
   });
 
   const openMenu = useCallback(() => {
-    const trigger = menuButtonRef.current;
+    const trigger = resolveTriggerElement();
     if (!trigger) return;
     openForTrigger(trigger, resolvedButtonLabel, menuItems);
-  }, [resolvedButtonLabel, menuItems, openForTrigger]);
+  }, [resolvedButtonLabel, menuItems, openForTrigger, resolveTriggerElement]);
 
   const toggleMenu = useCallback(() => {
     if (menu.visible) {
@@ -82,6 +94,14 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
     }
     openMenu();
   }, [closeMenu, menu.visible, openMenu]);
+
+  useLayoutEffect(() => {
+    if (tabIndex !== undefined) return;
+    const buttonEl = menuButtonRef.current;
+    if (!buttonEl) return;
+    const isInsideGrid = buttonEl.closest('.datagrid-cell') !== null;
+    setAutoTabIndex(isInsideGrid ? -1 : 0);
+  }, [tabIndex]);
 
   // Expõe funções para o componente pai via ref
   useImperativeHandle(ref, () => ({
@@ -93,12 +113,22 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
     <div className="menu-wrapper">
       <button
         ref={menuButtonRef}
+        type="button"
         className="menu-toggle"
-        onClick={toggleMenu}
+        onClick={() => {
+          toggleMenu();
+        }}
+        onMouseDown={(event) => {
+          event.preventDefault();
+          if (event.button === 0) {
+            resolveTriggerElement()?.focus();
+          }
+        }}
         aria-expanded={menu.visible}
         aria-haspopup="menu"
         aria-label={resolvedButtonLabel}
         title={resolvedButtonLabel}
+        tabIndex={tabIndex ?? autoTabIndex ?? 0}
       >
         <span className="menu-icon" aria-hidden="true">
           ☰

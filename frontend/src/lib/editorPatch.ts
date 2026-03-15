@@ -33,30 +33,33 @@ export function extractEditorPatch(text: string): ExtractEditorPatchResult {
     };
   }
 
-  let parsed: any;
+  let parsed: unknown;
   try {
     parsed = JSON.parse(jsonText);
-  } catch (e: any) {
-    return { ok: false, error: `JSON inválido no patch: ${e?.message || String(e)}` };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    return { ok: false, error: `JSON inválido no patch: ${message}` };
   }
 
-  if (parsed?.v !== 1) return { ok: false, error: 'Patch inválido: campo v deve ser 1' };
-  if (parsed?.op !== 'replace_selection') return { ok: false, error: 'Patch inválido: op deve ser replace_selection' };
-  if (parsed?.format !== 'markdown' && parsed?.format !== 'plain') {
+  const patch = typeof parsed === 'object' && parsed !== null ? (parsed as Partial<EditorPatchV1>) : {};
+
+  if (patch.v !== 1) return { ok: false, error: 'Patch inválido: campo v deve ser 1' };
+  if (patch.op !== 'replace_selection') return { ok: false, error: 'Patch inválido: op deve ser replace_selection' };
+  if (patch.format !== 'markdown' && patch.format !== 'plain') {
     return { ok: false, error: 'Patch inválido: format deve ser markdown ou plain' };
   }
-  if (typeof parsed?.replacement !== 'string') {
+  if (typeof patch.replacement !== 'string') {
     return { ok: false, error: 'Patch inválido: replacement deve ser string' };
   }
 
-  if (String(parsed.replacement).length > MAX_EDITOR_REPLACEMENT_CHARS) {
+  if (String(patch.replacement).length > MAX_EDITOR_REPLACEMENT_CHARS) {
     return {
       ok: false,
       error: `replacement muito grande para aplicar com segurança (limite: ${MAX_EDITOR_REPLACEMENT_CHARS} caracteres).`,
     };
   }
 
-  return { ok: true, patch: parsed as EditorPatchV1 };
+  return { ok: true, patch: patch as EditorPatchV1 };
 }
 
 export function buildEditorPatchPrompt(params: {

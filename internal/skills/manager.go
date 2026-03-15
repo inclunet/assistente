@@ -183,6 +183,30 @@ func (m *Manager) Create(meta *SkillMetadata, content string) (string, error) {
 	return slug, nil
 }
 
+// Duplicate cria uma copia de um skill existente no diretorio home.
+func (m *Manager) Duplicate(slug string) (string, error) {
+	skill, err := m.Get(slug)
+	if err != nil {
+		return "", err
+	}
+
+	existing := map[string]bool{}
+	for _, ds := range m.discoverAll() {
+		existing[ds.slug] = true
+	}
+
+	baseSlug := Slugify(skill.Name)
+	newName := nextCopyName(baseSlug, existing)
+
+	meta := skill.SkillMetadata
+	meta.Name = newName
+	if meta.DisplayName == "" || meta.DisplayName == skill.Name {
+		meta.DisplayName = newName
+	}
+
+	return m.Create(&meta, skill.Content)
+}
+
 // Update atualiza um skill existente.
 func (m *Manager) Update(slug string, meta *SkillMetadata, content string) error {
 	if err := validateMetadata(meta); err != nil {
@@ -456,4 +480,21 @@ func Slugify(name string) string {
 	}
 
 	return result
+}
+
+func nextCopyName(baseSlug string, existing map[string]bool) string {
+	if baseSlug == "" {
+		baseSlug = "skill"
+	}
+
+	if !existing[baseSlug+"-copia"] {
+		return baseSlug + "-copia"
+	}
+
+	for i := 2; ; i++ {
+		candidate := fmt.Sprintf("%s-copia-%d", baseSlug, i)
+		if !existing[candidate] {
+			return candidate
+		}
+	}
 }

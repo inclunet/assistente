@@ -12,6 +12,7 @@ export function useCheckboxListNav() {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const focusedIndexRef = useRef(0);
   const [, forceUpdate] = useState(0);
+  type CheckboxListNode = HTMLDivElement & { __cbListObserver?: MutationObserver };
 
   const getCheckboxes = (): HTMLInputElement[] => {
     if (!containerRef.current) return [];
@@ -102,11 +103,11 @@ export function useCheckboxListNav() {
       });
       observer.observe(node, { childList: true, subtree: true });
 
-      (node as any).__cbListObserver = observer;
+      (node as CheckboxListNode).__cbListObserver = observer;
     }
 
     if (prev && !node) {
-      const obs = (prev as any).__cbListObserver as MutationObserver | undefined;
+      const obs = (prev as CheckboxListNode).__cbListObserver;
       obs?.disconnect();
     }
 
@@ -119,7 +120,7 @@ export function useCheckboxListNav() {
       if (node) {
         node.removeEventListener('keydown', handleKeyDown);
         node.removeEventListener('focusin', handleFocusIn);
-        const obs = (node as any).__cbListObserver as MutationObserver | undefined;
+        const obs = (node as CheckboxListNode).__cbListObserver;
         obs?.disconnect();
       }
     };

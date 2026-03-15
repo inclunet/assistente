@@ -104,6 +104,12 @@ export function DisconnectMCPServer(arg1:string):Promise<void>;
 
 export function DiscoverMCPServerAuth(arg1:string):Promise<mcp.OAuthDiscoveryResult>;
 
+export function DuplicateMCPServer(arg1:string):Promise<string>;
+
+export function DuplicateProfile(arg1:string):Promise<string>;
+
+export function DuplicateSkill(arg1:string):Promise<string>;
+
 export function EditorDeleteDraft(arg1:string):Promise<void>;
 
 export function EditorGetFileInfo(arg1:string):Promise<main.EditorFileInfo>;

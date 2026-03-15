@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import { applyRichTextInsert, type RichTextChain, type RichTextEditorLike } from './richTextPatchApply';
 
 function createRichMock(params?: { editable?: boolean; runThrows?: boolean }) {
-  const calls: any[] = [];
+  const calls: Array<unknown[]> = [];
 
   const chain: RichTextChain = {
     focus: () => {

@@ -1,6 +1,6 @@
 import { Extension } from '@tiptap/core';
 import StarterKit from '@tiptap/starter-kit';
-import CodeBlock from '@tiptap/extension-code-block';
+import CodeBlock, { type CodeBlockOptions } from '@tiptap/extension-code-block';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
 import { Table } from '@tiptap/extension-table';
@@ -55,10 +55,11 @@ export function buildRichTextExtensions(args: {
 
   const MermaidAwareCodeBlock = CodeBlock.extend({
     addOptions() {
+      const parent = this.parent?.() as CodeBlockOptions | undefined;
       return {
-        ...(this.parent?.() as any),
+        ...(parent ?? {}),
         onRequestEditMermaid: undefined,
-      };
+      } as CodeBlockOptions & { onRequestEditMermaid?: (ctx: MermaidRequestCtx) => void };
     },
     addNodeView() {
       return ReactNodeViewRenderer(MermaidCodeBlockNodeView);
@@ -90,7 +91,7 @@ export function buildRichTextExtensions(args: {
       languageClassPrefix: 'language-',
       defaultLanguage: null,
       onRequestEditMermaid,
-    } as any),
+    } as { languageClassPrefix?: string; defaultLanguage?: string | null; onRequestEditMermaid?: (ctx: MermaidRequestCtx) => void }),
     Placeholder.configure({
       placeholder,
     }),

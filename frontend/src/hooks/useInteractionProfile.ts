@@ -54,7 +54,6 @@ type InteractionConfig = profiles.InteractionConfig;
 // Singleton para evitar múltiplas instâncias processando o mesmo evento
 let hotkeyEventCleanup: (() => void) | null = null;
 let hotkeyEventHandler: ((data: unknown) => void) | null = null;
-let instanceCount = 0;
 
 // Throttle no frontend (1 segundo)
 let lastHotkeyTime = 0;
@@ -77,7 +76,6 @@ async function ensureHotkeyListener(): Promise<void> {
     // Throttle no frontend - evita processar eventos muito rápidos
     const now = Date.now();
     if (now - lastHotkeyTime < HOTKEY_THROTTLE_MS) {
-      console.log('[useInteractionProfile] Hotkey bloqueado por throttle frontend');
       return;
     }
     lastHotkeyTime = now;
@@ -342,7 +340,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       
       // Se estava em modo wakeword, reinicia escuta após transcrição
       if (shouldRestartWakewordRef.current) {
-        console.log('[useInteractionProfile] Reiniciando escuta de wakeword após transcrição');
         setTimeout(() => {
           startWakewordListeningRef.current?.();
         }, 500); // Pequeno delay para evitar capturar eco do TTS
@@ -396,9 +393,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     keyword: wakewordConfig?.keyword || 'assistente',
     language: interactionConfig?.language || 'pt-BR',
     sensitivity: wakewordConfig?.sensitivity || 0.5,
-    onDetected: async (keyword, fullText) => {
-      console.log('[useInteractionProfile] Wakeword detected:', keyword, 'in:', fullText);
-      
+    onDetected: async (keyword, _fullText) => {
       // Para a escuta de wakeword temporariamente
       wakewordStopListening();
       
@@ -415,7 +410,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       
       // Garante que STT está inicializado
       if (!sttInitialized) {
-        console.log('[useInteractionProfile] STT não inicializado, inicializando...');
         const success = await initSTT();
         if (!success) {
           console.error('[useInteractionProfile] Falha ao inicializar STT');
@@ -462,7 +456,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
         ttsService.setEnabled(false);
         ttsService.setAutoRead(false);
         ttsService.setEnabledForUser(false);
-        console.log('[useInteractionProfile] TTS desativado pelo perfil');
         return;
       }
 
@@ -493,15 +486,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       await ttsService.setRate(voiceConfig.rate || 1.0);
       ttsService.setPitch(voiceConfig.pitch || 1.0);
       await ttsService.setVolume(voiceConfig.volume || 1.0);
-
-      console.log('[useInteractionProfile] TTS sincronizado com perfil:', {
-        provider: voiceConfig.provider,
-        voiceId: voiceConfig.voice_id,
-        enabledForAgent: voiceConfig.enabled_for_agent,
-        enabledForUser: voiceConfig.enabled_for_user,
-        rate: voiceConfig.rate,
-        volume: voiceConfig.volume,
-      });
     };
 
     syncTTS().catch((err) => {
@@ -518,7 +502,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
 
   // Funções de controle de wakeword
   const startWakewordListening = useCallback(() => {
-    console.log('[useInteractionProfile] Starting wakeword listening');
     shouldRestartWakewordRef.current = true;
     wakewordStartListening();
     
@@ -528,7 +511,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   }, [wakewordStartListening, interactionConfig]);
 
   const stopWakewordListening = useCallback(() => {
-    console.log('[useInteractionProfile] Stopping wakeword listening');
     shouldRestartWakewordRef.current = false;
     wakewordStopListening();
     
@@ -538,7 +520,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   }, [wakewordStopListening, interactionConfig]);
 
   const toggleWakewordListening = useCallback(() => {
-    console.log('[useInteractionProfile] Toggle wakeword:', { isListening: wakewordIsListening });
     if (wakewordIsListening) {
       stopWakewordListening();
     } else {
@@ -557,14 +538,12 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     
     // Garante que o STT está inicializado (initSTT já verifica internamente se já está inicializado)
     if (!sttInitialized) {
-      console.log('[useInteractionProfile] STT não inicializado, inicializando...');
       const success = await initSTT();
       if (!success) {
         console.error('[useInteractionProfile] Falha ao inicializar STT');
         callbacksRef.current.onError?.('Falha ao inicializar reconhecimento de voz');
         return;
       }
-      console.log('[useInteractionProfile] STT inicializado com sucesso');
     }
     
     setIsActive(true);
@@ -597,13 +576,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   // Toggle interação - usa sttRecording (estado real) em vez de isActive (estado local)
   // Para modo wakeword, faz toggle da escuta de wakeword (não da gravação)
   const toggleInteraction = useCallback(() => {
-    console.log('[useInteractionProfile] Toggle:', { 
-      isActive, 
-      sttRecording, 
-      hasWakewordTrigger, 
-      wakewordIsListening 
-    });
-    
     // Se tem trigger de wakeword, faz toggle da escuta de wakeword
     if (hasWakewordTrigger) {
       toggleWakewordListening();
@@ -625,8 +597,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
 
   // Registra handler de hotkey (usando singleton global)
   useEffect(() => {
-    instanceCount++;
-    console.log('[useInteractionProfile] Instance mounted, count:', instanceCount);
+    
     
     // Registra este handler como o ativo
     registerGlobalHotkeyHandler((data) => {
@@ -636,8 +607,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
         triggerType: string;
         bringToFront: boolean;
       };
-      console.log('[useInteractionProfile] Hotkey triggered:', eventData);
-      
       callbacksRef.current.onHotkeyActivation?.(eventData.bringToFront);
       
       // Usa ref para garantir versão mais atual da função (evita closure stale)
@@ -647,10 +616,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     // Garante que o listener está ativo
     ensureHotkeyListener();
 
-    return () => {
-      instanceCount--;
-      console.log('[useInteractionProfile] Instance unmounted, count:', instanceCount);
-    };
+    return () => undefined;
   }, []); // Registra uma vez por instância
 
   // Para escuta de wakeword quando perfil muda ou componente desmonta
@@ -672,7 +638,6 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     const setupListener = async () => {
       try {
         cleanup = EventsOn('profile:changed', () => {
-          console.log('[useInteractionProfile] Perfil alterado, recarregando...');
           loadActiveProfile();
         });
       } catch (err) {

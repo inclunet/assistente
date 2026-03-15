@@ -19,8 +19,6 @@ export class TTSProviderFactory {
       return;
     }
 
-    console.log('[TTSFactory] Initializing providers...');
-
     // Cria instâncias dos provedores
     const webSpeech = new WebSpeechProvider();
     const sapi5 = new SAPI5Provider();
@@ -42,21 +40,17 @@ export class TTSProviderFactory {
     // Registra provedores disponíveis
     if (webSpeech.isAvailable) {
       this.providers.set(TTSProvider.WEBSPEECH, webSpeech);
-      console.log('[TTSFactory] WebSpeech provider available');
     }
 
     if (sapi5.isAvailable) {
       this.providers.set(TTSProvider.SAPI5, sapi5);
-      console.log('[TTSFactory] SAPI5 provider available');
     }
 
     if (openai.isAvailable) {
       this.providers.set(TTSProvider.OPENAI, openai);
-      console.log('[TTSFactory] OpenAI provider available');
     }
 
     this.initialized = true;
-    console.log('[TTSFactory] Initialized with', this.providers.size, 'providers');
   }
 
   /**
@@ -115,14 +109,12 @@ export class TTSProviderFactory {
     // Fallback para SAPI5 (Windows)
     provider = this.getProvider(TTSProvider.SAPI5);
     if (provider) {
-      console.log('[TTSFactory] Fallback to SAPI5');
       return provider;
     }
 
     // Fallback final para WebSpeech
     provider = this.getProvider(TTSProvider.WEBSPEECH);
     if (provider) {
-      console.log('[TTSFactory] Fallback to WebSpeech');
       return provider;
     }
 

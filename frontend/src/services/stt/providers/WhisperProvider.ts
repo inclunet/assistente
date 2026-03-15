@@ -16,8 +16,7 @@ async function loadWailsFunctions(): Promise<boolean> {
   try {
     TranscribeWhisper = WailsTranscribeWhisper;
     return true;
-  } catch (e) {
-    console.warn('[WhisperProvider] Wails TranscribeWhisper não disponível:', e);
+  } catch {
     return false;
   }
 }
@@ -80,7 +79,6 @@ export class WhisperProvider implements ISTTProvider {
     await loadWailsFunctions();
     
     if (!TranscribeWhisper) {
-      console.warn('[WhisperProvider] TranscribeWhisper não disponível');
       this._isSupported = false;
       return false;
     }
@@ -110,7 +108,6 @@ export class WhisperProvider implements ISTTProvider {
     // NÃO inicializa o stream aqui - será feito sob demanda em start()
     this._isSupported = AudioRecorder.isSupported();
     
-    console.log('[WhisperProvider] Inicializado (microfone será ativado sob demanda)');
     return true;
   }
 
@@ -204,7 +201,6 @@ export class WhisperProvider implements ISTTProvider {
     } catch (error) {
       this._isProcessing = false;
       const message = error instanceof Error ? error.message : 'Erro na transcrição';
-      console.error('[WhisperProvider] Erro:', error);
       this.onError(message, 'transcription-error');
     }
   }

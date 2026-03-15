@@ -60,10 +60,12 @@ export default function ChatPage() {
   });
 
   // Função para deletar mensagem (usada tanto no menu quanto no teclado)
-  const handleDeleteMessage = useCallback(async (message: any) => {
+  const handleDeleteMessage = useCallback(async (message: { id: string | number }) => {
+    let messageId: number | null = null;
     try {
-      const messageId = parseInt(message.id, 10);
-      if (!isNaN(messageId)) {
+      const parsedId = typeof message.id === 'number' ? message.id : parseInt(String(message.id), 10);
+      messageId = Number.isNaN(parsedId) ? null : parsedId;
+      if (messageId !== null) {
         await DeleteMessage(messageId);
         announce('Mensagem excluída');
         // Recarrega a conversa atual sem page reload
@@ -84,7 +86,7 @@ export default function ChatPage() {
         source: 'ChatPage.onDelete',
         userMessage: ErrorMessages.CHAT.DELETE_FAILED,
         severity: ErrorSeverity.RECOVERABLE,
-        metadata: { messageId: message.id },
+        metadata: { messageId },
       });
     }
   }, [announce, getActiveTab, loadConversationInActiveTab]);
@@ -208,13 +210,14 @@ export default function ChatPage() {
 
   // Listen for message:updated events from backend
   useEffect(() => {
-    const handleMessageUpdated = (data: any) => {
+    const handleMessageUpdated = (data: unknown) => {
+      const eventData = data as { message_id?: number | string; content?: string };
       // Em vez de recarregar toda a conversa, atualiza apenas a mensagem na store
       // Isso preserva o estado de foco e evita re-renders desnecessários
       const activeTab = getActiveTab();
-      if (activeTab && data.message_id && data.content !== undefined) {
+      if (activeTab && eventData.message_id && eventData.content !== undefined) {
         // Atualiza a mensagem localmente na store (sem recarregar toda a conversa)
-        updateMessage(activeTab.id, String(data.message_id), data.content);
+        updateMessage(activeTab.id, String(eventData.message_id), eventData.content);
       }
     };
 
@@ -251,8 +254,9 @@ export default function ChatPage() {
       setSendError(null); // Clear previous error
       setLastFailedMessage(null);
       await sendMessage(content, mediaFiles);
-    } catch (error: any) {
-      console.error('[ChatPage] sendMessage error details:', error?.message || error);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[ChatPage] sendMessage error details:', errorMessage);
       // Store failed message for retry
       setLastFailedMessage({ content, media: mediaFiles });
       setSendError(ErrorMessages.CHAT.SEND_FAILED);

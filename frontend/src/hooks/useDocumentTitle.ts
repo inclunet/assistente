@@ -53,9 +53,8 @@ export function useDocumentTitle(): void {
     // Atualiza título da janela do Wails (window title bar)
     try {
       WindowSetTitle(title);
-    } catch (e) {
+    } catch {
       // Ignora erro se não estiver no contexto Wails (ex: dev mode no browser)
-      console.debug('[useDocumentTitle] WindowSetTitle not available:', e);
     }
   }, [location.pathname, activeTab?.title]);
 }

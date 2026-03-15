@@ -63,6 +63,78 @@ export interface TurnSegment {
   }>;
 }
 
+interface ChatMessagesReadyEvent {
+  userMessageId?: number | string;
+  userContent?: string;
+  conversationId?: number;
+}
+
+interface ChatStreamEvent {
+  content?: string;
+  done?: boolean;
+  error?: string;
+}
+
+interface ChatThinkingEvent {
+  started?: boolean;
+  done?: boolean;
+  content?: string;
+}
+
+interface ChatToolStartEvent {
+  name: string;
+  callId: string;
+  args?: string;
+}
+
+interface ChatToolEndEvent {
+  callId: string;
+  name?: string;
+  status?: string;
+  summary?: string;
+}
+
+interface ChatSegmentDoneEvent {
+  hasMore?: boolean;
+  content?: string;
+}
+
+interface ChatMessagesReadyEvent {
+  userMessageId?: number | string;
+  userContent?: string;
+  conversationId?: number;
+}
+
+interface ChatStreamEvent {
+  content?: string;
+  done?: boolean;
+  error?: string;
+}
+
+interface ChatThinkingEvent {
+  started?: boolean;
+  done?: boolean;
+  content?: string;
+}
+
+interface ChatToolStartEvent {
+  name: string;
+  callId: string;
+  args?: string;
+}
+
+interface ChatToolEndEvent {
+  callId: string;
+  name?: string;
+  status?: string;
+  summary?: string;
+}
+
+interface ChatSegmentDoneEvent {
+  hasMore?: boolean;
+  content?: string;
+}
+
 /**
  * Deriva um array flat de mensagens da estrutura hierárquica threadedMessages.
  * Percorre a árvore em profundidade e coleta todas as mensagens.
@@ -82,6 +154,22 @@ function flattenThreadedMessages(nodes: MessageNode[] | undefined): Message[] {
   nodes.forEach(traverse);
   return flat;
 }
+
+const withOriginalIndex = (node: main.MessageNode, index: number): MessageNode => {
+  const typed = node as MessageNode;
+  typed.originalIndex = index;
+  return typed;
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) return error.message;
+  if (typeof error === 'string') return error;
+  try {
+    return JSON.stringify(error);
+  } catch {
+    return String(error);
+  }
+};
 
 // Tipo para criar mensagens novas (campos mínimos necessários)
 export interface NewMessageData {
@@ -201,10 +289,6 @@ const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9
 // Mapa para rastrear cleanup functions de cada tab (previne acúmulo de listeners)
 const activeListeners = new Map<string, () => void>();
 
-
-// Contador global de listeners para debug
-let activeListenerCount = 0;
-
 // Debouncing para atualizações de streaming (reduz re-renders)
 const streamUpdateTimers = new Map<string, NodeJS.Timeout>();
 const pendingStreamUpdates = new Map<string, { tabId: string; messageId: string; content: string }>();
@@ -231,8 +315,8 @@ const backendTabToFrontend = (backendTab: database.ChatTab): ChatTab => {
     title: backendTab.title || 'Nova Conversa',
     threadedMessages: [], // Mensagens serão carregadas depois se necessário
     conversationId: backendTab.conversation_id || undefined,
-    createdAt: backendTab.created_at ? Date.parse(backendTab.created_at as any) : Date.now(),
-    updatedAt: backendTab.updated_at ? Date.parse(backendTab.updated_at as any) : Date.now(),
+    createdAt: backendTab.created_at ? Date.parse(String(backendTab.created_at)) : Date.now(),
+    updatedAt: backendTab.updated_at ? Date.parse(String(backendTab.updated_at)) : Date.now(),
     channel: backendTab.conversation?.channel || undefined,
     contactId: backendTab.conversation?.contact_id || undefined,
   };
@@ -322,7 +406,7 @@ function removeTabFromState(
     const newActiveTabId = get().activeTabId;
     if (newActiveTabId) {
       const escaped =
-        (globalThis as any).CSS?.escape?.(newActiveTabId) ??
+        globalThis.CSS?.escape?.(newActiveTabId) ??
         newActiveTabId.replace(/"/g, '\\"');
       const tabButton =
         (document.querySelector(
@@ -419,10 +503,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         try {
           const messageNodes = await GetMessages(initialActiveTab.conversationId, null);
           
-          const nodes: MessageNode[] = (messageNodes || []).map((node, index) => {
-            (node as any).originalIndex = index;
-            return node;
-          });
+          const nodes: MessageNode[] = (messageNodes || []).map(withOriginalIndex);
           
           set((state) => ({
             tabs: state.tabs.map((t) =>
@@ -495,10 +576,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             const backendNodes = await GetMessages(tab.conversationId, null);
             
             // Adiciona originalIndex aos nodes do backend
-            const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
-              (node as any).originalIndex = index;
-              return node;
-            });
+            const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
             
             // Atualiza as mensagens na tab
             set((state) => ({
@@ -599,7 +677,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (ttsService.isEnabledForUser()) {
         // TTS para mensagem do usuário
         const cleanContent = stripMarkdown(message.content);
-        ttsService.speak(cleanContent).catch((err: any) => {
+        ttsService.speak(cleanContent).catch((err: unknown) => {
           console.error('[Chat] TTS speak error (user):', err);
         });
       } else if (ttsService.shouldUseAriaLiveForUser()) {
@@ -882,10 +960,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       // Carrega mensagens da conversa
       const backendNodes = await GetMessages(conversationId, null);
-      const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
-        (node as any).originalIndex = index;
-        return node;
-      });
+      const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
 
       // Atualiza a aba com a nova conversa
       set((state) => ({
@@ -922,10 +997,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }));
 
       const backendNodes = await GetMessages(conversationId, null);
-      const messageNodes: MessageNode[] = (backendNodes || []).map((node, index) => {
-        (node as any).originalIndex = index;
-        return node;
-      });
+      const messageNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
 
       set(state => ({
         tabs: state.tabs.map(t =>
@@ -998,7 +1070,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
         // Listen for messages_ready - atualiza IDs das mensagens para IDs reais do banco
         // CRÍTICO: Isso permite que mensagens internas (com parentId do banco) encontrem o pai correto
-        const unsubscribeMessagesReady = EventsOn('chat:messages_ready', (data: any) => {
+        const unsubscribeMessagesReady = EventsOn('chat:messages_ready', (data: ChatMessagesReadyEvent) => {
           if (data.userMessageId) {
             const backendUserId = data.userMessageId.toString();
             
@@ -1055,7 +1127,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             }
             cleanupExecuted = true;
 
-            activeListenerCount--;
             if (unsubscribeStream) {
               unsubscribeStream();
               unsubscribeStream = null;
@@ -1077,9 +1148,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
 
           // Listen for streaming chunks from backend
-          activeListenerCount++;
-          
-          unsubscribeStream = EventsOn('chat:stream', (event: any) => {
+          unsubscribeStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
             // IMPORTANTE: Verifica se este listener ainda é válido (não foi limpo)
             if (!activeListeners.has(currentTabId!)) {
               return;
@@ -1165,7 +1234,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   ttsService.stop();
                   
                   // Usa speak() para reprodução
-                  ttsService.speak(finalMessage.content).catch((err: any) => {
+                  ttsService.speak(finalMessage.content).catch((err: unknown) => {
                     console.error('[Chat] TTS speak error:', err);
                   });
                 }
@@ -1182,7 +1251,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
           // Listen for thinking/reasoning events from model (DeepSeek, Claude, o1, etc)
           let unsubscribeThinking: (() => void) | null = null;
-          unsubscribeThinking = EventsOn('chat:thinking', (event: any) => {
+          unsubscribeThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
             if (!activeListeners.has(currentTabId!)) {
               return;
             }
@@ -1208,7 +1277,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
           // Listen for tool execution start
           let unsubscribeToolStart: (() => void) | null = null;
-          unsubscribeToolStart = EventsOn('chat:tool_start', (data: any) => {
+          unsubscribeToolStart = EventsOn('chat:tool_start', (data: ChatToolStartEvent) => {
             if (!activeListeners.has(currentTabId!)) return;
             
             set((state) => ({
@@ -1227,7 +1296,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
           // Listen for tool execution end
           let unsubscribeToolEnd: (() => void) | null = null;
-          unsubscribeToolEnd = EventsOn('chat:tool_end', (data: any) => {
+          unsubscribeToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
             if (!activeListeners.has(currentTabId!)) return;
             
             set((state) => ({
@@ -1245,7 +1314,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
           // Listen for segment done (assistant text before tool calls — for verbalization + segment accumulation)
           let unsubscribeSegmentDone: (() => void) | null = null;
-          unsubscribeSegmentDone = EventsOn('chat:segment_done', (data: any) => {
+          unsubscribeSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
             if (!activeListeners.has(currentTabId!)) return;
 
             if (data.hasMore) {
@@ -1272,7 +1341,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
                 // Verbalize segment text for screen reader users
                 if (ttsService.isAutoReadEnabled()) {
-                  ttsService.speak(data.content).catch((err: any) => {
+                  ttsService.speak(data.content).catch((err: unknown) => {
                     console.error('[Chat] TTS segment error:', err);
                   });
                 } else {
@@ -1323,10 +1392,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               const tab = get().tabs.find(t => t.id === currentTabId);
               if (tab?.conversationId) {
                 GetMessages(tab.conversationId, null).then((backendNodes) => {
-                  const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
-                    (node as any).originalIndex = index;
-                    return node;
-                  });
+                  const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
                   set((state) => ({
                     tabs: state.tabs.map((t) =>
                       t.id === currentTabId
@@ -1383,25 +1449,28 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             mediaJson = JSON.stringify(mediaDataArray);
           }
 
-          const mergedParams: any = {
-            model: '',
-            temperature: 0,
-            maxTokens: 0,
-            ...(paramsOverride || {}),
+          const mergedParams: llm.ChatParams = {
+            model: paramsOverride?.model ?? '',
+            temperature: paramsOverride?.temperature ?? 0,
+            maxTokens: paramsOverride?.maxTokens ?? 0,
+            maxTokensMode: paramsOverride?.maxTokensMode,
+            topP: paramsOverride?.topP,
+            reasoningEffort: paramsOverride?.reasoningEffort,
+            profileSlug: paramsOverride?.profileSlug,
           };
           await SendMessage(conversationId, content, mediaJson, mergedParams);
           
           // Note: DO NOT cleanup here - listeners need to stay active for streaming events
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error('[Chat] Error sending message:', error);
-          console.error('[Chat] Error type:', typeof error, '| message:', error?.message || String(error));
+          console.error('[Chat] Error type:', typeof error, '| message:', getErrorMessage(error));
           
           // Cleanup listener if it exists
           if (unsubscribe) {
             unsubscribe();
           }
 
-          const errorMsg = error?.message || (typeof error === 'string' ? error : JSON.stringify(error));
+          const errorMsg = getErrorMessage(error);
           get().updateMessage(
             currentTabId!,
             assistantMessageId,
@@ -1506,10 +1575,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const backendNodes = await GetMessageChildren(messageIdNum);
           
           // Adiciona originalIndex aos nodes do backend
-          const frontendNodes: MessageNode[] = (backendNodes || []).map((node, index) => {
-            (node as any).originalIndex = index;
-            return node;
-          });
+          const frontendNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
           
           // Atualiza a árvore de mensagens com os filhos carregados
           set((state) => {
@@ -1704,10 +1770,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       try {
         const backendNodes = await GetMessages(tab.conversationId, null);
-        const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
-          (node as any).originalIndex = index;
-          return node;
-        });
+        const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
 
         set((state) => ({
           tabs: state.tabs.map((t) =>
@@ -1733,10 +1796,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       try {
         const backendNodes = await GetMessages(conversationId, null);
-        const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
-          (node as any).originalIndex = index;
-          return node;
-        });
+        const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
 
         set((state) => ({
           tabs: state.tabs.map((t) =>
@@ -1852,7 +1912,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (cleanupExecuted) return;
         cleanupExecuted = true;
 
-        activeListenerCount--;
         unsubStream();
         unsubThinking();
         unsubToolStart();
@@ -1870,10 +1929,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         existingCleanup();
       }
 
-      activeListenerCount++;
-
       // chat:messages_ready — atualiza ID, conteúdo e conversationId do user message
-      const unsubReady = EventsOn('chat:messages_ready', (event: any) => {
+      const unsubReady = EventsOn('chat:messages_ready', (event: ChatMessagesReadyEvent) => {
         if (!activeListeners.has(targetTabId!)) return;
         if (event.userMessageId) {
           const backendUserId = event.userMessageId.toString();
@@ -1923,7 +1980,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:stream — atualiza conteúdo da resposta em tempo real
-      const unsubStream = EventsOn('chat:stream', (event: any) => {
+      const unsubStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
         if (!activeListeners.has(targetTabId!)) return;
 
         if (event.content) {
@@ -1977,7 +2034,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (ttsService.isAutoReadEnabled() && isActiveTab && !cleanupExecuted) {
               messageAudioService.stopAll();
               ttsService.stop();
-              ttsService.speak(finalMessage.content).catch((err: any) => {
+              ttsService.speak(finalMessage.content).catch((err: unknown) => {
                 console.error('[Chat] TTS error (external):', err);
               });
             }
@@ -1990,7 +2047,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:thinking
-      const unsubThinking = EventsOn('chat:thinking', (event: any) => {
+      const unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
         if (!activeListeners.has(targetTabId!)) return;
         if (event.started) {
           set({ isThinking: true, streamingReasoning: event.content || '' });
@@ -2004,7 +2061,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:tool_start
-      const unsubToolStart = EventsOn('chat:tool_start', (event: any) => {
+      const unsubToolStart = EventsOn('chat:tool_start', (event: ChatToolStartEvent) => {
         if (!activeListeners.has(targetTabId!)) return;
         set((state) => ({
           hadToolCalls: true,
@@ -2016,7 +2073,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:tool_end
-      const unsubToolEnd = EventsOn('chat:tool_end', (event: any) => {
+      const unsubToolEnd = EventsOn('chat:tool_end', (event: ChatToolEndEvent) => {
         if (!activeListeners.has(targetTabId!)) return;
         set((state) => ({
           activeToolCalls: state.activeToolCalls.map((tc) =>
@@ -2030,10 +2087,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:segment_done
-      const unsubSegmentDone = EventsOn('chat:segment_done', (event: any) => {
+      const unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
         if (!activeListeners.has(targetTabId!)) return;
         if (event.hasMore && event.content && ttsService.isAutoReadEnabled()) {
-          ttsService.speak(event.content).catch((err: any) => {
+          ttsService.speak(event.content).catch((err: unknown) => {
             console.error('[Chat] TTS segment error (external):', err);
           });
         }
@@ -2085,10 +2142,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const tab = get().tabs.find(t => t.id === targetTabId);
           if (tab?.conversationId) {
             GetMessages(tab.conversationId, null).then((backendNodes) => {
-              const messageNodes: MessageNode[] = backendNodes.map((node, index) => {
-                (node as any).originalIndex = index;
-                return node;
-              });
+              const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
               set((state) => ({
                 tabs: state.tabs.map((t) =>
                   t.id === targetTabId

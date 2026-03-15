@@ -48,7 +48,11 @@ export function useTTS(): UseTTSReturn {
     // Listeners para eventos do TTS
     const handleSpeakStart = () => setIsSpeaking(true);
     const handleSpeakEnd = () => setIsSpeaking(false);
-    const handleConfigChanged = (newConfig: TTSConfig) => setConfig(newConfig);
+    const handleConfigChanged = (payload?: unknown) => {
+      if (payload && typeof payload === 'object') {
+        setConfig(payload as TTSConfig);
+      }
+    };
     
     ttsService.on('speakStart', handleSpeakStart);
     ttsService.on('speakEnd', handleSpeakEnd);

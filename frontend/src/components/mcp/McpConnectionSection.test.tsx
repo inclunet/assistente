@@ -2,10 +2,11 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { McpConnectionSection } from './McpConnectionSection';
+import type { ComponentProps } from 'react';
 
 const noop = () => {};
 
-function renderPKCE(overrides: Record<string, any> = {}) {
+function renderPKCE(overrides: Partial<ComponentProps<typeof McpConnectionSection>> = {}) {
   const props = {
     transport: 'streamable',
     command: '',

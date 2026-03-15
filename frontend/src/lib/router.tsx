@@ -1,21 +1,29 @@
+import { Suspense, lazy } from 'react';
 import { createHashRouter } from 'react-router-dom';
 import App from '../App';
 import { Layout } from '../components/layout/Layout';
-import ChatPage from '../pages/ChatPage';
-import RestoreDefaultsPage from '../pages/RestoreDefaultsPage';
-import ProfilesPage from '../pages/ProfilesPage';
-import HistoryPage from '../pages/HistoryPage';
-import HelpPage from '../pages/HelpPage';
-import TerminalPage from '../pages/TerminalPage';
-import AllowlistPage from '../pages/AllowlistPage';
-import SkillsPage from '../pages/SkillsPage';
-import McpPage from '../pages/McpPage';
-import ChannelsPage from '../pages/ChannelsPage';
-import UpdatePage from '../pages/UpdatePage';
-import AboutPage from '../pages/AboutPage';
-import EditorPage from '../pages/EditorPage';
-import CredentialsPage from '../pages/CredentialsPage';
-import ProvidersPage from '../pages/ProvidersPage';
+
+const ChatPage = lazy(() => import('../pages/ChatPage'));
+const RestoreDefaultsPage = lazy(() => import('../pages/RestoreDefaultsPage'));
+const ProfilesPage = lazy(() => import('../pages/ProfilesPage'));
+const HistoryPage = lazy(() => import('../pages/HistoryPage'));
+const HelpPage = lazy(() => import('../pages/HelpPage'));
+const TerminalPage = lazy(() => import('../pages/TerminalPage'));
+const AllowlistPage = lazy(() => import('../pages/AllowlistPage'));
+const SkillsPage = lazy(() => import('../pages/SkillsPage'));
+const McpPage = lazy(() => import('../pages/McpPage'));
+const ChannelsPage = lazy(() => import('../pages/ChannelsPage'));
+const UpdatePage = lazy(() => import('../pages/UpdatePage'));
+const AboutPage = lazy(() => import('../pages/AboutPage'));
+const EditorPage = lazy(() => import('../pages/EditorPage'));
+const CredentialsPage = lazy(() => import('../pages/CredentialsPage'));
+const ProvidersPage = lazy(() => import('../pages/ProvidersPage'));
+
+const withSuspense = (element: JSX.Element) => (
+  <Suspense fallback={<div className="page-loading" aria-busy="true" />}>
+    {element}
+  </Suspense>
+);
 
 export const router = createHashRouter([
   {
@@ -27,63 +35,63 @@ export const router = createHashRouter([
         children: [
           {
             index: true,
-            element: <ChatPage />,
+            element: withSuspense(<ChatPage />),
           },
           {
             path: 'terminal',
-            element: <TerminalPage />,
+            element: withSuspense(<TerminalPage />),
           },
           {
             path: 'editor',
-            element: <EditorPage />,
+            element: withSuspense(<EditorPage />),
           },
           {
             path: 'allowlists',
-            element: <AllowlistPage />,
+            element: withSuspense(<AllowlistPage />),
           },
           {
             path: 'skills',
-            element: <SkillsPage />,
+            element: withSuspense(<SkillsPage />),
           },
           {
             path: 'mcp',
-            element: <McpPage />,
+            element: withSuspense(<McpPage />),
           },
           {
             path: 'channels',
-            element: <ChannelsPage />,
+            element: withSuspense(<ChannelsPage />),
           },
           {
             path: 'credentials',
-            element: <CredentialsPage />,
+            element: withSuspense(<CredentialsPage />),
           },
           {
             path: 'providers',
-            element: <ProvidersPage />,
+            element: withSuspense(<ProvidersPage />),
           },
           {
             path: 'settings',
-            element: <RestoreDefaultsPage />,
+            element: withSuspense(<RestoreDefaultsPage />),
           },
           {
             path: 'profiles',
-            element: <ProfilesPage />,
+            element: withSuspense(<ProfilesPage />),
           },
           {
             path: 'history',
-            element: <HistoryPage />,
+            element: withSuspense(<HistoryPage />),
           },
           {
             path: 'help',
-            element: <HelpPage />,
+            element: withSuspense(<HelpPage />),
           },
           {
             path: 'about',
-            element: <AboutPage />,
+            element: withSuspense(<AboutPage />),
           },
           {
             path: 'update',
-            element: <UpdatePage />,
+            element: withSuspense(<UpdatePage />),
           },
         ],
       },

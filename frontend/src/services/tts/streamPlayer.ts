@@ -65,10 +65,6 @@ export class TTSStreamPlayer {
   constructor() {
     // Verifica suporte a MediaSource
     this.useFallback = !('MediaSource' in window) || !MediaSource.isTypeSupported('audio/mpeg');
-    
-    if (this.useFallback) {
-      console.log('[TTSStream] MediaSource not supported, using fallback');
-    }
   }
 
   /**
@@ -137,7 +133,7 @@ export class TTSStreamPlayer {
     if (!this.firstChunkLogged) {
       this.firstChunkLogged = true;
       const latency = Date.now() - this.startTime;
-      console.log('[TTSStream] First chunk after', latency, 'ms');
+      void latency;
     }
     
     if (this.useFallback) {

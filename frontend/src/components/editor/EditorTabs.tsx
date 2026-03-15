@@ -127,8 +127,9 @@ export function EditorTabs() {
       window.setTimeout(() => {
         focusTabButton(tabIdToFocus);
       }, 10);
-    } catch (e: any) {
-      const msg = String(e?.message || e || 'Falha ao renomear arquivo');
+    } catch (e: unknown) {
+      const err = e as { message?: unknown } | null;
+      const msg = String(err?.message || e || 'Falha ao renomear arquivo');
       addToast(msg, 'error');
       announce(t('editor.tabs.renameFailed'));
       // No blur: não prende o usuário em campo de edição.

@@ -182,6 +182,18 @@ export function DiscoverMCPServerAuth(arg1) {
   return window['go']['main']['App']['DiscoverMCPServerAuth'](arg1);
 }
 
+export function DuplicateMCPServer(arg1) {
+  return window['go']['main']['App']['DuplicateMCPServer'](arg1);
+}
+
+export function DuplicateProfile(arg1) {
+  return window['go']['main']['App']['DuplicateProfile'](arg1);
+}
+
+export function DuplicateSkill(arg1) {
+  return window['go']['main']['App']['DuplicateSkill'](arg1);
+}
+
 export function EditorDeleteDraft(arg1) {
   return window['go']['main']['App']['EditorDeleteDraft'](arg1);
 }

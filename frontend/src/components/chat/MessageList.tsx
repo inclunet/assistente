@@ -104,10 +104,23 @@ function consolidateTurnMessages(nodes: MessageNode[]): MessageNode[] {
         try {
           const parsed = JSON.parse(tn.message.toolCalls);
           const calls = Array.isArray(parsed) ? parsed : [parsed];
-          const enrichedCalls = calls.map((call: any) => ({
-            ...call,
-            result: toolResults.get(call.id) ?? undefined,
-          }));
+          const enrichedCalls = calls.map((call) => {
+            const callRecord = (typeof call === 'object' && call !== null)
+              ? (call as Record<string, unknown>)
+              : {};
+            const callId = String(callRecord.id ?? '');
+            const type = String(callRecord.type ?? 'function');
+            const func = callRecord.function as { name?: unknown; arguments?: unknown } | undefined;
+            const fnName = String(func?.name ?? callRecord.name ?? '');
+            const fnArgs = String(func?.arguments ?? callRecord.arguments ?? '');
+
+            return {
+              id: callId,
+              type,
+              function: { name: fnName, arguments: fnArgs },
+              result: callId ? toolResults.get(callId) ?? undefined : undefined,
+            };
+          });
           segments.push({ type: 'tool_calls', toolCalls: enrichedCalls });
           allToolCalls.push(...enrichedCalls);
         } catch {

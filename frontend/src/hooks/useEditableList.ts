@@ -4,7 +4,7 @@ import { useUIStore } from '../store/uiStore';
 
 export interface EditableItem {
   id: string | number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export interface EditableListOperations<T extends EditableItem, TCreate = T, TUpdate = T> {
@@ -114,6 +114,8 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
   const [saving, setSaving] = useState(false);
 
   const messages = options.messages || {};
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error ?? '');
 
   // --- Lista ---
 
@@ -212,12 +214,12 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       await loadItems();
       closeEditor();
       options.onSuccess?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`Erro ao salvar ${options.entityName}:`, error);
       const errorMessage = isNew
         ? messages.createError || `Erro ao criar ${options.entityName}`
         : messages.updateError || `Erro ao atualizar ${options.entityName}`;
-      addToast(error.message || errorMessage, 'error');
+      addToast(getErrorMessage(error) || errorMessage, 'error');
     } finally {
       setSaving(false);
     }
@@ -270,10 +272,10 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
 
       await loadItems();
       options.onDeleteSuccess?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error(`Erro ao excluir ${options.entityName}:`, error);
       addToast(
-        error.message || messages.deleteError || `Erro ao excluir ${options.entityName}`,
+        getErrorMessage(error) || messages.deleteError || `Erro ao excluir ${options.entityName}`,
         'error'
       );
     }
@@ -303,6 +305,16 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
 }
 
 // Helper para obter nome do item
-function getName(item: any): string {
-  return item.name || item.title || item.slug || item.id || 'Item';
+function getName(item: EditableItem): string {
+  const name = item.name;
+  if (typeof name === 'string' && name.trim()) return name;
+
+  const title = item.title;
+  if (typeof title === 'string' && title.trim()) return title;
+
+  const slug = item.slug;
+  if (typeof slug === 'string' && slug.trim()) return slug;
+
+  const id = item.id;
+  return typeof id === 'string' || typeof id === 'number' ? String(id) : 'Item';
 }

@@ -57,7 +57,7 @@ export function ChatTabs() {
   const editInputRef = useRef<HTMLInputElement>(null);
 
   const escapeForAttrSelector = useCallback((value: string) => {
-    const esc = (globalThis as any).CSS?.escape as ((v: string) => string) | undefined;
+    const esc = (globalThis as { CSS?: { escape?: (v: string) => string } }).CSS?.escape;
     if (esc) return esc(value);
     // Fallback simples: evita quebrar o seletor em casos comuns.
     return value.replace(/"/g, '\\"');
@@ -275,8 +275,9 @@ export function ChatTabs() {
             await unassignChannelFromTab(tab.id);
             addToast(t('chatTabs.channelRemoved'), 'success');
             announce(t('chatTabs.channelRemoved'));
-          } catch (err: any) {
-            addToast(err.message || t('chatTabs.removeChannelError'), 'error');
+          } catch (err: unknown) {
+            const msg = String((err as { message?: unknown } | null)?.message || err || t('chatTabs.removeChannelError'));
+            addToast(msg, 'error');
           }
         },
       });
@@ -301,8 +302,9 @@ export function ChatTabs() {
                 await assignChannelToTab(tab.id, ch.name, c.id);
                 addToast(`${t('chatTabs.assignedTo')} ${ch.name}`, 'success');
                 announce(`${t('chatTabs.assignedTo')} ${ch.name}`);
-              } catch (err: any) {
-                addToast(err.message || t('chatTabs.assignError'), 'error');
+              } catch (err: unknown) {
+                const msg = String((err as { message?: unknown } | null)?.message || err || t('chatTabs.assignError'));
+                addToast(msg, 'error');
               }
             },
           };
@@ -323,8 +325,9 @@ export function ChatTabs() {
                   await assignChannelToTab(tab.id, ch.name, c.id);
                   addToast(`${t('chatTabs.assignedTo')} ${ch.name}`, 'success');
                   announce(`${t('chatTabs.assignedTo')} ${ch.name}`);
-                } catch (err: any) {
-                  addToast(err.message || t('chatTabs.assignError'), 'error');
+                } catch (err: unknown) {
+                  const msg = String((err as { message?: unknown } | null)?.message || err || t('chatTabs.assignError'));
+                  addToast(msg, 'error');
                 }
               },
             })),

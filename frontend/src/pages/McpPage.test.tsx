@@ -1,14 +1,30 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import type { ReactNode } from 'react';
+import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const mockSave = vi.fn();
 const mockGetConfig = vi.fn();
 const mockLoadServers = vi.fn();
+const mockDuplicate = vi.fn();
+let mockServers: Array<Record<string, unknown>> = [];
+
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) =>
+      ({
+        'mcp.buttons.newServer': 'Novo Servidor',
+        'mcp.actions.duplicate': 'Duplicar',
+        'mcp.buttons.delete': 'Excluir',
+        'common.save': 'Salvar',
+      } as Record<string, string>)[key] ?? key,
+  }),
+}));
 
 vi.mock('../store/mcpStore', () => ({
   useMCPStore: () => ({
-    servers: [],
+    servers: mockServers,
     isLoading: false,
     loadServers: mockLoadServers,
     connect: vi.fn(),
@@ -26,6 +42,7 @@ vi.mock('@wailsjs/go/main/App', () => ({
   DeleteMCPServerAuth: vi.fn(() => Promise.resolve()),
   GetMCPServerAuthInfo: vi.fn(() => Promise.resolve({ hasAuth: false })),
   DiscoverMCPServerAuth: vi.fn(() => Promise.resolve({ found: false })),
+  DuplicateMCPServer: (slug: string) => mockDuplicate(slug),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -52,9 +69,9 @@ vi.mock('../store/uiStore', () => ({
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ actions }: any) => (
+  Toolbar: ({ actions }: { actions?: Array<{ key: string; label: string; onClick: () => void }> }) => (
     <div>
-      {actions?.map((a: any) => (
+      {actions?.map((a) => (
         <button key={a.key} onClick={a.onClick}>{a.label}</button>
       ))}
     </div>
@@ -62,23 +79,60 @@ vi.mock('../components/ui/Toolbar', () => ({
 }));
 
 vi.mock('../components/ui/DataGrid', () => ({
-  DataGrid: () => <div />,
+  DataGrid: ({
+    items,
+    getRowActions,
+  }: {
+    items?: Array<{ id: string; name: string }>;
+    getRowActions?: (item: { id: string; name: string }) => Array<{ id: string; label: string; onClick: () => void }>;
+  }) => (
+    <div>
+      {items?.map((item) => (
+        <div key={item.id}>
+          <span>{item.name}</span>
+          {getRowActions?.(item)?.map((action) => (
+            <button key={action.id} onClick={action.onClick}>{action.label}</button>
+          ))}
+        </div>
+      ))}
+    </div>
+  ),
 }));
 
 vi.mock('../components/ui/Modal', () => ({
-  Modal: ({ isOpen, children }: any) => (isOpen ? <div role="dialog">{children}</div> : null),
+  Modal: ({ isOpen, children }: { isOpen: boolean; children: ReactNode }) =>
+    (isOpen ? <div role="dialog">{children}</div> : null),
+  isModalOpen: () => false,
 }));
 
 vi.mock('../components/ui/EditorPanel', () => ({
-  EditorPanelFooter: ({ children }: any) => <div>{children}</div>,
+  EditorPanelFooter: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
 vi.mock('../components', () => ({
-  Button: ({ children, onClick }: any) => <button onClick={onClick}>{children}</button>,
+  Button: ({ children, onClick }: { children?: ReactNode; onClick?: () => void }) => (
+    <button onClick={onClick}>{children}</button>
+  ),
 }));
 
 vi.mock('../components/mcp/McpGeneralSection', () => ({
-  McpGeneralSection: ({ isNew, slug, name, transport, onSlugChange, onNameChange, onTransportChange }: any) => (
+  McpGeneralSection: ({
+    isNew,
+    slug,
+    name,
+    transport,
+    onSlugChange,
+    onNameChange,
+    onTransportChange,
+  }: {
+    isNew: boolean;
+    slug: string;
+    name: string;
+    transport: string;
+    onSlugChange: (value: string) => void;
+    onNameChange: (value: string) => void;
+    onTransportChange: (value: string) => void;
+  }) => (
     <div>
       {isNew && (
         <label>
@@ -103,7 +157,14 @@ vi.mock('../components/mcp/McpGeneralSection', () => ({
 }));
 
 vi.mock('../components/mcp/McpConnectionSection', () => ({
-  McpConnectionSection: (props: any) => (
+  McpConnectionSection: (props: {
+    oauth2CallbackHost: string;
+    oauth2CallbackPort: string;
+    authType: string;
+    onAuthTypeChange: (value: string) => void;
+    onOAuth2CallbackHostChange: (value: string) => void;
+    onOAuth2CallbackPortChange: (value: string) => void;
+  }) => (
     <div data-testid="connection-section">
       <span data-testid="callback-host-value">{props.oauth2CallbackHost}</span>
       <span data-testid="callback-port-value">{props.oauth2CallbackPort}</span>
@@ -150,6 +211,7 @@ describe('McpPage — oauth2_callback_host', () => {
     vi.clearAllMocks();
     mockSave.mockResolvedValue(undefined);
     mockLoadServers.mockResolvedValue(undefined);
+    mockServers = [];
   });
 
   async function openNewServerForm() {
@@ -191,8 +253,8 @@ describe('McpPage — oauth2_callback_host', () => {
 
     const [slug, config] = mockSave.mock.calls[0];
     expect(slug).toBe('test-server');
-    expect(config.oauth2_callback_host).toBe('127.0.0.1');
-    expect(config.oauth2_callback_port).toBe(3118);
+    expect(config.oauth2CallbackHost).toBe('127.0.0.1');
+    expect(config.oauth2CallbackPort).toBe(3118);
   });
 
   it('não inclui oauth2_callback_host quando authType não é PKCE', async () => {
@@ -209,7 +271,47 @@ describe('McpPage — oauth2_callback_host', () => {
     });
 
     const [, config] = mockSave.mock.calls[0];
-    expect(config.oauth2_callback_host).toBeUndefined();
+    expect(config.oauth2CallbackHost).toBeUndefined();
+  });
+
+  it('duplica servidor MCP via menu de acoes', async () => {
+    mockServers = [
+      {
+        slug: 'mcp-teste',
+        name: 'MCP Teste',
+        description: '',
+        transport: 'stdio',
+        status: 'disconnected',
+        toolCount: 0,
+        enabled: true,
+        autoConnect: false,
+      },
+    ];
+
+    mockDuplicate.mockResolvedValue('mcp-teste-copia');
+    mockGetConfig.mockResolvedValue({
+      name: 'MCP Teste (Copia)',
+      transport: 'stdio',
+      enabled: true,
+      auto_connect: false,
+    });
+
+    render(<McpPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('MCP Teste')).toBeInTheDocument();
+    });
+
+    const row = screen.getByText('MCP Teste').parentElement;
+    if (!row) {
+      throw new Error('Linha do servidor MCP nao encontrada');
+    }
+
+    await userEvent.click(within(row).getByRole('button', { name: 'Duplicar' }));
+
+    await waitFor(() => {
+      expect(mockDuplicate).toHaveBeenCalledWith('mcp-teste');
+    });
   });
 
   it('não inclui oauth2_callback_host quando vazio (usa default do backend)', async () => {
@@ -227,6 +329,6 @@ describe('McpPage — oauth2_callback_host', () => {
     });
 
     const [, config] = mockSave.mock.calls[0];
-    expect(config.oauth2_callback_host).toBeUndefined();
+    expect(config.oauth2CallbackHost).toBeUndefined();
   });
 });

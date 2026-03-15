@@ -37,7 +37,9 @@ export function createRichMarkdownSyncRefs(initialMarkdown: string): RichMarkdow
 
 export function getMarkdownNow(editor: EditorLike): string {
   try {
-    const md = (editor.storage as any)?.markdown?.getMarkdown?.() as string | undefined;
+    const storage = editor.storage as Record<string, unknown> | undefined;
+    const markdown = storage?.markdown as { getMarkdown?: () => string } | undefined;
+    const md = markdown?.getMarkdown?.();
     return typeof md === 'string' ? md : '';
   } catch {
     return '';

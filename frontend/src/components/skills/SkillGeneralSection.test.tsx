@@ -3,6 +3,23 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SkillGeneralSection } from './SkillGeneralSection';
 
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) => {
+      const translations: Record<string, string> = {
+        'skills.generalSection.title': 'Geral',
+        'skills.generalSection.name': 'Nome',
+        'skills.generalSection.namePlaceholder': 'Ex: Criar Componente React',
+        'skills.generalSection.description': 'Descrição',
+        'skills.generalSection.descriptionPlaceholder': 'Quando este skill deve ser usado',
+        'skills.generalSection.auto': 'Auto — injetar automaticamente no system prompt',
+      };
+      return translations[key] ?? key;
+    },
+  }),
+}));
+
 describe('SkillGeneralSection', () => {
   it('renderiza campos principais e checkbox', () => {
     const onFieldChange = vi.fn();

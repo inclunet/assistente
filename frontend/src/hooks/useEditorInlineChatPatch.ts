@@ -22,7 +22,22 @@ type FindLatestEditorPatchOptions = {
   allowBodyFallback?: boolean;
 };
 
-function parseToolCalls(toolCallsJson: any): any[] {
+type ToolCall = {
+  function?: { name?: string };
+  name?: string;
+  id?: string;
+  callId?: string;
+};
+
+type MessageLike = {
+  id?: number | string;
+  role?: string;
+  toolCallId?: string;
+  content?: string;
+  toolCalls?: unknown;
+};
+
+function parseToolCalls(toolCallsJson: unknown): ToolCall[] {
   if (!toolCallsJson) return [];
   if (Array.isArray(toolCallsJson)) return toolCallsJson;
   if (typeof toolCallsJson === 'object') return [toolCallsJson];
@@ -39,7 +54,7 @@ function parseToolCalls(toolCallsJson: any): any[] {
   }
 }
 
-function extractTextEditToolCallIds(toolCallsJson: any): string[] {
+function extractTextEditToolCallIds(toolCallsJson: unknown): string[] {
   const calls = parseToolCalls(toolCallsJson);
   const ids: string[] = [];
   for (const call of calls) {
@@ -68,7 +83,7 @@ function parseEditorPatchFromToolResultContent(toolContent: string): EditorPatch
   }
 }
 
-function getMaxNumericMessageId(messages: any[]): number {
+function getMaxNumericMessageId(messages: MessageLike[]): number {
   let maxId = 0;
   for (const m of messages) {
     const n = typeof m?.id === 'number' ? m.id : parseInt(String(m?.id || ''), 10);
@@ -79,14 +94,14 @@ function getMaxNumericMessageId(messages: any[]): number {
 
 function findLatestEditorPatch(chatTabId: string, opts?: FindLatestEditorPatchOptions): FindPatchResult {
   const afterState = useChatStore.getState();
-  const allMessages = afterState.getTabMessages(chatTabId);
+  const allMessages = afterState.getTabMessages(chatTabId) as MessageLike[];
 
   const afterMessageId = opts?.afterMessageId || 0;
   const preferToolCalling = opts?.preferToolCalling !== false;
   const allowBodyFallback = opts?.allowBodyFallback !== false;
 
   const messages = afterMessageId > 0
-    ? allMessages.filter((m: any) => {
+    ? allMessages.filter((m) => {
         const n = typeof m?.id === 'number' ? m.id : parseInt(String(m?.id || ''), 10);
         return !isNaN(n) && n > afterMessageId;
       })
@@ -103,7 +118,7 @@ function findLatestEditorPatch(chatTabId: string, opts?: FindLatestEditorPatchOp
 
   // Passo 1 (preferido): assistant tool_calls(text_edit) + tool_result correspondente.
   for (let i = messages.length - 1; i >= 0; i--) {
-    const msg: any = messages[i];
+    const msg = messages[i];
     if (msg?.role !== 'assistant') continue;
 
     const textEditCallIds = extractTextEditToolCallIds(msg?.toolCalls);
@@ -127,7 +142,7 @@ function findLatestEditorPatch(chatTabId: string, opts?: FindLatestEditorPatchOp
   // Passo 2: patch no corpo da resposta.
   if (!preferToolCalling || allowBodyFallback) {
     for (let i = messages.length - 1; i >= 0; i--) {
-      const msg: any = messages[i];
+      const msg = messages[i];
       if (msg?.role !== 'assistant') continue;
       const content = String(msg?.content || '');
       const extracted = extractEditorPatch(content);
@@ -161,8 +176,9 @@ async function waitForEditorPatch(
 function waitForChatDone(expectedConversationId?: number, timeoutMs = 5 * 60 * 1000): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     let timer: number;
-    const unsub = EventsOn('chat:done', (data: any) => {
-      const convId = data?.conversationId;
+    const unsub = EventsOn('chat:done', (data: unknown) => {
+      const eventData = data as { conversationId?: number };
+      const convId = eventData?.conversationId;
       if (typeof convId !== 'number') return;
       if (expectedConversationId && expectedConversationId > 0 && convId !== expectedConversationId) return;
       window.clearTimeout(timer);

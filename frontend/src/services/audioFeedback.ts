@@ -30,13 +30,18 @@ export type SoundType = typeof SOUND_TYPES[keyof typeof SOUND_TYPES];
 
 // Singleton AudioContext
 let audioContext: AudioContext | null = null;
+type WebkitAudioWindow = Window & { webkitAudioContext?: typeof AudioContext };
 
 /**
  * Obtém ou cria o AudioContext
  */
 function getAudioContext(): AudioContext {
   if (!audioContext) {
-    audioContext = new (window.AudioContext || (window as any).webkitAudioContext)();
+    const AudioContextClass = window.AudioContext || (window as WebkitAudioWindow).webkitAudioContext;
+    if (!AudioContextClass) {
+      throw new Error('AudioContext não suportado');
+    }
+    audioContext = new AudioContextClass();
   }
   return audioContext;
 }

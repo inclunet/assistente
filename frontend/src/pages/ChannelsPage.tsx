@@ -30,6 +30,7 @@ import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFields, EditorPanelFooter } from '../components/ui/EditorPanel';
 import { ContextMenu, MenuItem } from '../components/menu';
+import { MenuButton } from '../components/layout/MenuButton';
 import CreateChannelModal from '../components/modals/CreateChannelModal';
 import { playBumpSound } from '../services/audioFeedback';
 import { useConfirm } from '../hooks/useConfirm';
@@ -60,6 +61,14 @@ interface CredentialSummary {
   type: string;
   masked: string;
 }
+
+interface AuthorizedContact {
+  id?: string;
+  display_name?: string;
+  username?: string;
+}
+
+type AuthorizedContactsResponse = Record<string, AuthorizedContact[]>;
 
 interface TelegramForm {
   enabled: boolean;
@@ -100,6 +109,8 @@ export default function ChannelsPage() {
   const { focusFirstCell: contactsFocusFirstCell, handleGridReady: contactsHandleGridReady } = useGridFocus();
   const defaultChannelProfile = 'canais-comunicacao';
   const requestConfirm = useConfirm();
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error ?? '');
 
   const channelCredentialPattern = useCallback((channel: string, key: string) => `channel:${channel}:${key}`, []);
 
@@ -118,6 +129,7 @@ export default function ChannelsPage() {
   // ── Channels grid ────────────────────────────────────────────────
   const [channelRows, setChannelRows] = useState<ChannelRow[]>([]);
   const [editingChannel, setEditingChannel] = useState<string | null>(null);
+  const [focusedChannel, setFocusedChannel] = useState<ChannelRow | null>(null);
 
   // ── Channel forms ────────────────────────────────────────────────
   const [telegramForm, setTelegramForm] = useState<TelegramForm>({
@@ -153,6 +165,7 @@ export default function ChannelsPage() {
 
   // ── Contacts grid ────────────────────────────────────────────────
   const [contactRows, setContactRows] = useState<ContactRow[]>([]);
+  const [focusedContact, setFocusedContact] = useState<ContactRow | null>(null);
 
   // ── Create Channel Modal ─────────────────────────────────────────
   const [showCreateChannelModal, setShowCreateChannelModal] = useState(false);
@@ -268,12 +281,12 @@ export default function ChannelsPage() {
 
       // Load contacts separately, don't block if it fails
       try {
-        const allContacts = await GetAuthorizedContacts();
+        const allContacts = await GetAuthorizedContacts() as AuthorizedContactsResponse | null;
         const rows: ContactRow[] = [];
         if (allContacts) {
           for (const [ch, contacts] of Object.entries(allContacts)) {
             if (Array.isArray(contacts)) {
-              for (const c of contacts as any[]) {
+              for (const c of contacts) {
                 rows.push({
                   id: `${ch}:${c.id}`,
                   channel: ch,
@@ -373,9 +386,9 @@ export default function ChannelsPage() {
 
         await loadAll();
         setEditingChannel(template.type);
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('Erro ao criar canal:', error);
-        addToast(error.message || 'Erro ao criar canal', 'error');
+        addToast(getErrorMessage(error) || 'Erro ao criar canal', 'error');
       }
       return;
     }
@@ -389,6 +402,8 @@ export default function ChannelsPage() {
       const tab = tabs.find((t) => t.id === tabId);
       setActiveTab(tabId);
       setEditingChannel(null);
+      setFocusedChannel(null);
+      setFocusedContact(null);
       announce(t('channels.announce.tabSelected', { label: tab?.label ?? tabId }));
     },
     [announce, tabs, t]
@@ -481,8 +496,8 @@ export default function ChannelsPage() {
       setEditingChannel(null);
       setActiveTab('channels');
       setTimeout(() => channelsFocusFirstCell?.(), 0);
-    } catch (error: any) {
-      addToast(error.message || `Erro ao salvar canal ${channelName}`, 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || `Erro ao salvar canal ${channelName}`, 'error');
     } finally {
       setSaving(false);
     }
@@ -507,8 +522,8 @@ export default function ChannelsPage() {
       addToast(t('channels.toast.channelReconnected', { name: channelName }), 'success');
       announce(t('channels.toast.channelReconnected', { name: channelName }));
       await loadAll();
-    } catch (error: any) {
-      addToast(error.message || `Erro ao reconectar ${channelName}`, 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || `Erro ao reconectar ${channelName}`, 'error');
     } finally {
       setReconnecting(false);
     }
@@ -546,9 +561,9 @@ export default function ChannelsPage() {
       setSignalAPIReady(true);
       addToast('Signal API acessível!', 'success');
       announce(infoText);
-    } catch (error: any) {
+    } catch (error: unknown) {
       setSignalAPIInfo('');
-      const msg = error.message || 'Não foi possível conectar à API Signal';
+      const msg = getErrorMessage(error) || 'Não foi possível conectar à API Signal';
       setSignalRegError(msg);
       setSignalAPIReady(false);
       addToast(msg, 'error');
@@ -575,9 +590,9 @@ export default function ChannelsPage() {
       const modeLabel = mode === 'voice' ? 'ligação' : 'SMS';
       addToast(`Código enviado por ${modeLabel} para ${signalForm.account}`, 'success');
       announce(`Código enviado por ${modeLabel}`);
-    } catch (error: any) {
+    } catch (error: unknown) {
       setSignalRegStep(signalSmsSent ? 'awaiting_code' : 'idle');
-      const msg = error.message || 'Erro ao registrar número';
+      const msg = getErrorMessage(error) || 'Erro ao registrar número';
       setSignalRegError(msg);
       addToast(msg, 'error');
     }
@@ -597,9 +612,9 @@ export default function ChannelsPage() {
       setSignalSmsSent(false);
       addToast(`Número ${signalForm.account} verificado com sucesso`, 'success');
       announce('Número verificado com sucesso');
-    } catch (error: any) {
+    } catch (error: unknown) {
       setSignalRegStep('awaiting_code');
-      const msg = error.message || 'Erro ao verificar código';
+      const msg = getErrorMessage(error) || 'Erro ao verificar código';
       setSignalRegError(msg);
       addToast(msg, 'error');
     }
@@ -656,9 +671,9 @@ export default function ChannelsPage() {
       setSignalLinkQR(qr);
       announce('QR Code gerado. Escaneie com o Signal no celular.');
       startLinkPolling(Date.now());
-    } catch (error: any) {
-      setSignalRegError(error.message || 'Erro ao gerar QR de vinculação');
-      addToast(error.message || 'Erro ao gerar QR', 'error');
+    } catch (error: unknown) {
+      setSignalRegError(getErrorMessage(error) || 'Erro ao gerar QR de vinculação');
+      addToast(getErrorMessage(error) || 'Erro ao gerar QR', 'error');
       setSignalLinking(false);
     }
   };
@@ -683,8 +698,8 @@ export default function ChannelsPage() {
       }
       addToast(`Conta ${account} removida`, 'success');
       announce(`Conta ${account} removida`);
-    } catch (error: any) {
-      addToast(error.message || 'Erro ao remover conta', 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || 'Erro ao remover conta', 'error');
     } finally {
       setSignalUnregistering(null);
     }
@@ -709,8 +724,8 @@ export default function ChannelsPage() {
       addToast(t('channels.toast.contactRemoved'), 'success');
       announce(t('channels.announce.contactRemoved'));
       await loadAll();
-    } catch (error: any) {
-      addToast(error.message || 'Erro ao remover contato', 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || 'Erro ao remover contato', 'error');
     }
   }, [addToast, announce, loadAll, requestConfirm, t]);
 
@@ -730,8 +745,8 @@ export default function ChannelsPage() {
       addToast(t('channels.toast.credentialRemoved'), 'success');
       announce(t('channels.announce.credentialRemoved'));
       await loadAll();
-    } catch (error: any) {
-      addToast(error.message || 'Erro ao remover credencial', 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || 'Erro ao remover credencial', 'error');
     }
   }, [addToast, announce, loadAll, requestConfirm, t]);
 
@@ -745,10 +760,32 @@ export default function ChannelsPage() {
     },
     { key: 'status', label: t('channels.columns.status'), width: '200px', truncate: true },
     {
-      key: '_reconnect', label: t('channels.columns.reconnect'), width: '80px',
-      action: true, actionIcon: '🔄', actionLabel: t('channels.actions.reconnectChannel'),
+      key: 'actions', label: '', width: '80px',
+      format: (_val, row) => (
+        <MenuButton
+          items={getChannelRowActions(row)}
+          buttonLabel={t('channels.actions.actions', 'Ações')}
+        />
+      ),
     },
   ];
+
+  function getChannelRowActions(row: ChannelRow) {
+    return [
+      {
+        id: 'edit',
+        label: t('channels.actions.edit', 'Editar'),
+        icon: '✏️',
+        onClick: () => handleEditChannel(row),
+      },
+      {
+        id: 'reconnect',
+        label: t('channels.actions.reconnectChannel', 'Reconectar'),
+        icon: '🔄',
+        onClick: () => handleReconnectChannel(row.name),
+      },
+    ];
+  }
 
   const contactColumns: DataGridColumn<ContactRow>[] = [
     { key: 'channel', label: t('channels.columns.channel'), width: '100px' },
@@ -756,10 +793,27 @@ export default function ChannelsPage() {
     { key: 'username', label: t('channels.columns.username'), width: '150px', truncate: true },
     { key: 'contactId', label: t('channels.columns.id'), width: '200px', truncate: true },
     {
-      key: '_delete', label: t('common.remove'), width: '80px',
-      action: true, actionIcon: '🗑️', actionLabel: t('channels.actions.removeContact'),
+      key: 'actions', label: '', width: '80px',
+      format: (_val, row) => (
+        <MenuButton
+          items={getContactRowActions(row)}
+          buttonLabel={t('channels.actions.actions', 'Ações')}
+        />
+      ),
     },
   ];
+
+  function getContactRowActions(row: ContactRow) {
+    return [
+      {
+        id: 'remove',
+        label: t('channels.actions.removeContact', 'Remover'),
+        icon: '🗑️',
+        onClick: () => handleDeleteContact(row),
+        danger: true,
+      },
+    ];
+  }
 
   const createMenuItems: MenuItem[] = channelTemplates.length > 0
     ? channelTemplates.map((template) => ({
@@ -786,6 +840,45 @@ export default function ChannelsPage() {
       : editingChannel === 'slack'
         ? 'Slack'
         : '';
+
+  const toolbarActions = (
+    activeTab === 'channels'
+      ? [
+          {
+            key: 'edit-channel',
+            label: t('channels.actions.edit', 'Editar'),
+            icon: '✏️',
+            onClick: () => focusedChannel && handleEditChannel(focusedChannel),
+            disabled: !focusedChannel,
+          },
+          {
+            key: 'reconnect-channel',
+            label: t('channels.actions.reconnectChannel', 'Reconectar'),
+            icon: '🔄',
+            onClick: () => focusedChannel && handleReconnectChannel(focusedChannel.name),
+            disabled: !focusedChannel,
+          },
+        ]
+      : [
+          {
+            key: 'remove-contact',
+            label: t('channels.actions.removeContact', 'Remover'),
+            icon: '🗑️',
+            onClick: () => focusedContact && handleDeleteContact(focusedContact),
+            disabled: !focusedContact,
+            variant: 'danger',
+          },
+        ]
+  ).concat([
+    {
+      key: 'reload',
+      label: t('channels.buttons.reload', 'Recarregar'),
+      icon: '🔄',
+      variant: 'secondary' as const,
+      onClick: loadAll,
+      disabled: false,
+    },
+  ]);
 
   // ── Render: Telegram editor ──────────────────────────────────────
 
@@ -912,15 +1005,7 @@ export default function ChannelsPage() {
               aria-label="Novo canal"
             />
           }
-          actions={[
-            {
-              key: 'reload',
-              label: 'Recarregar',
-              icon: '🔄',
-              variant: 'secondary',
-              onClick: loadAll,
-            },
-          ]}
+          actions={toolbarActions}
           ariaLabel="Barra de ferramentas de canais"
           onFocusGrid={activeTab === 'channels' ? channelsFocusFirstCell : contactsFocusFirstCell}
         />
@@ -935,12 +1020,9 @@ export default function ChannelsPage() {
               autoFocusOnMount={false}
               getItemId={(item) => item.id}
               onActivate={(item) => handleEditChannel(item)}
-              onCellAction={(item, column) => {
-                if (column.key === '_reconnect') {
-                  handleReconnectChannel(item.name);
-                }
-              }}
               onGridReady={channelsHandleGridReady}
+              getRowActions={getChannelRowActions}
+              onFocusChange={(item) => setFocusedChannel(item as ChannelRow | null)}
             />
           </TabPanel>
         )}
@@ -959,13 +1041,9 @@ export default function ChannelsPage() {
                 label="Contatos autorizados"
                 autoFocusOnMount={false}
                 getItemId={(item) => item.id}
-                onCellAction={(item) => {
-                  void handleDeleteContact(item);
-                }}
-                onDelete={(item) => {
-                  void handleDeleteContact(item);
-                }}
                 onGridReady={contactsHandleGridReady}
+                getRowActions={getContactRowActions}
+                onFocusChange={(item) => setFocusedContact(item as ContactRow | null)}
               />
             ) : (
               <p className="channels-page__empty" role="status">Nenhum contato autorizado.</p>

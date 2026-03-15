@@ -89,3 +89,36 @@ func TestManagerGetActiveSlugUsesActiveFlag(t *testing.T) {
 		t.Fatalf("GetActiveSlug (active flag): got %s, want %s", got, slug1)
 	}
 }
+
+func TestManagerDuplicateProfile(t *testing.T) {
+	manager := setupProfileTestEnv(t)
+
+	profile := DefaultProfile()
+	profile.Name = "Perfil Base"
+	profile.Active = true
+	originalSlug, err := manager.Create(profile)
+	if err != nil {
+		t.Fatalf("create profile: %v", err)
+	}
+
+	duplicateSlug, err := manager.Duplicate(originalSlug)
+	if err != nil {
+		t.Fatalf("duplicate profile: %v", err)
+	}
+
+	if duplicateSlug != Slugify("Perfil Base (Copia)") {
+		t.Fatalf("duplicate slug: got %s, want %s", duplicateSlug, Slugify("Perfil Base (Copia)"))
+	}
+
+	duplicated, err := manager.Get(duplicateSlug)
+	if err != nil {
+		t.Fatalf("get duplicate: %v", err)
+	}
+
+	if duplicated.Name != "Perfil Base (Copia)" {
+		t.Fatalf("duplicate name: got %s, want %s", duplicated.Name, "Perfil Base (Copia)")
+	}
+	if duplicated.Active {
+		t.Fatalf("duplicate active: got true, want false")
+	}
+}

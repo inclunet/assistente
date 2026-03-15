@@ -2,7 +2,7 @@ import { allowlist } from '../../../wailsjs/go/models';
 
 interface AllowlistGeneralSectionProps {
   item: allowlist.Allowlist;
-  onFieldChange: (field: keyof allowlist.Allowlist, value: any) => void;
+  onFieldChange: <K extends keyof allowlist.Allowlist>(field: K, value: allowlist.Allowlist[K]) => void;
 }
 
 export function AllowlistGeneralSection({

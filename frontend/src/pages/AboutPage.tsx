@@ -18,6 +18,8 @@ export default function AboutPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { addToast } = useUIStore();
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error ?? '');
   
   const [version, setVersion] = useState('');
   const [loading, setLoading] = useState(false);
@@ -49,9 +51,9 @@ export default function AboutPage() {
       } else {
         addToast(t('about.upToDateDesc', { version: info.currentVersion }), 'success');
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erro ao verificar atualizações:', error);
-      addToast(error.message || 'Erro ao verificar atualizações', 'error');
+      addToast(getErrorMessage(error) || 'Erro ao verificar atualizações', 'error');
     } finally {
       setChecking(false);
     }
@@ -63,9 +65,9 @@ export default function AboutPage() {
       await StartUpdate();
       // O backend irá emitir evento navigate:update que será capturado
       // pela App.tsx e navegará para /update
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Erro ao iniciar atualização:', error);
-      addToast(error.message || 'Erro ao iniciar atualização', 'error');
+      addToast(getErrorMessage(error) || 'Erro ao iniciar atualização', 'error');
       setLoading(false);
     }
   };

@@ -23,7 +23,7 @@ export const FormField = ({
 
   // Propaga fieldId para o input filho se for um elemento React válido
   const childrenWithId = isValidElement(children)
-    ? cloneElement(children, { id: fieldId } as any)
+    ? cloneElement(children as React.ReactElement<{ id?: string }>, { id: fieldId })
     : children;
 
   return (

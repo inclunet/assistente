@@ -58,9 +58,10 @@ export default function RestoreDefaultsPage() {
       addToast(`${opId} concluído com sucesso!`, 'success');
       announce(`${opId} realizado`);
       onSuccess?.();
-    } catch (error: any) {
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : String(error ?? '');
       console.error(`Erro em ${opId}:`, error);
-      addToast(error.message || `Erro ao executar ${opId}`, 'error');
+      addToast(message || `Erro ao executar ${opId}`, 'error');
     } finally {
       setLoadingOps((prev) => {
         const newSet = new Set(prev);

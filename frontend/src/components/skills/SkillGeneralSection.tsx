@@ -1,8 +1,12 @@
 import { useTranslation } from 'react-i18next';
 
 interface SkillGeneralSectionProps {
-  item: any;
-  onFieldChange: (field: string, value: any) => void;
+  item: {
+    name?: string;
+    description?: string;
+    auto?: boolean;
+  };
+  onFieldChange: (field: string, value: string | boolean) => void;
 }
 
 export function SkillGeneralSection({

@@ -2,6 +2,21 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { SkillToolsSection } from './SkillToolsSection';
 
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) => {
+      const translations: Record<string, string> = {
+        'skills.toolsSection.title': 'Ferramentas Associadas',
+        'skills.toolsSection.label': 'Ferramentas (separadas por vírgula)',
+        'skills.toolsSection.placeholder': 'Ex: tool1, tool2, tool3',
+        'skills.toolsSection.hint': 'Liste as ferramentas (tool calling) que podem ser usadas neste skill.',
+      };
+      return translations[key] ?? key;
+    },
+  }),
+}));
+
 describe('SkillToolsSection', () => {
   it('renderiza string de ferramentas e dica', () => {
     const onToolsChange = vi.fn();

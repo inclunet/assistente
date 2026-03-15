@@ -21,7 +21,7 @@ export function useEditorTabsKeyboardShortcuts() {
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      const target = event.target as HTMLElement;
+      const target = event.target as HTMLElement | null;
 
       // Não intercepta atalhos quando um modal está aberto
       if (isModalOpen()) return;
@@ -30,7 +30,7 @@ export function useEditorTabsKeyboardShortcuts() {
       const isInput =
         target?.tagName === 'INPUT' ||
         target?.tagName === 'TEXTAREA' ||
-        (target as any)?.isContentEditable ||
+        target?.isContentEditable ||
         target?.closest?.('.monaco-editor') !== null;
 
       // Ctrl+T ou Ctrl+N: Nova aba

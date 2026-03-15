@@ -12,6 +12,7 @@ import (
 	"log"
 	"net"
 	"net/http"
+	"net/url"
 	"sync"
 	"time"
 
@@ -377,6 +378,17 @@ func (rt *pkceRoundTripper) persistCredentials(clientID, clientSecret string, to
 type authCallbackResult struct {
 	code string
 	err  error
+}
+
+func hostnameFromURL(rawURL string) string {
+	if rawURL == "" {
+		return ""
+	}
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		return ""
+	}
+	return parsed.Hostname()
 }
 
 // resolveCallbackHost retorna o hostname para o redirect_uri e o IP real

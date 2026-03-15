@@ -6,7 +6,7 @@ import { EventsOn, EventsOff } from '@wailsjs/runtime/runtime';
  * @param eventName Nome do evento a escutar
  * @param callback Função chamada quando o evento é disparado
  */
-export function useWailsEvent<T = any>(
+export function useWailsEvent<T = unknown>(
   eventName: string,
   callback: (data: T) => void
 ) {
@@ -34,7 +34,7 @@ export function useWailsEvent<T = any>(
  * Hook para chamar funções do backend Wails com tratamento de erro
  * @param apiFunction Função do backend a ser chamada
  */
-export function useWailsAPI<TArgs extends any[], TResult>(
+export function useWailsAPI<TArgs extends unknown[], TResult>(
   apiFunction: (...args: TArgs) => Promise<TResult>
 ) {
   const call = useCallback(

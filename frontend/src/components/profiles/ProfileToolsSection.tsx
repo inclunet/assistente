@@ -10,7 +10,10 @@ export interface ProfileToolsSectionProps {
   toolsDisabled?: boolean;
   commandAllowlist?: string;
   availableAllowlists: allowlist.AllowlistInfo[];
-  onChange: (field: 'enabled_tools' | 'command_allowlist' | 'disable_tools', value: any) => void;
+  onChange: (
+    field: 'enabled_tools' | 'command_allowlist' | 'disable_tools',
+    value: string[] | string | boolean | null
+  ) => void;
   disabled?: boolean;
 }
 
@@ -66,7 +69,7 @@ export function ProfileToolsSection({
       key: 'checked',
       label: '',
       width: '40px',
-      format: (_: any, item: ToolRow) => {
+      format: (_value: unknown, item: ToolRow) => {
         const checked = isToolEnabled(item.name);
         return (
           <input

@@ -219,7 +219,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     return formData.base_url;
   };
 
-  const handleChange = (field: keyof ProviderFormData, value: any) => {
+  const handleChange = (field: keyof ProviderFormData, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }));
     // Limpa erro do campo
     if (errors[field]) {
@@ -274,11 +274,12 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           api: 'API não respondeu. Verifique URL e credenciais.',
         }));
       }
-    } catch (error: any) {
+    } catch (error: unknown) {
       setApiTested(false);
+      const err = error as { message?: unknown } | null;
       setErrors((prev) => ({
         ...prev,
-        api: error.message || 'Erro ao testar API',
+        api: String(err?.message || error || 'Erro ao testar API'),
       }));
     } finally {
       setTesting(false);
@@ -385,8 +386,9 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       }
 
       onSave();
-    } catch (error: any) {
-      setErrors({ submit: error.message || error.toString() || 'Erro ao salvar provedor' });
+    } catch (error: unknown) {
+      const err = error as { message?: unknown; toString?: () => string } | null;
+      setErrors({ submit: String(err?.message || err?.toString?.() || error || 'Erro ao salvar provedor') });
     } finally {
       setSaving(false);
     }

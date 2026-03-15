@@ -74,7 +74,12 @@ export class VoiceActivityDetector {
       this.mediaStream = stream;
 
       // Cria contexto de áudio
-      const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+      const AudioContextClass =
+        window.AudioContext ||
+        (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+      if (!AudioContextClass) {
+        throw new Error('AudioContext não suportado neste ambiente');
+      }
       this.audioContext = new AudioContextClass();
       
       // Cria analisador
@@ -89,7 +94,6 @@ export class VoiceActivityDetector {
       // Buffer para dados de frequência
       this.dataArray = new Uint8Array(this.analyser.frequencyBinCount);
       
-      console.log('[VAD] Inicializado com sucesso');
       return true;
     } catch (error) {
       console.error('[VAD] Erro ao inicializar:', error);
@@ -120,8 +124,6 @@ export class VoiceActivityDetector {
 
     // Inicia loop de verificação
     this.checkIntervalId = setInterval(() => this.checkVolume(), this.config.checkInterval);
-    
-    console.log('[VAD] Detecção iniciada');
   }
 
   /**
@@ -143,7 +145,6 @@ export class VoiceActivityDetector {
       this.callbacks.onActivityEnd();
     }
 
-    console.log('[VAD] Detecção parada');
   }
 
   /**
@@ -170,7 +171,6 @@ export class VoiceActivityDetector {
     this.analyser = null;
     this.dataArray = null;
     
-    console.log('[VAD] Recursos liberados');
   }
 
   /**

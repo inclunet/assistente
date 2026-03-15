@@ -288,11 +288,11 @@ const ptBR = {
     mcp: {
       status: { connected: 'Conectado', connecting: 'Conectando...', disconnected: 'Desconectado', error: 'Erro' },
       announce: { editorClosed: 'Editor fechado' },
-      error: { slugRequired: 'Slug (identificador) é obrigatório', nameRequired: 'Nome é obrigatório' },
-      toast: { created: 'Servidor MCP criado!', updated: 'Servidor MCP atualizado!', removed: 'Servidor MCP removido!' },
+      error: { slugRequired: 'Slug (identificador) é obrigatório', nameRequired: 'Nome é obrigatório', duplicate: 'Erro ao duplicar servidor MCP' },
+      toast: { created: 'Servidor MCP criado!', updated: 'Servidor MCP atualizado!', removed: 'Servidor MCP removido!', duplicated: 'Servidor MCP duplicado!' },
       confirm: { removeTitle: 'Remover Servidor MCP' },
       columns: { name: 'Nome', transport: 'Transporte', status: 'Status', tools: 'Ferramentas' },
-      actions: { connectDisconnect: 'Conectar/Desconectar', reconnect: 'Reconectar', removeServer: 'Remover servidor' },
+      actions: { connectDisconnect: 'Conectar/Desconectar', reconnect: 'Reconectar', removeServer: 'Remover servidor', duplicate: 'Duplicar' },
       loading: 'Carregando servidores MCP…',
       pageTitle: 'Servidores MCP',
       searchPlaceholder: 'Buscar servidores...',
@@ -451,7 +451,10 @@ const ptBR = {
       inactive: 'Inativo',
       activate: 'Ativar',
       edit: 'Editar',
+      duplicate: 'Duplicar',
       delete: 'Excluir',
+      duplicated: 'Perfil duplicado!',
+      duplicateError: 'Erro ao duplicar perfil',
       loading: 'Carregando perfis...',
       pageTitle: 'Perfis de Chat',
       search: 'Buscar perfis...',
@@ -526,6 +529,9 @@ const ptBR = {
       updated: 'Skill atualizado!',
       deleted: 'Skill excluído!',
       deleteError: 'Erro ao excluir skill',
+      duplicate: 'Duplicar',
+      duplicated: 'Skill duplicado!',
+      duplicateError: 'Erro ao duplicar skill',
       confirmDelete: 'Excluir o skill "{{name}}"? Esta ação não pode ser desfeita.',
       nameRequired: 'Nome é obrigatório',
       descriptionRequired: 'Descrição é obrigatória',
@@ -583,8 +589,8 @@ const ptBR = {
       buttons: { new: 'Nova Allowlist', delete: 'Excluir' },
       columns: { name: 'Nome', description: 'Descrição', rules: 'Regras' },
       modal: { newTitle: 'Nova Allowlist', editTitle: 'Editando: {{name}}' },
-      error: { load: 'Erro ao carregar allowlists', nameRequired: 'Nome é obrigatório' },
-      toast: { created: 'Allowlist criada!', updated: 'Allowlist atualizada!', deleted: 'Allowlist excluída!' },
+      error: { load: 'Erro ao carregar allowlists', nameRequired: 'Nome é obrigatório', duplicate: 'Erro ao duplicar allowlist' },
+      toast: { created: 'Allowlist criada!', updated: 'Allowlist atualizada!', deleted: 'Allowlist excluída!', duplicated: 'Allowlist duplicada!' },
       generalSection: {
         title: 'Geral',
         name: 'Nome',
@@ -673,6 +679,7 @@ const ptBR = {
       successDesc: 'Reinicie o aplicativo para aplicar as mudanças.',
       buttons: { restart: 'Reiniciar Agora', backToChat: 'Voltar ao Chat', retry: 'Tentar Novamente' },
       errorTitle: 'Erro na Atualização',
+      errors: { unknown: 'Erro desconhecido', failed: 'Erro ao atualizar: {{error}}', start: 'Erro ao iniciar atualização' },
     },
 
     pickers: {
@@ -719,6 +726,45 @@ const ptBR = {
 
     providers: {
       pageTitle: 'Provedores LLM',
+      search: 'Buscar provedores...',
+      loading: 'Carregando...',
+      gridLabel: 'Lista de provedores LLM',
+      columns: {
+        name: 'Nome',
+        type: 'Tipo',
+        baseUrl: 'Base URL',
+        status: 'Status Credencial',
+      },
+      status: {
+        configured: 'Configurado',
+        missing: 'Credencial faltando',
+        none: 'Não requer',
+      },
+      actions: {
+        actions: 'Ações',
+        add: 'Adicionar Provedor',
+        edit: 'Editar',
+        duplicate: 'Duplicar',
+        delete: 'Excluir',
+        duplicateNotImplemented: 'Duplicar ainda não implementado',
+        deleteNotImplemented: 'Excluir ainda não implementado',
+      },
+      modal: {
+        newTitle: 'Novo Provedor',
+        editTitle: 'Editar Provedor',
+      },
+      confirm: {
+        delete: 'Remover o provedor "{{name}}"?',
+      },
+      toast: {
+        duplicated: 'Provedor duplicado!',
+        deleted: 'Provedor removido!',
+      },
+      error: {
+        loadFailed: 'Erro ao carregar provedores',
+        duplicateFailed: 'Erro ao duplicar provedor',
+        deleteFailed: 'Erro ao remover provedor',
+      },
     },
 
     ui: {

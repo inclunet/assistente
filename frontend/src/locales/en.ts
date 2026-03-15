@@ -288,11 +288,11 @@ const en = {
     mcp: {
       status: { connected: 'Connected', connecting: 'Connecting...', disconnected: 'Disconnected', error: 'Error' },
       announce: { editorClosed: 'Editor closed' },
-      error: { slugRequired: 'Slug (identifier) is required', nameRequired: 'Name is required' },
-      toast: { created: 'MCP server created!', updated: 'MCP server updated!', removed: 'MCP server removed!' },
+      error: { slugRequired: 'Slug (identifier) is required', nameRequired: 'Name is required', duplicate: 'Error duplicating MCP server' },
+      toast: { created: 'MCP server created!', updated: 'MCP server updated!', removed: 'MCP server removed!', duplicated: 'MCP server duplicated!' },
       confirm: { removeTitle: 'Remove MCP Server' },
       columns: { name: 'Name', transport: 'Transport', status: 'Status', tools: 'Tools' },
-      actions: { connectDisconnect: 'Connect/Disconnect', reconnect: 'Reconnect', removeServer: 'Remove server' },
+      actions: { connectDisconnect: 'Connect/Disconnect', reconnect: 'Reconnect', removeServer: 'Remove server', duplicate: 'Duplicate' },
       loading: 'Loading MCP servers…',
       pageTitle: 'MCP Servers',
       searchPlaceholder: 'Search servers...',
@@ -451,7 +451,10 @@ const en = {
       inactive: 'Inactive',
       activate: 'Activate',
       edit: 'Edit',
+      duplicate: 'Duplicate',
       delete: 'Delete',
+      duplicated: 'Profile duplicated!',
+      duplicateError: 'Error duplicating profile',
       loading: 'Loading profiles...',
       pageTitle: 'Chat Profiles',
       search: 'Search profiles...',
@@ -526,6 +529,9 @@ const en = {
       updated: 'Skill updated!',
       deleted: 'Skill deleted!',
       deleteError: 'Error deleting skill',
+      duplicate: 'Duplicate',
+      duplicated: 'Skill duplicated!',
+      duplicateError: 'Error duplicating skill',
       confirmDelete: 'Delete the skill "{{name}}"? This action cannot be undone.',
       nameRequired: 'Name is required',
       descriptionRequired: 'Description is required',
@@ -583,8 +589,8 @@ const en = {
       buttons: { new: 'New Allowlist', delete: 'Delete' },
       columns: { name: 'Name', description: 'Description', rules: 'Rules' },
       modal: { newTitle: 'New Allowlist', editTitle: 'Editing: {{name}}' },
-      error: { load: 'Error loading allowlists', nameRequired: 'Name is required' },
-      toast: { created: 'Allowlist created!', updated: 'Allowlist updated!', deleted: 'Allowlist deleted!' },
+      error: { load: 'Error loading allowlists', nameRequired: 'Name is required', duplicate: 'Error duplicating allowlist' },
+      toast: { created: 'Allowlist created!', updated: 'Allowlist updated!', deleted: 'Allowlist deleted!', duplicated: 'Allowlist duplicated!' },
       generalSection: {
         title: 'General',
         name: 'Name',
@@ -673,6 +679,7 @@ const en = {
       successDesc: 'Restart the application to apply the changes.',
       buttons: { restart: 'Restart Now', backToChat: 'Back to Chat', retry: 'Try Again' },
       errorTitle: 'Update Error',
+      errors: { unknown: 'Unknown error', failed: 'Update failed: {{error}}', start: 'Error starting update' },
     },
 
     pickers: {
@@ -719,6 +726,45 @@ const en = {
 
     providers: {
       pageTitle: 'LLM Providers',
+      search: 'Search providers...',
+      loading: 'Loading...',
+      gridLabel: 'LLM providers list',
+      columns: {
+        name: 'Name',
+        type: 'Type',
+        baseUrl: 'Base URL',
+        status: 'Credential Status',
+      },
+      status: {
+        configured: 'Configured',
+        missing: 'Credential missing',
+        none: 'Not required',
+      },
+      actions: {
+        actions: 'Actions',
+        add: 'Add Provider',
+        edit: 'Edit',
+        duplicate: 'Duplicate',
+        delete: 'Delete',
+        duplicateNotImplemented: 'Duplicate not implemented yet',
+        deleteNotImplemented: 'Delete not implemented yet',
+      },
+      modal: {
+        newTitle: 'New Provider',
+        editTitle: 'Edit Provider',
+      },
+      confirm: {
+        delete: 'Remove provider "{{name}}"?',
+      },
+      toast: {
+        duplicated: 'Provider duplicated!',
+        deleted: 'Provider removed!',
+      },
+      error: {
+        loadFailed: 'Error loading providers',
+        duplicateFailed: 'Error duplicating provider',
+        deleteFailed: 'Error removing provider',
+      },
     },
 
     ui: {

@@ -8,13 +8,15 @@ import {
   CreateProfile,
   UpdateProfile,
   DeleteProfile,
+  DuplicateProfile,
   GetProfileSearchPaths,
 } from '@wailsjs/go/main/App';
 import { profiles } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
+import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
-import { Modal } from '../components/ui/Modal';
+import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { CollapsibleSection } from '../components/ui/CollapsibleSection';
 import { ProfileGeneralSection } from '../components/profiles/ProfileGeneralSection';
@@ -39,6 +41,7 @@ interface ProfileRow extends Profile {
   slug: string;
   source?: string;
   isActive?: boolean;
+  [key: string]: unknown;
 }
 
 export default function ProfilesPage() {
@@ -47,11 +50,15 @@ export default function ProfilesPage() {
   const { announce } = useAnnouncer();
   const { focusFirstCell, handleGridReady } = useGridFocus();
 
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error ?? '');
+
   // Grid state
   const [activeSlug, setActiveSlug] = useState<string>('padrao');
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [searchPaths, setSearchPaths] = useState<string[]>([]);
+  const [focusedRow, setFocusedRow] = useState<ProfileRow | null>(null);
 
   const { tools: availableTools, skills: availableSkills, allowlists: availableAllowlists, loading: depsLoading } =
     useProfileDependencies();
@@ -81,7 +88,7 @@ export default function ProfilesPage() {
         const row = profiles.Profile.createFrom(profile) as ProfileRow;
         row.id = String(id);
         row.slug = String(id);
-        row.source = (profile as any).source ?? 'workdir';
+        row.source = (profile as { source?: string }).source ?? 'workdir';
         row.isActive = row.slug === activeSlug;
         return row;
       },
@@ -168,20 +175,55 @@ export default function ProfilesPage() {
     await crud.openEdit(row);
   };
 
+  const handleDuplicateProfile = async (row: ProfileRow) => {
+    try {
+      const newSlug = await DuplicateProfile(row.slug);
+      const successMessage = t('profiles.duplicated', 'Perfil duplicado!');
+      addToast(successMessage, 'success');
+      announce(successMessage);
+      await crud.loadItems();
+      await crud.openEdit({ id: newSlug, slug: newSlug, name: row.name } as ProfileRow);
+    } catch (error: unknown) {
+      addToast(
+        getErrorMessage(error) || t('profiles.duplicateError', 'Erro ao duplicar perfil'),
+        'error'
+      );
+    }
+  };
+
   const handleActivateProfile = async (row: ProfileRow) => {
     try {
       await SetActiveProfile(row.slug);
       addToast(t('profiles.activated', `Perfil "${row.name}" ativado!`), 'success');
       announce(t('profiles.activatedAnnounce', `Perfil ${row.name} ativado`));
       await crud.loadItems();
-    } catch (error: any) {
-      addToast(error.message || t('profiles.activateError', 'Erro ao ativar perfil'), 'error');
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || t('profiles.activateError', 'Erro ao ativar perfil'), 'error');
     }
   };
 
   const handleNewProfile = () => {
     crud.openNew();
   };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isModalOpen()) return;
+      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.key !== 'n' && event.key !== 'N') return;
+      const target = event.target as HTMLElement | null;
+      const isInput =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable;
+      if (isInput) return;
+      event.preventDefault();
+      handleNewProfile();
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [handleNewProfile]);
 
   const handleSave = async () => {
     await crud.save();
@@ -191,7 +233,7 @@ export default function ProfilesPage() {
     crud.closeEditor();
   };
 
-  const updateFields = (updates: Record<string, any>) => {
+  const updateFields = (updates: Record<string, unknown>) => {
     if (!crud.editingItem) return;
     const updated = JSON.parse(JSON.stringify(crud.editingItem));
     
@@ -212,7 +254,7 @@ export default function ProfilesPage() {
     crud.setEditingItem(next);
   };
 
-  const updateField = (path: string, value: any) => {
+  const updateField = (path: string, value: unknown) => {
     updateFields({ [path]: value });
   };
 
@@ -235,8 +277,8 @@ export default function ProfilesPage() {
       key: 'source',
       label: t('profiles.colSource', 'Origem'),
       width: '12%',
-      format: (value: string) => {
-        switch (value) {
+      format: (value) => {
+        switch (String(value || '')) {
           case 'workdir':
             return t('profiles.sourceWorkdir', 'Projeto');
           case 'home':
@@ -244,7 +286,7 @@ export default function ProfilesPage() {
           case 'exe':
             return t('profiles.sourceExe', 'Embutido');
           default:
-            return value || '-';
+            return String(value || '-');
         }
       },
     },
@@ -252,8 +294,8 @@ export default function ProfilesPage() {
       key: 'isActive',
       label: t('profiles.colStatus', 'Status'),
       width: '10%',
-      format: (value: boolean) => {
-        const isActive = !!value;
+      format: (value) => {
+        const isActive = Boolean(value);
         return (
           <span className={isActive ? 'profiles-badge profiles-badge--active' : 'profiles-badge profiles-badge--inactive'}>
             {isActive ? t('profiles.active', 'Ativo') : t('profiles.inactive', 'Inativo')}
@@ -262,40 +304,51 @@ export default function ProfilesPage() {
       },
     },
     {
-      key: 'activate',
+      key: 'actions',
       label: '',
-      width: '6%',
-      action: true,
-      actionIcon: '✅',
-      actionLabel: t('profiles.activate', 'Ativar perfil'),
-    },
-    {
-      key: 'edit',
-      label: '',
-      width: '6%',
-      action: true,
-      actionIcon: '✏️',
-      actionLabel: t('profiles.edit', 'Editar perfil'),
-    },
-    {
-      key: 'delete',
-      label: '',
-      width: '6%',
-      action: true,
-      actionIcon: '🗑️',
-      actionLabel: t('profiles.delete', 'Excluir perfil'),
+      width: '8%',
+      format: (_value, item) => (
+        <MenuButton
+          items={getProfileRowActions(item)}
+          buttonLabel={t('profiles.actions', 'Ações')}
+        />
+      ),
     },
   ];
 
-  const handleCellAction = (item: ProfileRow, column: DataGridColumn<ProfileRow>) => {
-    if (column.key === 'activate') {
-      handleActivateProfile(item);
-    } else if (column.key === 'edit') {
-      handleEditProfile(item);
-    } else if (column.key === 'delete') {
-      crud.deleteItem(item);
-    }
-  };
+
+  // Gera as ações contextuais para cada linha
+  function getProfileRowActions(item: ProfileRow) {
+    return [
+      {
+        id: 'activate',
+        label: t('profiles.activate', 'Ativar perfil'),
+        icon: '✅',
+        onClick: () => handleActivateProfile(item),
+        disabled: !!item.isActive,
+      },
+      {
+        id: 'edit',
+        label: t('profiles.edit', 'Editar perfil'),
+        icon: '✏️',
+        onClick: () => handleEditProfile(item),
+      },
+      {
+        id: 'duplicate',
+        label: t('profiles.duplicate', 'Duplicar'),
+        icon: '📄',
+        onClick: () => handleDuplicateProfile(item),
+      },
+      {
+        id: 'delete',
+        label: t('profiles.delete', 'Excluir perfil'),
+        icon: '🗑️',
+        onClick: () => crud.deleteItem(item),
+        danger: true,
+        disabled: !!item.isActive,
+      },
+    ];
+  }
 
   const handleCellEdit = async (item: ProfileRow, column: DataGridColumn<ProfileRow>, newValue: string) => {
     if (column.key === 'name') {
@@ -307,7 +360,7 @@ export default function ProfilesPage() {
           updateField('name', newValue);
         }
         await crud.loadItems();
-      } catch (error) {
+      } catch {
         addToast(t('profiles.renameError', 'Erro ao renomear perfil'), 'error');
       }
     }
@@ -361,7 +414,37 @@ export default function ProfilesPage() {
             label: t('profiles.newProfile', 'Novo Perfil'),
             icon: '➕',
             onClick: handleNewProfile,
+            shortcut: 'Ctrl+N',
             variant: 'primary',
+          },
+          {
+            key: 'activate-profile',
+            label: t('profiles.activate', 'Ativar perfil'),
+            icon: '✅',
+            onClick: () => focusedRow && handleActivateProfile(focusedRow),
+            disabled: !focusedRow || !!focusedRow?.isActive,
+          },
+          {
+            key: 'edit-profile',
+            label: t('profiles.edit', 'Editar perfil'),
+            icon: '✏️',
+            onClick: () => focusedRow && handleEditProfile(focusedRow),
+            disabled: !focusedRow,
+          },
+          {
+            key: 'duplicate-profile',
+            label: t('profiles.duplicate', 'Duplicar'),
+            icon: '📄',
+            onClick: () => focusedRow && handleDuplicateProfile(focusedRow),
+            disabled: !focusedRow,
+          },
+          {
+            key: 'delete-profile',
+            label: t('profiles.delete', 'Excluir perfil'),
+            icon: '🗑️',
+            onClick: () => focusedRow && crud.deleteItem(focusedRow),
+            disabled: !focusedRow || !!focusedRow?.isActive,
+            variant: 'danger',
           },
         ]}
       />
@@ -375,9 +458,10 @@ export default function ProfilesPage() {
         onSelectionChange={setSelectedIds}
         onActivate={(item) => handleEditProfile(item)}
         onDelete={(item) => crud.deleteItem(item)}
-        onCellAction={handleCellAction}
         onCellEdit={handleCellEdit}
         onGridReady={handleGridReady}
+        getRowActions={getProfileRowActions}
+        onFocusChange={(item) => setFocusedRow(item as ProfileRow | null)}
       />
 
       {/* Editor Modal */}

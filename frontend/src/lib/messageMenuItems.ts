@@ -71,8 +71,6 @@ function extractCodeBlocks(content: string): Array<{ code: string; language: str
   } catch (error) {
     console.error('Erro ao extrair blocos de código:', error);
   }
-
-  console.log('🔍 extractCodeBlocks:', { total: blocks.length, blocks });
   return blocks;
 }
 
@@ -103,8 +101,6 @@ function extractLinks(content: string): Array<{ url: string; text: string }> {
   } catch (error) {
     console.error('Erro ao extrair links:', error);
   }
-
-  console.log('🔗 extractLinks:', { total: links.length, links });
   return links;
 }
 
@@ -160,7 +156,7 @@ function extractTables(content: string): Array<{ headers: string[]; rows: string
       .use(remarkGfm)
       .parse(content);
 
-    visit(tree, 'code', (node: any) => {
+    visit(tree, 'code', (node: Code) => {
       if (node.lang === 'markdown' || node.lang === 'md') {
         processMarkdown(node.value);
       }
@@ -275,16 +271,6 @@ export function getMessageMenuItems(
   const codeBlocks = extractCodeBlocks(content);
   const links = extractLinks(content);
   const tables = extractTables(content);
-  
-  console.log('📊 Elementos extraídos:', {
-    content: content.substring(0, 100) + '...',
-    codeBlocks: codeBlocks.length,
-    codeBlocksData: codeBlocks,
-    links: links.length,
-    linksData: links,
-    tables: tables.length,
-    tablesData: tables,
-  });
 
   // 1. AÇÃO PRIMÁRIA: Modo de leitura (virtual modal)
   items.push({
@@ -297,7 +283,9 @@ export function getMessageMenuItems(
   });
 
   // 1.5 Ver/Ocultar Raciocínio (se a mensagem tem reasoning)
-  const hasReasoning = !!(message as any).reasoning;
+  type MessageFlags = Message & { reasoning?: string; pinned?: boolean };
+  const messageFlags = message as MessageFlags;
+  const hasReasoning = !!messageFlags.reasoning;
   if (hasReasoning && onToggleReasoning) {
     items.push({
       id: 'toggle-reasoning',
@@ -472,7 +460,7 @@ export function getMessageMenuItems(
 
   // 5. Fixar/Desafixar
   if (onPin) {
-    const isPinned = (message as any).pinned || false;
+    const isPinned = messageFlags.pinned || false;
     items.push({
       id: 'pin',
       label: isPinned ? 'Desafixar mensagem' : 'Fixar mensagem',

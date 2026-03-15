@@ -40,14 +40,7 @@ export class SAPI5Provider extends BaseTTSProvider {
       // Tenta obter vozes para verificar disponibilidade
       const voices = await GetSAPI5Voices();
       this._isAvailable = voices && voices.length > 0;
-      
-      if (this._isAvailable) {
-        console.log('[SAPI5] Provider initialized with', voices.length, 'voices');
-      } else {
-        console.log('[SAPI5] No voices available (may not be on Windows)');
-      }
-    } catch (error) {
-      console.log('[SAPI5] Not available:', error);
+    } catch {
       this._isAvailable = false;
     }
   }
@@ -68,15 +61,13 @@ export class SAPI5Provider extends BaseTTSProvider {
         localService: true,
         description: v.description || `${v.name} (${v.language})`
       }));
-    } catch (error) {
-      console.error('[SAPI5] Error getting voices:', error);
+    } catch {
       return [];
     }
   }
   
   async setVoice(voiceName: string): Promise<void> {
     this._currentVoice = voiceName;
-    console.log('[SAPI5] Voz selecionada:', voiceName);
   }
   
   async setRate(rate: number): Promise<void> {
@@ -86,8 +77,8 @@ export class SAPI5Provider extends BaseTTSProvider {
     if (this._isAvailable) {
       try {
         await SetSAPI5Rate(this._rate);
-      } catch (error) {
-        console.error('[SAPI5] Error setting rate:', error);
+      } catch {
+        // best-effort
       }
     }
   }
@@ -104,8 +95,8 @@ export class SAPI5Provider extends BaseTTSProvider {
     if (this._isAvailable) {
       try {
         await SetSAPI5Volume(this._volume);
-      } catch (error) {
-        console.error('[SAPI5] Error setting volume:', error);
+      } catch {
+        // best-effort
       }
     }
   }
@@ -130,13 +121,10 @@ export class SAPI5Provider extends BaseTTSProvider {
       const voiceName = this._currentVoice || '';
       await SpeakSAPI5(text, voiceName);
       
-      console.log('[SAPI5] Falando:', text.substring(0, 50), 'com voz:', voiceName);
-      
       // Inicia monitoramento do estado
       this.startSpeakingMonitor();
       
     } catch (error) {
-      console.error('[SAPI5] Error speaking:', error);
       this.dispatchEvent('error', { error: error as Error });
     }
   }
@@ -154,8 +142,7 @@ export class SAPI5Provider extends BaseTTSProvider {
           this.stopSpeakingMonitor();
           this.dispatchEvent('end', undefined);
         }
-      } catch (error) {
-        console.error('[SAPI5] Error checking speaking state:', error);
+      } catch {
         this.stopSpeakingMonitor();
       }
     }, 100);
@@ -173,23 +160,19 @@ export class SAPI5Provider extends BaseTTSProvider {
       this.stopSpeakingMonitor();
       
       StopSAPI5()
-        .then(() => {
-          console.log('[SAPI5] Stopped');
-        })
-        .catch(error => {
-          console.error('[SAPI5] Error stopping:', error);
-        });
+        .then(() => undefined)
+        .catch(() => undefined);
     }
   }
   
   pause(): void {
     // SAPI5 não tem pause/resume nativo via Wails
     // Poderia implementar no backend se necessário
-    console.warn('[SAPI5] Pause not implemented');
+    return;
   }
   
   resume(): void {
-    console.warn('[SAPI5] Resume not implemented');
+    return;
   }
   
   isSpeaking(): boolean {

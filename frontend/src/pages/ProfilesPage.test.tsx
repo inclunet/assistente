@@ -1,8 +1,12 @@
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { ReactNode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
+const mockDuplicateProfile = vi.fn();
+
 vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
     t: (_key: string, fallback?: string) => fallback ?? _key,
   }),
@@ -24,6 +28,7 @@ vi.mock('@wailsjs/go/main/App', () => ({
   CreateProfile: vi.fn().mockResolvedValue('novo-perfil'),
   UpdateProfile: vi.fn().mockResolvedValue(undefined),
   DeleteProfile: vi.fn().mockResolvedValue(undefined),
+  DuplicateProfile: (slug: string) => mockDuplicateProfile(slug),
   GetLLMProviders: vi.fn().mockResolvedValue([]),
   GetProfile: vi.fn().mockResolvedValue({
     name: 'Perfil Padrão',
@@ -61,7 +66,7 @@ vi.mock('@wailsjs/go/main/App', () => ({
 vi.mock('@wailsjs/go/models', () => ({
   profiles: {
     Profile: class {
-      static createFrom(source: any = {}) {
+      static createFrom(source: unknown = {}) {
         return source;
       }
     },
@@ -84,24 +89,26 @@ vi.mock('../hooks/useGridFocus', () => ({
   }),
 }));
 
+const mockAnnounce = vi.fn();
 vi.mock('../hooks/useAnnouncer', () => ({
   useAnnouncer: () => ({
-    announce: vi.fn(),
+    announce: mockAnnounce,
   }),
 }));
 
+const mockAddToast = vi.fn();
 vi.mock('../store/uiStore', () => ({
   useUIStore: () => ({
-    addToast: vi.fn(),
+    addToast: mockAddToast,
   }),
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ left, actions }: any) => (
+  Toolbar: ({ left, actions }: { left?: ReactNode; actions?: Array<{ key: string; label: string; onClick: () => void }> }) => (
     <div>
       {left}
       <div>
-        {actions?.map((action: any) => (
+        {actions?.map((action) => (
           <button key={action.key} onClick={action.onClick}>
             {action.label}
           </button>
@@ -112,21 +119,44 @@ vi.mock('../components/ui/Toolbar', () => ({
 }));
 
 vi.mock('../components/ui/DataGrid', () => ({
-  DataGrid: ({ items }: any) => (
+  DataGrid: ({
+    items,
+    getRowActions,
+  }: {
+    items?: Array<{ id: string; name: string }>;
+    getRowActions?: (item: { id: string; name: string }) => Array<{ id: string; label: string; onClick: () => void }>;
+  }) => (
     <div>
-      {items?.map((item: any) => (
-        <div key={item.id}>{item.name}</div>
+      {items?.map((item) => (
+        <div key={item.id}>
+          <span>{item.name}</span>
+          {getRowActions?.(item)?.map((action) => (
+            <button key={action.id} onClick={action.onClick}>
+              {action.label}
+            </button>
+          ))}
+        </div>
       ))}
     </div>
   ),
 }));
 
 vi.mock('../components/ui/Modal', () => ({
-  Modal: ({ isOpen, children }: any) => (isOpen ? <div>{children}</div> : null),
+  Modal: ({ isOpen, children }: { isOpen: boolean; children: ReactNode }) => (isOpen ? <div>{children}</div> : null),
+  isModalOpen: () => false,
 }));
 
 vi.mock('../components', () => ({
-  Button: ({ onClick, children, loading, ...rest }: any) => (
+  Button: ({
+    onClick,
+    children,
+    loading,
+    ...rest
+  }: {
+    onClick?: () => void;
+    children?: ReactNode;
+    loading?: boolean;
+  }) => (
     <button onClick={onClick} disabled={loading} {...rest}>
       {children}
     </button>
@@ -134,12 +164,19 @@ vi.mock('../components', () => ({
 }));
 
 vi.mock('../components/ui/EditorPanel', () => ({
-  EditorPanelFooter: ({ children, className }: any) => (
+  EditorPanelFooter: ({ children, className }: { children: ReactNode; className?: string }) => (
     <div className={className}>{children}</div>
   ),
 }));
 
 describe('ProfilesPage', () => {
+  beforeEach(() => {
+    mockDuplicateProfile.mockReset();
+    mockAddToast.mockReset();
+    mockAnnounce.mockReset();
+    mockDuplicateProfile.mockResolvedValue('perfil-padrao-copia');
+  });
+
   it('abre editor ao criar novo perfil e renderiza seções principais', async () => {
     const user = userEvent.setup();
     const { default: ProfilesPage } = await import('./ProfilesPage');
@@ -160,4 +197,31 @@ describe('ProfilesPage', () => {
     expect(screen.getByText('Nenhum skill encontrado.')).toBeInTheDocument();
     expect(screen.getByText('Nenhuma ferramenta encontrada.')).toBeInTheDocument();
   }, 10000);
+
+  it('duplica um perfil via menu de acoes', async () => {
+    const user = userEvent.setup();
+    const { default: ProfilesPage } = await import('./ProfilesPage');
+    const app = await import('@wailsjs/go/main/App');
+
+    render(<ProfilesPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('Perfil Padrão')).toBeInTheDocument();
+    });
+
+    const duplicateButtons = screen.getAllByRole('button', { name: 'Duplicar' });
+    await user.click(duplicateButtons[duplicateButtons.length - 1]);
+
+    await waitFor(() => {
+      expect(mockDuplicateProfile).toHaveBeenCalledWith('padrao');
+    });
+
+    await waitFor(() => {
+      expect(mockAddToast).toHaveBeenCalledWith('Perfil duplicado!', 'success');
+    });
+
+    await waitFor(() => {
+      expect(vi.mocked(app.GetProfile)).toHaveBeenCalledWith('perfil-padrao-copia');
+    });
+  });
 });

@@ -34,7 +34,8 @@ function App() {
         // Aguardar Wails estar pronto antes de carregar configuração
         const loadConfig = async () => {
             // Verificar se Wails está disponível
-            if (typeof window === 'undefined' || !(window as any)['go']) {
+            const wailsWindow = window as Window & { go?: unknown };
+            if (typeof window === 'undefined' || !wailsWindow.go) {
                 setTimeout(loadConfig, 100);
                 return;
             }
@@ -57,7 +58,17 @@ function App() {
                     }
                 }
 
-                const config: any = await GetConfig();
+                const config = await GetConfig() as {
+                    api_key?: string;
+                    api_base_url?: string;
+                    chat_params?: {
+                        model?: string;
+                        temperature?: number;
+                        max_tokens?: number;
+                        stream?: boolean;
+                    };
+                    default_model?: string;
+                };
                 setConfig({
                     apiKey: config.api_key || '',
                     baseURL: config.api_base_url || 'https://api.openai.com/v1',
@@ -90,27 +101,34 @@ function App() {
 
     // Escuta eventos de conversa deletada/limpa para atualizar tabs
     useEffect(() => {
-        EventsOn('conversation:deleted', (data: any) => {
-            if (data.conversation_id) {
-                handleConversationDeleted(data.conversation_id);
+        EventsOn('conversation:deleted', (data: unknown) => {
+            const eventData = data as { conversation_id?: number };
+            if (eventData.conversation_id) {
+                handleConversationDeleted(eventData.conversation_id);
             }
         });
 
-        EventsOn('conversation:cleared', (data: any) => {
-            if (data.conversation_id) {
-                handleConversationCleared(data.conversation_id);
+        EventsOn('conversation:cleared', (data: unknown) => {
+            const eventData = data as { conversation_id?: number };
+            if (eventData.conversation_id) {
+                handleConversationCleared(eventData.conversation_id);
             }
         });
 
-        EventsOn('conversation:renamed', (data: any) => {
-            if (data.conversation_id && data.new_title) {
-                handleConversationRenamed(data.conversation_id, data.new_title);
+        EventsOn('conversation:renamed', (data: unknown) => {
+            const eventData = data as { conversation_id?: number; new_title?: string };
+            if (eventData.conversation_id && eventData.new_title) {
+                handleConversationRenamed(eventData.conversation_id, eventData.new_title);
             }
         });
 
-        EventsOn('tab:title_updated', (data: any) => {
-            if (data.tab_id && data.new_title) {
-                handleTabTitleUpdated(data.tab_id, data.new_title);
+        EventsOn('tab:title_updated', (data: unknown) => {
+            const eventData = data as { tab_id?: string; new_title?: string };
+            if (eventData.tab_id && eventData.new_title) {
+                const backendTabId = parseInt(eventData.tab_id, 10);
+                if (!Number.isNaN(backendTabId)) {
+                    handleTabTitleUpdated(backendTabId, eventData.new_title);
+                }
             }
         });
 
@@ -118,9 +136,13 @@ function App() {
             handleDatabaseReset();
         });
 
-        EventsOn('tab_closed', (data: any) => {
-            if (data.id) {
-                handleTabClosed(data.id);
+        EventsOn('tab_closed', (data: unknown) => {
+            const eventData = data as { id?: string };
+            if (eventData.id) {
+                const backendTabId = parseInt(eventData.id, 10);
+                if (!Number.isNaN(backendTabId)) {
+                    handleTabClosed(backendTabId);
+                }
             }
         });
 
@@ -128,16 +150,19 @@ function App() {
             navigate('/update');
         });
 
-        EventsOn('chat:summary_started', (data: any) => {
-            addToast(`Sumarizando conversa (${data.messageCount} mensagens)...`, 'info', 10000);
+        EventsOn('chat:summary_started', (data: unknown) => {
+            const eventData = data as { messageCount?: number };
+            addToast(`Sumarizando conversa (${eventData.messageCount ?? 0} mensagens)...`, 'info', 10000);
         });
 
-        EventsOn('chat:summary_completed', (data: any) => {
-            addToast(`Resumo da conversa atualizado (${data.messageCount} mensagens resumidas)`, 'success', 5000);
+        EventsOn('chat:summary_completed', (data: unknown) => {
+            const eventData = data as { messageCount?: number };
+            addToast(`Resumo da conversa atualizado (${eventData.messageCount ?? 0} mensagens resumidas)`, 'success', 5000);
         });
 
-        EventsOn('chat:summary_error', (data: any) => {
-            addToast(`Erro ao sumarizar conversa: ${data.error}`, 'error');
+        EventsOn('chat:summary_error', (data: unknown) => {
+            const eventData = data as { error?: string };
+            addToast(`Erro ao sumarizar conversa: ${eventData.error || ''}`, 'error');
         });
 
         return () => {
@@ -159,18 +184,30 @@ function App() {
     // e registra listeners de streaming (chat:stream, chat:done, etc.) — mesmo fluxo
     // do sendMessage, com som, TTS, announcer e streaming em tempo real.
     useEffect(() => {
-        const unsubIncoming = EventsOn('messaging:incoming', (data: any) => {
+        const unsubIncoming = EventsOn('messaging:incoming', (data: unknown) => {
+            const eventData = data as {
+                channel?: string;
+                from?: string;
+                fromId?: string;
+                text?: string;
+                conversationId?: number;
+                newConversation?: boolean;
+                tabId?: number;
+                tabCreated?: boolean;
+                tabTitle?: string;
+                tabIcon?: string;
+            };
             handleExternalIncoming({
-                channel: data.channel || '',
-                from: data.from || '',
-                fromId: data.fromId || '',
-                text: data.text || '',
-                conversationId: data.conversationId || 0,
-                newConversation: data.newConversation || false,
-                tabId: data.tabId || 0,
-                tabCreated: data.tabCreated || false,
-                tabTitle: data.tabTitle || '',
-                tabIcon: data.tabIcon || '',
+                channel: eventData.channel || '',
+                from: eventData.from || '',
+                fromId: eventData.fromId || '',
+                text: eventData.text || '',
+                conversationId: eventData.conversationId || 0,
+                newConversation: eventData.newConversation || false,
+                tabId: eventData.tabId || 0,
+                tabCreated: eventData.tabCreated || false,
+                tabTitle: eventData.tabTitle || '',
+                tabIcon: eventData.tabIcon || '',
             });
         });
 
@@ -231,7 +268,7 @@ function App() {
         wasQuestionnaireOpenRef.current = effectiveQuestionnaireOpen;
     }, [effectiveQuestionnaireOpen]);
 
-    const handleQuestionnaireSubmit = async (answers: Record<string, any>) => {
+    const handleQuestionnaireSubmit = async (answers: Record<string, unknown>) => {
         if (questionnaireOpen && questionnaireData) {
             try {
                 await RespondQuestionnaire(questionnaireData.id, answers, false);

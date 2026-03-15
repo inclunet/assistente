@@ -3,8 +3,23 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ChannelsSignalSection } from './ChannelsSignalSection';
 
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) =>
+      ({
+        'channels.signal.enabled': 'Habilitado',
+        'channels.signal.apiUrl': 'URL da API',
+        'channels.signal.apiUrlPlaceholder': 'http://localhost:8080',
+        'channels.signal.apiToken': 'Token da API (opcional)',
+        'channels.signal.apiTokenPlaceholder': 'Bearer token',
+        'channels.signal.saveVault': 'Salvar token no cofre de credenciais',
+      } as Record<string, string>)[key] ?? key,
+  }),
+}));
+
 vi.mock('../pickers/ProfilePicker', () => ({
-  ProfilePicker: ({ value, onChange, label }: any) => (
+  ProfilePicker: ({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) => (
     <div>
       <label htmlFor="profile-picker">{label}</label>
       <select

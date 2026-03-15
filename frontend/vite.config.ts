@@ -36,5 +36,32 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     emptyOutDir: true,
+    chunkSizeWarningLimit: 5000,
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          if (!id.includes('node_modules')) return;
+
+          if (id.includes('monaco-editor') || id.includes('@monaco-editor')) {
+            return 'monaco';
+          }
+
+          if (id.includes('mermaid') || id.includes('cytoscape') || id.includes('katex')) {
+            return 'mermaid';
+          }
+
+          if (
+            id.includes('tiptap') ||
+            id.includes('markdown-it') ||
+            id.includes('react-markdown') ||
+            id.includes('remark-') ||
+            id.includes('rehype-') ||
+            id.includes('react-syntax-highlighter')
+          ) {
+            return 'editor';
+          }
+        },
+      },
+    },
   },
 })

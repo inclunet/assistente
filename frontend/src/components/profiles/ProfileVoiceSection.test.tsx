@@ -7,7 +7,7 @@ import { VOICE_DISABLED } from '../pickers/VoicePicker';
 // Mock VoicePicker para evitar imports de @wailsjs
 vi.mock('../pickers/VoicePicker', () => ({
   VOICE_DISABLED: '__disabled__',
-  VoicePicker: ({ value, onChange, label }: any) => (
+  VoicePicker: ({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) => (
     <div data-testid="voice-picker-mock">
       <label>{label}</label>
       <button onClick={() => onChange('test-voice')}>

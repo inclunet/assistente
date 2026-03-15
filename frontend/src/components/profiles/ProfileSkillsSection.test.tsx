@@ -5,6 +5,7 @@ import { ProfileSkillsSection } from './ProfileSkillsSection';
 vi.mock('@wailsjs/go/models', () => ({}));
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
     t: (_key: string, defaultValue: string) => defaultValue,
   }),
@@ -14,11 +15,11 @@ vi.mock('../../services/audioFeedback', () => ({
   playBumpSound: vi.fn(),
 }));
 
-const mockSkills = [
+const mockSkills: Array<{ name: string; slug: string; description: string }> = [
   { name: 'Skill 1', slug: 'skill-1', description: 'First skill' },
   { name: 'Skill 2', slug: 'skill-2', description: 'Second skill' },
   { name: 'Skill 3', slug: 'skill-3', description: 'Third skill' },
-] as any;
+];
 
 describe('ProfileSkillsSection', () => {
   it('renderiza a seção de skills', () => {

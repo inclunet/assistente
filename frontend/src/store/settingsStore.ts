@@ -61,11 +61,17 @@ export const useSettingsStore = create<SettingsState>()(
     {
       name: 'assistente-settings',
       version: 1,
-      migrate: (persisted: any, version: number) => {
-        if (version === 0 && persisted?.config?.theme === 'amethyst') {
-          persisted.config.theme = 'assistente';
+      migrate: (persisted: unknown, version: number) => {
+        const persistedState =
+          typeof persisted === 'object' && persisted !== null
+            ? (persisted as { config?: AppConfig | null })
+            : {};
+
+        if (version === 0 && persistedState.config?.theme === 'amethyst') {
+          persistedState.config = { ...persistedState.config, theme: 'assistente' };
         }
-        return persisted as { config: AppConfig | null };
+
+        return persistedState as { config: AppConfig | null };
       },
       partialize: (state) => ({ config: state.config }),
     }

@@ -41,7 +41,6 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
       setIsLoading(true);
       GetConversationTokenStats(conversationId)
         .then((data) => {
-          console.log('[TokenStatsButton] Stats carregadas:', data);
           setStats(data);
         })
         .catch((error) => {
@@ -69,23 +68,22 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
     // Escuta atualizações de tokens (emitido após streaming)
     const unsubscribeTokens = EventsOn('chat:token_stats', (data: TokenStats) => {
       if (data.conversationId === conversationId) {
-        console.log('[TokenStatsButton] Stats atualizadas via evento chat:token_stats:', data);
         setStats(data);
       }
     });
 
     // Escuta quando mensagens do usuário são adicionadas (antes do streaming)
-    const unsubscribeMessages = EventsOn('chat:messages_ready', (data: any) => {
-      if (data.conversationId === conversationId) {
-        console.log('[TokenStatsButton] Mensagens prontas, recarregando stats...');
+    const unsubscribeMessages = EventsOn('chat:messages_ready', (data: unknown) => {
+      const eventData = data as { conversationId?: number };
+      if (eventData.conversationId === conversationId) {
         loadStats();
       }
     });
 
     // Escuta quando o streaming termina (garantia extra de atualização)
-    const unsubscribeDone = EventsOn('chat:done', (data: any) => {
-      if (data.conversationId === conversationId) {
-        console.log('[TokenStatsButton] Chat finalizado, recarregando stats...');
+    const unsubscribeDone = EventsOn('chat:done', (data: unknown) => {
+      const eventData = data as { conversationId?: number };
+      if (eventData.conversationId === conversationId) {
         loadStats();
       }
     });
@@ -99,7 +97,6 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
 
   // Não renderiza se não houver conversationId
   if (!conversationId) {
-    console.log('[TokenStatsButton] Não renderizando: sem conversationId');
     return null;
   }
 

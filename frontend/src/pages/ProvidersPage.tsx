@@ -1,12 +1,17 @@
 import { useState, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import {
   GetLLMProvidersWithStatus,
+  CreateLLMProvider,
+  DeleteLLMProvider,
 } from '@wailsjs/go/main/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
+import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
-import { Modal } from '../components/ui/Modal';
+import { Modal, isModalOpen } from '../components/ui/Modal';
 import { ProviderForm, ProviderFormData } from '../components/settings/ProviderForm';
 import { useGridFocus } from '../hooks/useGridFocus';
+import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import './ProvidersPage.css';
 
@@ -25,8 +30,13 @@ interface ProviderRow extends Provider {
 }
 
 export default function ProvidersPage() {
+  const { t } = useTranslation();
   const { addToast } = useUIStore();
+  const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
+
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error ?? '');
 
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -34,12 +44,14 @@ export default function ProvidersPage() {
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [isEditing, setIsEditing] = useState(false);
   const [editingProvider, setEditingProvider] = useState<ProviderFormData | undefined>(undefined);
+  const [focusedRow, setFocusedRow] = useState<ProviderRow | null>(null);
 
   const loadProviders = async () => {
     setLoading(true);
     try {
       const result = await GetLLMProvidersWithStatus();
-      const mapped = (result || []).map((p: any) => ({
+      const items = (result || []) as Provider[];
+      const mapped = items.map((p) => ({
         ...p,
         id: p.id,
         statusText: getStatusText(p.credential_status),
@@ -47,7 +59,7 @@ export default function ProvidersPage() {
       setProviders(mapped);
     } catch (error) {
       console.error('Erro ao carregar provedores:', error);
-      addToast('Erro ao carregar provedores', 'error');
+      addToast(t('providers.error.loadFailed', 'Erro ao carregar provedores'), 'error');
     } finally {
       setLoading(false);
     }
@@ -60,12 +72,12 @@ export default function ProvidersPage() {
   const getStatusText = (status: string): string => {
     switch (status) {
       case 'configured':
-        return 'Configurado';
+        return t('providers.status.configured', 'Configurado');
       case 'missing':
-        return 'Credencial faltando';
+        return t('providers.status.missing', 'Credencial faltando');
       case 'none':
       default:
-        return 'Não requer';
+        return t('providers.status.none', 'Não requer');
     }
   };
 
@@ -73,6 +85,25 @@ export default function ProvidersPage() {
     setEditingProvider(undefined);
     setIsEditing(true);
   };
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isModalOpen()) return;
+      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.key !== 'n' && event.key !== 'N') return;
+      const target = event.target as HTMLElement | null;
+      const isInput =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable;
+      if (isInput) return;
+      event.preventDefault();
+      handleAddProvider();
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [handleAddProvider]);
 
   const handleEditProvider = (provider: ProviderRow) => {
     setEditingProvider({
@@ -83,6 +114,49 @@ export default function ProvidersPage() {
       api_key: '',
     });
     setIsEditing(true);
+  };
+
+  const getDuplicateName = (name: string) => {
+    const base = `${name} (Copia)`;
+    const existing = new Set(providers.map((item) => item.name.toLowerCase()));
+    if (!existing.has(base.toLowerCase())) return base;
+    let index = 2;
+    while (existing.has(`${base} ${index}`.toLowerCase())) {
+      index += 1;
+    }
+    return `${base} ${index}`;
+  };
+
+  const handleDuplicateProvider = async (provider: ProviderRow) => {
+    try {
+      const name = getDuplicateName(provider.name);
+      await CreateLLMProvider({
+        id: `${provider.type}-${Date.now()}`,
+        name,
+        type: provider.type,
+        base_url: provider.base_url,
+      });
+      addToast(t('providers.toast.duplicated'), 'success');
+      announce(t('providers.toast.duplicated'));
+      await loadProviders();
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || t('providers.error.duplicateFailed'), 'error');
+    }
+  };
+
+  const handleDeleteProvider = async (provider: ProviderRow) => {
+    const confirmMessage = t('providers.confirm.delete', { name: provider.name });
+    if (!confirm(confirmMessage)) return;
+    try {
+      type WailsContext = Parameters<typeof DeleteLLMProvider>[0];
+      const emptyContext = null as unknown as WailsContext;
+      await DeleteLLMProvider(emptyContext, provider.id);
+      addToast(t('providers.toast.deleted'), 'success');
+      announce(t('providers.toast.deleted'));
+      await loadProviders();
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || t('providers.error.deleteFailed'), 'error');
+    }
   };
 
   const handleSaveSuccess = async () => {
@@ -99,32 +173,67 @@ export default function ProvidersPage() {
   const columns: DataGridColumn<ProviderRow>[] = [
     {
       key: 'name',
-      label: 'Nome',
+      label: t('providers.columns.name', 'Nome'),
       width: '25%',
     },
     {
       key: 'type',
-      label: 'Tipo',
+      label: t('providers.columns.type', 'Tipo'),
       width: '15%',
     },
     {
       key: 'base_url',
-      label: 'Base URL',
+      label: t('providers.columns.baseUrl', 'Base URL'),
       width: '40%',
     },
     {
       key: 'statusText',
-      label: 'Status Credencial',
-      width: '20%',
-      format: (value: string, row: ProviderRow) => (
+      label: t('providers.columns.status', 'Status Credencial'),
+      width: '15%',
+      format: (value, row: ProviderRow) => (
         <span
           className={`provider-status provider-status--${row.credential_status}`}
         >
-          {value}
+          {String(value || '')}
         </span>
       ),
     },
+    {
+      key: 'actions',
+      label: '',
+      width: '5%',
+      format: (_value, item) => (
+        <MenuButton
+          items={getProviderRowActions(item)}
+          buttonLabel={t('providers.actions.actions', 'Ações')}
+        />
+      ),
+    },
   ];
+  // Gera as ações contextuais para cada linha de provedor
+  function getProviderRowActions(item: ProviderRow) {
+    return [
+      {
+        id: 'edit',
+        label: t('providers.actions.edit', 'Editar'),
+        icon: '✏️',
+        onClick: () => handleEditProvider(item),
+      },
+      {
+        id: 'duplicate',
+        label: t('providers.actions.duplicate', 'Duplicar'),
+        icon: '📄',
+        onClick: () => handleDuplicateProvider(item),
+      },
+      {
+        id: 'delete',
+        label: t('providers.actions.delete', 'Excluir'),
+        icon: '🗑️',
+        onClick: () => handleDeleteProvider(item),
+        danger: true,
+      },
+    ];
+  }
 
   const filteredRows = providers.filter((row) =>
     searchTerm === ''
@@ -136,20 +245,40 @@ export default function ProvidersPage() {
 
   return (
     <div className="providers-page">
-      {loading && <div className="loading">Carregando...</div>}
+      {loading && <div className="loading">{t('providers.loading', 'Carregando...')}</div>}
       {!loading && (
         <>
           <Toolbar
-            left={<h2>Provedores LLM</h2>}
-            searchPlaceholder="Buscar provedores..."
+            left={<h2>{t('providers.pageTitle', 'Provedores LLM')}</h2>}
+            searchPlaceholder={t('providers.search', 'Buscar provedores...')}
             searchValue={searchTerm}
             onSearchChange={setSearchTerm}
             actions={[
               {
                 key: 'add',
-                label: 'Adicionar Provedor',
+                label: t('providers.actions.add', 'Adicionar Provedor'),
                 onClick: handleAddProvider,
+                shortcut: 'Ctrl+N',
                 variant: 'primary',
+              },
+              {
+                key: 'edit',
+                label: t('providers.actions.edit', 'Editar'),
+                onClick: () => focusedRow && handleEditProvider(focusedRow),
+                disabled: !focusedRow,
+              },
+              {
+                key: 'duplicate',
+                label: t('providers.actions.duplicate', 'Duplicar'),
+                onClick: () => focusedRow && handleDuplicateProvider(focusedRow),
+                disabled: !focusedRow,
+              },
+              {
+                key: 'delete',
+                label: t('providers.actions.delete', 'Excluir'),
+                onClick: () => focusedRow && handleDeleteProvider(focusedRow),
+                disabled: !focusedRow,
+                variant: 'danger',
               },
             ]}
           />
@@ -161,13 +290,17 @@ export default function ProvidersPage() {
             onSelectionChange={setSelectedIds}
             onActivate={handleEditProvider}
             onGridReady={handleGridReady}
-            label="Lista de provedores LLM"
+            label={t('providers.gridLabel', 'Lista de provedores LLM')}
+            getRowActions={getProviderRowActions}
+            onFocusChange={(item) => setFocusedRow(item as ProviderRow | null)}
           />
 
           <Modal
             isOpen={isEditing}
             onClose={handleCancelEdit}
-            title={editingProvider?.id ? 'Editar Provedor' : 'Novo Provedor'}
+            title={editingProvider?.id
+              ? t('providers.modal.editTitle', 'Editar Provedor')
+              : t('providers.modal.newTitle', 'Novo Provedor')}
             size="md"
           >
             <div className="providers-editor">

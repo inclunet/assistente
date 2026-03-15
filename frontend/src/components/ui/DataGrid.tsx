@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { ContextMenu, MenuItem } from './menu';
+import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { playBumpSound } from '../../services/audioFeedback';
 import './DataGrid.css';
 
-export interface DataGridColumn<T = any> {
+export interface DataGridColumn<T = unknown> {
   key: string;
   label: string;
   width?: string;
@@ -11,10 +13,10 @@ export interface DataGridColumn<T = any> {
   actionIcon?: string;
   actionLabel?: string; // Texto acessível para leitores de tela (ex: "Abrir", "Editar", "Excluir")
   editable?: boolean;
-  format?: (value: any, item: T) => string | React.ReactNode;
+  format?: (value: unknown, item: T) => string | React.ReactNode;
 }
 
-export interface DataGridProps<T = any> {
+export interface DataGridProps<T = unknown> {
   items: T[];
   columns: DataGridColumn<T>[];
   label?: string;
@@ -33,14 +35,19 @@ export interface DataGridProps<T = any> {
   onFocusChange?: (item: T | null, rowIndex: number) => void;
   className?: string;
   showHeader?: boolean;
+  /**
+   * Função que retorna as ações contextuais para um item (linha) do grid.
+   * Usada para o menu de contexto e coluna de ações.
+   */
+  getRowActions?: (item: T) => MenuItem[];
 }
 
-export function DataGrid<T = any>({
+export function DataGrid<T = unknown>({
   items,
   columns,
   label = 'Grid de dados',
   autoFocusOnMount = true,
-  getItemId = (item: any) => item.id,
+  getItemId = (item: T) => (item as { id?: string | number }).id ?? '',
   selectedIds,
   multiSelect = false,
   selectionMode = 'list',
@@ -54,7 +61,9 @@ export function DataGrid<T = any>({
   onFocusChange,
   className,
   showHeader = true,
+  getRowActions,
 }: DataGridProps<T>) {
+  // Menu de contexto (clique direito)
   const [focusedRow, setFocusedRow] = useState(0);
   const [focusedCol, setFocusedCol] = useState(0);
   const [editingRow, setEditingRow] = useState(-1);
@@ -82,18 +91,11 @@ export function DataGrid<T = any>({
 
   // Cria função estável para focar a primeira célula
   const focusFirstCell = useCallback(() => {
-    console.log('focusFirstCell chamada');
     // Sempre pega as células disponíveis no momento da chamada
     const cellKey = '0-0';
     const cellElement = cellRefs.current.get(cellKey);
-    console.log('Célula encontrada:', {
-      cellKey,
-      cellElement: !!cellElement,
-      totalCells: cellRefs.current.size
-    });
     if (cellElement) {
       cellElement.focus();
-      console.log('Foco definido na célula');
     }
   }, []); // cellRefs é uma ref e não muda
 
@@ -102,8 +104,7 @@ export function DataGrid<T = any>({
     if (onGridReady) {
       onGridReady(focusFirstCell);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Apenas no mount para evitar re-registro
+  }, [focusFirstCell, onGridReady]);
 
   const announce = (message: string) => {
     // Limpa o timer anterior se existir
@@ -163,6 +164,22 @@ export function DataGrid<T = any>({
     focusedColRef.current = focusedCol;
   }, [focusedRow, focusedCol]);
 
+  // Função auxiliar para focar célula - chamada explicitamente quando necessário
+  const focusCell = useCallback((row: number, col: number) => {
+    if (rowCount === 0 || columnCount === 0) return;
+    
+    const cellKey = `${row}-${col}`;
+    const cellElement = cellRefs.current.get(cellKey);
+    if (cellElement && document.activeElement !== cellElement) {
+      cellElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+      cellElement.focus();
+    }
+  }, [rowCount, columnCount]);
+
+  const focusCurrentCell = useCallback(() => {
+    focusCell(focusedRowRef.current, focusedColRef.current);
+  }, [focusCell]);
+
   // Rastreia qual item está focado por ID e notifica o pai
   useEffect(() => {
     if (items.length > 0 && focusedRow >= 0 && focusedRow < items.length) {
@@ -184,8 +201,7 @@ export function DataGrid<T = any>({
       setFocusedRow(newIndex);
       setTimeout(() => focusCell(newIndex, focusedColRef.current), 0);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [items, getItemId]);
+  }, [items, getItemId, focusCell]);
 
   // Foca no input ao editar
   useEffect(() => {
@@ -195,17 +211,45 @@ export function DataGrid<T = any>({
     }
   }, [editingRow, editingCol]);
 
-  // Função auxiliar para focar célula - chamada explicitamente quando necessário
-  const focusCell = useCallback((row: number, col: number) => {
-    if (rowCount === 0 || columnCount === 0) return;
-    
-    const cellKey = `${row}-${col}`;
+  const {
+    menu: contextMenu,
+    openForTrigger: openContextMenuForTrigger,
+    openAtPoint: openContextMenuAtPoint,
+    closeMenu: closeContextMenu,
+    onSelectItem: onContextMenuSelectItem,
+  } = useAnchoredContextMenu({
+    onAfterSelect: focusCurrentCell,
+    onAfterDismiss: focusCurrentCell,
+    restoreTriggerFocusOnDismiss: false,
+    restoreTriggerFocusOnSelect: false,
+  });
+
+  // Handler de clique direito na linha
+  const normalizeRowActions = useCallback((actions: MenuItem[]): MenuItem[] => {
+    return actions.map((action) => ({
+      ...action,
+      action: action.action ?? (action as MenuItem & { onClick?: () => void }).onClick,
+      submenu: action.submenu ? normalizeRowActions(action.submenu) : undefined,
+    }));
+  }, []);
+
+  const handleRowContextMenu = (item: T, rowIndex: number) => (event: React.MouseEvent) => {
+    if (!getRowActions) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const rawActions = getRowActions(item);
+    const actions = rawActions ? normalizeRowActions(rawActions) : rawActions;
+    if (!actions || actions.length === 0) return;
+    const cellKey = `${rowIndex}-${focusedColRef.current}`;
     const cellElement = cellRefs.current.get(cellKey);
-    if (cellElement && document.activeElement !== cellElement) {
-      cellElement.scrollIntoView({ block: 'nearest', inline: 'nearest' });
-      cellElement.focus();
-    }
-  }, [rowCount, columnCount]);
+    openContextMenuAtPoint(
+      event.clientX,
+      event.clientY,
+      label,
+      actions,
+      cellElement ?? (event.currentTarget as HTMLElement)
+    );
+  };
 
   const toggleSelection = (rowIndex: number) => {
     const itemId = getItemId(items[rowIndex]);
@@ -302,9 +346,21 @@ export function DataGrid<T = any>({
         }
         return;
 
-      case 'Enter':
+      case 'Enter': {
         event.preventDefault();
         const colEnter = columns[focusedCol];
+        if (colEnter.key === 'actions' && getRowActions) {
+          const rawActions = getRowActions(items[focusedRow]);
+          const actions = rawActions ? normalizeRowActions(rawActions) : rawActions;
+          if (actions && actions.length > 0) {
+            const cellKey = `${focusedRow}-${focusedCol}`;
+            const cellElement = cellRefs.current.get(cellKey);
+            if (cellElement) {
+              openContextMenuForTrigger(cellElement, colEnter.actionLabel || label, actions);
+            }
+          }
+          return;
+        }
         if (colEnter.action) {
           // Se for célula de ação, executa a ação
           onCellAction?.(items[focusedRow], colEnter, focusedRow, focusedCol);
@@ -313,6 +369,7 @@ export function DataGrid<T = any>({
           onActivate?.(items[focusedRow], focusedRow);
         }
         return;
+      }
 
       case 'Delete':
         event.preventDefault();
@@ -489,6 +546,36 @@ export function DataGrid<T = any>({
         newRow = Math.min(rowCount - 1, focusedRow + 10);
         handled = true;
         break;
+
+      case 'ContextMenu':
+        if (getRowActions) {
+          event.preventDefault();
+          const rawActions = getRowActions(items[focusedRow]);
+          const actions = rawActions ? normalizeRowActions(rawActions) : rawActions;
+          if (actions && actions.length > 0) {
+            const cellKey = `${focusedRow}-${focusedCol}`;
+            const cellElement = cellRefs.current.get(cellKey);
+            if (cellElement) {
+              openContextMenuForTrigger(cellElement, label, actions);
+            }
+          }
+        }
+        return;
+
+      case 'F10':
+        if (event.shiftKey && getRowActions) {
+          event.preventDefault();
+          const rawActions = getRowActions(items[focusedRow]);
+          const actions = rawActions ? normalizeRowActions(rawActions) : rawActions;
+          if (actions && actions.length > 0) {
+            const cellKey = `${focusedRow}-${focusedCol}`;
+            const cellElement = cellRefs.current.get(cellKey);
+            if (cellElement) {
+              openContextMenuForTrigger(cellElement, label, actions);
+            }
+          }
+        }
+        return;
     }
 
     if (handled && (newRow !== focusedRow || newCol !== focusedCol)) {
@@ -521,15 +608,20 @@ export function DataGrid<T = any>({
   };
 
   const handleCellClick = (rowIndex: number, colIndex: number, event: React.MouseEvent) => {
+    const target = event.target as HTMLElement | null;
+    if (target?.closest('.menu-wrapper') || target?.closest('.menu-toggle')) {
+      setFocusedRow(rowIndex);
+      setFocusedCol(colIndex);
+      setTimeout(() => focusCell(rowIndex, colIndex), 0);
+      return;
+    }
     const col = columns[colIndex];
-    console.log('DataGrid handleCellClick:', { rowIndex, colIndex, columnKey: col.key, isAction: col.action });
     
     setFocusedRow(rowIndex);
     setFocusedCol(colIndex);
     
     // Se for célula de ação, executa a ação e para a propagação
     if (col.action) {
-      console.log('Executando ação para coluna:', col.key);
       event.preventDefault();
       event.stopPropagation();
       onCellAction?.(items[rowIndex], col, rowIndex, colIndex);
@@ -689,6 +781,7 @@ export function DataGrid<T = any>({
               role="row"
               aria-rowindex={rowIndex + 1}
               aria-selected={isSelected}
+              onContextMenu={getRowActions ? handleRowContextMenu(item, rowIndex) : undefined}
             >
               {columns.map((column, colIndex) => {
                 const isCellFocused = rowIndex === focusedRow && colIndex === focusedCol;
@@ -705,6 +798,7 @@ export function DataGrid<T = any>({
                     role="gridcell"
                     style={{ width: column.width }}
                     aria-colindex={colIndex + 1}
+                    aria-label={column.actionLabel || undefined}
                     onClick={(e) => handleCellClick(rowIndex, colIndex, e)}
                     tabIndex={isCellFocused ? 0 : -1}
                   >
@@ -715,6 +809,16 @@ export function DataGrid<T = any>({
             </div>
           );
         })}
+          {/* Renderiza o ContextMenu global do grid */}
+          <ContextMenu
+            items={contextMenu.items}
+            x={contextMenu.x}
+            y={contextMenu.y}
+            visible={contextMenu.visible}
+            ariaLabel={contextMenu.ariaLabel}
+            onClose={closeContextMenu}
+            onSelect={onContextMenuSelectItem}
+          />
       </div>
     </div>
   );

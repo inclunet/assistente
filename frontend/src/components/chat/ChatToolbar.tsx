@@ -138,7 +138,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     focusInput();
   }, [focusInput]);
 
-  const handleHistoryChange = async (conversationId: number, conversation: any) => {
+  const handleHistoryChange = async (conversationId: number, conversation: { title?: string }) => {
     try {
       await loadConversationInActiveTab(conversationId, conversation.title || t('chat.conversationLoaded'));
       announce(`${t('chat.conversationLoaded')}: ${conversation.title || t('chat.conversationLoaded')}`);

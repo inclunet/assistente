@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import type { QuestionnairePayload } from '../components/ui/QuestionnaireDialog';
 
 export type QuestionnaireUIResult = {
-  answers: Record<string, any>;
+  answers: Record<string, unknown>;
   cancelled: boolean;
 };
 
@@ -17,7 +17,7 @@ interface QuestionnaireUIState {
   _activeResolve: ((result: QuestionnaireUIResult) => void) | null;
 
   request: (data: QuestionnairePayload) => Promise<QuestionnaireUIResult>;
-  submit: (answers: Record<string, any>) => void;
+  submit: (answers: Record<string, unknown>) => void;
   cancel: () => void;
 }
 

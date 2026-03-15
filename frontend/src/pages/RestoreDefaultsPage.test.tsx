@@ -1,10 +1,36 @@
-import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach, vi, type MockInstance } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import RestoreDefaultsPage from './RestoreDefaultsPage';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
 import * as AppAPI from '@wailsjs/go/main/App';
+
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) =>
+      ({
+        'restore.pageTitle': 'Restaurar Padrões',
+        'restore.description': 'Gerencie a restauração e limpeza de dados do assistente',
+        'restore.sections.appearance': '🎨 Aparência',
+        'restore.sections.quickActions': '⚡ Operações Rápidas',
+        'restore.sections.granular': '🎛️ Limpeza Granular',
+        'restore.sections.nuclear': '💣 Opções Nucleares',
+        'restore.sections.security': '🔐 Segurança - Senha Mestre',
+        'restore.aria.appearance': 'Aparência - escolha o tema visual',
+        'restore.aria.selectTheme': 'Selecionar tema',
+        'restore.aria.quickActions': 'Operações Rápidas',
+        'restore.aria.granular': 'Limpeza Granular',
+        'restore.aria.nuclear': 'Opções Nucleares',
+        'restore.aria.security': 'Segurança',
+        'restore.items.clearMessages': '🗑️ Limpar Mensagens e Conversas',
+        'restore.items.clearMessagesDesc':
+          'Apaga todas as mensagens e conversas, mantendo perfis e credenciais',
+        'restore.buttons.clear': 'Limpar',
+      } as Record<string, string>)[key] ?? key,
+  }),
+}));
 
 vi.mock('../store/uiStore');
 vi.mock('../store/chatStore');
@@ -17,16 +43,17 @@ vi.mock('../hooks/useAnnouncer', () => ({
 
 const mockAddToast = vi.fn();
 const mockHandleDatabaseReset = vi.fn();
+let confirmSpy: MockInstance<(message?: string) => boolean>;
 
 describe('RestoreDefaultsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    (useUIStore as any).mockReturnValue({
+    vi.mocked(useUIStore).mockReturnValue({
       addToast: mockAddToast,
     });
 
-    (useChatStore as any).mockReturnValue({
+    vi.mocked(useChatStore).mockReturnValue({
       handleDatabaseReset: mockHandleDatabaseReset,
     });
 
@@ -37,7 +64,8 @@ describe('RestoreDefaultsPage', () => {
     vi.mocked(AppAPI.ClearAllChannels).mockResolvedValue(undefined);
     vi.mocked(AppAPI.ResetDatabase).mockResolvedValue(undefined);
 
-    window.confirm = vi.fn();
+    const windowWithConfirm = window as Window & { confirm: (message?: string) => boolean };
+    confirmSpy = vi.spyOn(windowWithConfirm, 'confirm');
   });
 
   describe('Rendering', () => {
@@ -95,7 +123,7 @@ describe('RestoreDefaultsPage', () => {
   describe('Confirmação de operações', () => {
     it('deve chamar window.confirm ao iniciar uma operação', async () => {
       const user = userEvent.setup();
-      (window.confirm as any).mockReturnValue(false); // Cancelar operação
+      confirmSpy.mockReturnValue(false); // Cancelar operação
 
       render(<RestoreDefaultsPage />);
 
@@ -116,7 +144,7 @@ describe('RestoreDefaultsPage', () => {
 
     it('deve cancelar operação se confirmação for recusada', async () => {
       const user = userEvent.setup();
-      (window.confirm as any).mockReturnValue(false);
+      confirmSpy.mockReturnValue(false);
 
       render(<RestoreDefaultsPage />);
 
@@ -137,7 +165,7 @@ describe('RestoreDefaultsPage', () => {
   describe('Operações específicas', () => {
     it('deve chamar ResetDatabase para opções nucleares quando confirmado', async () => {
       const user = userEvent.setup();
-      (window.confirm as any).mockReturnValue(true);
+      confirmSpy.mockReturnValue(true);
 
       render(<RestoreDefaultsPage />);
 
@@ -165,7 +193,7 @@ describe('RestoreDefaultsPage', () => {
 
     it('deve chamar handleDatabaseReset quando ResetDatabase é executado', async () => {
       const user = userEvent.setup();
-      (window.confirm as any).mockReturnValue(true);
+      confirmSpy.mockReturnValue(true);
 
       render(<RestoreDefaultsPage />);
 

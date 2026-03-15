@@ -3,6 +3,42 @@ import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProfileChatSection } from './ProfileChatSection';
 
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) => {
+      const translations: Record<string, string> = {
+        'profiles.chatSection.provider': 'Provedor LLM',
+        'profiles.chatSection.model': 'Modelo',
+        'profiles.chatSection.temperature': 'Temperatura',
+        'profiles.chatSection.maxTokens': 'Max Tokens',
+        'profiles.chatSection.maxTokensFormat': 'Formato do parâmetro max_tokens',
+        'profiles.chatSection.maxTokensLegacy': 'Legacy (max_tokens) - Padrão',
+        'profiles.chatSection.maxTokensCompletion': 'Completion Tokens (max_completion_tokens) - GPT-4o, o1, etc',
+        'profiles.chatSection.maxTokensHint': '"legacy" usa max_tokens (maioria dos modelos). "completion_tokens" usa max_completion_tokens (GPT-4o, o1, modelos novos OpenAI).',
+        'profiles.chatSection.contextWindow': 'Janela de Contexto (tokens)',
+        'profiles.chatSection.contextWindowHint': 'Total de tokens suportados pelo modelo (ex: 128000). 0 = não definido. Quando definido, ativa sumarização automática.',
+        'profiles.chatSection.maxMessages': 'Máx. Mensagens no Contexto',
+        'profiles.chatSection.maxMessagesHint': 'Limite de mensagens enviadas ao modelo. 0 = padrão (50).',
+        'profiles.chatSection.minPreserved': 'Mín. Mensagens Preservadas',
+        'profiles.chatSection.minPreservedHint': 'Mínimo de mensagens mantidas após sumarização. 0 = padrão (10).',
+        'profiles.chatSection.topP': 'Top P',
+        'profiles.chatSection.timeout': 'Timeout (segundos)',
+        'profiles.chatSection.reasoning': 'Raciocínio (Reasoning)',
+        'profiles.chatSection.reasoningOllama': 'Ativado (Ollama)',
+        'profiles.chatSection.reasoningOff': 'Desativado',
+        'profiles.chatSection.reasoningNone': 'Mínimo (none)',
+        'profiles.chatSection.reasoningLow': 'Baixo (low)',
+        'profiles.chatSection.reasoningMedium': 'Médio (medium)',
+        'profiles.chatSection.reasoningHigh': 'Alto (high)',
+        'profiles.chatSection.reasoningMax': 'Máximo (max)',
+        'profiles.chatSection.reasoningHint': 'Define como o modelo usa tokens de raciocínio interno.',
+      };
+      return translations[key] ?? key;
+    },
+  }),
+}));
+
 vi.mock('../pickers/ModelPicker', () => ({
   ModelPicker: ({ value, onChange, label, disabled }: { value: string; onChange: (value: string) => void; label?: string; disabled?: boolean }) => (
     <div data-testid="model-picker-mock">

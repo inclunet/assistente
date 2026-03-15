@@ -30,7 +30,7 @@ export interface ProfileChatSectionProps {
       | 'reasoning_effort',
     value: string | number
   ) => void;
-  onMultiChange?: (updates: Record<string, any>) => void;
+  onMultiChange?: (updates: Record<string, unknown>) => void;
   disabled?: boolean;
 }
 
@@ -92,7 +92,6 @@ export function ProfileChatSection({
         <ModelPicker
           value={model || ''}
           onChange={(value) => {
-            console.log('[ProfileChatSection] Modelo selecionado:', value);
             onChange('model', value);
           }}
           label={t('profiles.chatSection.model')}

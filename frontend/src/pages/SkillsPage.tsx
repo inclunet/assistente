@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   GetSkills,
@@ -7,19 +7,22 @@ import {
   UpdateSkill,
   DeleteSkill,
   GetSkillSearchPaths,
+  DuplicateSkill,
 } from '@wailsjs/go/main/App';
 import { skills, main } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
+import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button } from '../components';
-import { Modal } from '../components/ui/Modal';
+import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { SkillGeneralSection } from '../components/skills/SkillGeneralSection';
 import { SkillContentSection } from '../components/skills/SkillContentSection';
 import { SkillToolsSection } from '../components/skills/SkillToolsSection';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useEditableList } from '../hooks/useEditableList';
-import { useState } from 'react';
+import { useAnnouncer } from '../hooks/useAnnouncer';
+import { useUIStore } from '../store/uiStore';
 import './SkillsPage.css';
 
 type SkillInfo = skills.SkillInfo;
@@ -35,6 +38,7 @@ interface SkillRow {
   // Campos para edição (só preenchidos após loadItem)
   content?: string;
   toolsString?: string;
+  [key: string]: unknown;
 }
 
 interface SkillFormData {
@@ -49,10 +53,18 @@ interface SkillFormData {
 export default function SkillsPage() {
   const { t } = useTranslation();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+  const { addToast } = useUIStore();
+  const { announce } = useAnnouncer();
+
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error ?? '');
+
+  const getAllowedTools = (tools?: { allowed?: string[] }) => tools?.allowed || [];
 
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedIds, setSelectedIds] = useState<Set<string | number>>(new Set());
   const [searchPaths, setSearchPaths] = useState<string[]>([]);
+  const [focusedRow, setFocusedRow] = useState<SkillRow | null>(null);
 
   // useEditableList hook gerencia todo estado CRUD
   const crud = useEditableList<SkillRow, SkillFormData, SkillFormData>(
@@ -66,7 +78,7 @@ export default function SkillsPage() {
           description: s.description || '',
           auto: !s.disableModelInvocation,
           source: s.source,
-          tools: (s.tools as any)?.allowed || [],
+          tools: getAllowedTools(s.tools as { allowed?: string[] } | undefined),
         }));
       },
       loadItem: async (id) => {
@@ -78,9 +90,9 @@ export default function SkillsPage() {
           description: skill.description,
           auto: !skill.disableModelInvocation,
           source: skill.source,
-          tools: (skill.tools as any)?.allowed || [],
+          tools: getAllowedTools(skill.tools as { allowed?: string[] } | undefined),
           content: skill.content,
-          toolsString: ((skill.tools as any)?.allowed || []).join(', '),
+          toolsString: getAllowedTools(skill.tools as { allowed?: string[] } | undefined).join(', '),
         };
       },
       createItem: async (data) => {
@@ -158,6 +170,25 @@ export default function SkillsPage() {
     GetSkillSearchPaths().then(paths => setSearchPaths(paths || []));
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isModalOpen()) return;
+      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.key !== 'n' && event.key !== 'N') return;
+      const target = event.target as HTMLElement | null;
+      const isInput =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable;
+      if (isInput) return;
+      event.preventDefault();
+      crud.openNew();
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [crud]);
+
   // --- Grid columns ---
 
   const columns: DataGridColumn<SkillRow>[] = [
@@ -176,8 +207,8 @@ export default function SkillsPage() {
       key: 'auto',
       label: t('skills.colMode', 'Modo'),
       width: '12%',
-      format: (value: any) =>
-        value ? (
+      format: (value) =>
+        Boolean(value) ? (
           <span className="skills-badge skills-badge--auto">
             {t('skills.auto', 'Auto')}
           </span>
@@ -191,8 +222,8 @@ export default function SkillsPage() {
       key: 'source',
       label: t('skills.colSource', 'Origem'),
       width: '13%',
-      format: (value: any) => {
-        switch (value) {
+      format: (value) => {
+        switch (String(value || '')) {
           case 'workdir':
             return t('skills.sourceWorkdir', 'Projeto');
           case 'home':
@@ -200,35 +231,64 @@ export default function SkillsPage() {
           case 'exe':
             return t('skills.sourceExe', 'Embutido');
           default:
-            return value;
+            return String(value || '');
         }
       },
     },
     {
-      key: 'edit',
+      key: 'actions',
       label: '',
-      width: '5%',
-      action: true,
-      actionIcon: '✏️',
-      actionLabel: t('skills.edit', 'Editar skill'),
-    },
-    {
-      key: 'delete',
-      label: '',
-      width: '5%',
-      action: true,
-      actionIcon: '🗑️',
-      actionLabel: t('skills.delete', 'Excluir skill'),
+      width: '10%',
+      format: (_val, row) => (
+        <MenuButton
+          items={getRowActions(row)}
+          buttonLabel={t('skills.actions.actions', 'Ações')}
+        />
+      ),
     },
   ];
 
-  const handleCellAction = (item: SkillRow, column: DataGridColumn<SkillRow>) => {
-    if (column.key === 'edit') {
-      crud.openEdit(item);
-    } else if (column.key === 'delete') {
-      crud.deleteItem(item);
+  function getRowActions(row: SkillRow) {
+    return [
+      {
+        id: 'edit',
+        label: t('skills.edit', 'Editar skill'),
+        icon: '✏️',
+        onClick: () => crud.openEdit(row),
+      },
+      {
+        id: 'duplicate',
+        label: t('skills.duplicate', 'Duplicar'),
+        icon: '📄',
+        onClick: () => handleDuplicateSkill(row),
+      },
+      {
+        id: 'delete',
+        label: t('skills.delete', 'Excluir skill'),
+        icon: '🗑️',
+        onClick: () => crud.deleteItem(row),
+        danger: true,
+      },
+    ];
+  }
+
+  const handleDuplicateSkill = async (row: SkillRow) => {
+    try {
+      const newSlug = await DuplicateSkill(row.slug);
+      const successMessage = t('skills.duplicated', 'Skill duplicado!');
+      addToast(successMessage, 'success');
+      announce(successMessage);
+      await crud.loadItems();
+      await crud.openEdit({ id: newSlug, slug: newSlug, name: row.name } as SkillRow);
+    } catch (error: unknown) {
+      addToast(
+        getErrorMessage(error) || t('skills.duplicateError', 'Erro ao duplicar skill'),
+        'error'
+      );
     }
   };
+
+  // Removido: handleCellAction (ações agora via MenuButton/getRowActions)
 
   // --- Filtering ---
 
@@ -273,7 +333,30 @@ export default function SkillsPage() {
             label: t('skills.newSkill', 'Novo Skill'),
             icon: '➕',
             onClick: crud.openNew,
+            shortcut: 'Ctrl+N',
             variant: 'primary',
+          },
+          {
+            key: 'edit-skill',
+            label: t('skills.edit', 'Editar skill'),
+            icon: '✏️',
+            onClick: () => focusedRow && crud.openEdit(focusedRow),
+            disabled: !focusedRow,
+          },
+          {
+            key: 'duplicate-skill',
+            label: t('skills.duplicate', 'Duplicar'),
+            icon: '📄',
+            onClick: () => focusedRow && handleDuplicateSkill(focusedRow),
+            disabled: !focusedRow,
+          },
+          {
+            key: 'delete-skill',
+            label: t('skills.delete', 'Excluir skill'),
+            icon: '🗑️',
+            onClick: () => focusedRow && crud.deleteItem(focusedRow),
+            disabled: !focusedRow,
+            variant: 'danger',
           },
         ]}
       />
@@ -287,8 +370,9 @@ export default function SkillsPage() {
         onSelectionChange={setSelectedIds}
         onActivate={item => crud.openEdit(item)}
         onDelete={item => crud.deleteItem(item)}
-        onCellAction={handleCellAction}
         onGridReady={handleGridReady}
+        getRowActions={getRowActions}
+        onFocusChange={(item) => setFocusedRow(item as SkillRow | null)}
       />
 
       {/* Editor Modal */}
@@ -303,18 +387,19 @@ export default function SkillsPage() {
             <SkillGeneralSection
               item={crud.editingItem}
               onFieldChange={(field, value) => {
-                crud.updateField(field as any, value);
+                const nextField = field as keyof SkillFormData;
+                crud.updateField(nextField, value as SkillFormData[keyof SkillFormData]);
               }}
             />
 
             <SkillContentSection
               content={crud.editingItem.content || ''}
-              onContentChange={(content) => crud.updateField('content' as any, content)}
+              onContentChange={(content) => crud.updateField('content', content)}
             />
 
             <SkillToolsSection
               toolsString={crud.editingItem.toolsString || ''}
-              onToolsChange={(toolsString) => crud.updateField('toolsString' as any, toolsString)}
+              onToolsChange={(toolsString) => crud.updateField('toolsString', toolsString)}
             />
 
             <EditorPanelFooter className="skills-editor__footer">

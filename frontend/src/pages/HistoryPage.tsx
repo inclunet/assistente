@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations, SearchConversationHistory } from '@wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
+import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useChatStore } from '../store/chatStore';
@@ -30,8 +31,13 @@ export default function HistoryPage() {
   const [snippetsMap, setSnippetsMap] = useState<Map<number, string>>(new Map());
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
   const { focusFirstCell, handleGridReady } = useGridFocus();
   const openConversationInNewTab = useChatStore(state => state.openConversationInNewTab);
+
+  const handleFocusFirstCell = useCallback(() => {
+    focusFirstCell?.();
+  }, [focusFirstCell]);
 
   useEffect(() => {
     loadConversations();
@@ -99,7 +105,7 @@ export default function HistoryPage() {
     setLoading(true);
     try {
       const result = await GetConversations();
-      const mapped = result.map((c: any) => ({
+      const mapped = (result || []).map((c: Conversation) => ({
         id: c.id,
         title: c.title || t('history.untitled', 'Sem título'),
         created_at: c.created_at,
@@ -228,39 +234,59 @@ export default function HistoryPage() {
       key: 'created_at',
       label: t('history.created', 'Criada em'),
       width: '20%',
-      format: (value) => formatRelativeTime(new Date(value).getTime()),
+      format: (value) => {
+        const dateValue = value instanceof Date || typeof value === 'string' || typeof value === 'number'
+          ? value
+          : undefined;
+        const timestamp = dateValue ? new Date(dateValue).getTime() : 0;
+        return formatRelativeTime(timestamp);
+      },
     },
     {
       key: 'updated_at',
       label: t('history.updated', 'Atualizada em'),
       width: '20%',
-      format: (value) => formatRelativeTime(new Date(value).getTime()),
+      format: (value) => {
+        const dateValue = value instanceof Date || typeof value === 'string' || typeof value === 'number'
+          ? value
+          : undefined;
+        const timestamp = dateValue ? new Date(dateValue).getTime() : 0;
+        return formatRelativeTime(timestamp);
+      },
     },
     {
-      key: 'open',
+      key: 'actions',
       label: '',
-      width: '2.5%',
-      action: true,
-      actionIcon: '📂',
-      actionLabel: t('history.openConversation', 'Abrir conversa'),
-    },
-    {
-      key: 'delete',
-      label: '',
-      width: '2.5%',
-      action: true,
-      actionIcon: '🗑️',
-      actionLabel: t('history.deleteConversation', 'Excluir conversa'),
+      width: '5%',
+      format: (_value, item) => (
+        <MenuButton
+          items={[
+            {
+              id: 'open',
+              label: t('history.openConversation', 'Abrir conversa'),
+              icon: '📂',
+              onClick: () => handleOpenConversation(item.id, item.title),
+            },
+            {
+              id: 'edit',
+              label: t('history.editConversation', 'Editar título'),
+              icon: '✏️',
+              onClick: () => handleFocusFirstCell(), // Foca para edição, pode customizar
+            },
+            {
+              id: 'delete',
+              label: t('history.deleteConversation', 'Excluir conversa'),
+              icon: '🗑️',
+              onClick: () => handleDeleteConversation(item.id),
+            },
+          ]}
+          buttonLabel={t('history.actions', 'Ações')}
+        />
+      ),
     },
   ];
 
-  const handleCellAction = (item: Conversation, column: DataGridColumn<Conversation>) => {
-    if (column.key === 'open') {
-      handleOpenConversation(item.id, item.title);
-    } else if (column.key === 'delete') {
-      handleDeleteConversation(item.id);
-    }
-  };
+  // handleCellAction não é mais necessário, pois as ações estão no MenuButton
 
   const handleCellEdit = async (item: Conversation, column: DataGridColumn<Conversation>, newValue: string) => {
     if (column.key === 'title') {
@@ -280,7 +306,7 @@ export default function HistoryPage() {
   if (loading) {
     return (
       <div className="history-page">
-        <div className="loading">Carregando histórico...</div>
+        <div className="loading">{t('history.loading', 'Carregando histórico...')}</div>
       </div>
     );
   }
@@ -292,7 +318,7 @@ export default function HistoryPage() {
         searchPlaceholder={t('history.search', 'Buscar conversas...')}
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
-        onFocusGrid={focusFirstCell}
+        onFocusGrid={handleFocusFirstCell}
         actions={[
           {
             key: 'new-conversation',
@@ -301,6 +327,28 @@ export default function HistoryPage() {
             onClick: handleNewConversation,
             variant: 'primary',
             shortcut: 'Ctrl+N',
+          },
+          {
+            key: 'open-conversation',
+            label: t('history.openConversation', 'Abrir conversa'),
+            icon: '📂',
+            onClick: () => focusedRow && handleOpenConversation(focusedRow.id, focusedRow.title),
+            disabled: !focusedRow,
+          },
+          {
+            key: 'edit-title',
+            label: t('history.editConversation', 'Editar título'),
+            icon: '✏️',
+            onClick: () => handleFocusFirstCell(),
+            disabled: !focusedRow,
+          },
+          {
+            key: 'delete',
+            label: t('history.deleteConversation', 'Excluir conversa'),
+            icon: '🗑️',
+            onClick: () => focusedRow && handleDeleteConversation(focusedRow.id),
+            disabled: !focusedRow,
+            variant: 'danger',
           },
           {
             key: 'export',
@@ -338,13 +386,13 @@ export default function HistoryPage() {
       <DataGrid
         items={displayItems}
         columns={columns}
-        onCellAction={handleCellAction}
         onCellEdit={handleCellEdit}
         onDelete={(item: Conversation) => handleDeleteConversation(item.id)}
         selectedIds={selectedIds}
         multiSelect={true}
         onSelectionChange={setSelectedIds}
         onGridReady={handleGridReady}
+        onFocusChange={(item) => setFocusedRow(item as Conversation | null)}
       />
     </div>
   );

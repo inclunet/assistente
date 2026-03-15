@@ -1987,6 +1987,30 @@ func (a *App) CreateSkill(req SkillCreateRequest) (string, error) {
 	return slug, nil
 }
 
+// DuplicateSkill cria uma copia de um skill existente.
+func (a *App) DuplicateSkill(slug string) (string, error) {
+	if a.skillMgr == nil {
+		return "", fmt.Errorf("skill manager não inicializado")
+	}
+
+	newSlug, err := a.skillMgr.Duplicate(slug)
+	if err != nil {
+		return "", err
+	}
+
+	name := ""
+	if copied, err := a.skillMgr.Get(newSlug); err == nil && copied != nil {
+		name = copied.Name
+	}
+
+	runtime.EventsEmit(a.ctx, "skill:created", map[string]interface{}{
+		"slug": newSlug,
+		"name": name,
+	})
+
+	return newSlug, nil
+}
+
 // UpdateSkill atualiza um skill existente.
 func (a *App) UpdateSkill(slug string, req SkillCreateRequest) error {
 	if a.skillMgr == nil {
@@ -2081,6 +2105,14 @@ func (a *App) SaveMCPServer(slug string, cfg mcpmgr.ServerConfig) error {
 		return fmt.Errorf("MCP manager não inicializado")
 	}
 	return a.mcpMgr.SaveConfig(slug, cfg)
+}
+
+// DuplicateMCPServer cria uma copia da configuracao de um servidor MCP.
+func (a *App) DuplicateMCPServer(slug string) (string, error) {
+	if a.mcpMgr == nil {
+		return "", fmt.Errorf("MCP manager não inicializado")
+	}
+	return a.mcpMgr.DuplicateConfig(slug)
 }
 
 // DeleteMCPServer remove a configuração de um servidor MCP.
@@ -3024,6 +3056,24 @@ func (a *App) CreateProfile(profile profiles.Profile) (string, error) {
 	})
 
 	return slug, nil
+}
+
+// DuplicateProfile cria uma copia de um perfil existente.
+func (a *App) DuplicateProfile(slug string) (string, error) {
+	newSlug, err := a.profileManager.Duplicate(slug)
+	if err != nil {
+		return "", err
+	}
+
+	profile, err := a.profileManager.Get(newSlug)
+	if err == nil && profile != nil {
+		runtime.EventsEmit(a.ctx, "profile:created", map[string]interface{}{
+			"slug": newSlug,
+			"name": profile.Name,
+		})
+	}
+
+	return newSlug, nil
 }
 
 // UpdateProfile atualiza um perfil existente

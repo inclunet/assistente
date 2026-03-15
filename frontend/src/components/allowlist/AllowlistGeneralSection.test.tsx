@@ -2,17 +2,27 @@ import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { AllowlistGeneralSection } from './AllowlistGeneralSection';
+import { allowlist } from '../../../wailsjs/go/models';
+
+const buildItem = (overrides: Partial<allowlist.Allowlist> = {}): allowlist.Allowlist => ({
+  name: '',
+  description: '',
+  auto_approve: [],
+  always_deny: [],
+  default_action: 'confirm',
+  ...overrides,
+});
 
 describe('AllowlistGeneralSection', () => {
   it('renderiza campos com valores informados', () => {
     const onFieldChange = vi.fn();
     render(
       <AllowlistGeneralSection
-        item={{
+        item={buildItem({
           name: 'Minha allowlist',
           description: 'Permissões padrão',
           default_action: 'deny',
-        } as any}
+        })}
         onFieldChange={onFieldChange}
       />
     );
@@ -26,7 +36,7 @@ describe('AllowlistGeneralSection', () => {
     const onFieldChange = vi.fn();
     render(
       <AllowlistGeneralSection
-        item={{ name: 'Sem ação' } as any}
+        item={buildItem({ name: 'Sem ação' })}
         onFieldChange={onFieldChange}
       />
     );
@@ -38,7 +48,7 @@ describe('AllowlistGeneralSection', () => {
     const onFieldChange = vi.fn();
     render(
       <AllowlistGeneralSection
-        item={{ name: '', description: '' } as any}
+        item={buildItem({ name: '', description: '' })}
         onFieldChange={onFieldChange}
       />
     );
@@ -55,7 +65,7 @@ describe('AllowlistGeneralSection', () => {
     const onFieldChange = vi.fn();
     render(
       <AllowlistGeneralSection
-        item={{ default_action: 'confirm' } as any}
+        item={buildItem({ default_action: 'confirm' })}
         onFieldChange={onFieldChange}
       />
     );
@@ -69,7 +79,7 @@ describe('AllowlistGeneralSection', () => {
     const onFieldChange = vi.fn();
     render(
       <AllowlistGeneralSection
-        item={{} as any}
+        item={buildItem()}
         onFieldChange={onFieldChange}
       />
     );

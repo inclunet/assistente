@@ -120,7 +120,11 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
 
     const findMessageInState = (state: ReturnType<typeof useChatStore.getState>) => {
       const targetId = String(messageId);
-      const visit = (nodes: any[]): any | null => {
+      type ThreadedNode = {
+        message?: { id?: string | number; content?: string; isStreaming?: boolean; reasoning?: string; toolCalls?: string | null };
+        children?: ThreadedNode[];
+      };
+      const visit = (nodes: ThreadedNode[]): ThreadedNode['message'] | null => {
         for (const n of nodes || []) {
           const msg = n?.message;
           if (msg && String(msg.id) === targetId) return msg;
@@ -132,8 +136,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         return null;
       };
 
-      for (const tab of state.tabs || []) {
-        const hit = visit((tab as any).threadedMessages || []);
+      type TabLike = { threadedMessages?: ThreadedNode[] };
+      for (const tab of (state.tabs as TabLike[]) || []) {
+        const hit = visit(tab.threadedMessages || []);
         if (hit) return hit;
       }
       return null;
@@ -480,7 +485,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             {/* Non-agentic messages: flat layout (reasoning → tools → content) */}
             {role === 'assistant' && (effectiveToolCallsRaw || (effectiveIsStreaming && effectiveToolCalls && effectiveToolCalls.length > 0)) && (
               <ToolCallsSection
-                toolCallsJson={effectiveToolCallsRaw as any}
+                toolCallsJson={effectiveToolCallsRaw || undefined}
                 activeToolCalls={effectiveIsStreaming ? effectiveToolCalls : undefined}
               />
             )}

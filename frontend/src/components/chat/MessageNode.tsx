@@ -17,9 +17,9 @@ export interface MessageNodeProps {
   siblingCount?: number;
   onLoadChildren?: (messageId: string) => Promise<MessageNodeType[]>;
   onReachEnd?: () => void; // Chamado quando tenta ir além do último item no level 0
-  onContextMenu?: (e: React.MouseEvent, message: any) => void;
-  onSpeak?: (message: any) => void;
-  onDelete?: (message: any) => void;
+  onContextMenu?: (e: React.MouseEvent, message: Message) => void;
+  onSpeak?: (message: Message) => void;
+  onDelete?: (message: Message) => void;
   onSendToEditor?: (payload: {
     target: 'current' | 'new_tab';
     format: 'markdown' | 'html' | 'plain';

@@ -11,9 +11,19 @@ import (
 type TransportType string
 
 const (
-	TransportStdio      TransportType = "stdio"
-	TransportSSE        TransportType = "sse"
-	TransportStreamable TransportType = "streamable"
+	TransportStdio TransportType = "stdio"
+	TransportSSE   TransportType = "sse"
+)
+
+// AuthType define o tipo de autenticação do servidor MCP.
+type AuthType string
+
+const (
+	AuthNone                   AuthType = "none"
+	AuthBearer                 AuthType = "bearer"
+	AuthBasic                  AuthType = "basic"
+	AuthOAuth2ClientCredentials AuthType = "oauth2_client_credentials"
+	AuthOAuth2PKCE              AuthType = "oauth2_pkce"
 )
 
 // ConnectionStatus representa o estado de conexão de um servidor MCP.
@@ -26,43 +36,26 @@ const (
 	StatusError        ConnectionStatus = "error"
 )
 
-// AuthType identifica o mecanismo de autenticação de um servidor MCP.
-type AuthType string
-
-const (
-	AuthNone                    AuthType = "none"
-	AuthBearer                  AuthType = "bearer"
-	AuthBasic                   AuthType = "basic"
-	AuthOAuth2ClientCredentials AuthType = "oauth2_client_credentials"
-	AuthOAuth2PKCE              AuthType = "oauth2_pkce"
-)
-
-// ServerConfig é a configuração de um servidor MCP, armazenada em JSON.
+// ServerConfig é a configuração de um servidor MCP, armazenada em YAML.
 // Cada arquivo em .assistente/mcp/ representa um servidor.
-//
-// Segredos (tokens, client_secret) são armazenados no credential manager
-// centralizado, não neste arquivo. Os campos OAuth2 aqui são apenas
-// configuração não-sensível (client_id, URLs, scopes).
 type ServerConfig struct {
 	Name        string            `json:"name" yaml:"name"`
 	Description string            `json:"description,omitempty" yaml:"description,omitempty"`
 	Transport   TransportType     `json:"transport" yaml:"transport"`
-	Command     string            `json:"command,omitempty" yaml:"command,omitempty"`
-	Args        []string          `json:"args,omitempty" yaml:"args,omitempty"`
-	Env         map[string]string `json:"env,omitempty" yaml:"env,omitempty"`
-	URL         string            `json:"url,omitempty" yaml:"url,omitempty"`
+	Command     string            `json:"command,omitempty" yaml:"command,omitempty"`     // apenas stdio
+	Args        []string          `json:"args,omitempty" yaml:"args,omitempty"`           // apenas stdio
+	Env         map[string]string `json:"env,omitempty" yaml:"env,omitempty"`             // variáveis de ambiente
+	URL         string            `json:"url,omitempty" yaml:"url,omitempty"`             // apenas sse
+	AuthType    AuthType          `json:"authType,omitempty" yaml:"authType,omitempty"`
+	OAuth2ClientID        string   `json:"oauth2ClientId,omitempty" yaml:"oauth2ClientId,omitempty"`
+	OAuth2AuthURL         string   `json:"oauth2AuthUrl,omitempty" yaml:"oauth2AuthUrl,omitempty"`
+	OAuth2TokenURL        string   `json:"oauth2TokenUrl,omitempty" yaml:"oauth2TokenUrl,omitempty"`
+	OAuth2Scopes          []string `json:"oauth2Scopes,omitempty" yaml:"oauth2Scopes,omitempty"`
+	OAuth2CallbackPort    int      `json:"oauth2CallbackPort,omitempty" yaml:"oauth2CallbackPort,omitempty"`
+	OAuth2CallbackHost    string   `json:"oauth2CallbackHost,omitempty" yaml:"oauth2CallbackHost,omitempty"`
+	OAuth2RegistrationURL string   `json:"oauth2RegistrationUrl,omitempty" yaml:"oauth2RegistrationUrl,omitempty"`
 	Enabled     bool              `json:"enabled" yaml:"enabled"`
 	AutoConnect bool              `json:"auto_connect" yaml:"auto_connect"`
-
-	// Auth config (não-sensível). Segredos ficam no credential manager.
-	AuthType               AuthType `json:"auth_type,omitempty"`
-	OAuth2ClientID         string   `json:"oauth2_client_id,omitempty"`
-	OAuth2TokenURL         string   `json:"oauth2_token_url,omitempty"`
-	OAuth2AuthURL          string   `json:"oauth2_auth_url,omitempty"`
-	OAuth2Scopes           []string `json:"oauth2_scopes,omitempty"`
-	OAuth2RegistrationURL  string   `json:"oauth2_registration_url,omitempty"`
-	OAuth2CallbackPort     int      `json:"oauth2_callback_port,omitempty"`
-	OAuth2CallbackHost     string   `json:"oauth2_callback_host,omitempty"`
 }
 
 // ServerStatus é o estado runtime de um servidor MCP (não persistido).
@@ -77,9 +70,8 @@ type ServerStatus struct {
 	ConnectedAt *time.Time        `json:"connectedAt,omitempty"`
 	LastPing    *time.Time        `json:"lastPing,omitempty"`
 	RetryCount  int               `json:"retryCount,omitempty"`
-	Roots       []Root            `json:"roots,omitempty"`
+	Roots       []Root            `json:"roots,omitempty"`           // workspace roots informados ao servidor
 	Capabilities ServerCapabilities `json:"capabilities"`
-	HasAuth     bool              `json:"hasAuth"`
 }
 
 // ServerInfo é a versão exportada para o frontend (sem campos sensíveis como env).
@@ -101,11 +93,9 @@ type ServerInfo struct {
 	ConnectedAt   string            `json:"connectedAt,omitempty"`
 	LastPing      string            `json:"lastPing,omitempty"`
 	// Campos de config visíveis (sem env)
-	Command  string   `json:"command,omitempty"`
-	Args     []string `json:"args,omitempty"`
-	URL      string   `json:"url,omitempty"`
-	AuthType AuthType `json:"authType,omitempty"`
-	HasAuth  bool     `json:"hasAuth"`
+	Command string   `json:"command,omitempty"`
+	Args    []string `json:"args,omitempty"`
+	URL     string   `json:"url,omitempty"`
 }
 
 // MCPToolInfo contém informações sobre uma tool exposta por um servidor MCP.
@@ -161,8 +151,6 @@ func (s *ServerStatus) toServerInfo() ServerInfo {
 		Command:       s.Config.Command,
 		Args:          s.Config.Args,
 		URL:           s.Config.URL,
-		AuthType:      s.Config.AuthType,
-		HasAuth:       s.HasAuth,
 	}
 	if s.ConnectedAt != nil {
 		info.ConnectedAt = s.ConnectedAt.Format(time.RFC3339)
@@ -283,4 +271,3 @@ type ToolsCapability struct {
 
 // SamplingCapability indica se o servidor suporta sampling.
 type SamplingCapability struct{}
-

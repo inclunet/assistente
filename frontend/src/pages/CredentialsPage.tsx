@@ -1,10 +1,11 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/main/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
+import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { Button, Input, Select } from '../components';
-import { Modal } from '../components/ui/Modal';
+import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useEditableList } from '../hooks/useEditableList';
@@ -20,11 +21,13 @@ interface CredentialRow {
   password?: string;
   headerName?: string;
   headerValue?: string;
+  [key: string]: unknown;
 }
 
 export default function CredentialsPage() {
   const { t } = useTranslation();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+  const [focusedRow, setFocusedRow] = useState<CredentialRow | null>(null);
 
   const typeOptions = [
     { value: 'bearer', label: t('credentials.types.bearer') },
@@ -142,19 +145,91 @@ export default function CredentialsPage() {
     crud.loadItems();
   }, []);
 
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (isModalOpen()) return;
+      if (!event.ctrlKey || event.shiftKey || event.altKey) return;
+      if (event.key !== 'n' && event.key !== 'N') return;
+      const target = event.target as HTMLElement | null;
+      const isInput =
+        target?.tagName === 'INPUT' ||
+        target?.tagName === 'TEXTAREA' ||
+        target?.isContentEditable;
+      if (isInput) return;
+      event.preventDefault();
+      crud.openNew();
+    };
+
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => window.removeEventListener('keydown', handleKeyDown, true);
+  }, [crud]);
+
   const columns: DataGridColumn<CredentialRow>[] = [
     { key: 'pattern', label: t('credentials.labels.pattern'), width: '260px', truncate: true },
     { key: 'type', label: t('credentials.labels.type'), width: '120px' },
     { key: 'masked', label: t('credentials.labels.value'), truncate: true },
+    {
+      key: 'actions',
+      label: '',
+      width: '6%',
+      format: (_val, row) => (
+        <MenuButton
+          items={getCredentialRowActions(row)}
+          buttonLabel={t('credentials.actions', 'Ações')}
+        />
+      ),
+    },
   ];
+
+  function getCredentialRowActions(row: CredentialRow) {
+    return [
+      {
+        id: 'edit',
+        label: t('credentials.buttons.edit', 'Editar'),
+        icon: '✏️',
+        onClick: () => crud.openEdit(row),
+      },
+      {
+        id: 'delete',
+        label: t('credentials.buttons.delete', 'Excluir'),
+        icon: '🗑️',
+        onClick: () => crud.deleteItem(row),
+        danger: true,
+      },
+    ];
+  }
 
   return (
     <div className="credentials-page">
       <Toolbar
         left={<h1 className="page-toolbar__title">{t('credentials.pageTitle')}</h1>}
-        right={<Button onClick={crud.openNew} variant="primary">{t('credentials.buttons.new')}</Button>}
         ariaLabel={t('credentials.aria.toolbar')}
         onFocusGrid={focusFirstCell}
+        actions={[
+          {
+            key: 'new',
+            label: t('credentials.buttons.new'),
+            icon: '+',
+            onClick: crud.openNew,
+            shortcut: 'Ctrl+N',
+            variant: 'primary',
+          },
+          {
+            key: 'edit',
+            label: t('credentials.buttons.edit', 'Editar'),
+            icon: '✏️',
+            onClick: () => focusedRow && crud.openEdit(focusedRow),
+            disabled: !focusedRow,
+          },
+          {
+            key: 'delete',
+            label: t('credentials.buttons.delete', 'Excluir'),
+            icon: '🗑️',
+            onClick: () => focusedRow && crud.deleteItem(focusedRow),
+            disabled: !focusedRow,
+            variant: 'danger',
+          },
+        ]}
       />
 
       <div className="credentials-page__content">
@@ -163,9 +238,11 @@ export default function CredentialsPage() {
           items={crud.items}
           getItemId={(row) => row.id}
           onActivate={(row) => crud.openEdit(row)}
-          onDelete={(row) => crud.deleteItem(row as any)}
+          onDelete={(row) => crud.deleteItem(row)}
           label={t('credentials.pageTitle')}
           onGridReady={handleGridReady}
+          getRowActions={getCredentialRowActions}
+          onFocusChange={(row) => setFocusedRow(row)}
         />
       </div>
 
@@ -249,7 +326,11 @@ export default function CredentialsPage() {
           {!crud.isNew && crud.editingItem && (
             <Button
               variant="danger"
-              onClick={() => crud.deleteItem(crud.editingItem as any)}
+              onClick={() => {
+                if (crud.editingItem) {
+                  void crud.deleteItem(crud.editingItem);
+                }
+              }}
             >
               {t('credentials.buttons.delete')}
             </Button>

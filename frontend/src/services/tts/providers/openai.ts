@@ -50,7 +50,6 @@ export class OpenAIProvider extends BaseTTSProvider {
    */
   setUseStreaming(useStreaming: boolean): void {
     this._useStreaming = useStreaming;
-    console.log('[OpenAI] Streaming:', useStreaming ? 'enabled' : 'disabled');
   }
   
   async initialize(): Promise<void> {
@@ -58,14 +57,7 @@ export class OpenAIProvider extends BaseTTSProvider {
       // Tenta obter vozes para verificar disponibilidade
       const voices = await GetOpenAITTSVoices();
       this._isAvailable = voices && voices.length > 0;
-      
-      if (this._isAvailable) {
-        console.log('[OpenAI] Provider initialized with', voices.length, 'voices');
-      } else {
-        console.log('[OpenAI] No voices available (API key may not be configured)');
-      }
-    } catch (error) {
-      console.log('[OpenAI] Not available:', error);
+    } catch {
       this._isAvailable = false;
     }
   }
@@ -87,8 +79,7 @@ export class OpenAIProvider extends BaseTTSProvider {
         localService: false,
         description: v.description
       }));
-    } catch (error) {
-      console.error('[OpenAI] Error getting voices:', error);
+    } catch {
       return [];
     }
   }
@@ -99,9 +90,8 @@ export class OpenAIProvider extends BaseTTSProvider {
     if (this._isAvailable) {
       try {
         await SetOpenAITTSVoice(voiceName);
-        console.log('[OpenAI] Voz selecionada:', voiceName);
-      } catch (error) {
-        console.error('[OpenAI] Error setting voice:', error);
+      } catch {
+        // best-effort
       }
     }
   }
@@ -139,8 +129,8 @@ export class OpenAIProvider extends BaseTTSProvider {
           backendRate = Math.round((this._rate - 1) / 0.3);
         }
         await SetOpenAITTSSpeed(backendRate);
-      } catch (error) {
-        console.error('[OpenAI] Error setting speed:', error);
+      } catch {
+        // best-effort
       }
     }
   }
@@ -176,8 +166,6 @@ export class OpenAIProvider extends BaseTTSProvider {
     
     await SetOpenAITTSSpeed(this.calculateBackendRate());
 
-    console.log('[OpenAI] Sintetizando (sem tocar):', text.substring(0, 50), 'voz:', this._currentVoice);
-
     // Chama backend para sintetizar
     const result: main.SynthesisResultInfo = await SynthesizeOpenAIWithVoice(
       text,
@@ -196,7 +184,6 @@ export class OpenAIProvider extends BaseTTSProvider {
     }
 
     const audioBlob = new Blob([audioArray], { type: 'audio/mpeg' });
-    console.log('[OpenAI] Blob criado:', audioBlob.size, 'bytes');
     
     return audioBlob;
   }
@@ -217,7 +204,6 @@ export class OpenAIProvider extends BaseTTSProvider {
     
     // CRÍTICO: Se já há uma síntese em andamento, aguarda ela terminar primeiro
     if (pendingSynthesis) {
-      console.log('[OpenAI] ⏳ Aguardando síntese anterior terminar...');
       await pendingSynthesis;
     }
     
@@ -324,8 +310,6 @@ export class OpenAIProvider extends BaseTTSProvider {
       
       await SetOpenAITTSSpeed(this.calculateBackendRate());
       
-      console.log('[OpenAI] Sintetizando (sem streaming):', text.substring(0, 50));
-      
       // Chama backend para sintetizar
       const result: main.SynthesisResultInfo = await SynthesizeOpenAIWithVoice(
         text, 
@@ -381,7 +365,6 @@ export class OpenAIProvider extends BaseTTSProvider {
       };
       
       await globalAudioPlayer.play();
-      console.log('[OpenAI] Reproduzindo audio sintetizado');
       
     } catch (error) {
       console.error('[OpenAI] Error speaking:', error);

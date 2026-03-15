@@ -39,6 +39,7 @@ export interface ITTSProvider {
   setVoice(voiceName: string): Promise<void>;
   setRate(rate: number): Promise<void>;
   setVolume(volume: number): Promise<void>;
+  setPitch?(pitch: number): void;
   speak(text: string): Promise<void>;
   
   // Nova API: sintetizar sem tocar (retorna Blob para sistema de audio por mensagem)
@@ -49,6 +50,18 @@ export interface ITTSProvider {
   resume(): void;
   isSpeaking(): boolean;
   dispose(): void;
+
+  addEventListener?<K extends keyof TTSEventMap>(
+    type: K,
+    listener: (event: TTSEventMap[K]) => void,
+    options?: boolean | AddEventListenerOptions
+  ): void;
+  removeEventListener?<K extends keyof TTSEventMap>(
+    type: K,
+    listener: (event: TTSEventMap[K]) => void,
+    options?: boolean | EventListenerOptions
+  ): void;
+  getNativeVoices?: () => SpeechSynthesisVoice[];
 }
 
 export interface TTSEventMap {

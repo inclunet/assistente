@@ -3,6 +3,33 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { SignalRegistrationFlow } from './SignalRegistrationFlow';
 
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) => {
+      const translations: Record<string, string> = {
+        'channels.signalRegistration.error': 'Erro:',
+        'channels.signalRegistration.verificationToken': 'Token de Verificação',
+        'channels.signalRegistration.captchaPlaceholder':
+          'signalcaptcha://signal-hcaptcha.abcdef...',
+        'channels.signalRegistration.captchaLink': 'esta página',
+        'channels.signalRegistration.captchaHint':
+          ', complete o desafio, clique direito em "Open Signal" e copie o link.',
+        'channels.signalRegistration.sendSMS': 'Enviar código por SMS',
+        'channels.signalRegistration.sending': 'Enviando código...',
+        'channels.signalRegistration.verificationCode': 'Código de Verificação',
+        'channels.signalRegistration.codePlaceholder': '123-456',
+        'channels.signalRegistration.verify': 'Verificar',
+        'channels.signalRegistration.resendCall': 'Reenviar por Ligação',
+        'channels.signalRegistration.registeredSuccess': 'registrado com sucesso!',
+        'channels.signalRegistration.ok': 'OK',
+        'common.cancel': 'Cancelar',
+      };
+      return translations[key] ?? key;
+    },
+  }),
+}));
+
 describe('SignalRegistrationFlow', () => {
   const mockOnSetRegCode = vi.fn();
   const mockOnSetRegCaptcha = vi.fn();
@@ -54,7 +81,7 @@ describe('SignalRegistrationFlow', () => {
     render(<SignalRegistrationFlow {...defaultProps} regStep="done" />);
 
     expect(
-      screen.getByText(/Número .* registrado com sucesso!/)
+      screen.getByText(/registrado com sucesso!/)
     ).toBeInTheDocument();
   });
 

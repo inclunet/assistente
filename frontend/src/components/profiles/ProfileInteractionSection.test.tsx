@@ -3,11 +3,33 @@ import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProfileInteractionSection } from './ProfileInteractionSection';
 
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) => {
+      const translations: Record<string, string> = {
+        'profiles.interactionSection.sttTitle': 'Reconhecimento de Fala (STT)',
+        'profiles.interactionSection.sttDescription': 'Selecione o provedor de reconhecimento de fala',
+        'profiles.interactionSection.sttLanguage': 'Idioma (STT)',
+        'profiles.interactionSection.ptBR': 'Português (Brasil)',
+        'profiles.interactionSection.enUS': 'English (US)',
+        'profiles.interactionSection.es': 'Español',
+        'profiles.interactionSection.fr': 'Français',
+        'profiles.interactionSection.de': 'Deutsch',
+        'profiles.interactionSection.it': 'Italiano',
+        'profiles.interactionSection.feedbackSounds': 'Ativar sons de feedback',
+        'profiles.interactionSection.feedbackSoundsHint': 'Sons ao iniciar/parar gravação e outros eventos de interação',
+      };
+      return translations[key] ?? key;
+    },
+  }),
+}));
+
 // Mock STTProviderPicker para evitar imports de @wailsjs
 vi.mock('../pickers/STTProviderPicker', () => ({
   STT_WEBSPEECH: 'webspeech',
   STT_WHISPER: 'whisper_api',
-  STTProviderPicker: ({ value, onChange, label }: any) => (
+  STTProviderPicker: ({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) => (
     <div data-testid="stt-provider-picker-mock">
       <label>{label}</label>
       <button onClick={() => onChange('test-provider')}>

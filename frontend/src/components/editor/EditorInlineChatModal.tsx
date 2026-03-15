@@ -6,6 +6,7 @@ import { ChatInput } from '../chat/ChatInput';
 import { ContextMenu } from '../menu';
 import { Toolbar } from '../ui/Toolbar';
 import { useChatStore, type Message } from '../../store/chatStore';
+import type { MediaFile } from '../../services/mediaService';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
 import { ClearConversation, DeleteMessage } from '@wailsjs/go/main/App';
 import { announce } from '../../hooks/useAnnouncer';
@@ -25,7 +26,7 @@ export interface EditorInlineChatModalProps {
   error: string | null;
   focusNonce?: number;
   onClose: () => void;
-  onSend: (instruction: string, mediaFiles?: any[]) => Promise<void>;
+  onSend: (instruction: string, mediaFiles?: MediaFile[]) => Promise<void>;
 }
 
 export function EditorInlineChatModal({
@@ -52,7 +53,7 @@ export function EditorInlineChatModal({
 
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
   const handleDeleteMessage = useCallback(
-    async (message: any) => {
+    async (message: Message) => {
       const msgId = String(message?.id || '');
       if (!msgId) return;
 
@@ -67,7 +68,7 @@ export function EditorInlineChatModal({
             await loadConversationInActiveTab(tab.conversationId, tab.title || t('editor.inlineChat.conversation'));
           }
         }
-      } catch (e: any) {
+      } catch (e: unknown) {
         console.error('[EditorInlineChatModal] delete error:', e);
         announce(t('editor.inlineChat.deleteError'), 'assertive');
       } finally {
@@ -234,13 +235,13 @@ export function EditorInlineChatModal({
             ref={messagesContainerRef}
             onContextMenu={(event, message: Message) => showMenu(event, message, message.role === 'user')}
             onSpeak={speakMessage}
-            onDelete={handleDeleteMessage as any}
+            onDelete={(message) => { void handleDeleteMessage(message); }}
           />
         </div>
 
         <div className="editor-inline-chat__input">
           <ChatInput
-            onSend={onSend as any}
+            onSend={(message, mediaFiles) => { void onSend(message, mediaFiles); }}
             disabled={isLoading}
             ref={inputRef}
             voiceEnabled={true}

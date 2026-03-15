@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ProfileToolsSection } from './ProfileToolsSection';
+import { allowlist } from '../../../wailsjs/go/models';
 
 vi.mock('@wailsjs/go/models', () => ({}));
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
     t: (_key: string, defaultValue: string) => defaultValue,
   }),
@@ -18,16 +20,16 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-const mockTools = [
+const mockTools: Array<{ name: string; description: string }> = [
   { name: 'Tool 1', description: 'First tool' },
   { name: 'Tool 2', description: 'Second tool' },
   { name: 'Tool 3', description: 'Third tool' },
-] as any;
+];
 
-const mockAllowlists = [
+const mockAllowlists: Array<allowlist.AllowlistInfo> = [
   { slug: 'allowlist-1', name: 'Allowlist 1', ruleCount: 5 },
   { slug: 'allowlist-2', name: 'Allowlist 2', ruleCount: 10 },
-] as any;
+];
 
 describe('ProfileToolsSection', () => {
   it('renderiza a seção de ferramentas com DataGrid', () => {

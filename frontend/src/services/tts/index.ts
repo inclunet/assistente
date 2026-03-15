@@ -74,18 +74,16 @@ class TTSService {
   
   private setupProviderEvents(): void {
     if (!this.currentProvider) return;
-    
-    const provider = this.currentProvider as any;
-    
-    provider.addEventListener('start', () => {
+
+    this.currentProvider.addEventListener?.('start', () => {
       this.emit('speakStart');
     });
-    
-    provider.addEventListener('end', () => {
+
+    this.currentProvider.addEventListener?.('end', () => {
       this.emit('speakEnd');
     });
-    
-    provider.addEventListener('error', (event: CustomEvent<{ error: Error }>) => {
+
+    this.currentProvider.addEventListener?.('error', (event: CustomEvent<{ error: Error }>) => {
       this.emit('speakError', event.detail.error);
     });
   }
@@ -140,7 +138,6 @@ class TTSService {
       console.warn('[TTSService] Nenhum provider configurado para fala sob demanda');
       return;
     }
-    console.log('[TTSService] Fala sob demanda:', text.substring(0, 50) + '...');
     await this.currentProvider.speak(text);
   }
 
@@ -179,7 +176,6 @@ class TTSService {
     }
 
     try {
-      console.log('[TTSService] Síntese sob demanda:', text.substring(0, 50) + '...');
       return await this.currentProvider.synthesize(text);
     } catch (error) {
       console.error('[TTSService] Erro ao sintetizar sob demanda:', error);
@@ -312,7 +308,7 @@ class TTSService {
   setPitch(pitch: number): void {
     this.config.pitch = pitch;
     if (this.currentProvider?.name === TTSProvider.WEBSPEECH) {
-      (this.currentProvider as any).setPitch?.(pitch);
+      this.currentProvider.setPitch?.(pitch);
     }
     this.emit('configChanged', this.config);
   }
@@ -347,8 +343,6 @@ class TTSService {
     
     // Extrai apenas o ID da voz (remove prefixo provider:)
     const voiceId = this.extractVoiceId(voiceName);
-    
-    console.log('[TTSService] setVoice:', { voiceName, detectedProvider, voiceId });
     
     // Troca de provider se necessário
     if (detectedProvider !== this.config.provider) {
@@ -392,7 +386,7 @@ class TTSService {
    */
   getVoicesByProvider(provider: TTSProvider): SpeechSynthesisVoice[] {
     if (provider === TTSProvider.WEBSPEECH && this.currentProvider?.name === TTSProvider.WEBSPEECH) {
-      return (this.currentProvider as any).synth?.getVoices() || [];
+      return this.currentProvider.getNativeVoices?.() || [];
     }
     return [];
   }
@@ -426,21 +420,21 @@ class TTSService {
   }
   
   // Event emitter methods
-  private emit(event: string, data?: any): void {
+  private emit(event: string, data?: unknown): void {
     const listeners = this.listeners.get(event);
     if (listeners) {
       listeners.forEach(listener => listener(data));
     }
   }
-  
-  on(event: string, listener: Function): void {
+
+  on(event: string, listener: (payload?: unknown) => void): void {
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
     this.listeners.get(event)!.add(listener);
   }
-  
-  off(event: string, listener: Function): void {
+
+  off(event: string, listener: (payload?: unknown) => void): void {
     const listeners = this.listeners.get(event);
     if (listeners) {
       listeners.delete(listener);

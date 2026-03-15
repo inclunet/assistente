@@ -132,7 +132,6 @@ export class SpeechSynthesisManager {
     // Aplica a voz selecionada
     if (this.voice) {
       this.utterance.voice = this.voice;
-      console.log('[TTS] Falando com voz:', this.voice.name, this.voice.lang);
     } else if (this.voiceName) {
       // Se temos um nome de voz mas a voz não foi carregada, tenta carregar agora
       const voices = this.getVoices();
@@ -140,7 +139,6 @@ export class SpeechSynthesisManager {
       if (voice) {
         this.voice = voice;
         this.utterance.voice = voice;
-        console.log('[TTS] Voz carregada na hora de falar:', voice.name, voice.lang);
       } else {
         console.warn('[TTS] Voz ainda não disponível:', this.voiceName);
       }
@@ -246,7 +244,6 @@ export class SpeechSynthesisManager {
     const voice = voices.find(v => v.name === name);
     if (voice) {
       this.voice = voice;
-      console.log('[TTS] Voz definida:', voice.name, voice.lang);
     } else {
       console.warn('[TTS] Voz não encontrada:', name, 'Vozes disponíveis:', voices.length);
       // Tenta novamente depois que as vozes carregarem

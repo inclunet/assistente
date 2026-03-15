@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
@@ -31,6 +32,8 @@ import { toEditorSessionPayload } from '../lib/editorSessionPayload';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
 import { isModalOpen } from '../components/ui/Modal';
+import type { MediaFile } from '../services/mediaService';
+import type { Message } from '../store/chatStore';
 import {
   buildFileMenuItemsForContextMenu,
   buildFormatMenuItemsForContextMenu,
@@ -94,7 +97,15 @@ export default function EditorPage() {
   const [activeMermaidIndex, setActiveMermaidIndex] = useState<number | null>(null);
   const [mermaidInitialCode, setMermaidInitialCode] = useState('');
   const [mermaidInsertText, setMermaidInsertText] = useState('');
-  const [richMermaidSession, setRichMermaidSession] = useState<any | null>(null);
+  interface RichMermaidSession {
+    mermaidBlockId: string;
+    initialCode: string;
+    insertText: string;
+    apply: (nextCode: string) => void;
+    remove: () => void;
+  }
+
+  const [richMermaidSession, setRichMermaidSession] = useState<RichMermaidSession | null>(null);
 
   // Foco previsível após fechar o modal Mermaid.
   const prevMermaidOpenRef = useRef(false);
@@ -135,6 +146,18 @@ export default function EditorPage() {
         to: number;
         snapshot: string;
       };
+
+  const getErrorMessage = (error: unknown) =>
+    error instanceof Error ? error.message : String(error ?? '');
+
+  const getMaybeContent = (res: unknown) => {
+    if (typeof res === 'string') return res;
+    if (res && typeof res === 'object' && 'content' in res) {
+      const value = (res as { content?: string }).content;
+      return typeof value === 'string' ? value : String(value ?? '');
+    }
+    return '';
+  };
 
   const [inlineChatOpen, setInlineChatOpen] = useState(false);
   const [inlineChatSelection, setInlineChatSelection] = useState<InlineChatSelection | null>(null);
@@ -1680,7 +1703,13 @@ export default function EditorPage() {
     askInlineChatRef.current = askInlineChat;
   }, [askInlineChat]);
 
-  const sendInlineChatInstruction = async (instruction: string, mediaFiles?: any[]) => {
+  type EditorPatch = {
+    replacement?: string;
+    format?: string;
+    notes?: string;
+  };
+
+  const sendInlineChatInstruction = async (instruction: string, mediaFiles?: MediaFile[]) => {
     if (!activeTab) return;
     if (!inlineChatSelection) {
       addToast('Seleção do editor não está disponível.', 'error');
@@ -1713,7 +1742,7 @@ export default function EditorPage() {
 
     // Marca o estado atual para não capturar patches antigos do histórico.
     const beforeMessages = chatState.getTabMessages(chatTabId);
-    const afterMessageId = getMaxNumericMessageId(beforeMessages as any);
+    const afterMessageId = getMaxNumericMessageId(beforeMessages as Message[]);
 
     const trimmed = String(instruction || '').trim();
     if (!trimmed) return;
@@ -1722,11 +1751,11 @@ export default function EditorPage() {
       instruction: trimmed,
       selectedText:
         inlineChatSelection.mode === 'rich'
-          ? String((inlineChatSelection as any)?.selectedMarkdown || inlineChatSelection.selectedText || '')
+          ? String(inlineChatSelection.selectedMarkdown || inlineChatSelection.selectedText || '')
           : inlineChatSelection.selectedText,
       format: 'markdown',
-      selectionIsEmpty: !!(inlineChatSelection as any)?.selectionIsEmpty,
-      cursorContext: (inlineChatSelection as any)?.cursorContext,
+      selectionIsEmpty: !!inlineChatSelection.selectionIsEmpty,
+      cursorContext: inlineChatSelection.cursorContext,
     });
 
     const runId = (inlineChatRunIdRef.current += 1);
@@ -1736,8 +1765,8 @@ export default function EditorPage() {
       const s = String(slug || '').trim();
       if (!s) return true;
       try {
-        const prof: any = await GetProfile(s);
-        const disabled = !!prof?.chat?.disable_tools;
+        const prof = await GetProfile(s);
+        const disabled = !!(prof as { chat?: { disable_tools?: boolean } })?.chat?.disable_tools;
         return !disabled;
       } catch {
         // Best-effort: se não conseguimos ler o perfil, assume tools on.
@@ -1745,7 +1774,7 @@ export default function EditorPage() {
       }
     };
 
-    const normalizeReplacementForEditor = (raw: string, patchFormat: any, selectedText: string) => {
+    const normalizeReplacementForEditor = (raw: string, patchFormat: string | undefined, selectedText: string) => {
       const text = String(raw ?? '');
       const sel = String(selectedText ?? '');
 
@@ -1771,7 +1800,7 @@ export default function EditorPage() {
       return text;
     };
 
-    const applyInlinePatchNow = (selection: InlineChatSelection, patch: any) => {
+    const applyInlinePatchNow = (selection: InlineChatSelection, patch: EditorPatch) => {
       const replacement = normalizeReplacementForEditor(String(patch?.replacement || ''), patch?.format, selection?.selectedText);
       const { tabs: currentTabs, activeTabId: currentActiveTabId } = useEditorStore.getState();
       const tab = currentTabs.find((t) => t.id === selection.tabId) || null;
@@ -1857,10 +1886,10 @@ export default function EditorPage() {
         // Evita aplicar em um range errado caso a seleção tenha mudado enquanto o mini-chat estava aberto.
         try {
           const currentSel = rich.state?.selection;
-          const expectedEmpty = !!(s as any).selectionIsEmpty;
-          const expectedFrom = Number((s as any).from);
-          const expectedTo = Number((s as any).to);
-          const expectedSelectedText = String((s as any).selectedText || '');
+          const expectedEmpty = !!s.selectionIsEmpty;
+          const expectedFrom = Number(s.from);
+          const expectedTo = Number(s.to);
+          const expectedSelectedText = String(s.selectedText || '');
 
           const validation = validateRichTextSelectionSnapshot({
             currentSelection: currentSel
@@ -1910,8 +1939,11 @@ export default function EditorPage() {
       focusEditorSoon();
     };
 
-    const confirmInlinePatch = async (selection: InlineChatSelection, patch: any) => {
-      const before = String((selection as any)?.selectedMarkdown || selection?.selectedText || '');
+    const confirmInlinePatch = async (selection: InlineChatSelection, patch: EditorPatch) => {
+      const before =
+        selection.mode === 'rich'
+          ? String(selection.selectedMarkdown || selection.selectedText || '')
+          : String(selection.selectedText || '');
       const after = normalizeReplacementForEditor(String(patch?.replacement || ''), patch?.format, selection?.selectedText);
       const notes = String(patch?.notes || '').trim();
 
@@ -1995,15 +2027,15 @@ export default function EditorPage() {
       // Se veio de tool calling (text_edit), o usuário já confirmou na tool.
       // Evita dupla confirmação e evita aplicar algo vindo do corpo da resposta.
       if (extracted.source === 'tool') {
-        applyInlinePatchNow(inlineChatSelection, extracted.patch as any);
+        applyInlinePatchNow(inlineChatSelection, extracted.patch as EditorPatch);
         return;
       }
 
       // Fallback (sem tool calling): confirma antes de aplicar.
-      await confirmInlinePatch(inlineChatSelection, extracted.patch as any);
-    } catch (e: any) {
+      await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
+    } catch (e: unknown) {
       console.error('[EditorPage] inline chat error:', e);
-      setInlineChatError(e?.message || 'Erro ao pedir alteração ao chat');
+      setInlineChatError(getErrorMessage(e) || 'Erro ao pedir alteração ao chat');
       setIsAsking(false);
     }
   };
@@ -2028,7 +2060,14 @@ export default function EditorPage() {
 
       updateLatestMarkdownForTab(id, String(res?.content || ''));
       setDiskBaselineForTab(id, String(res?.content || ''));
-      void refreshDiskInfoForTab({ id, title, markdown: String(res?.content || ''), mode: preferredMode, filePath: path } as any);
+      const diskTab: EditorTab = {
+        id,
+        title,
+        markdown: String(res?.content || ''),
+        mode: preferredMode,
+        filePath: path,
+      };
+      void refreshDiskInfoForTab(diskTab);
 
       fileModeByPathRef.current[key] = preferredMode === 'rich' ? 'rich' : 'markdown';
 
@@ -2036,9 +2075,9 @@ export default function EditorPage() {
       EditorDeleteDraft(id).catch(() => null);
       addToast('Arquivo aberto', 'success');
       focusEditorSoon();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('[EditorPage] openFile error:', e);
-      addToast(e?.message || 'Erro ao abrir arquivo', 'error');
+      addToast(getErrorMessage(e) || 'Erro ao abrir arquivo', 'error');
     }
   };
 
@@ -2051,7 +2090,7 @@ export default function EditorPage() {
     let mineContent = '';
     try {
       const res = await EditorReadDraft(sess.mineDraftId);
-      mineContent = String((res as any)?.content ?? (res as any) ?? '');
+      mineContent = getMaybeContent(res);
     } catch {
       mineContent = '';
     }
@@ -2151,7 +2190,7 @@ export default function EditorPage() {
       renameTab(activeTab.id, title);
       setTabDirty(activeTab.id, false);
 
-      void refreshDiskInfoForTab({ ...activeTab, filePath: path } as any);
+      void refreshDiskInfoForTab({ ...activeTab, filePath: path });
 
       const draftId = activeTab.draftId || activeTab.id;
       setTabDraftId(activeTab.id, null);
@@ -2159,9 +2198,9 @@ export default function EditorPage() {
 
       addToast('Arquivo salvo', 'success');
       focusEditorSoon();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('[EditorPage] saveFile error:', e);
-      addToast(e?.message || 'Erro ao salvar', 'error');
+      addToast(getErrorMessage(e) || 'Erro ao salvar', 'error');
     }
   };
 
@@ -2178,9 +2217,9 @@ export default function EditorPage() {
       await EditorWriteFile(path, content);
       addToast('Cópia salva', 'success');
       focusEditorSoon();
-    } catch (e: any) {
+    } catch (e: unknown) {
       console.error('[EditorPage] saveAs error:', e);
-      addToast(e?.message || 'Erro ao salvar como', 'error');
+      addToast(getErrorMessage(e) || 'Erro ao salvar como', 'error');
     }
   };
 
@@ -2649,19 +2688,26 @@ export default function EditorPage() {
                     setEditorReadyNonce((n) => n + 1);
                   }}
                   onRequestEditMermaid={(ctx) => {
-                    const mermaidBlockId = String((ctx as any)?.mermaidBlockId || '').trim();
+                    const mermaidCtx = ctx as {
+                      mermaidBlockId?: string;
+                      insertText?: string;
+                      code?: string;
+                      apply: (nextCode: string) => void;
+                      remove: () => void;
+                    };
+                    const mermaidBlockId = String(mermaidCtx.mermaidBlockId || '').trim();
                     const api = richEditorHandleRef.current;
                     setRichMermaidSession({
                       mermaidBlockId,
-                      initialCode: String(ctx.code || ''),
-                      insertText: String((ctx as any)?.insertText || ''),
+                      initialCode: String(mermaidCtx.code || ''),
+                      insertText: String(mermaidCtx.insertText || ''),
                       apply: (nextCode: string) => {
                         if (mermaidBlockId && api?.applyMermaidById?.(mermaidBlockId, nextCode)) return;
-                        ctx.apply(nextCode);
+                        mermaidCtx.apply(nextCode);
                       },
                       remove: () => {
                         if (mermaidBlockId && api?.removeMermaidById?.(mermaidBlockId)) return;
-                        ctx.remove();
+                        mermaidCtx.remove();
                       },
                     });
                   }}
@@ -2675,7 +2721,12 @@ export default function EditorPage() {
       <EditorInlineChatModal
         isOpen={inlineChatOpen}
         title="Perguntar ao chat"
-        selectedText={(inlineChatSelection as any)?.displayMarkdown || (inlineChatSelection as any)?.displayText || inlineChatSelection?.selectedText || ''}
+        selectedText={
+          inlineChatSelection?.displayText ||
+          (inlineChatSelection?.mode === 'rich' ? inlineChatSelection.selectedMarkdown : '') ||
+          inlineChatSelection?.selectedText ||
+          ''
+        }
         error={inlineChatError}
         focusNonce={inlineChatFocusNonce}
         onClose={closeInlineChatModal}
@@ -2698,7 +2749,7 @@ export default function EditorPage() {
         onConsumeInsertText={() => {
           if (activeMermaidIndex !== null) setMermaidInsertText('');
           if (richMermaidSession) {
-            setRichMermaidSession((prev: any) => (prev ? { ...prev, insertText: '' } : prev));
+            setRichMermaidSession((prev) => (prev ? { ...prev, insertText: '' } : prev));
           }
         }}
         onCancel={() => {

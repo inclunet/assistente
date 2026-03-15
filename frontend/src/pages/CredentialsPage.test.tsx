@@ -1,3 +1,4 @@
+import type { ChangeEvent, ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -6,9 +7,43 @@ const mockList = vi.fn();
 const mockUpsert = vi.fn();
 const mockDelete = vi.fn();
 
+vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
+  useTranslation: () => ({
+    t: (key: string) =>
+      ({
+        'credentials.pageTitle': 'Credenciais',
+        'credentials.buttons.new': 'Nova',
+        'credentials.buttons.edit': 'Editar',
+        'credentials.buttons.duplicate': 'Duplicar',
+        'credentials.buttons.delete': 'Excluir',
+        'credentials.buttons.create': 'Criar',
+        'credentials.labels.pattern': 'Pattern',
+        'credentials.labels.type': 'Tipo',
+        'credentials.labels.value': 'Valor',
+        'credentials.labels.username': 'Usuário',
+        'credentials.labels.password': 'Senha',
+        'credentials.labels.header': 'Header',
+        'credentials.modal.newTitle': 'Nova credencial',
+        'credentials.modal.editTitle': 'Editar credencial',
+        'credentials.placeholders.pattern': 'ex: *.github.com ou channel:slack:bot_token',
+        'credentials.placeholders.token': 'Informe o token',
+        'credentials.hint.sensitive':
+          'Os valores sensíveis não são exibidos após salvar. Para atualizar, informe novamente.',
+        'credentials.types.bearer': 'Bearer token',
+        'credentials.types.basic': 'Basic (usuário/senha)',
+        'credentials.types.custom': 'Header customizado',
+        'credentials.types.secret': 'Segredo (uso interno)',
+        'credentials.aria.toolbar': 'Barra de ferramentas de credenciais',
+        'common.cancel': 'Cancelar',
+        'common.save': 'Salvar',
+      } as Record<string, string>)[key] ?? key,
+  }),
+}));
+
 vi.mock('@wailsjs/go/main/App', () => ({
   ListCredentials: () => mockList(),
-  UpsertCredential: (payload: any) => mockUpsert(payload),
+  UpsertCredential: (payload: unknown) => mockUpsert(payload),
   DeleteCredential: (pattern: string) => mockDelete(pattern),
 }));
 
@@ -32,18 +67,25 @@ vi.mock('../store/uiStore', () => ({
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
-  Toolbar: ({ left, right }: any) => (
+  Toolbar: ({ left, right, actions }: { left?: ReactNode; right?: ReactNode; actions?: Array<{ key: string; label: string; onClick?: () => void }> }) => (
     <div>
       {left}
       {right}
+      <div>
+        {actions?.map((action) => (
+          <button key={action.key} onClick={action.onClick}>
+            {action.label}
+          </button>
+        ))}
+      </div>
     </div>
   ),
 }));
 
 vi.mock('../components/ui/DataGrid', () => ({
-  DataGrid: ({ items, onActivate }: any) => (
+  DataGrid: ({ items, onActivate }: { items?: Array<{ id: string; pattern: string }>; onActivate?: (row: { id: string; pattern: string }) => void }) => (
     <div>
-      {items?.map((row: any) => (
+      {items?.map((row) => (
         <button key={row.id} onClick={() => onActivate?.(row)}>{row.pattern}</button>
       ))}
     </div>
@@ -51,26 +93,27 @@ vi.mock('../components/ui/DataGrid', () => ({
 }));
 
 vi.mock('../components/ui/Modal', () => ({
-  Modal: ({ isOpen, children }: any) => (isOpen ? <div>{children}</div> : null),
+  Modal: ({ isOpen, children }: { isOpen: boolean; children?: ReactNode }) => (isOpen ? <div>{children}</div> : null),
+  isModalOpen: () => false,
 }));
 
 vi.mock('../components/ui/EditorPanel', () => ({
-  EditorPanelFooter: ({ children }: any) => <div>{children}</div>,
+  EditorPanelFooter: ({ children }: { children?: ReactNode }) => <div>{children}</div>,
 }));
 
 vi.mock('../components', () => ({
-  Button: ({ children, onClick }: any) => <button onClick={onClick}>{children}</button>,
-  Input: ({ label, value, onChange, type }: any) => (
+  Button: ({ children, onClick }: { children?: ReactNode; onClick?: () => void }) => <button onClick={onClick}>{children}</button>,
+  Input: ({ label, value, onChange, type }: { label: string; value: string; onChange: (event: ChangeEvent<HTMLInputElement>) => void; type?: string }) => (
     <label>
       {label}
       <input aria-label={label} value={value} onChange={onChange} type={type} />
     </label>
   ),
-  Select: ({ label, value, options, onChange }: any) => (
+  Select: ({ label, value, options, onChange }: { label: string; value: string; options: Array<{ value: string; label: string }>; onChange: (event: ChangeEvent<HTMLSelectElement>) => void }) => (
     <label>
       {label}
       <select aria-label={label} value={value} onChange={onChange}>
-        {options.map((opt: any) => (
+        {options.map((opt) => (
           <option key={opt.value} value={opt.value}>{opt.label}</option>
         ))}
       </select>

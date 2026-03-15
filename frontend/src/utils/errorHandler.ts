@@ -55,7 +55,7 @@ export function handleError(error: unknown, context: ErrorContext): void {
 /**
  * Wrap an async function with error handling
  */
-export function withErrorHandling<T extends (...args: any[]) => Promise<any>>(
+export function withErrorHandling<T extends (...args: unknown[]) => Promise<unknown>>(
   fn: T,
   errorContext: Omit<ErrorContext, 'onRetry'>
 ): T {

@@ -17,7 +17,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
   const { t } = useTranslation();
   const [templates, setTemplates] = useState<channels.ChannelTemplate[]>([]);
   const [selectedTemplate, setSelectedTemplate] = useState<channels.ChannelTemplate | null>(null);
-  const [formValues, setFormValues] = useState<Record<string, any>>({});
+  const [formValues, setFormValues] = useState<Record<string, unknown>>({});
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>('');
 
@@ -52,7 +52,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
   const handleTemplateSelect = (template: channels.ChannelTemplate) => {
     setSelectedTemplate(template);
     // Inicializa valores padrão
-    const defaults: Record<string, any> = {};
+    const defaults: Record<string, unknown> = {};
     template.fields?.forEach((field) => {
       if (field.default_value !== undefined && field.default_value !== null) {
         defaults[field.key] = field.default_value;
@@ -62,7 +62,7 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
     setError('');
   };
 
-  const handleFieldChange = (key: string, value: any) => {
+  const handleFieldChange = (key: string, value: unknown) => {
     setFormValues((prev) => ({ ...prev, [key]: value }));
   };
 
@@ -77,9 +77,10 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
       await CreateChannelFromTemplate(selectedTemplate.type, formValues);
       onSuccess();
       handleClose();
-    } catch (err: any) {
+    } catch (err: unknown) {
       console.error('Erro ao criar canal:', err);
-      setError(err.message || 'Erro ao criar canal');
+      const errMessage = (err as { message?: unknown } | null)?.message;
+      setError(String(errMessage || err || 'Erro ao criar canal'));
     } finally {
       setLoading(false);
     }
@@ -152,7 +153,9 @@ export default function CreateChannelModal({ isOpen, onClose, onSuccess, initial
                   <Input
                     label={field.label}
                     type={field.type === 'password' ? 'password' : field.type === 'number' ? 'number' : 'text'}
-                    value={formValues[field.key] || ''}
+                    value={typeof formValues[field.key] === 'string' || typeof formValues[field.key] === 'number'
+                      ? String(formValues[field.key])
+                      : ''}
                     onChange={(e) => handleFieldChange(field.key, e.target.value)}
                     placeholder={field.placeholder}
                     required={field.required}

@@ -1,5 +1,6 @@
 import type { MenuItem } from '../../components/menu';
 import { createRichMenuActions } from './richMenuActions';
+import type { RichEditorLike } from './richMenuActions';
 import type { FormatMenuContext } from './menuContext';
 
 export function buildFormatMenuItemsForContextMenu(args: { ctx: FormatMenuContext }): MenuItem[] {
@@ -14,7 +15,7 @@ export function buildFormatMenuItemsForContextMenu(args: { ctx: FormatMenuContex
   });
 
   const canFormat = richActions.canUseRich;
-  const rich = richActions.rich as any;
+  const rich = richActions.rich as RichEditorLike | null;
   const run = richActions.run;
   const canRun = richActions.canRun;
 
@@ -97,27 +98,27 @@ export function buildFormatMenuItemsForContextMenu(args: { ctx: FormatMenuContex
     {
       id: 'fmt-table-merge',
       label: 'Mesclar células',
-      disabled: !inTable || !canRun((r) => (r as any).can?.().chain?.().focus?.().mergeCells?.().run?.()),
-      action: () => run((r) => (r as any).chain?.().focus?.().mergeCells?.().run?.()),
+      disabled: !inTable || !canRun((r) => r.can?.().chain?.().focus?.().mergeCells?.().run?.()),
+      action: () => run((r) => r.chain?.().focus?.().mergeCells?.().run?.()),
     },
     {
       id: 'fmt-table-split',
       label: 'Separar célula',
-      disabled: !inTable || !canRun((r) => (r as any).can?.().chain?.().focus?.().splitCell?.().run?.()),
-      action: () => run((r) => (r as any).chain?.().focus?.().splitCell?.().run?.()),
+      disabled: !inTable || !canRun((r) => r.can?.().chain?.().focus?.().splitCell?.().run?.()),
+      action: () => run((r) => r.chain?.().focus?.().splitCell?.().run?.()),
     },
     { id: 'fmt-table-sep-4', separator: true },
     {
       id: 'fmt-table-prev-cell',
       label: 'Ir para célula anterior',
-      disabled: !inTable || !canRun((r) => (r as any).can?.().chain?.().focus?.().goToPreviousCell?.().run?.()),
-      action: () => run((r) => (r as any).chain?.().focus?.().goToPreviousCell?.().run?.()),
+      disabled: !inTable || !canRun((r) => r.can?.().chain?.().focus?.().goToPreviousCell?.().run?.()),
+      action: () => run((r) => r.chain?.().focus?.().goToPreviousCell?.().run?.()),
     },
     {
       id: 'fmt-table-next-cell',
       label: 'Ir para próxima célula',
-      disabled: !inTable || !canRun((r) => (r as any).can?.().chain?.().focus?.().goToNextCell?.().run?.()),
-      action: () => run((r) => (r as any).chain?.().focus?.().goToNextCell?.().run?.()),
+      disabled: !inTable || !canRun((r) => r.can?.().chain?.().focus?.().goToNextCell?.().run?.()),
+      action: () => run((r) => r.chain?.().focus?.().goToNextCell?.().run?.()),
     },
     { id: 'fmt-table-sep-5', separator: true },
     {

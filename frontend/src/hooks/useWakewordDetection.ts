@@ -7,9 +7,39 @@
 
 import { useCallback, useRef, useState, useEffect } from 'react';
 
-// Usamos any para o SpeechRecognition pois os tipos do DOM podem conflitar
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-type SpeechRecognitionInstance = any;
+type SpeechRecognitionAlternative = { transcript: string; confidence: number };
+type SpeechRecognitionResult = {
+  isFinal: boolean;
+  length: number;
+  item: (index: number) => SpeechRecognitionAlternative;
+  [index: number]: SpeechRecognitionAlternative;
+};
+type SpeechRecognitionResultList = {
+  length: number;
+  item: (index: number) => SpeechRecognitionResult;
+  [index: number]: SpeechRecognitionResult;
+};
+type SpeechRecognitionEvent = Event & {
+  resultIndex: number;
+  results: SpeechRecognitionResultList;
+};
+type SpeechRecognitionErrorEvent = Event & { error: string };
+type SpeechRecognitionInstance = {
+  continuous: boolean;
+  interimResults: boolean;
+  lang: string;
+  maxAlternatives: number;
+  onresult: ((this: SpeechRecognitionInstance, event: SpeechRecognitionEvent) => void) | null;
+  onerror: ((this: SpeechRecognitionInstance, event: SpeechRecognitionErrorEvent) => void) | null;
+  onend: ((this: SpeechRecognitionInstance, event: Event) => void) | null;
+  start: () => void;
+  stop: () => void;
+};
+type SpeechRecognitionConstructor = new () => SpeechRecognitionInstance;
+type SpeechRecognitionWindow = Window & {
+  SpeechRecognition?: SpeechRecognitionConstructor;
+  webkitSpeechRecognition?: SpeechRecognitionConstructor;
+};
 
 export interface UseWakewordDetectionOptions {
   /** Palavra-chave para detectar (case insensitive) */
@@ -75,23 +105,25 @@ export function useWakewordDetection(options: UseWakewordDetectionOptions): UseW
   }, [onError]);
 
   // Verifica suporte
+  const recognitionWindow = window as SpeechRecognitionWindow;
   const isSupported = typeof window !== 'undefined' && 
-    ('SpeechRecognition' in window || 'webkitSpeechRecognition' in window);
+    (!!recognitionWindow.SpeechRecognition || !!recognitionWindow.webkitSpeechRecognition);
 
   // Cria instância de reconhecimento
-  const createRecognition = useCallback(() => {
+  const createRecognition = useCallback((): SpeechRecognitionInstance | null => {
     if (!isSupported) return null;
 
-    const SpeechRecognition = window.SpeechRecognition || (window as any).webkitSpeechRecognition;
+    const SpeechRecognition = recognitionWindow.SpeechRecognition || recognitionWindow.webkitSpeechRecognition;
+    if (!SpeechRecognition) return null;
     const recognition = new SpeechRecognition();
+    const instance = recognition as SpeechRecognitionInstance;
 
-    recognition.continuous = true;
-    recognition.interimResults = true;
-    recognition.lang = language;
-    recognition.maxAlternatives = 1;
+    instance.continuous = true;
+    instance.interimResults = true;
+    instance.lang = language;
+    instance.maxAlternatives = 1;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onresult = (event: any) => {
+    instance.onresult = (event: SpeechRecognitionEvent) => {
       let transcript = '';
       
       // Pega o texto de todos os resultados
@@ -102,29 +134,22 @@ export function useWakewordDetection(options: UseWakewordDetectionOptions): UseW
       const normalizedTranscript = transcript.toLowerCase().trim();
       setLastRecognizedText(normalizedTranscript);
       
-      console.log('[WakewordDetection] Recognized:', normalizedTranscript);
-      
       // Verifica se contém a keyword
       if (normalizedTranscript.includes(keywordRef.current)) {
-        console.log('[WakewordDetection] 🎯 Keyword detected:', keywordRef.current);
         onDetectedRef.current?.(keywordRef.current, normalizedTranscript);
       }
     };
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    recognition.onerror = (event: any) => {
-      console.error('[WakewordDetection] Error:', event.error);
-      
+    instance.onerror = (event: SpeechRecognitionErrorEvent) => {
       // Alguns erros são esperados e não devem parar a escuta
       if (event.error === 'no-speech' || event.error === 'aborted') {
         // Reinicia automaticamente se ainda deveria estar escutando
         if (shouldRestartRef.current && isListeningRef.current) {
-          console.log('[WakewordDetection] Restarting after:', event.error);
           setTimeout(() => {
             if (isListeningRef.current && globalRecognition) {
               try {
                 globalRecognition.start();
-              } catch (e) {
+              } catch {
                 // Ignora se já está rodando
               }
             }
@@ -142,17 +167,14 @@ export function useWakewordDetection(options: UseWakewordDetectionOptions): UseW
       }
     };
 
-    recognition.onend = () => {
-      console.log('[WakewordDetection] Recognition ended, shouldRestart:', shouldRestartRef.current);
-      
+    instance.onend = () => {
       // Reinicia automaticamente se ainda deveria estar escutando
       if (shouldRestartRef.current && isListeningRef.current) {
-        console.log('[WakewordDetection] Auto-restarting...');
         setTimeout(() => {
           if (isListeningRef.current && globalRecognition) {
             try {
               globalRecognition.start();
-            } catch (e) {
+            } catch {
               // Ignora se já está rodando
             }
           }
@@ -160,7 +182,7 @@ export function useWakewordDetection(options: UseWakewordDetectionOptions): UseW
       }
     };
 
-    return recognition;
+    return instance;
   }, [isSupported, language]);
 
   // Inicia escuta
@@ -171,11 +193,8 @@ export function useWakewordDetection(options: UseWakewordDetectionOptions): UseW
     }
 
     if (globalIsListening) {
-      console.log('[WakewordDetection] Already listening globally');
       return;
     }
-
-    console.log('[WakewordDetection] Starting wakeword detection for:', keywordRef.current);
     
     // Cria nova instância se necessário
     if (!globalRecognition) {
@@ -194,9 +213,7 @@ export function useWakewordDetection(options: UseWakewordDetectionOptions): UseW
     try {
       globalRecognition.start();
       setIsListening(true);
-      console.log('[WakewordDetection] ✅ Wakeword detection started');
-    } catch (e) {
-      console.error('[WakewordDetection] Failed to start:', e);
+    } catch {
       onErrorRef.current?.('Falha ao iniciar reconhecimento');
       shouldRestartRef.current = false;
       isListeningRef.current = false;
@@ -206,8 +223,6 @@ export function useWakewordDetection(options: UseWakewordDetectionOptions): UseW
 
   // Para escuta
   const stopListening = useCallback(() => {
-    console.log('[WakewordDetection] Stopping wakeword detection');
-    
     shouldRestartRef.current = false;
     isListeningRef.current = false;
     globalIsListening = false;
@@ -215,7 +230,7 @@ export function useWakewordDetection(options: UseWakewordDetectionOptions): UseW
     if (globalRecognition) {
       try {
         globalRecognition.stop();
-      } catch (e) {
+      } catch {
         // Ignora erros ao parar
       }
       globalRecognition = null;
@@ -223,7 +238,6 @@ export function useWakewordDetection(options: UseWakewordDetectionOptions): UseW
 
     setIsListening(false);
     setLastRecognizedText('');
-    console.log('[WakewordDetection] ✅ Wakeword detection stopped');
   }, []);
 
   // Toggle

@@ -1,16 +1,26 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { AllowlistRulesSection } from './AllowlistRulesSection';
+import { allowlist } from '../../../wailsjs/go/models';
+
+const buildItem = (overrides: Partial<allowlist.Allowlist> = {}): allowlist.Allowlist => ({
+  name: '',
+  description: '',
+  auto_approve: [],
+  always_deny: [],
+  default_action: 'confirm',
+  ...overrides,
+});
 
 describe('AllowlistRulesSection', () => {
   it('renderiza regras em múltiplas linhas', () => {
     const onRulesChange = vi.fn();
     render(
-      <AllowlistRulesSection
-        item={{
-          auto_approve: ['ls', 'git status'],
-          always_deny: ['rm -rf /'],
-        } as any}
+        <AllowlistRulesSection
+          item={buildItem({
+            auto_approve: ['ls', 'git status'],
+            always_deny: ['rm -rf /'],
+          })}
         onRulesChange={onRulesChange}
       />
     );
@@ -24,8 +34,8 @@ describe('AllowlistRulesSection', () => {
   it('normaliza regras removendo espaços e linhas vazias', async () => {
     const onRulesChange = vi.fn();
     render(
-      <AllowlistRulesSection
-        item={{ auto_approve: [], always_deny: [] } as any}
+        <AllowlistRulesSection
+          item={buildItem({ auto_approve: [], always_deny: [] })}
         onRulesChange={onRulesChange}
       />
     );
@@ -40,8 +50,8 @@ describe('AllowlistRulesSection', () => {
   it('atualiza lista de sempre negar', async () => {
     const onRulesChange = vi.fn();
     render(
-      <AllowlistRulesSection
-        item={{ auto_approve: [], always_deny: [] } as any}
+        <AllowlistRulesSection
+          item={buildItem({ auto_approve: [], always_deny: [] })}
         onRulesChange={onRulesChange}
       />
     );
@@ -56,8 +66,8 @@ describe('AllowlistRulesSection', () => {
   it('exibe dicas de ajuda das regras', () => {
     const onRulesChange = vi.fn();
     render(
-      <AllowlistRulesSection
-        item={{ auto_approve: [], always_deny: [] } as any}
+        <AllowlistRulesSection
+          item={buildItem({ auto_approve: [], always_deny: [] })}
         onRulesChange={onRulesChange}
       />
     );

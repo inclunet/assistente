@@ -13,6 +13,7 @@ export const LANGUAGES: { id: LanguageId; label: string; nativeLabel: string }[]
 ];
 
 function detectLanguage(): LanguageId {
+  type NavigatorWithUserLanguage = Navigator & { userLanguage?: string };
   const stored = (() => {
     try {
       const raw = localStorage.getItem('assistente-settings');
@@ -28,7 +29,7 @@ function detectLanguage(): LanguageId {
     return stored as LanguageId;
   }
 
-  const browserLang = navigator.language || (navigator as any).userLanguage || '';
+  const browserLang = navigator.language || (navigator as NavigatorWithUserLanguage).userLanguage || '';
   if (browserLang.startsWith('pt')) return 'pt-BR';
   if (browserLang.startsWith('es')) return 'es';
   return 'en';

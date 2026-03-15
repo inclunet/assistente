@@ -57,12 +57,10 @@ async function getAudioFromDB(messageId: number): Promise<{ audio: string; mimeT
   try {
     const result = await GetMessageAudio(messageId);
     if (result && result.audio && result.audio.length > 0) {
-      console.log('[MessageAudio] Audio no DB para msg:', messageId);
       return { audio: result.audio, mimeType: result.mimeType };
     }
     return null;
-  } catch (err) {
-    console.warn('[MessageAudio] Erro ao buscar audio do DB:', err);
+  } catch {
     return null;
   }
 }
@@ -73,15 +71,12 @@ async function generateAndSaveAudio(
   text: string,
 ): Promise<{ audio: string; mimeType: string } | null> {
   try {
-    console.log('[MessageAudio] Gerando TTS para msg:', messageId);
     const result = await GenerateAndSaveMessageAudio(messageId, text);
     if (result && result.audio && result.audio.length > 0) {
-      console.log('[MessageAudio] TTS gerado e salvo:', messageId);
       return { audio: result.audio, mimeType: result.mimeType };
     }
     return null;
-  } catch (err) {
-    console.warn('[MessageAudio] Erro ao gerar TTS:', err);
+  } catch {
     return null;
   }
 }
@@ -100,9 +95,7 @@ async function saveAudioToDB(messageId: number, audioBlob: Blob): Promise<void> 
       reader.readAsDataURL(audioBlob);
     });
     await SaveMessageAudio(messageId, base64, audioBlob.type || 'audio/mpeg');
-    console.log('[MessageAudio] Audio salvo no DB:', messageId);
-  } catch (err) {
-    console.warn('[MessageAudio] Erro ao salvar audio no DB:', err);
+  } catch {
   }
 }
 

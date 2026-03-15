@@ -69,6 +69,10 @@ export class WebSpeechProvider extends BaseTTSProvider {
       description: `${v.name} (${v.lang})`
     }));
   }
+
+  getNativeVoices(): SpeechSynthesisVoice[] {
+    return this.synth.getVoices();
+  }
   
   async setVoice(voiceName: string): Promise<void> {
     this._currentVoice = voiceName;
@@ -77,7 +81,6 @@ export class WebSpeechProvider extends BaseTTSProvider {
     
     if (voice) {
       this.voice = voice;
-      console.log('[WebSpeech] Voz definida:', voice.name, voice.lang);
     } else {
       console.warn('[WebSpeech] Voz não encontrada:', voiceName);
       // Tenta novamente após carregar vozes
@@ -133,7 +136,6 @@ export class WebSpeechProvider extends BaseTTSProvider {
     // Aplica voz
     if (this.voice) {
       this.utterance.voice = this.voice;
-      console.log('[WebSpeech] Falando com voz:', this.voice.name, this.voice.lang);
     } else if (this._currentVoice) {
       // Tenta carregar a voz agora
       const voices = this.synth.getVoices();
@@ -141,7 +143,6 @@ export class WebSpeechProvider extends BaseTTSProvider {
       if (voice) {
         this.voice = voice;
         this.utterance.voice = voice;
-        console.log('[WebSpeech] Voz carregada:', voice.name);
       }
     }
     

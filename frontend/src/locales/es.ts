@@ -288,11 +288,11 @@ const es = {
     mcp: {
       status: { connected: 'Conectado', connecting: 'Conectando...', disconnected: 'Desconectado', error: 'Error' },
       announce: { editorClosed: 'Editor cerrado' },
-      error: { slugRequired: 'Slug (identificador) es obligatorio', nameRequired: 'Nombre es obligatorio' },
-      toast: { created: '¡Servidor MCP creado!', updated: '¡Servidor MCP actualizado!', removed: '¡Servidor MCP eliminado!' },
+      error: { slugRequired: 'Slug (identificador) es obligatorio', nameRequired: 'Nombre es obligatorio', duplicate: 'Error al duplicar servidor MCP' },
+      toast: { created: '¡Servidor MCP creado!', updated: '¡Servidor MCP actualizado!', removed: '¡Servidor MCP eliminado!', duplicated: '¡Servidor MCP duplicado!' },
       confirm: { removeTitle: 'Eliminar servidor MCP' },
       columns: { name: 'Nombre', transport: 'Transporte', status: 'Estado', tools: 'Herramientas' },
-      actions: { connectDisconnect: 'Conectar/Desconectar', reconnect: 'Reconectar', removeServer: 'Eliminar servidor' },
+      actions: { connectDisconnect: 'Conectar/Desconectar', reconnect: 'Reconectar', removeServer: 'Eliminar servidor', duplicate: 'Duplicar' },
       loading: 'Cargando servidores MCP…',
       pageTitle: 'Servidores MCP',
       searchPlaceholder: 'Buscar servidores...',
@@ -451,7 +451,10 @@ const es = {
       inactive: 'Inactivo',
       activate: 'Activar',
       edit: 'Editar',
+      duplicate: 'Duplicar',
       delete: 'Eliminar',
+      duplicated: '¡Perfil duplicado!',
+      duplicateError: 'Error al duplicar perfil',
       loading: 'Cargando perfiles...',
       pageTitle: 'Perfiles de Chat',
       search: 'Buscar perfiles...',
@@ -526,6 +529,9 @@ const es = {
       updated: '¡Skill actualizado!',
       deleted: '¡Skill eliminado!',
       deleteError: 'Error al eliminar skill',
+      duplicate: 'Duplicar',
+      duplicated: '¡Skill duplicado!',
+      duplicateError: 'Error al duplicar skill',
       confirmDelete: '¿Eliminar el skill "{{name}}"? Esta acción no se puede deshacer.',
       nameRequired: 'El nombre es obligatorio',
       descriptionRequired: 'La descripción es obligatoria',
@@ -583,8 +589,8 @@ const es = {
       buttons: { new: 'Nueva Allowlist', delete: 'Eliminar' },
       columns: { name: 'Nombre', description: 'Descripción', rules: 'Reglas' },
       modal: { newTitle: 'Nueva Allowlist', editTitle: 'Editando: {{name}}' },
-      error: { load: 'Error al cargar allowlists', nameRequired: 'El nombre es obligatorio' },
-      toast: { created: '¡Allowlist creada!', updated: '¡Allowlist actualizada!', deleted: '¡Allowlist eliminada!' },
+      error: { load: 'Error al cargar allowlists', nameRequired: 'El nombre es obligatorio', duplicate: 'Error al duplicar allowlist' },
+      toast: { created: '¡Allowlist creada!', updated: '¡Allowlist actualizada!', deleted: '¡Allowlist eliminada!', duplicated: '¡Allowlist duplicada!' },
       generalSection: {
         title: 'General',
         name: 'Nombre',
@@ -673,6 +679,7 @@ const es = {
       successDesc: 'Reinicia la aplicación para aplicar los cambios.',
       buttons: { restart: 'Reiniciar ahora', backToChat: 'Volver al Chat', retry: 'Reintentar' },
       errorTitle: 'Error en la actualización',
+      errors: { unknown: 'Error desconocido', failed: 'Error al actualizar: {{error}}', start: 'Error al iniciar actualización' },
     },
 
     pickers: {
@@ -719,6 +726,45 @@ const es = {
 
     providers: {
       pageTitle: 'Proveedores LLM',
+      search: 'Buscar proveedores...',
+      loading: 'Cargando...',
+      gridLabel: 'Lista de proveedores LLM',
+      columns: {
+        name: 'Nombre',
+        type: 'Tipo',
+        baseUrl: 'URL base',
+        status: 'Estado de credenciales',
+      },
+      status: {
+        configured: 'Configurado',
+        missing: 'Credencial faltante',
+        none: 'No requiere',
+      },
+      actions: {
+        actions: 'Acciones',
+        add: 'Agregar proveedor',
+        edit: 'Editar',
+        duplicate: 'Duplicar',
+        delete: 'Eliminar',
+        duplicateNotImplemented: 'Duplicar aún no implementado',
+        deleteNotImplemented: 'Eliminar aún no implementado',
+      },
+      modal: {
+        newTitle: 'Nuevo Proveedor',
+        editTitle: 'Editar Proveedor',
+      },
+      confirm: {
+        delete: '¿Eliminar el proveedor "{{name}}"?',
+      },
+      toast: {
+        duplicated: '¡Proveedor duplicado!',
+        deleted: '¡Proveedor eliminado!',
+      },
+      error: {
+        loadFailed: 'Error al cargar proveedores',
+        duplicateFailed: 'Error al duplicar proveedor',
+        deleteFailed: 'Error al eliminar proveedor',
+      },
     },
 
     ui: {

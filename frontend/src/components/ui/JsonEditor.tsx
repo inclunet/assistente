@@ -17,6 +17,49 @@ interface JsonEditorProps {
   modelId?: string;
 }
 
+type MonacoPosition = { lineNumber: number; column: number };
+type MonacoModel = {
+  getValueInRange: (range: {
+    startLineNumber: number;
+    startColumn: number;
+    endLineNumber: number;
+    endColumn: number;
+  }) => string;
+  getWordUntilPosition: (position: MonacoPosition) => { startColumn: number; endColumn: number };
+};
+
+type MonacoCompletionItem = {
+  label: string;
+  kind: number;
+  documentation?: string;
+  detail?: string;
+  insertText: string;
+  range: {
+    startLineNumber: number;
+    endLineNumber: number;
+    startColumn: number;
+    endColumn: number;
+  };
+};
+
+type MonacoLike = {
+  languages: {
+    json: { jsonDefaults: { setDiagnosticsOptions: (options: unknown) => void } };
+    CompletionItemKind: { Variable: number };
+    registerCompletionItemProvider: (
+      language: string,
+      provider: {
+        triggerCharacters: string[];
+        provideCompletionItems: (model: MonacoModel, position: MonacoPosition) => { suggestions: MonacoCompletionItem[] };
+      }
+    ) => { dispose: () => void };
+  };
+};
+
+type MonacoEditorLike = {
+  updateOptions?: (options: unknown) => void;
+};
+
 export function JsonEditor({ 
   value, 
   onChange, 
@@ -28,8 +71,9 @@ export function JsonEditor({
   templateVariables,
   modelId = 'default'
 }: JsonEditorProps) {
-  const editorRef = useRef<any>(null);
-  const monacoRef = useRef<any>(null);
+  const editorRef = useRef<MonacoEditorLike | null>(null);
+  const monacoRef = useRef<MonacoLike | null>(null);
+  const completionDisposableRef = useRef<{ dispose: () => void } | null>(null);
 
   useEffect(() => {
     if (!monacoRef.current) return;
@@ -49,12 +93,13 @@ export function JsonEditor({
     }
   }, [language, jsonSchema, modelId]);
 
-  const handleEditorDidMount = (editor: any, monaco: any) => {
+  const handleEditorDidMount = (editor: MonacoEditorLike, monaco: unknown) => {
     editorRef.current = editor;
-    monacoRef.current = monaco;
+    const monacoApi = monaco as MonacoLike;
+    monacoRef.current = monacoApi;
     
     // Configurações do editor com acessibilidade
-    editor.updateOptions({
+    editor.updateOptions?.({
       minimap: { enabled: false },
       wordWrap: 'on',
       formatOnPaste: true,
@@ -71,11 +116,12 @@ export function JsonEditor({
 
     // Registrar autocomplete para variáveis de template
     if (templateVariables && templateVariables.length > 0) {
-      const disposable = monaco.languages.registerCompletionItemProvider(
+      completionDisposableRef.current?.dispose();
+      completionDisposableRef.current = monacoApi.languages.registerCompletionItemProvider(
         language === 'plaintext' ? 'plaintext' : 'json',
         {
           triggerCharacters: ['.'],
-          provideCompletionItems: (model: any, position: any) => {
+          provideCompletionItems: (model: MonacoModel, position: MonacoPosition) => {
             const textUntilPosition = model.getValueInRange({
               startLineNumber: position.lineNumber,
               startColumn: Math.max(1, position.column - 20),
@@ -98,7 +144,7 @@ export function JsonEditor({
 
             const suggestions = templateVariables.map((variable) => ({
               label: variable,
-              kind: monaco.languages.CompletionItemKind.Variable,
+              kind: monacoApi.languages.CompletionItemKind.Variable,
               documentation: `Variável disponível: ${variable}`,
               detail: 'template variable',
               insertText: variable,
@@ -110,12 +156,16 @@ export function JsonEditor({
         }
       );
 
-      // Cleanup
-      return () => {
-        if (disposable) disposable.dispose();
-      };
+      return;
     }
   };
+
+  useEffect(() => {
+    return () => {
+      completionDisposableRef.current?.dispose();
+      completionDisposableRef.current = null;
+    };
+  }, []);
 
   return (
     <div className="json-editor" role="region" aria-label="Editor de JSON">

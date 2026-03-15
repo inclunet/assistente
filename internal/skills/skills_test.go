@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"assistente/internal/configdir"
 )
 
 func TestParseMemorySkill(t *testing.T) {
@@ -247,6 +249,60 @@ Content`
 		t.Error("Parse deveria falhar com minVersion inválido")
 	} else {
 		t.Logf("Corretamente rejeitou minVersion inválido: %v", err)
+	}
+}
+
+func TestManagerDuplicateSkill(t *testing.T) {
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+
+	mgr := NewManager()
+	if err := mgr.EnsureDir(); err != nil {
+		t.Fatalf("EnsureDir falhou: %v", err)
+	}
+
+	meta := &SkillMetadata{
+		Name:        "skill-base",
+		Version:     "1.0.0",
+		Description: "descricao valida",
+	}
+
+	originalSlug, err := mgr.Create(meta, "conteudo")
+	if err != nil {
+		t.Fatalf("Create falhou: %v", err)
+	}
+
+	copySlug, err := mgr.Duplicate(originalSlug)
+	if err != nil {
+		t.Fatalf("Duplicate falhou: %v", err)
+	}
+
+	if copySlug == originalSlug {
+		t.Fatalf("slug duplicado nao pode ser igual ao original")
+	}
+
+	copySkill, err := mgr.Get(copySlug)
+	if err != nil {
+		t.Fatalf("Get copia falhou: %v", err)
+	}
+
+	if copySkill.Name != "skill-base-copia" {
+		t.Fatalf("nome da copia inesperado: %s", copySkill.Name)
+	}
+
+	if copySkill.Content != "conteudo" {
+		t.Fatalf("conteudo da copia inesperado: %q", copySkill.Content)
+	}
+
+	secondCopy, err := mgr.Duplicate(originalSlug)
+	if err != nil {
+		t.Fatalf("Duplicate 2 falhou: %v", err)
+	}
+
+	if secondCopy != "skill-base-copia-2" {
+		t.Fatalf("slug da segunda copia inesperado: %s", secondCopy)
 	}
 }
 

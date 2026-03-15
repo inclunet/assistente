@@ -25,15 +25,16 @@ function newMermaidBlockId(): string {
 export function MermaidCodeBlockNodeView(props: NodeViewProps) {
   const { t } = useTranslation();
   const { node, editor, getPos, extension } = props;
-  const language = String((node.attrs as any)?.language || '').toLowerCase();
+  const attrs = node.attrs as Record<string, unknown>;
+  const language = String((attrs?.language as string | undefined) || '').toLowerCase();
 
   const mermaidBlockId = useMemo(() => {
-    return String((node.attrs as any)?.mermaidBlockId || '').trim();
-  }, [node.attrs]);
+    return String((attrs?.mermaidBlockId as string | undefined) || '').trim();
+  }, [attrs]);
 
   useEffect(() => {
     if (language !== 'mermaid') return;
-    const cur = String((node.attrs as any)?.mermaidBlockId || '').trim();
+    const cur = String((attrs?.mermaidBlockId as string | undefined) || '').trim();
     if (cur) return;
 
     const pos = typeof getPos === 'function' ? (getPos() as number) : null;
@@ -42,20 +43,19 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
     const nextId = newMermaidBlockId();
     try {
       editor.commands.command(({ tr }) => {
-        const attrs = { ...(node.attrs as any), mermaidBlockId: nextId };
-        tr.setNodeMarkup(pos, undefined, attrs);
+        const nextAttrs = { ...attrs, mermaidBlockId: nextId };
+        tr.setNodeMarkup(pos, undefined, nextAttrs);
         return true;
       });
     } catch {
       // best-effort
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [language]);
+  }, [language, attrs, editor, getPos]);
 
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
   const { addToast } = useUIStore();
 
-  const requestEdit = (extension.options as any)?.onRequestEditMermaid as
+  const requestEdit = (extension.options as { onRequestEditMermaid?: MermaidRequestEditHandler })?.onRequestEditMermaid as
     | MermaidRequestEditHandler
     | undefined;
 
@@ -109,7 +109,9 @@ export function MermaidCodeBlockNodeView(props: NodeViewProps) {
     const code = node.textContent || '';
     const previewMarkdown = '\n\n```mermaid\n' + code + '\n```\n';
 
-    const ensuredId = mermaidBlockId || String((node.attrs as any)?.mermaidBlockId || '').trim() || 'mermaid-unknown';
+    const ensuredId = mermaidBlockId
+      || String((attrs?.mermaidBlockId as string | undefined) || '').trim()
+      || 'mermaid-unknown';
 
     return (
       <NodeViewWrapper className="rich-mermaid-block" role="group" aria-label="Bloco Mermaid">

@@ -45,7 +45,7 @@ export default function TerminalPage() {
       mounted = false;
       cleanup();
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [createSession, loadSessions, setupEventListeners]);
 
   // Foca no input quando a sessão ativa muda
   useEffect(() => {

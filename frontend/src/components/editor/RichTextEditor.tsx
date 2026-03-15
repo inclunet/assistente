@@ -1,12 +1,13 @@
 import { forwardRef, useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { EditorContent, useEditor } from '@tiptap/react';
+import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 
 import { applyMermaidById as applyMermaidByIdInEditor, removeMermaidById as removeMermaidByIdInEditor } from './richMermaidById';
 import { useRichLinkDialog } from './useRichLinkDialog';
 import { buildRichTextExtensions } from './buildRichTextExtensions';
 import { useRichMarkdownSync } from './useRichMarkdownSync';
 import { useRichTextEditorHandle } from './useRichTextEditorHandle';
+import type { EditorLike } from './richMarkdownSync';
 
 import './RichTextEditor.css';
 
@@ -16,7 +17,7 @@ export interface RichTextEditorProps {
   readOnly?: boolean;
   placeholder?: string;
   ariaLabel?: string;
-  onEditorReady?: (editor: any | null) => void;
+  onEditorReady?: (editor: Editor | null) => void;
   onRequestEditMermaid?: (ctx: {
     mermaidBlockId: string;
     code: string;
@@ -66,7 +67,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     extensions,
     content: markdown,
     editable: !readOnly,
-    onUpdate: markdownSync.onUpdate as any,
+    onUpdate: markdownSync.onUpdate,
   });
 
   const openLinkDialog = useRichLinkDialog({ editor, readOnly });
@@ -102,7 +103,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
   }, [editor, readOnly]);
 
   useEffect(() => {
-    markdownSync.syncFromExternal(editor as any, markdown);
+    markdownSync.syncFromExternal(editor ? (editor as EditorLike) : null, markdown);
   }, [editor, markdown, markdownSync]);
 
   return (
