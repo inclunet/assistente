@@ -61,6 +61,9 @@ describe('Combobox - allowFreeInput', () => {
     const button = screen.getByRole('button');
     await user.click(button);
 
+    const input = screen.getByRole('combobox');
+    await user.click(input);
+
     const gpt4Item = await screen.findByText('GPT-4');
     await user.click(gpt4Item);
 

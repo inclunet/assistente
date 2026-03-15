@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations, SearchConversationHistory } from '@wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
+import type { MenuItem as ContextMenuItem } from '../components/ui/menu';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useGridFocus } from '../hooks/useGridFocus';
@@ -200,10 +201,65 @@ export default function HistoryPage() {
     }
   };
 
+  const handleDeleteAction = useCallback(() => {
+    if (selectedIds.size > 0) {
+      handleDeleteSelected();
+      return;
+    }
+    if (focusedRow) {
+      handleDeleteConversation(focusedRow.id);
+    }
+  }, [focusedRow, handleDeleteConversation, handleDeleteSelected, selectedIds.size]);
+
   const isSearching = searchResultIds !== null;
   const displayItems = isSearching
     ? conversations.filter(c => searchResultIds.has(c.id))
     : conversations;
+
+  const getRowActions = useCallback(
+    (item: Conversation): ContextMenuItem[] => [
+      {
+        id: 'open',
+        label: t('history.openConversation', 'Abrir conversa'),
+        icon: '📂',
+        action: () => handleOpenConversation(item.id, item.title),
+      },
+      {
+        id: 'edit',
+        label: t('history.editConversation', 'Editar título'),
+        icon: '✏️',
+        action: () => handleFocusFirstCell(),
+      },
+      {
+        id: 'delete',
+        label: t('history.deleteConversation', 'Excluir conversa'),
+        icon: '🗑️',
+        action: () => handleDeleteConversation(item.id),
+      },
+    ],
+    [handleDeleteConversation, handleFocusFirstCell, handleOpenConversation, t]
+  );
+
+  const getMenuButtonItems = useCallback(
+    (item: Conversation) =>
+      getRowActions(item).map((action) => ({
+        id: action.id,
+        label: action.label ?? '',
+        icon: action.icon ?? '',
+        shortcut: action.shortcut,
+        onClick: action.action,
+        submenu: action.submenu
+          ? action.submenu.map((submenuItem) => ({
+              id: submenuItem.id,
+              label: submenuItem.label ?? '',
+              icon: submenuItem.icon ?? '',
+              shortcut: submenuItem.shortcut,
+              onClick: submenuItem.action,
+            }))
+          : undefined,
+      })),
+    [getRowActions]
+  );
 
   const columns: DataGridColumn<Conversation>[] = [
     {
@@ -260,26 +316,7 @@ export default function HistoryPage() {
       width: '5%',
       format: (_value, item) => (
         <MenuButton
-          items={[
-            {
-              id: 'open',
-              label: t('history.openConversation', 'Abrir conversa'),
-              icon: '📂',
-              onClick: () => handleOpenConversation(item.id, item.title),
-            },
-            {
-              id: 'edit',
-              label: t('history.editConversation', 'Editar título'),
-              icon: '✏️',
-              onClick: () => handleFocusFirstCell(), // Foca para edição, pode customizar
-            },
-            {
-              id: 'delete',
-              label: t('history.deleteConversation', 'Excluir conversa'),
-              icon: '🗑️',
-              onClick: () => handleDeleteConversation(item.id),
-            },
-          ]}
+          items={getMenuButtonItems(item)}
           buttonLabel={t('history.actions', 'Ações')}
         />
       ),
@@ -344,10 +381,12 @@ export default function HistoryPage() {
           },
           {
             key: 'delete',
-            label: t('history.deleteConversation', 'Excluir conversa'),
+            label: selectedIds.size > 0
+              ? t('history.deleteSelected', `Deletar (${selectedIds.size})`)
+              : t('history.deleteConversation', 'Excluir conversa'),
             icon: '🗑️',
-            onClick: () => focusedRow && handleDeleteConversation(focusedRow.id),
-            disabled: !focusedRow,
+            onClick: handleDeleteAction,
+            disabled: selectedIds.size === 0 && !focusedRow,
             variant: 'danger',
           },
           {
@@ -366,16 +405,6 @@ export default function HistoryPage() {
             onClick: handleImport,
             variant: 'secondary',
           },
-          ...(selectedIds.size > 0
-            ? [
-                {
-                  key: 'delete-selected',
-                  label: t('history.deleteSelected', `Deletar (${selectedIds.size})`),
-                  onClick: handleDeleteSelected,
-                  variant: 'danger' as const,
-                },
-              ]
-            : []),
         ]}
       />
 
@@ -393,6 +422,7 @@ export default function HistoryPage() {
         onSelectionChange={setSelectedIds}
         onGridReady={handleGridReady}
         onFocusChange={(item) => setFocusedRow(item as Conversation | null)}
+        getRowActions={getRowActions}
       />
     </div>
   );

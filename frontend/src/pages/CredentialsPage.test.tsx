@@ -1,5 +1,5 @@
 import type { ChangeEvent, ReactNode } from 'react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -83,10 +83,23 @@ vi.mock('../components/ui/Toolbar', () => ({
 }));
 
 vi.mock('../components/ui/DataGrid', () => ({
-  DataGrid: ({ items, onActivate }: { items?: Array<{ id: string; pattern: string }>; onActivate?: (row: { id: string; pattern: string }) => void }) => (
+  DataGrid: ({
+    items,
+    onActivate,
+    getRowActions,
+  }: {
+    items?: Array<{ id: string; pattern: string }>;
+    onActivate?: (row: { id: string; pattern: string }) => void;
+    getRowActions?: (row: { id: string; pattern: string }) => Array<{ id: string; label?: string; onClick?: () => void }>;
+  }) => (
     <div>
       {items?.map((row) => (
-        <button key={row.id} onClick={() => onActivate?.(row)}>{row.pattern}</button>
+        <div key={row.id}>
+          <button onClick={() => onActivate?.(row)}>{row.pattern}</button>
+          {getRowActions?.(row)?.map((action) => (
+            <button key={action.id} onClick={action.onClick}>{action.label}</button>
+          ))}
+        </div>
       ))}
     </div>
   ),
@@ -124,12 +137,19 @@ vi.mock('../components', () => ({
 import CredentialsPage from './CredentialsPage';
 
 describe('CredentialsPage', () => {
+  let confirmSpy: ReturnType<typeof vi.spyOn>;
+
   beforeEach(() => {
     mockList.mockResolvedValue([
       { pattern: '*.github.com', type: 'bearer', masked: '••••1234' },
     ]);
     mockUpsert.mockResolvedValue(undefined);
     mockDelete.mockResolvedValue(undefined);
+    confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    confirmSpy.mockRestore();
   });
 
   it('carrega credenciais e abre editor', async () => {
@@ -161,5 +181,18 @@ describe('CredentialsPage', () => {
       type: 'bearer',
       token: 'tok_123',
     }));
+  });
+
+  it('exclui credencial via menu de acoes', async () => {
+    render(<CredentialsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('*.github.com')).toBeInTheDocument();
+    });
+
+    const deleteButtons = screen.getAllByRole('button', { name: 'Excluir' });
+    await userEvent.click(deleteButtons[deleteButtons.length - 1]);
+
+    expect(mockDelete).toHaveBeenCalledWith('*.github.com');
   });
 });

@@ -13,22 +13,29 @@ export const useToolbarKeyboardNav = (onFocusGrid?: (() => void) | null) => {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
 
+  const isDisabledItem = (item: HTMLElement) =>
+    item.hasAttribute('disabled') || item.getAttribute('aria-disabled') === 'true';
+
   // Obtém todos os elementos focáveis na toolbar (EXCETO campo de busca para navegação por setas)
-  // Inclui botões desabilitados para manter navegabilidade mesmo durante streaming
+  // Itens desabilitados não entram no roving tabindex porque não recebem foco.
   const getFocusableItems = (): HTMLElement[] => {
     if (!toolbarRef.current) return [];
     return Array.from(
       toolbarRef.current.querySelectorAll<HTMLElement>(
-        'button, [role="combobox"]:not([aria-disabled="true"]), input[role="combobox"]'
+        'button, [role="combobox"], input[role="combobox"]'
       )
-    );
+    ).filter((item) => !isDisabledItem(item));
   };
 
   // Atualiza tabindex de todos os itens (botões e pickers, não o campo de busca)
   const updateTabIndexes = (currentIndex: number) => {
     const items = getFocusableItems();
+    if (items.length === 0) {
+      return;
+    }
+    const safeIndex = Math.min(Math.max(currentIndex, 0), items.length - 1);
     items.forEach((item, index) => {
-      item.setAttribute('tabindex', index === currentIndex ? '0' : '-1');
+      item.setAttribute('tabindex', index === safeIndex ? '0' : '-1');
     });
     
     // Campo de busca sempre tem tabindex="0" para ser alcançado por Tab

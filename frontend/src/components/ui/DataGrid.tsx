@@ -315,6 +315,11 @@ export function DataGrid<T = unknown>({
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (rowCount === 0 || columnCount === 0) return;
 
+    const keyTarget = event.target as HTMLElement | null;
+    if (keyTarget?.closest('.context-menu')) {
+      return;
+    }
+
     // Se estamos editando
     if (editingRow >= 0) {
       if (event.key === 'Enter') {
