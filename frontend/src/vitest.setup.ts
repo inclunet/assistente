@@ -18,6 +18,10 @@ if (typeof document !== 'undefined' && !document.queryCommandSupported) {
 	document.queryCommandSupported = () => false;
 }
 
+if (typeof HTMLElement !== 'undefined' && !HTMLElement.prototype.scrollIntoView) {
+	HTMLElement.prototype.scrollIntoView = () => {};
+}
+
 vi.mock('monaco-editor', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/editor.api', () => ({}));
 vi.mock('monaco-editor/esm/vs/editor/editor.api.js', () => ({}));

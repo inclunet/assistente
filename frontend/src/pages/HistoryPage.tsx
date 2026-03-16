@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations, SearchConversationHistory } from '@wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
-import type { MenuItem as ContextMenuItem } from '../components/ui/menu';
+import type { MenuItem as ContextMenuItem } from '../components/menu';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useGridFocus } from '../hooks/useGridFocus';

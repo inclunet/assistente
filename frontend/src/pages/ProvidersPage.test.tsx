@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -103,8 +104,8 @@ vi.mock('../components/settings/ProviderForm', () => ({
 import ProvidersPage from './ProvidersPage';
 
 describe('ProvidersPage', () => {
-  let nowSpy: ReturnType<typeof vi.spyOn>;
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  let nowSpy: MockInstance<() => number>;
+  let confirmSpy: MockInstance<(message?: string) => boolean>;
 
   beforeEach(() => {
     nowSpy = vi.spyOn(Date, 'now');

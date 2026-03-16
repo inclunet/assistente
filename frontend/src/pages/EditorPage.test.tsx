@@ -6,7 +6,7 @@ import userEvent from '@testing-library/user-event';
 const openToolbarMenuSpy = vi.fn();
 
 const editorStoreState = {
-  tabs: [],
+  tabs: [] as Array<{ id: string; title: string; markdown: string; mode: string }>,
   activeTabId: null as string | null,
   autoSaveEnabled: true,
   editorProfileSlug: 'editor-texto',

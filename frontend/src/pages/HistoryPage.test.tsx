@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import type { MockInstance } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -132,7 +133,7 @@ const conversations: ConversationItem[] = [
 ];
 
 describe('HistoryPage', () => {
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  let confirmSpy: MockInstance<(message?: string) => boolean>;
 
   beforeEach(() => {
     mockGetConversations.mockResolvedValue(conversations);

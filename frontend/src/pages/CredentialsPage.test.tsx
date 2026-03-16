@@ -1,5 +1,6 @@
 import type { ChangeEvent, ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import type { MockInstance } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -137,7 +138,7 @@ vi.mock('../components', () => ({
 import CredentialsPage from './CredentialsPage';
 
 describe('CredentialsPage', () => {
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
+  let confirmSpy: MockInstance<(message?: string) => boolean>;
 
   beforeEach(() => {
     mockList.mockResolvedValue([
