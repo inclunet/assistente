@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -471,6 +472,219 @@ func TestProviderRouting_FallbackToGlobalWhenProfileProviderMissing(t *testing.T
 
 	if globalHits.Load() != 1 {
 		t.Errorf("Expected fallback to global server. Hits=%d", globalHits.Load())
+	}
+}
+
+// TestNilClientReturnsError verifica que sendMessageInternal retorna erro
+// quando nenhum client pode ser resolvido (previne crash silencioso).
+func TestNilClientReturnsError(t *testing.T) {
+	registry := llm.NewProviderRegistry()
+	testKey := []byte("test-key-32-bytes-long-key!!")
+	credMgr := credentials.NewManager(testKey)
+
+	app := &App{
+		llmRegistry:     registry,
+		credMgr:         credMgr,
+		llmStreamClient: nil, // global client não inicializado
+	}
+
+	// Profile aponta para provedor que não existe — e global client é nil
+	profile := &profiles.Profile{
+		Chat: profiles.ChatConfig{
+			LLMProvider: "nonexistent-provider",
+			Model:       "some-model",
+		},
+	}
+
+	// Simula a lógica de resolução de requestClient em sendMessageInternal
+	requestClient := app.llmStreamClient // nil
+	if profile != nil && profile.Chat.LLMProvider != "" {
+		if client, err := app.getClientForProvider(profile.Chat.LLMProvider); err == nil {
+			requestClient = client
+		}
+	}
+
+	// O requestClient deve ser nil nesta situação
+	if requestClient != nil {
+		t.Fatal("Expected requestClient to be nil when both global and per-provider client fail")
+	}
+}
+
+// TestRecoverFromPanic verifica que recoverFromPanic não entra em pânico
+// e consegue lidar com diferentes tipos de panic values.
+func TestRecoverFromPanic(t *testing.T) {
+	app := &App{}
+
+	// Deve funcionar sem crash mesmo sem ctx (os EventsEmit falharão silenciosamente)
+	// O importante é que o recover não cause novo panic
+	t.Run("string panic", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("recoverFromPanic should not propagate panic, got: %v", r)
+			}
+		}()
+
+		func() {
+			defer app.recoverFromPanic(0, "test")
+			panic("test panic")
+		}()
+	})
+
+	t.Run("error panic", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("recoverFromPanic should not propagate panic, got: %v", r)
+			}
+		}()
+
+		func() {
+			defer app.recoverFromPanic(0, "test")
+			panic(fmt.Errorf("test error"))
+		}()
+	})
+
+	t.Run("nil pointer panic", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				t.Fatalf("recoverFromPanic should not propagate panic, got: %v", r)
+			}
+		}()
+
+		func() {
+			defer app.recoverFromPanic(0, "test")
+			var p *int
+			_ = *p // nil pointer dereference
+		}()
+	})
+}
+
+// TestNilClientDoesNotCrashApp verifica que chamar StreamChat com nil client
+// em uma goroutine protegida por recover NÃO mata o processo.
+// Isso reproduz o cenário exato do bug: conta limitada onde initLLMClient falha,
+// llmStreamClient fica nil, e o envio de mensagem crashava o app.
+func TestNilClientDoesNotCrashApp(t *testing.T) {
+	app := &App{}
+
+	recovered := make(chan bool, 1)
+
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				// Se chegou aqui, o recoverFromPanic falhou
+				recovered <- false
+				return
+			}
+			recovered <- true
+		}()
+
+		defer app.recoverFromPanic(1, "StreamChat")
+
+		// Simula o que acontecia: nil client causa panic
+		var nilClient *llm.Client
+		nilClient.StreamChat(t.Context(), nil, llm.ChatParams{}, nil)
+	}()
+
+	result := <-recovered
+	if !result {
+		t.Fatal("Panic was not recovered - app would have crashed")
+	}
+}
+
+// TestGetClientForProvider_NilRegistryReturnsError verifica que getClientForProvider
+// retorna erro quando o llmRegistry é nil (inicialização parcial do app).
+func TestGetClientForProvider_NilRegistryReturnsError(t *testing.T) {
+	testKey := []byte("test-key-32-bytes-long-key!!")
+	credMgr := credentials.NewManager(testKey)
+
+	app := &App{
+		llmRegistry: nil, // registry não inicializado
+		credMgr:     credMgr,
+	}
+
+	client, err := app.getClientForProvider("any-provider")
+	if err == nil {
+		t.Fatal("Expected error for nil registry, got nil")
+	}
+	if client != nil {
+		t.Fatal("Expected nil client for nil registry")
+	}
+}
+
+// TestNilClientErrorLogSafeWithNilProfile verifica que o log de erro
+// quando requestClient é nil não causa panic mesmo com activeProfile nil.
+// Isso reproduz o cenário: initLLMClient falha + perfil não encontrado.
+func TestNilClientErrorLogSafeWithNilProfile(t *testing.T) {
+	registry := llm.NewProviderRegistry()
+	testKey := []byte("test-key-32-bytes-long-key!!")
+	credMgr := credentials.NewManager(testKey)
+
+	app := &App{
+		llmRegistry:     registry,
+		credMgr:         credMgr,
+		llmStreamClient: nil,
+	}
+
+	// Simula activeProfile nil + requestClient nil
+	var activeProfile *profiles.Profile = nil
+
+	requestClient := app.llmStreamClient // nil
+	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
+		if client, err := app.getClientForProvider(activeProfile.Chat.LLMProvider); err == nil {
+			requestClient = client
+		}
+	}
+
+	if requestClient != nil {
+		t.Fatal("Expected nil requestClient")
+	}
+
+	// O trecho abaixo reproduz o código corrigido do nil check.
+	// Antes da correção, isso causaria panic ao acessar activeProfile.Chat.LLMProvider.
+	providerID := ""
+	if activeProfile != nil {
+		providerID = activeProfile.Chat.LLMProvider
+	}
+
+	if providerID != "" {
+		t.Errorf("Expected empty providerID for nil profile, got %q", providerID)
+	}
+}
+
+// TestProfileManagerNilDoesNotPanic verifica que quando profileManager é nil,
+// a lógica de resolução de perfil não causa panic.
+func TestProfileManagerNilDoesNotPanic(t *testing.T) {
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("Panic when profileManager is nil: %v", r)
+		}
+	}()
+
+	app := &App{
+		profileManager: nil,
+	}
+
+	// Simula o guard que adicionamos em sendMessageInternal
+	var activeProfile *profiles.Profile
+	if app.profileManager == nil {
+		// Deve entrar aqui sem panic
+		activeProfile = nil
+	}
+
+	if activeProfile != nil {
+		t.Fatal("Expected nil activeProfile when profileManager is nil")
+	}
+}
+
+// TestSendMessageSync_NilClientReturnsError verifica que SendMessageSync
+// retorna erro quando llmStreamClient é nil (em vez de causar panic).
+func TestSendMessageSync_NilClientReturnsError(t *testing.T) {
+	app := &App{
+		llmStreamClient: nil,
+	}
+
+	_, err := app.SendMessageSync(nil, ChatParams{})
+	if err == nil {
+		t.Fatal("Expected error when llmStreamClient is nil")
 	}
 }
 

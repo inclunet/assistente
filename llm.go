@@ -317,7 +317,10 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	h.checkAndEmitContextWarning()
 
 	// Verifica se precisa sumarizar (após resposta concluída, não bloqueia nada)
-	go h.app.checkAndTriggerSummarization(h.conversationID)
+	go func() {
+		defer h.app.recoverFromPanic(h.conversationID, "checkAndTriggerSummarization")
+		h.app.checkAndTriggerSummarization(h.conversationID)
+	}()
 }
 
 // checkAndEmitContextWarning verifica se a conversa está próxima do limite de contexto
@@ -450,6 +453,29 @@ const (
 	MaxMediaSize = 10 * 1024 * 1024
 )
 
+// recoverFromPanic captura panics em goroutines de processamento de mensagens,
+// evitando que o app inteiro morra silenciosamente. Emite o erro para o frontend.
+func (a *App) recoverFromPanic(conversationID uint, source string) {
+	if r := recover(); r != nil {
+		errMsg := fmt.Sprintf("Erro interno inesperado em %s: %v", source, r)
+		log.Printf("🔴 [PANIC RECOVERED] %s (conversa %d): %v", source, conversationID, r)
+
+		// EventsEmit requer contexto Wails válido; protege contra panic duplo
+		// (ex: em testes ou se o contexto foi invalidado)
+		func() {
+			defer func() { recover() }()
+			if a != nil && a.ctx != nil {
+				runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
+					Content:        "",
+					Done:           true,
+					Error:          errMsg,
+					ConversationId: conversationID,
+				})
+			}
+		}()
+	}
+}
+
 // SendMessage é o binding Wails para envio de mensagens. Source padrão: "wails".
 // Se a conversa pertence a um canal externo (Signal, Telegram), a resposta do assistente
 // também será reenviada ao mensageiro de origem (bridge bidirecional).
@@ -564,7 +590,9 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// Obtém o perfil: usa profileSlug se especificado (canais), senão o ativo global
 	var activeProfile *profiles.Profile
 	var profileErr error
-	if params.ProfileSlug != "" {
+	if a.profileManager == nil {
+		log.Printf("[SendMessage] profileManager não inicializado — continuando sem perfil")
+	} else if params.ProfileSlug != "" {
 		activeProfile, profileErr = a.profileManager.Get(params.ProfileSlug)
 		if profileErr != nil {
 			log.Printf("[SendMessage] Erro ao obter perfil '%s' do canal: %v — usando perfil ativo global", params.ProfileSlug, profileErr)
@@ -793,6 +821,18 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 	}
 
+	if requestClient == nil {
+		providerID := ""
+		if activeProfile != nil {
+			providerID = activeProfile.Chat.LLMProvider
+		}
+		errMsg := "Cliente LLM não disponível. Verifique se o provedor está configurado corretamente."
+		log.Printf("[SendMessage] ERRO: requestClient é nil (llmStreamClient=%v, profile.LLMProvider=%q)",
+			a.llmStreamClient == nil, providerID)
+		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		return 0, fmt.Errorf("%s", errMsg)
+	}
+
 	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
 	if len(llmToolDefs) > 0 {
 		agentCtx := a.ctx
@@ -802,7 +842,10 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 				Filesystem:       invokedFilesystemScope,
 			})
 		}
-		go a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs, requestClient)
+		go func() {
+			defer a.recoverFromPanic(conversationID, "runAgenticLoop")
+			a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs, requestClient)
+		}()
 	} else {
 		// Sem ferramentas: streaming simples (comportamento original)
 		handler := &appStreamHandler{
@@ -810,7 +853,10 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 			conversationID: conversationID,
 			userMessageID:  userMsg.ID,
 		}
-		go requestClient.StreamChat(a.ctx, messages, params, handler)
+		go func() {
+			defer a.recoverFromPanic(conversationID, "StreamChat")
+			requestClient.StreamChat(a.ctx, messages, params, handler)
+		}()
 	}
 	return conversationID, nil
 }
@@ -1574,6 +1620,9 @@ func truncateStr(s string, maxLen int) string {
 
 // SendMessageSync envia uma mensagem sem streaming (para acessibilidade)
 func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, error) {
+	if a.llmStreamClient == nil {
+		return "", fmt.Errorf("cliente LLM não inicializado. Configure um perfil com provedor LLM primeiro")
+	}
 	return a.llmStreamClient.SendMessageSync(a.ctx, messages, params)
 }
 

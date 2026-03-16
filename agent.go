@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -254,6 +255,18 @@ func (a *App) runAgenticLoop(
 	toolDefs []llm.ToolDefinition,
 	client *llm.Client, // client específico do provedor do perfil (evita enviar para provedor errado)
 ) {
+	if client == nil {
+		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
+		log.Printf("🔴 [AGENT] client nil na conversa %d", conversationID)
+		runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
+			Content:        "",
+			Done:           true,
+			Error:          errMsg,
+			ConversationId: conversationID,
+		})
+		return
+	}
+
 	maxIterations := a.toolExecutor.Config().MaxIterations
 
 	// Caso especial: perfil do editor (somente text_edit).
@@ -415,7 +428,10 @@ func (a *App) runAgenticLoop(
 			runtime.EventsEmit(a.ctx, "chat:done", map[string]interface{}{
 				"conversationId": conversationID,
 			})
-			go a.checkAndTriggerSummarization(conversationID)
+			go func() {
+				defer a.recoverFromPanic(conversationID, "checkAndTriggerSummarization")
+				a.checkAndTriggerSummarization(conversationID)
+			}()
 			return
 		}
 	}
@@ -432,7 +448,10 @@ func (a *App) runAgenticLoop(
 	})
 
 	// Verifica se precisa sumarizar (após resposta concluída)
-	go a.checkAndTriggerSummarization(conversationID)
+	go func() {
+		defer a.recoverFromPanic(conversationID, "checkAndTriggerSummarization")
+		a.checkAndTriggerSummarization(conversationID)
+	}()
 }
 
 // saveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
@@ -487,7 +506,10 @@ func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
 	})
 
 	// Verifica se precisa sumarizar (após resposta concluída, não bloqueia nada)
-	go a.checkAndTriggerSummarization(conversationID)
+	go func() {
+		defer a.recoverFromPanic(conversationID, "checkAndTriggerSummarization")
+		a.checkAndTriggerSummarization(conversationID)
+	}()
 }
 
 // emitToolStarts emite eventos chat:tool_start para cada tool call.

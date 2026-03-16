@@ -155,7 +155,10 @@ func (a *App) triggerSummarizationInBackground(
 		return
 	}
 
-	go a.executeSummarization(conversationID, profile, existingSummary, newMessages, lastSummarizedMsgID)
+	go func() {
+		defer a.recoverFromPanic(conversationID, "executeSummarization")
+		a.executeSummarization(conversationID, profile, existingSummary, newMessages, lastSummarizedMsgID)
+	}()
 }
 
 // executeSummarization calls the LLM to generate a summary of the given messages

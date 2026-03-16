@@ -269,6 +269,10 @@ func (a *App) ReloadLLMClient() {
 // Used to ensure requests are routed to the correct provider endpoint
 // when the active profile differs from the global default.
 func (a *App) getClientForProvider(providerID string) (*llm.Client, error) {
+	if a.llmRegistry == nil {
+		return nil, fmt.Errorf("registro de provedores não inicializado")
+	}
+
 	provider := a.llmRegistry.Get(providerID)
 	if provider == nil {
 		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
