@@ -29,6 +29,7 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
       '@wailsjs': path.resolve(__dirname, './wailsjs'),
     },
+    dedupe: ['react', 'react-dom'],
   },
   server: {
     port: 5173,

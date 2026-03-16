@@ -1,4 +1,5 @@
 {
+  "//": "Este package.json existe APENAS para atalhos de scripts. NÃO adicione dependencies aqui — todas as dependências do frontend ficam em frontend/package.json. Adicionar deps aqui causa React duplicado e quebra hooks.",
   "name": "assistente",
   "private": true,
   "scripts": {
@@ -10,12 +11,5 @@
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
     "frontend:preview": "npm --prefix frontend run preview"
-  },
-  "dependencies": {
-    "@monaco-editor/react": "^4.7.0",
-    "i18next": "^25.7.4",
-    "react-i18next": "^16.5.3",
-    "react-router-dom": "^7.12.0",
-    "zustand": "^5.0.10"
   }
 }
