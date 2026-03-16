@@ -1,3 +1,0 @@
-# assistente [assistente.test]
-.\llm_reset_test.go:27:22: assignment mismatch: 2 variables but parseSlashCommand returns 3 values
-FAIL	assistente [build failed]

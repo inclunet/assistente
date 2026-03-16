@@ -65,5 +65,10 @@ coverage/
 *.cover
 *.coverage
 
+# Saída de testes (evita commitar dumps acidentais)
+*_test_result.txt
+*_output.txt
+final_test.txt
+
 # Wails
 wails.json.bak
