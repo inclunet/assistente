@@ -252,6 +252,7 @@ func (a *App) runAgenticLoop(
 	conversationID uint,
 	turnID uint, // ID da mensagem do usuário (agrupa o turno)
 	toolDefs []llm.ToolDefinition,
+	client *llm.Client, // client específico do provedor do perfil (evita enviar para provedor errado)
 ) {
 	maxIterations := a.toolExecutor.Config().MaxIterations
 
@@ -288,7 +289,7 @@ func (a *App) runAgenticLoop(
 		if editorToolOnly && iteration == 0 {
 			iterCtx = llm.WithToolChoice(iterCtx, "required")
 		}
-		a.llmStreamClient.StreamChat(iterCtx, messages, params, handler, toolDefs...)
+		client.StreamChat(iterCtx, messages, params, handler, toolDefs...)
 
 		result := handler.result
 

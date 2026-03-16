@@ -265,6 +265,23 @@ func (a *App) ReloadLLMClient() {
 	a.initLLMClient()
 }
 
+// getClientForProvider creates a new LLM client for a specific provider.
+// Used to ensure requests are routed to the correct provider endpoint
+// when the active profile differs from the global default.
+func (a *App) getClientForProvider(providerID string) (*llm.Client, error) {
+	provider := a.llmRegistry.Get(providerID)
+	if provider == nil {
+		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao carregar config: %w", err)
+	}
+
+	return llm.NewClient(provider, cfg, a.credMgr), nil
+}
+
 // initLLMProviders inicializa o registro de provedores LLM com os provedores padrão
 func (a *App) initLLMProviders() {
 	// Tentar carregar provedores do SQLite

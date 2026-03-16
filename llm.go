@@ -490,9 +490,15 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		return 0, err
 	}
 
+	// Verifica se há alguma forma de autenticação disponível.
+	// A APIKey no config.json é legada; provedores modernos usam o credential manager.
+	// Só bloqueia se não houver NENHUMA credencial configurada (nem config, nem provedores).
 	if cfg.APIKey == "" {
-		runtime.EventsEmit(a.ctx, "chat:error", "API Key não configurada. Por favor, configure sua API Key nas configurações.")
-		return 0, fmt.Errorf("API Key não configurada")
+		providerCount, _ := database.CountLLMProviders()
+		if providerCount == 0 {
+			runtime.EventsEmit(a.ctx, "chat:error", "Nenhum provedor LLM configurado. Configure um provedor nas configurações.")
+			return 0, fmt.Errorf("nenhum provedor LLM configurado")
+		}
 	}
 
 	// Se não tem conversationID, cria uma nova conversa
@@ -774,6 +780,19 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 
 
 
+	// Resolve o client correto para o provedor do perfil ativo.
+	// Isso garante que o request seja enviado ao endpoint correto,
+	// mesmo quando o perfil selecionado usa um provedor diferente do global.
+	requestClient := a.llmStreamClient
+	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
+		if client, err := a.getClientForProvider(activeProfile.Chat.LLMProvider); err == nil {
+			requestClient = client
+			log.Printf("[SendMessage] Client resolvido para provedor do perfil: %s", activeProfile.Chat.LLMProvider)
+		} else {
+			log.Printf("[SendMessage] Erro ao resolver client para provedor '%s': %v — usando client global", activeProfile.Chat.LLMProvider, err)
+		}
+	}
+
 	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
 	if len(llmToolDefs) > 0 {
 		agentCtx := a.ctx
@@ -783,7 +802,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 				Filesystem:       invokedFilesystemScope,
 			})
 		}
-		go a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs)
+		go a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs, requestClient)
 	} else {
 		// Sem ferramentas: streaming simples (comportamento original)
 		handler := &appStreamHandler{
@@ -791,7 +810,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 			conversationID: conversationID,
 			userMessageID:  userMsg.ID,
 		}
-		go a.llmStreamClient.StreamChat(a.ctx, messages, params, handler)
+		go requestClient.StreamChat(a.ctx, messages, params, handler)
 	}
 	return conversationID, nil
 }
