@@ -5,7 +5,31 @@ import (
 	"net"
 	"sync"
 	"testing"
+	"time"
+
+	"assistente/internal/credentials"
+
+	"golang.org/x/oauth2"
 )
+
+type oauth2Token struct {
+	AccessToken  string
+	RefreshToken string
+	Expiry       time.Time
+}
+
+func toOAuth2Token(t *oauth2Token) *oauth2.Token {
+	return &oauth2.Token{
+		AccessToken:  t.AccessToken,
+		RefreshToken: t.RefreshToken,
+		TokenType:    "Bearer",
+		Expiry:       t.Expiry,
+	}
+}
+
+func newTestCredMgr() *credentials.Manager {
+	return credentials.NewManager(nil)
+}
 
 func TestCallbackHostToListenIP(t *testing.T) {
 	tests := []struct {
@@ -247,5 +271,160 @@ func TestCallbackListenerBinds(t *testing.T) {
 				t.Error("expected non-zero port from listener")
 			}
 		})
+	}
+}
+
+func TestHostnameFromURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want string
+	}{
+		{"https://api.example.com/path", "api.example.com"},
+		{"http://localhost:8080/api", "localhost"},
+		{"", ""},
+		{"not-a-url", ""},
+		{"https://my-server.com:443/v1", "my-server.com"},
+	}
+	for _, tc := range tests {
+		got := hostnameFromURL(tc.url)
+		if got != tc.want {
+			t.Errorf("hostnameFromURL(%q): got %q, want %q", tc.url, got, tc.want)
+		}
+	}
+}
+
+func TestGenerateStateUniqueness(t *testing.T) {
+	seen := make(map[string]bool)
+	for i := 0; i < 100; i++ {
+		s := generateState()
+		if s == "" {
+			t.Fatal("generateState retornou string vazia")
+		}
+		if seen[s] {
+			t.Fatalf("generateState gerou valor duplicado: %s", s)
+		}
+		seen[s] = true
+	}
+}
+
+func TestClientCredPatternFormat(t *testing.T) {
+	if got := clientCredPattern("my-server"); got != "mcp-client:my-server" {
+		t.Errorf("clientCredPattern: got %q, want %q", got, "mcp-client:my-server")
+	}
+	if got := userTokensPattern("my-server"); got != "mcp-tokens:my-server" {
+		t.Errorf("userTokensPattern: got %q, want %q", got, "mcp-tokens:my-server")
+	}
+}
+
+func TestPersistAndLoadClientCreds(t *testing.T) {
+	credMgr := newTestCredMgr()
+
+	rt := &pkceRoundTripper{
+		credMgr:    credMgr,
+		serverSlug: "test-server",
+	}
+
+	rt.persistClientCreds("my-client-id", "my-client-secret")
+
+	cid, csec := loadClientCreds(credMgr, "test-server")
+	if cid != "my-client-id" {
+		t.Errorf("ClientID: got %q, want %q", cid, "my-client-id")
+	}
+	if csec != "my-client-secret" {
+		t.Errorf("ClientSecret: got %q, want %q", csec, "my-client-secret")
+	}
+}
+
+func TestPersistAndLoadUserTokens(t *testing.T) {
+	credMgr := newTestCredMgr()
+
+	rt := &pkceRoundTripper{
+		credMgr:    credMgr,
+		serverSlug: "test-server",
+	}
+
+	token := &oauth2Token{
+		AccessToken:  "access-123",
+		RefreshToken: "refresh-456",
+	}
+	rt.persistTokens(toOAuth2Token(token))
+
+	loaded := loadUserTokens(credMgr, "test-server")
+	if loaded == nil {
+		t.Fatal("loadUserTokens retornou nil")
+	}
+	if loaded.AccessToken != "access-123" {
+		t.Errorf("AccessToken: got %q, want %q", loaded.AccessToken, "access-123")
+	}
+	if loaded.RefreshToken != "refresh-456" {
+		t.Errorf("RefreshToken: got %q, want %q", loaded.RefreshToken, "refresh-456")
+	}
+}
+
+func TestLoadClientCreds_NilManager(t *testing.T) {
+	cid, csec := loadClientCreds(nil, "test")
+	if cid != "" || csec != "" {
+		t.Errorf("Esperado strings vazias para credMgr nil, got %q, %q", cid, csec)
+	}
+}
+
+func TestLoadUserTokens_NilManager(t *testing.T) {
+	token := loadUserTokens(nil, "test")
+	if token != nil {
+		t.Errorf("Esperado nil para credMgr nil, got %+v", token)
+	}
+}
+
+func TestLoadUserTokens_NoEntry(t *testing.T) {
+	credMgr := newTestCredMgr()
+	token := loadUserTokens(credMgr, "nonexistent")
+	if token != nil {
+		t.Errorf("Esperado nil para servidor inexistente, got %+v", token)
+	}
+}
+
+func TestEffectiveClientID(t *testing.T) {
+	rt := &pkceRoundTripper{
+		cfg:              ServerConfig{OAuth2ClientID: "config-id"},
+		resolvedClientID: "resolved-id",
+	}
+	if got := rt.effectiveClientID(); got != "config-id" {
+		t.Errorf("effectiveClientID com config: got %q, want 'config-id'", got)
+	}
+
+	rt.cfg.OAuth2ClientID = ""
+	if got := rt.effectiveClientID(); got != "resolved-id" {
+		t.Errorf("effectiveClientID sem config: got %q, want 'resolved-id'", got)
+	}
+}
+
+func TestEffectiveClientSecret(t *testing.T) {
+	rt := &pkceRoundTripper{
+		resolvedClientSecret: "the-secret",
+	}
+	if got := rt.effectiveClientSecret(); got != "the-secret" {
+		t.Errorf("effectiveClientSecret: got %q, want 'the-secret'", got)
+	}
+}
+
+func TestIsMethodNotFound(t *testing.T) {
+	tests := []struct {
+		err  error
+		want bool
+	}{
+		{nil, false},
+		{fmt.Errorf("connection refused"), false},
+		{fmt.Errorf("timeout waiting for response"), false},
+		{fmt.Errorf(`calling "ping": Method not found: ping`), true},
+		{fmt.Errorf("method not found"), true},
+		{fmt.Errorf("JSON-RPC error -32601: method not found"), true},
+		{fmt.Errorf("code -32601"), true},
+		{fmt.Errorf("METHOD NOT FOUND"), true},
+	}
+	for _, tc := range tests {
+		got := isMethodNotFound(tc.err)
+		if got != tc.want {
+			t.Errorf("isMethodNotFound(%v): got %v, want %v", tc.err, got, tc.want)
+		}
 	}
 }

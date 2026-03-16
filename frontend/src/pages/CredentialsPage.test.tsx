@@ -36,8 +36,16 @@ vi.mock('react-i18next', () => ({
         'credentials.types.custom': 'Header customizado',
         'credentials.types.secret': 'Segredo (uso interno)',
         'credentials.aria.toolbar': 'Barra de ferramentas de credenciais',
+        'credentials.labels.origin': 'Origem',
+        'credentials.origin.system': 'Sistema',
+        'credentials.origin.manual': 'Manual',
+        'credentials.buttons.view': 'Visualizar',
+        'credentials.modal.viewTitle': 'Credencial do sistema',
+        'credentials.managed.badge': 'Gerenciada pelo sistema',
+        'credentials.managed.description': 'Esta credencial é gerenciada automaticamente.',
         'common.cancel': 'Cancelar',
         'common.save': 'Salvar',
+        'common.close': 'Fechar',
       } as Record<string, string>)[key] ?? key,
   }),
 }));
@@ -142,7 +150,7 @@ describe('CredentialsPage', () => {
 
   beforeEach(() => {
     mockList.mockResolvedValue([
-      { pattern: '*.github.com', type: 'bearer', masked: '••••1234' },
+      { pattern: '*.github.com', type: 'bearer', masked: '••••1234', managed: false },
     ]);
     mockUpsert.mockResolvedValue(undefined);
     mockDelete.mockResolvedValue(undefined);
@@ -195,5 +203,39 @@ describe('CredentialsPage', () => {
     await userEvent.click(deleteButtons[deleteButtons.length - 1]);
 
     expect(mockDelete).toHaveBeenCalledWith('*.github.com');
+  });
+
+  it('credencial gerenciada mostra Visualizar em vez de Editar/Excluir', async () => {
+    mockList.mockResolvedValue([
+      { pattern: 'mcp-client:atlassian', type: 'oauth2', masked: '••••abcd', managed: true },
+    ]);
+
+    render(<CredentialsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('mcp-client:atlassian')).toBeInTheDocument();
+    });
+
+    expect(screen.getByText('Visualizar')).toBeInTheDocument();
+    expect(screen.queryAllByRole('button', { name: 'Excluir' }).filter(
+      (btn) => btn.closest('[data-row]') !== null
+    )).toHaveLength(0);
+  });
+
+  it('credencial gerenciada abre modal de visualizacao ao clicar', async () => {
+    mockList.mockResolvedValue([
+      { pattern: 'mcp-tokens:my-server', type: 'oauth2', masked: '••••xyz', managed: true },
+    ]);
+
+    render(<CredentialsPage />);
+
+    await waitFor(() => {
+      expect(screen.getByText('mcp-tokens:my-server')).toBeInTheDocument();
+    });
+
+    await userEvent.click(screen.getByText('mcp-tokens:my-server'));
+
+    expect(screen.getByText('Gerenciada pelo sistema')).toBeInTheDocument();
+    expect(screen.getByText('Fechar')).toBeInTheDocument();
   });
 });

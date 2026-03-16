@@ -336,16 +336,233 @@ func TestNilAuth(t *testing.T) {
 func TestPriorityOrder(t *testing.T) {
 	mgr := NewManager(nil)
 
-	// Registra padrões em ordem (primeiro vence)
 	auth1 := &AuthConfig{Type: "bearer", Token: "token_from_first"}
 	auth2 := &AuthConfig{Type: "bearer", Token: "token_from_second"}
 
 	mgr.RegisterPattern("*.github.com", auth1)
 	mgr.RegisterPattern("api.*", auth2)
 
-	// api.github.com pode fazer match em ambos - primeira deve vencer
 	resolved, _ := mgr.ResolveForURL("https://api.github.com/data")
 	if resolved == nil || resolved.Token != "token_from_first" {
 		t.Error("Prioridade: primeira pattern deve vencer")
+	}
+}
+
+func TestOAuth2FieldsRoundTrip(t *testing.T) {
+	mgr := NewManager(nil)
+
+	auth := &AuthConfig{
+		Type:         "oauth2",
+		Token:        "access_tok_xyz",
+		RefreshURL:   "refresh_tok_abc",
+		ClientID:     "app-client-id-123",
+		ClientSecret: "super-secret-456",
+		ExpiresAt:    1700000000,
+	}
+
+	if err := mgr.RegisterPattern("mcp-client:test-server", auth); err != nil {
+		t.Fatalf("Erro ao registrar: %v", err)
+	}
+
+	resolved, err := mgr.GetByPattern("mcp-client:test-server")
+	if err != nil {
+		t.Fatalf("Erro ao buscar: %v", err)
+	}
+	if resolved == nil {
+		t.Fatal("Esperado credenciais, got nil")
+	}
+
+	if resolved.Token != "access_tok_xyz" {
+		t.Errorf("Token: esperado 'access_tok_xyz', got '%s'", resolved.Token)
+	}
+	if resolved.RefreshURL != "refresh_tok_abc" {
+		t.Errorf("RefreshURL: esperado 'refresh_tok_abc', got '%s'", resolved.RefreshURL)
+	}
+	if resolved.ClientID != "app-client-id-123" {
+		t.Errorf("ClientID: esperado 'app-client-id-123', got '%s'", resolved.ClientID)
+	}
+	if resolved.ClientSecret != "super-secret-456" {
+		t.Errorf("ClientSecret: esperado 'super-secret-456', got '%s'", resolved.ClientSecret)
+	}
+	if resolved.ExpiresAt != 1700000000 {
+		t.Errorf("ExpiresAt: esperado 1700000000, got %d", resolved.ExpiresAt)
+	}
+}
+
+func TestListCredentialsOAuth2Fields(t *testing.T) {
+	mgr := NewManager(nil)
+
+	auth := &AuthConfig{
+		Type:         "oauth2",
+		Token:        "tok",
+		RefreshURL:   "refresh",
+		ClientID:     "cid",
+		ClientSecret: "csec",
+	}
+
+	if err := mgr.RegisterPattern("mcp-tokens:my-server", auth); err != nil {
+		t.Fatalf("Erro ao registrar: %v", err)
+	}
+
+	list, err := mgr.ListCredentials()
+	if err != nil {
+		t.Fatalf("Erro ao listar: %v", err)
+	}
+	if len(list) != 1 {
+		t.Fatalf("Esperado 1, got %d", len(list))
+	}
+
+	a := list[0].Auth
+	if a.Token != "tok" || a.RefreshURL != "refresh" || a.ClientID != "cid" || a.ClientSecret != "csec" {
+		t.Errorf("Campos OAuth2 incorretos na listagem: %+v", a)
+	}
+}
+
+func TestTryDecryptLegacyPlaintext(t *testing.T) {
+	mgr := NewManager(nil)
+
+	plaintext := "legacy-plaintext-value"
+	result := mgr.tryDecrypt(plaintext)
+	if result != plaintext {
+		t.Errorf("tryDecrypt com texto plano: esperado '%s', got '%s'", plaintext, result)
+	}
+
+	encrypted, err := mgr.encrypt("encrypted-value")
+	if err != nil {
+		t.Fatalf("encrypt falhou: %v", err)
+	}
+	result = mgr.tryDecrypt(encrypted)
+	if result != "encrypted-value" {
+		t.Errorf("tryDecrypt com dado criptografado: esperado 'encrypted-value', got '%s'", result)
+	}
+}
+
+func TestEncryptDecryptAllSensitiveFields(t *testing.T) {
+	mgr := NewManager(nil)
+
+	auth := &AuthConfig{
+		Type:         "oauth2",
+		Token:        "my-token",
+		Password:     "my-password",
+		ClientID:     "my-client-id",
+		ClientSecret: "my-client-secret",
+		RefreshURL:   "my-refresh-token",
+		Headers:      map[string]string{"X-Key": "header-val"},
+	}
+
+	encrypted, err := mgr.encryptAuth(auth)
+	if err != nil {
+		t.Fatalf("encryptAuth falhou: %v", err)
+	}
+
+	if encrypted.Token == "my-token" {
+		t.Error("Token não foi criptografado")
+	}
+	if encrypted.Password == "my-password" {
+		t.Error("Password não foi criptografado")
+	}
+	if encrypted.ClientID == "my-client-id" {
+		t.Error("ClientID não foi criptografado")
+	}
+	if encrypted.ClientSecret == "my-client-secret" {
+		t.Error("ClientSecret não foi criptografado")
+	}
+	if encrypted.RefreshURL == "my-refresh-token" {
+		t.Error("RefreshURL não foi criptografado")
+	}
+	if encrypted.Headers["X-Key"] == "header-val" {
+		t.Error("Header não foi criptografado")
+	}
+
+	decrypted, err := mgr.decryptAuth(encrypted)
+	if err != nil {
+		t.Fatalf("decryptAuth falhou: %v", err)
+	}
+
+	if decrypted.Token != "my-token" {
+		t.Errorf("Token: esperado 'my-token', got '%s'", decrypted.Token)
+	}
+	if decrypted.Password != "my-password" {
+		t.Errorf("Password: esperado 'my-password', got '%s'", decrypted.Password)
+	}
+	if decrypted.ClientID != "my-client-id" {
+		t.Errorf("ClientID: esperado 'my-client-id', got '%s'", decrypted.ClientID)
+	}
+	if decrypted.ClientSecret != "my-client-secret" {
+		t.Errorf("ClientSecret: esperado 'my-client-secret', got '%s'", decrypted.ClientSecret)
+	}
+	if decrypted.RefreshURL != "my-refresh-token" {
+		t.Errorf("RefreshURL: esperado 'my-refresh-token', got '%s'", decrypted.RefreshURL)
+	}
+	if decrypted.Headers["X-Key"] != "header-val" {
+		t.Errorf("Header X-Key: esperado 'header-val', got '%s'", decrypted.Headers["X-Key"])
+	}
+}
+
+func TestDecryptAuthRawPreservesRefs(t *testing.T) {
+	mgr := NewManager(nil)
+
+	auth := &AuthConfig{
+		Type:         "oauth2",
+		Token:        "tok",
+		ClientID:     "cid",
+		ClientSecret: "csec",
+		RefreshURL:   "reftok",
+	}
+
+	encrypted, err := mgr.encryptAuth(auth)
+	if err != nil {
+		t.Fatalf("encryptAuth falhou: %v", err)
+	}
+
+	raw, err := mgr.decryptAuthRaw(encrypted)
+	if err != nil {
+		t.Fatalf("decryptAuthRaw falhou: %v", err)
+	}
+
+	if raw.Token != "tok" || raw.ClientID != "cid" || raw.ClientSecret != "csec" || raw.RefreshURL != "reftok" {
+		t.Errorf("decryptAuthRaw não retornou valores corretos: %+v", raw)
+	}
+}
+
+func TestIsManagedPattern(t *testing.T) {
+	tests := []struct {
+		pattern string
+		want    bool
+	}{
+		{"mcp-client:atlassian", true},
+		{"mcp-tokens:atlassian", true},
+		{"mcp-client:", true},
+		{"mcp-tokens:", true},
+		{"*.github.com", false},
+		{"api.example.com", false},
+		{"channel:slack:bot_token", false},
+		{"mcp-clientx:foo", false},
+		{"", false},
+	}
+	for _, tc := range tests {
+		got := IsManagedPattern(tc.pattern)
+		if got != tc.want {
+			t.Errorf("IsManagedPattern(%q): got %v, want %v", tc.pattern, got, tc.want)
+		}
+	}
+}
+
+func TestUpdateExistingPattern(t *testing.T) {
+	mgr := NewManager(nil)
+
+	auth1 := &AuthConfig{Type: "bearer", Token: "old-token"}
+	mgr.RegisterPattern("api.test.com", auth1)
+
+	auth2 := &AuthConfig{Type: "bearer", Token: "new-token"}
+	mgr.RegisterPattern("api.test.com", auth2)
+
+	if len(mgr.ListPatterns()) != 1 {
+		t.Fatalf("Esperado 1 padrão, got %d", len(mgr.ListPatterns()))
+	}
+
+	resolved, _ := mgr.GetByPattern("api.test.com")
+	if resolved == nil || resolved.Token != "new-token" {
+		t.Errorf("Pattern não foi atualizado: %+v", resolved)
 	}
 }

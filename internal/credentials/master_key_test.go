@@ -37,13 +37,15 @@ func TestGenerateRecoveryKeyFormat(t *testing.T) {
 		t.Fatalf("GenerateRecoveryKey failed: %v", err)
 	}
 	if len(key) < 20 {
-		t.Fatalf("recovery key muito curta")
+		t.Fatalf("recovery key muito curta: %q", key)
 	}
-	if key == "" || key[0] < 'A' || key[0] > 'Z' {
-		t.Fatalf("recovery key deve estar em maiúsculas")
+	for _, c := range key {
+		if !((c >= 'A' && c <= 'Z') || (c >= '2' && c <= '7') || c == '-') {
+			t.Fatalf("recovery key contém caractere inválido %q em %q (esperado base32 + hífens)", string(c), key)
+		}
 	}
 	if !containsDash(key) {
-		t.Fatalf("recovery key deve conter separadores")
+		t.Fatalf("recovery key deve conter separadores: %q", key)
 	}
 }
 

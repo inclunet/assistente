@@ -780,6 +780,7 @@ func (a *App) ListCredentials() ([]CredentialSummary, error) {
 			Pattern: entry.Pattern,
 			Type:    entry.Auth.Type,
 			Masked:  summarizeAuth(entry.Auth),
+			Managed: credentials.IsManagedPattern(entry.Pattern),
 		})
 	}
 
@@ -798,6 +799,10 @@ func (a *App) UpsertCredential(input CredentialInput) error {
 	pattern := strings.TrimSpace(input.Pattern)
 	if pattern == "" {
 		return fmt.Errorf("pattern é obrigatório")
+	}
+
+	if credentials.IsManagedPattern(pattern) {
+		return fmt.Errorf("credencial '%s' é gerenciada pelo sistema e não pode ser editada manualmente", pattern)
 	}
 
 	auth := &credentials.AuthConfig{Type: strings.TrimSpace(input.Type)}
@@ -829,6 +834,9 @@ func (a *App) UpsertCredential(input CredentialInput) error {
 func (a *App) DeleteCredential(pattern string) error {
 	if a.credMgr == nil {
 		return fmt.Errorf("credential manager não inicializado")
+	}
+	if credentials.IsManagedPattern(pattern) {
+		return fmt.Errorf("credencial '%s' é gerenciada pelo sistema e não pode ser removida manualmente", pattern)
 	}
 	return a.credMgr.DeletePattern(context.Background(), pattern)
 }
@@ -1248,6 +1256,7 @@ type CredentialSummary struct {
 	Pattern string `json:"pattern"`
 	Type    string `json:"type"`
 	Masked  string `json:"masked"`
+	Managed bool   `json:"managed"`
 }
 
 // CredentialInput descreve a entrada para criar/atualizar credenciais.

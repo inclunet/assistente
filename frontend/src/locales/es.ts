@@ -615,12 +615,17 @@ const es = {
     credentials: {
       types: { bearer: 'Bearer token', basic: 'Basic (usuario/contraseña)', custom: 'Header personalizado', secret: 'Secreto (uso interno)' },
       pageTitle: 'Credenciales',
-      buttons: { new: 'Nueva', delete: 'Eliminar', create: 'Crear' },
+      buttons: { new: 'Nueva', delete: 'Eliminar', create: 'Crear', view: 'Ver', edit: 'Editar' },
       aria: { toolbar: 'Barra de herramientas de credenciales' },
-      labels: { pattern: 'Pattern', type: 'Tipo', value: 'Valor', username: 'Usuario', password: 'Contraseña', header: 'Header' },
-      modal: { newTitle: 'Nueva credencial', editTitle: 'Editar credencial' },
+      labels: { pattern: 'Pattern', type: 'Tipo', value: 'Valor', username: 'Usuario', password: 'Contraseña', header: 'Header', origin: 'Origen' },
+      origin: { system: 'Sistema', manual: 'Manual' },
+      modal: { newTitle: 'Nueva credencial', editTitle: 'Editar credencial', viewTitle: 'Credencial del sistema' },
       placeholders: { pattern: 'ej: *.github.com o channel:slack:bot_token', token: 'Ingresa el token' },
       hint: { sensitive: 'Los valores sensibles no se muestran después de guardar. Para actualizar, ingrésalos nuevamente.' },
+      managed: {
+        badge: 'Gestionada por el sistema',
+        description: 'Esta credencial es gestionada automáticamente por el Asistente (ej: OAuth MCP). No puede ser editada o eliminada manualmente.',
+      },
     },
 
     restore: {

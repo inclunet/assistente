@@ -615,12 +615,17 @@ const en = {
     credentials: {
       types: { bearer: 'Bearer token', basic: 'Basic (username/password)', custom: 'Custom header', secret: 'Secret (internal use)' },
       pageTitle: 'Credentials',
-      buttons: { new: 'New', delete: 'Delete', create: 'Create' },
+      buttons: { new: 'New', delete: 'Delete', create: 'Create', view: 'View', edit: 'Edit' },
       aria: { toolbar: 'Credentials toolbar' },
-      labels: { pattern: 'Pattern', type: 'Type', value: 'Value', username: 'Username', password: 'Password', header: 'Header' },
-      modal: { newTitle: 'New credential', editTitle: 'Edit credential' },
+      labels: { pattern: 'Pattern', type: 'Type', value: 'Value', username: 'Username', password: 'Password', header: 'Header', origin: 'Origin' },
+      origin: { system: 'System', manual: 'Manual' },
+      modal: { newTitle: 'New credential', editTitle: 'Edit credential', viewTitle: 'System credential' },
       placeholders: { pattern: 'e.g. *.github.com or channel:slack:bot_token', token: 'Enter the token' },
       hint: { sensitive: 'Sensitive values are not shown after saving. To update, enter them again.' },
+      managed: {
+        badge: 'System-managed',
+        description: 'This credential is automatically managed by the Assistant (e.g. OAuth MCP). It cannot be manually edited or removed.',
+      },
     },
 
     restore: {

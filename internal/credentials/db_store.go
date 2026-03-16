@@ -49,14 +49,16 @@ func (s *DBStore) SaveCredential(ctx context.Context, cred StoredCredential) err
 	}
 
 	entry := database.CredentialEntry{
-		Pattern:     cred.Pattern,
-		AuthType:    cred.Auth.Type,
-		TokenEnc:    cred.Auth.Token,
-		Username:    cred.Auth.Username,
-		PasswordEnc: cred.Auth.Password,
-		HeadersEnc:  headersJSON,
-		ExpiresAt:   cred.Auth.ExpiresAt,
-		RefreshURL:  cred.Auth.RefreshURL,
+		Pattern:         cred.Pattern,
+		AuthType:        cred.Auth.Type,
+		TokenEnc:        cred.Auth.Token,
+		Username:        cred.Auth.Username,
+		PasswordEnc:     cred.Auth.Password,
+		HeadersEnc:      headersJSON,
+		ExpiresAt:       cred.Auth.ExpiresAt,
+		RefreshTokenEnc: cred.Auth.RefreshURL,
+		ClientIDEnc:     cred.Auth.ClientID,
+		ClientSecretEnc: cred.Auth.ClientSecret,
 	}
 
 	return db.WithContext(ctx).Clauses(clause.OnConflict{
@@ -86,13 +88,15 @@ func (s *DBStore) ListCredentials(ctx context.Context) ([]StoredCredential, erro
 		}
 
 		auth := &AuthConfig{
-			Type:       entry.AuthType,
-			Token:      entry.TokenEnc,
-			Username:   entry.Username,
-			Password:   entry.PasswordEnc,
-			Headers:    headers,
-			ExpiresAt:  entry.ExpiresAt,
-			RefreshURL: entry.RefreshURL,
+			Type:         entry.AuthType,
+			Token:        entry.TokenEnc,
+			Username:     entry.Username,
+			Password:     entry.PasswordEnc,
+			Headers:      headers,
+			ExpiresAt:    entry.ExpiresAt,
+			RefreshURL:   entry.RefreshTokenEnc,
+			ClientID:     entry.ClientIDEnc,
+			ClientSecret: entry.ClientSecretEnc,
 		}
 
 		result = append(result, StoredCredential{

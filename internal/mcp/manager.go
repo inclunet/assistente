@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os/exec"
+	"strings"
 	"sync"
 	"time"
 
@@ -31,18 +32,21 @@ const (
 	listToolsTimeout = 15 * time.Second
 
 	// healthCheckInterval é o intervalo entre health checks
-	healthCheckInterval = 30 * time.Second
+	healthCheckInterval = 2 * time.Minute
 
 	// healthCheckTimeout é o timeout para ping de health check
-	healthCheckTimeout = 5 * time.Second
+	healthCheckTimeout = 10 * time.Second
 
-	// maxRetries é o número máximo de tentativas de reconexão
-	maxRetries = 5
+	// healthCheckFailThreshold é o número de falhas consecutivas antes de reconectar
+	healthCheckFailThreshold = 2
+
+	// maxRetries é o número máximo de tentativas rápidas de reconexão
+	maxRetries = 3
 
 	// baseRetryDelay é o delay inicial para retry (exponential backoff)
-	baseRetryDelay = 1 * time.Second
+	baseRetryDelay = 15 * time.Second
 
-	// maxRetryDelay é o delay máximo entre retries
+	// maxRetryDelay é o delay máximo entre retries (usado no modo lento)
 	maxRetryDelay = 5 * time.Minute
 )
 
@@ -669,14 +673,13 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 		return client
 
 	case AuthOAuth2ClientCredentials:
-		if m.credMgr != nil && cfg.URL != "" {
-			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.ClientSecret != "" {
-				client := buildClientCredentialsHTTPClient(cfg, auth.ClientSecret)
-				log.Printf("[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
-				return client
-			}
+		_, clientSecret := loadClientCreds(m.credMgr, slug)
+		if clientSecret != "" {
+			client := buildClientCredentialsHTTPClient(cfg, clientSecret)
+			log.Printf("[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
+			return client
 		}
-		log.Printf("[MCP:%s] OAuth2 Client Credentials configurado mas sem client_secret no credential manager", slug)
+		log.Printf("[MCP:%s] OAuth2 Client Credentials configurado mas sem client_secret no credential manager (mcp-client:%s)", slug, slug)
 		return nil
 
 	case AuthBearer:
@@ -788,6 +791,11 @@ func (m *Manager) performHealthCheck(slug string) {
 		m.mu.RUnlock()
 		return
 	}
+	status, hasStatus := m.servers[slug]
+	if hasStatus && status.Reconnecting {
+		m.mu.RUnlock()
+		return
+	}
 	session := conn.session
 	m.mu.RUnlock()
 
@@ -795,19 +803,31 @@ func (m *Manager) performHealthCheck(slug string) {
 	defer cancel()
 
 	err := session.Ping(ctx, nil)
-	
+
+	// "Method not found" = servidor respondeu, apenas não suporta ping.
+	// Trata como saudável — o canal de comunicação está funcionando.
+	if err != nil && isMethodNotFound(err) {
+		log.Printf("[MCP] Servidor '%s' não suporta ping, tratando como saudável", slug)
+		err = nil
+	}
+
 	now := time.Now()
 	m.mu.Lock()
 	if s, ok := m.servers[slug]; ok {
 		if err != nil {
-			log.Printf("[MCP] Health check falhou para '%s': %v", slug, err)
-			s.Status = StatusError
-			s.Error = fmt.Sprintf("health check falhou: %v", err)
-			
-			// Inicia reconnect em background
-			go m.reconnectWithRetry(slug)
+			s.ConsecutiveHealthFailures++
+			log.Printf("[MCP] Health check falhou para '%s' (%d/%d): %v",
+				slug, s.ConsecutiveHealthFailures, healthCheckFailThreshold, err)
+
+			if s.ConsecutiveHealthFailures >= healthCheckFailThreshold {
+				s.Status = StatusError
+				s.Error = fmt.Sprintf("health check falhou: %v", err)
+				s.ConsecutiveHealthFailures = 0
+				go m.reconnectWithRetry(slug)
+			}
 		} else {
 			s.LastPing = &now
+			s.ConsecutiveHealthFailures = 0
 			if s.Status == StatusError {
 				s.Status = StatusConnected
 				s.Error = ""
@@ -824,7 +844,19 @@ func (m *Manager) performHealthCheck(slug string) {
 	}
 }
 
+// isMethodNotFound detecta erros JSON-RPC "method not found" (código -32601).
+// Servidores que não implementam ping retornam esse erro.
+func isMethodNotFound(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	return strings.Contains(msg, "method not found") || strings.Contains(msg, "-32601")
+}
+
 // reconnectWithRetry tenta reconectar ao servidor com exponential backoff.
+// Após esgotar as tentativas rápidas, entra em modo lento (a cada maxRetryDelay)
+// até conseguir reconectar ou o servidor ser desabilitado/removido.
 func (m *Manager) reconnectWithRetry(slug string) {
 	m.mu.Lock()
 	status, ok := m.servers[slug]
@@ -832,44 +864,80 @@ func (m *Manager) reconnectWithRetry(slug string) {
 		m.mu.Unlock()
 		return
 	}
-	
-	// Se já está tentando reconectar ou conectado, não faz nada
-	if status.Status == StatusConnecting || status.Status == StatusConnected {
+
+	if status.Reconnecting || status.Status == StatusConnecting || status.Status == StatusConnected {
 		m.mu.Unlock()
 		return
 	}
-	
-	retryCount := status.RetryCount
-	if retryCount >= maxRetries {
-		log.Printf("[MCP] Número máximo de retries atingido para '%s'", slug)
-		status.Error = fmt.Sprintf("máximo de %d tentativas de reconexão excedido", maxRetries)
-		m.mu.Unlock()
-		return
-	}
-	
-	status.RetryCount++
+
+	status.Reconnecting = true
 	m.mu.Unlock()
 
-	// Calcula delay com exponential backoff
-	delay := baseRetryDelay * time.Duration(1<<uint(retryCount))
-	if delay > maxRetryDelay {
-		delay = maxRetryDelay
-	}
+	defer func() {
+		m.mu.Lock()
+		if s, ok := m.servers[slug]; ok {
+			s.Reconnecting = false
+		}
+		m.mu.Unlock()
+	}()
 
-	log.Printf("[MCP] Tentando reconectar '%s' em %v (tentativa %d/%d)", 
-		slug, delay, retryCount+1, maxRetries)
+	for {
+		m.mu.RLock()
+		status, ok := m.servers[slug]
+		if !ok || !status.Config.Enabled {
+			m.mu.RUnlock()
+			return
+		}
+		retryCount := status.RetryCount
+		m.mu.RUnlock()
 
-	time.Sleep(delay)
+		var delay time.Duration
+		if retryCount >= maxRetries {
+			delay = maxRetryDelay
+			log.Printf("[MCP] Retries rápidos esgotados para '%s', nova tentativa em %v", slug, delay)
+		} else {
+			delay = baseRetryDelay * time.Duration(1<<uint(retryCount))
+			if delay > maxRetryDelay {
+				delay = maxRetryDelay
+			}
+			log.Printf("[MCP] Tentando reconectar '%s' em %v (tentativa %d/%d)",
+				slug, delay, retryCount+1, maxRetries)
+		}
 
-	// Desconecta antes de reconectar
-	m.Disconnect(slug)
+		m.mu.Lock()
+		if s, ok := m.servers[slug]; ok && retryCount < maxRetries {
+			s.RetryCount++
+		}
+		m.mu.Unlock()
 
-	// Tenta reconectar
-	if err := m.Connect(slug); err != nil {
-		log.Printf("[MCP] Falha ao reconectar '%s': %v", slug, err)
-		// reconnectWithRetry será chamado novamente no próximo health check
-	} else {
+		select {
+		case <-time.After(delay):
+		case <-m.ctx.Done():
+			return
+		}
+
+		m.mu.RLock()
+		status, ok = m.servers[slug]
+		if !ok || !status.Config.Enabled || status.Status == StatusConnected {
+			m.mu.RUnlock()
+			return
+		}
+		m.mu.RUnlock()
+
+		m.Disconnect(slug)
+
+		if err := m.Connect(slug); err != nil {
+			log.Printf("[MCP] Falha ao reconectar '%s': %v", slug, err)
+			continue
+		}
+
 		log.Printf("[MCP] Reconexão bem-sucedida para '%s'", slug)
+		m.mu.Lock()
+		if s, ok := m.servers[slug]; ok {
+			s.RetryCount = 0
+		}
+		m.mu.Unlock()
+		return
 	}
 }
 

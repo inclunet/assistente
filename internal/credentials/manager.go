@@ -298,10 +298,8 @@ func (m *Manager) encryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 		return nil, nil
 	}
 
-	// Cópia para não modificar original
 	encrypted := *auth
 
-	// Criptografa token
 	if auth.Token != "" {
 		token, err := m.encrypt(auth.Token)
 		if err != nil {
@@ -310,7 +308,6 @@ func (m *Manager) encryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 		encrypted.Token = token
 	}
 
-	// Criptografa password
 	if auth.Password != "" {
 		pwd, err := m.encrypt(auth.Password)
 		if err != nil {
@@ -319,7 +316,14 @@ func (m *Manager) encryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 		encrypted.Password = pwd
 	}
 
-	// Criptografa client_secret
+	if auth.ClientID != "" {
+		cid, err := m.encrypt(auth.ClientID)
+		if err != nil {
+			return nil, err
+		}
+		encrypted.ClientID = cid
+	}
+
 	if auth.ClientSecret != "" {
 		cs, err := m.encrypt(auth.ClientSecret)
 		if err != nil {
@@ -328,7 +332,14 @@ func (m *Manager) encryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 		encrypted.ClientSecret = cs
 	}
 
-	// Criptografa valores dos headers customizados
+	if auth.RefreshURL != "" {
+		rt, err := m.encrypt(auth.RefreshURL)
+		if err != nil {
+			return nil, err
+		}
+		encrypted.RefreshURL = rt
+	}
+
 	if len(auth.Headers) > 0 {
 		encrypted.Headers = make(map[string]string)
 		for k, v := range auth.Headers {
@@ -375,16 +386,31 @@ func (m *Manager) decryptAuth(auth *AuthConfig) (*AuthConfig, error) {
 		decrypted.Password = pwd
 	}
 
-	if auth.ClientSecret != "" {
-		cs, err := m.decrypt(auth.ClientSecret)
+	if auth.ClientID != "" {
+		cid := m.tryDecrypt(auth.ClientID)
+		cid, err := ResolveExternalRef(cid)
 		if err != nil {
-			return nil, err
+			return nil, fmt.Errorf("erro ao resolver referência do client_id: %w", err)
 		}
-		cs, err = ResolveExternalRef(cs)
+		decrypted.ClientID = cid
+	}
+
+	if auth.ClientSecret != "" {
+		cs := m.tryDecrypt(auth.ClientSecret)
+		cs, err := ResolveExternalRef(cs)
 		if err != nil {
 			return nil, fmt.Errorf("erro ao resolver referência do client_secret: %w", err)
 		}
 		decrypted.ClientSecret = cs
+	}
+
+	if auth.RefreshURL != "" {
+		rt := m.tryDecrypt(auth.RefreshURL)
+		rt, err := ResolveExternalRef(rt)
+		if err != nil {
+			return nil, fmt.Errorf("erro ao resolver referência do refresh token: %w", err)
+		}
+		decrypted.RefreshURL = rt
 	}
 
 	if len(auth.Headers) > 0 {
@@ -427,12 +453,14 @@ func (m *Manager) decryptAuthRaw(auth *AuthConfig) (*AuthConfig, error) {
 		}
 		decrypted.Password = pwd
 	}
+	if auth.ClientID != "" {
+		decrypted.ClientID = m.tryDecrypt(auth.ClientID)
+	}
 	if auth.ClientSecret != "" {
-		cs, err := m.decrypt(auth.ClientSecret)
-		if err != nil {
-			return nil, err
-		}
-		decrypted.ClientSecret = cs
+		decrypted.ClientSecret = m.tryDecrypt(auth.ClientSecret)
+	}
+	if auth.RefreshURL != "" {
+		decrypted.RefreshURL = m.tryDecrypt(auth.RefreshURL)
 	}
 	if len(auth.Headers) > 0 {
 		decrypted.Headers = make(map[string]string)
@@ -469,6 +497,16 @@ func (m *Manager) encrypt(plaintext string) (string, error) {
 	return base64.StdEncoding.EncodeToString(ciphertext), nil
 }
 
+// tryDecrypt tenta descriptografar; se falhar, retorna o valor original.
+// Usado para campos que antes não eram criptografados (dados legados).
+func (m *Manager) tryDecrypt(value string) string {
+	result, err := m.decrypt(value)
+	if err != nil {
+		return value
+	}
+	return result
+}
+
 // decrypt descriptografa string com AES-GCM
 func (m *Manager) decrypt(ciphertext string) (string, error) {
 	data, err := base64.StdEncoding.DecodeString(ciphertext)
@@ -498,6 +536,26 @@ func (m *Manager) decrypt(ciphertext string) (string, error) {
 	}
 
 	return string(plaintext), nil
+}
+
+// ========== Patterns gerenciados ==========
+
+// managedPrefixes contém prefixos de patterns gerenciados automaticamente pelo sistema.
+// Credenciais com esses prefixos não devem ser editáveis pelo usuário.
+var managedPrefixes = []string{
+	"mcp-client:",
+	"mcp-tokens:",
+}
+
+// IsManagedPattern retorna true se o pattern pertence a uma credencial gerenciada
+// automaticamente pelo sistema (ex: OAuth MCP), e não deve ser editada manualmente.
+func IsManagedPattern(pattern string) bool {
+	for _, prefix := range managedPrefixes {
+		if strings.HasPrefix(pattern, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // ========== Helpers ==========

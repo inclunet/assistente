@@ -929,6 +929,7 @@ export namespace main {
 	    pattern: string;
 	    type: string;
 	    masked: string;
+	    managed: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new CredentialSummary(source);
@@ -939,6 +940,7 @@ export namespace main {
 	        this.pattern = source["pattern"];
 	        this.type = source["type"];
 	        this.masked = source["masked"];
+	        this.managed = source["managed"];
 	    }
 	}
 	export class EditorFileInfo {

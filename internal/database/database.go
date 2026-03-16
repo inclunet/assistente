@@ -89,6 +89,12 @@ func Init() error {
 		return err
 	}
 
+	// Migração: mover refresh_url → refresh_token_enc (coluna renomeada)
+	if db.Migrator().HasColumn(&CredentialEntry{}, "refresh_url") {
+		db.Exec(`UPDATE credential_entries SET refresh_token_enc = refresh_url WHERE refresh_url != '' AND (refresh_token_enc IS NULL OR refresh_token_enc = '')`)
+		db.Migrator().DropColumn(&CredentialEntry{}, "refresh_url")
+	}
+
 	// Inicializa FTS5 (full-text search) para busca em mensagens
 	if err := initFTS5(); err != nil {
 		return fmt.Errorf("erro ao inicializar FTS5: %w", err)

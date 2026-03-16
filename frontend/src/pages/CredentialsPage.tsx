@@ -16,6 +16,7 @@ interface CredentialRow {
   pattern: string;
   type: string;
   masked: string;
+  managed: boolean;
   token?: string;
   username?: string;
   password?: string;
@@ -45,6 +46,7 @@ export default function CredentialsPage() {
           pattern: c.pattern,
           type: c.type,
           masked: c.masked || '',
+          managed: c.managed ?? false,
           token: '',
           username: '',
           password: '',
@@ -60,6 +62,7 @@ export default function CredentialsPage() {
           pattern: found?.pattern || String(id),
           type: found?.type || 'bearer',
           masked: found?.masked || '',
+          managed: found?.managed ?? false,
           token: '',
           username: '',
           password: '',
@@ -108,6 +111,7 @@ export default function CredentialsPage() {
         pattern: '',
         type: 'bearer',
         masked: '',
+        managed: false,
         token: '',
         username: '',
         password: '',
@@ -164,10 +168,18 @@ export default function CredentialsPage() {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [crud]);
 
+  const [viewingManaged, setViewingManaged] = useState<CredentialRow | null>(null);
+
   const columns: DataGridColumn<CredentialRow>[] = [
     { key: 'pattern', label: t('credentials.labels.pattern'), width: '260px', truncate: true },
     { key: 'type', label: t('credentials.labels.type'), width: '120px' },
     { key: 'masked', label: t('credentials.labels.value'), truncate: true },
+    {
+      key: 'managed',
+      label: t('credentials.labels.origin', 'Origem'),
+      width: '100px',
+      format: (val) => (val ? t('credentials.origin.system', 'Sistema') : t('credentials.origin.manual', 'Manual')),
+    },
     {
       key: 'actions',
       label: '',
@@ -182,6 +194,16 @@ export default function CredentialsPage() {
   ];
 
   function getCredentialRowActions(row: CredentialRow) {
+    if (row.managed) {
+      return [
+        {
+          id: 'view',
+          label: t('credentials.buttons.view', 'Visualizar'),
+          icon: '👁',
+          onClick: () => setViewingManaged(row),
+        },
+      ];
+    }
     return [
       {
         id: 'edit',
@@ -218,15 +240,15 @@ export default function CredentialsPage() {
             key: 'edit',
             label: t('credentials.buttons.edit', 'Editar'),
             icon: '✏️',
-            onClick: () => focusedRow && crud.openEdit(focusedRow),
-            disabled: !focusedRow,
+            onClick: () => focusedRow && !focusedRow.managed && crud.openEdit(focusedRow),
+            disabled: !focusedRow || focusedRow.managed,
           },
           {
             key: 'delete',
             label: t('credentials.buttons.delete', 'Excluir'),
             icon: '🗑️',
-            onClick: () => focusedRow && crud.deleteItem(focusedRow),
-            disabled: !focusedRow,
+            onClick: () => focusedRow && !focusedRow.managed && crud.deleteItem(focusedRow),
+            disabled: !focusedRow || focusedRow.managed,
             variant: 'danger',
           },
         ]}
@@ -237,8 +259,8 @@ export default function CredentialsPage() {
           columns={columns}
           items={crud.items}
           getItemId={(row) => row.id}
-          onActivate={(row) => crud.openEdit(row)}
-          onDelete={(row) => crud.deleteItem(row)}
+          onActivate={(row) => row.managed ? setViewingManaged(row) : crud.openEdit(row)}
+          onDelete={(row) => !row.managed && crud.deleteItem(row)}
           label={t('credentials.pageTitle')}
           onGridReady={handleGridReady}
           getRowActions={getCredentialRowActions}
@@ -340,6 +362,56 @@ export default function CredentialsPage() {
           </Button>
           <Button onClick={crud.save} loading={crud.saving}>
             {crud.isNew ? t('credentials.buttons.create') : t('common.save')}
+          </Button>
+        </EditorPanelFooter>
+      </Modal>
+
+      <Modal
+        isOpen={Boolean(viewingManaged)}
+        onClose={() => setViewingManaged(null)}
+        title={t('credentials.modal.viewTitle', 'Credencial do sistema')}
+        size="md"
+      >
+        {viewingManaged && (
+          <div className="credentials-page__fields">
+            <div className="credentials-page__managed-info">
+              <p className="credentials-page__managed-badge">
+                {t('credentials.managed.badge', 'Gerenciada pelo sistema')}
+              </p>
+              <p className="credentials-page__managed-desc">
+                {t('credentials.managed.description', 'Esta credencial é gerenciada automaticamente pelo Assistente (ex: OAuth MCP). Não pode ser editada ou removida manualmente.')}
+              </p>
+            </div>
+
+            <Input
+              label={t('credentials.labels.pattern')}
+              value={viewingManaged.pattern}
+              onChange={() => {}}
+              readOnly
+              fullWidth
+              disabled
+            />
+            <Input
+              label={t('credentials.labels.type')}
+              value={viewingManaged.type}
+              onChange={() => {}}
+              readOnly
+              fullWidth
+              disabled
+            />
+            <Input
+              label={t('credentials.labels.value')}
+              value={viewingManaged.masked}
+              onChange={() => {}}
+              readOnly
+              fullWidth
+              disabled
+            />
+          </div>
+        )}
+        <EditorPanelFooter>
+          <Button variant="ghost" onClick={() => setViewingManaged(null)}>
+            {t('common.close', 'Fechar')}
           </Button>
         </EditorPanelFooter>
       </Modal>

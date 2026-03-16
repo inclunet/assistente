@@ -23,6 +23,73 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 )
 
+// persistingTokenSource wraps an oauth2.TokenSource and persists tokens
+// to the credential manager whenever a new token is obtained (refresh).
+type persistingTokenSource struct {
+	inner     oauth2.TokenSource
+	rt        *pkceRoundTripper
+	mu        sync.Mutex
+	lastToken string
+}
+
+func (pts *persistingTokenSource) Token() (*oauth2.Token, error) {
+	token, err := pts.inner.Token()
+	if err != nil {
+		return nil, err
+	}
+
+	pts.mu.Lock()
+	defer pts.mu.Unlock()
+
+	if token.AccessToken != pts.lastToken {
+		pts.lastToken = token.AccessToken
+		pts.rt.persistTokens(token)
+		log.Printf("[MCP:%s] Token renovado e persistido automaticamente", pts.rt.serverSlug)
+	}
+
+	return token, nil
+}
+
+func (rt *pkceRoundTripper) wrapWithPersistence(ts oauth2.TokenSource) oauth2.TokenSource {
+	return &persistingTokenSource{
+		inner: ts,
+		rt:    rt,
+	}
+}
+
+// trySilentRefresh tenta renovar o token usando o refresh_token,
+// sem abrir o browser. Retorna nil se bem-sucedido.
+func (rt *pkceRoundTripper) trySilentRefresh(ctx context.Context) error {
+	if rt.oauthCfg == nil || rt.tokenSource == nil {
+		return fmt.Errorf("no oauth config or token source")
+	}
+
+	token, err := rt.tokenSource.Token()
+	if err != nil || token == nil || token.RefreshToken == "" {
+		return fmt.Errorf("no refresh token available")
+	}
+
+	expiredToken := &oauth2.Token{
+		RefreshToken: token.RefreshToken,
+		Expiry:       time.Now().Add(-1 * time.Hour),
+	}
+
+	refreshCtx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
+
+	newSource := rt.oauthCfg.TokenSource(refreshCtx, expiredToken)
+	newToken, err := newSource.Token()
+	if err != nil {
+		return fmt.Errorf("silent refresh failed: %w", err)
+	}
+
+	rt.tokenSource = rt.wrapWithPersistence(rt.oauthCfg.TokenSource(ctx, newToken))
+	rt.persistTokens(newToken)
+
+	log.Printf("[MCP:%s] Token renovado silenciosamente via refresh_token", rt.serverSlug)
+	return nil
+}
+
 // buildClientCredentialsHTTPClient cria um *http.Client que obtém tokens
 // via OAuth2 Client Credentials Grant (machine-to-machine).
 func buildClientCredentialsHTTPClient(cfg ServerConfig, clientSecret string) *http.Client {
@@ -90,6 +157,31 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 				return resp, nil
 			}
 			resp.Body.Close()
+
+			// Token foi rejeitado — tenta renovar silenciosamente antes de abrir o browser
+			rt.mu.Lock()
+			silentErr := rt.trySilentRefresh(req.Context())
+			rt.mu.Unlock()
+
+			if silentErr == nil {
+				rt.mu.Lock()
+				ts = rt.tokenSource
+				rt.mu.Unlock()
+				if ts != nil {
+					if newToken, err := ts.Token(); err == nil {
+						retryReq := req.Clone(req.Context())
+						newToken.SetAuthHeader(retryReq)
+						resp, err := rt.base.RoundTrip(retryReq)
+						if err != nil {
+							return nil, err
+						}
+						if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
+							return resp, nil
+						}
+						resp.Body.Close()
+					}
+				}
+			}
 		}
 	}
 
@@ -103,6 +195,7 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	}
 	resp.Body.Close()
 
+	// Último recurso: autorização completa (abre browser)
 	if err := rt.authorize(req.Context()); err != nil {
 		return nil, fmt.Errorf("oauth2 pkce authorization failed: %w", err)
 	}
@@ -164,17 +257,18 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
 		clientSecret = dcrResult.ClientSecret
 		rt.resolvedClientID = clientID
 		rt.resolvedClientSecret = clientSecret
-		rt.persistCredentials(clientID, clientSecret, nil)
-		log.Printf("[MCP:%s] DCR concluído: client_id=%s", rt.serverSlug, clientID)
 
-		// Persistir a porta usada no DCR para que futuras autorizações
-		// usem o mesmo redirect_uri registrado no servidor OAuth.
+		// Dados do cliente → credential manager (entrada separada)
+		rt.persistClientCreds(clientID, clientSecret)
+
+		// client_id (referência) e porta → config do servidor
+		rt.cfg.OAuth2ClientID = clientID
 		if rt.cfg.OAuth2CallbackPort == 0 {
 			rt.cfg.OAuth2CallbackPort = port
-			log.Printf("[MCP:%s] Porta %d persistida no config (redirect_uri estável)", rt.serverSlug, port)
-			if rt.onConfigUpdate != nil {
-				rt.onConfigUpdate(rt.cfg)
-			}
+		}
+		log.Printf("[MCP:%s] DCR concluído: client_id=%s, porta=%d", rt.serverSlug, clientID, rt.cfg.OAuth2CallbackPort)
+		if rt.onConfigUpdate != nil {
+			rt.onConfigUpdate(rt.cfg)
 		}
 	}
 
@@ -253,9 +347,9 @@ func (rt *pkceRoundTripper) authorize(ctx context.Context) error {
 			return fmt.Errorf("token exchange failed: %w", err)
 		}
 
-		rt.tokenSource = oauthCfg.TokenSource(ctx, token)
 		rt.oauthCfg = oauthCfg
-		rt.persistCredentials(rt.resolvedClientID, rt.resolvedClientSecret, token)
+		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(ctx, token))
+		rt.persistTokens(token)
 
 		log.Printf("[MCP:%s] Autorização OAuth2 PKCE concluída com sucesso", rt.serverSlug)
 		return nil
@@ -344,35 +438,74 @@ func registerDynamicClient(cfg ServerConfig, redirectURL string) (*dcrResponse, 
 	return &result, nil
 }
 
-// ============ Persist ============
+// ============ Persist (duas entradas separadas no credential manager) ============
 
-// persistCredentials salva client_id (DCR), client_secret, e tokens no credential manager.
-func (rt *pkceRoundTripper) persistCredentials(clientID, clientSecret string, token *oauth2.Token) {
+func clientCredPattern(slug string) string { return "mcp-client:" + slug }
+func userTokensPattern(slug string) string { return "mcp-tokens:" + slug }
+
+// persistClientCreds salva dados de registro do app (client_id + client_secret) no credential manager.
+func (rt *pkceRoundTripper) persistClientCreds(clientID, clientSecret string) {
 	if rt.credMgr == nil {
 		return
 	}
-	hostname := hostnameFromURL(rt.cfg.URL)
-	if hostname == "" {
-		return
-	}
-
 	auth := &credentials.AuthConfig{
 		Type:         "oauth2",
 		ClientID:     clientID,
 		ClientSecret: clientSecret,
 	}
-
-	if token != nil {
-		auth.Token = token.AccessToken
-		auth.RefreshURL = token.RefreshToken
-		if token.Expiry.After(time.Now()) {
-			auth.ExpiresAt = token.Expiry.Unix()
-		}
+	if err := rt.credMgr.RegisterPatternWithContext(context.Background(), clientCredPattern(rt.serverSlug), auth); err != nil {
+		log.Printf("[MCP:%s] Erro ao salvar credenciais do cliente: %v", rt.serverSlug, err)
 	}
+}
 
-	if err := rt.credMgr.RegisterPatternWithContext(context.Background(), hostname, auth); err != nil {
-		log.Printf("[MCP:%s] Erro ao salvar credenciais: %v", rt.serverSlug, err)
+// persistTokens salva tokens da sessão do usuário (access_token + refresh_token) no credential manager.
+func (rt *pkceRoundTripper) persistTokens(token *oauth2.Token) {
+	if rt.credMgr == nil || token == nil {
+		return
 	}
+	auth := &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      token.AccessToken,
+		RefreshURL: token.RefreshToken,
+	}
+	if token.Expiry.After(time.Now()) {
+		auth.ExpiresAt = token.Expiry.Unix()
+	}
+	if err := rt.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern(rt.serverSlug), auth); err != nil {
+		log.Printf("[MCP:%s] Erro ao salvar tokens do usuário: %v", rt.serverSlug, err)
+	}
+}
+
+// loadClientCreds carrega client_id e client_secret do credential manager.
+func loadClientCreds(credMgr *credentials.Manager, slug string) (clientID, clientSecret string) {
+	if credMgr == nil {
+		return
+	}
+	auth, err := credMgr.GetByPattern(clientCredPattern(slug))
+	if err != nil || auth == nil {
+		return
+	}
+	return auth.ClientID, auth.ClientSecret
+}
+
+// loadUserTokens carrega tokens do usuário do credential manager.
+func loadUserTokens(credMgr *credentials.Manager, slug string) *oauth2.Token {
+	if credMgr == nil {
+		return nil
+	}
+	auth, err := credMgr.GetByPattern(userTokensPattern(slug))
+	if err != nil || auth == nil || auth.Token == "" {
+		return nil
+	}
+	token := &oauth2.Token{
+		AccessToken:  auth.Token,
+		RefreshToken: auth.RefreshURL,
+		TokenType:    "Bearer",
+	}
+	if auth.ExpiresAt > 0 {
+		token.Expiry = time.Unix(auth.ExpiresAt, 0)
+	}
+	return token
 }
 
 type authCallbackResult struct {
@@ -427,45 +560,28 @@ func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEve
 		onConfigUpdate: onConfigUpdate,
 	}
 
-	if credMgr != nil && cfg.URL != "" {
-		if auth, err := credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Type == "oauth2" {
-			// Restaurar client_id/secret (de DCR ou entrada manual)
-			if auth.ClientID != "" {
-				rt.resolvedClientID = auth.ClientID
-			}
-			if auth.ClientSecret != "" {
-				rt.resolvedClientSecret = auth.ClientSecret
-			}
+	// Entrada 1: dados do cliente (mcp-client:{slug}) → client_id + client_secret
+	clientID, clientSecret := loadClientCreds(credMgr, slug)
+	if clientID == "" {
+		clientID = cfg.OAuth2ClientID
+	}
+	rt.resolvedClientID = clientID
+	rt.resolvedClientSecret = clientSecret
 
-			// Restaurar token source
-			clientID := cfg.OAuth2ClientID
-			if clientID == "" {
-				clientID = auth.ClientID
-			}
-
-			if auth.Token != "" && clientID != "" {
-				token := &oauth2.Token{
-					AccessToken:  auth.Token,
-					RefreshToken: auth.RefreshURL,
-					TokenType:    "Bearer",
-				}
-				if auth.ExpiresAt > 0 {
-					token.Expiry = time.Unix(auth.ExpiresAt, 0)
-				}
-
-				oauthCfg := &oauth2.Config{
-					ClientID:     clientID,
-					ClientSecret: auth.ClientSecret,
-					Endpoint: oauth2.Endpoint{
-						AuthURL:  cfg.OAuth2AuthURL,
-						TokenURL: cfg.OAuth2TokenURL,
-					},
-					Scopes: cfg.OAuth2Scopes,
-				}
-				rt.tokenSource = oauthCfg.TokenSource(context.Background(), token)
-				rt.oauthCfg = oauthCfg
-			}
+	// Entrada 2: tokens do usuário (mcp-tokens:{slug}) → access_token + refresh_token
+	token := loadUserTokens(credMgr, slug)
+	if token != nil && clientID != "" {
+		oauthCfg := &oauth2.Config{
+			ClientID:     clientID,
+			ClientSecret: clientSecret,
+			Endpoint: oauth2.Endpoint{
+				AuthURL:  cfg.OAuth2AuthURL,
+				TokenURL: cfg.OAuth2TokenURL,
+			},
+			Scopes: cfg.OAuth2Scopes,
 		}
+		rt.oauthCfg = oauthCfg
+		rt.tokenSource = rt.wrapWithPersistence(oauthCfg.TokenSource(context.Background(), token))
 	}
 
 	return &http.Client{Transport: rt}

@@ -90,17 +90,19 @@ type ChatTab struct {
 
 // CredentialEntry armazena credenciais por padrão de domínio (com campos sensíveis criptografados).
 type CredentialEntry struct {
-	ID          uint      `json:"id" gorm:"primaryKey"`
-	Pattern     string    `json:"pattern" gorm:"uniqueIndex"`
-	AuthType    string    `json:"auth_type"`
-	TokenEnc    string    `json:"token_enc" gorm:"type:text"`
-	Username    string    `json:"username"`
-	PasswordEnc string    `json:"password_enc" gorm:"type:text"`
-	HeadersEnc  string    `json:"headers_enc" gorm:"type:text"`
-	ExpiresAt   int64     `json:"expires_at"`
-	RefreshURL  string    `json:"refresh_url"`
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
+	ID              uint      `json:"id" gorm:"primaryKey"`
+	Pattern         string    `json:"pattern" gorm:"uniqueIndex"`
+	AuthType        string    `json:"auth_type"`
+	TokenEnc        string    `json:"token_enc" gorm:"type:text"`
+	Username        string    `json:"username"`
+	PasswordEnc     string    `json:"password_enc" gorm:"type:text"`
+	HeadersEnc      string    `json:"headers_enc" gorm:"type:text"`
+	ExpiresAt       int64     `json:"expires_at"`
+	RefreshTokenEnc string    `json:"refresh_token_enc" gorm:"type:text"`
+	ClientIDEnc     string    `json:"client_id_enc" gorm:"type:text"`
+	ClientSecretEnc string    `json:"client_secret_enc" gorm:"type:text"`
+	CreatedAt       time.Time `json:"created_at"`
+	UpdatedAt       time.Time `json:"updated_at"`
 }
 
 // CredentialKeyWrap armazena a DEK embrulhada com senha mestre ou recovery key.

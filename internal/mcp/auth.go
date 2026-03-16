@@ -17,30 +17,40 @@ func (m *Manager) SaveServerAuth(slug, authType, token, username, password, clie
 		return err
 	}
 
-	hostname := hostnameFromURL(cfg.URL)
-	if hostname == "" {
-		return fmt.Errorf("servidor MCP '%s' nao tem URL valida para autenticacao", slug)
-	}
-
-	auth := &credentials.AuthConfig{}
+	ctx := context.Background()
 
 	switch authType {
 	case "bearer":
-		auth.Type = "bearer"
-		auth.Token = token
+		hostname := hostnameFromURL(cfg.URL)
+		if hostname == "" {
+			return fmt.Errorf("servidor MCP '%s' nao tem URL valida", slug)
+		}
+		return m.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: token,
+		})
+
 	case "basic":
-		auth.Type = "basic"
-		auth.Username = username
-		auth.Password = password
+		hostname := hostnameFromURL(cfg.URL)
+		if hostname == "" {
+			return fmt.Errorf("servidor MCP '%s' nao tem URL valida", slug)
+		}
+		return m.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{
+			Type:     "basic",
+			Username: username,
+			Password: password,
+		})
+
 	case "oauth2_client_credentials", "oauth2_pkce":
-		auth.Type = "oauth2"
-		auth.ClientSecret = clientSecret
-		auth.ClientID = cfg.OAuth2ClientID
+		return m.credMgr.RegisterPatternWithContext(ctx, clientCredPattern(slug), &credentials.AuthConfig{
+			Type:         "oauth2",
+			ClientID:     cfg.OAuth2ClientID,
+			ClientSecret: clientSecret,
+		})
+
 	default:
 		return fmt.Errorf("tipo de autenticacao invalido: %s", authType)
 	}
-
-	return m.credMgr.RegisterPatternWithContext(context.Background(), hostname, auth)
 }
 
 func (m *Manager) DeleteServerAuth(slug string) error {
@@ -48,17 +58,21 @@ func (m *Manager) DeleteServerAuth(slug string) error {
 		return fmt.Errorf("credential manager nao inicializado")
 	}
 
+	ctx := context.Background()
+
+	// Limpar entradas OAuth (client + tokens)
+	m.credMgr.DeletePattern(ctx, clientCredPattern(slug))
+	m.credMgr.DeletePattern(ctx, userTokensPattern(slug))
+
+	// Limpar entrada legacy por hostname (bearer/basic)
 	cfg, err := m.GetConfig(slug)
-	if err != nil {
-		return err
+	if err == nil {
+		if hostname := hostnameFromURL(cfg.URL); hostname != "" {
+			m.credMgr.DeletePattern(ctx, hostname)
+		}
 	}
 
-	hostname := hostnameFromURL(cfg.URL)
-	if hostname == "" {
-		return fmt.Errorf("servidor MCP '%s' nao tem URL valida para autenticacao", slug)
-	}
-
-	return m.credMgr.DeletePattern(context.Background(), hostname)
+	return nil
 }
 
 func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
@@ -71,17 +85,24 @@ func (m *Manager) GetServerAuthInfo(slug string) (string, bool, error) {
 		return "", false, err
 	}
 
+	// Verifica entrada OAuth (mcp-client:{slug})
+	clientAuth, _ := m.credMgr.GetByPattern(clientCredPattern(slug))
+	if clientAuth != nil {
+		if cfg.AuthType != "" && cfg.AuthType != AuthNone {
+			return string(cfg.AuthType), true, nil
+		}
+		return string(AuthOAuth2PKCE), true, nil
+	}
+
+	// Verifica entrada legacy por hostname (bearer/basic)
 	hostname := hostnameFromURL(cfg.URL)
 	if hostname == "" {
 		return "", false, nil
 	}
 
 	auth, err := m.credMgr.GetByPattern(hostname)
-	if err != nil {
+	if err != nil || auth == nil {
 		return "", false, err
-	}
-	if auth == nil {
-		return "", false, nil
 	}
 
 	resolvedType := ""

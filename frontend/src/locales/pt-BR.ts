@@ -615,12 +615,17 @@ const ptBR = {
     credentials: {
       types: { bearer: 'Bearer token', basic: 'Basic (usuário/senha)', custom: 'Header customizado', secret: 'Segredo (uso interno)' },
       pageTitle: 'Credenciais',
-      buttons: { new: 'Nova', delete: 'Excluir', create: 'Criar' },
+      buttons: { new: 'Nova', delete: 'Excluir', create: 'Criar', view: 'Visualizar', edit: 'Editar' },
       aria: { toolbar: 'Barra de ferramentas de credenciais' },
-      labels: { pattern: 'Pattern', type: 'Tipo', value: 'Valor', username: 'Usuário', password: 'Senha', header: 'Header' },
-      modal: { newTitle: 'Nova credencial', editTitle: 'Editar credencial' },
+      labels: { pattern: 'Pattern', type: 'Tipo', value: 'Valor', username: 'Usuário', password: 'Senha', header: 'Header', origin: 'Origem' },
+      origin: { system: 'Sistema', manual: 'Manual' },
+      modal: { newTitle: 'Nova credencial', editTitle: 'Editar credencial', viewTitle: 'Credencial do sistema' },
       placeholders: { pattern: 'ex: *.github.com ou channel:slack:bot_token', token: 'Informe o token' },
       hint: { sensitive: 'Os valores sensíveis não são exibidos após salvar. Para atualizar, informe novamente.' },
+      managed: {
+        badge: 'Gerenciada pelo sistema',
+        description: 'Esta credencial é gerenciada automaticamente pelo Assistente (ex: OAuth MCP). Não pode ser editada ou removida manualmente.',
+      },
     },
 
     restore: {

@@ -71,8 +71,11 @@ type ServerStatus struct {
 	ConnectedAt *time.Time        `json:"connectedAt,omitempty"`
 	LastPing    *time.Time        `json:"lastPing,omitempty"`
 	RetryCount  int               `json:"retryCount,omitempty"`
-	Roots       []Root            `json:"roots,omitempty"`           // workspace roots informados ao servidor
+	Roots       []Root            `json:"roots,omitempty"`
 	Capabilities ServerCapabilities `json:"capabilities"`
+
+	Reconnecting              bool `json:"-"`
+	ConsecutiveHealthFailures int  `json:"-"`
 }
 
 // ServerInfo é a versão exportada para o frontend (sem campos sensíveis como env).
