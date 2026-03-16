@@ -936,6 +936,17 @@ const ptBR = {
       theme: 'Tema',
       language: 'Idioma',
     },
+
+    deepLink: {
+      openConversation: 'Abrir conversa #{{id}}',
+      newConversation: 'Nova conversa',
+      sendMessage: 'Enviar mensagem na conversa #{{id}}',
+      navigateTo: 'Ir para {{page}}',
+      announcedOpen: 'Conversa #{{id}} aberta',
+      announcedNewConversation: 'Nova conversa criada',
+      announcedSent: 'Mensagem enviada na conversa #{{id}}',
+      announcedNavigate: 'Navegou para {{page}}',
+    },
   },
 };
 

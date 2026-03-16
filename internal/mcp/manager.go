@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
+	"net/http"
 	"os/exec"
 	"sync"
 	"time"
@@ -231,8 +232,8 @@ func (m *Manager) Connect(slug string) error {
 		nil,
 	)
 
-	// Cria o transport com base no tipo
-	transport, err := m.createTransport(cfg)
+	// Cria o transport com base no tipo (inclui autenticação se configurada)
+	transport, err := m.createTransport(slug, cfg)
 	if err != nil {
 		m.setError(slug, fmt.Sprintf("erro ao criar transport: %v", err))
 		return err
@@ -606,8 +607,9 @@ func (m *Manager) CloseAll() {
 	log.Printf("[MCP] Todos os servidores MCP desconectados")
 }
 
-// createTransport cria o transport apropriado para o tipo de servidor.
-func (m *Manager) createTransport(cfg ServerConfig) (mcpsdk.Transport, error) {
+// createTransport cria o transport apropriado para o tipo de servidor,
+// incluindo autenticação integrada com o gerenciador de credenciais.
+func (m *Manager) createTransport(slug string, cfg ServerConfig) (mcpsdk.Transport, error) {
 	switch cfg.Transport {
 	case TransportStdio:
 		if cfg.Command == "" {
@@ -616,7 +618,6 @@ func (m *Manager) createTransport(cfg ServerConfig) (mcpsdk.Transport, error) {
 
 		cmd := exec.CommandContext(m.ctx, cfg.Command, cfg.Args...)
 
-		// Herda ambiente do sistema e adiciona vars extras do config
 		if len(cfg.Env) > 0 {
 			cmd.Env = buildEnv(cfg.Env)
 		}
@@ -628,13 +629,117 @@ func (m *Manager) createTransport(cfg ServerConfig) (mcpsdk.Transport, error) {
 			return nil, fmt.Errorf("campo 'url' é obrigatório para transport sse")
 		}
 
+		httpClient := m.buildAuthHTTPClient(slug, cfg)
+
 		return &mcpsdk.SSEClientTransport{
-			Endpoint: cfg.URL,
+			Endpoint:   cfg.URL,
+			HTTPClient: httpClient,
+		}, nil
+
+	case TransportStreamable:
+		if cfg.URL == "" {
+			return nil, fmt.Errorf("campo 'url' é obrigatório para transport streamable")
+		}
+
+		httpClient := m.buildAuthHTTPClient(slug, cfg)
+
+		return &mcpsdk.StreamableClientTransport{
+			Endpoint:   cfg.URL,
+			HTTPClient: httpClient,
 		}, nil
 
 	default:
-		return nil, fmt.Errorf("transport desconhecido: '%s' (use 'stdio' ou 'sse')", cfg.Transport)
+		return nil, fmt.Errorf("transport desconhecido: '%s' (use 'stdio', 'sse' ou 'streamable')", cfg.Transport)
 	}
+}
+
+// buildAuthHTTPClient cria um *http.Client com autenticação configurada
+// com base no authType do servidor e credenciais do gerenciador.
+// Retorna nil se nenhuma autenticação estiver configurada (o SDK usará http.DefaultClient).
+func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Client {
+	switch cfg.AuthType {
+	case AuthOAuth2PKCE:
+		onConfigUpdate := func(updated ServerConfig) {
+			if err := m.SaveConfig(slug, updated); err != nil {
+				log.Printf("[MCP:%s] Erro ao persistir config após atualização OAuth: %v", slug, err)
+			}
+		}
+		client := buildPKCEHTTPClient(cfg, m.credMgr, m.emitEvent, slug, onConfigUpdate)
+		log.Printf("[MCP:%s] HTTP client configurado com OAuth2 PKCE", slug)
+		return client
+
+	case AuthOAuth2ClientCredentials:
+		if m.credMgr != nil && cfg.URL != "" {
+			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.ClientSecret != "" {
+				client := buildClientCredentialsHTTPClient(cfg, auth.ClientSecret)
+				log.Printf("[MCP:%s] HTTP client configurado com OAuth2 Client Credentials", slug)
+				return client
+			}
+		}
+		log.Printf("[MCP:%s] OAuth2 Client Credentials configurado mas sem client_secret no credential manager", slug)
+		return nil
+
+	case AuthBearer:
+		if m.credMgr != nil && cfg.URL != "" {
+			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Token != "" {
+				client := &http.Client{
+					Transport: &bearerRoundTripper{
+						base:  http.DefaultTransport,
+						token: auth.Token,
+					},
+				}
+				log.Printf("[MCP:%s] HTTP client configurado com Bearer token", slug)
+				return client
+			}
+		}
+		log.Printf("[MCP:%s] Bearer auth configurado mas sem token no credential manager", slug)
+		return nil
+
+	case AuthBasic:
+		if m.credMgr != nil && cfg.URL != "" {
+			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Username != "" {
+				client := &http.Client{
+					Transport: &basicAuthRoundTripper{
+						base:     http.DefaultTransport,
+						username: auth.Username,
+						password: auth.Password,
+					},
+				}
+				log.Printf("[MCP:%s] HTTP client configurado com Basic auth", slug)
+				return client
+			}
+		}
+		log.Printf("[MCP:%s] Basic auth configurado mas sem credenciais no credential manager", slug)
+		return nil
+
+	default:
+		return nil
+	}
+}
+
+// bearerRoundTripper injeta Authorization: Bearer em todas as requisições.
+type bearerRoundTripper struct {
+	base  http.RoundTripper
+	token string
+}
+
+func (rt *bearerRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	cloned.Header.Set("Authorization", "Bearer "+rt.token)
+	return rt.base.RoundTrip(cloned)
+}
+
+// basicAuthRoundTripper injeta Authorization: Basic em todas as requisições.
+type basicAuthRoundTripper struct {
+	base     http.RoundTripper
+	username string
+	password string
+}
+
+func (rt *basicAuthRoundTripper) RoundTrip(req *http.Request) (*http.Response, error) {
+	cloned := req.Clone(req.Context())
+	cloned.SetBasicAuth(rt.username, rt.password)
+	return rt.base.RoundTrip(cloned)
 }
 
 // setError atualiza o status de um servidor para erro.
@@ -1004,7 +1109,7 @@ func (m *Manager) GetNativeServerInfo() []map[string]any {
 		}
 
 		// Inclui informação de transporte para acesso direto
-		if status.Config.Transport == TransportSSE {
+		if status.Config.Transport == TransportSSE || status.Config.Transport == TransportStreamable {
 			serverInfo["endpoint"] = status.Config.URL
 		}
 

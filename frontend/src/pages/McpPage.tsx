@@ -161,21 +161,21 @@ export default function McpPage() {
     setFormAuthToken('');
     setFormAuthUsername('');
     setFormAuthPassword('');
-    setFormAuthType(config?.authType || 'none');
+    setFormAuthType(config?.auth_type || 'none');
     setHasExistingAuth(false);
 
-    setFormOAuth2ClientId(config?.oauth2ClientId || '');
+    setFormOAuth2ClientId(config?.oauth2_client_id || '');
     setFormOAuth2ClientSecret('');
-    setFormOAuth2TokenUrl(config?.oauth2TokenUrl || '');
-    setFormOAuth2AuthUrl(config?.oauth2AuthUrl || '');
-    setFormOAuth2Scopes(config?.oauth2Scopes?.join(' ') || '');
-    setFormOAuth2CallbackPort(config?.oauth2CallbackPort ? String(config.oauth2CallbackPort) : '');
-    setFormOAuth2CallbackHost(config?.oauth2CallbackHost || '');
+    setFormOAuth2TokenUrl(config?.oauth2_token_url || '');
+    setFormOAuth2AuthUrl(config?.oauth2_auth_url || '');
+    setFormOAuth2Scopes(config?.oauth2_scopes?.join(' ') || '');
+    setFormOAuth2CallbackPort(config?.oauth2_callback_port ? String(config.oauth2_callback_port) : '');
+    setFormOAuth2CallbackHost(config?.oauth2_callback_host || '');
 
     setDiscoveryStatus('idle');
     setDiscoveredFields(new Set());
     setDiscoveryResourceName('');
-    setDiscoveryRegistrationUrl(config?.oauth2RegistrationUrl || '');
+    setDiscoveryRegistrationUrl(config?.oauth2_registration_url || '');
     setLastDiscoveredUrl('');
   };
 
@@ -212,7 +212,7 @@ export default function McpPage() {
 
     const isHTTP = config.transport === 'streamable' || config.transport === 'sse';
     if (isHTTP && !isNew) {
-      loadAuthInfo(row.slug, config.authType);
+      loadAuthInfo(row.slug, config.auth_type);
     }
   }, [getConfig, loadAuthInfo, isNew]);
 
@@ -360,16 +360,16 @@ export default function McpPage() {
       url: isHTTP ? formUrl.trim() : undefined,
       enabled: formEnabled,
       auto_connect: formAutoConnect,
-      authType: isHTTP ? formAuthType : undefined,
-      oauth2ClientId: isHTTP && isOAuth2 ? formOAuth2ClientId.trim() || undefined : undefined,
-      oauth2TokenUrl: isHTTP && isOAuth2 ? formOAuth2TokenUrl.trim() || undefined : undefined,
-      oauth2AuthUrl: isHTTP && formAuthType === 'oauth2_pkce' ? formOAuth2AuthUrl.trim() || undefined : undefined,
-      oauth2Scopes: isHTTP && isOAuth2 ? scopesArr : undefined,
-      oauth2RegistrationUrl: isHTTP && formAuthType === 'oauth2_pkce' ? discoveryRegistrationUrl || undefined : undefined,
-      oauth2CallbackPort: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackPort
+      auth_type: isHTTP ? formAuthType : undefined,
+      oauth2_client_id: isHTTP && isOAuth2 ? formOAuth2ClientId.trim() || undefined : undefined,
+      oauth2_token_url: isHTTP && isOAuth2 ? formOAuth2TokenUrl.trim() || undefined : undefined,
+      oauth2_auth_url: isHTTP && formAuthType === 'oauth2_pkce' ? formOAuth2AuthUrl.trim() || undefined : undefined,
+      oauth2_scopes: isHTTP && isOAuth2 ? scopesArr : undefined,
+      oauth2_registration_url: isHTTP && formAuthType === 'oauth2_pkce' ? discoveryRegistrationUrl || undefined : undefined,
+      oauth2_callback_port: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackPort
         ? parseInt(formOAuth2CallbackPort, 10) || undefined
         : undefined,
-      oauth2CallbackHost: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackHost
+      oauth2_callback_host: isHTTP && formAuthType === 'oauth2_pkce' && formOAuth2CallbackHost
         ? formOAuth2CallbackHost
         : undefined,
     });
@@ -487,7 +487,7 @@ export default function McpPage() {
 
         const isHTTP = config.transport === 'streamable' || config.transport === 'sse';
         if (isHTTP) {
-          loadAuthInfo(newSlug, config.authType);
+          loadAuthInfo(newSlug, config.auth_type);
         }
       }
     } catch (error: unknown) {

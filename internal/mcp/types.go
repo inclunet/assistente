@@ -11,8 +11,9 @@ import (
 type TransportType string
 
 const (
-	TransportStdio TransportType = "stdio"
-	TransportSSE   TransportType = "sse"
+	TransportStdio      TransportType = "stdio"
+	TransportSSE        TransportType = "sse"
+	TransportStreamable TransportType = "streamable"
 )
 
 // AuthType define o tipo de autenticação do servidor MCP.
@@ -46,14 +47,14 @@ type ServerConfig struct {
 	Args        []string          `json:"args,omitempty" yaml:"args,omitempty"`           // apenas stdio
 	Env         map[string]string `json:"env,omitempty" yaml:"env,omitempty"`             // variáveis de ambiente
 	URL         string            `json:"url,omitempty" yaml:"url,omitempty"`             // apenas sse
-	AuthType    AuthType          `json:"authType,omitempty" yaml:"authType,omitempty"`
-	OAuth2ClientID        string   `json:"oauth2ClientId,omitempty" yaml:"oauth2ClientId,omitempty"`
-	OAuth2AuthURL         string   `json:"oauth2AuthUrl,omitempty" yaml:"oauth2AuthUrl,omitempty"`
-	OAuth2TokenURL        string   `json:"oauth2TokenUrl,omitempty" yaml:"oauth2TokenUrl,omitempty"`
-	OAuth2Scopes          []string `json:"oauth2Scopes,omitempty" yaml:"oauth2Scopes,omitempty"`
-	OAuth2CallbackPort    int      `json:"oauth2CallbackPort,omitempty" yaml:"oauth2CallbackPort,omitempty"`
-	OAuth2CallbackHost    string   `json:"oauth2CallbackHost,omitempty" yaml:"oauth2CallbackHost,omitempty"`
-	OAuth2RegistrationURL string   `json:"oauth2RegistrationUrl,omitempty" yaml:"oauth2RegistrationUrl,omitempty"`
+	AuthType    AuthType          `json:"auth_type,omitempty" yaml:"auth_type,omitempty"`
+	OAuth2ClientID        string   `json:"oauth2_client_id,omitempty" yaml:"oauth2_client_id,omitempty"`
+	OAuth2AuthURL         string   `json:"oauth2_auth_url,omitempty" yaml:"oauth2_auth_url,omitempty"`
+	OAuth2TokenURL        string   `json:"oauth2_token_url,omitempty" yaml:"oauth2_token_url,omitempty"`
+	OAuth2Scopes          []string `json:"oauth2_scopes,omitempty" yaml:"oauth2_scopes,omitempty"`
+	OAuth2CallbackPort    int      `json:"oauth2_callback_port,omitempty" yaml:"oauth2_callback_port,omitempty"`
+	OAuth2CallbackHost    string   `json:"oauth2_callback_host,omitempty" yaml:"oauth2_callback_host,omitempty"`
+	OAuth2RegistrationURL string   `json:"oauth2_registration_url,omitempty" yaml:"oauth2_registration_url,omitempty"`
 	Enabled     bool              `json:"enabled" yaml:"enabled"`
 	AutoConnect bool              `json:"auto_connect" yaml:"auto_connect"`
 }

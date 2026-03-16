@@ -936,6 +936,17 @@ const en = {
       theme: 'Theme',
       language: 'Language',
     },
+
+    deepLink: {
+      openConversation: 'Open conversation #{{id}}',
+      newConversation: 'New conversation',
+      sendMessage: 'Send message to conversation #{{id}}',
+      navigateTo: 'Go to {{page}}',
+      announcedOpen: 'Conversation #{{id}} opened',
+      announcedNewConversation: 'New conversation created',
+      announcedSent: 'Message sent to conversation #{{id}}',
+      announcedNavigate: 'Navigated to {{page}}',
+    },
   },
 };
 

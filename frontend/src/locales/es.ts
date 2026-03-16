@@ -936,6 +936,17 @@ const es = {
       theme: 'Tema',
       language: 'Idioma',
     },
+
+    deepLink: {
+      openConversation: 'Abrir conversación #{{id}}',
+      newConversation: 'Nueva conversación',
+      sendMessage: 'Enviar mensaje a conversación #{{id}}',
+      navigateTo: 'Ir a {{page}}',
+      announcedOpen: 'Conversación #{{id}} abierta',
+      announcedNewConversation: 'Nueva conversación creada',
+      announcedSent: 'Mensaje enviado a conversación #{{id}}',
+      announcedNavigate: 'Navegó a {{page}}',
+    },
   },
 };
 

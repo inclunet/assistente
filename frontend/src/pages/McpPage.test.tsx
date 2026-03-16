@@ -253,8 +253,8 @@ describe('McpPage — oauth2_callback_host', () => {
 
     const [slug, config] = mockSave.mock.calls[0];
     expect(slug).toBe('test-server');
-    expect(config.oauth2CallbackHost).toBe('127.0.0.1');
-    expect(config.oauth2CallbackPort).toBe(3118);
+    expect(config.oauth2_callback_host).toBe('127.0.0.1');
+    expect(config.oauth2_callback_port).toBe(3118);
   });
 
   it('não inclui oauth2_callback_host quando authType não é PKCE', async () => {
@@ -271,7 +271,7 @@ describe('McpPage — oauth2_callback_host', () => {
     });
 
     const [, config] = mockSave.mock.calls[0];
-    expect(config.oauth2CallbackHost).toBeUndefined();
+    expect(config.oauth2_callback_host).toBeUndefined();
   });
 
   it('duplica servidor MCP via menu de acoes', async () => {
@@ -329,6 +329,6 @@ describe('McpPage — oauth2_callback_host', () => {
     });
 
     const [, config] = mockSave.mock.calls[0];
-    expect(config.oauth2CallbackHost).toBeUndefined();
+    expect(config.oauth2_callback_host).toBeUndefined();
   });
 });

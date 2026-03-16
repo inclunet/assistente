@@ -225,3 +225,58 @@
   white-space: pre-wrap;
   word-break: break-word;
 }
+
+/* ─── Deep Links (assistente://) ──────────────────────────────────── */
+
+.markdown-content a.deep-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35em;
+  padding: 0.15em 0.6em;
+  border-radius: var(--radius-md);
+  background: var(--accent-dim);
+  border: 1px solid var(--border-default);
+  color: var(--text-primary);
+  font-size: 0.9em;
+  font-weight: 500;
+  line-height: 1.5;
+  text-decoration: none;
+  cursor: pointer;
+  transition: background 0.15s, border-color 0.15s;
+  vertical-align: baseline;
+}
+
+.markdown-content a.deep-link:hover {
+  background: var(--accent-hover);
+  border-color: var(--accent);
+  color: var(--text-inverse);
+  text-decoration: none;
+}
+
+.markdown-content a.deep-link:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.markdown-content a.deep-link::before {
+  display: inline-block;
+  font-size: 1em;
+  line-height: 1;
+  flex-shrink: 0;
+}
+
+.markdown-content a.deep-link--conversation::before {
+  content: "\1F4AC"; /* speech balloon */
+}
+
+.markdown-content a.deep-link--new-conversation::before {
+  content: "\2795"; /* plus */
+}
+
+.markdown-content a.deep-link--send::before {
+  content: "\1F4E8"; /* incoming envelope */
+}
+
+.markdown-content a.deep-link--navigate::before {
+  content: "\27A1"; /* right arrow */
+}

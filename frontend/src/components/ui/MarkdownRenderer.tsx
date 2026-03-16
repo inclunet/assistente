@@ -1,10 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useNavigate } from 'react-router-dom';
 import MarkdownIt from 'markdown-it';
 import DOMPurify from 'dompurify';
 import type { editor as MonacoEditorNamespace } from 'monaco-editor';
 import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { loadMonacoLanguage } from '../../lib/monacoLanguageLoader';
+import { markdownItDeepLink } from '../../lib/markdownItDeepLink';
+import { isDeepLink, parseDeepLink, executeDeepLink } from '../../lib/deepLinks';
 import './MarkdownRenderer.css';
 
 type MermaidModule = typeof import('mermaid');
@@ -33,6 +36,8 @@ const md = new MarkdownIt({
   linkify: true,
   typographer: true,
 });
+
+md.use(markdownItDeepLink);
 
 const purifyConfig = {
   ALLOWED_TAGS: [
@@ -69,14 +74,22 @@ const purifyConfig = {
     'div',
     'span',
   ],
-  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel', 'tabindex'],
+  ALLOWED_ATTR: ['href', 'src', 'alt', 'title', 'class', 'target', 'rel', 'tabindex', 'data-deep-link', 'role', 'aria-label'],
+  ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|sms|cid|xmpp|assistente):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
 };
 
 DOMPurify.addHook('afterSanitizeAttributes', (node: Element) => {
   if (node.tagName === 'A') {
-    node.setAttribute('tabindex', '-1');
-    node.setAttribute('target', '_blank');
-    node.setAttribute('rel', 'noopener noreferrer');
+    const href = node.getAttribute('href') || '';
+    if (isDeepLink(href)) {
+      node.setAttribute('tabindex', '0');
+      node.removeAttribute('target');
+      node.removeAttribute('rel');
+    } else {
+      node.setAttribute('tabindex', '-1');
+      node.setAttribute('target', '_blank');
+      node.setAttribute('rel', 'noopener noreferrer');
+    }
   }
 });
 
@@ -93,6 +106,7 @@ export function MarkdownRenderer({
   const editorsRef = useRef<Map<string, MonacoEditor>>(new Map());
   const mermaidApiRef = useRef<MermaidApi | null>(null);
   const monacoApiRef = useRef<MonacoModule | null>(null);
+  const navigate = useNavigate();
 
   const canSendToEditor = Boolean(enableSendToEditorButtons && onSendToEditor);
 
@@ -770,6 +784,40 @@ export function MarkdownRenderer({
     ]
   );
 
+  const handleDeepLinkClick = useCallback(
+    (e: MouseEvent) => {
+      const target = (e.target as HTMLElement).closest('a.deep-link') as HTMLAnchorElement | null;
+      if (!target) return;
+
+      const uri = target.getAttribute('data-deep-link') || target.getAttribute('href') || '';
+      const action = parseDeepLink(uri);
+      if (!action) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      void executeDeepLink(action, { navigate });
+    },
+    [navigate],
+  );
+
+  const handleDeepLinkKeydown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key !== 'Enter' && e.key !== ' ') return;
+
+      const target = e.target as HTMLElement;
+      if (!target.classList.contains('deep-link')) return;
+
+      const uri = target.getAttribute('data-deep-link') || (target as HTMLAnchorElement).href || '';
+      const action = parseDeepLink(uri);
+      if (!action) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+      void executeDeepLink(action, { navigate });
+    },
+    [navigate],
+  );
+
   const html = useMemo(() => {
     const rendered = md.render(content || '');
     return DOMPurify.sanitize(rendered, purifyConfig);
@@ -788,6 +836,17 @@ export function MarkdownRenderer({
     addContextMenus(cleanups);
     void renderMermaidDiagrams(cleanups);
 
+    // Deep link click/keyboard handlers (delegated)
+    const container = containerRef.current;
+    if (container) {
+      container.addEventListener('click', handleDeepLinkClick);
+      container.addEventListener('keydown', handleDeepLinkKeydown);
+      cleanups.push(() => {
+        container.removeEventListener('click', handleDeepLinkClick);
+        container.removeEventListener('keydown', handleDeepLinkKeydown);
+      });
+    }
+
     return () => {
       cleanups.forEach((fn) => fn());
       editorsRef.current.forEach((ed) => {
@@ -799,7 +858,7 @@ export function MarkdownRenderer({
       });
       editorsRef.current.clear();
     };
-  }, [addContextMenus, closeMenu, html, renderMermaidDiagrams]);
+  }, [addContextMenus, closeMenu, handleDeepLinkClick, handleDeepLinkKeydown, html, renderMermaidDiagrams]);
 
   return (
     <>

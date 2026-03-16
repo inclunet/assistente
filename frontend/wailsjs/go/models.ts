@@ -1564,14 +1564,14 @@ export namespace mcp {
 	    args?: string[];
 	    env?: Record<string, string>;
 	    url?: string;
-	    authType?: string;
-	    oauth2ClientId?: string;
-	    oauth2AuthUrl?: string;
-	    oauth2TokenUrl?: string;
-	    oauth2Scopes?: string[];
-	    oauth2CallbackPort?: number;
-	    oauth2CallbackHost?: string;
-	    oauth2RegistrationUrl?: string;
+	    auth_type?: string;
+	    oauth2_client_id?: string;
+	    oauth2_auth_url?: string;
+	    oauth2_token_url?: string;
+	    oauth2_scopes?: string[];
+	    oauth2_callback_port?: number;
+	    oauth2_callback_host?: string;
+	    oauth2_registration_url?: string;
 	    enabled: boolean;
 	    auto_connect: boolean;
 	
@@ -1588,14 +1588,14 @@ export namespace mcp {
 	        this.args = source["args"];
 	        this.env = source["env"];
 	        this.url = source["url"];
-	        this.authType = source["authType"];
-	        this.oauth2ClientId = source["oauth2ClientId"];
-	        this.oauth2AuthUrl = source["oauth2AuthUrl"];
-	        this.oauth2TokenUrl = source["oauth2TokenUrl"];
-	        this.oauth2Scopes = source["oauth2Scopes"];
-	        this.oauth2CallbackPort = source["oauth2CallbackPort"];
-	        this.oauth2CallbackHost = source["oauth2CallbackHost"];
-	        this.oauth2RegistrationUrl = source["oauth2RegistrationUrl"];
+	        this.auth_type = source["auth_type"];
+	        this.oauth2_client_id = source["oauth2_client_id"];
+	        this.oauth2_auth_url = source["oauth2_auth_url"];
+	        this.oauth2_token_url = source["oauth2_token_url"];
+	        this.oauth2_scopes = source["oauth2_scopes"];
+	        this.oauth2_callback_port = source["oauth2_callback_port"];
+	        this.oauth2_callback_host = source["oauth2_callback_host"];
+	        this.oauth2_registration_url = source["oauth2_registration_url"];
 	        this.enabled = source["enabled"];
 	        this.auto_connect = source["auto_connect"];
 	    }
