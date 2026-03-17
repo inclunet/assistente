@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   GetProfiles,
@@ -171,9 +171,9 @@ export default function ProfilesPage() {
 
   // --- Grid actions ---
 
-  const handleEditProfile = async (row: ProfileRow) => {
+  const handleEditProfile = useCallback(async (row: ProfileRow) => {
     await crud.openEdit(row);
-  };
+  }, [crud]);
 
   const handleDuplicateProfile = async (row: ProfileRow) => {
     try {
@@ -368,10 +368,26 @@ export default function ProfilesPage() {
 
   // --- Filtering ---
 
-  const filteredRows = crud.items.filter(row =>
-    row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (row.description || '').toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredRows = useMemo(
+    () =>
+      crud.items.filter(
+        (row) =>
+          row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          (row.description || '').toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [crud.items, searchTerm]
   );
+
+  const getItemId = useCallback((item: ProfileRow) => item.id, []);
+  const handleActivateRow = useCallback(
+    (item: ProfileRow) => handleEditProfile(item),
+    [handleEditProfile]
+  );
+  const handleDeleteRow = useCallback(
+    (item: ProfileRow) => crud.deleteItem(item),
+    [crud]
+  );
+  const handleFocusChange = useCallback((item: ProfileRow | null) => setFocusedRow(item), []);
 
   // --- Loading ---
 
@@ -453,15 +469,15 @@ export default function ProfilesPage() {
         items={filteredRows}
         columns={columns}
         label={t('profiles.gridLabel', 'Lista de perfis')}
-        getItemId={(item) => item.id}
+        getItemId={getItemId}
         selectedIds={selectedIds}
         onSelectionChange={setSelectedIds}
-        onActivate={(item) => handleEditProfile(item)}
-        onDelete={(item) => crud.deleteItem(item)}
+        onActivate={handleActivateRow}
+        onDelete={handleDeleteRow}
         onCellEdit={handleCellEdit}
         onGridReady={handleGridReady}
         getRowActions={getProfileRowActions}
-        onFocusChange={(item) => setFocusedRow(item as ProfileRow | null)}
+        onFocusChange={handleFocusChange}
       />
 
       {/* Editor Modal */}

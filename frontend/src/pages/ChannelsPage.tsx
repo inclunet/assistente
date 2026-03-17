@@ -505,10 +505,10 @@ export default function ChannelsPage() {
 
   // ── Channel editor open/close ────────────────────────────────────
 
-  const handleEditChannel = (row: ChannelRow) => {
+  const handleEditChannel = useCallback((row: ChannelRow) => {
     setEditingChannel(row.name);
     announce(t('channels.announce.editorOpened', { label: row.label }));
-  };
+  }, [announce, t]);
 
   const handleCloseEditor = () => {
     setEditingChannel(null);
@@ -815,6 +815,14 @@ export default function ChannelsPage() {
     ];
   }
 
+  // ── Stable DataGrid callbacks (memoization) ─────────────────────────
+
+  const getChannelRowId = useCallback((item: ChannelRow) => item.id, []);
+  const handleActivateChannelRow = useCallback((item: ChannelRow) => handleEditChannel(item), [handleEditChannel]);
+  const handleChannelFocusChange = useCallback((item: ChannelRow | null) => setFocusedChannel(item), []);
+  const getContactRowId = useCallback((item: ContactRow) => item.id, []);
+  const handleContactFocusChange = useCallback((item: ContactRow | null) => setFocusedContact(item), []);
+
   const createMenuItems: MenuItem[] = channelTemplates.length > 0
     ? channelTemplates.map((template) => ({
       id: `create-${template.type}`,
@@ -1018,11 +1026,11 @@ export default function ChannelsPage() {
               columns={channelColumns}
               label="Canais de comunicação"
               autoFocusOnMount={false}
-              getItemId={(item) => item.id}
-              onActivate={(item) => handleEditChannel(item)}
+              getItemId={getChannelRowId}
+              onActivate={handleActivateChannelRow}
               onGridReady={channelsHandleGridReady}
               getRowActions={getChannelRowActions}
-              onFocusChange={(item) => setFocusedChannel(item as ChannelRow | null)}
+              onFocusChange={handleChannelFocusChange}
             />
           </TabPanel>
         )}
@@ -1040,10 +1048,10 @@ export default function ChannelsPage() {
                 columns={contactColumns}
                 label="Contatos autorizados"
                 autoFocusOnMount={false}
-                getItemId={(item) => item.id}
+                getItemId={getContactRowId}
                 onGridReady={contactsHandleGridReady}
                 getRowActions={getContactRowActions}
-                onFocusChange={(item) => setFocusedContact(item as ContactRow | null)}
+                onFocusChange={handleContactFocusChange}
               />
             ) : (
               <p className="channels-page__empty" role="status">Nenhum contato autorizado.</p>

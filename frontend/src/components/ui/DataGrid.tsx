@@ -180,11 +180,19 @@ export function DataGrid<T = unknown>({
     focusCell(focusedRowRef.current, focusedColRef.current);
   }, [focusCell]);
 
-  // Rastreia qual item está focado por ID e notifica o pai
+  // Rastreia qual item está focado por ID e notifica o pai.
+  // Só notifica quando o ID do item focado realmente mudou, para evitar
+  // loops infinitos quando `items` é recriado com mesmos dados.
   useEffect(() => {
     if (items.length > 0 && focusedRow >= 0 && focusedRow < items.length) {
-      focusedItemIdRef.current = getItemId(items[focusedRow]);
-      onFocusChangeRef.current?.(items[focusedRow], focusedRow);
+      const newId = getItemId(items[focusedRow]);
+      if (newId !== focusedItemIdRef.current) {
+        focusedItemIdRef.current = newId;
+        onFocusChangeRef.current?.(items[focusedRow], focusedRow);
+      }
+    } else if (items.length === 0 && focusedItemIdRef.current !== null) {
+      focusedItemIdRef.current = null;
+      onFocusChangeRef.current?.(null, -1);
     }
   }, [focusedRow, items, getItemId]);
 

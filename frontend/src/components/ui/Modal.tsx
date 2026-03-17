@@ -38,11 +38,32 @@ function setGlobalModalEffects(enabled: boolean) {
 }
 
 function syncGlobalModalEffects() {
+  // Safety net: se a stack diz que há modais abertos, mas nenhum overlay
+  // está no DOM, a stack ficou dessincronizada (ex: erro de render ou
+  // unmount inesperado). Limpa a stack para restaurar a interatividade.
+  if (OPEN_MODAL_STACK.length > 0) {
+    const actualOverlays = document.querySelectorAll('.modal-overlay').length;
+    if (actualOverlays === 0) {
+      OPEN_MODAL_STACK.length = 0;
+    }
+  }
   setGlobalModalEffects(OPEN_MODAL_STACK.length > 0);
 }
 
 export function isModalOpen(): boolean {
   return OPEN_MODAL_STACK.length > 0;
+}
+
+/**
+ * Força a limpeza do estado de modal (inert/aria-hidden) quando a stack
+ * ficou dessincronizada. Chamado ao navegar entre páginas como safety net.
+ */
+export function ensureModalCleanup() {
+  const actualOverlays = document.querySelectorAll('.modal-overlay').length;
+  if (actualOverlays === 0 && OPEN_MODAL_STACK.length > 0) {
+    OPEN_MODAL_STACK.length = 0;
+    setGlobalModalEffects(false);
+  }
 }
 
 // Seletor para elementos focáveis

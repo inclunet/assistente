@@ -7,21 +7,30 @@
 
 import { useEffect } from 'react';
 import { useLocation } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
 import { WindowSetTitle } from '@wailsjs/runtime/runtime';
 import { useChatStore } from '../store/chatStore';
 
-const PAGE_TITLES: Record<string, string> = {
-  '/': 'Chat',
-  '/editor': 'Editor',
-  '/settings': 'Configurações',
-  '/profiles': 'Perfis',
-  '/history': 'Histórico',
-  '/help': 'Ajuda',
+const ROUTE_I18N_KEYS: Record<string, string> = {
+  '/': 'menu.chat',
+  '/terminal': 'menu.terminal',
+  '/editor': 'menu.editor',
+  '/allowlists': 'menu.allowlists',
+  '/skills': 'menu.skills',
+  '/mcp': 'menu.mcp',
+  '/channels': 'menu.channels',
+  '/credentials': 'menu.credentials',
+  '/providers': 'menu.providers',
+  '/settings': 'menu.restoreDefaults',
+  '/profiles': 'menu.profiles',
+  '/history': 'menu.history',
+  '/help': 'menu.help',
+  '/about': 'menu.about',
+  '/update': 'update.pageTitle',
 };
 
-const APP_NAME = 'Assistente IA';
-
 export function useDocumentTitle(): void {
+  const { t } = useTranslation();
   const location = useLocation();
   const activeTab = useChatStore((state) => {
     const tab = state.tabs.find(t => t.id === state.activeTabId);
@@ -30,33 +39,33 @@ export function useDocumentTitle(): void {
 
   useEffect(() => {
     const pathname = location.pathname;
-    let title = APP_NAME;
+    const appName = t('menu.appTitle');
+    let title: string;
 
-    // Página de chat - usa o título da conversa ativa
     if (pathname === '/' || pathname === '') {
-      if (activeTab?.title && activeTab.title !== 'Nova Conversa') {
-        title = `${activeTab.title} - ${APP_NAME}`;
+      const conversationTitle = activeTab?.title;
+      const isNewConversation = !conversationTitle
+        || conversationTitle === t('chat.newConversation')
+        || conversationTitle.toLowerCase() === 'nova conversa';
+      if (isNewConversation) {
+        title = `${t('chat.newConversation')} — ${appName}`;
       } else {
-        title = `Chat - ${APP_NAME}`;
+        title = `${conversationTitle} — ${appName}`;
       }
     } else {
-      // Outras páginas - usa o nome da página
-      const pageTitle = PAGE_TITLES[pathname];
-      if (pageTitle) {
-        title = `${pageTitle} - ${APP_NAME}`;
-      }
+      const i18nKey = ROUTE_I18N_KEYS[pathname];
+      const pageTitle = i18nKey ? t(i18nKey) : pathname.slice(1);
+      title = `${pageTitle} — ${appName}`;
     }
 
-    // Atualiza título do documento (browser tab)
     document.title = title;
     
-    // Atualiza título da janela do Wails (window title bar)
     try {
       WindowSetTitle(title);
     } catch {
       // Ignora erro se não estiver no contexto Wails (ex: dev mode no browser)
     }
-  }, [location.pathname, activeTab?.title]);
+  }, [location.pathname, activeTab?.title, t]);
 }
 
 export default useDocumentTitle;

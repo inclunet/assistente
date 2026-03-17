@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   GetLLMProvidersWithStatus,
@@ -105,7 +105,7 @@ export default function ProvidersPage() {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [handleAddProvider]);
 
-  const handleEditProvider = (provider: ProviderRow) => {
+  const handleEditProvider = useCallback((provider: ProviderRow) => {
     setEditingProvider({
       id: provider.id,
       name: provider.name,
@@ -114,7 +114,7 @@ export default function ProvidersPage() {
       api_key: '',
     });
     setIsEditing(true);
-  };
+  }, []);
 
   const getDuplicateName = (name: string) => {
     const base = `${name} (Copia)`;
@@ -235,13 +235,20 @@ export default function ProvidersPage() {
     ];
   }
 
-  const filteredRows = providers.filter((row) =>
-    searchTerm === ''
-      ? true
-      : row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        row.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        row.base_url.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredRows = useMemo(
+    () =>
+      providers.filter((row) =>
+        searchTerm === ''
+          ? true
+          : row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            row.type.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            row.base_url.toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [providers, searchTerm]
   );
+
+  const getRowId = useCallback((item: ProviderRow) => item.id, []);
+  const handleFocusChange = useCallback((item: ProviderRow | null) => setFocusedRow(item), []);
 
   return (
     <div className="providers-page">
@@ -291,8 +298,9 @@ export default function ProvidersPage() {
             onActivate={handleEditProvider}
             onGridReady={handleGridReady}
             label={t('providers.gridLabel', 'Lista de provedores LLM')}
+            getItemId={getRowId}
             getRowActions={getProviderRowActions}
-            onFocusChange={(item) => setFocusedRow(item as ProviderRow | null)}
+            onFocusChange={handleFocusChange}
           />
 
           <Modal

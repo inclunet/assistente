@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { DataGrid, DataGridColumn } from './DataGrid';
@@ -275,5 +276,123 @@ describe('DataGrid (onFocusChange)', () => {
     onFocus.mockClear();
     fireEvent.keyDown(getGrid(), { key: 'ArrowDown' });
     expect(onFocus).toHaveBeenCalledWith(items[1], 1);
+  });
+});
+
+// ─── Regressão: loop infinito de re-renders ─────────────────────────
+
+describe('DataGrid (regressão: loop infinito de re-renders)', () => {
+  it('NÃO chama onFocusChange repetidamente quando items é recriado com mesmos dados', () => {
+    const onFocus = vi.fn();
+
+    const items1 = [
+      { id: 'a', name: 'Alpha', desc: 'First' },
+      { id: 'b', name: 'Bravo', desc: 'Second' },
+    ];
+    const items2 = [
+      { id: 'a', name: 'Alpha', desc: 'First' },
+      { id: 'b', name: 'Bravo', desc: 'Second' },
+    ];
+
+    const { rerender } = render(
+      <DataGrid items={items1} columns={columns}
+        onFocusChange={onFocus} autoFocusOnMount={false} />
+    );
+
+    expect(onFocus).toHaveBeenCalledTimes(1);
+    onFocus.mockClear();
+
+    rerender(
+      <DataGrid items={items2} columns={columns}
+        onFocusChange={onFocus} autoFocusOnMount={false} />
+    );
+
+    expect(onFocus).not.toHaveBeenCalled();
+  });
+
+  it('NÃO chama onFocusChange quando items é recriado múltiplas vezes com mesmos IDs', () => {
+    const onFocus = vi.fn();
+
+    const makeItems = () => [
+      { id: 'x', name: 'X', desc: 'X desc' },
+      { id: 'y', name: 'Y', desc: 'Y desc' },
+      { id: 'z', name: 'Z', desc: 'Z desc' },
+    ];
+
+    const { rerender } = render(
+      <DataGrid items={makeItems()} columns={columns}
+        onFocusChange={onFocus} autoFocusOnMount={false} />
+    );
+
+    expect(onFocus).toHaveBeenCalledTimes(1);
+    onFocus.mockClear();
+
+    for (let i = 0; i < 10; i++) {
+      rerender(
+        <DataGrid items={makeItems()} columns={columns}
+          onFocusChange={onFocus} autoFocusOnMount={false} />
+      );
+    }
+
+    expect(onFocus).not.toHaveBeenCalled();
+  });
+
+  it('chama onFocusChange quando o item focado é substituído por outro ID', () => {
+    const onFocus = vi.fn();
+
+    const items1 = [
+      { id: 'a', name: 'Alpha', desc: 'First' },
+      { id: 'b', name: 'Bravo', desc: 'Second' },
+    ];
+
+    const { rerender } = render(
+      <DataGrid items={items1} columns={columns}
+        onFocusChange={onFocus} autoFocusOnMount={false} />
+    );
+
+    expect(onFocus).toHaveBeenCalledTimes(1);
+    onFocus.mockClear();
+
+    const items2 = [
+      { id: 'NEW', name: 'New Item', desc: 'Replaced' },
+      { id: 'b', name: 'Bravo', desc: 'Second' },
+    ];
+
+    rerender(
+      <DataGrid items={items2} columns={columns}
+        onFocusChange={onFocus} autoFocusOnMount={false} />
+    );
+
+    expect(onFocus).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'NEW' }),
+      0
+    );
+  });
+
+  it('simula cenário MCP: onFocusChange faz setState → re-render com novo array', () => {
+    let renderCount = 0;
+
+    function ParentWithInlineCallbacks() {
+      const [, setFocused] = useState<TestItem | null>(null);
+      const [data] = useState(items);
+
+      renderCount++;
+
+      const inlineItems = data.map(d => ({ ...d }));
+
+      return (
+        <DataGrid
+          items={inlineItems}
+          columns={columns}
+          autoFocusOnMount={false}
+          onFocusChange={(item) => setFocused(item as TestItem | null)}
+          getItemId={(item) => item.id}
+        />
+      );
+    }
+
+    render(<ParentWithInlineCallbacks />);
+
+    expect(renderCount).toBeLessThanOrEqual(4);
   });
 });

@@ -1,4 +1,4 @@
-import { forwardRef, useCallback, useEffect, useMemo } from 'react';
+import { forwardRef, useCallback, useEffect, useMemo, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import { EditorContent, useEditor, type Editor } from '@tiptap/react';
 
@@ -92,10 +92,13 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     removeMermaidById,
   });
 
+  const onEditorReadyRef = useRef(onEditorReady);
+  onEditorReadyRef.current = onEditorReady;
+
   useEffect(() => {
-    onEditorReady?.(editor || null);
-    return () => onEditorReady?.(null);
-  }, [editor, onEditorReady]);
+    onEditorReadyRef.current?.(editor || null);
+    return () => onEditorReadyRef.current?.(null);
+  }, [editor]);
 
   useEffect(() => {
     if (!editor) return;
@@ -104,7 +107,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
   useEffect(() => {
     markdownSync.syncFromExternal(editor ? (editor as EditorLike) : null, markdown);
-  }, [editor, markdown, markdownSync]);
+  }, [editor, markdown, markdownSync.syncFromExternal]);
 
   return (
     <div

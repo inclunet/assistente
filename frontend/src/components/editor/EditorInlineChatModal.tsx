@@ -42,7 +42,7 @@ export function EditorInlineChatModal({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-  const { isLoading, getThreadedMessages, loadMessageChildren, getActiveTab, loadConversationInActiveTab } = useChatStore();
+  const { isLoading, getThreadedMessages, loadMessageChildren, getActiveTab, loadConversationInActiveTab, startNewConversationInActiveTab } = useChatStore();
 
   const activeTab = getActiveTab();
   const conversationTitle = activeTab?.title || t('editor.inlineChat.conversation');
@@ -107,7 +107,7 @@ export function EditorInlineChatModal({
 
   const handleNewConversation = useCallback(async () => {
     try {
-      await loadConversationInActiveTab(0, t('editor.inlineChat.newConversationTitle'));
+      await startNewConversationInActiveTab(t('editor.inlineChat.newConversationTitle'));
       announce(t('editor.inlineChat.newConversation'));
     } catch (e) {
       console.error('[EditorInlineChatModal] new conversation error:', e);
@@ -115,7 +115,7 @@ export function EditorInlineChatModal({
     } finally {
       focusInput();
     }
-  }, [focusInput, loadConversationInActiveTab]);
+  }, [focusInput, startNewConversationInActiveTab]);
 
   const handleClearConversation = useCallback(async () => {
     const tab = getActiveTab();

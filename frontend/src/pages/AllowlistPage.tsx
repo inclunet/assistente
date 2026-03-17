@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   GetAllowlists,
@@ -147,9 +147,27 @@ export default function AllowlistPage() {
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [crud]);
 
-  const handleEdit = async (row: AllowlistRow) => {
-    await crud.openEdit(row);
-  };
+  const handleEdit = useCallback(
+    async (row: AllowlistRow) => {
+      await crud.openEdit(row);
+    },
+    [crud]
+  );
+
+  const getRowId = useCallback((row: AllowlistRow) => row.id, []);
+  const handleActivateRow = useCallback(
+    (row: AllowlistRow) => {
+      void handleEdit(row);
+    },
+    [handleEdit]
+  );
+  const handleDeleteRow = useCallback(
+    (row: AllowlistRow) => {
+      void crud.deleteItem(row);
+    },
+    [crud]
+  );
+  const handleFocusChange = useCallback((row: AllowlistRow | null) => setFocusedRow(row), []);
 
   const getDuplicateName = (name: string) => {
     const base = `${name} (Copia)`;
@@ -279,13 +297,13 @@ export default function AllowlistPage() {
         <DataGrid
           columns={columns}
           items={crud.items}
-          getItemId={(row) => row.id}
-          onActivate={(row) => handleEdit(row)}
-          onDelete={(row) => crud.deleteItem(row)}
+          getItemId={getRowId}
+          onActivate={handleActivateRow}
+          onDelete={handleDeleteRow}
           label={t('allowlist.pageTitle')}
           onGridReady={handleGridReady}
           getRowActions={getAllowlistRowActions}
-          onFocusChange={(row) => setFocusedRow(row)}
+          onFocusChange={handleFocusChange}
         />
       </div>
 

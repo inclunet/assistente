@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
   GetSkills,
@@ -292,12 +292,23 @@ export default function SkillsPage() {
 
   // --- Filtering ---
 
-  const filteredRows = crud.items.filter(
-    row =>
-      row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      row.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      row.slug.toLowerCase().includes(searchTerm.toLowerCase())
+  const filteredRows = useMemo(
+    () =>
+      crud.items.filter(
+        row =>
+          row.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          row.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          row.slug.toLowerCase().includes(searchTerm.toLowerCase())
+      ),
+    [crud.items, searchTerm]
   );
+
+  // --- Stable callbacks for DataGrid ---
+
+  const getRowId = useCallback((item: SkillRow) => item.id, []);
+  const handleActivateRow = useCallback((item: SkillRow) => crud.openEdit(item), [crud]);
+  const handleDeleteRow = useCallback((item: SkillRow) => crud.deleteItem(item), [crud]);
+  const handleFocusChange = useCallback((item: SkillRow | null) => setFocusedRow(item), []);
 
   // --- Loading ---
 
@@ -365,14 +376,14 @@ export default function SkillsPage() {
         items={filteredRows}
         columns={columns}
         label={t('skills.gridLabel', 'Lista de skills')}
-        getItemId={item => item.id}
+        getItemId={getRowId}
         selectedIds={selectedIds}
         onSelectionChange={setSelectedIds}
-        onActivate={item => crud.openEdit(item)}
-        onDelete={item => crud.deleteItem(item)}
+        onActivate={handleActivateRow}
+        onDelete={handleDeleteRow}
         onGridReady={handleGridReady}
         getRowActions={getRowActions}
-        onFocusChange={(item) => setFocusedRow(item as SkillRow | null)}
+        onFocusChange={handleFocusChange}
       />
 
       {/* Editor Modal */}

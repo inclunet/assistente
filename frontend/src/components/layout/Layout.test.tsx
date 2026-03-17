@@ -10,11 +10,16 @@ vi.mock('../../hooks/useDocumentTitle', () => ({
   useDocumentTitle: vi.fn(),
 }));
 
+vi.mock('../ui/Modal', () => ({
+  ensureModalCleanup: vi.fn(),
+}));
+
 vi.mock('react-router-dom', async () => {
   const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
   return {
     ...actual,
     Outlet: () => <div data-testid="outlet" />,
+    useLocation: () => ({ pathname: '/', search: '', hash: '', state: null, key: 'default' }),
   };
 });
 

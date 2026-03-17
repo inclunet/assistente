@@ -25,6 +25,7 @@ export default function ChatPage() {
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
+  const wasLoadingRef = useRef(false);
 
   const {
     isLoading,
@@ -190,6 +191,20 @@ export default function ChatPage() {
       clearInterval(checkTimer);
     };
   }, []); // Array vazio - roda apenas no mount
+
+  // Restaura foco no input quando streaming termina (isLoading: true → false)
+  useEffect(() => {
+    if (wasLoadingRef.current && !isLoading) {
+      const active = document.activeElement as HTMLElement | null;
+      const isEditingMessage = active?.closest('.chat-message--editing') !== null;
+      if (!isEditingMessage) {
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+        });
+      }
+    }
+    wasLoadingRef.current = isLoading;
+  }, [isLoading]);
 
   // Keyboard shortcut to open help (? key)
   useEffect(() => {

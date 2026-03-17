@@ -5,12 +5,17 @@ import { MermaidCodeBlockNodeView } from './MermaidCodeBlockNodeView';
 import type { NodeViewProps } from '@tiptap/react';
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({ t: (key: string) => key }),
 }));
 
 vi.mock('@tiptap/react', () => ({
   NodeViewWrapper: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
   NodeViewContent: () => <div data-testid="node-content" />,
+}));
+
+vi.mock('../ui/MarkdownRenderer', () => ({
+  MarkdownRenderer: ({ content }: { content: string }) => <div data-testid="markdown-preview">{content}</div>,
 }));
 
 vi.mock('../../store/questionnaireUIStore', () => ({

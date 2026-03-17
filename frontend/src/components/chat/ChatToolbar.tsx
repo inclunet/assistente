@@ -24,7 +24,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { getActiveTab, clearActiveTab, isLoading, loadConversationInActiveTab } = useChatStore();
+  const { getActiveTab, clearActiveTab, isLoading, startNewConversationInActiveTab, loadConversationInActiveTab } = useChatStore();
   const { announce } = useAnnouncer();
   const activeTab = getActiveTab();
   const conversationTitle = activeTab?.title || t('chat.newConversation');
@@ -76,11 +76,10 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     if (onNewConversation) {
       onNewConversation();
     } else {
-      // conversa nova "de verdade": limpa conversationId e mensagens na aba ativa
-      void loadConversationInActiveTab(0, t('chat.newConversation'));
+      void startNewConversationInActiveTab(t('chat.newConversation'));
     }
     focusInput();
-  }, [focusInput, loadConversationInActiveTab, onNewConversation, t]);
+  }, [focusInput, startNewConversationInActiveTab, onNewConversation, t]);
 
   const handleClearConversation = useCallback(async () => {
     try {

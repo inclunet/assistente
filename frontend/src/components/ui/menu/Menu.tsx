@@ -14,6 +14,10 @@ export const Menu: React.FC<MenuProps> = ({
   onSelect,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
   const [position, setPosition] = useState({ x, y });
   // Stack de submenus abertos (IDs dos items)
   const [submenuStack, setSubmenuStack] = useState<string[]>([]);
@@ -88,13 +92,13 @@ export const Menu: React.FC<MenuProps> = ({
 
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        onClose?.();
+        onCloseRef.current?.();
       }
     };
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        onClose?.();
+        onCloseRef.current?.();
       }
     };
 
@@ -105,13 +109,13 @@ export const Menu: React.FC<MenuProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
       document.removeEventListener('keydown', handleEscape);
     };
-  }, [visible, onClose]);
+  }, [visible]);
 
   // Foca no primeiro item quando abre
   useEffect(() => {
     if (visible && menuRef.current) {
       setSubmenuStack([]);
-      const topLevelItems = items.filter((i) => !i.separator);
+      const topLevelItems = itemsRef.current.filter((i) => !i.separator);
       const preferredIndex =
         initialFocusItemId
           ? topLevelItems.findIndex((i) => i.id === initialFocusItemId && isFocusableItem(i))
@@ -122,12 +126,12 @@ export const Menu: React.FC<MenuProps> = ({
         firstButton.focus();
       }
     }
-  }, [visible, items, initialFocusItemId]);
+  }, [visible, initialFocusItemId]);
 
   // Move o foco quando muda
   useEffect(() => {
     if (visible && menuRef.current) {
-      let currentItems = items;
+      let currentItems = itemsRef.current;
       for (const submenuId of submenuStack) {
         const parentItem = currentItems.find((item) => item.id === submenuId);
         if (parentItem?.submenu) {
@@ -145,7 +149,7 @@ export const Menu: React.FC<MenuProps> = ({
         }
       }
     }
-  }, [focusStack, items, submenuStack, visible]);
+  }, [focusStack, submenuStack, visible]);
 
   // Navegação por teclado
   const handleKeyDown = (e: React.KeyboardEvent) => {

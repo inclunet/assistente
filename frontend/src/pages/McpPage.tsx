@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useMCPStore } from '../store/mcpStore';
 import { mcp } from '../../wailsjs/go/models';
@@ -127,8 +127,8 @@ export default function McpPage() {
     return cleanup;
   }, [loadServers, setupEventListeners]);
 
-  // Convert servers to rows
-  const rows: ServerRow[] = (servers || []).map((s: ServerInfo) => ({
+  // Convert servers to rows (memoizado para evitar re-renders em cascata no DataGrid)
+  const rows: ServerRow[] = useMemo(() => (servers || []).map((s: ServerInfo) => ({
     id: s.slug,
     slug: s.slug,
     name: s.name || s.slug,
@@ -142,7 +142,7 @@ export default function McpPage() {
     args: s.args,
     url: s.url,
     error: s.error,
-  }));
+  })), [servers]);
 
   const populateForm = (config: ServerConfig | null, slug: string | null) => {
     setFormSlug(slug || '');
@@ -495,6 +495,15 @@ export default function McpPage() {
     }
   }, [addToast, announce, getConfig, loadAuthInfo, loadServers, t]);
 
+  const getRowId = useCallback((row: ServerRow) => row.id, []);
+  const handleActivate = useCallback((row: ServerRow) => handleEdit(row), [handleEdit]);
+  const handleDeleteRow = useCallback((row: ServerRow) => {
+    void handleDelete(row.slug, row.name);
+  }, [handleDelete]);
+  const handleFocusChange = useCallback((row: ServerRow | null) => {
+    setFocusedRow(row as ServerRow | null);
+  }, []);
+
   const columns: DataGridColumn<ServerRow>[] = [
     {
       key: 'name',
@@ -583,7 +592,7 @@ export default function McpPage() {
 
   // Removido: handleCellAction (não é mais necessário)
 
-  const filteredRows = rows.filter((row) => {
+  const filteredRows = useMemo(() => rows.filter((row) => {
     const query = searchTerm.trim().toLowerCase();
     if (!query) return true;
     return (
@@ -592,7 +601,7 @@ export default function McpPage() {
       row.description.toLowerCase().includes(query) ||
       row.transport.toLowerCase().includes(query)
     );
-  });
+  }), [rows, searchTerm]);
 
   if (isLoading && rows.length === 0) {
     return (
@@ -672,17 +681,15 @@ export default function McpPage() {
       <DataGrid
         columns={columns}
         items={filteredRows}
-        getItemId={(row) => row.id}
+        getItemId={getRowId}
         selectedIds={selectedIds}
         onSelectionChange={setSelectedIds}
-        onActivate={(row) => handleEdit(row)}
-        onDelete={(row) => {
-          void handleDelete(row.slug, row.name);
-        }}
+        onActivate={handleActivate}
+        onDelete={handleDeleteRow}
         onGridReady={handleGridReady}
         label={t('mcp.pageTitle')}
         getRowActions={getRowActions}
-        onFocusChange={(row) => setFocusedRow(row as ServerRow | null)}
+        onFocusChange={handleFocusChange}
       />
 
       <Modal

@@ -25,16 +25,28 @@ export function useTabsKeyboardShortcuts() {
         return;
       }
 
-      // Ctrl+T ou Ctrl+N: Nova aba
-      // Apenas bloquear se estiver em campo de entrada (evita conflito com digitação)
-      if (event.ctrlKey && (event.key === 't' || event.key === 'n') && !event.shiftKey && !event.altKey) {
+      // Ctrl+T: Nova aba (skip em inputs para permitir o browser abrir aba)
+      if (event.ctrlKey && event.key === 't' && !event.shiftKey && !event.altKey) {
         const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
         if (isInput) {
-          return; // Permite Ctrl+T no navegador para abas
+          return;
         }
         event.preventDefault();
         createTab();
         announce('Nova guia criada');
+        return;
+      }
+
+      // Ctrl+N: Nova aba — sempre preventDefault para evitar ação nativa do WebView,
+      // mas só cria aba se NÃO estiver em input (outros handlers como ChatToolbar
+      // podem tratar Ctrl+N em bubbling para "nova conversa").
+      if (event.ctrlKey && event.key === 'n' && !event.shiftKey && !event.altKey) {
+        const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
+        event.preventDefault();
+        if (!isInput) {
+          createTab();
+          announce('Nova guia criada');
+        }
         return;
       }
 

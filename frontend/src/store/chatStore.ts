@@ -4,6 +4,7 @@ import {
   GetAllTabs,
   CreateTabWithConversation,
   CloseTab,
+  ClearTab,
   SetActiveTab,
   UpdateTabTitle as BackendUpdateTabTitle,
   GetMessages,
@@ -238,6 +239,7 @@ interface ChatStore {
   addInternalMessage: (tabId: string, message: Message) => void; // Adiciona mensagem interna (tool call)
   clearMessages: (tabId: string) => void;
   clearActiveTab: () => void;
+  startNewConversationInActiveTab: (title?: string) => Promise<void>;
   loadConversationInActiveTab: (conversationId: number, conversationTitle: string) => Promise<void>;
   openConversationInNewTab: (conversationId: number, title?: string) => Promise<void>;
   
@@ -937,6 +939,45 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     const { activeTabId, clearMessages } = get();
     if (activeTabId) {
       clearMessages(activeTabId);
+    }
+  },
+
+  startNewConversationInActiveTab: async (title) => {
+    const { activeTabId, tabs } = get();
+
+    if (!activeTabId) {
+      console.error('[Chat] Nenhuma aba ativa para iniciar nova conversa');
+      return;
+    }
+
+    const activeTab = tabs.find(t => t.id === activeTabId);
+    if (!activeTab || !activeTab.backendId) {
+      console.error('[Chat] Aba ativa não encontrada ou sem backendId');
+      return;
+    }
+
+    try {
+      await ClearTab(activeTab.backendId);
+
+      const newTitle = title || 'Nova conversa';
+      set((state) => ({
+        tabs: state.tabs.map((t) =>
+          t.id === activeTabId
+            ? {
+                ...t,
+                conversationId: undefined,
+                threadedMessages: [],
+                title: newTitle,
+                updatedAt: Date.now(),
+              }
+            : t
+        ),
+      }));
+
+      announce(`Nova conversa: ${newTitle}`);
+    } catch (error) {
+      console.error('[Chat] Erro ao iniciar nova conversa na aba ativa:', error);
+      throw error;
     }
   },
 

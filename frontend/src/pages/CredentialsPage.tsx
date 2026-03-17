@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/main/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -170,6 +170,22 @@ export default function CredentialsPage() {
 
   const [viewingManaged, setViewingManaged] = useState<CredentialRow | null>(null);
 
+  const getRowId = useCallback((row: CredentialRow) => row.id, []);
+  const handleActivateRow = useCallback(
+    (row: CredentialRow) => {
+      if (row.managed) setViewingManaged(row);
+      else crud.openEdit(row);
+    },
+    [crud]
+  );
+  const handleDeleteRow = useCallback(
+    (row: CredentialRow) => {
+      if (!row.managed) crud.deleteItem(row);
+    },
+    [crud]
+  );
+  const handleFocusChange = useCallback((row: CredentialRow | null) => setFocusedRow(row), []);
+
   const columns: DataGridColumn<CredentialRow>[] = [
     { key: 'pattern', label: t('credentials.labels.pattern'), width: '260px', truncate: true },
     { key: 'type', label: t('credentials.labels.type'), width: '120px' },
@@ -258,13 +274,13 @@ export default function CredentialsPage() {
         <DataGrid
           columns={columns}
           items={crud.items}
-          getItemId={(row) => row.id}
-          onActivate={(row) => row.managed ? setViewingManaged(row) : crud.openEdit(row)}
-          onDelete={(row) => !row.managed && crud.deleteItem(row)}
+          getItemId={getRowId}
+          onActivate={handleActivateRow}
+          onDelete={handleDeleteRow}
           label={t('credentials.pageTitle')}
           onGridReady={handleGridReady}
           getRowActions={getCredentialRowActions}
-          onFocusChange={(row) => setFocusedRow(row)}
+          onFocusChange={handleFocusChange}
         />
       </div>
 

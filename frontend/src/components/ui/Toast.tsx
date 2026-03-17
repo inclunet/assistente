@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import './Toast.css';
 
@@ -11,10 +11,13 @@ export interface ToastProps {
 
 export function Toast({ message, variant = 'info', duration = 3000, onClose }: ToastProps) {
   const { t } = useTranslation();
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
+
   useEffect(() => {
-    const timer = setTimeout(onClose, duration);
+    const timer = setTimeout(() => onCloseRef.current(), duration);
     return () => clearTimeout(timer);
-  }, [duration, onClose]);
+  }, [duration]);
 
   return (
     <div

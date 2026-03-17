@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations, SearchConversationHistory } from '@wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
@@ -134,7 +134,7 @@ export default function HistoryPage() {
     navigate('/');
   };
 
-  const handleDeleteConversation = async (conversationId: number) => {
+  const handleDeleteConversation = useCallback(async (conversationId: number) => {
     if (!confirm(t('history.confirmDelete', 'Tem certeza que deseja deletar esta conversa?'))) return;
     
     try {
@@ -148,7 +148,7 @@ export default function HistoryPage() {
     } catch (error) {
       console.error('Erro ao deletar conversa:', error);
     }
-  };
+  }, [t]);
 
   const handleDeleteSelected = async () => {
     if (selectedIds.size === 0) return;
@@ -211,10 +211,18 @@ export default function HistoryPage() {
     }
   }, [focusedRow, handleDeleteConversation, handleDeleteSelected, selectedIds.size]);
 
-  const isSearching = searchResultIds !== null;
-  const displayItems = isSearching
-    ? conversations.filter(c => searchResultIds.has(c.id))
-    : conversations;
+  const displayItems = useMemo(() => {
+    if (searchResultIds === null) return conversations;
+    return conversations.filter(c => searchResultIds.has(c.id));
+  }, [conversations, searchResultIds]);
+
+  const handleFocusChange = useCallback((item: Conversation | null) => {
+    setFocusedRow(item);
+  }, []);
+
+  const handleDeleteRow = useCallback((item: Conversation) => {
+    handleDeleteConversation(item.id);
+  }, [handleDeleteConversation]);
 
   const getRowActions = useCallback(
     (item: Conversation): ContextMenuItem[] => [
@@ -325,12 +333,12 @@ export default function HistoryPage() {
 
   // handleCellAction não é mais necessário, pois as ações estão no MenuButton
 
-  const handleCellEdit = async (item: Conversation, column: DataGridColumn<Conversation>, newValue: string) => {
+  const handleCellEdit = useCallback(async (item: Conversation, column: DataGridColumn<Conversation>, newValue: string) => {
     if (column.key === 'title') {
       try {
         await UpdateConversation(item.id, newValue, '');
-        setConversations(prev => 
-          prev.map(conv => 
+        setConversations(prev =>
+          prev.map(conv =>
             conv.id === item.id ? { ...conv, title: newValue } : conv
           )
         );
@@ -338,7 +346,7 @@ export default function HistoryPage() {
         console.error('Erro ao atualizar título:', error);
       }
     }
-  };
+  }, []);
 
   if (loading) {
     return (
@@ -416,12 +424,12 @@ export default function HistoryPage() {
         items={displayItems}
         columns={columns}
         onCellEdit={handleCellEdit}
-        onDelete={(item: Conversation) => handleDeleteConversation(item.id)}
+        onDelete={handleDeleteRow}
         selectedIds={selectedIds}
         multiSelect={true}
         onSelectionChange={setSelectedIds}
         onGridReady={handleGridReady}
-        onFocusChange={(item) => setFocusedRow(item as Conversation | null)}
+        onFocusChange={handleFocusChange}
         getRowActions={getRowActions}
       />
     </div>
