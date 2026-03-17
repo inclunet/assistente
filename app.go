@@ -336,6 +336,16 @@ func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
 			Timeout:           180,
 			CredentialPattern: "generativelanguage.googleapis.com",
 		}
+	case "openrouter":
+		provider = &llm.ProviderConfig{
+			ID:                "openrouter-default",
+			Name:              "OpenRouter",
+			Type:              llm.ProviderOpenAI,
+			BaseURL:           "https://openrouter.ai/api/v1",
+			Model:             "openai/gpt-4o-mini",
+			Timeout:           180,
+			CredentialPattern: "openrouter.ai",
+		}
 	case "deepseek":
 		provider = &llm.ProviderConfig{
 			ID:                "deepseek-default",
@@ -4022,6 +4032,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 						"Google (Gemini)",
 						"DeepSeek",
 						"xAI (Grok)",
+						"OpenRouter",
 						"Azure OpenAI",
 						"Ollama (Local)",
 						"LiteLLM",
@@ -4053,6 +4064,8 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				baseURL = "https://api.deepseek.com/v1"
 			case "xAI (Grok)":
 				baseURL = "https://api.x.ai/v1"
+			case "OpenRouter":
+				baseURL = "https://openrouter.ai/api/v1"
 			case "Azure OpenAI":
 				baseURL = "" // Usuário precisará fornecer
 			case "Ollama (Local)":
@@ -4332,6 +4345,8 @@ func getWizardProviderInfo(providerChoice string) wizardProviderInfo {
 		return wizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude}
 	case "Google (Gemini)":
 		return wizardProviderInfo{ID: "google-gemini", Name: "Google (Gemini)", Type: llm.ProviderOpenAI}
+	case "OpenRouter":
+		return wizardProviderInfo{ID: "openrouter-default", Name: "OpenRouter", Type: llm.ProviderOpenAI}
 	case "DeepSeek":
 		return wizardProviderInfo{ID: "deepseek-default", Name: "DeepSeek", Type: llm.ProviderDeepSeek}
 	case "xAI (Grok)":

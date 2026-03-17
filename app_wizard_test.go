@@ -94,6 +94,7 @@ func TestGetWizardProviderInfo_AllProviders(t *testing.T) {
 		{"Google (Gemini)", "google-gemini", "Google (Gemini)", llm.ProviderOpenAI},
 		{"DeepSeek", "deepseek-default", "DeepSeek", llm.ProviderDeepSeek},
 		{"xAI (Grok)", "xai-grok", "xAI (Grok)", llm.ProviderGrok},
+		{"OpenRouter", "openrouter-default", "OpenRouter", llm.ProviderOpenAI},
 		{"Azure OpenAI", "azure-openai", "Azure OpenAI", llm.ProviderOpenAI},
 		{"Ollama (Local)", "ollama-local", "Ollama (Local)", llm.ProviderOllama},
 		{"LiteLLM", "litellm", "LiteLLM", llm.ProviderOpenAI},
@@ -125,6 +126,7 @@ func TestGetWizardProviderInfo_IDsMatchCreateDefaultLLMProvider(t *testing.T) {
 		"Google (Gemini)":    "google-gemini",
 		"DeepSeek":           "deepseek-default",
 		"xAI (Grok)":        "xai-grok",
+		"OpenRouter":        "openrouter-default",
 		"Ollama (Local)":     "ollama-local",
 	}
 	for choice, expectedID := range mapping {
