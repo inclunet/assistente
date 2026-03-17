@@ -84,7 +84,6 @@ vi.mock('../hooks/useProfileDependencies', () => ({
 
 vi.mock('../hooks/useGridFocus', () => ({
   useGridFocus: () => ({
-    focusFirstCell: vi.fn(),
     handleGridReady: vi.fn(),
   }),
 }));

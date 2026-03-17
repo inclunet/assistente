@@ -10,6 +10,7 @@ interface TabsContextValue {
   idBase: string;
   onBump?: () => void;
   onDelete?: (value: string) => void;
+  onActivate?: () => boolean;
   pageJump: number;
 }
 
@@ -34,6 +35,8 @@ export interface TabsProps {
   pageJump?: number;
   onBump?: () => void;
   onDelete?: (value: string) => void;
+  /** Called on Enter. Return true to suppress default (restoreDefaultFocus). */
+  onActivate?: () => boolean;
   className?: string;
   children: ReactNode;
 }
@@ -46,6 +49,7 @@ export function Tabs({
   pageJump = 10,
   onBump,
   onDelete,
+  onActivate,
   className,
   children,
 }: TabsProps) {
@@ -63,9 +67,10 @@ export function Tabs({
       idBase: computedIdBase,
       onBump,
       onDelete,
+      onActivate,
       pageJump,
     }),
-    [activationMode, computedIdBase, onBump, onDelete, onValueChange, pageJump, value]
+    [activationMode, computedIdBase, onActivate, onBump, onDelete, onValueChange, pageJump, value]
   );
 
   return (
@@ -84,7 +89,7 @@ export interface TabListProps {
 }
 
 export function TabList({ ariaLabel, className, listRef, onKeyDown, children }: TabListProps) {
-  const { activationMode, onBump, onValueChange, onDelete, pageJump } = useTabsContext();
+  const { activationMode, onBump, onValueChange, onDelete, onActivate, pageJump } = useTabsContext();
   const tabListRef = useRef<HTMLDivElement | null>(null);
 
   const combinedRef: React.RefCallback<HTMLDivElement> = (node) => {
@@ -103,6 +108,7 @@ export function TabList({ ariaLabel, className, listRef, onKeyDown, children }: 
     onBump,
     onValueChange,
     onDelete,
+    onActivate,
     pageJump,
   });
 

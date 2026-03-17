@@ -527,43 +527,14 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 	}
 
-	// Se não tem conversationID, cria uma nova conversa
-	createdNew := false
 	if conversationID == 0 {
-		title := userContent
-		if len(title) > 50 {
-			title = title[:50]
-		}
-		conv, err := database.CreateConversation(title, params.Model)
-		if err != nil {
-			runtime.EventsEmit(a.ctx, "chat:error", "Erro ao criar conversa: "+err.Error())
-			return 0, err
-		}
-		conversationID = conv.ID
-		createdNew = true
-		fmt.Printf("✅ Nova conversa criada: ID=%d, título=%s\n", conversationID, title)
-
-		// Atualiza a tab ativa com o novo conversation_id
-		activeTab, err := database.GetActiveTab()
-		if err == nil && activeTab != nil {
-			err = database.LoadConversationInTab(activeTab.ID, conversationID)
-			if err != nil {
-				fmt.Printf("⚠️ Erro ao vincular conversa à tab: %v\n", err)
-			} else {
-				fmt.Printf("✅ Conversa %d vinculada à tab %d\n", conversationID, activeTab.ID)
-			}
-		}
-
-		// Emite evento de criação para atualizar UI
-		runtime.EventsEmit(a.ctx, "chat:conversation_created", map[string]interface{}{
-			"id":    conversationID,
-			"title": title,
-		})
+		const errMsg = "conversationID é obrigatório — conversas devem ser criadas ao criar/resetar a tab"
+		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		return 0, errors.New(errMsg)
 	}
 
 	// Auto-rename: se a conversa tem título genérico, atualiza com o conteúdo da primeira mensagem.
-	// Garante título significativo mesmo quando tool calling está desabilitado no perfil.
-	if !createdNew && conversationID > 0 && userContent != "" {
+	if conversationID > 0 && userContent != "" {
 		conv, convErr := database.GetConversationInfo(conversationID)
 		if convErr == nil && conv != nil && conv.Title == "Nova Conversa" {
 			title := userContent
@@ -683,7 +654,6 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	runtime.EventsEmit(a.ctx, "chat:messages_ready", map[string]interface{}{
 		"conversationId": conversationID,
 		"userMessageId":  userMsg.ID,
-		"createdNew":     createdNew,
 		"userContent":    userMsg.Content,
 	})
 

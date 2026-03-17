@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { MenuItem, MenuProps } from './types';
+import { restoreDefaultFocus } from '../../../hooks/useDefaultFocus';
 
 import '../ContextMenu.css';
 
@@ -93,12 +94,14 @@ export const Menu: React.FC<MenuProps> = ({
     const handleClickOutside = (e: MouseEvent) => {
       if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
         onCloseRef.current?.();
+        requestAnimationFrame(() => restoreDefaultFocus());
       }
     };
 
     const handleEscape = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         onCloseRef.current?.();
+        requestAnimationFrame(() => restoreDefaultFocus());
       }
     };
 
@@ -208,8 +211,8 @@ export const Menu: React.FC<MenuProps> = ({
           setFocusStack((prev) => prev.slice(0, -1));
           announce('Submenu fechado. Voltando ao menu anterior.');
         } else {
-          // Se está no menu raiz, fecha o menu
           onClose?.();
+          requestAnimationFrame(() => restoreDefaultFocus());
         }
         break;
 
@@ -223,10 +226,10 @@ export const Menu: React.FC<MenuProps> = ({
           setFocusStack((prev) => [...prev, firstFocusableIndex(submenuItems)]);
           announce(`Submenu aberto: ${currentItem.label}. ${submenuItems.length} opções disponíveis.`);
         } else if (currentItem?.action && !currentItem?.disabled) {
-          // Executa ação
           currentItem.action();
           onSelect?.(currentItem);
           onClose?.();
+          requestAnimationFrame(() => restoreDefaultFocus());
         }
         break;
       }
@@ -273,12 +276,15 @@ export const Menu: React.FC<MenuProps> = ({
                 item.action?.();
                 onSelect?.(item);
                 onClose?.();
+                requestAnimationFrame(() => restoreDefaultFocus());
               }
             }}
             role="menuitem"
             aria-haspopup={hasSubmenu ? 'menu' : undefined}
             aria-expanded={hasSubmenu ? isSubmenuOpen : undefined}
-            aria-label={item.ariaLabel || item.label}
+            aria-label={
+              (item.ariaLabel || item.label) + (item.shortcut ? `, ${item.shortcut}` : '')
+            }
             tabIndex={-1}
           >
             {item.icon && (
@@ -292,8 +298,8 @@ export const Menu: React.FC<MenuProps> = ({
                 ✓
               </span>
             )}
-            {item.shortcut && <span className="context-menu__shortcut">{item.shortcut}</span>}
-            {hasSubmenu && <span className="context-menu__arrow">▶</span>}
+            {item.shortcut && <span className="context-menu__shortcut" aria-hidden="true">{item.shortcut}</span>}
+            {hasSubmenu && <span className="context-menu__arrow" aria-hidden="true">▶</span>}
           </button>
           {hasSubmenu && isSubmenuOpen && (
             <div className="context-menu context-menu--submenu" role="menu">

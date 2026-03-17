@@ -1,10 +1,11 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
 import { TerminalTabs } from '../components/terminal/TerminalTabs';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
+import { useLandmarkNavigation } from '../hooks/useLandmarkNavigation';
 import './TerminalPage.css';
 
 export default function TerminalPage() {
@@ -54,16 +55,10 @@ export default function TerminalPage() {
     }
   }, [activeSessionId]);
 
-  // Hook de teclado global: Escape, Ctrl+T/W/C/Tab/1-9
+  // Hook de teclado global: Ctrl+T/W/C/Tab/1-9
+  // (Escape é tratado pelo sistema de landmarks → default area)
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      // Escape: volta foco para o input
-      if (e.key === 'Escape' && !e.ctrlKey && !e.altKey) {
-        e.preventDefault();
-        inputRef.current?.focus();
-        return;
-      }
-
       const state = useTerminalStore.getState();
 
       // Ctrl+T: novo terminal
@@ -118,6 +113,60 @@ export default function TerminalPage() {
     window.addEventListener('keydown', handleKeyDown, true);
     return () => window.removeEventListener('keydown', handleKeyDown, true);
   }, [createSession, closeSession, setActiveSession, interrupt]);
+
+  // F6 landmarks + Escape → campo de comando
+  useLandmarkNavigation({
+    landmarks: useMemo(() => [
+      {
+        id: 'tabs',
+        label: t('landmarks.tabs'),
+        focus: () => {
+          const active = document.querySelector('.terminal-tabs [role="tab"][aria-selected="true"]') as HTMLElement | null;
+          const anyTab = document.querySelector('.terminal-tabs [role="tab"]') as HTMLElement | null;
+          (active || anyTab)?.focus();
+          return !!(active || anyTab);
+        },
+        contains: () => !!document.activeElement?.closest?.('.terminal-tabs'),
+      },
+      {
+        id: 'toolbar',
+        label: t('landmarks.toolbar'),
+        focus: () => {
+          const toolbar = document.querySelector('.terminal-page [role="toolbar"]') as Element | null;
+          if (!toolbar) return false;
+          const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
+          if (!btn) return false;
+          btn.focus();
+          return true;
+        },
+        contains: () => !!document.activeElement?.closest?.('.terminal-page [role="toolbar"]'),
+      },
+      {
+        id: 'history',
+        label: t('landmarks.content'),
+        focus: () => {
+          const container = historyContainerRef.current;
+          if (!container) return false;
+          const lastNode = container.querySelector('.terminal-node:last-child') as HTMLElement | null;
+          if (lastNode) { lastNode.focus(); return true; }
+          container.setAttribute('tabindex', '-1');
+          container.focus();
+          return true;
+        },
+        contains: () => !!document.activeElement?.closest?.('.terminal-history'),
+      },
+      {
+        id: 'input',
+        label: t('landmarks.chatInput'),
+        focus: () => {
+          inputRef.current?.focus();
+          return !!inputRef.current;
+        },
+        contains: () => !!document.activeElement?.closest?.('.terminal-page__input-container'),
+      },
+    ], [t]),
+    defaultLandmarkId: 'input',
+  });
 
   const activeSession = sessions.find(s => s.id === activeSessionId);
   const currentHistory = activeSessionId ? (historyBySession[activeSessionId] || []) : [];

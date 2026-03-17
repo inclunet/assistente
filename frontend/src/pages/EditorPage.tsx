@@ -1171,6 +1171,7 @@ export default function EditorPage() {
           !!document.activeElement?.closest?.('.monaco-editor'),
       },
     ], [activeTab?.id, activeTab?.mode, t]),
+    defaultLandmarkId: 'editor',
   });
 
   // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.

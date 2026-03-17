@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
@@ -63,9 +65,10 @@ type CreateLLMProviderRequest struct {
 }
 
 type TestLLMProviderRequest struct {
-	Type    string `json:"type"`
-	BaseURL string `json:"base_url"`
-	APIKey  string `json:"api_key,omitempty"`
+	Type       string `json:"type"`
+	BaseURL    string `json:"base_url"`
+	APIKey     string `json:"api_key,omitempty"`
+	ProviderID string `json:"provider_id,omitempty"`
 }
 
 type UpdateLLMProviderRequest struct {
@@ -3294,38 +3297,51 @@ func extractHostname(baseURL string) (string, error) {
 	return host, nil
 }
 
-// TestLLMProvider testa a conexão com um provider LLM
+// TestLLMProvider testa a conexão com um provider LLM.
+// Quando provider_id é informado e api_key está vazio, busca a credencial existente
+// no credential manager (resolve o problema de testes falharem durante edição).
 func (a *App) TestLLMProvider(req TestLLMProviderRequest) (bool, error) {
-	// Validação básica
 	if req.BaseURL == "" {
 		return false, fmt.Errorf("base_url é obrigatório")
 	}
 
-	// Validar URL
-	if _, err := url.Parse(req.BaseURL); err != nil {
+	parsedURL, err := url.Parse(req.BaseURL)
+	if err != nil {
 		return false, fmt.Errorf("URL inválida: %w", err)
 	}
 
-	// Criar cliente temporário para teste
-	client := &http.Client{
-		Timeout: time.Duration(10) * time.Second,
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return false, fmt.Errorf("URL deve começar com http:// ou https://")
 	}
+
+	if parsedURL.Host == "" {
+		return false, fmt.Errorf("URL deve conter um endereço de servidor válido")
+	}
+
+	apiKey := req.APIKey
+
+	// Se não tem API key mas tem provider_id, busca credencial existente no credManager
+	if apiKey == "" && req.ProviderID != "" && a.llmRegistry != nil && a.credMgr != nil {
+		if provider := a.llmRegistry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
+			if auth, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth.Token != "" {
+				apiKey = auth.Token
+				log.Printf("[TestLLMProvider] Usando credencial existente para provider '%s' (pattern: %s)", req.ProviderID, provider.CredentialPattern)
+			}
+		}
+	}
+
+	modelsEndpoint := strings.TrimSuffix(req.BaseURL, "/") + "/models"
+
+	client := &http.Client{Timeout: 15 * time.Second}
 	defer client.CloseIdleConnections()
 
-	// Montar URL de health check (simples GET para a base URL)
-	req_url := req.BaseURL
-	if !strings.HasSuffix(req_url, "/") {
-		req_url += "/"
-	}
-
-	httpReq, err := http.NewRequestWithContext(a.ctx, http.MethodGet, req_url, nil)
+	httpReq, err := http.NewRequestWithContext(a.ctx, http.MethodGet, modelsEndpoint, nil)
 	if err != nil {
 		return false, fmt.Errorf("erro ao criar requisição: %w", err)
 	}
 
-	// Adicionar header de autenticação se chave fornecida
-	if req.APIKey != "" {
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", req.APIKey))
+	if apiKey != "" {
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
 	}
 
 	resp, err := client.Do(httpReq)
@@ -3334,9 +3350,6 @@ func (a *App) TestLLMProvider(req TestLLMProviderRequest) (bool, error) {
 	}
 	defer resp.Body.Close()
 
-	// Qualquer status 2xx, 3xx ou 4xx é considerado sucesso
-	// (4xx pode indicar chave ruim, mas servidor respondeu)
-	// Apenas 5xx ou timeouts são falha
 	if resp.StatusCode >= 500 {
 		return false, fmt.Errorf("servidor retornou erro: %d", resp.StatusCode)
 	}
@@ -3345,7 +3358,10 @@ func (a *App) TestLLMProvider(req TestLLMProviderRequest) (bool, error) {
 		return false, fmt.Errorf("API Key inválida ou não autorizada")
 	}
 
-	// Se chegou aqui, servidor respondeu
+	if resp.StatusCode == http.StatusForbidden {
+		return false, fmt.Errorf("acesso negado (403). A API Key pode não ter permissões suficientes")
+	}
+
 	return true, nil
 }
 
@@ -3691,18 +3707,24 @@ func (a *App) LoadConversationInTab(tabId, conversationId uint) error {
 	return nil
 }
 
-// ClearTab limpa a conversa de uma aba
-func (a *App) ClearTab(id uint) error {
-	err := database.ClearTab(id)
+// StartNewConversationInTab cria uma nova conversa e vincula à tab existente.
+// Substitui o fluxo antigo de ClearTab + criação lazy no sendMessage.
+func (a *App) StartNewConversationInTab(tabId uint) (*database.ChatTab, error) {
+	conv, err := database.RecycleOrCreateConversation("Nova Conversa")
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("erro ao criar conversa: %w", err)
 	}
 
-	runtime.EventsEmit(a.ctx, "tab_cleared", map[string]interface{}{
-		"id": id,
-	})
+	if err := database.LoadConversationInTab(tabId, conv.ID); err != nil {
+		return nil, fmt.Errorf("erro ao vincular conversa à aba: %w", err)
+	}
 
-	return nil
+	fullTab, err := database.GetTab(tabId)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao recarregar aba: %w", err)
+	}
+
+	return fullTab, nil
 }
 
 // ReorderTabs reordena as abas
@@ -3944,6 +3966,135 @@ func (a *App) GetAppVersion() string {
 
 // ==================== Welcome Wizard ====================
 
+// wizardValidationResult contém o resultado da validação de conexão do wizard
+type wizardValidationResult struct {
+	URLReachable    bool
+	AuthOK          bool
+	ModelsAvailable bool
+	Models          []string
+	ErrorType       string // "url_invalid", "url_unreachable", "auth_invalid", "auth_required", "server_error"
+	ErrorDetail     string
+}
+
+// validateWizardConnection testa a URL, autenticação e lista de modelos de um provedor.
+// Faz um GET direto ao endpoint /models para validação completa em uma única requisição.
+func (a *App) validateWizardConnection(baseURL, apiKey string) wizardValidationResult {
+	result := wizardValidationResult{}
+
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil || parsedURL.Host == "" || (parsedURL.Scheme != "http" && parsedURL.Scheme != "https") {
+		result.ErrorType = "url_invalid"
+		result.ErrorDetail = "URL inválida. Deve começar com http:// ou https:// e conter um endereço válido."
+		return result
+	}
+
+	modelsEndpoint := strings.TrimSuffix(baseURL, "/") + "/models"
+
+	client := &http.Client{Timeout: 15 * time.Second}
+	defer client.CloseIdleConnections()
+
+	httpReq, err := http.NewRequestWithContext(a.ctx, http.MethodGet, modelsEndpoint, nil)
+	if err != nil {
+		result.ErrorType = "url_unreachable"
+		result.ErrorDetail = "Não foi possível preparar a requisição de teste."
+		return result
+	}
+
+	if apiKey != "" {
+		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		result.ErrorType = "url_unreachable"
+		result.ErrorDetail = fmt.Sprintf("Não foi possível conectar ao servidor. Verifique se a URL está correta e o servidor está ativo.\n\nDetalhes: %v", err)
+		return result
+	}
+	defer resp.Body.Close()
+
+	result.URLReachable = true
+	body, _ := io.ReadAll(resp.Body)
+
+	switch {
+	case resp.StatusCode == http.StatusOK:
+		result.AuthOK = true
+		var modelsResp struct {
+			Data []struct {
+				ID string `json:"id"`
+			} `json:"data"`
+		}
+		if err := json.Unmarshal(body, &modelsResp); err == nil && len(modelsResp.Data) > 0 {
+			result.ModelsAvailable = true
+			for _, m := range modelsResp.Data {
+				result.Models = append(result.Models, m.ID)
+			}
+			sort.Strings(result.Models)
+		}
+
+	case resp.StatusCode == http.StatusUnauthorized:
+		if apiKey != "" {
+			result.ErrorType = "auth_invalid"
+			result.ErrorDetail = "A API Key informada foi rejeitada pelo servidor (401 Unauthorized). Verifique se a chave está correta."
+		} else {
+			result.ErrorType = "auth_required"
+			result.ErrorDetail = "Este servidor requer uma API Key para autenticação."
+		}
+
+	case resp.StatusCode == http.StatusForbidden:
+		result.ErrorType = "auth_invalid"
+		result.ErrorDetail = "Acesso negado (403 Forbidden). A API Key pode não ter permissões suficientes."
+
+	case resp.StatusCode == http.StatusNotFound:
+		result.AuthOK = true
+		result.ModelsAvailable = false
+
+	case resp.StatusCode >= 500:
+		result.ErrorType = "server_error"
+		result.ErrorDetail = fmt.Sprintf("O servidor retornou erro %d. O servidor pode estar com problemas temporários.", resp.StatusCode)
+
+	default:
+		result.AuthOK = true
+		result.ModelsAvailable = false
+	}
+
+	return result
+}
+
+// validateWizardURL valida formato e alcançabilidade básica de uma URL personalizada.
+// Aceita qualquer resposta HTTP (inclusive 401) — apenas rejeita se o servidor estiver inacessível.
+func (a *App) validateWizardURL(baseURL string) error {
+	parsedURL, err := url.Parse(baseURL)
+	if err != nil || parsedURL.Host == "" {
+		return fmt.Errorf("URL inválida. Deve conter um endereço de servidor válido.")
+	}
+
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return fmt.Errorf("URL deve começar com http:// ou https://")
+	}
+
+	testURL := strings.TrimSuffix(baseURL, "/") + "/"
+
+	client := &http.Client{Timeout: 10 * time.Second}
+	defer client.CloseIdleConnections()
+
+	httpReq, err := http.NewRequestWithContext(a.ctx, http.MethodGet, testURL, nil)
+	if err != nil {
+		return fmt.Errorf("não foi possível preparar requisição de teste")
+	}
+
+	resp, err := client.Do(httpReq)
+	if err != nil {
+		return fmt.Errorf("não foi possível conectar ao servidor. Verifique se a URL está correta e o servidor está ativo")
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode >= 500 {
+		return fmt.Errorf("o servidor retornou erro %d. Pode estar com problemas temporários", resp.StatusCode)
+	}
+
+	return nil
+}
+
 // NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas
 // Retorna true se não houver chave mestra ou provedor configurado
 func (a *App) NeedsWelcomeWizard() bool {
@@ -3976,6 +4127,9 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 	var defaultModel string
 	var recoveryKey string
 	var passwordError string
+	var urlError string
+	var keyError string
+	var validatedModels []string
 
 	store := credentials.NewDBStore()
 	masterKeyConfigured, _ := store.HasKeyWrap(ctx, credentials.KeyWrapKindMaster)
@@ -4147,12 +4301,10 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
 
 			if !needsCustomURL {
-				// Pula para próxima etapa se não precisa de URL customizada
 				currentStep = 4
 				continue
 			}
 
-			// Ajusta placeholder e exemplo baseado no provedor
 			placeholderURL := "http://localhost:11434/v1"
 			switch provider {
 			case "LiteLLM":
@@ -4161,9 +4313,14 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				placeholderURL = "https://your-resource.openai.azure.com"
 			}
 
+			urlDescription := "Informe a URL do servidor OpenAI-compatible."
+			if urlError != "" {
+				urlDescription = urlError
+			}
+
 			urlResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
 				Title:       "Configuração do Servidor",
-				Description: "Informe a URL do servidor OpenAI-compatible.",
+				Description: urlDescription,
 				Questions: []questionnaire.Question{
 					{
 						ID:          "baseURL",
@@ -4171,7 +4328,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 						Prompt:      "URL do servidor",
 						Required:    true,
 						Placeholder: placeholderURL,
-						Default:     baseURL, // Mantém valor anterior se voltar
+						Default:     baseURL,
 					},
 				},
 				AllowCancel: true,
@@ -4184,17 +4341,28 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			}
 
 			if urlResp.Cancelled {
-				currentStep = 2 // Volta para etapa anterior
+				currentStep = 2
 				continue
 			}
 
 			baseURL = urlResp.Answers["baseURL"].(string)
+			urlError = ""
+
+			if err := a.validateWizardURL(baseURL); err != nil {
+				urlError = fmt.Sprintf("⚠️ %v\n\nCorreija a URL e tente novamente.", err)
+				currentStep = 3
+				continue
+			}
+
 			currentStep = 4
 
-		case 4: // Etapa 4: API Key
+		case 4: // Etapa 4: API Key + validação de conexão
 			keyDescription := "Informe sua chave de API. Deixe em branco se o servidor não requer autenticação."
 			if provider == "Ollama (Local)" {
 				keyDescription = "Ollama local geralmente não precisa de chave. Você pode deixar em branco."
+			}
+			if keyError != "" {
+				keyDescription = keyError
 			}
 
 			keyResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
@@ -4207,7 +4375,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 						Prompt:      "Chave de API (opcional)",
 						Required:    false,
 						Placeholder: "sk-...",
-						Default:     apiKey, // Mantém valor anterior se voltar
+						Default:     apiKey,
 					},
 				},
 				AllowCancel: true,
@@ -4220,7 +4388,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			}
 
 			if keyResp.Cancelled {
-				// Volta para etapa anterior (URL customizada ou provedor)
+				keyError = ""
 				needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
 				if needsCustomURL {
 					currentStep = 3
@@ -4233,17 +4401,114 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			if keyResp.Answers["apiKey"] != nil {
 				apiKey = keyResp.Answers["apiKey"].(string)
 			}
+			keyError = ""
 
-			currentStep = 5
+			log.Printf("[Wizard] Validando conexão: %s (com key: %v)", baseURL, apiKey != "")
+			validation := a.validateWizardConnection(baseURL, apiKey)
 
-		case 5: // Etapa 5: Listar e escolher modelo
-			// Extrai hostname para registrar credencial temporária no credMgr
-			wizardHostname, err := extractHostname(baseURL)
-			if err != nil {
-				wizardHostname = ""
+			needsCustomURL := provider == "Outro (URL personalizada)" || provider == "Azure OpenAI" || provider == "LiteLLM"
+
+			switch validation.ErrorType {
+			case "url_invalid", "url_unreachable":
+				if needsCustomURL {
+					urlError = fmt.Sprintf("⚠️ %s", validation.ErrorDetail)
+					currentStep = 3
+				} else {
+					keyError = fmt.Sprintf("⚠️ Não foi possível conectar ao servidor do %s (%s).\n\n%s\n\nClique \"Próximo\" para tentar novamente ou \"Voltar\" para escolher outro provedor.", provider, baseURL, validation.ErrorDetail)
+					currentStep = 4
+				}
+				continue
+
+			case "auth_required":
+				keyError = fmt.Sprintf("⚠️ %s\n\nInforme uma API Key válida para continuar.", validation.ErrorDetail)
+				currentStep = 4
+				continue
+
+			case "auth_invalid":
+				keyError = fmt.Sprintf("⚠️ %s\n\nVerifique sua chave e tente novamente.", validation.ErrorDetail)
+				currentStep = 4
+				continue
+
+			case "server_error":
+				keyError = fmt.Sprintf("⚠️ %s\n\nClique \"Próximo\" para tentar novamente ou \"Voltar\" para alterar configurações.", validation.ErrorDetail)
+				currentStep = 4
+				continue
 			}
 
-			// Registra credencial no credMgr para que o httpClient consiga autenticar
+			validatedModels = validation.Models
+			log.Printf("[Wizard] Conexão validada com sucesso. Modelos disponíveis: %d", len(validatedModels))
+			currentStep = 5
+
+		case 5: // Etapa 5: Escolher modelo (conexão já validada)
+			if len(validatedModels) > 0 {
+				modelDefault := ""
+				if defaultModel != "" {
+					modelDefault = defaultModel
+				} else {
+					modelDefault = validatedModels[0]
+				}
+
+				modelResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+					Title:       "Escolha o Modelo Padrão",
+					Description: fmt.Sprintf("Conexão validada com sucesso! %d modelo(s) disponível(is).\n\nSelecione o modelo padrão. Você pode alterar depois nas configurações.", len(validatedModels)),
+					Questions: []questionnaire.Question{
+						{
+							ID:       "model",
+							Type:     "single_choice",
+							Prompt:   "Modelo padrão:",
+							Required: true,
+							Options:  validatedModels,
+							Default:  modelDefault,
+						},
+					},
+					AllowCancel: true,
+					SubmitLabel: "Finalizar",
+					CancelLabel: "Voltar",
+				})
+
+				if err != nil {
+					return false, err
+				}
+
+				if modelResp.Cancelled {
+					currentStep = 4
+					continue
+				}
+
+				defaultModel = modelResp.Answers["model"].(string)
+			} else {
+				manualResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+					Title:       "Configurar Modelo",
+					Description: "Conexão validada! O servidor não suporta listagem automática de modelos.\n\nInforme o nome do modelo que deseja usar.",
+					Questions: []questionnaire.Question{
+						{
+							ID:          "defaultModel",
+							Type:        "text",
+							Prompt:      "Nome do modelo",
+							Required:    true,
+							Placeholder: "gpt-4o-mini",
+							Default:     defaultModel,
+						},
+					},
+					AllowCancel: true,
+					SubmitLabel: "Finalizar",
+					CancelLabel: "Voltar",
+				})
+
+				if err != nil {
+					return false, err
+				}
+
+				if manualResp.Cancelled {
+					currentStep = 4
+					continue
+				}
+
+				defaultModel = manualResp.Answers["defaultModel"].(string)
+			}
+
+			// Registra credencial temporária para o createWizardProvider
+			wizardHostname, _ := extractHostname(baseURL)
 			if apiKey != "" && wizardHostname != "" {
 				wizardAuth := &credentials.AuthConfig{
 					Type:  "bearer",
@@ -4254,139 +4519,40 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				}
 			}
 
-			tempProvider := &llm.ProviderConfig{
-				ID:                "temp-wizard",
-				Name:              "Temporary Provider",
-				Type:              llm.ProviderOpenAI,
-				BaseURL:           baseURL,
-				Timeout:           180,
-				CredentialPattern: wizardHostname,
-			}
-
-			tempCfg := &config.Config{
-				APIKey:     apiKey,
-				APIBaseURL: baseURL,
-			}
-
-			tempClient := llm.NewClient(tempProvider, tempCfg, a.credMgr)
-			models, err := tempClient.GetModels(ctx)
-			if err != nil {
-				// Se falhou ao listar modelos, pergunta se quer continuar mesmo assim
-				errorResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-					Title:       "Erro ao Listar Modelos",
-					Description: fmt.Sprintf("Não foi possível listar os modelos disponíveis: %v\n\nVocê pode configurar um modelo padrão manualmente ou voltar para verificar suas credenciais.", err),
-					Questions: []questionnaire.Question{
-						{
-							ID:          "defaultModel",
-							Type:        "text",
-							Prompt:      "Nome do modelo (ex: gpt-4o-mini, claude-3-5-sonnet-20241022)",
-							Required:    true,
-							Placeholder: "gpt-4o-mini",
-							Default:     defaultModel,
-						},
-					},
-					AllowCancel: true,
-					SubmitLabel: "Salvar Configuração",
-					CancelLabel: "Voltar",
-				})
-
-				if err != nil {
-					return false, err
-				}
-
-				if errorResp.Cancelled {
-					currentStep = 4 // Volta para API key
-					continue
-				}
-
-				defaultModel = errorResp.Answers["defaultModel"].(string)
-
-				// Cria provedor no registry + credential manager + SQLite
-				providerID, err := a.createWizardProvider(provider, baseURL, apiKey, defaultModel)
-				if err != nil {
-					return false, fmt.Errorf("erro ao criar provedor: %w", err)
-				}
-
-				// Salva configuração legada
-				if err := a.saveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
-					return false, err
-				}
-
-				// Atualiza provedor e modelo em todos os perfis
-				if err := a.updateAllProfilesProviderAndModel(providerID, defaultModel); err != nil {
-					log.Printf("[Wizard] Aviso: erro ao atualizar perfis: %v", err)
-				}
-
-				// Reinicializa cliente LLM
-				a.initLLMClient()
-
-				return true, nil
-			}
-
-			// Se conseguiu listar modelos, mostra seleção
-			if len(models) == 0 {
-				models = []string{"gpt-4o-mini", "claude-3-5-sonnet-20241022", "gemini-pro"}
-			}
-
-			// Mantém modelo selecionado anteriormente se houver
-			modelDefault := ""
-			if defaultModel != "" {
-				modelDefault = defaultModel
-			} else {
-				modelDefault = models[0]
-			}
-
-			modelResp, err := a.questionnaireMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
-				Title:       "Escolha o Modelo Padrão",
-				Description: "Selecione o modelo que será usado como padrão. Você pode alterar isso depois.",
-				Questions: []questionnaire.Question{
-					{
-						ID:       "model",
-						Type:     "single_choice",
-						Prompt:   "Modelo padrão:",
-						Required: true,
-						Options:  models,
-						Default:  modelDefault,
-					},
-				},
-				AllowCancel: true,
-				SubmitLabel: "Finalizar",
-				CancelLabel: "Voltar",
-			})
-
-			if err != nil {
-				return false, err
-			}
-
-			if modelResp.Cancelled {
-				currentStep = 4 // Volta para API key
-				continue
-			}
-
-			defaultModel = modelResp.Answers["model"].(string)
-
-			// Cria provedor no registry + credential manager + SQLite
 			providerID, err := a.createWizardProvider(provider, baseURL, apiKey, defaultModel)
 			if err != nil {
 				return false, fmt.Errorf("erro ao criar provedor: %w", err)
 			}
 
-			// Salva configuração legada
 			if err := a.saveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
 				return false, err
 			}
 
-			// Atualiza provedor e modelo em todos os perfis
 			if err := a.updateAllProfilesProviderAndModel(providerID, defaultModel); err != nil {
 				log.Printf("[Wizard] Aviso: erro ao atualizar perfis: %v", err)
 			}
 
-			// Reinicializa cliente LLM
 			a.initLLMClient()
 
-			// Verifica se há atualizações disponíveis após configuração
-			go a.checkForUpdatesAfterWizard()
+			// Verificação final: confirma que o provider funciona com o modelo escolhido
+			finalModels, finalErr := a.GetModelsByProvider(providerID)
+			if finalErr != nil {
+				log.Printf("[Wizard] Verificação final: %v (provider pode não suportar /models)", finalErr)
+			} else {
+				log.Printf("[Wizard] Verificação final OK: %d modelos via provider '%s'", len(finalModels), providerID)
+				modelFound := false
+				for _, m := range finalModels {
+					if m == defaultModel {
+						modelFound = true
+						break
+					}
+				}
+				if !modelFound && len(finalModels) > 0 {
+					log.Printf("[Wizard] Aviso: modelo '%s' não encontrado na lista do provider (%d modelos)", defaultModel, len(finalModels))
+				}
+			}
 
+			go a.checkForUpdatesAfterWizard()
 			return true, nil
 		}
 	}

@@ -32,6 +32,7 @@ import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import { useEditableList } from '../hooks/useEditableList';
 import { useProfileDependencies } from '../hooks/useProfileDependencies';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import './ProfilesPage.css';
 
 type ProfileInfo = profiles.ProfileInfo;
@@ -49,7 +50,7 @@ export default function ProfilesPage() {
   const { t } = useTranslation();
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
-  const { focusFirstCell, handleGridReady } = useGridFocus();
+  const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'profiles-page' });
 
   const getErrorMessage = (error: unknown) =>
@@ -160,9 +161,6 @@ export default function ProfilesPage() {
         defaultProfile.source = 'workdir';
         return defaultProfile;
       },
-      onSuccess: () => {
-        setTimeout(() => focusFirstCell?.(), 50);
-      },
     }
   );
 
@@ -170,6 +168,12 @@ export default function ProfilesPage() {
     crud.loadItems();
     GetProfileSearchPaths().then((paths) => setSearchPaths(paths || []));
   }, []);
+
+  useResourceEditRequest('profiles', {
+    onEdit: (slug) => crud.openEdit({ id: slug, slug } as ProfileRow),
+    onNew: () => crud.openNew(),
+    ready: !crud.loading && crud.items.length > 0,
+  });
 
   // --- Grid actions ---
 
@@ -425,7 +429,6 @@ export default function ProfilesPage() {
         searchPlaceholder={t('profiles.search', 'Buscar perfis...')}
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
-        onFocusGrid={focusFirstCell}
         actions={[
           {
             key: 'new-profile',

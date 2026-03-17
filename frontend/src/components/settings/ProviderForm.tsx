@@ -204,14 +204,43 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         name: provider.name,
         type: provider.type,
         base_url: provider.base_url,
-        api_key: '', // Não carrega API key por segurança
+        api_key: '',
       });
-      // Em modo edição, requer reteste apenas se mudar a key
-      setApiTested(true);
-      setShowApiKeyField(false); // Oculta campo, mostra indicador
+      setApiTested(false);
+      setShowApiKeyField(false);
       setApiKeyChangedInThisSession(false);
+
+      // Auto-teste com credencial existente (resolve edição sem re-digitar key)
+      const config = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
+      const canonicalUrl = !config.urlEditable ? config.defaultUrl : provider.base_url;
+      if (canonicalUrl) {
+        setTesting(true);
+        withTimeout(
+          TestLLMProvider({
+            type: provider.type,
+            base_url: canonicalUrl,
+            provider_id: provider.id,
+          }),
+          15000,
+          'TestLLMProvider'
+        ).then((result) => {
+          if (result) {
+            setApiTested(true);
+            setErrors((prev) => {
+              const ne = { ...prev };
+              delete ne.api_key;
+              delete ne.api;
+              delete ne.base_url;
+              return ne;
+            });
+          }
+        }).catch(() => {
+          // Auto-teste falhou; usuário pode testar manualmente
+        }).finally(() => {
+          setTesting(false);
+        });
+      }
     } else {
-      // Novo provider - define URL padrão baseado no tipo
       const defaultType = 'openai';
       const config = PROVIDER_CONFIG[defaultType] || PROVIDER_CONFIG.custom;
       setFormData({
@@ -221,7 +250,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         api_key: '',
       });
       setApiTested(false);
-      setShowApiKeyField(true); // Mostra campo em modo criação
+      setShowApiKeyField(true);
       setApiKeyChangedInThisSession(false);
     }
   }, [provider]);
@@ -283,11 +312,28 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   };
 
   const handleTestApi = async () => {
-    // Testa API manualmente ou ao sair do campo
     const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
-    
-    // Se requer key e está vazio, não testa
-    if (config.testRequiresApiKey && !formData.api_key.trim()) {
+    const canonicalUrl = getCanonicalUrl(formData.type);
+
+    // Validar URL antes de testar
+    if (!canonicalUrl.trim()) {
+      setErrors((prev) => ({ ...prev, base_url: t('providerForm.error.urlRequired') }));
+      return;
+    }
+    try {
+      const parsed = new URL(canonicalUrl);
+      if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
+        setErrors((prev) => ({ ...prev, base_url: t('providerForm.error.urlInvalid') }));
+        return;
+      }
+    } catch {
+      setErrors((prev) => ({ ...prev, base_url: t('providerForm.error.urlInvalid') }));
+      return;
+    }
+
+    // Se requer key, está criando (ou alterou a key), e a key está vazia → erro
+    const isEditingWithExistingKey = !!formData.id && !apiKeyChangedInThisSession;
+    if (config.testRequiresApiKey && !formData.api_key.trim() && !isEditingWithExistingKey) {
       setErrors((prev) => ({
         ...prev,
         api_key: 'API Key é obrigatória para testar este provedor',
@@ -300,8 +346,9 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       const result = await withTimeout(
         TestLLMProvider({
           type: formData.type,
-          base_url: formData.base_url,
+          base_url: canonicalUrl,
           api_key: formData.api_key || undefined,
+          provider_id: formData.id || undefined,
         }),
         15000,
         'TestLLMProvider'
@@ -313,6 +360,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           const newErrors = { ...prev };
           delete newErrors.api_key;
           delete newErrors.api;
+          delete newErrors.base_url;
           return newErrors;
         });
       } else {
@@ -335,24 +383,24 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   };
 
   const handleApiKeyBlur = async () => {
-    // Auto-testa ao sair do campo de API Key (exceto para provedores que não requerem)
     const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
+    const canonicalUrl = getCanonicalUrl(formData.type);
     
-    // Se não requer key e a key está vazia, testa mesmo assim
+    if (!canonicalUrl.trim()) return;
+
+    // Se não requer key e a key está vazia, testa mesmo assim (ex: Ollama)
     if (!config.apiKeyRequired && !formData.api_key.trim()) {
       await handleTestApi();
       return;
     }
 
-    // Se requer key e está vazio, apenas marca erro
-    if (config.testRequiresApiKey && !formData.api_key.trim()) {
+    // Se requer key, está criando, e key está vazia → não auto-testa
+    const isEditingWithExistingKey = !!formData.id && !apiKeyChangedInThisSession;
+    if (config.testRequiresApiKey && !formData.api_key.trim() && !isEditingWithExistingKey) {
       return;
     }
 
-    // Testa se tem URL e (key se for obrigatória)
-    if (formData.base_url.trim()) {
-      await handleTestApi();
-    }
+    await handleTestApi();
   };
 
   const validate = (): boolean => {
@@ -380,14 +428,8 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       newErrors.api_key = `API Key é obrigatória para ${config.label}`;
     }
 
-    // Valida se API foi testada
-    // EM MODO EDIÇÃO SEM MUDAR CHAVE: não exige reteste (chave já estava salva)
-    // EM MODO EDIÇÃO COM MUDANÇA DE CHAVE: exige reteste
-    // EM MODO CRIAÇÃO: sempre exige teste
-    const isEditingWithoutChangingKey = formData.id && !apiKeyChangedInThisSession;
-    const needsTest = !isEditingWithoutChangingKey;
-    
-    if (!apiTested && needsTest) {
+    // Sempre exige teste de conexão antes de salvar
+    if (!apiTested) {
       newErrors.api = t('providerForm.error.testFirst');
     }
 
@@ -557,12 +599,6 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             >
               <span aria-hidden="true">{showPassword ? '🔒' : '🔓'}</span>
             </Button>
-            {testing && <span className="provider-form__testing">Testando...</span>}
-            {apiTested && !testing && (
-              <span className="provider-form__success" aria-live="polite">
-                ✓ Conectado
-              </span>
-            )}
           </div>
           )}
         </FormField>
@@ -609,18 +645,12 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             >
               <span aria-hidden="true">{showPassword ? '🔒' : '🔓'}</span>
             </Button>
-            {testing && <span className="provider-form__testing">Testando...</span>}
-            {apiTested && !testing && (
-              <span className="provider-form__success" aria-live="polite">
-                ✓ Conectado
-              </span>
-            )}
           </div>
           )}
         </FormField>
       )}
 
-      {/* Test button */}
+      {/* Test button + connection status */}
       <div className="provider-form__test-section">
         <Button
           type="button"
@@ -633,14 +663,13 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           {testing ? 'Testando...' : '🧪 Testar Conexão'}
         </Button>
         
-        {/* Info sobre o que será testado */}
-        {formData.id && !apiKeyChangedInThisSession && (
-          <span className="provider-form__info" style={{ marginLeft: '12px' }}>
-            ℹ️ Testará com a chave já configurada (não alterada nesta sessão)
+        {apiTested && !testing && (
+          <span className="provider-form__success" aria-live="polite" style={{ marginLeft: '12px' }}>
+            ✓ Conectado
           </span>
         )}
-        
-        {testRequiresApiKey && !formData.api_key.trim() && showApiKeyField && (
+
+        {testRequiresApiKey && !formData.api_key.trim() && showApiKeyField && !formData.id && (
           <span className="provider-form__info" style={{ marginLeft: '12px' }}>
             ℹ️ Preencha a API Key para testar este provedor
           </span>

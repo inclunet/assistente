@@ -4,7 +4,6 @@ import {
   GetAllTabs,
   CreateTabWithConversation,
   CloseTab,
-  ClearTab,
   SetActiveTab,
   UpdateTabTitle as BackendUpdateTabTitle,
   GetMessages,
@@ -12,7 +11,9 @@ import {
   OpenConversationInNewTab,
   AssignConversationToChannel,
   UnassignConversationFromChannel,
-	GetMessageChildren,
+  GetMessageChildren,
+  RenameConversation,
+  StartNewConversationInTab,
 } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
@@ -30,6 +31,8 @@ const MAX_MEDIA_SIZE = 10 * 1024 * 1024; // 10MB
 
 // Constantes de performance para streaming
 const STREAM_UPDATE_DEBOUNCE_MS = 16; // ~60fps - debounce para atualizações de streaming
+
+const DEFAULT_TITLE_PATTERNS = /^nova\s+conversa$/i;
 
 interface MediaData {
   name: string;
@@ -957,15 +960,15 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }
 
     try {
-      await ClearTab(activeTab.backendId);
+      const backendTab = await StartNewConversationInTab(activeTab.backendId);
+      const newTitle = title || backendTab.title || 'Nova conversa';
 
-      const newTitle = title || 'Nova conversa';
       set((state) => ({
         tabs: state.tabs.map((t) =>
           t.id === activeTabId
             ? {
                 ...t,
-                conversationId: undefined,
+                conversationId: backendTab.conversation_id || undefined,
                 threadedMessages: [],
                 title: newTitle,
                 updatedAt: Date.now(),
@@ -1141,7 +1144,11 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               return {
                 tabs: state.tabs.map((t) =>
                   t.id === currentTabId
-                    ? { ...t, threadedMessages: updateMessageId(t.threadedMessages) }
+                    ? {
+                        ...t,
+                        threadedMessages: updateMessageId(t.threadedMessages),
+                        conversationId: data.conversationId || t.conversationId,
+                      }
                     : t
                 ),
               };
@@ -1150,8 +1157,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         });
 
         try {
-          const tab = get().tabs.find((t) => t.id === currentTabId);
-          const conversationId = tab?.conversationId || 0;
+          let tab = get().tabs.find((t) => t.id === currentTabId);
+          let conversationId = tab?.conversationId || 0;
+
+          // Guard: se a tab não tem conversa (edge case), cria uma antes de enviar
+          if (conversationId === 0 && tab?.backendId) {
+            console.warn('[Chat] Tab sem conversationId — criando conversa automaticamente');
+            const backendTab = await StartNewConversationInTab(tab.backendId);
+            conversationId = backendTab.conversation_id || 0;
+            if (conversationId > 0) {
+              set((state) => ({
+                tabs: state.tabs.map((t) =>
+                  t.id === currentTabId
+                    ? { ...t, conversationId }
+                    : t
+                ),
+              }));
+            }
+          }
 
           // Setup completion handler that will clean up everything
           // CRÍTICO: Registrar listeners ANTES de chamar SendMessage
@@ -1448,6 +1471,27 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 });
               }
             }
+
+            // Fallback: renomeia conversa se o título ainda é o padrão.
+            // O LLM pode ter renomeado via tool (rename_conversation); se o
+            // fez, o título no frontend já mudou e o regex não casará.
+            // O backend emite conversation:renamed que o App.tsx escuta,
+            // atualizando automaticamente a tab no frontend.
+            {
+              const tab = get().tabs.find(t => t.id === currentTabId);
+              if (tab?.conversationId && tab.title && DEFAULT_TITLE_PATTERNS.test(tab.title.trim())) {
+                const firstUserMsg = flattenThreadedMessages(tab.threadedMessages)
+                  .find(m => m.role === 'user' && !m.internal);
+                if (firstUserMsg?.content) {
+                  const fallbackTitle = firstUserMsg.content.length > 50
+                    ? firstUserMsg.content.slice(0, 50) + '...'
+                    : firstUserMsg.content;
+                  RenameConversation(tab.conversationId, fallbackTitle).catch((err) => {
+                    console.error('[Chat] Fallback rename failed:', err);
+                  });
+                }
+              }
+            }
             
             // Cleanup listeners
             cleanup();
@@ -1660,20 +1704,17 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
       },
 
-    // Chamado quando uma conversa é deletada pelo backend
+    // Chamado quando uma conversa é deletada pelo backend.
+    // O backend já deletou as tabs associadas e emitiu tab_closed para cada uma,
+    // então normalmente a tab já foi removida do state quando este handler roda.
+    // O removeTabFromState abaixo é apenas safety net para tabs sem backendId.
     handleConversationDeleted: (conversationId: number) => {
       announce('Conversa apagada permanentemente');
       
       const state = get();
       const tabToClose = state.tabs.find(tab => tab.conversationId === conversationId);
       
-      if (!tabToClose) return;
-
-      if (tabToClose.backendId) {
-        CloseTab(tabToClose.backendId).catch(err => {
-          console.error('[Chat] Error closing tab for deleted conversation:', err);
-        });
-      } else {
+      if (tabToClose) {
         removeTabFromState(tabToClose.id, get, set, activeListeners);
       }
       

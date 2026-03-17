@@ -123,7 +123,7 @@ export function QuestionnaireDialog({ isOpen, data, onSubmit, onCancel }: Questi
       onClose={handleCancel}
       title={title}
       size="lg"
-      returnFocusToGrid={false}
+      returnFocusOnClose={false}
       allowClose={allowCancel}
     >
       {description && <p className="questionnaire-dialog__description">{description}</p>}

@@ -210,12 +210,16 @@ func (a *App) UpdateConversation(id uint, title, model string) error {
 func (a *App) DeleteConversation(id uint) error {
 	fmt.Printf("[DeleteConversation] Iniciando deleção da conversa %d...\n", id)
 
+	// Remove tabs que apontam para essa conversa (evita tabs órfãs sem conversation_id).
+	// Emite tab_closed para que o frontend remova cada tab do state.
 	tabs, err := database.GetAllTabs()
 	if err == nil {
 		for _, tab := range tabs {
 			if tab.ConversationID != nil && *tab.ConversationID == id {
-				fmt.Printf("[DeleteConversation] Limpando tab %d que referencia conversa %d\n", tab.ID, id)
-				database.ClearTab(tab.ID)
+				fmt.Printf("[DeleteConversation] Removendo tab %d que referencia conversa %d\n", tab.ID, id)
+				if closeErr := database.CloseTab(tab.ID); closeErr == nil {
+					runtime.EventsEmit(a.ctx, "tab_closed", map[string]interface{}{"id": tab.ID})
+				}
 			}
 		}
 	}
@@ -372,10 +376,16 @@ func (a *App) GetTabs() (TabsResponse, error) {
 		if err := database.InitializeDefaultTab(); err != nil {
 			return TabsResponse{}, err
 		}
-		tabs, err = database.GetAllTabs()
-		if err != nil {
-			return TabsResponse{}, err
-		}
+	}
+
+	// Garante que toda tab tenha conversa (corrige tabs órfãs de legado ou edge cases)
+	if err := database.EnsureTabsHaveConversation(); err != nil {
+		fmt.Printf("⚠️ Erro ao garantir conversas em tabs: %v\n", err)
+	}
+
+	tabs, err = database.GetAllTabs()
+	if err != nil {
+		return TabsResponse{}, err
 	}
 
 	var activeId uint
@@ -495,8 +505,9 @@ func (a *App) CreateNewConversation(title string) (uint, error) {
 
 // CreateTabWithConversation cria atomicamente uma conversa + tab vinculada.
 // Toda tab nasce com uma conversa associada (backend-driven).
+// Recicla conversas vazias orfãs quando possível.
 func (a *App) CreateTabWithConversation() (*database.ChatTab, error) {
-	conv, err := database.CreateConversation("Nova Conversa", "")
+	conv, err := database.RecycleOrCreateConversation("Nova Conversa")
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar conversa: %w", err)
 	}

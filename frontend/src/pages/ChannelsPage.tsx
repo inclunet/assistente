@@ -35,6 +35,7 @@ import { MenuButton } from '../components/layout/MenuButton';
 import CreateChannelModal from '../components/modals/CreateChannelModal';
 import { playBumpSound } from '../services/audioFeedback';
 import { useConfirm } from '../hooks/useConfirm';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import './ChannelsPage.css';
 
 // ─── Types ───────────────────────────────────────────────────────────
@@ -106,8 +107,8 @@ export default function ChannelsPage() {
   const { t } = useTranslation();
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
-  const { focusFirstCell: channelsFocusFirstCell, handleGridReady: channelsHandleGridReady } = useGridFocus();
-  const { focusFirstCell: contactsFocusFirstCell, handleGridReady: contactsHandleGridReady } = useGridFocus();
+  const { handleGridReady: channelsHandleGridReady } = useGridFocus();
+  const { handleGridReady: contactsHandleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'channels-page' });
   const defaultChannelProfile = 'canais-comunicacao';
   const requestConfirm = useConfirm();
@@ -497,7 +498,6 @@ export default function ChannelsPage() {
       await loadAll();
       setEditingChannel(null);
       setActiveTab('channels');
-      setTimeout(() => channelsFocusFirstCell?.(), 0);
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || `Erro ao salvar canal ${channelName}`, 'error');
     } finally {
@@ -511,6 +511,14 @@ export default function ChannelsPage() {
     setEditingChannel(row.name);
     announce(t('channels.announce.editorOpened', { label: row.label }));
   }, [announce, t]);
+
+  useResourceEditRequest('channels', {
+    onEdit: (name) => {
+      const found = channelRows.find((r) => r.name === name);
+      if (found) handleEditChannel(found);
+    },
+    ready: !loading && channelRows.length > 0,
+  });
 
   const handleCloseEditor = () => {
     setEditingChannel(null);
@@ -1017,7 +1025,6 @@ export default function ChannelsPage() {
           }
           actions={toolbarActions}
           ariaLabel="Barra de ferramentas de canais"
-          onFocusGrid={activeTab === 'channels' ? channelsFocusFirstCell : contactsFocusFirstCell}
         />
 
         {/* Channels tab panel */}

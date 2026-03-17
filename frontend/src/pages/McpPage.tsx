@@ -22,6 +22,7 @@ import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useConfirm } from '../hooks/useConfirm';
 import { useUIStore } from '../store/uiStore';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import './McpPage.css';
 
 type ServerInfo = mcp.ServerInfo;
@@ -57,7 +58,7 @@ export default function McpPage() {
   const { t } = useTranslation();
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
-  const { focusFirstCell, handleGridReady } = useGridFocus();
+  const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'mcp-page' });
 
   const getErrorMessage = (error: unknown) =>
@@ -231,6 +232,15 @@ export default function McpPage() {
     setFormEnabled(true);
     setFormAutoConnect(true);
   }, []);
+
+  useResourceEditRequest('mcp', {
+    onEdit: (slug) => {
+      const found = rows.find((r) => r.slug === slug);
+      if (found) handleEdit(found);
+    },
+    onNew: () => handleNew(),
+    ready: !isLoading && rows.length > 0,
+  });
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -623,7 +633,6 @@ export default function McpPage() {
         searchPlaceholder={t('mcp.searchPlaceholder')}
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
-        onFocusGrid={focusFirstCell}
         actions={[
           {
             key: 'new',

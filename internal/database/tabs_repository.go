@@ -2,6 +2,7 @@ package database
 
 import (
 	"errors"
+	"fmt"
 
 	"gorm.io/gorm"
 )
@@ -208,6 +209,27 @@ func InitializeDefaultTab() error {
 	if count == 0 {
 		_, err := CreateTab("Nova conversa", "💬", true)
 		return err
+	}
+
+	return nil
+}
+
+// EnsureTabsHaveConversation garante que todas as tabs abertas tenham uma conversa vinculada.
+// Tabs sem conversation_id (legado ou edge case) recebem uma conversa reciclada ou nova.
+func EnsureTabsHaveConversation() error {
+	var orphanTabs []ChatTab
+	if err := db.Where("conversation_id IS NULL").Find(&orphanTabs).Error; err != nil {
+		return err
+	}
+
+	for _, tab := range orphanTabs {
+		conv, err := RecycleOrCreateConversation("Nova Conversa")
+		if err != nil {
+			return fmt.Errorf("erro ao criar conversa para tab %d: %w", tab.ID, err)
+		}
+		if err := LoadConversationInTab(tab.ID, conv.ID); err != nil {
+			return fmt.Errorf("erro ao vincular conversa %d à tab %d: %w", conv.ID, tab.ID, err)
+		}
 	}
 
 	return nil

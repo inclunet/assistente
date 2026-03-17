@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { playBumpSound } from '../services/audioFeedback';
+import { restoreDefaultFocus } from './useDefaultFocus';
 
 /**
  * Hook para gerenciar navegação por teclado em uma toolbar com ARIA
@@ -7,9 +8,10 @@ import { playBumpSound } from '../services/audioFeedback';
  * - Tab: foca o elemento atual da toolbar (roving tabindex)
  * - Setas (←→↑↓): navega entre elementos dentro da toolbar
  * - Apenas um elemento tem tabindex="0" por vez
- * @param onFocusGrid Callback para focar o grid ao pressionar Enter no campo de busca
+ * @param onFocusContent Callback para focar a área de conteúdo ao pressionar Enter
+ *        no campo de busca. Se omitido, usa restoreDefaultFocus() automaticamente.
  */
-export const useToolbarKeyboardNav = (onFocusGrid?: (() => void) | null) => {
+export const useToolbarKeyboardNav = (onFocusContent?: (() => void) | null) => {
   const toolbarRef = useRef<HTMLDivElement>(null);
   const [focusedIndex, setFocusedIndex] = useState(0);
 
@@ -77,16 +79,13 @@ export const useToolbarKeyboardNav = (onFocusGrid?: (() => void) | null) => {
         target.classList.contains('toolbar__search');
       
       if (isSearchInput) {
-        // Permite edição normal do texto no campo de busca
-        // Apenas processa Enter para ir ao grid
         if (event.key === 'Enter') {
           event.preventDefault();
-          
-          // Usa o callback para focar a primeira célula do grid
-          if (onFocusGrid) {
-            onFocusGrid();
+          if (onFocusContent) {
+            onFocusContent();
+          } else {
+            restoreDefaultFocus();
           }
-          // Se não há callback, mantém o foco no campo de busca
         }
         return;
       }
@@ -191,7 +190,7 @@ export const useToolbarKeyboardNav = (onFocusGrid?: (() => void) | null) => {
       toolbar.removeEventListener('focusin', handleFocusIn);
       observer.disconnect();
     };
-  }, [focusedIndex, onFocusGrid]); // Adicionado onFocusGrid para capturar mudanças
+  }, [focusedIndex, onFocusContent]);
 
   return toolbarRef;
 };

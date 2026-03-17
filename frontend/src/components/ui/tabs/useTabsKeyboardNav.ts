@@ -1,5 +1,6 @@
 import { RefObject, useCallback } from 'react';
 import { getTabsNavResult, isTabsNavKey } from './keyboard';
+import { restoreDefaultFocus } from '../../../hooks/useDefaultFocus';
 
 export type TabsActivationMode = 'auto' | 'manual';
 
@@ -10,6 +11,12 @@ export interface UseTabsKeyboardNavOptions {
   onBump?: () => void;
   onValueChange?: (value: string) => void;
   onDelete?: (value: string) => void;
+  /**
+   * Called when Enter is pressed on a tab. If it returns true, the default
+   * behavior (restoreDefaultFocus) is suppressed. Use this for example when
+   * the tab is being renamed via inline editing.
+   */
+  onActivate?: () => boolean;
 }
 
 function getTabsInList(tabList: HTMLElement): HTMLButtonElement[] {
@@ -30,6 +37,7 @@ export function useTabsKeyboardNav({
   onBump,
   onValueChange,
   onDelete,
+  onActivate,
 }: UseTabsKeyboardNavOptions) {
   const focusTabAtIndex = useCallback(
     (index: number) => {
@@ -44,6 +52,23 @@ export function useTabsKeyboardNav({
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent) => {
+      // Ctrl+W / Ctrl+F4: fecha aba e restaura foco na default area
+      if ((event.ctrlKey && event.key === 'w') || (event.ctrlKey && event.key === 'F4')) {
+        event.preventDefault();
+        const list = tabListRef.current;
+        if (!list) return;
+        const tabs = getTabsInList(list);
+        const targetEl = event.target as HTMLElement | null;
+        const targetTab = targetEl?.closest?.('button[role="tab"]') as HTMLButtonElement | null;
+        const currentTab = targetTab || tabs.find((t) => t.getAttribute('aria-selected') === 'true');
+        const value = currentTab ? getTabValue(currentTab) : null;
+        if (value) {
+          onDelete?.(value);
+          requestAnimationFrame(() => restoreDefaultFocus());
+        }
+        return;
+      }
+
       if (!isTabsNavKey(event.key)) return;
 
       // Delete com modificadores costuma significar outra ação em alguns layouts;
@@ -93,6 +118,14 @@ export function useTabsKeyboardNav({
         return;
       }
 
+      if (result.action === 'activate') {
+        const suppressed = onActivate?.();
+        if (!suppressed) {
+          restoreDefaultFocus();
+        }
+        return;
+      }
+
       if (result.nextIndex === currentIndex) return;
 
       const nextTab = tabs[result.nextIndex];
@@ -100,7 +133,6 @@ export function useTabsKeyboardNav({
 
       if (activationMode === 'auto' && nextValue) {
         onValueChange?.(nextValue);
-        // Aguarda re-render ajustar tabindex/aria-selected.
         setTimeout(() => focusTabAtIndex(result.nextIndex), 0);
         return;
       }
@@ -110,6 +142,7 @@ export function useTabsKeyboardNav({
     [
       activationMode,
       focusTabAtIndex,
+      onActivate,
       onBump,
       onDelete,
       onValueChange,

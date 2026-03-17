@@ -92,8 +92,11 @@ export interface ToolbarProps {
   ariaLabel?: string;
   /** Classe CSS adicional */
   className?: string;
-  /** Callback para focar o grid ao pressionar Enter no campo de busca */
-  onFocusGrid?: (() => void) | null;
+  /**
+   * Callback para focar a área de conteúdo ao pressionar Enter no campo de busca.
+   * Se omitido, usa restoreDefaultFocus() automaticamente.
+   */
+  onFocusContent?: (() => void) | null;
   /** Indica se a toolbar está em estado de carregamento/processamento */
   isLoading?: boolean;
 }
@@ -108,10 +111,10 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
   actions = [],
   ariaLabel = 'Barra de ferramentas. Use setas para navegar entre os botões',
   className = '',
-  onFocusGrid,
+  onFocusContent,
   isLoading = false,
 }, ref) => {
-  const toolbarRef = useToolbarKeyboardNav(onFocusGrid);
+  const toolbarRef = useToolbarKeyboardNav(onFocusContent);
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   const combinedRef: React.RefCallback<HTMLDivElement> = (node) => {

@@ -363,17 +363,31 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       return;
     }
     
-    // ArrowLeft/Escape: colapsa ou volta para o pai
-    if (key === 'ArrowLeft' || key === 'Escape') {
+    // ArrowLeft: colapsa thread ou volta para o pai
+    if (key === 'ArrowLeft') {
       e.preventDefault();
       e.stopPropagation();
       if (isExpanded && hasChildren) {
-        // Colapsa se estiver expandido
         toggleThreadExpanded(node.message.id);
       } else if (level > 0) {
-        // Volta para o pai se estiver em um nível interno
         focusParent();
       }
+      return;
+    }
+
+    // Escape: colapsa thread, volta ao pai, ou deixa borbulhar para ir à área padrão
+    if (key === 'Escape') {
+      if (isExpanded && hasChildren) {
+        e.preventDefault();
+        e.stopPropagation();
+        toggleThreadExpanded(node.message.id);
+      } else if (level > 0) {
+        e.preventDefault();
+        e.stopPropagation();
+        focusParent();
+      }
+      // Level 0 + não expandido: não intercepta, deixa borbulhar
+      // para o sistema de landmarks redirecionar à área padrão
       return;
     }
     

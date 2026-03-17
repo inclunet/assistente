@@ -60,5 +60,5 @@ export function useGridPageLandmarks({ pageClass, extraLandmarks }: UseGridPageL
     return base;
   }, [pageClass, extraLandmarks, t]);
 
-  useLandmarkNavigation({ landmarks });
+  useLandmarkNavigation({ landmarks, defaultLandmarkId: 'grid' });
 }

@@ -382,14 +382,7 @@ describe("ProviderForm - Salvar", () => {
       />
     );
 
-    // Clicar em "Alterar Chave" para expôr o campo (em edição, campo começa oculto)
-    const changeKeyButton = screen.getByText(/🔓 Alterar Chave/i);
-    await user.click(changeKeyButton);
-
-    // Agora campo está visível, podemos testar
-    const testButton = screen.getByRole("button", { name: /testar/i });
-    await user.click(testButton);
-
+    // Auto-teste roda automaticamente ao abrir edição; esperar conclusão
     await waitFor(() => {
       expect(screen.getByText(/conectado/i)).toBeInTheDocument();
     });

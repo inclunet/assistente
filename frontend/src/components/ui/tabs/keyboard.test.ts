@@ -76,4 +76,13 @@ describe('getTabsNavResult', () => {
       action: 'close',
     });
   });
+
+  it('Enter retorna action activate', () => {
+    expect(getTabsNavResult({ key: 'Enter', currentIndex: 1, count: 3 })).toEqual({
+      handled: true,
+      nextIndex: 1,
+      bump: false,
+      action: 'activate',
+    });
+  });
 });

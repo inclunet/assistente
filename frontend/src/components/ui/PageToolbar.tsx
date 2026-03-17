@@ -9,7 +9,7 @@ export interface PageToolbarProps {
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
   children?: ReactNode;
-  onFocusGrid?: (() => void) | null;
+  onFocusContent?: (() => void) | null;
 }
 
 export function PageToolbar({
@@ -19,7 +19,7 @@ export function PageToolbar({
   onSearchChange,
   searchPlaceholder = 'Buscar...',
   children,
-  onFocusGrid,
+  onFocusContent,
 }: PageToolbarProps) {
   return (
     <Toolbar
@@ -29,7 +29,7 @@ export function PageToolbar({
       onSearchChange={onSearchChange}
       searchPlaceholder={searchPlaceholder}
       actions={actions}
-      onFocusGrid={onFocusGrid}
+      onFocusContent={onFocusContent}
     />
   );
 }

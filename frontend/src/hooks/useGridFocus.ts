@@ -1,27 +1,29 @@
-import { useState, useCallback } from 'react';
+import { useCallback, useRef } from 'react';
 
 /**
- * Hook para conectar Toolbar e DataGrid, permitindo que Enter no campo de busca
- * foque a primeira célula do grid.
- * 
+ * Hook para conectar o DataGrid ao ciclo de vida da página.
+ *
+ * O DataGrid chama onGridReady com sua função interna de foco; este hook
+ * apenas armazena a referência. A restauração de foco é gerenciada pelo
+ * sistema de landmarks (useGridPageLandmarks + restoreDefaultFocus).
+ *
  * Uso:
  * ```tsx
- * const { focusFirstCell, handleGridReady } = useGridFocus();
- * 
- * <Toolbar onFocusGrid={focusFirstCell} ... />
+ * const { handleGridReady } = useGridFocus();
+ * useGridPageLandmarks({ pageClass: 'minha-page' });
+ *
+ * <Toolbar left={<h1>...</h1>} actions={[...]} />
  * <DataGrid onGridReady={handleGridReady} ... />
  * ```
  */
 export function useGridFocus() {
-  const [focusFirstCell, setFocusFirstCell] = useState<(() => void) | null>(null);
+  const focusFnRef = useRef<(() => void) | null>(null);
 
   const handleGridReady = useCallback((fn: () => void) => {
-    setFocusFirstCell(() => fn);
+    focusFnRef.current = fn;
   }, []);
 
   return {
-    /** Função para focar a primeira célula do grid (passar para Toolbar.onFocusGrid) */
-    focusFirstCell,
     /** Callback para receber a função de foco do DataGrid (passar para DataGrid.onGridReady) */
     handleGridReady,
   };

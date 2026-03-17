@@ -1,5 +1,6 @@
 import type { NavigateFunction } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
+import { useNavigationStore, type EditableResource } from '../store/navigationStore';
 import { announce } from '../hooks/useAnnouncer';
 import i18n from './i18n';
 
@@ -12,13 +13,20 @@ export type DeepLinkAction =
   | { type: 'conversation:open'; conversationId: number }
   | { type: 'conversation:new'; message?: string; title?: string }
   | { type: 'conversation:send'; conversationId: number; message: string }
-  | { type: 'navigate'; route: string };
+  | { type: 'navigate'; route: string }
+  | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
+  | { type: 'resource:new'; resource: EditableResource };
 
 // Routes the app actually supports (validated in navigate action)
 const VALID_ROUTES = new Set([
   '', 'terminal', 'editor', 'allowlists', 'skills', 'mcp',
   'channels', 'credentials', 'providers', 'settings', 'profiles',
   'history', 'help', 'about', 'update',
+]);
+
+const EDITABLE_RESOURCES = new Set<EditableResource>([
+  'profiles', 'providers', 'credentials', 'allowlists',
+  'skills', 'mcp', 'channels',
 ]);
 
 // Human-readable labels per route (keys into i18n menu namespace)
@@ -92,6 +100,18 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
       return { type: 'navigate', route };
     }
 
+    // assistente://{resource}/edit/{id} or assistente://{resource}/new
+    if (EDITABLE_RESOURCES.has(resource as EditableResource)) {
+      const action = segments[1];
+      if (action === 'new') {
+        return { type: 'resource:new', resource: resource as EditableResource };
+      }
+      if (action === 'edit' && segments[2]) {
+        const resourceId = decodeURIComponent(segments.slice(2).join('/'));
+        return { type: 'resource:edit', resource: resource as EditableResource, resourceId };
+      }
+    }
+
     return null;
   } catch {
     return null;
@@ -121,6 +141,12 @@ export function buildDeepLink(action: DeepLinkAction): string {
 
     case 'navigate':
       return `${DEEP_LINK_PREFIX}navigate/${action.route}`;
+
+    case 'resource:edit':
+      return `${DEEP_LINK_PREFIX}${action.resource}/edit/${encodeURIComponent(action.resourceId)}`;
+
+    case 'resource:new':
+      return `${DEEP_LINK_PREFIX}${action.resource}/new`;
   }
 }
 
@@ -141,6 +167,16 @@ export function getDeepLinkLabel(action: DeepLinkAction): string {
       const label = key ? t(key) : action.route;
       return t('deepLink.navigateTo', { page: label });
     }
+    case 'resource:edit': {
+      const rKey = ROUTE_I18N_KEYS[action.resource];
+      const rLabel = rKey ? t(rKey) : action.resource;
+      return t('deepLink.editResource', { page: rLabel, id: action.resourceId });
+    }
+    case 'resource:new': {
+      const rKey = ROUTE_I18N_KEYS[action.resource];
+      const rLabel = rKey ? t(rKey) : action.resource;
+      return t('deepLink.newResource', { page: rLabel });
+    }
   }
 }
 
@@ -151,6 +187,8 @@ export function getDeepLinkTypeClass(action: DeepLinkAction): string {
     case 'conversation:new': return 'deep-link--new-conversation';
     case 'conversation:send': return 'deep-link--send';
     case 'navigate': return 'deep-link--navigate';
+    case 'resource:edit': return 'deep-link--resource-edit';
+    case 'resource:new': return 'deep-link--resource-new';
   }
 }
 
@@ -218,6 +256,22 @@ export async function executeDeepLink(
       const key = ROUTE_I18N_KEYS[action.route];
       const label = key ? t(key) : action.route;
       announce(t('deepLink.announcedNavigate', { page: label }));
+      break;
+    }
+
+    case 'resource:edit': {
+      const navStore = useNavigationStore.getState();
+      navStore.requestResourceEdit(action.resource, action.resourceId, 'edit');
+      deps.navigate(`/${action.resource}`);
+      announce(t('deepLink.announcedEditResource', { id: action.resourceId }));
+      break;
+    }
+
+    case 'resource:new': {
+      const navStore = useNavigationStore.getState();
+      navStore.requestResourceEdit(action.resource, '', 'new');
+      deps.navigate(`/${action.resource}`);
+      announce(t('deepLink.announcedNewResource'));
       break;
     }
   }

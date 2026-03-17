@@ -1,4 +1,4 @@
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { ProviderForm } from "./ProviderForm";
@@ -57,9 +57,7 @@ describe("ProviderForm - Edição de API Key", () => {
       />
     );
 
-    // Deve mostrar botão de alterar, sem mostrar campo de input
     expect(screen.getByText(/🔓 Alterar Chave/i)).toBeInTheDocument();
-    // O label "API Key" ainda existe, mas o input não está visível
     const apiKeyButtons = screen.getAllByRole("button").filter(btn => btn.textContent?.includes("Alterar"));
     expect(apiKeyButtons.length).toBeGreaterThan(0);
   });
@@ -80,6 +78,35 @@ describe("ProviderForm - Edição de API Key", () => {
     );
 
     expect(screen.getByText(/🔑 Chave configurada no gerenciador de credenciais/i)).toBeInTheDocument();
+  });
+
+  it("deve auto-testar conexão ao abrir modo edição com provider_id", async () => {
+    render(
+      <ProviderForm
+        provider={{
+          id: "openai-123",
+          name: "OpenAI Prod",
+          type: "openai",
+          base_url: "https://api.openai.com/v1",
+          api_key: "",
+        }}
+        onCancel={() => {}}
+        onSave={() => {}}
+      />
+    );
+
+    await waitFor(() => {
+      expect(App.TestLLMProvider).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider_id: "openai-123",
+          base_url: "https://api.openai.com/v1",
+        })
+      );
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/conectado/i)).toBeInTheDocument();
+    });
   });
 
   it("deve exibir campo de API Key ao clicar em 'Alterar Chave'", async () => {

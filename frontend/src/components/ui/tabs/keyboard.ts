@@ -7,7 +7,8 @@ export type TabsNavKey =
   | 'End'
   | 'PageUp'
   | 'PageDown'
-  | 'Delete';
+  | 'Delete'
+  | 'Enter';
 
 export interface TabsNavInput {
   key: string;
@@ -20,7 +21,7 @@ export interface TabsNavResult {
   handled: boolean;
   nextIndex: number;
   bump: boolean;
-  action?: 'close';
+  action?: 'close' | 'activate';
 }
 
 export function getTabsNavResult({
@@ -87,6 +88,10 @@ export function getTabsNavResult({
       return { handled: true, nextIndex: safeCurrent, bump: false, action: 'close' };
     }
 
+    case 'Enter': {
+      return { handled: true, nextIndex: safeCurrent, bump: false, action: 'activate' };
+    }
+
     default:
       return { handled: false, nextIndex: safeCurrent, bump: false };
   }
@@ -102,6 +107,7 @@ export function isTabsNavKey(key: string): key is TabsNavKey {
     key === 'End' ||
     key === 'PageUp' ||
     key === 'PageDown' ||
-    key === 'Delete'
+    key === 'Delete' ||
+    key === 'Enter'
   );
 }

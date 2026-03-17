@@ -80,4 +80,26 @@ describe('Topbar', () => {
     fireEvent.keyDown(window, { key: 'm', altKey: true });
     expect(toggleMenuSpy).toHaveBeenCalled();
   });
+
+  it.each([
+    ['c', '/'],
+    ['e', '/editor'],
+    ['t', '/terminal'],
+    ['h', '/history'],
+    ['p', '/profiles'],
+  ])('navega com Alt+%s para %s', (key, route) => {
+    render(<Topbar />);
+    navigateSpy.mockClear();
+
+    fireEvent.keyDown(window, { key, altKey: true });
+    expect(navigateSpy).toHaveBeenCalledWith(route);
+  });
+
+  it('não navega se Ctrl também está pressionado', () => {
+    render(<Topbar />);
+    navigateSpy.mockClear();
+
+    fireEvent.keyDown(window, { key: 'c', altKey: true, ctrlKey: true });
+    expect(navigateSpy).not.toHaveBeenCalled();
+  });
 });

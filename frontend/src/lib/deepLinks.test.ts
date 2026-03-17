@@ -30,6 +30,16 @@ vi.mock('../store/chatStore', () => ({
   },
 }));
 
+const mockRequestResourceEdit = vi.fn();
+
+vi.mock('../store/navigationStore', () => ({
+  useNavigationStore: {
+    getState: () => ({
+      requestResourceEdit: mockRequestResourceEdit,
+    }),
+  },
+}));
+
 const mockAnnounce = vi.fn();
 vi.mock('../hooks/useAnnouncer', () => ({
   announce: (...args: unknown[]) => mockAnnounce(...args),
@@ -174,6 +184,51 @@ describe('parseDeepLink', () => {
     });
   });
 
+  describe('resource:edit', () => {
+    it('faz parse de assistente://{resource}/edit/{id}', () => {
+      expect(parseDeepLink('assistente://profiles/edit/programacao')).toEqual({
+        type: 'resource:edit', resource: 'profiles', resourceId: 'programacao',
+      });
+      expect(parseDeepLink('assistente://providers/edit/openai-1')).toEqual({
+        type: 'resource:edit', resource: 'providers', resourceId: 'openai-1',
+      });
+      expect(parseDeepLink('assistente://credentials/edit/llm%3A%2F%2F*')).toEqual({
+        type: 'resource:edit', resource: 'credentials', resourceId: 'llm://*',
+      });
+      expect(parseDeepLink('assistente://mcp/edit/my-server')).toEqual({
+        type: 'resource:edit', resource: 'mcp', resourceId: 'my-server',
+      });
+    });
+
+    it('rejeita recurso não editável', () => {
+      expect(parseDeepLink('assistente://history/edit/1')).toBeNull();
+      expect(parseDeepLink('assistente://settings/edit/1')).toBeNull();
+    });
+
+    it('rejeita edit sem ID', () => {
+      expect(parseDeepLink('assistente://profiles/edit')).toBeNull();
+      expect(parseDeepLink('assistente://profiles/edit/')).toBeNull();
+    });
+  });
+
+  describe('resource:new', () => {
+    it('faz parse de assistente://{resource}/new', () => {
+      expect(parseDeepLink('assistente://profiles/new')).toEqual({
+        type: 'resource:new', resource: 'profiles',
+      });
+      expect(parseDeepLink('assistente://skills/new')).toEqual({
+        type: 'resource:new', resource: 'skills',
+      });
+      expect(parseDeepLink('assistente://allowlists/new')).toEqual({
+        type: 'resource:new', resource: 'allowlists',
+      });
+    });
+
+    it('rejeita new para recurso não editável', () => {
+      expect(parseDeepLink('assistente://help/new')).toBeNull();
+    });
+  });
+
   describe('rejeição de URIs inválidos', () => {
     it('retorna null para URI vazio', () => {
       expect(parseDeepLink('')).toBeNull();
@@ -241,6 +296,21 @@ describe('buildDeepLink', () => {
     const uri = buildDeepLink({ type: 'navigate', route: '' });
     expect(uri).toBe('assistente://navigate/');
   });
+
+  it('constrói resource:edit', () => {
+    const uri = buildDeepLink({ type: 'resource:edit', resource: 'profiles', resourceId: 'programacao' });
+    expect(uri).toBe('assistente://profiles/edit/programacao');
+  });
+
+  it('constrói resource:edit com caracteres especiais no ID', () => {
+    const uri = buildDeepLink({ type: 'resource:edit', resource: 'credentials', resourceId: 'llm://*' });
+    expect(uri).toBe('assistente://credentials/edit/llm%3A%2F%2F*');
+  });
+
+  it('constrói resource:new', () => {
+    const uri = buildDeepLink({ type: 'resource:new', resource: 'skills' });
+    expect(uri).toBe('assistente://skills/new');
+  });
 });
 
 // ─── roundtrip: build → parse ────────────────────────────────────────
@@ -253,6 +323,10 @@ describe('roundtrip build → parse', () => {
     { type: 'conversation:send', conversationId: 3, message: 'continue' },
     { type: 'navigate', route: 'history' },
     { type: 'navigate', route: '' },
+    { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao' },
+    { type: 'resource:edit', resource: 'credentials', resourceId: 'llm://*' },
+    { type: 'resource:new', resource: 'skills' },
+    { type: 'resource:new', resource: 'providers' },
   ];
 
   for (const action of actions) {
@@ -276,6 +350,10 @@ describe('getDeepLinkTypeClass', () => {
       .toBe('deep-link--send');
     expect(getDeepLinkTypeClass({ type: 'navigate', route: 'help' }))
       .toBe('deep-link--navigate');
+    expect(getDeepLinkTypeClass({ type: 'resource:edit', resource: 'profiles', resourceId: 'x' }))
+      .toBe('deep-link--resource-edit');
+    expect(getDeepLinkTypeClass({ type: 'resource:new', resource: 'skills' }))
+      .toBe('deep-link--resource-new');
   });
 });
 
@@ -413,6 +491,32 @@ describe('executeDeepLink', () => {
     it('navega para raiz quando rota é vazia', async () => {
       await executeDeepLink({ type: 'navigate', route: '' }, deps);
       expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+  });
+
+  describe('resource:edit', () => {
+    it('navega para a página e solicita edição no store', async () => {
+      await executeDeepLink(
+        { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao' },
+        deps,
+      );
+
+      expect(mockRequestResourceEdit).toHaveBeenCalledWith('profiles', 'programacao', 'edit');
+      expect(mockNavigate).toHaveBeenCalledWith('/profiles');
+      expect(mockAnnounce).toHaveBeenCalled();
+    });
+  });
+
+  describe('resource:new', () => {
+    it('navega para a página e solicita criação no store', async () => {
+      await executeDeepLink(
+        { type: 'resource:new', resource: 'skills' },
+        deps,
+      );
+
+      expect(mockRequestResourceEdit).toHaveBeenCalledWith('skills', '', 'new');
+      expect(mockNavigate).toHaveBeenCalledWith('/skills');
+      expect(mockAnnounce).toHaveBeenCalled();
     });
   });
 

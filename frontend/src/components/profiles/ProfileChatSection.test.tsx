@@ -39,6 +39,17 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+vi.mock('../pickers/LLMProviderPicker', () => ({
+  LLMProviderPicker: ({ value, onChange, label, disabled }: { value: string; onChange: (value: string) => void; label?: string; disabled?: boolean }) => (
+    <div data-testid="llm-provider-picker-mock">
+      <label>{label}</label>
+      <button disabled={disabled} onClick={() => onChange('test-provider')}>
+        {value || 'Selecionar provedor'}
+      </button>
+    </div>
+  ),
+}));
+
 vi.mock('../pickers/ModelPicker', () => ({
   ModelPicker: ({ value, onChange, label, disabled }: { value: string; onChange: (value: string) => void; label?: string; disabled?: boolean }) => (
     <div data-testid="model-picker-mock">

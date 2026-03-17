@@ -1,6 +1,7 @@
-import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, act } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
+import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
 import { useLandmarkNavigation, type Landmark } from './useLandmarkNavigation';
+import { restoreDefaultFocus } from './useDefaultFocus';
 
 vi.mock('../components/ui/Modal', () => ({
   isModalOpen: vi.fn(() => false),
@@ -28,8 +29,12 @@ function createLandmark(id: string, label: string, overrides?: Partial<Landmark>
   };
 }
 
-function Fixture({ landmarks, enabled }: { landmarks: Landmark[]; enabled?: boolean }) {
-  useLandmarkNavigation({ landmarks, enabled });
+function Fixture({ landmarks, enabled, defaultLandmarkId }: {
+  landmarks: Landmark[];
+  enabled?: boolean;
+  defaultLandmarkId?: string;
+}) {
+  useLandmarkNavigation({ landmarks, enabled, defaultLandmarkId });
   return (
     <div>
       <button data-testid="tabs">Guias</button>
@@ -218,5 +223,102 @@ describe('useLandmarkNavigation', () => {
 
     pressF6();
     expect(toolbar.focusFn).toHaveBeenCalled();
+  });
+
+  // --- Escape + defaultLandmarkId ---
+
+  it('Escape foca o landmark default quando foco está em outro landmark', () => {
+    const toolbar = createLandmark('toolbar', 'Barra de ferramentas', { contains: () => true });
+    const content = createLandmark('content', 'Conteúdo');
+
+    render(<Fixture landmarks={[toolbar, content]} defaultLandmarkId="content" />);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(content.focusFn).toHaveBeenCalled();
+    expect(mockedAnnounce).toHaveBeenCalledWith('Conteúdo');
+  });
+
+  it('Escape NÃO faz nada quando foco já está no landmark default', () => {
+    const toolbar = createLandmark('toolbar', 'Barra de ferramentas');
+    const content = createLandmark('content', 'Conteúdo', { contains: () => true });
+
+    render(<Fixture landmarks={[toolbar, content]} defaultLandmarkId="content" />);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(content.focusFn).not.toHaveBeenCalled();
+    expect(toolbar.focusFn).not.toHaveBeenCalled();
+  });
+
+  it('Escape NÃO faz nada quando modal está aberto', () => {
+    mockedIsModalOpen.mockReturnValue(true);
+    const toolbar = createLandmark('toolbar', 'Barra de ferramentas', { contains: () => true });
+    const content = createLandmark('content', 'Conteúdo');
+
+    render(<Fixture landmarks={[toolbar, content]} defaultLandmarkId="content" />);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(content.focusFn).not.toHaveBeenCalled();
+  });
+
+  it('Escape NÃO faz nada quando foco não está em nenhum landmark', () => {
+    const toolbar = createLandmark('toolbar', 'Barra de ferramentas');
+    const content = createLandmark('content', 'Conteúdo');
+
+    render(<Fixture landmarks={[toolbar, content]} defaultLandmarkId="content" />);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(content.focusFn).not.toHaveBeenCalled();
+  });
+
+  it('Escape NÃO faz nada sem defaultLandmarkId', () => {
+    const toolbar = createLandmark('toolbar', 'Barra de ferramentas', { contains: () => true });
+    const content = createLandmark('content', 'Conteúdo');
+
+    render(<Fixture landmarks={[toolbar, content]} />);
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+
+    expect(content.focusFn).not.toHaveBeenCalled();
+    expect(toolbar.focusFn).not.toHaveBeenCalled();
+  });
+
+  // --- restoreDefaultFocus (global) ---
+
+  it('restoreDefaultFocus() foca o landmark default registrado', () => {
+    const toolbar = createLandmark('toolbar', 'Barra de ferramentas');
+    const content = createLandmark('content', 'Conteúdo');
+
+    render(<Fixture landmarks={[toolbar, content]} defaultLandmarkId="content" />);
+
+    const result = restoreDefaultFocus();
+
+    expect(result).toBe(true);
+    expect(content.focusFn).toHaveBeenCalled();
+  });
+
+  it('restoreDefaultFocus() retorna false quando não há default registrado', () => {
+    const toolbar = createLandmark('toolbar', 'Barra de ferramentas');
+
+    render(<Fixture landmarks={[toolbar]} />);
+
+    const result = restoreDefaultFocus();
+
+    expect(result).toBe(false);
+  });
+
+  it('restoreDefaultFocus() desregistra ao desmontar', () => {
+    const content = createLandmark('content', 'Conteúdo');
+
+    const { unmount } = render(<Fixture landmarks={[content]} defaultLandmarkId="content" />);
+
+    expect(restoreDefaultFocus()).toBe(true);
+
+    unmount();
+
+    expect(restoreDefaultFocus()).toBe(false);
   });
 });

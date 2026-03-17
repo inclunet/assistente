@@ -22,6 +22,7 @@ import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import './AllowlistPage.css';
 
 type AllowlistInfo = allowlist.AllowlistInfo;
@@ -35,7 +36,7 @@ interface AllowlistRow extends allowlist.Allowlist {
 
 export default function AllowlistPage() {
   const { t } = useTranslation();
-  const { focusFirstCell, handleGridReady } = useGridFocus();
+  const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'allowlist-page' });
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
@@ -129,6 +130,12 @@ export default function AllowlistPage() {
   useEffect(() => {
     crud.loadItems();
   }, []);
+
+  useResourceEditRequest('allowlists', {
+    onEdit: (slug) => crud.openEdit({ id: slug, slug } as AllowlistRow),
+    onNew: () => crud.openNew(),
+    ready: !crud.loading && crud.items.length > 0,
+  });
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -260,7 +267,6 @@ export default function AllowlistPage() {
       <Toolbar
         left={<h1 className="page-toolbar__title">{t('allowlist.pageTitle')}</h1>}
         ariaLabel={t('allowlist.aria.toolbar')}
-        onFocusGrid={focusFirstCell}
         actions={[
           {
             key: 'new',

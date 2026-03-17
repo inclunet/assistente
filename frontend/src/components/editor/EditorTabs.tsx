@@ -213,12 +213,17 @@ export function EditorTabs() {
     [requestClose]
   );
 
+  const handleActivate = useCallback(() => {
+    return !!editingTabId;
+  }, [editingTabId]);
+
   return (
     <Tabs
       value={activeTabId ?? ''}
       onValueChange={handleSelect}
       idBase="editor"
       onDelete={handleDelete}
+      onActivate={handleActivate}
       pageJump={10}
       activationMode="auto"
     >

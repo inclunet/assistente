@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"assistente/internal/credentials"
@@ -43,24 +44,31 @@ func TestTestLLMProviderValidatesEmptyUrl(t *testing.T) {
 func TestTestLLMProviderValidatesInvalidUrl(t *testing.T) {
 	app := setupTestApp()
 
-	req := TestLLMProviderRequest{
-		Type:    "openai",
-		BaseURL: "not a valid url",
-		APIKey:  "sk-test",
+	tests := []struct {
+		name    string
+		baseURL string
+	}{
+		{"no scheme", "not a valid url"},
+		{"ftp scheme", "ftp://example.com"},
+		{"empty host", "http://"},
 	}
 
-	_, err := app.TestLLMProvider(req)
-	if err == nil {
-		t.Error("Expected error for invalid URL, got nil")
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			req := TestLLMProviderRequest{Type: "openai", BaseURL: tt.baseURL, APIKey: "sk-test"}
+			_, err := app.TestLLMProvider(req)
+			if err == nil {
+				t.Errorf("Expected error for %q, got nil", tt.baseURL)
+			}
+		})
 	}
 }
 
 // TestTestLLMProviderSuccessfulConnection testa conexão bem-sucedida (HTTP 200)
 func TestTestLLMProviderSuccessfulConnection(t *testing.T) {
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
@@ -81,9 +89,26 @@ func TestTestLLMProviderSuccessfulConnection(t *testing.T) {
 	}
 }
 
+// TestTestLLMProviderHitsModelsEndpoint verifica que o teste usa /models
+func TestTestLLMProviderHitsModelsEndpoint(t *testing.T) {
+	var requestedPath string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestedPath = r.URL.Path
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+
+	app := setupTestApp()
+	app.TestLLMProvider(TestLLMProviderRequest{Type: "openai", BaseURL: server.URL, APIKey: "sk-test"})
+
+	if requestedPath != "/models" {
+		t.Errorf("expected request to /models, got %s", requestedPath)
+	}
+}
+
 // TestTestLLMProviderWithBearerToken testa autenticação com Bearer Token
 func TestTestLLMProviderWithBearerToken(t *testing.T) {
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		if auth != "Bearer sk-test123" {
@@ -91,7 +116,7 @@ func TestTestLLMProviderWithBearerToken(t *testing.T) {
 			return
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
@@ -114,14 +139,13 @@ func TestTestLLMProviderWithBearerToken(t *testing.T) {
 
 // TestTestLLMProviderWithoutApiKey testa conexão sem API Key (provedor local)
 func TestTestLLMProviderWithoutApiKey(t *testing.T) {
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		auth := r.Header.Get("Authorization")
 		if auth != "" {
 			t.Errorf("Expected no Authorization header, got: %s", auth)
 		}
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
@@ -144,7 +168,6 @@ func TestTestLLMProviderWithoutApiKey(t *testing.T) {
 
 // TestTestLLMProviderUnauthorized testa erro 401 (API Key inválida)
 func TestTestLLMProviderUnauthorized(t *testing.T) {
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusUnauthorized)
 		w.Write([]byte("Unauthorized"))
@@ -168,9 +191,25 @@ func TestTestLLMProviderUnauthorized(t *testing.T) {
 	}
 }
 
+// TestTestLLMProviderForbidden testa erro 403
+func TestTestLLMProviderForbidden(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	defer server.Close()
+
+	app := setupTestApp()
+	_, err := app.TestLLMProvider(TestLLMProviderRequest{Type: "openai", BaseURL: server.URL, APIKey: "key"})
+	if err == nil {
+		t.Error("Expected error for 403, got nil")
+	}
+	if !strings.Contains(err.Error(), "403") {
+		t.Errorf("Expected error mentioning 403, got: %v", err)
+	}
+}
+
 // TestTestLLMProviderServerError testa erro 500 do servidor
 func TestTestLLMProviderServerError(t *testing.T) {
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		w.Write([]byte("Internal Server Error"))
@@ -196,7 +235,6 @@ func TestTestLLMProviderServerError(t *testing.T) {
 
 // TestTestLLMProviderNotFound testa resposta 404 (ainda considera sucesso)
 func TestTestLLMProviderNotFound(t *testing.T) {
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 		w.Write([]byte("Not Found"))
@@ -222,10 +260,8 @@ func TestTestLLMProviderNotFound(t *testing.T) {
 
 // TestTestLLMProviderConnectionRefused testa erro de conexão recusada
 func TestTestLLMProviderConnectionRefused(t *testing.T) {
-
 	app := setupTestApp()
 
-	// URL inválida que vai dar erro de conexão
 	req := TestLLMProviderRequest{
 		Type:    "ollama",
 		BaseURL: "http://localhost:99999",
@@ -240,16 +276,14 @@ func TestTestLLMProviderConnectionRefused(t *testing.T) {
 
 // TestTestLLMProviderURLTrailingSlash testa normalização de URL
 func TestTestLLMProviderURLTrailingSlash(t *testing.T) {
-
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("OK"))
+		w.Write([]byte(`{"data":[]}`))
 	}))
 	defer server.Close()
 
 	app := setupTestApp()
 
-	// Testar com e sem trailing slash
 	req := TestLLMProviderRequest{
 		Type:    "ollama",
 		BaseURL: server.URL + "/",
@@ -262,5 +296,79 @@ func TestTestLLMProviderURLTrailingSlash(t *testing.T) {
 	}
 	if !result {
 		t.Error("Expected true, got false")
+	}
+}
+
+// TestTestLLMProviderUsesExistingCredential verifica que provider_id faz lookup da credencial
+func TestTestLLMProviderUsesExistingCredential(t *testing.T) {
+	var receivedAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		if receivedAuth != "Bearer sk-existing-secret" {
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[{"id":"gpt-4o"}]}`))
+	}))
+	defer server.Close()
+
+	app := setupTestApp()
+
+	// Registrar provider e credencial no registry/credMgr
+	hostname := strings.TrimPrefix(server.URL, "http://")
+	provider := &llm.ProviderConfig{
+		ID:                "test-provider",
+		Name:              "Test",
+		Type:              llm.ProviderOpenAI,
+		BaseURL:           server.URL,
+		CredentialPattern: hostname,
+	}
+	_ = app.llmRegistry.Register(provider)
+	_ = app.credMgr.RegisterPatternWithContext(context.Background(), hostname, &credentials.AuthConfig{
+		Type:  "bearer",
+		Token: "sk-existing-secret",
+	})
+
+	// Testar SEM api_key mas COM provider_id — deve usar a credencial existente
+	result, err := app.TestLLMProvider(TestLLMProviderRequest{
+		Type:       "openai",
+		BaseURL:    server.URL,
+		APIKey:     "",
+		ProviderID: "test-provider",
+	})
+
+	if err != nil {
+		t.Fatalf("Expected success with existing credential, got: %v", err)
+	}
+	if !result {
+		t.Error("Expected true")
+	}
+	if receivedAuth != "Bearer sk-existing-secret" {
+		t.Errorf("Expected Bearer header from existing credential, got %q", receivedAuth)
+	}
+}
+
+// TestTestLLMProviderWithoutProviderID_NoAuth verifica que sem provider_id não busca credencial
+func TestTestLLMProviderWithoutProviderID_NoAuth(t *testing.T) {
+	var receivedAuth string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte(`{"data":[]}`))
+	}))
+	defer server.Close()
+
+	app := setupTestApp()
+
+	// Sem provider_id e sem api_key → não deve enviar auth
+	app.TestLLMProvider(TestLLMProviderRequest{
+		Type:    "ollama",
+		BaseURL: server.URL,
+		APIKey:  "",
+	})
+
+	if receivedAuth != "" {
+		t.Errorf("Expected no auth header, got %q", receivedAuth)
 	}
 }

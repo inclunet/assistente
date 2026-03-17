@@ -133,6 +133,39 @@ func CreateConversation(title, model string) (*Conversation, error) {
 	return conv, nil
 }
 
+// RecycleOrCreateConversation busca uma conversa vazia (0 mensagens, sem canal,
+// não vinculada a nenhuma tab aberta) e a recicla, resetando título e timestamps.
+// Se não encontrar candidata, cria uma nova. Evita acumular registros orfãos no banco.
+func RecycleOrCreateConversation(title string) (*Conversation, error) {
+	var candidate Conversation
+	err := db.
+		Where("channel = '' AND contact_id = ''").
+		Where("id NOT IN (?)",
+			db.Model(&ChatTab{}).Select("conversation_id").Where("conversation_id IS NOT NULL"),
+		).
+		Where("id NOT IN (?)",
+			db.Model(&ChatMessage{}).Select("DISTINCT conversation_id"),
+		).
+		Order("created_at ASC").
+		First(&candidate).Error
+
+	if err == nil {
+		now := time.Now()
+		candidate.Title = title
+		candidate.Summary = ""
+		candidate.SummaryUpToMessageID = 0
+		candidate.SummarizingInProgress = false
+		candidate.CreatedAt = now
+		candidate.UpdatedAt = now
+		if err := db.Save(&candidate).Error; err != nil {
+			return nil, err
+		}
+		return &candidate, nil
+	}
+
+	return CreateConversation(title, "")
+}
+
 // FindOrCreateChannelConversation busca uma conversa existente para um canal+contato.
 // Se não existir, cria uma nova. Retorna a conversa e se foi criada (true) ou encontrada (false).
 func FindOrCreateChannelConversation(channel, contactID, contactName string) (*Conversation, bool, error) {

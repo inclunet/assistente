@@ -48,8 +48,6 @@ export function ClearMCPTest(arg1:string):Promise<void>;
 
 export function ClearMessages():Promise<void>;
 
-export function ClearTab(arg1:number):Promise<void>;
-
 export function CloseTab(arg1:number):Promise<void>;
 
 export function CloseTerminalSession(arg1:string):Promise<void>;
@@ -369,6 +367,8 @@ export function SignalUnregister(arg1:string,arg2:string,arg3:boolean,arg4:strin
 export function SignalVerify(arg1:string,arg2:string,arg3:string,arg4:string):Promise<void>;
 
 export function SpeakSAPI5(arg1:string,arg2:string):Promise<void>;
+
+export function StartNewConversationInTab(arg1:number):Promise<database.ChatTab>;
 
 export function StartUpdate():Promise<void>;
 

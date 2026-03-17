@@ -21,14 +21,29 @@ export function Topbar() {
     updateConfig({ language: id });
   };
 
-  // Atalho Alt+M para abrir/fechar o menu e F1 para ajuda
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.altKey && event.key.toLowerCase() === 'm') {
-        event.preventDefault();
-        menuButtonRef.current?.toggleMenu();
+      if (event.altKey && !event.ctrlKey && !event.shiftKey && !event.metaKey) {
+        const key = event.key.toLowerCase();
+        const altRoutes: Record<string, string> = {
+          m: '__menu__',
+          c: '/',
+          e: '/editor',
+          t: '/terminal',
+          h: '/history',
+          p: '/profiles',
+        };
+        const target = altRoutes[key];
+        if (target) {
+          event.preventDefault();
+          if (target === '__menu__') {
+            menuButtonRef.current?.toggleMenu();
+          } else {
+            navigate(target);
+          }
+          return;
+        }
       }
-      // F1 abre a página de ajuda
       if (event.key === 'F1') {
         event.preventDefault();
         navigate('/help');
@@ -63,30 +78,35 @@ export function Topbar() {
       id: 'chat',
       label: t('menu.chat'),
       icon: '💬',
+      shortcut: 'Alt+C',
       onClick: () => navigate('/'),
     },
     {
       id: 'terminal',
       label: t('menu.terminal'),
       icon: '>_',
+      shortcut: 'Alt+T',
       onClick: () => navigate('/terminal'),
     },
     {
       id: 'editor',
       label: t('menu.editor'),
       icon: '📝',
+      shortcut: 'Alt+E',
       onClick: () => navigate('/editor'),
     },
     {
       id: 'history',
       label: t('menu.history'),
       icon: '📜',
+      shortcut: 'Alt+H',
       onClick: () => navigate('/history'),
     },
     {
       id: 'profiles',
       label: t('menu.profiles'),
       icon: '🎭',
+      shortcut: 'Alt+P',
       onClick: () => navigate('/profiles'),
     },
     {

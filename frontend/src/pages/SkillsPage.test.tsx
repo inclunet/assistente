@@ -35,7 +35,6 @@ vi.mock('@wailsjs/go/models', () => ({
 
 vi.mock('../hooks/useGridFocus', () => ({
   useGridFocus: () => ({
-    focusFirstCell: vi.fn(),
     handleGridReady: vi.fn(),
   }),
 }));

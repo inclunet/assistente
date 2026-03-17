@@ -24,6 +24,7 @@ import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import './SkillsPage.css';
 
 type SkillInfo = skills.SkillInfo;
@@ -53,7 +54,7 @@ interface SkillFormData {
 
 export default function SkillsPage() {
   const { t } = useTranslation();
-  const { focusFirstCell, handleGridReady } = useGridFocus();
+  const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'skills-page' });
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
@@ -160,17 +161,19 @@ export default function SkillsPage() {
         content: '',
         toolsString: '',
       }),
-      onSuccess: () => {
-        setTimeout(() => focusFirstCell?.(), 50);
-      },
     }
   );
 
-  // Carregar skills e search paths no mount
   useEffect(() => {
     crud.loadItems();
     GetSkillSearchPaths().then(paths => setSearchPaths(paths || []));
   }, []);
+
+  useResourceEditRequest('skills', {
+    onEdit: (slug) => crud.openEdit({ id: slug, slug } as SkillRow),
+    onNew: () => crud.openNew(),
+    ready: !crud.loading && crud.items.length > 0,
+  });
 
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -339,7 +342,6 @@ export default function SkillsPage() {
         searchPlaceholder={t('skills.search', 'Buscar skills...')}
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
-        onFocusGrid={focusFirstCell}
         actions={[
           {
             key: 'new-skill',

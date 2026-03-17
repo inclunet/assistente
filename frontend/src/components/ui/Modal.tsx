@@ -1,6 +1,7 @@
 import { ReactNode, useEffect, useRef, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
 import { useTranslation } from 'react-i18next';
+import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import './Modal.css';
 
 // Stack global simples para garantir que apenas o modal do topo
@@ -71,18 +72,9 @@ const FOCUSABLE_SELECTOR =
   'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), ' +
   'textarea:not([disabled]), [tabindex]:not([tabindex="-1"]), [contenteditable]';
 
-// Função helper para restaurar foco no grid (se existir na página)
-function focusGridFirstCell() {
+function restorePageFocus() {
   requestAnimationFrame(() => {
-    const grid = document.querySelector('[role="grid"]');
-    if (grid) {
-      // Procura a primeira célula focável (tabIndex=0) ou qualquer gridcell
-      const focusableCell = grid.querySelector('[role="gridcell"][tabindex="0"]') as HTMLElement 
-        || grid.querySelector('[role="gridcell"]') as HTMLElement;
-      if (focusableCell) {
-        focusableCell.focus();
-      }
-    }
+    restoreDefaultFocus();
   });
 }
 
@@ -94,8 +86,8 @@ export interface ModalProps {
   size?: 'sm' | 'md' | 'lg' | 'xl';
   className?: string;
   ariaDescribedBy?: string;
-  /** Se true, restaura foco no grid quando o modal fecha. Default: true */
-  returnFocusToGrid?: boolean;
+  /** Se true, restaura foco na área padrão da página quando o modal fecha. Default: true */
+  returnFocusOnClose?: boolean;
   /** Se false, desabilita fechamento (ESC, clique fora e botão X). Default: true */
   allowClose?: boolean;
 }
@@ -108,7 +100,7 @@ export function Modal({
   size = 'md',
   className,
   ariaDescribedBy,
-  returnFocusToGrid = true,
+  returnFocusOnClose = true,
   allowClose = true,
 }: ModalProps) {
   const { t } = useTranslation();
@@ -157,13 +149,13 @@ export function Modal({
       .filter(el => el.offsetParent !== null); // Filtra elementos visíveis
   }, []);
 
-  // Restaura foco no grid quando isOpen transita de true → false
+  // Restaura foco na área padrão quando isOpen transita de true → false
   useEffect(() => {
-    if (prevOpenRef.current && !isOpen && returnFocusToGrid) {
-      focusGridFirstCell();
+    if (prevOpenRef.current && !isOpen && returnFocusOnClose) {
+      restorePageFocus();
     }
     prevOpenRef.current = isOpen;
-  }, [isOpen, returnFocusToGrid]);
+  }, [isOpen, returnFocusOnClose]);
 
   // Auto-focus no primeiro elemento focável quando o modal abre
   useEffect(() => {

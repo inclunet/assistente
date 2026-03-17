@@ -2,8 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { useToolbarKeyboardNav } from './useToolbarKeyboardNav';
 
-function Fixture({ onFocusGrid }: { onFocusGrid?: () => void }) {
-  const ref = useToolbarKeyboardNav(onFocusGrid);
+function Fixture({ onFocusContent }: { onFocusContent?: () => void }) {
+  const ref = useToolbarKeyboardNav(onFocusContent);
   return (
     <div ref={ref}>
       <button>Primeiro</button>
@@ -25,11 +25,11 @@ describe('useToolbarKeyboardNav', () => {
     expect(second).toHaveFocus();
   });
 
-  it('chama onFocusGrid no Enter do campo de busca', () => {
-    const onFocusGrid = vi.fn();
+  it('chama onFocusContent no Enter do campo de busca', () => {
+    const onFocusContent = vi.fn();
 
     function SearchFixture() {
-      const ref = useToolbarKeyboardNav(onFocusGrid);
+      const ref = useToolbarKeyboardNav(onFocusContent);
       return (
         <div ref={ref}>
           <input className="toolbar__search" />
@@ -44,6 +44,6 @@ describe('useToolbarKeyboardNav', () => {
     input.focus();
     fireEvent.keyDown(input, { key: 'Enter' });
 
-    expect(onFocusGrid).toHaveBeenCalled();
+    expect(onFocusContent).toHaveBeenCalled();
   });
 });

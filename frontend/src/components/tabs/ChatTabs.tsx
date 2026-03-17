@@ -391,6 +391,10 @@ export function ChatTabs() {
     [requestClose]
   );
 
+  const handleActivate = useCallback(() => {
+    return !!editingTabId;
+  }, [editingTabId]);
+
   return (
     <Tabs
       value={activeTabId ?? ''}
@@ -398,6 +402,7 @@ export function ChatTabs() {
       idBase="chat"
       onBump={playBumpSound}
       onDelete={handleDelete}
+      onActivate={handleActivate}
       pageJump={10}
       activationMode="auto"
     >

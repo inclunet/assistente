@@ -222,6 +222,7 @@ export default function ChatPage() {
         contains: () => !!document.activeElement?.closest?.('.chat-input'),
       },
     ], [t]),
+    defaultLandmarkId: 'chatInput',
   });
 
   // Usa os MessageNode[] que o backend já enviou com childCount correto

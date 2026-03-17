@@ -10,6 +10,7 @@ import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import './CredentialsPage.css';
 
 interface CredentialRow {
@@ -28,7 +29,7 @@ interface CredentialRow {
 
 export default function CredentialsPage() {
   const { t } = useTranslation();
-  const { focusFirstCell, handleGridReady } = useGridFocus();
+  const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'credentials-page' });
   const [focusedRow, setFocusedRow] = useState<CredentialRow | null>(null);
 
@@ -151,6 +152,12 @@ export default function CredentialsPage() {
     crud.loadItems();
   }, []);
 
+  useResourceEditRequest('credentials', {
+    onEdit: (pattern) => crud.openEdit({ id: pattern, pattern } as CredentialRow),
+    onNew: () => crud.openNew(),
+    ready: !crud.loading && crud.items.length > 0,
+  });
+
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       if (isModalOpen()) return;
@@ -244,7 +251,6 @@ export default function CredentialsPage() {
       <Toolbar
         left={<h1 className="page-toolbar__title">{t('credentials.pageTitle')}</h1>}
         ariaLabel={t('credentials.aria.toolbar')}
-        onFocusGrid={focusFirstCell}
         actions={[
           {
             key: 'new',

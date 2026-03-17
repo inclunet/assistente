@@ -70,10 +70,6 @@ export function ClearMessages() {
   return window['go']['main']['App']['ClearMessages']();
 }
 
-export function ClearTab(arg1) {
-  return window['go']['main']['App']['ClearTab'](arg1);
-}
-
 export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
 }
@@ -712,6 +708,10 @@ export function SignalVerify(arg1, arg2, arg3, arg4) {
 
 export function SpeakSAPI5(arg1, arg2) {
   return window['go']['main']['App']['SpeakSAPI5'](arg1, arg2);
+}
+
+export function StartNewConversationInTab(arg1) {
+  return window['go']['main']['App']['StartNewConversationInTab'](arg1);
 }
 
 export function StartUpdate() {

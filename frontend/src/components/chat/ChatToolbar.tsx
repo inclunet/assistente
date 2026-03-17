@@ -2,7 +2,9 @@ import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../../store/chatStore';
-import { ClearConversation } from '@wailsjs/go/main/App';
+import { useNavigationStore } from '../../store/navigationStore';
+import { ClearConversation, GetActiveProfileSlug } from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 import { HistoryPicker, HistoryPickerRef } from '../pickers';
 import { ProfilePicker, ProfilePickerRef } from '../pickers/ProfilePicker';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
@@ -32,8 +34,16 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
 
-  // Estado do modal de tokens
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
+  const [activeProfileSlug, setActiveProfileSlug] = useState<string>('padrao');
+
+  useEffect(() => {
+    GetActiveProfileSlug().then((slug) => setActiveProfileSlug(slug || 'padrao'));
+    const unsub = EventsOn('profile:changed', (data: { slug: string }) => {
+      setActiveProfileSlug(data.slug || 'padrao');
+    });
+    return unsub;
+  }, []);
 
   const {
     menu: contextMenu,
@@ -44,6 +54,15 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
   const getProfileMenuItems = useCallback((): MenuItem[] => [
     {
+      id: 'edit-active-profile',
+      label: t('chat.editActiveProfile'),
+      icon: '✏️',
+      action: () => {
+        useNavigationStore.getState().requestResourceEdit('profiles', activeProfileSlug, 'edit');
+        navigate('/profiles');
+      },
+    },
+    {
       id: 'manage-profiles',
       label: t('chat.manageProfiles'),
       icon: '⚙️',
@@ -51,7 +70,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         navigate('/profiles');
       },
     },
-  ], [navigate, t]);
+  ], [navigate, t, activeProfileSlug]);
 
   const handleProfileContextMenu = useCallback((e: React.MouseEvent<HTMLElement>) => {
     e.preventDefault();

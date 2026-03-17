@@ -40,11 +40,12 @@ import './MinhaPage.css';
 export default function MinhaPage() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
-  const { focusFirstCell, handleGridReady } = useGridFocus();
+  const { handleGridReady } = useGridFocus();
+  useGridPageLandmarks({ pageClass: 'minha-page' });
 
   return (
     <div className="minha-page">
-      <Toolbar left={<h1>...</h1>} actions={[...]} onFocusGrid={focusFirstCell} />
+      <Toolbar left={<h1>...</h1>} actions={[...]} />
       <DataGrid items={...} columns={...} onGridReady={handleGridReady} />
     </div>
   );

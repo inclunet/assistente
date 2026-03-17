@@ -32,6 +32,15 @@ vi.mock('../../hooks/useAnchoredContextMenu', () => ({
   }),
 }));
 
+vi.mock('@wailsjs/go/main/App', () => ({
+  ClearConversation: vi.fn(),
+  GetActiveProfileSlug: vi.fn().mockResolvedValue('padrao'),
+}));
+
+vi.mock('@wailsjs/runtime/runtime', () => ({
+  EventsOn: vi.fn(() => vi.fn()),
+}));
+
 vi.mock('../pickers', () => ({
   HistoryPicker: () => <div data-testid="history-picker" />,
 }));

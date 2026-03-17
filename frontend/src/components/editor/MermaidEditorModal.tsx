@@ -125,7 +125,7 @@ export function MermaidEditorModal({
   }, [code]);
 
   return (
-    <Modal isOpen={isOpen} onClose={onCancel} title={modalTitle} size="xl" returnFocusToGrid={false}>
+    <Modal isOpen={isOpen} onClose={onCancel} title={modalTitle} size="xl" returnFocusOnClose={false}>
       <div
         className="mermaid-editor-modal"
         onKeyDown={(e) => {

@@ -34,13 +34,9 @@ export default function HistoryPage() {
   const [searching, setSearching] = useState(false);
   const searchDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
-  const { focusFirstCell, handleGridReady } = useGridFocus();
+  const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
   const openConversationInNewTab = useChatStore(state => state.openConversationInNewTab);
-
-  const handleFocusFirstCell = useCallback(() => {
-    focusFirstCell?.();
-  }, [focusFirstCell]);
 
   useEffect(() => {
     loadConversations();
@@ -235,19 +231,13 @@ export default function HistoryPage() {
         action: () => handleOpenConversation(item.id, item.title),
       },
       {
-        id: 'edit',
-        label: t('history.editConversation', 'Editar título'),
-        icon: '✏️',
-        action: () => handleFocusFirstCell(),
-      },
-      {
         id: 'delete',
         label: t('history.deleteConversation', 'Excluir conversa'),
         icon: '🗑️',
         action: () => handleDeleteConversation(item.id),
       },
     ],
-    [handleDeleteConversation, handleFocusFirstCell, handleOpenConversation, t]
+    [handleDeleteConversation, handleOpenConversation, t]
   );
 
   const getMenuButtonItems = useCallback(
@@ -365,7 +355,6 @@ export default function HistoryPage() {
         searchPlaceholder={t('history.search', 'Buscar conversas...')}
         searchValue={searchTerm}
         onSearchChange={setSearchTerm}
-        onFocusGrid={handleFocusFirstCell}
         actions={[
           {
             key: 'new-conversation',
@@ -380,13 +369,6 @@ export default function HistoryPage() {
             label: t('history.openConversation', 'Abrir conversa'),
             icon: '📂',
             onClick: () => focusedRow && handleOpenConversation(focusedRow.id, focusedRow.title),
-            disabled: !focusedRow,
-          },
-          {
-            key: 'edit-title',
-            label: t('history.editConversation', 'Editar título'),
-            icon: '✏️',
-            onClick: () => handleFocusFirstCell(),
             disabled: !focusedRow,
           },
           {

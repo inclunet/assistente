@@ -14,6 +14,7 @@ import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import './ProvidersPage.css';
 
 interface Provider {
@@ -70,6 +71,15 @@ export default function ProvidersPage() {
   useEffect(() => {
     loadProviders();
   }, []);
+
+  useResourceEditRequest('providers', {
+    onEdit: (id) => {
+      const found = providers.find((p) => p.id === id);
+      if (found) handleEditProvider(found);
+    },
+    onNew: () => handleAddProvider(),
+    ready: !loading && providers.length > 0,
+  });
 
   const getStatusText = (status: string): string => {
     switch (status) {

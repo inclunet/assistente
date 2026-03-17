@@ -1323,6 +1323,7 @@ export namespace main {
 	    type: string;
 	    base_url: string;
 	    api_key?: string;
+	    provider_id?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new TestLLMProviderRequest(source);
@@ -1333,6 +1334,7 @@ export namespace main {
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
+	        this.provider_id = source["provider_id"];
 	    }
 	}
 	export class TokenStatsResult {

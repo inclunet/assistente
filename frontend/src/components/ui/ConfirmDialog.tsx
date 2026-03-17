@@ -36,7 +36,7 @@ export function ConfirmDialog({
       size="sm"
       className={`confirm-dialog-modal confirm-dialog-modal--${variant}`}
       ariaDescribedBy={messageId}
-      returnFocusToGrid={false}
+      returnFocusOnClose={false}
     >
       <div className="confirm-dialog__body">
         <p id={messageId} className="confirm-dialog__message">
