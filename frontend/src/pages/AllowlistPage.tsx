@@ -18,6 +18,7 @@ import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { AllowlistGeneralSection } from '../components/allowlist/AllowlistGeneralSection';
 import { AllowlistRulesSection } from '../components/allowlist/AllowlistRulesSection';
 import { useGridFocus } from '../hooks/useGridFocus';
+import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
@@ -35,6 +36,7 @@ interface AllowlistRow extends allowlist.Allowlist {
 export default function AllowlistPage() {
   const { t } = useTranslation();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+  useGridPageLandmarks({ pageClass: 'allowlist-page' });
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const [focusedRow, setFocusedRow] = useState<AllowlistRow | null>(null);

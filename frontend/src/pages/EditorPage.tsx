@@ -15,6 +15,7 @@ import { useRichEditorFlushEvents } from './useRichEditorFlushEvents';
 import { EditorInlineChatModal } from '@/components/editor/EditorInlineChatModal';
 import { useEditorStore, type EditorMode, type EditorTab, type EditorInsertRequest } from '../store/editorStore';
 import { useEditorTabsKeyboardShortcuts } from '../hooks/useEditorTabsKeyboardShortcuts';
+import { useLandmarkNavigation } from '../hooks/useLandmarkNavigation';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
@@ -1115,106 +1116,62 @@ export default function EditorPage() {
     };
   }, [sessionLoaded, activeTabId]);
 
-  // F6: circular foco entre abas, toolbar principal e editor
-  useEffect(() => {
-    const focusFirstEnabledButton = (root: Element | null) => {
-      if (!root) return false;
-      const btn = root.querySelector('button:not([disabled])') as HTMLButtonElement | null;
-      if (!btn) return false;
-      btn.focus();
-      return true;
-    };
-
-    const focusTabs = () => {
-      const root = pageRootRef.current;
-      if (!root) return false;
-      const active = root.querySelector('.editor-tabs [role="tab"][aria-selected="true"]') as HTMLButtonElement | null;
-      const anyTab = root.querySelector('.editor-tabs [role="tab"]') as HTMLButtonElement | null;
-      (active || anyTab)?.focus();
-      return !!(active || anyTab);
-    };
-
-    const focusMainToolbar = () => {
-      const root = pageRootRef.current;
-      if (!root) return false;
-      const toolbar = root.querySelector('.editor-page__toolbar') as Element | null;
-      if (!toolbar) return false;
-      return focusFirstEnabledButton(toolbar);
-    };
-
-    const focusEditor = () => {
-      if (!activeTab) return false;
-
-      if (activeTab.mode === 'markdown') {
-        try {
-          const monacoEditor = editorRef.current;
-          monacoEditor?.focus?.();
+  // F6: circular foco entre abas, toolbar principal e editor (via hook genérico)
+  useLandmarkNavigation({
+    landmarks: useMemo(() => [
+      {
+        id: 'tabs',
+        label: t('landmarks.tabs'),
+        focus: () => {
+          const root = pageRootRef.current;
+          if (!root) return false;
+          const active = root.querySelector('.editor-tabs [role="tab"][aria-selected="true"]') as HTMLButtonElement | null;
+          const anyTab = root.querySelector('.editor-tabs [role="tab"]') as HTMLButtonElement | null;
+          (active || anyTab)?.focus();
+          return !!(active || anyTab);
+        },
+        contains: () => !!document.activeElement?.closest?.('.editor-tabs'),
+      },
+      {
+        id: 'toolbar',
+        label: t('landmarks.toolbar'),
+        focus: () => {
+          const root = pageRootRef.current;
+          if (!root) return false;
+          const toolbar = root.querySelector('.editor-page__toolbar') as Element | null;
+          if (!toolbar) return false;
+          const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
+          if (!btn) return false;
+          btn.focus();
           return true;
-        } catch {
+        },
+        contains: () => !!document.activeElement?.closest?.('.editor-page__toolbar'),
+      },
+      {
+        id: 'editor',
+        label: t('landmarks.editor'),
+        isAvailable: () => !!activeTab,
+        focus: () => {
+          if (!activeTab) return false;
+          if (activeTab.mode === 'markdown') {
+            try { editorRef.current?.focus?.(); return true; } catch { return false; }
+          }
+          if (activeTab.mode === 'rich') {
+            try {
+              const tiptap = richEditorRef.current;
+              tiptap?.commands?.focus?.();
+              tiptap?.view?.focus?.();
+              return true;
+            } catch { return false; }
+          }
           return false;
-        }
-      }
-
-      if (activeTab.mode === 'rich') {
-        try {
-          const tiptap = richEditorRef.current;
-          tiptap?.commands?.focus?.();
-          tiptap?.view?.focus?.();
-          return true;
-        } catch {
-          return false;
-        }
-      }
-
-      return false;
-    };
-
-    const getCurrentZone = () => {
-      const el = document.activeElement as HTMLElement | null;
-      if (!el) return 'unknown' as const;
-      if (el.closest?.('.editor-tabs')) return 'tabs' as const;
-      if (el.closest?.('.editor-page__toolbar')) return 'main' as const;
-      if (el.closest?.('.rich-text-editor__content')) return 'editor' as const;
-      if (el.closest?.('.monaco-editor')) return 'editor' as const;
-      return 'unknown' as const;
-    };
-
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'F6') return;
-      if (isModalOpen()) return;
-
-      e.preventDefault();
-      e.stopPropagation();
-
-      const zones = ['tabs', 'main', 'editor'] as const;
-      const available = zones.filter((z) => {
-        if (z === 'editor') return !!activeTab;
-        return true;
-      });
-      const current = getCurrentZone();
-      const idx = Math.max(0, available.indexOf(current as any));
-      const dir = e.shiftKey ? -1 : 1;
-      const next = available[(idx + dir + available.length) % available.length];
-
-      if (next === 'tabs') {
-        focusTabs();
-        return;
-      }
-      if (next === 'main') {
-        focusMainToolbar();
-        return;
-      }
-      if (next === 'editor') {
-        if (!focusEditor()) {
-          // fallback
-          focusMainToolbar() || focusTabs();
-        }
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeTab?.id, activeTab?.mode]);
+        },
+        contains: () =>
+          !!document.activeElement?.closest?.('.rich-text-editor__content') ||
+          !!document.activeElement?.closest?.('.monaco-editor'),
+      },
+    ], [activeTab?.id, activeTab?.mode, t]),
+  });
 
   // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.
   // Não rouba foco de modais nem de campos de digitação.

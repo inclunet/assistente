@@ -11,6 +11,7 @@ import { Toolbar } from '../components/ui/Toolbar';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { ProviderForm, ProviderFormData } from '../components/settings/ProviderForm';
 import { useGridFocus } from '../hooks/useGridFocus';
+import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import './ProvidersPage.css';
@@ -34,6 +35,7 @@ export default function ProvidersPage() {
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
+  useGridPageLandmarks({ pageClass: 'providers-page' });
 
   const getErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : String(error ?? '');

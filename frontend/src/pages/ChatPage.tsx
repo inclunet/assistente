@@ -1,4 +1,5 @@
-import { useRef, useState, useEffect, useCallback } from 'react';
+import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
 import { useEditorStore } from '../store/editorStore';
@@ -11,6 +12,7 @@ import { ContextMenu } from '../components/menu';
 import { KeyboardShortcutsHelp } from '../components/ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../hooks/useChatKeyboardNav';
 import { useTabsKeyboardShortcuts } from '../hooks/useTabsKeyboardShortcuts';
+import { useLandmarkNavigation } from '../hooks/useLandmarkNavigation';
 import { useContextMenu, useMessageActions } from '../hooks/useContextMenu';
 import { MediaFile } from '../services/mediaService';
 import { DeleteMessage } from '@wailsjs/go/main/App';
@@ -20,6 +22,7 @@ import { handleError, ErrorSeverity, ErrorMessages } from '../utils/errorHandler
 import './ChatPage.css';
 
 export default function ChatPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -167,6 +170,59 @@ export default function ChatPage() {
 
   // Enable global keyboard shortcuts for tabs (Ctrl+T, Ctrl+W, Ctrl+Tab, etc.)
   useTabsKeyboardShortcuts();
+
+  // F6: circular foco entre guias, toolbar, histórico do chat e campo de mensagem
+  useLandmarkNavigation({
+    landmarks: useMemo(() => [
+      {
+        id: 'tabs',
+        label: t('landmarks.tabs'),
+        focus: () => {
+          const active = document.querySelector('.chat-tabs [role="tab"][aria-selected="true"]') as HTMLElement | null;
+          const anyTab = document.querySelector('.chat-tabs [role="tab"]') as HTMLElement | null;
+          (active || anyTab)?.focus();
+          return !!(active || anyTab);
+        },
+        contains: () => !!document.activeElement?.closest?.('.chat-tabs'),
+      },
+      {
+        id: 'toolbar',
+        label: t('landmarks.toolbar'),
+        focus: () => {
+          const toolbar = document.querySelector('.chat-page [role="toolbar"]') as Element | null;
+          if (!toolbar) return false;
+          const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
+          if (!btn) return false;
+          btn.focus();
+          return true;
+        },
+        contains: () => !!document.activeElement?.closest?.('[role="toolbar"]'),
+      },
+      {
+        id: 'chatHistory',
+        label: t('landmarks.chatHistory'),
+        focus: () => {
+          const container = messagesContainerRef.current;
+          if (!container) return false;
+          const lastMsg = container.querySelector('[data-message-node]:last-child') as HTMLElement | null;
+          if (lastMsg) { lastMsg.focus(); return true; }
+          container.setAttribute('tabindex', '-1');
+          container.focus();
+          return true;
+        },
+        contains: () => !!document.activeElement?.closest?.('.message-list'),
+      },
+      {
+        id: 'chatInput',
+        label: t('landmarks.chatInput'),
+        focus: () => {
+          inputRef.current?.focus();
+          return !!inputRef.current;
+        },
+        contains: () => !!document.activeElement?.closest?.('.chat-input'),
+      },
+    ], [t]),
+  });
 
   // Usa os MessageNode[] que o backend já enviou com childCount correto
   const threadedMessages = getThreadedMessages() || [];

@@ -18,6 +18,7 @@ import { McpGeneralSection } from '../components/mcp/McpGeneralSection';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { useGridFocus } from '../hooks/useGridFocus';
+import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useConfirm } from '../hooks/useConfirm';
 import { useUIStore } from '../store/uiStore';
@@ -57,6 +58,7 @@ export default function McpPage() {
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+  useGridPageLandmarks({ pageClass: 'mcp-page' });
 
   const getErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : String(error ?? '');

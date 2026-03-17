@@ -952,6 +952,15 @@ const en = {
       announcedSent: 'Message sent to conversation #{{id}}',
       announcedNavigate: 'Navigated to {{page}}',
     },
+    landmarks: {
+      tabs: 'Tabs',
+      toolbar: 'Toolbar',
+      editor: 'Editor',
+      grid: 'Data grid',
+      chatHistory: 'Chat history',
+      chatInput: 'Message field',
+      content: 'Content',
+    },
   },
 };
 

@@ -952,6 +952,15 @@ const es = {
       announcedSent: 'Mensaje enviado a conversación #{{id}}',
       announcedNavigate: 'Navegó a {{page}}',
     },
+    landmarks: {
+      tabs: 'Pestañas',
+      toolbar: 'Barra de herramientas',
+      editor: 'Editor',
+      grid: 'Cuadrícula de datos',
+      chatHistory: 'Historial del chat',
+      chatInput: 'Campo de mensaje',
+      content: 'Contenido',
+    },
   },
 };
 

@@ -27,6 +27,7 @@ import { ProfileVoiceSection } from '../components/profiles/ProfileVoiceSection'
 import { ProfileInteractionSection } from '../components/profiles/ProfileInteractionSection';
 import { VOICE_DISABLED } from '../components/pickers/VoicePicker';
 import { useGridFocus } from '../hooks/useGridFocus';
+import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import { useEditableList } from '../hooks/useEditableList';
@@ -49,6 +50,7 @@ export default function ProfilesPage() {
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+  useGridPageLandmarks({ pageClass: 'profiles-page' });
 
   const getErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : String(error ?? '');

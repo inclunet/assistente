@@ -952,6 +952,15 @@ const ptBR = {
       announcedSent: 'Mensagem enviada na conversa #{{id}}',
       announcedNavigate: 'Navegou para {{page}}',
     },
+    landmarks: {
+      tabs: 'Guias',
+      toolbar: 'Barra de ferramentas',
+      editor: 'Editor',
+      grid: 'Grade de dados',
+      chatHistory: 'Histórico do chat',
+      chatInput: 'Campo de mensagem',
+      content: 'Conteúdo',
+    },
   },
 };
 

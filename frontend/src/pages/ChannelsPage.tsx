@@ -22,6 +22,7 @@ import { channels } from '../../wailsjs/go/models';
 import { useUIStore } from '../store/uiStore';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useGridFocus } from '../hooks/useGridFocus';
+import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { Button } from '../components';
 import { ChannelsTelegramSection, ChannelsSignalSection, ChannelsSlackSection } from '../components/channels';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
@@ -107,6 +108,7 @@ export default function ChannelsPage() {
   const { announce } = useAnnouncer();
   const { focusFirstCell: channelsFocusFirstCell, handleGridReady: channelsHandleGridReady } = useGridFocus();
   const { focusFirstCell: contactsFocusFirstCell, handleGridReady: contactsHandleGridReady } = useGridFocus();
+  useGridPageLandmarks({ pageClass: 'channels-page' });
   const defaultChannelProfile = 'canais-comunicacao';
   const requestConfirm = useConfirm();
   const getErrorMessage = (error: unknown) =>

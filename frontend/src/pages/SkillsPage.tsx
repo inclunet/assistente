@@ -20,6 +20,7 @@ import { SkillGeneralSection } from '../components/skills/SkillGeneralSection';
 import { SkillContentSection } from '../components/skills/SkillContentSection';
 import { SkillToolsSection } from '../components/skills/SkillToolsSection';
 import { useGridFocus } from '../hooks/useGridFocus';
+import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
@@ -53,6 +54,7 @@ interface SkillFormData {
 export default function SkillsPage() {
   const { t } = useTranslation();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+  useGridPageLandmarks({ pageClass: 'skills-page' });
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
 

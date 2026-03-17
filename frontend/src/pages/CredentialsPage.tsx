@@ -8,6 +8,7 @@ import { Button, Input, Select } from '../components';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { useGridFocus } from '../hooks/useGridFocus';
+import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
 import './CredentialsPage.css';
 
@@ -28,6 +29,7 @@ interface CredentialRow {
 export default function CredentialsPage() {
   const { t } = useTranslation();
   const { focusFirstCell, handleGridReady } = useGridFocus();
+  useGridPageLandmarks({ pageClass: 'credentials-page' });
   const [focusedRow, setFocusedRow] = useState<CredentialRow | null>(null);
 
   const typeOptions = [
