@@ -346,6 +346,56 @@ func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
 			Timeout:           180,
 			CredentialPattern: "openrouter.ai",
 		}
+	case "mistral":
+		provider = &llm.ProviderConfig{
+			ID:                "mistral-default",
+			Name:              "Mistral AI",
+			Type:              llm.ProviderMistral,
+			BaseURL:           "https://api.mistral.ai/v1",
+			Model:             "mistral-large-latest",
+			Timeout:           180,
+			CredentialPattern: "api.mistral.ai",
+		}
+	case "groq":
+		provider = &llm.ProviderConfig{
+			ID:                "groq-default",
+			Name:              "Groq",
+			Type:              llm.ProviderGroq,
+			BaseURL:           "https://api.groq.com/openai/v1",
+			Model:             "llama-3.3-70b-versatile",
+			Timeout:           180,
+			CredentialPattern: "api.groq.com",
+		}
+	case "together":
+		provider = &llm.ProviderConfig{
+			ID:                "together-default",
+			Name:              "Together AI",
+			Type:              llm.ProviderTogether,
+			BaseURL:           "https://api.together.xyz/v1",
+			Model:             "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+			Timeout:           180,
+			CredentialPattern: "api.together.xyz",
+		}
+	case "fireworks":
+		provider = &llm.ProviderConfig{
+			ID:                "fireworks-default",
+			Name:              "Fireworks AI",
+			Type:              llm.ProviderFireworks,
+			BaseURL:           "https://api.fireworks.ai/inference/v1",
+			Model:             "accounts/fireworks/models/llama-v3p3-70b-instruct",
+			Timeout:           180,
+			CredentialPattern: "api.fireworks.ai",
+		}
+	case "perplexity":
+		provider = &llm.ProviderConfig{
+			ID:                "perplexity-default",
+			Name:              "Perplexity",
+			Type:              llm.ProviderPerplexity,
+			BaseURL:           "https://api.perplexity.ai",
+			Model:             "sonar",
+			Timeout:           180,
+			CredentialPattern: "api.perplexity.ai",
+		}
 	case "deepseek":
 		provider = &llm.ProviderConfig{
 			ID:                "deepseek-default",
@@ -4033,6 +4083,11 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 						"DeepSeek",
 						"xAI (Grok)",
 						"OpenRouter",
+						"Mistral AI",
+						"Groq",
+						"Together AI",
+						"Fireworks AI",
+						"Perplexity",
 						"Azure OpenAI",
 						"Ollama (Local)",
 						"LiteLLM",
@@ -4066,6 +4121,16 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				baseURL = "https://api.x.ai/v1"
 			case "OpenRouter":
 				baseURL = "https://openrouter.ai/api/v1"
+			case "Mistral AI":
+				baseURL = "https://api.mistral.ai/v1"
+			case "Groq":
+				baseURL = "https://api.groq.com/openai/v1"
+			case "Together AI":
+				baseURL = "https://api.together.xyz/v1"
+			case "Fireworks AI":
+				baseURL = "https://api.fireworks.ai/inference/v1"
+			case "Perplexity":
+				baseURL = "https://api.perplexity.ai"
 			case "Azure OpenAI":
 				baseURL = "" // Usuário precisará fornecer
 			case "Ollama (Local)":
@@ -4347,6 +4412,16 @@ func getWizardProviderInfo(providerChoice string) wizardProviderInfo {
 		return wizardProviderInfo{ID: "google-gemini", Name: "Google (Gemini)", Type: llm.ProviderOpenAI}
 	case "OpenRouter":
 		return wizardProviderInfo{ID: "openrouter-default", Name: "OpenRouter", Type: llm.ProviderOpenAI}
+	case "Mistral AI":
+		return wizardProviderInfo{ID: "mistral-default", Name: "Mistral AI", Type: llm.ProviderMistral}
+	case "Groq":
+		return wizardProviderInfo{ID: "groq-default", Name: "Groq", Type: llm.ProviderGroq}
+	case "Together AI":
+		return wizardProviderInfo{ID: "together-default", Name: "Together AI", Type: llm.ProviderTogether}
+	case "Fireworks AI":
+		return wizardProviderInfo{ID: "fireworks-default", Name: "Fireworks AI", Type: llm.ProviderFireworks}
+	case "Perplexity":
+		return wizardProviderInfo{ID: "perplexity-default", Name: "Perplexity", Type: llm.ProviderPerplexity}
 	case "DeepSeek":
 		return wizardProviderInfo{ID: "deepseek-default", Name: "DeepSeek", Type: llm.ProviderDeepSeek}
 	case "xAI (Grok)":

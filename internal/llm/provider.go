@@ -6,19 +6,23 @@ import (
 )
 
 // ProviderType representa o tipo de provedor LLM
-// Exemplos: openai, claude, grok, deepseek, ollama, custom
 //
 // NOTE: valores são strings para facilitar serialização
 // e compatibilidade com configs.
 type ProviderType string
 
 const (
-	ProviderOpenAI    ProviderType = "openai"
-	ProviderClaude    ProviderType = "claude"
-	ProviderGrok      ProviderType = "grok"
-	ProviderDeepSeek  ProviderType = "deepseek"
-	ProviderOllama    ProviderType = "ollama"
-	ProviderCustom    ProviderType = "custom"
+	ProviderOpenAI      ProviderType = "openai"
+	ProviderClaude      ProviderType = "claude"
+	ProviderGrok        ProviderType = "grok"
+	ProviderDeepSeek    ProviderType = "deepseek"
+	ProviderMistral     ProviderType = "mistral"
+	ProviderGroq        ProviderType = "groq"
+	ProviderTogether    ProviderType = "together"
+	ProviderFireworks   ProviderType = "fireworks"
+	ProviderPerplexity  ProviderType = "perplexity"
+	ProviderOllama      ProviderType = "ollama"
+	ProviderCustom      ProviderType = "custom"
 )
 
 // ProviderConfig descreve um provedor LLM
