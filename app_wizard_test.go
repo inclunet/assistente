@@ -92,6 +92,8 @@ func TestGetWizardProviderInfo_AllProviders(t *testing.T) {
 		{"OpenAI", "openai-default", "OpenAI", llm.ProviderOpenAI},
 		{"Anthropic (Claude)", "anthropic-claude", "Claude (Anthropic)", llm.ProviderClaude},
 		{"Google (Gemini)", "google-gemini", "Google (Gemini)", llm.ProviderOpenAI},
+		{"DeepSeek", "deepseek-default", "DeepSeek", llm.ProviderDeepSeek},
+		{"xAI (Grok)", "xai-grok", "xAI (Grok)", llm.ProviderGrok},
 		{"Azure OpenAI", "azure-openai", "Azure OpenAI", llm.ProviderOpenAI},
 		{"Ollama (Local)", "ollama-local", "Ollama (Local)", llm.ProviderOllama},
 		{"LiteLLM", "litellm", "LiteLLM", llm.ProviderOpenAI},
@@ -118,10 +120,12 @@ func TestGetWizardProviderInfo_AllProviders(t *testing.T) {
 func TestGetWizardProviderInfo_IDsMatchCreateDefaultLLMProvider(t *testing.T) {
 	// IDs do wizard devem ser consistentes com CreateDefaultLLMProvider
 	mapping := map[string]string{
-		"OpenAI":            "openai-default",
+		"OpenAI":             "openai-default",
 		"Anthropic (Claude)": "anthropic-claude",
-		"Google (Gemini)":   "google-gemini",
-		"Ollama (Local)":    "ollama-local",
+		"Google (Gemini)":    "google-gemini",
+		"DeepSeek":           "deepseek-default",
+		"xAI (Grok)":        "xai-grok",
+		"Ollama (Local)":     "ollama-local",
 	}
 	for choice, expectedID := range mapping {
 		info := getWizardProviderInfo(choice)
@@ -212,6 +216,62 @@ func TestCreateWizardProvider_Ollama_NoAPIKey(t *testing.T) {
 	}
 	if provider.Timeout != 300 {
 		t.Errorf("Timeout: got %d, want 300 for Ollama", provider.Timeout)
+	}
+}
+
+func TestCreateWizardProvider_DeepSeek(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	providerID, err := app.createWizardProvider("DeepSeek", "https://api.deepseek.com/v1", "sk-deep-test", "deepseek-chat")
+	if err != nil {
+		t.Fatalf("createWizardProvider: %v", err)
+	}
+
+	if providerID != "deepseek-default" {
+		t.Errorf("providerID: got %s, want deepseek-default", providerID)
+	}
+
+	provider := app.llmRegistry.Get("deepseek-default")
+	if provider == nil {
+		t.Fatal("provider not found in registry")
+	}
+	if provider.Type != llm.ProviderDeepSeek {
+		t.Errorf("Type: got %s, want deepseek", provider.Type)
+	}
+	if provider.CredentialPattern != "api.deepseek.com" {
+		t.Errorf("CredentialPattern: got %s, want api.deepseek.com", provider.CredentialPattern)
+	}
+
+	auth, err := app.credMgr.GetByPattern("api.deepseek.com")
+	if err != nil {
+		t.Fatalf("GetByPattern: %v", err)
+	}
+	if auth.Token != "sk-deep-test" {
+		t.Errorf("Token: got %s, want sk-deep-test", auth.Token)
+	}
+}
+
+func TestCreateWizardProvider_Grok(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	providerID, err := app.createWizardProvider("xAI (Grok)", "https://api.x.ai/v1", "xai-key-test", "grok-2")
+	if err != nil {
+		t.Fatalf("createWizardProvider: %v", err)
+	}
+
+	if providerID != "xai-grok" {
+		t.Errorf("providerID: got %s, want xai-grok", providerID)
+	}
+
+	provider := app.llmRegistry.Get("xai-grok")
+	if provider == nil {
+		t.Fatal("provider not found in registry")
+	}
+	if provider.Type != llm.ProviderGrok {
+		t.Errorf("Type: got %s, want grok", provider.Type)
+	}
+	if provider.CredentialPattern != "api.x.ai" {
+		t.Errorf("CredentialPattern: got %s, want api.x.ai", provider.CredentialPattern)
 	}
 }
 

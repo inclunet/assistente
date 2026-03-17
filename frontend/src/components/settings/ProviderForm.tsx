@@ -70,6 +70,14 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://openrouter.ai/keys',
   },
+  deepseek: {
+    label: 'DeepSeek',
+    defaultUrl: 'https://api.deepseek.com',
+    urlEditable: false,
+    apiKeyRequired: true,
+    testRequiresApiKey: true,
+    helpText: 'Get your API key from https://platform.deepseek.com',
+  },
   xai: {
     label: 'xAI (Grok)',
     defaultUrl: 'https://api.x.ai',

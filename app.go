@@ -336,6 +336,26 @@ func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
 			Timeout:           180,
 			CredentialPattern: "generativelanguage.googleapis.com",
 		}
+	case "deepseek":
+		provider = &llm.ProviderConfig{
+			ID:                "deepseek-default",
+			Name:              "DeepSeek",
+			Type:              llm.ProviderDeepSeek,
+			BaseURL:           "https://api.deepseek.com/v1",
+			Model:             "deepseek-chat",
+			Timeout:           180,
+			CredentialPattern: "api.deepseek.com",
+		}
+	case "grok":
+		provider = &llm.ProviderConfig{
+			ID:                "xai-grok",
+			Name:              "xAI (Grok)",
+			Type:              llm.ProviderGrok,
+			BaseURL:           "https://api.x.ai/v1",
+			Model:             "grok-2",
+			Timeout:           180,
+			CredentialPattern: "api.x.ai",
+		}
 	case "ollama":
 		provider = &llm.ProviderConfig{
 			ID:                "ollama-local",
@@ -3996,15 +4016,17 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 						Type:     "single_choice",
 						Prompt:   "Qual provedor de IA você deseja usar?",
 						Required: true,
-						Options: []string{
-							"OpenAI",
-							"Anthropic (Claude)",
-							"Google (Gemini)",
-							"Azure OpenAI",
-							"Ollama (Local)",
-							"LiteLLM",
-							"Outro (URL personalizada)",
-						},
+					Options: []string{
+						"OpenAI",
+						"Anthropic (Claude)",
+						"Google (Gemini)",
+						"DeepSeek",
+						"xAI (Grok)",
+						"Azure OpenAI",
+						"Ollama (Local)",
+						"LiteLLM",
+						"Outro (URL personalizada)",
+					},
 						Default: provider, // Mantém seleção anterior se voltar
 					},
 				},
@@ -4027,6 +4049,10 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				baseURL = "https://api.anthropic.com/v1"
 			case "Google (Gemini)":
 				baseURL = "https://generativelanguage.googleapis.com/v1beta/openai/"
+			case "DeepSeek":
+				baseURL = "https://api.deepseek.com/v1"
+			case "xAI (Grok)":
+				baseURL = "https://api.x.ai/v1"
 			case "Azure OpenAI":
 				baseURL = "" // Usuário precisará fornecer
 			case "Ollama (Local)":
@@ -4306,6 +4332,10 @@ func getWizardProviderInfo(providerChoice string) wizardProviderInfo {
 		return wizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude}
 	case "Google (Gemini)":
 		return wizardProviderInfo{ID: "google-gemini", Name: "Google (Gemini)", Type: llm.ProviderOpenAI}
+	case "DeepSeek":
+		return wizardProviderInfo{ID: "deepseek-default", Name: "DeepSeek", Type: llm.ProviderDeepSeek}
+	case "xAI (Grok)":
+		return wizardProviderInfo{ID: "xai-grok", Name: "xAI (Grok)", Type: llm.ProviderGrok}
 	case "Azure OpenAI":
 		return wizardProviderInfo{ID: "azure-openai", Name: "Azure OpenAI", Type: llm.ProviderOpenAI}
 	case "Ollama (Local)":
