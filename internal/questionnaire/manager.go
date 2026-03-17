@@ -11,7 +11,7 @@ import (
 
 const (
 	// DefaultTimeout é o tempo máximo para aguardar respostas do usuário.
-	DefaultTimeout = 5 * time.Minute
+	DefaultTimeout = 20 * time.Minute
 )
 
 // Question define um item do questionário.
@@ -32,14 +32,15 @@ type Question struct {
 
 // RequestPayload representa uma solicitação de questionário pendente.
 type RequestPayload struct {
-	ID          string     `json:"id"`
-	Title       string     `json:"title,omitempty"`
-	Description string     `json:"description,omitempty"`
-	Questions   []Question `json:"questions"`
-	AllowCancel bool       `json:"allowCancel,omitempty"`
-	SubmitLabel string     `json:"submitLabel,omitempty"`
-	CancelLabel string     `json:"cancelLabel,omitempty"`
-	CreatedAt   string     `json:"createdAt"`
+	ID          string        `json:"id"`
+	Title       string        `json:"title,omitempty"`
+	Description string        `json:"description,omitempty"`
+	Questions   []Question    `json:"questions"`
+	AllowCancel bool          `json:"allowCancel,omitempty"`
+	SubmitLabel string        `json:"submitLabel,omitempty"`
+	CancelLabel string        `json:"cancelLabel,omitempty"`
+	Timeout     time.Duration `json:"-"` // 0 = DefaultTimeout
+	CreatedAt   string        `json:"createdAt"`
 	response    chan Response
 }
 
@@ -105,7 +106,12 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		"createdAt":   req.CreatedAt,
 	})
 
-	timeoutCtx, cancel := context.WithTimeout(ctx, DefaultTimeout)
+	timeout := payload.Timeout
+	if timeout <= 0 {
+		timeout = DefaultTimeout
+	}
+
+	timeoutCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
 	select {
@@ -115,7 +121,7 @@ func (m *Manager) RequestQuestionnaire(ctx context.Context, payload RequestPaylo
 		if ctx.Err() != nil {
 			return Response{}, fmt.Errorf("solicitação cancelada")
 		}
-		return Response{}, fmt.Errorf("timeout aguardando respostas do usuário (%s)", DefaultTimeout)
+		return Response{}, fmt.Errorf("timeout aguardando respostas do usuário (%s)", timeout)
 	}
 }
 

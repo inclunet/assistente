@@ -75,8 +75,10 @@ Após completar o wizard, o sistema automaticamente:
 1. **app.go**
    - `NeedsWelcomeWizard()` - Verifica se precisa do wizard
    - `RunWelcomeWizard()` - Executa o fluxo completo do wizard
-   - `saveWelcomeConfig()` - Salva configuração do wizard
-   - `updateAllProfilesModel()` - Atualiza modelo em todos os perfis
+   - `getWizardProviderInfo()` - Mapeia escolha do wizard para tipo/ID/nome do provedor
+   - `createWizardProvider()` - Cria provedor no registry + credential manager + SQLite
+   - `saveWelcomeConfig()` - Salva configuração legada (config.json)
+   - `updateAllProfilesProviderAndModel()` - Atualiza provedor e modelo em todos os perfis
    - `checkForUpdatesOnStartup()` - Modificada para verificar LLM configurado
    - `checkForUpdatesAfterWizard()` - Verifica updates após configuração inicial
 

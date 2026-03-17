@@ -4197,10 +4197,24 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 
 				defaultModel = errorResp.Answers["defaultModel"].(string)
 
-				// Salva configuração
+				// Cria provedor no registry + credential manager + SQLite
+				providerID, err := a.createWizardProvider(provider, baseURL, apiKey, defaultModel)
+				if err != nil {
+					return false, fmt.Errorf("erro ao criar provedor: %w", err)
+				}
+
+				// Salva configuração legada
 				if err := a.saveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
 					return false, err
 				}
+
+				// Atualiza provedor e modelo em todos os perfis
+				if err := a.updateAllProfilesProviderAndModel(providerID, defaultModel); err != nil {
+					log.Printf("[Wizard] Aviso: erro ao atualizar perfis: %v", err)
+				}
+
+				// Reinicializa cliente LLM
+				a.initLLMClient()
 
 				return true, nil
 			}
@@ -4247,14 +4261,20 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 
 			defaultModel = modelResp.Answers["model"].(string)
 
-			// Salva configuração
+			// Cria provedor no registry + credential manager + SQLite
+			providerID, err := a.createWizardProvider(provider, baseURL, apiKey, defaultModel)
+			if err != nil {
+				return false, fmt.Errorf("erro ao criar provedor: %w", err)
+			}
+
+			// Salva configuração legada
 			if err := a.saveWelcomeConfig(baseURL, apiKey, defaultModel); err != nil {
 				return false, err
 			}
 
-			// Atualiza modelo em todos os perfis
-			if err := a.updateAllProfilesModel(defaultModel); err != nil {
-				log.Printf("[Wizard] Aviso: erro ao atualizar modelo nos perfis: %v", err)
+			// Atualiza provedor e modelo em todos os perfis
+			if err := a.updateAllProfilesProviderAndModel(providerID, defaultModel); err != nil {
+				log.Printf("[Wizard] Aviso: erro ao atualizar perfis: %v", err)
 			}
 
 			// Reinicializa cliente LLM
@@ -4270,7 +4290,81 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 	return false, nil
 }
 
-// saveWelcomeConfig salva a configuração do wizard
+// wizardProviderInfo mapeia a escolha do wizard para configuração do provedor
+type wizardProviderInfo struct {
+	ID   string
+	Name string
+	Type llm.ProviderType
+}
+
+// getWizardProviderInfo retorna ID, nome e tipo para a escolha do wizard
+func getWizardProviderInfo(providerChoice string) wizardProviderInfo {
+	switch providerChoice {
+	case "OpenAI":
+		return wizardProviderInfo{ID: "openai-default", Name: "OpenAI", Type: llm.ProviderOpenAI}
+	case "Anthropic (Claude)":
+		return wizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude}
+	case "Google (Gemini)":
+		return wizardProviderInfo{ID: "google-gemini", Name: "Google (Gemini)", Type: llm.ProviderOpenAI}
+	case "Azure OpenAI":
+		return wizardProviderInfo{ID: "azure-openai", Name: "Azure OpenAI", Type: llm.ProviderOpenAI}
+	case "Ollama (Local)":
+		return wizardProviderInfo{ID: "ollama-local", Name: "Ollama (Local)", Type: llm.ProviderOllama}
+	case "LiteLLM":
+		return wizardProviderInfo{ID: "litellm", Name: "LiteLLM", Type: llm.ProviderOpenAI}
+	default:
+		return wizardProviderInfo{ID: "custom", Name: "Custom Provider", Type: llm.ProviderCustom}
+	}
+}
+
+// createWizardProvider cria o provedor LLM escolhido durante o wizard,
+// registrando-o no registry, salvando a credencial e persistindo no SQLite.
+func (a *App) createWizardProvider(providerChoice, baseURL, apiKey, model string) (string, error) {
+	info := getWizardProviderInfo(providerChoice)
+
+	hostname, err := extractHostname(baseURL)
+	if err != nil {
+		return "", fmt.Errorf("erro ao extrair hostname de %s: %w", baseURL, err)
+	}
+
+	timeout := 180
+	if info.Type == llm.ProviderOllama {
+		timeout = 300
+	}
+
+	provider := &llm.ProviderConfig{
+		ID:                info.ID,
+		Name:              info.Name,
+		Type:              info.Type,
+		BaseURL:           baseURL,
+		Model:             model,
+		Timeout:           timeout,
+		CredentialPattern: hostname,
+	}
+
+	if err := a.llmRegistry.Register(provider); err != nil {
+		return "", fmt.Errorf("erro ao registrar provedor: %w", err)
+	}
+
+	if apiKey != "" && hostname != "" {
+		authCfg := &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: apiKey,
+		}
+		if err := a.credMgr.RegisterPatternWithContext(a.ctx, hostname, authCfg); err != nil {
+			return "", fmt.Errorf("erro ao salvar credencial: %w", err)
+		}
+	}
+
+	if err := a.saveLLMProviders(); err != nil {
+		return "", fmt.Errorf("erro ao persistir provedor: %w", err)
+	}
+
+	log.Printf("[Wizard] Provedor '%s' (%s) criado com sucesso", info.ID, info.Name)
+	return info.ID, nil
+}
+
+// saveWelcomeConfig salva a configuração legada do wizard (config.json)
 func (a *App) saveWelcomeConfig(baseURL, apiKey, defaultModel string) error {
 	cfg, err := config.Load()
 	if err != nil {
@@ -4285,23 +4379,24 @@ func (a *App) saveWelcomeConfig(baseURL, apiKey, defaultModel string) error {
 	return config.Save(cfg)
 }
 
-// updateAllProfilesModel atualiza o modelo em todos os perfis
-func (a *App) updateAllProfilesModel(model string) error {
-	profiles, err := a.profileManager.List()
+// updateAllProfilesProviderAndModel atualiza o provedor e modelo em todos os perfis
+func (a *App) updateAllProfilesProviderAndModel(providerID, model string) error {
+	profileList, err := a.profileManager.List()
 	if err != nil {
 		return err
 	}
 
-	for _, profileInfo := range profiles {
-		profile, err := a.profileManager.Get(profileInfo.Name)
+	for _, profileInfo := range profileList {
+		profile, err := a.profileManager.Get(profileInfo.Slug)
 		if err != nil {
-			log.Printf("[Wizard] Erro ao carregar perfil %s: %v", profileInfo.Name, err)
+			log.Printf("[Wizard] Erro ao carregar perfil %s (slug: %s): %v", profileInfo.Name, profileInfo.Slug, err)
 			continue
 		}
 
+		profile.Chat.LLMProvider = providerID
 		profile.Chat.Model = model
-		if err := a.profileManager.Update(profileInfo.Name, profile); err != nil {
-			log.Printf("[Wizard] Erro ao salvar perfil %s: %v", profileInfo.Name, err)
+		if err := a.profileManager.Update(profileInfo.Slug, profile); err != nil {
+			log.Printf("[Wizard] Erro ao salvar perfil %s (slug: %s): %v", profileInfo.Name, profileInfo.Slug, err)
 		}
 	}
 

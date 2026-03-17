@@ -7,21 +7,13 @@ import (
 )
 
 func TestRequestQuestionnaire_Answered(t *testing.T) {
-	var emittedEvent string
-	var emittedData any
-
-	mgr := NewManager(func(event string, data any) {
-		emittedEvent = event
-		emittedData = data
-	})
-
-	go func() {
-		time.Sleep(20 * time.Millisecond)
-		if emittedEvent != "tool:questionnaire" {
-			t.Errorf("expected event 'tool:questionnaire', got %q", emittedEvent)
+	var mgr *Manager
+	mgr = NewManager(func(event string, data any) {
+		if event != "tool:questionnaire" {
+			t.Errorf("expected event 'tool:questionnaire', got %q", event)
 			return
 		}
-		dataMap, ok := emittedData.(map[string]any)
+		dataMap, ok := data.(map[string]any)
 		if !ok {
 			t.Errorf("expected map[string]any data")
 			return
@@ -31,10 +23,12 @@ func TestRequestQuestionnaire_Answered(t *testing.T) {
 			t.Errorf("expected id to be set")
 			return
 		}
-		if err := mgr.Respond(id, map[string]any{"q1": "ok"}, false); err != nil {
-			t.Errorf("Respond error: %v", err)
-		}
-	}()
+		go func() {
+			if err := mgr.Respond(id, map[string]any{"q1": "ok"}, false); err != nil {
+				t.Errorf("Respond error: %v", err)
+			}
+		}()
+	})
 
 	resp, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
 		Title: "Teste",
@@ -98,5 +92,44 @@ func TestRequestQuestionnaire_ContextCancelled(t *testing.T) {
 	_, err := mgr.RequestQuestionnaire(ctx, RequestPayload{Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}}})
 	if err == nil {
 		t.Fatalf("expected error on cancel")
+	}
+}
+
+func TestRequestQuestionnaire_CustomTimeout(t *testing.T) {
+	mgr := NewManager(func(string, any) {})
+
+	start := time.Now()
+	_, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		Timeout:   100 * time.Millisecond,
+	})
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if elapsed > 2*time.Second {
+		t.Fatalf("custom timeout not respected: elapsed %v", elapsed)
+	}
+}
+
+func TestRequestQuestionnaire_ZeroTimeoutUsesDefault(t *testing.T) {
+	var mgr *Manager
+	mgr = NewManager(func(_ string, data any) {
+		go func() {
+			dataMap := data.(map[string]any)
+			mgr.Respond(dataMap["id"].(string), map[string]any{"q1": "ok"}, false)
+		}()
+	})
+
+	resp, err := mgr.RequestQuestionnaire(context.Background(), RequestPayload{
+		Questions: []Question{{ID: "q1", Type: "text", Prompt: "Pergunta"}},
+		Timeout:   0,
+	})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if resp.Answers["q1"] != "ok" {
+		t.Fatalf("unexpected answer: %+v", resp.Answers)
 	}
 }
