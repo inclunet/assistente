@@ -158,6 +158,111 @@ func TestRegistryFilterByNames(t *testing.T) {
 	}
 }
 
+// ==================== Opt-In Tests ====================
+
+func TestRegistryOptIn_ExcludedFromAll(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("read_file"))
+	r.MustRegister(newMockTool("write_file"))
+	r.MustRegisterOptIn(newMockTool("text_edit"))
+
+	all := r.All()
+	if len(all) != 2 {
+		t.Fatalf("All esperado 2 (sem opt-in), obtido %d", len(all))
+	}
+	for _, tool := range all {
+		if tool.Name() == "text_edit" {
+			t.Error("text_edit (opt-in) não deveria aparecer em All()")
+		}
+	}
+}
+
+func TestRegistryOptIn_ExcludedFromToDefinitions(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("read_file"))
+	r.MustRegisterOptIn(newMockTool("text_edit"))
+
+	defs := r.ToDefinitions()
+	if len(defs) != 1 {
+		t.Fatalf("ToDefinitions esperado 1 (sem opt-in), obtido %d", len(defs))
+	}
+	if defs[0].Function.Name != "read_file" {
+		t.Errorf("esperado read_file, obtido %s", defs[0].Function.Name)
+	}
+}
+
+func TestRegistryOptIn_IncludedInFilterByNames(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("read_file"))
+	r.MustRegisterOptIn(newMockTool("text_edit"))
+
+	defs := r.FilterByNames([]string{"text_edit"})
+	if len(defs) != 1 {
+		t.Fatalf("FilterByNames esperado 1 (text_edit explícito), obtido %d", len(defs))
+	}
+	if defs[0].Function.Name != "text_edit" {
+		t.Errorf("esperado text_edit, obtido %s", defs[0].Function.Name)
+	}
+}
+
+func TestRegistryOptIn_IncludedInCountAndNames(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("read_file"))
+	r.MustRegisterOptIn(newMockTool("text_edit"))
+
+	if r.Count() != 2 {
+		t.Errorf("Count esperado 2 (inclui opt-in), obtido %d", r.Count())
+	}
+	names := r.Names()
+	if len(names) != 2 {
+		t.Errorf("Names esperado 2, obtido %d", len(names))
+	}
+}
+
+func TestRegistryOptIn_GetStillWorks(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegisterOptIn(newMockTool("text_edit"))
+
+	tool, ok := r.Get("text_edit")
+	if !ok {
+		t.Fatal("Get retornou false para tool opt-in")
+	}
+	if tool.Name() != "text_edit" {
+		t.Errorf("nome esperado text_edit, obtido %s", tool.Name())
+	}
+}
+
+func TestRegistryOptIn_IsOptIn(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegister(newMockTool("read_file"))
+	r.MustRegisterOptIn(newMockTool("text_edit"))
+
+	if r.IsOptIn("read_file") {
+		t.Error("read_file não deveria ser opt-in")
+	}
+	if !r.IsOptIn("text_edit") {
+		t.Error("text_edit deveria ser opt-in")
+	}
+}
+
+func TestRegistryOptIn_UnregisterCleansUp(t *testing.T) {
+	r := NewRegistry()
+	r.MustRegisterOptIn(newMockTool("text_edit"))
+
+	if !r.IsOptIn("text_edit") {
+		t.Fatal("text_edit deveria ser opt-in antes de unregister")
+	}
+
+	r.Unregister("text_edit")
+
+	if r.IsOptIn("text_edit") {
+		t.Error("opt-in deveria ser limpo após unregister")
+	}
+	if r.Has("text_edit") {
+		t.Error("tool deveria ser removida após unregister")
+	}
+}
+
 // ==================== Executor Tests ====================
 
 func TestExecutorSingleSuccess(t *testing.T) {

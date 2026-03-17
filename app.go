@@ -1576,8 +1576,8 @@ func (a *App) initToolRegistry() {
 	// Registra ferramenta de questionário (collect_responses)
 	a.toolRegistry.MustRegister(questiontool.NewCollectResponses(a.questionnaireMgr))
 
-	// Registra ferramenta de edição de texto (para contexto de editor)
-	a.toolRegistry.MustRegister(editor.NewTextEdit(a.questionnaireMgr))
+	// Registra ferramenta de edição de texto (opt-in: só disponível em perfis que a listam explicitamente)
+	a.toolRegistry.MustRegisterOptIn(editor.NewTextEdit(a.questionnaireMgr))
 
 	// Registra ferramentas de gerenciamento de abas
 	tabMgr := &appTabManager{app: a}

@@ -11,12 +11,14 @@ import (
 type Registry struct {
 	mu    sync.RWMutex
 	tools map[string]Tool
+	optIn map[string]bool // tools que só aparecem quando explicitamente listadas em enabled_tools
 }
 
 // NewRegistry cria um novo registro de ferramentas vazio.
 func NewRegistry() *Registry {
 	return &Registry{
 		tools: make(map[string]Tool),
+		optIn: make(map[string]bool),
 	}
 }
 
@@ -43,6 +45,34 @@ func (r *Registry) MustRegister(tool Tool) {
 	}
 }
 
+// RegisterOptIn registra uma ferramenta que só fica disponível quando
+// explicitamente listada no enabled_tools do perfil. Não aparece quando
+// enabled_tools é nil (todas). Útil para tools de contexto específico
+// como text_edit (editor).
+func (r *Registry) RegisterOptIn(tool Tool) error {
+	if err := r.Register(tool); err != nil {
+		return err
+	}
+	r.mu.Lock()
+	r.optIn[tool.Name()] = true
+	r.mu.Unlock()
+	return nil
+}
+
+// MustRegisterOptIn é como RegisterOptIn mas faz panic em caso de erro.
+func (r *Registry) MustRegisterOptIn(tool Tool) {
+	if err := r.RegisterOptIn(tool); err != nil {
+		panic(err)
+	}
+}
+
+// IsOptIn retorna true se a ferramenta é opt-in (requer enabled_tools explícito).
+func (r *Registry) IsOptIn(name string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return r.optIn[name]
+}
+
 // Get retorna uma ferramenta pelo nome.
 // Retorna nil e false se não encontrada.
 func (r *Registry) Get(name string) (Tool, bool) {
@@ -53,17 +83,19 @@ func (r *Registry) Get(name string) (Tool, bool) {
 	return tool, ok
 }
 
-// All retorna todas as ferramentas registradas, ordenadas por nome.
+// All retorna todas as ferramentas registradas (exceto opt-in), ordenadas por nome.
 func (r *Registry) All() []Tool {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 
 	tools := make([]Tool, 0, len(r.tools))
-	for _, tool := range r.tools {
+	for name, tool := range r.tools {
+		if r.optIn[name] {
+			continue
+		}
 		tools = append(tools, tool)
 	}
 
-	// Ordena por nome para resultado determinístico
 	sort.Slice(tools, func(i, j int) bool {
 		return tools[i].Name() < tools[j].Name()
 	})
@@ -103,6 +135,7 @@ func (r *Registry) Unregister(name string) bool {
 		return false
 	}
 	delete(r.tools, name)
+	delete(r.optIn, name)
 	return true
 }
 
