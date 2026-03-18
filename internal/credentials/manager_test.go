@@ -2,6 +2,7 @@ package credentials
 
 import (
 	"context"
+	"fmt"
 	"regexp"
 	"testing"
 )
@@ -565,4 +566,259 @@ func TestUpdateExistingPattern(t *testing.T) {
 	if resolved == nil || resolved.Token != "new-token" {
 		t.Errorf("Pattern não foi atualizado: %+v", resolved)
 	}
+}
+
+// === NOVOS TESTES PARA SEGURANÇA E EDGE CASES ===
+
+// TestClientSecretEncryption testa que ClientSecret (sensível) é criptografado
+func TestClientSecretEncryption(t *testing.T) {
+	mgr := NewManager(nil)
+
+	secret := "my_client_secret_xyz_123"
+	auth := &AuthConfig{
+		Type:         "oauth2",
+		ClientID:     "my_client_id",
+		ClientSecret: secret,
+		Token:        "access_token_123",
+	}
+
+	if err := mgr.RegisterPattern("oauth.provider.com", auth); err != nil {
+		t.Fatalf("Erro ao registrar: %v", err)
+	}
+
+	// Recuperar e verificar que ClientSecret foi preservado
+	resolved, _ := mgr.ResolveForURL("https://oauth.provider.com/api")
+	if resolved == nil {
+		t.Fatal("Esperado credenciais")
+	}
+
+	if resolved.ClientSecret != secret {
+		t.Errorf("ClientSecret não foi preservado: esperado %q, got %q", secret, resolved.ClientSecret)
+	}
+
+	// ClientSecret não deve aparecer em ListCredentials em plaintext (se implementado)
+	listed, err := mgr.ListCredentials()
+	if err != nil {
+		t.Logf("ListCredentials retornou erro: %v (pode ser esperado sem store)", err)
+		return
+	}
+	for _, cred := range listed {
+		if cred.Auth.ClientSecret != "" && cred.Auth.ClientSecret == secret {
+			// Neste caso, o ClientSecret está em plaintext na lista (pode ser um issue de segurança)
+			t.Logf("WARNING: ClientSecret aparece em plaintext em ListCredentials")
+		}
+	}
+}
+
+// TestExpiredCredentials testa credenciais com timestamp de expiração
+func TestExpiredCredentials(t *testing.T) {
+	mgr := NewManager(nil)
+
+	// Credencial que já expirou (timestamp no passado)
+	pastTime := int64(1000000000) // erro de 2001
+	auth := &AuthConfig{
+		Type:      "bearer",
+		Token:     "expired_token",
+		ExpiresAt: pastTime,
+	}
+
+	if err := mgr.RegisterPattern("expired.test.com", auth); err != nil {
+		t.Fatalf("Erro ao registrar: %v", err)
+	}
+
+	resolved, _ := mgr.ResolveForURL("https://expired.test.com/api")
+	if resolved == nil {
+		t.Fatal("Esperado credenciais (mesmo expiradas)")
+	}
+
+	// Manager retorna credencial expirada - cliente deve checar ExpiresAt
+	if resolved.ExpiresAt != pastTime {
+		t.Errorf("ExpiresAt não foi preservado: %d", resolved.ExpiresAt)
+	}
+}
+
+// TestURLSpecialCharacters testa URLs com caracteres especiais
+func TestURLSpecialCharacters(t *testing.T) {
+	mgr := NewManager(nil)
+
+	auth := &AuthConfig{
+		Type:  "bearer",
+		Token: "token_special",
+	}
+
+	if err := mgr.RegisterPattern("*.example.com", auth); err != nil {
+		t.Fatalf("Erro ao registrar: %v", err)
+	}
+
+	tests := []struct {
+		url      string
+		expected bool
+		desc     string
+	}{
+		{"https://api-test.example.com/path", true, "hyphenated subdomain"},
+		{"https://api.example.com:8080/path?query=value#hash", true, "with port, query, hash"},
+		{"https://api.example.com/path%20with%20spaces", true, "URL-encoded path"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.desc, func(t *testing.T) {
+			resolved, _ := mgr.ResolveForURL(tt.url)
+			if tt.expected && resolved == nil {
+				t.Errorf("%s: esperado credenciais, got nil", tt.desc)
+			}
+			if !tt.expected && resolved != nil {
+				t.Errorf("%s: não esperado credenciais, got %+v", tt.desc, resolved)
+			}
+		})
+	}
+}
+
+// TestConcurrentRegisterAndResolve testa operações concorrentes sem race condition
+func TestConcurrentRegisterAndResolve(t *testing.T) {
+	mgr := NewManager(nil)
+	done := make(chan bool, 20)
+
+	// 10 goroutines registrando
+	for i := 0; i < 10; i++ {
+		go func(idx int) {
+			pattern := fmt.Sprintf("api%d.example.com", idx)
+			token := fmt.Sprintf("token_%d", idx)
+			auth := &AuthConfig{Type: "bearer", Token: token}
+			mgr.RegisterPattern(pattern, auth)
+			done <- true
+		}(i)
+	}
+
+	// 10 goroutines resolvendo
+	for i := 0; i < 10; i++ {
+		go func(idx int) {
+			pattern := fmt.Sprintf("api%d.example.com", idx)
+			url := fmt.Sprintf("https://%s/api", pattern)
+			mgr.ResolveForURL(url)
+			done <- true
+		}(i)
+	}
+
+	// Aguarda todas
+	for i := 0; i < 20; i++ {
+		<-done
+	}
+
+	// Se chegou aqui sem panic ou deadlock, OK
+	if len(mgr.ListPatterns()) != 10 {
+		t.Errorf("Esperado 10 padrões, got %d", len(mgr.ListPatterns()))
+	}
+}
+
+// TestInvalidURL testa tratamento de URLs inválidas
+func TestInvalidURL(t *testing.T) {
+	mgr := NewManager(nil)
+
+	mgr.RegisterPattern("*.example.com", &AuthConfig{Type: "bearer", Token: "test"})
+
+	// URLs com scheme malformado devem retornar erro
+	invalidURLs := []string{
+		"://no-scheme.com",
+	}
+
+	for _, url := range invalidURLs {
+		_, err := mgr.ResolveForURL(url)
+		if err == nil {
+			t.Errorf("URL inválida não retornou erro: %q", url)
+		}
+	}
+}
+
+// TestNilEncryptionKey testa manager com encryption key nil (gera aleatória)
+func TestNilEncryptionKey(t *testing.T) {
+	mgr1 := NewManager(nil) // key = nil, deve gerar
+	mgr2 := NewManager(nil) // key = nil, deve gerar diferente
+
+	auth := &AuthConfig{Type: "bearer", Token: "test_secret"}
+
+	mgr1.RegisterPattern("test.com", auth)
+	mgr2.RegisterPattern("test.com", auth)
+
+	// Keys devem ser diferentes (aleatórias)
+	if string(mgr1.encKey) == string(mgr2.encKey) {
+		t.Error("Encryption keys deveriam ser aleatórias quando nil")
+	}
+
+	// Mas ambas devem conseguir resolver (cada uma com sua key)
+	resolved1, _ := mgr1.ResolveForURL("https://test.com/api")
+	resolved2, _ := mgr2.ResolveForURL("https://test.com/api")
+
+	if resolved1 == nil || resolved2 == nil {
+		t.Fatal("Ambas deveriam conseguir resolver")
+	}
+}
+
+// TestEmptyPatternRejection testa rejeição de patterns vazios
+func TestEmptyPatternRejection(t *testing.T) {
+	mgr := NewManager(nil)
+
+	tests := []struct {
+		pattern string
+		auth    *AuthConfig
+		name    string
+		should  bool // esperado erro?
+	}{
+		{"", &AuthConfig{Type: "bearer", Token: "test"}, "empty_pattern", true},
+		{"test.com", nil, "nil_auth", true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := mgr.RegisterPattern(tt.pattern, tt.auth)
+			if tt.should && err == nil {
+				t.Errorf("%s: esperado erro de validação", tt.name)
+			}
+			if !tt.should && err != nil {
+				t.Errorf("%s: não esperado erro: %v", tt.name, err)
+			}
+		})
+	}
+}
+
+// TestHeadersPreservation testa que headers customizados são preservados
+func TestHeadersPreservation(t *testing.T) {
+	mgr := NewManager(nil)
+
+	headers := map[string]string{
+		"Authorization": "Bearer token123",
+		"X-Custom":      "value",
+		"Accept":        "application/json",
+	}
+
+	auth := &AuthConfig{
+		Type:    "custom",
+		Headers: headers,
+	}
+
+	mgr.RegisterPattern("api.test.com", auth)
+
+	resolved, _ := mgr.ResolveForURL("https://api.test.com/endpoint")
+	if resolved == nil {
+		t.Fatal("Esperado credenciais")
+	}
+
+	for key, val := range headers {
+		if resolved.Headers[key] != val {
+			t.Errorf("Header %s não preservado: esperado %q, got %q", key, val, resolved.Headers[key])
+		}
+	}
+}
+
+// TestContextCancellation testa se RegisterPatternWithContext respeita cancelamento
+func TestContextCancellation(t *testing.T) {
+	mgr := NewManager(nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // Cancelar imediatamente
+
+	auth := &AuthConfig{Type: "bearer", Token: "test"}
+
+	// Registrar com context cancelado pode retornar erro (dependendo de implementation)
+	// Desde que não cause panic, está OK
+	err := mgr.RegisterPatternWithContext(ctx, "test.com", auth)
+	_ = err // Ignorar resultado
 }

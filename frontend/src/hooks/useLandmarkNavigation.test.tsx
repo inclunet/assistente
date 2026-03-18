@@ -1,5 +1,5 @@
-import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import { render, fireEvent } from '@testing-library/react';
 import { useLandmarkNavigation, type Landmark } from './useLandmarkNavigation';
 import { restoreDefaultFocus } from './useDefaultFocus';
 
