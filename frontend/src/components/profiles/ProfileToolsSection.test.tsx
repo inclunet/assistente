@@ -338,4 +338,195 @@ describe('ProfileToolsSection', () => {
     expect(screen.getByTestId('tools-select-all')).toBeDisabled();
     expect(screen.getByTestId('allowlist-select')).toBeDisabled();
   });
+
+  // Agentic Loop tests
+  describe('Agentic Loop Fields', () => {
+    it('renderiza slider para maxAgenticIterations', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={25}
+          responseTimeout={180}
+          onChange={onChange}
+        />
+      );
+      const slider = screen.getByRole('slider', { name: /máximo de iterações/i });
+      expect(slider).toBeInTheDocument();
+      expect(slider).toHaveAttribute('min', '0');
+      expect(slider).toHaveAttribute('max', '1000');
+    });
+
+    it('renderiza input para responseTimeout', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={25}
+          responseTimeout={180}
+          onChange={onChange}
+        />
+      );
+      const input = screen.getByTestId('response-timeout-input');
+      expect(input).toBeInTheDocument();
+      expect(input).toHaveAttribute('type', 'number');
+      expect(input).toHaveAttribute('min', '5');
+      expect(input).toHaveAttribute('max', '600');
+    });
+
+    it('exibe valor padrão de maxAgenticIterations', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={0}
+          responseTimeout={180}
+          onChange={onChange}
+        />
+      );
+      const slider = screen.getByRole('slider', { name: /máximo de iterações/i });
+      expect(slider).toHaveValue('0');
+    });
+
+    it('exibe valor customizado de maxAgenticIterations', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={50}
+          responseTimeout={180}
+          onChange={onChange}
+        />
+      );
+      const slider = screen.getByRole('slider', { name: /máximo de iterações/i });
+      expect(slider).toHaveValue('50');
+    });
+
+    it('exibe valor padrão de responseTimeout', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={25}
+          responseTimeout={180}
+          onChange={onChange}
+        />
+      );
+      const input = screen.getByTestId('response-timeout-input') as HTMLInputElement;
+      expect(input.value).toBe('180');
+    });
+
+    it('exibe valor customizado de responseTimeout', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={25}
+          responseTimeout={300}
+          onChange={onChange}
+        />
+      );
+      const input = screen.getByTestId('response-timeout-input') as HTMLInputElement;
+      expect(input.value).toBe('300');
+    });
+
+    it('chama onChange com max_agentic_iterations ao mudar slider', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={25}
+          responseTimeout={180}
+          onChange={onChange}
+        />
+      );
+      const slider = screen.getByRole('slider', { name: /máximo de iterações/i });
+      fireEvent.change(slider, { target: { value: '50' } });
+      expect(onChange).toHaveBeenCalledWith('max_agentic_iterations', 50);
+    });
+
+    it('chama onChange com response_timeout ao mudar input', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={25}
+          responseTimeout={180}
+          onChange={onChange}
+        />
+      );
+      const input = screen.getByTestId('response-timeout-input');
+      fireEvent.change(input, { target: { value: '250' } });
+      expect(onChange).toHaveBeenCalledWith('response_timeout', 250);
+    });
+
+    it('aplica fallback para 180 com valor vazio no responseTimeout', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={25}
+          responseTimeout={180}
+          onChange={onChange}
+        />
+      );
+      const input = screen.getByTestId('response-timeout-input');
+      fireEvent.change(input, { target: { value: '' } });
+      expect(onChange).toHaveBeenCalledWith('response_timeout', 180);
+    });
+
+    it('desabilita campos agentic loop quando disabled é true', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={25}
+          responseTimeout={180}
+          onChange={onChange}
+          disabled={true}
+        />
+      );
+      const slider = screen.getByRole('slider', { name: /máximo de iterações/i });
+      const input = screen.getByTestId('response-timeout-input');
+      expect(slider).toHaveAttribute('disabled');
+      expect(input).toHaveAttribute('disabled');
+    });
+
+    it('respeita limites de responseTimeout (min=5, max=600)', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockTools}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          maxAgenticIterations={25}
+          responseTimeout={180}
+          onChange={onChange}
+        />
+      );
+      const input = screen.getByTestId('response-timeout-input');
+      expect(input).toHaveAttribute('min', '5');
+      expect(input).toHaveAttribute('max', '600');
+    });
+  });
 });

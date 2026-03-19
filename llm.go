@@ -603,6 +603,14 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 
 		// 3. Aplica configuração de reasoning effort
 		params.ReasoningEffort = activeProfile.Chat.ReasoningEffort
+
+		// 4. Aplica limites do agentic loop
+		if activeProfile.Chat.MaxAgenticIterations > 0 {
+			params.MaxAgenticIterations = activeProfile.Chat.MaxAgenticIterations
+		}
+		if activeProfile.Chat.ResponseTimeout > 0 {
+			params.ResponseTimeout = activeProfile.Chat.ResponseTimeout
+		}
 	}
 
 	// Se ainda não tem modelo, usa o padrão do config

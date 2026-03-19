@@ -187,13 +187,15 @@ type ModelsResponse struct {
 
 // ChatParams contém os parâmetros para uma requisição de chat
 type ChatParams struct {
-	Model           string  `json:"model"`
-	MaxTokens       int     `json:"maxTokens"`
-	MaxTokensMode   string  `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
-	Temperature     float64 `json:"temperature"`
-	TopP            float64 `json:"topP,omitempty"`
-	ReasoningEffort string  `json:"reasoningEffort,omitempty"` // off, low, medium, high
-	ProfileSlug     string  `json:"profileSlug,omitempty"`     // Perfil específico (canais). Vazio = perfil ativo global
+	Model                string  `json:"model"`
+	MaxTokens            int     `json:"maxTokens"`
+	MaxTokensMode        string  `json:"maxTokensMode,omitempty"` // "legacy" (max_tokens) ou "completion_tokens" (max_completion_tokens)
+	Temperature          float64 `json:"temperature"`
+	TopP                 float64 `json:"topP,omitempty"`
+	ReasoningEffort      string  `json:"reasoningEffort,omitempty"`      // off, low, medium, high
+	ProfileSlug          string  `json:"profileSlug,omitempty"`          // Perfil específico (canais). Vazio = perfil ativo global
+	MaxAgenticIterations int     `json:"maxAgenticIterations,omitempty"` // 0 = usar default (25), >0 = limite customizado
+	ResponseTimeout      int     `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
 }
 
 // SettingsInput representa os parâmetros de entrada para salvar configurações

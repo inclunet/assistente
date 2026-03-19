@@ -64,6 +64,13 @@ type ChatConfig struct {
 	// - true: testado e suporta MCP nativo
 	// - false: testado e NÃO suporta MCP nativo
 	MCPNativeTested *bool `json:"mcp_native_tested,omitempty"`
+
+	// MaxAgenticIterations define o limite máximo de iterações do loop de agentes
+	// Cada tool call conta como uma iteração
+	// 0 = usar padrão (25 iterações)
+	// >0 = limite customizado (ex: 100 para code generation, 500 para análise profunda)
+	// Pode ser combinado com ResponseTimeout para dupla proteção
+	MaxAgenticIterations int `json:"max_agentic_iterations,omitempty"`
 }
 
 // VoiceConfig define as configurações de voz TTS

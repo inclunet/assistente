@@ -74,6 +74,57 @@
   transform: none;
 }
 
+/* Context badge - mostra % consumido */
+.token-stats-button__context-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 36px;
+  padding: 2px 6px;
+  margin-left: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-secondary);
+  transition: all 0.3s ease;
+}
+
+/* Animação suave conforme aumenta */
+.token-stats-button--warning .token-stats-button__context-badge {
+  border-color: var(--color-warning);
+  background: var(--color-warning-dim);
+  color: var(--color-warning);
+  animation: pulse-warning 0.6s ease-in-out infinite;
+}
+
+.token-stats-button--critical .token-stats-button__context-badge {
+  border-color: var(--color-danger);
+  background: var(--color-danger-dim);
+  color: var(--color-danger);
+  animation: pulse-critical 0.4s ease-in-out infinite;
+}
+
+@keyframes pulse-warning {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.7;
+  }
+}
+
+@keyframes pulse-critical {
+  0%, 100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.6;
+  }
+}
+
 /* Responsive */
 @media (max-width: 640px) {
   .token-stats-button__text {

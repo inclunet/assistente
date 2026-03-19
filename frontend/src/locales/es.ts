@@ -154,6 +154,14 @@ const es = {
       title: 'Estadísticas de Tokens',
       loading: 'Cargando...',
       loadError: 'Error al cargar estadísticas',
+      
+      // Tabs
+      tabOverview: 'Descripción General',
+      tabContextDetails: 'Detalles del Contexto',
+      tabToolCalling: 'Herramientas',
+      tabAgenticLoop: 'Iteraciones de Procesamiento',
+
+      // Overview tab (existing)
       contextUsage: 'Uso del contexto',
       contextCritical: '¡Contexto crítico! Considera compactar el historial.',
       contextWarning: 'Contexto cerca del límite.',
@@ -179,6 +187,30 @@ const es = {
       tip2: '🔄 Considera resumir conversaciones largas',
       tip3: '🗑️ Elimina mensajes innecesarios del historial',
       tip4: '📊 Los modelos diferentes tienen límites diferentes',
+
+      // Context Details tab (new)
+      contextComposition: 'Composición del Contexto',
+      component: 'Componente',
+      tokenCount: 'Conteo de Tokens',
+      systemPrompt: 'Prompt del Sistema',
+      summary: 'Resumen',
+      messagesInContext: 'Mensajes en Contexto',
+      messagesOutOfContext: 'Mensajes Fuera del Contexto',
+      messageBreakdown: 'Desglose de Mensajes',
+      count: 'Conteo',
+      inContext: 'En Contexto',
+      outOfContext: 'Fuera del Contexto',
+
+      // Tool Calling tab (new)
+      toolUsageDetails: 'Detalles de Uso de Herramientas',
+      toolsUsed: 'Herramientas usadas: {{count}}',
+      noToolsUsed: 'Ninguna herramienta fue utilizada en esta conversación.',
+      toolName: 'Nombre de la Herramienta',
+      callCount: 'Número de Llamadas',
+
+      // Agentic Loop tab (new)
+      agenticLoopStats: 'Estadísticas del Bucle Agentico',
+      agenticLoopPlaceholder: 'La información sobre las iteraciones del bucle agentico aparecerá aquí después del primer mensaje.',
     },
 
     channels: {
@@ -520,6 +552,13 @@ const es = {
         reasoningHigh: 'Alto (high)',
         reasoningMax: 'Máximo (max)',
         reasoningHint: 'Bajo/Medio/Alto envía reasoning_effort (OpenAI, Anthropic, LiteLLM). Ollama envía think=true.',
+        agenticMaxIterations: 'Máximo de Iteraciones (Bucle Agentico)',
+        agenticIterationsDefault: 'Predeterminado (25 iteraciones)',
+        agenticIterationsConversational: 'Conversacional',
+        agenticIterationsModerate: 'Moderado',
+        agenticIterationsAggressive: 'Agresivo (Análisis Profundo)',
+        responseTimeout: 'Tiempo de Espera de Respuesta (segundos)',
+        responseTimeoutHint: '2ª capa de protección contra bucles infinitos. Las respuestas que superan este tiempo se interrumpen.',
       },
     },
 

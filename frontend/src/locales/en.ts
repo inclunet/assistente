@@ -154,6 +154,14 @@ const en = {
       title: 'Token Statistics',
       loading: 'Loading...',
       loadError: 'Error loading statistics',
+      
+      // Tabs
+      tabOverview: 'Overview',
+      tabContextDetails: 'Context Details',
+      tabToolCalling: 'Tools',
+      tabAgenticLoop: 'Processing Iterations',
+
+      // Overview tab (existing)
       contextUsage: 'Context Usage',
       contextCritical: 'Context critical! Consider compacting history.',
       contextWarning: 'Context near limit.',
@@ -179,6 +187,30 @@ const en = {
       tip2: '🔄 Consider summarizing long conversations',
       tip3: '🗑️ Remove unnecessary messages from history',
       tip4: '📊 Different models have different limits',
+
+      // Context Details tab (new)
+      contextComposition: 'Context Composition',
+      component: 'Component',
+      tokenCount: 'Token Count',
+      systemPrompt: 'System Prompt',
+      summary: 'Summary',
+      messagesInContext: 'Messages In Context',
+      messagesOutOfContext: 'Messages Out of Context',
+      messageBreakdown: 'Message Breakdown',
+      count: 'Count',
+      inContext: 'In Context',
+      outOfContext: 'Out of Context',
+
+      // Tool Calling tab (new)
+      toolUsageDetails: 'Tool Usage Details',
+      toolsUsed: 'Tools used: {{count}}',
+      noToolsUsed: 'No tools were used in this conversation.',
+      toolName: 'Tool Name',
+      callCount: 'Call Count',
+
+      // Agentic Loop tab (new)
+      agenticLoopStats: 'Agentic Loop Statistics',
+      agenticLoopPlaceholder: 'Information about agentic loop iterations will appear here after the first message.',
     },
 
     channels: {
@@ -520,6 +552,13 @@ const en = {
         reasoningHigh: 'High (high)',
         reasoningMax: 'Maximum (max)',
         reasoningHint: 'Low/Medium/High sends reasoning_effort (OpenAI, Anthropic, LiteLLM). Ollama sends think=true.',
+        agenticMaxIterations: 'Maximum Iterations (Agentic Loop)',
+        agenticIterationsDefault: 'Default (25 iterations)',
+        agenticIterationsConversational: 'Conversational',
+        agenticIterationsModerate: 'Moderate',
+        agenticIterationsAggressive: 'Aggressive (Deep Analysis)',
+        responseTimeout: 'Response Timeout (seconds)',
+        responseTimeoutHint: '2nd layer of protection against infinite loops. Responses exceeding this time are interrupted.',
       },
     },
 

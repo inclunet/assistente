@@ -154,6 +154,14 @@ const ptBR = {
       title: 'Estatísticas de Tokens',
       loading: 'Carregando...',
       loadError: 'Erro ao carregar estatísticas',
+      
+      // Tabs
+      tabOverview: 'Visão Geral',
+      tabContextDetails: 'Contexto Detalhado',
+      tabToolCalling: 'Ferramentas',
+      tabAgenticLoop: 'Iterações de Processamento',
+
+      // Overview tab (existing)
       contextUsage: 'Uso do Contexto',
       contextCritical: 'Contexto crítico! Considere compactar o histórico.',
       contextWarning: 'Contexto próximo do limite.',
@@ -179,6 +187,30 @@ const ptBR = {
       tip2: '🔄 Considere resumir conversas longas',
       tip3: '🗑️ Remova mensagens desnecessárias do histórico',
       tip4: '📊 Modelos diferentes têm limites diferentes',
+
+      // Context Details tab (new)
+      contextComposition: 'Composição do Contexto',
+      component: 'Componente',
+      tokenCount: 'Contagem de Tokens',
+      systemPrompt: 'Prompt do Sistema',
+      summary: 'Resumo (Summary)',
+      messagesInContext: 'Mensagens em Contexto',
+      messagesOutOfContext: 'Mensagens Fora do Contexto',
+      messageBreakdown: 'Detalhamento de Mensagens',
+      count: 'Contagem',
+      inContext: 'Em Contexto',
+      outOfContext: 'Fora do Contexto',
+
+      // Tool Calling tab (new)
+      toolUsageDetails: 'Detalhes de Uso de Ferramentas',
+      toolsUsed: 'Ferramentas usadas: {{count}}',
+      noToolsUsed: 'Nenhuma ferramenta foi usada nesta conversa.',
+      toolName: 'Nome da Ferramenta',
+      callCount: 'Nº de Chamadas',
+
+      // Agentic Loop tab (new)
+      agenticLoopStats: 'Estatísticas do Loop Agentic',
+      agenticLoopPlaceholder: 'Informações sobre iterações do agentic loop aparecerão aqui após a primeira mensagem.',
     },
 
     channels: {
@@ -520,6 +552,13 @@ const ptBR = {
         reasoningHigh: 'Alto (high)',
         reasoningMax: 'Máximo (max)',
         reasoningHint: 'Baixo/Médio/Alto envia reasoning_effort (OpenAI, Anthropic, LiteLLM). Ollama envia think=true.',
+        agenticMaxIterations: 'Máximo de Iterações (Loop Agentico)',
+        agenticIterationsDefault: 'Padrão (25 iterações)',
+        agenticIterationsConversational: 'Conversacional',
+        agenticIterationsModerate: 'Moderado',
+        agenticIterationsAggressive: 'Agressivo (Análise Profunda)',
+        responseTimeout: 'Timeout de Resposta (segundos)',
+        responseTimeoutHint: '2ª camada de proteção contra loops infinitos. Respostas que ultrapassam esse tempo são interrompidas.',
       },
     },
 

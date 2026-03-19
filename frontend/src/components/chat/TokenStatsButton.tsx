@@ -72,6 +72,13 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
       }
     });
 
+    // Escuta atualizações em TEMPO REAL durante execução (após cada tool call)
+    const unsubscribeRealtime = EventsOn('chat:token_stats_update', (data: TokenStats) => {
+      if (data.conversationId === conversationId) {
+        setStats(data);
+      }
+    });
+
     // Escuta quando mensagens do usuário são adicionadas (antes do streaming)
     const unsubscribeMessages = EventsOn('chat:messages_ready', (data: unknown) => {
       const eventData = data as { conversationId?: number };
@@ -90,6 +97,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
 
     return () => {
       unsubscribeTokens();
+      unsubscribeRealtime();
       unsubscribeMessages();
       unsubscribeDone();
     };
@@ -146,7 +154,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
     <button
       className={`token-stats-button token-stats-button--${getStatusColor()}`}
       onClick={onOpenModal}
-      aria-label={`${ariaLabel} ${t('chat.tokenDetailsShortcut')}`}
+      aria-label={`${ariaLabel}. Consumo de contexto: ${stats.contextUsage.toFixed(1)}% ${t('chat.tokenDetailsShortcut')}`}
       title={t('chat.tokenDetailsLabel')}
     >
       <span className="token-stats-button__icon" aria-hidden="true">
@@ -161,6 +169,12 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
           </>
         )}
       </span>
+      {hasContextLimit && (
+        <span className="token-stats-button__context-badge" aria-label={`${stats.contextUsage.toFixed(1)}% do contexto consumido`}>
+          {stats.contextUsage.toFixed(1)}%
+        </span>
+      )}
     </button>
   );
 };
+

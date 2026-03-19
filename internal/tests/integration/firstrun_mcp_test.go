@@ -336,9 +336,9 @@ func TestIntegration_FirstMessageMultipleMCPServers(t *testing.T) {
 
 	// 6. Simular resultados de todos os 3 servers (em paralelo)
 	results := []struct {
-		callID   string
-		server   string
-		content  string
+		callID  string
+		server  string
+		content string
 	}{
 		{"call_github", "github", `{"repos":["golang/go","aws/aws-sdk-go"]}`},
 		{"call_fs", "filesystem", `{"content":"db: sqlite\nversion: 3"}`},

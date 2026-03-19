@@ -1,6 +1,7 @@
 package database
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"path/filepath"
@@ -611,6 +612,37 @@ type TokenStats struct {
 	Model            string `json:"model,omitempty"`
 }
 
+// ToolUsageBreakdown detalha o uso de um tool específico
+type ToolUsageBreakdown struct {
+	ToolName              string `json:"tool_name"`
+	CallCount             int    `json:"call_count"`
+	TotalPromptTokens     int    `json:"total_prompt_tokens"`
+	TotalCompletionTokens int    `json:"total_completion_tokens"`
+	TotalTokens           int    `json:"total_tokens"`
+}
+
+// DetailedTokenStats fornece breakdown detalhado de tokens por categoria
+type DetailedTokenStats struct {
+	// Dados básicos da conversa
+	PromptTokens     int    `json:"prompt_tokens"`
+	CompletionTokens int    `json:"completion_tokens"`
+	TotalTokens      int    `json:"total_tokens"`
+	MessageCount     int    `json:"message_count"`
+	Model            string `json:"model,omitempty"`
+
+	// Breakdown de contexto (sistema + resumo + mensagens)
+	SystemPromptEstimatedTokens int `json:"system_prompt_estimated_tokens"`
+	SummaryTokens               int `json:"summary_tokens"`
+	MessagesInContextCount      int `json:"messages_in_context_count"`
+	MessagesInContextTokens     int `json:"messages_in_context_tokens"`
+	MessagesOutOfContextCount   int `json:"messages_out_of_context_count"`
+	MessagesOutOfContextTokens  int `json:"messages_out_of_context_tokens"`
+
+	// Tool calling
+	ToolsUsedCount int                  `json:"tools_used_count"`
+	ToolBreakdown  []ToolUsageBreakdown `json:"tool_breakdown"`
+}
+
 // GetTurnTokenStats retorna estatísticas de tokens para um turno específico
 func GetTurnTokenStats(conversationID uint, turnID uint) (*TokenStats, error) {
 	var result struct {
@@ -666,6 +698,136 @@ func GetConversationDetailedTokenStats(conversationID uint) (*TokenStats, error)
 		MessageCount:     result.MessageCount,
 		Model:            mostUsedModel,
 	}, nil
+}
+
+// GetDetailedTokenStats retorna agregação completa de tokens com breakdown por categoria
+func GetDetailedTokenStats(conversationID uint, summaryUpToMessageID uint) (*DetailedTokenStats, error) {
+	// 1. Dados básicos da conversa
+	basicStats, err := GetConversationDetailedTokenStats(conversationID)
+	if err != nil {
+		return nil, err
+	}
+
+	// 2. Recuperar resumo (se houver)
+	summaryTokens := 0
+	summary, _, err := GetConversationSummary(conversationID)
+	if err == nil && summary != "" {
+		// Estima tokens do resumo: ~1 token a cada 4 caracteres
+		summaryTokens = (len(summary) + 3) / 4
+	}
+
+	// 3. Contar mensagens in-context vs out-of-context
+	var messagesInContextCount, messagesOutOfContextCount int
+	var messagesInContextTokens, messagesOutOfContextTokens int
+
+	// Mensagens out of context: aquelas antes de summary_up_to_message_id
+	if summaryUpToMessageID > 0 {
+		var result struct {
+			Count int
+			Total int
+		}
+		if err := db.Model(&ChatMessage{}).
+			Where("conversation_id = ? AND id <= ?", conversationID, summaryUpToMessageID).
+			Select("COUNT(*) as count, COALESCE(SUM(total_tokens), 0) as total").
+			Scan(&result).Error; err == nil {
+			messagesOutOfContextCount = result.Count
+			messagesOutOfContextTokens = result.Total
+		}
+	}
+
+	// Mensagens in context: aquelas após summary_up_to_message_id
+	if summaryUpToMessageID > 0 {
+		var result struct {
+			Count int
+			Total int
+		}
+		if err := db.Model(&ChatMessage{}).
+			Where("conversation_id = ? AND id > ?", conversationID, summaryUpToMessageID).
+			Select("COUNT(*) as count, COALESCE(SUM(total_tokens), 0) as total").
+			Scan(&result).Error; err == nil {
+			messagesInContextCount = result.Count
+			messagesInContextTokens = result.Total
+		}
+	} else {
+		// Se não há sumarização, todas são in-context
+		messagesInContextCount = basicStats.MessageCount
+		messagesInContextTokens = basicStats.TotalTokens
+	}
+
+	// 4. Breakdown de tool usage
+	toolBreakdown, toolsUsedCount := getToolUsageBreakdown(conversationID)
+
+	// Estima tokens do system prompt: ~1 token a cada 4 caracteres
+	// O DefaultSystemPrompt tem ~500 caracteres, então ~125 tokens
+	systemPromptEstimatedTokens := 125
+
+	return &DetailedTokenStats{
+		PromptTokens:                basicStats.PromptTokens,
+		CompletionTokens:            basicStats.CompletionTokens,
+		TotalTokens:                 basicStats.TotalTokens,
+		MessageCount:                basicStats.MessageCount,
+		Model:                       basicStats.Model,
+		SystemPromptEstimatedTokens: systemPromptEstimatedTokens,
+		SummaryTokens:               summaryTokens,
+		MessagesInContextCount:      messagesInContextCount,
+		MessagesInContextTokens:     messagesInContextTokens,
+		MessagesOutOfContextCount:   messagesOutOfContextCount,
+		MessagesOutOfContextTokens:  messagesOutOfContextTokens,
+		ToolsUsedCount:              toolsUsedCount,
+		ToolBreakdown:               toolBreakdown,
+	}, nil
+}
+
+// getToolUsageBreakdown extrai informações de uso de tools das mensagens
+func getToolUsageBreakdown(conversationID uint) ([]ToolUsageBreakdown, int) {
+	var messages []ChatMessage
+	db.Where("conversation_id = ? AND tool_calls != '' AND tool_calls IS NOT NULL", conversationID).
+		Select("tool_calls, prompt_tokens, completion_tokens").
+		Find(&messages)
+
+	// Map para agregar tool usage
+	toolMap := make(map[string]*ToolUsageBreakdown)
+
+	for _, msg := range messages {
+		if msg.ToolCalls == "" {
+			continue
+		}
+
+		// Parse JSON das tool calls
+		var toolCalls []map[string]interface{}
+		err := json.Unmarshal([]byte(msg.ToolCalls), &toolCalls)
+		if err != nil {
+			continue
+		}
+
+		for _, toolCall := range toolCalls {
+			if funcData, ok := toolCall["function"].(map[string]interface{}); ok {
+				if toolName, ok := funcData["name"].(string); ok {
+					if _, exists := toolMap[toolName]; !exists {
+						toolMap[toolName] = &ToolUsageBreakdown{
+							ToolName: toolName,
+						}
+					}
+					toolMap[toolName].CallCount++
+					// Distribuir tokens igualmente entre tools usados nessa mensagem
+					toolCount := len(toolCalls)
+					if toolCount > 0 {
+						toolMap[toolName].TotalPromptTokens += msg.PromptTokens / toolCount
+						toolMap[toolName].TotalCompletionTokens += msg.CompletionTokens / toolCount
+					}
+				}
+			}
+		}
+	}
+
+	// Converter map para slice
+	var result []ToolUsageBreakdown
+	for _, breakdown := range toolMap {
+		breakdown.TotalTokens = breakdown.TotalPromptTokens + breakdown.TotalCompletionTokens
+		result = append(result, *breakdown)
+	}
+
+	return result, len(toolMap)
 }
 
 // GetContextWindowUsage calcula a porcentagem de uso da janela de contexto

@@ -3,6 +3,7 @@ import { main, allowlist } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
+import { RangeSlider } from '../ui/RangeSlider';
 
 export interface ProfileToolsSectionProps {
   availableTools: main.ToolInfo[];
@@ -10,9 +11,11 @@ export interface ProfileToolsSectionProps {
   toolsDisabled?: boolean;
   commandAllowlist?: string;
   availableAllowlists: allowlist.AllowlistInfo[];
+  maxAgenticIterations?: number;
+  responseTimeout?: number;
   onChange: (
-    field: 'enabled_tools' | 'command_allowlist' | 'disable_tools',
-    value: string[] | string | boolean | null
+    field: 'enabled_tools' | 'command_allowlist' | 'disable_tools' | 'max_agentic_iterations' | 'response_timeout',
+    value: string[] | string | boolean | number | null
   ) => void;
   disabled?: boolean;
 }
@@ -29,6 +32,8 @@ export function ProfileToolsSection({
   toolsDisabled = false,
   commandAllowlist = '',
   availableAllowlists = [],
+  maxAgenticIterations = 0,
+  responseTimeout = 180,
   onChange,
   disabled = false,
 }: ProfileToolsSectionProps) {
@@ -154,7 +159,55 @@ export function ProfileToolsSection({
             className="profiles-tools-datagrid"
           />
 
-          <div className="profiles-field" style={{ marginTop: '0.75rem' }}>
+          <div className="profiles-field">
+            <RangeSlider
+              id="agentic-max-iterations"
+              label={t('profiles.agenticMaxIterations', 'Máximo de Iterações')}
+              value={maxAgenticIterations}
+              min={0}
+              max={1000}
+              step={1}
+              onChange={(value) => onChange('max_agentic_iterations', value)}
+              formatValue={(value) => {
+                if (value === 0) return t('profiles.agenticIterationsDefault', 'Padrão (25)');
+                if (value <= 25) return `${value} (Conversacional)`;
+                if (value <= 100) return `${value} (Moderado)`;
+                return `${value} (Agressivo)`;
+              }}
+              disabled={disabled}
+            />
+            <span className="profiles-field__hint">
+              {maxAgenticIterations === 0
+                ? t('profiles.agenticIterationsDefault', 'Usar padrão de 25 iterações')
+                : maxAgenticIterations <= 25
+                  ? t('profiles.agenticIterationsConversational', 'Modo conversacional - limite baixo')
+                  : maxAgenticIterations <= 100
+                    ? t('profiles.agenticIterationsModerate', 'Modo moderado - respostas mais detalhadas')
+                    : t('profiles.agenticIterationsAggressive', 'Modo agressivo - análise profunda')}
+            </span>
+          </div>
+
+          <div className="profiles-field">
+            <label htmlFor="pf-response-timeout" className="profiles-field__label">
+              {t('profiles.responseTimeout', 'Timeout de Resposta (segundos)')}
+            </label>
+            <input
+              id="pf-response-timeout"
+              type="number"
+              className="profiles-field__input"
+              min={5}
+              max={600}
+              value={responseTimeout}
+              onChange={(e) => onChange('response_timeout', parseInt(e.target.value) || 180)}
+              disabled={disabled}
+              data-testid="response-timeout-input"
+            />
+            <span className="profiles-field__hint">
+              {t('profiles.responseTimeoutHint', '2ª camada de proteção contra loops. Respostas acima desse tempo são interrompidas.')}
+            </span>
+          </div>
+
+          <div className="profiles-field">
             <label htmlFor="pf-command-allowlist" className="profiles-field__label">
               {t('profiles.fieldCommandAllowlist', 'Allowlist de Comandos')}
             </label>

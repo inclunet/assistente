@@ -475,6 +475,8 @@ export namespace llm {
 	    topP?: number;
 	    reasoningEffort?: string;
 	    profileSlug?: string;
+	    maxAgenticIterations?: number;
+	    responseTimeout?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatParams(source);
@@ -489,6 +491,8 @@ export namespace llm {
 	        this.topP = source["topP"];
 	        this.reasoningEffort = source["reasoningEffort"];
 	        this.profileSlug = source["profileSlug"];
+	        this.maxAgenticIterations = source["maxAgenticIterations"];
+	        this.responseTimeout = source["responseTimeout"];
 	    }
 	}
 	export class FunctionCall {
@@ -1337,6 +1341,26 @@ export namespace main {
 	        this.provider_id = source["provider_id"];
 	    }
 	}
+	export class ToolUsageBreakdownResult {
+	    toolName: string;
+	    callCount: number;
+	    totalPromptTokens: number;
+	    totalCompletionTokens: number;
+	    totalTokens: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ToolUsageBreakdownResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.toolName = source["toolName"];
+	        this.callCount = source["callCount"];
+	        this.totalPromptTokens = source["totalPromptTokens"];
+	        this.totalCompletionTokens = source["totalCompletionTokens"];
+	        this.totalTokens = source["totalTokens"];
+	    }
+	}
 	export class TokenStatsResult {
 	    conversationId: number;
 	    promptTokens: number;
@@ -1349,6 +1373,14 @@ export namespace main {
 	    contextLimit: number;
 	    isNearLimit: boolean;
 	    isCritical: boolean;
+	    systemPromptEstimatedTokens: number;
+	    summaryTokens: number;
+	    messagesInContextCount: number;
+	    messagesInContextTokens: number;
+	    messagesOutOfContextCount: number;
+	    messagesOutOfContextTokens: number;
+	    toolsUsedCount: number;
+	    toolBreakdown: ToolUsageBreakdownResult[];
 	
 	    static createFrom(source: any = {}) {
 	        return new TokenStatsResult(source);
@@ -1367,7 +1399,33 @@ export namespace main {
 	        this.contextLimit = source["contextLimit"];
 	        this.isNearLimit = source["isNearLimit"];
 	        this.isCritical = source["isCritical"];
+	        this.systemPromptEstimatedTokens = source["systemPromptEstimatedTokens"];
+	        this.summaryTokens = source["summaryTokens"];
+	        this.messagesInContextCount = source["messagesInContextCount"];
+	        this.messagesInContextTokens = source["messagesInContextTokens"];
+	        this.messagesOutOfContextCount = source["messagesOutOfContextCount"];
+	        this.messagesOutOfContextTokens = source["messagesOutOfContextTokens"];
+	        this.toolsUsedCount = source["toolsUsedCount"];
+	        this.toolBreakdown = this.convertValues(source["toolBreakdown"], ToolUsageBreakdownResult);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class ToolInfo {
 	    name: string;
@@ -1383,6 +1441,7 @@ export namespace main {
 	        this.description = source["description"];
 	    }
 	}
+	
 	export class TranscriptionResultInfo {
 	    text: string;
 	    language?: string;
@@ -1695,6 +1754,7 @@ export namespace profiles {
 	    command_allowlist?: string;
 	    mcp_mode?: string;
 	    mcp_native_tested?: boolean;
+	    max_agentic_iterations?: number;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatConfig(source);
@@ -1721,6 +1781,7 @@ export namespace profiles {
 	        this.command_allowlist = source["command_allowlist"];
 	        this.mcp_mode = source["mcp_mode"];
 	        this.mcp_native_tested = source["mcp_native_tested"];
+	        this.max_agentic_iterations = source["max_agentic_iterations"];
 	    }
 	}
 	export class TriggerConfig {

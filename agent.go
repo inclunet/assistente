@@ -267,7 +267,11 @@ func (a *App) runAgenticLoop(
 		return
 	}
 
-	maxIterations := a.toolExecutor.Config().MaxIterations
+	// Resolver maxIterations: usar valor do perfil (params.MaxAgenticIterations) ou fallback ao config
+	maxIterations := params.MaxAgenticIterations
+	if maxIterations <= 0 {
+		maxIterations = a.toolExecutor.Config().MaxIterations // Fallback ao default (25)
+	}
 
 	// Caso especial: perfil do editor (somente text_edit).
 	// Aqui queremos: 1) forçar que o modelo chame a tool na 1ª iteração, e
@@ -416,7 +420,31 @@ func (a *App) runAgenticLoop(
 				execResult.ToolName, execResult.CallID, len(execResult.Result.Content))
 		}
 
-		// 6e. Continua o loop → próxima iteração chama o LLM com os resultados
+		// 6e. Emite evento de atualização de tokens em tempo real
+		// Após a execução de cada tool, envia stats atualizadas para o frontend
+		if stats, err := a.GetConversationTokenStats(conversationID); err == nil && stats != nil {
+			// Converte TokenStatsResult para map[string]interface{} para emissão de eventos
+			statsData := map[string]interface{}{
+				"conversationId":              conversationID,
+				"promptTokens":                stats.PromptTokens,
+				"completionTokens":            stats.CompletionTokens,
+				"totalTokens":                 stats.TotalTokens,
+				"contextUsage":                stats.ContextUsage,
+				"contextLimit":                stats.ContextLimit,
+				"isNearLimit":                 stats.IsNearLimit,
+				"isCritical":                  stats.IsCritical,
+				"messageCount":                stats.MessageCount,
+				"systemPromptEstimatedTokens": stats.SystemPromptEstimatedTokens,
+				"summaryTokens":               stats.SummaryTokens,
+				"messagesInContextCount":      stats.MessagesInContextCount,
+				"messagesInContextTokens":     stats.MessagesInContextTokens,
+				"toolsUsedCount":              stats.ToolsUsedCount,
+				"toolBreakdown":               stats.ToolBreakdown,
+			}
+			runtime.EventsEmit(a.ctx, "chat:token_stats_update", statsData)
+		}
+
+		// 6f. Continua o loop → próxima iteração chama o LLM com os resultados
 		if editorToolOnly {
 			// Para o editor, o tool_result já é o resultado final do turno.
 			// Emite eventos de conclusão e encerra sem rodada extra do LLM.

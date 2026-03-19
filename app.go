@@ -2286,6 +2286,15 @@ type LLMSettings struct {
 // Token Stats API
 // ============================================================================
 
+// ToolUsageBreakdownResult contém informações de uso de uma ferramenta
+type ToolUsageBreakdownResult struct {
+	ToolName              string `json:"toolName"`
+	CallCount             int    `json:"callCount"`
+	TotalPromptTokens     int    `json:"totalPromptTokens"`
+	TotalCompletionTokens int    `json:"totalCompletionTokens"`
+	TotalTokens           int    `json:"totalTokens"`
+}
+
 // TokenStatsResult representa estatísticas de tokens para o frontend
 type TokenStatsResult struct {
 	ConversationID   uint    `json:"conversationId"`
@@ -2299,23 +2308,60 @@ type TokenStatsResult struct {
 	ContextLimit     int     `json:"contextLimit"` // Limite de tokens do modelo
 	IsNearLimit      bool    `json:"isNearLimit"`  // True se >= 80% do limite
 	IsCritical       bool    `json:"isCritical"`   // True se >= 95% do limite
+
+	// Breakdown detalhado de tokens
+	SystemPromptEstimatedTokens int                        `json:"systemPromptEstimatedTokens"`
+	SummaryTokens               int                        `json:"summaryTokens"`
+	MessagesInContextCount      int                        `json:"messagesInContextCount"`
+	MessagesInContextTokens     int                        `json:"messagesInContextTokens"`
+	MessagesOutOfContextCount   int                        `json:"messagesOutOfContextCount"`
+	MessagesOutOfContextTokens  int                        `json:"messagesOutOfContextTokens"`
+	ToolsUsedCount              int                        `json:"toolsUsedCount"`
+	ToolBreakdown               []ToolUsageBreakdownResult `json:"toolBreakdown"`
 }
 
 // GetConversationTokenStats retorna estatísticas de tokens de uma conversa
 func (a *App) GetConversationTokenStats(conversationID uint) (*TokenStatsResult, error) {
-	stats, err := database.GetConversationDetailedTokenStats(conversationID)
+	// Recuperar summaryUpToMessageID para cálculo de mensagens in/out of context
+	summaryUpToMessageID := uint(0)
+	summary, upToID, _ := database.GetConversationSummary(conversationID)
+	if summary != "" {
+		summaryUpToMessageID = upToID
+	}
+
+	detailedStats, err := database.GetDetailedTokenStats(conversationID, summaryUpToMessageID)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar estatísticas de tokens: %w", err)
 	}
 
+	// Map tool usage breakdown
+	toolBreakdown := make([]ToolUsageBreakdownResult, len(detailedStats.ToolBreakdown))
+	for i, tool := range detailedStats.ToolBreakdown {
+		toolBreakdown[i] = ToolUsageBreakdownResult{
+			ToolName:              tool.ToolName,
+			CallCount:             tool.CallCount,
+			TotalPromptTokens:     tool.TotalPromptTokens,
+			TotalCompletionTokens: tool.TotalCompletionTokens,
+			TotalTokens:           tool.TotalTokens,
+		}
+	}
+
 	result := &TokenStatsResult{
-		ConversationID:   conversationID,
-		PromptTokens:     stats.PromptTokens,
-		CompletionTokens: stats.CompletionTokens,
-		TotalTokens:      stats.TotalTokens,
-		MessageCount:     stats.MessageCount,
-		Model:            stats.Model,
-		MostUsedModel:    stats.Model, // Por enquanto, usar o mesmo valor de Model
+		ConversationID:              conversationID,
+		PromptTokens:                detailedStats.PromptTokens,
+		CompletionTokens:            detailedStats.CompletionTokens,
+		TotalTokens:                 detailedStats.TotalTokens,
+		MessageCount:                detailedStats.MessageCount,
+		Model:                       detailedStats.Model,
+		MostUsedModel:               detailedStats.Model,
+		SystemPromptEstimatedTokens: detailedStats.SystemPromptEstimatedTokens,
+		SummaryTokens:               detailedStats.SummaryTokens,
+		MessagesInContextCount:      detailedStats.MessagesInContextCount,
+		MessagesInContextTokens:     detailedStats.MessagesInContextTokens,
+		MessagesOutOfContextCount:   detailedStats.MessagesOutOfContextCount,
+		MessagesOutOfContextTokens:  detailedStats.MessagesOutOfContextTokens,
+		ToolsUsedCount:              detailedStats.ToolsUsedCount,
+		ToolBreakdown:               toolBreakdown,
 	}
 
 	// Busca informações do perfil ativo para obter o limite de contexto
@@ -4230,23 +4276,23 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 						Type:     "single_choice",
 						Prompt:   "Qual provedor de IA você deseja usar?",
 						Required: true,
-					Options: []string{
-						"OpenAI",
-						"Anthropic (Claude)",
-						"Google (Gemini)",
-						"DeepSeek",
-						"xAI (Grok)",
-						"OpenRouter",
-						"Mistral AI",
-						"Groq",
-						"Together AI",
-						"Fireworks AI",
-						"Perplexity",
-						"Azure OpenAI",
-						"Ollama (Local)",
-						"LiteLLM",
-						"Outro (URL personalizada)",
-					},
+						Options: []string{
+							"OpenAI",
+							"Anthropic (Claude)",
+							"Google (Gemini)",
+							"DeepSeek",
+							"xAI (Grok)",
+							"OpenRouter",
+							"Mistral AI",
+							"Groq",
+							"Together AI",
+							"Fireworks AI",
+							"Perplexity",
+							"Azure OpenAI",
+							"Ollama (Local)",
+							"LiteLLM",
+							"Outro (URL personalizada)",
+						},
 						Default: provider, // Mantém seleção anterior se voltar
 					},
 				},

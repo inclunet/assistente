@@ -31,10 +31,18 @@ type ConfirmFunc func(ctx context.Context, command, workDir string) (bool, error
 // Retorna nil se nenhuma allowlist está configurada.
 type GetAllowlistFunc func() *allowlist.Allowlist
 
+// SessionManager é a interface para gerenciar sessões PTY.
+// Permite mockar o Manager para testes.
+type SessionManager interface {
+	Acquire(ctx context.Context, workDir string) (*terminal.Session, error)
+	RunCommand(ctx context.Context, sessionID string, command string, timeout time.Duration, requesterID string) (*terminal.HistoryEntry, error)
+	Release(sessionID string)
+}
+
 // RunCommand é a ferramenta que executa comandos shell via PTY.
 // Suporta allowlist para controle de acesso e confirmação do usuário.
 type RunCommand struct {
-	sessionMgr     *terminal.Manager
+	sessionMgr     SessionManager
 	confirmFn      ConfirmFunc
 	getAllowlistFn GetAllowlistFunc
 	workDir        string
@@ -42,7 +50,7 @@ type RunCommand struct {
 
 // NewRunCommand cria uma nova instância da ferramenta run_command.
 func NewRunCommand(
-	sessionMgr *terminal.Manager,
+	sessionMgr SessionManager,
 	confirmFn ConfirmFunc,
 	getAllowlistFn GetAllowlistFunc,
 	workDir string,

@@ -541,6 +541,8 @@ export default function ProfilesPage() {
                 toolsDisabled={editingProfile.chat?.disable_tools ?? false}
                 commandAllowlist={editingProfile.chat?.command_allowlist || ''}
                 availableAllowlists={availableAllowlists}
+                maxAgenticIterations={editingProfile.chat?.max_agentic_iterations ?? 0}
+                responseTimeout={editingProfile.chat?.response_timeout ?? 180}
                 onChange={(field, value) => updateField(`chat.${field}`, value)}
               />
             </section>
