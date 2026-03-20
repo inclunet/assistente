@@ -48,7 +48,11 @@ export function ClearMCPTest(arg1:string):Promise<void>;
 
 export function ClearMessages():Promise<void>;
 
+export function CloneTaskList(arg1:number,arg2:string):Promise<database.TaskList>;
+
 export function CloseTab(arg1:number):Promise<void>;
+
+export function CloseTaskListTab(arg1:number):Promise<void>;
 
 export function CloseTerminalSession(arg1:string):Promise<void>;
 
@@ -76,6 +80,12 @@ export function CreateTab(arg1:string,arg2:string,arg3:boolean):Promise<database
 
 export function CreateTabWithConversation():Promise<database.ChatTab>;
 
+export function CreateTask(arg1:number,arg2:string,arg3:string,arg4:any):Promise<database.Task>;
+
+export function CreateTaskList(arg1:string,arg2:string,arg3:boolean,arg4:any):Promise<database.TaskList>;
+
+export function CreateTaskListTab(arg1:number,arg2:string):Promise<database.TaskListTab>;
+
 export function CreateTerminalSession(arg1:string):Promise<terminal.SessionInfo>;
 
 export function DeleteAllowlist(arg1:string):Promise<void>;
@@ -97,6 +107,12 @@ export function DeleteMessages(arg1:number,arg2:Array<number>):Promise<void>;
 export function DeleteProfile(arg1:string):Promise<void>;
 
 export function DeleteSkill(arg1:string):Promise<void>;
+
+export function DeleteTask(arg1:number):Promise<void>;
+
+export function DeleteTaskList(arg1:number):Promise<void>;
+
+export function DemoteTask(arg1:number,arg2:number):Promise<void>;
 
 export function DisconnectMCPServer(arg1:string):Promise<void>;
 
@@ -149,6 +165,8 @@ export function GetActiveTab():Promise<database.ChatTab>;
 export function GetAllChannelConfigs():Promise<Record<string, channels.ChannelConfig>>;
 
 export function GetAllTabs():Promise<Array<database.ChatTab>>;
+
+export function GetAllTaskLists():Promise<Array<database.TaskList>>;
 
 export function GetAllTokenStats():Promise<Record<string, number>>;
 
@@ -244,7 +262,25 @@ export function GetSkillSearchPaths():Promise<Array<string>>;
 
 export function GetSkills():Promise<Array<skills.SkillInfo>>;
 
+export function GetSubtasks(arg1:number):Promise<Array<database.Task>>;
+
 export function GetTabs():Promise<main.TabsResponse>;
+
+export function GetTask(arg1:number):Promise<database.Task>;
+
+export function GetTaskList(arg1:number):Promise<database.TaskList>;
+
+export function GetTaskListStats(arg1:number):Promise<Record<string, any>>;
+
+export function GetTaskListTabs():Promise<Array<database.TaskListTab>>;
+
+export function GetTaskListWithHierarchy(arg1:number):Promise<database.TaskList>;
+
+export function GetTaskListsByConversation(arg1:number):Promise<Array<database.TaskList>>;
+
+export function GetTasksByStatus(arg1:number,arg2:number):Promise<Array<database.Task>>;
+
+export function GetTasksByTaskListID(arg1:number):Promise<Array<database.Task>>;
 
 export function GetTerminalHistory(arg1:string):Promise<Array<terminal.HistoryEntry>>;
 
@@ -253,6 +289,8 @@ export function GetTerminalStats():Promise<terminal.ManagerStats>;
 export function GetTurnTokenStats(arg1:number,arg2:number):Promise<main.TokenStatsResult>;
 
 export function GetUserInvocableSkills():Promise<Array<skills.SkillInfo>>;
+
+export function GetWorkflow(arg1:number):Promise<database.TaskListWorkflow>;
 
 export function ImportConversations(arg1:string):Promise<main.ImportResult>;
 
@@ -265,6 +303,8 @@ export function InterruptTerminalCommand(arg1:string):Promise<void>;
 export function IsGlobalHotkeySupported():Promise<boolean>;
 
 export function IsSAPI5Speaking():Promise<boolean>;
+
+export function LinkTaskListToConversation(arg1:number,arg2:number):Promise<void>;
 
 export function ListCredentials():Promise<Array<main.CredentialSummary>>;
 
@@ -284,6 +324,8 @@ export function OpenConversationInNewTab(arg1:number):Promise<database.ChatTab>;
 
 export function PreviewVoiceSettings(arg1:string,arg2:string,arg3:number,arg4:number,arg5:number,arg6:string):Promise<void>;
 
+export function PromoteTask(arg1:number):Promise<void>;
+
 export function ReadMCPResource(arg1:string,arg2:string):Promise<string>;
 
 export function RebuildSearchIndex():Promise<void>;
@@ -299,6 +341,10 @@ export function RenameConversation(arg1:number,arg2:string):Promise<void>;
 export function RenameTab(arg1:number,arg2:string):Promise<void>;
 
 export function ReorderTabs(arg1:Array<number>):Promise<void>;
+
+export function ReorderTasks(arg1:number,arg2:number,arg3:Array<number>):Promise<void>;
+
+export function ReorderWorkflowStatuses(arg1:number,arg2:Array<number>):Promise<void>;
 
 export function ResetConfig():Promise<void>;
 
@@ -336,6 +382,8 @@ export function SetActiveProfile(arg1:string):Promise<void>;
 
 export function SetActiveTab(arg1:number):Promise<void>;
 
+export function SetActiveTaskListTab(arg1:number):Promise<void>;
+
 export function SetChatModel(arg1:string):Promise<void>;
 
 export function SetConversationModel(arg1:number,arg2:string):Promise<void>;
@@ -351,6 +399,8 @@ export function SetOpenAITTSVoice(arg1:string):Promise<void>;
 export function SetSAPI5Rate(arg1:number):Promise<void>;
 
 export function SetSAPI5Volume(arg1:number):Promise<void>;
+
+export function SetTaskListViewMode(arg1:number,arg2:string):Promise<void>;
 
 export function SignalCheckAPI(arg1:string,arg2:string):Promise<Record<string, any>>;
 
@@ -396,6 +446,8 @@ export function TranscribeWhisper(arg1:string,arg2:string):Promise<main.Transcri
 
 export function UnassignConversationFromChannel(arg1:number):Promise<void>;
 
+export function UnlinkTaskListFromConversation(arg1:number):Promise<void>;
+
 export function UnsubscribeFromMCPResource(arg1:string,arg2:string):Promise<void>;
 
 export function UpdateAllowlist(arg1:string,arg2:allowlist.Allowlist):Promise<void>;
@@ -416,4 +468,14 @@ export function UpdateSkill(arg1:string,arg2:main.SkillCreateRequest):Promise<vo
 
 export function UpdateTabTitle(arg1:number,arg2:string):Promise<void>;
 
+export function UpdateTask(arg1:number,arg2:string,arg3:string):Promise<void>;
+
+export function UpdateTaskList(arg1:number,arg2:string,arg3:string):Promise<void>;
+
+export function UpdateTaskStatus(arg1:number,arg2:number):Promise<void>;
+
+export function UpdateWorkflow(arg1:number,arg2:Array<database.TaskListWorkflowStatus>,arg3:Record<number, Array<number>>):Promise<void>;
+
 export function UpsertCredential(arg1:main.CredentialInput):Promise<void>;
+
+export function ValidateStatusTransition(arg1:number,arg2:number,arg3:number):Promise<void>;

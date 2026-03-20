@@ -13,6 +13,7 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
+import { ResourcesMenu } from './ResourcesMenu';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
@@ -213,6 +214,13 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             <TokenStatsButton
               conversationId={activeTab?.conversationId}
               onOpenModal={() => setIsTokenModalOpen(true)}
+            />
+
+            <ToolbarSeparator />
+
+            <ResourcesMenu
+              conversationId={activeTab?.conversationId}
+              disabled={isLoading}
             />
 
             <ToolbarSeparator />

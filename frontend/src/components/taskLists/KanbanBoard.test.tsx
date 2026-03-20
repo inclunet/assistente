@@ -1,0 +1,364 @@
+import { describe, expect, it, vi, beforeEach } from 'vitest';
+import type { ReactNode } from 'react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+
+/* ── Mock fns ──────────────────────────────────────────────── */
+
+const mockUpdateTaskStatus = vi.fn();
+const mockReorderTasks = vi.fn();
+const mockDeleteTask = vi.fn();
+const mockUpdateTask = vi.fn();
+const mockAnnounce = vi.fn();
+
+/* ── Mocks de módulos ──────────────────────────────────────── */
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (_key: string, fallback?: string) => fallback ?? _key,
+  }),
+}));
+
+vi.mock('../../store/taskListStore', () => ({
+  useTaskListStore: Object.assign(
+    () => ({
+      updateTaskStatus: mockUpdateTaskStatus,
+      reorderTasks: mockReorderTasks,
+      deleteTask: mockDeleteTask,
+      updateTask: mockUpdateTask,
+    }),
+    { getState: () => ({ updateTask: mockUpdateTask }) },
+  ),
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({ announce: mockAnnounce }),
+}));
+
+vi.mock('../../hooks/useAnchoredContextMenu', () => ({
+  useAnchoredContextMenu: () => ({
+    menu: { visible: false, x: 0, y: 0, items: [], ariaLabel: '' },
+    triggerElementRef: { current: null },
+    openForTrigger: vi.fn(),
+    openAtPoint: vi.fn(),
+    closeMenu: vi.fn(),
+    onSelectItem: vi.fn(),
+  }),
+}));
+
+vi.mock('../menu', () => ({
+  ContextMenu: () => null,
+}));
+
+vi.mock('../ui/Modal', () => ({
+  Modal: ({ isOpen, children, title }: { isOpen: boolean; children: ReactNode; title?: string }) =>
+    isOpen ? (
+      <div data-testid="modal">
+        {title && <h2>{title}</h2>}
+        {children}
+      </div>
+    ) : null,
+}));
+
+vi.mock('./TaskForm', () => ({
+  default: ({ onSuccess, onCancel }: { onSuccess?: (t: unknown) => void; onCancel?: () => void }) => (
+    <div data-testid="task-form">
+      <button onClick={() => onSuccess?.({ id: 99, title: 'Nova', taskListId: 1, statusId: 1, order: 0, description: '', createdAt: '', updatedAt: '' })}>
+        salvar
+      </button>
+      <button onClick={onCancel}>cancelar</button>
+    </div>
+  ),
+}));
+
+/* ── Dados de teste ────────────────────────────────────────── */
+
+const statuses = [
+  { id: 1, order: 0, label: 'A Fazer', color: 'gray', icon: '⌛' },
+  { id: 2, order: 1, label: 'Em Progresso', color: 'blue', icon: '▶️' },
+  { id: 3, order: 2, label: 'Concluído', color: 'green', icon: '✅' },
+];
+
+const workflow = {
+  id: 1,
+  taskListId: 1,
+  statuses,
+  allowedTransitions: { 1: [2, 3], 2: [1, 3], 3: [1, 2] },
+  initialStatusId: 1,
+  createdAt: '2024-01-01T00:00:00Z',
+  updatedAt: '2024-01-01T00:00:00Z',
+};
+
+const makeTasks = () => [
+  { id: 10, taskListId: 1, title: 'Tarefa Alpha', description: '', statusId: 1, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+  { id: 11, taskListId: 1, title: 'Tarefa Beta', description: '', statusId: 1, order: 1, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+  { id: 12, taskListId: 1, title: 'Tarefa Gamma', description: '', statusId: 2, order: 0, createdAt: '2024-01-01', updatedAt: '2024-01-01' },
+];
+
+const makeTaskList = (tasks = makeTasks()) => ({
+  id: 1,
+  title: 'Minha Lista',
+  description: '',
+  preferredViewMode: 'kanban' as const,
+  createdAt: '2024-01-01',
+  updatedAt: '2024-01-01',
+  workflow,
+  tasks,
+});
+
+/* ── Suíte de testes ───────────────────────────────────────── */
+
+describe('KanbanBoard', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockUpdateTaskStatus.mockResolvedValue(undefined);
+    mockReorderTasks.mockResolvedValue(undefined);
+    mockDeleteTask.mockResolvedValue(undefined);
+    mockUpdateTask.mockResolvedValue(undefined);
+  });
+
+  async function renderBoard(tasks = makeTasks()) {
+    const taskList = makeTaskList(tasks);
+    const { default: KanbanBoard } = await import('./KanbanBoard');
+    return render(
+      <KanbanBoard taskListId={1} tasks={tasks} taskList={taskList} />,
+    );
+  }
+
+  // ── Renderização ──────────────────────────────────────────
+
+  it('renderiza colunas por status do workflow', async () => {
+    await renderBoard();
+
+    expect(screen.getByText('A Fazer')).toBeInTheDocument();
+    expect(screen.getByText('Em Progresso')).toBeInTheDocument();
+    expect(screen.getByText('Concluído')).toBeInTheDocument();
+  });
+
+  it('distribui cards nas colunas corretas', async () => {
+    await renderBoard();
+
+    // A Fazer tem 2 tarefas
+    expect(screen.getByText('Tarefa Alpha')).toBeInTheDocument();
+    expect(screen.getByText('Tarefa Beta')).toBeInTheDocument();
+    // Em Progresso tem 1
+    expect(screen.getByText('Tarefa Gamma')).toBeInTheDocument();
+  });
+
+  it('mostra contagem de cards em cada coluna', async () => {
+    await renderBoard();
+
+    // Contagens (aria-hidden, mas no DOM)
+    const counts = screen.getAllByText(/^[0-3]$/);
+    // Deve haver "2" para A Fazer, "1" para Em Progresso, "0" para Concluído
+    const countTexts = counts.map((el) => el.textContent);
+    expect(countTexts).toContain('2');
+    expect(countTexts).toContain('1');
+    expect(countTexts).toContain('0');
+  });
+
+  // ── Acessibilidade ────────────────────────────────────────
+
+  it('tem role=grid e aria-label no board', async () => {
+    await renderBoard();
+
+    const board = screen.getByRole('grid');
+    expect(board).toHaveAttribute('aria-label');
+    // O mock de t() retorna o fallback com {{name}} literal
+    expect(board.getAttribute('aria-label')).toContain('Kanban');
+  });
+
+  it('contém instruções de teclado em sr-only', async () => {
+    await renderBoard();
+
+    const instructions = document.getElementById('kanban-instructions');
+    expect(instructions).toBeInTheDocument();
+    expect(instructions?.textContent).toContain('setas');
+  });
+
+  it('anuncia card ao receber foco no board', async () => {
+    await renderBoard();
+
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('Tarefa Alpha'),
+      'assertive',
+    );
+  });
+
+  // ── Navegação por teclado ─────────────────────────────────
+
+  it('navega entre cards com ArrowDown', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+    mockAnnounce.mockClear();
+
+    fireEvent.keyDown(board, { key: 'ArrowDown' });
+
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('Tarefa Beta'),
+      'assertive',
+    );
+  });
+
+  it('navega entre colunas com ArrowRight', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+    mockAnnounce.mockClear();
+
+    fireEvent.keyDown(board, { key: 'ArrowRight' });
+
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('Tarefa Gamma'),
+      'assertive',
+    );
+  });
+
+  // ── Reordenar com Alt+Arrow ───────────────────────────────
+
+  it('reordena card com Alt+ArrowDown', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    fireEvent.keyDown(board, { key: 'ArrowDown', altKey: true });
+
+    await waitFor(() => {
+      expect(mockReorderTasks).toHaveBeenCalledWith(1, 1, [11, 10]);
+    });
+  });
+
+  // ── Mover entre colunas com Alt+ArrowRight ────────────────
+
+  it('move card para outra coluna com Alt+ArrowRight', async () => {
+    await renderBoard();
+
+    // Foca o primeiro card ("Tarefa Alpha", col 0)
+    const card = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+    expect(card).toBeTruthy();
+
+    fireEvent.keyDown(card!, { key: 'ArrowRight', altKey: true });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith(10, 2);
+    });
+  });
+
+  // ── Grab/Drop com Space ───────────────────────────────────
+
+  it('graba e solta card com Space', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+    mockAnnounce.mockClear();
+
+    // Grab
+    fireEvent.keyDown(board, { key: ' ' });
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('selecionado'),
+      'assertive',
+    );
+
+    mockAnnounce.mockClear();
+
+    // Drop
+    fireEvent.keyDown(board, { key: ' ' });
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('solto'),
+      'assertive',
+    );
+  });
+
+  it('cancela grab com Escape', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    fireEvent.keyDown(board, { key: ' ' }); // grab
+    mockAnnounce.mockClear();
+
+    fireEvent.keyDown(board, { key: 'Escape' });
+    expect(mockAnnounce).toHaveBeenCalledWith(
+      expect.stringContaining('cancelada'),
+      'assertive',
+    );
+  });
+
+  // ── Delete ────────────────────────────────────────────────
+
+  it('deleta card com Delete', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    fireEvent.keyDown(board, { key: 'Delete' });
+
+    await waitFor(() => {
+      expect(mockDeleteTask).toHaveBeenCalledWith(10);
+    });
+  });
+
+  // ── F2 Rename ─────────────────────────────────────────────
+
+  it('inicia rename com F2 e salva com Enter', async () => {
+    await renderBoard();
+    const board = screen.getByRole('grid');
+    fireEvent.focus(board);
+
+    fireEvent.keyDown(board, { key: 'F2' });
+
+    const input = await screen.findByRole('textbox', { name: /Renomear/i });
+    expect(input).toBeInTheDocument();
+
+    fireEvent.change(input, { target: { value: 'Novo Nome' } });
+    fireEvent.keyDown(input, { key: 'Enter' });
+
+    await waitFor(() => {
+      expect(mockUpdateTask).toHaveBeenCalledWith(10, 'Novo Nome');
+    });
+  });
+
+  // ── Drag & Drop visual ───────────────────────────────────
+
+  it('aceita drop de tarefa em outra coluna', async () => {
+    await renderBoard();
+
+    // Simula drag start no card
+    const card = screen.getByText('Tarefa Alpha').closest('.kanban-card');
+    expect(card).toBeTruthy();
+
+    // Encontra a coluna "Em Progresso" (segunda coluna)
+    const columns = document.querySelectorAll('.kanban-column');
+    const progressColumn = columns[1];
+
+    const dataTransfer = {
+      setData: vi.fn(),
+      getData: vi.fn().mockReturnValue('10'),
+      effectAllowed: '',
+      dropEffect: '',
+    };
+
+    fireEvent.dragStart(card!, { dataTransfer });
+    expect(dataTransfer.setData).toHaveBeenCalledWith('text/plain', '10');
+
+    fireEvent.dragOver(progressColumn, { dataTransfer });
+    fireEvent.drop(progressColumn, { dataTransfer });
+
+    await waitFor(() => {
+      expect(mockUpdateTaskStatus).toHaveBeenCalledWith(10, 2);
+    });
+  });
+
+  // ── Coluna vazia ──────────────────────────────────────────
+
+  it('mostra texto de coluna vazia para status sem cards', async () => {
+    await renderBoard();
+
+    // Concluído não tem tarefas
+    const emptyTexts = screen.getAllByText('coluna vazia');
+    expect(emptyTexts.length).toBeGreaterThanOrEqual(1);
+  });
+});

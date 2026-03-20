@@ -1,0 +1,170 @@
+/* TasksTable Component */
+
+.tasks-table-container {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-md);
+  flex: 1;
+}
+
+.tasks-table-toolbar {
+  display: flex;
+  gap: var(--spacing-sm);
+  align-items: center;
+  padding: var(--spacing-sm) 0;
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.tasks-table-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-xl);
+  min-height: 300px;
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+}
+
+.tasks-table-empty p {
+  margin: 0;
+  font-size: 1rem;
+}
+
+/* Task Row Styling */
+
+.task-title-cell {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  flex: 1;
+}
+
+.task-checkbox {
+  min-width: 20px;
+  width: 20px;
+  height: 20px;
+  cursor: pointer;
+  accent-color: var(--accent);
+}
+
+.task-completed {
+  text-decoration: line-through;
+  color: var(--text-muted);
+}
+
+.task-status {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-sm);
+  font-size: 0.875rem;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+
+.task-status-pending {
+  background-color: var(--color-info);
+  color: white;
+}
+
+.task-status-completed {
+  background-color: var(--color-success);
+  color: white;
+}
+
+.task-status-cancelled {
+  background-color: var(--color-warning);
+  color: white;
+}
+
+.task-overdue {
+  color: var(--color-danger);
+  font-weight: 500;
+}
+
+/* Task Actions */
+
+.task-actions {
+  display: flex;
+  gap: var(--spacing-xs);
+  justify-content: flex-end;
+}
+
+.task-action-btn {
+  background: none;
+  border: none;
+  padding: var(--spacing-xs);
+  cursor: pointer;
+  font-size: 1.125rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: background-color 0.2s ease, opacity 0.2s ease;
+  opacity: 0.7;
+}
+
+.task-action-btn:hover {
+  opacity: 1;
+  background-color: var(--bg-hover);
+}
+
+.task-action-btn:focus {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.task-action-btn.task-edit {
+  color: var(--accent);
+}
+
+.task-action-btn.task-delete {
+  color: var(--color-danger);
+}
+
+.task-action-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Demote Modal */
+.demote-task-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--radius-sm);
+}
+
+.demote-task-hint {
+  margin: 0 0 var(--radius-sm) 0;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+}
+
+.demote-task-option {
+  display: block;
+  width: 100%;
+  padding: var(--radius-md);
+  text-align: left;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  font-size: 0.9375rem;
+  transition: background-color 0.15s ease, border-color 0.15s ease;
+}
+
+.demote-task-option:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-default);
+}
+
+.demote-task-option:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}

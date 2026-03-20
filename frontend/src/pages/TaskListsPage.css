@@ -1,0 +1,104 @@
+.tasklist-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: var(--radius-md);
+  padding: var(--radius-md);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+}
+
+/* Tabs row with history picker */
+.tasklist-page__tabs-row {
+  display: flex;
+  align-items: center;
+  gap: var(--radius-sm);
+}
+
+.tasklist-page__tabs-row > [role="tablist"] {
+  flex: 1;
+  min-width: 0;
+}
+
+.tasklist-page__history-picker {
+  flex-shrink: 0;
+}
+
+/* HOME Tab Content */
+.tasklist-home {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: var(--radius-md);
+}
+
+/* TaskList Detail Tab Content */
+.tasklist-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: var(--radius-md);
+}
+
+.tasklist-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 1.1em;
+}
+
+/* Empty State */
+.tasklist-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--radius-md);
+  padding: var(--radius-lg);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.tasklist-empty-message {
+  font-size: 1.1em;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.tasklist-empty-hint {
+  font-size: 0.95em;
+  color: var(--text-muted);
+}
+
+.tasklist-error {
+  padding: var(--radius-md);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--color-danger);
+  border-radius: var(--radius-md);
+  color: var(--color-danger);
+}
+
+.tasklist-create-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--radius-md);
+  padding: var(--radius-md);
+}
+
+.tasklist-create-form input {
+  padding: var(--radius-sm) var(--radius-md);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-input);
+  color: var(--text-primary);
+  font: inherit;
+}
+
+.tasklist-form-actions {
+  display: flex;
+  gap: var(--radius-md);
+  justify-content: flex-end;
+}

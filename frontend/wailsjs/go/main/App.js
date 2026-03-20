@@ -70,8 +70,16 @@ export function ClearMessages() {
   return window['go']['main']['App']['ClearMessages']();
 }
 
+export function CloneTaskList(arg1, arg2) {
+  return window['go']['main']['App']['CloneTaskList'](arg1, arg2);
+}
+
 export function CloseTab(arg1) {
   return window['go']['main']['App']['CloseTab'](arg1);
+}
+
+export function CloseTaskListTab(arg1) {
+  return window['go']['main']['App']['CloseTaskListTab'](arg1);
 }
 
 export function CloseTerminalSession(arg1) {
@@ -126,6 +134,18 @@ export function CreateTabWithConversation() {
   return window['go']['main']['App']['CreateTabWithConversation']();
 }
 
+export function CreateTask(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['CreateTask'](arg1, arg2, arg3, arg4);
+}
+
+export function CreateTaskList(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['CreateTaskList'](arg1, arg2, arg3, arg4);
+}
+
+export function CreateTaskListTab(arg1, arg2) {
+  return window['go']['main']['App']['CreateTaskListTab'](arg1, arg2);
+}
+
 export function CreateTerminalSession(arg1) {
   return window['go']['main']['App']['CreateTerminalSession'](arg1);
 }
@@ -168,6 +188,18 @@ export function DeleteProfile(arg1) {
 
 export function DeleteSkill(arg1) {
   return window['go']['main']['App']['DeleteSkill'](arg1);
+}
+
+export function DeleteTask(arg1) {
+  return window['go']['main']['App']['DeleteTask'](arg1);
+}
+
+export function DeleteTaskList(arg1) {
+  return window['go']['main']['App']['DeleteTaskList'](arg1);
+}
+
+export function DemoteTask(arg1, arg2) {
+  return window['go']['main']['App']['DemoteTask'](arg1, arg2);
 }
 
 export function DisconnectMCPServer(arg1) {
@@ -272,6 +304,10 @@ export function GetAllChannelConfigs() {
 
 export function GetAllTabs() {
   return window['go']['main']['App']['GetAllTabs']();
+}
+
+export function GetAllTaskLists() {
+  return window['go']['main']['App']['GetAllTaskLists']();
 }
 
 export function GetAllTokenStats() {
@@ -462,8 +498,44 @@ export function GetSkills() {
   return window['go']['main']['App']['GetSkills']();
 }
 
+export function GetSubtasks(arg1) {
+  return window['go']['main']['App']['GetSubtasks'](arg1);
+}
+
 export function GetTabs() {
   return window['go']['main']['App']['GetTabs']();
+}
+
+export function GetTask(arg1) {
+  return window['go']['main']['App']['GetTask'](arg1);
+}
+
+export function GetTaskList(arg1) {
+  return window['go']['main']['App']['GetTaskList'](arg1);
+}
+
+export function GetTaskListStats(arg1) {
+  return window['go']['main']['App']['GetTaskListStats'](arg1);
+}
+
+export function GetTaskListTabs() {
+  return window['go']['main']['App']['GetTaskListTabs']();
+}
+
+export function GetTaskListWithHierarchy(arg1) {
+  return window['go']['main']['App']['GetTaskListWithHierarchy'](arg1);
+}
+
+export function GetTaskListsByConversation(arg1) {
+  return window['go']['main']['App']['GetTaskListsByConversation'](arg1);
+}
+
+export function GetTasksByStatus(arg1, arg2) {
+  return window['go']['main']['App']['GetTasksByStatus'](arg1, arg2);
+}
+
+export function GetTasksByTaskListID(arg1) {
+  return window['go']['main']['App']['GetTasksByTaskListID'](arg1);
 }
 
 export function GetTerminalHistory(arg1) {
@@ -480,6 +552,10 @@ export function GetTurnTokenStats(arg1, arg2) {
 
 export function GetUserInvocableSkills() {
   return window['go']['main']['App']['GetUserInvocableSkills']();
+}
+
+export function GetWorkflow(arg1) {
+  return window['go']['main']['App']['GetWorkflow'](arg1);
 }
 
 export function ImportConversations(arg1) {
@@ -504,6 +580,10 @@ export function IsGlobalHotkeySupported() {
 
 export function IsSAPI5Speaking() {
   return window['go']['main']['App']['IsSAPI5Speaking']();
+}
+
+export function LinkTaskListToConversation(arg1, arg2) {
+  return window['go']['main']['App']['LinkTaskListToConversation'](arg1, arg2);
 }
 
 export function ListCredentials() {
@@ -542,6 +622,10 @@ export function PreviewVoiceSettings(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['PreviewVoiceSettings'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
+export function PromoteTask(arg1) {
+  return window['go']['main']['App']['PromoteTask'](arg1);
+}
+
 export function ReadMCPResource(arg1, arg2) {
   return window['go']['main']['App']['ReadMCPResource'](arg1, arg2);
 }
@@ -572,6 +656,14 @@ export function RenameTab(arg1, arg2) {
 
 export function ReorderTabs(arg1) {
   return window['go']['main']['App']['ReorderTabs'](arg1);
+}
+
+export function ReorderTasks(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ReorderTasks'](arg1, arg2, arg3);
+}
+
+export function ReorderWorkflowStatuses(arg1, arg2) {
+  return window['go']['main']['App']['ReorderWorkflowStatuses'](arg1, arg2);
 }
 
 export function ResetConfig() {
@@ -646,6 +738,10 @@ export function SetActiveTab(arg1) {
   return window['go']['main']['App']['SetActiveTab'](arg1);
 }
 
+export function SetActiveTaskListTab(arg1) {
+  return window['go']['main']['App']['SetActiveTaskListTab'](arg1);
+}
+
 export function SetChatModel(arg1) {
   return window['go']['main']['App']['SetChatModel'](arg1);
 }
@@ -676,6 +772,10 @@ export function SetSAPI5Rate(arg1) {
 
 export function SetSAPI5Volume(arg1) {
   return window['go']['main']['App']['SetSAPI5Volume'](arg1);
+}
+
+export function SetTaskListViewMode(arg1, arg2) {
+  return window['go']['main']['App']['SetTaskListViewMode'](arg1, arg2);
 }
 
 export function SignalCheckAPI(arg1, arg2) {
@@ -766,6 +866,10 @@ export function UnassignConversationFromChannel(arg1) {
   return window['go']['main']['App']['UnassignConversationFromChannel'](arg1);
 }
 
+export function UnlinkTaskListFromConversation(arg1) {
+  return window['go']['main']['App']['UnlinkTaskListFromConversation'](arg1);
+}
+
 export function UnsubscribeFromMCPResource(arg1, arg2) {
   return window['go']['main']['App']['UnsubscribeFromMCPResource'](arg1, arg2);
 }
@@ -806,6 +910,26 @@ export function UpdateTabTitle(arg1, arg2) {
   return window['go']['main']['App']['UpdateTabTitle'](arg1, arg2);
 }
 
+export function UpdateTask(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateTask'](arg1, arg2, arg3);
+}
+
+export function UpdateTaskList(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateTaskList'](arg1, arg2, arg3);
+}
+
+export function UpdateTaskStatus(arg1, arg2) {
+  return window['go']['main']['App']['UpdateTaskStatus'](arg1, arg2);
+}
+
+export function UpdateWorkflow(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateWorkflow'](arg1, arg2, arg3);
+}
+
 export function UpsertCredential(arg1) {
   return window['go']['main']['App']['UpsertCredential'](arg1);
+}
+
+export function ValidateStatusTransition(arg1, arg2, arg3) {
+  return window['go']['main']['App']['ValidateStatusTransition'](arg1, arg2, arg3);
 }

@@ -92,6 +92,50 @@ function App() {
         loadConfig();
     }, [setConfig, setLoading, setError, addToast]);
 
+    // Restaura foco da janela no startup (resolve bug do Wails)
+	// Ouve o evento de focus da window e delega para primeiro elemento focável
+	useEffect(() => {
+		const handleWindowFocus = () => {
+			try {
+				// Agenda o foco para o próximo ciclo de event loop
+				// para garantir que o DOM está completamente renderizado
+				requestAnimationFrame(() => {
+					const activeElement = document.activeElement as HTMLElement;
+					// Se o foco está no body ou html, delega para primeiro elemento focável
+					if (!activeElement || activeElement === document.body || activeElement.tagName === 'HTML') {
+						const focusableElements = document.querySelectorAll(
+							'input, button, [tabindex]:not([tabindex="-1"]), textarea, select, a[href]'
+						);
+						if (focusableElements.length > 0) {
+							(focusableElements[0] as HTMLElement).focus();
+							console.warn('[App] Foco delegado para elemento focável');
+						}
+					}
+				});
+			} catch (err) {
+				console.warn('[App] Erro ao delegar foco:', err);
+			}
+		};
+
+		// Ouve quando a janela Wails recebe foco
+		window.addEventListener('focus', handleWindowFocus);
+
+		// Também tenta delegação imediata para elementos iniciais
+		requestAnimationFrame(() => {
+			const focusableElements = document.querySelectorAll(
+				'input, button, [tabindex]:not([tabindex="-1"]), textarea, select, a[href]'
+			);
+			if (focusableElements.length > 0 && (document.activeElement === document.body || document.activeElement === null)) {
+				(focusableElements[0] as HTMLElement).focus();
+				console.warn('[App] Foco delegado no mount');
+			}
+		});
+
+		return () => {
+			window.removeEventListener('focus', handleWindowFocus);
+		};
+	}, []);
+
     // Inicializa tabs do backend
     useEffect(() => {
         if (!isInitialized) {

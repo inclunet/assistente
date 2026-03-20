@@ -42,6 +42,7 @@ import (
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
 	tabstool "assistente/internal/tools/tabs"
+	tasklisttool "assistente/internal/tools/tasklist"
 	"assistente/internal/tools/web"
 	"assistente/internal/updater"
 
@@ -233,6 +234,14 @@ func (a *App) startup(ctx context.Context) {
 
 	// Verifica atualizações no startup (não bloqueante)
 	go a.checkForUpdatesOnStartup()
+
+	// Restaura foco da janela no startup (resolve bug do Wails no Windows)
+	// Deixa 400ms para garantir que a janela está completamente pronta
+	go func() {
+		time.Sleep(400 * time.Millisecond)
+		runtime.WindowShow(a.ctx)
+		log.Printf("[App] WindowShow chamado após startup")
+	}()
 }
 
 // initLLMClient inicializa o cliente LLM usando o provider do perfil ativo
@@ -1527,6 +1536,49 @@ func (m *appTabManager) CloseTab(id uint) error {
 	return m.app.CloseTab(id)
 }
 
+// appTaskListManager adapta o App para a interface tasklisttool.TaskListManager
+type appTaskListManager struct{}
+
+func (m *appTaskListManager) CreateTaskList(title, description string, conversationID *uint, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
+	return database.CreateTaskList(title, description, conversationID != nil, conversationID, templateWorkflow)
+}
+
+func (m *appTaskListManager) GetTaskList(id uint) (*database.TaskList, error) {
+	return database.GetTaskList(id)
+}
+
+func (m *appTaskListManager) GetAllTaskLists() ([]database.TaskList, error) {
+	return database.GetAllTaskLists()
+}
+
+func (m *appTaskListManager) GetTaskListStats(taskListID uint) (map[string]interface{}, error) {
+	return database.GetTaskListStats(taskListID)
+}
+
+func (m *appTaskListManager) CreateTask(taskListID uint, title, description string, parentID *uint) (*database.Task, error) {
+	return database.CreateTask(taskListID, title, description, parentID)
+}
+
+func (m *appTaskListManager) GetTask(id uint) (*database.Task, error) {
+	return database.GetTask(id)
+}
+
+func (m *appTaskListManager) UpdateTask(id uint, title, description string) error {
+	return database.UpdateTask(id, title, description)
+}
+
+func (m *appTaskListManager) UpdateTaskStatus(id uint, newStatusID int) error {
+	return database.UpdateTaskStatus(id, newStatusID)
+}
+
+func (m *appTaskListManager) DeleteTask(id uint) error {
+	return database.DeleteTask(id)
+}
+
+func (m *appTaskListManager) GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error) {
+	return database.GetWorkflow(taskListID)
+}
+
 // initToolRegistry inicializa o registro de ferramentas disponíveis
 func (a *App) initToolRegistry() {
 	a.toolRegistry = tools.NewRegistry()
@@ -1669,6 +1721,16 @@ func (a *App) initToolRegistry() {
 
 	// Registra ferramenta de busca no histórico de conversas
 	a.toolRegistry.MustRegister(history.NewSearchConversations())
+
+	// Registra ferramentas de gerenciamento de task lists
+	tlMgr := &appTaskListManager{}
+	a.toolRegistry.MustRegister(tasklisttool.NewCreateTaskList(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewListTaskLists(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewGetTaskList(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewGetTaskListStatus(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewUpsertTask(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewBulkUpsertTasks(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewDeleteTask(tlMgr))
 
 	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
 }
@@ -3855,6 +3917,12 @@ func (a *App) initUpdater() {
 
 // checkForUpdatesOnStartup verifica atualizações ao iniciar (não bloqueante)
 func (a *App) checkForUpdatesOnStartup() {
+	// Pula verificação de updates em modo desenvolvimento
+	if AppVersion == "dev" {
+		log.Printf("[Updater] Modo desenvolvimento detectado (AppVersion=%s): pulando verificação de updates", AppVersion)
+		return
+	}
+
 	// Aguarda 5 segundos após startup para não interferir com inicialização
 	time.Sleep(5 * time.Second)
 

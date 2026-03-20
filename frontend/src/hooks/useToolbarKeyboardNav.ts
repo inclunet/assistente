@@ -26,7 +26,7 @@ export const useToolbarKeyboardNav = (onFocusContent?: (() => void) | null) => {
       toolbarRef.current.querySelectorAll<HTMLElement>(
         'button, [role="combobox"], input[role="combobox"]'
       )
-    ).filter((item) => !isDisabledItem(item));
+    ).filter((item) => !isDisabledItem(item) && !item.closest('[role="menu"]'));
   };
 
   // Atualiza tabindex de todos os itens (botões e pickers, não o campo de busca)
@@ -69,6 +69,12 @@ export const useToolbarKeyboardNav = (onFocusContent?: (() => void) | null) => {
       
       if (isInsidePicker) {
         // Deixa o picker processar suas próprias teclas
+        return;
+      }
+
+      // NÃO interceptar teclas se o foco está dentro de um menu aberto
+      // (role="menu" ou role="menuitem")
+      if (target.closest('[role="menu"]') !== null) {
         return;
       }
 
