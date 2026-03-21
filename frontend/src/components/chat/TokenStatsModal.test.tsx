@@ -29,6 +29,17 @@ describe('TokenStatsModal', () => {
       contextLimit: 100,
       isNearLimit: false,
       isCritical: false,
+      systemPromptEstimatedTokens: 5,
+      summaryTokens: 3,
+      messagesInContextTokens: 15,
+      messagesOutOfContextTokens: 7,
+      messagesInContextCount: 1,
+      messagesOutOfContextCount: 0,
+      toolsUsedCount: 0,
+      toolBreakdown: [],
+      agenticLoopCount: 0,
+      agenticLoopTotalTokens: 0,
+      agenticLoopBreakdown: [],
     });
 
     render(

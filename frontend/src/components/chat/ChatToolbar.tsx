@@ -14,6 +14,7 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
+import { ResourcesMenu } from './ResourcesMenu';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
@@ -196,6 +197,13 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             <TokenStatsButton
               conversationId={activeConversation?.id}
               onOpenModal={() => setIsTokenModalOpen(true)}
+            />
+
+            <ToolbarSeparator />
+
+            <ResourcesMenu
+              conversationId={activeConversation?.id}
+              disabled={isLoading}
             />
 
             <ToolbarSeparator />

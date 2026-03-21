@@ -14,6 +14,7 @@
   position: absolute;
   left: calc(100% + 4px);
   top: 0;
+  margin: 0;
 }
 
 .context-menu__item-wrapper {

@@ -7,7 +7,8 @@ export type EditableResource =
   | 'allowlists'
   | 'skills'
   | 'mcp'
-  | 'channels';
+  | 'channels'
+  | 'tasklists';
 
 export interface ResourceEditRequest {
   resource: EditableResource;

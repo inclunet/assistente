@@ -98,19 +98,10 @@ export const Menu: React.FC<MenuProps> = ({
       }
     };
 
-    const handleEscape = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        onCloseRef.current?.();
-        requestAnimationFrame(() => restoreDefaultFocus());
-      }
-    };
-
     document.addEventListener('mousedown', handleClickOutside);
-    document.addEventListener('keydown', handleEscape);
 
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
-      document.removeEventListener('keydown', handleEscape);
     };
   }, [visible]);
 
@@ -156,8 +147,16 @@ export const Menu: React.FC<MenuProps> = ({
 
   // Navegação por teclado
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Escape', 'Enter', ' '].includes(e.key)) {
+    if (['ArrowDown', 'ArrowUp', 'ArrowLeft', 'ArrowRight', 'Escape', 'Enter', ' ', 'Tab'].includes(e.key)) {
       e.stopPropagation();
+    }
+
+    // Tab fecha o menu (padrão ARIA Menu Button)
+    if (e.key === 'Tab') {
+      e.preventDefault();
+      onClose?.();
+      requestAnimationFrame(() => restoreDefaultFocus());
+      return;
     }
     const currentItems = getCurrentItems();
     const currentFocusIndex = getCurrentFocusIndex();
@@ -256,8 +255,7 @@ export const Menu: React.FC<MenuProps> = ({
       const isSubmenuOpen = submenuStack[level] === item.id;
       const isFocused = isCurrentLevel && index === currentLevelFocus;
 
-      return (
-        <React.Fragment key={item.id}>
+      const buttonElement = (
           <button
             id={item.id}
             className={`context-menu__item ${item.danger ? 'context-menu__item--danger' : ''} ${
@@ -279,13 +277,28 @@ export const Menu: React.FC<MenuProps> = ({
                 requestAnimationFrame(() => restoreDefaultFocus());
               }
             }}
+            onMouseEnter={() => {
+              if (hasSubmenu && !item.disabled) {
+                setSubmenuStack((prev) => [...prev.slice(0, level), item.id]);
+                const submenuItems = item.submenu!.filter((subitem) => !subitem.separator);
+                setFocusStack((prev) => [...prev.slice(0, level + 1), firstFocusableIndex(submenuItems)]);
+              } else if (!hasSubmenu) {
+                // Fecha submenus abertos neste nível ao hover em item sem submenu
+                setSubmenuStack((prev) => prev.slice(0, level));
+                setFocusStack((prev) => {
+                  const newStack = prev.slice(0, level + 1);
+                  newStack[level] = index;
+                  return newStack;
+                });
+              }
+            }}
             role="menuitem"
             aria-haspopup={hasSubmenu ? 'menu' : undefined}
             aria-expanded={hasSubmenu ? isSubmenuOpen : undefined}
             aria-label={
               (item.ariaLabel || item.label) + (item.shortcut ? `, ${item.shortcut}` : '')
             }
-            tabIndex={-1}
+            tabIndex={isFocused ? 0 : -1}
           >
             {item.icon && (
               <span className="context-menu__icon" aria-hidden="true">
@@ -301,11 +314,24 @@ export const Menu: React.FC<MenuProps> = ({
             {item.shortcut && <span className="context-menu__shortcut" aria-hidden="true">{item.shortcut}</span>}
             {hasSubmenu && <span className="context-menu__arrow" aria-hidden="true">▶</span>}
           </button>
-          {hasSubmenu && isSubmenuOpen && (
-            <div className="context-menu context-menu--submenu" role="menu">
-              {renderItems(item.submenu!, level + 1)}
-            </div>
-          )}
+      );
+
+      if (hasSubmenu) {
+        return (
+          <div key={item.id} className="context-menu__item-wrapper">
+            {buttonElement}
+            {isSubmenuOpen && (
+              <div className="context-menu context-menu--submenu" role="menu">
+                {renderItems(item.submenu!, level + 1)}
+              </div>
+            )}
+          </div>
+        );
+      }
+
+      return (
+        <React.Fragment key={item.id}>
+          {buttonElement}
         </React.Fragment>
       );
     });

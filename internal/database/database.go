@@ -85,6 +85,10 @@ func Init() error {
 		&CredentialEntry{},
 		&CredentialKeyWrap{},
 		&LLMProvider{},
+		&TaskListWorkflow{},
+		&TaskList{},
+		&Task{},
+		&TaskListTab{},
 	); err != nil {
 		return err
 	}

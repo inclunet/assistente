@@ -100,3 +100,85 @@ type CredentialKeyWrap struct {
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
 }
+
+// ==================== Task List Manager ====================
+
+// TaskListWorkflowStatus representa um status no workflow de uma tasklist
+// Armazenado como JSON dentro de TaskListWorkflow.Statuses
+type TaskListWorkflowStatus struct {
+	ID    int    `json:"id"`    // Identificador numérico do status (imutável, usado em transitions)
+	Order int    `json:"order"` // Ordem de exibição (pode ser reordenado)
+	Label string `json:"label"` // Nome do status (imutável se a tasklist tiver tasks)
+	Color string `json:"color"` // Cor da tag (mutável, padrão: --accent)
+	Icon  string `json:"icon"`  // Ícone (padrão: ⌛)
+}
+
+// TaskListWorkflowTransitions define transições permitidas
+// Armazenado como JSON dentro de TaskListWorkflow.AllowedTransitions
+// Exemplo: {"1": [2, 3], "2": [3]} = status 1 → 2 ou 3, status 2 → 3
+type TaskListWorkflowTransitions map[int][]int
+
+// TaskListWorkflow define o workflow (statuses e transições permitidas) de uma tasklist
+type TaskListWorkflow struct {
+	ID                 uint      `json:"id" gorm:"primaryKey"`
+	TaskListID         uint      `json:"task_list_id" gorm:"uniqueIndex;not null;index"`
+	Statuses           string    `json:"statuses" gorm:"type:text"`            // JSON array: [{"id":1,"order":0,"label":"A Fazer",...}]
+	AllowedTransitions string    `json:"allowed_transitions" gorm:"type:text"` // JSON: {"1":[2,3],"2":[3]}
+	InitialStatusID    int       `json:"initial_status_id" gorm:"default:1"`   // ID do status inicial para novas tasks
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	TaskList           *TaskList `json:"task_list,omitempty" gorm:"foreignKey:TaskListID"`
+}
+
+// TaskList representa uma lista de tarefas
+type TaskList struct {
+	ID                uint      `json:"id" gorm:"primaryKey"`
+	Title             string    `json:"title" gorm:"not null;index"`
+	Description       string    `json:"description" gorm:"type:text"`
+	ConversationID    *uint     `json:"conversation_id,omitempty" gorm:"index"`    // FK para Conversation (opcional)
+	LinkedMessageID   *uint     `json:"linked_message_id,omitempty" gorm:"index"`  // FK para ChatMessage que criou (opcional)
+	PreferredViewMode string    `json:"preferred_view_mode" gorm:"default:'list'"` // 'list' ou 'kanban'
+	CreatedAt         time.Time `json:"created_at"`
+	UpdatedAt         time.Time `json:"updated_at"`
+
+	// Relacionamentos
+	Workflow      *TaskListWorkflow `json:"workflow,omitempty" gorm:"foreignKey:TaskListID"`
+	Tasks         []Task            `json:"tasks,omitempty" gorm:"foreignKey:TaskListID"`
+	Conversation  *Conversation     `json:"conversation,omitempty" gorm:"foreignKey:ConversationID"`
+	LinkedMessage *ChatMessage      `json:"linked_message,omitempty" gorm:"foreignKey:LinkedMessageID"`
+}
+
+// Task representa uma tarefa dentro de uma tasklist
+// Suporta hierarquia via ParentID (subtasks) e status workflow via StatusID
+type Task struct {
+	ID          uint       `json:"id" gorm:"primaryKey"`
+	TaskListID  uint       `json:"task_list_id" gorm:"not null;index"`
+	Title       string     `json:"title" gorm:"not null"`
+	Description string     `json:"description" gorm:"type:text"`
+	StatusID    int        `json:"status_id" gorm:"not null;default:1;index"` // ID do status (int para imutabilidade)
+	ParentID    *uint      `json:"parent_id,omitempty" gorm:"index"`          // ID da task pai (para subtasks/hierarquia)
+	Order       int        `json:"order" gorm:"default:0"`                    // Ordem dentro do status/parent
+	DueDate     *time.Time `json:"due_date,omitempty"`
+	CreatedAt   time.Time  `json:"created_at"`
+	UpdatedAt   time.Time  `json:"updated_at"`
+	CompletedAt *time.Time `json:"completed_at,omitempty"`
+
+	// Relacionamentos
+	TaskList *TaskList `json:"task_list,omitempty" gorm:"foreignKey:TaskListID"`
+	Parent   *Task     `json:"parent,omitempty" gorm:"foreignKey:ParentID"`
+	Subtasks []Task    `json:"subtasks,omitempty" gorm:"foreignKey:ParentID"`
+}
+
+// TaskListTab representa uma aba aberta na página de TaskLists (persistida no banco)
+type TaskListTab struct {
+	ID         uint      `json:"id" gorm:"primaryKey"`
+	TaskListID uint      `json:"task_list_id" gorm:"index;not null"`
+	Title      string    `json:"title" gorm:"default:'Nova lista'"`
+	Position   int       `json:"position" gorm:"index;default:0"`
+	IsActive   bool      `json:"is_active" gorm:"index;default:false"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
+
+	// Relacionamento
+	TaskList *TaskList `json:"task_list,omitempty" gorm:"foreignKey:TaskListID"`
+}

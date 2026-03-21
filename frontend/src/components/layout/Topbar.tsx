@@ -58,6 +58,7 @@ export function Topbar() {
   const getCurrentPage = (): string => {
     if (location.pathname === '/terminal') return 'terminal';
     if (location.pathname === '/editor') return 'editor';
+    if (location.pathname === '/tasklists') return 'tasklists';
     if (location.pathname === '/allowlists') return 'allowlists';
     if (location.pathname === '/skills') return 'skills';
     if (location.pathname === '/mcp') return 'mcp';
@@ -101,6 +102,12 @@ export function Topbar() {
       icon: '📜',
       shortcut: 'Alt+H',
       onClick: () => navigate('/history'),
+    },
+    {
+      id: 'tasklists',
+      label: t('menu.tasklists'),
+      icon: '✓',
+      onClick: () => navigate('/tasklists'),
     },
     {
       id: 'profiles',
