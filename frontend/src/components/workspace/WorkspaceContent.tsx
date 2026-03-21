@@ -5,6 +5,7 @@ import './WorkspaceContent.css';
 const ChatPage = lazy(() => import('../../pages/ChatPage'));
 const EditorPage = lazy(() => import('../../pages/EditorPage'));
 const TerminalPage = lazy(() => import('../../pages/TerminalPage'));
+const TaskListView = lazy(() => import('../taskLists/TaskListView'));
 
 const Loading = () => (
   <div className="ws-content__loading" aria-busy="true" />
@@ -28,10 +29,9 @@ export function WorkspaceContent() {
         {activeTab.type === 'editor' && <EditorPage />}
         {activeTab.type === 'terminal' && <TerminalPage />}
         {activeTab.type === 'tasklist' && (
-          <div className="ws-content__placeholder">
-            <span aria-hidden="true">✅</span>
-            <p>Tasklist será implementada em breve</p>
-          </div>
+          activeTab.contentId
+            ? <TaskListView taskListId={parseInt(activeTab.contentId, 10)} />
+            : <Loading />
         )}
       </Suspense>
     </div>

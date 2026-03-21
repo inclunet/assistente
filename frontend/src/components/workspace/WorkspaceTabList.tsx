@@ -1,8 +1,12 @@
 import { useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore, type WorkspaceTab, type TabType } from '../../store/workspaceStore';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { playBumpSound } from '../../services/audioFeedback';
 import { Tabs, TabList, Tab } from '../ui/tabs';
+import { ContextMenu } from '../menu';
+import type { MenuItem } from '../menu';
 import './WorkspaceTabList.css';
 
 const TAB_TYPE_ICONS: Record<TabType, string> = {
@@ -14,12 +18,15 @@ const TAB_TYPE_ICONS: Record<TabType, string> = {
 
 export function WorkspaceTabList() {
   const { t } = useTranslation();
-  const { workspace, setActiveTab, removeTab, updateTab } = useWorkspaceStore();
+  const { workspace, workspaces, setActiveTab, removeTab, updateTab, reorderTabs, moveTabToWorkspace } = useWorkspaceStore();
+  const { announce } = useAnnouncer();
   const tabListRef = useRef<HTMLDivElement>(null);
 
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
   const editInputRef = useRef<HTMLInputElement>(null);
+  const contextTargetRef = useRef<string | null>(null);
+  const { menu: ctxMenu, openAtPoint: openCtx, closeMenu: closeCtx, onSelectItem: onCtxSelect } = useAnchoredContextMenu();
 
   const tabs = workspace?.tabs || [];
   const activeTabId = workspace?.activeTabId || '';
@@ -97,12 +104,103 @@ export function WorkspaceTabList() {
       e.preventDefault();
       const tab = tabs.find(t => t.id === tabId);
       if (tab) startEditing(tabId, tab.title);
+      return;
     }
-  }, [editingTabId, tabs, startEditing]);
+
+    // Alt+Left/Up: move aba para esquerda; Alt+Right/Down: move para direita
+    if (e.altKey && !e.ctrlKey && !e.shiftKey && !e.metaKey) {
+      const isLeft = e.key === 'ArrowLeft' || e.key === 'ArrowUp';
+      const isRight = e.key === 'ArrowRight' || e.key === 'ArrowDown';
+      if (!isLeft && !isRight) return;
+
+      e.preventDefault();
+      e.stopPropagation();
+
+      const idx = tabs.findIndex(t => t.id === tabId);
+      if (idx === -1) return;
+
+      const targetIdx = isLeft ? idx - 1 : idx + 1;
+      if (targetIdx < 0 || targetIdx >= tabs.length) {
+        playBumpSound();
+        return;
+      }
+
+      const ids = tabs.map(t => t.id);
+      [ids[idx], ids[targetIdx]] = [ids[targetIdx], ids[idx]];
+      void reorderTabs(ids);
+      const pos = targetIdx + 1;
+      announce(`${tabs[idx].title} movida para posição ${pos} de ${tabs.length}`);
+
+      // Re-foca a aba movida após o re-render
+      requestAnimationFrame(() => {
+        const btn = tabListRef.current?.querySelector(
+          `button[role="tab"][data-tab-value="${tabId}"]`
+        ) as HTMLButtonElement | null;
+        btn?.focus();
+      });
+    }
+  }, [editingTabId, tabs, startEditing, reorderTabs, announce]);
 
   const handleActivate = useCallback(() => {
     return !!editingTabId;
   }, [editingTabId]);
+
+  const handleTabContextMenu = useCallback((e: React.MouseEvent, tabId: string) => {
+    e.preventDefault();
+    contextTargetRef.current = tabId;
+    const tab = tabs.find(t => t.id === tabId);
+    if (!tab) return;
+
+    const otherWorkspaces = workspaces.filter(ws => !ws.is_active);
+
+    const items: MenuItem[] = [
+      {
+        id: 'close',
+        label: t('workspace.closeTab', 'Fechar'),
+        disabled: tabs.length <= 1,
+        action: () => void removeTab(tabId),
+      },
+      {
+        id: 'close-others',
+        label: t('workspace.closeOtherTabs', 'Fechar outras'),
+        disabled: tabs.length <= 1,
+        action: () => {
+          for (const other of tabs) {
+            if (other.id !== tabId) void removeTab(other.id);
+          }
+        },
+      },
+      { id: 'sep-1', separator: true },
+      {
+        id: 'rename',
+        label: t('workspace.renameTab', 'Renomear'),
+        shortcut: 'F2',
+        action: () => startEditing(tabId, tab.title),
+      },
+    ];
+
+    if (otherWorkspaces.length > 0) {
+      items.push({ id: 'sep-2', separator: true });
+      items.push({
+        id: 'move-to',
+        label: t('workspace.moveTabTo', 'Mover para...'),
+        submenu: otherWorkspaces.map(ws => ({
+          id: `move-${ws.id}`,
+          label: ws.name,
+          action: async () => {
+            try {
+              await moveTabToWorkspace(tabId, ws.id);
+              announce(`${tab.title} movida para ${ws.name}`);
+            } catch (error) {
+              console.error('[WorkspaceTabList] Move tab error:', error);
+            }
+          },
+        })),
+      });
+    }
+
+    openCtx(e.clientX, e.clientY, t('workspace.tabContextMenu', 'Menu da aba'), items);
+  }, [tabs, workspaces, removeTab, startEditing, openCtx, moveTabToWorkspace, announce, t]);
 
   const renderTab = (tab: WorkspaceTab) => {
     const isActive = tab.id === activeTabId;
@@ -120,6 +218,7 @@ export function WorkspaceTabList() {
             void removeTab(tab.id);
           }
         }}
+        onContextMenu={(e) => handleTabContextMenu(e, tab.id)}
       >
         <Tab
           value={tab.id}
@@ -165,30 +264,38 @@ export function WorkspaceTabList() {
   };
 
   return (
-    <Tabs
-      value={activeTabId}
-      onValueChange={handleSelect}
-      idBase="workspace"
-      onBump={playBumpSound}
-      onDelete={handleDelete}
-      onActivate={handleActivate}
-      pageJump={10}
-      activationMode="auto"
-    >
-      <div
-        className="ws-tabs"
-        role="region"
-        aria-label={t('workspace.tabsRegion')}
+    <>
+      <Tabs
+        value={activeTabId}
+        onValueChange={handleSelect}
+        idBase="workspace"
+        onBump={playBumpSound}
+        onDelete={handleDelete}
+        onActivate={handleActivate}
+        pageJump={10}
+        activationMode="auto"
       >
-        <TabList
-          listRef={tabListRef}
-          className="ws-tabs__list"
-          ariaLabel={t('workspace.tabListLabel')}
-          onKeyDown={handleListKeyDown}
+        <div
+          className="ws-tabs"
+          role="region"
+          aria-label={t('workspace.tabsRegion')}
         >
-          {tabs.map(renderTab)}
-        </TabList>
-      </div>
-    </Tabs>
+          <TabList
+            listRef={tabListRef}
+            className="ws-tabs__list"
+            ariaLabel={t('workspace.tabListLabel')}
+            onKeyDown={handleListKeyDown}
+          >
+            {tabs.map(renderTab)}
+          </TabList>
+        </div>
+      </Tabs>
+
+      <ContextMenu
+        {...ctxMenu}
+        onClose={closeCtx}
+        onSelect={onCtxSelect}
+      />
+    </>
   );
 }

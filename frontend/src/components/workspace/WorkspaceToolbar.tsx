@@ -45,6 +45,39 @@ export function WorkspaceToolbar() {
     onAfterDismiss: () => pickerButtonRef.current?.focus(),
   });
 
+  const handleExportWorkspace = useCallback(async () => {
+    try {
+      const yaml = await useWorkspaceStore.getState().exportWorkspace();
+      const blob = new Blob([yaml], { type: 'application/x-yaml' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `workspace-${workspace?.name?.replace(/\s+/g, '-').toLowerCase() || 'export'}.yaml`;
+      a.click();
+      URL.revokeObjectURL(url);
+      announce(t('workspace.exported', 'Workspace exportado'));
+    } catch (error) {
+      console.error('[WorkspaceToolbar] Export error:', error);
+    }
+  }, [workspace?.name, announce, t]);
+
+  const handleImportWorkspace = useCallback(async () => {
+    try {
+      const input = document.createElement('input');
+      input.type = 'file';
+      input.accept = '.yaml,.yml';
+      input.onchange = async () => {
+        const file = input.files?.[0];
+        if (!file) return;
+        const text = await file.text();
+        await useWorkspaceStore.getState().importWorkspace(text);
+      };
+      input.click();
+    } catch (error) {
+      console.error('[WorkspaceToolbar] Import error:', error);
+    }
+  }, []);
+
   const pickerItems = useMemo((): MenuItem[] => {
     const items: MenuItem[] = workspaces.map((ws) => ({
       id: `ws-${ws.id}`,
@@ -70,8 +103,22 @@ export function WorkspaceToolbar() {
       },
     });
 
+    items.push({ id: 'sep-export', separator: true });
+    items.push({
+      id: 'export-workspace',
+      label: t('workspace.export', 'Exportar workspace'),
+      icon: '📤',
+      action: handleExportWorkspace,
+    });
+    items.push({
+      id: 'import-workspace',
+      label: t('workspace.import', 'Importar workspace'),
+      icon: '📥',
+      action: handleImportWorkspace,
+    });
+
     return items;
-  }, [workspaces, switchWorkspace, createWorkspace, announce, t]);
+  }, [workspaces, switchWorkspace, createWorkspace, announce, t, handleExportWorkspace, handleImportWorkspace]);
 
   const handleOpenPicker = useCallback(() => {
     if (pickerMenu.visible) {

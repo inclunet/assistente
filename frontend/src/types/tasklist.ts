@@ -70,26 +70,10 @@ export interface TaskListWithWorkflow extends TaskList {
 
 // ==================== UI/Store Types ====================
 
-export interface TaskListTab {
-  id: number;
-  title: string;
-  position: number;
-  isActive: boolean;
-  taskListId: number;
-}
-
 export interface TaskListState {
-  // Abas abertas
-  openTabs: TaskListTab[];
-  activeTabId?: number;
-  
-  // Cache de listas
+  activeTaskListId?: number;
   taskLists: Map<number, TaskListWithWorkflow>;
-  
-  // Estados de expansão
   expandedTasks: Set<number>;
-  
-  // Estados de UI
   isLoading: boolean;
   error?: string;
 }

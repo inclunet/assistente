@@ -4813,3 +4813,41 @@ func (a *App) ReorderWorkspaceTabs(orderedIDs []string) error {
 	}
 	return a.workspaceMgr.ReorderTabs(orderedIDs)
 }
+
+// MoveWorkspaceTabTo move uma aba do workspace ativo para outro workspace.
+func (a *App) MoveWorkspaceTabTo(tabID, targetWorkspaceID string) (*workspace.Workspace, error) {
+	if a.workspaceMgr == nil {
+		return nil, fmt.Errorf("workspace manager not initialized")
+	}
+	if err := a.workspaceMgr.MoveTabToWorkspace(tabID, targetWorkspaceID); err != nil {
+		return nil, err
+	}
+	ws := a.workspaceMgr.Active()
+	runtime.EventsEmit(a.ctx, "workspace:tab_removed", ws)
+	return ws, nil
+}
+
+// ExportWorkspace exporta o workspace ativo como YAML.
+func (a *App) ExportWorkspace() (string, error) {
+	if a.workspaceMgr == nil {
+		return "", fmt.Errorf("workspace manager not initialized")
+	}
+	data, err := a.workspaceMgr.ExportWorkspace()
+	if err != nil {
+		return "", err
+	}
+	return string(data), nil
+}
+
+// ImportWorkspace importa um workspace a partir de YAML.
+func (a *App) ImportWorkspace(yamlData string) (*workspace.Workspace, error) {
+	if a.workspaceMgr == nil {
+		return nil, fmt.Errorf("workspace manager not initialized")
+	}
+	ws, err := a.workspaceMgr.ImportWorkspace([]byte(yamlData))
+	if err != nil {
+		return nil, err
+	}
+	runtime.EventsEmit(a.ctx, "workspace:created", ws)
+	return ws, nil
+}

@@ -12,6 +12,9 @@ import {
   SetActiveWorkspaceTab,
   UpdateWorkspaceTab,
   ReorderWorkspaceTabs,
+  MoveWorkspaceTabTo,
+  ExportWorkspace,
+  ImportWorkspace,
 } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { workspace } from '../../wailsjs/go/models';
@@ -95,6 +98,11 @@ interface WorkspaceStore {
   setActiveTab: (tabId: string) => Promise<void>;
   updateTab: (tabId: string, updates: Record<string, unknown>) => Promise<void>;
   reorderTabs: (orderedIds: string[]) => Promise<void>;
+  moveTabToWorkspace: (tabId: string, targetWorkspaceId: string) => Promise<void>;
+
+  // Export/Import
+  exportWorkspace: () => Promise<string>;
+  importWorkspace: (yamlData: string) => Promise<string>;
 
   // Getters
   getActiveTab: () => WorkspaceTab | undefined;
@@ -329,6 +337,26 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
         workspace: { ...state.workspace, tabs: reordered },
       };
     });
+  },
+
+  moveTabToWorkspace: async (tabId, targetWorkspaceId) => {
+    const updatedWs = await MoveWorkspaceTabTo(tabId, targetWorkspaceId);
+    if (updatedWs) {
+      set({ workspace: backendWorkspaceToFrontend(updatedWs) });
+    }
+    await get().refreshWorkspaceList();
+  },
+
+  exportWorkspace: async () => {
+    const yaml = await ExportWorkspace();
+    return yaml;
+  },
+
+  importWorkspace: async (yamlData) => {
+    const bws = await ImportWorkspace(yamlData);
+    await get().refreshWorkspaceList();
+    announce(`Workspace importado: ${bws.name}`);
+    return bws.id;
   },
 
   getActiveTab: () => {

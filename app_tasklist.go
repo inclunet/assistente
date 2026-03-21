@@ -11,7 +11,6 @@ type TaskList = database.TaskList
 type Task = database.Task
 type TaskListWorkflow = database.TaskListWorkflow
 type TaskListWorkflowStatus = database.TaskListWorkflowStatus
-type TaskListTab = database.TaskListTab
 
 // ==================== TaskList Operations ====================
 
@@ -124,9 +123,6 @@ func (a *App) CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 
 // DeleteTaskList deleta uma lista e todas suas tasks
 func (a *App) DeleteTaskList(id uint) error {
-	// Fecha aba associada (se existir)
-	_ = database.CloseTaskListTabByTaskListID(id)
-
 	err := database.DeleteTaskList(id)
 	if err != nil {
 		return err
@@ -287,34 +283,3 @@ func (a *App) GetTaskListWithHierarchy(id uint) (*TaskList, error) {
 	return database.GetTaskListWithHierarchy(id)
 }
 
-// ==================== TaskList Tab Operations ====================
-
-// GetTaskListTabs retorna todas as abas de task lists abertas
-func (a *App) GetTaskListTabs() ([]TaskListTab, error) {
-	return database.GetAllTaskListTabs()
-}
-
-// CreateTaskListTab cria ou reutiliza uma aba para uma task list
-func (a *App) CreateTaskListTab(taskListID uint, title string) (*TaskListTab, error) {
-	tab, err := database.CreateTaskListTab(taskListID, title, true)
-	if err != nil {
-		return nil, err
-	}
-	runtime.EventsEmit(a.ctx, "taskListTab:created", tab)
-	return tab, nil
-}
-
-// CloseTaskListTab fecha uma aba pelo ID
-func (a *App) CloseTaskListTab(id uint) error {
-	err := database.CloseTaskListTab(id)
-	if err != nil {
-		return err
-	}
-	runtime.EventsEmit(a.ctx, "taskListTab:closed", id)
-	return nil
-}
-
-// SetActiveTaskListTab define qual aba está ativa
-func (a *App) SetActiveTaskListTab(id uint) error {
-	return database.SetActiveTaskListTab(id)
-}

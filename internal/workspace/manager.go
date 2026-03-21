@@ -426,6 +426,96 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	return m.saveWorkspace(m.active, m.activePath)
 }
 
+// MoveTabToWorkspace move uma aba do workspace ativo para outro workspace.
+func (m *Manager) MoveTabToWorkspace(tabID, targetWorkspaceID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if m.active == nil {
+		return fmt.Errorf("no active workspace")
+	}
+	if m.active.ID == targetWorkspaceID {
+		return fmt.Errorf("tab is already in this workspace")
+	}
+
+	// Encontra a aba no workspace ativo
+	var tab *Tab
+	tabIdx := -1
+	for i := range m.active.Tabs.Items {
+		if m.active.Tabs.Items[i].ID == tabID {
+			tab = &m.active.Tabs.Items[i]
+			tabIdx = i
+			break
+		}
+	}
+	if tab == nil {
+		return fmt.Errorf("tab not found: %s", tabID)
+	}
+	tabCopy := *tab
+
+	// Localiza o workspace alvo via índice
+	idx, err := m.loadIndex()
+	if err != nil {
+		return fmt.Errorf("failed to load index: %w", err)
+	}
+
+	var targetPath string
+	for _, entry := range idx.Workspaces {
+		if entry.ID == targetWorkspaceID {
+			targetPath = entry.Path
+			break
+		}
+	}
+	if targetPath == "" {
+		return fmt.Errorf("target workspace not found: %s", targetWorkspaceID)
+	}
+
+	// Carrega workspace alvo
+	targetWsFile := filepath.Join(targetPath, assistenteDir, workspaceFile)
+	targetWs, err := m.loadWorkspaceFile(targetWsFile)
+	if err != nil {
+		return fmt.Errorf("failed to load target workspace: %w", err)
+	}
+
+	// Regra: no máximo 1 aba por conteúdo por workspace
+	if tabCopy.ContentID != "" {
+		if existing := targetWs.FindTabByContent(tabCopy.Type, tabCopy.ContentID); existing != nil {
+			return fmt.Errorf("content already open in target workspace")
+		}
+	}
+
+	// Remove do workspace ativo
+	m.active.Tabs.Items = append(m.active.Tabs.Items[:tabIdx], m.active.Tabs.Items[tabIdx+1:]...)
+	if m.active.Tabs.Active == tabID {
+		if len(m.active.Tabs.Items) > 0 {
+			next := tabIdx
+			if next >= len(m.active.Tabs.Items) {
+				next = len(m.active.Tabs.Items) - 1
+			}
+			m.active.Tabs.Active = m.active.Tabs.Items[next].ID
+		} else {
+			m.active.Tabs.Active = ""
+		}
+	}
+	for i := range m.active.Tabs.Items {
+		m.active.Tabs.Items[i].Position = i
+	}
+
+	// Adiciona ao workspace alvo
+	tabCopy.Position = len(targetWs.Tabs.Items)
+	targetWs.Tabs.Items = append(targetWs.Tabs.Items, tabCopy)
+
+	// Salva ambos
+	if err := m.saveWorkspace(m.active, m.activePath); err != nil {
+		return fmt.Errorf("failed to save active workspace: %w", err)
+	}
+	if err := m.saveWorkspace(targetWs, targetPath); err != nil {
+		return fmt.Errorf("failed to save target workspace: %w", err)
+	}
+
+	return nil
+}
+
 // ReorderTabs reordena as abas conforme a lista de IDs fornecida.
 func (m *Manager) ReorderTabs(orderedIDs []string) error {
 	m.mu.Lock()
@@ -457,6 +547,56 @@ func (m *Manager) ReorderTabs(orderedIDs []string) error {
 
 	m.active.Tabs.Items = reordered
 	return m.saveWorkspace(m.active, m.activePath)
+}
+
+// ExportWorkspace serializa o workspace ativo como YAML (estrutura apenas, sem conteúdo).
+func (m *Manager) ExportWorkspace() ([]byte, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if m.active == nil {
+		return nil, fmt.Errorf("no active workspace")
+	}
+
+	return yaml.Marshal(m.active)
+}
+
+// ImportWorkspace cria um novo workspace a partir de dados YAML exportados.
+// Gera novos IDs para o workspace e todas as abas, zerando content_id (conteúdo é local).
+func (m *Manager) ImportWorkspace(data []byte) (*Workspace, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	var imported Workspace
+	if err := yaml.Unmarshal(data, &imported); err != nil {
+		return nil, fmt.Errorf("invalid workspace data: %w", err)
+	}
+
+	// Gera novos IDs
+	ws := m.newWorkspace(imported.Name)
+	ws.Profile = imported.Profile
+
+	for _, tab := range imported.Tabs.Items {
+		newTab := Tab{
+			ID:       fmt.Sprintf("tab-%s", generateID()),
+			Type:     tab.Type,
+			Title:    tab.Title,
+			Position: tab.Position,
+		}
+		ws.Tabs.Items = append(ws.Tabs.Items, newTab)
+	}
+
+	if len(ws.Tabs.Items) > 0 {
+		ws.Tabs.Active = ws.Tabs.Items[0].ID
+	}
+
+	wsDir := filepath.Join(m.homeDir, workspacesDir, ws.ID)
+	if err := m.saveWorkspace(ws, wsDir); err != nil {
+		return nil, err
+	}
+
+	m.touchIndex(ws, wsDir)
+	return ws, nil
 }
 
 // === Persistência YAML ===

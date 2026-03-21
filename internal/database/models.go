@@ -169,16 +169,3 @@ type Task struct {
 	Subtasks []Task    `json:"subtasks,omitempty" gorm:"foreignKey:ParentID"`
 }
 
-// TaskListTab representa uma aba aberta na página de TaskLists (persistida no banco)
-type TaskListTab struct {
-	ID         uint      `json:"id" gorm:"primaryKey"`
-	TaskListID uint      `json:"task_list_id" gorm:"index;not null"`
-	Title      string    `json:"title" gorm:"default:'Nova lista'"`
-	Position   int       `json:"position" gorm:"index;default:0"`
-	IsActive   bool      `json:"is_active" gorm:"index;default:false"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
-
-	// Relacionamento
-	TaskList *TaskList `json:"task_list,omitempty" gorm:"foreignKey:TaskListID"`
-}

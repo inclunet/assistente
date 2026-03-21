@@ -88,7 +88,6 @@ func Init() error {
 		&TaskListWorkflow{},
 		&TaskList{},
 		&Task{},
-		&TaskListTab{},
 	); err != nil {
 		return err
 	}

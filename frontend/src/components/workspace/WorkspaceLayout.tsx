@@ -7,6 +7,7 @@ import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardS
 import { useWorkspaceChatBridge } from '../../hooks/useWorkspaceChatBridge';
 import { useWorkspaceTerminalBridge } from '../../hooks/useWorkspaceTerminalBridge';
 import { useWorkspaceEditorBridge } from '../../hooks/useWorkspaceEditorBridge';
+import { useWorkspaceTasklistBridge } from '../../hooks/useWorkspaceTasklistBridge';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
 import { ensureModalCleanup } from '../ui/Modal';
 import { Topbar } from '../layout/Topbar';
@@ -36,6 +37,7 @@ export function WorkspaceLayout() {
   useWorkspaceChatBridge();
   useWorkspaceTerminalBridge();
   useWorkspaceEditorBridge();
+  useWorkspaceTasklistBridge();
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
   const isChatActive = activeTabType === 'chat';

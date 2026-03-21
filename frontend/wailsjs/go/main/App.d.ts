@@ -53,8 +53,6 @@ export function ClearMessages():Promise<void>;
 
 export function CloneTaskList(arg1:number,arg2:string):Promise<database.TaskList>;
 
-export function CloseTaskListTab(arg1:number):Promise<void>;
-
 export function CloseTerminalSession(arg1:string):Promise<void>;
 
 export function ConnectMCPServer(arg1:string):Promise<void>;
@@ -78,8 +76,6 @@ export function CreateSkill(arg1:main.SkillCreateRequest):Promise<string>;
 export function CreateTask(arg1:number,arg2:string,arg3:string,arg4:any):Promise<database.Task>;
 
 export function CreateTaskList(arg1:string,arg2:string,arg3:boolean,arg4:any):Promise<database.TaskList>;
-
-export function CreateTaskListTab(arg1:number,arg2:string):Promise<database.TaskListTab>;
 
 export function CreateTerminalSession(arg1:string):Promise<terminal.SessionInfo>;
 
@@ -152,6 +148,8 @@ export function EditorWriteFile(arg1:string,arg2:string):Promise<void>;
 export function EnsureConversation(arg1:string):Promise<database.Conversation>;
 
 export function ExportConversations(arg1:Array<number>):Promise<string>;
+
+export function ExportWorkspace():Promise<string>;
 
 export function GenerateAndSaveMessageAudio(arg1:number,arg2:string):Promise<main.AudioResult>;
 
@@ -265,8 +263,6 @@ export function GetTaskList(arg1:number):Promise<database.TaskList>;
 
 export function GetTaskListStats(arg1:number):Promise<Record<string, any>>;
 
-export function GetTaskListTabs():Promise<Array<database.TaskListTab>>;
-
 export function GetTaskListWithHierarchy(arg1:number):Promise<database.TaskList>;
 
 export function GetTaskListsByConversation(arg1:number):Promise<Array<database.TaskList>>;
@@ -286,6 +282,8 @@ export function GetUserInvocableSkills():Promise<Array<skills.SkillInfo>>;
 export function GetWorkflow(arg1:number):Promise<database.TaskListWorkflow>;
 
 export function ImportConversations(arg1:string):Promise<main.ImportResult>;
+
+export function ImportWorkspace(arg1:string):Promise<workspace.Workspace>;
 
 export function InitSpeechManager(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
@@ -308,6 +306,8 @@ export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
 export function ListTerminalSessions():Promise<Array<terminal.SessionInfo>>;
 
 export function ListWorkspaces():Promise<Array<workspace.WorkspaceInfo>>;
+
+export function MoveWorkspaceTabTo(arg1:string,arg2:string):Promise<workspace.Workspace>;
 
 export function NeedsWelcomeWizard():Promise<boolean>;
 
@@ -372,8 +372,6 @@ export function SendMessageSync(arg1:Array<llm.Message>,arg2:llm.ChatParams):Pro
 export function SendTerminalInput(arg1:string,arg2:string):Promise<void>;
 
 export function SetActiveProfile(arg1:string):Promise<void>;
-
-export function SetActiveTaskListTab(arg1:number):Promise<void>;
 
 export function SetActiveWorkspaceTab(arg1:string):Promise<void>;
 

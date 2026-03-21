@@ -4,7 +4,7 @@ import { useNavigate } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
 import { useTaskListStore } from '../../store/taskListStore';
-import { useNavigationStore } from '../../store/navigationStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import { useUIStore } from '../../store/uiStore';
@@ -115,10 +115,10 @@ export const TaskListViewerModal: React.FC<TaskListViewerModalProps> = ({
     }
   }, [taskList, unlinkFromConversation, addToast, announce, t, onUnlink, onClose]);
 
-  const handleOpenInPage = useCallback(() => {
+  const handleOpenInPage = useCallback(async () => {
     if (!taskList) return;
-    useNavigationStore.getState().requestResourceEdit('tasklists', String(taskList.id), 'edit');
-    navigate('/tasklists');
+    await useWorkspaceStore.getState().addTab('tasklist', String(taskList.id), taskList.title);
+    navigate('/');
     onClose();
   }, [taskList, navigate, onClose]);
 

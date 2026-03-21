@@ -23,15 +23,10 @@ import {
   PromoteTask,
   DemoteTask,
   ReorderTasks,
-  GetTaskListTabs,
-  CreateTaskListTab,
-  CloseTaskListTab,
-  SetActiveTaskListTab,
 } from '@wailsjs/go/main/App';
 import type {
   Task,
   TaskListWithWorkflow,
-  TaskListTab,
   ViewMode,
   TaskListWorkflow,
   TaskListWorkflowStatus,
@@ -114,24 +109,20 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
 }
 
 /**
- * TaskListStore - Gerencia estado de listas de tarefas abertas
+ * TaskListStore - Cache de conteúdo de tasklists (workspace-driven)
+ * O workspace é o dono das tabs; aqui apenas gerenciamos o cache e o conteúdo ativo.
  */
 interface TaskListStoreState {
-  // Estado
-  openTabs: TaskListTab[];
-  activeTabId?: number;
+  activeTaskListId?: number;
   taskLists: Map<number, TaskListWithWorkflow>;
   workflows: Map<number, TaskListWorkflow>;
   expandedTasks: Set<number>;
   isLoading: boolean;
   errors: Map<string, string>;
 
-  // Tab management
-  loadTabs: () => Promise<void>;
-  createTab: (taskListId: number) => Promise<void>;
-  closeTab: (tabId: number) => Promise<void>;
-  setActiveTab: (tabId: number) => Promise<void>;
-  updateTabTitle: (tabId: number, title: string) => void;
+  // Active tasklist (driven by workspace bridge)
+  setActiveTaskList: (id: number | undefined) => void;
+  getActiveTaskList: () => TaskListWithWorkflow | undefined;
 
   // TaskList management
   loadTaskList: (taskListId: number) => Promise<TaskListWithWorkflow | null>;
@@ -205,14 +196,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         newCache.delete(taskListId);
-        const tabs = state.openTabs.filter((tab) => tab.taskListId !== taskListId);
         return {
           taskLists: newCache,
-          openTabs: tabs,
-          activeTabId:
-            state.activeTabId && tabs.length === 0
-              ? undefined
-              : state.openTabs.find((t) => t.isActive)?.id,
+          activeTaskListId: state.activeTaskListId === taskListId ? undefined : state.activeTaskListId,
         };
       });
     });
@@ -279,114 +265,21 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
   }
 
   return {
-    openTabs: [],
-    activeTabId: undefined,
+    activeTaskListId: undefined,
     taskLists: new Map(),
     workflows: new Map(),
     expandedTasks: new Set(),
     isLoading: false,
     errors: new Map(),
 
-    // Tab management - persistido no backend via Wails
-    loadTabs: async () => {
-      set({ isLoading: true });
-      try {
-        const backendTabs = await GetTaskListTabs();
-        const tabs: TaskListTab[] = (backendTabs || []).map((bt) => ({
-          id: bt.id,
-          title: bt.title,
-          position: bt.position,
-          isActive: bt.is_active,
-          taskListId: bt.task_list_id,
-        }));
-        const activeTab = tabs.find((t) => t.isActive);
-        set({ openTabs: tabs, activeTabId: activeTab?.id, isLoading: false });
-      } catch (error) {
-        get().setError('loadTabs', String(error));
-        set({ isLoading: false });
-      }
+    setActiveTaskList: (id: number | undefined) => {
+      set({ activeTaskListId: id });
     },
 
-    createTab: async (taskListId: number) => {
-      try {
-        const cachedTaskList = get().taskLists.get(taskListId);
-        const title = cachedTaskList?.title || 'Nova lista';
-        const bt = await CreateTaskListTab(taskListId, title);
-        if (!bt) return;
-
-        const newTab: TaskListTab = {
-          id: bt.id,
-          title: bt.title,
-          position: bt.position,
-          isActive: bt.is_active,
-          taskListId: bt.task_list_id,
-        };
-
-        set((state) => {
-          // Se já existe, apenas ativa
-          const existingIdx = state.openTabs.findIndex((t) => t.taskListId === taskListId);
-          if (existingIdx >= 0) {
-            return {
-              openTabs: state.openTabs.map((t) => ({
-                ...t,
-                isActive: t.taskListId === taskListId,
-              })),
-              activeTabId: state.openTabs[existingIdx].id,
-            };
-          }
-
-          return {
-            openTabs: [
-              ...state.openTabs.map((t) => ({ ...t, isActive: false })),
-              newTab,
-            ],
-            activeTabId: newTab.id,
-          };
-        });
-      } catch (error) {
-        get().setError('createTab', String(error));
-      }
-    },
-
-    closeTab: async (tabId: number) => {
-      try {
-        await CloseTaskListTab(tabId);
-        set((state) => {
-          const updatedTabs = state.openTabs.filter((t) => t.id !== tabId);
-          const wasActive = state.activeTabId === tabId;
-          const nextActive = wasActive && updatedTabs.length > 0 ? updatedTabs[0].id : undefined;
-
-          return {
-            openTabs: updatedTabs,
-            activeTabId: nextActive,
-          };
-        });
-      } catch (error) {
-        get().setError('closeTab', String(error));
-      }
-    },
-
-    setActiveTab: async (tabId: number) => {
-      try {
-        await SetActiveTaskListTab(tabId);
-        set((state) => ({
-          openTabs: state.openTabs.map((t) => ({
-            ...t,
-            isActive: t.id === tabId,
-          })),
-          activeTabId: tabId,
-        }));
-      } catch (error) {
-        get().setError('setActiveTab', String(error));
-      }
-    },
-
-    updateTabTitle: (tabId: number, title: string) => {
-      set((state) => ({
-        openTabs: state.openTabs.map((t) =>
-          t.id === tabId ? { ...t, title } : t
-        ),
-      }));
+    getActiveTaskList: () => {
+      const { activeTaskListId, taskLists } = get();
+      if (activeTaskListId === undefined) return undefined;
+      return taskLists.get(activeTaskListId);
     },
 
     // TaskList management

@@ -71,6 +71,9 @@ export function useTabsKeyboardNav({
 
       if (!isTabsNavKey(event.key)) return;
 
+      // Alt+Arrows são reservados para reordenação no nível do consumidor
+      if (event.altKey) return;
+
       // Delete com modificadores costuma significar outra ação em alguns layouts;
       // não deve fechar abas nesses casos.
       if (
@@ -133,7 +136,25 @@ export function useTabsKeyboardNav({
 
       if (activationMode === 'auto' && nextValue) {
         onValueChange?.(nextValue);
-        setTimeout(() => focusTabAtIndex(result.nextIndex), 0);
+
+        // Focus the target tab synchronously, then guard against content
+        // components that steal focus during mount/state-change effects.
+        const targetBtn = tabs[result.nextIndex];
+        targetBtn?.focus();
+
+        let guardActive = true;
+        const focusGuard = (e: Event) => {
+          if (!guardActive) return;
+          const el = e.target as HTMLElement;
+          if (el === targetBtn || el?.closest('[role="tablist"]')) return;
+          targetBtn?.focus();
+        };
+        document.addEventListener('focusin', focusGuard, true);
+        setTimeout(() => {
+          guardActive = false;
+          document.removeEventListener('focusin', focusGuard, true);
+        }, 350);
+
         return;
       }
 

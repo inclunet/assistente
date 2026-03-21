@@ -78,10 +78,6 @@ export function CloneTaskList(arg1, arg2) {
   return window['go']['main']['App']['CloneTaskList'](arg1, arg2);
 }
 
-export function CloseTaskListTab(arg1) {
-  return window['go']['main']['App']['CloseTaskListTab'](arg1);
-}
-
 export function CloseTerminalSession(arg1) {
   return window['go']['main']['App']['CloseTerminalSession'](arg1);
 }
@@ -128,10 +124,6 @@ export function CreateTask(arg1, arg2, arg3, arg4) {
 
 export function CreateTaskList(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateTaskList'](arg1, arg2, arg3, arg4);
-}
-
-export function CreateTaskListTab(arg1, arg2) {
-  return window['go']['main']['App']['CreateTaskListTab'](arg1, arg2);
 }
 
 export function CreateTerminalSession(arg1) {
@@ -276,6 +268,10 @@ export function EnsureConversation(arg1) {
 
 export function ExportConversations(arg1) {
   return window['go']['main']['App']['ExportConversations'](arg1);
+}
+
+export function ExportWorkspace() {
+  return window['go']['main']['App']['ExportWorkspace']();
 }
 
 export function GenerateAndSaveMessageAudio(arg1, arg2) {
@@ -502,10 +498,6 @@ export function GetTaskListStats(arg1) {
   return window['go']['main']['App']['GetTaskListStats'](arg1);
 }
 
-export function GetTaskListTabs() {
-  return window['go']['main']['App']['GetTaskListTabs']();
-}
-
 export function GetTaskListWithHierarchy(arg1) {
   return window['go']['main']['App']['GetTaskListWithHierarchy'](arg1);
 }
@@ -544,6 +536,10 @@ export function GetWorkflow(arg1) {
 
 export function ImportConversations(arg1) {
   return window['go']['main']['App']['ImportConversations'](arg1);
+}
+
+export function ImportWorkspace(arg1) {
+  return window['go']['main']['App']['ImportWorkspace'](arg1);
 }
 
 export function InitSpeechManager(arg1, arg2, arg3, arg4, arg5) {
@@ -588,6 +584,10 @@ export function ListTerminalSessions() {
 
 export function ListWorkspaces() {
   return window['go']['main']['App']['ListWorkspaces']();
+}
+
+export function MoveWorkspaceTabTo(arg1, arg2) {
+  return window['go']['main']['App']['MoveWorkspaceTabTo'](arg1, arg2);
 }
 
 export function NeedsWelcomeWizard() {
@@ -716,10 +716,6 @@ export function SendTerminalInput(arg1, arg2) {
 
 export function SetActiveProfile(arg1) {
   return window['go']['main']['App']['SetActiveProfile'](arg1);
-}
-
-export function SetActiveTaskListTab(arg1) {
-  return window['go']['main']['App']['SetActiveTaskListTab'](arg1);
 }
 
 export function SetActiveWorkspaceTab(arg1) {
