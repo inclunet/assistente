@@ -231,33 +231,14 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 	log.Printf("[Gateway] trace=%s conv=%d channel=%s contact=%s msg=%s recebida",
 		traceID, conversationID, msg.Channel, maskIdentifier(msg.From.ID), msg.ID)
 
-	// 3. Garante que existe uma aba para essa conversa no Wails
-	channelIcons := map[string]string{"signal": "📡", "telegram": "✈️"}
-	icon := channelIcons[msg.Channel]
-	if icon == "" {
-		icon = "💬"
-	}
-	tabTitle := fmt.Sprintf("[%s] %s", msg.Channel, msg.From.DisplayName)
-	tab, tabCreated, tabErr := database.FindOrCreateTabForConversation(conversationID, tabTitle, icon)
-
-	var tabID uint
-	if tabErr == nil {
-		tabID = tab.ID
-		if tabCreated {
-			log.Printf("[Gateway] trace=%s conv=%d tab=%d criada", traceID, conversationID, tabID)
-		}
-	} else {
-		log.Printf("[Gateway] trace=%s conv=%d erro ao criar aba: %v", traceID, conversationID, tabErr)
-	}
-
-	// 4. Converte attachments em media JSON (mesmo formato que o frontend)
+	// 3. Converte attachments em media JSON (mesmo formato que o frontend)
 	mediaJSON := ""
 	if len(msg.Attachments) > 0 {
 		mediaJSON = attachmentsToMediaJSON(msg.Attachments)
 		log.Printf("[Gateway] trace=%s conv=%d attachments=%d convertidos para media JSON", traceID, conversationID, len(msg.Attachments))
 	}
 
-	// 5. Emite evento para o frontend (com conversationID + info da aba)
+	// 4. Emite evento para o frontend
 	hasAttachments := len(msg.Attachments) > 0
 	if g.emitEvent != nil {
 		g.emitEvent("messaging:incoming", map[string]any{
@@ -268,10 +249,6 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			"messageId":       msg.ID,
 			"conversationId":  conversationID,
 			"newConversation": created,
-			"tabId":           tabID,
-			"tabCreated":      tabCreated,
-			"tabTitle":        tabTitle,
-			"tabIcon":         icon,
 			"hasAttachments":  hasAttachments,
 			"audioOnly":       msg.IsAudioOnly(),
 		})

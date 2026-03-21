@@ -11,20 +11,25 @@ import {
 
 // ─── Mocks para executeDeepLink ──────────────────────────────────────
 
-const mockSetActiveTab = vi.fn().mockResolvedValue(undefined);
-const mockOpenConversationInNewTab = vi.fn().mockResolvedValue(undefined);
-const mockCreateTab = vi.fn().mockResolvedValue('new-tab-id');
+const mockWsSetActiveTab = vi.fn().mockResolvedValue(undefined);
+const mockWsAddTab = vi.fn().mockResolvedValue(undefined);
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
 
-let mockTabs: Array<{ id: string; conversationId?: number }> = [];
+let mockWsTabs: Array<{ id: string; type: string; contentId: string }> = [];
+
+vi.mock('../store/workspaceStore', () => ({
+  useWorkspaceStore: {
+    getState: () => ({
+      workspace: { tabs: mockWsTabs },
+      setActiveTab: mockWsSetActiveTab,
+      addTab: mockWsAddTab,
+    }),
+  },
+}));
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: {
     getState: () => ({
-      tabs: mockTabs,
-      setActiveTab: mockSetActiveTab,
-      openConversationInNewTab: mockOpenConversationInNewTab,
-      createTab: mockCreateTab,
       sendMessage: mockSendMessage,
     }),
   },
@@ -374,14 +379,14 @@ describe('executeDeepLink', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.useRealTimers();
-    mockTabs = [];
+    mockWsTabs = [];
   });
 
   describe('conversation:open — dedup', () => {
     it('ativa aba existente se a conversa já está aberta', async () => {
-      mockTabs = [
-        { id: 'tab-1', conversationId: 42 },
-        { id: 'tab-2', conversationId: 99 },
+      mockWsTabs = [
+        { id: 'tab-1', type: 'chat', contentId: '42' },
+        { id: 'tab-2', type: 'chat', contentId: '99' },
       ];
 
       await executeDeepLink(
@@ -389,70 +394,70 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockSetActiveTab).toHaveBeenCalledWith('tab-1');
-      expect(mockOpenConversationInNewTab).not.toHaveBeenCalled();
+      expect(mockWsSetActiveTab).toHaveBeenCalledWith('tab-1');
+      expect(mockWsAddTab).not.toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
     it('abre nova aba se a conversa não está aberta', async () => {
-      mockTabs = [{ id: 'tab-1', conversationId: 99 }];
+      mockWsTabs = [{ id: 'tab-1', type: 'chat', contentId: '99' }];
 
       await executeDeepLink(
         { type: 'conversation:open', conversationId: 42 },
         deps,
       );
 
-      expect(mockOpenConversationInNewTab).toHaveBeenCalledWith(42);
-      expect(mockSetActiveTab).not.toHaveBeenCalled();
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '42', 'Conversa');
+      expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
     it('abre nova aba quando não há abas', async () => {
-      mockTabs = [];
+      mockWsTabs = [];
 
       await executeDeepLink(
         { type: 'conversation:open', conversationId: 7 },
         deps,
       );
 
-      expect(mockOpenConversationInNewTab).toHaveBeenCalledWith(7);
-      expect(mockSetActiveTab).not.toHaveBeenCalled();
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '7', 'Conversa');
+      expect(mockWsSetActiveTab).not.toHaveBeenCalled();
     });
   });
 
   describe('conversation:send — dedup', () => {
     it('ativa aba existente se a conversa já está aberta', async () => {
       vi.useFakeTimers();
-      mockTabs = [{ id: 'tab-5', conversationId: 10 }];
+      mockWsTabs = [{ id: 'tab-5', type: 'chat', contentId: '10' }];
 
       const promise = executeDeepLink(
         { type: 'conversation:send', conversationId: 10, message: 'oi' },
         deps,
       );
 
-      await vi.advanceTimersByTimeAsync(150);
+      await vi.advanceTimersByTimeAsync(250);
       await promise;
 
-      expect(mockSetActiveTab).toHaveBeenCalledWith('tab-5');
-      expect(mockOpenConversationInNewTab).not.toHaveBeenCalled();
+      expect(mockWsSetActiveTab).toHaveBeenCalledWith('tab-5');
+      expect(mockWsAddTab).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith('oi');
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
     it('abre nova aba se a conversa não está aberta', async () => {
       vi.useFakeTimers();
-      mockTabs = [];
+      mockWsTabs = [];
 
       const promise = executeDeepLink(
         { type: 'conversation:send', conversationId: 10, message: 'oi' },
         deps,
       );
 
-      await vi.advanceTimersByTimeAsync(150);
+      await vi.advanceTimersByTimeAsync(250);
       await promise;
 
-      expect(mockOpenConversationInNewTab).toHaveBeenCalledWith(10);
-      expect(mockSetActiveTab).not.toHaveBeenCalled();
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '10', 'Conversa');
+      expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith('oi');
     });
   });
@@ -461,7 +466,7 @@ describe('executeDeepLink', () => {
     it('cria nova aba e navega para chat', async () => {
       await executeDeepLink({ type: 'conversation:new' }, deps);
 
-      expect(mockCreateTab).toHaveBeenCalledWith(true);
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '', 'Nova Conversa');
       expect(mockNavigate).toHaveBeenCalledWith('/');
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
@@ -474,10 +479,10 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      await vi.advanceTimersByTimeAsync(150);
+      await vi.advanceTimersByTimeAsync(250);
       await promise;
 
-      expect(mockCreateTab).toHaveBeenCalledWith(true);
+      expect(mockWsAddTab).toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith('analise isso');
     });
   });

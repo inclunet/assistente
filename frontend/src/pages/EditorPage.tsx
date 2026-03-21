@@ -3,7 +3,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { ProfilePicker } from '../components/pickers/ProfilePicker';
-import { EditorTabs } from '../components/editor/EditorTabs';
 import { CodeEditor } from '../components/ui/CodeEditor';
 import { MarkdownRenderer } from '../components/ui/MarkdownRenderer';
 import { Menu, type MenuItem } from '../components/menu';
@@ -13,9 +12,8 @@ import { RichTextEditor } from '../components/editor/RichTextEditor';
 import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
 import { useRichEditorFlushEvents } from './useRichEditorFlushEvents';
 import { EditorInlineChatModal } from '@/components/editor/EditorInlineChatModal';
-import { useEditorStore, type EditorMode, type EditorTab, type EditorInsertRequest } from '../store/editorStore';
-import { useEditorTabsKeyboardShortcuts } from '../hooks/useEditorTabsKeyboardShortcuts';
-import { useLandmarkNavigation } from '../hooks/useLandmarkNavigation';
+import { useEditorStore, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
@@ -67,25 +65,24 @@ export default function EditorPage() {
   const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId } = useEditorInlineChatPatch();
 
 
-  const tabs = useEditorStore((s) => s.tabs);
-  const activeTabId = useEditorStore((s) => s.activeTabId);
-  const createTab = useEditorStore((s) => s.createTab);
-  const setTabMarkdown = useEditorStore((s) => s.setTabMarkdown);
-  const renameTab = useEditorStore((s) => s.renameTab);
-  const setTabFilePath = useEditorStore((s) => s.setTabFilePath);
-  const setTabDraftId = useEditorStore((s) => s.setTabDraftId);
-  const setTabDirty = useEditorStore((s) => s.setTabDirty);
+  const documents = useEditorStore((s) => s.documents);
+  const activeDocumentId = useEditorStore((s) => s.activeDocumentId);
+  const createDocument = useEditorStore((s) => s.createDocument);
+  const setDocMarkdown = useEditorStore((s) => s.setDocMarkdown);
+  const renameDocument = useEditorStore((s) => s.renameDocument);
+  const setDocFilePath = useEditorStore((s) => s.setDocFilePath);
+  const setDocDraftId = useEditorStore((s) => s.setDocDraftId);
+  const setDocDirty = useEditorStore((s) => s.setDocDirty);
   const autoSaveEnabled = useEditorStore((s) => s.autoSaveEnabled);
   const toggleAutoSave = useEditorStore((s) => s.toggleAutoSave);
   const editorProfileSlug = useEditorStore((s) => s.editorProfileSlug);
   const setEditorProfileSlug = useEditorStore((s) => s.setEditorProfileSlug);
   const hydrate = useEditorStore((s) => s.hydrate);
-  const setTabLinkedChat = useEditorStore((s) => s.setTabLinkedChat);
+  const setDocLinkedChat = useEditorStore((s) => s.setDocLinkedChat);
+  const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
 
-  const activeTab = useMemo(() => tabs.find((t) => t.id === activeTabId) || null, [tabs, activeTabId]);
+  const activeTab = useMemo(() => activeDocumentId ? documents[activeDocumentId] ?? null : null, [documents, activeDocumentId]);
 
-  // Atalhos globais das abas do editor (Ctrl+T/Ctrl+W/Ctrl+Tab...)
-  useEditorTabsKeyboardShortcuts();
 
   const pageRootRef = useRef<HTMLDivElement>(null);
   const editorRef = useRef<any>(null);
@@ -242,7 +239,7 @@ export default function EditorPage() {
     return a.exists === b.exists && a.isDir === b.isDir && a.size === b.size && a.modTimeMs === b.modTimeMs;
   };
 
-  const refreshDiskInfoForTab = async (tab: EditorTab): Promise<DiskInfo | null> => {
+  const refreshDiskInfoForTab = async (tab: EditorDocument): Promise<DiskInfo | null> => {
     const filePath = tab?.filePath ? String(tab.filePath) : '';
     if (!filePath) return null;
     try {
@@ -260,7 +257,7 @@ export default function EditorPage() {
     }
   };
 
-  const getCachedMarkdownForTab = (tab: EditorTab): string => {
+  const getCachedMarkdownForTab = (tab: EditorDocument): string => {
     if (!tab) return '';
     return latestMarkdownByTabRef.current[tab.id] ?? String(tab.markdown ?? '');
   };
@@ -337,9 +334,9 @@ export default function EditorPage() {
     // Garante travamento mesmo se o fluxo tiver sido iniciado fora do questionário.
     setExternalConflictLocked(tabId, true);
 
-    setTabMarkdown(tabId, conflictText);
+    setDocMarkdown(tabId, conflictText);
     updateLatestMarkdownForTab(tabId, conflictText);
-    setTabDirty(tabId, true);
+    setDocDirty(tabId, true);
 
     addToast(
       'Conflito aberto para mesclagem manual (estilo Git). Resolva os marcadores e use Salvar para gravar no arquivo real.',
@@ -376,14 +373,14 @@ export default function EditorPage() {
   ) => {
     if (isExternalPromptInFlight(tabId)) return;
 
-    const { tabs: currentTabs } = useEditorStore.getState();
-    const tab = currentTabs.find((t) => t.id === tabId) || null;
+    const { documents: currentDocs } = useEditorStore.getState();
+    const tab = currentDocs[tabId] || null;
     if (!tab || !tab.filePath) return;
 
     setExternalPromptInFlight(tabId, true);
     try {
       setExternalConflictLocked(tabId, true);
-      setTabDirty(tabId, true);
+      setDocDirty(tabId, true);
 
       const localContent = getCachedMarkdownForTab(tab);
       const localPreview = truncatePreview(localContent);
@@ -402,9 +399,9 @@ export default function EditorPage() {
       // Se o conteúdo no disco é igual ao local, não há conflito real.
       if (!diskReadError && diskContent === localContent) {
         setDiskBaselineForTab(tabId, localContent);
-        setTabDirty(tabId, false);
-        const { tabs: afterTabs } = useEditorStore.getState();
-        const afterTab = afterTabs.find((t) => t.id === tabId) || tab;
+        setDocDirty(tabId, false);
+        const { documents: afterDocs } = useEditorStore.getState();
+        const afterTab = afterDocs[tabId] || tab;
         void refreshDiskInfoForTab(afterTab);
         setExternalConflictLocked(tabId, false);
         return;
@@ -497,12 +494,12 @@ export default function EditorPage() {
         }
 
         try {
-          setTabMarkdown(tabId, diskContent);
+          setDocMarkdown(tabId, diskContent);
           updateLatestMarkdownForTab(tabId, diskContent);
           setDiskBaselineForTab(tabId, diskContent);
-          setTabDirty(tabId, false);
-          const { tabs: afterTabs } = useEditorStore.getState();
-          const afterTab = afterTabs.find((t) => t.id === tabId) || tab;
+          setDocDirty(tabId, false);
+          const { documents: afterDocs } = useEditorStore.getState();
+          const afterTab = afterDocs[tabId] || tab;
           void refreshDiskInfoForTab(afterTab);
           setExternalConflictLocked(tabId, false);
           addToast('Recarregado do disco', 'success');
@@ -523,13 +520,13 @@ export default function EditorPage() {
         setDiskBaselineForTab(tabId, localContent);
 
         const title = basenameFromPath(newPath);
-        setTabFilePath(tabId, newPath);
-        renameTab(tabId, title);
-        setTabDraftId(tabId, null);
-        setTabDirty(tabId, false);
+        setDocFilePath(tabId, newPath);
+        renameDocument(tabId, title);
+        setDocDraftId(tabId, null);
+        setDocDirty(tabId, false);
 
-        const { tabs: afterTabs } = useEditorStore.getState();
-        const afterTab = afterTabs.find((t) => t.id === tabId) || tab;
+        const { documents: afterDocs } = useEditorStore.getState();
+        const afterTab = afterDocs[tabId] || tab;
         void refreshDiskInfoForTab(afterTab);
         setExternalConflictLocked(tabId, false);
         addToast('Salvo em novo arquivo', 'success');
@@ -541,9 +538,9 @@ export default function EditorPage() {
         markSelfWrite(filePath);
         await EditorWriteFile(filePath, localContent);
         setDiskBaselineForTab(tabId, localContent);
-        setTabDirty(tabId, false);
-        const { tabs: afterTabs } = useEditorStore.getState();
-        const afterTab = afterTabs.find((t) => t.id === tabId) || tab;
+        setDocDirty(tabId, false);
+        const { documents: afterDocs } = useEditorStore.getState();
+        const afterTab = afterDocs[tabId] || tab;
         void refreshDiskInfoForTab(afterTab);
         setExternalConflictLocked(tabId, false);
         addToast('Sobrescrito no disco', 'success');
@@ -557,11 +554,11 @@ export default function EditorPage() {
 
   const persistTabContentNow = async (tabId: string) => {
     if (!sessionLoaded) return;
-    const { tabs: currentTabs, autoSaveEnabled: currentAutoSaveEnabled } = useEditorStore.getState();
-    const tab = currentTabs.find((t) => t.id === tabId) || null;
+    const { documents: currentDocs, autoSaveEnabled: currentAutoSaveEnabled } = useEditorStore.getState();
+    const tab = currentDocs[tabId] || null;
     if (!tab) return;
 
-    if (tab.mode === 'rich' && useEditorStore.getState().activeTabId === tabId) {
+    if (tab.mode === 'rich' && useEditorStore.getState().activeDocumentId === tabId) {
       flushActiveRichMarkdownNow();
     }
 
@@ -605,7 +602,7 @@ export default function EditorPage() {
 
         if (lastDisk && !diskInfoEquals(lastDisk, currentDisk)) {
           setExternalConflictLocked(tabId, true);
-          setTabDirty(tabId, true);
+          setDocDirty(tabId, true);
           addToast('Arquivo foi modificado fora do Assistente. Escolha como resolver.', 'warning');
           if (!isExternalPromptInFlight(tabId)) {
             void promptResolveExternalChangeForTab(tabId, filePath);
@@ -626,7 +623,7 @@ export default function EditorPage() {
       markSelfWrite(filePath);
       await EditorWriteFile(filePath, markdown);
       setDiskBaselineForTab(tab.id, markdown);
-      setTabDirty(tab.id, false);
+      setDocDirty(tab.id, false);
 
       // Atualiza baseline após salvar
       void refreshDiskInfoForTab(tab);
@@ -675,11 +672,11 @@ export default function EditorPage() {
         const autoSaveEnabledFromSess = typeof sess.autoSaveEnabled === 'boolean' ? !!sess.autoSaveEnabled : true;
         const editorProfileSlugFromSess = String(sess.profileSlug || '').trim();
 
-        const lockedFromSess = (sess.externalConflictLockedByTabId || {}) as Record<string, any>;
-        const mergeFromSess = (sess.mergeSessionsByTabId || {}) as Record<string, any>;
+        const lockedFromSess = (sess.externalConflictLockedByDocId || {}) as Record<string, any>;
+        const mergeFromSess = (sess.mergeSessionsByDocId || {}) as Record<string, any>;
 
-        const rawTabs = Array.isArray(sess.tabs) ? sess.tabs : [];
-        const loadedTabs: EditorTab[] = [];
+        const rawTabs = Array.isArray(sess.documents) ? sess.documents : [];
+        const loadedTabs: EditorDocument[] = [];
 
         for (const t of rawTabs) {
           const tabId = String(t?.id || '').trim();
@@ -746,13 +743,17 @@ export default function EditorPage() {
           // best-effort
         }
 
-        // Se não houver tabs na sessão, mantém vazio (usuário pode criar com Ctrl+N)
-        const nextActiveTabId = String(sess.activeTabId || '').trim();
-        const activeExists = !!loadedTabs.find((t) => t.id === nextActiveTabId);
+        const loadedDocs: Record<string, EditorDocument> = {};
+        for (const t of loadedTabs) {
+          loadedDocs[t.id] = t;
+        }
+
+        const nextActiveDocId = String(sess.activeDocumentId || '').trim();
+        const activeExists = !!loadedDocs[nextActiveDocId];
 
         hydrate({
-          tabs: loadedTabs,
-          activeTabId: activeExists ? nextActiveTabId : (loadedTabs[0]?.id ?? null),
+          documents: loadedDocs,
+          activeDocumentId: activeExists ? nextActiveDocId : (loadedTabs[0]?.id ?? null),
           autoSaveEnabled: autoSaveEnabledFromSess,
           editorProfileSlug: editorProfileSlugFromSess || 'editor-texto',
         });
@@ -788,7 +789,6 @@ export default function EditorPage() {
 
         setSessionLoaded(true);
       } catch {
-        // Se falhar, ainda marca como carregado para permitir uso normal
         setSessionLoaded(true);
       }
     })();
@@ -807,14 +807,15 @@ export default function EditorPage() {
     updateLatestMarkdownForTab(activeTab.id, String(activeTab.markdown ?? ''));
   }, [sessionLoaded, activeTab?.id]);
 
+  const allDocs = useMemo(() => Object.values(documents), [documents]);
+
   // Persiste a sessão (abas abertas) via backend (persistido no SQLite)
   useEffect(() => {
     if (!sessionLoaded) return;
 
     const timer = window.setTimeout(() => {
-      // Atualiza preferências por arquivo com o estado atual das tabs
       try {
-        for (const t of tabs) {
+        for (const t of allDocs) {
           if (t.filePath) {
             if (t.mode === 'markdown' || t.mode === 'rich') {
               fileModeByPathRef.current[normalizePathKey(String(t.filePath))] = t.mode;
@@ -825,28 +826,28 @@ export default function EditorPage() {
         // best-effort
       }
 
-      const externalConflictLockedByTabId: Record<string, boolean> = {};
-      const mergeSessionsByTabId: Record<string, any> = {};
+      const externalConflictLockedByDocId: Record<string, boolean> = {};
+      const mergeSessionsByDocId: Record<string, any> = {};
       try {
-        for (const t of tabs) {
+        for (const t of allDocs) {
           if (!t?.id) continue;
-          if (isExternalConflictLocked(t.id)) externalConflictLockedByTabId[t.id] = true;
+          if (isExternalConflictLocked(t.id)) externalConflictLockedByDocId[t.id] = true;
           const ms = getMergeSession(t.id);
-          if (ms) mergeSessionsByTabId[t.id] = ms;
+          if (ms) mergeSessionsByDocId[t.id] = ms;
         }
       } catch {
         // best-effort
       }
 
       const payload = {
-        version: 2,
+        version: 3,
         autoSaveEnabled: !!autoSaveEnabled,
-        activeTabId: activeTabId || '',
+        activeDocumentId: activeDocumentId || '',
         profileSlug: editorProfileSlug,
         fileModeByPath: fileModeByPathRef.current,
-        externalConflictLockedByTabId,
-        mergeSessionsByTabId,
-        tabs: tabs.map((t) => ({
+        externalConflictLockedByDocId,
+        mergeSessionsByDocId,
+        documents: allDocs.map((t) => ({
           id: t.id,
           title: t.title,
           mode: t.mode,
@@ -860,16 +861,15 @@ export default function EditorPage() {
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [sessionLoaded, tabs, activeTabId, autoSaveEnabled, editorProfileSlug]);
+  }, [sessionLoaded, allDocs, activeDocumentId, autoSaveEnabled, editorProfileSlug]);
 
   // Flush imediato ao fechar/minimizar para reduzir chance de perder a sessão
   useEffect(() => {
     if (!sessionLoaded) return;
 
     const persistNow = () => {
-      // Flush best-effort do conteúdo da aba ativa antes de persistir sessão.
       try {
-        const { activeTabId: currentActive } = useEditorStore.getState();
+        const { activeDocumentId: currentActive } = useEditorStore.getState();
         if (currentActive) {
           void persistTabContentNow(currentActive);
         }
@@ -877,9 +877,8 @@ export default function EditorPage() {
         // best-effort
       }
 
-      // Atualiza preferências por arquivo com o estado atual das tabs
       try {
-        for (const t of tabs) {
+        for (const t of allDocs) {
           if (t.filePath) {
             if (t.mode === 'markdown' || t.mode === 'rich') {
               fileModeByPathRef.current[normalizePathKey(String(t.filePath))] = t.mode;
@@ -890,28 +889,28 @@ export default function EditorPage() {
         // best-effort
       }
 
-      const externalConflictLockedByTabId: Record<string, boolean> = {};
-      const mergeSessionsByTabId: Record<string, any> = {};
+      const externalConflictLockedByDocId: Record<string, boolean> = {};
+      const mergeSessionsByDocId: Record<string, any> = {};
       try {
-        for (const t of tabs) {
+        for (const t of allDocs) {
           if (!t?.id) continue;
-          if (isExternalConflictLocked(t.id)) externalConflictLockedByTabId[t.id] = true;
+          if (isExternalConflictLocked(t.id)) externalConflictLockedByDocId[t.id] = true;
           const ms = getMergeSession(t.id);
-          if (ms) mergeSessionsByTabId[t.id] = ms;
+          if (ms) mergeSessionsByDocId[t.id] = ms;
         }
       } catch {
         // best-effort
       }
 
       const payload = {
-        version: 2,
+        version: 3,
         autoSaveEnabled: !!autoSaveEnabled,
-        activeTabId: activeTabId || '',
+        activeDocumentId: activeDocumentId || '',
         profileSlug: editorProfileSlug,
         fileModeByPath: fileModeByPathRef.current,
-        externalConflictLockedByTabId,
-        mergeSessionsByTabId,
-        tabs: tabs.map((t) => ({
+        externalConflictLockedByDocId,
+        mergeSessionsByDocId,
+        documents: allDocs.map((t) => ({
           id: t.id,
           title: t.title,
           mode: t.mode,
@@ -925,8 +924,8 @@ export default function EditorPage() {
     const onBeforeUnload = () => persistNow();
     const onPageHide = () => persistNow();
     const checkActiveFileExternalChange = async () => {
-      const { tabs: currentTabs, activeTabId: currentActiveTabId } = useEditorStore.getState();
-      const tab = currentTabs.find((t) => t.id === currentActiveTabId) || null;
+      const { documents: currentDocs, activeDocumentId: currentActiveDocId } = useEditorStore.getState();
+      const tab = currentActiveDocId ? (currentDocs[currentActiveDocId] || null) : null;
       if (!tab?.filePath) return;
       if (isExternalConflictLocked(tab.id)) return;
 
@@ -936,7 +935,7 @@ export default function EditorPage() {
 
       if (lastDisk && !diskInfoEquals(lastDisk, currentDisk)) {
         setExternalConflictLocked(tab.id, true);
-        setTabDirty(tab.id, true);
+        setDocDirty(tab.id, true);
         addToast('Arquivo foi modificado fora do Assistente. Escolha como resolver.', 'warning');
         void promptResolveExternalChangeForTab(tab.id, String(tab.filePath));
       }
@@ -967,7 +966,7 @@ export default function EditorPage() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', onFocus);
     };
-  }, [sessionLoaded, tabs, activeTabId, autoSaveEnabled]);
+  }, [sessionLoaded, allDocs, activeDocumentId, autoSaveEnabled]);
 
   // Watcher de mudanças externas (backend emite editor:fileChanged)
   const watchedFilesRef = useRef<Record<string, { path: string; count: number }>>({});
@@ -976,7 +975,7 @@ export default function EditorPage() {
     if (!sessionLoaded) return;
 
     const next: Record<string, { path: string; count: number }> = {};
-    for (const t of tabs) {
+    for (const t of allDocs) {
       if (!t.filePath) continue;
       const p = String(t.filePath || '').trim();
       const key = normalizePathKey(p);
@@ -987,19 +986,16 @@ export default function EditorPage() {
 
     const prev = watchedFilesRef.current;
 
-    // Unwatch (reduções)
     for (const [key, entry] of Object.entries(prev)) {
       const prevCount = entry.count;
       const nextCount = next[key]?.count ?? 0;
       const diff = prevCount - nextCount;
       if (diff <= 0) continue;
-      // Backend tem refcount também; mantemos o nosso para evitar chamadas excessivas.
       for (let i = 0; i < diff; i++) {
         EditorUnwatchFile(entry.path).catch(() => null);
       }
     }
 
-    // Watch (aumentos)
     for (const [key, entry] of Object.entries(next)) {
       const prevCount = prev[key]?.count ?? 0;
       const diff = entry.count - prevCount;
@@ -1010,7 +1006,7 @@ export default function EditorPage() {
     }
 
     watchedFilesRef.current = next;
-  }, [sessionLoaded, tabs]);
+  }, [sessionLoaded, allDocs]);
 
   useEffect(() => {
     return () => {
@@ -1038,11 +1034,9 @@ export default function EditorPage() {
       const key = normalizePathKey(changedPath);
       if (!key) return;
 
-      const { tabs: currentTabs } = useEditorStore.getState();
-      const affected = currentTabs.filter((t) => t.filePath && normalizePathKey(String(t.filePath)) === key);
+      const { documents: currentDocs } = useEditorStore.getState();
+      const affected = Object.values(currentDocs).filter((t) => t.filePath && normalizePathKey(String(t.filePath)) === key);
       if (affected.length === 0) return;
-
-      // Lê o disco uma única vez por evento (mesmo arquivo pode estar em múltiplas abas)
       let diskContent = '';
       let diskReadError = '';
       try {
@@ -1072,7 +1066,7 @@ export default function EditorPage() {
           // Caso comum: o arquivo no disco já está igual ao que temos localmente
           if (diskHash === localHash) {
             setDiskBaselineForTab(t.id, localContent);
-            setTabDirty(t.id, false);
+            setDocDirty(t.id, false);
             void refreshDiskInfoForTab(t);
             // Não abre prompt.
             continue;
@@ -1081,16 +1075,16 @@ export default function EditorPage() {
           // Aba limpa: recarrega automaticamente, mas só se realmente mudou
           if (!t.isDirty) {
             try {
-              setTabMarkdown(t.id, diskContent);
+              setDocMarkdown(t.id, diskContent);
               updateLatestMarkdownForTab(t.id, diskContent);
               setDiskBaselineForTab(t.id, diskContent);
-              setTabDirty(t.id, false);
+              setDocDirty(t.id, false);
               void refreshDiskInfoForTab(t);
-              if (t.id === activeTabId) addToast('Arquivo recarregado do disco (mudança externa)', 'info');
+              if (t.id === activeDocumentId) addToast('Arquivo recarregado do disco (mudança externa)', 'info');
             } catch {
               // Se não der pra aplicar automaticamente, cai pro fluxo existente
               setExternalConflictLocked(t.id, true);
-              setTabDirty(t.id, true);
+              setDocDirty(t.id, true);
               if (!isExternalPromptInFlight(t.id)) {
                 void promptResolveExternalChangeForTab(t.id, String(t.filePath), { diskContent, diskReadError });
               }
@@ -1100,7 +1094,7 @@ export default function EditorPage() {
         }
         // Aba dirty (ou falha ao ler o disco): pede decisão explícita
         setExternalConflictLocked(t.id, true);
-        setTabDirty(t.id, true);
+        setDocDirty(t.id, true);
         if (!isExternalPromptInFlight(t.id)) {
           void promptResolveExternalChangeForTab(t.id, String(t.filePath), { diskContent, diskReadError });
         }
@@ -1114,65 +1108,7 @@ export default function EditorPage() {
         // ignore
       }
     };
-  }, [sessionLoaded, activeTabId]);
-
-  // F6: circular foco entre abas, toolbar principal e editor (via hook genérico)
-  useLandmarkNavigation({
-    landmarks: useMemo(() => [
-      {
-        id: 'tabs',
-        label: t('landmarks.tabs'),
-        focus: () => {
-          const root = pageRootRef.current;
-          if (!root) return false;
-          const active = root.querySelector('.editor-tabs [role="tab"][aria-selected="true"]') as HTMLButtonElement | null;
-          const anyTab = root.querySelector('.editor-tabs [role="tab"]') as HTMLButtonElement | null;
-          (active || anyTab)?.focus();
-          return !!(active || anyTab);
-        },
-        contains: () => !!document.activeElement?.closest?.('.editor-tabs'),
-      },
-      {
-        id: 'toolbar',
-        label: t('landmarks.toolbar'),
-        focus: () => {
-          const root = pageRootRef.current;
-          if (!root) return false;
-          const toolbar = root.querySelector('.editor-page__toolbar') as Element | null;
-          if (!toolbar) return false;
-          const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
-          if (!btn) return false;
-          btn.focus();
-          return true;
-        },
-        contains: () => !!document.activeElement?.closest?.('.editor-page__toolbar'),
-      },
-      {
-        id: 'editor',
-        label: t('landmarks.editor'),
-        isAvailable: () => !!activeTab,
-        focus: () => {
-          if (!activeTab) return false;
-          if (activeTab.mode === 'markdown') {
-            try { editorRef.current?.focus?.(); return true; } catch { return false; }
-          }
-          if (activeTab.mode === 'rich') {
-            try {
-              const tiptap = richEditorRef.current;
-              tiptap?.commands?.focus?.();
-              tiptap?.view?.focus?.();
-              return true;
-            } catch { return false; }
-          }
-          return false;
-        },
-        contains: () =>
-          !!document.activeElement?.closest?.('.rich-text-editor__content') ||
-          !!document.activeElement?.closest?.('.monaco-editor'),
-      },
-    ], [activeTab?.id, activeTab?.mode, t]),
-    defaultLandmarkId: 'editor',
-  });
+  }, [sessionLoaded, activeDocumentId]);
 
   // Ao entrar no Editor (e ao trocar de aba/modo), foca automaticamente a área de texto.
   // Não rouba foco de modais nem de campos de digitação.
@@ -1212,26 +1148,22 @@ export default function EditorPage() {
   }, [sessionLoaded, activeTab?.id, activeTab?.mode, inlineChatOpen]);
 
 
-  // Limpa drafts quando uma aba (rascunho) é fechada
-  const prevTabsRef = useRef<typeof tabs>([]);
+  const prevDocsRef = useRef<Record<string, EditorDocument>>({});
   useEffect(() => {
     if (!sessionLoaded) return;
 
-    const prev = prevTabsRef.current;
-    prevTabsRef.current = tabs;
+    const prev = prevDocsRef.current;
+    prevDocsRef.current = documents;
 
-    const prevById = new Map(prev.map((t) => [t.id, t] as const));
-    const nextIds = new Set(tabs.map((t) => t.id));
-
-    const removed = prev.filter((t) => !nextIds.has(t.id));
-    for (const tab of removed) {
-      const was = prevById.get(tab.id);
+    const removedIds = Object.keys(prev).filter((id) => !documents[id]);
+    for (const id of removedIds) {
+      const was = prev[id];
       if (!was) continue;
       if (was.filePath) continue;
       const draftId = was.draftId || was.id;
       EditorDeleteDraft(draftId).catch(() => null);
     }
-  }, [sessionLoaded, tabs]);
+  }, [sessionLoaded, documents]);
 
   const getSelectionSnapshot = () => {
     const editor = editorRef.current;
@@ -1389,7 +1321,8 @@ export default function EditorPage() {
 
   const flushActiveRichMarkdownNow = useCallback(() => {
     try {
-      const tab = useEditorStore.getState().tabs.find((t) => t.id === useEditorStore.getState().activeTabId) || null;
+      const st = useEditorStore.getState();
+      const tab = st.activeDocumentId ? st.documents[st.activeDocumentId] ?? null : null;
       if (!tab || tab.mode !== 'rich') return;
       richEditorHandleRef.current?.flushMarkdown?.();
     } catch {
@@ -1406,11 +1339,13 @@ export default function EditorPage() {
 
     let targetTab = activeTab;
 
-    if (r.target === 'new_tab' || !targetTab) {
+    if (r.target === 'new_document' || !targetTab) {
       const title = String(r.title || 'Do chat');
-      const createdId = useEditorStore.getState().createTab({ title, markdown: '', mode: 'markdown' });
-      targetTab = useEditorStore.getState().tabs.find((t) => t.id === createdId) || null;
-      // `createTab` já ativa a aba; aguarda um tick para o editor montar.
+      const createdId = useEditorStore.getState().createDocument({ title, markdown: '', mode: 'markdown' });
+      targetTab = useEditorStore.getState().documents[createdId] ?? null;
+      if (createdId) {
+        addWorkspaceTab('editor', createdId, title);
+      }
       await new Promise((res) => setTimeout(res, 0));
     }
 
@@ -1426,10 +1361,9 @@ export default function EditorPage() {
     const format = normalized.format;
 
     // Vínculo do chat → editor (para o mini-chat manter contexto)
-    if (r.source?.chatTabId || typeof r.source?.conversationId === 'number') {
-      setTabLinkedChat(targetTab.id, {
-        chatTabId: r.source?.chatTabId ?? null,
-        conversationId: typeof r.source?.conversationId === 'number' ? r.source?.conversationId : null,
+    if (typeof r.source?.conversationId === 'number') {
+      setDocLinkedChat(targetTab.id, {
+        conversationId: r.source.conversationId,
       });
     }
 
@@ -1492,7 +1426,7 @@ export default function EditorPage() {
       // Fallback: se o Monaco ainda não montou, aplica no markdown da aba (no final) e tenta focar depois.
       const current = String(targetTab.markdown ?? '');
       const nextText = current ? current + '\n\n' + content : content;
-      setTabMarkdown(targetTab.id, nextText);
+      setDocMarkdown(targetTab.id, nextText);
       updateLatestMarkdownForTab(targetTab.id, nextText);
       schedulePersistForTab(targetTab.id);
       if (focusAfter) focusEditorSoon();
@@ -1585,21 +1519,14 @@ export default function EditorPage() {
   const askInlineChat = async () => {
     if (!activeTab) return;
 
-    const chatState = useChatStore.getState();
-
-    // Se este doc está vinculado a uma conversa, usa essa aba por padrão.
-    const preferredChatTabId = String(activeTab.linkedChatTabId || '');
-    if (preferredChatTabId && preferredChatTabId !== chatState.activeTabId) {
+    // Se não há conversa ativa no chatStore, cria uma
+    if (!useChatStore.getState().activeConversationId) {
       try {
-        await chatState.setActiveTab(preferredChatTabId);
+        await useChatStore.getState().createConversation();
       } catch {
-        // best-effort
+        addToast('Não foi possível criar uma conversa para o chat inline.', 'error');
+        return;
       }
-    }
-
-    if (!useChatStore.getState().activeTabId) {
-      addToast('Nenhuma aba de chat ativa para enviar a mensagem.', 'error');
-      return;
     }
 
     const selectionRaw =
@@ -1680,26 +1607,19 @@ export default function EditorPage() {
       return;
     }
 
-    // Se este doc está vinculado a uma conversa, usa essa aba por padrão.
-    const preferredChatTabId = String(activeTab?.linkedChatTabId || '');
-    if (preferredChatTabId && preferredChatTabId !== chatState.activeTabId) {
+    // Se não há conversa ativa no chatStore, cria uma
+    if (!chatState.activeConversationId) {
       try {
-        await chatState.setActiveTab(preferredChatTabId);
+        await chatState.createConversation();
       } catch {
-        // best-effort
+        addToast('Não foi possível criar uma conversa para o chat inline.', 'error');
+        return;
       }
     }
 
-    const chatTabId = chatState.activeTabId;
-    const chatTab = chatTabId ? chatState.tabs.find((t) => t.id === chatTabId) : undefined;
-    const expectedConversationId = chatTab?.conversationId;
-    if (!chatTabId) {
-      addToast('Nenhuma aba de chat ativa para enviar a mensagem.', 'error');
-      return;
-    }
+    const expectedConversationId = useChatStore.getState().activeConversationId ?? undefined;
 
-    // Marca o estado atual para não capturar patches antigos do histórico.
-    const beforeMessages = chatState.getTabMessages(chatTabId);
+    const beforeMessages = useChatStore.getState().getMessages();
     const afterMessageId = getMaxNumericMessageId(beforeMessages as Message[]);
 
     const trimmed = String(instruction || '').trim();
@@ -1760,8 +1680,8 @@ export default function EditorPage() {
 
     const applyInlinePatchNow = (selection: InlineChatSelection, patch: EditorPatch) => {
       const replacement = normalizeReplacementForEditor(String(patch?.replacement || ''), patch?.format, selection?.selectedText);
-      const { tabs: currentTabs, activeTabId: currentActiveTabId } = useEditorStore.getState();
-      const tab = currentTabs.find((t) => t.id === selection.tabId) || null;
+      const { documents: currentDocs, activeDocumentId: currentActiveDocId } = useEditorStore.getState();
+      const tab = currentDocs[selection.tabId] || null;
       if (!tab) {
         addToast('Aba do editor não encontrada para aplicar a alteração.', 'error');
         setIsAsking(false);
@@ -1772,9 +1692,7 @@ export default function EditorPage() {
       if (selection.mode === 'markdown') {
         const s = selection;
 
-        // Para offsets de Markdown, garantimos que a aba original esteja ativa
-        // e usamos o texto do model do Monaco (onde os offsets foram calculados).
-        if (currentActiveTabId !== s.tabId) {
+        if (currentActiveDocId !== s.tabId) {
           addToast('Abra a aba original do editor para aplicar esta alteração.', 'info');
           setIsAsking(false);
           focusEditorSoon();
@@ -1801,7 +1719,7 @@ export default function EditorPage() {
         }
 
         const nextMarkdown = applied.nextText;
-        setTabMarkdown(s.tabId, nextMarkdown);
+        setDocMarkdown(s.tabId, nextMarkdown);
         updateLatestMarkdownForTab(s.tabId, nextMarkdown);
         schedulePersistForTab(s.tabId);
         addToast('Alteração aplicada', 'success');
@@ -1811,7 +1729,7 @@ export default function EditorPage() {
             const editor = editorRef.current;
             const m = editor?.getModel?.();
             if (!editor || !m) return;
-            if (currentActiveTabId !== s.tabId) return;
+            if (currentActiveDocId !== s.tabId) return;
             const startPos = m.getPositionAt(s.startOffset);
             const endPos = m.getPositionAt(s.startOffset + replacement.length);
             editor.setSelection({
@@ -1827,7 +1745,7 @@ export default function EditorPage() {
         });
       } else {
         const s = selection;
-        if (currentActiveTabId !== s.tabId) {
+        if (currentActiveDocId !== s.tabId) {
           addToast('Abra a aba original do editor para aplicar esta alteração.', 'info');
           setIsAsking(false);
           focusEditorSoon();
@@ -1956,7 +1874,7 @@ export default function EditorPage() {
 
       if (runId !== inlineChatRunIdRef.current) return;
 
-      const extracted = await waitForEditorPatch(chatTabId, {
+      const extracted = await waitForEditorPatch({
         afterMessageId,
         preferToolCalling: toolCallingEnabled,
         allowBodyFallback: !toolCallingEnabled,
@@ -2005,20 +1923,21 @@ export default function EditorPage() {
       if (!path) return;
 
       const key = normalizePathKey(path);
-      const fromTabs = tabs.find((t) => t.filePath && normalizePathKey(String(t.filePath)) === key)?.mode;
+      const fromTabs = Object.values(documents).find((t) => t.filePath && normalizePathKey(String(t.filePath)) === key)?.mode;
       const preferredMode: EditorMode =
         fileModeByPathRef.current[key] || (fromTabs === 'rich' ? 'rich' : 'markdown');
 
       const title = basenameFromPath(path);
-      const id = createTab({ title, markdown: String(res?.content || ''), mode: preferredMode });
-      renameTab(id, title);
-      setTabFilePath(id, path);
-      setTabDraftId(id, null);
-      setTabDirty(id, false);
+      const id = createDocument({ title, markdown: String(res?.content || ''), mode: preferredMode });
+      addWorkspaceTab('editor', id, title);
+      renameDocument(id, title);
+      setDocFilePath(id, path);
+      setDocDraftId(id, null);
+      setDocDirty(id, false);
 
       updateLatestMarkdownForTab(id, String(res?.content || ''));
       setDiskBaselineForTab(id, String(res?.content || ''));
-      const diskTab: EditorTab = {
+      const diskTab: EditorDocument = {
         id,
         title,
         markdown: String(res?.content || ''),
@@ -2029,7 +1948,7 @@ export default function EditorPage() {
 
       fileModeByPathRef.current[key] = preferredMode === 'rich' ? 'rich' : 'markdown';
 
-      // createTab cria um draftId por padrão; como agora é um arquivo real, limpamos.
+      // createDocument cria um draftId por padrão; como agora é um arquivo real, limpamos.
       EditorDeleteDraft(id).catch(() => null);
       addToast('Arquivo aberto', 'success');
       focusEditorSoon();
@@ -2084,9 +2003,9 @@ export default function EditorPage() {
     // Mantém travado: evita autosave sobrescrever o arquivo real sem decisão explícita.
     setExternalConflictLocked(activeTab.id, true);
 
-    setTabMarkdown(activeTab.id, mineContent);
+    setDocMarkdown(activeTab.id, mineContent);
     updateLatestMarkdownForTab(activeTab.id, mineContent);
-    setTabDirty(activeTab.id, true);
+    setDocDirty(activeTab.id, true);
 
     await cleanupMergeSessionForTab(activeTab.id);
 
@@ -2112,7 +2031,7 @@ export default function EditorPage() {
             markSelfWrite(activeTab.filePath);
             await EditorWriteFile(activeTab.filePath, content);
             setDiskBaselineForTab(activeTab.id, content);
-            setTabDirty(activeTab.id, false);
+            setDocDirty(activeTab.id, false);
             void refreshDiskInfoForTab(activeTab);
             setExternalConflictLocked(activeTab.id, false);
             await cleanupMergeSessionForTab(activeTab.id);
@@ -2128,7 +2047,7 @@ export default function EditorPage() {
         markSelfWrite(activeTab.filePath);
         await EditorWriteFile(activeTab.filePath, content);
         setDiskBaselineForTab(activeTab.id, content);
-        setTabDirty(activeTab.id, false);
+        setDocDirty(activeTab.id, false);
         void refreshDiskInfoForTab(activeTab);
         addToast('Arquivo salvo', 'success');
         focusEditorSoon();
@@ -2144,14 +2063,14 @@ export default function EditorPage() {
       await EditorWriteFile(path, content);
       setDiskBaselineForTab(activeTab.id, content);
       const title = basenameFromPath(path);
-      setTabFilePath(activeTab.id, path);
-      renameTab(activeTab.id, title);
-      setTabDirty(activeTab.id, false);
+      setDocFilePath(activeTab.id, path);
+      renameDocument(activeTab.id, title);
+      setDocDirty(activeTab.id, false);
 
       void refreshDiskInfoForTab({ ...activeTab, filePath: path });
 
       const draftId = activeTab.draftId || activeTab.id;
-      setTabDraftId(activeTab.id, null);
+      setDocDraftId(activeTab.id, null);
       await EditorDeleteDraft(draftId);
 
       addToast('Arquivo salvo', 'success');
@@ -2202,7 +2121,7 @@ export default function EditorPage() {
       return;
     }
     const nextMarkdown = replaceMermaidFenceCode(activeTab.markdown, fence, code);
-    setTabMarkdown(activeTab.id, nextMarkdown);
+    setDocMarkdown(activeTab.id, nextMarkdown);
     updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
     schedulePersistForTab(activeTab.id);
     addToast('Bloco Mermaid atualizado', 'success');
@@ -2244,7 +2163,7 @@ export default function EditorPage() {
     }
 
     const nextMarkdown = removeMermaidFence(activeTab.markdown, fence);
-    setTabMarkdown(activeTab.id, nextMarkdown);
+    setDocMarkdown(activeTab.id, nextMarkdown);
     updateLatestMarkdownForTab(activeTab.id, nextMarkdown);
     schedulePersistForTab(activeTab.id);
     addToast('Bloco Mermaid removido', 'success');
@@ -2314,10 +2233,12 @@ export default function EditorPage() {
       if (!v) return;
 
       switch (v) {
-        case 'new':
-          createTab();
+        case 'new': {
+          const newId = createDocument();
+          addWorkspaceTab('editor', newId, 'Novo documento');
           focusEditorSoon();
           return;
+        }
         case 'open':
           await openFile();
           return;
@@ -2346,7 +2267,7 @@ export default function EditorPage() {
           return;
       }
     },
-    [createTab, openFile, saveFile, abortMerge, saveFileAsCopy, toggleAutoSave, autoSaveEnabled, activeTab]
+    [createDocument, addWorkspaceTab, openFile, saveFile, abortMerge, saveFileAsCopy, toggleAutoSave, autoSaveEnabled, activeTab]
   );
 
   const {
@@ -2364,7 +2285,7 @@ export default function EditorPage() {
         flushActiveRichMarkdownNow();
       }
 
-      useEditorStore.getState().setTabMode(activeTab.id, nextMode);
+      useEditorStore.getState().setDocMode(activeTab.id, nextMode);
 
       // Se for arquivo real, memoriza preferência apenas de modos de edição.
       if (activeTab.filePath && (nextMode === 'markdown' || nextMode === 'rich')) {
@@ -2472,8 +2393,6 @@ export default function EditorPage() {
 
   return (
     <div className="editor-page" ref={pageRootRef}>
-      <EditorTabs />
-
       <Toolbar
         className="editor-page__toolbar"
         left={<div className="editor-page__title">{activeTab?.title || t('editor.fallback.title')}</div>}
@@ -2538,13 +2457,13 @@ export default function EditorPage() {
                   value={activeTab.markdown}
                   pasteUrlAsMarkdownLink={true}
                   onChange={(v) => {
-                    setTabMarkdown(activeTab.id, v);
+                    setDocMarkdown(activeTab.id, v);
                     updateLatestMarkdownForTab(activeTab.id, v);
                     if (!activeTab.filePath || autoSaveEnabled) {
                       schedulePersistForTab(activeTab.id);
                     }
                     if (activeTab.filePath && !autoSaveEnabled) {
-                      setTabDirty(activeTab.id, true);
+                      setDocDirty(activeTab.id, true);
                     }
                   }}
                   placeholder={t('editor.placeholders.markdown')}
@@ -2630,13 +2549,13 @@ export default function EditorPage() {
                   ariaLabel={t('editor.richText.label')}
                   markdown={activeTab.markdown}
                   onMarkdownChange={(md) => {
-                    setTabMarkdown(activeTab.id, md);
+                    setDocMarkdown(activeTab.id, md);
                     updateLatestMarkdownForTab(activeTab.id, md);
                     if (!activeTab.filePath || autoSaveEnabled) {
                       schedulePersistForTab(activeTab.id);
                     }
                     if (activeTab.filePath && !autoSaveEnabled) {
-                      setTabDirty(activeTab.id, true);
+                      setDocDirty(activeTab.id, true);
                     }
                   }}
                   readOnly={isAsking}

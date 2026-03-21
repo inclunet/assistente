@@ -370,55 +370,6 @@ export namespace database {
 		    return a;
 		}
 	}
-	export class ChatTab {
-	    id: number;
-	    conversation_id?: number;
-	    title: string;
-	    icon: string;
-	    position: number;
-	    is_active: boolean;
-	    // Go type: time
-	    created_at: any;
-	    // Go type: time
-	    updated_at: any;
-	    conversation?: Conversation;
-	
-	    static createFrom(source: any = {}) {
-	        return new ChatTab(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.conversation_id = source["conversation_id"];
-	        this.title = source["title"];
-	        this.icon = source["icon"];
-	        this.position = source["position"];
-	        this.is_active = source["is_active"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
-	        this.conversation = this.convertValues(source["conversation"], Conversation);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
 	export class MessageSearchResult {
 	    conversation_id: number;
 	    conversation_title: string;
@@ -1290,38 +1241,6 @@ export namespace main {
 	        this.format = source["format"];
 	        this.provider = source["provider"];
 	    }
-	}
-	export class TabsResponse {
-	    tabs: database.ChatTab[];
-	    active_tab_id: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new TabsResponse(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.tabs = this.convertValues(source["tabs"], database.ChatTab);
-	        this.active_tab_id = source["active_tab_id"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
 	}
 	export class TestLLMProviderRequest {
 	    type: string;
@@ -2728,6 +2647,131 @@ export namespace updater {
 	        this.releaseNotes = source["releaseNotes"];
 	        this.releaseDate = source["releaseDate"];
 	        this.downloadSize = source["downloadSize"];
+	    }
+	}
+
+}
+
+export namespace workspace {
+	
+	export class Tab {
+	    id: string;
+	    type: string;
+	    content_id: string;
+	    title: string;
+	    position: number;
+	    profile_override?: Record<string, any>;
+	    state?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Tab(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.type = source["type"];
+	        this.content_id = source["content_id"];
+	        this.title = source["title"];
+	        this.position = source["position"];
+	        this.profile_override = source["profile_override"];
+	        this.state = source["state"];
+	    }
+	}
+	export class TabsState {
+	    active: string;
+	    items: Tab[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TabsState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.active = source["active"];
+	        this.items = this.convertValues(source["items"], Tab);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Workspace {
+	    id: string;
+	    name: string;
+	    profile?: string;
+	    // Go type: time
+	    created_at: any;
+	    // Go type: time
+	    last_used: any;
+	    tabs: TabsState;
+	
+	    static createFrom(source: any = {}) {
+	        return new Workspace(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.profile = source["profile"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.last_used = this.convertValues(source["last_used"], null);
+	        this.tabs = this.convertValues(source["tabs"], TabsState);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class WorkspaceInfo {
+	    id: string;
+	    name: string;
+	    path: string;
+	    profile: string;
+	    tab_count: number;
+	    is_active: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.profile = source["profile"];
+	        this.tab_count = source["tab_count"];
+	        this.is_active = source["is_active"];
 	    }
 	}
 

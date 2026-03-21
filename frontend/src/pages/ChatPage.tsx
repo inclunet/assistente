@@ -1,5 +1,4 @@
-import { useRef, useState, useEffect, useCallback, useMemo } from 'react';
-import { useTranslation } from 'react-i18next';
+import { useRef, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
 import { useEditorStore } from '../store/editorStore';
@@ -7,12 +6,9 @@ import { ttsService } from '../services/tts';
 import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
 import { ChatToolbar } from '../components/chat/ChatToolbar';
-import { ChatTabs } from '../components/tabs/ChatTabs';
 import { ContextMenu } from '../components/menu';
 import { KeyboardShortcutsHelp } from '../components/ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../hooks/useChatKeyboardNav';
-import { useTabsKeyboardShortcuts } from '../hooks/useTabsKeyboardShortcuts';
-import { useLandmarkNavigation } from '../hooks/useLandmarkNavigation';
 import { useContextMenu, useMessageActions } from '../hooks/useContextMenu';
 import { MediaFile } from '../services/mediaService';
 import { DeleteMessage } from '@wailsjs/go/main/App';
@@ -22,7 +18,6 @@ import { handleError, ErrorSeverity, ErrorMessages } from '../utils/errorHandler
 import './ChatPage.css';
 
 export default function ChatPage() {
-  const { t } = useTranslation();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -35,8 +30,8 @@ export default function ChatPage() {
     sendMessage,
     getThreadedMessages,
     loadMessageChildren,
-    getActiveTab,
-    loadConversationInActiveTab,
+    getActiveConversation,
+    loadConversation,
     updateMessage,
     toggleReasoningExpanded,
     isReasoningExpanded,
@@ -72,10 +67,9 @@ export default function ChatPage() {
       if (messageId !== null) {
         await DeleteMessage(messageId);
         announce('Mensagem excluída');
-        // Recarrega a conversa atual sem page reload
-        const activeTab = getActiveTab();
-        if (activeTab?.conversationId) {
-          await loadConversationInActiveTab(activeTab.conversationId, activeTab.title || 'Conversa');
+        const conv = getActiveConversation();
+        if (conv?.id) {
+          await loadConversation(conv.id);
         }
       }
     } catch (error) {
@@ -93,20 +87,18 @@ export default function ChatPage() {
         metadata: { messageId },
       });
     }
-  }, [announce, getActiveTab, loadConversationInActiveTab]);
+  }, [announce, getActiveConversation, loadConversation]);
 
   // Menu de contexto
   const sendToEditor = useCallback(
     (payload: {
-      target: 'current' | 'new_tab';
+      target: 'current' | 'new_document';
       format: 'markdown' | 'html' | 'plain';
       title?: string;
       content: string;
     }) => {
       const chatState = useChatStore.getState();
-      const chatTabId = chatState.activeTabId;
-      const chatTab = chatTabId ? chatState.tabs.find((t) => t.id === chatTabId) : undefined;
-      const conversationId = typeof chatTab?.conversationId === 'number' ? chatTab.conversationId : null;
+      const conversationId = chatState.activeConversationId;
 
       const content = String(payload?.content ?? '');
       if (!content) return;
@@ -118,8 +110,7 @@ export default function ChatPage() {
         content,
         focus: true,
         source: {
-          chatTabId: chatTabId ?? null,
-          conversationId,
+          conversationId: conversationId ?? null,
           messageId: null,
         },
       });
@@ -166,63 +157,6 @@ export default function ChatPage() {
     enabled: true,
     inputRef,
     messagesContainerRef,
-  });
-
-  // Enable global keyboard shortcuts for tabs (Ctrl+T, Ctrl+W, Ctrl+Tab, etc.)
-  useTabsKeyboardShortcuts();
-
-  // F6: circular foco entre guias, toolbar, histórico do chat e campo de mensagem
-  useLandmarkNavigation({
-    landmarks: useMemo(() => [
-      {
-        id: 'tabs',
-        label: t('landmarks.tabs'),
-        focus: () => {
-          const active = document.querySelector('.chat-tabs [role="tab"][aria-selected="true"]') as HTMLElement | null;
-          const anyTab = document.querySelector('.chat-tabs [role="tab"]') as HTMLElement | null;
-          (active || anyTab)?.focus();
-          return !!(active || anyTab);
-        },
-        contains: () => !!document.activeElement?.closest?.('.chat-tabs'),
-      },
-      {
-        id: 'toolbar',
-        label: t('landmarks.toolbar'),
-        focus: () => {
-          const toolbar = document.querySelector('.chat-page [role="toolbar"]') as Element | null;
-          if (!toolbar) return false;
-          const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
-          if (!btn) return false;
-          btn.focus();
-          return true;
-        },
-        contains: () => !!document.activeElement?.closest?.('[role="toolbar"]'),
-      },
-      {
-        id: 'chatHistory',
-        label: t('landmarks.chatHistory'),
-        focus: () => {
-          const container = messagesContainerRef.current;
-          if (!container) return false;
-          const lastMsg = container.querySelector('[data-message-node]:last-child') as HTMLElement | null;
-          if (lastMsg) { lastMsg.focus(); return true; }
-          container.setAttribute('tabindex', '-1');
-          container.focus();
-          return true;
-        },
-        contains: () => !!document.activeElement?.closest?.('.message-list'),
-      },
-      {
-        id: 'chatInput',
-        label: t('landmarks.chatInput'),
-        focus: () => {
-          inputRef.current?.focus();
-          return !!inputRef.current;
-        },
-        contains: () => !!document.activeElement?.closest?.('.chat-input'),
-      },
-    ], [t]),
-    defaultLandmarkId: 'chatInput',
   });
 
   // Usa os MessageNode[] que o backend já enviou com childCount correto
@@ -284,12 +218,8 @@ export default function ChatPage() {
   useEffect(() => {
     const handleMessageUpdated = (data: unknown) => {
       const eventData = data as { message_id?: number | string; content?: string };
-      // Em vez de recarregar toda a conversa, atualiza apenas a mensagem na store
-      // Isso preserva o estado de foco e evita re-renders desnecessários
-      const activeTab = getActiveTab();
-      if (activeTab && eventData.message_id && eventData.content !== undefined) {
-        // Atualiza a mensagem localmente na store (sem recarregar toda a conversa)
-        updateMessage(activeTab.id, String(eventData.message_id), eventData.content);
+      if (eventData.message_id && eventData.content !== undefined) {
+        updateMessage(String(eventData.message_id), eventData.content);
       }
     };
 
@@ -297,7 +227,7 @@ export default function ChatPage() {
     return () => {
       if (unsubscribe) unsubscribe();
     };
-  }, [getActiveTab, updateMessage]);
+  }, [updateMessage]);
 
   // Auto-focus retry button when error banner appears
   useEffect(() => {
@@ -365,7 +295,6 @@ export default function ChatPage() {
 
   return (
     <div className="chat-page">
-      <ChatTabs />
       <ChatToolbar inputRef={inputRef} />
       <MessageList
         threadedMessages={threadedMessages}

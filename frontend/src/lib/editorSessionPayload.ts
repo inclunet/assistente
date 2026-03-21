@@ -6,7 +6,7 @@ export interface EditorMergeSessionPayload {
   createdAt?: number;
 }
 
-export interface EditorSessionTabPayload {
+export interface EditorSessionDocPayload {
   id?: string;
   title?: string;
   mode?: string;
@@ -17,13 +17,13 @@ export interface EditorSessionTabPayload {
 export interface EditorSessionPayload {
   version?: number;
   autoSaveEnabled?: boolean;
-  activeTabId?: string;
+  activeDocumentId?: string;
   profileSlug?: string;
-  tabs?: EditorSessionTabPayload[];
+  documents?: EditorSessionDocPayload[];
 
   fileModeByPath?: Record<string, string>;
-  externalConflictLockedByTabId?: Record<string, boolean>;
-  mergeSessionsByTabId?: Record<string, EditorMergeSessionPayload>;
+  externalConflictLockedByDocId?: Record<string, boolean>;
+  mergeSessionsByDocId?: Record<string, EditorMergeSessionPayload>;
 }
 
 export function toEditorSessionPayload(input: unknown): EditorSessionPayload {

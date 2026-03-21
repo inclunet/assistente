@@ -68,12 +68,6 @@ export const useTerminalStore = create<TerminalState>((set, get) => ({
     try {
       const sessions = await ListTerminalSessions();
       set({ sessions: sessions || [] });
-
-      // Se tem sessões mas nenhuma ativa, seleciona a primeira
-      const state = get();
-      if ((sessions || []).length > 0 && !state.activeSessionId) {
-        set({ activeSessionId: sessions[0].id });
-      }
     } catch (err) {
       console.error('[Terminal] Erro ao carregar sessões:', err);
     } finally {

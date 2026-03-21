@@ -3,7 +3,6 @@
   "name": "Padrão",
   "description": "Configuração padrão.",
   "icon": "chatbox",
-  "active": true,
   "chat": {
     "llm_provider": "litellm-1773012882477",
     "model": "gpt-4o-mini",

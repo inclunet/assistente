@@ -22,7 +22,7 @@ interface MarkdownRendererProps {
   focusableMermaid?: boolean;
   enableSendToEditorButtons?: boolean;
   onSendToEditor?: (payload: {
-    target: 'current' | 'new_tab';
+    target: 'current' | 'new_document';
     format: 'markdown' | 'html' | 'plain';
     title?: string;
     content: string;
@@ -280,7 +280,7 @@ export function MarkdownRenderer({
                   label: 'Novo documento',
                   action: () =>
                     onSendToEditor?.({
-                      target: 'new_tab',
+                      target: 'new_document',
                       format: 'markdown',
                       title: `Código ${languageLabel}`,
                       content: fencedCode(lang || 'plaintext', codeText),
@@ -382,7 +382,7 @@ export function MarkdownRenderer({
                   label: 'Novo documento',
                   action: () =>
                     onSendToEditor?.({
-                      target: 'new_tab',
+                      target: 'new_document',
                       format: 'markdown',
                       title: 'Tabela',
                       content: `\n${mdTable}\n`,
@@ -467,7 +467,7 @@ export function MarkdownRenderer({
                   label: 'Novo documento',
                   action: () =>
                     onSendToEditor?.({
-                      target: 'new_tab',
+                      target: 'new_document',
                       format: 'markdown',
                       title: 'Link',
                       content: mdLink,
@@ -593,7 +593,7 @@ export function MarkdownRenderer({
                     label: 'Novo documento',
                     action: () =>
                       onSendToEditor?.({
-                        target: 'new_tab',
+                        target: 'new_document',
                         format: 'markdown',
                         title: 'Mermaid',
                         content: fencedCode('mermaid', mermaidCode),
@@ -724,7 +724,7 @@ export function MarkdownRenderer({
                     label: 'Novo documento',
                     action: () =>
                       onSendToEditor?.({
-                        target: 'new_tab',
+                        target: 'new_document',
                         format: 'markdown',
                         title: 'Mermaid',
                         content: fencedCode('mermaid', mermaidCode),

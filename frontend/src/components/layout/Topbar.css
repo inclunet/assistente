@@ -14,6 +14,32 @@
   gap: 1rem;
 }
 
+.topbar__back {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 1.125rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.topbar__back:hover {
+  background: var(--bg-elevated);
+  color: var(--text-primary);
+}
+
+.topbar__back:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
 .topbar__title {
   font-size: 1.125rem;
   font-weight: 600;

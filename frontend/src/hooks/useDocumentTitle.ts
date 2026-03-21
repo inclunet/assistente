@@ -32,10 +32,7 @@ const ROUTE_I18N_KEYS: Record<string, string> = {
 export function useDocumentTitle(): void {
   const { t } = useTranslation();
   const location = useLocation();
-  const activeTab = useChatStore((state) => {
-    const tab = state.tabs.find(t => t.id === state.activeTabId);
-    return tab;
-  });
+  const activeConversation = useChatStore((state) => state.activeConversation);
 
   useEffect(() => {
     const pathname = location.pathname;
@@ -43,7 +40,7 @@ export function useDocumentTitle(): void {
     let title: string;
 
     if (pathname === '/' || pathname === '') {
-      const conversationTitle = activeTab?.title;
+      const conversationTitle = activeConversation?.title;
       const isNewConversation = !conversationTitle
         || conversationTitle === t('chat.newConversation')
         || conversationTitle.toLowerCase() === 'nova conversa';
@@ -65,7 +62,7 @@ export function useDocumentTitle(): void {
     } catch {
       // Ignora erro se não estiver no contexto Wails (ex: dev mode no browser)
     }
-  }, [location.pathname, activeTab?.title, t]);
+  }, [location.pathname, activeConversation?.title, t]);
 }
 
 export default useDocumentTitle;

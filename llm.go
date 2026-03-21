@@ -542,14 +542,6 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 				title = title[:50]
 			}
 			if err := database.UpdateConversation(conversationID, title, ""); err == nil {
-				activeTab, tabErr := database.GetActiveTab()
-				if tabErr == nil && activeTab != nil && activeTab.ConversationID != nil && *activeTab.ConversationID == conversationID {
-					_ = database.UpdateTabTitle(activeTab.ID, title)
-					runtime.EventsEmit(a.ctx, "tab:title_updated", map[string]interface{}{
-						"tab_id":    activeTab.ID,
-						"new_title": title,
-					})
-				}
 				runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
 					"conversation_id": conversationID,
 					"new_title":       title,
@@ -1744,11 +1736,6 @@ func (a *App) ResetDatabase() error {
 		return fmt.Errorf("erro ao reinicializar banco: %v", err)
 	}
 
-	// Limpa as tabs (já que todas as conversas foram deletadas)
-	if err := database.ClearAllTabs(); err != nil {
-		log.Printf("[ResetDatabase] Erro ao limpar tabs: %v", err)
-	}
-
 	log.Println("[ResetDatabase] Banco resetado com sucesso")
 
 	// Emite evento para o frontend limpar o estado
@@ -1759,7 +1746,7 @@ func (a *App) ResetDatabase() error {
 
 // ClearMessages apaga todas as mensagens e conversas, mantendo a estrutura do banco
 func (a *App) ClearMessages() error {
-	if err := database.ClearAllTabs(); err != nil {
+	if err := database.ClearAllConversations(); err != nil {
 		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
 	}
 

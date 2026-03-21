@@ -1,0 +1,19 @@
+.workspace-layout {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.workspace-layout__loading {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.workspace-layout__config-content {
+  flex: 1;
+  overflow-y: auto;
+  background: var(--bg-base);
+}

@@ -19,7 +19,7 @@ export interface MessageListProps {
   onSpeak?: (message: Message) => void;
   onDelete?: (message: Message) => void;
   onSendToEditor?: (payload: {
-    target: 'current' | 'new_tab';
+    target: 'current' | 'new_document';
     format: 'markdown' | 'html' | 'plain';
     title?: string;
     content: string;

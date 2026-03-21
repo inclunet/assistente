@@ -41,17 +41,14 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 }));
 
 type ChatStoreState = {
-  tabs: Array<{ id: string; title: string }>;
-  activeTabId: string | null;
+  activeConversation: { id: number; title: string } | null;
 };
 
-let mockTabs: Array<{ id: string; title: string }> = [];
-let mockActiveTabId: string | null = null;
+let mockActiveConversation: { id: number; title: string } | null = null;
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: (selector: (state: ChatStoreState) => unknown) => selector({
-    tabs: mockTabs,
-    activeTabId: mockActiveTabId,
+    activeConversation: mockActiveConversation,
   }),
 }));
 
@@ -65,47 +62,41 @@ const SEP = '\u2014';
 describe('useDocumentTitle', () => {
   beforeEach(() => {
     mockPathname = '/';
-    mockTabs = [];
-    mockActiveTabId = null;
+    mockActiveConversation = null;
     setTitleSpy.mockClear();
   });
 
   it('define titulo para chat com conversa ativa', () => {
-    mockTabs = [{ id: '1', title: 'Conversa A' }];
-    mockActiveTabId = '1';
+    mockActiveConversation = { id: 1, title: 'Conversa A' };
     render(<Fixture />);
 
     expect(document.title).toBe(`Conversa A ${SEP} Assistente IA`);
     expect(setTitleSpy).toHaveBeenCalledWith(`Conversa A ${SEP} Assistente IA`);
   });
 
-  it('mostra Nova conversa quando aba tem titulo padrao', () => {
-    mockTabs = [{ id: '1', title: 'Nova conversa' }];
-    mockActiveTabId = '1';
+  it('mostra Nova conversa quando conversa tem titulo padrao', () => {
+    mockActiveConversation = { id: 1, title: 'Nova conversa' };
     render(<Fixture />);
 
     expect(document.title).toBe(`Nova conversa ${SEP} Assistente IA`);
   });
 
-  it('mostra Nova conversa quando aba nao tem titulo', () => {
-    mockTabs = [{ id: '1', title: '' }];
-    mockActiveTabId = '1';
+  it('mostra Nova conversa quando conversa nao tem titulo', () => {
+    mockActiveConversation = { id: 1, title: '' };
     render(<Fixture />);
 
     expect(document.title).toBe(`Nova conversa ${SEP} Assistente IA`);
   });
 
   it('mostra Nova conversa com capitalizacao diferente', () => {
-    mockTabs = [{ id: '1', title: 'Nova Conversa' }];
-    mockActiveTabId = '1';
+    mockActiveConversation = { id: 1, title: 'Nova Conversa' };
     render(<Fixture />);
 
     expect(document.title).toBe(`Nova conversa ${SEP} Assistente IA`);
   });
 
-  it('mostra Nova conversa quando nao ha aba ativa', () => {
-    mockTabs = [];
-    mockActiveTabId = null;
+  it('mostra Nova conversa quando nao ha conversa ativa', () => {
+    mockActiveConversation = null;
     render(<Fixture />);
 
     expect(document.title).toBe(`Nova conversa ${SEP} Assistente IA`);

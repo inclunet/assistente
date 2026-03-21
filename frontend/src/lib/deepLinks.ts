@@ -1,5 +1,6 @@
 import type { NavigateFunction } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { useNavigationStore, type EditableResource } from '../store/navigationStore';
 import { announce } from '../hooks/useAnnouncer';
 import i18n from './i18n';
@@ -202,49 +203,44 @@ export async function executeDeepLink(
   action: DeepLinkAction,
   deps: DeepLinkDeps,
 ): Promise<void> {
-  const store = useChatStore.getState();
   const t = i18n.t.bind(i18n);
+
+  const wsStore = useWorkspaceStore.getState();
+
+  const openOrCreateChatTab = (conversationId: number) => {
+    const existing = (wsStore.workspace?.tabs || []).find(
+      (tab) => tab.type === 'chat' && tab.contentId === String(conversationId),
+    );
+    if (existing) {
+      void wsStore.setActiveTab(existing.id);
+    } else {
+      void wsStore.addTab('chat', String(conversationId), 'Conversa');
+    }
+  };
 
   switch (action.type) {
     case 'conversation:open': {
-      const existingTab = store.tabs.find(
-        (tab) => tab.conversationId === action.conversationId,
-      );
-      if (existingTab) {
-        await store.setActiveTab(existingTab.id);
-      } else {
-        await store.openConversationInNewTab(action.conversationId);
-      }
+      openOrCreateChatTab(action.conversationId);
       deps.navigate('/');
       announce(t('deepLink.announcedOpen', { id: action.conversationId }));
       break;
     }
 
     case 'conversation:new': {
-      const tabId = await store.createTab(true);
+      void wsStore.addTab('chat', '', action.title || 'Nova Conversa');
       deps.navigate('/');
       if (action.message) {
-        // Small delay to ensure the tab is mounted before sending
-        await new Promise((r) => setTimeout(r, 100));
+        await new Promise((r) => setTimeout(r, 200));
         await useChatStore.getState().sendMessage(action.message);
       }
       announce(action.title || t('deepLink.announcedNewConversation'));
-      void tabId; // used for createTab
       break;
     }
 
     case 'conversation:send': {
-      // Find tab with this conversation, or open it
-      const existingTab = store.tabs.find(
-        (t) => t.conversationId === action.conversationId,
-      );
-      if (existingTab) {
-        await store.setActiveTab(existingTab.id);
-      } else {
-        await store.openConversationInNewTab(action.conversationId);
-      }
+      openOrCreateChatTab(action.conversationId);
       deps.navigate('/');
-      await new Promise((r) => setTimeout(r, 100));
+      await new Promise((r) => setTimeout(r, 200));
       await useChatStore.getState().sendMessage(action.message);
       announce(t('deepLink.announcedSent', { id: action.conversationId }));
       break;

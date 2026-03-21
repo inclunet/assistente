@@ -1,6 +1,6 @@
 import type { RefObject } from 'react';
 
-import type { EditorTab } from '../../store/editorStore';
+import type { EditorDocument } from '../../store/editorStore';
 import type { AddToastFn } from './types';
 
 type RichEditorChain = {
@@ -58,7 +58,7 @@ export type RichMenuActions = {
 };
 
 export function createRichMenuActions(args: {
-  activeTab: EditorTab | null;
+  activeTab: EditorDocument | null;
   isAsking: boolean;
   richEditorRef: RefObject<unknown>;
   /** Por padrão, só habilita ações quando a aba está em modo rico. */

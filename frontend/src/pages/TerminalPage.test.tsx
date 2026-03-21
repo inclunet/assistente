@@ -98,13 +98,10 @@ describe('TerminalPage', () => {
     render(<TerminalPage />);
 
     const stopButton = screen.getByRole('button', { name: 'Parar' });
-    const newButton = screen.getByRole('button', { name: 'Novo' });
 
     await user.click(stopButton);
-    await user.click(newButton);
 
     expect(storeMocks.interrupt).toHaveBeenCalled();
-    expect(storeMocks.createSession).toHaveBeenCalled();
   });
 
   it('exibe o titulo da sessao ativa', () => {

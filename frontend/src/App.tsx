@@ -17,7 +17,7 @@ function App() {
     const navigate = useNavigate();
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
-    const { initializeTabs, isInitialized, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleTabTitleUpdated, handleDatabaseReset, handleTabClosed, handleExternalIncoming } = useChatStore();
+    const { handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleExternalIncoming } = useChatStore();
     const wasQuestionnaireOpenRef = useRef(false);
     const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 
@@ -92,14 +92,7 @@ function App() {
         loadConfig();
     }, [setConfig, setLoading, setError, addToast]);
 
-    // Inicializa tabs do backend
-    useEffect(() => {
-        if (!isInitialized) {
-            initializeTabs();
-        }
-    }, [initializeTabs, isInitialized]);
-
-    // Escuta eventos de conversa deletada/limpa para atualizar tabs
+    // Escuta eventos de conversa deletada/limpa
     useEffect(() => {
         EventsOn('conversation:deleted', (data: unknown) => {
             const eventData = data as { conversation_id?: number };
@@ -122,28 +115,8 @@ function App() {
             }
         });
 
-        EventsOn('tab:title_updated', (data: unknown) => {
-            const eventData = data as { tab_id?: string; new_title?: string };
-            if (eventData.tab_id && eventData.new_title) {
-                const backendTabId = parseInt(eventData.tab_id, 10);
-                if (!Number.isNaN(backendTabId)) {
-                    handleTabTitleUpdated(backendTabId, eventData.new_title);
-                }
-            }
-        });
-
         EventsOn('database:reset', () => {
             handleDatabaseReset();
-        });
-
-        EventsOn('tab_closed', (data: unknown) => {
-            const eventData = data as { id?: string };
-            if (eventData.id) {
-                const backendTabId = parseInt(eventData.id, 10);
-                if (!Number.isNaN(backendTabId)) {
-                    handleTabClosed(backendTabId);
-                }
-            }
         });
 
         EventsOn('navigate:update', () => {
@@ -169,15 +142,13 @@ function App() {
             EventsOff('conversation:deleted');
             EventsOff('conversation:cleared');
             EventsOff('conversation:renamed');
-            EventsOff('tab:title_updated');
             EventsOff('database:reset');
-            EventsOff('tab_closed');
             EventsOff('navigate:update');
             EventsOff('chat:summary_started');
             EventsOff('chat:summary_completed');
             EventsOff('chat:summary_error');
         };
-    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleTabTitleUpdated, handleDatabaseReset, handleTabClosed, navigate]);
+    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, navigate]);
 
     // Listener para mensagens de canais externos (Signal, Telegram).
     // Quando messaging:incoming chega, delega ao chatStore que monta placeholders
@@ -192,10 +163,6 @@ function App() {
                 text?: string;
                 conversationId?: number;
                 newConversation?: boolean;
-                tabId?: number;
-                tabCreated?: boolean;
-                tabTitle?: string;
-                tabIcon?: string;
             };
             handleExternalIncoming({
                 channel: eventData.channel || '',
@@ -204,10 +171,6 @@ function App() {
                 text: eventData.text || '',
                 conversationId: eventData.conversationId || 0,
                 newConversation: eventData.newConversation || false,
-                tabId: eventData.tabId || 0,
-                tabCreated: eventData.tabCreated || false,
-                tabTitle: eventData.tabTitle || '',
-                tabIcon: eventData.tabIcon || '',
             });
         });
 

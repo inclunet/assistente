@@ -8,7 +8,7 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
-import { useChatStore } from '../store/chatStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './HistoryPage.css';
@@ -36,7 +36,7 @@ export default function HistoryPage() {
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
-  const openConversationInNewTab = useChatStore(state => state.openConversationInNewTab);
+  const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
 
   useEffect(() => {
     loadConversations();
@@ -121,7 +121,7 @@ export default function HistoryPage() {
 
   const handleOpenConversation = async (conversationId: number, title?: string) => {
     try {
-      await openConversationInNewTab(conversationId, title);
+      await addWorkspaceTab('chat', String(conversationId), title || t('chat.newConversation', 'Nova conversa'));
       navigate('/');
     } catch (error) {
       console.error('Erro ao abrir conversa:', error);

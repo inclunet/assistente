@@ -22,6 +22,10 @@ export function AddMessageWithTokensAndMedia(arg1, arg2, arg3, arg4, arg5, arg6,
   return window['go']['main']['App']['AddMessageWithTokensAndMedia'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8);
 }
 
+export function AddWorkspaceTab(arg1) {
+  return window['go']['main']['App']['AddWorkspaceTab'](arg1);
+}
+
 export function ApplyUpdate() {
   return window['go']['main']['App']['ApplyUpdate']();
 }
@@ -70,10 +74,6 @@ export function ClearMessages() {
   return window['go']['main']['App']['ClearMessages']();
 }
 
-export function CloseTab(arg1) {
-  return window['go']['main']['App']['CloseTab'](arg1);
-}
-
 export function CloseTerminalSession(arg1) {
   return window['go']['main']['App']['CloseTerminalSession'](arg1);
 }
@@ -106,10 +106,6 @@ export function CreateMessage(arg1, arg2, arg3) {
   return window['go']['main']['App']['CreateMessage'](arg1, arg2, arg3);
 }
 
-export function CreateNewConversation(arg1) {
-  return window['go']['main']['App']['CreateNewConversation'](arg1);
-}
-
 export function CreateProfile(arg1) {
   return window['go']['main']['App']['CreateProfile'](arg1);
 }
@@ -118,16 +114,12 @@ export function CreateSkill(arg1) {
   return window['go']['main']['App']['CreateSkill'](arg1);
 }
 
-export function CreateTab(arg1, arg2, arg3) {
-  return window['go']['main']['App']['CreateTab'](arg1, arg2, arg3);
-}
-
-export function CreateTabWithConversation() {
-  return window['go']['main']['App']['CreateTabWithConversation']();
-}
-
 export function CreateTerminalSession(arg1) {
   return window['go']['main']['App']['CreateTerminalSession'](arg1);
+}
+
+export function CreateWorkspace(arg1) {
+  return window['go']['main']['App']['CreateWorkspace'](arg1);
 }
 
 export function DeleteAllowlist(arg1) {
@@ -168,6 +160,10 @@ export function DeleteProfile(arg1) {
 
 export function DeleteSkill(arg1) {
   return window['go']['main']['App']['DeleteSkill'](arg1);
+}
+
+export function DeleteWorkspace(arg1) {
+  return window['go']['main']['App']['DeleteWorkspace'](arg1);
 }
 
 export function DisconnectMCPServer(arg1) {
@@ -242,6 +238,10 @@ export function EditorWriteFile(arg1, arg2) {
   return window['go']['main']['App']['EditorWriteFile'](arg1, arg2);
 }
 
+export function EnsureConversation(arg1) {
+  return window['go']['main']['App']['EnsureConversation'](arg1);
+}
+
 export function ExportConversations(arg1) {
   return window['go']['main']['App']['ExportConversations'](arg1);
 }
@@ -262,16 +262,12 @@ export function GetActiveProviderInfo() {
   return window['go']['main']['App']['GetActiveProviderInfo']();
 }
 
-export function GetActiveTab() {
-  return window['go']['main']['App']['GetActiveTab']();
+export function GetActiveWorkspace() {
+  return window['go']['main']['App']['GetActiveWorkspace']();
 }
 
 export function GetAllChannelConfigs() {
   return window['go']['main']['App']['GetAllChannelConfigs']();
-}
-
-export function GetAllTabs() {
-  return window['go']['main']['App']['GetAllTabs']();
 }
 
 export function GetAllTokenStats() {
@@ -348,14 +344,6 @@ export function GetConversationWithThreads(arg1) {
 
 export function GetConversations() {
   return window['go']['main']['App']['GetConversations']();
-}
-
-export function GetCurrentConversationID() {
-  return window['go']['main']['App']['GetCurrentConversationID']();
-}
-
-export function GetCurrentTabID() {
-  return window['go']['main']['App']['GetCurrentTabID']();
 }
 
 export function GetEffectiveModel() {
@@ -462,10 +450,6 @@ export function GetSkills() {
   return window['go']['main']['App']['GetSkills']();
 }
 
-export function GetTabs() {
-  return window['go']['main']['App']['GetTabs']();
-}
-
 export function GetTerminalHistory(arg1) {
   return window['go']['main']['App']['GetTerminalHistory'](arg1);
 }
@@ -522,20 +506,12 @@ export function ListTerminalSessions() {
   return window['go']['main']['App']['ListTerminalSessions']();
 }
 
-export function LoadConversationInTab(arg1, arg2) {
-  return window['go']['main']['App']['LoadConversationInTab'](arg1, arg2);
+export function ListWorkspaces() {
+  return window['go']['main']['App']['ListWorkspaces']();
 }
 
 export function NeedsWelcomeWizard() {
   return window['go']['main']['App']['NeedsWelcomeWizard']();
-}
-
-export function OpenConversationInCurrentTab(arg1) {
-  return window['go']['main']['App']['OpenConversationInCurrentTab'](arg1);
-}
-
-export function OpenConversationInNewTab(arg1) {
-  return window['go']['main']['App']['OpenConversationInNewTab'](arg1);
 }
 
 export function PreviewVoiceSettings(arg1, arg2, arg3, arg4, arg5, arg6) {
@@ -562,16 +538,20 @@ export function RemoveAuthorizedContact(arg1, arg2) {
   return window['go']['main']['App']['RemoveAuthorizedContact'](arg1, arg2);
 }
 
+export function RemoveWorkspaceTab(arg1) {
+  return window['go']['main']['App']['RemoveWorkspaceTab'](arg1);
+}
+
 export function RenameConversation(arg1, arg2) {
   return window['go']['main']['App']['RenameConversation'](arg1, arg2);
 }
 
-export function RenameTab(arg1, arg2) {
-  return window['go']['main']['App']['RenameTab'](arg1, arg2);
+export function RenameWorkspace(arg1) {
+  return window['go']['main']['App']['RenameWorkspace'](arg1);
 }
 
-export function ReorderTabs(arg1) {
-  return window['go']['main']['App']['ReorderTabs'](arg1);
+export function ReorderWorkspaceTabs(arg1) {
+  return window['go']['main']['App']['ReorderWorkspaceTabs'](arg1);
 }
 
 export function ResetConfig() {
@@ -618,6 +598,10 @@ export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
 }
 
+export function SaveWorkspace() {
+  return window['go']['main']['App']['SaveWorkspace']();
+}
+
 export function SearchConversationHistory(arg1, arg2) {
   return window['go']['main']['App']['SearchConversationHistory'](arg1, arg2);
 }
@@ -642,8 +626,8 @@ export function SetActiveProfile(arg1) {
   return window['go']['main']['App']['SetActiveProfile'](arg1);
 }
 
-export function SetActiveTab(arg1) {
-  return window['go']['main']['App']['SetActiveTab'](arg1);
+export function SetActiveWorkspaceTab(arg1) {
+  return window['go']['main']['App']['SetActiveWorkspaceTab'](arg1);
 }
 
 export function SetChatModel(arg1) {
@@ -678,6 +662,10 @@ export function SetSAPI5Volume(arg1) {
   return window['go']['main']['App']['SetSAPI5Volume'](arg1);
 }
 
+export function SetWorkspaceProfile(arg1) {
+  return window['go']['main']['App']['SetWorkspaceProfile'](arg1);
+}
+
 export function SignalCheckAPI(arg1, arg2) {
   return window['go']['main']['App']['SignalCheckAPI'](arg1, arg2);
 }
@@ -710,10 +698,6 @@ export function SpeakSAPI5(arg1, arg2) {
   return window['go']['main']['App']['SpeakSAPI5'](arg1, arg2);
 }
 
-export function StartNewConversationInTab(arg1) {
-  return window['go']['main']['App']['StartNewConversationInTab'](arg1);
-}
-
 export function StartUpdate() {
   return window['go']['main']['App']['StartUpdate']();
 }
@@ -726,8 +710,8 @@ export function SubscribeToMCPResource(arg1, arg2) {
   return window['go']['main']['App']['SubscribeToMCPResource'](arg1, arg2);
 }
 
-export function SwitchToTab(arg1) {
-  return window['go']['main']['App']['SwitchToTab'](arg1);
+export function SwitchWorkspace(arg1) {
+  return window['go']['main']['App']['SwitchWorkspace'](arg1);
 }
 
 export function SynthesizeOpenAI(arg1) {
@@ -802,8 +786,8 @@ export function UpdateSkill(arg1, arg2) {
   return window['go']['main']['App']['UpdateSkill'](arg1, arg2);
 }
 
-export function UpdateTabTitle(arg1, arg2) {
-  return window['go']['main']['App']['UpdateTabTitle'](arg1, arg2);
+export function UpdateWorkspaceTab(arg1, arg2) {
+  return window['go']['main']['App']['UpdateWorkspaceTab'](arg1, arg2);
 }
 
 export function UpsertCredential(arg1) {

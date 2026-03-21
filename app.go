@@ -41,9 +41,9 @@ import (
 	msgtool "assistente/internal/tools/messaging"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
-	tabstool "assistente/internal/tools/tabs"
 	"assistente/internal/tools/web"
 	"assistente/internal/updater"
+	"assistente/internal/workspace"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -110,6 +110,9 @@ type App struct {
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu    sync.Mutex
 	editorDirWatches map[string]*editorDirWatch
+
+	// Workspace manager (unified tabs)
+	workspaceMgr *workspace.Manager
 }
 
 // ==================== Tipos para Threads ====================
@@ -227,6 +230,9 @@ func (a *App) startup(ctx context.Context) {
 
 	// Registra hotkeys do perfil ativo
 	a.registerActiveProfileHotkeys()
+
+	// Inicializa o workspace manager
+	a.initWorkspace()
 
 	// Inicializa o updater
 	a.initUpdater()
@@ -1482,51 +1488,6 @@ func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioRe
 	return &AudioResult{Audio: result.AudioBase64, MimeType: mimeType}, nil
 }
 
-// appTabManager adapta o App para a interface tabstool.TabManager
-type appTabManager struct {
-	app *App
-}
-
-func (m *appTabManager) GetAllTabs() ([]tabstool.TabInfo, error) {
-	dbTabs, err := database.GetAllTabs()
-	if err != nil {
-		return nil, err
-	}
-	result := make([]tabstool.TabInfo, len(dbTabs))
-	for i, t := range dbTabs {
-		result[i] = tabstool.TabInfo{
-			ID:             t.ID,
-			Title:          t.Title,
-			IsActive:       t.IsActive,
-			Position:       t.Position,
-			ConversationID: t.ConversationID,
-		}
-	}
-	return result, nil
-}
-
-func (m *appTabManager) GetActiveTab() (*tabstool.TabInfo, error) {
-	tab, err := database.GetActiveTab()
-	if err != nil {
-		return nil, err
-	}
-	return &tabstool.TabInfo{
-		ID:             tab.ID,
-		Title:          tab.Title,
-		IsActive:       tab.IsActive,
-		Position:       tab.Position,
-		ConversationID: tab.ConversationID,
-	}, nil
-}
-
-func (m *appTabManager) UpdateTabTitle(id uint, title string) error {
-	return m.app.UpdateTabTitle(id, title)
-}
-
-func (m *appTabManager) CloseTab(id uint) error {
-	return m.app.CloseTab(id)
-}
-
 // initToolRegistry inicializa o registro de ferramentas disponíveis
 func (a *App) initToolRegistry() {
 	a.toolRegistry = tools.NewRegistry()
@@ -1661,11 +1622,6 @@ func (a *App) initToolRegistry() {
 
 	// Registra ferramenta de edição de texto (opt-in: só disponível em perfis que a listam explicitamente)
 	a.toolRegistry.MustRegisterOptIn(editor.NewTextEdit(a.questionnaireMgr))
-
-	// Registra ferramentas de gerenciamento de abas
-	tabMgr := &appTabManager{app: a}
-	a.toolRegistry.MustRegister(tabstool.NewRenameConversation(tabMgr))
-	a.toolRegistry.MustRegister(tabstool.NewCloseConversation(tabMgr))
 
 	// Registra ferramenta de busca no histórico de conversas
 	a.toolRegistry.MustRegister(history.NewSearchConversations())
@@ -3646,138 +3602,6 @@ func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume
 	return nil
 }
 
-// ==================== Chat Tabs ====================
-
-// GetAllTabs retorna todas as abas de chat
-func (a *App) GetAllTabs() ([]database.ChatTab, error) {
-	return database.GetAllTabs()
-}
-
-// GetActiveTab retorna a aba ativa
-func (a *App) GetActiveTab() (*database.ChatTab, error) {
-	return database.GetActiveTab()
-}
-
-// CreateTab cria uma nova aba de chat
-func (a *App) CreateTab(title, icon string, setAsActive bool) (*database.ChatTab, error) {
-	tab, err := database.CreateTab(title, icon, setAsActive)
-	if err != nil {
-		return nil, err
-	}
-
-	runtime.EventsEmit(a.ctx, "tab_created", map[string]interface{}{
-		"id":       tab.ID,
-		"title":    tab.Title,
-		"icon":     tab.Icon,
-		"position": tab.Position,
-		"isActive": tab.IsActive,
-	})
-
-	return tab, nil
-}
-
-// CloseTab fecha uma aba
-func (a *App) CloseTab(id uint) error {
-	err := database.CloseTab(id)
-	if err != nil {
-		return err
-	}
-
-	runtime.EventsEmit(a.ctx, "tab_closed", map[string]interface{}{
-		"id": id,
-	})
-
-	return nil
-}
-
-// SetActiveTab define a aba ativa
-func (a *App) SetActiveTab(id uint) error {
-	err := database.SetActiveTab(id)
-	if err != nil {
-		return err
-	}
-
-	runtime.EventsEmit(a.ctx, "tab_activated", map[string]interface{}{
-		"id": id,
-	})
-
-	return nil
-}
-
-// UpdateTabTitle atualiza o título de uma aba e da conversa associada
-func (a *App) UpdateTabTitle(id uint, title string) error {
-	tab, err := database.GetTab(id)
-	if err != nil {
-		return err
-	}
-
-	err = database.UpdateTabTitle(id, title)
-	if err != nil {
-		return err
-	}
-
-	// Emite evento de aba atualizada (sempre, independente de ter conversa)
-	runtime.EventsEmit(a.ctx, "tab:title_updated", map[string]interface{}{
-		"tab_id":    id,
-		"new_title": title,
-	})
-
-	if tab.ConversationID != nil && *tab.ConversationID > 0 {
-		runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
-			"conversation_id": *tab.ConversationID,
-			"new_title":       title,
-		})
-	}
-
-	return nil
-}
-
-// LoadConversationInTab carrega uma conversa em uma aba
-func (a *App) LoadConversationInTab(tabId, conversationId uint) error {
-	err := database.LoadConversationInTab(tabId, conversationId)
-	if err != nil {
-		return err
-	}
-
-	conv, err := database.GetConversation(conversationId)
-	if err != nil {
-		return err
-	}
-
-	runtime.EventsEmit(a.ctx, "conversation_loaded_in_tab", map[string]interface{}{
-		"tabId":          tabId,
-		"conversationId": conv.ID,
-		"title":          conv.Title,
-	})
-
-	return nil
-}
-
-// StartNewConversationInTab cria uma nova conversa e vincula à tab existente.
-// Substitui o fluxo antigo de ClearTab + criação lazy no sendMessage.
-func (a *App) StartNewConversationInTab(tabId uint) (*database.ChatTab, error) {
-	conv, err := database.RecycleOrCreateConversation("Nova Conversa")
-	if err != nil {
-		return nil, fmt.Errorf("erro ao criar conversa: %w", err)
-	}
-
-	if err := database.LoadConversationInTab(tabId, conv.ID); err != nil {
-		return nil, fmt.Errorf("erro ao vincular conversa à aba: %w", err)
-	}
-
-	fullTab, err := database.GetTab(tabId)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao recarregar aba: %w", err)
-	}
-
-	return fullTab, nil
-}
-
-// ReorderTabs reordena as abas
-func (a *App) ReorderTabs(orderedIds []uint) error {
-	return database.ReorderTabs(orderedIds)
-}
-
 // ==================== Auto Update ====================
 
 // initUpdater inicializa o gerenciador de atualizações
@@ -4765,4 +4589,160 @@ func (a *App) checkForUpdatesAfterWizard() {
 
 	// Pergunta ao usuário se deseja atualizar
 	go a.promptForUpdate(info)
+}
+
+// ==================== Workspace ====================
+
+func (a *App) initWorkspace() {
+	homeDir := configdir.GetHomeDir()
+	a.workspaceMgr = workspace.NewManager(homeDir)
+
+	workDir := ""
+	if wd, err := os.Getwd(); err == nil {
+		workDir = wd
+	}
+
+	if err := a.workspaceMgr.Initialize(workDir); err != nil {
+		log.Printf("Erro ao inicializar workspace: %v", err)
+	} else if ws := a.workspaceMgr.Active(); ws != nil {
+		log.Printf("Workspace ativo: %s (%s)", ws.Name, ws.ID)
+	}
+}
+
+// GetActiveWorkspace retorna o workspace ativo.
+func (a *App) GetActiveWorkspace() *workspace.Workspace {
+	if a.workspaceMgr == nil {
+		return nil
+	}
+	return a.workspaceMgr.Active()
+}
+
+// ListWorkspaces retorna todos os workspaces conhecidos.
+func (a *App) ListWorkspaces() ([]workspace.WorkspaceInfo, error) {
+	if a.workspaceMgr == nil {
+		return nil, fmt.Errorf("workspace manager not initialized")
+	}
+	return a.workspaceMgr.List()
+}
+
+// CreateWorkspace cria um novo workspace avulso.
+func (a *App) CreateWorkspace(name string) (*workspace.Workspace, error) {
+	if a.workspaceMgr == nil {
+		return nil, fmt.Errorf("workspace manager not initialized")
+	}
+	ws, err := a.workspaceMgr.Create(name)
+	if err != nil {
+		return nil, err
+	}
+	runtime.EventsEmit(a.ctx, "workspace:created", ws)
+	return ws, nil
+}
+
+// SwitchWorkspace alterna para outro workspace.
+func (a *App) SwitchWorkspace(workspaceID string) (*workspace.Workspace, error) {
+	if a.workspaceMgr == nil {
+		return nil, fmt.Errorf("workspace manager not initialized")
+	}
+	ws, err := a.workspaceMgr.Switch(workspaceID)
+	if err != nil {
+		return nil, err
+	}
+	runtime.EventsEmit(a.ctx, "workspace:switched", ws)
+	return ws, nil
+}
+
+// RenameWorkspace renomeia o workspace ativo.
+func (a *App) RenameWorkspace(newName string) error {
+	if a.workspaceMgr == nil {
+		return fmt.Errorf("workspace manager not initialized")
+	}
+	if err := a.workspaceMgr.Rename(newName); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "workspace:renamed", a.workspaceMgr.Active())
+	return nil
+}
+
+// DeleteWorkspace remove um workspace (não pode ser o ativo).
+func (a *App) DeleteWorkspace(workspaceID string) error {
+	if a.workspaceMgr == nil {
+		return fmt.Errorf("workspace manager not initialized")
+	}
+	if err := a.workspaceMgr.Delete(workspaceID); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "workspace:deleted", workspaceID)
+	return nil
+}
+
+// SetWorkspaceProfile define o perfil base do workspace ativo.
+func (a *App) SetWorkspaceProfile(profileSlug string) error {
+	if a.workspaceMgr == nil {
+		return fmt.Errorf("workspace manager not initialized")
+	}
+	return a.workspaceMgr.SetProfile(profileSlug)
+}
+
+// SaveWorkspace persiste o estado do workspace ativo.
+func (a *App) SaveWorkspace() error {
+	if a.workspaceMgr == nil {
+		return fmt.Errorf("workspace manager not initialized")
+	}
+	return a.workspaceMgr.Save()
+}
+
+// --- Workspace Tab APIs ---
+
+// AddWorkspaceTab adiciona uma aba ao workspace ativo.
+func (a *App) AddWorkspaceTab(tab workspace.Tab) (*workspace.Workspace, error) {
+	if a.workspaceMgr == nil {
+		return nil, fmt.Errorf("workspace manager not initialized")
+	}
+	if err := a.workspaceMgr.AddTab(tab); err != nil {
+		return nil, err
+	}
+	ws := a.workspaceMgr.Active()
+	runtime.EventsEmit(a.ctx, "workspace:tab_added", ws)
+	return ws, nil
+}
+
+// RemoveWorkspaceTab remove uma aba do workspace ativo.
+func (a *App) RemoveWorkspaceTab(tabID string) (*workspace.Workspace, error) {
+	if a.workspaceMgr == nil {
+		return nil, fmt.Errorf("workspace manager not initialized")
+	}
+	if err := a.workspaceMgr.RemoveTab(tabID); err != nil {
+		return nil, err
+	}
+	ws := a.workspaceMgr.Active()
+	runtime.EventsEmit(a.ctx, "workspace:tab_removed", ws)
+	return ws, nil
+}
+
+// SetActiveWorkspaceTab define a aba ativa no workspace.
+func (a *App) SetActiveWorkspaceTab(tabID string) error {
+	if a.workspaceMgr == nil {
+		return fmt.Errorf("workspace manager not initialized")
+	}
+	if err := a.workspaceMgr.SetActiveTab(tabID); err != nil {
+		return err
+	}
+	runtime.EventsEmit(a.ctx, "workspace:tab_activated", tabID)
+	return nil
+}
+
+// UpdateWorkspaceTab atualiza campos de uma aba.
+func (a *App) UpdateWorkspaceTab(tabID string, updates map[string]any) error {
+	if a.workspaceMgr == nil {
+		return fmt.Errorf("workspace manager not initialized")
+	}
+	return a.workspaceMgr.UpdateTab(tabID, updates)
+}
+
+// ReorderWorkspaceTabs reordena as abas do workspace.
+func (a *App) ReorderWorkspaceTabs(orderedIDs []string) error {
+	if a.workspaceMgr == nil {
+		return fmt.Errorf("workspace manager not initialized")
+	}
+	return a.workspaceMgr.ReorderTabs(orderedIDs)
 }

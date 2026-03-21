@@ -42,7 +42,7 @@ export interface ChatMessageProps {
 
   // Envio de blocos para o editor
   onSendToEditor?: (payload: {
-    target: 'current' | 'new_tab';
+    target: 'current' | 'new_document';
     format: 'markdown' | 'html' | 'plain';
     title?: string;
     content: string;
@@ -136,9 +136,9 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         return null;
       };
 
-      type TabLike = { threadedMessages?: ThreadedNode[] };
-      for (const tab of (state.tabs as TabLike[]) || []) {
-        const hit = visit(tab.threadedMessages || []);
+      const conv = state.activeConversation;
+      if (conv?.threadedMessages) {
+        const hit = visit(conv.threadedMessages as ThreadedNode[]);
         if (hit) return hit;
       }
       return null;

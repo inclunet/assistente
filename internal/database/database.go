@@ -80,7 +80,6 @@ func Init() error {
 	if err := db.AutoMigrate(
 		&Conversation{},
 		&ChatMessage{},
-		&ChatTab{},
 		&EditorDocument{},
 		&EditorSessionState{},
 		&CredentialEntry{},
@@ -141,9 +140,6 @@ func RecycleOrCreateConversation(title string) (*Conversation, error) {
 	var candidate Conversation
 	err := db.
 		Where("channel = '' AND contact_id = ''").
-		Where("id NOT IN (?)",
-			db.Model(&ChatTab{}).Select("conversation_id").Where("conversation_id IS NOT NULL"),
-		).
 		Where("id NOT IN (?)",
 			db.Model(&ChatMessage{}).Select("DISTINCT conversation_id"),
 		).
@@ -476,6 +472,16 @@ func DeleteMessage(messageID uint) error {
 // DeleteAllMessages remove todas as mensagens de uma conversa
 func DeleteAllMessages(conversationID uint) error {
 	return db.Where("conversation_id = ?", conversationID).Delete(&ChatMessage{}).Error
+}
+
+func ClearAllConversations() error {
+	if err := db.Where("1 = 1").Delete(&ChatMessage{}).Error; err != nil {
+		return fmt.Errorf("erro ao limpar mensagens: %w", err)
+	}
+	if err := db.Where("1 = 1").Delete(&Conversation{}).Error; err != nil {
+		return fmt.Errorf("erro ao limpar conversas: %w", err)
+	}
+	return nil
 }
 
 // GetMessages retorna mensagens de uma conversa com filtro opcional por parent
@@ -906,33 +912,6 @@ func GetMessagesBetweenIDs(conversationID uint, startAfterID uint, endID uint) (
 	err := db.Where("conversation_id = ? AND parent_id IS NULL AND id > ? AND id <= ?", conversationID, startAfterID, endID).
 		Order("created_at ASC").Find(&messages).Error
 	return messages, err
-}
-
-// ==================== Chat Tab ====================
-
-// CreateChatTab cria uma nova aba de chat
-func CreateChatTab(conversationID *uint, title, icon string, position int) (*ChatTab, error) {
-	tab := &ChatTab{
-		ConversationID: conversationID,
-		Title:          title,
-		Icon:           icon,
-		Position:       position,
-		IsActive:       false,
-	}
-	if err := db.Create(tab).Error; err != nil {
-		return nil, err
-	}
-	return tab, nil
-}
-
-// GetChatTab retorna uma aba por ID
-func GetChatTab(id uint) (*ChatTab, error) {
-	var tab ChatTab
-	err := db.Preload("Conversation").First(&tab, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &tab, nil
 }
 
 // ==================== Utilities ====================

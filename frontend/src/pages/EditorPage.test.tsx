@@ -6,22 +6,25 @@ import userEvent from '@testing-library/user-event';
 const openToolbarMenuSpy = vi.fn();
 
 const editorStoreState = {
-  tabs: [] as Array<{ id: string; title: string; markdown: string; mode: string }>,
-  activeTabId: null as string | null,
+  documents: {} as Record<string, { id: string; title: string; markdown: string; mode: string }>,
+  activeDocumentId: null as string | null,
   autoSaveEnabled: true,
   editorProfileSlug: 'editor-texto',
-  createTab: vi.fn(),
-  setTabMarkdown: vi.fn(),
-  renameTab: vi.fn(),
-  setTabFilePath: vi.fn(),
-  setTabDraftId: vi.fn(),
-  setTabDirty: vi.fn(),
+  createDocument: vi.fn(),
+  setDocMarkdown: vi.fn(),
+  renameDocument: vi.fn(),
+  setDocFilePath: vi.fn(),
+  setDocDraftId: vi.fn(),
+  setDocDirty: vi.fn(),
   toggleAutoSave: vi.fn(),
   setEditorProfileSlug: vi.fn(),
   hydrate: vi.fn(),
-  setTabLinkedChat: vi.fn(),
-  setTabMode: vi.fn(),
+  setDocLinkedChat: vi.fn(),
+  setDocMode: vi.fn(),
   consumePendingInsert: vi.fn().mockReturnValue(null),
+  getDocument: vi.fn(),
+  getActiveDocument: vi.fn(),
+  removeDocument: vi.fn(),
 };
 
 vi.mock('react-i18next', () => ({
@@ -34,7 +37,17 @@ vi.mock('react-i18next', () => ({
 vi.mock('../store/editorStore', () => ({
   useEditorStore: Object.assign(
     (selector: (state: typeof editorStoreState) => unknown) => selector(editorStoreState),
-    { getState: () => editorStoreState }
+    { getState: () => editorStoreState, subscribe: () => () => {} }
+  ),
+}));
+
+vi.mock('../store/workspaceStore', () => ({
+  useWorkspaceStore: Object.assign(
+    (selector: (state: any) => unknown) => selector({
+      addTab: vi.fn(),
+      workspace: { tabs: [] },
+    }),
+    { getState: () => ({ workspace: { tabs: [] }, addTab: vi.fn() }), subscribe: () => () => {} }
   ),
 }));
 
@@ -166,8 +179,8 @@ import EditorPage from './EditorPage';
 
 describe('EditorPage', () => {
   beforeEach(() => {
-    editorStoreState.tabs = [];
-    editorStoreState.activeTabId = null;
+    editorStoreState.documents = {};
+    editorStoreState.activeDocumentId = null;
     openToolbarMenuSpy.mockReset();
   });
 
@@ -190,10 +203,10 @@ describe('EditorPage', () => {
   });
 
   it('desabilita inserir quando modo view', () => {
-    editorStoreState.tabs = [
-      { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'view' },
-    ];
-    editorStoreState.activeTabId = 'tab-1';
+    editorStoreState.documents = {
+      'tab-1': { id: 'tab-1', title: 'Doc', markdown: 'text', mode: 'view' },
+    };
+    editorStoreState.activeDocumentId = 'tab-1';
 
     render(<EditorPage />);
 

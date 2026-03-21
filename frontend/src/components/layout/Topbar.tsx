@@ -188,9 +188,21 @@ export function Topbar() {
     },
   ];
 
+  const isSubRoute = location.pathname !== '/' && location.pathname !== '';
+
   return (
     <header className="topbar">
       <div className="topbar__left">
+        {isSubRoute && (
+          <button
+            className="topbar__back"
+            onClick={() => navigate('/')}
+            aria-label={t('menu.backToWorkspace', 'Voltar ao workspace')}
+            title={t('menu.backToWorkspace', 'Voltar ao workspace')}
+          >
+            ←
+          </button>
+        )}
         <MenuButton 
           ref={menuButtonRef}
           items={menuItems} 

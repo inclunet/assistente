@@ -92,9 +92,9 @@ function getMaxNumericMessageId(messages: MessageLike[]): number {
   return maxId;
 }
 
-function findLatestEditorPatch(chatTabId: string, opts?: FindLatestEditorPatchOptions): FindPatchResult {
+function findLatestEditorPatch(opts?: FindLatestEditorPatchOptions): FindPatchResult {
   const afterState = useChatStore.getState();
-  const allMessages = afterState.getTabMessages(chatTabId) as MessageLike[];
+  const allMessages = afterState.getMessages() as MessageLike[];
 
   const afterMessageId = opts?.afterMessageId || 0;
   const preferToolCalling = opts?.preferToolCalling !== false;
@@ -159,18 +159,17 @@ function findLatestEditorPatch(chatTabId: string, opts?: FindLatestEditorPatchOp
 }
 
 async function waitForEditorPatch(
-  chatTabId: string,
   opts?: FindLatestEditorPatchOptions & { timeoutMs?: number }
 ): Promise<FindPatchResult> {
   const timeoutMs = typeof opts?.timeoutMs === 'number' ? opts.timeoutMs : 5000;
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const found = findLatestEditorPatch(chatTabId, opts);
+    const found = findLatestEditorPatch(opts);
     if (found.ok) return found;
     await new Promise((r) => setTimeout(r, 120));
   }
 
-  return findLatestEditorPatch(chatTabId, opts);
+  return findLatestEditorPatch(opts);
 }
 
 function waitForChatDone(expectedConversationId?: number, timeoutMs = 5 * 60 * 1000): Promise<number> {

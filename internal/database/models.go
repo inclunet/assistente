@@ -69,23 +69,6 @@ type ChatMessage struct {
 	CreatedAt        time.Time `json:"createdAt"`
 }
 
-// ==================== Chat Tabs ====================
-
-// ChatTab representa uma aba de chat aberta na interface
-type ChatTab struct {
-	ID             uint      `json:"id" gorm:"primaryKey"`
-	ConversationID *uint     `json:"conversation_id,omitempty" gorm:"index"`
-	Title          string    `json:"title" gorm:"default:'Nova conversa'"`
-	Icon           string    `json:"icon" gorm:"default:'💬'"`
-	Position       int       `json:"position" gorm:"index;default:0"`
-	IsActive       bool      `json:"is_active" gorm:"index;default:false"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-
-	// Relacionamento
-	Conversation *Conversation `json:"conversation,omitempty" gorm:"foreignKey:ConversationID"`
-}
-
 // ==================== Credenciais ====================
 
 // CredentialEntry armazena credenciais por padrão de domínio (com campos sensíveis criptografados).

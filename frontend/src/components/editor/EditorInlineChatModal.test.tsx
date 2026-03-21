@@ -47,8 +47,8 @@ vi.mock('../../store/chatStore', () => ({
     isLoading: false,
     getThreadedMessages: () => [],
     loadMessageChildren: vi.fn(),
-    getActiveTab: () => ({ title: 'Conversa', conversationId: 1 }),
-    loadConversationInActiveTab: vi.fn(),
+    getActiveConversation: () => ({ id: 1, title: 'Conversa' }),
+    loadConversation: vi.fn(),
   }),
 }));
 

@@ -8,7 +8,7 @@ describe('editorSessionPayload', () => {
   });
 
   it('retorna payload quando valido', () => {
-    const payload = { version: 1, activeTabId: 'a' };
+    const payload = { version: 3, activeDocumentId: 'a' };
     expect(toEditorSessionPayload(payload)).toBe(payload);
   });
 });

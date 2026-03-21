@@ -50,6 +50,7 @@ const es = {
       about: 'Acerca de',
       navLabel: 'Menú de navegación (Alt+M)',
       appTitle: 'Asistente IA',
+      backToWorkspace: 'Volver al workspace',
       navMain: 'Navegación principal',
     },
 
