@@ -91,13 +91,12 @@ func (f *fakeTaskListManager) addTask(taskListID uint, title string, statusID in
 	return task
 }
 
-func (f *fakeTaskListManager) CreateTaskList(title, description string, conversationID *uint, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
+func (f *fakeTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
 	if f.createListErr != nil {
 		return nil, f.createListErr
 	}
 	tl := f.addTaskList(title, defaultStatuses())
 	tl.Description = description
-	tl.ConversationID = conversationID
 	return tl, nil
 }
 

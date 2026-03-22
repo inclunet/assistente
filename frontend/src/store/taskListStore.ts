@@ -8,14 +8,11 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import {
   GetTaskList,
   GetAllTaskLists,
-  GetTaskListsByConversation,
   CreateTaskList,
   UpdateTaskList,
   DeleteTaskList,
   CloneTaskList,
   SetTaskListViewMode,
-  LinkTaskListToConversation,
-  UnlinkTaskListFromConversation,
   CreateTask,
   UpdateTask,
   DeleteTask,
@@ -98,8 +95,6 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
     id: r.id as number,
     title: (r.title ?? '') as string,
     description: (r.description ?? '') as string,
-    conversationId: (r.conversationId ?? r.conversation_id) as number | undefined,
-    linkedMessageId: (r.linkedMessageId ?? r.linked_message_id) as number | undefined,
     preferredViewMode: ((r.preferredViewMode ?? r.preferred_view_mode) || 'list') as ViewMode,
     createdAt: (r.createdAt ?? r.created_at ?? '') as string,
     updatedAt: (r.updatedAt ?? r.updated_at ?? '') as string,
@@ -126,14 +121,11 @@ interface TaskListStoreState {
 
   // TaskList management
   loadTaskList: (taskListId: number) => Promise<TaskListWithWorkflow | null>;
-  createTaskList: (title: string, description?: string, conversationId?: number) => Promise<TaskListWithWorkflow | null>;
+  createTaskList: (title: string, description?: string) => Promise<TaskListWithWorkflow | null>;
   updateTaskList: (taskListId: number, title: string, description?: string) => Promise<void>;
   deleteTaskList: (taskListId: number) => Promise<void>;
   cloneTaskList: (taskListId: number, newTitle: string) => Promise<TaskListWithWorkflow | null>;
-  linkToConversation: (taskListId: number, conversationId: number) => Promise<void>;
-  unlinkFromConversation: (taskListId: number) => Promise<void>;
   fetchAllTaskLists: () => Promise<database.TaskList[]>;
-  getTaskListsByConversation: (conversationId: number) => Promise<database.TaskList[]>;
 
   // View mode
   setViewMode: (taskListId: number, viewMode: ViewMode) => Promise<void>;
@@ -301,10 +293,10 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    createTaskList: async (title: string, description?: string, conversationId?: number) => {
+    createTaskList: async (title: string, description?: string) => {
       set({ isLoading: true });
       try {
-        const taskList = await CreateTaskList(title, description || '', false, conversationId);
+        const taskList = await CreateTaskList(title, description || '');
         
         if (taskList) {
           get().cacheTaskList(taskList as unknown as TaskListWithWorkflow);
@@ -312,11 +304,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           return taskList as unknown as TaskListWithWorkflow;
         }
         
-        console.error('[Store] CreateTaskList retornou null');
         set({ isLoading: false });
         return null;
       } catch (error) {
-        console.error('[Store] Erro em createTaskList:', error);
         get().setError('createTaskList', String(error));
         set({ isLoading: false });
         return null;
@@ -359,36 +349,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    linkToConversation: async (taskListId: number, conversationId: number) => {
-      try {
-        await LinkTaskListToConversation(taskListId, conversationId);
-        get().invalidateTaskList(taskListId);
-      } catch (error) {
-        get().setError('linkToConversation', String(error));
-      }
-    },
-
-    unlinkFromConversation: async (taskListId: number) => {
-      try {
-        await UnlinkTaskListFromConversation(taskListId);
-        get().invalidateTaskList(taskListId);
-      } catch (error) {
-        get().setError('unlinkFromConversation', String(error));
-      }
-    },
-
     fetchAllTaskLists: async () => {
       try {
         const lists = await GetAllTaskLists();
-        return lists || [];
-      } catch {
-        return [];
-      }
-    },
-
-    getTaskListsByConversation: async (conversationId: number) => {
-      try {
-        const lists = await GetTaskListsByConversation(conversationId);
         return lists || [];
       } catch {
         return [];

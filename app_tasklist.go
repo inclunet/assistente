@@ -15,8 +15,8 @@ type TaskListWorkflowStatus = database.TaskListWorkflowStatus
 // ==================== TaskList Operations ====================
 
 // CreateTaskList cria uma nova lista de tarefas
-func (a *App) CreateTaskList(title, description string, linkToConversation bool, conversationID *uint) (*TaskList, error) {
-	taskList, err := database.CreateTaskList(title, description, linkToConversation, conversationID, nil)
+func (a *App) CreateTaskList(title, description string) (*TaskList, error) {
+	taskList, err := database.CreateTaskList(title, description, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -46,11 +46,6 @@ func (a *App) GetAllTaskLists() ([]TaskList, error) {
 	return database.GetAllTaskLists()
 }
 
-// GetTaskListsByConversation retorna listas vinculadas a uma conversa
-func (a *App) GetTaskListsByConversation(conversationID uint) ([]TaskList, error) {
-	return database.GetTaskListsByConversation(conversationID)
-}
-
 // UpdateTaskList atualiza title e description de uma lista
 func (a *App) UpdateTaskList(id uint, title, description string) error {
 	err := database.UpdateTaskList(id, title, description)
@@ -72,30 +67,6 @@ func (a *App) SetTaskListViewMode(id uint, viewMode string) error {
 	}
 
 	taskList, _ := database.GetTaskList(id)
-	runtime.EventsEmit(a.ctx, "taskList:updated", taskList)
-	return nil
-}
-
-// LinkTaskListToConversation vincula uma lista a uma conversa
-func (a *App) LinkTaskListToConversation(taskListID, conversationID uint) error {
-	err := database.LinkTaskListToConversation(taskListID, conversationID)
-	if err != nil {
-		return err
-	}
-
-	taskList, _ := database.GetTaskList(taskListID)
-	runtime.EventsEmit(a.ctx, "taskList:updated", taskList)
-	return nil
-}
-
-// UnlinkTaskListFromConversation desvincula uma lista de uma conversa
-func (a *App) UnlinkTaskListFromConversation(taskListID uint) error {
-	err := database.UnlinkTaskListFromConversation(taskListID)
-	if err != nil {
-		return err
-	}
-
-	taskList, _ := database.GetTaskList(taskListID)
 	runtime.EventsEmit(a.ctx, "taskList:updated", taskList)
 	return nil
 }

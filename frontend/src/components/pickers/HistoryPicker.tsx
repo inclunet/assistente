@@ -9,6 +9,7 @@ export interface HistoryPickerProps {
   value?: number; // ID da conversa atual
   onChange: (conversationId: number, conversation: database.Conversation) => void;
   label?: string;
+  description?: string;
   disabled?: boolean;
   maxWidth?: string;
   onAnnounce?: (message: string) => void;
@@ -23,6 +24,7 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
   value,
   onChange,
   label = 'Histórico (Ctrl+H)',
+  description,
   disabled = false,
   maxWidth = '200px',
   onAnnounce
@@ -136,6 +138,7 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
       selected={selectedValue}
       onSelect={handleSelect}
       label={label}
+      description={description}
       icon="📜"
       placeholder={isLoading ? 'Carregando...' : 'Buscar conversa...'}
       disabled={disabled || isLoading}

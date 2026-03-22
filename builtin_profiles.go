@@ -13,7 +13,7 @@ import (
 	"assistente/internal/profiles"
 )
 
-//go:embed all:.assistente/profiles
+//go:embed all:builtin/profiles
 var builtinProfilesFS embed.FS
 
 // installBuiltinProfiles copies embedded profiles to ~/.assistente/profiles/.
@@ -38,7 +38,7 @@ func (a *App) installBuiltinProfiles() {
 		return
 	}
 
-	entries, err := fs.ReadDir(builtinProfilesFS, ".assistente/profiles")
+	entries, err := fs.ReadDir(builtinProfilesFS, "builtin/profiles")
 	if err != nil {
 		log.Printf("[Profiles] Error reading embedded profiles: %v", err)
 		return
@@ -49,7 +49,7 @@ func (a *App) installBuiltinProfiles() {
 			continue
 		}
 
-		embeddedData, err := fs.ReadFile(builtinProfilesFS, ".assistente/profiles/"+entry.Name())
+		embeddedData, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/"+entry.Name())
 		if err != nil {
 			log.Printf("[Profiles] Error reading embedded profile %s: %v", entry.Name(), err)
 			continue

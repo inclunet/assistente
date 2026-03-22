@@ -5,7 +5,7 @@ import "assistente/internal/database"
 // TaskListManager abstrai as operações de gerenciamento de task lists,
 // permitindo que as tools interajam sem acoplamento direto ao App.
 type TaskListManager interface {
-	CreateTaskList(title, description string, conversationID *uint, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error)
+	CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error)
 	GetTaskList(id uint) (*database.TaskList, error)
 	GetAllTaskLists() ([]database.TaskList, error)
 	GetTaskListStats(taskListID uint) (map[string]interface{}, error)

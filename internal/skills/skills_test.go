@@ -11,7 +11,7 @@ import (
 
 func TestParseMemorySkill(t *testing.T) {
 	// Lê o skill memory do diretório do projeto (exe dir simulado)
-	data, err := os.ReadFile("../../.assistente/skills/memory/SKILL.md")
+	data, err := os.ReadFile("../../builtin/skills/memory/SKILL.md")
 	if err != nil {
 		t.Fatalf("Falha ao ler SKILL.md: %v", err)
 	}

@@ -129,7 +129,6 @@ export default function TaskListHeader({ taskList, onRefresh }: TaskListHeaderPr
           <button
             className="tasklist-header-edit-btn"
             onClick={() => setIsEditing(true)}
-            title={t('tasklist.editTitle', 'Editar título')}
             aria-label={t('tasklist.editTitle', 'Editar título')}
           >
             ✎

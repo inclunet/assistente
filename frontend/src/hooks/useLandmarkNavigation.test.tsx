@@ -7,14 +7,8 @@ vi.mock('../components/ui/Modal', () => ({
   isModalOpen: vi.fn(() => false),
 }));
 
-vi.mock('./useAnnouncer', () => ({
-  announce: vi.fn(),
-}));
-
-import { announce } from './useAnnouncer';
 import { isModalOpen } from '../components/ui/Modal';
 
-const mockedAnnounce = announce as ReturnType<typeof vi.fn>;
 const mockedIsModalOpen = isModalOpen as ReturnType<typeof vi.fn>;
 
 function createLandmark(id: string, label: string, overrides?: Partial<Landmark>): Landmark & { focusFn: ReturnType<typeof vi.fn> } {
@@ -64,7 +58,6 @@ describe('useLandmarkNavigation', () => {
     pressF6();
 
     expect(tabs.focusFn).toHaveBeenCalled();
-    expect(mockedAnnounce).toHaveBeenCalledWith('Guias');
   });
 
   it('F6 avança circularmente quando foco está no primeiro landmark', () => {
@@ -77,7 +70,6 @@ describe('useLandmarkNavigation', () => {
     pressF6();
 
     expect(toolbar.focusFn).toHaveBeenCalled();
-    expect(mockedAnnounce).toHaveBeenCalledWith('Barra de ferramentas');
   });
 
   it('F6 volta ao início quando foco está no último landmark', () => {
@@ -90,7 +82,6 @@ describe('useLandmarkNavigation', () => {
     pressF6();
 
     expect(tabs.focusFn).toHaveBeenCalled();
-    expect(mockedAnnounce).toHaveBeenCalledWith('Guias');
   });
 
   it('Shift+F6 foca o landmark anterior', () => {
@@ -103,7 +94,6 @@ describe('useLandmarkNavigation', () => {
     pressF6(true);
 
     expect(tabs.focusFn).toHaveBeenCalled();
-    expect(mockedAnnounce).toHaveBeenCalledWith('Guias');
   });
 
   it('Shift+F6 circula para o último quando foco está no primeiro', () => {
@@ -116,7 +106,6 @@ describe('useLandmarkNavigation', () => {
     pressF6(true);
 
     expect(content.focusFn).toHaveBeenCalled();
-    expect(mockedAnnounce).toHaveBeenCalledWith('Conteúdo');
   });
 
   it('pula landmarks indisponíveis', () => {
@@ -134,7 +123,6 @@ describe('useLandmarkNavigation', () => {
 
     expect(toolbar.focusFn).not.toHaveBeenCalled();
     expect(content.focusFn).toHaveBeenCalled();
-    expect(mockedAnnounce).toHaveBeenCalledWith('Conteúdo');
   });
 
   it('pula landmarks cujo focus() retorna false (fallback)', () => {
@@ -149,7 +137,6 @@ describe('useLandmarkNavigation', () => {
     pressF6();
 
     expect(content.focusFn).toHaveBeenCalled();
-    expect(mockedAnnounce).toHaveBeenCalledWith('Conteúdo');
   });
 
   it('não faz nada quando modal está aberto', () => {
@@ -161,7 +148,6 @@ describe('useLandmarkNavigation', () => {
     pressF6();
 
     expect(tabs.focusFn).not.toHaveBeenCalled();
-    expect(mockedAnnounce).not.toHaveBeenCalled();
   });
 
   it('não faz nada quando enabled=false', () => {
@@ -191,7 +177,6 @@ describe('useLandmarkNavigation', () => {
 
     // Não deve lançar erro
     pressF6();
-    expect(mockedAnnounce).not.toHaveBeenCalled();
   });
 
   it('funciona com apenas 1 landmark', () => {
@@ -201,7 +186,6 @@ describe('useLandmarkNavigation', () => {
 
     pressF6();
     expect(tabs.focusFn).toHaveBeenCalled();
-    expect(mockedAnnounce).toHaveBeenCalledWith('Guias');
   });
 
   it('atualiza landmarks dinamicamente via ref', () => {
@@ -236,7 +220,6 @@ describe('useLandmarkNavigation', () => {
     fireEvent.keyDown(window, { key: 'Escape' });
 
     expect(content.focusFn).toHaveBeenCalled();
-    expect(mockedAnnounce).toHaveBeenCalledWith('Conteúdo');
   });
 
   it('Escape NÃO faz nada quando foco já está no landmark default', () => {

@@ -7,6 +7,7 @@ const toggleMenuSpy = vi.fn();
 const setThemeSpy = vi.fn();
 const updateConfigSpy = vi.fn();
 const changeLanguageSpy = vi.fn();
+const announceSpy = vi.fn();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -44,6 +45,35 @@ vi.mock('../../store/settingsStore', () => ({
     selector({ updateConfig: updateConfigSpy }),
 }));
 
+vi.mock('../../store/workspaceStore', () => ({
+  useWorkspaceStore: Object.assign(
+    (selector?: (state: Record<string, unknown>) => unknown) => {
+      const state = {
+        workspace: { name: 'Test Workspace', profile: '' },
+        workspaces: [],
+        switchWorkspace: vi.fn(),
+        createWorkspace: vi.fn(),
+        renameWorkspace: vi.fn(),
+      };
+      return selector ? selector(state) : state;
+    },
+    { getState: () => ({ exportWorkspace: vi.fn(), importWorkspace: vi.fn() }) },
+  ),
+}));
+
+vi.mock('../../hooks/useAnchoredContextMenu', () => ({
+  useAnchoredContextMenu: () => ({
+    menu: { visible: false, items: [], x: 0, y: 0, ariaLabel: '' },
+    openForTrigger: vi.fn(),
+    closeMenu: vi.fn(),
+    onSelectItem: vi.fn(),
+  }),
+}));
+
+vi.mock('../../hooks/useAnnouncer', () => ({
+  useAnnouncer: () => ({ announce: announceSpy }),
+}));
+
 vi.mock('./MenuButton', () => {
   const React = require('react');
   const MenuButton = React.forwardRef((props: { items: Array<{ id: string; onClick?: () => void }>; buttonLabel: string; currentItemId: string }, ref: React.Ref<{ toggleMenu: () => void }>) => {
@@ -62,16 +92,27 @@ vi.mock('./MenuButton', () => {
 });
 
 describe('Topbar', () => {
-  it('renderiza titulo e configura item atual', () => {
+  it('renderiza titulo da página e configura item atual', () => {
     render(<Topbar />);
 
     expect(screen.getByRole('button', { name: 'menu.navLabel' })).toBeInTheDocument();
-    expect(screen.getByText('menu.appTitle')).toBeInTheDocument();
+    // On /history sub-route, the h1 shows the page title
+    expect(screen.getByRole('heading', { level: 1 })).toHaveTextContent('menu.history');
     expect(screen.getByTestId('current-item')).toHaveTextContent('history');
 
     const items = screen.getByTestId('menu-items').textContent || '';
     expect(items).toContain('theme');
     expect(items).toContain('language');
+  });
+
+  it('mostra botão voltar em sub-rota', () => {
+    render(<Topbar />);
+
+    const backButton = screen.getByRole('button', { name: 'menu.backToWorkspace' });
+    expect(backButton).toBeInTheDocument();
+
+    fireEvent.click(backButton);
+    expect(navigateSpy).toHaveBeenCalledWith('/');
   });
 
   it('abre menu com Alt+M', () => {
@@ -82,9 +123,6 @@ describe('Topbar', () => {
   });
 
   it.each([
-    ['c', '/'],
-    ['e', '/editor'],
-    ['t', '/terminal'],
     ['h', '/history'],
     ['p', '/profiles'],
   ])('navega com Alt+%s para %s', (key, route) => {
@@ -99,7 +137,15 @@ describe('Topbar', () => {
     render(<Topbar />);
     navigateSpy.mockClear();
 
-    fireEvent.keyDown(window, { key: 'c', altKey: true, ctrlKey: true });
+    fireEvent.keyDown(window, { key: 'h', altKey: true, ctrlKey: true });
     expect(navigateSpy).not.toHaveBeenCalled();
+  });
+
+  it('navega para /help com F1', () => {
+    render(<Topbar />);
+    navigateSpy.mockClear();
+
+    fireEvent.keyDown(window, { key: 'F1' });
+    expect(navigateSpy).toHaveBeenCalledWith('/help');
   });
 });

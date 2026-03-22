@@ -9,6 +9,7 @@ export interface ProfilePickerProps {
   onChange?: (slug: string) => void;
   variant?: 'toolbar' | 'form';
   label?: string;
+  description?: string;
   icon?: string;
   maxWidth?: string;
   onAnnounce?: (message: string) => void;
@@ -30,6 +31,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
       onChange,
       variant,
       label = 'Perfil',
+      description,
       icon = '💬',
       maxWidth,
       onAnnounce,
@@ -166,6 +168,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         selected={selectedSlug}
         onSelect={handleSelect}
         label={label}
+        description={description}
         icon={icon}
         maxWidth={maxWidth}
         onAnnounce={onAnnounce}

@@ -920,25 +920,6 @@ func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, 
 	return newMessages
 }
 
-// skillTaskInfo é um resumo de task para o template de skills.
-type skillTaskInfo struct {
-	ID          uint
-	Title       string
-	Description string
-	Status      string // label do status (ex: "A Fazer", "Concluído")
-	StatusIcon  string // ícone do status
-	Order       int
-}
-
-// skillTaskListInfo é um resumo de task list para o template de skills.
-type skillTaskListInfo struct {
-	ID          uint
-	Title       string
-	Description string
-	Tasks       []skillTaskInfo
-	TaskCount   int
-}
-
 type skillTemplateData struct {
 	Profile            *profiles.Profile
 	ProfileSlug        string
@@ -946,8 +927,6 @@ type skillTemplateData struct {
 	EnabledTools       []string
 	EnabledToolCount   int
 	ConversationID     uint
-	TaskLists          []skillTaskListInfo
-	HasTaskLists       bool
 }
 
 func (a *App) buildSkillTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) skillTemplateData {
@@ -961,68 +940,7 @@ func (a *App) buildSkillTemplateData(activeProfile *profiles.Profile, profileSlu
 		ConversationID:     conversationID,
 	}
 
-	if conversationID > 0 {
-		data.TaskLists = a.loadLinkedTaskListsForTemplate(conversationID)
-		data.HasTaskLists = len(data.TaskLists) > 0
-	}
-
 	return data
-}
-
-// loadLinkedTaskListsForTemplate busca task lists vinculadas a uma conversa
-// e retorna structs leves para uso em templates de skills.
-func (a *App) loadLinkedTaskListsForTemplate(conversationID uint) []skillTaskListInfo {
-	taskLists, err := database.GetTaskListsByConversation(conversationID)
-	if err != nil || len(taskLists) == 0 {
-		return nil
-	}
-
-	result := make([]skillTaskListInfo, 0, len(taskLists))
-	for _, tl := range taskLists {
-		// Busca tasks desta lista
-		tasks, err := database.GetTasksByTaskListID(tl.ID)
-		if err != nil {
-			tasks = nil
-		}
-
-		// Constrói mapa de status labels a partir do workflow
-		statusMap := make(map[int]database.TaskListWorkflowStatus)
-		if tl.Workflow != nil && tl.Workflow.Statuses != "" {
-			var statuses []database.TaskListWorkflowStatus
-			if err := json.Unmarshal([]byte(tl.Workflow.Statuses), &statuses); err == nil {
-				for _, s := range statuses {
-					statusMap[s.ID] = s
-				}
-			}
-		}
-
-		taskInfos := make([]skillTaskInfo, 0, len(tasks))
-		for _, t := range tasks {
-			statusLabel := "?"
-			statusIcon := "⌛"
-			if s, ok := statusMap[t.StatusID]; ok {
-				statusLabel = s.Label
-				statusIcon = s.Icon
-			}
-			taskInfos = append(taskInfos, skillTaskInfo{
-				ID:          t.ID,
-				Title:       t.Title,
-				Description: t.Description,
-				Status:      statusLabel,
-				StatusIcon:  statusIcon,
-				Order:       t.Order,
-			})
-		}
-
-		result = append(result, skillTaskListInfo{
-			ID:          tl.ID,
-			Title:       tl.Title,
-			Description: tl.Description,
-			Tasks:       taskInfos,
-			TaskCount:   len(taskInfos),
-		})
-	}
-	return result
 }
 
 func (a *App) computeEnabledToolNames(activeProfile *profiles.Profile) []string {

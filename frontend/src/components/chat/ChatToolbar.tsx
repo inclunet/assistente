@@ -14,7 +14,6 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
-import { ResourcesMenu } from './ResourcesMenu';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
@@ -40,6 +39,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
+  const historyContainerRef = useRef<HTMLDivElement>(null);
+  const profileContainerRef = useRef<HTMLDivElement>(null);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
   const [activeProfileSlug, setActiveProfileSlug] = useState<string>('padrao');
@@ -125,19 +126,19 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       }
       else if (e.ctrlKey && e.key === 'h') {
         e.preventDefault();
-        const historyPicker = document.querySelector(`[aria-label*="${t('chat.historyLabel')}"]`) as HTMLElement;
-        historyPicker?.click();
+        const btn = historyContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
+        btn?.click();
       }
       else if (e.ctrlKey && e.key === 'p') {
         e.preventDefault();
-        const profilePicker = document.querySelector(`[aria-label*="${t('chat.profileLabel')}"]`) as HTMLElement;
-        profilePicker?.click();
+        const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
+        btn?.click();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeConversation?.id, announce, handleClearConversation]);
+  }, [handleClearConversation]);
 
   const handleProfileChange = useCallback((slug: string) => {
     if (wsActiveTab) {
@@ -175,17 +176,20 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
               label={t('chat.clearBtn')}
               icon="🧹"
               shortcut="Ctrl+L"
+              title={t('chat.clearDescription')}
+              aria-label={t('chat.clearBtn')}
               variant="danger"
               onClick={() => void handleClearConversation()}
               disabled={isLoading}
             />
 
-            <div>
+            <div ref={historyContainerRef}>
               <HistoryPicker
                 ref={historyPickerRef}
                 value={activeConversation?.id}
                 onChange={handleHistoryChange}
                 label={t('chat.historyBtn')}
+                description={t('chat.historyDescription')}
                 maxWidth="200px"
                 onAnnounce={announce}
                 disabled={isLoading}
@@ -201,14 +205,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
 
             <ToolbarSeparator />
 
-            <ResourcesMenu
-              conversationId={activeConversation?.id}
-              disabled={isLoading}
-            />
-
-            <ToolbarSeparator />
-
             <div
+              ref={profileContainerRef}
               onContextMenu={handleProfileContextMenu}
               onKeyDown={handleProfileKeyDown}
             >
@@ -216,7 +214,8 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 ref={profilePickerRef}
                 onChange={handleProfileChange}
                 variant="toolbar"
-                label={t('workspace.tabProfileLabel', 'Perfil da aba')}
+                label={t('workspace.tabProfileLabel', 'Perfil')}
+                description={t('workspace.tabProfileDescription')}
                 icon="💬"
                 maxWidth="180px"
                 onAnnounce={announce}

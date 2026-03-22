@@ -38,6 +38,7 @@ import (
 	"assistente/internal/tools/editor"
 	"assistente/internal/tools/filesystem"
 	"assistente/internal/tools/history"
+	deeplinktool "assistente/internal/tools/deeplink"
 	msgtool "assistente/internal/tools/messaging"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
@@ -1500,8 +1501,17 @@ func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioRe
 // appTaskListManager adapta o App para a interface tasklisttool.TaskListManager
 type appTaskListManager struct{}
 
-func (m *appTaskListManager) CreateTaskList(title, description string, conversationID *uint, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
-	return database.CreateTaskList(title, description, conversationID != nil, conversationID, templateWorkflow)
+// appDeepLinkEmitter emite deep links para o frontend via eventos Wails.
+type appDeepLinkEmitter struct {
+	ctx context.Context
+}
+
+func (e *appDeepLinkEmitter) EmitDeepLink(uri string) {
+	runtime.EventsEmit(e.ctx, "deeplink:execute", uri)
+}
+
+func (m *appTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
+	return database.CreateTaskList(title, description, templateWorkflow)
 }
 
 func (m *appTaskListManager) GetTaskList(id uint) (*database.TaskList, error) {
@@ -1686,6 +1696,9 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(tasklisttool.NewUpsertTask(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewBulkUpsertTasks(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewDeleteTask(tlMgr))
+
+	// Registra ferramenta de deep links
+	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{ctx: a.ctx}))
 
 	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
 }

@@ -13,6 +13,7 @@ export interface ComboboxItem {
 export interface ComboboxProps {
     icon?: string;
     label?: string;
+    description?: string;
     items: ComboboxItem[];
     selected: string;
     onSelect: (value: string, item: ComboboxItem) => void;
@@ -27,6 +28,7 @@ export interface ComboboxProps {
 export const Combobox = ({
     icon = '🔧',
     label,
+    description,
     items,
     selected,
     onSelect,
@@ -259,8 +261,8 @@ export const Combobox = ({
                     disabled={disabled}
                     aria-haspopup="listbox"
                     aria-expanded={isOpen}
-                    aria-label={`${effectiveLabel}: ${selectedLabel}`}
-                    title={`${effectiveLabel}: ${selectedLabel}`}
+                    aria-label={selectedLabel}
+                    title={description || `${effectiveLabel}: ${selectedLabel}`}
                 >
                     <span className="picker-icon" aria-hidden="true">{icon}</span>
                     <span className="picker-label" aria-hidden="true">{displayLabel}</span>

@@ -37,6 +37,8 @@ export default function HistoryPage() {
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
   const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
+  const moveTabToWorkspace = useWorkspaceStore(state => state.moveTabToWorkspace);
+  const workspaces = useWorkspaceStore(state => state.workspaces);
 
   useEffect(() => {
     loadConversations();
@@ -222,22 +224,55 @@ export default function HistoryPage() {
     handleDeleteConversation(item.id);
   }, [handleDeleteConversation]);
 
+  const handleSendToWorkspace = useCallback(async (conversationId: number, title: string, targetWorkspaceId: string) => {
+    try {
+      const tabId = await addWorkspaceTab('chat', String(conversationId), title || t('chat.newConversation', 'Nova conversa'));
+      await moveTabToWorkspace(tabId, targetWorkspaceId);
+    } catch (error) {
+      console.error('Erro ao enviar conversa ao workspace:', error);
+    }
+  }, [addWorkspaceTab, moveTabToWorkspace, t]);
+
+  const otherWorkspaces = useMemo(
+    () => workspaces.filter(ws => !ws.is_active),
+    [workspaces]
+  );
+
   const getRowActions = useCallback(
-    (item: Conversation): ContextMenuItem[] => [
-      {
-        id: 'open',
-        label: t('history.openConversation', 'Abrir conversa'),
-        icon: '📂',
-        action: () => handleOpenConversation(item.id, item.title),
-      },
-      {
+    (item: Conversation): ContextMenuItem[] => {
+      const actions: ContextMenuItem[] = [
+        {
+          id: 'open',
+          label: t('history.openConversation', 'Abrir conversa'),
+          icon: '📂',
+          action: () => handleOpenConversation(item.id, item.title),
+        },
+      ];
+
+      if (otherWorkspaces.length > 0) {
+        actions.push({
+          id: 'send-to-workspace',
+          label: t('history.sendToWorkspace', 'Enviar ao workspace'),
+          icon: '📤',
+          submenu: otherWorkspaces.map(ws => ({
+            id: `ws-${ws.id}`,
+            label: ws.name,
+            icon: '📂',
+            action: () => handleSendToWorkspace(item.id, item.title, ws.id),
+          })),
+        });
+      }
+
+      actions.push({
         id: 'delete',
         label: t('history.deleteConversation', 'Excluir conversa'),
         icon: '🗑️',
         action: () => handleDeleteConversation(item.id),
-      },
-    ],
-    [handleDeleteConversation, handleOpenConversation, t]
+      });
+
+      return actions;
+    },
+    [handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, otherWorkspaces, t]
   );
 
   const getMenuButtonItems = useCallback(

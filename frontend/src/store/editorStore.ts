@@ -13,10 +13,6 @@ export interface EditorInsertRequest {
   content: string;
   title?: string;
   focus?: boolean;
-  source?: {
-    conversationId?: number | null;
-    messageId?: string | null;
-  };
 }
 
 export interface EditorDocument {
@@ -24,8 +20,6 @@ export interface EditorDocument {
   title: string;
   markdown: string;
   mode: EditorMode;
-
-  linkedConversationId?: number | null;
 
   filePath?: string | null;
   draftId?: string | null;
@@ -52,8 +46,6 @@ interface EditorState {
   setDocFilePath: (docId: string, filePath: string | null) => void;
   setDocDraftId: (docId: string, draftId: string | null) => void;
   setDocDirty: (docId: string, isDirty: boolean) => void;
-
-  setDocLinkedChat: (docId: string, link: { conversationId?: number | null }) => void;
 
   getDocument: (docId: string) => EditorDocument | undefined;
   getActiveDocument: () => EditorDocument | null;
@@ -104,8 +96,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       markdown: initial?.markdown ?? DEFAULT_MD,
       mode: initial?.mode || 'markdown',
 
-      linkedConversationId: null,
-
       filePath: null,
       draftId: id,
       isDirty: false,
@@ -128,7 +118,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       content: String(req.content ?? ''),
       title: req.title,
       focus: req.focus,
-      source: req.source,
     };
     set({ pendingInsert: normalized });
     return id;
@@ -186,11 +175,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   setDocDirty: (docId, isDirty) => {
     set((state) => ({ documents: updateDoc(state.documents, docId, { isDirty }) }));
-  },
-
-  setDocLinkedChat: (docId, link) => {
-    const linkedConversationId = typeof link?.conversationId === 'number' ? link.conversationId : null;
-    set((state) => ({ documents: updateDoc(state.documents, docId, { linkedConversationId }) }));
   },
 
   getDocument: (docId) => get().documents[docId],

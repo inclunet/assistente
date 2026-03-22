@@ -47,7 +47,6 @@ export const TTSControls: React.FC = () => {
       <button
         className={`tts-button ${isEnabled ? 'active' : ''}`}
         onClick={handleToggle}
-        title={isEnabled ? t('chat.disableTTS') : t('chat.enableTTS')}
         aria-label={isEnabled ? t('chat.disableTTSLabel') : t('chat.enableTTSLabel')}
         tabIndex={-1}
       >
@@ -82,7 +81,6 @@ export const TTSControls: React.FC = () => {
           <button
             className={`tts-button auto-read ${isAutoReadEnabled ? 'active' : ''}`}
             onClick={handleAutoReadToggle}
-            title={isAutoReadEnabled ? t('chat.disableAutoRead') : t('chat.enableAutoRead')}
             aria-label={isAutoReadEnabled ? t('chat.disableAutoReadLabel') : t('chat.enableAutoReadLabel')}
             tabIndex={-1}
           >
@@ -105,7 +103,6 @@ export const TTSControls: React.FC = () => {
             <button
               className="tts-button stop"
               onClick={handleStop}
-              title={t('chat.stopReading')}
               aria-label={t('chat.stopReadingLabel')}
               tabIndex={-1}
             >

@@ -249,15 +249,6 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     return modeLabels[mode].idle;
   };
 
-  // Tooltip
-  const getTitle = () => {
-    if (isProcessingState) return t('voice.processing');
-    if (isRecordingState || isListeningState) {
-      return modeLabels[mode].active;
-    }
-    return modeLabels[mode].idle;
-  };
-
   // Determina a classe CSS do modo
   const getModeClass = () => {
     switch (mode) {
@@ -365,7 +356,6 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
         disabled={disabled || isProcessingState}
         aria-label={getAriaLabel()}
         aria-pressed={isRecordingState || isListeningState}
-        title={getTitle()}
         // Pointer events para PTT
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}

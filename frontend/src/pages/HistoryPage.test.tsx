@@ -10,7 +10,8 @@ const mockUpdateConversation = vi.fn();
 const mockExportConversations = vi.fn();
 const mockImportConversations = vi.fn();
 const mockSearchConversationHistory = vi.fn();
-const mockAddTab = vi.fn().mockResolvedValue(undefined);
+const mockAddTab = vi.fn().mockResolvedValue('tab-1');
+const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
 
 let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> = [];
@@ -50,9 +51,11 @@ vi.mock('../hooks/useGridFocus', () => ({
 }));
 
 vi.mock('../store/workspaceStore', () => ({
-  useWorkspaceStore: (selector: (state: { addTab: typeof mockAddTab }) => unknown) =>
+  useWorkspaceStore: (selector: (state: { addTab: typeof mockAddTab; moveTabToWorkspace: typeof mockMoveTabToWorkspace; workspaces: { id: string; name: string; is_active: boolean }[] }) => unknown) =>
     selector({
       addTab: mockAddTab,
+      moveTabToWorkspace: mockMoveTabToWorkspace,
+      workspaces: [],
     }),
 }));
 

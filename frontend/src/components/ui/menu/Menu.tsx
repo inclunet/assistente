@@ -13,6 +13,7 @@ export const Menu: React.FC<MenuProps> = ({
   initialFocusItemId,
   onClose,
   onSelect,
+  onItemKeyDown,
 }) => {
   const menuRef = useRef<HTMLDivElement>(null);
   const onCloseRef = useRef(onClose);
@@ -161,6 +162,11 @@ export const Menu: React.FC<MenuProps> = ({
     const currentItems = getCurrentItems();
     const currentFocusIndex = getCurrentFocusIndex();
     const currentItem = currentItems[currentFocusIndex];
+
+    // Allow consumer to handle custom keys (e.g. F2 for rename)
+    if (currentItem && onItemKeyDown?.(e, currentItem)) {
+      return;
+    }
 
     switch (e.key) {
       case 'ArrowDown':

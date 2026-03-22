@@ -6,6 +6,7 @@ import { EventsOn, EventsOff } from "@wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
 import { useUIStore } from './store/uiStore';
 import { useChatStore } from './store/chatStore';
+import { parseDeepLink, executeDeepLink } from './lib/deepLinks';
 import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
 import { ConfirmHost } from './components/ui/ConfirmHost';
 import { QuestionnaireDialog, QuestionnairePayload } from './components/ui/QuestionnaireDialog';
@@ -123,6 +124,14 @@ function App() {
             navigate('/update');
         });
 
+        EventsOn('deeplink:execute', (uri: unknown) => {
+            if (typeof uri !== 'string') return;
+            const action = parseDeepLink(uri);
+            if (action) {
+                void executeDeepLink(action, { navigate });
+            }
+        });
+
         EventsOn('chat:summary_started', (data: unknown) => {
             const eventData = data as { messageCount?: number };
             addToast(`Sumarizando conversa (${eventData.messageCount ?? 0} mensagens)...`, 'info', 10000);
@@ -144,6 +153,7 @@ function App() {
             EventsOff('conversation:renamed');
             EventsOff('database:reset');
             EventsOff('navigate:update');
+            EventsOff('deeplink:execute');
             EventsOff('chat:summary_started');
             EventsOff('chat:summary_completed');
             EventsOff('chat:summary_error');

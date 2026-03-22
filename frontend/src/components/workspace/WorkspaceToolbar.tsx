@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore, type TabType } from '../../store/workspaceStore';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
@@ -25,24 +25,36 @@ const TAB_TYPE_DEFAULTS: Record<TabType, string> = {
 export function WorkspaceToolbar() {
   const { t } = useTranslation();
   const { announce } = useAnnouncer();
-  const { workspace, workspaces, addTab, switchWorkspace, createWorkspace, renameWorkspace, setProfile } = useWorkspaceStore();
+  const { workspace, workspaces, addTab, setProfile, createWorkspace, renameWorkspace } = useWorkspaceStore();
+
+  const newTabButtonRef = useRef<HTMLButtonElement>(null);
+  const wsMenuButtonRef = useRef<HTMLButtonElement>(null);
+  const renameInputRef = useRef<HTMLInputElement>(null);
+  const profileContainerRef = useRef<HTMLDivElement>(null);
 
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
-  const renameInputRef = useRef<HTMLInputElement>(null);
 
-  const pickerButtonRef = useRef<HTMLButtonElement>(null);
-  const newTabButtonRef = useRef<HTMLButtonElement>(null);
-
-  // --- Workspace picker menu ---
+  // --- New tab menu ---
   const {
-    menu: pickerMenu,
-    openForTrigger: openPicker,
-    closeMenu: closePicker,
-    onSelectItem: onPickerSelect,
+    menu: newTabMenu,
+    openForTrigger: openNewTab,
+    closeMenu: closeNewTab,
+    onSelectItem: onNewTabSelect,
   } = useAnchoredContextMenu({
-    onAfterSelect: () => pickerButtonRef.current?.focus(),
-    onAfterDismiss: () => pickerButtonRef.current?.focus(),
+    onAfterSelect: () => newTabButtonRef.current?.focus(),
+    onAfterDismiss: () => newTabButtonRef.current?.focus(),
+  });
+
+  // --- Workspace management menu ---
+  const {
+    menu: wsMenu,
+    openForTrigger: openWsMenu,
+    closeMenu: closeWsMenu,
+    onSelectItem: onWsMenuSelect,
+  } = useAnchoredContextMenu({
+    onAfterSelect: () => wsMenuButtonRef.current?.focus(),
+    onAfterDismiss: () => wsMenuButtonRef.current?.focus(),
   });
 
   const handleExportWorkspace = useCallback(async () => {
@@ -78,20 +90,41 @@ export function WorkspaceToolbar() {
     }
   }, []);
 
-  const pickerItems = useMemo((): MenuItem[] => {
-    const items: MenuItem[] = workspaces.map((ws) => ({
-      id: `ws-${ws.id}`,
-      label: ws.name,
-      icon: ws.is_active ? '●' : ' ',
-      shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular', 'aba') : t('workspace.tabPlural', 'abas')}`,
-      checked: ws.is_active,
-      action: () => {
-        if (!ws.is_active) void switchWorkspace(ws.id);
-      },
-    }));
+  const startRename = useCallback(() => {
+    if (!workspace) return;
+    setIsRenaming(true);
+    setRenameValue(workspace.name);
+  }, [workspace]);
 
-    items.push({ id: 'sep', separator: true });
-    items.push({
+  const handleConfirmRename = useCallback(async () => {
+    const trimmed = renameValue.trim();
+    if (trimmed && trimmed !== workspace?.name) {
+      await renameWorkspace(trimmed);
+      announce(`${t('workspace.renamed', 'Workspace renomeado')}: ${trimmed}`);
+    }
+    setIsRenaming(false);
+  }, [renameValue, workspace?.name, renameWorkspace, announce, t]);
+
+  const handleRenameKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      handleConfirmRename();
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setIsRenaming(false);
+      wsMenuButtonRef.current?.focus();
+    }
+  }, [handleConfirmRename]);
+
+  useEffect(() => {
+    if (isRenaming) {
+      renameInputRef.current?.focus();
+      renameInputRef.current?.select();
+    }
+  }, [isRenaming]);
+
+  const wsMenuItems = useMemo((): MenuItem[] => [
+    {
       id: 'new-workspace',
       label: t('workspace.newWorkspace'),
       icon: '➕',
@@ -101,45 +134,42 @@ export function WorkspaceToolbar() {
         void createWorkspace(name);
         announce(`${t('workspace.created')}: ${name}`);
       },
-    });
-
-    items.push({ id: 'sep-export', separator: true });
-    items.push({
+    },
+    {
+      id: 'rename-workspace',
+      label: t('workspace.rename', 'Renomear workspace'),
+      icon: '✏️',
+      shortcut: 'F2',
+      action: startRename,
+    },
+    { id: 'sep-1', separator: true },
+    {
       id: 'export-workspace',
       label: t('workspace.export', 'Exportar workspace'),
       icon: '📤',
       action: handleExportWorkspace,
-    });
-    items.push({
+    },
+    {
       id: 'import-workspace',
       label: t('workspace.import', 'Importar workspace'),
       icon: '📥',
       action: handleImportWorkspace,
-    });
+    },
+    { id: 'sep-2', separator: true },
+    {
+      id: 'set-workdir',
+      label: t('workspace.setWorkDir', 'Diretório de trabalho...'),
+      icon: '📁',
+      disabled: true,
+    },
+  ], [workspaces.length, createWorkspace, announce, t, startRename, handleExportWorkspace, handleImportWorkspace]);
 
-    return items;
-  }, [workspaces, switchWorkspace, createWorkspace, announce, t, handleExportWorkspace, handleImportWorkspace]);
-
-  const handleOpenPicker = useCallback(() => {
-    if (pickerMenu.visible) {
-      closePicker();
-      return;
+  const handleOpenWsMenu = useCallback(() => {
+    if (wsMenu.visible) { closeWsMenu(); return; }
+    if (wsMenuButtonRef.current) {
+      openWsMenu(wsMenuButtonRef.current, t('workspace.workspaceOptions', 'Opções do workspace'), wsMenuItems);
     }
-    if (pickerButtonRef.current) {
-      openPicker(pickerButtonRef.current, t('workspace.workspaceList'), pickerItems);
-    }
-  }, [pickerMenu.visible, closePicker, openPicker, pickerItems, t]);
-
-  // --- New tab menu ---
-  const {
-    menu: newTabMenu,
-    openForTrigger: openNewTab,
-    closeMenu: closeNewTab,
-    onSelectItem: onNewTabSelect,
-  } = useAnchoredContextMenu({
-    onAfterSelect: () => newTabButtonRef.current?.focus(),
-    onAfterDismiss: () => newTabButtonRef.current?.focus(),
-  });
+  }, [wsMenu.visible, closeWsMenu, openWsMenu, wsMenuItems, t]);
 
   const newTabItems = useMemo((): MenuItem[] =>
     TAB_TYPE_OPTIONS.map(({ type, icon, labelKey, chordKey }) => ({
@@ -164,7 +194,7 @@ export function WorkspaceToolbar() {
     }
   }, [newTabMenu.visible, closeNewTab, openNewTab, newTabItems, t]);
 
-  // Ctrl+N dispara esse evento para abrir o menu visualmente
+  // Ctrl+N dispatches this event to visually open the menu
   useEffect(() => {
     const handleEvent = () => {
       if (newTabButtonRef.current && !newTabMenu.visible) {
@@ -175,45 +205,24 @@ export function WorkspaceToolbar() {
     return () => window.removeEventListener('workspace:open-new-tab-menu', handleEvent);
   }, [openNewTab, newTabItems, newTabMenu.visible, t]);
 
-  // --- Rename ---
-  useEffect(() => {
-    if (isRenaming) {
-      renameInputRef.current?.focus();
-      renameInputRef.current?.select();
-    }
-  }, [isRenaming]);
-
-  const handleStartRename = useCallback(() => {
-    if (!workspace) return;
-    setIsRenaming(true);
-    setRenameValue(workspace.name);
-  }, [workspace]);
-
-  const handleConfirmRename = useCallback(async () => {
-    const trimmed = renameValue.trim();
-    if (trimmed && trimmed !== workspace?.name) {
-      await renameWorkspace(trimmed);
-      announce(`${t('workspace.renamed', 'Workspace renomeado')}: ${trimmed}`);
-    }
-    setIsRenaming(false);
-  }, [renameValue, workspace?.name, renameWorkspace, announce, t]);
-
-  const handleRenameKeyDown = useCallback((e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      handleConfirmRename();
-    } else if (e.key === 'Escape') {
-      e.preventDefault();
-      setIsRenaming(false);
-      pickerButtonRef.current?.focus();
-    }
-  }, [handleConfirmRename]);
-
   // --- Profile ---
   const handleProfileChange = useCallback(async (slug: string) => {
     await setProfile(slug);
-    announce(`${t('workspace.profileChanged', 'Perfil do workspace alterado')}: ${slug}`);
+    announce(`${t('workspace.profileChanged', 'Perfil alterado')}: ${slug}`);
   }, [setProfile, announce, t]);
+
+  // Ctrl+Shift+P opens workspace profile picker
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.ctrlKey && e.shiftKey && e.key === 'P') {
+        e.preventDefault();
+        const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
+        btn?.click();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, []);
 
   return (
     <>
@@ -221,30 +230,6 @@ export function WorkspaceToolbar() {
         ariaLabel={t('workspace.toolbarLabel')}
         className="workspace-toolbar"
         left={
-          isRenaming ? (
-            <input
-              ref={renameInputRef}
-              className="workspace-toolbar__rename-input"
-              value={renameValue}
-              onChange={(e) => setRenameValue(e.target.value)}
-              onKeyDown={handleRenameKeyDown}
-              onBlur={() => void handleConfirmRename()}
-              aria-label={t('workspace.renamePlaceholder')}
-            />
-          ) : (
-            <ToolbarButton
-              ref={pickerButtonRef}
-              label={workspace?.name || 'Workspace'}
-              icon="📂"
-              endIcon="▾"
-              onClick={handleOpenPicker}
-              onDoubleClick={handleStartRename}
-              aria-expanded={pickerMenu.visible}
-              aria-haspopup="menu"
-            />
-          )
-        }
-        right={
           <>
             <ToolbarButton
               ref={newTabButtonRef}
@@ -258,26 +243,41 @@ export function WorkspaceToolbar() {
 
             <ToolbarSeparator />
 
+            {isRenaming ? (
+              <input
+                ref={renameInputRef}
+                className="workspace-toolbar__rename-input"
+                value={renameValue}
+                onChange={(e) => setRenameValue(e.target.value)}
+                onKeyDown={handleRenameKeyDown}
+                onBlur={() => void handleConfirmRename()}
+                aria-label={t('workspace.renamePlaceholder')}
+              />
+            ) : (
+              <ToolbarButton
+                ref={wsMenuButtonRef}
+                label={t('workspace.workspaceOptions', 'Opções do workspace')}
+                icon="⚙️"
+                onClick={handleOpenWsMenu}
+                aria-expanded={wsMenu.visible}
+                aria-haspopup="menu"
+              />
+            )}
+          </>
+        }
+        right={
+          <div ref={profileContainerRef}>
             <ProfilePicker
               value={workspace?.profile || ''}
               variant="toolbar"
-              label={t('workspace.profileLabel', 'Perfil do workspace')}
+              label={t('workspace.profileLabel', 'Perfil')}
+              description={t('workspace.profileDescription')}
               icon="🎭"
               onChange={handleProfileChange}
               onAnnounce={announce}
             />
-          </>
+          </div>
         }
-      />
-
-      <Menu
-        items={pickerMenu.items}
-        x={pickerMenu.x}
-        y={pickerMenu.y}
-        visible={pickerMenu.visible}
-        ariaLabel={pickerMenu.ariaLabel || t('workspace.workspaceList')}
-        onClose={closePicker}
-        onSelect={onPickerSelect}
       />
 
       <Menu
@@ -288,6 +288,16 @@ export function WorkspaceToolbar() {
         ariaLabel={newTabMenu.ariaLabel || t('workspace.newTabMenu')}
         onClose={closeNewTab}
         onSelect={onNewTabSelect}
+      />
+
+      <Menu
+        items={wsMenu.items}
+        x={wsMenu.x}
+        y={wsMenu.y}
+        visible={wsMenu.visible}
+        ariaLabel={wsMenu.ariaLabel || t('workspace.workspaceOptions', 'Opções do workspace')}
+        onClose={closeWsMenu}
+        onSelect={onWsMenuSelect}
       />
     </>
   );

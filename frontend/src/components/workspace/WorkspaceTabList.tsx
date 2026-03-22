@@ -252,7 +252,7 @@ export function WorkspaceTabList() {
               e.stopPropagation();
               void removeTab(tab.id);
             }}
-            aria-label={`${t('workspace.closeTab')} ${tab.title}`}
+            aria-hidden="true"
             tabIndex={-1}
             type="button"
           >

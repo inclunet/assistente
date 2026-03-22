@@ -1,14 +1,13 @@
 /* Overrides para o Toolbar padrão quando usado como workspace toolbar */
 .workspace-toolbar {
-  min-height: 48px;
+  min-height: 40px;
 }
 
-/* Rename input inline */
 .workspace-toolbar__rename-input {
   padding: 0.375rem 0.75rem;
-  background: var(--bg-primary);
-  border: 1px solid var(--primary-color);
-  border-radius: 4px;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 0.875rem;
   font-weight: 500;
@@ -18,5 +17,5 @@
 }
 
 .workspace-toolbar__rename-input:focus {
-  box-shadow: 0 0 0 2px var(--primary-color-alpha);
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }

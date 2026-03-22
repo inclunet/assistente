@@ -46,8 +46,22 @@ export function WorkspaceLayout() {
 
   const landmarks = useMemo((): Landmark[] => [
     {
+      id: 'topbar',
+      label: t('landmarks.topbar', 'Barra de navegação'),
+      focus: () => {
+        const topbar = document.querySelector('.topbar') as Element | null;
+        if (!topbar) return false;
+        const btn = topbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
+        if (!btn) return false;
+        btn.focus();
+        return true;
+      },
+      contains: () => !!document.activeElement?.closest?.('.topbar'),
+    },
+    {
       id: 'workspaceToolbar',
-      label: t('landmarks.workspaceToolbar', 'Barra de ferramentas do workspace'),
+      label: t('landmarks.workspaceToolbar', 'Workspace'),
+      isAvailable: () => isWorkspaceRoute,
       focus: () => {
         const toolbar = document.querySelector('.workspace-toolbar[role="toolbar"]') as Element | null;
         if (!toolbar) return false;
@@ -60,7 +74,8 @@ export function WorkspaceLayout() {
     },
     {
       id: 'workspaceTabs',
-      label: t('landmarks.workspaceTabs', 'Abas do workspace'),
+      label: t('landmarks.workspaceTabs', 'Painéis'),
+      isAvailable: () => isWorkspaceRoute,
       focus: () => {
         const active = document.querySelector('.ws-tabs [role="tab"][aria-selected="true"]') as HTMLElement | null;
         const anyTab = document.querySelector('.ws-tabs [role="tab"]') as HTMLElement | null;
@@ -183,16 +198,34 @@ export function WorkspaceLayout() {
         !!document.activeElement?.closest?.('.monaco-editor') ||
         !!document.activeElement?.closest?.('.rich-text-editor__content'),
     },
-  ], [t, isChatActive, isTerminalActive, isEditorActive]);
+    // Sub-route page content
+    {
+      id: 'pageContent',
+      label: t('landmarks.pageContent', 'Conteúdo da página'),
+      isAvailable: () => !isWorkspaceRoute,
+      focus: () => {
+        const content = document.querySelector('.workspace-layout__config-content') as HTMLElement | null;
+        if (!content) return false;
+        const focusable = content.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') as HTMLElement | null;
+        if (focusable) { focusable.focus(); return true; }
+        content.setAttribute('tabindex', '-1');
+        content.focus();
+        return true;
+      },
+      contains: () => !!document.activeElement?.closest?.('.workspace-layout__config-content'),
+    },
+  ], [t, isChatActive, isTerminalActive, isEditorActive, isWorkspaceRoute]);
 
-  const defaultLandmark = isChatActive ? 'chatInput'
-    : isTerminalActive ? 'terminalInput'
-    : isEditorActive ? 'editorContent'
-    : 'workspaceTabs';
+  const defaultLandmark = isWorkspaceRoute
+    ? (isChatActive ? 'chatInput'
+      : isTerminalActive ? 'terminalInput'
+      : isEditorActive ? 'editorContent'
+      : 'workspaceTabs')
+    : 'pageContent';
 
   useLandmarkNavigation({
     landmarks,
-    enabled: isWorkspaceRoute,
+    enabled: true,
     defaultLandmarkId: defaultLandmark,
   });
 
@@ -211,6 +244,7 @@ export function WorkspaceLayout() {
   if (isWorkspaceRoute) {
     return (
       <div className="workspace-layout">
+        <Topbar />
         <WorkspaceToolbar />
         {workspace && <WorkspaceTabList />}
         <WorkspaceContent />
@@ -218,7 +252,7 @@ export function WorkspaceLayout() {
     );
   }
 
-  // Sub-rotas de configuração: Topbar + conteúdo
+  // Sub-rotas: Topbar + conteúdo
   return (
     <div className="workspace-layout">
       <Topbar />

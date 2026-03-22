@@ -122,8 +122,8 @@ export function CreateTask(arg1, arg2, arg3, arg4) {
   return window['go']['main']['App']['CreateTask'](arg1, arg2, arg3, arg4);
 }
 
-export function CreateTaskList(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['CreateTaskList'](arg1, arg2, arg3, arg4);
+export function CreateTaskList(arg1, arg2) {
+  return window['go']['main']['App']['CreateTaskList'](arg1, arg2);
 }
 
 export function CreateTerminalSession(arg1) {
@@ -502,10 +502,6 @@ export function GetTaskListWithHierarchy(arg1) {
   return window['go']['main']['App']['GetTaskListWithHierarchy'](arg1);
 }
 
-export function GetTaskListsByConversation(arg1) {
-  return window['go']['main']['App']['GetTaskListsByConversation'](arg1);
-}
-
 export function GetTasksByStatus(arg1, arg2) {
   return window['go']['main']['App']['GetTasksByStatus'](arg1, arg2);
 }
@@ -560,10 +556,6 @@ export function IsGlobalHotkeySupported() {
 
 export function IsSAPI5Speaking() {
   return window['go']['main']['App']['IsSAPI5Speaking']();
-}
-
-export function LinkTaskListToConversation(arg1, arg2) {
-  return window['go']['main']['App']['LinkTaskListToConversation'](arg1, arg2);
 }
 
 export function ListCredentials() {
@@ -844,10 +836,6 @@ export function TranscribeWhisper(arg1, arg2) {
 
 export function UnassignConversationFromChannel(arg1) {
   return window['go']['main']['App']['UnassignConversationFromChannel'](arg1);
-}
-
-export function UnlinkTaskListFromConversation(arg1) {
-  return window['go']['main']['App']['UnlinkTaskListFromConversation'](arg1);
 }
 
 export function UnsubscribeFromMCPResource(arg1, arg2) {

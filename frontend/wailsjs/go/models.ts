@@ -463,8 +463,6 @@ export namespace database {
 	    id: number;
 	    title: string;
 	    description: string;
-	    conversation_id?: number;
-	    linked_message_id?: number;
 	    preferred_view_mode: string;
 	    // Go type: time
 	    created_at: any;
@@ -472,8 +470,6 @@ export namespace database {
 	    updated_at: any;
 	    workflow?: TaskListWorkflow;
 	    tasks?: Task[];
-	    conversation?: Conversation;
-	    linked_message?: ChatMessage;
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskList(source);
@@ -484,15 +480,11 @@ export namespace database {
 	        this.id = source["id"];
 	        this.title = source["title"];
 	        this.description = source["description"];
-	        this.conversation_id = source["conversation_id"];
-	        this.linked_message_id = source["linked_message_id"];
 	        this.preferred_view_mode = source["preferred_view_mode"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.workflow = this.convertValues(source["workflow"], TaskListWorkflow);
 	        this.tasks = this.convertValues(source["tasks"], Task);
-	        this.conversation = this.convertValues(source["conversation"], Conversation);
-	        this.linked_message = this.convertValues(source["linked_message"], ChatMessage);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

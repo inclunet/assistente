@@ -15,7 +15,7 @@ const MaxTaskLists = 100
 
 // CreateTaskList cria uma nova tasklist com workflow padrão
 // templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em Progresso, Concluído)
-func CreateTaskList(title, description string, linked bool, conversationID *uint, templateWorkflow *TaskListWorkflow) (*TaskList, error) {
+func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflow) (*TaskList, error) {
 	// Valida limite
 	var count int64
 	if err := db.Model(&TaskList{}).Count(&count).Error; err != nil {
@@ -28,7 +28,6 @@ func CreateTaskList(title, description string, linked bool, conversationID *uint
 	taskList := &TaskList{
 		Title:             title,
 		Description:       description,
-		ConversationID:    conversationID,
 		PreferredViewMode: "list",
 	}
 
@@ -56,8 +55,6 @@ func GetTaskList(id uint) (*TaskList, error) {
 		Preload("Tasks.Subtasks", func(db *gorm.DB) *gorm.DB {
 			return db.Order("`order` ASC")
 		}).
-		Preload("Conversation").
-		Preload("LinkedMessage").
 		First(&taskList, id).Error
 
 	return &taskList, err
@@ -70,16 +67,6 @@ func GetAllTaskLists() ([]TaskList, error) {
 		Preload("Tasks", func(db *gorm.DB) *gorm.DB {
 			return db.Where("parent_id IS NULL").Order("`order` ASC")
 		}).
-		Order("created_at DESC").
-		Find(&taskLists).Error
-	return taskLists, err
-}
-
-// GetTaskListsByConversation retorna todas as tasklists vinculadas a uma conversa
-func GetTaskListsByConversation(conversationID uint) ([]TaskList, error) {
-	var taskLists []TaskList
-	err := db.Where("conversation_id = ?", conversationID).
-		Preload("Workflow").
 		Order("created_at DESC").
 		Find(&taskLists).Error
 	return taskLists, err
@@ -103,30 +90,6 @@ func SetTaskListViewMode(id uint, viewMode string) error {
 	return db.Model(&TaskList{}).Where("id = ?", id).Update("preferred_view_mode", viewMode).Error
 }
 
-// LinkTaskListToConversation vincula uma tasklist a uma conversa
-func LinkTaskListToConversation(taskListID, conversationID uint) error {
-	// Valida que conversa existe
-	var conv Conversation
-	if err := db.First(&conv, conversationID).Error; err != nil {
-		return err
-	}
-
-	return db.Model(&TaskList{}).Where("id = ?", taskListID).Update("conversation_id", conversationID).Error
-}
-
-// UnlinkTaskListFromConversation desvincula uma tasklist de uma conversa
-func UnlinkTaskListFromConversation(taskListID uint) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		// Promove todas as subtasks para root (remove parent_id)
-		if err := tx.Model(&Task{}).Where("task_list_id = ? AND parent_id IS NOT NULL", taskListID).
-			Update("parent_id", nil).Error; err != nil {
-			return err
-		}
-		// Remove vínculo com conversa
-		return tx.Model(&TaskList{}).Where("id = ?", taskListID).Update("conversation_id", nil).Error
-	})
-}
-
 // CloneTaskList clona uma tasklist com seu workflow mas sem as tasks
 func CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	// Busca tasklist original
@@ -136,7 +99,7 @@ func CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	}
 
 	// Cria nova tasklist
-	cloned, err := CreateTaskList(newTitle, original.Description, false, nil, original.Workflow)
+	cloned, err := CreateTaskList(newTitle, original.Description, original.Workflow)
 	if err != nil {
 		return nil, err
 	}

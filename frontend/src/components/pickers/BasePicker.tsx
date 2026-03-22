@@ -18,6 +18,7 @@ interface BasePickerProps {
   selected: string;
   onSelect: (value: string, item?: ComboboxItem) => void;
   label: string;
+  description?: string;
   icon?: string;
   variant?: Variant;
   placeholder?: string;
@@ -91,6 +92,7 @@ export const BasePicker = ({
   selected,
   onSelect,
   label,
+  description,
   icon,
   variant = 'form',
   placeholder,
@@ -201,6 +203,7 @@ export const BasePicker = ({
       selected={selected}
       onSelect={(value, item) => onSelect(value, item)}
       label={label}
+      description={description}
       icon={icon}
       maxWidth={maxWidth}
       placeholder={placeholder}

@@ -82,7 +82,6 @@ export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onRemove }) =
             className="media-remove"
             onClick={() => onRemove(item.id)}
             aria-label={`${t('mediaPreview.remove')} ${item.altText || item.fileName}`}
-            title={t('mediaPreview.removeFile')}
           >
             ✕
           </button>

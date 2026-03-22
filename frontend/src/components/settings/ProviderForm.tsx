@@ -595,7 +595,6 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
               className="provider-form__toggle-password"
               aria-label={showPassword ? 'Ocultar chave' : 'Mostrar chave'}
               aria-pressed={showPassword}
-              title={showPassword ? 'Ocultar chave' : 'Mostrar chave'}
             >
               <span aria-hidden="true">{showPassword ? '🔒' : '🔓'}</span>
             </Button>
@@ -641,7 +640,6 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
               className="provider-form__toggle-password"
               aria-label={showPassword ? 'Ocultar chave' : 'Mostrar chave'}
               aria-pressed={showPassword}
-              title={showPassword ? 'Ocultar chave' : 'Mostrar chave'}
             >
               <span aria-hidden="true">{showPassword ? '🔒' : '🔓'}</span>
             </Button>
@@ -657,7 +655,6 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           variant="secondary"
           onClick={handleTestApi}
           disabled={testing || !getCanonicalUrl(formData.type).trim()}
-          title={!getCanonicalUrl(formData.type).trim() ? 'Preenchea URL primeiro' : 'Testar conexão'}
           aria-label="Testar conexão com API"
         >
           {testing ? 'Testando...' : '🧪 Testar Conexão'}

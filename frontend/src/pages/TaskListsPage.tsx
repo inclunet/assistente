@@ -36,6 +36,8 @@ export default function TaskListsPage() {
   const taskLists = useTaskListStore((state) => state.taskLists);
   const { createTaskList, deleteTaskList, cloneTaskList, getCachedTaskList, loadTaskList, fetchAllTaskLists } = useTaskListStore();
   const addTab = useWorkspaceStore((s) => s.addTab);
+  const moveTabToWorkspace = useWorkspaceStore((s) => s.moveTabToWorkspace);
+  const workspaces = useWorkspaceStore((s) => s.workspaces);
 
   const [searchTerm, setSearchTerm] = useState('');
   const [editorOpen, setEditorOpen] = useState(false);
@@ -227,35 +229,70 @@ export default function TaskListsPage() {
     }
   }, [filteredTaskLists.length]);
 
+  const handleSendToWorkspace = useCallback(async (taskListId: number, title: string, targetWorkspaceId: string) => {
+    try {
+      const tabId = await addTab('tasklist', String(taskListId), title);
+      await moveTabToWorkspace(tabId, targetWorkspaceId);
+      announce(t('tasklist.sentToWorkspace', 'Lista enviada ao workspace'));
+    } catch (error) {
+      console.error('Erro ao enviar lista ao workspace:', error);
+    }
+  }, [addTab, moveTabToWorkspace, announce, t]);
+
+  const otherWorkspaces = useMemo(
+    () => workspaces.filter(ws => !ws.is_active),
+    [workspaces]
+  );
+
   const getTaskListRowActions = useCallback(
-    (list: TaskListRow) => [
-      {
-        id: 'open',
-        label: t('tasklist.open', 'Abrir'),
-        icon: '📖',
-        onClick: () => handleOpenTaskList(list.id),
-      },
-      {
-        id: 'edit',
-        label: t('tasklist.edit', 'Editar'),
-        icon: '✏️',
-        onClick: () => handleOpenEditor(list),
-      },
-      {
-        id: 'clone',
-        label: t('tasklist.clone', 'Clonar'),
-        icon: '📋',
-        onClick: () => handleCloneTaskList(list.id),
-      },
-      {
+    (list: TaskListRow) => {
+      const actions = [
+        {
+          id: 'open',
+          label: t('tasklist.open', 'Abrir'),
+          icon: '📖',
+          onClick: () => handleOpenTaskList(list.id),
+        },
+        {
+          id: 'edit',
+          label: t('tasklist.edit', 'Editar'),
+          icon: '✏️',
+          onClick: () => handleOpenEditor(list),
+        },
+        {
+          id: 'clone',
+          label: t('tasklist.clone', 'Clonar'),
+          icon: '📋',
+          onClick: () => handleCloneTaskList(list.id),
+        },
+      ];
+
+      if (otherWorkspaces.length > 0) {
+        actions.push({
+          id: 'send-to-workspace',
+          label: t('tasklist.sendToWorkspace', 'Enviar ao workspace'),
+          icon: '📤',
+          onClick: undefined as unknown as () => void,
+          submenu: otherWorkspaces.map(ws => ({
+            id: `ws-${ws.id}`,
+            label: ws.name,
+            icon: '📂',
+            onClick: () => handleSendToWorkspace(list.id, list.title, ws.id),
+          })),
+        } as typeof actions[0] & { submenu: { id: string; label: string; icon: string; onClick: () => void }[] });
+      }
+
+      actions.push({
         id: 'delete',
         label: t('tasklist.delete', 'Deletar'),
         icon: '🗑️',
         onClick: () => handleDeleteTaskList(list.id),
         danger: true,
-      },
-    ],
-    [t, handleOpenTaskList, handleOpenEditor, handleCloneTaskList, handleDeleteTaskList]
+      } as typeof actions[0]);
+
+      return actions;
+    },
+    [t, handleOpenTaskList, handleOpenEditor, handleCloneTaskList, handleDeleteTaskList, handleSendToWorkspace, otherWorkspaces]
   );
 
   const columns: DataGridColumn<TaskListRow>[] = useMemo(

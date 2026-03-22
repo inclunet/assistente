@@ -135,17 +135,13 @@ type TaskList struct {
 	ID                uint      `json:"id" gorm:"primaryKey"`
 	Title             string    `json:"title" gorm:"not null;index"`
 	Description       string    `json:"description" gorm:"type:text"`
-	ConversationID    *uint     `json:"conversation_id,omitempty" gorm:"index"`    // FK para Conversation (opcional)
-	LinkedMessageID   *uint     `json:"linked_message_id,omitempty" gorm:"index"`  // FK para ChatMessage que criou (opcional)
 	PreferredViewMode string    `json:"preferred_view_mode" gorm:"default:'list'"` // 'list' ou 'kanban'
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 
 	// Relacionamentos
-	Workflow      *TaskListWorkflow `json:"workflow,omitempty" gorm:"foreignKey:TaskListID"`
-	Tasks         []Task            `json:"tasks,omitempty" gorm:"foreignKey:TaskListID"`
-	Conversation  *Conversation     `json:"conversation,omitempty" gorm:"foreignKey:ConversationID"`
-	LinkedMessage *ChatMessage      `json:"linked_message,omitempty" gorm:"foreignKey:LinkedMessageID"`
+	Workflow *TaskListWorkflow `json:"workflow,omitempty" gorm:"foreignKey:TaskListID"`
+	Tasks    []Task            `json:"tasks,omitempty" gorm:"foreignKey:TaskListID"`
 }
 
 // Task representa uma tarefa dentro de uma tasklist

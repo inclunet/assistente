@@ -97,9 +97,6 @@ export default function ChatPage() {
       title?: string;
       content: string;
     }) => {
-      const chatState = useChatStore.getState();
-      const conversationId = chatState.activeConversationId;
-
       const content = String(payload?.content ?? '');
       if (!content) return;
 
@@ -109,10 +106,6 @@ export default function ChatPage() {
         title: payload.title || 'Do chat',
         content,
         focus: true,
-        source: {
-          conversationId: conversationId ?? null,
-          messageId: null,
-        },
       });
 
       navigate('/editor');

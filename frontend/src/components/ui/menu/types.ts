@@ -25,6 +25,8 @@ export interface MenuProps {
   initialFocusItemId?: string;
   onClose?: () => void;
   onSelect?: (item: MenuItem) => void;
+  /** Callback for custom key handling on the focused item. Return true to prevent default menu behavior. */
+  onItemKeyDown?: (event: React.KeyboardEvent, item: MenuItem) => boolean | void;
 }
 
 // Compat: o “ContextMenu” é uma variação de Menu (abrir em coordenadas/âncora externa).

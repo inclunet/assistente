@@ -19,7 +19,6 @@ const editorStoreState = {
   toggleAutoSave: vi.fn(),
   setEditorProfileSlug: vi.fn(),
   hydrate: vi.fn(),
-  setDocLinkedChat: vi.fn(),
   setDocMode: vi.fn(),
   consumePendingInsert: vi.fn().mockReturnValue(null),
   getDocument: vi.fn(),

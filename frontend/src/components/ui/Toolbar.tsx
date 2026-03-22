@@ -26,7 +26,6 @@ export const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
     tabIndex,
     ...buttonProps
   }, ref) => {
-    const computedTitle = title ?? (shortcut ? `${label} (${shortcut})` : label);
     const computedAriaLabel = ariaLabel ?? (shortcut ? `${label}, ${shortcut}` : label);
     const { type, ...restButtonProps } = buttonProps;
 
@@ -34,7 +33,7 @@ export const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
       <button
         ref={ref}
         className={`toolbar__button toolbar__button--${variant}${className ? ` ${className}` : ''}`}
-        title={computedTitle}
+        title={title ?? undefined}
         aria-label={computedAriaLabel}
         tabIndex={typeof tabIndex === 'number' ? tabIndex : -1}
         type={type ?? 'button'}

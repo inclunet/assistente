@@ -12,7 +12,8 @@ const mockCloneTaskList = vi.fn();
 const mockGetCachedTaskList = vi.fn();
 const mockLoadTaskList = vi.fn();
 const mockFetchAllTaskLists = vi.fn();
-const mockAddTab = vi.fn();
+const mockAddTab = vi.fn().mockResolvedValue('tab-1');
+const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockAddToast = vi.fn();
 const mockAnnounce = vi.fn();
 const mockRequestConfirm = vi.fn();
@@ -56,6 +57,8 @@ vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: (selector?: (state: Record<string, unknown>) => unknown) => {
     const state: Record<string, unknown> = {
       addTab: mockAddTab,
+      moveTabToWorkspace: mockMoveTabToWorkspace,
+      workspaces: [],
     };
     if (selector) return selector(state);
     return state;

@@ -1,5 +1,4 @@
 import { useEffect, useCallback, useRef } from 'react';
-import { announce } from './useAnnouncer';
 import { registerDefaultFocus, unregisterDefaultFocus } from './useDefaultFocus';
 import { isModalOpen } from '../components/ui/Modal';
 
@@ -107,7 +106,6 @@ export function useLandmarkNavigation({
         const nextIdx = ((startIdx + dir * (attempt + 1)) % len + len) % len;
         const target = available[nextIdx];
         if (target.focus()) {
-          announce(target.label);
           return;
         }
       }
@@ -139,9 +137,7 @@ export function useLandmarkNavigation({
       e.preventDefault();
       e.stopPropagation();
 
-      if (defaultLm.focus()) {
-        announce(defaultLm.label);
-      }
+      defaultLm.focus();
     };
 
     // Bubbling phase on window — fires after React handlers and document handlers

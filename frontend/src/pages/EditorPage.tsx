@@ -78,7 +78,6 @@ export default function EditorPage() {
   const editorProfileSlug = useEditorStore((s) => s.editorProfileSlug);
   const setEditorProfileSlug = useEditorStore((s) => s.setEditorProfileSlug);
   const hydrate = useEditorStore((s) => s.hydrate);
-  const setDocLinkedChat = useEditorStore((s) => s.setDocLinkedChat);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
 
   const activeTab = useMemo(() => activeDocumentId ? documents[activeDocumentId] ?? null : null, [documents, activeDocumentId]);
@@ -1359,13 +1358,6 @@ export default function EditorPage() {
 
     const content = normalized.content;
     const format = normalized.format;
-
-    // Vínculo do chat → editor (para o mini-chat manter contexto)
-    if (typeof r.source?.conversationId === 'number') {
-      setDocLinkedChat(targetTab.id, {
-        conversationId: r.source.conversationId,
-      });
-    }
 
     const focusAfter = r.focus !== false;
 

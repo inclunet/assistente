@@ -35,6 +35,9 @@ frontend/.vite/
 .DS_Store
 Thumbs.db
 
+# Runtime config directory (criado na inicialização, não versionar)
+.assistente/
+
 # Tilde directory (criado por engano quando ~ não é expandido no Windows)
 ~/
 

@@ -75,7 +75,7 @@ export function CreateSkill(arg1:main.SkillCreateRequest):Promise<string>;
 
 export function CreateTask(arg1:number,arg2:string,arg3:string,arg4:any):Promise<database.Task>;
 
-export function CreateTaskList(arg1:string,arg2:string,arg3:boolean,arg4:any):Promise<database.TaskList>;
+export function CreateTaskList(arg1:string,arg2:string):Promise<database.TaskList>;
 
 export function CreateTerminalSession(arg1:string):Promise<terminal.SessionInfo>;
 
@@ -265,8 +265,6 @@ export function GetTaskListStats(arg1:number):Promise<Record<string, any>>;
 
 export function GetTaskListWithHierarchy(arg1:number):Promise<database.TaskList>;
 
-export function GetTaskListsByConversation(arg1:number):Promise<Array<database.TaskList>>;
-
 export function GetTasksByStatus(arg1:number,arg2:number):Promise<Array<database.Task>>;
 
 export function GetTasksByTaskListID(arg1:number):Promise<Array<database.Task>>;
@@ -294,8 +292,6 @@ export function InterruptTerminalCommand(arg1:string):Promise<void>;
 export function IsGlobalHotkeySupported():Promise<boolean>;
 
 export function IsSAPI5Speaking():Promise<boolean>;
-
-export function LinkTaskListToConversation(arg1:number,arg2:number):Promise<void>;
 
 export function ListCredentials():Promise<Array<main.CredentialSummary>>;
 
@@ -436,8 +432,6 @@ export function TestMCPNativeSupport(arg1:string):Promise<boolean>;
 export function TranscribeWhisper(arg1:string,arg2:string):Promise<main.TranscriptionResultInfo>;
 
 export function UnassignConversationFromChannel(arg1:number):Promise<void>;
-
-export function UnlinkTaskListFromConversation(arg1:number):Promise<void>;
 
 export function UnsubscribeFromMCPResource(arg1:string,arg2:string):Promise<void>;
 

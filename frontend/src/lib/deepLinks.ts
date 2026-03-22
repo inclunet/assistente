@@ -10,13 +10,16 @@ export const DEEP_LINK_PROTOCOL = 'assistente';
 export const DEEP_LINK_PREFIX = `${DEEP_LINK_PROTOCOL}://`;
 
 // ─── Action types ────────────────────────────────────────────────────
+export type TabType = 'tasklist' | 'editor' | 'terminal';
+
 export type DeepLinkAction =
   | { type: 'conversation:open'; conversationId: number }
   | { type: 'conversation:new'; message?: string; title?: string }
   | { type: 'conversation:send'; conversationId: number; message: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
-  | { type: 'resource:new'; resource: EditableResource };
+  | { type: 'resource:new'; resource: EditableResource }
+  | { type: 'tab:open'; tabType: TabType; contentId: string };
 
 // Routes the app actually supports (validated in navigate action)
 const VALID_ROUTES = new Set([
@@ -29,6 +32,8 @@ const EDITABLE_RESOURCES = new Set<EditableResource>([
   'profiles', 'providers', 'credentials', 'allowlists',
   'skills', 'mcp', 'channels',
 ]);
+
+const TAB_RESOURCES = new Set<TabType>(['tasklist', 'editor', 'terminal']);
 
 // Human-readable labels per route (keys into i18n menu namespace)
 const ROUTE_I18N_KEYS: Record<string, string> = {
@@ -113,6 +118,11 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
       }
     }
 
+    // assistente://tasklist/{id}, assistente://editor/{id}, assistente://terminal/{id}
+    if (TAB_RESOURCES.has(resource as TabType) && segments[1]) {
+      return { type: 'tab:open', tabType: resource as TabType, contentId: decodeURIComponent(segments[1]) };
+    }
+
     return null;
   } catch {
     return null;
@@ -148,6 +158,9 @@ export function buildDeepLink(action: DeepLinkAction): string {
 
     case 'resource:new':
       return `${DEEP_LINK_PREFIX}${action.resource}/new`;
+
+    case 'tab:open':
+      return `${DEEP_LINK_PREFIX}${action.tabType}/${encodeURIComponent(action.contentId)}`;
   }
 }
 
@@ -178,6 +191,8 @@ export function getDeepLinkLabel(action: DeepLinkAction): string {
       const rLabel = rKey ? t(rKey) : action.resource;
       return t('deepLink.newResource', { page: rLabel });
     }
+    case 'tab:open':
+      return t('deepLink.openTab', { type: action.tabType, id: action.contentId });
   }
 }
 
@@ -190,6 +205,7 @@ export function getDeepLinkTypeClass(action: DeepLinkAction): string {
     case 'navigate': return 'deep-link--navigate';
     case 'resource:edit': return 'deep-link--resource-edit';
     case 'resource:new': return 'deep-link--resource-new';
+    case 'tab:open': return `deep-link--${action.tabType}`;
   }
 }
 
@@ -268,6 +284,21 @@ export async function executeDeepLink(
       navStore.requestResourceEdit(action.resource, '', 'new');
       deps.navigate(`/${action.resource}`);
       announce(t('deepLink.announcedNewResource'));
+      break;
+    }
+
+    case 'tab:open': {
+      const tabs = wsStore.workspace?.tabs || [];
+      const existing = tabs.find(
+        (tab) => tab.type === action.tabType && tab.contentId === action.contentId,
+      );
+      if (existing) {
+        void wsStore.setActiveTab(existing.id);
+      } else {
+        void wsStore.addTab(action.tabType, action.contentId, `${action.tabType} ${action.contentId}`);
+      }
+      deps.navigate('/');
+      announce(t('deepLink.announcedOpenTab', { type: action.tabType, id: action.contentId }));
       break;
     }
   }

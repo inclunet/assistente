@@ -234,6 +234,39 @@ describe('parseDeepLink', () => {
     });
   });
 
+  describe('tab:open', () => {
+    it('faz parse de assistente://tasklist/{id}', () => {
+      expect(parseDeepLink('assistente://tasklist/5')).toEqual({
+        type: 'tab:open', tabType: 'tasklist', contentId: '5',
+      });
+    });
+
+    it('faz parse de assistente://editor/{id}', () => {
+      expect(parseDeepLink('assistente://editor/doc-123')).toEqual({
+        type: 'tab:open', tabType: 'editor', contentId: 'doc-123',
+      });
+    });
+
+    it('faz parse de assistente://terminal/{id}', () => {
+      expect(parseDeepLink('assistente://terminal/sess-1')).toEqual({
+        type: 'tab:open', tabType: 'terminal', contentId: 'sess-1',
+      });
+    });
+
+    it('decodifica contentId URL-encoded', () => {
+      expect(parseDeepLink('assistente://editor/meu%20doc')).toEqual({
+        type: 'tab:open', tabType: 'editor', contentId: 'meu doc',
+      });
+    });
+
+    it('rejeita tab sem contentId', () => {
+      expect(parseDeepLink('assistente://tasklist')).toBeNull();
+      expect(parseDeepLink('assistente://tasklist/')).toBeNull();
+      expect(parseDeepLink('assistente://editor')).toBeNull();
+      expect(parseDeepLink('assistente://terminal')).toBeNull();
+    });
+  });
+
   describe('rejeição de URIs inválidos', () => {
     it('retorna null para URI vazio', () => {
       expect(parseDeepLink('')).toBeNull();
@@ -316,6 +349,26 @@ describe('buildDeepLink', () => {
     const uri = buildDeepLink({ type: 'resource:new', resource: 'skills' });
     expect(uri).toBe('assistente://skills/new');
   });
+
+  it('constrói tab:open para tasklist', () => {
+    const uri = buildDeepLink({ type: 'tab:open', tabType: 'tasklist', contentId: '5' });
+    expect(uri).toBe('assistente://tasklist/5');
+  });
+
+  it('constrói tab:open para editor', () => {
+    const uri = buildDeepLink({ type: 'tab:open', tabType: 'editor', contentId: 'doc-1' });
+    expect(uri).toBe('assistente://editor/doc-1');
+  });
+
+  it('constrói tab:open para terminal', () => {
+    const uri = buildDeepLink({ type: 'tab:open', tabType: 'terminal', contentId: 'sess' });
+    expect(uri).toBe('assistente://terminal/sess');
+  });
+
+  it('constrói tab:open com caracteres especiais', () => {
+    const uri = buildDeepLink({ type: 'tab:open', tabType: 'editor', contentId: 'meu doc' });
+    expect(uri).toBe('assistente://editor/meu%20doc');
+  });
 });
 
 // ─── roundtrip: build → parse ────────────────────────────────────────
@@ -332,6 +385,9 @@ describe('roundtrip build → parse', () => {
     { type: 'resource:edit', resource: 'credentials', resourceId: 'llm://*' },
     { type: 'resource:new', resource: 'skills' },
     { type: 'resource:new', resource: 'providers' },
+    { type: 'tab:open', tabType: 'tasklist', contentId: '5' },
+    { type: 'tab:open', tabType: 'editor', contentId: 'doc-1' },
+    { type: 'tab:open', tabType: 'terminal', contentId: 'sess' },
   ];
 
   for (const action of actions) {
@@ -359,6 +415,12 @@ describe('getDeepLinkTypeClass', () => {
       .toBe('deep-link--resource-edit');
     expect(getDeepLinkTypeClass({ type: 'resource:new', resource: 'skills' }))
       .toBe('deep-link--resource-new');
+    expect(getDeepLinkTypeClass({ type: 'tab:open', tabType: 'tasklist', contentId: '5' }))
+      .toBe('deep-link--tasklist');
+    expect(getDeepLinkTypeClass({ type: 'tab:open', tabType: 'editor', contentId: 'doc-1' }))
+      .toBe('deep-link--editor');
+    expect(getDeepLinkTypeClass({ type: 'tab:open', tabType: 'terminal', contentId: 'sess' }))
+      .toBe('deep-link--terminal');
   });
 });
 
@@ -522,6 +584,50 @@ describe('executeDeepLink', () => {
       expect(mockRequestResourceEdit).toHaveBeenCalledWith('skills', '', 'new');
       expect(mockNavigate).toHaveBeenCalledWith('/skills');
       expect(mockAnnounce).toHaveBeenCalled();
+    });
+  });
+
+  describe('tab:open — dedup', () => {
+    it('ativa aba existente se a tab já está aberta', async () => {
+      mockWsTabs = [
+        { id: 'tab-10', type: 'tasklist', contentId: '5' },
+      ];
+
+      await executeDeepLink(
+        { type: 'tab:open', tabType: 'tasklist', contentId: '5' },
+        deps,
+      );
+
+      expect(mockWsSetActiveTab).toHaveBeenCalledWith('tab-10');
+      expect(mockWsAddTab).not.toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+
+    it('cria nova aba se a tab não está aberta', async () => {
+      mockWsTabs = [];
+
+      await executeDeepLink(
+        { type: 'tab:open', tabType: 'editor', contentId: 'doc-1' },
+        deps,
+      );
+
+      expect(mockWsAddTab).toHaveBeenCalledWith('editor', 'doc-1', 'editor doc-1');
+      expect(mockWsSetActiveTab).not.toHaveBeenCalled();
+      expect(mockNavigate).toHaveBeenCalledWith('/');
+    });
+
+    it('diferencia tabs pelo tipo e contentId', async () => {
+      mockWsTabs = [
+        { id: 'tab-20', type: 'editor', contentId: '5' },
+      ];
+
+      await executeDeepLink(
+        { type: 'tab:open', tabType: 'tasklist', contentId: '5' },
+        deps,
+      );
+
+      expect(mockWsAddTab).toHaveBeenCalledWith('tasklist', '5', 'tasklist 5');
+      expect(mockWsSetActiveTab).not.toHaveBeenCalled();
     });
   });
 

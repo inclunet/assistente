@@ -52,8 +52,6 @@ export interface TaskList {
   id: number;
   title: string;
   description: string;
-  conversationId?: number; // FK para conversa (opcional)
-  linkedMessageId?: number; // FK para mensagem que criou (opcional)
   preferredViewMode: ViewMode;
   createdAt: string;
   updatedAt: string;

@@ -393,7 +393,6 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               className={`chat-message__play-btn${isPlayingAudio ? ' chat-message__play-btn--playing' : ''}`}
               onClick={(e) => { e.stopPropagation(); onSpeak(message); }}
               aria-label={isPlayingAudio ? t('chat.stopAudio') : t('chat.playAudio')}
-              title={isPlayingAudio ? t('chat.stop') : t('chat.listen')}
               tabIndex={-1}
             >
               {isPlayingAudio ? '⏹' : '🔊'}
