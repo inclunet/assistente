@@ -37,23 +37,12 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
   WindowSetTitle: (title: string) => setTitleSpy(title),
 }));
 
-// --- workspace store mock ---
 type MockTab = { id: string; type: string; title: string; contentId: string; position: number };
 let mockActiveTab: MockTab | undefined = undefined;
 
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: (selector: (state: { getActiveTab: () => MockTab | undefined }) => unknown) =>
     selector({ getActiveTab: () => mockActiveTab }),
-}));
-
-// --- chat store mock ---
-let mockConversationTitle: string | undefined = undefined;
-
-vi.mock('../store/chatStore', () => ({
-  useChatStore: (selector: (state: { activeConversation: { title: string } | null }) => unknown) =>
-    selector({
-      activeConversation: mockConversationTitle !== undefined ? { title: mockConversationTitle } : null,
-    }),
 }));
 
 function Fixture() {
@@ -67,28 +56,18 @@ describe('useDocumentTitle', () => {
   beforeEach(() => {
     mockPathname = '/';
     mockActiveTab = undefined;
-    mockConversationTitle = undefined;
     setTitleSpy.mockClear();
   });
 
-  it('usa conversationTitle do chatStore para chat tabs', () => {
-    mockActiveTab = { id: '1', type: 'chat', title: 'Nova conversa', contentId: '1', position: 0 };
-    mockConversationTitle = 'Conversa Renomeada';
+  it('usa titulo da aba de chat renomeada', () => {
+    mockActiveTab = { id: '1', type: 'chat', title: 'Conversa Renomeada', contentId: '1', position: 0 };
     render(<Fixture />);
 
     expect(document.title).toBe(`Conversa Renomeada ${SEP} Assistente IA`);
     expect(setTitleSpy).toHaveBeenCalledWith(`Conversa Renomeada ${SEP} Assistente IA`);
   });
 
-  it('usa titulo da aba do workspace quando chatStore tem titulo padrao', () => {
-    mockActiveTab = { id: '1', type: 'chat', title: 'Título da Aba', contentId: '1', position: 0 };
-    mockConversationTitle = 'Nova Conversa';
-    render(<Fixture />);
-
-    expect(document.title).toBe(`Título da Aba ${SEP} Assistente IA`);
-  });
-
-  it('mostra Nova conversa quando nao ha aba ativa nem conversa', () => {
+  it('mostra Nova conversa quando nao ha aba ativa', () => {
     render(<Fixture />);
     expect(document.title).toBe(`Nova conversa ${SEP} Assistente IA`);
   });
@@ -99,16 +78,28 @@ describe('useDocumentTitle', () => {
     expect(document.title).toBe(`Nova conversa ${SEP} Assistente IA`);
   });
 
-  it('usa titulo da aba para tabs nao-chat (terminal)', () => {
+  it('mostra Nova conversa com capitalizacao diferente', () => {
+    mockActiveTab = { id: '1', type: 'chat', title: 'Nova Conversa', contentId: '', position: 0 };
+    render(<Fixture />);
+    expect(document.title).toBe(`Nova conversa ${SEP} Assistente IA`);
+  });
+
+  it('usa titulo da aba para terminal', () => {
     mockActiveTab = { id: '2', type: 'terminal', title: 'Meu Terminal', contentId: '', position: 0 };
     render(<Fixture />);
     expect(document.title).toBe(`Meu Terminal ${SEP} Assistente IA`);
   });
 
-  it('usa titulo da aba para tabs nao-chat (editor)', () => {
+  it('usa titulo da aba para editor', () => {
     mockActiveTab = { id: '3', type: 'editor', title: 'README.md', contentId: '', position: 0 };
     render(<Fixture />);
     expect(document.title).toBe(`README.md ${SEP} Assistente IA`);
+  });
+
+  it('usa titulo da aba para tasklist', () => {
+    mockActiveTab = { id: '4', type: 'tasklist', title: 'Compras da semana', contentId: '5', position: 0 };
+    render(<Fixture />);
+    expect(document.title).toBe(`Compras da semana ${SEP} Assistente IA`);
   });
 
   it('define titulo para pagina MCP', () => {

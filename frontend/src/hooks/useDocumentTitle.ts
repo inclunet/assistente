@@ -1,8 +1,9 @@
 /**
  * useDocumentTitle - Hook para gerenciar o título do documento e da janela
  *
- * Atualiza o document.title e o título da janela do Wails
- * baseado na página atual e no título da aba ativa do workspace.
+ * Usa o título da aba ativa do workspace como fonte única de verdade.
+ * Cada bridge (chat, editor, tasklist) é responsável por manter
+ * o título da respectiva aba atualizado.
  */
 
 import { useEffect } from 'react';
@@ -10,7 +11,6 @@ import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { WindowSetTitle } from '@wailsjs/runtime/runtime';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { useChatStore } from '../store/chatStore';
 
 const DEFAULT_TITLE_RE = /^nova\s+conversa$/i;
 
@@ -32,8 +32,7 @@ const ROUTE_I18N_KEYS: Record<string, string> = {
 export function useDocumentTitle(): void {
   const { t } = useTranslation();
   const location = useLocation();
-  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
-  const conversationTitle = useChatStore((s) => s.activeConversation?.title);
+  const activeTabTitle = useWorkspaceStore((s) => s.getActiveTab()?.title);
 
   useEffect(() => {
     const pathname = location.pathname;
@@ -41,18 +40,10 @@ export function useDocumentTitle(): void {
     let title: string;
 
     if (pathname === '/' || pathname === '') {
-      // Workspace route: usa título da aba ativa + chatStore como fallback
-      const tabTitle = activeTab?.title;
-      const effectiveTitle = conversationTitle
-        && activeTab?.type === 'chat'
-        && !DEFAULT_TITLE_RE.test(conversationTitle)
-        ? conversationTitle
-        : tabTitle;
-
-      const isDefault = !effectiveTitle || DEFAULT_TITLE_RE.test(effectiveTitle);
+      const isDefault = !activeTabTitle || DEFAULT_TITLE_RE.test(activeTabTitle);
       title = isDefault
         ? `${t('chat.newConversation')} — ${appName}`
-        : `${effectiveTitle} — ${appName}`;
+        : `${activeTabTitle} — ${appName}`;
     } else {
       const i18nKey = ROUTE_I18N_KEYS[pathname];
       const pageTitle = i18nKey ? t(i18nKey) : pathname.slice(1);
@@ -66,7 +57,7 @@ export function useDocumentTitle(): void {
     } catch {
       // Ignora erro se não estiver no contexto Wails (ex: dev mode no browser)
     }
-  }, [location.pathname, activeTab?.title, activeTab?.type, conversationTitle, t]);
+  }, [location.pathname, activeTabTitle, t]);
 }
 
 export default useDocumentTitle;

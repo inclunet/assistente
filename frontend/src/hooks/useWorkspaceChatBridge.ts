@@ -73,7 +73,7 @@ export function useWorkspaceChatBridge() {
     };
   }, []);
 
-  // Sync titulo do chatStore → workspace quando o chatStore renomeia via AI
+  // Sync titulo do chatStore → workspace tab quando a conversa é renomeada
   useEffect(() => {
     if (!activeTab || activeTab.type !== 'chat' || !activeTab.contentId) return;
     const conversationId = parseInt(activeTab.contentId, 10);
@@ -81,17 +81,14 @@ export function useWorkspaceChatBridge() {
 
     const unsub = useChatStore.subscribe((state, prevState) => {
       const conv = state.activeConversation;
-      const prevConv = prevState.activeConversation;
-      if (
-        conv && prevConv &&
-        conv.id === conversationId &&
-        conv.title !== prevConv.title &&
-        conv.title !== activeTab.title
-      ) {
-        updateWsTab(activeTab.id, { title: conv.title });
+      if (!conv || conv.id !== conversationId) return;
+
+      const prevTitle = prevState.activeConversation?.title;
+      if (conv.title !== prevTitle && conv.title !== activeTab.title) {
+        void updateWsTab(activeTab.id, { title: conv.title });
       }
     });
 
     return unsub;
-  }, [activeTab?.id, activeTab?.contentId, activeTab?.type, updateWsTab]);
+  }, [activeTab?.id, activeTab?.contentId, activeTab?.type, activeTab?.title, updateWsTab]);
 }
