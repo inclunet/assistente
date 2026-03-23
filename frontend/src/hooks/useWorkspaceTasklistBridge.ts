@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore, type WorkspaceTab } from '../store/workspaceStore';
+import { useWorkspaceStore, type WorkspaceTab, registerTabRenameHandler } from '../store/workspaceStore';
 import { useTaskListStore } from '../store/taskListStore';
 
 /**
@@ -60,7 +60,7 @@ export function useWorkspaceTasklistBridge() {
     }
   }
 
-  // Sync título do taskListStore → workspace tab
+  // Sync título do taskListStore → workspace tab via handleContentRenamed
   useEffect(() => {
     const unsub = useTaskListStore.subscribe((state) => {
       const ws = useWorkspaceStore.getState();
@@ -70,11 +70,19 @@ export function useWorkspaceTasklistBridge() {
         const tlId = parseInt(wsTab.contentId, 10);
         const tl = state.taskLists.get(tlId);
         if (tl && tl.title !== wsTab.title) {
-          void ws.updateTab(wsTab.id, { title: tl.title });
+          ws.handleContentRenamed('tasklist', wsTab.contentId, tl.title);
         }
       }
     });
     return unsub;
+  }, []);
+
+  // F2 tab rename → rename tasklist in backend
+  useEffect(() => {
+    return registerTabRenameHandler('tasklist', (contentId, newTitle) => {
+      const tlId = parseInt(contentId, 10);
+      if (tlId) void useTaskListStore.getState().updateTaskList(tlId, newTitle);
+    });
   }, []);
 
   // Limpa activeTaskListId quando não há mais abas de tasklist

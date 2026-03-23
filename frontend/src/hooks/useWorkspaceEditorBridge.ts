@@ -1,5 +1,5 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore } from '../store/workspaceStore';
+import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
 import { useEditorStore } from '../store/editorStore';
 
 /**
@@ -56,7 +56,7 @@ export function useWorkspaceEditorBridge() {
     }
   }
 
-  // Sincroniza titulo do editorStore -> workspace tab
+  // Sincroniza titulo do editorStore -> workspace tab via handleContentRenamed
   useEffect(() => {
     const unsub = useEditorStore.subscribe((state) => {
       const ws = useWorkspaceStore.getState();
@@ -65,11 +65,18 @@ export function useWorkspaceEditorBridge() {
         if (wsTab.type !== 'editor' || !wsTab.contentId) continue;
         const doc = state.documents[wsTab.contentId];
         if (doc && doc.title !== wsTab.title) {
-          void ws.updateTab(wsTab.id, { title: doc.title });
+          ws.handleContentRenamed('editor', wsTab.contentId, doc.title);
         }
       }
     });
     return unsub;
+  }, []);
+
+  // F2 tab rename → rename document in editor store
+  useEffect(() => {
+    return registerTabRenameHandler('editor', (contentId, newTitle) => {
+      useEditorStore.getState().renameDocument(contentId, newTitle);
+    });
   }, []);
 
   // Cleanup: remover documento quando aba de editor e removida do workspace

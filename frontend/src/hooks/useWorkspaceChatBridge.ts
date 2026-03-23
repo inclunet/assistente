@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
-import { useWorkspaceStore, WorkspaceTab } from '../store/workspaceStore';
+import { useWorkspaceStore, WorkspaceTab, registerTabRenameHandler } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
+import { RenameConversation } from '@wailsjs/go/main/App';
 
 /**
  * Sincroniza a aba de chat ativa do workspace com o chatStore.
@@ -73,22 +74,11 @@ export function useWorkspaceChatBridge() {
     };
   }, []);
 
-  // Sync titulo do chatStore → workspace tab quando a conversa é renomeada
+  // F2 tab rename → rename conversation in backend
   useEffect(() => {
-    if (!activeTab || activeTab.type !== 'chat' || !activeTab.contentId) return;
-    const conversationId = parseInt(activeTab.contentId, 10);
-    if (!conversationId) return;
-
-    const unsub = useChatStore.subscribe((state, prevState) => {
-      const conv = state.activeConversation;
-      if (!conv || conv.id !== conversationId) return;
-
-      const prevTitle = prevState.activeConversation?.title;
-      if (conv.title !== prevTitle && conv.title !== activeTab.title) {
-        void updateWsTab(activeTab.id, { title: conv.title });
-      }
+    return registerTabRenameHandler('chat', (contentId, newTitle) => {
+      const convId = parseInt(contentId, 10);
+      if (convId) void RenameConversation(convId, newTitle);
     });
-
-    return unsub;
-  }, [activeTab?.id, activeTab?.contentId, activeTab?.type, activeTab?.title, updateWsTab]);
+  }, []);
 }

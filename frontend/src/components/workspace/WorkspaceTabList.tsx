@@ -18,7 +18,7 @@ const TAB_TYPE_ICONS: Record<TabType, string> = {
 
 export function WorkspaceTabList() {
   const { t } = useTranslation();
-  const { workspace, workspaces, setActiveTab, removeTab, updateTab, reorderTabs, moveTabToWorkspace } = useWorkspaceStore();
+  const { workspace, workspaces, setActiveTab, removeTab, updateTab, reorderTabs, moveTabToWorkspace, renameTabContent } = useWorkspaceStore();
   const { announce } = useAnnouncer();
   const tabListRef = useRef<HTMLDivElement>(null);
 
@@ -53,7 +53,9 @@ export function WorkspaceTabList() {
   const confirmEditing = useCallback(() => {
     const tabIdToFocus = editingTabId;
     if (editingTabId && editingTitle.trim()) {
-      void updateTab(editingTabId, { title: editingTitle.trim() });
+      const trimmed = editingTitle.trim();
+      void updateTab(editingTabId, { title: trimmed });
+      renameTabContent(editingTabId, trimmed);
     }
     setEditingTabId(null);
     setEditingTitle('');
@@ -68,7 +70,7 @@ export function WorkspaceTabList() {
         btn?.focus();
       }, 10);
     }
-  }, [editingTabId, editingTitle, updateTab]);
+  }, [editingTabId, editingTitle, updateTab, renameTabContent]);
 
   const cancelEditing = useCallback(() => {
     setEditingTabId(null);

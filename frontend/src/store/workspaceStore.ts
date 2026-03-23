@@ -22,6 +22,17 @@ import { announce } from '../hooks/useAnnouncer';
 
 export type TabType = 'chat' | 'editor' | 'terminal' | 'tasklist';
 
+// Registry: handlers called when user renames a tab via F2 (tab → content)
+const tabRenameHandlers = new Map<TabType, (contentId: string, newTitle: string) => void>();
+
+export function registerTabRenameHandler(
+  type: TabType,
+  handler: (contentId: string, newTitle: string) => void,
+): () => void {
+  tabRenameHandlers.set(type, handler);
+  return () => { tabRenameHandlers.delete(type); };
+}
+
 export interface WorkspaceTab {
   id: string;
   type: TabType;
@@ -99,6 +110,10 @@ interface WorkspaceStore {
   updateTab: (tabId: string, updates: Record<string, unknown>) => Promise<void>;
   reorderTabs: (orderedIds: string[]) => Promise<void>;
   moveTabToWorkspace: (tabId: string, targetWorkspaceId: string) => Promise<void>;
+
+  // Content ↔ Tab title sync
+  handleContentRenamed: (type: TabType, contentId: string, newTitle: string) => void;
+  renameTabContent: (tabId: string, newTitle: string) => void;
 
   // Export/Import
   exportWorkspace: () => Promise<string>;
@@ -189,6 +204,21 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
     unsubs.push(EventsOn('workspace:tab_removed', (bws: workspace.Workspace) => {
       set({ workspace: backendWorkspaceToFrontend(bws) });
+    }));
+
+    // Content rename events → update matching tab title
+    unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
+      const ev = data as { conversation_id?: number; new_title?: string };
+      if (ev.conversation_id && ev.new_title) {
+        get().handleContentRenamed('chat', String(ev.conversation_id), ev.new_title);
+      }
+    }));
+
+    unsubs.push(EventsOn('taskList:updated', (data: unknown) => {
+      const ev = data as { id?: number; title?: string };
+      if (ev.id && ev.title) {
+        get().handleContentRenamed('tasklist', String(ev.id), ev.title);
+      }
     }));
 
     return () => {
@@ -350,6 +380,23 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     await get().refreshWorkspaceList();
     announce(`Workspace importado: ${bws.name}`);
     return bws.id;
+  },
+
+  handleContentRenamed: (type, contentId, newTitle) => {
+    const ws = get().workspace;
+    if (!ws) return;
+    for (const tab of ws.tabs) {
+      if (tab.type === type && tab.contentId === contentId && tab.title !== newTitle) {
+        void get().updateTab(tab.id, { title: newTitle });
+      }
+    }
+  },
+
+  renameTabContent: (tabId, newTitle) => {
+    const tab = get().workspace?.tabs.find(t => t.id === tabId);
+    if (!tab || !tab.contentId) return;
+    const handler = tabRenameHandlers.get(tab.type);
+    if (handler) handler(tab.contentId, newTitle);
   },
 
   getActiveTab: () => {
