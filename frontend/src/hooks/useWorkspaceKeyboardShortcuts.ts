@@ -16,6 +16,7 @@
 import { useEffect, useRef } from 'react';
 import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
 import { useAnnouncer } from './useAnnouncer';
+import { restoreDefaultFocus } from './useDefaultFocus';
 
 const CHORD_TIMEOUT_MS = 1500;
 
@@ -100,14 +101,14 @@ export function useWorkspaceKeyboardShortcuts() {
       // Ctrl+W: Fechar aba ativa
       if (event.ctrlKey && event.key === 'w' && !event.shiftKey && !event.altKey && activeTabId) {
         event.preventDefault();
-        removeTab(activeTabId);
+        void removeTab(activeTabId).then(() => requestAnimationFrame(() => restoreDefaultFocus()));
         return;
       }
 
       // Ctrl+F4: Fechar aba ativa (alternativo)
       if (event.ctrlKey && event.key === 'F4' && activeTabId) {
         event.preventDefault();
-        removeTab(activeTabId);
+        void removeTab(activeTabId).then(() => requestAnimationFrame(() => restoreDefaultFocus()));
         return;
       }
 
