@@ -4,8 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 
 	"assistente/internal/configdir"
@@ -16,8 +18,6 @@ import (
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
-
-	"os"
 )
 
 func setupWizardTestDB(t *testing.T) *gorm.DB {
@@ -615,6 +615,251 @@ func TestGetDefaultProvider_NoDefault(t *testing.T) {
 	def, err := database.GetDefaultProvider()
 	if err == nil && def != nil {
 		t.Error("expected no default provider")
+	}
+}
+
+// --- Save/Load roundtrip: IsDefault and DefaultModel survive DB persistence ---
+
+func TestSaveLoadRoundtrip_DefaultFieldsSurvive(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	// Register provider with IsDefault + DefaultModel
+	provider := &llm.ProviderConfig{
+		ID:                "roundtrip-prov",
+		Name:              "Roundtrip Test",
+		Type:              llm.ProviderOpenAI,
+		BaseURL:           "https://api.test.com/v1",
+		Model:             "current-model",
+		DefaultModel:      "my-default-model",
+		IsDefault:         true,
+		Timeout:           180,
+		CredentialPattern: "api.test.com",
+	}
+	if err := app.llmRegistry.Register(provider); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// Save to DB
+	if err := app.saveLLMProviders(); err != nil {
+		t.Fatalf("saveLLMProviders: %v", err)
+	}
+
+	// Clear registry and reload from DB
+	app.llmRegistry = llm.NewProviderRegistry()
+	if err := app.loadLLMProviders(); err != nil {
+		t.Fatalf("loadLLMProviders: %v", err)
+	}
+
+	loaded := app.llmRegistry.Get("roundtrip-prov")
+	if loaded == nil {
+		t.Fatal("provider not found after reload")
+	}
+	if loaded.DefaultModel != "my-default-model" {
+		t.Errorf("DefaultModel: got %q, want my-default-model", loaded.DefaultModel)
+	}
+	if !loaded.IsDefault {
+		t.Error("IsDefault should be true after reload")
+	}
+	if loaded.Model != "current-model" {
+		t.Errorf("Model: got %q, want current-model", loaded.Model)
+	}
+	if loaded.CredentialPattern != "api.test.com" {
+		t.Errorf("CredentialPattern: got %q, want api.test.com", loaded.CredentialPattern)
+	}
+}
+
+// --- CreateLLMProvider: first provider auto-marked as default ---
+
+func TestCreateLLMProvider_FirstProviderIsAutoDefault(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	result, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+		ID:           "first-prov",
+		Name:         "First Provider",
+		Type:         "openai",
+		BaseURL:      "https://api.openai.com/v1",
+		DefaultModel: "gpt-4o-mini",
+	})
+	if err != nil {
+		t.Fatalf("CreateLLMProvider: %v", err)
+	}
+	if result["is_default"] != true {
+		t.Error("first provider should be auto-marked as default")
+	}
+	if result["default_model"] != "gpt-4o-mini" {
+		t.Errorf("default_model: got %v, want gpt-4o-mini", result["default_model"])
+	}
+
+	// Verify in DB
+	def, err := database.GetDefaultProvider()
+	if err != nil {
+		t.Fatalf("GetDefaultProvider: %v", err)
+	}
+	if def.ID != "first-prov" {
+		t.Errorf("DB default: got %s, want first-prov", def.ID)
+	}
+}
+
+func TestCreateLLMProvider_SecondProviderIsNotAutoDefault(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	// Create first (becomes default)
+	_, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+		ID: "prov-1", Name: "First", Type: "openai", BaseURL: "https://api.openai.com/v1",
+	})
+	if err != nil {
+		t.Fatalf("CreateLLMProvider first: %v", err)
+	}
+
+	// Create second (should NOT become default)
+	result, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+		ID: "prov-2", Name: "Second", Type: "openai", BaseURL: "https://api.anthropic.com",
+	})
+	if err != nil {
+		t.Fatalf("CreateLLMProvider second: %v", err)
+	}
+	if result["is_default"] == true {
+		t.Error("second provider should NOT be auto-default")
+	}
+
+	// Default should still be prov-1
+	def, err := database.GetDefaultProvider()
+	if err != nil {
+		t.Fatalf("GetDefaultProvider: %v", err)
+	}
+	if def.ID != "prov-1" {
+		t.Errorf("default should still be prov-1, got %s", def.ID)
+	}
+}
+
+// --- Partial $default: concrete provider + $default model ---
+
+func TestResolveProfileDefaults_PartialSentinel_OnlyModel(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	dbProv := &database.LLMProvider{
+		ID: "default-prov", Name: "Default", Type: "openai", BaseURL: "https://api.test.com/v1",
+		DefaultModel: "fallback-model", IsDefault: true,
+	}
+	database.SaveLLMProvider(dbProv)
+	database.SetDefaultProvider("default-prov")
+
+	// Concrete provider but $default model
+	profile := &profiles.Profile{
+		Name: "Partial",
+		Chat: profiles.ChatConfig{
+			LLMProvider: "my-concrete-provider",
+			Model:       profiles.DefaultProviderSentinel,
+		},
+		Voice: profiles.VoiceConfig{
+			LLMProviderID: "my-voice-provider",
+		},
+		Interaction: profiles.InteractionConfig{
+			LLMProviderID: profiles.DefaultProviderSentinel,
+		},
+	}
+
+	resolved := app.resolveProfileDefaults(profile)
+
+	if resolved.Chat.LLMProvider != "my-concrete-provider" {
+		t.Errorf("Chat.LLMProvider should stay concrete, got %s", resolved.Chat.LLMProvider)
+	}
+	if resolved.Chat.Model != "fallback-model" {
+		t.Errorf("Chat.Model should resolve to fallback-model, got %s", resolved.Chat.Model)
+	}
+	if resolved.Voice.LLMProviderID != "my-voice-provider" {
+		t.Errorf("Voice.LLMProviderID should stay concrete, got %s", resolved.Voice.LLMProviderID)
+	}
+	if resolved.Interaction.LLMProviderID != "default-prov" {
+		t.Errorf("Interaction.LLMProviderID should resolve, got %s", resolved.Interaction.LLMProviderID)
+	}
+}
+
+func TestResolveProfileDefaults_PartialSentinel_OnlyProvider(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	dbProv := &database.LLMProvider{
+		ID: "default-prov", Name: "Default", Type: "openai", BaseURL: "https://api.test.com/v1",
+		DefaultModel: "fallback-model", IsDefault: true,
+	}
+	database.SaveLLMProvider(dbProv)
+	database.SetDefaultProvider("default-prov")
+
+	// $default provider but concrete model
+	profile := &profiles.Profile{
+		Name: "Partial Provider",
+		Chat: profiles.ChatConfig{
+			LLMProvider: profiles.DefaultProviderSentinel,
+			Model:       "gpt-4o",
+		},
+	}
+
+	resolved := app.resolveProfileDefaults(profile)
+
+	if resolved.Chat.LLMProvider != "default-prov" {
+		t.Errorf("Chat.LLMProvider should resolve, got %s", resolved.Chat.LLMProvider)
+	}
+	if resolved.Chat.Model != "gpt-4o" {
+		t.Errorf("Chat.Model should stay concrete, got %s", resolved.Chat.Model)
+	}
+}
+
+// --- Builtin profile JSONs contain $default ---
+
+func TestBuiltinProfileJSONs_ContainDefaultSentinel(t *testing.T) {
+	entries, err := fs.ReadDir(builtinProfilesFS, "builtin/profiles")
+	if err != nil {
+		t.Fatalf("ReadDir: %v", err)
+	}
+
+	if len(entries) == 0 {
+		t.Fatal("no builtin profiles found")
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/"+entry.Name())
+		if err != nil {
+			t.Errorf("ReadFile %s: %v", entry.Name(), err)
+			continue
+		}
+
+		var raw map[string]interface{}
+		if err := json.Unmarshal(data, &raw); err != nil {
+			t.Errorf("Unmarshal %s: %v", entry.Name(), err)
+			continue
+		}
+
+		chat, _ := raw["chat"].(map[string]interface{})
+		if chat == nil {
+			t.Errorf("%s: missing chat section", entry.Name())
+			continue
+		}
+
+		// llm_provider must be $default
+		if prov, ok := chat["llm_provider"].(string); !ok || prov != profiles.DefaultProviderSentinel {
+			t.Errorf("%s: chat.llm_provider = %q, want %q", entry.Name(), prov, profiles.DefaultProviderSentinel)
+		}
+		// model must be $default
+		if model, ok := chat["model"].(string); !ok || model != profiles.DefaultProviderSentinel {
+			t.Errorf("%s: chat.model = %q, want %q", entry.Name(), model, profiles.DefaultProviderSentinel)
+		}
+
+		// voice.llm_provider_id must be $default (if voice section exists)
+		if voice, ok := raw["voice"].(map[string]interface{}); ok {
+			if vid, ok := voice["llm_provider_id"].(string); ok && vid != profiles.DefaultProviderSentinel {
+				t.Errorf("%s: voice.llm_provider_id = %q, want %q", entry.Name(), vid, profiles.DefaultProviderSentinel)
+			}
+		}
+
+		// interaction.llm_provider_id must be $default (if interaction section exists)
+		if interaction, ok := raw["interaction"].(map[string]interface{}); ok {
+			if iid, ok := interaction["llm_provider_id"].(string); ok && iid != profiles.DefaultProviderSentinel {
+				t.Errorf("%s: interaction.llm_provider_id = %q, want %q", entry.Name(), iid, profiles.DefaultProviderSentinel)
+			}
+		}
 	}
 }
 
