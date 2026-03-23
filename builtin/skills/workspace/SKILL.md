@@ -15,8 +15,6 @@ platforms:
 tools:
   allowed:
     - open_deep_link
-    - read_file
-    - list_directory
     - list_task_lists
     - get_task_list
 behavior:
@@ -60,32 +58,26 @@ Você pode controlar a interface do aplicativo usando **deep links**. Use a ferr
 | Editar recurso | `assistente://{recurso}/edit/{id}` | Abre formulário de edição. Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`, `channels` |
 | Criar recurso | `assistente://{recurso}/new` | Abre formulário de criação |
 
-## Estado do workspace
+## Estado atual do workspace
+{{- if .WorkspaceName }}
 
-O workspace é persistido em `.assistente/workspace.yaml` no diretório de trabalho. Use `read_file` para ler o estado atual e descobrir quais abas estão abertas:
+**Workspace:** {{ .WorkspaceName }}
+{{- if .WorkspaceProfile }} | **Perfil:** {{ .WorkspaceProfile }}{{ end }}
+{{- if .Tabs }}
 
-```yaml
-# Exemplo de workspace.yaml
-id: ws-abc123
-name: Meu Projeto
-tabs:
-  active: tab-xyz
-  items:
-    - id: tab-xyz
-      type: chat
-      content_id: "42"
-      title: Debugging
-      position: 0
-    - id: tab-abc
-      type: tasklist
-      content_id: "5"
-      title: Sprint Tasks
-      position: 1
-```
+| # | Aba | Tipo |
+|---|-----|------|
+{{- range $i, $tab := .Tabs }}
+| {{ $i }} | {{ if $tab.IsActive }}▶ {{ end }}{{ $tab.Title }} | {{ $tab.Type }} |
+{{- end }}
+{{- end }}
+{{- else }}
+_Nenhum workspace ativo._
+{{- end }}
 
 ## Fluxo recomendado
 
-1. Para saber quais abas estão abertas, use `read_file` no `.assistente/workspace.yaml`.
+1. Para saber o que está aberto, consulte a tabela acima.
 2. Para abrir ou navegar, construa a URI adequada e passe para `open_deep_link`.
 3. Para ver ou gerenciar task lists, use `list_task_lists` e `get_task_list`.
 4. Para abrir uma task list como aba, use `open_deep_link` com `assistente://tasklist/{id}`.
@@ -94,4 +86,3 @@ tabs:
 
 - O `open_deep_link` faz dedup automático: se a aba já existir, apenas ativa; se não, cria.
 - Parâmetros como `message` e `title` devem ser URL-encoded.
-- IDs de task lists são numéricos. IDs de conversas são numéricos. IDs de abas são strings geradas.

@@ -927,6 +927,19 @@ type skillTemplateData struct {
 	EnabledTools       []string
 	EnabledToolCount   int
 	ConversationID     uint
+	// Workspace context
+	WorkspaceName    string
+	WorkspaceProfile string
+	ActiveTabTitle   string
+	ActiveTabType    string
+	Tabs             []skillTabInfo
+	TabCount         int
+}
+
+type skillTabInfo struct {
+	Title    string
+	Type     string
+	IsActive bool
 }
 
 func (a *App) buildSkillTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) skillTemplateData {
@@ -938,6 +951,28 @@ func (a *App) buildSkillTemplateData(activeProfile *profiles.Profile, profileSlu
 		EnabledTools:       enabledToolNames,
 		EnabledToolCount:   len(enabledToolNames),
 		ConversationID:     conversationID,
+	}
+
+	if a.workspaceMgr != nil {
+		if ws := a.workspaceMgr.Active(); ws != nil {
+			data.WorkspaceName = ws.Name
+			data.WorkspaceProfile = ws.Profile
+			data.TabCount = len(ws.Tabs.Items)
+			data.Tabs = make([]skillTabInfo, 0, len(ws.Tabs.Items))
+			for _, tab := range ws.Tabs.Items {
+				isActive := tab.ID == ws.Tabs.Active
+				info := skillTabInfo{
+					Title:    tab.Title,
+					Type:     string(tab.Type),
+					IsActive: isActive,
+				}
+				data.Tabs = append(data.Tabs, info)
+				if isActive {
+					data.ActiveTabTitle = tab.Title
+					data.ActiveTabType = string(tab.Type)
+				}
+			}
+		}
 	}
 
 	return data
