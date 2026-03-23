@@ -157,35 +157,40 @@ func (m *Manager) GetActive() (*Profile, error) {
 	}
 
 	var firstProfile *Profile
+	var padraoProfile *Profile
 
-	// Busca perfil marcado como ativo
 	for _, f := range files {
 		if !strings.HasSuffix(f.Filename, ".json") {
 			continue
 		}
 
-		profile, err := m.Get(strings.TrimSuffix(f.Filename, ".json"))
+		slug := strings.TrimSuffix(f.Filename, ".json")
+		profile, err := m.Get(slug)
 		if err != nil {
 			continue
 		}
 
-		// Salva primeiro perfil encontrado (para fallback)
 		if firstProfile == nil {
 			firstProfile = profile
 		}
 
-		// Se encontrou um marcado como ativo, retorna imediatamente
 		if profile.Active {
 			return profile, nil
 		}
+
+		if slug == "padrao" {
+			padraoProfile = profile
+		}
 	}
 
-	// Se nenhum marcado como ativo, usa o primeiro como fallback
+	// Fallback: prefer "padrao" over arbitrary first profile (map iteration is non-deterministic)
+	if padraoProfile != nil {
+		return padraoProfile, nil
+	}
 	if firstProfile != nil {
 		return firstProfile, nil
 	}
 
-	// Nenhum perfil encontrado — retorna o default em memória
 	return DefaultProfile(), nil
 }
 
@@ -241,6 +246,7 @@ func (m *Manager) GetActiveSlug() string {
 	}
 
 	var firstSlug string
+	hasPadrao := false
 
 	for _, f := range files {
 		if !strings.HasSuffix(f.Filename, ".json") {
@@ -250,6 +256,9 @@ func (m *Manager) GetActiveSlug() string {
 		slug := strings.TrimSuffix(f.Filename, ".json")
 		if firstSlug == "" {
 			firstSlug = slug
+		}
+		if slug == "padrao" {
+			hasPadrao = true
 		}
 
 		profile, err := m.Get(slug)
@@ -261,6 +270,9 @@ func (m *Manager) GetActiveSlug() string {
 		}
 	}
 
+	if hasPadrao {
+		return "padrao"
+	}
 	if firstSlug != "" {
 		return firstSlug
 	}

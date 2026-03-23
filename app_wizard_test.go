@@ -804,6 +804,80 @@ func TestResolveProfileDefaults_PartialSentinel_OnlyProvider(t *testing.T) {
 	}
 }
 
+// --- Builtin padrao.json has active:true ---
+
+func TestBuiltinPadraoJSON_HasActiveTrue(t *testing.T) {
+	data, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/padrao.json")
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+
+	var p profiles.Profile
+	if err := json.Unmarshal(data, &p); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+
+	if !p.Active {
+		t.Error("padrao.json should have active=true")
+	}
+}
+
+// --- ensureActiveProfile sets padrao active when none is ---
+
+func TestEnsureActiveProfile_SetsPadraoWhenNoneActive(t *testing.T) {
+	app, _ := setupWizardTestAppWithProfiles(t)
+
+	for _, name := range []string{"Editor de Texto", "Padrão", "Programação"} {
+		p := profiles.DefaultProfile()
+		p.Name = name
+		p.Active = false
+		if _, err := app.profileManager.Create(p); err != nil {
+			t.Fatalf("create %s: %v", name, err)
+		}
+	}
+
+	app.ensureActiveProfile()
+
+	active, err := app.profileManager.GetActive()
+	if err != nil {
+		t.Fatalf("GetActive: %v", err)
+	}
+	if active.Name != "Padrão" {
+		t.Errorf("active profile: got %q, want 'Padrão'", active.Name)
+	}
+	if !active.Active {
+		t.Error("padrao should be marked Active after ensureActiveProfile")
+	}
+}
+
+func TestEnsureActiveProfile_DoesNotOverrideExistingActive(t *testing.T) {
+	app, _ := setupWizardTestAppWithProfiles(t)
+
+	padrao := profiles.DefaultProfile()
+	padrao.Name = "Padrão"
+	padrao.Active = false
+	if _, err := app.profileManager.Create(padrao); err != nil {
+		t.Fatalf("create padrao: %v", err)
+	}
+
+	prog := profiles.DefaultProfile()
+	prog.Name = "Programação"
+	prog.Active = true
+	if _, err := app.profileManager.Create(prog); err != nil {
+		t.Fatalf("create programacao: %v", err)
+	}
+
+	app.ensureActiveProfile()
+
+	active, err := app.profileManager.GetActive()
+	if err != nil {
+		t.Fatalf("GetActive: %v", err)
+	}
+	if active.Name != "Programação" {
+		t.Errorf("active profile should still be 'Programação', got %q", active.Name)
+	}
+}
+
 // --- Builtin profile JSONs contain $default ---
 
 func TestBuiltinProfileJSONs_ContainDefaultSentinel(t *testing.T) {

@@ -1,8 +1,9 @@
 {
-  "_builtin_version": "3.0.0",
+  "_builtin_version": "3.1.0",
   "name": "Padrão",
   "description": "Configuração padrão.",
   "icon": "chatbox",
+  "active": true,
   "chat": {
     "llm_provider": "$default",
     "model": "$default",

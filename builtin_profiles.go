@@ -97,4 +97,34 @@ func (a *App) installBuiltinProfiles() {
 			log.Printf("[Profiles] Error writing %s: %v", targetFile, err)
 		}
 	}
+
+	a.ensureActiveProfile()
+}
+
+// ensureActiveProfile verifies that at least one profile is marked Active.
+// If none is, it marks "padrao" as active so the system has a deterministic default.
+func (a *App) ensureActiveProfile() {
+	if a.profileManager == nil {
+		return
+	}
+
+	list, err := a.profileManager.List()
+	if err != nil || len(list) == 0 {
+		return
+	}
+
+	for _, info := range list {
+		p, err := a.profileManager.Get(info.Slug)
+		if err == nil && p.Active {
+			return // already has an active profile
+		}
+	}
+
+	if err := a.profileManager.SetActive("padrao"); err != nil {
+		log.Printf("[Profiles] Could not set 'padrao' as active: %v", err)
+		// Fallback: activate the first available profile
+		if len(list) > 0 {
+			_ = a.profileManager.SetActive(list[0].Slug)
+		}
+	}
 }
