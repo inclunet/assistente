@@ -33,23 +33,21 @@ output:
 
 Abas:
 {{- range $i, $tab := .Tabs }}
-{{ $i }}. {{ if $tab.IsActive }}▶ {{ end }}{{ $tab.Title }} ({{ $tab.Type }}) → `{{ $tab.DeepLink }}`
+{{ $i }}. {{ if $tab.IsActive }}▶ {{ end }}{{ $tab.Title }} ({{ $tab.Type }}) → `assistente://{{ if eq $tab.Type "chat" }}conversation{{ else }}{{ $tab.Type }}{{ end }}/{{ $tab.ContentID }}`
 {{- end }}
 {{- end }}
 {{- else }}
 _Nenhum workspace ativo._
 {{- end }}
 
-Ao informar o estado do workspace ao usuário, use títulos e tipos das abas. Exemplo:
+Ao responder sobre o workspace, use títulos e tipos. Exemplo:
 
-> Você tem 3 abas abertas:
+> Você tem 3 abas:
 > 1. **Debugging** (conversa, aba atual)
 > 2. Sprint Tasks (lista de tarefas)
 > 3. Nova conversa
 
-Use `open_deep_link` para navegar:
-- Conversa existente: deep link da lista acima
+Use `open_deep_link` para navegar. Deep links das abas estão acima. Outros:
 - Nova conversa: `assistente://conversation/new` (aceita `?message=...&title=...`)
-- Task list / editor / terminal: `assistente://tasklist/{id}`, `assistente://editor/{id}`, `assistente://terminal/{id}`
 - Páginas: `assistente://navigate/{rota}` (rotas: `history`, `settings`, `profiles`, `providers`, `credentials`, `skills`, `mcp`, `channels`, `allowlists`, `help`, `about`)
 - Criar/editar recurso: `assistente://{recurso}/new`, `assistente://{recurso}/edit/{id}`

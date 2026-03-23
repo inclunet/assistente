@@ -937,9 +937,10 @@ type skillTemplateData struct {
 }
 
 type skillTabInfo struct {
-	Title    string
-	Type     string
-	IsActive bool
+	Title     string
+	Type      string
+	ContentID string
+	IsActive  bool
 }
 
 func (a *App) buildSkillTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) skillTemplateData {
@@ -962,9 +963,10 @@ func (a *App) buildSkillTemplateData(activeProfile *profiles.Profile, profileSlu
 			for _, tab := range ws.Tabs.Items {
 				isActive := tab.ID == ws.Tabs.Active
 				info := skillTabInfo{
-					Title:    tab.Title,
-					Type:     string(tab.Type),
-					IsActive: isActive,
+					Title:     tab.Title,
+					Type:      string(tab.Type),
+					ContentID: tab.ContentID,
+					IsActive:  isActive,
 				}
 				data.Tabs = append(data.Tabs, info)
 				if isActive {
