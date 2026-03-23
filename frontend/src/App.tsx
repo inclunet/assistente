@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import './App.css';
 import { GetConfig, RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/main/App";
-import { EventsOn, EventsOff } from "@wailsjs/runtime/runtime";
+import { EventsOn } from "@wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
 import { useUIStore } from './store/uiStore';
 import { useChatStore } from './store/chatStore';
@@ -95,68 +95,62 @@ function App() {
 
     // Escuta eventos de conversa deletada/limpa
     useEffect(() => {
-        EventsOn('conversation:deleted', (data: unknown) => {
+        const unsubs: Array<() => void> = [];
+
+        unsubs.push(EventsOn('conversation:deleted', (data: unknown) => {
             const eventData = data as { conversation_id?: number };
             if (eventData.conversation_id) {
                 handleConversationDeleted(eventData.conversation_id);
             }
-        });
+        }));
 
-        EventsOn('conversation:cleared', (data: unknown) => {
+        unsubs.push(EventsOn('conversation:cleared', (data: unknown) => {
             const eventData = data as { conversation_id?: number };
             if (eventData.conversation_id) {
                 handleConversationCleared(eventData.conversation_id);
             }
-        });
+        }));
 
-        EventsOn('conversation:renamed', (data: unknown) => {
+        unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
             const eventData = data as { conversation_id?: number; new_title?: string };
             if (eventData.conversation_id && eventData.new_title) {
                 handleConversationRenamed(eventData.conversation_id, eventData.new_title);
             }
-        });
+        }));
 
-        EventsOn('database:reset', () => {
+        unsubs.push(EventsOn('database:reset', () => {
             handleDatabaseReset();
-        });
+        }));
 
-        EventsOn('navigate:update', () => {
+        unsubs.push(EventsOn('navigate:update', () => {
             navigate('/update');
-        });
+        }));
 
-        EventsOn('deeplink:execute', (uri: unknown) => {
+        unsubs.push(EventsOn('deeplink:execute', (uri: unknown) => {
             if (typeof uri !== 'string') return;
             const action = parseDeepLink(uri);
             if (action) {
                 void executeDeepLink(action, { navigate });
             }
-        });
+        }));
 
-        EventsOn('chat:summary_started', (data: unknown) => {
+        unsubs.push(EventsOn('chat:summary_started', (data: unknown) => {
             const eventData = data as { messageCount?: number };
             addToast(`Sumarizando conversa (${eventData.messageCount ?? 0} mensagens)...`, 'info', 10000);
-        });
+        }));
 
-        EventsOn('chat:summary_completed', (data: unknown) => {
+        unsubs.push(EventsOn('chat:summary_completed', (data: unknown) => {
             const eventData = data as { messageCount?: number };
             addToast(`Resumo da conversa atualizado (${eventData.messageCount ?? 0} mensagens resumidas)`, 'success', 5000);
-        });
+        }));
 
-        EventsOn('chat:summary_error', (data: unknown) => {
+        unsubs.push(EventsOn('chat:summary_error', (data: unknown) => {
             const eventData = data as { error?: string };
             addToast(`Erro ao sumarizar conversa: ${eventData.error || ''}`, 'error');
-        });
+        }));
 
         return () => {
-            EventsOff('conversation:deleted');
-            EventsOff('conversation:cleared');
-            EventsOff('conversation:renamed');
-            EventsOff('database:reset');
-            EventsOff('navigate:update');
-            EventsOff('deeplink:execute');
-            EventsOff('chat:summary_started');
-            EventsOff('chat:summary_completed');
-            EventsOff('chat:summary_error');
+            unsubs.forEach(fn => fn());
         };
     }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, navigate]);
 

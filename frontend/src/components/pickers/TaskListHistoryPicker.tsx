@@ -4,7 +4,7 @@ import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import { GetAllTaskLists } from '@wailsjs/go/main/App';
 import { database } from '../../../wailsjs/go/models';
-import { EventsOn, EventsOff } from '@wailsjs/runtime/runtime';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 
 export interface TaskListHistoryPickerProps {
   value?: number;
@@ -55,14 +55,14 @@ export const TaskListHistoryPicker = forwardRef<TaskListHistoryPickerRef, TaskLi
   useEffect(() => {
     if (typeof window === 'undefined' || !(window as unknown as Record<string, unknown>).runtime) return;
     const handleUpdate = () => { loadTaskLists(); };
-    EventsOn('taskList:created', handleUpdate);
-    EventsOn('taskList:updated', handleUpdate);
-    EventsOn('taskList:deleted', handleUpdate);
+    const unsubCreated = EventsOn('taskList:created', handleUpdate);
+    const unsubUpdated = EventsOn('taskList:updated', handleUpdate);
+    const unsubDeleted = EventsOn('taskList:deleted', handleUpdate);
 
     return () => {
-      EventsOff('taskList:created');
-      EventsOff('taskList:updated');
-      EventsOff('taskList:deleted');
+      unsubCreated();
+      unsubUpdated();
+      unsubDeleted();
     };
   }, [loadTaskLists]);
 

@@ -1,5 +1,5 @@
 import { useEffect, useCallback, useRef } from 'react';
-import { EventsOn, EventsOff } from '@wailsjs/runtime/runtime';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 
 /**
  * Hook para escutar eventos do Wails
@@ -22,11 +22,9 @@ export function useWailsEvent<T = unknown>(
       callbackRef.current(data);
     };
 
-    EventsOn(eventName, handler);
+    const unsub = EventsOn(eventName, handler);
 
-    return () => {
-      EventsOff(eventName);
-    };
+    return unsub;
   }, [eventName]);
 }
 

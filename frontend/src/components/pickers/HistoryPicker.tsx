@@ -3,7 +3,7 @@ import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import { GetConversations } from '@wailsjs/go/main/App';
 import { database } from '../../../wailsjs/go/models';
-import { EventsOn, EventsOff } from '@wailsjs/runtime/runtime';
+import { EventsOn } from '@wailsjs/runtime/runtime';
 
 export interface HistoryPickerProps {
   value?: number; // ID da conversa atual
@@ -71,14 +71,14 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
       loadConversations();
     };
 
-    EventsOn('chat:conversation_created', handleConversationCreated);
-    EventsOn('conversation:renamed', handleConversationRenamed);
-    EventsOn('conversation:deleted', handleConversationDeleted);
+    const unsubCreated = EventsOn('chat:conversation_created', handleConversationCreated);
+    const unsubRenamed = EventsOn('conversation:renamed', handleConversationRenamed);
+    const unsubDeleted = EventsOn('conversation:deleted', handleConversationDeleted);
 
     return () => {
-      EventsOff('chat:conversation_created');
-      EventsOff('conversation:renamed');
-      EventsOff('conversation:deleted');
+      unsubCreated();
+      unsubRenamed();
+      unsubDeleted();
     };
   }, [loadConversations]);
 

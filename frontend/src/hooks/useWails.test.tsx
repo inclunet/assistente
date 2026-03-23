@@ -5,22 +5,21 @@ import { renderHook } from '@testing-library/react';
 import { useWailsEvent, useWailsAPI } from './useWails';
 
 let lastHandler: ((data: unknown) => void) | null = null;
+const unsubMock = vi.fn();
 const eventsOnMock = vi.fn((_eventName: string, handler: (data: unknown) => void) => {
   lastHandler = handler;
-  return () => {};
+  return unsubMock;
 });
-const eventsOffMock = vi.fn();
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
   EventsOn: (eventName: string, handler: (data: unknown) => void) => eventsOnMock(eventName, handler),
-  EventsOff: (eventName: string) => eventsOffMock(eventName),
 }));
 
 describe('useWailsEvent', () => {
   beforeEach(() => {
     lastHandler = null;
     eventsOnMock.mockClear();
-    eventsOffMock.mockClear();
+    unsubMock.mockClear();
   });
 
   it('registra e limpa o listener', () => {
@@ -33,7 +32,7 @@ describe('useWailsEvent', () => {
     expect(callback).toHaveBeenCalledWith({ value: 123 });
 
     unmount();
-    expect(eventsOffMock).toHaveBeenCalledWith('app:event');
+    expect(unsubMock).toHaveBeenCalled();
   });
 });
 
