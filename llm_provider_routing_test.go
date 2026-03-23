@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -10,8 +11,12 @@ import (
 
 	"assistente/internal/config"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
+
+	"github.com/glebarez/sqlite"
+	"gorm.io/gorm"
 )
 
 // TestGetClientForProvider_ReturnsClientForRegisteredProvider verifica que
@@ -685,6 +690,346 @@ func TestSendMessageSync_NilClientReturnsError(t *testing.T) {
 	_, err := app.SendMessageSync(nil, ChatParams{})
 	if err == nil {
 		t.Fatal("Expected error when llmStreamClient is nil")
+	}
+}
+
+// setupRoutingTestDB creates an in-memory SQLite for routing integration tests.
+func setupRoutingTestDB(t *testing.T) {
+	t.Helper()
+	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{})
+	if err != nil {
+		t.Fatalf("failed to create in-memory DB: %v", err)
+	}
+	if err := db.AutoMigrate(&database.LLMProvider{}); err != nil {
+		t.Fatalf("failed to migrate: %v", err)
+	}
+	database.SetDB(db)
+}
+
+// TestDefaultSentinel_RoutesToCorrectProvider verifies the full integration:
+// profile with "$default" → resolveProfileDefaults → getClientForProvider → correct server.
+func TestDefaultSentinel_RoutesToCorrectProvider(t *testing.T) {
+	setupRoutingTestDB(t)
+
+	var defaultHits, otherHits atomic.Int32
+
+	modelsResp, _ := json.Marshal(llm.ModelsResponse{
+		Data: []llm.Model{{ID: "test-model"}},
+	})
+
+	defaultServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defaultHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(modelsResp)
+	}))
+	defer defaultServer.Close()
+
+	otherServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		otherHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(modelsResp)
+	}))
+	defer otherServer.Close()
+
+	registry := llm.NewProviderRegistry()
+	registry.Register(&llm.ProviderConfig{
+		ID: "default-prov", Name: "Default Provider", Type: llm.ProviderCustom,
+		BaseURL: defaultServer.URL, DefaultModel: "default-model", IsDefault: true,
+	})
+	registry.Register(&llm.ProviderConfig{
+		ID: "other-prov", Name: "Other Provider", Type: llm.ProviderCustom,
+		BaseURL: otherServer.URL,
+	})
+
+	database.SaveLLMProvider(&database.LLMProvider{
+		ID: "default-prov", Name: "Default Provider", Type: "custom",
+		BaseURL: defaultServer.URL, DefaultModel: "default-model", IsDefault: true,
+	})
+	database.SaveLLMProvider(&database.LLMProvider{
+		ID: "other-prov", Name: "Other Provider", Type: "custom",
+		BaseURL: otherServer.URL,
+	})
+	database.SetDefaultProvider("default-prov")
+
+	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
+	app := &App{
+		ctx:         context.Background(),
+		llmRegistry: registry,
+		credMgr:     credMgr,
+	}
+
+	// Profile with $default sentinel
+	profile := &profiles.Profile{
+		Name: "Default Sentinel Profile",
+		Chat: profiles.ChatConfig{
+			LLMProvider: profiles.DefaultProviderSentinel,
+			Model:       profiles.DefaultProviderSentinel,
+		},
+		Voice: profiles.VoiceConfig{
+			LLMProviderID: profiles.DefaultProviderSentinel,
+		},
+		Interaction: profiles.InteractionConfig{
+			LLMProviderID: profiles.DefaultProviderSentinel,
+		},
+	}
+
+	// Step 1: resolve $default → real provider/model
+	resolved := app.resolveProfileDefaults(profile)
+	if resolved.Chat.LLMProvider != "default-prov" {
+		t.Fatalf("expected Chat.LLMProvider=default-prov, got %s", resolved.Chat.LLMProvider)
+	}
+	if resolved.Chat.Model != "default-model" {
+		t.Fatalf("expected Chat.Model=default-model, got %s", resolved.Chat.Model)
+	}
+
+	// Step 2: getClientForProvider routes to the correct server
+	client, err := app.getClientForProvider(resolved.Chat.LLMProvider)
+	if err != nil {
+		t.Fatalf("getClientForProvider: %v", err)
+	}
+	_, err = client.GetModels(t.Context())
+	if err != nil {
+		t.Fatalf("GetModels: %v", err)
+	}
+	if defaultHits.Load() != 1 {
+		t.Errorf("expected 1 hit on default server, got %d", defaultHits.Load())
+	}
+	if otherHits.Load() != 0 {
+		t.Errorf("expected 0 hits on other server, got %d", otherHits.Load())
+	}
+}
+
+// TestDefaultSentinel_ModelSentInRequest verifies that after $default resolution,
+// the resolved model is actually sent in the LLM API request body.
+func TestDefaultSentinel_ModelSentInRequest(t *testing.T) {
+	setupRoutingTestDB(t)
+
+	var receivedModel string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var req map[string]interface{}
+		json.NewDecoder(r.Body).Decode(&req)
+		if m, ok := req["model"].(string); ok {
+			receivedModel = m
+		}
+		resp := `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(resp))
+	}))
+	defer server.Close()
+
+	registry := llm.NewProviderRegistry()
+	registry.Register(&llm.ProviderConfig{
+		ID: "my-provider", Name: "My Provider", Type: llm.ProviderCustom,
+		BaseURL: server.URL, DefaultModel: "resolved-model-v2", IsDefault: true,
+	})
+	database.SaveLLMProvider(&database.LLMProvider{
+		ID: "my-provider", Name: "My Provider", Type: "custom",
+		BaseURL: server.URL, DefaultModel: "resolved-model-v2", IsDefault: true,
+	})
+	database.SetDefaultProvider("my-provider")
+
+	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
+	cfg := &config.Config{}
+	app := &App{
+		ctx:         context.Background(),
+		llmRegistry: registry,
+		credMgr:     credMgr,
+	}
+
+	profile := profiles.DefaultProfile()
+	resolved := app.resolveProfileDefaults(profile)
+
+	if resolved.Chat.Model != "resolved-model-v2" {
+		t.Fatalf("expected model=resolved-model-v2, got %s", resolved.Chat.Model)
+	}
+
+	provider := registry.Get(resolved.Chat.LLMProvider)
+	client := llm.NewClient(provider, cfg, credMgr)
+	messages := []llm.Message{{Role: "user", Content: "hello"}}
+	params := llm.ChatParams{Model: resolved.Chat.Model}
+
+	_, err := client.SendMessageSync(t.Context(), messages, params)
+	if err != nil {
+		t.Fatalf("SendMessageSync: %v", err)
+	}
+	if receivedModel != "resolved-model-v2" {
+		t.Errorf("expected model 'resolved-model-v2' in API request, got %q", receivedModel)
+	}
+}
+
+// TestDefaultSentinel_SwitchDefaultReroutesTraffic verifies that changing the
+// default provider via SetDefaultProvider correctly reroutes $default profiles.
+func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
+	setupRoutingTestDB(t)
+
+	var serverAHits, serverBHits atomic.Int32
+	modelsResp, _ := json.Marshal(llm.ModelsResponse{
+		Data: []llm.Model{{ID: "model-a"}},
+	})
+
+	serverA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverAHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(modelsResp)
+	}))
+	defer serverA.Close()
+
+	serverB := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		serverBHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(modelsResp)
+	}))
+	defer serverB.Close()
+
+	registry := llm.NewProviderRegistry()
+	registry.Register(&llm.ProviderConfig{
+		ID: "prov-a", Name: "Provider A", Type: llm.ProviderCustom,
+		BaseURL: serverA.URL, DefaultModel: "model-a", IsDefault: true,
+	})
+	registry.Register(&llm.ProviderConfig{
+		ID: "prov-b", Name: "Provider B", Type: llm.ProviderCustom,
+		BaseURL: serverB.URL, DefaultModel: "model-b",
+	})
+	database.SaveLLMProvider(&database.LLMProvider{
+		ID: "prov-a", Name: "Provider A", Type: "custom",
+		BaseURL: serverA.URL, DefaultModel: "model-a", IsDefault: true,
+	})
+	database.SaveLLMProvider(&database.LLMProvider{
+		ID: "prov-b", Name: "Provider B", Type: "custom",
+		BaseURL: serverB.URL, DefaultModel: "model-b",
+	})
+	database.SetDefaultProvider("prov-a")
+
+	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
+	app := &App{
+		ctx:         context.Background(),
+		llmRegistry: registry,
+		credMgr:     credMgr,
+	}
+
+	profile := profiles.DefaultProfile()
+
+	// Round 1: $default → Provider A
+	resolved := app.resolveProfileDefaults(profile)
+	if resolved.Chat.LLMProvider != "prov-a" {
+		t.Fatalf("round 1: expected prov-a, got %s", resolved.Chat.LLMProvider)
+	}
+	client, _ := app.getClientForProvider(resolved.Chat.LLMProvider)
+	client.GetModels(t.Context())
+
+	if serverAHits.Load() != 1 || serverBHits.Load() != 0 {
+		t.Fatalf("round 1: A=%d B=%d", serverAHits.Load(), serverBHits.Load())
+	}
+
+	// Switch default to Provider B
+	database.SetDefaultProvider("prov-b")
+
+	// Round 2: same $default profile → now routes to Provider B
+	resolved2 := app.resolveProfileDefaults(profile)
+	if resolved2.Chat.LLMProvider != "prov-b" {
+		t.Fatalf("round 2: expected prov-b, got %s", resolved2.Chat.LLMProvider)
+	}
+	if resolved2.Chat.Model != "model-b" {
+		t.Fatalf("round 2: expected model-b, got %s", resolved2.Chat.Model)
+	}
+	client2, _ := app.getClientForProvider(resolved2.Chat.LLMProvider)
+	client2.GetModels(t.Context())
+
+	if serverBHits.Load() != 1 {
+		t.Errorf("round 2: expected 1 hit on B, got %d", serverBHits.Load())
+	}
+	if serverAHits.Load() != 1 {
+		t.Errorf("round 2: A should still be 1, got %d", serverAHits.Load())
+	}
+}
+
+// TestDefaultSentinel_MixedProfilesRouteCorrectly verifies that in a scenario
+// with multiple profiles — some using $default, some using concrete IDs — each
+// routes to its correct provider.
+func TestDefaultSentinel_MixedProfilesRouteCorrectly(t *testing.T) {
+	setupRoutingTestDB(t)
+
+	var defaultHits, concreteHits atomic.Int32
+	modelsResp, _ := json.Marshal(llm.ModelsResponse{
+		Data: []llm.Model{{ID: "m"}},
+	})
+
+	defaultServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		defaultHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(modelsResp)
+	}))
+	defer defaultServer.Close()
+
+	concreteServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		concreteHits.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		w.Write(modelsResp)
+	}))
+	defer concreteServer.Close()
+
+	registry := llm.NewProviderRegistry()
+	registry.Register(&llm.ProviderConfig{
+		ID: "default-prov", Name: "Default", Type: llm.ProviderCustom,
+		BaseURL: defaultServer.URL, DefaultModel: "dm", IsDefault: true,
+	})
+	registry.Register(&llm.ProviderConfig{
+		ID: "concrete-prov", Name: "Concrete", Type: llm.ProviderCustom,
+		BaseURL: concreteServer.URL,
+	})
+	database.SaveLLMProvider(&database.LLMProvider{
+		ID: "default-prov", Name: "Default", Type: "custom",
+		BaseURL: defaultServer.URL, DefaultModel: "dm", IsDefault: true,
+	})
+	database.SaveLLMProvider(&database.LLMProvider{
+		ID: "concrete-prov", Name: "Concrete", Type: "custom",
+		BaseURL: concreteServer.URL,
+	})
+	database.SetDefaultProvider("default-prov")
+
+	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
+	app := &App{
+		ctx:         context.Background(),
+		llmRegistry: registry,
+		credMgr:     credMgr,
+	}
+
+	// Profile A: uses $default
+	profileA := &profiles.Profile{
+		Name: "Default User",
+		Chat: profiles.ChatConfig{
+			LLMProvider: profiles.DefaultProviderSentinel,
+			Model:       profiles.DefaultProviderSentinel,
+		},
+	}
+
+	// Profile B: uses concrete ID
+	profileB := &profiles.Profile{
+		Name: "Power User",
+		Chat: profiles.ChatConfig{
+			LLMProvider: "concrete-prov",
+			Model:       "specific-model",
+		},
+	}
+
+	// Resolve and route Profile A → default server
+	resolvedA := app.resolveProfileDefaults(profileA)
+	clientA, _ := app.getClientForProvider(resolvedA.Chat.LLMProvider)
+	clientA.GetModels(t.Context())
+
+	// Resolve and route Profile B → concrete server (no resolution needed)
+	resolvedB := app.resolveProfileDefaults(profileB)
+	if resolvedB.Chat.LLMProvider != "concrete-prov" {
+		t.Fatalf("profileB should keep concrete ID, got %s", resolvedB.Chat.LLMProvider)
+	}
+	clientB, _ := app.getClientForProvider(resolvedB.Chat.LLMProvider)
+	clientB.GetModels(t.Context())
+
+	if defaultHits.Load() != 1 {
+		t.Errorf("default server: expected 1, got %d", defaultHits.Load())
+	}
+	if concreteHits.Load() != 1 {
+		t.Errorf("concrete server: expected 1, got %d", concreteHits.Load())
 	}
 }
 
