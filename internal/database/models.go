@@ -13,6 +13,8 @@ type LLMProvider struct {
 	Type              string `gorm:"not null"` // openai, claude, ollama, etc
 	BaseURL           string `gorm:"not null"`
 	Model             string
+	DefaultModel      string
+	IsDefault         bool `gorm:"default:false"`
 	Timeout           int
 	CredentialPattern string
 	CreatedAt         time.Time

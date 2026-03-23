@@ -18,6 +18,7 @@ export interface ProviderFormData {
   type: string;
   base_url: string;
   api_key: string;
+  default_model?: string;
 }
 
 export interface ProviderFormProps {
@@ -34,6 +35,7 @@ interface ProviderConfig {
   apiKeyRequired: boolean;
   testRequiresApiKey: boolean;
   helpText?: string;
+  defaultModel?: string;
 }
 
 export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
@@ -45,6 +47,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://platform.openai.com/api-keys',
+    defaultModel: 'gpt-4o-mini',
   },
   anthropic: {
     label: 'Anthropic',
@@ -53,6 +56,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.anthropic.com',
+    defaultModel: 'claude-sonnet-4-20250514',
   },
   google: {
     label: 'Google (Gemini)',
@@ -61,6 +65,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://aistudio.google.com',
+    defaultModel: 'gemini-2.0-flash',
   },
   openrouter: {
     label: 'OpenRouter',
@@ -77,6 +82,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://platform.deepseek.com',
+    defaultModel: 'deepseek-chat',
   },
   xai: {
     label: 'xAI (Grok)',
@@ -85,6 +91,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.x.ai',
+    defaultModel: 'grok-3-mini',
   },
   mistral: {
     label: 'Mistral AI',
@@ -93,6 +100,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.mistral.ai',
+    defaultModel: 'mistral-small-latest',
   },
   groq: {
     label: 'Groq',
@@ -101,6 +109,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.groq.com',
+    defaultModel: 'llama-3.3-70b-versatile',
   },
   together: {
     label: 'Together AI',
@@ -125,6 +134,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://www.perplexity.ai/settings/api',
+    defaultModel: 'sonar',
   },
   cohere: {
     label: 'Cohere',
@@ -205,6 +215,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         type: provider.type,
         base_url: provider.base_url,
         api_key: '',
+        default_model: provider.default_model || '',
       });
       setApiTested(false);
       setShowApiKeyField(false);
@@ -456,12 +467,14 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             type: formData.type,
             base_url: canonicalUrl,
             api_key: formData.api_key || undefined,
+            default_model: formData.default_model || undefined,
           }),
           15000,
           'UpdateLLMProvider'
         );
       } else {
         // Create - gera ID único
+        const suggestedDefault = PROVIDER_CONFIG[formData.type]?.defaultModel;
         await withTimeout(
           CreateLLMProvider({
             id: `${formData.type}-${Date.now()}`,
@@ -469,6 +482,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             type: formData.type,
             base_url: canonicalUrl,
             api_key: formData.api_key || undefined,
+            default_model: formData.default_model || suggestedDefault || undefined,
           }),
           15000,
           'CreateLLMProvider'
@@ -672,6 +686,19 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           </span>
         )}
       </div>
+
+      {apiTested && (
+        <FormField
+          label={t('providerForm.defaultModel', 'Modelo Padrão')}
+          description={t('providerForm.defaultModelHelp', 'Modelo usado quando o perfil escolhe "Padrão". Deixe vazio para usar o primeiro modelo disponível.')}
+        >
+          <Input
+            value={formData.default_model || ''}
+            onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
+            placeholder={config.defaultModel || 'ex: gpt-4o-mini'}
+          />
+        </FormField>
+      )}
 
       {errors.api && (
         <div className="provider-form__error" role="alert">

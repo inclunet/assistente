@@ -568,6 +568,11 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		log.Printf("[SendMessage] Erro ao obter perfil: %v", profileErr)
 	}
 
+	// Resolve sentinelas $default para provedor/modelo real
+	if activeProfile != nil {
+		activeProfile = a.resolveProfileDefaults(activeProfile)
+	}
+
 	// Aplica configurações do perfil de chat ativo
 	if activeProfile != nil {
 		log.Printf("[SendMessage] Usando perfil: %s", activeProfile.Name)

@@ -730,6 +730,8 @@ export namespace llm {
 	    type: string;
 	    base_url: string;
 	    model?: string;
+	    default_model?: string;
+	    is_default?: boolean;
 	    timeout?: number;
 	    headers?: Record<string, string>;
 	    credential_pattern?: string;
@@ -745,6 +747,8 @@ export namespace llm {
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.model = source["model"];
+	        this.default_model = source["default_model"];
+	        this.is_default = source["is_default"];
 	        this.timeout = source["timeout"];
 	        this.headers = source["headers"];
 	        this.credential_pattern = source["credential_pattern"];
@@ -1016,6 +1020,7 @@ export namespace main {
 	    type: string;
 	    base_url: string;
 	    api_key?: string;
+	    default_model?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CreateLLMProviderRequest(source);
@@ -1028,6 +1033,7 @@ export namespace main {
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
+	        this.default_model = source["default_model"];
 	    }
 	}
 	export class CredentialInput {
@@ -1558,6 +1564,7 @@ export namespace main {
 	    type?: string;
 	    base_url?: string;
 	    api_key?: string;
+	    default_model?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateLLMProviderRequest(source);
@@ -1569,6 +1576,7 @@ export namespace main {
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
+	        this.default_model = source["default_model"];
 	    }
 	}
 

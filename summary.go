@@ -169,6 +169,9 @@ func (a *App) executeSummarization(
 	newMessages []database.ChatMessage,
 	upToMessageID uint,
 ) {
+	// Resolve sentinelas $default
+	profile = a.resolveProfileDefaults(profile)
+
 	// Notifica frontend: sumarização iniciou
 	runtime.EventsEmit(a.ctx, "chat:summary_started", map[string]interface{}{
 		"conversationId": conversationID,

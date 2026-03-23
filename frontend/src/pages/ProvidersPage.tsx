@@ -4,6 +4,7 @@ import {
   GetLLMProvidersWithStatus,
   CreateLLMProvider,
   DeleteLLMProvider,
+  SetDefaultProvider,
 } from '@wailsjs/go/main/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
@@ -25,6 +26,8 @@ interface Provider {
   credential_required: boolean;
   credential_status: 'none' | 'configured' | 'missing';
   credential_domain_patterns?: string[];
+  is_default?: boolean;
+  default_model?: string;
 }
 
 interface ProviderRow extends Provider {
@@ -124,9 +127,21 @@ export default function ProvidersPage() {
       type: provider.type,
       base_url: provider.base_url,
       api_key: '',
+      default_model: (provider as Provider).default_model || '',
     });
     setIsEditing(true);
   }, []);
+
+  const handleSetDefault = async (provider: ProviderRow) => {
+    try {
+      await SetDefaultProvider(provider.id);
+      addToast(t('providers.toast.defaultSet', { name: provider.name }), 'success');
+      announce(t('providers.toast.defaultSet', { name: provider.name }));
+      await loadProviders();
+    } catch (error: unknown) {
+      addToast(getErrorMessage(error) || t('providers.error.defaultFailed', 'Erro ao definir padrão'), 'error');
+    }
+  };
 
   const getDuplicateName = (name: string) => {
     const base = `${name} (Copia)`;
@@ -187,6 +202,16 @@ export default function ProvidersPage() {
       key: 'name',
       label: t('providers.columns.name', 'Nome'),
       width: '25%',
+      format: (value, row) => (
+        <span>
+          {String(value || '')}
+          {(row as Provider).is_default && (
+            <span className="provider-badge-default" title={t('providers.badge.default', 'Provedor padrão')}>
+              {' '}★ {t('providers.badge.default', 'Padrão')}
+            </span>
+          )}
+        </span>
+      ),
     },
     {
       key: 'type',
@@ -224,13 +249,19 @@ export default function ProvidersPage() {
   ];
   // Gera as ações contextuais para cada linha de provedor
   function getProviderRowActions(item: ProviderRow) {
-    return [
+    const actions = [
       {
         id: 'edit',
         label: t('providers.actions.edit', 'Editar'),
         icon: '✏️',
         onClick: () => handleEditProvider(item),
       },
+      ...((item as Provider).is_default ? [] : [{
+        id: 'setDefault',
+        label: t('providers.actions.setDefault', 'Tornar Padrão'),
+        icon: '⭐',
+        onClick: () => handleSetDefault(item),
+      }]),
       {
         id: 'duplicate',
         label: t('providers.actions.duplicate', 'Duplicar'),
@@ -245,6 +276,7 @@ export default function ProvidersPage() {
         danger: true,
       },
     ];
+    return actions;
   }
 
   const filteredRows = useMemo(

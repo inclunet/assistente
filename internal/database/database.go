@@ -1129,3 +1129,23 @@ func CountLLMProviders() (int64, error) {
 	err := db.Model(&LLMProvider{}).Count(&count).Error
 	return count, err
 }
+
+// SetDefaultProvider marca um provedor como default (e desmarca os demais).
+func SetDefaultProvider(id string) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&LLMProvider{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+			return err
+		}
+		return tx.Model(&LLMProvider{}).Where("id = ?", id).Update("is_default", true).Error
+	})
+}
+
+// GetDefaultProvider retorna o provedor marcado como default, ou nil se nenhum.
+func GetDefaultProvider() (*LLMProvider, error) {
+	var provider LLMProvider
+	err := db.First(&provider, "is_default = ?", true).Error
+	if err != nil {
+		return nil, err
+	}
+	return &provider, nil
+}

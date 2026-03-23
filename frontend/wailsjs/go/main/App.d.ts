@@ -377,6 +377,8 @@ export function SetConversationModel(arg1:number,arg2:string):Promise<void>;
 
 export function SetDefaultModel(arg1:string):Promise<void>;
 
+export function SetDefaultProvider(arg1:string):Promise<void>;
+
 export function SetMCPWorkspaceRoots(arg1:Array<mcp.Root>):Promise<void>;
 
 export function SetOpenAITTSSpeed(arg1:number):Promise<void>;

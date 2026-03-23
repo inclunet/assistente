@@ -1,6 +1,6 @@
 import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GetLLMProviders } from '@wailsjs/go/main/App';
+import { GetLLMProvidersWithStatus } from '@wailsjs/go/main/App';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import './LLMProviderPicker.css';
@@ -21,11 +21,14 @@ export interface LLMProviderPickerRef {
   reload: () => Promise<void>;
 }
 
+const DEFAULT_PROVIDER_SENTINEL = '$default';
+
 interface LLMProvider {
   id: string;
   name: string;
   type: string;
   base_url: string;
+  is_default?: boolean;
 }
 
 export const LLMProviderPicker = forwardRef<LLMProviderPickerRef, LLMProviderPickerProps>(
@@ -53,12 +56,12 @@ export const LLMProviderPicker = forwardRef<LLMProviderPickerRef, LLMProviderPic
       setError(null);
 
       try {
-        const providersList = await GetLLMProviders();
+        const providersList = await GetLLMProvidersWithStatus();
         if (!providersList || providersList.length === 0) {
           setError(t('pickers.llmProvider.noneConfigured'));
           setProviders([]);
         } else {
-          setProviders(providersList as LLMProvider[]);
+          setProviders(providersList as unknown as LLMProvider[]);
         }
       } catch (err) {
         const errorMsg = err instanceof Error ? err.message : t('pickers.llmProvider.loadError');
@@ -77,10 +80,13 @@ export const LLMProviderPicker = forwardRef<LLMProviderPickerRef, LLMProviderPic
       reload: loadProviders,
     }));
 
-    const items: ComboboxItem[] = providers.map((p) => ({
+    const defaultLabel = t('pickers.llmProvider.default', 'Padrão (recomendado)');
+    const defaultOption: ComboboxItem = { value: DEFAULT_PROVIDER_SENTINEL, label: `⭐ ${defaultLabel}` };
+    const providerItems: ComboboxItem[] = providers.map((p) => ({
       value: p.id,
-      label: `${p.name} (${p.type})`,
+      label: `${p.name} (${p.type})${p.is_default ? ' ★' : ''}`,
     }));
+    const items: ComboboxItem[] = [defaultOption, ...providerItems];
 
     const handleSelect = (selectedValue: string) => {
       onChange(selectedValue);

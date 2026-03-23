@@ -726,6 +726,10 @@ export function SetDefaultModel(arg1) {
   return window['go']['main']['App']['SetDefaultModel'](arg1);
 }
 
+export function SetDefaultProvider(arg1) {
+  return window['go']['main']['App']['SetDefaultProvider'](arg1);
+}
+
 export function SetMCPWorkspaceRoots(arg1) {
   return window['go']['main']['App']['SetMCPWorkspaceRoots'](arg1);
 }

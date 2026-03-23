@@ -59,11 +59,12 @@ var (
 
 // Request structs for LLM Provider Management
 type CreateLLMProviderRequest struct {
-	ID      string `json:"id"`
-	Name    string `json:"name"`
-	Type    string `json:"type"`
-	BaseURL string `json:"base_url"`
-	APIKey  string `json:"api_key,omitempty"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Type         string `json:"type"`
+	BaseURL      string `json:"base_url"`
+	APIKey       string `json:"api_key,omitempty"`
+	DefaultModel string `json:"default_model,omitempty"`
 }
 
 type TestLLMProviderRequest struct {
@@ -74,10 +75,11 @@ type TestLLMProviderRequest struct {
 }
 
 type UpdateLLMProviderRequest struct {
-	Name    string `json:"name,omitempty"`
-	Type    string `json:"type,omitempty"`
-	BaseURL string `json:"base_url,omitempty"`
-	APIKey  string `json:"api_key,omitempty"`
+	Name         string `json:"name,omitempty"`
+	Type         string `json:"type,omitempty"`
+	BaseURL      string `json:"base_url,omitempty"`
+	APIKey       string `json:"api_key,omitempty"`
+	DefaultModel string `json:"default_model,omitempty"`
 }
 
 // App struct
@@ -266,6 +268,8 @@ func (a *App) initLLMClient() {
 		return
 	}
 
+	activeProfile = a.resolveProfileDefaults(activeProfile)
+
 	// Get provider from registry
 	provider := a.llmRegistry.Get(activeProfile.Chat.LLMProvider)
 	if provider == nil {
@@ -303,6 +307,50 @@ func (a *App) getClientForProvider(providerID string) (*llm.Client, error) {
 	}
 
 	return llm.NewClient(provider, cfg, a.credMgr), nil
+}
+
+// resolveProfileDefaults substitui sentinelas "$default" no profile pelo provedor/modelo
+// default do sistema. Retorna uma cópia modificada — não altera o profile em disco.
+// Se não houver default configurado, mantém os valores originais inalterados.
+func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
+	if p == nil {
+		return nil
+	}
+
+	needsResolve := p.Chat.LLMProvider == profiles.DefaultProviderSentinel ||
+		p.Chat.Model == profiles.DefaultProviderSentinel ||
+		p.Voice.LLMProviderID == profiles.DefaultProviderSentinel ||
+		p.Interaction.LLMProviderID == profiles.DefaultProviderSentinel
+	if !needsResolve {
+		return p
+	}
+
+	defaultProvider, err := database.GetDefaultProvider()
+	if err != nil || defaultProvider == nil {
+		log.Printf("[ResolveDefaults] Nenhum provedor default encontrado: %v", err)
+		return p
+	}
+
+	resolved := *p
+	resolved.Chat = p.Chat
+	resolved.Voice = p.Voice
+	resolved.Interaction = p.Interaction
+
+	if resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel {
+		resolved.Chat.LLMProvider = defaultProvider.ID
+	}
+	if resolved.Chat.Model == profiles.DefaultProviderSentinel {
+		resolved.Chat.Model = defaultProvider.DefaultModel
+	}
+	if resolved.Voice.LLMProviderID == profiles.DefaultProviderSentinel {
+		resolved.Voice.LLMProviderID = defaultProvider.ID
+	}
+	if resolved.Interaction.LLMProviderID == profiles.DefaultProviderSentinel {
+		resolved.Interaction.LLMProviderID = defaultProvider.ID
+	}
+
+	log.Printf("[ResolveDefaults] Resolvido $default → provider=%s, model=%s", defaultProvider.ID, defaultProvider.DefaultModel)
+	return &resolved
 }
 
 // initLLMProviders inicializa o registro de provedores LLM com os provedores padrão
@@ -1912,6 +1960,8 @@ func (a *App) saveLLMProviders() error {
 			Type:              string(p.Type),
 			BaseURL:           p.BaseURL,
 			Model:             p.Model,
+			DefaultModel:      p.DefaultModel,
+			IsDefault:         p.IsDefault,
 			Timeout:           p.Timeout,
 			CredentialPattern: p.CredentialPattern,
 		}
@@ -1942,6 +1992,8 @@ func (a *App) loadLLMProviders() error {
 			Type:              llm.ProviderType(dbProvider.Type),
 			BaseURL:           dbProvider.BaseURL,
 			Model:             dbProvider.Model,
+			DefaultModel:      dbProvider.DefaultModel,
+			IsDefault:         dbProvider.IsDefault,
 			Timeout:           dbProvider.Timeout,
 			CredentialPattern: dbProvider.CredentialPattern,
 		}
@@ -3337,6 +3389,8 @@ func (a *App) GetActiveProviderInfo() map[string]interface{} {
 		}
 	}
 
+	activeProfile = a.resolveProfileDefaults(activeProfile)
+
 	provider := a.llmRegistry.Get(activeProfile.Chat.LLMProvider)
 	if provider == nil {
 		return map[string]interface{}{
@@ -3476,15 +3530,20 @@ func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interf
 	// Timeout default
 	timeout := 180
 
+	// Se é o primeiro provedor, será marcado como default automaticamente
+	isFirstProvider := len(a.llmRegistry.List()) == 0
+
 	// Criar provider config
 	provider := &llm.ProviderConfig{
 		ID:                req.ID,
 		Name:              req.Name,
 		Type:              llm.ProviderType(req.Type),
 		BaseURL:           req.BaseURL,
-		Model:             "", // Modelo não é definido ao criar provider
+		Model:             "",
+		DefaultModel:      req.DefaultModel,
+		IsDefault:         isFirstProvider,
 		Timeout:           timeout,
-		CredentialPattern: hostname, // Armazena hostname exato
+		CredentialPattern: hostname,
 	}
 
 	// Registrar no registry
@@ -3498,7 +3557,13 @@ func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interf
 		log.Printf("[ProviderManager] Erro ao salvar provedores: %v", err)
 	}
 
-	log.Printf("[ProviderManager] Provider '%s' criado com hostname '%s'", req.ID, hostname)
+	if isFirstProvider {
+		if err := database.SetDefaultProvider(req.ID); err != nil {
+			log.Printf("[ProviderManager] Aviso: erro ao marcar como default: %v", err)
+		}
+	}
+
+	log.Printf("[ProviderManager] Provider '%s' criado com hostname '%s', default=%v", req.ID, hostname, isFirstProvider)
 
 	return map[string]interface{}{
 		"id":                    provider.ID,
@@ -3506,6 +3571,8 @@ func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interf
 		"type":                  string(provider.Type),
 		"base_url":              provider.BaseURL,
 		"model":                 provider.Model,
+		"default_model":         provider.DefaultModel,
+		"is_default":            provider.IsDefault,
 		"timeout":               provider.Timeout,
 		"credential_pattern":    hostname,
 		"credential_configured": credConfigured,
@@ -3527,6 +3594,8 @@ func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[st
 		Type:              existing.Type,
 		BaseURL:           existing.BaseURL,
 		Model:             existing.Model,
+		DefaultModel:      existing.DefaultModel,
+		IsDefault:         existing.IsDefault,
 		Timeout:           existing.Timeout,
 		CredentialPattern: existing.CredentialPattern,
 	}
@@ -3536,6 +3605,9 @@ func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[st
 	}
 	if req.Type != "" {
 		updated.Type = llm.ProviderType(req.Type)
+	}
+	if req.DefaultModel != "" {
+		updated.DefaultModel = req.DefaultModel
 	}
 	if req.BaseURL != "" {
 		updated.BaseURL = req.BaseURL
@@ -3586,10 +3658,35 @@ func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[st
 		"type":                  string(updated.Type),
 		"base_url":              updated.BaseURL,
 		"model":                 updated.Model,
+		"default_model":         updated.DefaultModel,
+		"is_default":            updated.IsDefault,
 		"timeout":               updated.Timeout,
 		"credential_pattern":    updated.CredentialPattern,
 		"credential_configured": credConfigured,
 	}, nil
+}
+
+// SetDefaultProvider marca um provedor como o default do sistema.
+func (a *App) SetDefaultProvider(id string) error {
+	provider := a.llmRegistry.Get(id)
+	if provider == nil {
+		return fmt.Errorf("provider '%s' não encontrado", id)
+	}
+
+	if err := database.SetDefaultProvider(id); err != nil {
+		return fmt.Errorf("erro ao definir provider default: %w", err)
+	}
+
+	// Atualizar flag no registry
+	for _, p := range a.llmRegistry.List() {
+		p.IsDefault = (p.ID == id)
+	}
+
+	// Reinicializar client LLM (perfil ativo pode usar $default)
+	a.initLLMClient()
+
+	log.Printf("[ProviderManager] Provider '%s' definido como default", id)
+	return nil
 }
 
 // DeleteLLMProvider remove um provider do registry
@@ -3631,6 +3728,8 @@ func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 			"type":                  string(p.Type),
 			"base_url":              p.BaseURL,
 			"model":                 p.Model,
+			"default_model":         p.DefaultModel,
+			"is_default":            p.IsDefault,
 			"timeout":               p.Timeout,
 			"credential_pattern":    p.CredentialPattern,
 			"credential_configured": credConfigured,
@@ -4478,9 +4577,8 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 				return false, err
 			}
 
-			if err := a.updateAllProfilesProviderAndModel(providerID, defaultModel); err != nil {
-				log.Printf("[Wizard] Aviso: erro ao atualizar perfis: %v", err)
-			}
+			// Profiles com $default resolvem automaticamente para o provedor marcado como default.
+			// Não é mais necessário reescrever todos os perfis.
 
 			a.initLLMClient()
 
@@ -4512,36 +4610,37 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 
 // wizardProviderInfo mapeia a escolha do wizard para configuração do provedor
 type wizardProviderInfo struct {
-	ID   string
-	Name string
-	Type llm.ProviderType
+	ID           string
+	Name         string
+	Type         llm.ProviderType
+	DefaultModel string
 }
 
-// getWizardProviderInfo retorna ID, nome e tipo para a escolha do wizard
+// getWizardProviderInfo retorna ID, nome, tipo e modelo default sugerido para a escolha do wizard
 func getWizardProviderInfo(providerChoice string) wizardProviderInfo {
 	switch providerChoice {
 	case "OpenAI":
-		return wizardProviderInfo{ID: "openai-default", Name: "OpenAI", Type: llm.ProviderOpenAI}
+		return wizardProviderInfo{ID: "openai-default", Name: "OpenAI", Type: llm.ProviderOpenAI, DefaultModel: "gpt-4o-mini"}
 	case "Anthropic (Claude)":
-		return wizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude}
+		return wizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude, DefaultModel: "claude-sonnet-4-20250514"}
 	case "Google (Gemini)":
-		return wizardProviderInfo{ID: "google-gemini", Name: "Google (Gemini)", Type: llm.ProviderOpenAI}
+		return wizardProviderInfo{ID: "google-gemini", Name: "Google (Gemini)", Type: llm.ProviderOpenAI, DefaultModel: "gemini-2.0-flash"}
 	case "OpenRouter":
 		return wizardProviderInfo{ID: "openrouter-default", Name: "OpenRouter", Type: llm.ProviderOpenAI}
 	case "Mistral AI":
-		return wizardProviderInfo{ID: "mistral-default", Name: "Mistral AI", Type: llm.ProviderMistral}
+		return wizardProviderInfo{ID: "mistral-default", Name: "Mistral AI", Type: llm.ProviderMistral, DefaultModel: "mistral-small-latest"}
 	case "Groq":
-		return wizardProviderInfo{ID: "groq-default", Name: "Groq", Type: llm.ProviderGroq}
+		return wizardProviderInfo{ID: "groq-default", Name: "Groq", Type: llm.ProviderGroq, DefaultModel: "llama-3.3-70b-versatile"}
 	case "Together AI":
 		return wizardProviderInfo{ID: "together-default", Name: "Together AI", Type: llm.ProviderTogether}
 	case "Fireworks AI":
 		return wizardProviderInfo{ID: "fireworks-default", Name: "Fireworks AI", Type: llm.ProviderFireworks}
 	case "Perplexity":
-		return wizardProviderInfo{ID: "perplexity-default", Name: "Perplexity", Type: llm.ProviderPerplexity}
+		return wizardProviderInfo{ID: "perplexity-default", Name: "Perplexity", Type: llm.ProviderPerplexity, DefaultModel: "sonar"}
 	case "DeepSeek":
-		return wizardProviderInfo{ID: "deepseek-default", Name: "DeepSeek", Type: llm.ProviderDeepSeek}
+		return wizardProviderInfo{ID: "deepseek-default", Name: "DeepSeek", Type: llm.ProviderDeepSeek, DefaultModel: "deepseek-chat"}
 	case "xAI (Grok)":
-		return wizardProviderInfo{ID: "xai-grok", Name: "xAI (Grok)", Type: llm.ProviderGrok}
+		return wizardProviderInfo{ID: "xai-grok", Name: "xAI (Grok)", Type: llm.ProviderGrok, DefaultModel: "grok-3-mini"}
 	case "Azure OpenAI":
 		return wizardProviderInfo{ID: "azure-openai", Name: "Azure OpenAI", Type: llm.ProviderOpenAI}
 	case "Ollama (Local)":
@@ -4568,12 +4667,19 @@ func (a *App) createWizardProvider(providerChoice, baseURL, apiKey, model string
 		timeout = 300
 	}
 
+	defaultModel := model
+	if defaultModel == "" && info.DefaultModel != "" {
+		defaultModel = info.DefaultModel
+	}
+
 	provider := &llm.ProviderConfig{
 		ID:                info.ID,
 		Name:              info.Name,
 		Type:              info.Type,
 		BaseURL:           baseURL,
 		Model:             model,
+		DefaultModel:      defaultModel,
+		IsDefault:         true,
 		Timeout:           timeout,
 		CredentialPattern: hostname,
 	}
@@ -4596,7 +4702,11 @@ func (a *App) createWizardProvider(providerChoice, baseURL, apiKey, model string
 		return "", fmt.Errorf("erro ao persistir provedor: %w", err)
 	}
 
-	log.Printf("[Wizard] Provedor '%s' (%s) criado com sucesso", info.ID, info.Name)
+	if err := database.SetDefaultProvider(info.ID); err != nil {
+		log.Printf("[Wizard] Aviso: erro ao marcar provedor como default: %v", err)
+	}
+
+	log.Printf("[Wizard] Provedor '%s' (%s) criado como default, modelo padrão: %s", info.ID, info.Name, defaultModel)
 	return info.ID, nil
 }
 
@@ -4615,29 +4725,9 @@ func (a *App) saveWelcomeConfig(baseURL, apiKey, defaultModel string) error {
 	return config.Save(cfg)
 }
 
-// updateAllProfilesProviderAndModel atualiza o provedor e modelo em todos os perfis
-func (a *App) updateAllProfilesProviderAndModel(providerID, model string) error {
-	profileList, err := a.profileManager.List()
-	if err != nil {
-		return err
-	}
-
-	for _, profileInfo := range profileList {
-		profile, err := a.profileManager.Get(profileInfo.Slug)
-		if err != nil {
-			log.Printf("[Wizard] Erro ao carregar perfil %s (slug: %s): %v", profileInfo.Name, profileInfo.Slug, err)
-			continue
-		}
-
-		profile.Chat.LLMProvider = providerID
-		profile.Chat.Model = model
-		if err := a.profileManager.Update(profileInfo.Slug, profile); err != nil {
-			log.Printf("[Wizard] Erro ao salvar perfil %s (slug: %s): %v", profileInfo.Name, profileInfo.Slug, err)
-		}
-	}
-
-	return nil
-}
+// REMOVED: updateAllProfilesProviderAndModel — substituída pelo sistema de $default.
+// Profiles com llm_provider="$default" resolvem automaticamente para o provedor marcado
+// como IsDefault no banco. Não é mais necessário reescrever todos os perfis.
 
 // checkForUpdatesAfterWizard verifica atualizações após o wizard de configuração
 func (a *App) checkForUpdatesAfterWizard() {

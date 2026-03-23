@@ -5,6 +5,10 @@ import (
 	"strings"
 )
 
+// DefaultProviderSentinel é o valor sentinela usado em profiles para indicar
+// "usar o provedor default do sistema". Resolvido em runtime por resolveProfileDefaults.
+const DefaultProviderSentinel = "$default"
+
 // Profile representa um perfil de conversa unificado.
 // Combina configurações de chat (LLM), voz (TTS) e interação (STT/triggers)
 // em um único arquivo JSON armazenado em .assistente/profiles/.
@@ -160,15 +164,16 @@ const (
 	TriggerTypeVAD          = "vad"
 )
 
-// DefaultProfile retorna um perfil com valores padrão
+// DefaultProfile retorna um perfil com valores padrão.
+// Usa $default para provedor e modelo — resolvido em runtime pelo sistema de default provider.
 func DefaultProfile() *Profile {
 	return &Profile{
 		Name:        "Padrão",
 		Description: "Configuração padrão.",
 		Icon:        "chatbox",
 		Chat: ChatConfig{
-			LLMProvider:     "openai-default",
-			Model:           "",
+			LLMProvider:     DefaultProviderSentinel,
+			Model:           DefaultProviderSentinel,
 			Temperature:     0.7,
 			MaxTokens:       4096,
 			TopP:            1.0,
@@ -177,7 +182,7 @@ func DefaultProfile() *Profile {
 		},
 		Voice: VoiceConfig{
 			Provider:        "disabled",
-			LLMProviderID:   "openai-default", // TTS usa OpenAI por padrão (quando habilitado)
+			LLMProviderID:   DefaultProviderSentinel,
 			VoiceID:         "",
 			Rate:            1.0,
 			Pitch:           1.0,
@@ -187,7 +192,7 @@ func DefaultProfile() *Profile {
 		},
 		Interaction: InteractionConfig{
 			STTProvider:    "webspeech",
-			LLMProviderID:  "openai-default", // Whisper usa OpenAI por padrão (quando usado)
+			LLMProviderID:  DefaultProviderSentinel,
 			Language:       "pt-BR",
 			FeedbackSounds: true,
 			Triggers:       []TriggerConfig{},
@@ -203,7 +208,7 @@ func (p *Profile) Validate() error {
 
 	// Validação do chat
 	if p.Chat.LLMProvider == "" {
-		return fmt.Errorf("chat.llm_provider is required (ex: 'openai-default')")
+		return fmt.Errorf("chat.llm_provider is required (ex: 'openai-default' or '$default')")
 	}
 	if p.Chat.Temperature < 0 || p.Chat.Temperature > 2 {
 		return fmt.Errorf("chat.temperature must be between 0 and 2")
