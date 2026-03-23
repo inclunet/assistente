@@ -337,6 +337,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
                   ...(updates.title !== undefined ? { title: updates.title as string } : {}),
                   ...(updates.content_id !== undefined ? { contentId: updates.content_id as string } : {}),
                   ...(updates.state !== undefined ? { state: updates.state as Record<string, unknown> } : {}),
+                  ...(updates.profile_override !== undefined ? { profileOverride: updates.profile_override as Record<string, unknown> } : {}),
                 }
               : t
           ),

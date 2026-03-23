@@ -14,6 +14,7 @@
 import React, { useCallback, useRef, useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useInteractionProfile } from '../../hooks/useInteractionProfile';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 import { profiles } from '../../../wailsjs/go/models';
 import './VoiceButton.css';
 
@@ -44,6 +45,14 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const pttTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const buttonRef = useRef<HTMLButtonElement>(null);
 
+  // Cascata de perfil: tab.profileOverride.slug → workspace.profile → null (global)
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const activeTab = useWorkspaceStore((s) => s.getActiveTab());
+  const tabProfileSlug = activeTab?.type === 'chat'
+    ? (activeTab.profileOverride?.slug as string | undefined)
+    : undefined;
+  const effectiveProfileSlug = tabProfileSlug || wsProfile || null;
+
   const {
     isActive,
     isListening,
@@ -58,9 +67,9 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     toggleInteraction,
     isWakewordListening,
   } = useInteractionProfile({
+    effectiveProfileSlug,
     onTranscription: (text, _provider) => {
       onTranscription(text);
-      // Restaura foco após transcrição - prefere textarea, senão botão
       requestAnimationFrame(() => {
         if (textareaRef?.current) {
           textareaRef.current.focus();
