@@ -291,13 +291,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
         ? { ...state.workspace, activeTabId: tabId }
         : null,
     }));
-
-    const tab = get().workspace?.tabs.find(t => t.id === tabId);
-    if (tab) {
-      const idx = get().workspace?.tabs.findIndex(t => t.id === tabId) ?? 0;
-      const total = get().workspace?.tabs.length ?? 0;
-      announce(`${tab.title}, aba ${idx + 1} de ${total}`);
-    }
   },
 
   updateTab: async (tabId, updates) => {

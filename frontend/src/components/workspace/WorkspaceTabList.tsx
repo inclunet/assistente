@@ -224,10 +224,10 @@ export function WorkspaceTabList() {
           value={tab.id}
           className={`ws-tabs__tab${isActive ? ' ws-tabs__tab--active' : ''}${isEditing ? ' ws-tabs__tab--editing' : ''}`}
           controlsId={null}
-          ariaDescription={`${t(`workspace.tabType.${tab.type}`)} - ${tab.title}`}
+          ariaLabel={`${tab.title}, ${t(`workspace.tabType.${tab.type}`)}`}
         >
           <span className="ws-tabs__tab-icon" aria-hidden="true">{icon}</span>
-          <span className="ws-tabs__tab-title">{tab.title}</span>
+          <span className="ws-tabs__tab-title" aria-hidden="true">{tab.title}</span>
         </Tab>
 
         {isEditing && (
@@ -277,8 +277,6 @@ export function WorkspaceTabList() {
       >
         <div
           className="ws-tabs"
-          role="region"
-          aria-label={t('workspace.tabsRegion')}
         >
           <TabList
             listRef={tabListRef}

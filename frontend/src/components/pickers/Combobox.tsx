@@ -23,6 +23,8 @@ export interface ComboboxProps {
     onAnnounce?: (message: string) => void;
     onOpen?: () => void; // Callback quando o picker é aberto
     allowFreeInput?: boolean; // Permite entrada livre quando não há itens
+    /** Called after an item is selected and the dropdown closes. Use to customize focus restoration. */
+    onAfterSelect?: () => void;
 }
 
 export const Combobox = ({
@@ -37,7 +39,8 @@ export const Combobox = ({
     maxWidth = '180px',
     onAnnounce,
     onOpen,
-    allowFreeInput = false
+    allowFreeInput = false,
+    onAfterSelect,
 }: ComboboxProps) => {
     const { t } = useTranslation();
     const effectiveLabel = label ?? t('pickers.combobox.select');
@@ -87,13 +90,17 @@ export const Combobox = ({
         }, 10);
     };
 
-    const close = () => {
+    const close = (reason: 'select' | 'dismiss' = 'dismiss') => {
         setIsOpen(false);
         setFilter('');
         setHighlightIndex(0);
 
         setTimeout(() => {
-            buttonRef.current?.focus();
+            if (reason === 'select' && onAfterSelect) {
+                onAfterSelect();
+            } else {
+                buttonRef.current?.focus();
+            }
         }, 10);
     };
 
@@ -103,7 +110,7 @@ export const Combobox = ({
             return;
         }
         onSelect(item.value, item);
-        close();
+        close('select');
     };
 
     const announce = () => {
@@ -200,7 +207,7 @@ export const Combobox = ({
             } else if (allowFreeInput && filter.trim()) {
                 // Modo entrada livre: registra o texto digitado
                 onSelect(filter.trim(), { value: filter.trim(), label: filter.trim() });
-                close();
+                close('select');
             }
         } else if (event.key === 'Escape') {
             event.preventDefault();
@@ -212,7 +219,7 @@ export const Combobox = ({
             if (allowFreeInput && filter.trim() && filteredItems.length === 0) {
                 // Modo entrada livre: registra o texto digitado ao dar Tab
                 onSelect(filter.trim(), { value: filter.trim(), label: filter.trim() });
-                close();
+                close('select');
             } else {
                 close();
             }
@@ -259,9 +266,8 @@ export const Combobox = ({
                     className="picker-button"
                     onClick={open}
                     disabled={disabled}
-                    aria-haspopup="listbox"
                     aria-expanded={isOpen}
-                    aria-label={selectedLabel}
+                    aria-label={`${effectiveLabel}: ${selectedLabel}`}
                     title={description || `${effectiveLabel}: ${selectedLabel}`}
                 >
                     <span className="picker-icon" aria-hidden="true">{icon}</span>

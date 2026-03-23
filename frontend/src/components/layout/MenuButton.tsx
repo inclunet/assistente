@@ -125,7 +125,6 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
           }
         }}
         aria-expanded={menu.visible}
-        aria-haspopup="menu"
         aria-label={resolvedButtonLabel}
         title={resolvedButtonLabel}
         tabIndex={tabIndex ?? autoTabIndex ?? 0}

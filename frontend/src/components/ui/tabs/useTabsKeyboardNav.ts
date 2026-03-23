@@ -137,17 +137,26 @@ export function useTabsKeyboardNav({
       if (activationMode === 'auto' && nextValue) {
         onValueChange?.(nextValue);
 
-        // Focus the target tab synchronously, then guard against content
-        // components that steal focus during mount/state-change effects.
-        const targetBtn = tabs[result.nextIndex];
-        targetBtn?.focus();
+        // After re-render, the tab button DOM node may be replaced by React.
+        // Find it by data attribute instead of holding a stale reference.
+        const refocus = () => {
+          const list = tabListRef.current;
+          if (!list) return;
+          const btn = list.querySelector(
+            `button[role="tab"][data-tab-value="${nextValue}"]`
+          ) as HTMLButtonElement | null;
+          btn?.focus();
+        };
 
+        refocus();
+
+        // Guard against content components that steal focus during mount.
         let guardActive = true;
         const focusGuard = (e: Event) => {
           if (!guardActive) return;
           const el = e.target as HTMLElement;
-          if (el === targetBtn || el?.closest('[role="tablist"]')) return;
-          targetBtn?.focus();
+          if (el?.closest?.('[role="tablist"]')) return;
+          requestAnimationFrame(refocus);
         };
         document.addEventListener('focusin', focusGuard, true);
         setTimeout(() => {

@@ -13,6 +13,8 @@ export interface ProfilePickerProps {
   icon?: string;
   maxWidth?: string;
   onAnnounce?: (message: string) => void;
+  /** Called after a profile is selected. Use to customize focus restoration. */
+  onAfterSelect?: () => void;
   /**
    * Controlled value (slug). When set, the picker does NOT change the global
    * active profile — it only calls onChange with the selected slug.
@@ -35,6 +37,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
       icon = '💬',
       maxWidth,
       onAnnounce,
+      onAfterSelect,
       value,
     },
     ref
@@ -181,6 +184,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
         wrapCombobox
         comboboxWrapperClassName="voice-picker"
         comboboxWrapperProps={{ 'data-picker': 'profile' } as React.HTMLAttributes<HTMLDivElement>}
+        onAfterSelect={onAfterSelect}
       />
     );
   }

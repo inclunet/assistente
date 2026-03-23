@@ -58,6 +58,7 @@ interface BasePickerProps {
   comboboxWrapperClassName?: string;
   comboboxWrapperProps?: HTMLAttributes<HTMLDivElement>;
   allowFreeInput?: boolean;
+  onAfterSelect?: () => void;
 }
 
 const resolveVariantValue = <T,>(value: VariantValue<T> | undefined, variant: Variant): T | undefined => {
@@ -132,6 +133,7 @@ export const BasePicker = ({
   comboboxWrapperClassName,
   comboboxWrapperProps,
   allowFreeInput = false,
+  onAfterSelect,
 }: BasePickerProps) => {
   const resolvedLoadingLabel = resolveVariantValue(loadingLabel, variant) ?? 'Carregando...';
   const resolvedErrorLabel = resolveVariantValue(errorLabel, variant) ?? error ?? 'Erro ao carregar';
@@ -211,6 +213,7 @@ export const BasePicker = ({
       onAnnounce={onAnnounce}
       onOpen={onOpen}
       allowFreeInput={allowFreeInput}
+      onAfterSelect={onAfterSelect}
     />
   );
 

@@ -140,6 +140,7 @@ export interface TabProps {
    * passe `controlsId={null}` para omitir `aria-controls`.
    */
   controlsId?: string | null;
+  ariaLabel?: string;
   ariaDescription?: string;
   disabled?: boolean;
   title?: string;
@@ -154,6 +155,7 @@ export function Tab({
   className,
   activeClassName,
   controlsId,
+  ariaLabel,
   ariaDescription,
   disabled,
   title,
@@ -174,6 +176,7 @@ export function Tab({
       id={`${idBase}-tab-${value}`}
       aria-selected={isActive}
       aria-controls={ariaControls}
+      aria-label={ariaLabel}
       aria-description={ariaDescription}
       tabIndex={isActive ? 0 : -1}
       className={`tabs__tab${className ? ` ${className}` : ''}${isActive && activeClassName ? ` ${activeClassName}` : ''}`}

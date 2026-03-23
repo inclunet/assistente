@@ -6,6 +6,7 @@ import { Menu, type MenuItem } from '../menu';
 import { ProfilePicker } from '../pickers/ProfilePicker';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import './WorkspaceToolbar.css';
 
 const TAB_TYPE_OPTIONS: { type: TabType; icon: string; labelKey: string; chordKey: string }[] = [
@@ -42,7 +43,7 @@ export function WorkspaceToolbar() {
     closeMenu: closeNewTab,
     onSelectItem: onNewTabSelect,
   } = useAnchoredContextMenu({
-    onAfterSelect: () => newTabButtonRef.current?.focus(),
+    onAfterSelect: () => { requestAnimationFrame(() => restoreDefaultFocus()); },
     onAfterDismiss: () => newTabButtonRef.current?.focus(),
   });
 
@@ -238,7 +239,6 @@ export function WorkspaceToolbar() {
               shortcut="Ctrl+N"
               onClick={handleOpenNewTab}
               aria-expanded={newTabMenu.visible}
-              aria-haspopup="menu"
             />
 
             <ToolbarSeparator />
@@ -260,7 +260,6 @@ export function WorkspaceToolbar() {
                 icon="⚙️"
                 onClick={handleOpenWsMenu}
                 aria-expanded={wsMenu.visible}
-                aria-haspopup="menu"
               />
             )}
           </>
@@ -275,6 +274,7 @@ export function WorkspaceToolbar() {
               icon="🎭"
               onChange={handleProfileChange}
               onAnnounce={announce}
+              onAfterSelect={() => restoreDefaultFocus()}
             />
           </div>
         }

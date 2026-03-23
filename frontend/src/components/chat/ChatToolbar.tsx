@@ -11,6 +11,7 @@ import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
 import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
@@ -220,6 +221,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 maxWidth="180px"
                 onAnnounce={announce}
                 value={effectiveProfileSlug}
+                onAfterSelect={() => restoreDefaultFocus()}
               />
             </div>
           </>

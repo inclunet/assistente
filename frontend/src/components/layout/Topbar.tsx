@@ -302,7 +302,6 @@ export function Topbar() {
                 onKeyDown={handlePickerKeyDown}
                 onDoubleClick={startRename}
                 aria-expanded={pickerMenu.visible}
-                aria-haspopup="menu"
                 aria-label={t('workspace.workspaceList')}
               >
                 <span className="topbar__picker-icon" aria-hidden="true">📂</span>
