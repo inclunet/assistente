@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import './MenuButton.css';
 import { Menu, type MenuItem as MenuModelItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
+import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 
 export interface MenuItem {
   id: string;
@@ -74,7 +75,7 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
     onSelectItem,
   } = useAnchoredContextMenu({
     onAfterSelect: () => {
-      resolveTriggerElement()?.focus();
+      requestAnimationFrame(() => restoreDefaultFocus());
     },
     onAfterDismiss: () => {
       resolveTriggerElement()?.focus();

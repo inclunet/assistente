@@ -54,7 +54,7 @@ export function WorkspaceToolbar() {
     closeMenu: closeWsMenu,
     onSelectItem: onWsMenuSelect,
   } = useAnchoredContextMenu({
-    onAfterSelect: () => wsMenuButtonRef.current?.focus(),
+    onAfterSelect: () => { requestAnimationFrame(() => restoreDefaultFocus()); },
     onAfterDismiss: () => wsMenuButtonRef.current?.focus(),
   });
 

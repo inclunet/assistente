@@ -9,6 +9,7 @@ import { LANGUAGES, type LanguageId } from '../../lib/i18n';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import './Topbar.css';
 
 const PAGE_TITLE_KEYS: Record<string, string> = {
@@ -73,7 +74,7 @@ export function Topbar() {
     closeMenu: closePicker,
     onSelectItem: onPickerSelect,
   } = useAnchoredContextMenu({
-    onAfterSelect: () => pickerButtonRef.current?.focus(),
+    onAfterSelect: () => requestAnimationFrame(() => restoreDefaultFocus()),
     onAfterDismiss: () => pickerButtonRef.current?.focus(),
   });
 
@@ -84,7 +85,7 @@ export function Topbar() {
     closeMenu: closeCtx,
     onSelectItem: onCtxSelect,
   } = useAnchoredContextMenu({
-    onAfterSelect: () => pickerButtonRef.current?.focus(),
+    onAfterSelect: () => requestAnimationFrame(() => restoreDefaultFocus()),
     onAfterDismiss: () => pickerButtonRef.current?.focus(),
   });
 
