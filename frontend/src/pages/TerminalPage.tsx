@@ -4,10 +4,12 @@ import { useTerminalStore } from '../store/terminalStore';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
+import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './TerminalPage.css';
 
 export default function TerminalPage() {
   const { t } = useTranslation();
+  useContentPageLandmarks({ pageClass: 'terminal-page' });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
 

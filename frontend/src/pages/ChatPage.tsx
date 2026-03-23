@@ -15,10 +15,12 @@ import { DeleteMessage } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../utils/errorHandler';
+import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './ChatPage.css';
 
 export default function ChatPage() {
   const navigate = useNavigate();
+  useContentPageLandmarks({ pageClass: 'chat-page' });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const hasAutoFocusedRef = useRef(false);

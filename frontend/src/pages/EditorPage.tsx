@@ -55,11 +55,13 @@ import {
   EditorWriteDraft,
   EditorWriteFile,
 } from '@wailsjs/go/main/App';
+import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './EditorPage.css';
 
 export default function EditorPage() {
   const { t } = useTranslation();
   const { addToast } = useUIStore();
+  useContentPageLandmarks({ pageClass: 'editor-page' });
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
   const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId } = useEditorInlineChatPatch();
