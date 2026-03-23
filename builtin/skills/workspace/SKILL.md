@@ -1,6 +1,6 @@
 ---
 name: workspace
-version: 1.0.0
+version: 2.0.0
 description: "Gerenciamento de workspace: orienta o assistente sobre como navegar entre abas, abrir recursos e usar deep links para controlar a interface"
 displayName: Workspace Manager
 author: Assistente
