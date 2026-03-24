@@ -17,6 +17,7 @@ import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useConfirm } from '../hooks/useConfirm';
 import { useUIStore } from '../store/uiStore';
+import { executeDeepLink } from '../lib/deepLinks';
 import type { TaskListWithWorkflow } from '../types/tasklist';
 import './TaskListsPage.css';
 
@@ -112,8 +113,10 @@ export default function TaskListsPage() {
       if (editorMode === 'create') {
         const newTaskList = await createTaskList(editTitle, editDescription || undefined);
         if (newTaskList) {
-          await addTab('tasklist', String(newTaskList.id), newTaskList.title);
-          navigate('/');
+          await executeDeepLink(
+            { type: 'tab:open', tabType: 'tasklist', contentId: String(newTaskList.id), title: newTaskList.title },
+            { navigate },
+          );
           addToast(t('tasklist.createdSuccess', `Lista "${editTitle}" criada com sucesso!`), 'success');
           announce(t('tasklist.createdSuccess', `Lista "${editTitle}" criada com sucesso!`));
         }
@@ -129,7 +132,7 @@ export default function TaskListsPage() {
     } finally {
       setEditingLoading(false);
     }
-  }, [editTitle, editDescription, editorMode, createTaskList, addTab, navigate, addToast, announce, handleCloseEditor, t]);
+  }, [editTitle, editDescription, editorMode, createTaskList, navigate, addToast, announce, handleCloseEditor, t]);
 
   const handleOpenTaskList = useCallback(async (taskListId: number) => {
     if (!getCachedTaskList(taskListId)) {
@@ -137,10 +140,11 @@ export default function TaskListsPage() {
     }
     const cached = useTaskListStore.getState().taskLists.get(taskListId);
     const title = cached?.title || 'Lista';
-    await addTab('tasklist', String(taskListId), title);
-    navigate('/');
-    announce(t('tasklist.opened', 'Lista aberta'));
-  }, [getCachedTaskList, loadTaskList, addTab, navigate, announce, t]);
+    await executeDeepLink(
+      { type: 'tab:open', tabType: 'tasklist', contentId: String(taskListId), title },
+      { navigate },
+    );
+  }, [getCachedTaskList, loadTaskList, navigate]);
 
   const handleDeleteTaskList = useCallback(
     async (taskListId: number) => {
@@ -173,8 +177,10 @@ export default function TaskListsPage() {
       try {
         const clonedTaskList = await cloneTaskList(taskListId, newTitle);
         if (clonedTaskList) {
-          await addTab('tasklist', String(clonedTaskList.id), clonedTaskList.title);
-          navigate('/');
+          await executeDeepLink(
+            { type: 'tab:open', tabType: 'tasklist', contentId: String(clonedTaskList.id), title: clonedTaskList.title },
+            { navigate },
+          );
           addToast(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'), 'success');
           announce(t('tasklist.clonedSuccess', 'Lista clonada com sucesso'));
         }
@@ -184,7 +190,7 @@ export default function TaskListsPage() {
         announce(msg || t('common.error', 'Erro ao clonar'));
       }
     },
-    [allTaskLists, cloneTaskList, addTab, navigate, addToast, announce, t]
+    [allTaskLists, cloneTaskList, navigate, addToast, announce, t]
   );
 
   // Ctrl+N: Create new list

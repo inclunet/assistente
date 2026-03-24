@@ -17,13 +17,19 @@ const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockAddToast = vi.fn();
 const mockAnnounce = vi.fn();
 const mockRequestConfirm = vi.fn();
+const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
 
 /* ── mocks de módulos ──────────────────────────────────────── */
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
     t: (_key: string, fallback?: string) => fallback ?? _key,
   }),
+}));
+
+vi.mock('../lib/deepLinks', () => ({
+  executeDeepLink: (...args: unknown[]) => mockExecuteDeepLink(...args),
 }));
 
 let storeTaskLists: Map<number, unknown> = new Map();
@@ -298,7 +304,10 @@ describe('TaskListsPage', () => {
     });
 
     await waitFor(() => {
-      expect(mockAddTab).toHaveBeenCalledWith('tasklist', '3', 'Lista Nova');
+      expect(mockExecuteDeepLink).toHaveBeenCalledWith(
+        { type: 'tab:open', tabType: 'tasklist', contentId: '3', title: 'Lista Nova' },
+        expect.objectContaining({ navigate: expect.any(Function) }),
+      );
     });
 
     await waitFor(() => {
@@ -417,7 +426,10 @@ describe('TaskListsPage', () => {
     await user.click(openBtn);
 
     await waitFor(() => {
-      expect(mockAddTab).toHaveBeenCalledWith('tasklist', '1', 'Lista Alfa');
+      expect(mockExecuteDeepLink).toHaveBeenCalledWith(
+        { type: 'tab:open', tabType: 'tasklist', contentId: '1', title: 'Lista Alfa' },
+        expect.objectContaining({ navigate: expect.any(Function) }),
+      );
     });
   });
 });

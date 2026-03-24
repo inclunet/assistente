@@ -9,6 +9,7 @@ import { Toolbar } from '../components/ui/Toolbar';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { executeDeepLink } from '../lib/deepLinks';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './HistoryPage.css';
@@ -36,8 +37,8 @@ export default function HistoryPage() {
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
-  const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
   const moveTabToWorkspace = useWorkspaceStore(state => state.moveTabToWorkspace);
+  const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
   const workspaces = useWorkspaceStore(state => state.workspaces);
 
   useEffect(() => {
@@ -121,14 +122,12 @@ export default function HistoryPage() {
     }
   };
 
-  const handleOpenConversation = async (conversationId: number, title?: string) => {
-    try {
-      await addWorkspaceTab('chat', String(conversationId), title || t('chat.newConversation', 'Nova conversa'));
-      navigate('/');
-    } catch (error) {
-      console.error('Erro ao abrir conversa:', error);
-    }
-  };
+  const handleOpenConversation = useCallback(async (conversationId: number, title?: string) => {
+    await executeDeepLink(
+      { type: 'conversation:open', conversationId, title },
+      { navigate },
+    );
+  }, [navigate]);
 
   const handleNewConversation = () => {
     navigate('/');
@@ -442,6 +441,7 @@ export default function HistoryPage() {
       <DataGrid
         items={displayItems}
         columns={columns}
+        onActivate={(item: Conversation) => handleOpenConversation(item.id, item.title)}
         onCellEdit={handleCellEdit}
         onDelete={handleDeleteRow}
         selectedIds={selectedIds}

@@ -469,7 +469,7 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '42', 'Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '42', 'chat.newConversation');
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
@@ -482,7 +482,7 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '7', 'Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '7', 'chat.newConversation');
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
     });
   });
@@ -518,7 +518,7 @@ describe('executeDeepLink', () => {
       await vi.advanceTimersByTimeAsync(250);
       await promise;
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '10', 'Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '10', 'chat.newConversation');
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockSendMessage).toHaveBeenCalledWith('oi');
     });

@@ -13,6 +13,7 @@ const mockSearchConversationHistory = vi.fn();
 const mockAddTab = vi.fn().mockResolvedValue('tab-1');
 const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
+const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
 
 let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> = [];
 
@@ -48,6 +49,10 @@ vi.mock('../hooks/useGridFocus', () => ({
   useGridFocus: () => ({
     handleGridReady: vi.fn(),
   }),
+}));
+
+vi.mock('../lib/deepLinks', () => ({
+  executeDeepLink: (...args: unknown[]) => mockExecuteDeepLink(...args),
 }));
 
 vi.mock('../store/workspaceStore', () => ({
@@ -219,8 +224,10 @@ describe('HistoryPage', () => {
     await user.click(menuOpen!);
 
     await waitFor(() => {
-      expect(mockAddTab).toHaveBeenCalledWith('chat', '1', 'Conversa 1');
-      expect(mockNavigate).toHaveBeenCalledWith('/');
+      expect(mockExecuteDeepLink).toHaveBeenCalledWith(
+        { type: 'conversation:open', conversationId: 1, title: 'Conversa 1' },
+        expect.objectContaining({ navigate: expect.any(Function) }),
+      );
     });
   });
 });

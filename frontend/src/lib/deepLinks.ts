@@ -13,13 +13,13 @@ export const DEEP_LINK_PREFIX = `${DEEP_LINK_PROTOCOL}://`;
 export type TabType = 'tasklist' | 'editor' | 'terminal';
 
 export type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: number }
+  | { type: 'conversation:open'; conversationId: number; title?: string }
   | { type: 'conversation:new'; message?: string; title?: string }
   | { type: 'conversation:send'; conversationId: number; message: string }
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
   | { type: 'resource:new'; resource: EditableResource }
-  | { type: 'tab:open'; tabType: TabType; contentId: string };
+  | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string };
 
 // Routes the app actually supports (validated in navigate action)
 const VALID_ROUTES = new Set([
@@ -223,20 +223,20 @@ export async function executeDeepLink(
 
   const wsStore = useWorkspaceStore.getState();
 
-  const openOrCreateChatTab = (conversationId: number) => {
+  const openOrCreateChatTab = (conversationId: number, title?: string) => {
     const existing = (wsStore.workspace?.tabs || []).find(
       (tab) => tab.type === 'chat' && tab.contentId === String(conversationId),
     );
     if (existing) {
       void wsStore.setActiveTab(existing.id);
     } else {
-      void wsStore.addTab('chat', String(conversationId), 'Conversa');
+      void wsStore.addTab('chat', String(conversationId), title || t('chat.newConversation'));
     }
   };
 
   switch (action.type) {
     case 'conversation:open': {
-      openOrCreateChatTab(action.conversationId);
+      openOrCreateChatTab(action.conversationId, action.title);
       deps.navigate('/');
       announce(t('deepLink.announcedOpen', { id: action.conversationId }));
       break;
@@ -295,7 +295,7 @@ export async function executeDeepLink(
       if (existing) {
         void wsStore.setActiveTab(existing.id);
       } else {
-        void wsStore.addTab(action.tabType, action.contentId, `${action.tabType} ${action.contentId}`);
+        void wsStore.addTab(action.tabType, action.contentId, action.title || `${action.tabType} ${action.contentId}`);
       }
       deps.navigate('/');
       announce(t('deepLink.announcedOpenTab', { type: action.tabType, id: action.contentId }));
