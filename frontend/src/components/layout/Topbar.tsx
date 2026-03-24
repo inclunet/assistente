@@ -233,6 +233,10 @@ export function Topbar() {
   const currentPage = ROUTE_IDS[pathname] || 'workspace';
 
   const mainMenuItems: MenuButtonItem[] = useMemo(() => [
+    ...(!isWorkspaceRoute ? [
+      { id: 'back-to-workspace', label: t('menu.backToWorkspace'), icon: '←', onClick: () => navigate('/') },
+      { id: 'sep-back', separator: true as const },
+    ] : []),
     { id: 'history', label: t('menu.history'), icon: '📜', shortcut: 'Alt+H', onClick: () => navigate('/history') },
     { id: 'tasklists', label: t('menu.tasklists'), icon: '✓', onClick: () => navigate('/tasklists') },
     { id: 'profiles', label: t('menu.profiles'), icon: '🎭', shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
@@ -263,7 +267,7 @@ export function Topbar() {
     { id: 'settings', label: t('menu.restoreDefaults'), icon: '↩️', onClick: () => navigate('/settings') },
     { id: 'help', label: t('menu.help'), icon: '📚', shortcut: 'F1', onClick: () => navigate('/help') },
     { id: 'about', label: t('menu.about'), icon: 'ℹ️', onClick: () => navigate('/about') },
-  ], [navigate, t, currentTheme, setTheme, currentLang, setLanguage]);
+  ], [navigate, t, currentTheme, setTheme, currentLang, setLanguage, isWorkspaceRoute]);
 
   // --- Keyboard shortcuts ---
   useEffect(() => {
@@ -290,6 +294,18 @@ export function Topbar() {
         ref={toolbarRef as React.RefObject<HTMLElement>}
       >
         <div className="topbar__left">
+          <MenuButton
+            ref={menuButtonRef}
+            items={mainMenuItems}
+            currentItemId={currentPage}
+            buttonLabel={t('menu.navLabel')}
+            tabIndex={-1}
+          />
+        </div>
+
+        <h1 className="topbar__title">{pageTitle}</h1>
+
+        <div className="topbar__right">
           {isWorkspaceRoute ? (
             isRenaming ? (
               <input
@@ -330,18 +346,6 @@ export function Topbar() {
               <span>{t('menu.backToWorkspace')}</span>
             </button>
           )}
-        </div>
-
-        <h1 className="topbar__title">{pageTitle}</h1>
-
-        <div className="topbar__right">
-          <MenuButton
-            ref={menuButtonRef}
-            items={mainMenuItems}
-            currentItemId={currentPage}
-            buttonLabel={t('menu.navLabel')}
-            tabIndex={-1}
-          />
         </div>
       </header>
 

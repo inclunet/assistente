@@ -7,9 +7,10 @@ import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 
 export interface MenuItem {
   id: string;
-  label: string;
-  icon: string;
+  label?: string;
+  icon?: string;
   shortcut?: string;
+  separator?: boolean;
   onClick?: () => void;
   submenu?: MenuItem[];
 }
@@ -45,16 +46,19 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
   const [autoTabIndex, setAutoTabIndex] = useState<number | null>(null);
 
   const mapItems = (srcItems: MenuItem[]): MenuModelItem[] =>
-    srcItems.map((item) => ({
-      id: item.id,
-      label: item.label,
-      icon: item.icon,
-      shortcut: item.shortcut,
-      checked: currentItemId === item.id,
-      ariaLabel: item.label,
-      action: item.onClick,
-      submenu: item.submenu ? mapItems(item.submenu) : undefined,
-    }));
+    srcItems.map((item) => {
+      if (item.separator) return { id: item.id, separator: true };
+      return {
+        id: item.id,
+        label: item.label,
+        icon: item.icon,
+        shortcut: item.shortcut,
+        checked: currentItemId === item.id,
+        ariaLabel: item.label,
+        action: item.onClick,
+        submenu: item.submenu ? mapItems(item.submenu) : undefined,
+      };
+    });
 
   const menuItems: MenuModelItem[] = useMemo(
     () => mapItems(items),
