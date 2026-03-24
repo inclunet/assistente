@@ -1023,6 +1023,8 @@ const en = {
       content: 'Content',
       workspaceToolbar: 'Workspace',
       workspaceTabs: 'Panels',
+      contentToolbar: 'Content toolbar',
+      contentArea: 'Content area',
       topbar: 'Navigation bar',
       pageContent: 'Page content',
     },

@@ -1023,6 +1023,8 @@ const ptBR = {
       content: 'Conteúdo',
       workspaceToolbar: 'Workspace',
       workspaceTabs: 'Painéis',
+      contentToolbar: 'Barra de ferramentas do conteúdo',
+      contentArea: 'Área de conteúdo',
       topbar: 'Barra de navegação',
       pageContent: 'Conteúdo da página',
     },

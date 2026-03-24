@@ -8,6 +8,7 @@ import { useTheme, THEMES, type ThemeId } from '../../hooks/useTheme';
 import { LANGUAGES, type LanguageId } from '../../lib/i18n';
 import { useSettingsStore } from '../../store/settingsStore';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
+import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import './Topbar.css';
@@ -55,6 +56,7 @@ export function Topbar() {
   const currentLang = i18n.language as LanguageId;
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
+  const toolbarRef = useToolbarKeyboardNav();
   const menuButtonRef = useRef<MenuButtonRef>(null);
   const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -281,7 +283,12 @@ export function Topbar() {
 
   return (
     <>
-      <header className="topbar" role="banner">
+      <header
+        className="topbar"
+        role="toolbar"
+        aria-label={t('landmarks.topbar', 'Barra de navegação')}
+        ref={toolbarRef as React.RefObject<HTMLElement>}
+      >
         <div className="topbar__left">
           {isWorkspaceRoute ? (
             isRenaming ? (
@@ -304,6 +311,7 @@ export function Topbar() {
                 onDoubleClick={startRename}
                 aria-expanded={pickerMenu.visible}
                 aria-label={t('workspace.workspaceList')}
+                tabIndex={-1}
               >
                 <span className="topbar__picker-icon" aria-hidden="true">📂</span>
                 <span className="topbar__picker-name">{workspace?.name || 'Workspace'}</span>
@@ -316,6 +324,7 @@ export function Topbar() {
               onClick={() => navigate('/')}
               aria-label={t('menu.backToWorkspace')}
               title={t('menu.backToWorkspace')}
+              tabIndex={-1}
             >
               <span aria-hidden="true">←</span>
               <span>{t('menu.backToWorkspace')}</span>
@@ -331,6 +340,7 @@ export function Topbar() {
             items={mainMenuItems}
             currentItemId={currentPage}
             buttonLabel={t('menu.navLabel')}
+            tabIndex={-1}
           />
         </div>
       </header>

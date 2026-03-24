@@ -15,12 +15,10 @@ import { DeleteMessage } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../utils/errorHandler';
-import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './ChatPage.css';
 
 export default function ChatPage() {
   const navigate = useNavigate();
-  useContentPageLandmarks({ pageClass: 'chat-page' });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   const hasAutoFocusedRef = useRef(false);
@@ -290,7 +288,10 @@ export default function ChatPage() {
 
   return (
     <div className="chat-page">
-      <ChatToolbar inputRef={inputRef} />
+      <div className="ws-content-toolbar">
+        <ChatToolbar inputRef={inputRef} />
+      </div>
+      <div className="ws-content-area">
       <MessageList
         threadedMessages={threadedMessages}
         onLoadChildren={loadMessageChildren}
@@ -340,17 +341,16 @@ export default function ChatPage() {
         onArrowUp={() => {
           const container = messagesContainerRef.current;
           if (container) {
-            // Foca na última mensagem da lista
             const lastMessage = container.querySelector('[data-message-node]:last-child') as HTMLElement;
             if (lastMessage) {
               lastMessage.focus();
             } else {
-              // Se não houver mensagens em estrutura de árvore, foca no container
               container.focus();
             }
           }
         }}
       />
+      </div>
 
       {/* Menu de contexto */}
       <ContextMenu

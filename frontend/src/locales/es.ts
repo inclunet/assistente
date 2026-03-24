@@ -1022,6 +1022,8 @@ const es = {
       content: 'Contenido',
       workspaceToolbar: 'Workspace',
       workspaceTabs: 'Paneles',
+      contentToolbar: 'Barra de herramientas del contenido',
+      contentArea: 'Área de contenido',
       topbar: 'Barra de navegación',
       pageContent: 'Contenido de la página',
     },

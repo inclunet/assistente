@@ -21,7 +21,6 @@ export function WorkspaceLayout() {
   const { t } = useTranslation();
   const { pathname } = useLocation();
   const { workspace, isInitialized, initialize, setupEventListeners } = useWorkspaceStore();
-  const activeTabType = useWorkspaceStore((s) => s.getActiveTab()?.type);
   useEffect(() => {
     if (!isInitialized) {
       initialize();
@@ -40,188 +39,124 @@ export function WorkspaceLayout() {
   useWorkspaceTasklistBridge();
 
   const isWorkspaceRoute = pathname === '/' || pathname === '';
-  const isChatActive = activeTabType === 'chat';
-  const isTerminalActive = activeTabType === 'terminal';
-  const isEditorActive = activeTabType === 'editor';
 
-  const landmarks = useMemo((): Landmark[] => [
-    {
-      id: 'topbar',
-      label: t('landmarks.topbar', 'Barra de navegação'),
-      focus: () => {
-        const topbar = document.querySelector('.topbar') as Element | null;
-        if (!topbar) return false;
-        const btn = topbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
-        if (!btn) return false;
-        btn.focus();
-        return true;
-      },
-      contains: () => !!document.activeElement?.closest?.('.topbar'),
-    },
-    {
-      id: 'workspaceToolbar',
-      label: t('landmarks.workspaceToolbar', 'Workspace'),
-      isAvailable: () => isWorkspaceRoute,
-      focus: () => {
-        const toolbar = document.querySelector('.workspace-toolbar[role="toolbar"]') as Element | null;
-        if (!toolbar) return false;
-        const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
-        if (!btn) return false;
-        btn.focus();
-        return true;
-      },
-      contains: () => !!document.activeElement?.closest?.('.workspace-toolbar'),
-    },
-    {
-      id: 'workspaceTabs',
-      label: t('landmarks.workspaceTabs', 'Painéis'),
-      isAvailable: () => isWorkspaceRoute,
-      focus: () => {
-        const active = document.querySelector('.ws-tabs [role="tab"][aria-selected="true"]') as HTMLElement | null;
-        const anyTab = document.querySelector('.ws-tabs [role="tab"]') as HTMLElement | null;
-        (active || anyTab)?.focus();
-        return !!(active || anyTab);
-      },
-      contains: () => !!document.activeElement?.closest?.('.ws-tabs'),
-    },
-    // Chat landmarks
-    {
-      id: 'chatToolbar',
-      label: t('landmarks.toolbar'),
-      isAvailable: () => isChatActive,
-      focus: () => {
-        const toolbar = document.querySelector('.chat-page [role="toolbar"]') as Element | null;
-        if (!toolbar) return false;
-        const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
-        if (!btn) return false;
-        btn.focus();
-        return true;
-      },
-      contains: () => !!document.activeElement?.closest?.('.chat-page [role="toolbar"]'),
-    },
-    {
-      id: 'chatHistory',
-      label: t('landmarks.chatHistory'),
-      isAvailable: () => isChatActive,
-      focus: () => {
-        const container = document.querySelector('.message-list') as HTMLElement | null;
-        if (!container) return false;
-        const lastMsg = container.querySelector('[data-message-node]:last-child') as HTMLElement | null;
-        if (lastMsg) { lastMsg.focus(); return true; }
-        container.setAttribute('tabindex', '-1');
-        container.focus();
-        return true;
-      },
-      contains: () => !!document.activeElement?.closest?.('.message-list'),
-    },
-    {
-      id: 'chatInput',
-      label: t('landmarks.chatInput'),
-      isAvailable: () => isChatActive,
-      focus: () => {
-        const input = document.querySelector('.chat-input textarea') as HTMLElement | null;
-        if (!input) return false;
-        input.focus();
-        return true;
-      },
-      contains: () => !!document.activeElement?.closest?.('.chat-input'),
-    },
-    // Terminal landmarks
-    {
-      id: 'terminalToolbar',
-      label: t('landmarks.terminalToolbar', 'Barra de ferramentas do terminal'),
-      isAvailable: () => isTerminalActive,
-      focus: () => {
-        const toolbar = document.querySelector('.terminal-page [role="toolbar"]') as Element | null;
-        if (!toolbar) return false;
-        const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
-        if (!btn) return false;
-        btn.focus();
-        return true;
-      },
-      contains: () => !!document.activeElement?.closest?.('.terminal-page [role="toolbar"]'),
-    },
-    {
-      id: 'terminalHistory',
-      label: t('landmarks.terminalHistory', 'Histórico do terminal'),
-      isAvailable: () => isTerminalActive,
-      focus: () => {
-        const container = document.querySelector('.terminal-history') as HTMLElement | null;
-        if (!container) return false;
-        const lastNode = container.querySelector('.terminal-node:last-child') as HTMLElement | null;
-        if (lastNode) { lastNode.focus(); return true; }
-        container.setAttribute('tabindex', '-1');
-        container.focus();
-        return true;
-      },
-      contains: () => !!document.activeElement?.closest?.('.terminal-history'),
-    },
-    {
-      id: 'terminalInput',
-      label: t('landmarks.terminalInput', 'Campo de comando'),
-      isAvailable: () => isTerminalActive,
-      focus: () => {
-        const input = document.querySelector('.terminal-page__input-container textarea') as HTMLElement | null;
-        if (!input) return false;
-        input.focus();
-        return true;
-      },
-      contains: () => !!document.activeElement?.closest?.('.terminal-page__input-container'),
-    },
-    // Editor landmarks
-    {
-      id: 'editorToolbar',
-      label: t('landmarks.editorToolbar', 'Barra de ferramentas do editor'),
-      isAvailable: () => isEditorActive,
-      focus: () => {
-        const toolbar = document.querySelector('.editor-page__toolbar') as Element | null;
-        if (!toolbar) return false;
-        const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
-        if (!btn) return false;
-        btn.focus();
-        return true;
-      },
-      contains: () => !!document.activeElement?.closest?.('.editor-page__toolbar'),
-    },
-    {
-      id: 'editorContent',
-      label: t('landmarks.editorContent', 'Editor de texto'),
-      isAvailable: () => isEditorActive,
-      focus: () => {
-        const monaco = document.querySelector('.editor-page .monaco-editor textarea') as HTMLElement | null;
-        if (monaco) { monaco.focus(); return true; }
-        const rich = document.querySelector('.editor-page .rich-text-editor__content [contenteditable]') as HTMLElement | null;
-        if (rich) { rich.focus(); return true; }
-        return false;
-      },
-      contains: () =>
-        !!document.activeElement?.closest?.('.monaco-editor') ||
-        !!document.activeElement?.closest?.('.rich-text-editor__content'),
-    },
-    // Sub-route page content
-    {
-      id: 'pageContent',
-      label: t('landmarks.pageContent', 'Conteúdo da página'),
-      isAvailable: () => !isWorkspaceRoute,
-      focus: () => {
-        const content = document.querySelector('.workspace-layout__config-content') as HTMLElement | null;
-        if (!content) return false;
-        const focusable = content.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') as HTMLElement | null;
-        if (focusable) { focusable.focus(); return true; }
-        content.setAttribute('tabindex', '-1');
-        content.focus();
-        return true;
-      },
-      contains: () => !!document.activeElement?.closest?.('.workspace-layout__config-content'),
-    },
-  ], [t, isChatActive, isTerminalActive, isEditorActive, isWorkspaceRoute]);
+  const landmarks = useMemo((): Landmark[] => {
+    const focusTopbar = () => {
+      const toolbar = document.querySelector('.topbar[role="toolbar"]') as Element | null;
+      if (!toolbar) return false;
+      const active = toolbar.querySelector('[tabindex="0"]') as HTMLElement | null;
+      const fallback = toolbar.querySelector('button:not([disabled])') as HTMLElement | null;
+      const target = active || fallback;
+      if (!target) return false;
+      target.focus();
+      return true;
+    };
 
-  const defaultLandmark = isWorkspaceRoute
-    ? (isChatActive ? 'chatInput'
-      : isTerminalActive ? 'terminalInput'
-      : isEditorActive ? 'editorContent'
-      : 'workspaceTabs')
-    : 'pageContent';
+    if (!isWorkspaceRoute) {
+      return [
+        {
+          id: 'topbar',
+          label: t('landmarks.topbar', 'Barra de navegação'),
+          focus: focusTopbar,
+          contains: () => !!document.activeElement?.closest?.('.topbar'),
+        },
+        {
+          id: 'pageContent',
+          label: t('landmarks.pageContent', 'Conteúdo da página'),
+          focus: () => {
+            const content = document.querySelector('.workspace-layout__config-content') as HTMLElement | null;
+            if (!content) return false;
+            const focusable = content.querySelector('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])') as HTMLElement | null;
+            if (focusable) { focusable.focus(); return true; }
+            content.setAttribute('tabindex', '-1');
+            content.focus();
+            return true;
+          },
+          contains: () => !!document.activeElement?.closest?.('.workspace-layout__config-content'),
+        },
+      ];
+    }
+
+    return [
+      // 1. Topbar (workspace picker + menu principal)
+      {
+        id: 'topbar',
+        label: t('landmarks.topbar', 'Barra de navegação'),
+        focus: focusTopbar,
+        contains: () => !!document.activeElement?.closest?.('.topbar'),
+      },
+      // 2. Workspace Toolbar (nova aba, opções, perfil)
+      {
+        id: 'workspaceToolbar',
+        label: t('landmarks.workspaceToolbar', 'Workspace'),
+        focus: () => {
+          const toolbar = document.querySelector('.workspace-toolbar[role="toolbar"]') as Element | null;
+          if (!toolbar) return false;
+          const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
+          if (!btn) return false;
+          btn.focus();
+          return true;
+        },
+        contains: () => !!document.activeElement?.closest?.('.workspace-toolbar'),
+      },
+      // 3. Tablist
+      {
+        id: 'workspaceTabs',
+        label: t('landmarks.workspaceTabs', 'Painéis'),
+        focus: () => {
+          const active = document.querySelector('.ws-tabs [role="tab"][aria-selected="true"]') as HTMLElement | null;
+          const anyTab = document.querySelector('.ws-tabs [role="tab"]') as HTMLElement | null;
+          (active || anyTab)?.focus();
+          return !!(active || anyTab);
+        },
+        contains: () => !!document.activeElement?.closest?.('.ws-tabs'),
+      },
+      // 3. Content Panel Toolbar (genérico, muda conforme tipo de aba)
+      {
+        id: 'contentToolbar',
+        label: t('landmarks.contentToolbar', 'Barra de ferramentas do conteúdo'),
+        focus: () => {
+          const toolbar = document.querySelector('.ws-content .ws-content-toolbar') as Element | null;
+          if (!toolbar) return false;
+          const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
+          if (!btn) return false;
+          btn.focus();
+          return true;
+        },
+        contains: () => !!document.activeElement?.closest?.('.ws-content-toolbar'),
+      },
+      // 4. Content Area (genérico, foco inteligente por tipo de aba)
+      {
+        id: 'contentArea',
+        label: t('landmarks.contentArea', 'Área de conteúdo'),
+        focus: () => {
+          const area = document.querySelector('.ws-content .ws-content-area') as HTMLElement | null;
+          if (!area) return false;
+
+          // Chat/Terminal: foca no textarea do input
+          const textarea = area.querySelector('.chat-input textarea') as HTMLElement | null;
+          if (textarea) { textarea.focus(); return true; }
+
+          // Editor: foca na superfície de edição
+          const monaco = area.querySelector('.monaco-editor textarea') as HTMLElement | null;
+          if (monaco) { monaco.focus(); return true; }
+          const rich = area.querySelector('.rich-text-editor__content [contenteditable]') as HTMLElement | null;
+          if (rich) { rich.focus(); return true; }
+
+          // Fallback genérico (tasklist, etc.)
+          const focusable = area.querySelector('button, input, select, textarea, [tabindex]:not([tabindex="-1"])') as HTMLElement | null;
+          if (focusable) { focusable.focus(); return true; }
+
+          area.setAttribute('tabindex', '-1');
+          area.focus();
+          return true;
+        },
+        contains: () => !!document.activeElement?.closest?.('.ws-content-area'),
+      },
+    ];
+  }, [t, isWorkspaceRoute]);
+
+  const defaultLandmark = isWorkspaceRoute ? 'contentArea' : 'pageContent';
 
   useLandmarkNavigation({
     landmarks,

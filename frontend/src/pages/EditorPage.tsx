@@ -55,13 +55,11 @@ import {
   EditorWriteDraft,
   EditorWriteFile,
 } from '@wailsjs/go/main/App';
-import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './EditorPage.css';
 
 export default function EditorPage() {
   const { t } = useTranslation();
   const { addToast } = useUIStore();
-  useContentPageLandmarks({ pageClass: 'editor-page' });
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
   const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId } = useEditorInlineChatPatch();
@@ -2388,7 +2386,7 @@ export default function EditorPage() {
   return (
     <div className="editor-page" ref={pageRootRef}>
       <Toolbar
-        className="editor-page__toolbar"
+        className="editor-page__toolbar ws-content-toolbar"
         left={<div className="editor-page__title">{activeTab?.title || t('editor.fallback.title')}</div>}
         right={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
@@ -2436,7 +2434,7 @@ export default function EditorPage() {
         ariaLabel={t('editor.aria.toolbar')}
       />
 
-      <div className="editor-page__content">
+      <div className="editor-page__content ws-content-area">
         {!activeTab ? (
           <div className="editor-page__empty">{t('editor.empty.noTabs')}</div>
         ) : activeTab.mode === 'markdown' ? (

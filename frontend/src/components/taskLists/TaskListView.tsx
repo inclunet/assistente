@@ -95,48 +95,50 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
   return (
     <div className="tasklist-detail">
-      <Toolbar
-        left={
-          <h1 className="page-toolbar__title">{taskList.title}</h1>
-        }
-        actions={[
-          {
-            key: 'new-task',
-            label: t('tasklist.createTask', 'Nova Tarefa'),
-            icon: '➕',
-            onClick: handleOpenCreateTask,
-            shortcut: 'Ctrl+N',
-            variant: 'primary',
-          },
-          ...(hasTasks
-            ? [
-                {
-                  key: 'toggle-view',
-                  label: currentViewMode === 'list' ? 'Kanban' : 'Lista',
-                  icon: currentViewMode === 'list' ? '🎯' : '📋',
-                  onClick: handleToggleViewMode,
-                  variant: 'secondary' as const,
-                },
-              ]
-            : []),
-          {
-            key: 'clone-list',
-            label: t('tasklist.cloneList', 'Clonar Lista'),
-            icon: '📋',
-            onClick: handleClone,
-            variant: 'secondary' as const,
-          },
-          {
-            key: 'delete-list',
-            label: t('tasklist.deleteList', 'Deletar Lista'),
-            icon: '🗑️',
-            onClick: handleDelete,
-            variant: 'danger' as const,
-          },
-        ]}
-      />
+      <div className="ws-content-toolbar">
+        <Toolbar
+          left={
+            <h1 className="page-toolbar__title">{taskList.title}</h1>
+          }
+          actions={[
+            {
+              key: 'new-task',
+              label: t('tasklist.createTask', 'Nova Tarefa'),
+              icon: '➕',
+              onClick: handleOpenCreateTask,
+              shortcut: 'Ctrl+N',
+              variant: 'primary',
+            },
+            ...(hasTasks
+              ? [
+                  {
+                    key: 'toggle-view',
+                    label: currentViewMode === 'list' ? 'Kanban' : 'Lista',
+                    icon: currentViewMode === 'list' ? '🎯' : '📋',
+                    onClick: handleToggleViewMode,
+                    variant: 'secondary' as const,
+                  },
+                ]
+              : []),
+            {
+              key: 'clone-list',
+              label: t('tasklist.cloneList', 'Clonar Lista'),
+              icon: '📋',
+              onClick: handleClone,
+              variant: 'secondary' as const,
+            },
+            {
+              key: 'delete-list',
+              label: t('tasklist.deleteList', 'Deletar Lista'),
+              icon: '🗑️',
+              onClick: handleDelete,
+              variant: 'danger' as const,
+            },
+          ]}
+        />
+      </div>
 
-      <div>
+      <div className="ws-content-area">
         {currentViewMode === 'kanban' ? (
           <KanbanBoard
             ref={(r) => { tasksRef.current = r; }}
