@@ -2003,7 +2003,41 @@ func (a *App) loadLLMProviders() error {
 	}
 
 	log.Printf("Provedores LLM carregados do SQLite: %d", len(providers))
+
+	a.ensureDefaultProvider()
+
 	return nil
+}
+
+// ensureDefaultProvider marks the first provider as default when none is.
+// Handles migration for providers created before the IsDefault feature.
+func (a *App) ensureDefaultProvider() {
+	defaultProv, err := database.GetDefaultProvider()
+	if err == nil && defaultProv != nil {
+		return
+	}
+
+	allProviders := a.llmRegistry.List()
+	if len(allProviders) == 0 {
+		return
+	}
+
+	first := allProviders[0]
+	log.Printf("[ProviderManager] Nenhum provedor default — marcando '%s' como default", first.Name)
+
+	if err := database.SetDefaultProvider(first.ID); err != nil {
+		log.Printf("[ProviderManager] Erro ao definir default: %v", err)
+		return
+	}
+	first.IsDefault = true
+
+	if first.DefaultModel == "" && first.Model != "" {
+		first.DefaultModel = first.Model
+		if dbProv, err := database.GetLLMProvider(first.ID); err == nil {
+			dbProv.DefaultModel = first.Model
+			database.SaveLLMProvider(dbProv)
+		}
+	}
 }
 
 // InterruptTerminalCommand envia Ctrl+C para uma sessão de terminal.
