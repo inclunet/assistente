@@ -6,6 +6,7 @@ import { useNavigationStore, type EditableResource } from '../store/navigationSt
 import { announce } from '../hooks/useAnnouncer';
 import { EditorReadFile } from '@wailsjs/go/main/App';
 import { RunTerminalCommand } from '@wailsjs/go/main/App';
+import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
 import i18n from './i18n';
 
 // ─── Protocol ────────────────────────────────────────────────────────
@@ -373,5 +374,21 @@ export async function executeDeepLink(
       announce(t('deepLink.announcedNewTab', { type: action.tabType }));
       break;
     }
+  }
+}
+
+/**
+ * Abre um link associado a uma task.
+ * - Deep links internos (assistente://) são executados via parseDeepLink + executeDeepLink.
+ * - URLs externas (http/https) são abertas no navegador do sistema.
+ */
+export function openTaskLink(url: string, deps: DeepLinkDeps): void {
+  if (url.startsWith('assistente://')) {
+    const action = parseDeepLink(url);
+    if (action) {
+      void executeDeepLink(action, deps);
+    }
+  } else if (url.startsWith('http://') || url.startsWith('https://')) {
+    BrowserOpenURL(url);
   }
 }

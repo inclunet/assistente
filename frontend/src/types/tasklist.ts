@@ -27,11 +27,32 @@ export interface TaskListWorkflow {
 
 // ==================== Task Types ====================
 
+export type TaskNoteType = 1 | 2 | 3 | 4;
+
+export const TASK_NOTE_TYPES = {
+  INTERNAL: 1 as TaskNoteType,
+  CUSTOMER: 2 as TaskNoteType,
+  AGENT: 3 as TaskNoteType,
+  SYSTEM: 4 as TaskNoteType,
+} as const;
+
+export interface TaskNote {
+  id: number;
+  taskId: number;
+  type: TaskNoteType;
+  content: string;
+  author?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Task {
   id: number;
   taskListId: number;
   title: string;
   description: string;
+  code?: string;
+  link?: string;
   statusId: number; // ID do status (não label)
   parentId?: number; // ID da task pai (para subtasks)
   order: number;
@@ -42,6 +63,7 @@ export interface Task {
   
   // Relações
   subtasks?: Task[];
+  notes?: TaskNote[];
 }
 
 // ==================== TaskList Types ====================

@@ -9,6 +9,7 @@ import (
 // Re-exporta tipos do database para compatibilidade
 type TaskList = database.TaskList
 type Task = database.Task
+type TaskNote = database.TaskNote
 type TaskListWorkflow = database.TaskListWorkflow
 type TaskListWorkflowStatus = database.TaskListWorkflowStatus
 
@@ -153,8 +154,8 @@ func (a *App) ValidateStatusTransition(taskListID uint, fromStatusID, toStatusID
 // ==================== Task Operations ====================
 
 // CreateTask cria uma nova tarefa
-func (a *App) CreateTask(taskListID uint, title, description string, parentID *uint) (*Task, error) {
-	task, err := database.CreateTask(taskListID, title, description, parentID)
+func (a *App) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*Task, error) {
+	task, err := database.CreateTask(taskListID, title, description, code, link, parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -178,9 +179,9 @@ func (a *App) GetTasksByStatus(taskListID uint, statusID int) ([]Task, error) {
 	return database.GetTasksByStatus(taskListID, statusID)
 }
 
-// UpdateTask atualiza title e description de uma task
-func (a *App) UpdateTask(id uint, title, description string) error {
-	err := database.UpdateTask(id, title, description)
+// UpdateTask atualiza title, description, code e link de uma task
+func (a *App) UpdateTask(id uint, title, description, code, link string) error {
+	err := database.UpdateTask(id, title, description, code, link)
 	if err != nil {
 		return err
 	}
@@ -251,6 +252,46 @@ func (a *App) DeleteTask(id uint) error {
 // GetSubtasks retorna subtasks de uma task
 func (a *App) GetSubtasks(parentID uint) ([]Task, error) {
 	return database.GetSubtasks(parentID)
+}
+
+// ==================== TaskNote Operations ====================
+
+// CreateTaskNote cria uma nova nota/interação para uma task
+func (a *App) CreateTaskNote(taskID uint, noteType int, content, author string) (*TaskNote, error) {
+	note, err := database.CreateTaskNote(taskID, database.TaskNoteType(noteType), content, author)
+	if err != nil {
+		return nil, err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskNote:created", note)
+	return note, nil
+}
+
+// GetTaskNotes retorna todas as notas de uma task
+func (a *App) GetTaskNotes(taskID uint) ([]TaskNote, error) {
+	return database.GetTaskNotes(taskID)
+}
+
+// UpdateTaskNote atualiza o conteúdo de uma nota
+func (a *App) UpdateTaskNote(noteID uint, content string) error {
+	err := database.UpdateTaskNote(noteID, content)
+	if err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskNote:updated", noteID)
+	return nil
+}
+
+// DeleteTaskNote remove uma nota
+func (a *App) DeleteTaskNote(noteID uint) error {
+	err := database.DeleteTaskNote(noteID)
+	if err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskNote:deleted", noteID)
+	return nil
 }
 
 // ==================== Utility Operations ====================

@@ -145,6 +145,33 @@
 
 /* ── Card content ──────────────────────────────────────────── */
 
+.kanban-card__code {
+  font-family: var(--font-mono, monospace);
+  font-size: 10px;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  padding: 1px 5px;
+  border-radius: var(--radius-sm);
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.kanban-card__code--link {
+  cursor: pointer;
+}
+
+.kanban-card__link-icon {
+  font-size: 9px;
+}
+
+.kanban-card__link-only {
+  font-size: 10px;
+  opacity: 0.5;
+  align-self: flex-start;
+}
+
 .kanban-card__title {
   font-size: 13px;
   font-weight: 500;

@@ -122,12 +122,16 @@ export function CreateSkill(arg1) {
   return window['go']['main']['App']['CreateSkill'](arg1);
 }
 
-export function CreateTask(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['CreateTask'](arg1, arg2, arg3, arg4);
+export function CreateTask(arg1, arg2, arg3, arg4, arg5, arg6) {
+  return window['go']['main']['App']['CreateTask'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
 export function CreateTaskList(arg1, arg2) {
   return window['go']['main']['App']['CreateTaskList'](arg1, arg2);
+}
+
+export function CreateTaskNote(arg1, arg2, arg3, arg4) {
+  return window['go']['main']['App']['CreateTaskNote'](arg1, arg2, arg3, arg4);
 }
 
 export function CreateTerminalSession(arg1) {
@@ -184,6 +188,10 @@ export function DeleteTask(arg1) {
 
 export function DeleteTaskList(arg1) {
   return window['go']['main']['App']['DeleteTaskList'](arg1);
+}
+
+export function DeleteTaskNote(arg1) {
+  return window['go']['main']['App']['DeleteTaskNote'](arg1);
 }
 
 export function DeleteWorkspace(arg1) {
@@ -504,6 +512,10 @@ export function GetTaskListStats(arg1) {
 
 export function GetTaskListWithHierarchy(arg1) {
   return window['go']['main']['App']['GetTaskListWithHierarchy'](arg1);
+}
+
+export function GetTaskNotes(arg1) {
+  return window['go']['main']['App']['GetTaskNotes'](arg1);
 }
 
 export function GetTasksByStatus(arg1, arg2) {
@@ -886,12 +898,16 @@ export function UpdateSkill(arg1, arg2) {
   return window['go']['main']['App']['UpdateSkill'](arg1, arg2);
 }
 
-export function UpdateTask(arg1, arg2, arg3) {
-  return window['go']['main']['App']['UpdateTask'](arg1, arg2, arg3);
+export function UpdateTask(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['UpdateTask'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function UpdateTaskList(arg1, arg2, arg3) {
   return window['go']['main']['App']['UpdateTaskList'](arg1, arg2, arg3);
+}
+
+export function UpdateTaskNote(arg1, arg2) {
+  return window['go']['main']['App']['UpdateTaskNote'](arg1, arg2);
 }
 
 export function UpdateTaskStatus(arg1, arg2) {

@@ -9,10 +9,12 @@ type TaskListManager interface {
 	GetTaskList(id uint) (*database.TaskList, error)
 	GetAllTaskLists() ([]database.TaskList, error)
 	GetTaskListStats(taskListID uint) (map[string]interface{}, error)
-	CreateTask(taskListID uint, title, description string, parentID *uint) (*database.Task, error)
+	CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error)
 	GetTask(id uint) (*database.Task, error)
-	UpdateTask(id uint, title, description string) error
+	UpdateTask(id uint, title, description, code, link string) error
 	UpdateTaskStatus(id uint, newStatusID int) error
 	DeleteTask(id uint) error
 	GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error)
+	CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, author string) (*database.TaskNote, error)
+	GetTaskNotes(taskID uint) ([]database.TaskNote, error)
 }

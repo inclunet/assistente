@@ -75,9 +75,11 @@ export function CreateProfile(arg1:profiles.Profile):Promise<string>;
 
 export function CreateSkill(arg1:main.SkillCreateRequest):Promise<string>;
 
-export function CreateTask(arg1:number,arg2:string,arg3:string,arg4:any):Promise<database.Task>;
+export function CreateTask(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:any):Promise<database.Task>;
 
 export function CreateTaskList(arg1:string,arg2:string):Promise<database.TaskList>;
+
+export function CreateTaskNote(arg1:number,arg2:number,arg3:string,arg4:string):Promise<database.TaskNote>;
 
 export function CreateTerminalSession(arg1:string):Promise<terminal.SessionInfo>;
 
@@ -106,6 +108,8 @@ export function DeleteSkill(arg1:string):Promise<void>;
 export function DeleteTask(arg1:number):Promise<void>;
 
 export function DeleteTaskList(arg1:number):Promise<void>;
+
+export function DeleteTaskNote(arg1:number):Promise<void>;
 
 export function DeleteWorkspace(arg1:string):Promise<void>;
 
@@ -266,6 +270,8 @@ export function GetTaskList(arg1:number):Promise<database.TaskList>;
 export function GetTaskListStats(arg1:number):Promise<Record<string, any>>;
 
 export function GetTaskListWithHierarchy(arg1:number):Promise<database.TaskList>;
+
+export function GetTaskNotes(arg1:number):Promise<Array<database.TaskNote>>;
 
 export function GetTasksByStatus(arg1:number,arg2:number):Promise<Array<database.Task>>;
 
@@ -457,9 +463,11 @@ export function UpdateProfileMediaSupport(arg1:string,arg2:boolean):Promise<void
 
 export function UpdateSkill(arg1:string,arg2:main.SkillCreateRequest):Promise<void>;
 
-export function UpdateTask(arg1:number,arg2:string,arg3:string):Promise<void>;
+export function UpdateTask(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
 export function UpdateTaskList(arg1:number,arg2:string,arg3:string):Promise<void>;
+
+export function UpdateTaskNote(arg1:number,arg2:string):Promise<void>;
 
 export function UpdateTaskStatus(arg1:number,arg2:number):Promise<void>;
 

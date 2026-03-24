@@ -1574,16 +1574,16 @@ func (m *appTaskListManager) GetTaskListStats(taskListID uint) (map[string]inter
 	return database.GetTaskListStats(taskListID)
 }
 
-func (m *appTaskListManager) CreateTask(taskListID uint, title, description string, parentID *uint) (*database.Task, error) {
-	return database.CreateTask(taskListID, title, description, parentID)
+func (m *appTaskListManager) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error) {
+	return database.CreateTask(taskListID, title, description, code, link, parentID)
 }
 
 func (m *appTaskListManager) GetTask(id uint) (*database.Task, error) {
 	return database.GetTask(id)
 }
 
-func (m *appTaskListManager) UpdateTask(id uint, title, description string) error {
-	return database.UpdateTask(id, title, description)
+func (m *appTaskListManager) UpdateTask(id uint, title, description, code, link string) error {
+	return database.UpdateTask(id, title, description, code, link)
 }
 
 func (m *appTaskListManager) UpdateTaskStatus(id uint, newStatusID int) error {
@@ -1596,6 +1596,14 @@ func (m *appTaskListManager) DeleteTask(id uint) error {
 
 func (m *appTaskListManager) GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error) {
 	return database.GetWorkflow(taskListID)
+}
+
+func (m *appTaskListManager) CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, author string) (*database.TaskNote, error) {
+	return database.CreateTaskNote(taskID, noteType, content, author)
+}
+
+func (m *appTaskListManager) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
+	return database.GetTaskNotes(taskID)
 }
 // initToolRegistry inicializa o registro de ferramentas disponíveis
 func (a *App) initToolRegistry() {
@@ -1744,6 +1752,8 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(tasklisttool.NewUpsertTask(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewBulkUpsertTasks(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewDeleteTask(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewAddTaskNote(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewGetTaskNotes(tlMgr))
 
 	// Registra ferramenta de deep links
 	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{ctx: a.ctx}))

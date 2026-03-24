@@ -34,6 +34,19 @@
   font-size: 1rem;
 }
 
+/* Task Code Column */
+
+.task-code {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.8125rem;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.task-code--empty {
+  color: var(--text-muted);
+}
+
 /* Task Row Styling */
 
 .task-title-cell {
@@ -41,6 +54,17 @@
   align-items: center;
   gap: var(--spacing-sm);
   flex: 1;
+}
+
+.task-link-icon {
+  font-size: 0.75rem;
+  opacity: 0.6;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.task-link-icon:hover {
+  opacity: 1;
 }
 
 .task-checkbox {

@@ -14,6 +14,8 @@ type upsertTaskArgs struct {
 	TaskID      *uint  `json:"task_id,omitempty"`
 	Title       string `json:"title"`
 	Description string `json:"description,omitempty"`
+	Code        string `json:"code,omitempty"`
+	Link        string `json:"link,omitempty"`
 	StatusID    *int   `json:"status_id,omitempty"`
 	ParentID    *uint  `json:"parent_task_id,omitempty"`
 }
@@ -59,6 +61,14 @@ func (t *UpsertTaskTool) Parameters() json.RawMessage {
 			"parent_task_id": {
 				"type": "integer",
 				"description": "Parent task ID to create this as a subtask (optional)"
+			},
+			"code": {
+				"type": "string",
+				"description": "External identifier or ticket code (e.g. FSD-12345, JIRA-999). Optional"
+			},
+			"link": {
+				"type": "string",
+				"description": "URL or deep link associated with this task (e.g. assistente://conversation/open?id=123 or https://jira.example.com/browse/FSD-123). Optional"
 			}
 		},
 		"required": ["task_list_id", "title"],
@@ -90,11 +100,11 @@ func (t *UpsertTaskTool) Execute(ctx context.Context, args json.RawMessage) (too
 
 	// UPDATE existing task
 	if params.TaskID != nil {
-		return t.updateTask(*params.TaskID, title, params.Description, params.StatusID)
+		return t.updateTask(*params.TaskID, title, params.Description, params.Code, params.Link, params.StatusID)
 	}
 
 	// CREATE new task
-	return t.createTask(params.TaskListID, title, params.Description, params.ParentID, params.StatusID)
+	return t.createTask(params.TaskListID, title, params.Description, params.Code, params.Link, params.ParentID, params.StatusID)
 }
 
 func (t *UpsertTaskTool) validateStatusID(taskListID uint, statusID int) error {
@@ -121,8 +131,8 @@ func (t *UpsertTaskTool) validateStatusID(taskListID uint, statusID int) error {
 	return fmt.Errorf("invalid status_id %d. Valid statuses: %s", statusID, strings.Join(validLabels, ", "))
 }
 
-func (t *UpsertTaskTool) updateTask(taskID uint, title, description string, statusID *int) (tools.ToolResult, error) {
-	if err := t.mgr.UpdateTask(taskID, title, description); err != nil {
+func (t *UpsertTaskTool) updateTask(taskID uint, title, description, code, link string, statusID *int) (tools.ToolResult, error) {
+	if err := t.mgr.UpdateTask(taskID, title, description, code, link); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error updating task %d: %v", taskID, err), IsError: true}, nil
 	}
 
@@ -149,8 +159,8 @@ func (t *UpsertTaskTool) updateTask(taskID uint, title, description string, stat
 	}, nil
 }
 
-func (t *UpsertTaskTool) createTask(taskListID uint, title, description string, parentID *uint, statusID *int) (tools.ToolResult, error) {
-	task, err := t.mgr.CreateTask(taskListID, title, description, parentID)
+func (t *UpsertTaskTool) createTask(taskListID uint, title, description, code, link string, parentID *uint, statusID *int) (tools.ToolResult, error) {
+	task, err := t.mgr.CreateTask(taskListID, title, description, code, link, parentID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating task: %v", err), IsError: true}, nil
 	}

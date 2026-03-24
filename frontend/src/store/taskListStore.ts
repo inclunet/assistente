@@ -21,9 +21,15 @@ import {
   PromoteTask,
   DemoteTask,
   ReorderTasks,
+  CreateTaskNote,
+  GetTaskNotes,
+  UpdateTaskNote,
+  DeleteTaskNote,
 } from '@wailsjs/go/main/App';
 import type {
   Task,
+  TaskNote,
+  TaskNoteType,
   TaskListWithWorkflow,
   ViewMode,
   TaskListWorkflow,
@@ -42,6 +48,8 @@ function normalizeTask(raw: unknown): Task {
     taskListId: (r.taskListId ?? r.task_list_id) as number,
     title: (r.title ?? '') as string,
     description: (r.description ?? '') as string,
+    code: (r.code ?? '') as string || undefined,
+    link: (r.link ?? '') as string || undefined,
     statusId: (r.statusId ?? r.status_id) as number,
     parentId: (r.parentId ?? r.parent_id) as number | undefined,
     order: (r.order ?? 0) as number,
@@ -52,6 +60,19 @@ function normalizeTask(raw: unknown): Task {
     subtasks: Array.isArray(r.subtasks)
       ? r.subtasks.map(normalizeTask)
       : undefined,
+  };
+}
+
+function normalizeTaskNote(raw: unknown): TaskNote {
+  const r = raw as Record<string, unknown>;
+  return {
+    id: r.id as number,
+    taskId: (r.taskId ?? r.task_id) as number,
+    type: (r.type ?? 1) as TaskNoteType,
+    content: (r.content ?? '') as string,
+    author: (r.author ?? '') as string || undefined,
+    createdAt: (r.createdAt ?? r.created_at ?? '') as string,
+    updatedAt: (r.updatedAt ?? r.updated_at ?? '') as string,
   };
 }
 
@@ -138,14 +159,20 @@ interface TaskListStoreState {
   reorderWorkflowStatuses: (taskListId: number, statusOrder: number[]) => Promise<void>;
 
   // Task management
-  createTask: (taskListId: number, title: string, description?: string, parentId?: number) => Promise<Task | null>;
-  updateTask: (taskId: number, title: string, description?: string) => Promise<void>;
+  createTask: (taskListId: number, title: string, description?: string, code?: string, link?: string, parentId?: number) => Promise<Task | null>;
+  updateTask: (taskId: number, title: string, description?: string, code?: string, link?: string) => Promise<void>;
   deleteTask: (taskId: number) => Promise<void>;
   updateTaskStatus: (taskId: number, statusId: number) => Promise<void>;
   reorderTasks: (taskListId: number, statusId: number, orderedIds: number[]) => Promise<void>;
   promoteTask: (taskId: number) => Promise<void>;
   demoteTask: (taskId: number, parentId: number) => Promise<void>;
   getTaskListTasks: (taskListId: number) => Task[];
+
+  // TaskNote management
+  loadTaskNotes: (taskId: number) => Promise<TaskNote[]>;
+  createTaskNote: (taskId: number, type: TaskNoteType, content: string, author?: string) => Promise<TaskNote | null>;
+  updateTaskNote: (noteId: number, content: string) => Promise<void>;
+  deleteTaskNote: (noteId: number) => Promise<void>;
 
   // UI helpers
   toggleTaskExpanded: (taskId: number) => void;
@@ -434,9 +461,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     },
 
     // Task management
-    createTask: async (taskListId: number, title: string, description?: string, parentId?: number) => {
+    createTask: async (taskListId: number, title: string, description?: string, code?: string, link?: string, parentId?: number) => {
       try {
-        const rawTask = await CreateTask(taskListId, title, description || '', parentId);
+        const rawTask = await CreateTask(taskListId, title, description || '', code || '', link || '', parentId);
         if (rawTask) {
           const task = normalizeTask(rawTask);
           // Adiciona ao cache in-place (evita invalidação + reload)
@@ -464,8 +491,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateTask: async (taskId: number, title: string, description?: string) => {
-      // Optimistic update — altera localmente antes de confirmar no backend
+    updateTask: async (taskId: number, title: string, description?: string, code?: string, link?: string) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         for (const [tlId, taskList] of newCache.entries()) {
@@ -474,7 +500,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
             const idx = tasks.findIndex((t) => t.id === taskId);
             if (idx >= 0) {
               const updatedTasks = [...tasks];
-              updatedTasks[idx] = { ...updatedTasks[idx], title, description: description || '' };
+              updatedTasks[idx] = { ...updatedTasks[idx], title, description: description || '', code: code || undefined, link: link || undefined };
               newCache.set(tlId, { ...taskList, tasks: updatedTasks });
               return { taskLists: newCache };
             }
@@ -483,7 +509,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         return {};
       });
       try {
-        await UpdateTask(taskId, title, description || '');
+        await UpdateTask(taskId, title, description || '', code || '', link || '');
       } catch (error) {
         get().setError('updateTask', String(error));
       }
@@ -574,6 +600,46 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         await DemoteTask(taskId, parentId);
       } catch (error) {
         get().setError('demoteTask', String(error));
+      }
+    },
+
+    // TaskNote management
+    loadTaskNotes: async (taskId: number) => {
+      try {
+        const rawNotes = await GetTaskNotes(taskId);
+        return (rawNotes || []).map(normalizeTaskNote);
+      } catch (error) {
+        get().setError('loadTaskNotes', String(error));
+        return [];
+      }
+    },
+
+    createTaskNote: async (taskId: number, type: TaskNoteType, content: string, author?: string) => {
+      try {
+        const rawNote = await CreateTaskNote(taskId, type, content, author || '');
+        if (rawNote) {
+          return normalizeTaskNote(rawNote);
+        }
+        return null;
+      } catch (error) {
+        get().setError('createTaskNote', String(error));
+        return null;
+      }
+    },
+
+    updateTaskNote: async (noteId: number, content: string) => {
+      try {
+        await UpdateTaskNote(noteId, content);
+      } catch (error) {
+        get().setError('updateTaskNote', String(error));
+      }
+    },
+
+    deleteTaskNote: async (noteId: number) => {
+      try {
+        await DeleteTaskNote(noteId);
+      } catch (error) {
+        get().setError('deleteTaskNote', String(error));
       }
     },
 
