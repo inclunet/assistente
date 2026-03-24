@@ -772,6 +772,13 @@ const ptBR = {
       fillApiKey: 'ℹ️ Preencha a API Key para testar',
       error: { nameRequired: 'Nome é obrigatório', urlRequired: 'URL é obrigatória', urlInvalid: 'URL inválida', apiKeyRequired: 'API Key é obrigatória para', testFirst: 'Teste a conexão antes de salvar', apiKeyRequiredTest: 'API Key é obrigatória para testar', noResponse: 'API não respondeu. Verifique URL e credenciais.', testError: 'Erro ao testar API', testApiFirst: 'Teste a API antes de salvar', saveError: 'Erro ao salvar provedor' },
       updateBtn: 'Atualizar',
+      defaultModel: 'Modelo Padrão',
+      defaultModelHelp: 'Modelo usado quando o perfil escolhe "Padrão". Deixe vazio para usar o primeiro modelo disponível.',
+      loadingModels: 'Carregando modelos...',
+      loadModels: 'Carregar modelos do provedor',
+      loadModelsBtn: '📡 Carregar Modelos',
+      modelAutomatic: '(Automático — primeiro disponível)',
+      modelPlaceholder: 'ex: gpt-4o-mini',
     },
 
     providers: {

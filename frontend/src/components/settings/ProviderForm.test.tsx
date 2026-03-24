@@ -17,6 +17,34 @@ vi.mock('react-i18next', () => ({
         'providerForm.error.urlRequired': 'URL é obrigatória',
         'providerForm.error.urlInvalid': 'URL inválida',
         'providerForm.error.testFirst': 'Teste a API antes de salvar',
+        'providerForm.error.apiKeyRequiredTest': 'API Key é obrigatória para testar',
+        'providerForm.defaultModel': 'Modelo Padrão',
+        'providerForm.defaultModelHelp': 'Modelo usado quando o perfil escolhe Padrão',
+        'providerForm.loadingModels': 'Carregando modelos...',
+        'providerForm.loadModels': 'Carregar modelos',
+        'providerForm.loadModelsBtn': '📡 Carregar Modelos',
+        'providerForm.modelAutomatic': '(Automático)',
+        'providerForm.modelPlaceholder': 'ex: gpt-4o-mini',
+        'providerForm.connected': '✓ Conectado',
+        'providerForm.urlReadonly': 'URL padrão',
+        'providerForm.apiKey': 'API Key',
+        'providerForm.apiKeyOptional': 'API Key (Opcional)',
+        'providerForm.keySaved': 'Será salva criptografada',
+        'providerForm.noKeyNeeded': 'Deixe em branco',
+        'providerForm.leaveEmpty': 'Deixar em branco',
+        'providerForm.hideKey': 'Ocultar chave',
+        'providerForm.showKey': 'Mostrar chave',
+        'providerForm.changeKey': 'Alterar API Key',
+        'providerForm.changeKeyBtn': '🔓 Alterar Chave',
+        'providerForm.keyConfigured': '🔑 Chave configurada no gerenciador de credenciais',
+        'providerForm.keepCurrent': 'Deixe em branco para manter',
+        'providerForm.keyConfiguredOptional': '🔑 Chave configurada',
+        'providerForm.fillApiKey': 'Preencha a API Key',
+        'providerForm.updateBtn': 'Atualizar',
+        'providerForm.error.testError': 'Erro ao testar API',
+        'common.cancel': 'Cancelar',
+        'common.saving': 'Salvando...',
+        'common.create': 'Criar',
       };
       return translations[key] ?? key;
     },
@@ -28,7 +56,7 @@ vi.mock("@wailsjs/go/main/App", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wailsjs/go/main/App")>();
   return {
     ...actual,
-    TestLLMProvider: vi.fn(() => Promise.resolve(true)),
+    ListModelsRaw: vi.fn(() => Promise.resolve(["gpt-4o", "gpt-4o-mini"])),
     CreateLLMProvider: vi.fn(() => Promise.resolve({ id: "123" })),
     UpdateLLMProvider: vi.fn(() => Promise.resolve({})),
   };
@@ -237,12 +265,12 @@ describe("ProviderForm - Validação", () => {
   });
 });
 
-describe("ProviderForm - Testador de Conexão", () => {
+describe("ProviderForm - Carregamento de Modelos", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it("deve chamar TestLLMProvider com dados corretos", async () => {
+  it("deve chamar ListModelsRaw com dados corretos ao clicar Carregar Modelos", async () => {
     const user = userEvent.setup();
 
     render(
@@ -258,11 +286,11 @@ describe("ProviderForm - Testador de Conexão", () => {
     const typeSelect = screen.getByLabelText(/tipo/i);
     await user.selectOptions(typeSelect, "ollama");
 
-    const testButton = screen.getByRole("button", { name: /testar/i });
-    await user.click(testButton);
+    const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
+    await user.click(loadButton);
 
     await waitFor(() => {
-      expect(App.TestLLMProvider).toHaveBeenCalledWith(
+      expect(App.ListModelsRaw).toHaveBeenCalledWith(
         expect.objectContaining({
           type: "ollama",
           base_url: "http://localhost:11434",
@@ -271,7 +299,7 @@ describe("ProviderForm - Testador de Conexão", () => {
     });
   });
 
-  it("deve mostrar sucesso quando teste passar", async () => {
+  it("deve mostrar modelos quando carregados com sucesso", async () => {
     const user = userEvent.setup();
 
     render(
@@ -287,16 +315,19 @@ describe("ProviderForm - Testador de Conexão", () => {
     const typeSelect = screen.getByLabelText(/tipo/i);
     await user.selectOptions(typeSelect, "ollama");
 
-    const testButton = screen.getByRole("button", { name: /testar/i });
-    await user.click(testButton);
+    const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
+    await user.click(loadButton);
 
     await waitFor(() => {
       expect(screen.getByText(/conectado/i)).toBeInTheDocument();
     });
+
+    // Deve mostrar o select de modelos
+    expect(screen.getByLabelText(/modelo padrão/i)).toBeInTheDocument();
   });
 
-  it("deve mostrar erro quando teste falhar", async () => {
-    vi.mocked(App.TestLLMProvider).mockRejectedValueOnce(
+  it("deve mostrar erro quando carregamento falhar", async () => {
+    vi.mocked(App.ListModelsRaw).mockRejectedValueOnce(
       new Error("Conexão recusada")
     );
 
@@ -315,11 +346,40 @@ describe("ProviderForm - Testador de Conexão", () => {
     const typeSelect = screen.getByLabelText(/tipo/i);
     await user.selectOptions(typeSelect, "ollama");
 
-    const testButton = screen.getByRole("button", { name: /testar/i });
-    await user.click(testButton);
+    const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
+    await user.click(loadButton);
 
     await waitFor(() => {
-      expect(screen.getByRole("alert")).toBeInTheDocument();
+      expect(screen.getByText(/Conexão recusada/i)).toBeInTheDocument();
+    });
+  });
+
+  it("deve mostrar input livre quando endpoint não suportado", async () => {
+    vi.mocked(App.ListModelsRaw).mockRejectedValueOnce(
+      new Error("models_endpoint_not_supported")
+    );
+
+    const user = userEvent.setup();
+
+    render(
+      <ProviderForm
+        onCancel={() => {}}
+        onSave={() => {}}
+      />
+    );
+
+    const nameInput = screen.getByLabelText(/nome/i);
+    await user.type(nameInput, "My Custom");
+
+    const typeSelect = screen.getByLabelText(/tipo/i);
+    await user.selectOptions(typeSelect, "ollama");
+
+    const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
+    await user.click(loadButton);
+
+    await waitFor(() => {
+      // O status deve indicar conexão ok
+      expect(screen.getByText(/conectado/i)).toBeInTheDocument();
     });
   });
 });
@@ -346,8 +406,8 @@ describe("ProviderForm - Salvar", () => {
     const typeSelect = screen.getByLabelText(/tipo/i);
     await user.selectOptions(typeSelect, "ollama");
 
-    const testButton = screen.getByRole("button", { name: /testar/i });
-    await user.click(testButton);
+    const loadButton = screen.getByRole("button", { name: /carregar modelos/i });
+    await user.click(loadButton);
 
     await waitFor(() => {
       expect(screen.getByText(/conectado/i)).toBeInTheDocument();
@@ -382,14 +442,14 @@ describe("ProviderForm - Salvar", () => {
       />
     );
 
-    // Auto-teste roda automaticamente ao abrir edição; esperar conclusão
+    // Auto-carregamento de modelos roda automaticamente ao abrir edição
     await waitFor(() => {
       expect(screen.getByText(/conectado/i)).toBeInTheDocument();
     });
 
     const buttons = screen.getAllByRole("button");
-    const updateButton = buttons.find(btn => btn.textContent?.includes("Atualizar") || btn.textContent?.includes("Salvar"));
-    if (!updateButton) throw new Error("Update/Create button not found");
+    const updateButton = buttons.find(btn => btn.textContent?.includes("Atualizar"));
+    if (!updateButton) throw new Error("Update button not found");
     await user.click(updateButton);
 
     await waitFor(() => {

@@ -98,3 +98,14 @@
   cursor: not-allowed;
 }
 
+.provider-form__model-load-section {
+  display: flex;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.provider-form__hint {
+  font-size: 0.85rem;
+  color: var(--text-secondary);
+}
+

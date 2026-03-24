@@ -570,6 +570,10 @@ export function ListMCPServers() {
   return window['go']['main']['App']['ListMCPServers']();
 }
 
+export function ListModelsRaw(arg1) {
+  return window['go']['main']['App']['ListModelsRaw'](arg1);
+}
+
 export function ListTerminalSessions() {
   return window['go']['main']['App']['ListTerminalSessions']();
 }

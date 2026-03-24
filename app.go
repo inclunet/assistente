@@ -3495,6 +3495,63 @@ func (a *App) TestLLMProvider(req TestLLMProviderRequest) (bool, error) {
 	return true, nil
 }
 
+// ListModelsRaw lista modelos de um provedor usando credenciais ad-hoc (sem exigir provider salvo).
+// Usado pelo formulário de criação/edição de providers para validar e selecionar modelo.
+// Se provider_id é informado e api_key está vazio, busca credencial existente.
+func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
+	if req.BaseURL == "" {
+		return nil, fmt.Errorf("base_url é obrigatório")
+	}
+
+	parsedURL, err := url.Parse(req.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("URL inválida: %w", err)
+	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return nil, fmt.Errorf("URL deve começar com http:// ou https://")
+	}
+	if parsedURL.Host == "" {
+		return nil, fmt.Errorf("URL deve conter um endereço de servidor válido")
+	}
+
+	apiKey := req.APIKey
+
+	// Se não tem API key mas tem provider_id, busca credencial existente
+	if apiKey == "" && req.ProviderID != "" && a.llmRegistry != nil && a.credMgr != nil {
+		if provider := a.llmRegistry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
+			if auth, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth.Token != "" {
+				apiKey = auth.Token
+			}
+		}
+	}
+
+	// Cria provider temporário para usar o client LLM
+	hostname := parsedURL.Hostname()
+	tempProvider := &llm.ProviderConfig{
+		ID:                "temp-form",
+		Name:              "temp",
+		Type:              llm.ProviderType(req.Type),
+		BaseURL:           req.BaseURL,
+		CredentialPattern: hostname,
+		Timeout:           15,
+	}
+	tempCfg := &config.Config{
+		APIKey:     apiKey,
+		APIBaseURL: req.BaseURL,
+	}
+
+	tempClient := llm.NewClient(tempProvider, tempCfg, a.credMgr)
+
+	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
+	defer cancel()
+
+	models, err := tempClient.GetModels(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return models, nil
+}
+
 // CreateLLMProvider cria um novo provider com auto-salvamento de credenciais
 func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interface{}, error) {
 	// Validação

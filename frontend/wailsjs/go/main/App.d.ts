@@ -299,6 +299,8 @@ export function ListExternalSources(arg1:string):Promise<Array<main.ExternalSour
 
 export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
 
+export function ListModelsRaw(arg1:main.TestLLMProviderRequest):Promise<Array<string>>;
+
 export function ListTerminalSessions():Promise<Array<terminal.SessionInfo>>;
 
 export function ListWorkspaces():Promise<Array<workspace.WorkspaceInfo>>;

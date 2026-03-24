@@ -772,6 +772,13 @@ const en = {
       fillApiKey: 'ℹ️ Fill in the API Key to test',
       error: { nameRequired: 'Name is required', urlRequired: 'URL is required', urlInvalid: 'Invalid URL', apiKeyRequired: 'API Key is required for', testFirst: 'Test the connection before saving', apiKeyRequiredTest: 'API Key is required to test', noResponse: 'API did not respond. Check URL and credentials.', testError: 'Error testing API', testApiFirst: 'Test the API before saving', saveError: 'Error saving provider' },
       updateBtn: 'Update',
+      defaultModel: 'Default Model',
+      defaultModelHelp: 'Model used when the profile chooses "Default". Leave empty to use the first available model.',
+      loadingModels: 'Loading models...',
+      loadModels: 'Load models from provider',
+      loadModelsBtn: '📡 Load Models',
+      modelAutomatic: '(Automatic — first available)',
+      modelPlaceholder: 'e.g. gpt-4o-mini',
     },
 
     providers: {
