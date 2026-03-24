@@ -1052,7 +1052,7 @@ const es = {
       profileDescription: 'Ctrl+Shift+P. Abre una lista para cambiar el perfil de interacción del workspace',
       profileChanged: 'Perfil cambiado',
       tabProfileLabel: 'Perfil',
-      tabProfileDescription: 'Ctrl+P. Abre una lista para cambiar el perfil de interacción de este panel de chat',
+      tabProfileDescription: 'Ctrl+P. Abre una lista para cambiar el perfil de interacción de esta pestaña',
       tabSingular: 'pestaña',
       tabPlural: 'pestañas',
       tabCreated: 'Pestaña creada',

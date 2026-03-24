@@ -79,6 +79,20 @@ export default function EditorPage() {
   const setEditorProfileSlug = useEditorStore((s) => s.setEditorProfileSlug);
   const hydrate = useEditorStore((s) => s.hydrate);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
+  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
+
+  const tabProfileSlug = wsActiveTab?.type === 'editor'
+    ? (wsActiveTab.profileOverride?.slug as string | undefined)
+    : undefined;
+  const effectiveProfileSlug = tabProfileSlug || wsProfile || editorProfileSlug;
+
+  useEffect(() => {
+    if (tabProfileSlug && tabProfileSlug !== editorProfileSlug) {
+      setEditorProfileSlug(tabProfileSlug);
+    }
+  }, [tabProfileSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeTab = useMemo(() => activeDocumentId ? documents[activeDocumentId] ?? null : null, [documents, activeDocumentId]);
 
@@ -2421,16 +2435,25 @@ export default function EditorPage() {
               aria-haspopup="menu"
             />
 
-            <ProfilePicker
-              value={editorProfileSlug}
-              onChange={(slug) => setEditorProfileSlug(slug)}
-              label={t('editor.labels.profile')}
-              icon="✍️"
-              maxWidth="280px"
-            />
           </div>
         }
         actions={actions}
+        rightEnd={
+          <ProfilePicker
+            value={effectiveProfileSlug}
+            onChange={(slug) => {
+              setEditorProfileSlug(slug);
+              if (wsActiveTab) {
+                void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
+              }
+            }}
+            variant="toolbar"
+            label={t('workspace.tabProfileLabel', 'Perfil')}
+            description={t('workspace.tabProfileDescription')}
+            icon="✍️"
+            maxWidth="180px"
+          />
+        }
         ariaLabel={t('editor.aria.toolbar')}
       />
 

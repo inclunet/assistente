@@ -1,14 +1,23 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
+import { ProfilePicker } from '../components/pickers/ProfilePicker';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
 import { useTabScrollState } from '../hooks/useTabScrollState';
 import './TerminalPage.css';
 
 export default function TerminalPage() {
   const { t } = useTranslation();
+  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
+  const tabProfileSlug = wsActiveTab?.type === 'terminal'
+    ? (wsActiveTab.profileOverride?.slug as string | undefined)
+    : undefined;
+  const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
   useTabScrollState(historyContainerRef);
@@ -100,6 +109,20 @@ export default function TerminalPage() {
                 icon="■"
                 shortcut="Ctrl+C"
                 onClick={() => interrupt()}
+              />
+              <ToolbarSeparator />
+              <ProfilePicker
+                value={effectiveProfileSlug}
+                onChange={(slug) => {
+                  if (wsActiveTab) {
+                    void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
+                  }
+                }}
+                variant="toolbar"
+                label={t('workspace.tabProfileLabel', 'Perfil')}
+                description={t('workspace.tabProfileDescription')}
+                icon=">_"
+                maxWidth="180px"
               />
             </>
           }

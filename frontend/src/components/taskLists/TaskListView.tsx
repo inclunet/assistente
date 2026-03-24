@@ -1,10 +1,12 @@
 import { useEffect, useRef, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import { Toolbar } from '../ui/Toolbar';
+import { ProfilePicker } from '../pickers/ProfilePicker';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
 import type { ViewMode } from '../../types/tasklist';
@@ -22,6 +24,14 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const requestConfirm = useConfirm();
+
+  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
+  const tabProfileSlug = wsActiveTab?.type === 'tasklist'
+    ? (wsActiveTab.profileOverride?.slug as string | undefined)
+    : undefined;
+  const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
   const { loadTaskList, setViewMode, cloneTaskList, deleteTaskList } = useTaskListStore();
@@ -99,6 +109,21 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
         <Toolbar
           left={
             <h1 className="page-toolbar__title">{taskList.title}</h1>
+          }
+          rightEnd={
+            <ProfilePicker
+              value={effectiveProfileSlug}
+              onChange={(slug) => {
+                if (wsActiveTab) {
+                  void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
+                }
+              }}
+              variant="toolbar"
+              label={t('workspace.tabProfileLabel', 'Perfil')}
+              description={t('workspace.tabProfileDescription')}
+              icon="✅"
+              maxWidth="180px"
+            />
           }
           actions={[
             {

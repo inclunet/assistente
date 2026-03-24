@@ -1046,7 +1046,7 @@ const ptBR = {
       profileDescription: 'Ctrl+Shift+P. Abre uma lista para trocar o perfil de interação do workspace',
       profileChanged: 'Perfil alterado',
       tabProfileLabel: 'Perfil',
-      tabProfileDescription: 'Ctrl+P. Abre uma lista para trocar o perfil de interação deste painel de chat',
+      tabProfileDescription: 'Ctrl+P. Abre uma lista para trocar o perfil de interação desta aba',
       tabSingular: 'aba',
       tabPlural: 'abas',
       tabCreated: 'Aba criada',

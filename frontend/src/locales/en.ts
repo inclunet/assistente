@@ -1046,7 +1046,7 @@ const en = {
       profileDescription: 'Ctrl+Shift+P. Opens a list to switch the interaction profile of the workspace',
       profileChanged: 'Profile changed',
       tabProfileLabel: 'Profile',
-      tabProfileDescription: 'Ctrl+P. Opens a list to switch the interaction profile of this chat panel',
+      tabProfileDescription: 'Ctrl+P. Opens a list to switch the interaction profile of this tab',
       tabSingular: 'tab',
       tabPlural: 'tabs',
       tabCreated: 'Tab created',
