@@ -1010,6 +1010,8 @@ const ptBR = {
       announcedNewResource: 'Abrindo formulário de criação',
       openTab: 'Abrir {{type}} {{id}}',
       announcedOpenTab: '{{type}} {{id}} aberto',
+      newTab: 'Novo {{type}}',
+      announcedNewTab: 'Novo {{type}} criado',
     },
     landmarks: {
       tabs: 'Guias',

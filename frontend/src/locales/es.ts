@@ -1009,6 +1009,8 @@ const es = {
       announcedNewResource: 'Abriendo formulario de creación',
       openTab: 'Abrir {{type}} {{id}}',
       announcedOpenTab: '{{type}} {{id}} abierto',
+      newTab: 'Nuevo {{type}}',
+      announcedNewTab: 'Nuevo {{type}} creado',
     },
     landmarks: {
       tabs: 'Pestañas',

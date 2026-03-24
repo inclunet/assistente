@@ -1010,6 +1010,8 @@ const en = {
       announcedNewResource: 'Opening creation form',
       openTab: 'Open {{type}} {{id}}',
       announcedOpenTab: '{{type}} {{id}} opened',
+      newTab: 'New {{type}}',
+      announcedNewTab: 'New {{type}} created',
     },
     landmarks: {
       tabs: 'Tabs',

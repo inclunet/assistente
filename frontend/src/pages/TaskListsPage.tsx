@@ -18,6 +18,7 @@ import { useGridFocus } from '../hooks/useGridFocus';
 import { useConfirm } from '../hooks/useConfirm';
 import { useUIStore } from '../store/uiStore';
 import { executeDeepLink } from '../lib/deepLinks';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import type { TaskListWithWorkflow } from '../types/tasklist';
 import './TaskListsPage.css';
 
@@ -68,6 +69,15 @@ export default function TaskListsPage() {
       }
     });
   }, [fetchAllTaskLists]);
+
+  useResourceEditRequest('tasklists', {
+    onEdit: (id) => {
+      const list = taskLists.get(Number(id));
+      if (list) handleOpenEditor(list as TaskListRow);
+    },
+    onNew: () => handleOpenEditor(),
+    ready: loadedRef.current,
+  });
 
   const allTaskLists = useMemo(() => Array.from(taskLists.values()), [taskLists]);
 
