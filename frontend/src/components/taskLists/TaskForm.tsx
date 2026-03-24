@@ -27,6 +27,8 @@ export default function TaskForm({
   const [formData, setFormData] = useState({
     title: task?.title || '',
     description: task?.description || '',
+    code: task?.code || '',
+    link: task?.link || '',
     dueDate: task?.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : '',
   });
 
@@ -45,15 +47,15 @@ export default function TaskForm({
     setIsLoading(true);
     try {
       if (task) {
-        // Editar tarefa existente
-        await updateTask(task.id, formData.title, formData.description || undefined);
+        await updateTask(task.id, formData.title, formData.description || undefined, formData.code || undefined, formData.link || undefined);
         onSuccess?.(task);
       } else {
-        // Criar nova tarefa
         const newTask = await createTask(
           taskListId,
           formData.title,
           formData.description || undefined,
+          formData.code || undefined,
+          formData.link || undefined,
         );
         if (newTask) {
           onSuccess?.(newTask);
@@ -101,6 +103,34 @@ export default function TaskForm({
           disabled={isLoading}
           rows={4}
           maxLength={1000}
+        />
+      </FormField>
+
+      <FormField
+        label={t('tasklist.code', 'Código')}
+        description={t('tasklist.codeDescription', 'Identificador externo ou código de ticket (opcional)')}
+      >
+        <Input
+          type="text"
+          value={formData.code}
+          onChange={(e) => setFormData({ ...formData, code: e.target.value })}
+          placeholder={t('tasklist.codePlaceholder', 'Ex: FSD-12345')}
+          disabled={isLoading}
+          maxLength={128}
+        />
+      </FormField>
+
+      <FormField
+        label={t('tasklist.link', 'Link')}
+        description={t('tasklist.linkDescription', 'URL ou deep link associado à tarefa (opcional)')}
+      >
+        <Input
+          type="text"
+          value={formData.link}
+          onChange={(e) => setFormData({ ...formData, link: e.target.value })}
+          placeholder={t('tasklist.linkPlaceholder', 'Ex: assistente://conversation/open?id=123')}
+          disabled={isLoading}
+          maxLength={512}
         />
       </FormField>
 

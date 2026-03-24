@@ -8,12 +8,15 @@ import {
   useImperativeHandle,
 } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
+import { openTaskLink } from '../../lib/deepLinks';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { ContextMenu } from '../menu';
 import { Modal } from '../ui/Modal';
 import TaskForm from './TaskForm';
+import TaskDetailModal from './TaskDetailModal';
 import type { Task, TaskListWithWorkflow } from '../../types/tasklist';
 import './KanbanBoard.css';
 
@@ -44,6 +47,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   ref,
 ) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { announce } = useAnnouncer();
   const { updateTaskStatus, reorderTasks, deleteTask } = useTaskListStore();
 
@@ -52,7 +56,9 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   const [grabbedTask, setGrabbedTask] = useState<Task | null>(null);
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
 
   // ── Refs ───────────────────────────────────────────────────
   const boardRef = useRef<HTMLDivElement>(null);
@@ -200,7 +206,9 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   const handleCloseModals = useCallback(() => {
     setIsCreateModalOpen(false);
     setIsEditModalOpen(false);
+    setIsDetailModalOpen(false);
     setEditingTask(null);
+    setDetailTask(null);
   }, []);
 
   const handleTaskCreated = useCallback(
@@ -223,6 +231,14 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   const openCardContextMenu = useCallback(
     (task: Task, _colIdx: number, trigger: HTMLElement) => {
       const items = [
+        {
+          id: 'details',
+          label: t('tasklist.details', 'Detalhes'),
+          action: () => {
+            setDetailTask(task);
+            setIsDetailModalOpen(true);
+          },
+        },
         {
           id: 'edit',
           label: t('tasklist.edit', 'Editar'),
@@ -637,6 +653,10 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
                             setFocusPos({ col: colIdx, row: rowIdx });
                             announceCard(task, colIdx, rowIdx);
                           }}
+                          onDoubleClick={() => {
+                            setDetailTask(task);
+                            setIsDetailModalOpen(true);
+                          }}
                           onContextMenu={(e) => {
                             e.preventDefault();
                             setFocusPos({ col: colIdx, row: rowIdx });
@@ -665,6 +685,27 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
                             />
                           ) : (
                             <>
+                              {task.code && (
+                                <span
+                                  className={`kanban-card__code${task.link ? ' kanban-card__code--link' : ''}`}
+                                  {...(task.link ? {
+                                    role: 'button',
+                                    tabIndex: -1,
+                                    onClick: (e: React.MouseEvent) => { e.stopPropagation(); openTaskLink(task.link!, { navigate }); },
+                                  } : {})}
+                                >
+                                  {task.code}
+                                  {task.link && <span className="kanban-card__link-icon" aria-hidden="true">🔗</span>}
+                                </span>
+                              )}
+                              {!task.code && task.link && (
+                                <span
+                                  className="kanban-card__link-only"
+                                  role="button"
+                                  tabIndex={-1}
+                                  onClick={(e) => { e.stopPropagation(); openTaskLink(task.link!, { navigate }); }}
+                                >🔗</span>
+                              )}
                               <span className="kanban-card__title">{task.title}</span>
                               {task.dueDate && (
                                 <span
@@ -718,6 +759,14 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           />
         )}
       </Modal>
+
+      {/* Modal de Detalhes da Tarefa */}
+      <TaskDetailModal
+        isOpen={isDetailModalOpen}
+        onClose={handleCloseModals}
+        task={detailTask}
+        statuses={statuses}
+      />
     </div>
   );
 });

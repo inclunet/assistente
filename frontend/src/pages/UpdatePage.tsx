@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { StartUpdate } from '@wailsjs/go/main/App';
 import { useUIStore } from '../store/uiStore';
+import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './UpdatePage.css';
 
 interface ProgressEvent {
@@ -27,6 +28,7 @@ export default function UpdatePage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { addToast } = useUIStore();
+  useContentPageLandmarks({ pageClass: 'update-page' });
 
   const getErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : String(error ?? '');

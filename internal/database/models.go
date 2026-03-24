@@ -13,6 +13,8 @@ type LLMProvider struct {
 	Type              string `gorm:"not null"` // openai, claude, ollama, etc
 	BaseURL           string `gorm:"not null"`
 	Model             string
+	DefaultModel      string
+	IsDefault         bool `gorm:"default:false"`
 	Timeout           int
 	CredentialPattern string
 	CreatedAt         time.Time
@@ -67,23 +69,6 @@ type ChatMessage struct {
 	Model            string    `json:"model,omitempty"`                  // Modelo usado
 	Source           string    `json:"source,omitempty"`                 // Origem da mensagem: "wails", "telegram", "signal", etc.
 	CreatedAt        time.Time `json:"createdAt"`
-}
-
-// ==================== Chat Tabs ====================
-
-// ChatTab representa uma aba de chat aberta na interface
-type ChatTab struct {
-	ID             uint      `json:"id" gorm:"primaryKey"`
-	ConversationID *uint     `json:"conversation_id,omitempty" gorm:"index"`
-	Title          string    `json:"title" gorm:"default:'Nova conversa'"`
-	Icon           string    `json:"icon" gorm:"default:'💬'"`
-	Position       int       `json:"position" gorm:"index;default:0"`
-	IsActive       bool      `json:"is_active" gorm:"index;default:false"`
-	CreatedAt      time.Time `json:"created_at"`
-	UpdatedAt      time.Time `json:"updated_at"`
-
-	// Relacionamento
-	Conversation *Conversation `json:"conversation,omitempty" gorm:"foreignKey:ConversationID"`
 }
 
 // ==================== Credenciais ====================
@@ -152,17 +137,13 @@ type TaskList struct {
 	ID                uint      `json:"id" gorm:"primaryKey"`
 	Title             string    `json:"title" gorm:"not null;index"`
 	Description       string    `json:"description" gorm:"type:text"`
-	ConversationID    *uint     `json:"conversation_id,omitempty" gorm:"index"`    // FK para Conversation (opcional)
-	LinkedMessageID   *uint     `json:"linked_message_id,omitempty" gorm:"index"`  // FK para ChatMessage que criou (opcional)
 	PreferredViewMode string    `json:"preferred_view_mode" gorm:"default:'list'"` // 'list' ou 'kanban'
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
 
 	// Relacionamentos
-	Workflow      *TaskListWorkflow `json:"workflow,omitempty" gorm:"foreignKey:TaskListID"`
-	Tasks         []Task            `json:"tasks,omitempty" gorm:"foreignKey:TaskListID"`
-	Conversation  *Conversation     `json:"conversation,omitempty" gorm:"foreignKey:ConversationID"`
-	LinkedMessage *ChatMessage      `json:"linked_message,omitempty" gorm:"foreignKey:LinkedMessageID"`
+	Workflow *TaskListWorkflow `json:"workflow,omitempty" gorm:"foreignKey:TaskListID"`
+	Tasks    []Task            `json:"tasks,omitempty" gorm:"foreignKey:TaskListID"`
 }
 
 // Task representa uma tarefa dentro de uma tasklist
@@ -172,6 +153,8 @@ type Task struct {
 	TaskListID  uint       `json:"task_list_id" gorm:"not null;index"`
 	Title       string     `json:"title" gorm:"not null"`
 	Description string     `json:"description" gorm:"type:text"`
+	Code        string     `json:"code,omitempty" gorm:"size:128;index"`
+	Link        string     `json:"link,omitempty" gorm:"size:512"`
 	StatusID    int        `json:"status_id" gorm:"not null;default:1;index"` // ID do status (int para imutabilidade)
 	ParentID    *uint      `json:"parent_id,omitempty" gorm:"index"`          // ID da task pai (para subtasks/hierarquia)
 	Order       int        `json:"order" gorm:"default:0"`                    // Ordem dentro do status/parent
@@ -181,21 +164,32 @@ type Task struct {
 	CompletedAt *time.Time `json:"completed_at,omitempty"`
 
 	// Relacionamentos
-	TaskList *TaskList `json:"task_list,omitempty" gorm:"foreignKey:TaskListID"`
-	Parent   *Task     `json:"parent,omitempty" gorm:"foreignKey:ParentID"`
-	Subtasks []Task    `json:"subtasks,omitempty" gorm:"foreignKey:ParentID"`
+	TaskList *TaskList  `json:"task_list,omitempty" gorm:"foreignKey:TaskListID"`
+	Parent   *Task      `json:"parent,omitempty" gorm:"foreignKey:ParentID"`
+	Subtasks []Task     `json:"subtasks,omitempty" gorm:"foreignKey:ParentID"`
+	Notes    []TaskNote `json:"notes,omitempty" gorm:"foreignKey:TaskID"`
 }
 
-// TaskListTab representa uma aba aberta na página de TaskLists (persistida no banco)
-type TaskListTab struct {
-	ID         uint      `json:"id" gorm:"primaryKey"`
-	TaskListID uint      `json:"task_list_id" gorm:"index;not null"`
-	Title      string    `json:"title" gorm:"default:'Nova lista'"`
-	Position   int       `json:"position" gorm:"index;default:0"`
-	IsActive   bool      `json:"is_active" gorm:"index;default:false"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+// TaskNoteType categoriza o tipo de nota/interação em uma task
+type TaskNoteType int
 
-	// Relacionamento
-	TaskList *TaskList `json:"task_list,omitempty" gorm:"foreignKey:TaskListID"`
+const (
+	TaskNoteInternal TaskNoteType = 1 // Nota interna (anotação do operador)
+	TaskNoteCustomer TaskNoteType = 2 // Resposta/interação do cliente
+	TaskNoteAgent    TaskNoteType = 3 // Ação do agente/operador
+	TaskNoteSystem   TaskNoteType = 4 // Evento automático de sistema
+)
+
+// TaskNote representa uma nota ou interação associada a uma task
+type TaskNote struct {
+	ID        uint         `json:"id" gorm:"primaryKey"`
+	TaskID    uint         `json:"task_id" gorm:"not null;index"`
+	Type      TaskNoteType `json:"type" gorm:"not null;default:1"`
+	Content   string       `json:"content" gorm:"type:text;not null"`
+	Author    string       `json:"author,omitempty" gorm:"size:128"`
+	CreatedAt time.Time    `json:"created_at"`
+	UpdatedAt time.Time    `json:"updated_at"`
+
+	Task *Task `json:"-" gorm:"foreignKey:TaskID"`
 }
+

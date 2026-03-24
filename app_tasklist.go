@@ -9,15 +9,15 @@ import (
 // Re-exporta tipos do database para compatibilidade
 type TaskList = database.TaskList
 type Task = database.Task
+type TaskNote = database.TaskNote
 type TaskListWorkflow = database.TaskListWorkflow
 type TaskListWorkflowStatus = database.TaskListWorkflowStatus
-type TaskListTab = database.TaskListTab
 
 // ==================== TaskList Operations ====================
 
 // CreateTaskList cria uma nova lista de tarefas
-func (a *App) CreateTaskList(title, description string, linkToConversation bool, conversationID *uint) (*TaskList, error) {
-	taskList, err := database.CreateTaskList(title, description, linkToConversation, conversationID, nil)
+func (a *App) CreateTaskList(title, description string) (*TaskList, error) {
+	taskList, err := database.CreateTaskList(title, description, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -47,11 +47,6 @@ func (a *App) GetAllTaskLists() ([]TaskList, error) {
 	return database.GetAllTaskLists()
 }
 
-// GetTaskListsByConversation retorna listas vinculadas a uma conversa
-func (a *App) GetTaskListsByConversation(conversationID uint) ([]TaskList, error) {
-	return database.GetTaskListsByConversation(conversationID)
-}
-
 // UpdateTaskList atualiza title e description de uma lista
 func (a *App) UpdateTaskList(id uint, title, description string) error {
 	err := database.UpdateTaskList(id, title, description)
@@ -77,30 +72,6 @@ func (a *App) SetTaskListViewMode(id uint, viewMode string) error {
 	return nil
 }
 
-// LinkTaskListToConversation vincula uma lista a uma conversa
-func (a *App) LinkTaskListToConversation(taskListID, conversationID uint) error {
-	err := database.LinkTaskListToConversation(taskListID, conversationID)
-	if err != nil {
-		return err
-	}
-
-	taskList, _ := database.GetTaskList(taskListID)
-	runtime.EventsEmit(a.ctx, "taskList:updated", taskList)
-	return nil
-}
-
-// UnlinkTaskListFromConversation desvincula uma lista de uma conversa
-func (a *App) UnlinkTaskListFromConversation(taskListID uint) error {
-	err := database.UnlinkTaskListFromConversation(taskListID)
-	if err != nil {
-		return err
-	}
-
-	taskList, _ := database.GetTaskList(taskListID)
-	runtime.EventsEmit(a.ctx, "taskList:updated", taskList)
-	return nil
-}
-
 // CloneTaskList clona uma lista com seu workflow
 func (a *App) CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	taskList, err := database.CloneTaskList(id, newTitle)
@@ -122,11 +93,19 @@ func (a *App) CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	return fullTaskList, nil
 }
 
+// ClearTaskList remove todas as tasks de uma lista, mantendo a lista e o workflow
+func (a *App) ClearTaskList(id uint) error {
+	err := database.ClearTaskList(id)
+	if err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskList:cleared", id)
+	return nil
+}
+
 // DeleteTaskList deleta uma lista e todas suas tasks
 func (a *App) DeleteTaskList(id uint) error {
-	// Fecha aba associada (se existir)
-	_ = database.CloseTaskListTabByTaskListID(id)
-
 	err := database.DeleteTaskList(id)
 	if err != nil {
 		return err
@@ -175,8 +154,8 @@ func (a *App) ValidateStatusTransition(taskListID uint, fromStatusID, toStatusID
 // ==================== Task Operations ====================
 
 // CreateTask cria uma nova tarefa
-func (a *App) CreateTask(taskListID uint, title, description string, parentID *uint) (*Task, error) {
-	task, err := database.CreateTask(taskListID, title, description, parentID)
+func (a *App) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*Task, error) {
+	task, err := database.CreateTask(taskListID, title, description, code, link, parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -200,9 +179,9 @@ func (a *App) GetTasksByStatus(taskListID uint, statusID int) ([]Task, error) {
 	return database.GetTasksByStatus(taskListID, statusID)
 }
 
-// UpdateTask atualiza title e description de uma task
-func (a *App) UpdateTask(id uint, title, description string) error {
-	err := database.UpdateTask(id, title, description)
+// UpdateTask atualiza title, description, code e link de uma task
+func (a *App) UpdateTask(id uint, title, description, code, link string) error {
+	err := database.UpdateTask(id, title, description, code, link)
 	if err != nil {
 		return err
 	}
@@ -275,6 +254,46 @@ func (a *App) GetSubtasks(parentID uint) ([]Task, error) {
 	return database.GetSubtasks(parentID)
 }
 
+// ==================== TaskNote Operations ====================
+
+// CreateTaskNote cria uma nova nota/interação para uma task
+func (a *App) CreateTaskNote(taskID uint, noteType int, content, author string) (*TaskNote, error) {
+	note, err := database.CreateTaskNote(taskID, database.TaskNoteType(noteType), content, author)
+	if err != nil {
+		return nil, err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskNote:created", note)
+	return note, nil
+}
+
+// GetTaskNotes retorna todas as notas de uma task
+func (a *App) GetTaskNotes(taskID uint) ([]TaskNote, error) {
+	return database.GetTaskNotes(taskID)
+}
+
+// UpdateTaskNote atualiza o conteúdo de uma nota
+func (a *App) UpdateTaskNote(noteID uint, content string) error {
+	err := database.UpdateTaskNote(noteID, content)
+	if err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskNote:updated", noteID)
+	return nil
+}
+
+// DeleteTaskNote remove uma nota
+func (a *App) DeleteTaskNote(noteID uint) error {
+	err := database.DeleteTaskNote(noteID)
+	if err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskNote:deleted", noteID)
+	return nil
+}
+
 // ==================== Utility Operations ====================
 
 // GetTaskListStats retorna estatísticas de uma lista
@@ -287,34 +306,3 @@ func (a *App) GetTaskListWithHierarchy(id uint) (*TaskList, error) {
 	return database.GetTaskListWithHierarchy(id)
 }
 
-// ==================== TaskList Tab Operations ====================
-
-// GetTaskListTabs retorna todas as abas de task lists abertas
-func (a *App) GetTaskListTabs() ([]TaskListTab, error) {
-	return database.GetAllTaskListTabs()
-}
-
-// CreateTaskListTab cria ou reutiliza uma aba para uma task list
-func (a *App) CreateTaskListTab(taskListID uint, title string) (*TaskListTab, error) {
-	tab, err := database.CreateTaskListTab(taskListID, title, true)
-	if err != nil {
-		return nil, err
-	}
-	runtime.EventsEmit(a.ctx, "taskListTab:created", tab)
-	return tab, nil
-}
-
-// CloseTaskListTab fecha uma aba pelo ID
-func (a *App) CloseTaskListTab(id uint) error {
-	err := database.CloseTaskListTab(id)
-	if err != nil {
-		return err
-	}
-	runtime.EventsEmit(a.ctx, "taskListTab:closed", id)
-	return nil
-}
-
-// SetActiveTaskListTab define qual aba está ativa
-func (a *App) SetActiveTaskListTab(id uint) error {
-	return database.SetActiveTaskListTab(id)
-}

@@ -1,15 +1,13 @@
 import type { RefObject } from 'react';
 
-import type { EditorInsertRequest, EditorMode, EditorTab } from '../../store/editorStore';
+import type { EditorInsertRequest, EditorMode, EditorDocument } from '../../store/editorStore';
 import type { AddToastFn, FileMenuItem } from './types';
 import type { RichTextEditorHandle } from '../../components/editor/RichTextEditor';
 
 export type EditorMenuBaseContext = {
-  activeTab: EditorTab | null;
+  activeTab: EditorDocument | null;
   isAsking: boolean;
-  /** Apenas para forçar recomputação no consumidor (hook deps). */
   editorReadyNonce: number;
-  /** Instância do TipTap editor (best-effort, tipado como unknown). */
   richEditorRef: RefObject<unknown>;
 };
 
@@ -24,7 +22,7 @@ export type FormatMenuContext = EditorMenuBaseContext & {
 };
 
 export type ModeMenuContext = {
-  activeTab: EditorTab | null;
+  activeTab: EditorDocument | null;
   isAsking: boolean;
   setActiveTabMode: (nextMode: EditorMode) => void;
 };

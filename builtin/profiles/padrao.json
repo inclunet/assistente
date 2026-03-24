@@ -1,0 +1,38 @@
+{
+  "_builtin_version": "3.2.0",
+  "name": "Padrão",
+  "description": "Configuração padrão.",
+  "icon": "chatbox",
+  "active": true,
+  "chat": {
+    "llm_provider": "$default",
+    "model": "$default",
+    "temperature": 0.7,
+    "max_tokens": 4096,
+    "context_window": 120000,
+    "max_context_messages": 60,
+    "min_context_messages": 20,
+    "top_p": 1,
+    "response_timeout": 180,
+    "enabled_tools": null,
+    "enabled_skills": [
+      "workspace",
+      "memory"
+    ]
+  },
+  "voice": {
+    "provider": "disabled",
+    "llm_provider_id": "$default",
+    "rate": 1,
+    "pitch": 1,
+    "volume": 1,
+    "enabled_for_agent": false,
+    "enabled_for_user": false
+  },
+  "interaction": {
+    "stt_provider": "webspeech",
+    "llm_provider_id": "$default",
+    "language": "pt-BR",
+    "feedback_sounds": true
+  }
+}

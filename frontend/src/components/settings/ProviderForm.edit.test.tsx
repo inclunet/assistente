@@ -17,6 +17,34 @@ vi.mock('react-i18next', () => ({
         'providerForm.error.urlRequired': 'URL é obrigatória',
         'providerForm.error.urlInvalid': 'URL inválida',
         'providerForm.error.testFirst': 'Teste a API antes de salvar',
+        'providerForm.error.apiKeyRequiredTest': 'API Key é obrigatória para testar',
+        'providerForm.defaultModel': 'Modelo Padrão',
+        'providerForm.defaultModelHelp': 'Modelo usado quando o perfil escolhe Padrão',
+        'providerForm.loadingModels': 'Carregando modelos...',
+        'providerForm.loadModels': 'Carregar modelos',
+        'providerForm.loadModelsBtn': '📡 Carregar Modelos',
+        'providerForm.modelAutomatic': '(Automático)',
+        'providerForm.modelPlaceholder': 'ex: gpt-4o-mini',
+        'providerForm.connected': '✓ Conectado',
+        'providerForm.urlReadonly': 'URL padrão',
+        'providerForm.apiKey': 'API Key',
+        'providerForm.apiKeyOptional': 'API Key (Opcional)',
+        'providerForm.keySaved': 'Será salva criptografada',
+        'providerForm.noKeyNeeded': 'Deixe em branco',
+        'providerForm.leaveEmpty': 'Deixar em branco',
+        'providerForm.hideKey': 'Ocultar chave',
+        'providerForm.showKey': 'Mostrar chave',
+        'providerForm.changeKey': 'Alterar API Key',
+        'providerForm.changeKeyBtn': '🔓 Alterar Chave',
+        'providerForm.keyConfigured': '🔑 Chave configurada no gerenciador de credenciais',
+        'providerForm.keepCurrent': 'Deixe em branco para manter',
+        'providerForm.keyConfiguredOptional': '🔑 Chave configurada',
+        'providerForm.fillApiKey': 'Preencha a API Key',
+        'providerForm.updateBtn': 'Atualizar',
+        'providerForm.error.testError': 'Erro ao testar API',
+        'common.cancel': 'Cancelar',
+        'common.saving': 'Salvando...',
+        'common.create': 'Criar',
       };
       return translations[key] ?? key;
     },
@@ -28,7 +56,7 @@ vi.mock("@wailsjs/go/main/App", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@wailsjs/go/main/App")>();
   return {
     ...actual,
-    TestLLMProvider: vi.fn(() => Promise.resolve(true)),
+    ListModelsRaw: vi.fn(() => Promise.resolve(["gpt-4o", "gpt-4o-mini"])),
     CreateLLMProvider: vi.fn(() => Promise.resolve({ id: "123" })),
     UpdateLLMProvider: vi.fn(() => Promise.resolve({})),
   };
@@ -39,7 +67,7 @@ import * as App from "@wailsjs/go/main/App";
 describe("ProviderForm - Edição de API Key", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(App.TestLLMProvider).mockResolvedValue(true);
+    vi.mocked(App.ListModelsRaw).mockResolvedValue(["gpt-4o", "gpt-4o-mini"]);
   });
 
   it("deve mostrar botão 'Alterar Chave' ao editar provedor com key obrigatória", () => {
@@ -80,7 +108,7 @@ describe("ProviderForm - Edição de API Key", () => {
     expect(screen.getByText(/🔑 Chave configurada no gerenciador de credenciais/i)).toBeInTheDocument();
   });
 
-  it("deve auto-testar conexão ao abrir modo edição com provider_id", async () => {
+  it("deve auto-carregar modelos ao abrir modo edição com provider_id", async () => {
     render(
       <ProviderForm
         provider={{
@@ -96,7 +124,7 @@ describe("ProviderForm - Edição de API Key", () => {
     );
 
     await waitFor(() => {
-      expect(App.TestLLMProvider).toHaveBeenCalledWith(
+      expect(App.ListModelsRaw).toHaveBeenCalledWith(
         expect.objectContaining({
           provider_id: "openai-123",
           base_url: "https://api.openai.com/v1",
@@ -197,7 +225,7 @@ describe("ProviderForm - Edição de API Key", () => {
 describe("ProviderForm - Restrições de URL em Edição", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(App.TestLLMProvider).mockResolvedValue(true);
+    vi.mocked(App.ListModelsRaw).mockResolvedValue(["model-1", "model-2"]);
   });
 
   it("não deve permitir editar URL de OpenAI mesmo em modo edição", () => {

@@ -19,7 +19,7 @@ export interface MenuItemsOptions {
   onPin?: (message: Message) => void;
   onAnnounce?: (text: string) => void;
   onSendToEditor?: (payload: {
-    target: 'current' | 'new_tab';
+    target: 'current' | 'new_document';
     format: 'markdown' | 'html' | 'plain';
     title?: string;
     content: string;
@@ -418,7 +418,7 @@ export function getMessageMenuItems(
           ariaLabel: 'Criar novo documento no editor (Markdown)',
           action: () =>
             onSendToEditor({
-              target: 'new_tab',
+              target: 'new_document',
               format: 'markdown',
               title: 'Mensagem (Markdown)',
               content: contentMd,
@@ -447,7 +447,7 @@ export function getMessageMenuItems(
           ariaLabel: 'Criar novo documento no editor (texto)',
           action: () =>
             onSendToEditor({
-              target: 'new_tab',
+              target: 'new_document',
               format: 'plain',
               title: 'Mensagem (texto)',
               content: contentPlain,
@@ -514,7 +514,7 @@ export function getMessageMenuItems(
               ariaLabel: 'Criar novo documento com este código',
               action: () =>
                 onSendToEditor({
-                  target: 'new_tab',
+                  target: 'new_document',
                   format: 'markdown',
                   title: `Código ${language}`,
                   content: md,
@@ -567,7 +567,7 @@ export function getMessageMenuItems(
               ariaLabel: 'Criar novo documento com a tabela (Markdown)',
               action: () =>
                 onSendToEditor({
-                  target: 'new_tab',
+                  target: 'new_document',
                   format: 'markdown',
                   title: tables.length === 1 ? 'Tabela (Markdown)' : `Tabela ${i + 1} (Markdown)`,
                   content: md,
@@ -598,7 +598,7 @@ export function getMessageMenuItems(
               ariaLabel: 'Criar novo documento com a tabela (HTML)',
               action: () =>
                 onSendToEditor({
-                  target: 'new_tab',
+                  target: 'new_document',
                   format: 'html',
                   title: tables.length === 1 ? 'Tabela (HTML)' : `Tabela ${i + 1} (HTML)`,
                   content: html,
@@ -651,7 +651,7 @@ export function getMessageMenuItems(
               ariaLabel: 'Criar novo documento com este link',
               action: () =>
                 onSendToEditor({
-                  target: 'new_tab',
+                  target: 'new_document',
                   format: 'markdown',
                   title: 'Link',
                   content: md,

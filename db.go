@@ -72,6 +72,19 @@ func (a *App) GetConversation(id uint) (*Conversation, error) {
 	return database.GetConversation(id)
 }
 
+// EnsureConversation cria ou recicla uma conversa vazia e retorna.
+// Usada pelo frontend quando uma aba de chat do workspace é criada sem contentId.
+func (a *App) EnsureConversation(title string) (*Conversation, error) {
+	if title == "" {
+		title = "Nova Conversa"
+	}
+	conv, err := database.RecycleOrCreateConversation(title)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao garantir conversa: %w", err)
+	}
+	return conv, nil
+}
+
 // GetMessages retorna mensagens com filtro por parent (API unificada com LAZY LOADING)
 func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, error) {
 	messages, err := database.GetMessages(conversationID, parentID)
@@ -210,20 +223,6 @@ func (a *App) UpdateConversation(id uint, title, model string) error {
 func (a *App) DeleteConversation(id uint) error {
 	fmt.Printf("[DeleteConversation] Iniciando deleção da conversa %d...\n", id)
 
-	// Remove tabs que apontam para essa conversa (evita tabs órfãs sem conversation_id).
-	// Emite tab_closed para que o frontend remova cada tab do state.
-	tabs, err := database.GetAllTabs()
-	if err == nil {
-		for _, tab := range tabs {
-			if tab.ConversationID != nil && *tab.ConversationID == id {
-				fmt.Printf("[DeleteConversation] Removendo tab %d que referencia conversa %d\n", tab.ID, id)
-				if closeErr := database.CloseTab(tab.ID); closeErr == nil {
-					runtime.EventsEmit(a.ctx, "tab_closed", map[string]interface{}{"id": tab.ID})
-				}
-			}
-		}
-	}
-
 	if err := database.DeleteConversation(id); err != nil {
 		fmt.Printf("[DeleteConversation] ERRO ao deletar: %v\n", err)
 		return err
@@ -357,182 +356,6 @@ func (a *App) GetConversationSummary(conversationID uint) (*ConversationSummaryI
 		SummaryUpToMessageID: upToID,
 		SummarizingInProgress: inProgress,
 	}, nil
-}
-
-// ==================== Chat Tabs ====================
-
-type TabsResponse struct {
-	Tabs        []database.ChatTab `json:"tabs"`
-	ActiveTabId uint               `json:"active_tab_id"`
-}
-
-func (a *App) GetTabs() (TabsResponse, error) {
-	tabs, err := database.GetAllTabs()
-	if err != nil {
-		return TabsResponse{}, err
-	}
-
-	if len(tabs) == 0 {
-		if err := database.InitializeDefaultTab(); err != nil {
-			return TabsResponse{}, err
-		}
-	}
-
-	// Garante que toda tab tenha conversa (corrige tabs órfãs de legado ou edge cases)
-	if err := database.EnsureTabsHaveConversation(); err != nil {
-		fmt.Printf("⚠️ Erro ao garantir conversas em tabs: %v\n", err)
-	}
-
-	tabs, err = database.GetAllTabs()
-	if err != nil {
-		return TabsResponse{}, err
-	}
-
-	var activeId uint
-	for _, tab := range tabs {
-		if tab.IsActive {
-			activeId = tab.ID
-			break
-		}
-	}
-
-	return TabsResponse{
-		Tabs:        tabs,
-		ActiveTabId: activeId,
-	}, nil
-}
-
-func (a *App) SwitchToTab(tabID uint) error {
-	return database.SetActiveTab(tabID)
-}
-
-func (a *App) OpenConversationInNewTab(conversationID uint) (*database.ChatTab, error) {
-	conv, err := database.GetConversation(conversationID)
-	if err != nil {
-		return nil, fmt.Errorf("conversa não encontrada: %w", err)
-	}
-
-	tab, err := database.CreateTab(conv.Title, "💬", true)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao criar aba: %w", err)
-	}
-
-	if err := database.LoadConversationInTab(tab.ID, conversationID); err != nil {
-		return nil, fmt.Errorf("erro ao carregar conversa: %w", err)
-	}
-
-	fullTab, err := database.GetTab(tab.ID)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao recarregar aba: %w", err)
-	}
-
-	return fullTab, nil
-}
-
-func (a *App) OpenConversationInCurrentTab(conversationID uint) error {
-	_, err := database.GetConversation(conversationID)
-	if err != nil {
-		return fmt.Errorf("conversa não encontrada: %w", err)
-	}
-
-	tabs, err := database.GetAllTabs()
-	if err != nil {
-		return fmt.Errorf("erro ao obter abas: %w", err)
-	}
-
-	var activeTabID uint
-	for _, tab := range tabs {
-		if tab.IsActive {
-			activeTabID = tab.ID
-			break
-		}
-	}
-
-	if activeTabID == 0 {
-		return fmt.Errorf("nenhuma aba ativa encontrada")
-	}
-
-	return database.LoadConversationInTab(activeTabID, conversationID)
-}
-
-func (a *App) RenameTab(tabID uint, newTitle string) error {
-	return a.UpdateTabTitle(tabID, newTitle)
-}
-
-func (a *App) GetCurrentTabID() (uint, error) {
-	tabs, err := database.GetAllTabs()
-	if err != nil {
-		return 0, err
-	}
-
-	for _, tab := range tabs {
-		if tab.IsActive {
-			return tab.ID, nil
-		}
-	}
-
-	return 0, fmt.Errorf("nenhuma aba ativa encontrada")
-}
-
-func (a *App) GetCurrentConversationID() (uint, error) {
-	tabs, err := database.GetAllTabs()
-	if err != nil {
-		return 0, err
-	}
-
-	for _, tab := range tabs {
-		if tab.IsActive {
-			if tab.ConversationID != nil && *tab.ConversationID > 0 {
-				return *tab.ConversationID, nil
-			}
-			return 0, fmt.Errorf("aba ativa não tem conversa associada")
-		}
-	}
-
-	return 0, fmt.Errorf("nenhuma aba ativa encontrada")
-}
-
-func (a *App) CreateNewConversation(title string) (uint, error) {
-	tab, err := a.CreateTabWithConversation()
-	if err != nil {
-		return 0, err
-	}
-	if title != "" && title != "Nova Conversa" {
-		_ = database.UpdateTabTitle(tab.ID, title)
-	}
-	return *tab.ConversationID, nil
-}
-
-// CreateTabWithConversation cria atomicamente uma conversa + tab vinculada.
-// Toda tab nasce com uma conversa associada (backend-driven).
-// Recicla conversas vazias orfãs quando possível.
-func (a *App) CreateTabWithConversation() (*database.ChatTab, error) {
-	conv, err := database.RecycleOrCreateConversation("Nova Conversa")
-	if err != nil {
-		return nil, fmt.Errorf("erro ao criar conversa: %w", err)
-	}
-
-	tab, err := database.CreateTab(conv.Title, "💬", true)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao criar aba: %w", err)
-	}
-
-	if err := database.LoadConversationInTab(tab.ID, conv.ID); err != nil {
-		return nil, fmt.Errorf("erro ao vincular conversa à aba: %w", err)
-	}
-
-	fullTab, err := database.GetTab(tab.ID)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao recarregar aba: %w", err)
-	}
-
-	runtime.EventsEmit(a.ctx, "tab_created", map[string]interface{}{
-		"id":              fullTab.ID,
-		"title":           fullTab.Title,
-		"conversation_id": conv.ID,
-	})
-
-	return fullTab, nil
 }
 
 func (a *App) RenameConversation(conversationID uint, newTitle string) error {

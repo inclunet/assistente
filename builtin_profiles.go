@@ -13,7 +13,7 @@ import (
 	"assistente/internal/profiles"
 )
 
-//go:embed all:.assistente/profiles
+//go:embed all:builtin/profiles
 var builtinProfilesFS embed.FS
 
 // installBuiltinProfiles copies embedded profiles to ~/.assistente/profiles/.
@@ -38,7 +38,7 @@ func (a *App) installBuiltinProfiles() {
 		return
 	}
 
-	entries, err := fs.ReadDir(builtinProfilesFS, ".assistente/profiles")
+	entries, err := fs.ReadDir(builtinProfilesFS, "builtin/profiles")
 	if err != nil {
 		log.Printf("[Profiles] Error reading embedded profiles: %v", err)
 		return
@@ -49,7 +49,7 @@ func (a *App) installBuiltinProfiles() {
 			continue
 		}
 
-		embeddedData, err := fs.ReadFile(builtinProfilesFS, ".assistente/profiles/"+entry.Name())
+		embeddedData, err := fs.ReadFile(builtinProfilesFS, "builtin/profiles/"+entry.Name())
 		if err != nil {
 			log.Printf("[Profiles] Error reading embedded profile %s: %v", entry.Name(), err)
 			continue
@@ -95,6 +95,36 @@ func (a *App) installBuiltinProfiles() {
 
 		if err := os.WriteFile(targetFile, prettyData, 0644); err != nil {
 			log.Printf("[Profiles] Error writing %s: %v", targetFile, err)
+		}
+	}
+
+	a.ensureActiveProfile()
+}
+
+// ensureActiveProfile verifies that at least one profile is marked Active.
+// If none is, it marks "padrao" as active so the system has a deterministic default.
+func (a *App) ensureActiveProfile() {
+	if a.profileManager == nil {
+		return
+	}
+
+	list, err := a.profileManager.List()
+	if err != nil || len(list) == 0 {
+		return
+	}
+
+	for _, info := range list {
+		p, err := a.profileManager.Get(info.Slug)
+		if err == nil && p.Active {
+			return // already has an active profile
+		}
+	}
+
+	if err := a.profileManager.SetActive("padrao"); err != nil {
+		log.Printf("[Profiles] Could not set 'padrao' as active: %v", err)
+		// Fallback: activate the first available profile
+		if len(list) > 0 {
+			_ = a.profileManager.SetActive(list[0].Slug)
 		}
 	}
 }

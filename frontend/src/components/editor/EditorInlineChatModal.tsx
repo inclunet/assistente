@@ -42,10 +42,10 @@ export function EditorInlineChatModal({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
 
-  const { isLoading, getThreadedMessages, loadMessageChildren, getActiveTab, loadConversationInActiveTab, startNewConversationInActiveTab } = useChatStore();
+  const { isLoading, getThreadedMessages, loadMessageChildren, getActiveConversation, loadConversation, createConversation } = useChatStore();
 
-  const activeTab = getActiveTab();
-  const conversationTitle = activeTab?.title || t('editor.inlineChat.conversation');
+  const activeConversation = getActiveConversation();
+  const conversationTitle = activeConversation?.title || t('editor.inlineChat.conversation');
 
   const { copyMessage, speakMessage } = useMessageActions({
     onAnnounce: (msg) => announce(msg),
@@ -63,9 +63,9 @@ export function EditorInlineChatModal({
         if (!isNaN(numericId)) {
           await DeleteMessage(numericId);
           announce(t('editor.inlineChat.messageDeleted'));
-          const tab = getActiveTab();
-          if (tab?.conversationId) {
-            await loadConversationInActiveTab(tab.conversationId, tab.title || t('editor.inlineChat.conversation'));
+          const conv = getActiveConversation();
+          if (conv?.id) {
+            await loadConversation(conv.id);
           }
         }
       } catch (e: unknown) {
@@ -75,7 +75,7 @@ export function EditorInlineChatModal({
         setDeleteBusyId(null);
       }
     },
-    [getActiveTab, loadConversationInActiveTab, t]
+    [getActiveConversation, loadConversation, t]
   );
 
   const { showMenu, hideMenu, menuItems, menuPosition, menuVisible } = useContextMenu({
@@ -107,7 +107,7 @@ export function EditorInlineChatModal({
 
   const handleNewConversation = useCallback(async () => {
     try {
-      await startNewConversationInActiveTab(t('editor.inlineChat.newConversationTitle'));
+      await createConversation(t('editor.inlineChat.newConversationTitle'));
       announce(t('editor.inlineChat.newConversation'));
     } catch (e) {
       console.error('[EditorInlineChatModal] new conversation error:', e);
@@ -115,17 +115,17 @@ export function EditorInlineChatModal({
     } finally {
       focusInput();
     }
-  }, [focusInput, startNewConversationInActiveTab]);
+  }, [focusInput, createConversation]);
 
   const handleClearConversation = useCallback(async () => {
-    const tab = getActiveTab();
+    const conv = getActiveConversation();
     try {
-      if (tab?.conversationId) {
-        await ClearConversation(tab.conversationId);
-        await loadConversationInActiveTab(tab.conversationId, tab.title || t('editor.inlineChat.conversation'));
+      if (conv?.id) {
+        await ClearConversation(conv.id);
+        await loadConversation(conv.id);
         announce(t('editor.inlineChat.conversationCleared'));
       } else {
-        useChatStore.getState().clearActiveTab();
+        useChatStore.getState().clearMessages();
         announce(t('editor.inlineChat.conversationCleared'));
       }
     } catch (e) {
@@ -134,7 +134,7 @@ export function EditorInlineChatModal({
     } finally {
       focusInput();
     }
-  }, [focusInput, getActiveTab, loadConversationInActiveTab]);
+  }, [focusInput, getActiveConversation, loadConversation]);
 
   const handleKeyDownCapture = useCallback((e: React.KeyboardEvent) => {
     if (!e.ctrlKey) return;

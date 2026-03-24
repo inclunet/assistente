@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { GetAppVersion, CheckForUpdates, StartUpdate } from '@wailsjs/go/main/App';
 import { useUIStore } from '../store/uiStore';
+import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './AboutPage.css';
 
 interface UpdateInfo {
@@ -18,6 +19,7 @@ export default function AboutPage() {
   const { t } = useTranslation();
   const navigate = useNavigate();
   const { addToast } = useUIStore();
+  useContentPageLandmarks({ pageClass: 'about-page' });
   const getErrorMessage = (error: unknown) =>
     error instanceof Error ? error.message : String(error ?? '');
   

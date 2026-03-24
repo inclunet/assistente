@@ -16,8 +16,10 @@ type fakeTaskListManager struct {
 	taskLists      map[uint]*database.TaskList
 	tasks          map[uint]*database.Task
 	workflows      map[uint]*database.TaskListWorkflow
+	notes          map[uint][]database.TaskNote
 	nextListID     uint
 	nextTaskID     uint
+	nextNoteID     uint
 	createListErr  error
 	getListErr     error
 	getAllErr      error
@@ -28,6 +30,8 @@ type fakeTaskListManager struct {
 	updateStatErr  error
 	deleteTaskErr  error
 	getWorkflowErr error
+	createNoteErr  error
+	getNotesErr    error
 }
 
 func newFakeManager() *fakeTaskListManager {
@@ -35,8 +39,10 @@ func newFakeManager() *fakeTaskListManager {
 		taskLists:  make(map[uint]*database.TaskList),
 		tasks:      make(map[uint]*database.Task),
 		workflows:  make(map[uint]*database.TaskListWorkflow),
+		notes:      make(map[uint][]database.TaskNote),
 		nextListID: 1,
 		nextTaskID: 1,
+		nextNoteID: 1,
 	}
 }
 
@@ -91,13 +97,12 @@ func (f *fakeTaskListManager) addTask(taskListID uint, title string, statusID in
 	return task
 }
 
-func (f *fakeTaskListManager) CreateTaskList(title, description string, conversationID *uint, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
+func (f *fakeTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
 	if f.createListErr != nil {
 		return nil, f.createListErr
 	}
 	tl := f.addTaskList(title, defaultStatuses())
 	tl.Description = description
-	tl.ConversationID = conversationID
 	return tl, nil
 }
 
@@ -141,7 +146,7 @@ func (f *fakeTaskListManager) GetTaskListStats(taskListID uint) (map[string]inte
 	}, nil
 }
 
-func (f *fakeTaskListManager) CreateTask(taskListID uint, title, description string, parentID *uint) (*database.Task, error) {
+func (f *fakeTaskListManager) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error) {
 	if f.createTaskErr != nil {
 		return nil, f.createTaskErr
 	}
@@ -151,6 +156,8 @@ func (f *fakeTaskListManager) CreateTask(taskListID uint, title, description str
 	wf := f.workflows[taskListID]
 	task := f.addTask(taskListID, title, wf.InitialStatusID)
 	task.Description = description
+	task.Code = code
+	task.Link = link
 	task.ParentID = parentID
 	return task, nil
 }
@@ -166,7 +173,7 @@ func (f *fakeTaskListManager) GetTask(id uint) (*database.Task, error) {
 	return task, nil
 }
 
-func (f *fakeTaskListManager) UpdateTask(id uint, title, description string) error {
+func (f *fakeTaskListManager) UpdateTask(id uint, title, description, code, link string) error {
 	if f.updateTaskErr != nil {
 		return f.updateTaskErr
 	}
@@ -176,6 +183,8 @@ func (f *fakeTaskListManager) UpdateTask(id uint, title, description string) err
 	}
 	task.Title = title
 	task.Description = description
+	task.Code = code
+	task.Link = link
 	return nil
 }
 
@@ -211,6 +220,33 @@ func (f *fakeTaskListManager) GetWorkflow(taskListID uint) (*database.TaskListWo
 		return nil, fmt.Errorf("workflow not found for task list: %d", taskListID)
 	}
 	return wf, nil
+}
+
+func (f *fakeTaskListManager) CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, author string) (*database.TaskNote, error) {
+	if f.createNoteErr != nil {
+		return nil, f.createNoteErr
+	}
+	if _, ok := f.tasks[taskID]; !ok {
+		return nil, fmt.Errorf("task not found: %d", taskID)
+	}
+	id := f.nextNoteID
+	f.nextNoteID++
+	note := database.TaskNote{
+		ID:      id,
+		TaskID:  taskID,
+		Type:    noteType,
+		Content: content,
+		Author:  author,
+	}
+	f.notes[taskID] = append(f.notes[taskID], note)
+	return &note, nil
+}
+
+func (f *fakeTaskListManager) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
+	if f.getNotesErr != nil {
+		return nil, f.getNotesErr
+	}
+	return f.notes[taskID], nil
 }
 
 // ==================== Helper ====================
@@ -661,6 +697,208 @@ func TestDeleteTask_NotFound(t *testing.T) {
 func TestDeleteTask_ZeroID(t *testing.T) {
 	mgr := newFakeManager()
 	tool := NewDeleteTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": 0}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for zero ID")
+	}
+}
+
+// ==================== AddTaskNote Tests ====================
+
+func TestAddTaskNote_Name(t *testing.T) {
+	tool := NewAddTaskNote(nil)
+	if tool.Name() != "add_task_note" {
+		t.Fatalf("expected 'add_task_note', got '%s'", tool.Name())
+	}
+}
+
+func TestAddTaskNote_Success(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task 1", 1)
+	tool := NewAddTaskNote(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task.ID,
+		"type":    1,
+		"content": "This is an internal note",
+		"author":  "Test User",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "internal note") {
+		t.Fatalf("expected 'internal note' in content, got: %s", result.Content)
+	}
+}
+
+func TestAddTaskNote_CustomerType(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task 1", 1)
+	tool := NewAddTaskNote(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task.ID,
+		"type":    2,
+		"content": "Customer replied",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "customer response") {
+		t.Fatalf("expected 'customer response' in content, got: %s", result.Content)
+	}
+}
+
+func TestAddTaskNote_EmptyContent(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewAddTaskNote(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": 1,
+		"type":    1,
+		"content": "  ",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for empty content")
+	}
+}
+
+func TestAddTaskNote_InvalidType(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewAddTaskNote(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": 1,
+		"type":    5,
+		"content": "note",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for invalid type")
+	}
+}
+
+func TestAddTaskNote_ZeroTaskID(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewAddTaskNote(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": 0,
+		"type":    1,
+		"content": "note",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for zero task ID")
+	}
+}
+
+func TestAddTaskNote_TaskNotFound(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewAddTaskNote(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": 999,
+		"type":    1,
+		"content": "note",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for non-existent task")
+	}
+}
+
+// ==================== GetTaskNotes Tests ====================
+
+func TestGetTaskNotes_Name(t *testing.T) {
+	tool := NewGetTaskNotes(nil)
+	if tool.Name() != "get_task_notes" {
+		t.Fatalf("expected 'get_task_notes', got '%s'", tool.Name())
+	}
+}
+
+func TestGetTaskNotes_Empty(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task 1", 1)
+	tool := NewGetTaskNotes(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "No notes") {
+		t.Fatalf("expected 'No notes' in content, got: %s", result.Content)
+	}
+}
+
+func TestGetTaskNotes_WithNotes(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task 1", 1)
+
+	mgr.CreateTaskNote(task.ID, 1, "First note", "Alice")
+	mgr.CreateTaskNote(task.ID, 2, "Customer replied", "Bob")
+
+	tool := NewGetTaskNotes(mgr)
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "2 note(s)") {
+		t.Fatalf("expected '2 note(s)' in content, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "First note") {
+		t.Fatalf("expected 'First note' in content, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Customer replied") {
+		t.Fatalf("expected 'Customer replied' in content, got: %s", result.Content)
+	}
+}
+
+func TestGetTaskNotes_TaskNotFound(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewGetTaskNotes(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": 999}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for non-existent task")
+	}
+}
+
+func TestGetTaskNotes_ZeroID(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewGetTaskNotes(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": 0}))
 	if err != nil {

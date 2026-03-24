@@ -8,14 +8,12 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import {
   GetTaskList,
   GetAllTaskLists,
-  GetTaskListsByConversation,
   CreateTaskList,
   UpdateTaskList,
   DeleteTaskList,
+  ClearTaskList,
   CloneTaskList,
   SetTaskListViewMode,
-  LinkTaskListToConversation,
-  UnlinkTaskListFromConversation,
   CreateTask,
   UpdateTask,
   DeleteTask,
@@ -23,15 +21,16 @@ import {
   PromoteTask,
   DemoteTask,
   ReorderTasks,
-  GetTaskListTabs,
-  CreateTaskListTab,
-  CloseTaskListTab,
-  SetActiveTaskListTab,
+  CreateTaskNote,
+  GetTaskNotes,
+  UpdateTaskNote,
+  DeleteTaskNote,
 } from '@wailsjs/go/main/App';
 import type {
   Task,
+  TaskNote,
+  TaskNoteType,
   TaskListWithWorkflow,
-  TaskListTab,
   ViewMode,
   TaskListWorkflow,
   TaskListWorkflowStatus,
@@ -49,6 +48,8 @@ function normalizeTask(raw: unknown): Task {
     taskListId: (r.taskListId ?? r.task_list_id) as number,
     title: (r.title ?? '') as string,
     description: (r.description ?? '') as string,
+    code: (r.code ?? '') as string || undefined,
+    link: (r.link ?? '') as string || undefined,
     statusId: (r.statusId ?? r.status_id) as number,
     parentId: (r.parentId ?? r.parent_id) as number | undefined,
     order: (r.order ?? 0) as number,
@@ -59,6 +60,19 @@ function normalizeTask(raw: unknown): Task {
     subtasks: Array.isArray(r.subtasks)
       ? r.subtasks.map(normalizeTask)
       : undefined,
+  };
+}
+
+function normalizeTaskNote(raw: unknown): TaskNote {
+  const r = raw as Record<string, unknown>;
+  return {
+    id: r.id as number,
+    taskId: (r.taskId ?? r.task_id) as number,
+    type: (r.type ?? 1) as TaskNoteType,
+    content: (r.content ?? '') as string,
+    author: (r.author ?? '') as string || undefined,
+    createdAt: (r.createdAt ?? r.created_at ?? '') as string,
+    updatedAt: (r.updatedAt ?? r.updated_at ?? '') as string,
   };
 }
 
@@ -103,8 +117,6 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
     id: r.id as number,
     title: (r.title ?? '') as string,
     description: (r.description ?? '') as string,
-    conversationId: (r.conversationId ?? r.conversation_id) as number | undefined,
-    linkedMessageId: (r.linkedMessageId ?? r.linked_message_id) as number | undefined,
     preferredViewMode: ((r.preferredViewMode ?? r.preferred_view_mode) || 'list') as ViewMode,
     createdAt: (r.createdAt ?? r.created_at ?? '') as string,
     updatedAt: (r.updatedAt ?? r.updated_at ?? '') as string,
@@ -114,35 +126,29 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
 }
 
 /**
- * TaskListStore - Gerencia estado de listas de tarefas abertas
+ * TaskListStore - Cache de conteúdo de tasklists (workspace-driven)
+ * O workspace é o dono das tabs; aqui apenas gerenciamos o cache e o conteúdo ativo.
  */
 interface TaskListStoreState {
-  // Estado
-  openTabs: TaskListTab[];
-  activeTabId?: number;
+  activeTaskListId?: number;
   taskLists: Map<number, TaskListWithWorkflow>;
   workflows: Map<number, TaskListWorkflow>;
   expandedTasks: Set<number>;
   isLoading: boolean;
   errors: Map<string, string>;
 
-  // Tab management
-  loadTabs: () => Promise<void>;
-  createTab: (taskListId: number) => Promise<void>;
-  closeTab: (tabId: number) => Promise<void>;
-  setActiveTab: (tabId: number) => Promise<void>;
-  updateTabTitle: (tabId: number, title: string) => void;
+  // Active tasklist (driven by workspace bridge)
+  setActiveTaskList: (id: number | undefined) => void;
+  getActiveTaskList: () => TaskListWithWorkflow | undefined;
 
   // TaskList management
   loadTaskList: (taskListId: number) => Promise<TaskListWithWorkflow | null>;
-  createTaskList: (title: string, description?: string, conversationId?: number) => Promise<TaskListWithWorkflow | null>;
+  createTaskList: (title: string, description?: string) => Promise<TaskListWithWorkflow | null>;
   updateTaskList: (taskListId: number, title: string, description?: string) => Promise<void>;
   deleteTaskList: (taskListId: number) => Promise<void>;
+  clearTaskList: (taskListId: number) => Promise<void>;
   cloneTaskList: (taskListId: number, newTitle: string) => Promise<TaskListWithWorkflow | null>;
-  linkToConversation: (taskListId: number, conversationId: number) => Promise<void>;
-  unlinkFromConversation: (taskListId: number) => Promise<void>;
   fetchAllTaskLists: () => Promise<database.TaskList[]>;
-  getTaskListsByConversation: (conversationId: number) => Promise<database.TaskList[]>;
 
   // View mode
   setViewMode: (taskListId: number, viewMode: ViewMode) => Promise<void>;
@@ -153,14 +159,20 @@ interface TaskListStoreState {
   reorderWorkflowStatuses: (taskListId: number, statusOrder: number[]) => Promise<void>;
 
   // Task management
-  createTask: (taskListId: number, title: string, description?: string, parentId?: number) => Promise<Task | null>;
-  updateTask: (taskId: number, title: string, description?: string) => Promise<void>;
+  createTask: (taskListId: number, title: string, description?: string, code?: string, link?: string, parentId?: number) => Promise<Task | null>;
+  updateTask: (taskId: number, title: string, description?: string, code?: string, link?: string) => Promise<void>;
   deleteTask: (taskId: number) => Promise<void>;
   updateTaskStatus: (taskId: number, statusId: number) => Promise<void>;
   reorderTasks: (taskListId: number, statusId: number, orderedIds: number[]) => Promise<void>;
   promoteTask: (taskId: number) => Promise<void>;
   demoteTask: (taskId: number, parentId: number) => Promise<void>;
   getTaskListTasks: (taskListId: number) => Task[];
+
+  // TaskNote management
+  loadTaskNotes: (taskId: number) => Promise<TaskNote[]>;
+  createTaskNote: (taskId: number, type: TaskNoteType, content: string, author?: string) => Promise<TaskNote | null>;
+  updateTaskNote: (noteId: number, content: string) => Promise<void>;
+  deleteTaskNote: (noteId: number) => Promise<void>;
 
   // UI helpers
   toggleTaskExpanded: (taskId: number) => void;
@@ -205,14 +217,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         newCache.delete(taskListId);
-        const tabs = state.openTabs.filter((tab) => tab.taskListId !== taskListId);
         return {
           taskLists: newCache,
-          openTabs: tabs,
-          activeTabId:
-            state.activeTabId && tabs.length === 0
-              ? undefined
-              : state.openTabs.find((t) => t.isActive)?.id,
+          activeTaskListId: state.activeTaskListId === taskListId ? undefined : state.activeTaskListId,
         };
       });
     });
@@ -279,114 +286,21 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
   }
 
   return {
-    openTabs: [],
-    activeTabId: undefined,
+    activeTaskListId: undefined,
     taskLists: new Map(),
     workflows: new Map(),
     expandedTasks: new Set(),
     isLoading: false,
     errors: new Map(),
 
-    // Tab management - persistido no backend via Wails
-    loadTabs: async () => {
-      set({ isLoading: true });
-      try {
-        const backendTabs = await GetTaskListTabs();
-        const tabs: TaskListTab[] = (backendTabs || []).map((bt) => ({
-          id: bt.id,
-          title: bt.title,
-          position: bt.position,
-          isActive: bt.is_active,
-          taskListId: bt.task_list_id,
-        }));
-        const activeTab = tabs.find((t) => t.isActive);
-        set({ openTabs: tabs, activeTabId: activeTab?.id, isLoading: false });
-      } catch (error) {
-        get().setError('loadTabs', String(error));
-        set({ isLoading: false });
-      }
+    setActiveTaskList: (id: number | undefined) => {
+      set({ activeTaskListId: id });
     },
 
-    createTab: async (taskListId: number) => {
-      try {
-        const cachedTaskList = get().taskLists.get(taskListId);
-        const title = cachedTaskList?.title || 'Nova lista';
-        const bt = await CreateTaskListTab(taskListId, title);
-        if (!bt) return;
-
-        const newTab: TaskListTab = {
-          id: bt.id,
-          title: bt.title,
-          position: bt.position,
-          isActive: bt.is_active,
-          taskListId: bt.task_list_id,
-        };
-
-        set((state) => {
-          // Se já existe, apenas ativa
-          const existingIdx = state.openTabs.findIndex((t) => t.taskListId === taskListId);
-          if (existingIdx >= 0) {
-            return {
-              openTabs: state.openTabs.map((t) => ({
-                ...t,
-                isActive: t.taskListId === taskListId,
-              })),
-              activeTabId: state.openTabs[existingIdx].id,
-            };
-          }
-
-          return {
-            openTabs: [
-              ...state.openTabs.map((t) => ({ ...t, isActive: false })),
-              newTab,
-            ],
-            activeTabId: newTab.id,
-          };
-        });
-      } catch (error) {
-        get().setError('createTab', String(error));
-      }
-    },
-
-    closeTab: async (tabId: number) => {
-      try {
-        await CloseTaskListTab(tabId);
-        set((state) => {
-          const updatedTabs = state.openTabs.filter((t) => t.id !== tabId);
-          const wasActive = state.activeTabId === tabId;
-          const nextActive = wasActive && updatedTabs.length > 0 ? updatedTabs[0].id : undefined;
-
-          return {
-            openTabs: updatedTabs,
-            activeTabId: nextActive,
-          };
-        });
-      } catch (error) {
-        get().setError('closeTab', String(error));
-      }
-    },
-
-    setActiveTab: async (tabId: number) => {
-      try {
-        await SetActiveTaskListTab(tabId);
-        set((state) => ({
-          openTabs: state.openTabs.map((t) => ({
-            ...t,
-            isActive: t.id === tabId,
-          })),
-          activeTabId: tabId,
-        }));
-      } catch (error) {
-        get().setError('setActiveTab', String(error));
-      }
-    },
-
-    updateTabTitle: (tabId: number, title: string) => {
-      set((state) => ({
-        openTabs: state.openTabs.map((t) =>
-          t.id === tabId ? { ...t, title } : t
-        ),
-      }));
+    getActiveTaskList: () => {
+      const { activeTaskListId, taskLists } = get();
+      if (activeTaskListId === undefined) return undefined;
+      return taskLists.get(activeTaskListId);
     },
 
     // TaskList management
@@ -408,10 +322,10 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    createTaskList: async (title: string, description?: string, conversationId?: number) => {
+    createTaskList: async (title: string, description?: string) => {
       set({ isLoading: true });
       try {
-        const taskList = await CreateTaskList(title, description || '', false, conversationId);
+        const taskList = await CreateTaskList(title, description || '');
         
         if (taskList) {
           get().cacheTaskList(taskList as unknown as TaskListWithWorkflow);
@@ -419,11 +333,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
           return taskList as unknown as TaskListWithWorkflow;
         }
         
-        console.error('[Store] CreateTaskList retornou null');
         set({ isLoading: false });
         return null;
       } catch (error) {
-        console.error('[Store] Erro em createTaskList:', error);
         get().setError('createTaskList', String(error));
         set({ isLoading: false });
         return null;
@@ -452,6 +364,22 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
+    clearTaskList: async (taskListId: number) => {
+      try {
+        await ClearTaskList(taskListId);
+        set((state) => {
+          const newCache = new Map(state.taskLists);
+          const existing = newCache.get(taskListId);
+          if (existing) {
+            newCache.set(taskListId, { ...existing, tasks: [] });
+          }
+          return { taskLists: newCache };
+        });
+      } catch (error) {
+        get().setError('clearTaskList', String(error));
+      }
+    },
+
     cloneTaskList: async (taskListId: number, newTitle: string) => {
       try {
         const cloned = await CloneTaskList(taskListId, newTitle);
@@ -466,36 +394,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    linkToConversation: async (taskListId: number, conversationId: number) => {
-      try {
-        await LinkTaskListToConversation(taskListId, conversationId);
-        get().invalidateTaskList(taskListId);
-      } catch (error) {
-        get().setError('linkToConversation', String(error));
-      }
-    },
-
-    unlinkFromConversation: async (taskListId: number) => {
-      try {
-        await UnlinkTaskListFromConversation(taskListId);
-        get().invalidateTaskList(taskListId);
-      } catch (error) {
-        get().setError('unlinkFromConversation', String(error));
-      }
-    },
-
     fetchAllTaskLists: async () => {
       try {
         const lists = await GetAllTaskLists();
-        return lists || [];
-      } catch {
-        return [];
-      }
-    },
-
-    getTaskListsByConversation: async (conversationId: number) => {
-      try {
-        const lists = await GetTaskListsByConversation(conversationId);
         return lists || [];
       } catch {
         return [];
@@ -560,9 +461,9 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     },
 
     // Task management
-    createTask: async (taskListId: number, title: string, description?: string, parentId?: number) => {
+    createTask: async (taskListId: number, title: string, description?: string, code?: string, link?: string, parentId?: number) => {
       try {
-        const rawTask = await CreateTask(taskListId, title, description || '', parentId);
+        const rawTask = await CreateTask(taskListId, title, description || '', code || '', link || '', parentId);
         if (rawTask) {
           const task = normalizeTask(rawTask);
           // Adiciona ao cache in-place (evita invalidação + reload)
@@ -590,8 +491,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       }
     },
 
-    updateTask: async (taskId: number, title: string, description?: string) => {
-      // Optimistic update — altera localmente antes de confirmar no backend
+    updateTask: async (taskId: number, title: string, description?: string, code?: string, link?: string) => {
       set((state) => {
         const newCache = new Map(state.taskLists);
         for (const [tlId, taskList] of newCache.entries()) {
@@ -600,7 +500,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
             const idx = tasks.findIndex((t) => t.id === taskId);
             if (idx >= 0) {
               const updatedTasks = [...tasks];
-              updatedTasks[idx] = { ...updatedTasks[idx], title, description: description || '' };
+              updatedTasks[idx] = { ...updatedTasks[idx], title, description: description || '', code: code || undefined, link: link || undefined };
               newCache.set(tlId, { ...taskList, tasks: updatedTasks });
               return { taskLists: newCache };
             }
@@ -609,7 +509,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         return {};
       });
       try {
-        await UpdateTask(taskId, title, description || '');
+        await UpdateTask(taskId, title, description || '', code || '', link || '');
       } catch (error) {
         get().setError('updateTask', String(error));
       }
@@ -700,6 +600,46 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         await DemoteTask(taskId, parentId);
       } catch (error) {
         get().setError('demoteTask', String(error));
+      }
+    },
+
+    // TaskNote management
+    loadTaskNotes: async (taskId: number) => {
+      try {
+        const rawNotes = await GetTaskNotes(taskId);
+        return (rawNotes || []).map(normalizeTaskNote);
+      } catch (error) {
+        get().setError('loadTaskNotes', String(error));
+        return [];
+      }
+    },
+
+    createTaskNote: async (taskId: number, type: TaskNoteType, content: string, author?: string) => {
+      try {
+        const rawNote = await CreateTaskNote(taskId, type, content, author || '');
+        if (rawNote) {
+          return normalizeTaskNote(rawNote);
+        }
+        return null;
+      } catch (error) {
+        get().setError('createTaskNote', String(error));
+        return null;
+      }
+    },
+
+    updateTaskNote: async (noteId: number, content: string) => {
+      try {
+        await UpdateTaskNote(noteId, content);
+      } catch (error) {
+        get().setError('updateTaskNote', String(error));
+      }
+    },
+
+    deleteTaskNote: async (noteId: number) => {
+      try {
+        await DeleteTaskNote(noteId);
+      } catch (error) {
+        get().setError('deleteTaskNote', String(error));
       }
     },
 

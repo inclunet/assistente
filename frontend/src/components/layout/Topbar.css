@@ -1,9 +1,9 @@
 .topbar {
-  height: 56px;
-  display: flex;
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
   align-items: center;
-  justify-content: space-between;
-  padding: 0 1rem;
+  height: 48px;
+  padding: 0 0.5rem;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-default);
 }
@@ -11,27 +11,107 @@
 .topbar__left {
   display: flex;
   align-items: center;
-  gap: 1rem;
-}
-
-.topbar__title {
-  font-size: 1.125rem;
-  font-weight: 600;
-  margin: 0;
-  color: var(--text-primary);
+  justify-self: start;
 }
 
 .topbar__right {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  justify-self: end;
 }
 
-.topbar__model {
-  padding: 0.375rem 0.75rem;
-  background: var(--bg-elevated);
+.topbar__title {
+  font-size: 0.9375rem;
+  font-weight: 600;
+  margin: 0;
+  color: var(--text-primary);
+  text-align: center;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Workspace picker button */
+.topbar__picker {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  padding: 0.375rem 0.625rem;
+  border: 1px solid transparent;
   border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
   font-size: 0.875rem;
-  color: var(--text-secondary);
   font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+
+.topbar__picker:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-subtle);
+}
+
+.topbar__picker:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+.topbar__picker-icon {
+  font-size: 1rem;
+}
+
+.topbar__picker-name {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.topbar__picker-arrow {
+  font-size: 0.75rem;
+  color: var(--text-muted);
+}
+
+/* Back button */
+.topbar__back {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.375rem 0.625rem;
+  border: none;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: 0.875rem;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.topbar__back:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.topbar__back:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: 2px;
+}
+
+/* Rename input */
+.topbar__rename-input {
+  padding: 0.375rem 0.75rem;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  outline: none;
+  min-width: 180px;
+}
+
+.topbar__rename-input:focus {
+  box-shadow: 0 0 0 2px var(--accent-dim);
 }

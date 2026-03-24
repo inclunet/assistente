@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
-import { CreateLLMProvider, UpdateLLMProvider, TestLLMProvider } from '@wailsjs/go/main/App';
+import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/main/App';
 import { Input, Select, Button, FormField } from '../';
 import './ProviderForm.css';
 
@@ -18,6 +18,7 @@ export interface ProviderFormData {
   type: string;
   base_url: string;
   api_key: string;
+  default_model?: string;
 }
 
 export interface ProviderFormProps {
@@ -34,6 +35,7 @@ interface ProviderConfig {
   apiKeyRequired: boolean;
   testRequiresApiKey: boolean;
   helpText?: string;
+  defaultModel?: string;
 }
 
 export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
@@ -45,6 +47,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://platform.openai.com/api-keys',
+    defaultModel: 'gpt-4o-mini',
   },
   anthropic: {
     label: 'Anthropic',
@@ -53,6 +56,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.anthropic.com',
+    defaultModel: 'claude-sonnet-4-20250514',
   },
   google: {
     label: 'Google (Gemini)',
@@ -61,6 +65,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://aistudio.google.com',
+    defaultModel: 'gemini-2.0-flash',
   },
   openrouter: {
     label: 'OpenRouter',
@@ -77,6 +82,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://platform.deepseek.com',
+    defaultModel: 'deepseek-chat',
   },
   xai: {
     label: 'xAI (Grok)',
@@ -85,6 +91,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.x.ai',
+    defaultModel: 'grok-3-mini',
   },
   mistral: {
     label: 'Mistral AI',
@@ -93,6 +100,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.mistral.ai',
+    defaultModel: 'mistral-small-latest',
   },
   groq: {
     label: 'Groq',
@@ -101,6 +109,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.groq.com',
+    defaultModel: 'llama-3.3-70b-versatile',
   },
   together: {
     label: 'Together AI',
@@ -125,6 +134,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://www.perplexity.ai/settings/api',
+    defaultModel: 'sonar',
   },
   cohere: {
     label: 'Cohere',
@@ -192,10 +202,82 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   const [showApiKeyField, setShowApiKeyField] = useState(false);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
-  const [testing, setTesting] = useState(false);
   const [apiTested, setApiTested] = useState(false);
   const [apiKeyChangedInThisSession, setApiKeyChangedInThisSession] = useState(false);
   const apiKeyInputRef = useRef<HTMLInputElement>(null);
+
+  // Model loading states
+  const [models, setModels] = useState<string[]>([]);
+  const [loadingModels, setLoadingModels] = useState(false);
+  const [endpointNotSupported, setEndpointNotSupported] = useState(false);
+  const [modelsLoaded, setModelsLoaded] = useState(false);
+
+  const loadModels = useCallback(async (overrideData?: Partial<ProviderFormData>) => {
+    const data = { ...formData, ...overrideData };
+    const config = PROVIDER_CONFIG[data.type] || PROVIDER_CONFIG.custom;
+    const canonicalUrl = !config.urlEditable ? config.defaultUrl : data.base_url;
+
+    if (!canonicalUrl.trim()) return;
+
+    setLoadingModels(true);
+    setEndpointNotSupported(false);
+    setModels([]);
+    setModelsLoaded(false);
+    setErrors(prev => {
+      const ne = { ...prev };
+      delete ne.api;
+      delete ne.api_key;
+      delete ne.base_url;
+      return ne;
+    });
+
+    try {
+      const result = await withTimeout(
+        ListModelsRaw({
+          type: data.type,
+          base_url: canonicalUrl,
+          api_key: data.api_key || undefined,
+          provider_id: data.id || undefined,
+        }),
+        15000,
+        'ListModelsRaw'
+      );
+
+      setModels(result || []);
+      setModelsLoaded(true);
+      setApiTested(true);
+
+      // Se não tinha modelo selecionado, seleciona o default do provider config
+      if (!data.default_model) {
+        const suggested = config.defaultModel;
+        if (suggested && (result || []).includes(suggested)) {
+          setFormData(prev => ({ ...prev, default_model: suggested }));
+        }
+      }
+    } catch (error: unknown) {
+      const err = error as { message?: unknown } | null;
+      const errorMsg = String(err?.message || error || '');
+
+      if (errorMsg.includes('models_endpoint_not_supported')) {
+        setEndpointNotSupported(true);
+        setModelsLoaded(true);
+        setApiTested(true);
+        // Sugere o modelo default se não tem um selecionado
+        if (!data.default_model && config.defaultModel) {
+          setFormData(prev => ({ ...prev, default_model: config.defaultModel }));
+        }
+      } else {
+        setApiTested(false);
+        setModelsLoaded(false);
+        setErrors(prev => ({
+          ...prev,
+          api: String(err?.message || error || t('providerForm.error.testError')),
+        }));
+      }
+    } finally {
+      setLoadingModels(false);
+    }
+  }, [formData, t]);
 
   useEffect(() => {
     if (provider) {
@@ -205,41 +287,14 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         type: provider.type,
         base_url: provider.base_url,
         api_key: '',
+        default_model: provider.default_model || '',
       });
       setApiTested(false);
       setShowApiKeyField(false);
       setApiKeyChangedInThisSession(false);
-
-      // Auto-teste com credencial existente (resolve edição sem re-digitar key)
-      const config = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
-      const canonicalUrl = !config.urlEditable ? config.defaultUrl : provider.base_url;
-      if (canonicalUrl) {
-        setTesting(true);
-        withTimeout(
-          TestLLMProvider({
-            type: provider.type,
-            base_url: canonicalUrl,
-            provider_id: provider.id,
-          }),
-          15000,
-          'TestLLMProvider'
-        ).then((result) => {
-          if (result) {
-            setApiTested(true);
-            setErrors((prev) => {
-              const ne = { ...prev };
-              delete ne.api_key;
-              delete ne.api;
-              delete ne.base_url;
-              return ne;
-            });
-          }
-        }).catch(() => {
-          // Auto-teste falhou; usuário pode testar manualmente
-        }).finally(() => {
-          setTesting(false);
-        });
-      }
+      setModels([]);
+      setModelsLoaded(false);
+      setEndpointNotSupported(false);
     } else {
       const defaultType = 'openai';
       const config = PROVIDER_CONFIG[defaultType] || PROVIDER_CONFIG.custom;
@@ -252,6 +307,9 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       setApiTested(false);
       setShowApiKeyField(true);
       setApiKeyChangedInThisSession(false);
+      setModels([]);
+      setModelsLoaded(false);
+      setEndpointNotSupported(false);
     }
   }, [provider]);
 
@@ -269,6 +327,18 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     }
   }, [showApiKeyField]);
 
+  // Auto-carrega modelos ao abrir provider existente (edição)
+  useEffect(() => {
+    if (provider && !modelsLoaded && !loadingModels) {
+      loadModels({
+        id: provider.id,
+        type: provider.type,
+        base_url: provider.base_url,
+        default_model: provider.default_model,
+      });
+    }
+  }, [provider]);
+
   // Atualiza URL quando tipo de provedor muda
   useEffect(() => {
     if (!provider) {
@@ -276,9 +346,13 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
       setFormData((prev) => ({
         ...prev,
         base_url: config.defaultUrl,
+        default_model: '',
       }));
-      // Reset teste quando muda tipo
+      // Reset state quando muda tipo
       setApiTested(false);
+      setModels([]);
+      setModelsLoaded(false);
+      setEndpointNotSupported(false);
     }
   }, [formData.type, provider]);
 
@@ -308,14 +382,17 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     handleChange('api_key', value);
     // Marca que a chave foi alterada nesta sessão
     setApiKeyChangedInThisSession(true);
-    setApiTested(false); // Precisa testar de novo
+    setApiTested(false); // Precisa carregar modelos de novo
+    setModels([]);
+    setModelsLoaded(false);
+    setEndpointNotSupported(false);
   };
 
-  const handleTestApi = async () => {
+  const handleLoadModels = async () => {
     const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
     const canonicalUrl = getCanonicalUrl(formData.type);
 
-    // Validar URL antes de testar
+    // Validar URL antes de carregar
     if (!canonicalUrl.trim()) {
       setErrors((prev) => ({ ...prev, base_url: t('providerForm.error.urlRequired') }));
       return;
@@ -336,50 +413,12 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     if (config.testRequiresApiKey && !formData.api_key.trim() && !isEditingWithExistingKey) {
       setErrors((prev) => ({
         ...prev,
-        api_key: 'API Key é obrigatória para testar este provedor',
+        api_key: t('providerForm.error.apiKeyRequiredTest'),
       }));
       return;
     }
 
-    setTesting(true);
-    try {
-      const result = await withTimeout(
-        TestLLMProvider({
-          type: formData.type,
-          base_url: canonicalUrl,
-          api_key: formData.api_key || undefined,
-          provider_id: formData.id || undefined,
-        }),
-        15000,
-        'TestLLMProvider'
-      );
-
-      if (result) {
-        setApiTested(true);
-        setErrors((prev) => {
-          const newErrors = { ...prev };
-          delete newErrors.api_key;
-          delete newErrors.api;
-          delete newErrors.base_url;
-          return newErrors;
-        });
-      } else {
-        setApiTested(false);
-        setErrors((prev) => ({
-          ...prev,
-          api: 'API não respondeu. Verifique URL e credenciais.',
-        }));
-      }
-    } catch (error: unknown) {
-      setApiTested(false);
-      const err = error as { message?: unknown } | null;
-      setErrors((prev) => ({
-        ...prev,
-        api: String(err?.message || error || 'Erro ao testar API'),
-      }));
-    } finally {
-      setTesting(false);
-    }
+    await loadModels();
   };
 
   const handleApiKeyBlur = async () => {
@@ -388,19 +427,19 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     
     if (!canonicalUrl.trim()) return;
 
-    // Se não requer key e a key está vazia, testa mesmo assim (ex: Ollama)
+    // Se não requer key e a key está vazia, carrega modelos mesmo assim (ex: Ollama)
     if (!config.apiKeyRequired && !formData.api_key.trim()) {
-      await handleTestApi();
+      await handleLoadModels();
       return;
     }
 
-    // Se requer key, está criando, e key está vazia → não auto-testa
+    // Se requer key, está criando, e key está vazia → não auto-carrega
     const isEditingWithExistingKey = !!formData.id && !apiKeyChangedInThisSession;
     if (config.testRequiresApiKey && !formData.api_key.trim() && !isEditingWithExistingKey) {
       return;
     }
 
-    await handleTestApi();
+    await handleLoadModels();
   };
 
   const validate = (): boolean => {
@@ -424,11 +463,13 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     }
 
     // API key - validação conforme configuração do provider
-    if (config && config.apiKeyRequired && !formData.api_key.trim()) {
-      newErrors.api_key = `API Key é obrigatória para ${config.label}`;
+    // Na edição, a key já está salva no credential manager, não precisa re-informar
+    const isEditing = !!formData.id;
+    if (config && config.apiKeyRequired && !formData.api_key.trim() && !isEditing) {
+      newErrors.api_key = t('providerForm.error.apiKeyRequired') + ` ${config.label}`;
     }
 
-    // Sempre exige teste de conexão antes de salvar
+    // Exige carregamento de modelos (que valida a conexão)
     if (!apiTested) {
       newErrors.api = t('providerForm.error.testFirst');
     }
@@ -456,12 +497,14 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             type: formData.type,
             base_url: canonicalUrl,
             api_key: formData.api_key || undefined,
+            default_model: formData.default_model || undefined,
           }),
           15000,
           'UpdateLLMProvider'
         );
       } else {
         // Create - gera ID único
+        const suggestedDefault = PROVIDER_CONFIG[formData.type]?.defaultModel;
         await withTimeout(
           CreateLLMProvider({
             id: `${formData.type}-${Date.now()}`,
@@ -469,6 +512,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             type: formData.type,
             base_url: canonicalUrl,
             api_key: formData.api_key || undefined,
+            default_model: formData.default_model || suggestedDefault || undefined,
           }),
           15000,
           'CreateLLMProvider'
@@ -485,9 +529,18 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
   };
 
   const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
-  const isUrlReadonly = !config.urlEditable; // Bloqueia URL independente de modo criação/edição
+  const isUrlReadonly = !config.urlEditable;
   const requiresApiKey = config.apiKeyRequired;
   const testRequiresApiKey = config.testRequiresApiKey;
+  const canLoadModels = (() => {
+    const canonicalUrl = getCanonicalUrl(formData.type);
+    if (!canonicalUrl.trim()) return false;
+    if (testRequiresApiKey && !formData.api_key.trim()) {
+      // Permitir quando editando com credencial existente
+      return !!formData.id && !apiKeyChangedInThisSession;
+    }
+    return true;
+  })();
 
   return (
     <form className="provider-form" onSubmit={handleSubmit}>
@@ -527,42 +580,26 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           readOnly={isUrlReadonly}
           disabled={isUrlReadonly}
           aria-label="Base URL"
-          aria-describedby={`base-url-help-${formData.type}`}
         />
         {isUrlReadonly && (
           <span className="provider-form__read-only-note">
-            URL padrão - não pode ser alterada para este tipo
+            {t('providerForm.urlReadonly')}
           </span>
         )}
       </FormField>
 
-      {/* Display URL que será salva no banco */}
-      <FormField label="URL que será salva" description="Este é o endpoint que será usar para requisições">
-        <Input
-          value={getCanonicalUrl(formData.type)}
-          readOnly
-          disabled
-          fullWidth
-          aria-label="URL canônica que será salva"
-          className="provider-form__read-only-url"
-        />
-        <span className="provider-form__info" style={{ marginTop: '8px', display: 'block' }}>
-          ℹ️ Esta URL é calculada automaticamente e será SALVA no banco
-        </span>
-      </FormField>
-
-      {/* API Key Field - mostrado quando obrigatório OU opcional */}
+      {/* API Key Field */}
       {requiresApiKey ? (
         <FormField
-          label="API Key"
+          label={t('providerForm.apiKey')}
           required
           error={errors.api_key}
           description={
             formData.id && !showApiKeyField
-              ? '🔑 Chave configurada no gerenciador de credenciais'
+              ? t('providerForm.keyConfigured')
               : formData.id && showApiKeyField
-              ? 'Deixe em branco para manter a chave atual'
-              : 'Será salva criptografada no gerenciador de credenciais'
+              ? t('providerForm.keepCurrent')
+              : t('providerForm.keySaved')
           }
         >
           {formData.id && !showApiKeyField ? (
@@ -571,9 +608,9 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
               variant="secondary"
               onClick={() => setShowApiKeyField(true)}
               className="provider-form__change-key-button"
-              aria-label="Alterar API Key"
+              aria-label={t('providerForm.changeKey')}
             >
-              🔓 Alterar Chave
+              {t('providerForm.changeKeyBtn')}
             </Button>
           ) : (
           <div className="provider-form__password-field">
@@ -585,17 +622,15 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
               onBlur={handleApiKeyBlur}
               placeholder={formData.id ? '••••••••' : 'sk-...'}
               fullWidth
-              aria-label="API Key"
-              aria-describedby="api-key-description"
+              aria-label={t('providerForm.apiKey')}
             />
             <Button
               type="button"
               variant="secondary"
               onClick={() => setShowPassword(!showPassword)}
               className="provider-form__toggle-password"
-              aria-label={showPassword ? 'Ocultar chave' : 'Mostrar chave'}
+              aria-label={showPassword ? t('providerForm.hideKey') : t('providerForm.showKey')}
               aria-pressed={showPassword}
-              title={showPassword ? 'Ocultar chave' : 'Mostrar chave'}
             >
               <span aria-hidden="true">{showPassword ? '🔒' : '🔓'}</span>
             </Button>
@@ -604,12 +639,12 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         </FormField>
       ) : (
         <FormField
-          label="API Key (Opcional)"
+          label={t('providerForm.apiKeyOptional')}
           error={errors.api_key}
           description={
             formData.id && !showApiKeyField
-              ? '🔑 Chave configurada no gerenciador de credenciais (ou sem chave)'
-              : 'Deixe em branco se não precisar de chave para este provedor'
+              ? t('providerForm.keyConfiguredOptional')
+              : t('providerForm.noKeyNeeded')
           }
         >
           {formData.id && !showApiKeyField ? (
@@ -618,9 +653,9 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
               variant="secondary"
               onClick={() => setShowApiKeyField(true)}
               className="provider-form__change-key-button"
-              aria-label="Alterar API Key"
+              aria-label={t('providerForm.changeKey')}
             >
-              🔓 Alterar Chave
+              {t('providerForm.changeKeyBtn')}
             </Button>
           ) : (
           <div className="provider-form__password-field">
@@ -630,18 +665,17 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
               value={formData.api_key}
               onChange={(e) => handleApiKeyChange(e.target.value)}
               onBlur={handleApiKeyBlur}
-              placeholder="Deixar em branco se não usar chave"
+              placeholder={t('providerForm.leaveEmpty')}
               fullWidth
-              aria-label="API Key (opcional)"
+              aria-label={t('providerForm.apiKeyOptional')}
             />
             <Button
               type="button"
               variant="secondary"
               onClick={() => setShowPassword(!showPassword)}
               className="provider-form__toggle-password"
-              aria-label={showPassword ? 'Ocultar chave' : 'Mostrar chave'}
+              aria-label={showPassword ? t('providerForm.hideKey') : t('providerForm.showKey')}
               aria-pressed={showPassword}
-              title={showPassword ? 'Ocultar chave' : 'Mostrar chave'}
             >
               <span aria-hidden="true">{showPassword ? '🔒' : '🔓'}</span>
             </Button>
@@ -650,37 +684,56 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         </FormField>
       )}
 
-      {/* Test button + connection status */}
-      <div className="provider-form__test-section">
-        <Button
-          type="button"
-          variant="secondary"
-          onClick={handleTestApi}
-          disabled={testing || !getCanonicalUrl(formData.type).trim()}
-          title={!getCanonicalUrl(formData.type).trim() ? 'Preenchea URL primeiro' : 'Testar conexão'}
-          aria-label="Testar conexão com API"
-        >
-          {testing ? 'Testando...' : '🧪 Testar Conexão'}
-        </Button>
-        
-        {apiTested && !testing && (
-          <span className="provider-form__success" aria-live="polite" style={{ marginLeft: '12px' }}>
-            ✓ Conectado
-          </span>
+      {/* Default Model — loads models list which also validates the provider */}
+      <FormField
+        label={t('providerForm.defaultModel')}
+        error={errors.api}
+        description={
+          modelsLoaded && apiTested
+            ? t('providerForm.connected')
+            : loadingModels
+            ? t('providerForm.loadingModels')
+            : t('providerForm.defaultModelHelp')
+        }
+      >
+        {modelsLoaded && models.length > 0 ? (
+          <Select
+            options={[
+              { value: '', label: t('providerForm.modelAutomatic') },
+              ...models.map(m => ({ value: m, label: m })),
+            ]}
+            value={formData.default_model || ''}
+            onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
+            fullWidth
+            aria-label={t('providerForm.defaultModel')}
+          />
+        ) : modelsLoaded && endpointNotSupported ? (
+          <Input
+            value={formData.default_model || ''}
+            onChange={(e) => setFormData(prev => ({ ...prev, default_model: e.target.value }))}
+            placeholder={config.defaultModel || t('providerForm.modelPlaceholder')}
+            fullWidth
+            aria-label={t('providerForm.defaultModel')}
+          />
+        ) : (
+          <div className="provider-form__model-load-section">
+            <Button
+              type="button"
+              variant="secondary"
+              onClick={handleLoadModels}
+              disabled={loadingModels || !canLoadModels}
+              aria-label={t('providerForm.loadModels')}
+            >
+              {loadingModels ? t('providerForm.loadingModels') : t('providerForm.loadModelsBtn')}
+            </Button>
+            {testRequiresApiKey && !formData.api_key.trim() && showApiKeyField && !formData.id && (
+              <span className="provider-form__hint">
+                {t('providerForm.fillApiKey')}
+              </span>
+            )}
+          </div>
         )}
-
-        {testRequiresApiKey && !formData.api_key.trim() && showApiKeyField && !formData.id && (
-          <span className="provider-form__info" style={{ marginLeft: '12px' }}>
-            ℹ️ Preencha a API Key para testar este provedor
-          </span>
-        )}
-      </div>
-
-      {errors.api && (
-        <div className="provider-form__error" role="alert">
-          ⚠️ {errors.api}
-        </div>
-      )}
+      </FormField>
 
       {errors.submit && (
         <div className="provider-form__error" role="alert">
@@ -690,19 +743,19 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
 
       <div className="provider-form__actions">
         <Button type="button" variant="secondary" onClick={onCancel}>
-          Cancelar
+          {t('common.cancel')}
         </Button>
         <Button
           type="submit"
           variant="primary"
           disabled={saving || !apiTested}
-          title={!apiTested ? 'Teste a API antes de salvar' : undefined}
+          title={!apiTested ? t('providerForm.error.testFirst') : undefined}
         >
           {saving
-            ? 'Salvando...'
+            ? t('common.saving')
             : formData.id
-              ? 'Atualizar'
-              : 'Criar'}
+              ? t('providerForm.updateBtn')
+              : t('common.create')}
         </Button>
       </div>
     </form>

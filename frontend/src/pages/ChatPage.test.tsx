@@ -89,10 +89,6 @@ vi.mock('../components/chat/ChatToolbar', () => ({
   ),
 }));
 
-vi.mock('../components/tabs/ChatTabs', () => ({
-  ChatTabs: () => <div>Tabs</div>,
-}));
-
 vi.mock('../components/chat/MessageList', () => ({
   MessageList: ({ onContextMenu }: { onContextMenu?: (event: MouseEvent, message: { id: string; role: string }) => void }) => (
     <button

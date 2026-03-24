@@ -10,7 +10,6 @@ vi.mock('@wailsjs/go/main/App', () => ({
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
   EventsOn: () => () => {},
-  EventsOff: vi.fn(),
 }));
 
 vi.mock('./BasePicker', () => ({

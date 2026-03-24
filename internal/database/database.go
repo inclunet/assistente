@@ -80,7 +80,6 @@ func Init() error {
 	if err := db.AutoMigrate(
 		&Conversation{},
 		&ChatMessage{},
-		&ChatTab{},
 		&EditorDocument{},
 		&EditorSessionState{},
 		&CredentialEntry{},
@@ -89,7 +88,7 @@ func Init() error {
 		&TaskListWorkflow{},
 		&TaskList{},
 		&Task{},
-		&TaskListTab{},
+		&TaskNote{},
 	); err != nil {
 		return err
 	}
@@ -145,9 +144,6 @@ func RecycleOrCreateConversation(title string) (*Conversation, error) {
 	var candidate Conversation
 	err := db.
 		Where("channel = '' AND contact_id = ''").
-		Where("id NOT IN (?)",
-			db.Model(&ChatTab{}).Select("conversation_id").Where("conversation_id IS NOT NULL"),
-		).
 		Where("id NOT IN (?)",
 			db.Model(&ChatMessage{}).Select("DISTINCT conversation_id"),
 		).
@@ -480,6 +476,16 @@ func DeleteMessage(messageID uint) error {
 // DeleteAllMessages remove todas as mensagens de uma conversa
 func DeleteAllMessages(conversationID uint) error {
 	return db.Where("conversation_id = ?", conversationID).Delete(&ChatMessage{}).Error
+}
+
+func ClearAllConversations() error {
+	if err := db.Where("1 = 1").Delete(&ChatMessage{}).Error; err != nil {
+		return fmt.Errorf("erro ao limpar mensagens: %w", err)
+	}
+	if err := db.Where("1 = 1").Delete(&Conversation{}).Error; err != nil {
+		return fmt.Errorf("erro ao limpar conversas: %w", err)
+	}
+	return nil
 }
 
 // GetMessages retorna mensagens de uma conversa com filtro opcional por parent
@@ -912,33 +918,6 @@ func GetMessagesBetweenIDs(conversationID uint, startAfterID uint, endID uint) (
 	return messages, err
 }
 
-// ==================== Chat Tab ====================
-
-// CreateChatTab cria uma nova aba de chat
-func CreateChatTab(conversationID *uint, title, icon string, position int) (*ChatTab, error) {
-	tab := &ChatTab{
-		ConversationID: conversationID,
-		Title:          title,
-		Icon:           icon,
-		Position:       position,
-		IsActive:       false,
-	}
-	if err := db.Create(tab).Error; err != nil {
-		return nil, err
-	}
-	return tab, nil
-}
-
-// GetChatTab retorna uma aba por ID
-func GetChatTab(id uint) (*ChatTab, error) {
-	var tab ChatTab
-	err := db.Preload("Conversation").First(&tab, id).Error
-	if err != nil {
-		return nil, err
-	}
-	return &tab, nil
-}
-
 // ==================== Utilities ====================
 
 // GenerateTitle gera um título baseado na primeira mensagem
@@ -1150,4 +1129,24 @@ func CountLLMProviders() (int64, error) {
 	var count int64
 	err := db.Model(&LLMProvider{}).Count(&count).Error
 	return count, err
+}
+
+// SetDefaultProvider marca um provedor como default (e desmarca os demais).
+func SetDefaultProvider(id string) error {
+	return db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Model(&LLMProvider{}).Where("is_default = ?", true).Update("is_default", false).Error; err != nil {
+			return err
+		}
+		return tx.Model(&LLMProvider{}).Where("id = ?", id).Update("is_default", true).Error
+	})
+}
+
+// GetDefaultProvider retorna o provedor marcado como default, ou nil se nenhum.
+func GetDefaultProvider() (*LLMProvider, error) {
+	var provider LLMProvider
+	err := db.First(&provider, "is_default = ?", true).Error
+	if err != nil {
+		return nil, err
+	}
+	return &provider, nil
 }

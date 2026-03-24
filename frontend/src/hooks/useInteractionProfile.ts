@@ -39,7 +39,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useSTT } from './useSTT';
 import { useWakewordDetection } from './useWakewordDetection';
-import { GetActiveProfile } from '@wailsjs/go/main/App';
+import { GetActiveProfile, GetProfile } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { profiles } from '../../wailsjs/go/models';
 import { playSound, SOUND_TYPES } from '../services/audioFeedback';
@@ -85,6 +85,9 @@ async function ensureHotkeyListener(): Promise<void> {
 }
 
 export interface UseInteractionProfileOptions {
+  /** Slug do perfil efetivo (cascata: tab → workspace → global) */
+  effectiveProfileSlug?: string | null;
+
   /** Callback quando transcrição é finalizada */
   onTranscription?: (text: string, provider: string) => void;
   
@@ -229,6 +232,7 @@ function getTriggers(profile: Profile | null): TriggerConfig[] | undefined {
 
 export function useInteractionProfile(options: UseInteractionProfileOptions = {}): UseInteractionProfileReturn {
   const {
+    effectiveProfileSlug,
     onTranscription,
     onActivityStart,
     onActivityEnd,
@@ -272,20 +276,22 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     };
   }, [onTranscription, onActivityStart, onActivityEnd, onHotkeyActivation, onWakeWordDetected, onError]);
 
-  // Carrega o perfil ativo do backend
+  // Carrega o perfil efetivo: por slug (tab/workspace) ou global ativo
   const loadActiveProfile = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      const profile = await GetActiveProfile();
+      const profile = effectiveProfileSlug
+        ? await GetProfile(effectiveProfileSlug)
+        : await GetActiveProfile();
       setActiveProfileState(profile);
     } catch (e) {
-      console.error('[useInteractionProfile] Erro ao carregar perfil ativo:', e);
+      console.error('[useInteractionProfile] Erro ao carregar perfil:', e);
       setError(e instanceof Error ? e.message : 'Erro ao carregar perfil');
     } finally {
       setIsLoading(false);
     }
-  }, []);
+  }, [effectiveProfileSlug]);
 
   // Interaction config do perfil ativo
   const interactionConfig = getInteractionConfig(activeProfile);

@@ -26,7 +26,6 @@ export const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
     tabIndex,
     ...buttonProps
   }, ref) => {
-    const computedTitle = title ?? (shortcut ? `${label} (${shortcut})` : label);
     const computedAriaLabel = ariaLabel ?? (shortcut ? `${label}, ${shortcut}` : label);
     const { type, ...restButtonProps } = buttonProps;
 
@@ -34,7 +33,7 @@ export const ToolbarButton = forwardRef<HTMLButtonElement, ToolbarButtonProps>(
       <button
         ref={ref}
         className={`toolbar__button toolbar__button--${variant}${className ? ` ${className}` : ''}`}
-        title={computedTitle}
+        title={title ?? undefined}
         aria-label={computedAriaLabel}
         tabIndex={typeof tabIndex === 'number' ? tabIndex : -1}
         type={type ?? 'button'}
@@ -88,6 +87,8 @@ export interface ToolbarProps {
   searchPlaceholder?: string;
   /** Array de ações como botões */
   actions?: ToolbarAction[];
+  /** Conteúdo à direita, após os botões de ação (ex: ProfilePicker) */
+  rightEnd?: ReactNode;
   /** Aria label da toolbar */
   ariaLabel?: string;
   /** Classe CSS adicional */
@@ -109,6 +110,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
   onSearchChange,
   searchPlaceholder = 'Buscar...',
   actions = [],
+  rightEnd,
   ariaLabel = 'Barra de ferramentas. Use setas para navegar entre os botões',
   className = '',
   onFocusContent,
@@ -174,12 +176,13 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
         </div>
       )}
 
-      {(right || actions.length > 0) && (
+      {(right || rightEnd || actions.length > 0) && (
         <div className="toolbar__section toolbar__right">
           {right}
           {actions.map(({ key, buttonRef, ...buttonProps }) => (
             <ToolbarButton key={key} ref={buttonRef} {...buttonProps} />
           ))}
+          {rightEnd}
         </div>
       )}
     </div>

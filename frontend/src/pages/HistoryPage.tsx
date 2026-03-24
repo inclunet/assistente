@@ -8,7 +8,8 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
-import { useChatStore } from '../store/chatStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
+import { executeDeepLink } from '../lib/deepLinks';
 import { formatRelativeTime } from '../lib/dateUtils';
 import { downloadJSON, openFileDialog, generateFilename } from '../lib/exportImport';
 import './HistoryPage.css';
@@ -36,7 +37,9 @@ export default function HistoryPage() {
   const [focusedRow, setFocusedRow] = useState<Conversation | null>(null);
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'history-page' });
-  const openConversationInNewTab = useChatStore(state => state.openConversationInNewTab);
+  const moveTabToWorkspace = useWorkspaceStore(state => state.moveTabToWorkspace);
+  const addWorkspaceTab = useWorkspaceStore(state => state.addTab);
+  const workspaces = useWorkspaceStore(state => state.workspaces);
 
   useEffect(() => {
     loadConversations();
@@ -119,14 +122,12 @@ export default function HistoryPage() {
     }
   };
 
-  const handleOpenConversation = async (conversationId: number, title?: string) => {
-    try {
-      await openConversationInNewTab(conversationId, title);
-      navigate('/');
-    } catch (error) {
-      console.error('Erro ao abrir conversa:', error);
-    }
-  };
+  const handleOpenConversation = useCallback(async (conversationId: number, title?: string) => {
+    await executeDeepLink(
+      { type: 'conversation:open', conversationId, title },
+      { navigate },
+    );
+  }, [navigate]);
 
   const handleNewConversation = () => {
     navigate('/');
@@ -222,22 +223,56 @@ export default function HistoryPage() {
     handleDeleteConversation(item.id);
   }, [handleDeleteConversation]);
 
+  const handleSendToWorkspace = useCallback(async (conversationId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
+    try {
+      const tabTitle = title || t('chat.newConversation', 'Nova conversa');
+      if (isActive) {
+        await addWorkspaceTab('chat', String(conversationId), tabTitle);
+        navigate('/');
+      } else {
+        const tabId = await addWorkspaceTab('chat', String(conversationId), tabTitle);
+        await moveTabToWorkspace(tabId, targetWorkspaceId);
+      }
+    } catch (error) {
+      console.error('Erro ao enviar conversa ao workspace:', error);
+    }
+  }, [addWorkspaceTab, moveTabToWorkspace, navigate, t]);
+
   const getRowActions = useCallback(
-    (item: Conversation): ContextMenuItem[] => [
-      {
-        id: 'open',
-        label: t('history.openConversation', 'Abrir conversa'),
-        icon: '📂',
-        action: () => handleOpenConversation(item.id, item.title),
-      },
-      {
+    (item: Conversation): ContextMenuItem[] => {
+      const actions: ContextMenuItem[] = [
+        {
+          id: 'open',
+          label: t('history.openConversation', 'Abrir conversa'),
+          icon: '📂',
+          action: () => handleOpenConversation(item.id, item.title),
+        },
+      ];
+
+      if (workspaces.length > 0) {
+        actions.push({
+          id: 'send-to-workspace',
+          label: t('history.sendToWorkspace', 'Enviar ao workspace'),
+          icon: '📤',
+          submenu: workspaces.map(ws => ({
+            id: `ws-${ws.id}`,
+            label: ws.name,
+            icon: ws.is_active ? '●' : ' ',
+            action: () => handleSendToWorkspace(item.id, item.title, ws.id, ws.is_active),
+          })),
+        });
+      }
+
+      actions.push({
         id: 'delete',
         label: t('history.deleteConversation', 'Excluir conversa'),
         icon: '🗑️',
         action: () => handleDeleteConversation(item.id),
-      },
-    ],
-    [handleDeleteConversation, handleOpenConversation, t]
+      });
+
+      return actions;
+    },
+    [handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
   );
 
   const getMenuButtonItems = useCallback(
@@ -407,6 +442,7 @@ export default function HistoryPage() {
       <DataGrid
         items={displayItems}
         columns={columns}
+        onActivate={(item: Conversation) => handleOpenConversation(item.id, item.title)}
         onCellEdit={handleCellEdit}
         onDelete={handleDeleteRow}
         selectedIds={selectedIds}

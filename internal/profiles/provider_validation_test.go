@@ -33,10 +33,15 @@ func TestValidateLLMProvider(t *testing.T) {
 			shouldError: false,
 		},
 		{
+			name:        "valid: $default sentinel",
+			llmProvider: DefaultProviderSentinel,
+			shouldError: false,
+		},
+		{
 			name:             "invalid: empty provider",
 			llmProvider:      "",
 			shouldError:      true,
-			expectedErrorMsg: "chat.llm_provider is required (ex: 'openai-default')",
+			expectedErrorMsg: "chat.llm_provider is required (ex: 'openai-default' or '$default')",
 		},
 	}
 

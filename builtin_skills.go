@@ -14,7 +14,7 @@ import (
 	"assistente/internal/skills"
 )
 
-//go:embed all:.assistente/skills
+//go:embed all:builtin/skills
 var builtinSkillsFS embed.FS
 
 // installBuiltinSkills copia skills embutidos no binário para ~/.assistente/skills/.
@@ -33,7 +33,7 @@ func (a *App) installBuiltinSkills() {
 		return
 	}
 
-	skillEntries, err := fs.ReadDir(builtinSkillsFS, ".assistente/skills")
+	skillEntries, err := fs.ReadDir(builtinSkillsFS, "builtin/skills")
 	if err != nil {
 		log.Printf("[Skills] Error reading embedded skills: %v", err)
 		return
@@ -45,7 +45,7 @@ func (a *App) installBuiltinSkills() {
 		}
 
 		slug := entry.Name()
-		embeddedBase := ".assistente/skills/" + slug
+		embeddedBase := "builtin/skills/" + slug
 
 		embeddedSkillData, err := fs.ReadFile(builtinSkillsFS, embeddedBase+"/SKILL.md")
 		if err != nil {

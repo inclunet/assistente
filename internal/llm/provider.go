@@ -33,6 +33,8 @@ type ProviderConfig struct {
 	Type              ProviderType      `json:"type"`
 	BaseURL           string            `json:"base_url"`
 	Model             string            `json:"model,omitempty"`
+	DefaultModel      string            `json:"default_model,omitempty"`
+	IsDefault         bool              `json:"is_default,omitempty"`
 	Timeout           int               `json:"timeout,omitempty"`
 	Headers           map[string]string `json:"headers,omitempty"`
 	CredentialPattern string            `json:"credential_pattern,omitempty"`

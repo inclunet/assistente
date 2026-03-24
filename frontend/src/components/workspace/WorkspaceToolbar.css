@@ -1,0 +1,21 @@
+/* Overrides para o Toolbar padrão quando usado como workspace toolbar */
+.workspace-toolbar {
+  min-height: 40px;
+}
+
+.workspace-toolbar__rename-input {
+  padding: 0.375rem 0.75rem;
+  background: var(--bg-input);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  font-weight: 500;
+  font-family: inherit;
+  outline: none;
+  min-width: 180px;
+}
+
+.workspace-toolbar__rename-input:focus {
+  box-shadow: 0 0 0 2px var(--accent-dim);
+}

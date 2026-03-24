@@ -1,23 +1,17 @@
 import { create } from 'zustand';
-import { 
-  SendMessage, 
-  GetAllTabs,
-  CreateTabWithConversation,
-  CloseTab,
-  SetActiveTab,
-  UpdateTabTitle as BackendUpdateTabTitle,
+import {
+  SendMessage,
   GetMessages,
-  LoadConversationInTab,
-  OpenConversationInNewTab,
+  GetConversationInfo,
+  EnsureConversation,
   AssignConversationToChannel,
   UnassignConversationFromChannel,
   GetMessageChildren,
   RenameConversation,
-  StartNewConversationInTab,
 } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
-import { database, llm, main } from '../../wailsjs/go/models';
+import { llm, main } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
@@ -25,37 +19,27 @@ import { messageAudioService } from '../services/messageAudio';
 import { stripMarkdown } from '../lib/stripMarkdown';
 import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
 
-// Constantes de validação de input (devem corresponder ao backend)
-const MAX_MESSAGE_CONTENT_SIZE = 500 * 1024; // 500KB
-const MAX_MEDIA_SIZE = 10 * 1024 * 1024; // 10MB
-
-// Constantes de performance para streaming
-const STREAM_UPDATE_DEBOUNCE_MS = 16; // ~60fps - debounce para atualizações de streaming
-
+const MAX_MESSAGE_CONTENT_SIZE = 500 * 1024;
+const MAX_MEDIA_SIZE = 10 * 1024 * 1024;
+const STREAM_UPDATE_DEBOUNCE_MS = 16;
 const DEFAULT_TITLE_PATTERNS = /^nova\s+conversa$/i;
 
 interface MediaData {
   name: string;
   type: string;
-  data: string; // base64
+  data: string;
   size: number;
 }
 
-// Usa os tipos gerados pelo Wails diretamente
 export type MessageNode = main.MessageNode & {
-  originalIndex?: number; // Adicionado pelo frontend
-  isExpanded?: boolean;    // Estado de expansão controlado pela store
+  originalIndex?: number;
+  isExpanded?: boolean;
 };
 
 export type Message = main.EnrichedMessage & {
   _turnSegments?: TurnSegment[];
 };
 
-/**
- * Represents a segment within an agentic turn.
- * Segments alternate between text (assistant reasoning) and tool calls,
- * showing the progression: think → use tools → think → use tools → final answer.
- */
 export interface TurnSegment {
   type: 'text' | 'tool_calls';
   content?: string;
@@ -103,58 +87,31 @@ interface ChatSegmentDoneEvent {
   content?: string;
 }
 
-interface ChatMessagesReadyEvent {
-  userMessageId?: number | string;
-  userContent?: string;
-  conversationId?: number;
+export interface NewMessageData {
+  role: string;
+  content: string;
+  isStreaming?: boolean;
+  parentId?: string;
+  source?: string;
 }
 
-interface ChatStreamEvent {
-  content?: string;
-  done?: boolean;
-  error?: string;
+export interface ActiveConversation {
+  id: number;
+  title: string;
+  threadedMessages: MessageNode[];
+  channel?: string;
+  contactId?: string;
 }
 
-interface ChatThinkingEvent {
-  started?: boolean;
-  done?: boolean;
-  content?: string;
-}
-
-interface ChatToolStartEvent {
-  name: string;
-  callId: string;
-  args?: string;
-}
-
-interface ChatToolEndEvent {
-  callId: string;
-  name?: string;
-  status?: string;
-  summary?: string;
-}
-
-interface ChatSegmentDoneEvent {
-  hasMore?: boolean;
-  content?: string;
-}
-
-/**
- * Deriva um array flat de mensagens da estrutura hierárquica threadedMessages.
- * Percorre a árvore em profundidade e coleta todas as mensagens.
- */
 function flattenThreadedMessages(nodes: MessageNode[] | undefined): Message[] {
   if (!nodes || nodes.length === 0) return [];
-  
   const flat: Message[] = [];
-  
   function traverse(node: MessageNode) {
     flat.push(node.message);
     if (node.children && node.children.length > 0) {
       node.children.forEach(traverse);
     }
   }
-  
   nodes.forEach(traverse);
   return flat;
 }
@@ -175,135 +132,18 @@ const getErrorMessage = (error: unknown): string => {
   }
 };
 
-// Tipo para criar mensagens novas (campos mínimos necessários)
-export interface NewMessageData {
-  role: string;
-  content: string;
-  isStreaming?: boolean;
-  parentId?: string;
-  source?: string;
-}
-
-export interface ChatTab {
-  id: string;
-  title: string;
-  threadedMessages: MessageNode[];  // Fonte única de verdade - estrutura hierárquica
-  conversationId?: number;
-  createdAt: number;
-  updatedAt: number;
-  backendId?: number; // ID do backend (database.ChatTab)
-  channel?: string;    // Canal vinculado: "signal", "telegram", etc.
-  contactId?: string;  // ID do contato no canal (phone, UUID, chatID)
-}
-
-interface ChatStore {
-  tabs: ChatTab[];
-  activeTabId: string | null;
-  isLoading: boolean;
-  streamingMessageId: string | null;
-  isInitialized: boolean;
-  expandedThreads: Set<string>; // IDs de mensagens com threads expandidas
-  editingMessageId: string | null; // ID da mensagem sendo editada (acionado por F2 ou menu)
-  readingMessageId: string | null; // ID da mensagem para ativar modo leitura (acionado pelo menu de contexto)
-  skipFocusRestore: boolean; // Flag para pular restauração de foco após fechar menu
-  
-  // Reasoning/Thinking - cadeia de pensamento do modelo durante streaming
-  streamingReasoning: string | null; // Reasoning acumulado durante streaming
-  isThinking: boolean; // Se está recebendo reasoning do modelo
-  expandedReasonings: Set<string>; // IDs de mensagens com reasoning expandido
-
-  // Tool calling - estado durante streaming do agentic loop
-  activeToolCalls: ToolCallStatus[]; // Tool calls em execução/concluídos durante streaming
-  hadToolCalls: boolean; // Se houve tool calls neste turno (para saber se precisa reload)
-  completedSegments: TurnSegment[]; // Segments from previous iterations (text + tools interleaved)
-
-  // Initialization
-  initializeTabs: () => Promise<void>;
-  
-  // Editing
-  setEditingMessageId: (id: string | null) => void;
-  startEditing: (id: string) => void; // Inicia edição e marca para pular restauração de foco
-  consumeSkipFocusRestore: () => boolean; // Consome o flag e retorna se deve pular
-  
-  // Reading mode (virtual modal)
-  setReadingMessageId: (id: string | null) => void;
-  startReading: (id: string) => void; // Inicia modo leitura e marca para pular restauração de foco
-
-  // Tab management
-  createTab: (activate?: boolean) => Promise<string>;
-  deleteTab: (tabId: string) => Promise<void>;
-  setActiveTab: (tabId: string) => Promise<void>;
-  updateTabTitle: (tabId: string, title: string) => void;
-
-  // Message management
-  addMessage: (tabId: string, message: NewMessageData) => string;
-  updateMessage: (tabId: string, messageId: string, content: string) => void;
-  updateMessageReasoning: (tabId: string, messageId: string, reasoning: string) => void; // Atualiza reasoning
-  addInternalMessage: (tabId: string, message: Message) => void; // Adiciona mensagem interna (tool call)
-  clearMessages: (tabId: string) => void;
-  clearActiveTab: () => void;
-  startNewConversationInActiveTab: (title?: string) => Promise<void>;
-  loadConversationInActiveTab: (conversationId: number, conversationTitle: string) => Promise<void>;
-  openConversationInNewTab: (conversationId: number, title?: string) => Promise<void>;
-  
-  // Thread management
-  toggleThreadExpanded: (messageId: string) => void;
-  isThreadExpanded: (messageId: string) => boolean;
-  
-  // Reasoning management
-  toggleReasoningExpanded: (messageId: string) => void;
-  isReasoningExpanded: (messageId: string) => boolean;
-
-  // Chat actions
-  sendMessage: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
-  sendMessageWithParams: (content: string, mediaFiles?: MediaFile[], paramsOverride?: Partial<llm.ChatParams>) => Promise<void>;
-  stopStreaming: () => void;
-
-  // Utility
-  getActiveTab: () => ChatTab | undefined;
-  getTabMessages: (tabId: string) => Message[];
-  
-  // Thread management
-  getThreadedMessages: () => MessageNode[] | undefined;
-  loadMessageChildren: (messageId: string) => Promise<MessageNode[]>;
-  
-  // External events
-  handleConversationDeleted: (conversationId: number) => void;
-  handleConversationCleared: (conversationId: number) => void;
-  handleConversationRenamed: (conversationId: number, newTitle: string) => void;
-  handleTabTitleUpdated: (backendTabId: number, newTitle: string) => void;
-  handleDatabaseReset: () => void;
-  handleTabClosed: (tabId: number) => void;
-
-  // Channel assignment (bridge bidirecional)
-  assignChannelToTab: (tabId: string, channel: string, contactId: string) => Promise<void>;
-  unassignChannelFromTab: (tabId: string) => Promise<void>;
-
-  // Messaging (external channels)
-  reloadActiveTabMessages: () => Promise<void>;
-  reloadConversationMessages: (conversationId: number) => Promise<void>;
-  handleExternalIncoming: (data: {
-    channel: string; from: string; fromId?: string; text: string; conversationId: number;
-    newConversation?: boolean; tabId?: number; tabCreated?: boolean;
-    tabTitle?: string; tabIcon?: string;
-  }) => void;
-}
-
 const generateId = () => `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-// Mapa para rastrear cleanup functions de cada tab (previne acúmulo de listeners)
 const activeListeners = new Map<string, () => void>();
 
-// Debouncing para atualizações de streaming (reduz re-renders)
 const streamUpdateTimers = new Map<string, NodeJS.Timeout>();
-const pendingStreamUpdates = new Map<string, { tabId: string; messageId: string; content: string }>();
+const pendingStreamUpdates = new Map<string, { messageId: string; content: string }>();
 
 const fileToBase64 = (file: File): Promise<string> => {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
     reader.onload = () => {
       const result = reader.result as string;
-      // Remove data URL prefix to get pure base64
       const base64 = result.split(',')[1];
       resolve(base64);
     };
@@ -312,121 +152,106 @@ const fileToBase64 = (file: File): Promise<string> => {
   });
 };
 
-// Converte database.ChatTab (backend) para ChatTab (frontend)
-const backendTabToFrontend = (backendTab: database.ChatTab): ChatTab => {
-  return {
-    id: backendTab.id?.toString() || generateId(),
-    backendId: backendTab.id,
-    title: backendTab.title || 'Nova Conversa',
-    threadedMessages: [], // Mensagens serão carregadas depois se necessário
-    conversationId: backendTab.conversation_id || undefined,
-    createdAt: backendTab.created_at ? Date.parse(String(backendTab.created_at)) : Date.now(),
-    updatedAt: backendTab.updated_at ? Date.parse(String(backendTab.updated_at)) : Date.now(),
-    channel: backendTab.conversation?.channel || undefined,
-    contactId: backendTab.conversation?.contact_id || undefined,
-  };
-};
-
-// Helper para debounced stream updates (reduz re-renders durante streaming)
 const debouncedUpdateMessage = (
-  tabId: string,
   messageId: string,
   content: string,
-  updateFn: (tabId: string, messageId: string, content: string) => void
+  updateFn: (messageId: string, content: string) => void
 ) => {
-  const key = `${tabId}-${messageId}`;
-
-  // Armazena o update pendente
-  pendingStreamUpdates.set(key, { tabId, messageId, content });
-
-  // Limpa timer anterior se existir
-  const existingTimer = streamUpdateTimers.get(key);
-  if (existingTimer) {
-    clearTimeout(existingTimer);
-  }
-
-  // Agenda novo update
+  pendingStreamUpdates.set(messageId, { messageId, content });
+  const existingTimer = streamUpdateTimers.get(messageId);
+  if (existingTimer) clearTimeout(existingTimer);
   const timer = setTimeout(() => {
-    const pending = pendingStreamUpdates.get(key);
+    const pending = pendingStreamUpdates.get(messageId);
     if (pending) {
-      updateFn(pending.tabId, pending.messageId, pending.content);
-      pendingStreamUpdates.delete(key);
-      streamUpdateTimers.delete(key);
+      updateFn(pending.messageId, pending.content);
+      pendingStreamUpdates.delete(messageId);
+      streamUpdateTimers.delete(messageId);
     }
   }, STREAM_UPDATE_DEBOUNCE_MS);
-
-  streamUpdateTimers.set(key, timer);
+  streamUpdateTimers.set(messageId, timer);
 };
 
-// Helper para forçar update imediato (usado em done/error)
 const flushPendingUpdate = (
-  tabId: string,
   messageId: string,
-  updateFn: (tabId: string, messageId: string, content: string) => void
+  updateFn: (messageId: string, content: string) => void
 ) => {
-  const key = `${tabId}-${messageId}`;
-
-  // Cancela timer se existir
-  const existingTimer = streamUpdateTimers.get(key);
+  const existingTimer = streamUpdateTimers.get(messageId);
   if (existingTimer) {
     clearTimeout(existingTimer);
-    streamUpdateTimers.delete(key);
+    streamUpdateTimers.delete(messageId);
   }
-
-  // Executa update pendente imediatamente
-  const pending = pendingStreamUpdates.get(key);
+  const pending = pendingStreamUpdates.get(messageId);
   if (pending) {
-    updateFn(pending.tabId, pending.messageId, pending.content);
-    pendingStreamUpdates.delete(key);
+    updateFn(pending.messageId, pending.content);
+    pendingStreamUpdates.delete(messageId);
   }
 };
 
-// Helper extraído: remove uma tab do state e limpa seus listeners.
-// Usado por handleTabClosed (caminho principal) e deleteTab (fallback para tabs locais).
-function removeTabFromState(
-  tabId: string,
-  get: () => ChatStore,
-  set: (fn: (state: ChatStore) => Partial<ChatStore>) => void,
-  listeners: Map<string, () => void>,
-) {
-  const cleanup = listeners.get(tabId);
-  if (cleanup) {
-    cleanup();
-    listeners.delete(tabId);
-  }
+interface ChatStore {
+  activeConversationId: number | null;
+  activeConversation: ActiveConversation | null;
+  isLoading: boolean;
+  streamingMessageId: string | null;
+  isInitialized: boolean;
+  expandedThreads: Set<string>;
+  editingMessageId: string | null;
+  readingMessageId: string | null;
+  skipFocusRestore: boolean;
+  streamingReasoning: string | null;
+  isThinking: boolean;
+  expandedReasonings: Set<string>;
+  contextProfileSlug: string | null;
+  activeToolCalls: ToolCallStatus[];
+  hadToolCalls: boolean;
+  completedSegments: TurnSegment[];
 
-  set((s) => {
-    const tabIndex = s.tabs.findIndex(t => t.id === tabId);
-    const newTabs = s.tabs.filter(t => t.id !== tabId);
-    let newActiveTabId = s.activeTabId;
-    if (s.activeTabId === tabId) {
-      const nextIndex = Math.min(tabIndex, newTabs.length - 1);
-      newActiveTabId = newTabs[nextIndex]?.id || null;
-    }
-    return { tabs: newTabs, activeTabId: newActiveTabId };
-  });
+  setContextProfileSlug: (slug: string | null) => void;
+  setEditingMessageId: (id: string | null) => void;
+  startEditing: (id: string) => void;
+  consumeSkipFocusRestore: () => boolean;
+  setReadingMessageId: (id: string | null) => void;
+  startReading: (id: string) => void;
 
-  // Foca na nova guia ativa
-  setTimeout(() => {
-    const newActiveTabId = get().activeTabId;
-    if (newActiveTabId) {
-      const escaped =
-        globalThis.CSS?.escape?.(newActiveTabId) ??
-        newActiveTabId.replace(/"/g, '\\"');
-      const tabButton =
-        (document.querySelector(
-          `button[role="tab"][data-tab-value="${escaped}"]`
-        ) as HTMLButtonElement | null) ??
-        (document.querySelector(
-          `[data-tab-id="${escaped}"]`
-        ) as HTMLButtonElement | null);
-      tabButton?.focus();
-    }
-  }, 50);
+  createConversation: (title?: string) => Promise<number>;
+  loadConversation: (id: number) => Promise<void>;
+
+  addMessage: (message: NewMessageData) => string;
+  updateMessage: (messageId: string, content: string) => void;
+  updateMessageReasoning: (messageId: string, reasoning: string) => void;
+  addInternalMessage: (message: Message) => void;
+  clearMessages: () => void;
+
+  toggleThreadExpanded: (messageId: string) => void;
+  isThreadExpanded: (messageId: string) => boolean;
+  toggleReasoningExpanded: (messageId: string) => void;
+  isReasoningExpanded: (messageId: string) => boolean;
+
+  sendMessage: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
+  sendMessageWithParams: (content: string, mediaFiles?: MediaFile[], paramsOverride?: Partial<llm.ChatParams>) => Promise<void>;
+  stopStreaming: () => void;
+
+  getActiveConversation: () => ActiveConversation | null;
+  getMessages: () => Message[];
+  getThreadedMessages: () => MessageNode[] | undefined;
+  loadMessageChildren: (messageId: string) => Promise<MessageNode[]>;
+
+  handleConversationDeleted: (conversationId: number) => void;
+  handleConversationCleared: (conversationId: number) => void;
+  handleConversationRenamed: (conversationId: number, newTitle: string) => void;
+  handleDatabaseReset: () => void;
+
+  assignChannel: (channel: string, contactId: string) => Promise<void>;
+  unassignChannel: () => Promise<void>;
+
+  reloadMessages: () => Promise<void>;
+  reloadConversationMessages: (conversationId: number) => Promise<void>;
+  handleExternalIncoming: (data: {
+    channel: string; from: string; fromId?: string; text: string; conversationId: number;
+    newConversation?: boolean;
+  }) => void;
 }
 
 export const useChatStore = create<ChatStore>()((set, get) => {
-  // Limpa localStorage relacionado ao chat na inicialização
   if (typeof window !== 'undefined') {
     const keysToRemove: string[] = [];
     for (let i = 0; i < localStorage.length; i++) {
@@ -437,10 +262,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     }
     keysToRemove.forEach(key => localStorage.removeItem(key));
   }
-  
+
   return {
-    tabs: [],
-    activeTabId: null,
+    activeConversationId: null,
+    activeConversation: null,
     isLoading: false,
     streamingMessageId: null,
     isInitialized: false,
@@ -448,1361 +273,735 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     editingMessageId: null,
     readingMessageId: null,
     skipFocusRestore: false,
-    streamingReasoning: null, // Reasoning durante streaming
-    isThinking: false, // Se está recebendo reasoning
-    expandedReasonings: new Set<string>(), // IDs de mensagens com reasoning expandido
-    activeToolCalls: [], // Tool calls durante streaming
-    hadToolCalls: false, // Se houve tool calls neste turno
-    completedSegments: [], // Segments from previous agentic iterations
-    
-    setEditingMessageId: (id: string | null) => {
-      set({ editingMessageId: id });
-    },
-    
-    startEditing: (id: string) => {
-      // Marca para pular restauração de foco E inicia edição
-      set({ editingMessageId: id, skipFocusRestore: true });
-    },
-    
-    setReadingMessageId: (id: string | null) => {
-      set({ readingMessageId: id });
-    },
-    
-    startReading: (id: string) => {
-      // Marca para pular restauração de foco E inicia modo leitura
-      set({ readingMessageId: id, skipFocusRestore: true });
-    },
-    
+    streamingReasoning: null,
+    isThinking: false,
+    expandedReasonings: new Set<string>(),
+    contextProfileSlug: null,
+    activeToolCalls: [],
+    hadToolCalls: false,
+    completedSegments: [],
+
+    setContextProfileSlug: (slug) => set({ contextProfileSlug: slug }),
+
+    setEditingMessageId: (id) => set({ editingMessageId: id }),
+
+    startEditing: (id) => set({ editingMessageId: id, skipFocusRestore: true }),
+
+    setReadingMessageId: (id) => set({ readingMessageId: id }),
+
+    startReading: (id) => set({ readingMessageId: id, skipFocusRestore: true }),
+
     consumeSkipFocusRestore: () => {
       const shouldSkip = get().skipFocusRestore;
-      if (shouldSkip) {
-        set({ skipFocusRestore: false });
-      }
+      if (shouldSkip) set({ skipFocusRestore: false });
       return shouldSkip;
     },
 
-    initializeTabs: async () => {
-    try {
-      const backendTabs = await GetAllTabs();
-
-      let tabs = backendTabs.map(backendTabToFrontend);
-      
-      // Se não houver tabs, cria uma com conversa associada
-      if (tabs.length === 0) {
-        const newBackendTab = await CreateTabWithConversation();
-        tabs = [backendTabToFrontend(newBackendTab)];
-      }
-      
-      const activeTab = tabs.find((t: ChatTab) => t.backendId && backendTabs.find((bt: database.ChatTab) => bt.id === t.backendId)?.is_active);
-
+    createConversation: async (title) => {
+      const conv = await EnsureConversation(title || 'Nova Conversa');
       set({
-        tabs,
-        activeTabId: activeTab?.id || tabs[0]?.id || null,
+        activeConversationId: conv.id,
+        activeConversation: {
+          id: conv.id,
+          title: conv.title || title || 'Nova Conversa',
+          threadedMessages: [],
+        },
         isInitialized: true,
       });
-      
-      // Carrega mensagens da tab ativa se houver conversationId
-      const initialActiveTab = activeTab || tabs[0];
-      
-      if (initialActiveTab?.conversationId) {
-        try {
-          const messageNodes = await GetMessages(initialActiveTab.conversationId, null);
-          
-          const nodes: MessageNode[] = (messageNodes || []).map(withOriginalIndex);
-          
-          set((state) => ({
-            tabs: state.tabs.map((t) =>
-              t.id === initialActiveTab.id
-                ? { ...t, threadedMessages: nodes, updatedAt: Date.now() }
-                : t
-            ),
-          }));
-        } catch (error) {
-          console.error('[Chat] Erro ao carregar mensagens da tab ativa:', error);
+      return conv.id;
+    },
+
+    loadConversation: async (id) => {
+      try {
+        const [conv, backendNodes] = await Promise.all([
+          GetConversationInfo(id),
+          GetMessages(id, null),
+        ]);
+        const messageNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
+        set({
+          activeConversationId: id,
+          activeConversation: {
+            id,
+            title: conv?.title || 'Conversa',
+            threadedMessages: messageNodes,
+            channel: conv?.channel || undefined,
+            contactId: conv?.contact_id || undefined,
+          },
+          isInitialized: true,
+        });
+      } catch (error) {
+        console.error('[Chat] Erro ao carregar conversa:', error);
+        set({
+          activeConversationId: id,
+          activeConversation: { id, title: 'Conversa', threadedMessages: [] },
+          isInitialized: true,
+        });
+      }
+    },
+
+    addMessage: (message) => {
+      const messageId = generateId();
+      const newMessage = new main.EnrichedMessage({
+        ...message,
+        id: messageId,
+        timestamp: Date.now(),
+        conversationId: get().activeConversationId || 0,
+        isStreaming: message.isStreaming ?? false,
+        internal: false,
+        createdAt: new Date().toISOString(),
+      });
+
+      const newNode = new main.MessageNode({
+        message: newMessage,
+        children: [],
+        level: 0,
+        childCount: 0,
+      });
+
+      set((state) => ({
+        activeConversation: state.activeConversation
+          ? {
+              ...state.activeConversation,
+              threadedMessages: [...state.activeConversation.threadedMessages, newNode],
+            }
+          : state.activeConversation,
+      }));
+
+      if (message.role === 'user') {
+        playSendSound();
+        if (ttsService.isEnabledForUser()) {
+          const cleanContent = stripMarkdown(message.content);
+          ttsService.speak(cleanContent).catch((err: unknown) => {
+            console.error('[Chat] TTS speak error (user):', err);
+          });
+        } else if (ttsService.shouldUseAriaLiveForUser()) {
+          const cleanContent = stripMarkdown(message.content);
+          announce(`Você: ${cleanContent}`);
+        }
+      } else if (message.role === 'assistant' && !message.isStreaming) {
+        playReceiveSound();
+        if (ttsService.shouldUseAriaLiveForAgent()) {
+          const cleanContent = stripMarkdown(message.content);
+          announce(`Assistente: ${cleanContent}`);
         }
       }
-    } catch (error) {
-      console.error('[Chat] Error initializing tabs:', error);
-      set({ isInitialized: true });
-    }
-  },
 
-  createTab: async (activate = true) => {
-    try {
-      const backendTab = await CreateTabWithConversation();
-      const newTab = backendTabToFrontend(backendTab);
-      
-      set((state) => ({
-        tabs: [...state.tabs, newTab],
-        activeTabId: activate ? newTab.id : state.activeTabId,
-      }));
-      return newTab.id;
-    } catch (error) {
-      console.error('[Chat] Error creating tab:', error);
-      throw error;
-    }
-  },
+      return messageId;
+    },
 
-  deleteTab: async (tabId) => {
-    const state = get();
-    const tab = state.tabs.find(t => t.id === tabId);
-    if (!tab || state.tabs.length <= 1) return;
+    updateMessage: (messageId, content) => {
+      set((state) => {
+        if (!state.activeConversation) return state;
+        const updateNodeContent = (n: MessageNode): boolean => {
+          if (n.message.id === messageId) {
+            n.message.content = content;
+            return true;
+          }
+          if (n.children && n.children.length > 0) {
+            for (const child of n.children) {
+              if (updateNodeContent(child)) return true;
+            }
+          }
+          return false;
+        };
+        state.activeConversation.threadedMessages.forEach((node) => updateNodeContent(node));
+        return {
+          activeConversation: { ...state.activeConversation },
+        };
+      });
+    },
 
-    if (tab.backendId) {
-      // Delega ao backend — o evento tab_closed será tratado por handleTabClosed,
-      // que é o ÚNICO ponto de remoção de tabs do state.
-      // Round-trip Wails é < 1ms (mesmo processo): sem necessidade de optimistic update.
-      try {
-        await CloseTab(tab.backendId);
-      } catch (error) {
-        console.error('[Chat] Error closing tab in backend:', error);
-      }
-    } else {
-      // Tab local sem backendId (fallback raro quando CreateTab falha).
-      // Não há evento do backend, então remove direto do state.
-      removeTabFromState(tabId, get, set, activeListeners);
-    }
-  },
+    updateMessageReasoning: (messageId, reasoning) => {
+      set((state) => {
+        if (!state.activeConversation) return state;
+        const updateNodeReasoning = (n: MessageNode): boolean => {
+          if (n.message.id === messageId) {
+            n.message.reasoning = reasoning;
+            return true;
+          }
+          if (n.children && n.children.length > 0) {
+            for (const child of n.children) {
+              if (updateNodeReasoning(child)) return true;
+            }
+          }
+          return false;
+        };
+        state.activeConversation.threadedMessages.forEach((node) => updateNodeReasoning(node));
+        return {
+          activeConversation: { ...state.activeConversation },
+        };
+      });
+    },
 
-  setActiveTab: async (tabId) => {
-    const state = get();
-    const tab = state.tabs.find(t => t.id === tabId);
-    // previousTab removed - no longer needed after tool-calling removal
-    
-    // Note: OnTabInactive was removed from backend - embedding generation happens automatically
-    
-    try {
-      if (tab?.backendId) {
-        await SetActiveTab(tab.backendId);
-        
-        // Carrega mensagens da conversa se houver conversationId e não houver mensagens carregadas
-        if (tab.conversationId && tab.threadedMessages.length === 0) {
-          try {
-            const backendNodes = await GetMessages(tab.conversationId, null);
-            
-            // Adiciona originalIndex aos nodes do backend
-            const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
-            
-            // Atualiza as mensagens na tab
-            set((state) => ({
-              tabs: state.tabs.map((t) =>
-                t.id === tabId
-                  ? { 
-                      ...t, 
-                      threadedMessages: messageNodes, // Hierárquica com childCount do backend
-                      updatedAt: Date.now() 
-                    }
-                  : t
-              ),
-            }));
-          } catch (error) {
-            console.error('[Chat] ❌ Erro ao carregar mensagens:', error);
+    addInternalMessage: (message) => {
+      const parentId = message.parentId?.toString();
+
+      set((state) => {
+        if (!state.activeConversation) return state;
+
+        if (!parentId) {
+          const newNode = new main.MessageNode({
+            message,
+            children: [],
+            level: 0,
+            childCount: 0,
+          });
+          return {
+            activeConversation: {
+              ...state.activeConversation,
+              threadedMessages: [...state.activeConversation.threadedMessages, newNode],
+            },
+          };
+        }
+
+        const addToTree = (nodes: MessageNode[], targetParentId: string, level: number): { nodes: MessageNode[], found: boolean } => {
+          let found = false;
+          const updatedNodes = nodes.map(node => {
+            if (node.message.id === targetParentId) {
+              found = true;
+              const existsInChildren = (node.children || []).some(child => child.message.id === message.id);
+              if (existsInChildren) return node;
+              const newChildNode = new main.MessageNode({
+                message,
+                children: [],
+                level: level + 1,
+                childCount: 0,
+              });
+              return new main.MessageNode({
+                ...node,
+                children: [...(node.children || []), newChildNode],
+                childCount: (node.childCount || 0) + 1,
+              });
+            }
+            if (node.children && node.children.length > 0) {
+              const result = addToTree(node.children, targetParentId, level + 1);
+              if (result.found) {
+                found = true;
+                return new main.MessageNode({ ...node, children: result.nodes });
+              }
+            }
+            return node;
+          });
+          return { nodes: updatedNodes, found };
+        };
+
+        const result = addToTree(state.activeConversation.threadedMessages, parentId, 0);
+        if (result.found) {
+          return {
+            activeConversation: { ...state.activeConversation, threadedMessages: result.nodes },
+          };
+        }
+
+        // Fallback: last user message
+        const findLastUserMessage = (nodes: MessageNode[]): MessageNode | null => {
+          for (let i = nodes.length - 1; i >= 0; i--) {
+            if (nodes[i].message.role === 'user') return nodes[i];
+          }
+          return null;
+        };
+        const lastUserMessage = findLastUserMessage(state.activeConversation.threadedMessages);
+        if (lastUserMessage) {
+          const fallbackResult = addToTree(state.activeConversation.threadedMessages, lastUserMessage.message.id, 0);
+          if (fallbackResult.found) {
+            return {
+              activeConversation: { ...state.activeConversation, threadedMessages: fallbackResult.nodes },
+            };
           }
         }
-      }
-    } catch (error) {
-      console.error('[Chat] Error setting active tab in backend:', error);
-    }
 
-    // Atualiza localmente (mesmo que backend falhe)
-    set({ activeTabId: tabId });
-    
-    // Anuncia para acessibilidade
-    if (tab && tab.id !== state.activeTabId) {
-      const tabTitle = tab.title || 'Nova Conversa';
-      const tabIndex = state.tabs.findIndex(t => t.id === tabId) + 1;
-      announce(`${tabTitle}, conversa ${tabIndex} de ${state.tabs.length}`);
-    }
-  },
-
-  updateTabTitle: (tabId, title) => {
-    const tab = get().tabs.find(t => t.id === tabId);
-    
-    // Atualiza localmente imediatamente (otimista)
-    set((state) => ({
-      tabs: state.tabs.map((t) =>
-        t.id === tabId
-          ? { ...t, title, updatedAt: Date.now() }
-          : t
-      ),
-    }));
-
-    // Sincroniza com backend em background
-    if (tab?.backendId) {
-      BackendUpdateTabTitle(tab.backendId, title).catch(error => {
-        console.error('[Chat] Error updating tab title in backend:', error);
-      });
-    }
-  },
-
-  addMessage: (tabId, message) => {
-    const messageId = generateId();
-    // Cria instância da classe EnrichedMessage para ter método convertValues
-    // IMPORTANTE: createdAt DEVE ser string ISO, não Date object.
-    // convertValues(source["createdAt"], null) tenta "new null(obj)" quando recebe um objeto,
-    // causando "classs is not a constructor".
-    const newMessage = new main.EnrichedMessage({
-      ...message,
-      id: messageId,
-      timestamp: Date.now(),
-      conversationId: 0, // Será atualizado pelo backend
-      isStreaming: message.isStreaming ?? false,
-      internal: false,
-      createdAt: new Date().toISOString(),
-    });
-
-    // Cria MessageNode para visualização hierárquica
-    const newNode = new main.MessageNode({
-      message: newMessage,
-      children: [],
-      level: 0,
-      childCount: 0,
-    });
-
-    set((state) => ({
-      tabs: state.tabs.map((tab) =>
-        tab.id === tabId
-          ? {
-              ...tab,
-              threadedMessages: [...tab.threadedMessages, newNode],
-              updatedAt: Date.now(),
-            }
-          : tab
-      ),
-    }));
-
-    // Anuncia mensagem para leitores de tela e TTS
-    // TTS é configurado pelo perfil global via ttsService (fonte de verdade)
-    const isActiveTab = get().activeTabId === tabId;
-    
-    if (message.role === 'user') {
-      // Mensagem do usuário
-      playSendSound();
-      
-      if (ttsService.isEnabledForUser()) {
-        // TTS para mensagem do usuário
-        const cleanContent = stripMarkdown(message.content);
-        ttsService.speak(cleanContent).catch((err: unknown) => {
-          console.error('[Chat] TTS speak error (user):', err);
-        });
-      } else if (ttsService.shouldUseAriaLiveForUser()) {
-        // Anuncia via aria-live se TTS não estiver ativo
-        const cleanContent = stripMarkdown(message.content);
-        announce(`Você: ${cleanContent}`);
-      }
-    } else if (message.role === 'assistant' && !message.isStreaming) {
-      // Mensagem do assistente completa (não streaming)
-      
-      // Toca som de recebimento (apenas na aba ativa)
-      if (isActiveTab) {
-        playReceiveSound();
-      }
-      
-      // Só anuncia via aria-live se TTS NÃO estiver ativo
-      // (evita conflito entre TTS e leitor de tela)
-      if (ttsService.shouldUseAriaLiveForAgent() && isActiveTab) {
-        const cleanContent = stripMarkdown(message.content);
-        announce(`Assistente: ${cleanContent}`);
-      }
-      
-      // TTS para assistente é gerenciado no streamComplete via ttsService.speak()
-    }
-
-    return messageId;
-  },
-
-  updateMessage: (tabId, messageId, content) => {
-    set((state) => ({
-      tabs: state.tabs.map((tab) =>
-        tab.id === tabId
-          ? {
-              ...tab,
-              // Navega a árvore para encontrar e atualizar a mensagem
-              threadedMessages: tab.threadedMessages.map((node) => {
-                // Função recursiva otimizada: atualiza in-place e retorna flag
-                const updateNodeContent = (n: MessageNode): boolean => {
-                  // Encontrou a mensagem? Atualiza e retorna true
-                  if (n.message.id === messageId) {
-                    n.message.content = content;
-                    return true;
-                  }
-
-                  // Busca nos filhos se existirem
-                  if (n.children && n.children.length > 0) {
-                    for (const child of n.children) {
-                      if (updateNodeContent(child)) {
-                        return true; // Early exit: já encontrou
-                      }
-                    }
-                  }
-
-                  return false;
-                };
-
-                updateNodeContent(node);
-                return node;
-              }),
-              updatedAt: Date.now(),
-            }
-          : tab
-      ),
-    }));
-
-  },
-
-  // Atualiza reasoning de uma mensagem específica
-  updateMessageReasoning: (tabId, messageId, reasoning) => {
-    set((state) => ({
-      tabs: state.tabs.map((tab) =>
-        tab.id === tabId
-          ? {
-              ...tab,
-              threadedMessages: tab.threadedMessages.map((node) => {
-                const updateNodeReasoning = (n: MessageNode): boolean => {
-                  if (n.message.id === messageId) {
-                    n.message.reasoning = reasoning;
-                    return true;
-                  }
-                  if (n.children && n.children.length > 0) {
-                    for (const child of n.children) {
-                      if (updateNodeReasoning(child)) {
-                        return true;
-                      }
-                    }
-                  }
-                  return false;
-                };
-                updateNodeReasoning(node);
-                return node;
-              }),
-              updatedAt: Date.now(),
-            }
-          : tab
-      ),
-    }));
-  },
-  
-  // Adiciona mensagem interna (filho de uma mensagem raiz, ex: tool calls)
-  // 
-  // ARQUITETURA DE THREADS EM TEMPO REAL:
-  // - SEMPRE adiciona mensagem à árvore no lugar correto (para manter hierarquia)
-  // - SEMPRE incrementa childCount do pai (para contador de interações)
-  // - A RENDERIZAÇÃO (MessageNode) controla o que mostra baseado no estado de expansão
-  // 
-  // Isso garante que:
-  // 1. Mensagens de nível 2+ encontrem seus pais na árvore
-  // 2. Contador de interações esteja sempre correto
-  // 3. UI só mostra threads expandidas (comportamento existente)
-  addInternalMessage: (tabId, message) => {
-    const parentId = message.parentId?.toString();
-    
-    set((state) => {
-      const tab = state.tabs.find(t => t.id === tabId);
-      if (!tab) return state;
-      
-      // Se não tem parentId, é uma mensagem raiz - adiciona normalmente
-      if (!parentId) {
         const newNode = new main.MessageNode({
           message,
           children: [],
-          level: 0,
+          level: message.parentId ? 1 : 0,
           childCount: 0,
         });
         return {
-          tabs: state.tabs.map((t) =>
-            t.id === tabId
-              ? { ...t, threadedMessages: [...t.threadedMessages, newNode] }
-              : t
-          ),
+          activeConversation: {
+            ...state.activeConversation,
+            threadedMessages: [...state.activeConversation.threadedMessages, newNode],
+          },
         };
-      }
-      
-      // Função recursiva para encontrar o nó pai e adicionar como filho
-      // SEMPRE adiciona, independente do estado de expansão da thread
-      const addToTree = (nodes: MessageNode[], targetParentId: string, level: number): { nodes: MessageNode[], found: boolean } => {
-        let found = false;
-        const updatedNodes = nodes.map(node => {
-          // Encontrou o nó pai
-          if (node.message.id === targetParentId) {
-            found = true;
-            
-            // Verifica se a mensagem já existe como filho
-            const existsInChildren = (node.children || []).some(child => child.message.id === message.id);
-            if (existsInChildren) {
-              return node;
-            }
-            
-            // SEMPRE adiciona como filho E incrementa contador
-            // A renderização (MessageNode) é que decide se mostra ou não baseado no isExpanded
-            const newChildNode = new main.MessageNode({
-              message,
-              children: [],
-              level: level + 1,
-              childCount: 0,
-            });
-            
-            return new main.MessageNode({
-              ...node,
-              children: [...(node.children || []), newChildNode],
-              childCount: (node.childCount || 0) + 1,
-            });
-          }
-          
-          // Procura recursivamente nos filhos
-          if (node.children && node.children.length > 0) {
-            const result = addToTree(node.children, targetParentId, level + 1);
-            if (result.found) {
-              found = true;
-              return new main.MessageNode({
-                ...node,
-                children: result.nodes,
-              });
-            }
-          }
-          
-          return node;
-        });
-        
-        return { nodes: updatedNodes, found };
-      };
-      
-      // Tenta encontrar o pai e adicionar à árvore
-      const result = addToTree(tab.threadedMessages, parentId, 0);
-      
-      if (result.found) {
-        return {
-          tabs: state.tabs.map((t) =>
-            t.id === tabId
-              ? { ...t, threadedMessages: result.nodes }
-              : t
-          ),
-        };
-      }
-      
-      // Pai não encontrado na árvore
-      // Razões possíveis:
-      // 1. Evento chegou antes do chat:messages_ready (ID da mensagem do usuário ainda é local)
-      // 2. É uma mensagem de nível 2+ e o pai de nível 1 ainda não chegou
-      
-      // Fallback: procura a última mensagem do usuário (ancestral de todas as mensagens)
-      const findLastUserMessage = (nodes: MessageNode[]): MessageNode | null => {
-        for (let i = nodes.length - 1; i >= 0; i--) {
-          if (nodes[i].message.role === 'user') {
-            return nodes[i];
-          }
-        }
-        return null;
-      };
-      
-      const lastUserMessage = findLastUserMessage(tab.threadedMessages);
-      
-      if (lastUserMessage) {
-        const fallbackResult = addToTree(tab.threadedMessages, lastUserMessage.message.id, 0);
-        
-        if (fallbackResult.found) {
-          return {
-            tabs: state.tabs.map((t) =>
-              t.id === tabId
-                ? { ...t, threadedMessages: fallbackResult.nodes }
-                : t
-            ),
-          };
-        }
-      }
-      
-      // Último recurso: adiciona como nó raiz
-      const newNode = new main.MessageNode({
-        message,
-        children: [],
-        level: message.parentId ? 1 : 0,
-        childCount: 0,
       });
-      
-      return {
-        tabs: state.tabs.map((t) =>
-          t.id === tabId
-            ? { ...t, threadedMessages: [...t.threadedMessages, newNode] }
-            : t
-        ),
-      };
-    });
-  },
+    },
 
-  clearMessages: (tabId) => {
-    set((state) => ({
-      tabs: state.tabs.map((tab) =>
-        tab.id === tabId
-          ? { ...tab, threadedMessages: [], updatedAt: Date.now() }
-          : tab
-      ),
-    }));
-  },
-
-  clearActiveTab: () => {
-    const { activeTabId, clearMessages } = get();
-    if (activeTabId) {
-      clearMessages(activeTabId);
-    }
-  },
-
-  startNewConversationInActiveTab: async (title) => {
-    const { activeTabId, tabs } = get();
-
-    if (!activeTabId) {
-      console.error('[Chat] Nenhuma aba ativa para iniciar nova conversa');
-      return;
-    }
-
-    const activeTab = tabs.find(t => t.id === activeTabId);
-    if (!activeTab || !activeTab.backendId) {
-      console.error('[Chat] Aba ativa não encontrada ou sem backendId');
-      return;
-    }
-
-    try {
-      const backendTab = await StartNewConversationInTab(activeTab.backendId);
-      const newTitle = title || backendTab.title || 'Nova conversa';
-
+    clearMessages: () => {
       set((state) => ({
-        tabs: state.tabs.map((t) =>
-          t.id === activeTabId
-            ? {
-                ...t,
-                conversationId: backendTab.conversation_id || undefined,
-                threadedMessages: [],
-                title: newTitle,
-                updatedAt: Date.now(),
-              }
-            : t
-        ),
+        activeConversation: state.activeConversation
+          ? { ...state.activeConversation, threadedMessages: [] }
+          : null,
       }));
+    },
 
-      announce(`Nova conversa: ${newTitle}`);
-    } catch (error) {
-      console.error('[Chat] Erro ao iniciar nova conversa na aba ativa:', error);
-      throw error;
-    }
-  },
+    sendMessage: async (content, mediaFiles) => {
+      return get().sendMessageWithParams(content, mediaFiles);
+    },
 
-  loadConversationInActiveTab: async (conversationId, conversationTitle) => {
-    const { activeTabId, tabs } = get();
-    
-    if (!activeTabId) {
-      console.error('[Chat] Nenhuma aba ativa para carregar conversa');
-      return;
-    }
+    sendMessageWithParams: async (content, mediaFiles, paramsOverride) => {
+      const { addMessage } = get();
 
-    const activeTab = tabs.find(t => t.id === activeTabId);
-    if (!activeTab || !activeTab.backendId) {
-      console.error('[Chat] Aba ativa não encontrada ou sem backendId');
-      return;
-    }
+      if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
+        const errorMsg = `Mensagem muito grande (${content.length} bytes). Máximo permitido: ${MAX_MESSAGE_CONTENT_SIZE} bytes (500KB)`;
+        console.error('[Chat]', errorMsg);
+        announce(errorMsg);
+        return;
+      }
 
-    try {
-      // Carrega conversa no backend (vincula conversa à tab)
-      await LoadConversationInTab(activeTab.backendId, conversationId);
-
-      // Carrega mensagens da conversa
-      const backendNodes = await GetMessages(conversationId, null);
-      const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
-
-      // Atualiza a aba com a nova conversa
-      set((state) => ({
-        tabs: state.tabs.map((t) =>
-          t.id === activeTabId
-            ? {
-                ...t,
-                conversationId,
-                threadedMessages: messageNodes,
-                title: conversationTitle || 'Conversa carregada',
-                updatedAt: Date.now(),
-              }
-            : t
-        ),
-      }));
-      
-      announce(`Conversa aberta: ${conversationTitle || 'Conversa carregada'}`);
-    } catch (error) {
-      console.error('[Chat] Erro ao carregar conversa na aba ativa:', error);
-      throw error;
-    }
-  },
-
-  openConversationInNewTab: async (conversationId, title) => {
-    try {
-      const backendTab = await OpenConversationInNewTab(conversationId);
-      const newTab = backendTabToFrontend(backendTab);
-      if (title) newTab.title = title;
-      newTab.conversationId = conversationId;
-
-      set(state => ({
-        tabs: [...state.tabs.filter(t => t.backendId !== backendTab.id), newTab],
-        activeTabId: newTab.id,
-      }));
-
-      const backendNodes = await GetMessages(conversationId, null);
-      const messageNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
-
-      set(state => ({
-        tabs: state.tabs.map(t =>
-          t.id === newTab.id ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() } : t
-        ),
-      }));
-
-      announce(`Conversa aberta em nova aba: ${title || 'Conversa'}`);
-    } catch (error) {
-      console.error('[Chat] Erro ao abrir conversa em nova aba:', error);
-      throw error;
-    }
-  },
-
-  sendMessage: async (content, mediaFiles) => {
-        return get().sendMessageWithParams(content, mediaFiles);
-      },
-
-  sendMessageWithParams: async (content, mediaFiles, paramsOverride) => {
-        const { activeTabId, addMessage, createTab } = get();
-
-        // Validação de tamanho do conteúdo
-        if (content.length > MAX_MESSAGE_CONTENT_SIZE) {
-          const errorMsg = `Mensagem muito grande (${content.length} bytes). Máximo permitido: ${MAX_MESSAGE_CONTENT_SIZE} bytes (500KB)`;
+      if (mediaFiles && mediaFiles.length > 0) {
+        const totalSize = mediaFiles.reduce((acc, f) => acc + f.file.size, 0);
+        const estimatedBase64Size = Math.ceil(totalSize * 1.37);
+        if (estimatedBase64Size > MAX_MEDIA_SIZE) {
+          const errorMsg = `Arquivos de mídia muito grandes (~${Math.round(estimatedBase64Size / 1024 / 1024)}MB). Máximo permitido: 10MB`;
           console.error('[Chat]', errorMsg);
           announce(errorMsg);
           return;
         }
+      }
 
-        // Validação de tamanho total dos arquivos de mídia
-        if (mediaFiles && mediaFiles.length > 0) {
-          const totalSize = mediaFiles.reduce((acc, f) => acc + f.file.size, 0);
-          // Base64 aumenta o tamanho em ~33%
-          const estimatedBase64Size = Math.ceil(totalSize * 1.37);
-          if (estimatedBase64Size > MAX_MEDIA_SIZE) {
-            const errorMsg = `Arquivos de mídia muito grandes (~${Math.round(estimatedBase64Size / 1024 / 1024)}MB). Máximo permitido: 10MB`;
-            console.error('[Chat]', errorMsg);
-            announce(errorMsg);
-            return;
-          }
-        }
-        
-        // Ensure we have an active tab
-        let currentTabId = activeTabId;
-        if (!currentTabId) {
-          currentTabId = await createTab();
-        }
-
-        // Add user message
-        if (!currentTabId) {
-          console.error('[Chat] No active tab');
+      let conversationId = get().activeConversationId || 0;
+      if (conversationId === 0) {
+        try {
+          conversationId = await get().createConversation();
+        } catch (err) {
+          console.error('[Chat] Erro ao criar conversa:', err);
           return;
         }
-        
-        const userMessageId = addMessage(currentTabId, {
-          role: 'user',
-          content,
-        });
+      }
 
-        // Add empty assistant message for streaming
-        const assistantMessageId = addMessage(currentTabId, {
-          role: 'assistant',
-          content: '',
-          isStreaming: true,
-        });
+      const conversationIdStr = conversationId.toString();
 
-        set({ isLoading: true, streamingMessageId: assistantMessageId });
+      const userMessageId = addMessage({ role: 'user', content });
+      const assistantMessageId = addMessage({ role: 'assistant', content: '', isStreaming: true });
 
-        let unsubscribe: (() => void) | null = null;
+      set({ isLoading: true, streamingMessageId: assistantMessageId });
 
-        // Listen for messages_ready - atualiza IDs das mensagens para IDs reais do banco
-        // CRÍTICO: Isso permite que mensagens internas (com parentId do banco) encontrem o pai correto
-        const unsubscribeMessagesReady = EventsOn('chat:messages_ready', (data: ChatMessagesReadyEvent) => {
-          if (data.userMessageId) {
-            const backendUserId = data.userMessageId.toString();
-            
-            // Atualiza o ID da mensagem do usuário para o ID real do banco
-            set((state) => {
-              const tab = state.tabs.find(t => t.id === currentTabId);
-              if (!tab) return state;
-              
-              // Encontra e atualiza a mensagem do usuário
-              const updateMessageId = (nodes: MessageNode[]): MessageNode[] => {
-                return nodes.map(node => {
-                  if (node.message.id === userMessageId) {
-                    // Cria novo nó com ID atualizado
-                    const updatedMessage = new main.EnrichedMessage({
-                      ...node.message,
-                      id: backendUserId,
-                    });
-                    return new main.MessageNode({
-                      ...node,
-                      message: updatedMessage,
-                    });
-                  }
-                  return node;
-                });
-              };
-              
-              return {
-                tabs: state.tabs.map((t) =>
-                  t.id === currentTabId
-                    ? {
-                        ...t,
-                        threadedMessages: updateMessageId(t.threadedMessages),
-                        conversationId: data.conversationId || t.conversationId,
-                      }
-                    : t
-                ),
-              };
-            });
-          }
-        });
+      let unsubscribe: (() => void) | null = null;
 
-        try {
-          let tab = get().tabs.find((t) => t.id === currentTabId);
-          let conversationId = tab?.conversationId || 0;
-
-          // Guard: se a tab não tem conversa (edge case), cria uma antes de enviar
-          if (conversationId === 0 && tab?.backendId) {
-            console.warn('[Chat] Tab sem conversationId — criando conversa automaticamente');
-            const backendTab = await StartNewConversationInTab(tab.backendId);
-            conversationId = backendTab.conversation_id || 0;
-            if (conversationId > 0) {
-              set((state) => ({
-                tabs: state.tabs.map((t) =>
-                  t.id === currentTabId
-                    ? { ...t, conversationId }
-                    : t
-                ),
-              }));
-            }
-          }
-
-          // Setup completion handler that will clean up everything
-          // CRÍTICO: Registrar listeners ANTES de chamar SendMessage
-          // pois o backend inicia streaming em goroutine e pode emitir eventos antes do await retornar
-          let unsubscribeStream: (() => void) | null = null;
-          let unsubscribeComplete: (() => void) | null = null;
-          let cleanupExecuted = false; // Flag para evitar cleanup duplicado
-          let streamingAnnounced = false; // Flag para anunciar início do streaming apenas uma vez
-
-          const cleanup = () => {
-            // Previne execução múltipla do cleanup (backend pode emitir chat:done várias vezes)
-            if (cleanupExecuted) {
-              return;
-            }
-            cleanupExecuted = true;
-
-            if (unsubscribeStream) {
-              unsubscribeStream();
-              unsubscribeStream = null;
-            }
-            if (unsubscribeComplete) {
-              unsubscribeComplete();
-              unsubscribeComplete = null;
-            }
-            activeListeners.delete(currentTabId!);
-            set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
-          };
-
-          // Limpa listeners antigos desta tab se existirem
-          const existingCleanup = activeListeners.get(currentTabId!);
-          if (existingCleanup) {
-            existingCleanup();
-            // IMPORTANTE: Aguarda um tick para garantir que o cleanup foi processado
-            await new Promise(resolve => setTimeout(resolve, 0));
-          }
-
-          // Listen for streaming chunks from backend
-          unsubscribeStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
-            // IMPORTANTE: Verifica se este listener ainda é válido (não foi limpo)
-            if (!activeListeners.has(currentTabId!)) {
-              return;
-            }
-
-            if (event.content) {
-              // Anuncia início do streaming apenas uma vez
-              if (!streamingAnnounced && !event.done && !event.error) {
-                streamingAnnounced = true;
-                announce('Assistente está respondendo', 'polite');
-              }
-
-              // Durante streaming: usa debouncing para reduzir re-renders
-              if (!event.done && !event.error) {
-                debouncedUpdateMessage(
-                  currentTabId!,
-                  assistantMessageId,
-                  event.content,
-                  get().updateMessage
-                );
-              } else {
-                // No final (done/error): flush imediatamente para garantir conteúdo final
-                flushPendingUpdate(currentTabId!, assistantMessageId, get().updateMessage);
-                get().updateMessage(currentTabId!, assistantMessageId, event.content);
-              }
-            }
-
-            if (event.error) {
-              console.error('[Chat] Stream error:', event.error);
-              // Flush pendente antes do erro
-              flushPendingUpdate(currentTabId!, assistantMessageId, get().updateMessage);
-              get().updateMessage(currentTabId!, assistantMessageId, `Erro: ${event.error}`);
-              cleanup();
-            }
-
-            // If done, mark as not streaming
-            if (event.done) {
-              // Obtém o conteúdo final da mensagem para anunciar
-              const currentState = get();
-              const currentTab = currentState.tabs.find(t => t.id === currentTabId);
-              const flatMessages = flattenThreadedMessages(currentTab?.threadedMessages);
-              const finalMessage = flatMessages.find(m => m.id === assistantMessageId);
-              
-              set((state) => ({
-                tabs: state.tabs.map((tab) =>
-                  tab.id === currentTabId
-                    ? {
-                        ...tab,
-                        threadedMessages: tab.threadedMessages.map((node) => {
-                          const updateStreamingStatus = (n: MessageNode): MessageNode => {
-                            if (n.message.id === assistantMessageId) {
-                              n.message.isStreaming = false;
-                            }
-                            if (n.children && n.children.length > 0) {
-                              n.children = n.children.map(updateStreamingStatus);
-                            }
-                            return n;
-                          };
-                          return updateStreamingStatus(node);
-                        }),
-                      }
-                    : tab
-                ),
-              }));
-
-              // Anuncia a resposta do assistente
-              if (finalMessage?.content) {
-                // Verifica se esta é a aba ativa
-                const isActiveTab = currentState.activeTabId === currentTabId;
-                
-                // Toca som de recebimento (apenas na aba ativa)
-                if (isActiveTab) {
-                  playReceiveSound();
-                }
-                
-                // TTS é configurado pelo perfil global via ttsService (fonte de verdade)
-                const willUseTTS = ttsService.isAutoReadEnabled();
-                
-                // Sintetiza e reproduz áudio para esta mensagem
-                if (willUseTTS && isActiveTab && !cleanupExecuted) {
-                  // Para qualquer áudio anterior
-                  messageAudioService.stopAll();
-                  ttsService.stop();
-                  
-                  // Usa speak() para reprodução
-                  ttsService.speak(finalMessage.content).catch((err: unknown) => {
-                    console.error('[Chat] TTS speak error:', err);
-                  });
-                }
-                
-                // Só anuncia via aria-live se TTS NÃO estiver ativo
-                // (evita conflito entre TTS e leitor de tela)
-                if (ttsService.shouldUseAriaLiveForAgent() && isActiveTab) {
-                  const cleanContent = stripMarkdown(finalMessage.content);
-                  announce(`Assistente: ${cleanContent}`);
-                }
-              }
-            }
-          });
-
-          // Listen for thinking/reasoning events from model (DeepSeek, Claude, o1, etc)
-          let unsubscribeThinking: (() => void) | null = null;
-          unsubscribeThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
-            if (!activeListeners.has(currentTabId!)) {
-              return;
-            }
-
-            // Atualiza estado de thinking
-            if (event.started) {
-              // Início do thinking
-              set({ isThinking: true, streamingReasoning: event.content || '' });
-              announce('O modelo está pensando...', 'polite');
-            } else if (event.done) {
-              // Fim do thinking - salva o reasoning na mensagem
-              set({ isThinking: false });
-              if (event.content) {
-                get().updateMessageReasoning(currentTabId!, assistantMessageId, event.content);
-              }
-            } else {
-              // Atualização durante thinking
-              set({ streamingReasoning: event.content || '' });
-            }
-          });
-
-          // ==================== Tool Calling Events ====================
-
-          // Listen for tool execution start
-          let unsubscribeToolStart: (() => void) | null = null;
-          unsubscribeToolStart = EventsOn('chat:tool_start', (data: ChatToolStartEvent) => {
-            if (!activeListeners.has(currentTabId!)) return;
-            
-            set((state) => ({
-              hadToolCalls: true,
-              activeToolCalls: [
-                ...state.activeToolCalls,
-                {
-                  name: data.name,
-                  callId: data.callId,
-                  args: data.args,
-                  status: 'running' as const,
-                },
-              ],
-            }));
-          });
-
-          // Listen for tool execution end
-          let unsubscribeToolEnd: (() => void) | null = null;
-          unsubscribeToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
-            if (!activeListeners.has(currentTabId!)) return;
-            
-            set((state) => ({
-              activeToolCalls: state.activeToolCalls.map((tc) =>
-                tc.callId === data.callId
-                  ? { ...tc, status: (data.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: data.summary }
-                  : tc
-              ),
-            }));
-
-            if (data.status === 'error') {
-              announce(`Ferramenta ${data.name} falhou`, 'assertive');
-            }
-          });
-
-          // Listen for segment done (assistant text before tool calls — for verbalization + segment accumulation)
-          let unsubscribeSegmentDone: (() => void) | null = null;
-          unsubscribeSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
-            if (!activeListeners.has(currentTabId!)) return;
-
-            if (data.hasMore) {
-              const state = get();
-              const newSegments: TurnSegment[] = [...state.completedSegments];
-
-              // Snapshot completed tool calls from previous iteration
-              if (state.activeToolCalls.length > 0) {
-                const toolCount = state.activeToolCalls.length;
-                newSegments.push({
-                  type: 'tool_calls',
-                  toolCalls: state.activeToolCalls.map(tc => ({
-                    id: tc.callId,
-                    type: 'function',
-                    function: { name: tc.name, arguments: tc.args || '' },
-                    result: tc.summary,
-                  })),
-                });
-                announce(toolCount === 1 ? state.activeToolCalls[0].name : `${toolCount} ferramentas`, 'polite');
-              }
-
-              if (data.content) {
-                newSegments.push({ type: 'text', content: data.content });
-
-                // Verbalize segment text for screen reader users
-                if (ttsService.isAutoReadEnabled()) {
-                  ttsService.speak(data.content).catch((err: unknown) => {
-                    console.error('[Chat] TTS segment error:', err);
-                  });
-                } else {
-                  const cleanContent = stripMarkdown(data.content);
-                  announce(cleanContent, 'assertive');
-                }
-              }
-
-              set({ completedSegments: newSegments, activeToolCalls: [] });
-
-              // Clear message content since it's now captured in completedSegments.
-              // Prevents brief visual duplication before the next iteration starts streaming.
-              flushPendingUpdate(currentTabId!, assistantMessageId, get().updateMessage);
-              get().updateMessage(currentTabId!, assistantMessageId, '');
-            }
-          });
-
-          // Listen for completion event - this signals end of entire chat process
-          unsubscribeComplete = EventsOn('chat:done', () => {
-            // IMPORTANTE: Verifica se este listener ainda é válido
-            if (!activeListeners.has(currentTabId!)) {
-              return;
-            }
-            const didUseTools = get().hadToolCalls;
-            
-            // Mark message as no longer streaming
-            set((state) => {
-              const tabIndex = state.tabs.findIndex((t) => t.id === currentTabId);
-              if (tabIndex >= 0) {
-                state.tabs[tabIndex].threadedMessages = state.tabs[tabIndex].threadedMessages.map((node) => {
-                  const updateStreamingStatus = (n: MessageNode): MessageNode => {
-                    if (n.message.id === assistantMessageId) {
-                      n.message.isStreaming = false;
-                    }
-                    if (n.children && n.children.length > 0) {
-                      n.children = n.children.map(updateStreamingStatus);
-                    }
-                    return n;
-                  };
-                  return updateStreamingStatus(node);
-                });
-              }
-              return state;
-            });
-
-            // Se houve tool calls, recarrega mensagens do backend para obter a estrutura completa
-            if (didUseTools) {
-              const tab = get().tabs.find(t => t.id === currentTabId);
-              if (tab?.conversationId) {
-                GetMessages(tab.conversationId, null).then((backendNodes) => {
-                  const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
-                  set((state) => ({
-                    tabs: state.tabs.map((t) =>
-                      t.id === currentTabId
-                        ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() }
-                        : t
-                    ),
-                    hadToolCalls: false,
-                    completedSegments: [],
-                  }));
-                }).catch((err) => {
-                  console.error('[Chat] ❌ Erro ao recarregar mensagens:', err);
-                });
-              }
-            }
-
-            // Fallback: renomeia conversa se o título ainda é o padrão.
-            // O LLM pode ter renomeado via tool (rename_conversation); se o
-            // fez, o título no frontend já mudou e o regex não casará.
-            // O backend emite conversation:renamed que o App.tsx escuta,
-            // atualizando automaticamente a tab no frontend.
-            {
-              const tab = get().tabs.find(t => t.id === currentTabId);
-              if (tab?.conversationId && tab.title && DEFAULT_TITLE_PATTERNS.test(tab.title.trim())) {
-                const firstUserMsg = flattenThreadedMessages(tab.threadedMessages)
-                  .find(m => m.role === 'user' && !m.internal);
-                if (firstUserMsg?.content) {
-                  const fallbackTitle = firstUserMsg.content.length > 50
-                    ? firstUserMsg.content.slice(0, 50) + '...'
-                    : firstUserMsg.content;
-                  RenameConversation(tab.conversationId, fallbackTitle).catch((err) => {
-                    console.error('[Chat] Fallback rename failed:', err);
-                  });
-                }
-              }
-            }
-            
-            // Cleanup listeners
-            cleanup();
-          });
-
-          // Atualiza cleanup para incluir novos listeners
-          const originalCleanup = cleanup;
-          const enhancedCleanup = () => {
-            originalCleanup();
-            if (unsubscribeThinking) unsubscribeThinking();
-            if (unsubscribeToolStart) unsubscribeToolStart();
-            if (unsubscribeToolEnd) unsubscribeToolEnd();
-            if (unsubscribeSegmentDone) unsubscribeSegmentDone();
-          };
-
-          // CRÍTICO: Armazena cleanup no Map IMEDIATAMENTE após criar os listeners
-          // Isso garante que se uma nova mensagem for enviada antes do término,
-          // os listeners antigos serão limpos corretamente
-          activeListeners.set(currentTabId!, enhancedCleanup);
-
-          // Store cleanup function for use in error handler
-          unsubscribe = () => {
-            cleanup();
-            if (unsubscribeMessagesReady) unsubscribeMessagesReady();
-          };
-
-          // AGORA envia a mensagem — listeners já estão ativos para capturar streaming
-          let mediaJson = '';
-          if (mediaFiles && mediaFiles.length > 0) {
-            const mediaDataArray: MediaData[] = [];
-            for (const mediaFile of mediaFiles) {
-              const base64Data = await fileToBase64(mediaFile.file);
-              mediaDataArray.push({
-                name: mediaFile.file.name,
-                type: mediaFile.file.type,
-                data: base64Data,
-                size: mediaFile.file.size,
-              });
-            }
-            mediaJson = JSON.stringify(mediaDataArray);
-          }
-
-          const mergedParams: llm.ChatParams = {
-            model: paramsOverride?.model ?? '',
-            temperature: paramsOverride?.temperature ?? 0,
-            maxTokens: paramsOverride?.maxTokens ?? 0,
-            maxTokensMode: paramsOverride?.maxTokensMode,
-            topP: paramsOverride?.topP,
-            reasoningEffort: paramsOverride?.reasoningEffort,
-            profileSlug: paramsOverride?.profileSlug,
-          };
-          await SendMessage(conversationId, content, mediaJson, mergedParams);
-          
-          // Note: DO NOT cleanup here - listeners need to stay active for streaming events
-        } catch (error: unknown) {
-          console.error('[Chat] Error sending message:', error);
-          console.error('[Chat] Error type:', typeof error, '| message:', getErrorMessage(error));
-          
-          // Cleanup listener if it exists
-          if (unsubscribe) {
-            unsubscribe();
-          }
-
-          const errorMsg = getErrorMessage(error);
-          get().updateMessage(
-            currentTabId!,
-            assistantMessageId,
-            `Erro ao enviar mensagem: ${errorMsg}`
-          );
-
-          // Mark as not streaming
+      const unsubscribeMessagesReady = EventsOn('chat:messages_ready', (data: ChatMessagesReadyEvent) => {
+        if (data.userMessageId) {
+          const backendUserId = data.userMessageId.toString();
           set((state) => {
-            const tabIndex = state.tabs.findIndex((t) => t.id === currentTabId);
-            if (tabIndex >= 0) {
-              state.tabs[tabIndex].threadedMessages = state.tabs[tabIndex].threadedMessages.map((node) => {
-                const updateStreamingStatus = (n: MessageNode): MessageNode => {
-                  if (n.message.id === assistantMessageId) {
-                    n.message.isStreaming = false;
-                  }
-                  if (n.children && n.children.length > 0) {
-                    n.children = n.children.map(updateStreamingStatus);
-                  }
-                  return n;
-                };
-                return updateStreamingStatus(node);
-              });
-            }
-            return state;
-          });
-
-          set({ isLoading: false, streamingMessageId: null });
-        }
-        // NOTE: No `finally` block here — streamingMessageId must stay set while
-        // streaming is active. The cleanup() (triggered by chat:done) resets it.
-      },
-
-      stopStreaming: () => {
-        set({ isLoading: false, streamingMessageId: null, completedSegments: [] });
-        // TODO: Cancel backend request
-      },
-
-      getActiveTab: () => {
-        const { tabs, activeTabId } = get();
-        return tabs.find((tab) => tab.id === activeTabId);
-      },
-
-      getTabMessages: (tabId) => {
-        const tab = get().tabs.find((t) => t.id === tabId);
-        return flattenThreadedMessages(tab?.threadedMessages);
-      },
-      
-      // Alterna expansão de uma thread
-      toggleThreadExpanded: (messageId) => {
-        set((state) => {
-          const expanded = new Set(state.expandedThreads);
-          if (expanded.has(messageId)) {
-            expanded.delete(messageId);
-          } else {
-            expanded.add(messageId);
-          }
-          return { expandedThreads: expanded };
-        });
-      },
-      
-      // Verifica se uma thread está expandida
-      isThreadExpanded: (messageId) => {
-        return get().expandedThreads.has(messageId);
-      },
-      
-      // Alterna expansão de reasoning de uma mensagem
-      toggleReasoningExpanded: (messageId) => {
-        set((state) => {
-          const expanded = new Set(state.expandedReasonings);
-          if (expanded.has(messageId)) {
-            expanded.delete(messageId);
-          } else {
-            expanded.add(messageId);
-          }
-          return { expandedReasonings: expanded };
-        });
-      },
-      
-      // Verifica se o reasoning de uma mensagem está expandido
-      isReasoningExpanded: (messageId) => {
-        return get().expandedReasonings.has(messageId);
-      },
-      
-      // Retorna os MessageNode[] que o backend já enviou prontos
-      // Backend usa lazy loading e envia childCount correto
-      getThreadedMessages: () => {
-        const state = get();
-        const activeTab = state.tabs.find(t => t.id === state.activeTabId);
-        return activeTab?.threadedMessages;
-      },
-      
-      // Carrega filhos de uma mensagem específica
-      loadMessageChildren: async (messageId) => {
-        try {
-          const messageIdNum = parseInt(messageId, 10);
-          if (isNaN(messageIdNum)) {
-            console.error('[Chat] ❌ Invalid message ID:', messageId);
-            return [];
-          }
-          
-          // Chama backend para carregar filhos
-          const backendNodes = await GetMessageChildren(messageIdNum);
-          
-          // Adiciona originalIndex aos nodes do backend
-          const frontendNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
-          
-          // Atualiza a árvore de mensagens com os filhos carregados
-          set((state) => {
-            const activeTab = state.tabs.find(t => t.id === state.activeTabId);
-            if (!activeTab) return state;
-            
-            // Atualiza a árvore com os novos filhos
-            const updateTreeWithChildren = (nodes: MessageNode[]): MessageNode[] => {
+            if (!state.activeConversation) return state;
+            const updateMessageId = (nodes: MessageNode[]): MessageNode[] => {
               return nodes.map(node => {
-                if (node.message.id === messageId) {
-                  // Encontrou o nó pai - cria novo nó com os filhos
-                  return new main.MessageNode({
-                    ...node,
-                    children: frontendNodes,
-                  });
-                }
-                // Recursivamente procura nos filhos
-                if (node.children && node.children.length > 0) {
-                  return new main.MessageNode({
-                    ...node,
-                    children: updateTreeWithChildren(node.children),
-                  });
+                if (node.message.id === userMessageId) {
+                  const updatedMessage = new main.EnrichedMessage({ ...node.message, id: backendUserId });
+                  return new main.MessageNode({ ...node, message: updatedMessage });
                 }
                 return node;
               });
             };
-            
-            const updatedTabs = state.tabs.map(tab => 
-              tab.id === state.activeTabId 
-                ? { ...tab, threadedMessages: updateTreeWithChildren(tab.threadedMessages) }
-                : tab
-            );
-            
-            return { tabs: updatedTabs };
+            return {
+              activeConversation: {
+                ...state.activeConversation,
+                threadedMessages: updateMessageId(state.activeConversation.threadedMessages),
+              },
+              activeConversationId: data.conversationId || state.activeConversationId,
+            };
           });
-          
-          return frontendNodes;
-        } catch (error) {
-          console.error('[Chat] ❌ Error loading children:', error);
+        }
+      });
+
+      try {
+        let unsubscribeStream: (() => void) | null = null;
+        let unsubscribeComplete: (() => void) | null = null;
+        let cleanupExecuted = false;
+        let streamingAnnounced = false;
+
+        const cleanup = () => {
+          if (cleanupExecuted) return;
+          cleanupExecuted = true;
+          if (unsubscribeStream) { unsubscribeStream(); unsubscribeStream = null; }
+          if (unsubscribeComplete) { unsubscribeComplete(); unsubscribeComplete = null; }
+          activeListeners.delete(conversationIdStr);
+          set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
+        };
+
+        const existingCleanup = activeListeners.get(conversationIdStr);
+        if (existingCleanup) {
+          existingCleanup();
+          await new Promise(resolve => setTimeout(resolve, 0));
+        }
+
+        unsubscribeStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
+          if (!activeListeners.has(conversationIdStr)) return;
+
+          if (event.content) {
+            if (!streamingAnnounced && !event.done && !event.error) {
+              streamingAnnounced = true;
+              announce('Assistente está respondendo', 'polite');
+            }
+            if (!event.done && !event.error) {
+              debouncedUpdateMessage(assistantMessageId, event.content, get().updateMessage);
+            } else {
+              flushPendingUpdate(assistantMessageId, get().updateMessage);
+              get().updateMessage(assistantMessageId, event.content);
+            }
+          }
+
+          if (event.error) {
+            console.error('[Chat] Stream error:', event.error);
+            flushPendingUpdate(assistantMessageId, get().updateMessage);
+            get().updateMessage(assistantMessageId, `Erro: ${event.error}`);
+            cleanup();
+          }
+
+          if (event.done) {
+            const currentState = get();
+            const flatMessages = flattenThreadedMessages(currentState.activeConversation?.threadedMessages);
+            const finalMessage = flatMessages.find(m => m.id === assistantMessageId);
+
+            set((state) => {
+              if (!state.activeConversation) return state;
+              return {
+                activeConversation: {
+                  ...state.activeConversation,
+                  threadedMessages: state.activeConversation.threadedMessages.map((node) => {
+                    const updateStreamingStatus = (n: MessageNode): MessageNode => {
+                      if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                      if (n.children && n.children.length > 0) n.children = n.children.map(updateStreamingStatus);
+                      return n;
+                    };
+                    return updateStreamingStatus(node);
+                  }),
+                },
+              };
+            });
+
+            if (finalMessage?.content) {
+              const isActiveConv = currentState.activeConversationId === conversationId;
+              if (isActiveConv) playReceiveSound();
+              if (ttsService.isAutoReadEnabled() && isActiveConv && !cleanupExecuted) {
+                messageAudioService.stopAll();
+                ttsService.stop();
+                ttsService.speak(finalMessage.content).catch((err: unknown) => {
+                  console.error('[Chat] TTS speak error:', err);
+                });
+              }
+              if (ttsService.shouldUseAriaLiveForAgent() && isActiveConv) {
+                const cleanContent = stripMarkdown(finalMessage.content);
+                announce(`Assistente: ${cleanContent}`);
+              }
+            }
+          }
+        });
+
+        let unsubscribeThinking: (() => void) | null = null;
+        unsubscribeThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
+          if (!activeListeners.has(conversationIdStr)) return;
+          if (event.started) {
+            set({ isThinking: true, streamingReasoning: event.content || '' });
+            announce('O modelo está pensando...', 'polite');
+          } else if (event.done) {
+            set({ isThinking: false });
+            if (event.content) get().updateMessageReasoning(assistantMessageId, event.content);
+          } else {
+            set({ streamingReasoning: event.content || '' });
+          }
+        });
+
+        let unsubscribeToolStart: (() => void) | null = null;
+        unsubscribeToolStart = EventsOn('chat:tool_start', (data: ChatToolStartEvent) => {
+          if (!activeListeners.has(conversationIdStr)) return;
+          set((state) => ({
+            hadToolCalls: true,
+            activeToolCalls: [
+              ...state.activeToolCalls,
+              { name: data.name, callId: data.callId, args: data.args, status: 'running' as const },
+            ],
+          }));
+        });
+
+        let unsubscribeToolEnd: (() => void) | null = null;
+        unsubscribeToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
+          if (!activeListeners.has(conversationIdStr)) return;
+          set((state) => ({
+            activeToolCalls: state.activeToolCalls.map((tc) =>
+              tc.callId === data.callId
+                ? { ...tc, status: (data.status === 'error' ? 'error' : 'done') as 'done' | 'error', summary: data.summary }
+                : tc
+            ),
+          }));
+          if (data.status === 'error') announce(`Ferramenta ${data.name} falhou`, 'assertive');
+        });
+
+        let unsubscribeSegmentDone: (() => void) | null = null;
+        unsubscribeSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
+          if (!activeListeners.has(conversationIdStr)) return;
+          if (data.hasMore) {
+            const state = get();
+            const newSegments: TurnSegment[] = [...state.completedSegments];
+            if (state.activeToolCalls.length > 0) {
+              const toolCount = state.activeToolCalls.length;
+              newSegments.push({
+                type: 'tool_calls',
+                toolCalls: state.activeToolCalls.map(tc => ({
+                  id: tc.callId,
+                  type: 'function',
+                  function: { name: tc.name, arguments: tc.args || '' },
+                  result: tc.summary,
+                })),
+              });
+              announce(toolCount === 1 ? state.activeToolCalls[0].name : `${toolCount} ferramentas`, 'polite');
+            }
+            if (data.content) {
+              newSegments.push({ type: 'text', content: data.content });
+              if (ttsService.isAutoReadEnabled()) {
+                ttsService.speak(data.content).catch((err: unknown) => {
+                  console.error('[Chat] TTS segment error:', err);
+                });
+              } else {
+                const cleanContent = stripMarkdown(data.content);
+                announce(cleanContent, 'assertive');
+              }
+            }
+            set({ completedSegments: newSegments, activeToolCalls: [] });
+            flushPendingUpdate(assistantMessageId, get().updateMessage);
+            get().updateMessage(assistantMessageId, '');
+          }
+        });
+
+        unsubscribeComplete = EventsOn('chat:done', () => {
+          if (!activeListeners.has(conversationIdStr)) return;
+          const didUseTools = get().hadToolCalls;
+
+          set((state) => {
+            if (!state.activeConversation) return state;
+            return {
+              activeConversation: {
+                ...state.activeConversation,
+                threadedMessages: state.activeConversation.threadedMessages.map((node) => {
+                  const updateStreamingStatus = (n: MessageNode): MessageNode => {
+                    if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                    if (n.children && n.children.length > 0) n.children = n.children.map(updateStreamingStatus);
+                    return n;
+                  };
+                  return updateStreamingStatus(node);
+                }),
+              },
+            };
+          });
+
+          if (didUseTools && get().activeConversationId === conversationId) {
+            GetMessages(conversationId, null).then((backendNodes) => {
+              const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
+              set((state) => {
+                if (state.activeConversationId !== conversationId) return state;
+                return {
+                  activeConversation: state.activeConversation
+                    ? { ...state.activeConversation, threadedMessages: messageNodes }
+                    : null,
+                  hadToolCalls: false,
+                  completedSegments: [],
+                };
+              });
+            }).catch((err) => {
+              console.error('[Chat] Erro ao recarregar mensagens:', err);
+            });
+          }
+
+          {
+            const conv = get().activeConversation;
+            if (conv && conv.id === conversationId && DEFAULT_TITLE_PATTERNS.test(conv.title.trim())) {
+              const firstUserMsg = flattenThreadedMessages(conv.threadedMessages)
+                .find(m => m.role === 'user' && !m.internal);
+              if (firstUserMsg?.content) {
+                const fallbackTitle = firstUserMsg.content.length > 50
+                  ? firstUserMsg.content.slice(0, 50) + '...'
+                  : firstUserMsg.content;
+                RenameConversation(conversationId, fallbackTitle).catch((err) => {
+                  console.error('[Chat] Fallback rename failed:', err);
+                });
+              }
+            }
+          }
+
+          cleanup();
+        });
+
+        const originalCleanup = cleanup;
+        const enhancedCleanup = () => {
+          originalCleanup();
+          if (unsubscribeThinking) unsubscribeThinking();
+          if (unsubscribeToolStart) unsubscribeToolStart();
+          if (unsubscribeToolEnd) unsubscribeToolEnd();
+          if (unsubscribeSegmentDone) unsubscribeSegmentDone();
+        };
+
+        activeListeners.set(conversationIdStr, enhancedCleanup);
+
+        unsubscribe = () => {
+          cleanup();
+          if (unsubscribeMessagesReady) unsubscribeMessagesReady();
+        };
+
+        let mediaJson = '';
+        if (mediaFiles && mediaFiles.length > 0) {
+          const mediaDataArray: MediaData[] = [];
+          for (const mediaFile of mediaFiles) {
+            const base64Data = await fileToBase64(mediaFile.file);
+            mediaDataArray.push({
+              name: mediaFile.file.name,
+              type: mediaFile.file.type,
+              data: base64Data,
+              size: mediaFile.file.size,
+            });
+          }
+          mediaJson = JSON.stringify(mediaDataArray);
+        }
+
+        const mergedParams: llm.ChatParams = {
+          model: paramsOverride?.model ?? '',
+          temperature: paramsOverride?.temperature ?? 0,
+          maxTokens: paramsOverride?.maxTokens ?? 0,
+          maxTokensMode: paramsOverride?.maxTokensMode,
+          topP: paramsOverride?.topP,
+          reasoningEffort: paramsOverride?.reasoningEffort,
+          profileSlug: paramsOverride?.profileSlug ?? get().contextProfileSlug ?? undefined,
+        };
+        await SendMessage(conversationId, content, mediaJson, mergedParams);
+
+      } catch (error: unknown) {
+        console.error('[Chat] Error sending message:', error);
+        if (unsubscribe) unsubscribe();
+        const errorMsg = getErrorMessage(error);
+        get().updateMessage(assistantMessageId, `Erro ao enviar mensagem: ${errorMsg}`);
+
+        set((state) => {
+          if (!state.activeConversation) return state;
+          return {
+            activeConversation: {
+              ...state.activeConversation,
+              threadedMessages: state.activeConversation.threadedMessages.map((node) => {
+                const updateStreamingStatus = (n: MessageNode): MessageNode => {
+                  if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                  if (n.children && n.children.length > 0) n.children = n.children.map(updateStreamingStatus);
+                  return n;
+                };
+                return updateStreamingStatus(node);
+              }),
+            },
+          };
+        });
+
+        set({ isLoading: false, streamingMessageId: null });
+      }
+    },
+
+    stopStreaming: () => {
+      set({ isLoading: false, streamingMessageId: null, completedSegments: [] });
+    },
+
+    getActiveConversation: () => get().activeConversation,
+
+    getMessages: () => flattenThreadedMessages(get().activeConversation?.threadedMessages),
+
+    toggleThreadExpanded: (messageId) => {
+      set((state) => {
+        const expanded = new Set(state.expandedThreads);
+        if (expanded.has(messageId)) expanded.delete(messageId);
+        else expanded.add(messageId);
+        return { expandedThreads: expanded };
+      });
+    },
+
+    isThreadExpanded: (messageId) => get().expandedThreads.has(messageId),
+
+    toggleReasoningExpanded: (messageId) => {
+      set((state) => {
+        const expanded = new Set(state.expandedReasonings);
+        if (expanded.has(messageId)) expanded.delete(messageId);
+        else expanded.add(messageId);
+        return { expandedReasonings: expanded };
+      });
+    },
+
+    isReasoningExpanded: (messageId) => get().expandedReasonings.has(messageId),
+
+    getThreadedMessages: () => get().activeConversation?.threadedMessages,
+
+    loadMessageChildren: async (messageId) => {
+      try {
+        const messageIdNum = parseInt(messageId, 10);
+        if (isNaN(messageIdNum)) {
+          console.error('[Chat] Invalid message ID:', messageId);
           return [];
         }
-      },
 
-    // Chamado quando uma conversa é deletada pelo backend.
-    // O backend já deletou as tabs associadas e emitiu tab_closed para cada uma,
-    // então normalmente a tab já foi removida do state quando este handler roda.
-    // O removeTabFromState abaixo é apenas safety net para tabs sem backendId.
-    handleConversationDeleted: (conversationId: number) => {
-      announce('Conversa apagada permanentemente');
-      
-      const state = get();
-      const tabToClose = state.tabs.find(tab => tab.conversationId === conversationId);
-      
-      if (tabToClose) {
-        removeTabFromState(tabToClose.id, get, set, activeListeners);
+        const backendNodes = await GetMessageChildren(messageIdNum);
+        const frontendNodes: MessageNode[] = (backendNodes || []).map(withOriginalIndex);
+
+        set((state) => {
+          if (!state.activeConversation) return state;
+
+          const updateTreeWithChildren = (nodes: MessageNode[]): MessageNode[] => {
+            return nodes.map(node => {
+              if (node.message.id === messageId) {
+                return new main.MessageNode({ ...node, children: frontendNodes });
+              }
+              if (node.children && node.children.length > 0) {
+                return new main.MessageNode({ ...node, children: updateTreeWithChildren(node.children) });
+              }
+              return node;
+            });
+          };
+
+          return {
+            activeConversation: {
+              ...state.activeConversation,
+              threadedMessages: updateTreeWithChildren(state.activeConversation.threadedMessages),
+            },
+          };
+        });
+
+        return frontendNodes;
+      } catch (error) {
+        console.error('[Chat] Error loading children:', error);
+        return [];
       }
-      
-      setTimeout(() => {
-        const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
-        if (input) input.focus();
-      }, 200);
     },
 
-    // Chamado quando uma conversa é limpa (mensagens removidas)
+    handleConversationDeleted: (conversationId: number) => {
+      if (get().activeConversationId === conversationId) {
+        set({ activeConversationId: null, activeConversation: null });
+        announce('Conversa apagada permanentemente');
+        setTimeout(() => {
+          const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
+          if (input) input.focus();
+        }, 200);
+      }
+    },
+
     handleConversationCleared: (conversationId: number) => {
-      // Anuncia para acessibilidade
-      announce('Mensagens da conversa removidas');
-      
-      // Limpa as mensagens da aba que tinha essa conversa
-      set((state) => {
-        const updatedTabs: ChatTab[] = state.tabs.map(tab => {
-          if (tab.conversationId === conversationId) {
-            return {
-              ...tab,
-              threadedMessages: [] as MessageNode[],
-              title: 'Conversa limpa',
-              updatedAt: Date.now(),
-            };
-          }
-          return tab;
-        });
-        return { tabs: updatedTabs };
-      });
-      
-      // Foca no input de mensagem após um pequeno delay
-      setTimeout(() => {
-        const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
-        if (input) {
-          input.focus();
-        }
-      }, 200);
+      if (get().activeConversationId === conversationId) {
+        announce('Mensagens da conversa removidas');
+        set((state) => ({
+          activeConversation: state.activeConversation
+            ? { ...state.activeConversation, threadedMessages: [], title: 'Conversa limpa' }
+            : null,
+        }));
+        setTimeout(() => {
+          const input = document.querySelector('textarea[placeholder*="mensagem"], textarea[aria-label*="mensagem"]') as HTMLTextAreaElement;
+          if (input) input.focus();
+        }, 200);
+      }
     },
 
-    // Chamado quando uma conversa é renomeada (match por conversationId)
     handleConversationRenamed: (conversationId: number, newTitle: string) => {
-      set((state) => {
-        const updatedTabs: ChatTab[] = state.tabs.map(tab => {
-          if (tab.conversationId === conversationId) {
-            return {
-              ...tab,
-              title: newTitle,
-              updatedAt: Date.now(),
-            };
-          }
-          return tab;
-        });
-        return { tabs: updatedTabs };
-      });
+      if (get().activeConversationId === conversationId) {
+        set((state) => ({
+          activeConversation: state.activeConversation
+            ? { ...state.activeConversation, title: newTitle }
+            : null,
+        }));
+      }
     },
 
-    // Chamado quando o título de uma aba é atualizado (match por backendId — mais confiável)
-    handleTabTitleUpdated: (backendTabId: number, newTitle: string) => {
-      set((state) => {
-        const updatedTabs: ChatTab[] = state.tabs.map(tab => {
-          if (tab.backendId === backendTabId) {
-            return {
-              ...tab,
-              title: newTitle,
-              updatedAt: Date.now(),
-            };
-          }
-          return tab;
-        });
-        return { tabs: updatedTabs };
-      });
-
-      // Anuncia com assertive e delay para não ser sobrescrito por eventos de streaming
-      setTimeout(() => {
-        announce(`Conversa renomeada para ${newTitle}`, 'assertive');
-      }, 150);
-    },
-
-    // Chamado quando o banco de dados é resetado
     handleDatabaseReset: () => {
-      // Limpa todos os listeners ativos
       activeListeners.forEach((cleanup) => cleanup());
       activeListeners.clear();
-      
-      // Reseta o estado e reinicializa
       set({
-        tabs: [],
-        activeTabId: null,
+        activeConversationId: null,
+        activeConversation: null,
         isLoading: false,
         streamingMessageId: null,
         isInitialized: false,
@@ -1814,171 +1013,67 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         hadToolCalls: false,
         completedSegments: [],
       });
-      
-      // Reinicializa tabs do backend
-      get().initializeTabs();
-      
-      // Anuncia para acessibilidade
       announce('Banco de dados resetado. Conversas reinicializadas.');
     },
 
-    // ÚNICO ponto de remoção de tabs do state (exceto fallback local em deleteTab).
-    // Disparado pelo evento tab_closed do backend — seja via deleteTab, tool close_conversation, ou qualquer outro caminho.
-    handleTabClosed: (backendTabId: number) => {
-      const state = get();
-      const tabToClose = state.tabs.find(t => t.backendId === backendTabId);
-      
-      if (!tabToClose) return;
-      
-      removeTabFromState(tabToClose.id, get, set, activeListeners);
-      
-      // Se era a última aba, cria uma nova com conversa
-      if (get().tabs.length === 0) {
-        get().createTab().catch(err => {
-          console.error('[Chat] Erro ao criar tab após fechar última:', err);
-        });
-      }
-      
-      announce('Aba fechada');
+    assignChannel: async (channel, contactId) => {
+      const convId = get().activeConversationId;
+      if (!convId) return;
+      await AssignConversationToChannel(convId, channel, contactId);
+      set((state) => ({
+        activeConversation: state.activeConversation
+          ? { ...state.activeConversation, channel, contactId }
+          : null,
+      }));
     },
 
+    unassignChannel: async () => {
+      const convId = get().activeConversationId;
+      if (!convId) return;
+      await UnassignConversationFromChannel(convId);
+      set((state) => ({
+        activeConversation: state.activeConversation
+          ? { ...state.activeConversation, channel: undefined, contactId: undefined }
+          : null,
+      }));
+    },
 
-    // Recarrega mensagens da aba ativa a partir do banco de dados.
-    // Usado quando mensagens chegam de canais externos (Signal, Telegram).
-    reloadActiveTabMessages: async () => {
-      const { activeTabId, tabs } = get();
-      const tab = tabs.find((t) => t.id === activeTabId);
-      if (!tab?.conversationId) return;
-
+    reloadMessages: async () => {
+      const { activeConversationId } = get();
+      if (!activeConversationId) return;
       try {
-        const backendNodes = await GetMessages(tab.conversationId, null);
+        const backendNodes = await GetMessages(activeConversationId, null);
         const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
-
         set((state) => ({
-          tabs: state.tabs.map((t) =>
-            t.id === activeTabId
-              ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() }
-              : t
-          ),
+          activeConversation: state.activeConversation
+            ? { ...state.activeConversation, threadedMessages: messageNodes }
+            : null,
         }));
       } catch (err) {
-        console.error('[Chat] Erro ao recarregar mensagens (external):', err);
+        console.error('[Chat] Erro ao recarregar mensagens:', err);
       }
     },
 
-    // Recarrega mensagens de uma conversa específica, independente de qual aba está ativa.
-    // Encontra a aba que contém essa conversa e atualiza suas mensagens.
-    // Se a conversa não está em nenhuma aba, não faz nada (as mensagens estão salvas no banco).
     reloadConversationMessages: async (conversationId: number) => {
-      const { tabs } = get();
-      const tab = tabs.find((t) => t.conversationId === conversationId);
-      if (!tab) {
-        return;
-      }
-
-      try {
-        const backendNodes = await GetMessages(conversationId, null);
-        const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
-
-        set((state) => ({
-          tabs: state.tabs.map((t) =>
-            t.id === tab.id
-              ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() }
-              : t
-          ),
-        }));
-      } catch (err) {
-        console.error('[Chat] Erro ao recarregar conversa', conversationId, ':', err);
-      }
+      if (get().activeConversationId !== conversationId) return;
+      return get().reloadMessages();
     },
 
-    // Atribui um canal externo a uma conversa (bridge bidirecional).
-    assignChannelToTab: async (tabId, channel, contactId) => {
-      const tab = get().tabs.find((t) => t.id === tabId);
-      if (!tab?.conversationId) {
-        console.warn('[Chat] assignChannelToTab: aba sem conversationId', tabId);
-        return;
-      }
-      await AssignConversationToChannel(tab.conversationId, channel, contactId);
-      set((state) => ({
-        tabs: state.tabs.map((t) =>
-          t.id === tabId ? { ...t, channel, contactId } : t
-        ),
-      }));
-    },
-
-    // Remove a vinculação de canal de uma conversa.
-    unassignChannelFromTab: async (tabId) => {
-      const tab = get().tabs.find((t) => t.id === tabId);
-      if (!tab?.conversationId) return;
-      await UnassignConversationFromChannel(tab.conversationId);
-      set((state) => ({
-        tabs: state.tabs.map((t) =>
-          t.id === tabId ? { ...t, channel: undefined, contactId: undefined } : t
-        ),
-      }));
-    },
-
-    // Trata mensagem recebida de canal externo (Signal, Telegram) com streaming completo.
-    // Replica o fluxo de sendMessage: placeholder de usuário + assistente streaming + listeners.
-    // Cada contato externo tem sua conversa e aba dedicada (criada pelo backend).
     handleExternalIncoming: (data) => {
-      const { addMessage, tabs } = get();
-      const { channel, from, text, conversationId, tabId, tabTitle } = data;
+      const { channel, from, text, conversationId } = data;
 
-      // 1. Encontra a aba dedicada desta conversa no store.
-      //    O backend já garante que a aba e a conversa existem.
-      let targetTabId: string | null = null;
+      // Only handle streaming UI for the active conversation
+      if (get().activeConversationId !== conversationId) return;
 
-      // Primeiro tenta por conversationId (mais confiável)
-      if (conversationId > 0) {
-        const existingTab = tabs.find((t) => t.conversationId === conversationId);
-        if (existingTab) {
-          targetTabId = existingTab.id;
-        }
-      }
+      const { addMessage } = get();
 
-      // Se a aba foi criada pelo backend mas o frontend ainda não conhece, adiciona
-      if (!targetTabId && tabId && tabId > 0) {
-        const frontendTabId = tabId.toString();
-        // Verifica se já existe pelo backendId
-        const existingByBackendId = tabs.find((t) => t.backendId === tabId);
-        if (existingByBackendId) {
-          targetTabId = existingByBackendId.id;
-        } else {
-          // Cria a aba localmente no store (sincronizado com o backend)
-          const newTab: ChatTab = {
-            id: frontendTabId,
-            backendId: tabId,
-            title: tabTitle || `[${channel}] ${from}`,
-            threadedMessages: [],
-            conversationId: conversationId || undefined,
-            createdAt: Date.now(),
-            updatedAt: Date.now(),
-            channel: channel || undefined,
-            contactId: data.fromId || undefined,
-          };
-          set((state) => ({
-            tabs: [...state.tabs, newTab],
-          }));
-          targetTabId = frontendTabId;
-        }
-      }
-
-      if (!targetTabId) {
-        return;
-      }
-
-      // 2. Adiciona a mensagem do usuário (origin badge via source)
-      //    Para áudio, text pode ser vazio — será atualizado por chat:messages_ready com a transcrição.
-      const userMessageId = addMessage(targetTabId, {
+      const userMessageId = addMessage({
         role: 'user',
         content: text || 'Transcrevendo áudio...',
         source: channel,
       });
 
-      // 3. Adiciona placeholder de streaming para a resposta do assistente
-      const assistantMessageId = addMessage(targetTabId, {
+      const assistantMessageId = addMessage({
         role: 'assistant',
         content: '',
         isStreaming: true,
@@ -1986,14 +1081,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
       set({ isLoading: true, streamingMessageId: assistantMessageId });
 
-      // 4. Registra listeners de streaming (mesmo padrão do sendMessage)
+      const conversationIdStr = conversationId.toString();
       let cleanupExecuted = false;
       let streamingAnnounced = false;
 
       const cleanup = () => {
         if (cleanupExecuted) return;
         cleanupExecuted = true;
-
         unsubStream();
         unsubThinking();
         unsubToolStart();
@@ -2001,27 +1095,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         unsubSegmentDone();
         unsubDone();
         unsubReady();
-        activeListeners.delete(targetTabId!);
+        activeListeners.delete(conversationIdStr);
         set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
       };
 
-      // Limpa listeners antigos desta tab se existirem
-      const existingCleanup = activeListeners.get(targetTabId);
-      if (existingCleanup) {
-        existingCleanup();
-      }
+      const existingCleanup = activeListeners.get(conversationIdStr);
+      if (existingCleanup) existingCleanup();
 
-      // chat:messages_ready — atualiza ID, conteúdo e conversationId do user message
       const unsubReady = EventsOn('chat:messages_ready', (event: ChatMessagesReadyEvent) => {
-        if (!activeListeners.has(targetTabId!)) return;
+        if (!activeListeners.has(conversationIdStr)) return;
         if (event.userMessageId) {
           const backendUserId = event.userMessageId.toString();
-          
-          // Atualiza ID e conteúdo da mensagem do usuário (ID local → ID do banco, + transcrição de áudio)
           set((state) => {
-            const tab = state.tabs.find(t => t.id === targetTabId);
-            if (!tab) return state;
-
+            if (!state.activeConversation) return state;
             const updateNodes = (nodes: MessageNode[]): MessageNode[] => {
               return nodes.map(node => {
                 if (node.message.id === userMessageId) {
@@ -2030,30 +1116,19 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                     id: backendUserId,
                     content: event.userContent || node.message.content,
                   });
-                  return new main.MessageNode({
-                    ...node,
-                    message: updatedMessage,
-                  });
+                  return new main.MessageNode({ ...node, message: updatedMessage });
                 }
                 return node;
               });
             };
-
             return {
-              tabs: state.tabs.map((t) =>
-                t.id === targetTabId
-                  ? {
-                      ...t,
-                      threadedMessages: updateNodes(t.threadedMessages),
-                      conversationId: event.conversationId || t.conversationId,
-                      updatedAt: Date.now(),
-                    }
-                  : t
-              ),
+              activeConversation: {
+                ...state.activeConversation,
+                threadedMessages: updateNodes(state.activeConversation.threadedMessages),
+              },
+              activeConversationId: event.conversationId || state.activeConversationId,
             };
           });
-
-          // Anuncia a mensagem transcrita para o leitor de telas
           if (event.userContent) {
             const cleanContent = stripMarkdown(event.userContent);
             announce(`${from} via ${channel}: ${cleanContent}`);
@@ -2061,90 +1136,77 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
       });
 
-      // chat:stream — atualiza conteúdo da resposta em tempo real
       const unsubStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
-        if (!activeListeners.has(targetTabId!)) return;
-
+        if (!activeListeners.has(conversationIdStr)) return;
         if (event.content) {
           if (!streamingAnnounced && !event.done && !event.error) {
             streamingAnnounced = true;
             announce('Assistente está respondendo', 'polite');
           }
-
           if (!event.done && !event.error) {
-            debouncedUpdateMessage(targetTabId!, assistantMessageId, event.content, get().updateMessage);
+            debouncedUpdateMessage(assistantMessageId, event.content, get().updateMessage);
           } else {
-            flushPendingUpdate(targetTabId!, assistantMessageId, get().updateMessage);
-            get().updateMessage(targetTabId!, assistantMessageId, event.content);
+            flushPendingUpdate(assistantMessageId, get().updateMessage);
+            get().updateMessage(assistantMessageId, event.content);
           }
         }
-
         if (event.error) {
-          flushPendingUpdate(targetTabId!, assistantMessageId, get().updateMessage);
-          get().updateMessage(targetTabId!, assistantMessageId, `Erro: ${event.error}`);
+          flushPendingUpdate(assistantMessageId, get().updateMessage);
+          get().updateMessage(assistantMessageId, `Erro: ${event.error}`);
           cleanup();
         }
-
         if (event.done) {
           const currentState = get();
-          const currentTab = currentState.tabs.find(t => t.id === targetTabId);
-          const flatMessages = flattenThreadedMessages(currentTab?.threadedMessages);
+          const flatMessages = flattenThreadedMessages(currentState.activeConversation?.threadedMessages);
           const finalMessage = flatMessages.find(m => m.id === assistantMessageId);
-
-          set((state) => ({
-            tabs: state.tabs.map((tab) =>
-              tab.id === targetTabId
-                ? {
-                    ...tab,
-                    threadedMessages: tab.threadedMessages.map((node) => {
-                      const markDone = (n: MessageNode): MessageNode => {
-                        if (n.message.id === assistantMessageId) n.message.isStreaming = false;
-                        if (n.children?.length) n.children = n.children.map(markDone);
-                        return n;
-                      };
-                      return markDone(node);
-                    }),
-                  }
-                : tab
-            ),
-          }));
-
+          set((state) => {
+            if (!state.activeConversation) return state;
+            return {
+              activeConversation: {
+                ...state.activeConversation,
+                threadedMessages: state.activeConversation.threadedMessages.map((node) => {
+                  const markDone = (n: MessageNode): MessageNode => {
+                    if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                    if (n.children?.length) n.children = n.children.map(markDone);
+                    return n;
+                  };
+                  return markDone(node);
+                }),
+              },
+            };
+          });
           if (finalMessage?.content) {
-            const isActiveTab = currentState.activeTabId === targetTabId;
-            if (isActiveTab) playReceiveSound();
-
-            if (ttsService.isAutoReadEnabled() && isActiveTab && !cleanupExecuted) {
+            const isActive = currentState.activeConversationId === conversationId;
+            if (isActive) playReceiveSound();
+            if (ttsService.isAutoReadEnabled() && isActive && !cleanupExecuted) {
               messageAudioService.stopAll();
               ttsService.stop();
               ttsService.speak(finalMessage.content).catch((err: unknown) => {
                 console.error('[Chat] TTS error (external):', err);
               });
             }
-
-            if (ttsService.shouldUseAriaLiveForAgent() && isActiveTab) {
+            if (ttsService.shouldUseAriaLiveForAgent() && isActive) {
               announce(`Assistente: ${stripMarkdown(finalMessage.content)}`);
             }
           }
         }
       });
 
-      // chat:thinking
       const unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
-        if (!activeListeners.has(targetTabId!)) return;
+        if (!activeListeners.has(conversationIdStr)) return;
         if (event.started) {
           set({ isThinking: true, streamingReasoning: event.content || '' });
           announce('O modelo está pensando...', 'polite');
         } else if (event.done) {
           set({ isThinking: false });
-          if (event.content) get().updateMessageReasoning(targetTabId!, assistantMessageId, event.content);
+          if (event.content) get().updateMessageReasoning(assistantMessageId, event.content);
         } else {
           set({ streamingReasoning: event.content || '' });
         }
       });
 
-      // chat:tool_start
       const unsubToolStart = EventsOn('chat:tool_start', (event: ChatToolStartEvent) => {
-        if (!activeListeners.has(targetTabId!)) return;
+        if (!activeListeners.has(conversationIdStr)) return;
         set((state) => ({
           hadToolCalls: true,
           activeToolCalls: [...state.activeToolCalls, {
@@ -2154,9 +1216,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         announce(`Executando ferramenta: ${event.name}`, 'polite');
       });
 
-      // chat:tool_end
       const unsubToolEnd = EventsOn('chat:tool_end', (event: ChatToolEndEvent) => {
-        if (!activeListeners.has(targetTabId!)) return;
+        if (!activeListeners.has(conversationIdStr)) return;
         set((state) => ({
           activeToolCalls: state.activeToolCalls.map((tc) =>
             tc.callId === event.callId
@@ -2168,9 +1229,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         announce(`Ferramenta ${event.name} ${statusLabel}`, 'polite');
       });
 
-      // chat:segment_done
       const unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
-        if (!activeListeners.has(targetTabId!)) return;
+        if (!activeListeners.has(conversationIdStr)) return;
         if (event.hasMore && event.content && ttsService.isAutoReadEnabled()) {
           ttsService.speak(event.content).catch((err: unknown) => {
             console.error('[Chat] TTS segment error (external):', err);
@@ -2194,60 +1254,52 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             newSegments.push({ type: 'text', content: event.content });
           }
           set({ completedSegments: newSegments, activeToolCalls: [] });
-          flushPendingUpdate(targetTabId!, assistantMessageId, get().updateMessage);
-          get().updateMessage(targetTabId!, assistantMessageId, '');
+          flushPendingUpdate(assistantMessageId, get().updateMessage);
+          get().updateMessage(assistantMessageId, '');
         }
       });
 
-      // chat:done — finaliza e faz reload se houve tool calls
       const unsubDone = EventsOn('chat:done', () => {
-        if (!activeListeners.has(targetTabId!)) return;
-
+        if (!activeListeners.has(conversationIdStr)) return;
         const didUseTools = get().hadToolCalls;
 
         set((state) => {
-          const tabIndex = state.tabs.findIndex((t) => t.id === targetTabId);
-          if (tabIndex >= 0) {
-            state.tabs[tabIndex].threadedMessages = state.tabs[tabIndex].threadedMessages.map((node) => {
-              const markDone = (n: MessageNode): MessageNode => {
-                if (n.message.id === assistantMessageId) n.message.isStreaming = false;
-                if (n.children?.length) n.children = n.children.map(markDone);
-                return n;
-              };
-              return markDone(node);
-            });
-          }
-          return state;
+          if (!state.activeConversation) return state;
+          return {
+            activeConversation: {
+              ...state.activeConversation,
+              threadedMessages: state.activeConversation.threadedMessages.map((node) => {
+                const markDone = (n: MessageNode): MessageNode => {
+                  if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                  if (n.children?.length) n.children = n.children.map(markDone);
+                  return n;
+                };
+                return markDone(node);
+              }),
+            },
+          };
         });
 
-        if (didUseTools) {
-          const tab = get().tabs.find(t => t.id === targetTabId);
-          if (tab?.conversationId) {
-            GetMessages(tab.conversationId, null).then((backendNodes) => {
-              const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
-              set((state) => ({
-                tabs: state.tabs.map((t) =>
-                  t.id === targetTabId
-                    ? { ...t, threadedMessages: messageNodes, updatedAt: Date.now() }
-                    : t
-                ),
+        if (didUseTools && get().activeConversationId === conversationId) {
+          GetMessages(conversationId, null).then((backendNodes) => {
+            const messageNodes: MessageNode[] = backendNodes.map(withOriginalIndex);
+            set((state) => {
+              if (state.activeConversationId !== conversationId) return state;
+              return {
+                activeConversation: state.activeConversation
+                  ? { ...state.activeConversation, threadedMessages: messageNodes }
+                  : null,
                 hadToolCalls: false,
                 completedSegments: [],
-              }));
+              };
             });
-          }
+          });
         }
 
         cleanup();
       });
 
-      // Armazena cleanup no Map para evitar duplicação
-      activeListeners.set(targetTabId, cleanup);
+      activeListeners.set(conversationIdStr, cleanup);
     },
   };
 });
-
-// NOTA: Listeners globais de backend foram REMOVIDOS pois causavam loop infinito
-// O backend já sincroniza as tabs via GetAllTabs() e não precisamos de listeners reativos
-// Se precisar re-habilitar, mover para um hook React com cleanup apropriado
-

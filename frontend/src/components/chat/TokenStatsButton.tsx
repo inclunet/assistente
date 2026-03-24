@@ -155,7 +155,6 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
       className={`token-stats-button token-stats-button--${getStatusColor()}`}
       onClick={onOpenModal}
       aria-label={`${ariaLabel}. Consumo de contexto: ${stats.contextUsage.toFixed(1)}% ${t('chat.tokenDetailsShortcut')}`}
-      title={t('chat.tokenDetailsLabel')}
     >
       <span className="token-stats-button__icon" aria-hidden="true">
         {getStatusIcon()}

@@ -1,0 +1,162 @@
+.ws-tabs {
+  --tab-accent: var(--accent-color, var(--accent));
+  --tab-radius: 6px;
+  --tab-bg-hover: var(--bg-hover);
+  --tab-bg-active: var(--bg-elevated);
+  --tab-color: var(--text-primary);
+  --tab-color-muted: var(--text-secondary);
+  --tabs-focus-outline: 2px solid var(--tab-accent);
+  --tabs-focus-outline-offset: -2px;
+
+  display: flex;
+  align-items: center;
+  background-color: var(--tabs-bar-bg, var(--bg-elevated));
+  border-bottom: 1px solid var(--tabs-bar-border, var(--border-default));
+  overflow-x: auto;
+  overflow-y: hidden;
+  height: var(--tabs-height, 40px);
+  min-height: var(--tabs-height, 40px);
+}
+
+.ws-tabs__list {
+  display: flex;
+  flex: 1;
+  gap: 2px;
+  padding: 0 8px;
+  overflow-x: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb, var(--border-default)) transparent;
+}
+
+.ws-tabs__list::-webkit-scrollbar {
+  height: 6px;
+}
+
+.ws-tabs__list::-webkit-scrollbar-thumb {
+  background-color: var(--scrollbar-thumb, var(--border-default));
+  border-radius: 3px;
+}
+
+.ws-tabs__tab-wrapper {
+  position: relative;
+  display: flex;
+  align-items: stretch;
+}
+
+.ws-tabs__tab-wrapper--active {
+  z-index: 1;
+}
+
+.ws-tabs__tab {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  padding-right: 32px;
+  background-color: transparent;
+  border: none;
+  border-radius: var(--tab-radius) var(--tab-radius) 0 0;
+  color: var(--tab-color-muted);
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: background-color 0.15s, color 0.15s;
+  white-space: nowrap;
+  min-width: 100px;
+  max-width: 200px;
+  position: relative;
+}
+
+.ws-tabs__tab:hover {
+  background-color: var(--tab-bg-hover);
+  color: var(--tab-color);
+}
+
+.ws-tabs__tab:focus-visible {
+  outline: var(--tabs-focus-outline);
+  outline-offset: var(--tabs-focus-outline-offset);
+  z-index: 1;
+}
+
+.ws-tabs__tab--active {
+  background-color: var(--tab-bg-active);
+  color: var(--tab-color);
+  border-bottom: 2px solid var(--tab-accent);
+}
+
+.ws-tabs__tab-icon {
+  font-size: 0.875rem;
+  flex-shrink: 0;
+}
+
+.ws-tabs__tab-title {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+
+.ws-tabs__tab-close {
+  position: absolute;
+  right: 6px;
+  top: 50%;
+  transform: translateY(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  background-color: transparent;
+  border: none;
+  border-radius: 3px;
+  color: inherit;
+  cursor: pointer;
+  opacity: 0.5;
+  transition: opacity 0.15s, background-color 0.15s;
+  font-size: 0.875rem;
+}
+
+.ws-tabs__tab-close:hover {
+  opacity: 1;
+  background-color: var(--tab-bg-hover);
+}
+
+.ws-tabs__tab-close:focus-visible {
+  outline: 1px solid var(--tab-accent);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+.ws-tabs__tab--editing {
+  background-color: var(--tab-bg-active);
+}
+
+.ws-tabs__tab-edit {
+  position: absolute;
+  top: 4px;
+  left: 32px;
+  right: 34px;
+  padding: 2px 6px;
+  background-color: var(--bg-tertiary, var(--bg-elevated));
+  border: 1px solid var(--tab-accent);
+  border-radius: 4px;
+  color: var(--tab-color);
+  font-size: 0.8125rem;
+  font-family: inherit;
+  outline: none;
+  z-index: 2;
+}
+
+.ws-tabs__tab-edit:focus {
+  border-color: var(--accent-bright, var(--tab-accent));
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* Drag & drop */
+.ws-tabs__tab-wrapper--dragging {
+  opacity: 0.4;
+}
+
+.ws-tabs__tab-wrapper--drop-target {
+  border-left: 2px solid var(--tab-accent);
+}

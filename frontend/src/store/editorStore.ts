@@ -4,7 +4,7 @@ export type EditorMode = 'markdown' | 'rich' | 'view';
 
 export type EditorInsertFormat = 'markdown' | 'html' | 'plain';
 
-export type EditorInsertTarget = 'current' | 'new_tab';
+export type EditorInsertTarget = 'current' | 'new_document';
 
 export interface EditorInsertRequest {
   id: string;
@@ -12,58 +12,44 @@ export interface EditorInsertRequest {
   format: EditorInsertFormat;
   content: string;
   title?: string;
-  /** Quando true, o editor deve focar após inserir. */
   focus?: boolean;
-  /** Vínculo com a conversa que originou o envio (para contexto do mini-chat). */
-  source?: {
-    chatTabId?: string | null;
-    conversationId?: number | null;
-    messageId?: string | null;
-  };
 }
 
-export interface EditorTab {
+export interface EditorDocument {
   id: string;
   title: string;
   markdown: string;
   mode: EditorMode;
 
-  /** Aba de chat vinculada a este documento (para o mini-chat do editor ter contexto). */
-  linkedChatTabId?: string | null;
-  linkedConversationId?: number | null;
-
-  /** Path real no disco (quando já foi salvo/aberto) */
   filePath?: string | null;
-  /** ID do draft temporário persistido pelo backend (SQLite) quando ainda não tem destino */
   draftId?: string | null;
-  /** Indica mudanças não persistidas no destino (quando autosave está off) */
   isDirty?: boolean;
 }
 
+
 interface EditorState {
-  tabs: EditorTab[];
-  activeTabId: string | null;
+  documents: Record<string, EditorDocument>;
+  activeDocumentId: string | null;
 
   autoSaveEnabled: boolean;
 
-  /** Perfil local usado para mensagens do mini-chat do editor (profileSlug em SendMessage) */
   editorProfileSlug: string;
 
-  createTab: (initial?: Partial<Pick<EditorTab, 'title' | 'markdown' | 'mode'>>) => string;
-  closeTab: (tabId: string) => void;
-  setActiveTab: (tabId: string) => void;
-  renameTab: (tabId: string, title: string) => void;
-  setTabMarkdown: (tabId: string, markdown: string) => void;
-  setTabMode: (tabId: string, mode: EditorMode) => void;
-  toggleTabMode: (tabId: string) => void;
+  createDocument: (initial?: Partial<Pick<EditorDocument, 'title' | 'markdown' | 'mode'>>) => string;
+  removeDocument: (docId: string) => void;
+  setActiveDocument: (docId: string) => void;
+  renameDocument: (docId: string, title: string) => void;
+  setDocMarkdown: (docId: string, markdown: string) => void;
+  setDocMode: (docId: string, mode: EditorMode) => void;
+  toggleDocMode: (docId: string) => void;
 
-  setTabFilePath: (tabId: string, filePath: string | null) => void;
-  setTabDraftId: (tabId: string, draftId: string | null) => void;
-  setTabDirty: (tabId: string, isDirty: boolean) => void;
+  setDocFilePath: (docId: string, filePath: string | null) => void;
+  setDocDraftId: (docId: string, draftId: string | null) => void;
+  setDocDirty: (docId: string, isDirty: boolean) => void;
 
-  setTabLinkedChat: (tabId: string, link: { chatTabId?: string | null; conversationId?: number | null }) => void;
+  getDocument: (docId: string) => EditorDocument | undefined;
+  getActiveDocument: () => EditorDocument | null;
 
-  /** Requisição pendente para inserir conteúdo no editor ao abrir/ativar a página. */
   pendingInsert: EditorInsertRequest | null;
   requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string;
   consumePendingInsert: () => EditorInsertRequest | null;
@@ -73,7 +59,7 @@ interface EditorState {
 
   setEditorProfileSlug: (slug: string) => void;
 
-  hydrate: (payload: { tabs: EditorTab[]; activeTabId: string | null; autoSaveEnabled?: boolean; editorProfileSlug?: string }) => void;
+  hydrate: (payload: { documents: Record<string, EditorDocument>; activeDocumentId: string | null; autoSaveEnabled?: boolean; editorProfileSlug?: string }) => void;
 }
 
 function newId(): string {
@@ -86,9 +72,15 @@ function newId(): string {
 
 const DEFAULT_MD = `# Novo documento\n\nComece a escrever em **Markdown**.\n\n- Ctrl+N (ou Ctrl+T): nova aba\n- Ctrl+W (ou Ctrl+F4): fechar aba\n- Ctrl+Tab: próxima aba\n- Ctrl+Shift+Tab: aba anterior\n- Ctrl+Shift+I: pedir alteração ao chat\n\n\n\n\n\n\n\n\n\n`; 
 
+function updateDoc(documents: Record<string, EditorDocument>, docId: string, patch: Partial<EditorDocument>): Record<string, EditorDocument> {
+  const existing = documents[docId];
+  if (!existing) return documents;
+  return { ...documents, [docId]: { ...existing, ...patch } };
+}
+
 export const useEditorStore = create<EditorState>((set, get) => ({
-  tabs: [],
-  activeTabId: null,
+  documents: {},
+  activeDocumentId: null,
 
   autoSaveEnabled: true,
 
@@ -96,16 +88,13 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   pendingInsert: null,
 
-  createTab: (initial) => {
+  createDocument: (initial) => {
     const id = newId();
-    const tab: EditorTab = {
+    const doc: EditorDocument = {
       id,
       title: initial?.title || 'Novo documento',
       markdown: initial?.markdown ?? DEFAULT_MD,
       mode: initial?.mode || 'markdown',
-
-      linkedChatTabId: null,
-      linkedConversationId: null,
 
       filePath: null,
       draftId: id,
@@ -113,8 +102,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     };
 
     set((state) => ({
-      tabs: [...state.tabs, tab],
-      activeTabId: id,
+      documents: { ...state.documents, [id]: doc },
+      activeDocumentId: id,
     }));
 
     return id;
@@ -129,7 +118,6 @@ export const useEditorStore = create<EditorState>((set, get) => ({
       content: String(req.content ?? ''),
       title: req.title,
       focus: req.focus,
-      source: req.source,
     };
     set({ pendingInsert: normalized });
     return id;
@@ -142,85 +130,57 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return cur;
   },
 
-  closeTab: (tabId) => {
-    const { tabs, activeTabId } = get();
-    const idx = tabs.findIndex((t) => t.id === tabId);
-    if (idx === -1) return;
-
-    const nextTabs = tabs.filter((t) => t.id !== tabId);
-
-    let nextActive: string | null = activeTabId;
-    if (activeTabId === tabId) {
-      const next = nextTabs[idx] || nextTabs[idx - 1] || null;
-      nextActive = next?.id ?? null;
-    }
-
-    set({ tabs: nextTabs, activeTabId: nextActive });
+  removeDocument: (docId) => {
+    set((state) => {
+      const next = { ...state.documents };
+      delete next[docId];
+      const nextActive = state.activeDocumentId === docId ? null : state.activeDocumentId;
+      return { documents: next, activeDocumentId: nextActive };
+    });
   },
 
-  setActiveTab: (tabId) => {
-    set({ activeTabId: tabId });
+  setActiveDocument: (docId) => {
+    set({ activeDocumentId: docId });
   },
 
-  renameTab: (tabId, title) => {
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, title } : t)),
-    }));
+  renameDocument: (docId, title) => {
+    set((state) => ({ documents: updateDoc(state.documents, docId, { title }) }));
   },
 
-  setTabMarkdown: (tabId, markdown) => {
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, markdown } : t)),
-    }));
+  setDocMarkdown: (docId, markdown) => {
+    set((state) => ({ documents: updateDoc(state.documents, docId, { markdown }) }));
   },
 
-  setTabMode: (tabId, mode) => {
+  setDocMode: (docId, mode) => {
     const next: EditorMode = mode === 'rich' || mode === 'view' ? mode : 'markdown';
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, mode: next } : t)),
-    }));
+    set((state) => ({ documents: updateDoc(state.documents, docId, { mode: next }) }));
   },
 
-  toggleTabMode: (tabId) => {
-    set((state) => ({
-      tabs: state.tabs.map((t) =>
-        t.id === tabId
-          ? { ...t, mode: t.mode === 'view' ? 'markdown' : t.mode === 'markdown' ? 'rich' : 'markdown' }
-          : t
-      ),
-    }));
+  toggleDocMode: (docId) => {
+    set((state) => {
+      const doc = state.documents[docId];
+      if (!doc) return state;
+      const nextMode: EditorMode = doc.mode === 'view' ? 'markdown' : doc.mode === 'markdown' ? 'rich' : 'markdown';
+      return { documents: updateDoc(state.documents, docId, { mode: nextMode }) };
+    });
   },
 
-  setTabFilePath: (tabId, filePath) => {
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, filePath } : t)),
-    }));
+  setDocFilePath: (docId, filePath) => {
+    set((state) => ({ documents: updateDoc(state.documents, docId, { filePath }) }));
   },
 
-  setTabDraftId: (tabId, draftId) => {
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, draftId } : t)),
-    }));
+  setDocDraftId: (docId, draftId) => {
+    set((state) => ({ documents: updateDoc(state.documents, docId, { draftId }) }));
   },
 
-  setTabDirty: (tabId, isDirty) => {
-    set((state) => ({
-      tabs: state.tabs.map((t) => (t.id === tabId ? { ...t, isDirty } : t)),
-    }));
+  setDocDirty: (docId, isDirty) => {
+    set((state) => ({ documents: updateDoc(state.documents, docId, { isDirty }) }));
   },
 
-  setTabLinkedChat: (tabId, link) => {
-    set((state) => ({
-      tabs: state.tabs.map((t) =>
-        t.id === tabId
-          ? {
-              ...t,
-              linkedChatTabId: typeof link?.chatTabId === 'string' ? link.chatTabId : null,
-              linkedConversationId: typeof link?.conversationId === 'number' ? link.conversationId : null,
-            }
-          : t
-      ),
-    }));
+  getDocument: (docId) => get().documents[docId],
+  getActiveDocument: () => {
+    const { documents, activeDocumentId } = get();
+    return activeDocumentId ? documents[activeDocumentId] ?? null : null;
   },
 
   setAutoSaveEnabled: (enabled) => set({ autoSaveEnabled: !!enabled }),
@@ -230,8 +190,8 @@ export const useEditorStore = create<EditorState>((set, get) => ({
 
   hydrate: (payload) => {
     set({
-      tabs: payload.tabs,
-      activeTabId: payload.activeTabId,
+      documents: payload.documents,
+      activeDocumentId: payload.activeDocumentId,
       autoSaveEnabled: typeof payload.autoSaveEnabled === 'boolean' ? payload.autoSaveEnabled : true,
       editorProfileSlug: (payload.editorProfileSlug || '').trim() || 'editor-texto',
     });

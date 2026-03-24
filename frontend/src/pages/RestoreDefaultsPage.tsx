@@ -14,6 +14,7 @@ import { Button } from '../components';
 import { CollapsibleSection } from '../components/ui/CollapsibleSection';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useTheme, THEMES, type ThemeId } from '../hooks/useTheme';
+import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './RestoreDefaultsPage.css';
 
 export default function RestoreDefaultsPage() {
@@ -22,6 +23,7 @@ export default function RestoreDefaultsPage() {
   const { handleDatabaseReset } = useChatStore();
   const { announce } = useAnnouncer();
   const { theme: currentTheme, setTheme } = useTheme();
+  useContentPageLandmarks({ pageClass: 'restore-defaults-page' });
 
   const [loadingOps, setLoadingOps] = useState<Set<string>>(new Set());
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['appearance', 'quick']));

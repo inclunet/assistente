@@ -248,7 +248,6 @@ export function Modal({
     >
       <div ref={modalRef} className={`modal-content ${size}${className ? ` ${className}` : ''}`}>
         <div className="modal-header">
-          <h2 id={titleId} className="modal-title">{title}</h2>
           {allowClose && (
             <button 
               className="modal-close"
@@ -258,6 +257,7 @@ export function Modal({
               ✕
             </button>
           )}
+          <h1 id={titleId} className="modal-title">{title}</h1>
         </div>
         <div className="modal-body">
           {children}

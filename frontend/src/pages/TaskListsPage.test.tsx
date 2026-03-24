@@ -2,70 +2,73 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 
 /* ── mock fns (definidas antes dos vi.mock) ────────────────── */
 
-const mockLoadTabs = vi.fn();
-const mockCreateTab = vi.fn();
-const mockCloseTab = vi.fn();
 const mockCreateTaskList = vi.fn();
 const mockDeleteTaskList = vi.fn();
 const mockCloneTaskList = vi.fn();
-const mockSetViewMode = vi.fn();
 const mockGetCachedTaskList = vi.fn();
 const mockLoadTaskList = vi.fn();
-const mockConsumeResourceEdit = vi.fn();
+const mockFetchAllTaskLists = vi.fn();
+const mockAddTab = vi.fn().mockResolvedValue('tab-1');
+const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockAddToast = vi.fn();
 const mockAnnounce = vi.fn();
 const mockRequestConfirm = vi.fn();
+const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
 
 /* ── mocks de módulos ──────────────────────────────────────── */
 
 vi.mock('react-i18next', () => ({
+  initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
     t: (_key: string, fallback?: string) => fallback ?? _key,
   }),
 }));
 
-let storeOpenTabs: Array<{ id: number; taskListId: number; title: string; position: number; isActive: boolean }> = [];
+vi.mock('../lib/deepLinks', () => ({
+  executeDeepLink: (...args: unknown[]) => mockExecuteDeepLink(...args),
+}));
+
 let storeTaskLists: Map<number, unknown> = new Map();
 
 vi.mock('../store/taskListStore', () => ({
   useTaskListStore: Object.assign(
     (selector?: (state: Record<string, unknown>) => unknown) => {
       const state: Record<string, unknown> = {
-        openTabs: storeOpenTabs,
         taskLists: storeTaskLists,
-        loadTabs: mockLoadTabs,
-        createTab: mockCreateTab,
-        closeTab: mockCloseTab,
         createTaskList: mockCreateTaskList,
         deleteTaskList: mockDeleteTaskList,
         cloneTaskList: mockCloneTaskList,
-        setViewMode: mockSetViewMode,
         getCachedTaskList: mockGetCachedTaskList,
         loadTaskList: mockLoadTaskList,
+        fetchAllTaskLists: mockFetchAllTaskLists,
       };
       if (selector) return selector(state);
       return state;
     },
     {
       getState: () => ({
-        openTabs: storeOpenTabs,
         taskLists: storeTaskLists,
         getCachedTaskList: mockGetCachedTaskList,
+        loadTaskList: mockLoadTaskList,
       }),
     },
   ),
 }));
 
-vi.mock('../store/navigationStore', () => ({
-  useNavigationStore: Object.assign(
-    () => ({ consumeResourceEdit: mockConsumeResourceEdit }),
-    {
-      getState: () => ({ consumeResourceEdit: mockConsumeResourceEdit }),
-    },
-  ),
+vi.mock('../store/workspaceStore', () => ({
+  useWorkspaceStore: (selector?: (state: Record<string, unknown>) => unknown) => {
+    const state: Record<string, unknown> = {
+      addTab: mockAddTab,
+      moveTabToWorkspace: mockMoveTabToWorkspace,
+      workspaces: [],
+    };
+    if (selector) return selector(state);
+    return state;
+  },
 }));
 
 vi.mock('../store/uiStore', () => ({
@@ -94,29 +97,7 @@ vi.mock('../hooks/useConfirm', () => ({
   useConfirm: () => mockRequestConfirm,
 }));
 
-vi.mock('../hooks/useAnchoredContextMenu', () => ({
-  useAnchoredContextMenu: () => ({
-    menu: { visible: false, x: 0, y: 0, items: [], ariaLabel: '' },
-    triggerElementRef: { current: null },
-    openForTrigger: vi.fn(),
-    openAtPoint: vi.fn(),
-    closeMenu: vi.fn(),
-    onSelectItem: vi.fn(),
-  }),
-}));
-
 /* ── mocks de componentes UI ───────────────────────────────── */
-
-vi.mock('../components/ui/tabs', () => ({
-  Tabs: ({ children }: { children: ReactNode }) => <div data-testid="tabs">{children}</div>,
-  TabList: ({ children }: { children: ReactNode }) => <div role="tablist">{children}</div>,
-  Tab: ({ children, value }: { children: ReactNode; value: string }) => (
-    <button role="tab" data-value={value}>
-      {children}
-    </button>
-  ),
-  TabPanel: ({ children }: { children: ReactNode }) => <div role="tabpanel">{children}</div>,
-}));
 
 vi.mock('../components/ui/Modal', () => ({
   Modal: ({ isOpen, children, title }: { isOpen: boolean; children: ReactNode; title?: string }) =>
@@ -214,18 +195,6 @@ vi.mock('../components/layout/MenuButton', () => ({
   MenuButton: () => <button data-testid="menu-button">⋮</button>,
 }));
 
-vi.mock('../components/taskLists/TasksTable', () => ({
-  default: () => <div data-testid="tasks-table">TasksTable</div>,
-}));
-
-vi.mock('../components/pickers/TaskListHistoryPicker', () => ({
-  TaskListHistoryPicker: () => <div data-testid="history-picker" />,
-}));
-
-vi.mock('../components/menu', () => ({
-  ContextMenu: () => null,
-}));
-
 /* ── dados de teste ─────────────────────────────────────────── */
 
 const baseWorkflow = {
@@ -257,34 +226,31 @@ describe('TaskListsPage', () => {
   beforeEach(() => {
     vi.clearAllMocks();
 
-    // estado padrão: sem abas abertas, duas listas em cache
-    storeOpenTabs = [];
     storeTaskLists = new Map([
       [1, makeTaskList(1, 'Lista Alfa')],
       [2, makeTaskList(2, 'Lista Beta')],
     ]);
 
-    mockLoadTabs.mockResolvedValue(undefined);
-    mockConsumeResourceEdit.mockReturnValue(null);
     mockCreateTaskList.mockResolvedValue(makeTaskList(3, 'Lista Nova'));
-    mockCreateTab.mockResolvedValue(undefined);
-    mockCloseTab.mockResolvedValue(undefined);
     mockDeleteTaskList.mockResolvedValue(undefined);
     mockCloneTaskList.mockResolvedValue(makeTaskList(4, 'Lista Alfa (Cópia)'));
-    mockSetViewMode.mockResolvedValue(undefined);
     mockGetCachedTaskList.mockImplementation((id: number) => storeTaskLists.get(id));
     mockLoadTaskList.mockImplementation(async (id: number) => storeTaskLists.get(id) ?? null);
+    mockFetchAllTaskLists.mockResolvedValue([]);
+    mockAddTab.mockResolvedValue('tab-1');
     mockRequestConfirm.mockResolvedValue(true);
   });
 
   async function renderPage() {
     const { default: TaskListsPage } = await import('./TaskListsPage');
-    return render(<TaskListsPage />);
+    return render(
+      <MemoryRouter>
+        <TaskListsPage />
+      </MemoryRouter>
+    );
   }
 
-  // ── Home Tab ────────────────────────────────────────────────
-
-  it('renderiza aba Home com a listagem de listas', async () => {
+  it('renderiza a listagem de listas', async () => {
     await renderPage();
 
     await waitFor(() => {
@@ -302,16 +268,6 @@ describe('TaskListsPage', () => {
     });
   });
 
-  it('chama loadTabs na inicialização', async () => {
-    await renderPage();
-
-    await waitFor(() => {
-      expect(mockLoadTabs).toHaveBeenCalledOnce();
-    });
-  });
-
-  // ── Criar lista ─────────────────────────────────────────────
-
   it('abre modal de criação ao clicar em Nova Lista', async () => {
     const user = userEvent.setup();
     await renderPage();
@@ -327,7 +283,7 @@ describe('TaskListsPage', () => {
     expect(screen.getByText('Criar Nova Lista')).toBeInTheDocument();
   });
 
-  it('cria lista e abre em nova aba ao salvar', async () => {
+  it('cria lista e abre em nova aba do workspace ao salvar', async () => {
     const user = userEvent.setup();
     await renderPage();
 
@@ -335,14 +291,11 @@ describe('TaskListsPage', () => {
       expect(screen.getByText('Lista Alfa')).toBeInTheDocument();
     });
 
-    // Abre modal
     await user.click(screen.getByRole('button', { name: 'Nova Lista' }));
 
-    // Preenche título
     const titleInput = screen.getByPlaceholderText('Título da lista');
     await user.type(titleInput, 'Lista Nova');
 
-    // Salva
     const saveBtn = screen.getByRole('button', { name: 'Salvar' });
     await user.click(saveBtn);
 
@@ -351,7 +304,10 @@ describe('TaskListsPage', () => {
     });
 
     await waitFor(() => {
-      expect(mockCreateTab).toHaveBeenCalledWith(3);
+      expect(mockExecuteDeepLink).toHaveBeenCalledWith(
+        { type: 'tab:open', tabType: 'tasklist', contentId: '3', title: 'Lista Nova' },
+        expect.objectContaining({ navigate: expect.any(Function) }),
+      );
     });
 
     await waitFor(() => {
@@ -372,7 +328,6 @@ describe('TaskListsPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'Nova Lista' }));
 
-    // Salva sem preencher título
     const saveBtn = screen.getByRole('button', { name: 'Salvar' });
     await user.click(saveBtn);
 
@@ -383,11 +338,8 @@ describe('TaskListsPage', () => {
       );
     });
 
-    // Não deve chamar o backend
     expect(mockCreateTaskList).not.toHaveBeenCalled();
   });
-
-  // ── Clonar lista ────────────────────────────────────────────
 
   it('clona lista via ação de row', async () => {
     const user = userEvent.setup();
@@ -412,8 +364,6 @@ describe('TaskListsPage', () => {
       );
     });
   });
-
-  // ── Deletar lista ───────────────────────────────────────────
 
   it('deleta lista via ação de row com confirmação', async () => {
     const user = userEvent.setup();
@@ -463,9 +413,7 @@ describe('TaskListsPage', () => {
     expect(mockDeleteTaskList).not.toHaveBeenCalled();
   });
 
-  // ── Abrir lista em aba ──────────────────────────────────────
-
-  it('abre lista em nova aba via ação Abrir', async () => {
+  it('abre lista em aba do workspace via ação Abrir', async () => {
     const user = userEvent.setup();
     await renderPage();
 
@@ -478,7 +426,10 @@ describe('TaskListsPage', () => {
     await user.click(openBtn);
 
     await waitFor(() => {
-      expect(mockCreateTab).toHaveBeenCalledWith(1);
+      expect(mockExecuteDeepLink).toHaveBeenCalledWith(
+        { type: 'tab:open', tabType: 'tasklist', contentId: '1', title: 'Lista Alfa' },
+        expect.objectContaining({ navigate: expect.any(Function) }),
+      );
     });
   });
 });

@@ -542,14 +542,6 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 				title = title[:50]
 			}
 			if err := database.UpdateConversation(conversationID, title, ""); err == nil {
-				activeTab, tabErr := database.GetActiveTab()
-				if tabErr == nil && activeTab != nil && activeTab.ConversationID != nil && *activeTab.ConversationID == conversationID {
-					_ = database.UpdateTabTitle(activeTab.ID, title)
-					runtime.EventsEmit(a.ctx, "tab:title_updated", map[string]interface{}{
-						"tab_id":    activeTab.ID,
-						"new_title": title,
-					})
-				}
 				runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
 					"conversation_id": conversationID,
 					"new_title":       title,
@@ -574,6 +566,11 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	}
 	if profileErr != nil {
 		log.Printf("[SendMessage] Erro ao obter perfil: %v", profileErr)
+	}
+
+	// Resolve sentinelas $default para provedor/modelo real
+	if activeProfile != nil {
+		activeProfile = a.resolveProfileDefaults(activeProfile)
 	}
 
 	// Aplica configurações do perfil de chat ativo
@@ -928,25 +925,6 @@ func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, 
 	return newMessages
 }
 
-// skillTaskInfo é um resumo de task para o template de skills.
-type skillTaskInfo struct {
-	ID          uint
-	Title       string
-	Description string
-	Status      string // label do status (ex: "A Fazer", "Concluído")
-	StatusIcon  string // ícone do status
-	Order       int
-}
-
-// skillTaskListInfo é um resumo de task list para o template de skills.
-type skillTaskListInfo struct {
-	ID          uint
-	Title       string
-	Description string
-	Tasks       []skillTaskInfo
-	TaskCount   int
-}
-
 type skillTemplateData struct {
 	Profile            *profiles.Profile
 	ProfileSlug        string
@@ -954,8 +932,20 @@ type skillTemplateData struct {
 	EnabledTools       []string
 	EnabledToolCount   int
 	ConversationID     uint
-	TaskLists          []skillTaskListInfo
-	HasTaskLists       bool
+	// Workspace context
+	WorkspaceName    string
+	WorkspaceProfile string
+	ActiveTabTitle   string
+	ActiveTabType    string
+	Tabs             []skillTabInfo
+	TabCount         int
+}
+
+type skillTabInfo struct {
+	Title     string
+	Type      string
+	ContentID string
+	IsActive  bool
 }
 
 func (a *App) buildSkillTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) skillTemplateData {
@@ -969,68 +959,30 @@ func (a *App) buildSkillTemplateData(activeProfile *profiles.Profile, profileSlu
 		ConversationID:     conversationID,
 	}
 
-	if conversationID > 0 {
-		data.TaskLists = a.loadLinkedTaskListsForTemplate(conversationID)
-		data.HasTaskLists = len(data.TaskLists) > 0
-	}
-
-	return data
-}
-
-// loadLinkedTaskListsForTemplate busca task lists vinculadas a uma conversa
-// e retorna structs leves para uso em templates de skills.
-func (a *App) loadLinkedTaskListsForTemplate(conversationID uint) []skillTaskListInfo {
-	taskLists, err := database.GetTaskListsByConversation(conversationID)
-	if err != nil || len(taskLists) == 0 {
-		return nil
-	}
-
-	result := make([]skillTaskListInfo, 0, len(taskLists))
-	for _, tl := range taskLists {
-		// Busca tasks desta lista
-		tasks, err := database.GetTasksByTaskListID(tl.ID)
-		if err != nil {
-			tasks = nil
-		}
-
-		// Constrói mapa de status labels a partir do workflow
-		statusMap := make(map[int]database.TaskListWorkflowStatus)
-		if tl.Workflow != nil && tl.Workflow.Statuses != "" {
-			var statuses []database.TaskListWorkflowStatus
-			if err := json.Unmarshal([]byte(tl.Workflow.Statuses), &statuses); err == nil {
-				for _, s := range statuses {
-					statusMap[s.ID] = s
+	if a.workspaceMgr != nil {
+		if ws := a.workspaceMgr.Active(); ws != nil {
+			data.WorkspaceName = ws.Name
+			data.WorkspaceProfile = ws.Profile
+			data.TabCount = len(ws.Tabs.Items)
+			data.Tabs = make([]skillTabInfo, 0, len(ws.Tabs.Items))
+			for _, tab := range ws.Tabs.Items {
+				isActive := tab.ID == ws.Tabs.Active
+				info := skillTabInfo{
+					Title:     tab.Title,
+					Type:      string(tab.Type),
+					ContentID: tab.ContentID,
+					IsActive:  isActive,
+				}
+				data.Tabs = append(data.Tabs, info)
+				if isActive {
+					data.ActiveTabTitle = tab.Title
+					data.ActiveTabType = string(tab.Type)
 				}
 			}
 		}
-
-		taskInfos := make([]skillTaskInfo, 0, len(tasks))
-		for _, t := range tasks {
-			statusLabel := "?"
-			statusIcon := "⌛"
-			if s, ok := statusMap[t.StatusID]; ok {
-				statusLabel = s.Label
-				statusIcon = s.Icon
-			}
-			taskInfos = append(taskInfos, skillTaskInfo{
-				ID:          t.ID,
-				Title:       t.Title,
-				Description: t.Description,
-				Status:      statusLabel,
-				StatusIcon:  statusIcon,
-				Order:       t.Order,
-			})
-		}
-
-		result = append(result, skillTaskListInfo{
-			ID:          tl.ID,
-			Title:       tl.Title,
-			Description: tl.Description,
-			Tasks:       taskInfos,
-			TaskCount:   len(taskInfos),
-		})
 	}
-	return result
+
+	return data
 }
 
 func (a *App) computeEnabledToolNames(activeProfile *profiles.Profile) []string {
@@ -1828,11 +1780,6 @@ func (a *App) ResetDatabase() error {
 		return fmt.Errorf("erro ao reinicializar banco: %v", err)
 	}
 
-	// Limpa as tabs (já que todas as conversas foram deletadas)
-	if err := database.ClearAllTabs(); err != nil {
-		log.Printf("[ResetDatabase] Erro ao limpar tabs: %v", err)
-	}
-
 	log.Println("[ResetDatabase] Banco resetado com sucesso")
 
 	// Emite evento para o frontend limpar o estado
@@ -1843,7 +1790,7 @@ func (a *App) ResetDatabase() error {
 
 // ClearMessages apaga todas as mensagens e conversas, mantendo a estrutura do banco
 func (a *App) ClearMessages() error {
-	if err := database.ClearAllTabs(); err != nil {
+	if err := database.ClearAllConversations(); err != nil {
 		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
 	}
 

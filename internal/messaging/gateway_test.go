@@ -82,9 +82,6 @@ func resetState(t *testing.T) {
 	if err := db.Exec("DELETE FROM chat_messages").Error; err != nil {
 		t.Fatalf("erro ao limpar chat_messages: %v", err)
 	}
-	if err := db.Exec("DELETE FROM chat_tabs").Error; err != nil {
-		t.Fatalf("erro ao limpar chat_tabs: %v", err)
-	}
 	if err := db.Exec("DELETE FROM conversations").Error; err != nil {
 		t.Fatalf("erro ao limpar conversations: %v", err)
 	}

@@ -5,7 +5,7 @@ import { act, renderHook } from '@testing-library/react';
 import { useEditorInlineChatPatch } from './useEditorInlineChatPatch';
 
 let messages: Array<{ role?: string; toolCalls?: unknown; toolCallId?: string; content?: string }>; 
-const getTabMessagesMock = vi.fn(() => messages);
+const getMessagesMock = vi.fn(() => messages);
 
 let eventHandler: ((data: unknown) => void) | null = null;
 const eventsOnMock = vi.fn((eventName: string, handler: (data: unknown) => void) => {
@@ -17,7 +17,7 @@ const eventsOnMock = vi.fn((eventName: string, handler: (data: unknown) => void)
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: {
-    getState: () => ({ getTabMessages: getTabMessagesMock }),
+    getState: () => ({ getMessages: getMessagesMock }),
   },
 }));
 
@@ -28,7 +28,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 describe('useEditorInlineChatPatch', () => {
   beforeEach(() => {
     messages = [];
-    getTabMessagesMock.mockClear();
+    getMessagesMock.mockClear();
     eventsOnMock.mockClear();
     eventHandler = null;
   });
@@ -48,7 +48,7 @@ describe('useEditorInlineChatPatch', () => {
 
     const { result } = renderHook(() => useEditorInlineChatPatch());
 
-    const found = await result.current.waitForEditorPatch('tab-1');
+    const found = await result.current.waitForEditorPatch();
 
     expect(found.ok).toBe(true);
     if (found.ok) {
@@ -67,7 +67,7 @@ describe('useEditorInlineChatPatch', () => {
 
     const { result } = renderHook(() => useEditorInlineChatPatch());
 
-    const found = await result.current.waitForEditorPatch('tab-1', { preferToolCalling: false });
+    const found = await result.current.waitForEditorPatch({ preferToolCalling: false });
 
     expect(found.ok).toBe(true);
     if (found.ok) {

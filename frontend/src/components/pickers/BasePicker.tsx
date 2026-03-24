@@ -18,6 +18,7 @@ interface BasePickerProps {
   selected: string;
   onSelect: (value: string, item?: ComboboxItem) => void;
   label: string;
+  description?: string;
   icon?: string;
   variant?: Variant;
   placeholder?: string;
@@ -57,6 +58,7 @@ interface BasePickerProps {
   comboboxWrapperClassName?: string;
   comboboxWrapperProps?: HTMLAttributes<HTMLDivElement>;
   allowFreeInput?: boolean;
+  onAfterSelect?: () => void;
 }
 
 const resolveVariantValue = <T,>(value: VariantValue<T> | undefined, variant: Variant): T | undefined => {
@@ -91,6 +93,7 @@ export const BasePicker = ({
   selected,
   onSelect,
   label,
+  description,
   icon,
   variant = 'form',
   placeholder,
@@ -130,6 +133,7 @@ export const BasePicker = ({
   comboboxWrapperClassName,
   comboboxWrapperProps,
   allowFreeInput = false,
+  onAfterSelect,
 }: BasePickerProps) => {
   const resolvedLoadingLabel = resolveVariantValue(loadingLabel, variant) ?? 'Carregando...';
   const resolvedErrorLabel = resolveVariantValue(errorLabel, variant) ?? error ?? 'Erro ao carregar';
@@ -201,6 +205,7 @@ export const BasePicker = ({
       selected={selected}
       onSelect={(value, item) => onSelect(value, item)}
       label={label}
+      description={description}
       icon={icon}
       maxWidth={maxWidth}
       placeholder={placeholder}
@@ -208,6 +213,7 @@ export const BasePicker = ({
       onAnnounce={onAnnounce}
       onOpen={onOpen}
       allowFreeInput={allowFreeInput}
+      onAfterSelect={onAfterSelect}
     />
   );
 

@@ -1,12 +1,13 @@
 # Deep Links Internos (`assistente://`)
 
 **Data**: 16 de março de 2026
+**Atualizado**: 23 de março de 2026
 
 ---
 
 ## Visão Geral
 
-O sistema de deep links permite criar links especiais dentro de mensagens do chat que, ao serem clicados, executam ações internas no app — como abrir uma conversa, navegar para uma página ou enviar uma mensagem automaticamente.
+O sistema de deep links permite criar links especiais dentro de mensagens do chat que, ao serem clicados, executam ações internas no app — como abrir uma conversa, navegar para uma página, criar abas no workspace ou enviar uma mensagem automaticamente.
 
 Os links usam o protocolo customizado `assistente://` e são renderizados como **chips visuais** (pills) com ícone, diferenciando-se visualmente de links externos.
 
@@ -20,24 +21,47 @@ assistente://{recurso}/{ação}[/{id}][?param=valor&...]
 
 Parâmetros de query string devem ser codificados com `encodeURIComponent`.
 
-### Ações Disponíveis
+### Conversas
 
-| URI | Ação | Ícone |
-|-----|------|-------|
-| `assistente://conversation/{id}` | Abre conversa existente em nova aba | 💬 |
-| `assistente://conversation/new` | Cria nova conversa | ➕ |
-| `assistente://conversation/new?message={texto}` | Cria nova conversa e envia mensagem | ➕ |
-| `assistente://conversation/new?message={texto}&title={título}` | Idem, com título para a aba | ➕ |
-| `assistente://conversation/{id}/send?message={texto}` | Envia mensagem em conversa existente | 📨 |
-| `assistente://navigate/{rota}` | Navega para uma página do app | ➡ |
+| URI | Ação |
+|-----|------|
+| `assistente://conversation/{id}` | Abre/foca aba de chat existente |
+| `assistente://conversation/new` | Cria nova conversa |
+| `assistente://conversation/new?message={texto}&title={título}` | Cria nova conversa, envia mensagem e define título da aba |
+| `assistente://conversation/{id}/send?message={texto}` | Envia mensagem em conversa existente |
+
+### Abas do Workspace
+
+| URI | Ação |
+|-----|------|
+| `assistente://tasklist/{id}` | Abre/foca aba de tasklist existente |
+| `assistente://tasklist/new[?title=...]` | Cria nova tasklist e abre como aba |
+| `assistente://editor/{id}` | Abre/foca aba do editor existente |
+| `assistente://editor/new[?title=...]` | Cria novo documento vazio no editor |
+| `assistente://editor/open?file={caminho}[&title=...]` | Abre arquivo existente no editor |
+| `assistente://terminal/{id}` | Abre/foca aba de terminal existente |
+| `assistente://terminal/new[?cmd=...&title=...]` | Cria nova sessão de terminal, opcionalmente executa comando |
+
+### Navegação
+
+| URI | Ação |
+|-----|------|
+| `assistente://navigate/{rota}` | Navega para uma página do app |
+
+### Recursos Editáveis
+
+| URI | Ação |
+|-----|------|
+| `assistente://{recurso}/new` | Abre formulário de criação do recurso |
+| `assistente://{recurso}/edit/{id}` | Abre formulário de edição do recurso |
+
+Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`, `channels`, `tasklists`
 
 ### Rotas Válidas para `navigate`
 
 | Rota | Página |
 |------|--------|
-| *(vazio)* | Chat |
-| `terminal` | Terminal |
-| `editor` | Editor |
+| *(vazio)* | Chat (workspace) |
 | `allowlists` | Allowlists |
 | `skills` | Skills |
 | `mcp` | Servidores MCP |
@@ -47,9 +71,12 @@ Parâmetros de query string devem ser codificados com `encodeURIComponent`.
 | `settings` | Configurações |
 | `profiles` | Perfis |
 | `history` | Histórico |
+| `tasklists` | Listas de Tarefas |
 | `help` | Ajuda |
 | `about` | Sobre |
 | `update` | Atualização |
+
+> **Nota:** Terminal e editor não são páginas — são abas do workspace. Use `assistente://terminal/{id}` ou `assistente://editor/{id}` para abrir abas existentes, e `assistente://terminal/new` ou `assistente://editor/new` para criar novas.
 
 ---
 
@@ -111,11 +138,17 @@ parseDeepLink('assistente://conversation/42');
 parseDeepLink('assistente://conversation/new?message=oi&title=Teste');
 // → { type: 'conversation:new', message: 'oi', title: 'Teste' }
 
-parseDeepLink('assistente://conversation/10/send?message=continue');
-// → { type: 'conversation:send', conversationId: 10, message: 'continue' }
+parseDeepLink('assistente://tasklist/5');
+// → { type: 'tab:open', tabType: 'tasklist', contentId: '5' }
 
-parseDeepLink('assistente://navigate/history');
-// → { type: 'navigate', route: 'history' }
+parseDeepLink('assistente://terminal/new?cmd=npm+install');
+// → { type: 'tab:new', tabType: 'terminal', cmd: 'npm install' }
+
+parseDeepLink('assistente://editor/open?file=/tmp/test.md');
+// → { type: 'tab:new', tabType: 'editor', file: '/tmp/test.md' }
+
+parseDeepLink('assistente://profiles/edit/programacao');
+// → { type: 'resource:edit', resource: 'profiles', resourceId: 'programacao' }
 
 parseDeepLink('https://google.com');
 // → null
@@ -129,8 +162,11 @@ Constrói uma URI a partir de um objeto de ação. Útil para gerar links progra
 buildDeepLink({ type: 'conversation:open', conversationId: 42 });
 // → 'assistente://conversation/42'
 
-buildDeepLink({ type: 'conversation:new', message: 'analise o ticket #123' });
-// → 'assistente://conversation/new?message=analise+o+ticket+%23123'
+buildDeepLink({ type: 'tab:new', tabType: 'terminal', cmd: 'npm install' });
+// → 'assistente://terminal/new?cmd=npm+install'
+
+buildDeepLink({ type: 'resource:new', resource: 'tasklists' });
+// → 'assistente://tasklists/new'
 ```
 
 ### `executeDeepLink(action: DeepLinkAction, deps: DeepLinkDeps): Promise<void>`
@@ -148,11 +184,17 @@ Retorna a classe CSS específica do tipo (ex: `deep-link--conversation`).
 ### Tipo `DeepLinkAction`
 
 ```typescript
+type TabType = 'tasklist' | 'editor' | 'terminal';
+
 type DeepLinkAction =
-  | { type: 'conversation:open'; conversationId: number }
+  | { type: 'conversation:open'; conversationId: number; title?: string }
   | { type: 'conversation:new'; message?: string; title?: string }
   | { type: 'conversation:send'; conversationId: number; message: string }
-  | { type: 'navigate'; route: string };
+  | { type: 'navigate'; route: string }
+  | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
+  | { type: 'resource:new'; resource: EditableResource }
+  | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string }
+  | { type: 'tab:new'; tabType: TabType; title?: string; file?: string; cmd?: string };
 ```
 
 ---
@@ -173,11 +215,21 @@ Mensagem Markdown
        │
        ├─ click handler ──► parseDeepLink() ──► executeDeepLink()
        │                                              │
-       │                                    ┌─────────┼──────────┐
-       │                                    ▼         ▼          ▼
-       │                              chatStore   navigate()  announce()
+       │                           ┌──────────────────┼───────────────────┐
+       │                           ▼                  ▼                   ▼
+       │                     workspaceStore      navigate()          announce()
+       │                     chatStore           navigationStore
+       │                     editorStore
        │
        └─ keydown handler (Enter/Space) ──► mesmo fluxo
+
+  Backend (Go)
+       │
+  open_deep_link tool ──► EmitDeepLink(uri) ──► evento "deeplink:execute"
+       │                                              │
+       ▼                                              ▼
+  Validação prefixo                            App.tsx EventsOn
+  assistente://                                parseDeepLink → executeDeepLink
 ```
 
 ### Arquivos Envolvidos
@@ -189,13 +241,18 @@ Mensagem Markdown
 | `frontend/src/components/ui/MarkdownRenderer.tsx` | Registro do plugin, DOMPurify config, handlers de click/keyboard |
 | `frontend/src/components/ui/MarkdownRenderer.css` | Estilos dos chips `.deep-link` |
 | `frontend/src/locales/{pt-BR,en,es}.ts` | Traduções (namespace `deepLink`) |
+| `frontend/src/store/navigationStore.ts` | Store de pending edit/new para recursos editáveis |
+| `frontend/src/hooks/useResourceEditRequest.ts` | Hook consumido pelas páginas de recurso |
+| `internal/tools/deeplink/open_deep_link.go` | Tool Go para o agente emitir deep links |
+| `builtin/skills/workspace/SKILL.md` | Documentação de deep links para o agente |
 
 ### Testes
 
 | Arquivo | Testes | Cobertura |
 |---------|--------|-----------|
-| `frontend/src/lib/deepLinks.test.ts` | 37 | Parser, builder, roundtrip, isDeepLink, classes CSS, validações de segurança |
+| `frontend/src/lib/deepLinks.test.ts` | 105 | Parser, builder, roundtrip, isDeepLink, classes CSS, executor (todos os action types), validações de segurança |
 | `frontend/src/lib/markdownItDeepLink.test.ts` | 12 | Plugin: classes, atributos, ARIA, mix com links normais, URIs inválidos |
+| `internal/tools/deeplink/open_deep_link_test.go` | 5 | Validação de prefixo, URIs válidas/inválidas, JSON malformado |
 
 ---
 
@@ -225,15 +282,9 @@ O sistema foi projetado para ser facilmente extensível. Para adicionar um novo 
 1. Adicionar o tipo em `DeepLinkAction` em `deepLinks.ts`
 2. Adicionar o parsing em `parseDeepLink()`
 3. Adicionar a construção em `buildDeepLink()`
-4. Adicionar a execução em `executeDeepLink()`
-5. Adicionar a classe CSS em `getDeepLinkTypeClass()` e os estilos em `MarkdownRenderer.css`
-6. Adicionar as chaves i18n nos 3 locales
-
-Exemplos de extensões futuras:
-
-```
-assistente://profile/{slug}          → Abrir editor de perfil
-assistente://skill/{slug}            → Abrir editor de skill
-assistente://editor/open?file={path} → Abrir arquivo no editor
-assistente://mcp/{server}            → Abrir configuração de servidor MCP
-```
+4. Adicionar o label em `getDeepLinkLabel()`
+5. Adicionar a execução em `executeDeepLink()`
+6. Adicionar a classe CSS em `getDeepLinkTypeClass()` e os estilos em `MarkdownRenderer.css`
+7. Adicionar as chaves i18n nos 3 locales
+8. Atualizar a `Description()` em `internal/tools/deeplink/open_deep_link.go`
+9. Atualizar `builtin/skills/workspace/SKILL.md`

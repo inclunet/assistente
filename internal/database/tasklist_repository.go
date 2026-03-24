@@ -15,7 +15,7 @@ const MaxTaskLists = 100
 
 // CreateTaskList cria uma nova tasklist com workflow padrão
 // templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em Progresso, Concluído)
-func CreateTaskList(title, description string, linked bool, conversationID *uint, templateWorkflow *TaskListWorkflow) (*TaskList, error) {
+func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflow) (*TaskList, error) {
 	// Valida limite
 	var count int64
 	if err := db.Model(&TaskList{}).Count(&count).Error; err != nil {
@@ -28,7 +28,6 @@ func CreateTaskList(title, description string, linked bool, conversationID *uint
 	taskList := &TaskList{
 		Title:             title,
 		Description:       description,
-		ConversationID:    conversationID,
 		PreferredViewMode: "list",
 	}
 
@@ -56,8 +55,6 @@ func GetTaskList(id uint) (*TaskList, error) {
 		Preload("Tasks.Subtasks", func(db *gorm.DB) *gorm.DB {
 			return db.Order("`order` ASC")
 		}).
-		Preload("Conversation").
-		Preload("LinkedMessage").
 		First(&taskList, id).Error
 
 	return &taskList, err
@@ -70,16 +67,6 @@ func GetAllTaskLists() ([]TaskList, error) {
 		Preload("Tasks", func(db *gorm.DB) *gorm.DB {
 			return db.Where("parent_id IS NULL").Order("`order` ASC")
 		}).
-		Order("created_at DESC").
-		Find(&taskLists).Error
-	return taskLists, err
-}
-
-// GetTaskListsByConversation retorna todas as tasklists vinculadas a uma conversa
-func GetTaskListsByConversation(conversationID uint) ([]TaskList, error) {
-	var taskLists []TaskList
-	err := db.Where("conversation_id = ?", conversationID).
-		Preload("Workflow").
 		Order("created_at DESC").
 		Find(&taskLists).Error
 	return taskLists, err
@@ -103,30 +90,6 @@ func SetTaskListViewMode(id uint, viewMode string) error {
 	return db.Model(&TaskList{}).Where("id = ?", id).Update("preferred_view_mode", viewMode).Error
 }
 
-// LinkTaskListToConversation vincula uma tasklist a uma conversa
-func LinkTaskListToConversation(taskListID, conversationID uint) error {
-	// Valida que conversa existe
-	var conv Conversation
-	if err := db.First(&conv, conversationID).Error; err != nil {
-		return err
-	}
-
-	return db.Model(&TaskList{}).Where("id = ?", taskListID).Update("conversation_id", conversationID).Error
-}
-
-// UnlinkTaskListFromConversation desvincula uma tasklist de uma conversa
-func UnlinkTaskListFromConversation(taskListID uint) error {
-	return db.Transaction(func(tx *gorm.DB) error {
-		// Promove todas as subtasks para root (remove parent_id)
-		if err := tx.Model(&Task{}).Where("task_list_id = ? AND parent_id IS NOT NULL", taskListID).
-			Update("parent_id", nil).Error; err != nil {
-			return err
-		}
-		// Remove vínculo com conversa
-		return tx.Model(&TaskList{}).Where("id = ?", taskListID).Update("conversation_id", nil).Error
-	})
-}
-
 // CloneTaskList clona uma tasklist com seu workflow mas sem as tasks
 func CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	// Busca tasklist original
@@ -136,7 +99,7 @@ func CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	}
 
 	// Cria nova tasklist
-	cloned, err := CreateTaskList(newTitle, original.Description, false, nil, original.Workflow)
+	cloned, err := CreateTaskList(newTitle, original.Description, original.Workflow)
 	if err != nil {
 		return nil, err
 	}
@@ -144,9 +107,28 @@ func CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	return cloned, nil
 }
 
+// ClearTaskList remove todas as tasks de uma tasklist, mantendo a lista e o workflow
+func ClearTaskList(id uint) error {
+	// Deleta notas de todas as tasks da lista
+	if err := db.Where("task_id IN (?)", db.Model(&Task{}).Select("id").Where("task_list_id = ?", id)).
+		Delete(&TaskNote{}).Error; err != nil {
+		return err
+	}
+	if err := db.Where("task_list_id = ?", id).Delete(&Task{}).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
 // DeleteTaskList deleta uma tasklist e todas suas tasks
 func DeleteTaskList(id uint) error {
-	// Deleta tasks (cascata handled by GORM)
+	// Deleta notas de todas as tasks da lista
+	if err := db.Where("task_id IN (?)", db.Model(&Task{}).Select("id").Where("task_list_id = ?", id)).
+		Delete(&TaskNote{}).Error; err != nil {
+		return err
+	}
+
+	// Deleta tasks
 	if err := db.Where("task_list_id = ?", id).Delete(&Task{}).Error; err != nil {
 		return err
 	}
@@ -292,7 +274,7 @@ func ValidateStatusTransition(taskListID uint, fromStatusID, toStatusID int) err
 // ==================== Task Operations ====================
 
 // CreateTask cria uma nova task em uma tasklist
-func CreateTask(taskListID uint, title, description string, parentID *uint) (*Task, error) {
+func CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*Task, error) {
 	// Busca workflow para status inicial
 	workflow, err := GetWorkflow(taskListID)
 	if err != nil {
@@ -313,6 +295,8 @@ func CreateTask(taskListID uint, title, description string, parentID *uint) (*Ta
 		TaskListID:  taskListID,
 		Title:       title,
 		Description: description,
+		Code:        code,
+		Link:        link,
 		StatusID:    workflow.InitialStatusID,
 		ParentID:    parentID,
 		Order:       maxOrder + 1,
@@ -353,13 +337,15 @@ func GetTasksByStatus(taskListID uint, statusID int) ([]Task, error) {
 	return tasks, err
 }
 
-// UpdateTask atualiza title e description de uma task
-func UpdateTask(id uint, title, description string) error {
+// UpdateTask atualiza title, description, code e link de uma task
+func UpdateTask(id uint, title, description, code, link string) error {
 	return db.Model(&Task{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"title":       title,
 			"description": description,
+			"code":        code,
+			"link":        link,
 		}).Error
 }
 
@@ -438,11 +424,18 @@ func GetSubtasks(parentID uint) ([]Task, error) {
 	return tasks, err
 }
 
-// DeleteTask deleta uma task e todas suas subtasks
+// DeleteTask deleta uma task, suas notas e todas suas subtasks
 func DeleteTask(id uint) error {
-	// Busca task para deletar subtasks associadas
 	var task Task
 	if err := db.First(&task, id).Error; err != nil {
+		return err
+	}
+
+	// Deleta notas das subtasks e da task
+	var subtaskIDs []uint
+	db.Model(&Task{}).Where("parent_id = ?", id).Pluck("id", &subtaskIDs)
+	allIDs := append(subtaskIDs, id)
+	if err := db.Where("task_id IN ?", allIDs).Delete(&TaskNote{}).Error; err != nil {
 		return err
 	}
 
@@ -453,6 +446,56 @@ func DeleteTask(id uint) error {
 
 	// Deleta task
 	return db.Delete(&Task{}, id).Error
+}
+
+// ==================== TaskNote Operations ====================
+
+// CreateTaskNote cria uma nova nota/interação para uma task
+func CreateTaskNote(taskID uint, noteType TaskNoteType, content, author string) (*TaskNote, error) {
+	// Verifica se a task existe
+	var task Task
+	if err := db.First(&task, taskID).Error; err != nil {
+		return nil, fmt.Errorf("task %d não encontrada: %w", taskID, err)
+	}
+
+	note := &TaskNote{
+		TaskID:  taskID,
+		Type:    noteType,
+		Content: content,
+		Author:  author,
+	}
+
+	if err := db.Create(note).Error; err != nil {
+		return nil, err
+	}
+
+	return note, nil
+}
+
+// GetTaskNotes retorna todas as notas de uma task ordenadas cronologicamente
+func GetTaskNotes(taskID uint) ([]TaskNote, error) {
+	var notes []TaskNote
+	err := db.Where("task_id = ?", taskID).
+		Order("created_at ASC").
+		Find(&notes).Error
+	return notes, err
+}
+
+// UpdateTaskNote atualiza o conteúdo de uma nota existente
+func UpdateTaskNote(noteID uint, content string) error {
+	return db.Model(&TaskNote{}).
+		Where("id = ?", noteID).
+		Update("content", content).Error
+}
+
+// DeleteTaskNote remove uma nota
+func DeleteTaskNote(noteID uint) error {
+	return db.Delete(&TaskNote{}, noteID).Error
+}
+
+// DeleteTaskNotes remove todas as notas de uma task (usado em cascata ao deletar tasks)
+func DeleteTaskNotes(taskID uint) error {
+	return db.Where("task_id = ?", taskID).Delete(&TaskNote{}).Error
 }
 
 // ==================== Utility Functions ====================

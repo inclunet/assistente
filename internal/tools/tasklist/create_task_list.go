@@ -12,7 +12,6 @@ import (
 
 type createTaskListArgs struct {
 	Title            string `json:"title"`
-	ConversationID   *uint  `json:"conversation_id,omitempty"`
 	WorkflowTemplate string `json:"workflow_template,omitempty"`
 }
 
@@ -37,10 +36,6 @@ func (t *CreateTaskListTool) Parameters() json.RawMessage {
 			"title": {
 				"type": "string",
 				"description": "Title for the new task list"
-			},
-			"conversation_id": {
-				"type": "integer",
-				"description": "Optional conversation ID to link this task list to"
 			},
 			"workflow_template": {
 				"type": "string",
@@ -77,7 +72,7 @@ func (t *CreateTaskListTool) Execute(ctx context.Context, args json.RawMessage) 
 		}, nil
 	}
 
-	taskList, err := t.mgr.CreateTaskList(title, "", params.ConversationID, template)
+	taskList, err := t.mgr.CreateTaskList(title, "", template)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating task list: %v", err), IsError: true}, nil
 	}

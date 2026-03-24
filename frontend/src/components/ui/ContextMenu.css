@@ -99,6 +99,53 @@
   margin: 4px 0;
 }
 
+/* Busca integrada */
+.context-menu__search {
+  padding: 4px;
+  border-bottom: 1px solid var(--border-color, var(--border-default));
+  margin-bottom: 4px;
+}
+
+.context-menu__search-input {
+  width: 100%;
+  padding: 6px 8px;
+  border: 1px solid var(--border-color, var(--border-default));
+  border-radius: 4px;
+  background: var(--bg-input, var(--bg-primary));
+  color: var(--text-primary);
+  font-size: 13px;
+  font-family: inherit;
+  outline: none;
+}
+
+.context-menu__search-input:focus {
+  border-color: var(--primary-color, var(--accent));
+  box-shadow: 0 0 0 1px var(--primary-color, var(--accent));
+}
+
+.context-menu__search-input::placeholder {
+  color: var(--text-muted);
+}
+
+.context-menu--searchable {
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+}
+
+.context-menu--searchable > [role="menuitem"],
+.context-menu--searchable > .context-menu__item-wrapper,
+.context-menu--searchable > .context-menu__separator {
+  flex-shrink: 0;
+}
+
+.context-menu__empty {
+  padding: 12px 16px;
+  color: var(--text-muted);
+  font-size: 13px;
+  text-align: center;
+}
+
 /* Acessibilidade */
 .context-menu__item:focus-visible {
   outline: 2px solid var(--primary-color, var(--accent));

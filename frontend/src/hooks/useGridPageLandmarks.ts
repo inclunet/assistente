@@ -22,6 +22,19 @@ export function useGridPageLandmarks({ pageClass, extraLandmarks }: UseGridPageL
 
     const base: Landmark[] = [
       {
+        id: 'topbar',
+        label: t('landmarks.topbar'),
+        focus: () => {
+          const topbar = document.querySelector('.topbar') as Element | null;
+          if (!topbar) return false;
+          const btn = topbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
+          if (!btn) return false;
+          btn.focus();
+          return true;
+        },
+        contains: () => !!document.activeElement?.closest?.('.topbar'),
+      },
+      {
         id: 'toolbar',
         label: t('landmarks.toolbar'),
         focus: () => {

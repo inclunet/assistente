@@ -11,29 +11,37 @@ import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
 import { Menu, type MenuItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
+import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 import { TokenStatsButton } from './TokenStatsButton';
 import { TokenStatsModal } from './TokenStatsModal';
-import { ResourcesMenu } from './ResourcesMenu';
 import './ChatToolbar.css';
 
 export interface ChatToolbarProps {
-  onNewConversation?: () => void;
   inputRef?: React.RefObject<HTMLTextAreaElement>;
 }
 
 export const ChatToolbar: React.FC<ChatToolbarProps> = ({
-  onNewConversation,
   inputRef,
 }) => {
   const { t } = useTranslation();
   const navigate = useNavigate();
-  const { getActiveTab, clearActiveTab, isLoading, startNewConversationInActiveTab, loadConversationInActiveTab } = useChatStore();
+  const { getActiveConversation, clearMessages, isLoading, loadConversation } = useChatStore();
   const { announce } = useAnnouncer();
-  const activeTab = getActiveTab();
-  const conversationTitle = activeTab?.title || t('chat.newConversation');
+  const activeConversation = getActiveConversation();
+  const conversationTitle = activeConversation?.title || t('chat.newConversation');
+
+  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
+
+  const tabProfileSlug = wsActiveTab?.profileOverride?.slug as string | undefined;
+  const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const historyPickerRef = useRef<HistoryPickerRef>(null);
   const profilePickerRef = useRef<ProfilePickerRef>(null);
+  const historyContainerRef = useRef<HTMLDivElement>(null);
+  const profileContainerRef = useRef<HTMLDivElement>(null);
 
   const [isTokenModalOpen, setIsTokenModalOpen] = useState(false);
   const [activeProfileSlug, setActiveProfileSlug] = useState<string>('padrao');
@@ -92,24 +100,15 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     }, 100);
   }, [inputRef]);
 
-  const handleNewConversation = useCallback(() => {
-    if (onNewConversation) {
-      onNewConversation();
-    } else {
-      void startNewConversationInActiveTab(t('chat.newConversation'));
-    }
-    focusInput();
-  }, [focusInput, startNewConversationInActiveTab, onNewConversation, t]);
-
   const handleClearConversation = useCallback(async () => {
     try {
-      const tab = getActiveTab();
+      const conv = getActiveConversation();
 
-      if (tab?.conversationId) {
-        await ClearConversation(tab.conversationId);
-        await loadConversationInActiveTab(tab.conversationId, tab.title || t('chat.conversation'));
+      if (conv?.id) {
+        await ClearConversation(conv.id);
+        await loadConversation(conv.id);
       } else {
-        clearActiveTab();
+        clearMessages();
       }
 
       announce(t('chat.conversationCleared'));
@@ -118,48 +117,42 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
       announce(t('chat.clearError'));
     }
     focusInput();
-  }, [announce, clearActiveTab, focusInput, getActiveTab, loadConversationInActiveTab]);
+  }, [announce, clearMessages, focusInput, getActiveConversation, loadConversation]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.key === 'n') {
-        e.preventDefault();
-        handleNewConversation();
-      }
-      else if (e.ctrlKey && e.key === 'l') {
+      if (e.ctrlKey && e.key === 'l') {
         e.preventDefault();
         void handleClearConversation();
       }
       else if (e.ctrlKey && e.key === 'h') {
         e.preventDefault();
-        const historyPicker = document.querySelector(`[aria-label*="${t('chat.historyLabel')}"]`) as HTMLElement;
-        historyPicker?.click();
-      }
-      else if (e.ctrlKey && e.key === 't') {
-        e.preventDefault();
-        if (activeTab?.conversationId) {
-          setIsTokenModalOpen(true);
-          announce(t('chat.tokenStatsOpened'));
-        }
+        const btn = historyContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
+        btn?.click();
       }
       else if (e.ctrlKey && e.key === 'p') {
         e.preventDefault();
-        const profilePicker = document.querySelector(`[aria-label*="${t('chat.profileLabel')}"]`) as HTMLElement;
-        profilePicker?.click();
+        const btn = profileContainerRef.current?.querySelector('button.picker-button') as HTMLElement;
+        btn?.click();
       }
     };
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [activeTab?.conversationId, announce, handleClearConversation, handleNewConversation]);
+  }, [handleClearConversation]);
 
-  const handleProfileChange = useCallback((_slug: string) => {
+  const handleProfileChange = useCallback((slug: string) => {
+    if (wsActiveTab) {
+      void updateWsTab(wsActiveTab.id, {
+        profile_override: { slug },
+      });
+    }
     focusInput();
-  }, [focusInput]);
+  }, [focusInput, wsActiveTab, updateWsTab]);
 
   const handleHistoryChange = async (conversationId: number, conversation: { title?: string }) => {
     try {
-      await loadConversationInActiveTab(conversationId, conversation.title || t('chat.conversationLoaded'));
+      await loadConversation(conversationId);
       announce(`${t('chat.conversationLoaded')}: ${conversation.title || t('chat.conversationLoaded')}`);
     } catch (error) {
       console.error('[ChatToolbar] Erro ao carregar conversa:', error);
@@ -181,28 +174,23 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         right={
           <>
             <ToolbarButton
-              label={t('chat.newBtn')}
-              icon="➕"
-              shortcut="Ctrl+N"
-              onClick={handleNewConversation}
-              disabled={isLoading}
-            />
-
-            <ToolbarButton
               label={t('chat.clearBtn')}
               icon="🧹"
               shortcut="Ctrl+L"
+              title={t('chat.clearDescription')}
+              aria-label={t('chat.clearBtn')}
               variant="danger"
               onClick={() => void handleClearConversation()}
               disabled={isLoading}
             />
 
-            <div>
+            <div ref={historyContainerRef}>
               <HistoryPicker
                 ref={historyPickerRef}
-                value={activeTab?.conversationId}
+                value={activeConversation?.id}
                 onChange={handleHistoryChange}
                 label={t('chat.historyBtn')}
+                description={t('chat.historyDescription')}
                 maxWidth="200px"
                 onAnnounce={announce}
                 disabled={isLoading}
@@ -212,20 +200,14 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
             <ToolbarSeparator />
 
             <TokenStatsButton
-              conversationId={activeTab?.conversationId}
+              conversationId={activeConversation?.id}
               onOpenModal={() => setIsTokenModalOpen(true)}
             />
 
             <ToolbarSeparator />
 
-            <ResourcesMenu
-              conversationId={activeTab?.conversationId}
-              disabled={isLoading}
-            />
-
-            <ToolbarSeparator />
-
             <div
+              ref={profileContainerRef}
               onContextMenu={handleProfileContextMenu}
               onKeyDown={handleProfileKeyDown}
             >
@@ -233,10 +215,13 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 ref={profilePickerRef}
                 onChange={handleProfileChange}
                 variant="toolbar"
-                label={t('chat.profileBtn')}
+                label={t('workspace.tabProfileLabel', 'Perfil')}
+                description={t('workspace.tabProfileDescription')}
                 icon="💬"
                 maxWidth="180px"
                 onAnnounce={announce}
+                value={effectiveProfileSlug}
+                onAfterSelect={() => restoreDefaultFocus()}
               />
             </div>
           </>
@@ -253,9 +238,9 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
         onSelect={onSelectContextMenuItem}
       />
 
-      {activeTab?.conversationId && (
+      {activeConversation?.id && (
         <TokenStatsModal
-          conversationId={activeTab.conversationId}
+          conversationId={activeConversation.id}
           isOpen={isTokenModalOpen}
           onClose={() => setIsTokenModalOpen(false)}
         />

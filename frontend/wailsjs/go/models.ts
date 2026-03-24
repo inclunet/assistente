@@ -370,55 +370,6 @@ export namespace database {
 		    return a;
 		}
 	}
-	export class ChatTab {
-	    id: number;
-	    conversation_id?: number;
-	    title: string;
-	    icon: string;
-	    position: number;
-	    is_active: boolean;
-	    // Go type: time
-	    created_at: any;
-	    // Go type: time
-	    updated_at: any;
-	    conversation?: Conversation;
-	
-	    static createFrom(source: any = {}) {
-	        return new ChatTab(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.conversation_id = source["conversation_id"];
-	        this.title = source["title"];
-	        this.icon = source["icon"];
-	        this.position = source["position"];
-	        this.is_active = source["is_active"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
-	        this.conversation = this.convertValues(source["conversation"], Conversation);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
-	
 	export class MessageSearchResult {
 	    conversation_id: number;
 	    conversation_title: string;
@@ -442,6 +393,50 @@ export namespace database {
 	        this.snippet = source["snippet"];
 	        this.rank = source["rank"];
 	        this.created_at = this.convertValues(source["created_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class TaskNote {
+	    id: number;
+	    task_id: number;
+	    type: number;
+	    content: string;
+	    author?: string;
+	    // Go type: time
+	    created_at: any;
+	    // Go type: time
+	    updated_at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskNote(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.task_id = source["task_id"];
+	        this.type = source["type"];
+	        this.content = source["content"];
+	        this.author = source["author"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.updated_at = this.convertValues(source["updated_at"], null);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -512,8 +507,6 @@ export namespace database {
 	    id: number;
 	    title: string;
 	    description: string;
-	    conversation_id?: number;
-	    linked_message_id?: number;
 	    preferred_view_mode: string;
 	    // Go type: time
 	    created_at: any;
@@ -521,8 +514,6 @@ export namespace database {
 	    updated_at: any;
 	    workflow?: TaskListWorkflow;
 	    tasks?: Task[];
-	    conversation?: Conversation;
-	    linked_message?: ChatMessage;
 	
 	    static createFrom(source: any = {}) {
 	        return new TaskList(source);
@@ -533,15 +524,11 @@ export namespace database {
 	        this.id = source["id"];
 	        this.title = source["title"];
 	        this.description = source["description"];
-	        this.conversation_id = source["conversation_id"];
-	        this.linked_message_id = source["linked_message_id"];
 	        this.preferred_view_mode = source["preferred_view_mode"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.workflow = this.convertValues(source["workflow"], TaskListWorkflow);
 	        this.tasks = this.convertValues(source["tasks"], Task);
-	        this.conversation = this.convertValues(source["conversation"], Conversation);
-	        this.linked_message = this.convertValues(source["linked_message"], ChatMessage);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -567,6 +554,8 @@ export namespace database {
 	    task_list_id: number;
 	    title: string;
 	    description: string;
+	    code?: string;
+	    link?: string;
 	    status_id: number;
 	    parent_id?: number;
 	    order: number;
@@ -581,6 +570,7 @@ export namespace database {
 	    task_list?: TaskList;
 	    parent?: Task;
 	    subtasks?: Task[];
+	    notes?: TaskNote[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Task(source);
@@ -592,6 +582,8 @@ export namespace database {
 	        this.task_list_id = source["task_list_id"];
 	        this.title = source["title"];
 	        this.description = source["description"];
+	        this.code = source["code"];
+	        this.link = source["link"];
 	        this.status_id = source["status_id"];
 	        this.parent_id = source["parent_id"];
 	        this.order = source["order"];
@@ -602,6 +594,7 @@ export namespace database {
 	        this.task_list = this.convertValues(source["task_list"], TaskList);
 	        this.parent = this.convertValues(source["parent"], Task);
 	        this.subtasks = this.convertValues(source["subtasks"], Task);
+	        this.notes = this.convertValues(source["notes"], TaskNote);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -623,52 +616,6 @@ export namespace database {
 		}
 	}
 	
-	export class TaskListTab {
-	    id: number;
-	    task_list_id: number;
-	    title: string;
-	    position: number;
-	    is_active: boolean;
-	    // Go type: time
-	    created_at: any;
-	    // Go type: time
-	    updated_at: any;
-	    task_list?: TaskList;
-	
-	    static createFrom(source: any = {}) {
-	        return new TaskListTab(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.task_list_id = source["task_list_id"];
-	        this.title = source["title"];
-	        this.position = source["position"];
-	        this.is_active = source["is_active"];
-	        this.created_at = this.convertValues(source["created_at"], null);
-	        this.updated_at = this.convertValues(source["updated_at"], null);
-	        this.task_list = this.convertValues(source["task_list"], TaskList);
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	
 	export class TaskListWorkflowStatus {
 	    id: number;
@@ -833,6 +780,8 @@ export namespace llm {
 	    type: string;
 	    base_url: string;
 	    model?: string;
+	    default_model?: string;
+	    is_default?: boolean;
 	    timeout?: number;
 	    headers?: Record<string, string>;
 	    credential_pattern?: string;
@@ -848,6 +797,8 @@ export namespace llm {
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.model = source["model"];
+	        this.default_model = source["default_model"];
+	        this.is_default = source["is_default"];
 	        this.timeout = source["timeout"];
 	        this.headers = source["headers"];
 	        this.credential_pattern = source["credential_pattern"];
@@ -1119,6 +1070,7 @@ export namespace main {
 	    type: string;
 	    base_url: string;
 	    api_key?: string;
+	    default_model?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CreateLLMProviderRequest(source);
@@ -1131,6 +1083,7 @@ export namespace main {
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
+	        this.default_model = source["default_model"];
 	    }
 	}
 	export class CredentialInput {
@@ -1519,38 +1472,6 @@ export namespace main {
 	        this.provider = source["provider"];
 	    }
 	}
-	export class TabsResponse {
-	    tabs: database.ChatTab[];
-	    active_tab_id: number;
-	
-	    static createFrom(source: any = {}) {
-	        return new TabsResponse(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.tabs = this.convertValues(source["tabs"], database.ChatTab);
-	        this.active_tab_id = source["active_tab_id"];
-	    }
-	
-		convertValues(a: any, classs: any, asMap: boolean = false): any {
-		    if (!a) {
-		        return a;
-		    }
-		    if (a.slice && a.map) {
-		        return (a as any[]).map(elem => this.convertValues(elem, classs));
-		    } else if ("object" === typeof a) {
-		        if (asMap) {
-		            for (const key of Object.keys(a)) {
-		                a[key] = new classs(a[key]);
-		            }
-		            return a;
-		        }
-		        return new classs(a);
-		    }
-		    return a;
-		}
-	}
 	export class TestLLMProviderRequest {
 	    type: string;
 	    base_url: string;
@@ -1693,6 +1614,7 @@ export namespace main {
 	    type?: string;
 	    base_url?: string;
 	    api_key?: string;
+	    default_model?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateLLMProviderRequest(source);
@@ -1704,6 +1626,7 @@ export namespace main {
 	        this.type = source["type"];
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
+	        this.default_model = source["default_model"];
 	    }
 	}
 
@@ -2956,6 +2879,131 @@ export namespace updater {
 	        this.releaseNotes = source["releaseNotes"];
 	        this.releaseDate = source["releaseDate"];
 	        this.downloadSize = source["downloadSize"];
+	    }
+	}
+
+}
+
+export namespace workspace {
+	
+	export class Tab {
+	    id: string;
+	    type: string;
+	    content_id: string;
+	    title: string;
+	    position: number;
+	    profile_override?: Record<string, any>;
+	    state?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new Tab(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.type = source["type"];
+	        this.content_id = source["content_id"];
+	        this.title = source["title"];
+	        this.position = source["position"];
+	        this.profile_override = source["profile_override"];
+	        this.state = source["state"];
+	    }
+	}
+	export class TabsState {
+	    active: string;
+	    items: Tab[];
+	
+	    static createFrom(source: any = {}) {
+	        return new TabsState(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.active = source["active"];
+	        this.items = this.convertValues(source["items"], Tab);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Workspace {
+	    id: string;
+	    name: string;
+	    profile?: string;
+	    // Go type: time
+	    created_at: any;
+	    // Go type: time
+	    last_used: any;
+	    tabs: TabsState;
+	
+	    static createFrom(source: any = {}) {
+	        return new Workspace(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.profile = source["profile"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.last_used = this.convertValues(source["last_used"], null);
+	        this.tabs = this.convertValues(source["tabs"], TabsState);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class WorkspaceInfo {
+	    id: string;
+	    name: string;
+	    path: string;
+	    profile: string;
+	    tab_count: number;
+	    is_active: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new WorkspaceInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.path = source["path"];
+	        this.profile = source["profile"];
+	        this.tab_count = source["tab_count"];
+	        this.is_active = source["is_active"];
 	    }
 	}
 

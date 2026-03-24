@@ -2,10 +2,11 @@ import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import './App.css';
 import { GetConfig, RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/main/App";
-import { EventsOn, EventsOff } from "@wailsjs/runtime/runtime";
+import { EventsOn } from "@wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
 import { useUIStore } from './store/uiStore';
 import { useChatStore } from './store/chatStore';
+import { parseDeepLink, executeDeepLink } from './lib/deepLinks';
 import { ScreenReaderAnnouncer } from './components/ui/ScreenReaderAnnouncer';
 import { ConfirmHost } from './components/ui/ConfirmHost';
 import { QuestionnaireDialog, QuestionnairePayload } from './components/ui/QuestionnaireDialog';
@@ -17,7 +18,7 @@ function App() {
     const navigate = useNavigate();
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
-    const { initializeTabs, isInitialized, handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleTabTitleUpdated, handleDatabaseReset, handleTabClosed, handleExternalIncoming } = useChatStore();
+    const { handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleExternalIncoming } = useChatStore();
     const wasQuestionnaireOpenRef = useRef(false);
     const lastFocusedElementRef = useRef<HTMLElement | null>(null);
 
@@ -92,136 +93,66 @@ function App() {
         loadConfig();
     }, [setConfig, setLoading, setError, addToast]);
 
-    // Restaura foco da janela no startup (resolve bug do Wails)
-	// Ouve o evento de focus da window e delega para primeiro elemento focável
-	useEffect(() => {
-		const handleWindowFocus = () => {
-			try {
-				// Agenda o foco para o próximo ciclo de event loop
-				// para garantir que o DOM está completamente renderizado
-				requestAnimationFrame(() => {
-					const activeElement = document.activeElement as HTMLElement;
-					// Se o foco está no body ou html, delega para primeiro elemento focável
-					if (!activeElement || activeElement === document.body || activeElement.tagName === 'HTML') {
-						const focusableElements = document.querySelectorAll(
-							'input, button, [tabindex]:not([tabindex="-1"]), textarea, select, a[href]'
-						);
-						if (focusableElements.length > 0) {
-							(focusableElements[0] as HTMLElement).focus();
-							console.warn('[App] Foco delegado para elemento focável');
-						}
-					}
-				});
-			} catch (err) {
-				console.warn('[App] Erro ao delegar foco:', err);
-			}
-		};
-
-		// Ouve quando a janela Wails recebe foco
-		window.addEventListener('focus', handleWindowFocus);
-
-		// Também tenta delegação imediata para elementos iniciais
-		requestAnimationFrame(() => {
-			const focusableElements = document.querySelectorAll(
-				'input, button, [tabindex]:not([tabindex="-1"]), textarea, select, a[href]'
-			);
-			if (focusableElements.length > 0 && (document.activeElement === document.body || document.activeElement === null)) {
-				(focusableElements[0] as HTMLElement).focus();
-				console.warn('[App] Foco delegado no mount');
-			}
-		});
-
-		return () => {
-			window.removeEventListener('focus', handleWindowFocus);
-		};
-	}, []);
-
-    // Inicializa tabs do backend
+    // Escuta eventos de conversa deletada/limpa
     useEffect(() => {
-        if (!isInitialized) {
-            initializeTabs();
-        }
-    }, [initializeTabs, isInitialized]);
+        const unsubs: Array<() => void> = [];
 
-    // Escuta eventos de conversa deletada/limpa para atualizar tabs
-    useEffect(() => {
-        EventsOn('conversation:deleted', (data: unknown) => {
+        unsubs.push(EventsOn('conversation:deleted', (data: unknown) => {
             const eventData = data as { conversation_id?: number };
             if (eventData.conversation_id) {
                 handleConversationDeleted(eventData.conversation_id);
             }
-        });
+        }));
 
-        EventsOn('conversation:cleared', (data: unknown) => {
+        unsubs.push(EventsOn('conversation:cleared', (data: unknown) => {
             const eventData = data as { conversation_id?: number };
             if (eventData.conversation_id) {
                 handleConversationCleared(eventData.conversation_id);
             }
-        });
+        }));
 
-        EventsOn('conversation:renamed', (data: unknown) => {
+        unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
             const eventData = data as { conversation_id?: number; new_title?: string };
             if (eventData.conversation_id && eventData.new_title) {
                 handleConversationRenamed(eventData.conversation_id, eventData.new_title);
             }
-        });
+        }));
 
-        EventsOn('tab:title_updated', (data: unknown) => {
-            const eventData = data as { tab_id?: string; new_title?: string };
-            if (eventData.tab_id && eventData.new_title) {
-                const backendTabId = parseInt(eventData.tab_id, 10);
-                if (!Number.isNaN(backendTabId)) {
-                    handleTabTitleUpdated(backendTabId, eventData.new_title);
-                }
-            }
-        });
-
-        EventsOn('database:reset', () => {
+        unsubs.push(EventsOn('database:reset', () => {
             handleDatabaseReset();
-        });
+        }));
 
-        EventsOn('tab_closed', (data: unknown) => {
-            const eventData = data as { id?: string };
-            if (eventData.id) {
-                const backendTabId = parseInt(eventData.id, 10);
-                if (!Number.isNaN(backendTabId)) {
-                    handleTabClosed(backendTabId);
-                }
-            }
-        });
-
-        EventsOn('navigate:update', () => {
+        unsubs.push(EventsOn('navigate:update', () => {
             navigate('/update');
-        });
+        }));
 
-        EventsOn('chat:summary_started', (data: unknown) => {
+        unsubs.push(EventsOn('deeplink:execute', (uri: unknown) => {
+            if (typeof uri !== 'string') return;
+            const action = parseDeepLink(uri);
+            if (action) {
+                void executeDeepLink(action, { navigate });
+            }
+        }));
+
+        unsubs.push(EventsOn('chat:summary_started', (data: unknown) => {
             const eventData = data as { messageCount?: number };
             addToast(`Sumarizando conversa (${eventData.messageCount ?? 0} mensagens)...`, 'info', 10000);
-        });
+        }));
 
-        EventsOn('chat:summary_completed', (data: unknown) => {
+        unsubs.push(EventsOn('chat:summary_completed', (data: unknown) => {
             const eventData = data as { messageCount?: number };
             addToast(`Resumo da conversa atualizado (${eventData.messageCount ?? 0} mensagens resumidas)`, 'success', 5000);
-        });
+        }));
 
-        EventsOn('chat:summary_error', (data: unknown) => {
+        unsubs.push(EventsOn('chat:summary_error', (data: unknown) => {
             const eventData = data as { error?: string };
             addToast(`Erro ao sumarizar conversa: ${eventData.error || ''}`, 'error');
-        });
+        }));
 
         return () => {
-            EventsOff('conversation:deleted');
-            EventsOff('conversation:cleared');
-            EventsOff('conversation:renamed');
-            EventsOff('tab:title_updated');
-            EventsOff('database:reset');
-            EventsOff('tab_closed');
-            EventsOff('navigate:update');
-            EventsOff('chat:summary_started');
-            EventsOff('chat:summary_completed');
-            EventsOff('chat:summary_error');
+            unsubs.forEach(fn => fn());
         };
-    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleTabTitleUpdated, handleDatabaseReset, handleTabClosed, navigate]);
+    }, [handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, navigate]);
 
     // Listener para mensagens de canais externos (Signal, Telegram).
     // Quando messaging:incoming chega, delega ao chatStore que monta placeholders
@@ -236,10 +167,6 @@ function App() {
                 text?: string;
                 conversationId?: number;
                 newConversation?: boolean;
-                tabId?: number;
-                tabCreated?: boolean;
-                tabTitle?: string;
-                tabIcon?: string;
             };
             handleExternalIncoming({
                 channel: eventData.channel || '',
@@ -248,10 +175,6 @@ function App() {
                 text: eventData.text || '',
                 conversationId: eventData.conversationId || 0,
                 newConversation: eventData.newConversation || false,
-                tabId: eventData.tabId || 0,
-                tabCreated: eventData.tabCreated || false,
-                tabTitle: eventData.tabTitle || '',
-                tabIcon: eventData.tabIcon || '',
             });
         });
 

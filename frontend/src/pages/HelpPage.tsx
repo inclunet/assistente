@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './HelpPage.css';
 
 interface HelpSection {
@@ -11,6 +12,7 @@ interface HelpSection {
 
 export default function HelpPage() {
   const { t } = useTranslation();
+  useContentPageLandmarks({ pageClass: 'help-page' });
   const [expandedSections, setExpandedSections] = useState<Set<string>>(new Set(['commands']));
 
   const toggleSection = (id: string) => {

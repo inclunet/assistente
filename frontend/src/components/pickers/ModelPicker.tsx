@@ -1,9 +1,12 @@
 import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
 import { useTranslation } from 'react-i18next';
-import { GetModels, GetModelsByProvider } from '@wailsjs/go/main/App';
+import { GetModels, GetModelsByProvider, GetLLMProvidersWithStatus } from '@wailsjs/go/main/App';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import './ModelPicker.css';
+
+const DEFAULT_PROVIDER_SENTINEL = '$default';
+const DEFAULT_MODEL_SENTINEL = '$default';
 
 export interface ModelPickerProps {
     value: string;
@@ -42,8 +45,18 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   const [error, setError] = useState('');
   const [endpointNotSupported, setEndpointNotSupported] = useState(false);
 
+  const resolveProviderID = async (pid: string): Promise<string> => {
+    if (pid !== DEFAULT_PROVIDER_SENTINEL) return pid;
+    try {
+      const providers = await GetLLMProvidersWithStatus();
+      const defaultProv = (providers || []).find((p: Record<string, unknown>) => p.is_default === true);
+      return (defaultProv?.id as string) || '';
+    } catch {
+      return '';
+    }
+  };
+
   const loadModels = async () => {
-    // Se estamos no modo form e não há providerID, não tenta carregar
     if (variant === 'form' && !providerID) {
       setLoading(false);
       setError(t('pickers.model.selectProvider'));
@@ -57,13 +70,14 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     setEndpointNotSupported(false);
     try {
       let modelsList: string[];
-      
-      // Se providerID foi fornecido, usa GetModelsByProvider
-      if (providerID) {
-        modelsList = await GetModelsByProvider(providerID);
-      } else {
-        // Caso contrário, usa GetModels (do provedor ativo)
+
+      const resolvedID = providerID ? await resolveProviderID(providerID) : '';
+      if (resolvedID) {
+        modelsList = await GetModelsByProvider(resolvedID);
+      } else if (!providerID) {
         modelsList = await GetModels();
+      } else {
+        modelsList = [];
       }
       
       setModels(modelsList || []);
@@ -105,7 +119,12 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
     reload: loadModels
   }));
 
-  const items: ComboboxItem[] = models.map(m => ({ value: m, label: m }));
+  const defaultModelLabel = t('pickers.model.default', 'Padrão do provedor');
+  const defaultModelOption: ComboboxItem = { value: DEFAULT_MODEL_SENTINEL, label: `⭐ ${defaultModelLabel}` };
+  const modelItems: ComboboxItem[] = models.map(m => ({ value: m, label: m }));
+  const items: ComboboxItem[] = variant === 'form'
+    ? [defaultModelOption, ...modelItems]
+    : modelItems;
 
   const handleSelect = (selectedValue: string) => {
     onChange(selectedValue);

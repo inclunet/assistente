@@ -10,8 +10,10 @@ const mockUpdateConversation = vi.fn();
 const mockExportConversations = vi.fn();
 const mockImportConversations = vi.fn();
 const mockSearchConversationHistory = vi.fn();
-const mockOpenConversationInNewTab = vi.fn();
+const mockAddTab = vi.fn().mockResolvedValue('tab-1');
+const mockMoveTabToWorkspace = vi.fn().mockResolvedValue(undefined);
 const mockNavigate = vi.fn();
+const mockExecuteDeepLink = vi.fn().mockResolvedValue(undefined);
 
 let lastToolbarActions: Array<{ key: string; label: string; onClick: () => void; disabled?: boolean }> = [];
 
@@ -49,10 +51,16 @@ vi.mock('../hooks/useGridFocus', () => ({
   }),
 }));
 
-vi.mock('../store/chatStore', () => ({
-  useChatStore: (selector: (state: { openConversationInNewTab: (id: number, title?: string) => Promise<void> }) => unknown) =>
+vi.mock('../lib/deepLinks', () => ({
+  executeDeepLink: (...args: unknown[]) => mockExecuteDeepLink(...args),
+}));
+
+vi.mock('../store/workspaceStore', () => ({
+  useWorkspaceStore: (selector: (state: { addTab: typeof mockAddTab; moveTabToWorkspace: typeof mockMoveTabToWorkspace; workspaces: { id: string; name: string; is_active: boolean }[] }) => unknown) =>
     selector({
-      openConversationInNewTab: mockOpenConversationInNewTab,
+      addTab: mockAddTab,
+      moveTabToWorkspace: mockMoveTabToWorkspace,
+      workspaces: [],
     }),
 }));
 
@@ -141,7 +149,7 @@ describe('HistoryPage', () => {
     mockExportConversations.mockResolvedValue('{}');
     mockImportConversations.mockResolvedValue({ success: true, message: 'ok' });
     mockSearchConversationHistory.mockResolvedValue([]);
-    mockOpenConversationInNewTab.mockResolvedValue(undefined);
+    mockAddTab.mockResolvedValue(undefined);
     mockNavigate.mockReset();
     lastToolbarActions = [];
     confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
@@ -216,8 +224,10 @@ describe('HistoryPage', () => {
     await user.click(menuOpen!);
 
     await waitFor(() => {
-      expect(mockOpenConversationInNewTab).toHaveBeenCalledWith(1, 'Conversa 1');
-      expect(mockNavigate).toHaveBeenCalledWith('/');
+      expect(mockExecuteDeepLink).toHaveBeenCalledWith(
+        { type: 'conversation:open', conversationId: 1, title: 'Conversa 1' },
+        expect.objectContaining({ navigate: expect.any(Function) }),
+      );
     });
   });
 });
