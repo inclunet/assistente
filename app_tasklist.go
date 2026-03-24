@@ -92,6 +92,17 @@ func (a *App) CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	return fullTaskList, nil
 }
 
+// ClearTaskList remove todas as tasks de uma lista, mantendo a lista e o workflow
+func (a *App) ClearTaskList(id uint) error {
+	err := database.ClearTaskList(id)
+	if err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskList:cleared", id)
+	return nil
+}
+
 // DeleteTaskList deleta uma lista e todas suas tasks
 func (a *App) DeleteTaskList(id uint) error {
 	err := database.DeleteTaskList(id)

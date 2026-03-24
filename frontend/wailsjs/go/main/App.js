@@ -74,6 +74,10 @@ export function ClearMessages() {
   return window['go']['main']['App']['ClearMessages']();
 }
 
+export function ClearTaskList(arg1) {
+  return window['go']['main']['App']['ClearTaskList'](arg1);
+}
+
 export function CloneTaskList(arg1, arg2) {
   return window['go']['main']['App']['CloneTaskList'](arg1, arg2);
 }

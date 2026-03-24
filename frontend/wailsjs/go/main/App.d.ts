@@ -51,6 +51,8 @@ export function ClearMCPTest(arg1:string):Promise<void>;
 
 export function ClearMessages():Promise<void>;
 
+export function ClearTaskList(arg1:number):Promise<void>;
+
 export function CloneTaskList(arg1:number,arg2:string):Promise<database.TaskList>;
 
 export function CloseTerminalSession(arg1:string):Promise<void>;

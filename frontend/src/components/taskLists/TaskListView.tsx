@@ -5,6 +5,7 @@ import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
+import { isModalOpen } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
 import { ProfilePicker } from '../pickers/ProfilePicker';
 import TasksTable, { type TasksTableRef } from './TasksTable';
@@ -34,7 +35,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
-  const { loadTaskList, setViewMode, cloneTaskList, deleteTaskList } = useTaskListStore();
+  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList } = useTaskListStore();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
 
@@ -78,6 +79,56 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       addToast(msg || t('common.error', 'Erro ao clonar'), 'error');
     }
   }, [taskList?.title, taskListId, cloneTaskList, addToast, announce, t]);
+
+  const handleClear = useCallback(async () => {
+    const confirmed = await requestConfirm({
+      title: t('tasklist.clearConfirmTitle', 'Limpar Lista'),
+      message: t(
+        'tasklist.clearConfirmMessage',
+        `Tem certeza que deseja remover todas as tarefas de "${taskList?.title}"? Esta ação não pode ser desfeita.`
+      ),
+    });
+    if (!confirmed) return;
+
+    try {
+      await clearTaskList(taskListId);
+      addToast(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'), 'success');
+      announce(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'));
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao limpar'), 'error');
+    }
+  }, [taskList?.title, taskListId, requestConfirm, clearTaskList, addToast, announce, t]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isModalOpen()) return;
+
+      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        void handleClear();
+        return;
+      }
+
+      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        handleOpenCreateTask();
+        return;
+      }
+
+      if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        void handleClone();
+        return;
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleOpenCreateTask, handleClear, handleClone]);
 
   const handleDelete = useCallback(async () => {
     const confirmed = await requestConfirm({
@@ -131,7 +182,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               label: t('tasklist.createTask', 'Nova Tarefa'),
               icon: '➕',
               onClick: handleOpenCreateTask,
-              shortcut: 'Ctrl+N',
+              shortcut: 'N',
               variant: 'primary',
             },
             ...(hasTasks
@@ -147,14 +198,24 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               : []),
             {
               key: 'clone-list',
-              label: t('tasklist.cloneList', 'Clonar Lista'),
+              label: t('tasklist.duplicate', 'Duplicar'),
               icon: '📋',
+              shortcut: 'D',
               onClick: handleClone,
               variant: 'secondary' as const,
             },
             {
+              key: 'clear-list',
+              label: t('tasklist.clear', 'Limpar'),
+              icon: '🧹',
+              shortcut: 'Ctrl+L',
+              onClick: () => void handleClear(),
+              variant: 'danger' as const,
+              disabled: !hasTasks,
+            },
+            {
               key: 'delete-list',
-              label: t('tasklist.deleteList', 'Deletar Lista'),
+              label: t('tasklist.delete', 'Apagar'),
               icon: '🗑️',
               onClick: handleDelete,
               variant: 'danger' as const,

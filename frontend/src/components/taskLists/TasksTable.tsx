@@ -212,9 +212,6 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
       ) : (
         <div className="tasks-table-empty">
           <p>{t('tasklist.noTasks', 'Nenhuma tarefa nesta lista')}</p>
-          <Button onClick={handleOpenCreateModal} variant="primary">
-            ➕ {t('tasklist.createTask', 'Criar Tarefa')}
-          </Button>
         </div>
       )}
 

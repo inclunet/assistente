@@ -11,6 +11,7 @@ import {
   CreateTaskList,
   UpdateTaskList,
   DeleteTaskList,
+  ClearTaskList,
   CloneTaskList,
   SetTaskListViewMode,
   CreateTask,
@@ -124,6 +125,7 @@ interface TaskListStoreState {
   createTaskList: (title: string, description?: string) => Promise<TaskListWithWorkflow | null>;
   updateTaskList: (taskListId: number, title: string, description?: string) => Promise<void>;
   deleteTaskList: (taskListId: number) => Promise<void>;
+  clearTaskList: (taskListId: number) => Promise<void>;
   cloneTaskList: (taskListId: number, newTitle: string) => Promise<TaskListWithWorkflow | null>;
   fetchAllTaskLists: () => Promise<database.TaskList[]>;
 
@@ -332,6 +334,22 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
         });
       } catch (error) {
         get().setError('deleteTaskList', String(error));
+      }
+    },
+
+    clearTaskList: async (taskListId: number) => {
+      try {
+        await ClearTaskList(taskListId);
+        set((state) => {
+          const newCache = new Map(state.taskLists);
+          const existing = newCache.get(taskListId);
+          if (existing) {
+            newCache.set(taskListId, { ...existing, tasks: [] });
+          }
+          return { taskLists: newCache };
+        });
+      } catch (error) {
+        get().setError('clearTaskList', String(error));
       }
     },
 

@@ -107,6 +107,14 @@ func CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	return cloned, nil
 }
 
+// ClearTaskList remove todas as tasks de uma tasklist, mantendo a lista e o workflow
+func ClearTaskList(id uint) error {
+	if err := db.Where("task_list_id = ?", id).Delete(&Task{}).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
 // DeleteTaskList deleta uma tasklist e todas suas tasks
 func DeleteTaskList(id uint) error {
 	// Deleta tasks (cascata handled by GORM)
