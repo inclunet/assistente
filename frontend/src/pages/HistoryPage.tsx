@@ -223,19 +223,20 @@ export default function HistoryPage() {
     handleDeleteConversation(item.id);
   }, [handleDeleteConversation]);
 
-  const handleSendToWorkspace = useCallback(async (conversationId: number, title: string, targetWorkspaceId: string) => {
+  const handleSendToWorkspace = useCallback(async (conversationId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
-      const tabId = await addWorkspaceTab('chat', String(conversationId), title || t('chat.newConversation', 'Nova conversa'));
-      await moveTabToWorkspace(tabId, targetWorkspaceId);
+      const tabTitle = title || t('chat.newConversation', 'Nova conversa');
+      if (isActive) {
+        await addWorkspaceTab('chat', String(conversationId), tabTitle);
+        navigate('/');
+      } else {
+        const tabId = await addWorkspaceTab('chat', String(conversationId), tabTitle);
+        await moveTabToWorkspace(tabId, targetWorkspaceId);
+      }
     } catch (error) {
       console.error('Erro ao enviar conversa ao workspace:', error);
     }
-  }, [addWorkspaceTab, moveTabToWorkspace, t]);
-
-  const otherWorkspaces = useMemo(
-    () => workspaces.filter(ws => !ws.is_active),
-    [workspaces]
-  );
+  }, [addWorkspaceTab, moveTabToWorkspace, navigate, t]);
 
   const getRowActions = useCallback(
     (item: Conversation): ContextMenuItem[] => {
@@ -248,16 +249,16 @@ export default function HistoryPage() {
         },
       ];
 
-      if (otherWorkspaces.length > 0) {
+      if (workspaces.length > 0) {
         actions.push({
           id: 'send-to-workspace',
           label: t('history.sendToWorkspace', 'Enviar ao workspace'),
           icon: '📤',
-          submenu: otherWorkspaces.map(ws => ({
+          submenu: workspaces.map(ws => ({
             id: `ws-${ws.id}`,
             label: ws.name,
-            icon: '📂',
-            action: () => handleSendToWorkspace(item.id, item.title, ws.id),
+            icon: ws.is_active ? '●' : ' ',
+            action: () => handleSendToWorkspace(item.id, item.title, ws.id, ws.is_active),
           })),
         });
       }
@@ -271,7 +272,7 @@ export default function HistoryPage() {
 
       return actions;
     },
-    [handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, otherWorkspaces, t]
+    [handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
   );
 
   const getMenuButtonItems = useCallback(

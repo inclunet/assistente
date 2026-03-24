@@ -351,6 +351,8 @@ export function Topbar() {
         y={pickerMenu.y}
         visible={pickerMenu.visible}
         ariaLabel={pickerMenu.ariaLabel || t('workspace.workspaceList')}
+        searchable
+        searchPlaceholder={t('workspace.searchWorkspaces', 'Buscar workspace...')}
         onClose={closePicker}
         onSelect={onPickerSelect}
       />

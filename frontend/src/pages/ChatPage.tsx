@@ -9,6 +9,7 @@ import { ChatToolbar } from '../components/chat/ChatToolbar';
 import { ContextMenu } from '../components/menu';
 import { KeyboardShortcutsHelp } from '../components/ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../hooks/useChatKeyboardNav';
+import { useTabScrollState } from '../hooks/useTabScrollState';
 import { useContextMenu, useMessageActions } from '../hooks/useContextMenu';
 import { MediaFile } from '../services/mediaService';
 import { DeleteMessage } from '@wailsjs/go/main/App';
@@ -21,6 +22,7 @@ export default function ChatPage() {
   const navigate = useNavigate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  useTabScrollState(messagesContainerRef);
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);

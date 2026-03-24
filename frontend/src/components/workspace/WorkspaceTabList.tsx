@@ -24,6 +24,8 @@ export function WorkspaceTabList() {
 
   const [editingTabId, setEditingTabId] = useState<string | null>(null);
   const [editingTitle, setEditingTitle] = useState('');
+  const [dragTabId, setDragTabId] = useState<string | null>(null);
+  const [dropTargetId, setDropTargetId] = useState<string | null>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
   const contextTargetRef = useRef<string | null>(null);
   const { menu: ctxMenu, openAtPoint: openCtx, closeMenu: closeCtx, onSelectItem: onCtxSelect } = useAnchoredContextMenu();
@@ -204,16 +206,69 @@ export function WorkspaceTabList() {
     openCtx(e.clientX, e.clientY, t('workspace.tabContextMenu', 'Menu da aba'), items);
   }, [tabs, workspaces, removeTab, startEditing, openCtx, moveTabToWorkspace, announce, t]);
 
+  const handleDragStart = useCallback((e: React.DragEvent, tabId: string) => {
+    setDragTabId(tabId);
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', tabId);
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '0.5';
+    }
+  }, []);
+
+  const handleDragEnd = useCallback((e: React.DragEvent) => {
+    setDragTabId(null);
+    setDropTargetId(null);
+    if (e.currentTarget instanceof HTMLElement) {
+      e.currentTarget.style.opacity = '';
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent, tabId: string) => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragTabId && tabId !== dragTabId) {
+      setDropTargetId(tabId);
+    }
+  }, [dragTabId]);
+
+  const handleDrop = useCallback((e: React.DragEvent, targetTabId: string) => {
+    e.preventDefault();
+    setDropTargetId(null);
+    if (!dragTabId || dragTabId === targetTabId) return;
+
+    const ids = tabs.map(t => t.id);
+    const fromIdx = ids.indexOf(dragTabId);
+    const toIdx = ids.indexOf(targetTabId);
+    if (fromIdx === -1 || toIdx === -1) return;
+
+    ids.splice(fromIdx, 1);
+    ids.splice(toIdx, 0, dragTabId);
+    void reorderTabs(ids);
+
+    const tab = tabs.find(t => t.id === dragTabId);
+    if (tab) {
+      announce(`${tab.title} movida para posição ${toIdx + 1} de ${tabs.length}`);
+    }
+  }, [dragTabId, tabs, reorderTabs, announce]);
+
   const renderTab = (tab: WorkspaceTab) => {
     const isActive = tab.id === activeTabId;
     const isEditing = editingTabId === tab.id;
+    const isDragging = dragTabId === tab.id;
+    const isDropTarget = dropTargetId === tab.id;
     const icon = TAB_TYPE_ICONS[tab.type] || '📄';
 
     return (
       <div
         key={tab.id}
-        className={`ws-tabs__tab-wrapper${isActive ? ' ws-tabs__tab-wrapper--active' : ''}`}
+        className={`ws-tabs__tab-wrapper${isActive ? ' ws-tabs__tab-wrapper--active' : ''}${isDragging ? ' ws-tabs__tab-wrapper--dragging' : ''}${isDropTarget ? ' ws-tabs__tab-wrapper--drop-target' : ''}`}
         role="presentation"
+        draggable={!isEditing}
+        onDragStart={(e) => handleDragStart(e, tab.id)}
+        onDragEnd={handleDragEnd}
+        onDragOver={(e) => handleDragOver(e, tab.id)}
+        onDragLeave={() => setDropTargetId(null)}
+        onDrop={(e) => handleDrop(e, tab.id)}
         onMouseDown={(e) => {
           if (e.button === 1 && tabs.length > 1) {
             e.preventDefault();

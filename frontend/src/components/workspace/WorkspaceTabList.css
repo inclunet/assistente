@@ -151,3 +151,12 @@
   border-color: var(--accent-bright, var(--tab-accent));
   box-shadow: 0 0 0 2px var(--focus-ring);
 }
+
+/* Drag & drop */
+.ws-tabs__tab-wrapper--dragging {
+  opacity: 0.4;
+}
+
+.ws-tabs__tab-wrapper--drop-target {
+  border-left: 2px solid var(--tab-accent);
+}

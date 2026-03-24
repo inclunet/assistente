@@ -245,20 +245,20 @@ export default function TaskListsPage() {
     }
   }, [filteredTaskLists.length]);
 
-  const handleSendToWorkspace = useCallback(async (taskListId: number, title: string, targetWorkspaceId: string) => {
+  const handleSendToWorkspace = useCallback(async (taskListId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
-      const tabId = await addTab('tasklist', String(taskListId), title);
-      await moveTabToWorkspace(tabId, targetWorkspaceId);
+      if (isActive) {
+        await addTab('tasklist', String(taskListId), title);
+        navigate('/');
+      } else {
+        const tabId = await addTab('tasklist', String(taskListId), title);
+        await moveTabToWorkspace(tabId, targetWorkspaceId);
+      }
       announce(t('tasklist.sentToWorkspace', 'Lista enviada ao workspace'));
     } catch (error) {
       console.error('Erro ao enviar lista ao workspace:', error);
     }
-  }, [addTab, moveTabToWorkspace, announce, t]);
-
-  const otherWorkspaces = useMemo(
-    () => workspaces.filter(ws => !ws.is_active),
-    [workspaces]
-  );
+  }, [addTab, moveTabToWorkspace, navigate, announce, t]);
 
   const getTaskListRowActions = useCallback(
     (list: TaskListRow) => {
@@ -283,17 +283,17 @@ export default function TaskListsPage() {
         },
       ];
 
-      if (otherWorkspaces.length > 0) {
+      if (workspaces.length > 0) {
         actions.push({
           id: 'send-to-workspace',
           label: t('tasklist.sendToWorkspace', 'Enviar ao workspace'),
           icon: '📤',
           onClick: undefined as unknown as () => void,
-          submenu: otherWorkspaces.map(ws => ({
+          submenu: workspaces.map(ws => ({
             id: `ws-${ws.id}`,
             label: ws.name,
-            icon: '📂',
-            onClick: () => handleSendToWorkspace(list.id, list.title, ws.id),
+            icon: ws.is_active ? '●' : ' ',
+            onClick: () => handleSendToWorkspace(list.id, list.title, ws.id, ws.is_active),
           })),
         } as typeof actions[0] & { submenu: { id: string; label: string; icon: string; onClick: () => void }[] });
       }
@@ -308,7 +308,7 @@ export default function TaskListsPage() {
 
       return actions;
     },
-    [t, handleOpenTaskList, handleOpenEditor, handleCloneTaskList, handleDeleteTaskList, handleSendToWorkspace, otherWorkspaces]
+    [t, handleOpenTaskList, handleOpenEditor, handleCloneTaskList, handleDeleteTaskList, handleSendToWorkspace, workspaces]
   );
 
   const columns: DataGridColumn<TaskListRow>[] = useMemo(

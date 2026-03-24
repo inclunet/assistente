@@ -23,6 +23,10 @@ export interface MenuProps {
    * Útil para menus de navegação principal.
    */
   initialFocusItemId?: string;
+  /** Renderiza um campo de busca acima dos itens para filtrar por label. */
+  searchable?: boolean;
+  /** Placeholder do campo de busca (default: "Buscar..."). */
+  searchPlaceholder?: string;
   onClose?: () => void;
   onSelect?: (item: MenuItem) => void;
   /** Callback for custom key handling on the focused item. Return true to prevent default menu behavior. */
