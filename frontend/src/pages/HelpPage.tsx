@@ -1,13 +1,35 @@
-import { useState } from 'react';
+import { useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  ApiOutlined,
+  AudioOutlined,
+  BulbOutlined,
+  ConsoleSqlOutlined,
+  ExportOutlined,
+  FolderOutlined,
+  HistoryOutlined,
+  InteractionOutlined,
+  KeyOutlined,
+  MessageOutlined,
+  MobileOutlined,
+  PaperClipOutlined,
+  ReadOutlined,
+  SafetyOutlined,
+  SaveOutlined,
+  SettingOutlined,
+  SoundOutlined,
+  ToolOutlined,
+  UserSwitchOutlined,
+  WarningOutlined,
+} from '@ant-design/icons';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './HelpPage.css';
 
 interface HelpSection {
   id: string;
   title: string;
-  icon: string;
-  content: React.ReactNode;
+  icon: ReactNode;
+  content: ReactNode;
 }
 
 export default function HelpPage() {
@@ -39,7 +61,7 @@ export default function HelpPage() {
     {
       id: 'commands',
       title: 'Comandos por Chat e Voz',
-      icon: '🗣️',
+      icon: <SoundOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <p>
@@ -91,7 +113,7 @@ export default function HelpPage() {
     {
       id: 'overview',
       title: 'Visão Geral',
-      icon: '📖',
+      icon: <ReadOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <p>
@@ -149,7 +171,7 @@ export default function HelpPage() {
     {
       id: 'chat',
       title: 'Chat e Conversas',
-      icon: '💬',
+      icon: <MessageOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>Sistema de Abas</h4>
@@ -244,7 +266,7 @@ export default function HelpPage() {
     {
       id: 'voice',
       title: 'Voz e Áudio',
-      icon: '🎤',
+      icon: <AudioOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>Interação por Voz</h4>
@@ -256,7 +278,10 @@ export default function HelpPage() {
 
           <h4>Como Usar</h4>
           <ol>
-            <li>Clique no botão de microfone 🎤 ou use o hotkey configurado</li>
+            <li>
+              Clique no botão de microfone <AudioOutlined aria-hidden="true" /> ou use o hotkey
+              configurado
+            </li>
             <li>Fale sua mensagem ou comando</li>
             <li>A gravação para automaticamente (VAD) ou quando você soltar a tecla (PTT)</li>
             <li>Sua fala é convertida em texto e enviada</li>
@@ -338,7 +363,7 @@ export default function HelpPage() {
     {
       id: 'files',
       title: 'Arquivos e Documentos',
-      icon: '📁',
+      icon: <FolderOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>Enviando Arquivos no Chat (Upload)</h4>
@@ -348,8 +373,10 @@ export default function HelpPage() {
           </p>
           <ul>
             <li>
-              <strong>Botão Anexar (📎):</strong> Clique no botão ao lado do campo de mensagem e
-              selecione os arquivos
+              <strong>
+                Botão Anexar (<PaperClipOutlined aria-hidden="true" />):
+              </strong>{' '}
+              Clique no botão ao lado do campo de mensagem e selecione os arquivos
             </li>
             <li>
               <strong>Colar (Ctrl+V):</strong> Copie uma imagem e cole diretamente no campo de
@@ -407,7 +434,7 @@ export default function HelpPage() {
     {
       id: 'profiles',
       title: 'Perfis de Voz e Interação',
-      icon: '🎭',
+      icon: <UserSwitchOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>O que são Perfis?</h4>
@@ -511,7 +538,7 @@ export default function HelpPage() {
     {
       id: 'settings',
       title: 'Configurações',
-      icon: '⚙️',
+      icon: <SettingOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>API</h4>
@@ -574,7 +601,7 @@ export default function HelpPage() {
     {
       id: 'history',
       title: 'Histórico',
-      icon: '📜',
+      icon: <HistoryOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>Gerenciamento de Conversas</h4>
@@ -619,7 +646,7 @@ export default function HelpPage() {
     {
       id: 'terminal',
       title: 'Terminal Integrado',
-      icon: '>_',
+      icon: <ConsoleSqlOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>O que é o Terminal?</h4>
@@ -672,7 +699,7 @@ export default function HelpPage() {
     {
       id: 'mcp',
       title: 'MCP (Model Context Protocol)',
-      icon: '🔌',
+      icon: <ApiOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>O que é MCP?</h4>
@@ -738,7 +765,7 @@ export default function HelpPage() {
     {
       id: 'skills',
       title: 'Skills (Habilidades)',
-      icon: '🧠',
+      icon: <BulbOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>O que são Skills?</h4>
@@ -815,7 +842,7 @@ export default function HelpPage() {
     {
       id: 'allowlists',
       title: 'Allowlists (Listas de Permissões)',
-      icon: '🛡️',
+      icon: <SafetyOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>O que são Allowlists?</h4>
@@ -894,7 +921,7 @@ export default function HelpPage() {
     {
       id: 'channels',
       title: 'Channels (Canais de Mensagens)',
-      icon: '📱',
+      icon: <MobileOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>O que são Channels?</h4>
@@ -970,7 +997,7 @@ export default function HelpPage() {
     {
       id: 'keyboard',
       title: 'Teclas de Atalho',
-      icon: '⌨️',
+      icon: <KeyOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>Navegação Global</h4>
@@ -1444,7 +1471,7 @@ export default function HelpPage() {
     {
       id: 'accessibility',
       title: 'Acessibilidade',
-      icon: '♿',
+      icon: <InteractionOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>Navegação por Teclado</h4>
@@ -1525,7 +1552,7 @@ export default function HelpPage() {
     {
       id: 'export-import',
       title: 'Exportação e Importação',
-      icon: '📤',
+      icon: <ExportOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>Dados Exportáveis</h4>
@@ -1571,7 +1598,7 @@ export default function HelpPage() {
     {
       id: 'data-storage',
       title: 'Armazenamento de Dados',
-      icon: '💾',
+      icon: <SaveOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>Localização dos Dados</h4>
@@ -1613,7 +1640,7 @@ export default function HelpPage() {
     {
       id: 'troubleshooting',
       title: 'Solução de Problemas',
-      icon: '🔧',
+      icon: <ToolOutlined aria-hidden="true" />,
       content: (
         <div className="help-content">
           <h4>Problemas de Conexão com API</h4>
@@ -1654,7 +1681,10 @@ export default function HelpPage() {
           <p>Se nada funcionar:</p>
           <ol>
             <li>Tente "Resetar Configurações" em Configurações</li>
-            <li>Se persistir, "Apagar Banco de Dados" (⚠️ perda de dados)</li>
+            <li>
+              Se persistir, &quot;Apagar Banco de Dados&quot; (
+              <WarningOutlined aria-hidden="true" /> perda de dados)
+            </li>
             <li>
               Último recurso: delete a pasta <code>~/.assistente/</code>
             </li>

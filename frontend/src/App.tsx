@@ -1,6 +1,6 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import './App.css';
+import { useTranslation } from 'react-i18next';
 import { GetConfig, RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/main/App";
 import { EventsOn } from "@wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
@@ -12,10 +12,24 @@ import { ConfirmHost } from './components/ui/ConfirmHost';
 import { QuestionnaireDialog, QuestionnairePayload } from './components/ui/QuestionnaireDialog';
 import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
 import { useTheme } from './hooks/useTheme';
+import { ConfigProvider } from 'antd';
+import type { Locale } from 'antd/es/locale';
+import ptBR from 'antd/locale/pt_BR';
+import enUS from 'antd/locale/en_US';
+import esES from 'antd/locale/es_ES';
+import { getAntdTheme } from './theme/antdTheme';
+
+const ANT_LOCALE_MAP: Record<string, Locale> = {
+    'pt-BR': ptBR,
+    'en': enUS,
+    'es': esES,
+};
 
 function App() {
-    useTheme();
+    const { theme } = useTheme();
+    const { i18n } = useTranslation();
     const navigate = useNavigate();
+    const antLocale = useMemo(() => ANT_LOCALE_MAP[i18n.language] || enUS, [i18n.language]);
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
     const { handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleExternalIncoming } = useChatStore();
@@ -273,20 +287,19 @@ function App() {
     };
 
     return (
-        <>
+        <ConfigProvider theme={getAntdTheme(theme)} locale={antLocale}>
             <ScreenReaderAnnouncer />
             <Outlet />
 
             <ConfirmHost />
 
-            {/* Dialog de questionário global */}
             <QuestionnaireDialog
                 isOpen={effectiveQuestionnaireOpen}
                 data={effectiveQuestionnaireData}
                 onSubmit={handleQuestionnaireSubmit}
                 onCancel={handleQuestionnaireCancel}
             />
-        </>
+        </ConfigProvider>
     )
 }
 

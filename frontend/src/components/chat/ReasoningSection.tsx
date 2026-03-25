@@ -1,4 +1,5 @@
 import React from 'react';
+import { BulbOutlined, DownOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import './ReasoningSection.css';
@@ -53,7 +54,7 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
         tabIndex={-1}
       >
         <span className="reasoning-section__icon" aria-hidden="true">
-          {isStreaming ? '🧠' : '💭'}
+          <BulbOutlined />
         </span>
         <span className="reasoning-section__title">
           {isStreaming ? t('chat.thinking') : t('chat.reasoning')}
@@ -65,7 +66,7 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
           className={`reasoning-section__chevron ${isExpanded ? 'reasoning-section__chevron--expanded' : ''}`}
           aria-hidden="true"
         >
-          ▼
+          <DownOutlined />
         </span>
       </button>
       

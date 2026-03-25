@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { CheckOutlined, RightOutlined } from '@ant-design/icons';
 import type { MenuItem, MenuProps } from './types';
 import { restoreDefaultFocus } from '../../../hooks/useDefaultFocus';
 
@@ -377,11 +378,11 @@ export const Menu: React.FC<MenuProps> = ({
             <span className="context-menu__label">{item.label}</span>
             {item.checked && (
               <span className="context-menu__check" aria-hidden="true">
-                ✓
+                <CheckOutlined />
               </span>
             )}
             {item.shortcut && <span className="context-menu__shortcut" aria-hidden="true">{item.shortcut}</span>}
-            {hasSubmenu && <span className="context-menu__arrow" aria-hidden="true">▶</span>}
+            {hasSubmenu && <span className="context-menu__arrow" aria-hidden="true"><RightOutlined /></span>}
           </button>
       );
 

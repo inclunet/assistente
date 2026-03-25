@@ -1,6 +1,5 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest';
-import type { MockInstance } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
@@ -39,6 +38,10 @@ vi.mock('../store/uiStore', () => ({
   useUIStore: () => ({
     addToast: mockAddToast,
   }),
+}));
+
+vi.mock('../hooks/useConfirm', () => ({
+  useConfirm: () => vi.fn(() => Promise.resolve(true)),
 }));
 
 vi.mock('../components/ui/Toolbar', () => ({
@@ -104,8 +107,7 @@ vi.mock('../components/settings/ProviderForm', () => ({
 import ProvidersPage from './ProvidersPage';
 
 describe('ProvidersPage', () => {
-  let nowSpy: MockInstance<() => number>;
-  let confirmSpy: MockInstance<(message?: string) => boolean>;
+  let nowSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     nowSpy = vi.spyOn(Date, 'now');
@@ -124,12 +126,10 @@ describe('ProvidersPage', () => {
     mockAddToast.mockReset();
     mockAnnounce.mockReset();
     nowSpy.mockReturnValue(123);
-    confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
   });
 
   afterEach(() => {
     nowSpy.mockRestore();
-    confirmSpy.mockRestore();
   });
 
   it('duplica provedor via menu de acoes', async () => {

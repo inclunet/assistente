@@ -6,7 +6,7 @@
   margin-bottom: 4px;
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   box-shadow: 0 4px 24px color-mix(in srgb, var(--bg-base) 12%, transparent);
   max-height: 280px;
   overflow: hidden;
@@ -40,9 +40,9 @@
   border: none;
   background: none;
   cursor: pointer;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   text-align: left;
-  transition: background-color 0.1s ease;
+  transition: background-color var(--duration-instant) var(--ease-default);
   font-family: inherit;
 }
 

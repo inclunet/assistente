@@ -1,4 +1,5 @@
-import { useState, useEffect, forwardRef, useImperativeHandle, useCallback } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle, useCallback, type ReactNode } from 'react';
+import { MessageOutlined, WarningOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import { GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/main/App';
@@ -10,7 +11,7 @@ export interface ProfilePickerProps {
   variant?: 'toolbar' | 'form';
   label?: string;
   description?: string;
-  icon?: string;
+  icon?: ReactNode;
   maxWidth?: string;
   onAnnounce?: (message: string) => void;
   /** Called after a profile is selected. Use to customize focus restoration. */
@@ -34,7 +35,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
       variant,
       label = 'Perfil',
       description,
-      icon = '💬',
+      icon = <MessageOutlined />,
       maxWidth,
       onAnnounce,
       onAfterSelect,
@@ -152,7 +153,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
 
     const errorState = (
       <div className="voice-picker voice-picker--error" role="alert" aria-live="assertive">
-        <span className="voice-picker__icon">⚠️</span>
+        <span className="voice-picker__icon"><WarningOutlined aria-hidden="true" /></span>
         <span className="voice-picker__error">{error}</span>
       </div>
     );

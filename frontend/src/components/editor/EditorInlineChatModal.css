@@ -18,7 +18,7 @@
 
 .editor-inline-chat__context {
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 8px 10px;
   background: var(--bg-elevated);
 }
@@ -43,7 +43,7 @@
   background: var(--color-danger-dim);
   color: var(--color-danger);
   padding: 8px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .editor-inline-chat__patch {
@@ -79,7 +79,7 @@
   border: 1px solid var(--border-default);
   background: var(--bg-elevated);
   color: inherit;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 6px 10px;
 }
 
@@ -107,7 +107,7 @@
   overflow: auto;
   margin: 0;
   padding: 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--bg-input);
   border: 1px solid var(--border-subtle);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;

@@ -6,7 +6,7 @@
 
 .model-picker-form label {
     font-weight: 600;
-    color: var(--color-text-primary);
+    color: var(--text-primary);
     font-size: var(--font-size-sm);
 }
 
@@ -15,24 +15,19 @@
     align-items: center;
     gap: var(--spacing-sm);
     padding: var(--spacing-sm);
-    color: var(--color-text-muted);
+    color: var(--text-muted);
     font-size: var(--font-size-sm);
 }
 
 .loading-spinner {
     width: 16px;
     height: 16px;
-    border: 2px solid var(--color-border);
-    border-top-color: var(--color-accent);
+    border: 2px solid var(--border-default);
+    border-top-color: var(--accent);
     border-radius: 50%;
     animation: spin 0.6s linear infinite;
 }
 
-@keyframes spin {
-    to {
-        transform: rotate(360deg);
-    }
-}
 
 .error-state {
     display: flex;
@@ -43,30 +38,32 @@
     background: var(--color-danger-dim);
     border: 1px solid var(--color-danger);
     border-radius: var(--border-radius);
-    color: var(--color-error);
+    color: var(--color-danger);
     font-size: var(--font-size-sm);
 }
 
 .retry-btn {
     padding: var(--spacing-xs) var(--spacing-sm);
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: var(--border-radius);
-    color: var(--color-text-primary);
+    color: var(--text-primary);
     font-size: var(--font-size-xs);
     cursor: pointer;
-    transition: all 0.15s;
+    transition:
+        background-color var(--duration-fast) var(--ease-default),
+        border-color var(--duration-fast) var(--ease-default);
 }
 
 .retry-btn:hover {
-    background: var(--color-bg-tertiary);
-    border-color: var(--color-accent);
+    background: var(--bg-elevated);
+    border-color: var(--accent);
 }
 
 .help-text {
     margin: 0;
     font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
+    color: var(--text-muted);
 }
 
 .model-picker-toolbar {
@@ -74,8 +71,8 @@
     align-items: center;
     gap: var(--spacing-xs);
     padding: var(--spacing-xs) var(--spacing-sm);
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: var(--border-radius);
     font-size: var(--font-size-sm);
     min-height: 36px;
@@ -83,11 +80,11 @@
 
 .model-picker-toolbar.loading,
 .model-picker-toolbar.error {
-    color: var(--color-text-muted);
+    color: var(--text-muted);
 }
 
 .model-picker-toolbar.error {
-    color: var(--color-error);
+    color: var(--color-danger);
 }
 
 /* State when models endpoint is not supported (e.g., Google AI Studio) */

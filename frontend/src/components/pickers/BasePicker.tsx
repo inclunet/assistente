@@ -11,7 +11,7 @@ type VariantBoolean = VariantValue<boolean>;
 
 type VariantString = VariantValue<string>;
 
-type VariantIcon = VariantValue<string>;
+type VariantReactNode = VariantValue<ReactNode>;
 
 interface BasePickerProps {
   items: ComboboxItem[];
@@ -19,7 +19,7 @@ interface BasePickerProps {
   onSelect: (value: string, item?: ComboboxItem) => void;
   label: string;
   description?: string;
-  icon?: string;
+  icon?: ReactNode;
   variant?: Variant;
   placeholder?: string;
   disabled?: boolean;
@@ -35,7 +35,7 @@ interface BasePickerProps {
   loadingLabel?: VariantString;
   errorLabel?: VariantString;
   emptyLabel?: VariantString;
-  errorIcon?: VariantIcon;
+  errorIcon?: VariantReactNode;
   loadingLabelVisuallyHidden?: VariantBoolean;
   errorLabelVisuallyHidden?: VariantBoolean;
   showFormLabel?: boolean;
@@ -44,7 +44,7 @@ interface BasePickerProps {
   showErrorState?: boolean;
   showEmptyState?: boolean;
   onRetry?: () => void;
-  retryLabel?: string;
+  retryLabel?: ReactNode;
   formClassName?: string;
   toolbarClassName?: string;
   formLabelClassName?: string;

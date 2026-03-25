@@ -1,7 +1,8 @@
 .datagrid-container {
   display: flex;
   flex-direction: column;
-  height: 100%;
+  flex: 1;
+  min-height: 0;
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);
@@ -55,6 +56,7 @@
 
 .datagrid-body {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
 }
@@ -62,7 +64,7 @@
 .datagrid-row {
   display: flex;
   border-bottom: 1px solid var(--border-subtle);
-  transition: background-color 0.1s ease;
+  transition: background-color var(--duration-instant) var(--ease-default);
 }
 
 .datagrid-row:hover {
@@ -135,7 +137,7 @@
   cursor: pointer;
   color: var(--accent);
   border-radius: var(--radius-sm);
-  transition: background-color 0.2s ease;
+  transition: background-color var(--duration-fast) var(--ease-default);
   font-size: inherit;
 }
 

@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background-color: var(--background);
+  background-color: var(--bg-base);
 }
 
 .mcp-page .loading {
@@ -36,7 +36,7 @@
 .mcp-section {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
 }
 
@@ -51,7 +51,7 @@
 
 .mcp-fieldset {
   border: 1px solid var(--border-subtle);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   margin: 0;
   padding: 1rem;
   min-width: 0;
@@ -155,7 +155,7 @@
 .mcp-badge {
   display: inline-block;
   padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-weight: 500;
 }

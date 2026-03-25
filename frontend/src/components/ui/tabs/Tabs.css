@@ -1,17 +1,17 @@
 .tabs {
   /* Tokens comuns (com fallbacks) para estilos de “tab bars”.
      Componentes de domínio podem sobrescrever esses valores localmente. */
-  --tabs-bar-bg: var(--color-bg-secondary, var(--bg-secondary, var(--bg-elevated)));
-  --tabs-bar-border: var(--color-border, var(--border-color, var(--border-subtle)));
+  --tabs-bar-bg: var(--bg-surface);
+  --tabs-bar-border: var(--border-default);
   --tabs-height: 44px;
 
   --tab-radius: 6px;
   --tab-bg: transparent;
-  --tab-bg-hover: var(--color-bg-hover, var(--bg-hover));
-  --tab-bg-active: var(--color-bg-primary, var(--bg-primary));
+  --tab-bg-hover: var(--bg-hover);
+  --tab-bg-active: var(--bg-base);
   --tab-border: transparent;
-  --tab-border-active: var(--color-border, var(--border-color));
-  --tab-accent: var(--color-accent, var(--accent-color, var(--accent)));
+  --tab-border-active: var(--border-default);
+  --tab-accent: var(--accent);
   --tab-color: inherit;
 
   --tabs-focus-outline: 2px solid var(--tab-accent);

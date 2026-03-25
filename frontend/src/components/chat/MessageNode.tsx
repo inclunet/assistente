@@ -1,4 +1,5 @@
 import React, { useState, useCallback, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ChatMessage } from './ChatMessage';
 import { MessageNode as MessageNodeType, Message } from '../../store/chatStore';
 import { useChatStore } from '../../store/chatStore';
@@ -40,6 +41,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   onDelete,
   onSendToEditor,
 }) => {
+  const { t } = useTranslation();
   const nodeRef = React.useRef<HTMLDivElement>(null);
   
   // IMPORTANTE: messageId deve ser definido primeiro, pois é usado em hooks abaixo
@@ -103,7 +105,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       if (node.message.role === 'user' && !node.message.internal && !node.message.isStreaming) {
         setIsEditing(true);
         setEditContent(node.message.content);
-        announce('Editando mensagem');
+        announce(t('chat.editingMessage'));
       }
       // Limpa o estado na store
       setEditingMessageId(null);
@@ -165,7 +167,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     try {
       const messageId = Number(node.message.id);
       await UpdateMessage(messageId, editContent);
-      announce('Mensagem editada com sucesso');
+      announce(t('chat.messageEdited'));
       setIsEditing(false);
       
       // Restaura o foco para a mensagem após salvar
@@ -175,7 +177,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
     } catch (error) {
       handleError(error, {
         source: 'MessageNode.handleSaveEdit',
-        userMessage: 'Falha ao salvar edição. Tente novamente.',
+        userMessage: t('chat.editSaveError'),
         severity: ErrorSeverity.RECOVERABLE,
       });
     }
@@ -184,7 +186,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
   const handleCancelEdit = () => {
     setEditContent(node.message.content);
     setIsEditing(false);
-    announce('Edição cancelada');
+    announce(t('chat.editCancelled'));
     
     // Restaura o foco para a mensagem após cancelar
     requestAnimationFrame(() => {
@@ -288,7 +290,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       e.stopPropagation();
       setIsEditing(true);
       setEditContent(node.message.content);
-      announce('Editando mensagem');
+      announce(t('chat.editingMessage'));
       return;
     }
 
@@ -308,7 +310,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
         ? `[${node.message.role}] ${node.message.content}` // Ctrl+Shift+C: com role
         : node.message.content; // Ctrl+C: apenas conteúdo
       navigator.clipboard.writeText(textToCopy);
-      announce(e.shiftKey ? 'Mensagem copiada com role' : 'Conteúdo copiado');
+      announce(e.shiftKey ? t('chat.copiedWithRole') : t('chat.contentCopied'));
       return;
     }
 
@@ -319,7 +321,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       toggleReasoningExpanded(node.message.id);
       // O estado é lido pela store, então precisamos verificar o novo estado
       const isNowExpanded = !reasoningExpanded; // Toggle do estado atual
-      announce(isNowExpanded ? 'Raciocínio exibido' : 'Raciocínio ocultado');
+      announce(isNowExpanded ? t('chat.reasoningShown') : t('chat.reasoningHidden'));
       return;
     }
 

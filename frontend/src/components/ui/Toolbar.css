@@ -38,7 +38,7 @@
   background: var(--bg-base);
   color: var(--text-primary);
   font-size: 0.9rem;
-  transition: border-color 0.2s;
+  transition: border-color var(--duration-fast) var(--ease-default), box-shadow var(--duration-fast) var(--ease-default);
 }
 
 .toolbar__search:focus {
@@ -60,7 +60,10 @@
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default);
   white-space: nowrap;
 }
 
@@ -82,7 +85,7 @@
 
 .toolbar__button--primary {
   background: var(--accent);
-  color: white;
+  color: var(--text-inverse);
   border-color: var(--accent);
 }
 
@@ -93,7 +96,7 @@
 
 .toolbar__button--danger {
   background: var(--color-danger);
-  color: white;
+  color: var(--text-inverse);
   border-color: var(--color-danger);
 }
 
@@ -105,6 +108,8 @@
 .toolbar__button-icon {
   font-size: 1rem;
   line-height: 1;
+  display: inline-flex;
+  align-items: center;
 }
 
 .toolbar__button-label {

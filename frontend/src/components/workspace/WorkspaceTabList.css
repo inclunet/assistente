@@ -1,5 +1,5 @@
 .ws-tabs {
-  --tab-accent: var(--accent-color, var(--accent));
+  --tab-accent: var(--accent);
   --tab-radius: 6px;
   --tab-bg-hover: var(--bg-hover);
   --tab-bg-active: var(--bg-elevated);
@@ -59,7 +59,7 @@
   color: var(--tab-color-muted);
   font-size: 0.8125rem;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
   white-space: nowrap;
   min-width: 100px;
   max-width: 200px;
@@ -86,6 +86,8 @@
 .ws-tabs__tab-icon {
   font-size: 0.875rem;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
 }
 
 .ws-tabs__tab-title {
@@ -112,7 +114,7 @@
   color: inherit;
   cursor: pointer;
   opacity: 0.5;
-  transition: opacity 0.15s, background-color 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-default), background-color var(--duration-fast) var(--ease-default);
   font-size: 0.875rem;
 }
 
@@ -137,9 +139,9 @@
   left: 32px;
   right: 34px;
   padding: 2px 6px;
-  background-color: var(--bg-tertiary, var(--bg-elevated));
+  background-color: var(--bg-hover, var(--bg-elevated));
   border: 1px solid var(--tab-accent);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--tab-color);
   font-size: 0.8125rem;
   font-family: inherit;

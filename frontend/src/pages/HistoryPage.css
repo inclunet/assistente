@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background-color: var(--background);
+  background-color: var(--bg-base);
 }
 
 .history-page .loading {

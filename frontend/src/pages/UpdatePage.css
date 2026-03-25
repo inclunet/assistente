@@ -4,13 +4,13 @@
   align-items: center;
   min-height: 100vh;
   padding: 2rem;
-  background: var(--bg-secondary);
+  background: var(--bg-elevated);
 }
 
 .update-container {
   max-width: 600px;
   width: 100%;
-  background: var(--bg-primary);
+  background: var(--bg-surface);
   border-radius: var(--radius-xl);
   box-shadow: 0 4px 12px var(--bg-overlay);
   overflow: hidden;
@@ -57,7 +57,7 @@
 .progress-bar {
   width: 100%;
   height: 30px;
-  background: var(--bg-secondary);
+  background: var(--bg-elevated);
   border-radius: 15px;
   overflow: hidden;
   position: relative;
@@ -67,7 +67,7 @@
 .progress-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--accent) 0%, var(--color-purple) 100%);
-  transition: width 0.3s ease;
+  transition: width var(--duration-normal) var(--ease-default);
   border-radius: 15px;
 }
 
@@ -88,15 +88,10 @@
 .spinner {
   width: 50px;
   height: 50px;
-  border: 4px solid var(--bg-secondary);
+  border: 4px solid var(--bg-elevated);
   border-top: 4px solid var(--accent);
   border-radius: 50%;
   animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
 }
 
 .update-message {
@@ -132,7 +127,7 @@
 }
 
 .error-message {
-  background: var(--bg-secondary);
+  background: var(--bg-elevated);
   padding: 1rem;
   border-radius: var(--radius-lg);
   font-family: 'Courier New', monospace;
@@ -156,7 +151,10 @@
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default),
+    box-shadow var(--duration-fast) var(--ease-default);
 }
 
 .btn-primary {
@@ -170,11 +168,11 @@
 }
 
 .btn-secondary {
-  background: var(--bg-secondary);
+  background: var(--bg-elevated);
   color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
 }
 
 .btn-secondary:hover {
-  background: var(--bg-tertiary);
+  background: var(--bg-hover);
 }

@@ -1,4 +1,5 @@
-import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
+import { AudioOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
@@ -14,7 +15,7 @@ export interface STTProviderPickerProps {
   variant?: 'toolbar' | 'form';
   label?: string;
   helpText?: string;
-  icon?: string;
+  icon?: ReactNode;
   maxWidth?: string;
   onAnnounce?: (message: string) => void;
 }
@@ -27,7 +28,6 @@ interface STTProvider {
   id: string;
   name: string;
   description: string;
-  icon: string;
 }
 
 export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPickerProps>(
@@ -38,7 +38,7 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
       variant = 'form',
       label,
       helpText,
-      icon = '🎤',
+      icon = <AudioOutlined />,
       maxWidth,
       onAnnounce,
     },
@@ -59,13 +59,11 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
             id: STT_WEBSPEECH,
             name: t('pickers.stt.webSpeech'),
             description: t('pickers.stt.webSpeechDesc'),
-            icon: '🌐'
           },
           {
             id: STT_WHISPER,
             name: t('pickers.stt.whisper'),
             description: t('pickers.stt.whisperDesc'),
-            icon: '🤖'
           },
         ];
 
@@ -88,7 +86,7 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
 
     const items: ComboboxItem[] = providers.map((provider) => ({
       value: provider.id,
-      label: `${provider.icon} ${provider.name}`,
+      label: provider.name,
       sublabel: provider.description,
     }));
 
@@ -117,7 +115,7 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
         errorClassName={{ form: 'error-state', toolbar: 'stt-picker-toolbar stt-picker-error' }}
         errorLabel={{ form: error || t('pickers.stt.loadError'), toolbar: '' }}
         errorLabelVisuallyHidden={{ toolbar: true }}
-        errorIcon={{ form: '⚠️', toolbar: '⚠️' }}
+        errorIcon={{ form: <WarningOutlined />, toolbar: <WarningOutlined /> }}
         retryClassName="retry-btn"
       />
     );

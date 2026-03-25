@@ -11,6 +11,30 @@ import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import {
+  ArrowLeftOutlined,
+  FolderOutlined,
+  HistoryOutlined,
+  CheckSquareOutlined,
+  UserSwitchOutlined,
+  SafetyOutlined,
+  ThunderboltOutlined,
+  ApiOutlined,
+  SendOutlined,
+  LockOutlined,
+  RobotOutlined,
+  BgColorsOutlined,
+  GlobalOutlined,
+  SettingOutlined,
+  QuestionCircleOutlined,
+  InfoCircleOutlined,
+  PlusOutlined,
+  EditOutlined,
+  ExportOutlined,
+  ImportOutlined,
+  CheckOutlined,
+  DownOutlined,
+} from '@ant-design/icons';
 import './Topbar.css';
 
 const PAGE_TITLE_KEYS: Record<string, string> = {
@@ -132,24 +156,22 @@ export function Topbar() {
     setRenameValue(workspace.name);
   }, [workspace]);
 
-  // Picker items: workspace list only
   const pickerItems = useMemo((): MenuItem[] => {
     return workspaces.map((ws) => ({
       id: `ws-${ws.id}`,
       label: ws.name,
-      icon: ws.is_active ? '●' : ' ',
+      icon: ws.is_active ? <CheckOutlined /> : undefined,
       shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular', 'aba') : t('workspace.tabPlural', 'abas')}`,
       checked: ws.is_active,
       action: () => { if (!ws.is_active) void switchWorkspace(ws.id); },
     }));
   }, [workspaces, switchWorkspace, t]);
 
-  // Context menu items: workspace management
   const ctxMenuItems = useMemo((): MenuItem[] => [
     {
       id: 'new-workspace',
       label: t('workspace.newWorkspace'),
-      icon: '➕',
+      icon: <PlusOutlined />,
       shortcut: 'Ctrl+Shift+N',
       action: () => {
         const name = `Workspace ${workspaces.length + 1}`;
@@ -160,7 +182,7 @@ export function Topbar() {
     {
       id: 'rename-workspace',
       label: t('workspace.rename', 'Renomear workspace'),
-      icon: '✏️',
+      icon: <EditOutlined />,
       shortcut: 'F2',
       action: startRename,
     },
@@ -168,13 +190,13 @@ export function Topbar() {
     {
       id: 'export-workspace',
       label: t('workspace.export', 'Exportar workspace'),
-      icon: '📤',
+      icon: <ExportOutlined />,
       action: handleExportWorkspace,
     },
     {
       id: 'import-workspace',
       label: t('workspace.import', 'Importar workspace'),
-      icon: '📥',
+      icon: <ImportOutlined />,
       action: handleImportWorkspace,
     },
   ], [workspaces.length, createWorkspace, announce, t, startRename, handleExportWorkspace, handleImportWorkspace]);
@@ -236,40 +258,40 @@ export function Topbar() {
 
   const mainMenuItems: MenuButtonItem[] = useMemo(() => [
     ...(!isWorkspaceRoute ? [
-      { id: 'back-to-workspace', label: t('menu.backToWorkspace'), icon: '←', onClick: () => navigate('/') },
+      { id: 'back-to-workspace', label: t('menu.backToWorkspace'), icon: <ArrowLeftOutlined />, onClick: () => navigate('/') },
       { id: 'sep-back', separator: true as const },
     ] : []),
-    { id: 'history', label: t('menu.history'), icon: '📜', shortcut: 'Alt+H', onClick: () => navigate('/history') },
-    { id: 'tasklists', label: t('menu.tasklists'), icon: '✓', onClick: () => navigate('/tasklists') },
-    { id: 'jobs', label: t('menu.jobs'), icon: '⚡', onClick: () => navigate('/jobs') },
-    { id: 'profiles', label: t('menu.profiles'), icon: '🎭', shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
-    { id: 'allowlists', label: t('menu.allowlists'), icon: '🛡️', onClick: () => navigate('/allowlists') },
-    { id: 'skills', label: t('menu.skills'), icon: '🧠', onClick: () => navigate('/skills') },
-    { id: 'mcp', label: t('menu.mcp'), icon: '🔌', onClick: () => navigate('/mcp') },
-    { id: 'channels', label: t('menu.channels'), icon: '📡', onClick: () => navigate('/channels') },
-    { id: 'credentials', label: t('menu.credentials'), icon: '🔐', onClick: () => navigate('/credentials') },
-    { id: 'providers', label: t('menu.providers'), icon: '🤖', onClick: () => navigate('/providers') },
+    { id: 'history', label: t('menu.history'), icon: <HistoryOutlined />, shortcut: 'Alt+H', onClick: () => navigate('/history') },
+    { id: 'tasklists', label: t('menu.tasklists'), icon: <CheckSquareOutlined />, onClick: () => navigate('/tasklists') },
+    { id: 'jobs', label: t('menu.jobs'), icon: <ThunderboltOutlined />, onClick: () => navigate('/jobs') },
+    { id: 'profiles', label: t('menu.profiles'), icon: <UserSwitchOutlined />, shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
+    { id: 'allowlists', label: t('menu.allowlists'), icon: <SafetyOutlined />, onClick: () => navigate('/allowlists') },
+    { id: 'skills', label: t('menu.skills'), icon: <ThunderboltOutlined />, onClick: () => navigate('/skills') },
+    { id: 'mcp', label: t('menu.mcp'), icon: <ApiOutlined />, onClick: () => navigate('/mcp') },
+    { id: 'channels', label: t('menu.channels'), icon: <SendOutlined />, onClick: () => navigate('/channels') },
+    { id: 'credentials', label: t('menu.credentials'), icon: <LockOutlined />, onClick: () => navigate('/credentials') },
+    { id: 'providers', label: t('menu.providers'), icon: <RobotOutlined />, onClick: () => navigate('/providers') },
     {
-      id: 'theme', label: t('menu.theme'), icon: '🎨',
+      id: 'theme', label: t('menu.theme'), icon: <BgColorsOutlined />,
       submenu: THEMES.map((th) => ({
         id: `theme-${th.id}`,
         label: th.label,
-        icon: currentTheme === th.id ? '✓' : ' ',
+        icon: currentTheme === th.id ? <CheckOutlined /> : undefined,
         onClick: () => setTheme(th.id as ThemeId),
       })),
     },
     {
-      id: 'language', label: t('menu.language'), icon: '🌐',
+      id: 'language', label: t('menu.language'), icon: <GlobalOutlined />,
       submenu: LANGUAGES.map((lang) => ({
         id: `lang-${lang.id}`,
         label: lang.nativeLabel,
-        icon: currentLang === lang.id ? '✓' : ' ',
+        icon: currentLang === lang.id ? <CheckOutlined /> : undefined,
         onClick: () => setLanguage(lang.id),
       })),
     },
-    { id: 'settings', label: t('menu.restoreDefaults'), icon: '↩️', onClick: () => navigate('/settings') },
-    { id: 'help', label: t('menu.help'), icon: '📚', shortcut: 'F1', onClick: () => navigate('/help') },
-    { id: 'about', label: t('menu.about'), icon: 'ℹ️', onClick: () => navigate('/about') },
+    { id: 'settings', label: t('menu.restoreDefaults'), icon: <SettingOutlined />, onClick: () => navigate('/settings') },
+    { id: 'help', label: t('menu.help'), icon: <QuestionCircleOutlined />, shortcut: 'F1', onClick: () => navigate('/help') },
+    { id: 'about', label: t('menu.about'), icon: <InfoCircleOutlined />, onClick: () => navigate('/about') },
   ], [navigate, t, currentTheme, setTheme, currentLang, setLanguage, isWorkspaceRoute]);
 
   // --- Keyboard shortcuts ---
@@ -332,9 +354,9 @@ export function Topbar() {
                 aria-label={t('workspace.workspaceList')}
                 tabIndex={-1}
               >
-                <span className="topbar__picker-icon" aria-hidden="true">📂</span>
+                <span className="topbar__picker-icon" aria-hidden="true"><FolderOutlined /></span>
                 <span className="topbar__picker-name">{workspace?.name || 'Workspace'}</span>
-                <span className="topbar__picker-arrow" aria-hidden="true">▾</span>
+                <span className="topbar__picker-arrow" aria-hidden="true"><DownOutlined /></span>
               </button>
             )
           ) : (
@@ -345,7 +367,7 @@ export function Topbar() {
               title={t('menu.backToWorkspace')}
               tabIndex={-1}
             >
-              <span aria-hidden="true">←</span>
+              <ArrowLeftOutlined aria-hidden="true" />
               <span>{t('menu.backToWorkspace')}</span>
             </button>
           )}

@@ -3,13 +3,13 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background: var(--bg-primary);
+  background: var(--bg-surface);
 }
 
 .help-header {
   padding: var(--spacing-lg);
-  border-bottom: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  border-bottom: 1px solid var(--border-default);
+  background: var(--bg-elevated);
 }
 
 .help-header h1 {
@@ -32,12 +32,14 @@
 .help-expand-btn {
   padding: var(--spacing-xs) var(--spacing-sm);
   font-size: var(--font-size-sm);
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--text-secondary);
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default);
 }
 
 .help-expand-btn:hover {
@@ -46,20 +48,21 @@
 }
 
 .help-expand-btn:focus-visible {
-  outline: 2px solid var(--accent-color);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .help-main {
   flex: 1;
+  min-height: 0;
   overflow-y: auto;
   padding: var(--spacing-lg);
 }
 
 .help-section {
   margin-bottom: var(--spacing-md);
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   overflow: hidden;
 }
@@ -75,7 +78,7 @@
   cursor: pointer;
   text-align: left;
   color: var(--text-primary);
-  transition: background 0.2s;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .help-section-header:hover {
@@ -83,7 +86,7 @@
 }
 
 .help-section-header:focus-visible {
-  outline: 2px solid var(--accent-color);
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 
@@ -101,7 +104,7 @@
 .help-section-chevron {
   font-size: var(--font-size-sm);
   color: var(--text-secondary);
-  transition: transform 0.2s;
+  transition: transform var(--duration-fast) var(--ease-default);
 }
 
 .help-section.expanded .help-section-chevron {
@@ -110,8 +113,8 @@
 
 .help-section-body {
   padding: 0 var(--spacing-md) var(--spacing-md);
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-primary);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-surface);
 }
 
 .help-content {
@@ -148,14 +151,14 @@
 }
 
 .help-content li strong {
-  color: var(--accent-color);
+  color: var(--accent);
 }
 
 .help-content code {
   padding: 2px 6px;
   font-family: var(--font-mono);
   font-size: 0.9em;
-  background: var(--bg-tertiary);
+  background: var(--bg-hover);
   border-radius: var(--radius-sm);
   color: var(--text-code);
 }
@@ -171,7 +174,7 @@
 .help-shortcuts td {
   padding: var(--spacing-sm);
   text-align: left;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .help-shortcuts th {
@@ -180,7 +183,7 @@
   font-size: var(--font-size-sm);
   text-transform: uppercase;
   letter-spacing: 0.05em;
-  background: var(--bg-tertiary);
+  background: var(--bg-hover);
 }
 
 .help-shortcuts td {
@@ -197,8 +200,8 @@
   font-family: var(--font-mono);
   font-size: var(--font-size-sm);
   font-weight: 600;
-  background: var(--bg-tertiary);
-  border: 1px solid var(--border-color);
+  background: var(--bg-hover);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   box-shadow: 0 1px 2px var(--bg-overlay);
   color: var(--text-primary);
@@ -206,8 +209,8 @@
 
 .help-footer {
   padding: var(--spacing-md) var(--spacing-lg);
-  border-top: 1px solid var(--border-color);
-  background: var(--bg-secondary);
+  border-top: 1px solid var(--border-default);
+  background: var(--bg-elevated);
   text-align: center;
 }
 
@@ -217,8 +220,8 @@
   color: var(--text-muted);
 }
 
-/* Scroll suave para âncoras */
-html {
+/* Scroll suave apenas dentro da area de ajuda */
+.help-main {
   scroll-behavior: smooth;
 }
 
@@ -236,7 +239,7 @@ html {
 
 /* Estilo para links dentro do conteúdo */
 .help-content a {
-  color: var(--accent-color);
+  color: var(--accent);
   text-decoration: none;
 }
 
@@ -245,7 +248,7 @@ html {
 }
 
 .help-content a:focus-visible {
-  outline: 2px solid var(--accent-color);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -256,9 +259,9 @@ html {
 
 @keyframes highlight {
   0% {
-    background: var(--accent-color-subtle);
+    background: var(--accent-dim);
   }
   100% {
-    background: var(--bg-secondary);
+    background: var(--bg-elevated);
   }
 }

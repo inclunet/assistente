@@ -6,6 +6,9 @@
   padding: 0 0.5rem;
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-default);
+  box-shadow: 0 1px 3px var(--bg-overlay);
+  position: relative;
+  z-index: 10;
 }
 
 .topbar__left {
@@ -44,7 +47,7 @@
   font-size: 0.875rem;
   font-weight: 500;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .topbar__picker:hover {
@@ -85,7 +88,7 @@
   color: var(--text-secondary);
   font-size: 0.875rem;
   cursor: pointer;
-  transition: background 0.15s, color 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
 }
 
 .topbar__back:hover {

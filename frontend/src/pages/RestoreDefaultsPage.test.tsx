@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, vi, type MockInstance } from 'vitest';
+import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import RestoreDefaultsPage from './RestoreDefaultsPage';
@@ -41,9 +41,14 @@ vi.mock('../hooks/useAnnouncer', () => ({
   }),
 }));
 
+const mockConfirm = vi.fn().mockResolvedValue(true);
+
+vi.mock('../hooks/useConfirm', () => ({
+  useConfirm: () => mockConfirm,
+}));
+
 const mockAddToast = vi.fn();
 const mockHandleDatabaseReset = vi.fn();
-let confirmSpy: MockInstance<(message?: string) => boolean>;
 
 describe('RestoreDefaultsPage', () => {
   beforeEach(() => {
@@ -64,8 +69,8 @@ describe('RestoreDefaultsPage', () => {
     vi.mocked(AppAPI.ClearAllChannels).mockResolvedValue(undefined);
     vi.mocked(AppAPI.ResetDatabase).mockResolvedValue(undefined);
 
-    const windowWithConfirm = window as Window & { confirm: (message?: string) => boolean };
-    confirmSpy = vi.spyOn(windowWithConfirm, 'confirm');
+    mockConfirm.mockReset();
+    mockConfirm.mockResolvedValue(true);
   });
 
   describe('Rendering', () => {
@@ -121,9 +126,9 @@ describe('RestoreDefaultsPage', () => {
   });
 
   describe('Confirmação de operações', () => {
-    it('deve chamar window.confirm ao iniciar uma operação', async () => {
+    it('deve mostrar diálogo de confirmação ao iniciar uma operação', async () => {
       const user = userEvent.setup();
-      confirmSpy.mockReturnValue(false); // Cancelar operação
+      mockConfirm.mockResolvedValueOnce(false);
 
       render(<RestoreDefaultsPage />);
 
@@ -135,16 +140,16 @@ describe('RestoreDefaultsPage', () => {
       );
 
       expect(actionButton).toBeDefined();
-      
+
       if (actionButton) {
         await user.click(actionButton);
-        expect(window.confirm).toHaveBeenCalled();
+        expect(mockConfirm).toHaveBeenCalled();
       }
     });
 
     it('deve cancelar operação se confirmação for recusada', async () => {
       const user = userEvent.setup();
-      confirmSpy.mockReturnValue(false);
+      mockConfirm.mockResolvedValue(false);
 
       render(<RestoreDefaultsPage />);
 
@@ -165,7 +170,6 @@ describe('RestoreDefaultsPage', () => {
   describe('Operações específicas', () => {
     it('deve chamar ResetDatabase para opções nucleares quando confirmado', async () => {
       const user = userEvent.setup();
-      confirmSpy.mockReturnValue(true);
 
       render(<RestoreDefaultsPage />);
 
@@ -193,7 +197,6 @@ describe('RestoreDefaultsPage', () => {
 
     it('deve chamar handleDatabaseReset quando ResetDatabase é executado', async () => {
       const user = userEvent.setup();
-      confirmSpy.mockReturnValue(true);
 
       render(<RestoreDefaultsPage />);
 

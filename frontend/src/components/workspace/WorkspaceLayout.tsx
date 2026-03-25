@@ -1,6 +1,7 @@
 import { useEffect, useMemo } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { Spin } from 'antd';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useWorkspaceKeyboardShortcuts } from '../../hooks/useWorkspaceKeyboardShortcuts';
@@ -171,7 +172,9 @@ export function WorkspaceLayout() {
   if (!isInitialized && isWorkspaceRoute) {
     return (
       <div className="workspace-layout">
-        <div className="workspace-layout__loading" aria-busy="true" />
+        <div className="workspace-layout__loading" aria-busy="true">
+          <Spin size="large" />
+        </div>
       </div>
     );
   }

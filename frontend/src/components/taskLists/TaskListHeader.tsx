@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { EditOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { Button } from '../ui/Button';
@@ -131,7 +132,7 @@ export default function TaskListHeader({ taskList, onRefresh }: TaskListHeaderPr
             onClick={() => setIsEditing(true)}
             aria-label={t('tasklist.editTitle', 'Editar título')}
           >
-            ✎
+            <EditOutlined aria-hidden="true" />
           </button>
         </div>
 

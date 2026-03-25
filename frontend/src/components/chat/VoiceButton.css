@@ -21,7 +21,11 @@
   background: var(--bg-elevated);
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default);
   overflow: visible;
   touch-action: none; /* Importante para pointer events */
   user-select: none;
@@ -133,7 +137,7 @@
   transform: translate(-50%, -50%) scale(1);
   transform-origin: center;
   pointer-events: none;
-  transition: transform 0.1s ease;
+  transition: transform var(--duration-instant) var(--ease-default);
   z-index: -1;
 }
 
@@ -187,7 +191,7 @@
   padding: 8px 12px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--text-primary);
   font-size: 14px;
   max-width: 300px;
@@ -196,7 +200,7 @@
   text-overflow: ellipsis;
   box-shadow: 0 4px 6px -1px color-mix(in srgb, var(--bg-base) 10%, transparent);
   z-index: 10;
-  animation: fadeIn 0.2s ease;
+  animation: voiceInterimIn var(--duration-fast) var(--ease-default);
 }
 
 .voice-button__interim::after {
@@ -209,7 +213,7 @@
   border-top-color: var(--bg-elevated);
 }
 
-@keyframes fadeIn {
+@keyframes voiceInterimIn {
   from {
     opacity: 0;
     transform: translateX(-50%) translateY(4px);

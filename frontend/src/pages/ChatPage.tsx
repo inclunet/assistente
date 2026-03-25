@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { Alert, Button } from 'antd';
 import { useChatStore } from '../store/chatStore';
 import { useEditorStore } from '../store/editorStore';
 import { ttsService } from '../services/tts';
@@ -19,6 +21,7 @@ import { handleError, ErrorSeverity, ErrorMessages } from '../utils/errorHandler
 import './ChatPage.css';
 
 export default function ChatPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
@@ -308,31 +311,28 @@ export default function ChatPage() {
 
       {/* Error banner with retry */}
       {sendError && lastFailedMessage && (
-        <div
-          className="chat-page__error-banner"
-          role="alert"
-          aria-live="assertive"
-        >
-          <span className="chat-page__error-message">{sendError}</span>
-          <button
-            ref={retryButtonRef}
-            className="chat-page__retry-button"
-            onClick={handleRetry}
-            aria-label="Tentar enviar novamente"
-          >
-            Tentar novamente
-          </button>
-          <button
-            className="chat-page__dismiss-button"
-            onClick={() => {
-              setSendError(null);
-              setLastFailedMessage(null);
-            }}
-            aria-label="Descartar erro"
-          >
-            ✕
-          </button>
-        </div>
+        <Alert
+          type="error"
+          showIcon
+          closable
+          message={sendError}
+          action={
+            <Button
+              ref={retryButtonRef}
+              size="small"
+              danger
+              onClick={handleRetry}
+              aria-label={t('chat.retryAriaLabel')}
+            >
+              {t('chat.retry')}
+            </Button>
+          }
+          onClose={() => {
+            setSendError(null);
+            setLastFailedMessage(null);
+          }}
+          style={{ flexShrink: 0 }}
+        />
       )}
 
       <ChatInput 

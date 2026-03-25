@@ -11,10 +11,10 @@
   align-items: flex-start;
   gap: 8px;
   padding: 12px;
-  border: 1px solid var(--border-color, var(--border-default));
-  border-radius: 4px;
-  background-color: var(--bg-primary, var(--bg-surface));
-  transition: background-color 0.2s ease, border-color 0.2s ease;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background-color: var(--bg-surface);
+  transition: background-color var(--duration-fast) var(--ease-default), border-color var(--duration-fast) var(--ease-default);
 }
 
 .checkbox-grid__item:has(.checkbox-grid__checkbox:checked) {

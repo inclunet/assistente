@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useId, useCallback } from 'react';
+import { useState, useRef, useEffect, useId, useCallback, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { playBumpSound } from '../../services/audioFeedback';
 import './Combobox.css';
@@ -11,7 +11,7 @@ export interface ComboboxItem {
 }
 
 export interface ComboboxProps {
-    icon?: string;
+    icon?: ReactNode;
     label?: string;
     description?: string;
     items: ComboboxItem[];
@@ -28,7 +28,7 @@ export interface ComboboxProps {
 }
 
 export const Combobox = ({
-    icon = '🔧',
+    icon,
     label,
     description,
     items,
@@ -268,7 +268,7 @@ export const Combobox = ({
                     aria-label={`${effectiveLabel}: ${selectedLabel}`}
                     title={description || `${effectiveLabel}: ${selectedLabel}`}
                 >
-                    <span className="picker-icon" aria-hidden="true">{icon}</span>
+                    {icon && <span className="picker-icon" aria-hidden="true">{icon}</span>}
                     <span className="picker-label" aria-hidden="true">{displayLabel}</span>
                     <span className="picker-arrow" aria-hidden="true">▼</span>
                 </button>

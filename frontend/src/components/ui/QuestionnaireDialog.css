@@ -13,7 +13,7 @@
 
 .questionnaire-dialog__question {
   border: 1px solid var(--border-default);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   padding: 12px 14px;
   background: var(--surface-2, var(--bg-elevated));
 }

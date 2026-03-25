@@ -24,7 +24,7 @@
   font-size: 0.9375rem;
   line-height: 1.5;
   outline: none;
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color var(--duration-fast) var(--ease-default), box-shadow var(--duration-fast) var(--ease-default);
   min-height: 100px;
 }
 

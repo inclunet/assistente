@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useMemo, forwardRef } from 'react';
 import { useTranslation } from 'react-i18next';
+import { MessageOutlined } from '@ant-design/icons';
 import { MessageNode as MessageNodeComponent } from './MessageNode';
 import { MessageNode, Message, TurnSegment } from '../../store/chatStore';
 import { main } from '../../../wailsjs/go/models';
@@ -196,7 +197,9 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>((
         aria-label={t('chat.messageListLabel')}
       >
         <div className="message-list__empty-state">
-          <div className="message-list__empty-icon">💬</div>
+          <div className="message-list__empty-icon" aria-hidden="true">
+            <MessageOutlined />
+          </div>
           <h3 className="message-list__empty-title">
             {t('chat.emptyTitle')}
           </h3>

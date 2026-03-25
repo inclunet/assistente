@@ -1,7 +1,7 @@
 .json-editor {
   position: relative;
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   background: var(--bg-surface);
 }

@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { useTranslation } from 'react-i18next';
+import { Trans, useTranslation } from 'react-i18next';
+import { CopyOutlined, DeleteOutlined, EditOutlined, PlusOutlined } from '@ant-design/icons';
 import {
   GetSkills,
   GetSkill,
@@ -22,6 +23,7 @@ import { SkillToolsSection } from '../components/skills/SkillToolsSection';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useEditableList } from '../hooks/useEditableList';
+import { useConfirm } from '../hooks/useConfirm';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
@@ -54,6 +56,7 @@ interface SkillFormData {
 
 export default function SkillsPage() {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const { handleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'skills-page' });
   const { addToast } = useUIStore();
@@ -135,11 +138,17 @@ export default function SkillsPage() {
         deleteSuccess: t('skills.deleted', 'Skill excluído!'),
         deleteError: t('skills.deleteError', 'Erro ao excluir skill'),
       },
-      canDelete: (item) => {
-        const confirmed = confirm(
-          t('skills.confirmDelete', `Tem certeza que deseja excluir o skill "${item.name}"?`)
-        );
-        return confirmed ? true : 'Cancelado';
+      skipBuiltInDeleteConfirm: true,
+      canDelete: async (item) => {
+        const ok = await confirm({
+          title: t('skills.confirmDeleteTitle'),
+          message: t('skills.confirmDelete', { name: item.name }),
+          confirmText: t('common.delete'),
+          cancelText: t('common.cancel'),
+          variant: 'danger',
+        });
+        if (!ok) return t('skills.deleteCancelled');
+        return true;
       },
       validate: (item) => {
         if (!item.name.trim()) {
@@ -258,19 +267,19 @@ export default function SkillsPage() {
       {
         id: 'edit',
         label: t('skills.edit', 'Editar skill'),
-        icon: '✏️',
+        icon: <EditOutlined />,
         onClick: () => crud.openEdit(row),
       },
       {
         id: 'duplicate',
         label: t('skills.duplicate', 'Duplicar'),
-        icon: '📄',
+        icon: <CopyOutlined />,
         onClick: () => handleDuplicateSkill(row),
       },
       {
         id: 'delete',
         label: t('skills.delete', 'Excluir skill'),
-        icon: '🗑️',
+        icon: <DeleteOutlined />,
         onClick: () => crud.deleteItem(row),
         danger: true,
       },
@@ -346,7 +355,7 @@ export default function SkillsPage() {
           {
             key: 'new-skill',
             label: t('skills.newSkill', 'Novo Skill'),
-            icon: '➕',
+            icon: <PlusOutlined />,
             onClick: crud.openNew,
             shortcut: 'Ctrl+N',
             variant: 'primary',
@@ -354,21 +363,21 @@ export default function SkillsPage() {
           {
             key: 'edit-skill',
             label: t('skills.edit', 'Editar skill'),
-            icon: '✏️',
+            icon: <EditOutlined />,
             onClick: () => focusedRow && crud.openEdit(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'duplicate-skill',
             label: t('skills.duplicate', 'Duplicar'),
-            icon: '📄',
+            icon: <CopyOutlined />,
             onClick: () => focusedRow && handleDuplicateSkill(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'delete-skill',
             label: t('skills.delete', 'Excluir skill'),
-            icon: '🗑️',
+            icon: <DeleteOutlined />,
             onClick: () => focusedRow && crud.deleteItem(focusedRow),
             disabled: !focusedRow,
             variant: 'danger',
@@ -451,10 +460,11 @@ export default function SkillsPage() {
       {!crud.editingItem && crud.items.length > 0 && (
         <div className="skills-empty" role="status">
           <p>
-            {t(
-              'skills.selectHint',
-              'Pressione Enter ou clique ✏️ para editar um skill.'
-            )}
+            <Trans
+              i18nKey="skills.selectHint"
+              defaults="Pressione Enter ou clique <0></0> para editar."
+              components={[<EditOutlined key="skills-select-hint-edit" aria-hidden="true" />]}
+            />
           </p>
         </div>
       )}

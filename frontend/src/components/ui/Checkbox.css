@@ -30,16 +30,16 @@
   border: 2px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--bg-input);
-  transition: background-color 0.15s, border-color 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-default), border-color var(--duration-fast) var(--ease-default);
 }
 
 .checkbox-check {
   width: 12px;
   height: 10px;
-  color: white;
+  color: var(--text-inverse);
   opacity: 0;
   transform: scale(0.5);
-  transition: opacity 0.15s, transform 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-default), transform var(--duration-fast) var(--ease-bounce);
 }
 
 .checkbox-input:checked + .checkbox-box {

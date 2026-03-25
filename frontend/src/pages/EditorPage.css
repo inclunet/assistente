@@ -41,7 +41,7 @@
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-subtle);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--bg-muted);
   overflow: hidden;
   min-height: 0;
@@ -79,7 +79,7 @@
 .editor-page__rich-placeholder {
   padding: 16px;
   border: 1px dashed var(--border-default);
-  border-radius: 12px;
+  border-radius: var(--radius-xl);
   background: var(--bg-muted);
 }
 

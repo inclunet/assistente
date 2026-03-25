@@ -7,6 +7,7 @@ import {
   forwardRef,
   useImperativeHandle,
 } from 'react';
+import { LinkOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
@@ -733,7 +734,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
                                   } : {})}
                                 >
                                   {task.code}
-                                  {task.link && <span className="kanban-card__link-icon" aria-hidden="true">🔗</span>}
+                                  {task.link && <span className="kanban-card__link-icon" aria-hidden="true"><LinkOutlined /></span>}
                                 </span>
                               )}
                               {!task.code && task.link && (
@@ -742,7 +743,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
                                   role="button"
                                   tabIndex={-1}
                                   onClick={(e) => { e.stopPropagation(); openTaskLink(task.link!, { navigate }); }}
-                                >🔗</span>
+                                ><LinkOutlined /></span>
                               )}
                               <span className="kanban-card__title">{task.title}</span>
                               <div className="kanban-card__meta">

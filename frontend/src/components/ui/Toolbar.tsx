@@ -1,4 +1,4 @@
-import { ReactNode, forwardRef, useRef, useEffect } from 'react';
+import { type ReactNode, forwardRef, useRef, useEffect } from 'react';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import './Toolbar.css';
 
@@ -7,8 +7,8 @@ export type ToolbarButtonVariant = 'primary' | 'secondary' | 'danger';
 export interface ToolbarButtonProps
   extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   label: string;
-  icon?: string;
-  endIcon?: string;
+  icon?: ReactNode;
+  endIcon?: ReactNode;
   shortcut?: string;
   variant?: ToolbarButtonVariant;
 }

@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
@@ -112,7 +113,7 @@ export const TaskListHistoryPicker = forwardRef<TaskListHistoryPickerRef, TaskLi
       selected={selectedValue}
       onSelect={handleSelect}
       label={label || t('tasklist.historyPicker', 'Histórico (Ctrl+H)')}
-      icon="📋"
+      icon={<UnorderedListOutlined />}
       placeholder={isLoading ? t('tasklist.loading', 'Carregando...') : t('tasklist.searchHistory', 'Buscar lista...')}
       disabled={disabled || isLoading}
       maxWidth={maxWidth}

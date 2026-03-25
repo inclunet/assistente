@@ -1,9 +1,21 @@
 .ws-content {
   flex: 1;
+  min-height: 0;
   display: flex;
   flex-direction: column;
   overflow: hidden;
   background: var(--bg-base);
+}
+
+.ws-content-toolbar {
+  flex-shrink: 0;
+}
+
+.ws-content-area {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
 }
 
 .ws-content--empty {

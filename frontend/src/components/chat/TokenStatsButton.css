@@ -3,19 +3,22 @@
   align-items: center;
   gap: 6px;
   padding: 6px 12px;
-  background: var(--background-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 6px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   color: var(--text-primary);
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default);
   white-space: nowrap;
 }
 
 .token-stats-button:hover {
-  background: var(--background-tertiary);
+  background: var(--bg-elevated);
   border-color: var(--border-hover);
   transform: translateY(-1px);
 }
@@ -53,7 +56,7 @@
 }
 
 .token-stats-button--warning:hover {
-  background: var(--warning-background-hover);
+  background: var(--color-warning-dim-hover);
 }
 
 .token-stats-button--critical {
@@ -62,7 +65,7 @@
 }
 
 .token-stats-button--critical:hover {
-  background: var(--error-background-hover);
+  background: var(--color-danger-dim-hover);
 }
 
 .token-stats-button--loading {
@@ -84,12 +87,15 @@
   margin-left: 4px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 11px;
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-secondary);
-  transition: all 0.3s ease;
+  transition:
+    border-color var(--duration-normal) var(--ease-default),
+    background-color var(--duration-normal) var(--ease-default),
+    color var(--duration-normal) var(--ease-default);
 }
 
 /* Animação suave conforme aumenta */

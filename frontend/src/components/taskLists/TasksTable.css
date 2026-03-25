@@ -85,17 +85,17 @@
 
 .task-status-pending {
   background-color: var(--color-info);
-  color: white;
+  color: var(--text-inverse);
 }
 
 .task-status-completed {
   background-color: var(--color-success);
-  color: white;
+  color: var(--text-inverse);
 }
 
 .task-status-cancelled {
   background-color: var(--color-warning);
-  color: white;
+  color: var(--text-inverse);
 }
 
 .task-assignee {
@@ -150,7 +150,7 @@
   align-items: center;
   justify-content: center;
   border-radius: var(--radius-sm);
-  transition: background-color 0.2s ease, opacity 0.2s ease;
+  transition: background-color var(--duration-fast) var(--ease-default), opacity var(--duration-fast) var(--ease-default);
   opacity: 0.7;
 }
 
@@ -201,7 +201,7 @@
   color: var(--text-primary);
   cursor: pointer;
   font-size: 0.9375rem;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition: background-color var(--duration-fast) var(--ease-default), border-color var(--duration-fast) var(--ease-default);
 }
 
 .demote-task-option:hover {

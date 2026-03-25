@@ -10,12 +10,7 @@
   justify-content: center;
   z-index: 1000;
   padding: 20px;
-  animation: fadeIn 0.2s ease-out;
-}
-
-@keyframes fadeIn {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  animation: fadeIn var(--duration-fast) var(--ease-out);
 }
 
 .modal-content {
@@ -26,18 +21,7 @@
   max-height: 90vh;
   display: flex;
   flex-direction: column;
-  animation: slideUp 0.3s ease-out;
-}
-
-@keyframes slideUp {
-  from {
-    transform: translateY(20px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
+  animation: slideUp var(--duration-normal) var(--ease-out);
 }
 
 .modal-content.sm {
@@ -85,7 +69,9 @@
   padding: 4px 8px;
   line-height: 1;
   border-radius: var(--radius-sm);
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default);
 }
 
 .modal-close:hover {

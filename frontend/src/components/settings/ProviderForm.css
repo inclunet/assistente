@@ -39,18 +39,18 @@
 
 .provider-form__error {
   padding: 0.75rem;
-  background-color: var(--color-error-bg, var(--color-danger-dim));
-  color: var(--color-error, var(--color-danger));
-  border-radius: 4px;
+  background-color: var(--color-danger-dim);
+  color: var(--color-danger);
+  border-radius: var(--radius-sm);
   font-size: 0.9rem;
-  border-left: 3px solid var(--color-error, var(--color-danger));
+  border-left: 3px solid var(--color-danger);
 }
 
 .provider-form__info {
   padding: 0.75rem;
-  background-color: var(--color-info-bg, var(--color-info-dim));
+  background-color: var(--color-info-dim);
   color: var(--color-info);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 0.9rem;
   border-left: 3px solid var(--color-info);
 }

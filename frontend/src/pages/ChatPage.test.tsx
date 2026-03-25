@@ -157,12 +157,12 @@ describe('ChatPage', () => {
 
     await user.click(screen.getByRole('button', { name: 'send' }));
 
-    await waitFor(() => {
-      expect(screen.getByRole('alert')).toBeInTheDocument();
-    });
+    const alert = await screen.findByRole('alert');
+    expect(alert).toHaveTextContent('Falha ao enviar');
 
     sendMessageMock.mockResolvedValueOnce(undefined);
-    await user.click(screen.getByRole('button', { name: 'Tentar enviar novamente' }));
+    // Mock i18n returns translation keys as literal strings
+    await user.click(screen.getByRole('button', { name: 'chat.retryAriaLabel' }));
 
     await waitFor(() => {
       expect(sendMessageMock).toHaveBeenCalledTimes(2);

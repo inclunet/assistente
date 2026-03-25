@@ -7,7 +7,7 @@
 
 .restore-header {
   padding: 2rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border-default);
   background: var(--bg-elevated);
 }
 
@@ -20,7 +20,7 @@
 
 .restore-header p {
   margin: 0;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   font-size: 0.95rem;
 }
 
@@ -41,7 +41,7 @@
   align-items: flex-start;
   gap: 1.5rem;
   padding: 1rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .restore-item:last-child {
@@ -62,7 +62,7 @@
 .restore-item-info p {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
@@ -94,7 +94,7 @@
 
 .security-info p {
   margin: 0;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   font-size: 0.9rem;
   line-height: 1.5;
 }
@@ -125,7 +125,7 @@
   align-items: flex-start;
   gap: 1.5rem;
   padding: 1rem;
-  border-bottom: 1px solid var(--color-border);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .restore-item:last-child {
@@ -146,7 +146,7 @@
 .restore-item-info p {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
@@ -178,7 +178,7 @@
 
 .security-info p {
   margin: 0;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   font-size: 0.9rem;
   line-height: 1.5;
 }
@@ -207,7 +207,7 @@
   display: flex;
   flex-direction: column;
   gap: 1rem;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--border-default);
 }
 
 .restore-group-danger .restore-group-content {
@@ -226,9 +226,9 @@
   gap: 1rem;
   padding: 1rem;
   background: var(--color-background);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  transition: background 0.2s;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .restore-item:hover {
@@ -241,7 +241,7 @@
 }
 
 .restore-item-danger:hover {
-  background: var(--error-background-hover);
+  background: var(--color-danger-dim-hover);
 }
 
 .restore-item-warning {
@@ -250,7 +250,7 @@
 }
 
 .restore-item-warning:hover {
-  background: var(--warning-background-hover);
+  background: var(--color-warning-dim-hover);
 }
 
 .restore-item-info {
@@ -270,7 +270,7 @@
 .restore-item-info p {
   margin: 0;
   font-size: 0.85rem;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   line-height: 1.4;
 }
 
@@ -290,7 +290,7 @@
 .security-info p {
   margin: 0;
   font-size: 0.9rem;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   line-height: 1.5;
 }
 
@@ -343,7 +343,9 @@
   border-radius: var(--radius-lg);
   background: var(--bg-surface);
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    border-color var(--duration-fast) var(--ease-default),
+    background-color var(--duration-fast) var(--ease-default);
   text-align: left;
 }
 
