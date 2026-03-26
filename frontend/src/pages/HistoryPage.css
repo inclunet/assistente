@@ -32,6 +32,10 @@
 
 .history-page__title-text {
   font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .history-page__title-snippet {

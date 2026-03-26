@@ -123,6 +123,10 @@
   font-weight: 500;
   font-size: 0.9em;
   color: var(--text-primary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .tool-calls-section__result-summary {

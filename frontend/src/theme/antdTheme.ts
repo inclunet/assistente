@@ -47,7 +47,7 @@ const themeTokens: Record<ThemeId, ThemeTokens> = {
     warning: '#fbbf24',
     danger: '#f87171',
     info: '#60a5fa',
-    focusRing: 'rgba(139, 92, 246, 0.2)',
+    focusRing: 'rgba(139, 92, 246, 0.1)',
   },
   amethyst: {
     bgBase: '#12082a',
@@ -69,7 +69,7 @@ const themeTokens: Record<ThemeId, ThemeTokens> = {
     warning: '#fbbf24',
     danger: '#f87171',
     info: '#60a5fa',
-    focusRing: 'rgba(167, 139, 250, 0.2)',
+    focusRing: 'rgba(167, 139, 250, 0.1)',
   },
   midnight: {
     bgBase: '#0c0f14',
@@ -91,7 +91,7 @@ const themeTokens: Record<ThemeId, ThemeTokens> = {
     warning: '#fbbf24',
     danger: '#f87171',
     info: '#60a5fa',
-    focusRing: 'rgba(139, 92, 246, 0.2)',
+    focusRing: 'rgba(139, 92, 246, 0.1)',
   },
   light: {
     bgBase: '#f0f4fa',

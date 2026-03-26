@@ -70,21 +70,25 @@
   --color-purple:        #a78bfa;
 
   /* ── Focus ──────────────────────────────────────────────── */
-  --focus-ring:        rgba(139, 92, 246, 0.2);
+  --focus-ring:        rgba(139, 92, 246, 0.1);
   --color-focus:       #8b5cf6;
 
   /* ── Radius (aligned with Workflows: 8px base) ────────── */
   --radius-sm:   4px;
   --radius-md:   8px;
   --radius-lg:  12px;
-  --radius-xl:  16px;
+  --radius-xl:  12px;
   --radius-full: 9999px;
   --border-radius: 8px;
 
   /* ── Shadows (aligned with Workflows: ultra-subtle) ────── */
-  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.08);
-  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.12);
-  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.18);
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.12);
+
+  /* ── Elevation (Workflows canonical: cards, panels) ────── */
+  --elevation-sm: 0px 2px 0px 0px rgba(0, 0, 0, 0.02);
+  --elevation-md: 0px 4px 8px rgba(0, 0, 0, 0.04);
 
   /* ── Spacing (legacy aliases + Workflows numeric scale) ── */
   --spacing-xs:   4px;
@@ -175,12 +179,12 @@
   --color-info-dim:      rgba(96, 165, 250, 0.15);
   --color-purple:        #a78bfa;
 
-  --focus-ring:        rgba(167, 139, 250, 0.2);
+  --focus-ring:        rgba(167, 139, 250, 0.1);
   --color-focus:       #a78bfa;
 
-  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.08);
-  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.12);
-  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.18);
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.12);
 }
 
 
@@ -229,12 +233,12 @@
   --color-info-dim:      rgba(96, 165, 250, 0.15);
   --color-purple:        #93c5fd;
 
-  --focus-ring:        rgba(139, 92, 246, 0.2);
+  --focus-ring:        rgba(139, 92, 246, 0.1);
   --color-focus:       #a78bfa;
 
-  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.08);
-  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.12);
-  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.18);
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.12);
 }
 
 

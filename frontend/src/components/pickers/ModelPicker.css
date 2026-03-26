@@ -75,7 +75,7 @@
     border: 1px solid var(--border-default);
     border-radius: var(--border-radius);
     font-size: var(--font-size-sm);
-    min-height: 36px;
+    min-height: 32px;
 }
 
 .model-picker-toolbar.loading,

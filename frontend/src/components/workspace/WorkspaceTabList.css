@@ -23,7 +23,7 @@
   align-items: stretch;
   flex: 1;
   gap: 2px;
-  padding: 0 8px;
+  padding: 0 12px;
   overflow-x: auto;
   scrollbar-width: thin;
   scrollbar-color: var(--scrollbar-thumb, var(--border-default)) transparent;
@@ -52,7 +52,7 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 0 16px;
   padding-right: 32px;
   background-color: transparent;
   border: none;

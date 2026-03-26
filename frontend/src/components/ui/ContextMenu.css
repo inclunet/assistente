@@ -3,7 +3,7 @@
   z-index: 10000;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   box-shadow: 0 4px 12px var(--bg-overlay);
   padding: 4px;
   min-width: min(200px, calc(100vw - 16px));

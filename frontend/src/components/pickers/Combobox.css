@@ -18,7 +18,7 @@
         background-color var(--duration-fast) var(--ease-default),
         border-color var(--duration-fast) var(--ease-default),
         color var(--duration-fast) var(--ease-default);
-    min-height: 36px;
+    min-height: 32px;
 }
 
 .picker-button:hover:not(:disabled) {
@@ -59,9 +59,9 @@
     top: 0;
     left: 0;
     z-index: 100;
-    min-width: 100%;
+    min-width: min(280px, calc(100vw - 16px));
     width: max-content;
-    max-width: min(320px, calc(100vw - 16px));
+    max-width: min(360px, calc(100vw - 16px));
     max-height: 300px;
     background-color: var(--bg-surface);
     border: 1px solid var(--border-default);
@@ -101,6 +101,7 @@
     justify-content: space-between;
     align-items: center;
     gap: var(--spacing-sm);
+    overflow: hidden;
 }
 
 .picker-dropdown li.disabled {
@@ -140,7 +141,12 @@
 }
 
 .option-sublabel {
-    flex-shrink: 0;
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--font-size-xs);
     color: var(--text-muted);
     background: var(--bg-elevated);
