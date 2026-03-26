@@ -82,6 +82,8 @@
   background-color: var(--tab-bg-active);
   color: var(--tab-color);
   border-top: 2px solid var(--tab-accent);
+  border-left: 1px solid var(--border-default);
+  border-right: 1px solid var(--border-default);
   border-bottom: 1px solid var(--tab-bg-active);
   margin-bottom: -1px;
 }

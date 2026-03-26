@@ -239,7 +239,7 @@ export const Combobox = ({
         }
     };
 
-    // Reposiciona dropdown se transbordar a viewport
+    // Reposiciona dropdown se transbordar a viewport (horizontal e vertical)
     useLayoutEffect(() => {
         if (!isOpen || !containerRef.current) return;
         const dropdown = containerRef.current.querySelector('.picker-dropdown') as HTMLElement;
@@ -247,11 +247,17 @@ export const Combobox = ({
 
         dropdown.style.left = '0';
         dropdown.style.right = 'auto';
+        dropdown.style.top = '';
+        dropdown.style.bottom = '';
 
         const rect = dropdown.getBoundingClientRect();
         if (rect.right > window.innerWidth - 8) {
             dropdown.style.left = 'auto';
             dropdown.style.right = '0';
+        }
+        if (rect.bottom > window.innerHeight - 8) {
+            dropdown.style.top = 'auto';
+            dropdown.style.bottom = 'calc(100% + 4px)';
         }
     }, [isOpen]);
 

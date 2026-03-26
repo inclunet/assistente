@@ -56,26 +56,26 @@
 
 .picker-dropdown {
     position: absolute;
-    top: 0;
+    top: calc(100% + 4px);
     left: 0;
     z-index: 100;
     min-width: min(280px, calc(100vw - 16px));
     width: max-content;
-    max-width: min(360px, calc(100vw - 16px));
-    max-height: 300px;
+    max-width: min(400px, calc(100vw - 16px));
+    max-height: min(440px, calc(100vh - 120px));
     background-color: var(--bg-surface);
     border: 1px solid var(--border-default);
-    border-radius: var(--border-radius);
-    box-shadow: 0 4px 12px var(--bg-overlay);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 24px var(--bg-overlay);
     display: flex;
     flex-direction: column;
 }
 
 .picker-dropdown input {
-    margin: var(--spacing-sm);
-    padding: var(--spacing-sm);
+    margin: 6px 8px;
+    padding: 6px 8px;
     border: 1px solid var(--border-default);
-    border-radius: var(--border-radius);
+    border-radius: var(--radius-sm);
     background-color: var(--bg-input);
     color: var(--text-primary);
     font-size: var(--font-size-sm);
@@ -89,19 +89,20 @@
 .picker-dropdown ul {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: 4px;
     overflow-y: auto;
-    max-height: 220px;
+    flex: 1;
+    min-height: 0;
 }
 
 .picker-dropdown li {
-    padding: var(--spacing-sm) var(--spacing-md);
+    padding: 6px 10px;
     cursor: pointer;
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: var(--spacing-sm);
+    gap: 8px;
     overflow: hidden;
+    border-radius: var(--radius-sm);
 }
 
 .picker-dropdown li.disabled {
