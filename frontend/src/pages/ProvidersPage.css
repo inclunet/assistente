@@ -68,3 +68,10 @@
   color: var(--color-primary);
   margin-left: 6px;
 }
+
+/* Responsive */
+@media (max-width: 768px) {
+  .providers-editor {
+    padding: 1rem;
+  }
+}

@@ -108,5 +108,5 @@
 
 .slash-menu__list::-webkit-scrollbar-thumb {
   background-color: color-mix(in srgb, var(--bg-base) 15%, transparent);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }

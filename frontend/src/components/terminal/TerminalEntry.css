@@ -52,7 +52,7 @@
 .terminal-node__source-badge {
   font-size: 0.65rem;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background-color: var(--accent);
   color: var(--text-inverse);
   font-weight: 600;
@@ -61,7 +61,7 @@
 .terminal-node__exit-badge {
   font-size: 0.7rem;
   padding: 1px 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   font-weight: 600;
   font-family: monospace;
 }

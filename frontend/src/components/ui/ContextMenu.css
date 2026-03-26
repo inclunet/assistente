@@ -6,7 +6,7 @@
   border-radius: var(--radius-lg);
   box-shadow: 0 4px 12px var(--bg-overlay);
   padding: 4px;
-  min-width: 200px;
+  min-width: min(200px, calc(100vw - 16px));
   max-width: min(320px, calc(100vw - 16px));
 }
 

@@ -53,7 +53,7 @@
 /* NodeView: Mermaid como card */
 .rich-text-editor__content .ProseMirror .rich-mermaid-block {
   border: 1px solid var(--border-default);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--bg-base);
   overflow: hidden;
   margin: 0 0 12px 0;

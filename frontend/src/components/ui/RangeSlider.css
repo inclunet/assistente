@@ -20,7 +20,7 @@
 .range-slider__input {
   flex: 1;
   height: 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--color-input-bg, var(--bg-input, var(--bg-muted)));
   outline: none;
   -webkit-appearance: none;

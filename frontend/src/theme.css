@@ -70,7 +70,7 @@
   --color-purple:        #a78bfa;
 
   /* ── Focus ──────────────────────────────────────────────── */
-  --focus-ring:        rgba(139, 92, 246, 0.4);
+  --focus-ring:        rgba(139, 92, 246, 0.2);
   --color-focus:       #8b5cf6;
 
   /* ── Radius (aligned with Workflows: 8px base) ────────── */
@@ -82,9 +82,9 @@
   --border-radius: 8px;
 
   /* ── Shadows (aligned with Workflows: ultra-subtle) ────── */
-  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.15);
-  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.25);
-  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.35);
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.12);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.18);
 
   /* ── Spacing (legacy aliases + Workflows numeric scale) ── */
   --spacing-xs:   4px;
@@ -121,8 +121,8 @@
 
   /* ── Typography ─────────────────────────────────────────── */
   --font-size-xs:   0.75rem;
-  --font-size-sm:   0.8125rem;
-  --font-size-base: 0.9375rem;
+  --font-size-sm:   0.75rem;
+  --font-size-base: 0.875rem;
   --font-size-lg:   1.125rem;
   --font-size-xl:   1.5rem;
   --font-mono:      ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
@@ -175,12 +175,12 @@
   --color-info-dim:      rgba(96, 165, 250, 0.15);
   --color-purple:        #a78bfa;
 
-  --focus-ring:        rgba(167, 139, 250, 0.45);
+  --focus-ring:        rgba(167, 139, 250, 0.2);
   --color-focus:       #a78bfa;
 
-  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.18);
-  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.28);
-  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.38);
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.12);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.18);
 }
 
 
@@ -229,12 +229,12 @@
   --color-info-dim:      rgba(96, 165, 250, 0.15);
   --color-purple:        #93c5fd;
 
-  --focus-ring:        rgba(139, 92, 246, 0.4);
+  --focus-ring:        rgba(139, 92, 246, 0.2);
   --color-focus:       #a78bfa;
 
-  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.18);
-  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.28);
-  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.38);
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.08);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.12);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.18);
 }
 
 

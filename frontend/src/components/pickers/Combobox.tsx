@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useId, useCallback, type ReactNode } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useId, useCallback, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { playBumpSound } from '../../services/audioFeedback';
 import './Combobox.css';
@@ -239,7 +239,23 @@ export const Combobox = ({
         }
     };
 
-    // Announce and scroll when highlight changes
+    // Reposiciona dropdown se transbordar a viewport
+    useLayoutEffect(() => {
+        if (!isOpen || !containerRef.current) return;
+        const dropdown = containerRef.current.querySelector('.picker-dropdown') as HTMLElement;
+        if (!dropdown) return;
+
+        dropdown.style.left = '0';
+        dropdown.style.right = 'auto';
+
+        const rect = dropdown.getBoundingClientRect();
+        if (rect.right > window.innerWidth - 8) {
+            dropdown.style.left = 'auto';
+            dropdown.style.right = '0';
+        }
+    }, [isOpen]);
+
+    // Anunciar quando highlightIndex mudar
     useEffect(() => {
         if (isOpen) {
             announceHighlight(highlightIndex, filteredItems);

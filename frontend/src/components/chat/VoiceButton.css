@@ -164,7 +164,7 @@
   background: var(--bg-elevated);
   color: var(--text-muted);
   padding: 1px 3px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   line-height: 1;
 }
 

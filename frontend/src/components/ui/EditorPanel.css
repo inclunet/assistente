@@ -13,6 +13,7 @@
 
 .editor-panel__footer {
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
   margin-top: 16px;

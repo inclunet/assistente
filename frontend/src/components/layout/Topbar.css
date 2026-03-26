@@ -24,7 +24,7 @@
 }
 
 .topbar__title {
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 600;
   margin: 0;
   color: var(--text-primary);
@@ -134,7 +134,7 @@
   }
 
   .topbar__title {
-    font-size: 0.8125rem;
+    font-size: 0.75rem;
     max-width: 140px;
   }
 

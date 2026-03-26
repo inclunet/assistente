@@ -48,7 +48,7 @@
 
 .editor-inline-chat__patch {
   border: 1px solid var(--border-default);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 10px;
   background: var(--bg-elevated);
 }
@@ -119,7 +119,7 @@
   flex: 1;
   min-height: 0;
   border: 1px solid var(--border-subtle);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
 }
 

@@ -178,7 +178,7 @@
 
 .channels-page__account-number {
   color: var(--text-primary);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-weight: 500;
   font-family: monospace;
 }
@@ -207,7 +207,7 @@
 
 .channels-page__alert {
   color: var(--color-danger);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   padding: 0.875rem 1rem;
   background: var(--color-danger-dim);
   border: 1px solid var(--color-danger);
@@ -223,7 +223,7 @@
 
 .channels-page__success {
   color: var(--color-success);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   padding: 0.875rem 1rem;
   background: var(--color-success-dim);
   border: 1px solid var(--color-success);

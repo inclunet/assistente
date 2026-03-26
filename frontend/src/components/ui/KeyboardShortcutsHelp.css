@@ -14,7 +14,7 @@
 
 .keyboard-shortcuts-panel {
   background-color: var(--bg-surface);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   box-shadow: 0 10px 40px var(--bg-overlay);
   max-width: 600px;
   width: 90%;

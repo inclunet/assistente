@@ -37,7 +37,7 @@
 .questionnaire-dialog__input {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-default);
   background: var(--surface-1, var(--bg-input));
   color: var(--text-primary);
@@ -46,7 +46,7 @@
 .questionnaire-dialog__textarea {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-default);
   background: var(--surface-1, var(--bg-input));
   color: var(--text-primary);
@@ -56,7 +56,7 @@
 .questionnaire-dialog__readonly {
   width: 100%;
   padding: 10px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   border: 1px solid var(--border-default);
   background: var(--bg-muted);
   color: var(--text-primary);
@@ -121,7 +121,7 @@
 
 .questionnaire-dialog__button {
   padding: 8px 14px;
-  border-radius: 999px;
+  border-radius: var(--radius-full);
   border: none;
   cursor: pointer;
   font-weight: 600;

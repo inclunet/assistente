@@ -18,7 +18,7 @@
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   font-family: inherit;
   transition: border-color var(--duration-fast) var(--ease-default), box-shadow var(--duration-fast) var(--ease-default);
   background: var(--bg-input);
@@ -43,12 +43,12 @@
 }
 
 .input__hint {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
 .input__error {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: var(--color-danger);
 }
 

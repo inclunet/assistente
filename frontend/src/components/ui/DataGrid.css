@@ -5,7 +5,7 @@
   min-height: 0;
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
   overflow: hidden;
   outline: none;
   position: relative;
@@ -36,7 +36,7 @@
 .datagrid-header {
   display: flex;
   background: var(--bg-elevated);
-  border-bottom: 2px solid var(--border-default);
+  border-bottom: 1px solid var(--border-default);
   font-weight: 600;
   font-size: 0.9em;
   color: var(--text-secondary);
@@ -58,7 +58,7 @@
   flex: 1;
   min-height: 0;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
 }
 
 .datagrid-row {
@@ -193,7 +193,7 @@
   font-style: italic;
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
-  border-radius: var(--radius-lg);
+  border-radius: var(--radius-md);
 }
 
 .datagrid-body::-webkit-scrollbar {

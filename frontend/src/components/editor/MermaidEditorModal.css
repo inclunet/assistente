@@ -62,7 +62,7 @@
   background: var(--bg-muted);
   color: inherit;
   padding: 8px 12px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   cursor: pointer;
 }
 

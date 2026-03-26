@@ -36,7 +36,7 @@
   list-style: none;
   margin: 0;
   padding: 4px;
-  min-width: 220px;
+  min-width: min(220px, calc(100vw - 16px));
   max-width: calc(100vw - 16px);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);

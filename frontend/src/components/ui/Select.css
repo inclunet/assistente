@@ -44,7 +44,7 @@
   background-color: var(--bg-input);
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   outline: none;
   cursor: pointer;
   appearance: none;
@@ -59,7 +59,7 @@
 }
 
 .select-hint {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
@@ -78,6 +78,6 @@
 }
 
 .select-error {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: var(--color-danger);
 }

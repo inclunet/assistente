@@ -30,7 +30,7 @@
 
 .task-code {
   font-family: var(--font-mono, monospace);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: var(--text-secondary);
   white-space: nowrap;
 }
@@ -200,7 +200,7 @@
   border-radius: var(--radius-md);
   color: var(--text-primary);
   cursor: pointer;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   transition: background-color var(--duration-fast) var(--ease-default), border-color var(--duration-fast) var(--ease-default);
 }
 

@@ -154,5 +154,5 @@
 
 .chat-input__textarea::-webkit-scrollbar-thumb {
   background-color: var(--border-default);
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }

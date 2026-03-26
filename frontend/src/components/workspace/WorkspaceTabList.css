@@ -2,14 +2,14 @@
   --tab-accent: var(--accent);
   --tab-radius: var(--radius-md);
   --tab-bg-hover: var(--bg-hover);
-  --tab-bg-active: var(--bg-elevated);
+  --tab-bg-active: var(--bg-base);
   --tab-color: var(--text-primary);
   --tab-color-muted: var(--text-secondary);
   --tabs-focus-outline: 2px solid var(--tab-accent);
   --tabs-focus-outline-offset: -2px;
 
   display: flex;
-  align-items: center;
+  align-items: stretch;
   background-color: var(--tabs-bar-bg, var(--bg-elevated));
   border-bottom: 1px solid var(--tabs-bar-border, var(--border-default));
   overflow-x: auto;
@@ -20,6 +20,7 @@
 
 .ws-tabs__list {
   display: flex;
+  align-items: stretch;
   flex: 1;
   gap: 2px;
   padding: 0 8px;
@@ -57,7 +58,7 @@
   border: none;
   border-radius: var(--tab-radius) var(--tab-radius) 0 0;
   color: var(--tab-color-muted);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   cursor: pointer;
   transition: background-color var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
   white-space: nowrap;
@@ -80,7 +81,9 @@
 .ws-tabs__tab--active {
   background-color: var(--tab-bg-active);
   color: var(--tab-color);
-  border-bottom: 2px solid var(--tab-accent);
+  border-top: 2px solid var(--tab-accent);
+  border-bottom: 1px solid var(--tab-bg-active);
+  margin-bottom: -1px;
 }
 
 .ws-tabs__tab-icon {
@@ -143,7 +146,7 @@
   border: 1px solid var(--tab-accent);
   border-radius: var(--radius-sm);
   color: var(--tab-color);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-family: inherit;
   outline: none;
   z-index: 2;
