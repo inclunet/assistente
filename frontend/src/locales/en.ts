@@ -25,6 +25,7 @@ const en = {
       disabled: 'Disabled',
       of: 'of',
       noResults: 'No results',
+      emptyState: 'No items to display',
       selected: 'selected',
       new: 'New',
       saving: 'Saving...',
@@ -1078,6 +1079,7 @@ const en = {
       pageContent: 'Page content',
     },
     workspace: {
+      noTabs: 'No tabs open',
       toolbarLabel: 'Workspace',
       switchWorkspace: 'Switch workspace',
       workspaceList: 'Workspace list',

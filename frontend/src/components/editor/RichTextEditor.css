@@ -105,7 +105,7 @@
 }
 
 .rich-text-editor__content .ProseMirror .rich-mermaid-block__preview:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: -2px;
 }
 
@@ -129,7 +129,7 @@
 .rich-text-editor__content .ProseMirror table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 420px;
+  min-width: min(420px, 100%);
   background: var(--bg-base);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-lg);

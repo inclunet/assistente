@@ -11,12 +11,12 @@ export interface ReasoningSectionProps {
   onToggle?: () => void; // Callback para toggle
 }
 
-export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
+export const ReasoningSection = React.memo<ReasoningSectionProps>(function ReasoningSection({
   reasoning,
   isStreaming = false,
   isExpanded = false,
   onToggle,
-}) => {
+}) {
   const { t } = useTranslation();
   if (!reasoning && !isStreaming) return null;
 
@@ -86,4 +86,4 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
       )}
     </div>
   );
-};
+});

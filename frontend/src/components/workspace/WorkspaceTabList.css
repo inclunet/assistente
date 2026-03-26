@@ -1,6 +1,6 @@
 .ws-tabs {
   --tab-accent: var(--accent);
-  --tab-radius: 6px;
+  --tab-radius: var(--radius-md);
   --tab-bg-hover: var(--bg-hover);
   --tab-bg-active: var(--bg-elevated);
   --tab-color: var(--text-primary);
@@ -34,7 +34,7 @@
 
 .ws-tabs__list::-webkit-scrollbar-thumb {
   background-color: var(--scrollbar-thumb, var(--border-default));
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
 }
 
 .ws-tabs__tab-wrapper {
@@ -110,7 +110,7 @@
   padding: 0;
   background-color: transparent;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: inherit;
   cursor: pointer;
   opacity: 0.5;

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import MarkdownIt from 'markdown-it';
 import DOMPurify from 'dompurify';
@@ -93,7 +93,7 @@ DOMPurify.addHook('afterSanitizeAttributes', (node: Element) => {
   }
 });
 
-export function MarkdownRenderer({
+export const MarkdownRenderer = React.memo(function MarkdownRenderer({
   content,
   className = '',
   interactiveButtons = false,
@@ -878,7 +878,7 @@ export function MarkdownRenderer({
       />
     </>
   );
-}
+});
 
 export default MarkdownRenderer;
 

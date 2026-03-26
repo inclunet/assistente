@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { CheckOutlined, RightOutlined } from '@ant-design/icons';
 import type { MenuItem, MenuProps } from './types';
 import { restoreDefaultFocus } from '../../../hooks/useDefaultFocus';
@@ -18,6 +19,7 @@ export const Menu: React.FC<MenuProps> = ({
   onSelect,
   onItemKeyDown,
 }) => {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const onCloseRef = useRef(onClose);
@@ -449,7 +451,7 @@ export const Menu: React.FC<MenuProps> = ({
         {renderItems(filteredItems, 0)}
         {searchable && searchQuery && filteredItems.filter(i => !i.separator).length === 0 && (
           <div className="context-menu__empty" role="presentation">
-            Nenhum resultado
+            {t('common.noResults', 'Nenhum resultado')}
           </div>
         )}
       </div>

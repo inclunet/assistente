@@ -160,7 +160,7 @@
 }
 
 .task-action-btn:focus {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -210,6 +210,6 @@
 }
 
 .demote-task-option:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }

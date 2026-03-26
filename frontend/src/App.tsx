@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { GetConfig, RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/main/App";
@@ -14,22 +14,29 @@ import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
 import { useTheme } from './hooks/useTheme';
 import { ConfigProvider } from 'antd';
 import type { Locale } from 'antd/es/locale';
-import ptBR from 'antd/locale/pt_BR';
-import enUS from 'antd/locale/en_US';
-import esES from 'antd/locale/es_ES';
 import { getAntdTheme } from './theme/antdTheme';
 
-const ANT_LOCALE_MAP: Record<string, Locale> = {
-    'pt-BR': ptBR,
-    'en': enUS,
-    'es': esES,
-};
+function useAntdLocale(lang: string): Locale | undefined {
+    const [locale, setLocale] = useState<Locale | undefined>(undefined);
+    useEffect(() => {
+        let cancelled = false;
+        const loaders: Record<string, () => Promise<{ default: Locale }>> = {
+            'pt-BR': () => import('antd/locale/pt_BR'),
+            'en':    () => import('antd/locale/en_US'),
+            'es':    () => import('antd/locale/es_ES'),
+        };
+        const load = loaders[lang] ?? loaders['en'];
+        void load().then((m) => { if (!cancelled) setLocale(m.default); });
+        return () => { cancelled = true; };
+    }, [lang]);
+    return locale;
+}
 
 function App() {
     const { theme } = useTheme();
     const { i18n } = useTranslation();
     const navigate = useNavigate();
-    const antLocale = useMemo(() => ANT_LOCALE_MAP[i18n.language] || enUS, [i18n.language]);
+    const antLocale = useAntdLocale(i18n.language);
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
     const { handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleExternalIncoming } = useChatStore();

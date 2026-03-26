@@ -54,12 +54,14 @@ export default defineConfig({
           if (
             id.includes('tiptap') ||
             id.includes('markdown-it') ||
-            id.includes('react-markdown') ||
             id.includes('remark-') ||
-            id.includes('rehype-') ||
-            id.includes('react-syntax-highlighter')
+            id.includes('rehype-')
           ) {
             return 'editor';
+          }
+
+          if (id.includes('antd') || id.includes('@ant-design')) {
+            return 'antd';
           }
         },
       },

@@ -16,7 +16,7 @@
   padding: 1rem 1.25rem;
   border-radius: var(--radius-lg);
   box-shadow: 0 10px 15px -3px var(--bg-overlay);
-  min-width: 300px;
+  min-width: min(300px, calc(100vw - 32px));
   max-width: 500px;
   animation: slideInRight var(--duration-normal) var(--ease-out);
   pointer-events: auto;

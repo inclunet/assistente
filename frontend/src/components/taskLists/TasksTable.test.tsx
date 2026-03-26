@@ -2,14 +2,19 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
+import { MemoryRouter } from 'react-router-dom';
 
 /* ── mocks de dependências externas ────────────────────────── */
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (_key: string, fallback?: string) => fallback ?? _key,
-  }),
-}));
+vi.mock('react-i18next', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-i18next')>();
+  return {
+    ...actual,
+    useTranslation: () => ({
+      t: (_key: string, fallback?: string) => fallback ?? _key,
+    }),
+  };
+});
 
 const mockDeleteTask = vi.fn();
 const mockPromoteTask = vi.fn();
@@ -131,21 +136,23 @@ describe('TasksTable', () => {
   ) {
     const { default: TasksTable } = await import('./TasksTable');
     return render(
-      <TasksTable
-        taskListId={1}
-        tasks={tasks}
-        taskList={{
-          id: 1,
-          title: 'Lista 1',
-          description: '',
-          preferredViewMode: 'list' as const,
-          createdAt: '2024-01-01T00:00:00Z',
-          updatedAt: '2024-01-01T00:00:00Z',
-          workflow: baseWorkflow,
-          tasks,
-        }}
-        {...props}
-      />,
+      <MemoryRouter>
+        <TasksTable
+          taskListId={1}
+          tasks={tasks}
+          taskList={{
+            id: 1,
+            title: 'Lista 1',
+            description: '',
+            preferredViewMode: 'list' as const,
+            createdAt: '2024-01-01T00:00:00Z',
+            updatedAt: '2024-01-01T00:00:00Z',
+            workflow: baseWorkflow,
+            tasks,
+          }}
+          {...props}
+        />
+      </MemoryRouter>,
     );
   }
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 
 /* ── Mock fns ──────────────────────────────────────────────── */
 
@@ -12,11 +13,15 @@ const mockAnnounce = vi.fn();
 
 /* ── Mocks de módulos ──────────────────────────────────────── */
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (_key: string, fallback?: string) => fallback ?? _key,
-  }),
-}));
+vi.mock('react-i18next', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-i18next')>();
+  return {
+    ...actual,
+    useTranslation: () => ({
+      t: (_key: string, fallback?: string) => fallback ?? _key,
+    }),
+  };
+});
 
 vi.mock('../../store/taskListStore', () => ({
   useTaskListStore: Object.assign(
@@ -120,7 +125,9 @@ describe('KanbanBoard', () => {
     const taskList = makeTaskList(tasks);
     const { default: KanbanBoard } = await import('./KanbanBoard');
     return render(
-      <KanbanBoard taskListId={1} tasks={tasks} taskList={taskList} />,
+      <MemoryRouter>
+        <KanbanBoard taskListId={1} tasks={tasks} taskList={taskList} />
+      </MemoryRouter>,
     );
   }
 

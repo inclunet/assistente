@@ -83,7 +83,7 @@
   background: var(--bg-muted);
 }
 
-@media (max-width: 920px) {
+@media (max-width: 1024px) {
   .editor-page__split {
     grid-template-columns: 1fr;
   }

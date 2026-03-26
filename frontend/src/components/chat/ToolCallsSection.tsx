@@ -46,10 +46,10 @@ const RESULT_PREVIEW_LENGTH = 300;
  * 1. **Streaming**: mostra `activeToolCalls` com status em tempo real (running/done/error)
  * 2. **Histórico**: parseia `toolCallsJson` para exibir chamadas + resultados
  */
-export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
+export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolCallsSection({
   toolCallsJson,
   activeToolCalls,
-}) => {
+}) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
@@ -213,7 +213,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
       )}
     </div>
   );
-};
+});
 
 /**
  * Formata string JSON de argumentos para exibição legível.

@@ -82,7 +82,7 @@
   filter: brightness(1.05);
 }
 
-@media (max-width: 920px) {
+@media (max-width: 1024px) {
   .mermaid-editor-modal__split {
     grid-template-columns: 1fr;
   }

@@ -37,7 +37,7 @@
 }
 
 .voice-button:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -225,7 +225,7 @@
 }
 
 /* Responsivo - botão menor em telas pequenas */
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .voice-button {
     width: 40px;
     height: 40px;

@@ -22,7 +22,7 @@ import { profiles } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
-import { Button } from '../components';
+import { Button, PageLoading } from '../components';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { CollapsibleSection } from '../components/ui/CollapsibleSection';
@@ -409,7 +409,7 @@ export default function ProfilesPage() {
   if (loading) {
     return (
       <div className="profiles-page">
-        <div className="loading" role="status">{t('profiles.loading', 'Carregando perfis...')}</div>
+        <PageLoading message={t('profiles.loading', 'Carregando perfis...')} />
       </div>
     );
   }

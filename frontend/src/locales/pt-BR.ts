@@ -25,6 +25,7 @@ const ptBR = {
       disabled: 'Desabilitado',
       of: 'de',
       noResults: 'Nenhum resultado',
+      emptyState: 'Nenhum item para exibir',
       selected: 'selecionado(s)',
       new: 'Novo',
       saving: 'Salvando...',
@@ -1052,6 +1053,7 @@ const ptBR = {
       pageContent: 'Conteúdo da página',
     },
     workspace: {
+      noTabs: 'Nenhuma aba aberta',
       toolbarLabel: 'Workspace',
       switchWorkspace: 'Alternar workspace',
       workspaceList: 'Lista de workspaces',

@@ -56,7 +56,7 @@
 }
 
 .topbar__picker:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -97,7 +97,7 @@
 }
 
 .topbar__back:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -117,4 +117,29 @@
 
 .topbar__rename-input:focus {
   box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+/* ── Responsive ── */
+@media (max-width: 640px) {
+  .topbar {
+    padding: 0 0.25rem;
+  }
+
+  .topbar__back span {
+    display: none;
+  }
+
+  .topbar__picker-name {
+    max-width: 120px;
+  }
+
+  .topbar__title {
+    font-size: 0.8125rem;
+    max-width: 140px;
+  }
+
+  .topbar__rename-input {
+    min-width: 120px;
+    max-width: 160px;
+  }
 }

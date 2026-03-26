@@ -20,7 +20,7 @@ import {
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { MenuButton } from '../components/layout/MenuButton';
-import { Button } from '../components';
+import { Button, PageLoading } from '../components';
 import { McpConnectionSection } from '../components/mcp/McpConnectionSection';
 import { McpGeneralSection } from '../components/mcp/McpGeneralSection';
 import { Modal, isModalOpen } from '../components/ui/Modal';
@@ -626,9 +626,7 @@ export default function McpPage() {
   if (isLoading && rows.length === 0) {
     return (
       <div className="mcp-page">
-        <div className="loading" role="status" aria-live="polite">
-          <span>{t('mcp.loading')}</span>
-        </div>
+        <PageLoading message={t('mcp.loading')} />
       </div>
     );
   }
@@ -803,13 +801,13 @@ export default function McpPage() {
 
       {!editing && rows.length > 0 && (
         <div className="mcp-empty" role="status">
-          <p>Pressione Enter ou clique no servidor para editar.</p>
+          <p>{t('mcp.hint.edit', 'Pressione Enter ou clique no servidor para editar.')}</p>
         </div>
       )}
 
       {!editing && rows.length === 0 && (
         <div className="mcp-empty" role="status">
-          <p>Nenhum servidor MCP encontrado. Use o botão "Novo Servidor" para começar.</p>
+          <p>{t('mcp.empty.noServers', 'Nenhum servidor MCP encontrado. Use o botão "Novo Servidor" para começar.')}</p>
         </div>
       )}
     </div>

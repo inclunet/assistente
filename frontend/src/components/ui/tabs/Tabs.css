@@ -5,7 +5,7 @@
   --tabs-bar-border: var(--border-default);
   --tabs-height: 44px;
 
-  --tab-radius: 6px;
+  --tab-radius: var(--radius-md);
   --tab-bg: transparent;
   --tab-bg-hover: var(--bg-hover);
   --tab-bg-active: var(--bg-base);

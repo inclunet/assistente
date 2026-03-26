@@ -283,7 +283,7 @@
 
 /* Focus styles for keyboard navigation */
 .token-stats-table:focus-within {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 

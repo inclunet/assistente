@@ -108,7 +108,7 @@
   inset: -1px;
   border: 3px solid var(--accent);
   pointer-events: none;
-  border-radius: 2px;
+  border-radius: var(--radius-sm);
 }
 
 .datagrid-cell.truncate {

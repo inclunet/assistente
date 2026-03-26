@@ -7,7 +7,7 @@
   box-shadow: 0 4px 12px var(--bg-overlay);
   padding: 4px;
   min-width: 200px;
-  max-width: 320px;
+  max-width: min(320px, calc(100vw - 16px));
 }
 
 .context-menu--submenu {

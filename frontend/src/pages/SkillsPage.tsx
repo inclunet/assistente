@@ -14,7 +14,7 @@ import { skills, main } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
-import { Button } from '../components';
+import { Button, PageLoading } from '../components';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { SkillGeneralSection } from '../components/skills/SkillGeneralSection';
@@ -329,9 +329,7 @@ export default function SkillsPage() {
   if (crud.loading && crud.items.length === 0) {
     return (
       <div className="skills-page">
-        <div className="loading" role="status">
-          {t('skills.loading', 'Carregando skills...')}
-        </div>
+        <PageLoading message={t('skills.loading', 'Carregando skills...')} />
       </div>
     );
   }

@@ -127,7 +127,7 @@
   flex: none;
 }
 
-@media (max-width: 900px) {
+@media (max-width: 1024px) {
   .editor-inline-chat__patch-grid {
     grid-template-columns: 1fr;
   }

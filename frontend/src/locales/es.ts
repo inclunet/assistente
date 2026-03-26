@@ -25,6 +25,7 @@ const es = {
       disabled: 'Deshabilitado',
       of: 'de',
       noResults: 'Ningún resultado',
+      emptyState: 'No hay elementos para mostrar',
       selected: 'seleccionado(s)',
       new: 'Nuevo',
       saving: 'Guardando...',
@@ -1077,6 +1078,7 @@ const es = {
       pageContent: 'Contenido de la página',
     },
     workspace: {
+      noTabs: 'Ninguna pestaña abierta',
       toolbarLabel: 'Workspace',
       switchWorkspace: 'Cambiar workspace',
       workspaceList: 'Lista de workspaces',

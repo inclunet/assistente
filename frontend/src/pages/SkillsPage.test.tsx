@@ -117,6 +117,7 @@ vi.mock('../components', () => ({
       {children}
     </button>
   ),
+  PageLoading: ({ message }: { message?: string }) => <div role="status">{message}</div>,
 }));
 
 describe('SkillsPage', () => {

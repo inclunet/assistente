@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
 import { ContextMenu, MenuItem } from './menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { playBumpSound } from '../../services/audioFeedback';
@@ -63,6 +64,7 @@ export function DataGrid<T = unknown>({
   showHeader = true,
   getRowActions,
 }: DataGridProps<T>) {
+  const { t } = useTranslation();
   // Menu de contexto (clique direito)
   const [focusedRow, setFocusedRow] = useState(0);
   const [focusedCol, setFocusedCol] = useState(0);
@@ -709,7 +711,7 @@ export function DataGrid<T = unknown>({
   if (rowCount === 0) {
     return (
       <div className="datagrid-empty" role="status">
-        Nenhum item para exibir
+        {t('common.emptyState', 'Nenhum item para exibir')}
       </div>
     );
   }
