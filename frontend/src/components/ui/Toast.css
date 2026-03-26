@@ -17,7 +17,7 @@
   border-radius: var(--radius-lg);
   box-shadow: 0 10px 15px -3px var(--bg-overlay);
   min-width: min(300px, calc(100vw - 32px));
-  max-width: 500px;
+  max-width: min(500px, calc(100vw - 32px));
   animation: slideInRight var(--duration-normal) var(--ease-out);
   pointer-events: auto;
 }
@@ -49,6 +49,7 @@
 
 .toast__message {
   flex: 1;
+  min-width: 0;
   font-size: 0.875rem;
 }
 

@@ -38,13 +38,14 @@
 
 .select {
   width: 100%;
-  padding: 0.625rem 2.5rem 0.625rem 0.875rem;
+  height: 32px;
+  padding: 0 2.5rem 0 0.75rem;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   background-color: var(--bg-input);
   color: var(--text-primary);
   font-family: inherit;
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
   outline: none;
   cursor: pointer;
   appearance: none;

@@ -34,6 +34,7 @@
 
 .checkbox-grid__label {
   flex: 1;
+  min-width: 0;
   cursor: pointer;
   display: flex;
   flex-direction: column;

@@ -75,9 +75,9 @@
 .tasklist-header-stats {
   display: flex;
   gap: var(--spacing-lg);
-  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
+  flex-shrink: 0;
 }
 
 @media (max-width: 1024px) {

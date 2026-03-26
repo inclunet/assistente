@@ -21,3 +21,14 @@
 .workspace-toolbar__rename-input:focus {
   box-shadow: 0 0 0 2px var(--accent-dim);
 }
+
+/* Ghost style for picker buttons inside workspace toolbar */
+.toolbar.workspace-toolbar .picker-button {
+  background: transparent;
+  border-color: transparent;
+}
+
+.toolbar.workspace-toolbar .picker-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-subtle);
+}

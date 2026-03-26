@@ -741,9 +741,10 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
                                 <span
                                   className="kanban-card__link-only"
                                   role="button"
+                                  aria-label={`Abrir link: ${task.link}`}
                                   tabIndex={-1}
                                   onClick={(e) => { e.stopPropagation(); openTaskLink(task.link!, { navigate }); }}
-                                ><LinkOutlined /></span>
+                                ><LinkOutlined aria-hidden="true" /></span>
                               )}
                               <span className="kanban-card__title">{task.title}</span>
                               <div className="kanban-card__meta">

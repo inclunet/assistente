@@ -10,12 +10,12 @@
 
   display: flex;
   align-items: stretch;
+  padding-top: 16px;
   background-color: var(--tabs-bar-bg, var(--bg-elevated));
   border-bottom: 1px solid var(--tabs-bar-border, var(--border-default));
-  overflow-x: auto;
-  overflow-y: hidden;
-  height: var(--tabs-height, 40px);
-  min-height: var(--tabs-height, 40px);
+  overflow: hidden;
+  height: var(--tabs-height, 56px);
+  min-height: var(--tabs-height, 56px);
 }
 
 .ws-tabs__list {
@@ -25,17 +25,11 @@
   gap: 2px;
   padding: 0 12px;
   overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb, var(--border-default)) transparent;
+  scrollbar-width: none;
 }
 
 .ws-tabs__list::-webkit-scrollbar {
-  height: 6px;
-}
-
-.ws-tabs__list::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb, var(--border-default));
-  border-radius: var(--radius-sm);
+  display: none;
 }
 
 .ws-tabs__tab-wrapper {

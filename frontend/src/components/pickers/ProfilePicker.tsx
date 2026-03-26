@@ -146,7 +146,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
 
     const loadingState = (
       <div className="voice-picker voice-picker--loading" role="status" aria-live="polite">
-        <span className="voice-picker__icon">{icon}</span>
+        <span className="voice-picker__icon" aria-hidden="true">{icon}</span>
         <span className="voice-picker__loading">Carregando...</span>
       </div>
     );
@@ -160,7 +160,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
 
     const emptyState = (
       <div className="voice-picker voice-picker--empty">
-        <span className="voice-picker__icon">{icon}</span>
+        <span className="voice-picker__icon" aria-hidden="true">{icon}</span>
         <span>Nenhum perfil</span>
       </div>
     );

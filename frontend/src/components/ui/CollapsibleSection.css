@@ -34,8 +34,12 @@
 
 .collapsible-section__title {
   flex: 1;
+  min-width: 0;
   text-align: left;
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collapsible-section__badge {

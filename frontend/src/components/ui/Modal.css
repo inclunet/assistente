@@ -54,10 +54,14 @@
 
 .modal-title {
   flex: 1;
+  min-width: 0;
   margin: 0;
   font-size: 1.5em;
   font-weight: 600;
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .modal-close {

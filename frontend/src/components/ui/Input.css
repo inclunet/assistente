@@ -15,10 +15,11 @@
 }
 
 .input {
-  padding: 0.5rem 0.75rem;
+  height: 32px;
+  padding: 0 0.75rem;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
   font-family: inherit;
   transition: border-color var(--duration-fast) var(--ease-default), box-shadow var(--duration-fast) var(--ease-default);
   background: var(--bg-input);

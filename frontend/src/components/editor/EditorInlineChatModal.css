@@ -3,7 +3,7 @@
   flex-direction: column;
   gap: 12px;
   height: 70vh;
-  min-height: 520px;
+  min-height: min(520px, calc(100vh - 80px));
 }
 
 .editor-inline-chat__toolbar-title {

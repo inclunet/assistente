@@ -26,7 +26,7 @@
     border-color: var(--accent);
 }
 
-.picker-button:focus {
+.picker-button:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
@@ -60,7 +60,6 @@
     left: 0;
     z-index: 100;
     min-width: min(280px, calc(100vw - 16px));
-    width: max-content;
     max-width: min(400px, calc(100vw - 16px));
     max-height: min(440px, calc(100vh - 120px));
     background-color: var(--bg-surface);
@@ -100,9 +99,11 @@
     cursor: pointer;
     display: flex;
     align-items: center;
+    justify-content: flex-start;
     gap: 8px;
     overflow: hidden;
     border-radius: var(--radius-sm);
+    text-align: left;
 }
 
 .picker-dropdown li.disabled {
@@ -136,9 +137,11 @@
 
 .option-label {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: left;
 }
 
 .option-sublabel {

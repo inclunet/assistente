@@ -91,6 +91,7 @@
 
 .keyboard-shortcut-description {
   flex: 1;
+  min-width: 0;
   margin-left: 20px;
   font-size: 15px;
   color: var(--text-secondary);
