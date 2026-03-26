@@ -187,6 +187,15 @@ describe('KanbanBoard', () => {
     );
   });
 
+  it('card tem aria-describedby com status e posição', async () => {
+    await renderBoard();
+
+    const desc = document.getElementById('card-desc-10');
+    expect(desc).toBeInTheDocument();
+    expect(desc?.textContent).toContain('A Fazer');
+    expect(desc?.textContent).toContain('1 de 2');
+  });
+
   // ── Navegação por teclado ─────────────────────────────────
 
   it('navega entre cards com ArrowDown', async () => {

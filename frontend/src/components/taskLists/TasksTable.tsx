@@ -4,7 +4,6 @@ import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
 import { openTaskLink } from '../../lib/deepLinks';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
-import { Button } from '../ui/Button';
 import { Modal } from '../ui/Modal';
 import type { Task, TaskListWithWorkflow } from '../../types/tasklist';
 import TaskForm from './TaskForm';
@@ -166,6 +165,26 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
       },
     },
     {
+      key: 'assigneeName',
+      label: t('tasklist.assignee', 'Responsável'),
+      width: '140px',
+      format: (assigneeName) => {
+        const name = assigneeName as string | undefined;
+        if (!name) return <span className="task-assignee--empty">—</span>;
+        return <span className="task-assignee">{name}</span>;
+      },
+    },
+    {
+      key: 'creatorName',
+      label: t('tasklist.creator', 'Criador'),
+      width: '140px',
+      format: (creatorName) => {
+        const name = creatorName as string | undefined;
+        if (!name) return <span className="task-creator--empty">—</span>;
+        return <span className="task-creator">{name}</span>;
+      },
+    },
+    {
       key: 'dueDate',
       label: t('tasklist.dueDate', 'Data de vencimento'),
       width: '120px',
@@ -243,23 +262,15 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
   return (
     <div className="tasks-table-container">
       {hasTasks ? (
-        <>
-          <div className="tasks-table-toolbar">
-            <Button onClick={handleOpenCreateModal} variant="primary">
-              ➕ {t('tasklist.createTask', 'Criar Tarefa')}
-            </Button>
-          </div>
-
-          <DataGrid<Task>
-            items={tasks}
-            columns={columns}
-            onActivate={(task) => {
-              setDetailTask(task);
-              setIsDetailModalOpen(true);
-            }}
-            getRowActions={getRowActions}
-          />
-        </>
+        <DataGrid<Task>
+          items={tasks}
+          columns={columns}
+          onActivate={(task) => {
+            setDetailTask(task);
+            setIsDetailModalOpen(true);
+          }}
+          getRowActions={getRowActions}
+        />
       ) : (
         <div className="tasks-table-empty">
           <p>{t('tasklist.noTasks', 'Nenhuma tarefa nesta lista')}</p>

@@ -137,19 +137,19 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
     openTaskLink(task.link, { navigate });
   }, [task, navigate]);
 
-  if (!task) return null;
-
-  const status = statuses.find((s) => s.id === task.statusId);
-  const isDueDatePast = task.dueDate && new Date(task.dueDate) < new Date();
+  const status = task ? statuses.find((s) => s.id === task.statusId) : undefined;
+  const isDueDatePast = task?.dueDate && new Date(task.dueDate) < new Date();
 
   return (
     <Modal
       isOpen={isOpen}
       onClose={onClose}
-      title={task.title}
+      title={task?.title ?? ''}
       size="lg"
       className="task-detail-modal"
     >
+      {!task ? null : (
+      <>
       {/* Badges: status, code, link, due date */}
       <div className="task-detail__header">
         {status && (
@@ -178,6 +178,16 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             onKeyDown={(e) => { if (e.key === 'Enter') handleLinkClick(); }}
           >
             🔗 Link
+          </span>
+        )}
+        {task.assigneeName && (
+          <span className="task-detail__badge task-detail__badge--assignee" title={task.assigneeId || undefined}>
+            👤 {task.assigneeName}
+          </span>
+        )}
+        {task.creatorName && (
+          <span className="task-detail__badge task-detail__badge--creator" title={task.creatorId || undefined}>
+            ✏️ {task.creatorName}
           </span>
         )}
         {task.dueDate && (
@@ -247,7 +257,11 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
                     <span className={`task-detail__note-type task-detail__note-type--${NOTE_TYPE_CSS[note.type] || 'internal'}`}>
                       {NOTE_TYPE_ICONS[note.type] || '📝'} {t(`tasklist.noteTypes.${NOTE_TYPE_CSS[note.type] || 'internal'}`)}
                     </span>
-                    {note.author && <span className="task-detail__note-author">{note.author}</span>}
+                    {note.authorName && (
+                      <span className="task-detail__note-author" title={note.authorId || undefined}>
+                        {note.authorName}
+                      </span>
+                    )}
                     <span className="task-detail__note-date">{formatDate(note.createdAt)}</span>
                     <div className="task-detail__note-actions">
                       <button
@@ -277,6 +291,8 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
           ))}
         </div>
       </div>
+      </>
+      )}
     </Modal>
   );
 }

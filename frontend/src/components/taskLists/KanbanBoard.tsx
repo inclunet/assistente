@@ -15,6 +15,7 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { ContextMenu } from '../menu';
 import { Modal } from '../ui/Modal';
+import { playBumpSound } from '../../services/audioFeedback';
 import TaskForm from './TaskForm';
 import TaskDetailModal from './TaskDetailModal';
 import type { Task, TaskListWithWorkflow } from '../../types/tasklist';
@@ -59,6 +60,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
   const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [detailTask, setDetailTask] = useState<Task | null>(null);
+  const [boardHasInternalFocus, setBoardHasInternalFocus] = useState(false);
 
   // ── Refs ───────────────────────────────────────────────────
   const boardRef = useRef<HTMLDivElement>(null);
@@ -127,14 +129,16 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
     focusCard(focusPos.col, focusPos.row);
   }, [focusPos, focusCard]);
 
-  // ── Announce card info ─────────────────────────────────────
   const announceCard = useCallback(
     (task: Task, colIdx: number, rowIdx: number) => {
       const status = statuses[colIdx];
       const columnTasks = getColumnTasks(colIdx);
-      const posInfo = `${rowIdx + 1} ${t('tasklist.kanban.of', 'de')} ${columnTasks.length}`;
-      const statusInfo = `${status?.icon ?? ''} ${status?.label ?? ''}`.trim();
-      announce(`${task.title}. ${statusInfo}, ${posInfo}`, 'assertive');
+      const parts: string[] = [task.title];
+      if (task.assigneeName) parts.push(`${t('tasklist.assignee', 'Responsável')}: ${task.assigneeName}`);
+      if (task.creatorName) parts.push(`${t('tasklist.creator', 'Criador')}: ${task.creatorName}`);
+      parts.push(status?.label ?? '');
+      parts.push(`${rowIdx + 1} ${t('tasklist.kanban.of', 'de')} ${columnTasks.length}`);
+      announce(parts.join('. '), 'assertive');
     },
     [statuses, getColumnTasks, announce, t],
   );
@@ -248,17 +252,20 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           },
         },
         { separator: true, id: 'sep-1' },
-        // Opções de mover para outra coluna
-        ...statuses
-          .filter((s) => s.id !== task.statusId)
-          .map((s) => ({
-            id: `move-${s.id}`,
-            label: t('tasklist.kanban.moveTo', 'Mover para {{column}}', { column: s.label }),
-            action: () => {
-              const targetIdx = statuses.findIndex((st) => st.id === s.id);
-              moveTaskToColumn(task, targetIdx);
-            },
-          })),
+        {
+          id: 'move-to',
+          label: t('tasklist.kanban.moveToSubmenu', 'Mover para…'),
+          submenu: statuses
+            .filter((s) => s.id !== task.statusId)
+            .map((s) => ({
+              id: `move-${s.id}`,
+              label: s.label,
+              action: () => {
+                const targetIdx = statuses.findIndex((st) => st.id === s.id);
+                moveTaskToColumn(task, targetIdx);
+              },
+            })),
+        },
         { separator: true, id: 'sep-2' },
         {
           id: 'delete',
@@ -335,6 +342,8 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
               if (task) announceCard(task, newCol, newRow);
               else announce(statuses[newCol]?.label ?? '', 'assertive');
             }
+          } else {
+            playBumpSound();
           }
           break;
         }
@@ -353,6 +362,8 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
               if (task) announceCard(task, newCol, newRow);
               else announce(statuses[newCol]?.label ?? '', 'assertive');
             }
+          } else {
+            playBumpSound();
           }
           break;
         }
@@ -361,26 +372,28 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
         case 'ArrowUp': {
           e.preventDefault();
           if (e.altKey && currentTask) {
-            // Alt+Up: reordenar para cima
             reorderInColumn(currentTask, col, -1);
           } else if (row > 0) {
             const newRow = row - 1;
             setFocusPos({ col, row: newRow });
             const task = columnTasks[newRow];
             if (task) announceCard(task, col, newRow);
+          } else {
+            playBumpSound();
           }
           break;
         }
         case 'ArrowDown': {
           e.preventDefault();
           if (e.altKey && currentTask) {
-            // Alt+Down: reordenar para baixo
             reorderInColumn(currentTask, col, 1);
           } else if (row < columnTasks.length - 1) {
             const newRow = row + 1;
             setFocusPos({ col, row: newRow });
             const task = columnTasks[newRow];
             if (task) announceCard(task, col, newRow);
+          } else {
+            playBumpSound();
           }
           break;
         }
@@ -438,8 +451,16 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           break;
         }
 
-        // ── Enter / Shift+F10: context menu ──
-        case 'Enter':
+        // ── Enter: open detail modal ──
+        case 'Enter': {
+          e.preventDefault();
+          if (currentTask) {
+            setDetailTask(currentTask);
+            setIsDetailModalOpen(true);
+          }
+          break;
+        }
+        // ── Shift+F10 / ContextMenu: context menu ──
         case 'ContextMenu': {
           e.preventDefault();
           if (currentTask) {
@@ -566,30 +587,38 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
           name: taskList.title,
         })}
         aria-describedby="kanban-instructions"
-        tabIndex={0}
+        tabIndex={boardHasInternalFocus ? -1 : 0}
         onKeyDown={(e) => {
           handleBoardTabKeyDown(e);
           handleBoardKeyDown(e);
         }}
-        onFocus={() => {
-          // Ao receber foco via Tab, anunciar contexto
-          const columnTasks = getColumnTasks(focusPos.col);
-          const task = columnTasks[focusPos.row];
-          if (task) {
-            announceCard(task, focusPos.col, focusPos.row);
-          } else {
-            const status = statuses[focusPos.col];
-            announce(
-              `${status?.label ?? ''}, ${t('tasklist.kanban.emptyColumn', 'coluna vazia')}`,
-              'assertive',
-            );
+        onFocus={(e) => {
+          if (e.target === boardRef.current) {
+            const columnTasks = getColumnTasks(focusPos.col);
+            const task = columnTasks[focusPos.row];
+            if (task) {
+              focusCard(focusPos.col, focusPos.row);
+              announceCard(task, focusPos.col, focusPos.row);
+            } else {
+              const status = statuses[focusPos.col];
+              announce(
+                `${status?.label ?? ''}, ${t('tasklist.kanban.emptyColumn', 'coluna vazia')}`,
+                'assertive',
+              );
+            }
+          }
+          setBoardHasInternalFocus(true);
+        }}
+        onBlur={(e) => {
+          if (!boardRef.current?.contains(e.relatedTarget as Node)) {
+            setBoardHasInternalFocus(false);
           }
         }}
       >
         <div id="kanban-instructions" className="sr-only">
           {t(
             'tasklist.kanban.instructions',
-            'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre o menu.',
+            'Use setas esquerda e direita para trocar de coluna. Setas para cima e baixo trocam de card. Alt+Setas reordena ou move entre colunas. Espaço seleciona e solta um card. Delete apaga. F2 renomeia. Enter abre detalhes. Shift+F10 abre o menu.',
           )}
         </div>
 
@@ -646,6 +675,7 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
                           role="gridcell"
                           tabIndex={isFocused ? 0 : -1}
                           aria-label={task.title}
+                          aria-describedby={`card-desc-${task.id}`}
                           aria-grabbed={isGrabbed}
                           draggable
                           onDragStart={(e) => handleDragStart(e, task)}
@@ -664,6 +694,14 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
                           }}
                           onKeyDown={(e) => handleCardKeyDown(e, task, colIdx)}
                         >
+                          <span id={`card-desc-${task.id}`} className="sr-only">
+                            {[
+                              task.assigneeName && `${t('tasklist.assignee', 'Responsável')}: ${task.assigneeName}`,
+                              task.creatorName && `${t('tasklist.creator', 'Criador')}: ${task.creatorName}`,
+                              status?.label ?? '',
+                              `${rowIdx + 1} ${t('tasklist.kanban.of', 'de')} ${columnTasks.length}`,
+                            ].filter(Boolean).join('. ')}
+                          </span>
                           {renamingTaskId === task.id ? (
                             <input
                               ref={renameInputRef}
@@ -707,18 +745,30 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
                                 >🔗</span>
                               )}
                               <span className="kanban-card__title">{task.title}</span>
-                              {task.dueDate && (
-                                <span
-                                  className={`kanban-card__due ${
-                                    new Date(task.dueDate) < new Date() ? 'kanban-card__due--overdue' : ''
-                                  }`}
-                                >
-                                  {new Date(task.dueDate).toLocaleDateString('pt-BR', {
-                                    month: '2-digit',
-                                    day: '2-digit',
-                                  })}
-                                </span>
-                              )}
+                              <div className="kanban-card__meta">
+                                {task.assigneeName && (
+                                  <span className="kanban-card__assignee" title={task.assigneeId || undefined}>
+                                    👤 {task.assigneeName}
+                                  </span>
+                                )}
+                                {task.creatorName && (
+                                  <span className="kanban-card__creator" title={task.creatorId || undefined}>
+                                    ✏️ {task.creatorName}
+                                  </span>
+                                )}
+                                {task.dueDate && (
+                                  <span
+                                    className={`kanban-card__due ${
+                                      new Date(task.dueDate) < new Date() ? 'kanban-card__due--overdue' : ''
+                                    }`}
+                                  >
+                                    {new Date(task.dueDate).toLocaleDateString('pt-BR', {
+                                      month: '2-digit',
+                                      day: '2-digit',
+                                    })}
+                                  </span>
+                                )}
+                              </div>
                             </>
                           )}
                         </div>

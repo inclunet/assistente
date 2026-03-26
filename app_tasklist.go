@@ -134,6 +134,25 @@ func (a *App) UpdateWorkflow(taskListID uint, statuses []TaskListWorkflowStatus,
 	return nil
 }
 
+// UpdateWorkflowFull atualiza workflow completo (statuses, transitions, initial_status_id)
+// com validação e migração segura de tasks
+func (a *App) UpdateWorkflowFull(taskListID uint, statuses []TaskListWorkflowStatus, transitions map[int][]int, initialStatusID int, statusMigration map[int]int) error {
+	err := database.UpdateWorkflowFull(taskListID, statuses, database.TaskListWorkflowTransitions(transitions), initialStatusID, statusMigration)
+	if err != nil {
+		return err
+	}
+
+	taskList, _ := database.GetTaskList(taskListID)
+	runtime.EventsEmit(a.ctx, "workflow:updated", taskList.Workflow)
+	runtime.EventsEmit(a.ctx, "taskList:updated", taskList)
+	return nil
+}
+
+// GetTaskCountsByStatus retorna contagem de tasks por status_id
+func (a *App) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
+	return database.GetTaskCountsByStatus(taskListID)
+}
+
 // ReorderWorkflowStatuses reordena os statuses de um workflow
 func (a *App) ReorderWorkflowStatuses(taskListID uint, statusOrder []int) error {
 	err := database.ReorderWorkflowStatuses(taskListID, statusOrder)
@@ -184,6 +203,47 @@ func (a *App) UpdateTask(id uint, title, description, code, link string) error {
 	err := database.UpdateTask(id, title, description, code, link)
 	if err != nil {
 		return err
+	}
+
+	task, _ := database.GetTask(id)
+	runtime.EventsEmit(a.ctx, "task:updated", task)
+	return nil
+}
+
+// UpdateTaskFull atualiza todos os campos editáveis de uma task, incluindo assignee e creator
+func (a *App) UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	err := database.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
+	if err != nil {
+		return err
+	}
+
+	task, _ := database.GetTask(id)
+	runtime.EventsEmit(a.ctx, "task:updated", task)
+	return nil
+}
+
+// UpdateTaskAssignee atualiza apenas o assignee de uma task
+func (a *App) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
+	oldTask, _ := database.GetTask(id)
+	err := database.UpdateTaskAssignee(id, assigneeName, assigneeID)
+	if err != nil {
+		return err
+	}
+
+	if oldTask != nil && oldTask.AssigneeName != assigneeName {
+		var content string
+		switch {
+		case oldTask.AssigneeName == "" && assigneeName != "":
+			content = "Responsável definido: " + assigneeName
+		case oldTask.AssigneeName != "" && assigneeName == "":
+			content = "Responsável removido (era " + oldTask.AssigneeName + ")"
+		default:
+			content = "Responsável alterado de " + oldTask.AssigneeName + " para " + assigneeName
+		}
+		note, _ := database.CreateTaskNote(id, database.TaskNoteSystem, content, "system", "")
+		if note != nil {
+			runtime.EventsEmit(a.ctx, "taskNote:created", note)
+		}
 	}
 
 	task, _ := database.GetTask(id)
@@ -257,8 +317,8 @@ func (a *App) GetSubtasks(parentID uint) ([]Task, error) {
 // ==================== TaskNote Operations ====================
 
 // CreateTaskNote cria uma nova nota/interação para uma task
-func (a *App) CreateTaskNote(taskID uint, noteType int, content, author string) (*TaskNote, error) {
-	note, err := database.CreateTaskNote(taskID, database.TaskNoteType(noteType), content, author)
+func (a *App) CreateTaskNote(taskID uint, noteType int, content, authorName, authorID string) (*TaskNote, error) {
+	note, err := database.CreateTaskNote(taskID, database.TaskNoteType(noteType), content, authorName, authorID)
 	if err != nil {
 		return nil, err
 	}

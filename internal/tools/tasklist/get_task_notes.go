@@ -80,8 +80,8 @@ func (t *GetTaskNotesTool) Execute(ctx context.Context, args json.RawMessage) (t
 			typeLabel = "unknown"
 		}
 		sb.WriteString(fmt.Sprintf("--- Note %d [%s] ---\n", i+1, typeLabel))
-		if note.Author != "" {
-			sb.WriteString(fmt.Sprintf("Author: %s\n", note.Author))
+		if note.AuthorName != "" {
+			sb.WriteString(fmt.Sprintf("Author: %s\n", note.AuthorName))
 		}
 		sb.WriteString(fmt.Sprintf("Date: %s\n", note.CreatedAt.Format("2006-01-02 15:04:05")))
 		sb.WriteString(note.Content)

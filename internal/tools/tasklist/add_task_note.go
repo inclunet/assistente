@@ -11,10 +11,11 @@ import (
 )
 
 type addTaskNoteArgs struct {
-	TaskID  uint   `json:"task_id"`
-	Type    int    `json:"type"`
-	Content string `json:"content"`
-	Author  string `json:"author,omitempty"`
+	TaskID     uint   `json:"task_id"`
+	Type       int    `json:"type"`
+	Content    string `json:"content"`
+	AuthorName string `json:"author_name,omitempty"`
+	AuthorID   string `json:"author_id,omitempty"`
 }
 
 type AddTaskNoteTool struct {
@@ -48,9 +49,13 @@ func (t *AddTaskNoteTool) Parameters() json.RawMessage {
 				"type": "string",
 				"description": "Note content (supports markdown)"
 			},
-			"author": {
+			"author_name": {
 				"type": "string",
-				"description": "Author name or identifier (optional)"
+				"description": "Display name of the note author (optional)"
+			},
+			"author_id": {
+				"type": "string",
+				"description": "Stable identifier for the author (e.g. email, UUID, external account ID). Optional"
 			}
 		},
 		"required": ["task_id", "type", "content"],
@@ -77,20 +82,29 @@ func (t *AddTaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (to
 		return tools.ToolResult{Content: "type must be 1 (internal), 2 (customer), 3 (agent), or 4 (system)", IsError: true}, nil
 	}
 
-	note, err := t.mgr.CreateTaskNote(params.TaskID, database.TaskNoteType(params.Type), content, strings.TrimSpace(params.Author))
+	authorName := strings.TrimSpace(params.AuthorName)
+	authorID := strings.TrimSpace(params.AuthorID)
+
+	note, err := t.mgr.CreateTaskNote(params.TaskID, database.TaskNoteType(params.Type), content, authorName, authorID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error creating note on task %d: %v", params.TaskID, err), IsError: true}, nil
 	}
 
 	typeLabels := map[int]string{1: "internal note", 2: "customer response", 3: "agent action", 4: "system event"}
 
-	resultJSON, _ := json.Marshal(map[string]any{
+	resultMap := map[string]any{
 		"id":      note.ID,
 		"task_id": note.TaskID,
 		"type":    typeLabels[params.Type],
-		"author":  note.Author,
 		"action":  "created",
-	})
+	}
+	if note.AuthorName != "" {
+		resultMap["author_name"] = note.AuthorName
+	}
+	if note.AuthorID != "" {
+		resultMap["author_id"] = note.AuthorID
+	}
+	resultJSON, _ := json.Marshal(resultMap)
 	return tools.ToolResult{
 		Content:  fmt.Sprintf("Note added to task %d (%s):\n%s", params.TaskID, typeLabels[params.Type], string(resultJSON)),
 		Metadata: map[string]any{"note_id": note.ID, "task_id": note.TaskID, "action": "created"},

@@ -22,13 +22,17 @@ export default function TaskForm({
   onCancel,
 }: TaskFormProps) {
   const { t } = useTranslation();
-  const { createTask, updateTask } = useTaskListStore();
+  const { createTask, updateTaskFull } = useTaskListStore();
 
   const [formData, setFormData] = useState({
     title: task?.title || '',
     description: task?.description || '',
     code: task?.code || '',
     link: task?.link || '',
+    assigneeName: task?.assigneeName || '',
+    assigneeId: task?.assigneeId || '',
+    creatorName: task?.creatorName || '',
+    creatorId: task?.creatorId || '',
     dueDate: task?.dueDate ? new Date(task.dueDate).toISOString().split('T')[0] : '',
   });
 
@@ -47,7 +51,17 @@ export default function TaskForm({
     setIsLoading(true);
     try {
       if (task) {
-        await updateTask(task.id, formData.title, formData.description || undefined, formData.code || undefined, formData.link || undefined);
+        await updateTaskFull(
+          task.id,
+          formData.title,
+          formData.description || undefined,
+          formData.code || undefined,
+          formData.link || undefined,
+          formData.assigneeName || undefined,
+          formData.assigneeId || undefined,
+          formData.creatorName || undefined,
+          formData.creatorId || undefined,
+        );
         onSuccess?.(task);
       } else {
         const newTask = await createTask(
@@ -131,6 +145,62 @@ export default function TaskForm({
           placeholder={t('tasklist.linkPlaceholder', 'Ex: assistente://conversation/open?id=123')}
           disabled={isLoading}
           maxLength={512}
+        />
+      </FormField>
+
+      <FormField
+        label={t('tasklist.assigneeName', 'Nome do Responsável')}
+        description={t('tasklist.assigneeDescription', 'Quem está trabalhando nisso agora? (opcional)')}
+      >
+        <Input
+          type="text"
+          value={formData.assigneeName}
+          onChange={(e) => setFormData({ ...formData, assigneeName: e.target.value })}
+          placeholder={t('tasklist.assigneePlaceholder', 'Ex: João Silva')}
+          disabled={isLoading}
+          maxLength={200}
+        />
+      </FormField>
+
+      <FormField
+        label={t('tasklist.assigneeId', 'ID do Responsável')}
+        description={t('tasklist.assigneeIdDescription', 'Identificador estável (e-mail, UUID, etc.) — opcional')}
+      >
+        <Input
+          type="text"
+          value={formData.assigneeId}
+          onChange={(e) => setFormData({ ...formData, assigneeId: e.target.value })}
+          placeholder={t('tasklist.assigneeIdPlaceholder', 'Ex: joao@empresa.com')}
+          disabled={isLoading}
+          maxLength={200}
+        />
+      </FormField>
+
+      <FormField
+        label={t('tasklist.creatorName', 'Criado por')}
+        description={t('tasklist.creatorDescription', 'Quem criou/originou essa tarefa? (opcional)')}
+      >
+        <Input
+          type="text"
+          value={formData.creatorName}
+          onChange={(e) => setFormData({ ...formData, creatorName: e.target.value })}
+          placeholder={t('tasklist.creatorPlaceholder', 'Ex: Maria Santos')}
+          disabled={isLoading}
+          maxLength={200}
+        />
+      </FormField>
+
+      <FormField
+        label={t('tasklist.creatorId', 'ID do Criador')}
+        description={t('tasklist.creatorIdDescription', 'Identificador estável do criador (e-mail, UUID, etc.) — opcional')}
+      >
+        <Input
+          type="text"
+          value={formData.creatorId}
+          onChange={(e) => setFormData({ ...formData, creatorId: e.target.value })}
+          placeholder={t('tasklist.creatorIdPlaceholder', 'Ex: maria@empresa.com')}
+          disabled={isLoading}
+          maxLength={200}
         />
       </FormField>
 

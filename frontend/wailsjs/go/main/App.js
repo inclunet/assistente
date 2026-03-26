@@ -130,8 +130,8 @@ export function CreateTaskList(arg1, arg2) {
   return window['go']['main']['App']['CreateTaskList'](arg1, arg2);
 }
 
-export function CreateTaskNote(arg1, arg2, arg3, arg4) {
-  return window['go']['main']['App']['CreateTaskNote'](arg1, arg2, arg3, arg4);
+export function CreateTaskNote(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['CreateTaskNote'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function CreateTerminalSession(arg1) {
@@ -152,6 +152,10 @@ export function DeleteConversation(arg1) {
 
 export function DeleteCredential(arg1) {
   return window['go']['main']['App']['DeleteCredential'](arg1);
+}
+
+export function DeleteJob(arg1) {
+  return window['go']['main']['App']['DeleteJob'](arg1);
 }
 
 export function DeleteLLMProvider(arg1, arg2) {
@@ -208,6 +212,10 @@ export function DisconnectMCPServer(arg1) {
 
 export function DiscoverMCPServerAuth(arg1) {
   return window['go']['main']['App']['DiscoverMCPServerAuth'](arg1);
+}
+
+export function DryRunJob(arg1) {
+  return window['go']['main']['App']['DryRunJob'](arg1);
 }
 
 export function DuplicateMCPServer(arg1) {
@@ -394,6 +402,26 @@ export function GetEffectiveModel() {
   return window['go']['main']['App']['GetEffectiveModel']();
 }
 
+export function GetJob(arg1) {
+  return window['go']['main']['App']['GetJob'](arg1);
+}
+
+export function GetJobEvents(arg1) {
+  return window['go']['main']['App']['GetJobEvents'](arg1);
+}
+
+export function GetJobPipelines() {
+  return window['go']['main']['App']['GetJobPipelines']();
+}
+
+export function GetJobRuns(arg1, arg2) {
+  return window['go']['main']['App']['GetJobRuns'](arg1, arg2);
+}
+
+export function GetJobs() {
+  return window['go']['main']['App']['GetJobs']();
+}
+
 export function GetLLMProvider(arg1) {
   return window['go']['main']['App']['GetLLMProvider'](arg1);
 }
@@ -502,6 +530,10 @@ export function GetTask(arg1) {
   return window['go']['main']['App']['GetTask'](arg1);
 }
 
+export function GetTaskCountsByStatus(arg1) {
+  return window['go']['main']['App']['GetTaskCountsByStatus'](arg1);
+}
+
 export function GetTaskList(arg1) {
   return window['go']['main']['App']['GetTaskList'](arg1);
 }
@@ -534,6 +566,10 @@ export function GetTerminalStats() {
   return window['go']['main']['App']['GetTerminalStats']();
 }
 
+export function GetToolCatalog() {
+  return window['go']['main']['App']['GetToolCatalog']();
+}
+
 export function GetTurnTokenStats(arg1, arg2) {
   return window['go']['main']['App']['GetTurnTokenStats'](arg1, arg2);
 }
@@ -552,6 +588,10 @@ export function ImportConversations(arg1) {
 
 export function ImportWorkspace(arg1) {
   return window['go']['main']['App']['ImportWorkspace'](arg1);
+}
+
+export function InferEventSchema(arg1) {
+  return window['go']['main']['App']['InferEventSchema'](arg1);
 }
 
 export function InitSpeechManager(arg1, arg2, arg3, arg4, arg5) {
@@ -580,6 +620,10 @@ export function ListCredentials() {
 
 export function ListExternalSources(arg1) {
   return window['go']['main']['App']['ListExternalSources'](arg1);
+}
+
+export function ListKnownEvents() {
+  return window['go']['main']['App']['ListKnownEvents']();
 }
 
 export function ListMCPServers() {
@@ -626,6 +670,10 @@ export function ReconnectMCPServer(arg1) {
   return window['go']['main']['App']['ReconnectMCPServer'](arg1);
 }
 
+export function RegenerateJobCatalog() {
+  return window['go']['main']['App']['RegenerateJobCatalog']();
+}
+
 export function ReloadLLMClient() {
   return window['go']['main']['App']['ReloadLLMClient']();
 }
@@ -658,6 +706,10 @@ export function ReorderWorkspaceTabs(arg1) {
   return window['go']['main']['App']['ReorderWorkspaceTabs'](arg1);
 }
 
+export function ReplayRun(arg1, arg2) {
+  return window['go']['main']['App']['ReplayRun'](arg1, arg2);
+}
+
 export function ResetConfig() {
   return window['go']['main']['App']['ResetConfig']();
 }
@@ -674,6 +726,10 @@ export function RestartChannel(arg1) {
   return window['go']['main']['App']['RestartChannel'](arg1);
 }
 
+export function RunJob(arg1) {
+  return window['go']['main']['App']['RunJob'](arg1);
+}
+
 export function RunTerminalCommand(arg1, arg2) {
   return window['go']['main']['App']['RunTerminalCommand'](arg1, arg2);
 }
@@ -684,6 +740,10 @@ export function RunWelcomeWizard() {
 
 export function SaveChannelConfig(arg1, arg2) {
   return window['go']['main']['App']['SaveChannelConfig'](arg1, arg2);
+}
+
+export function SaveJob(arg1) {
+  return window['go']['main']['App']['SaveJob'](arg1);
 }
 
 export function SaveMCPServer(arg1, arg2) {
@@ -854,6 +914,14 @@ export function TestMCPNativeSupport(arg1) {
   return window['go']['main']['App']['TestMCPNativeSupport'](arg1);
 }
 
+export function TestTool(arg1, arg2, arg3) {
+  return window['go']['main']['App']['TestTool'](arg1, arg2, arg3);
+}
+
+export function ToggleJob(arg1, arg2) {
+  return window['go']['main']['App']['ToggleJob'](arg1, arg2);
+}
+
 export function TranscribeWhisper(arg1, arg2) {
   return window['go']['main']['App']['TranscribeWhisper'](arg1, arg2);
 }
@@ -902,6 +970,14 @@ export function UpdateTask(arg1, arg2, arg3, arg4, arg5) {
   return window['go']['main']['App']['UpdateTask'](arg1, arg2, arg3, arg4, arg5);
 }
 
+export function UpdateTaskAssignee(arg1, arg2, arg3) {
+  return window['go']['main']['App']['UpdateTaskAssignee'](arg1, arg2, arg3);
+}
+
+export function UpdateTaskFull(arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9) {
+  return window['go']['main']['App']['UpdateTaskFull'](arg1, arg2, arg3, arg4, arg5, arg6, arg7, arg8, arg9);
+}
+
 export function UpdateTaskList(arg1, arg2, arg3) {
   return window['go']['main']['App']['UpdateTaskList'](arg1, arg2, arg3);
 }
@@ -916,6 +992,10 @@ export function UpdateTaskStatus(arg1, arg2) {
 
 export function UpdateWorkflow(arg1, arg2, arg3) {
   return window['go']['main']['App']['UpdateWorkflow'](arg1, arg2, arg3);
+}
+
+export function UpdateWorkflowFull(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['UpdateWorkflowFull'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function UpdateWorkspaceTab(arg1, arg2) {

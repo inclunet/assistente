@@ -16,6 +16,7 @@ const AboutPage = lazy(() => import('../pages/AboutPage'));
 const CredentialsPage = lazy(() => import('../pages/CredentialsPage'));
 const ProvidersPage = lazy(() => import('../pages/ProvidersPage'));
 const TaskListsPage = lazy(() => import('../pages/TaskListsPage'));
+const JobsPage = lazy(() => import('../pages/JobsPage'));
 
 const withSuspense = (element: JSX.Element) => (
   <Suspense fallback={<div className="page-loading" aria-busy="true" />}>
@@ -86,6 +87,10 @@ export const router = createHashRouter([
           {
             path: 'tasklists',
             element: withSuspense(<TaskListsPage />),
+          },
+          {
+            path: 'jobs',
+            element: withSuspense(<JobsPage />),
           },
         ],
       },

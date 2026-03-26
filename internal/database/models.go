@@ -149,19 +149,23 @@ type TaskList struct {
 // Task representa uma tarefa dentro de uma tasklist
 // Suporta hierarquia via ParentID (subtasks) e status workflow via StatusID
 type Task struct {
-	ID          uint       `json:"id" gorm:"primaryKey"`
-	TaskListID  uint       `json:"task_list_id" gorm:"not null;index"`
-	Title       string     `json:"title" gorm:"not null"`
-	Description string     `json:"description" gorm:"type:text"`
-	Code        string     `json:"code,omitempty" gorm:"size:128;index"`
-	Link        string     `json:"link,omitempty" gorm:"size:512"`
-	StatusID    int        `json:"status_id" gorm:"not null;default:1;index"` // ID do status (int para imutabilidade)
-	ParentID    *uint      `json:"parent_id,omitempty" gorm:"index"`          // ID da task pai (para subtasks/hierarquia)
-	Order       int        `json:"order" gorm:"default:0"`                    // Ordem dentro do status/parent
-	DueDate     *time.Time `json:"due_date,omitempty"`
-	CreatedAt   time.Time  `json:"created_at"`
-	UpdatedAt   time.Time  `json:"updated_at"`
-	CompletedAt *time.Time `json:"completed_at,omitempty"`
+	ID           uint       `json:"id" gorm:"primaryKey"`
+	TaskListID   uint       `json:"task_list_id" gorm:"not null;index"`
+	Title        string     `json:"title" gorm:"not null"`
+	Description  string     `json:"description" gorm:"type:text"`
+	Code         string     `json:"code,omitempty" gorm:"size:128;index"`
+	Link         string     `json:"link,omitempty" gorm:"size:512"`
+	StatusID     int        `json:"status_id" gorm:"not null;default:1;index"`
+	ParentID     *uint      `json:"parent_id,omitempty" gorm:"index"`
+	Order        int        `json:"order" gorm:"default:0"`
+	AssigneeName string     `json:"assignee_name,omitempty" gorm:"size:200"`
+	AssigneeID   string     `json:"assignee_id,omitempty" gorm:"size:200"`
+	CreatorName  string     `json:"creator_name,omitempty" gorm:"size:200"` // Quem criou/originou a task (nome de exibição)
+	CreatorID    string     `json:"creator_id,omitempty" gorm:"size:200"`   // Identificador estável do criador (email, UUID, account ID externo)
+	DueDate      *time.Time `json:"due_date,omitempty"`
+	CreatedAt    time.Time  `json:"created_at"`
+	UpdatedAt    time.Time  `json:"updated_at"`
+	CompletedAt  *time.Time `json:"completed_at,omitempty"`
 
 	// Relacionamentos
 	TaskList *TaskList  `json:"task_list,omitempty" gorm:"foreignKey:TaskListID"`
@@ -182,13 +186,14 @@ const (
 
 // TaskNote representa uma nota ou interação associada a uma task
 type TaskNote struct {
-	ID        uint         `json:"id" gorm:"primaryKey"`
-	TaskID    uint         `json:"task_id" gorm:"not null;index"`
-	Type      TaskNoteType `json:"type" gorm:"not null;default:1"`
-	Content   string       `json:"content" gorm:"type:text;not null"`
-	Author    string       `json:"author,omitempty" gorm:"size:128"`
-	CreatedAt time.Time    `json:"created_at"`
-	UpdatedAt time.Time    `json:"updated_at"`
+	ID         uint         `json:"id" gorm:"primaryKey"`
+	TaskID     uint         `json:"task_id" gorm:"not null;index"`
+	Type       TaskNoteType `json:"type" gorm:"not null;default:1"`
+	Content    string       `json:"content" gorm:"type:text;not null"`
+	AuthorName string       `json:"author_name,omitempty" gorm:"size:200"` // Nome de exibição do autor da nota
+	AuthorID   string       `json:"author_id,omitempty" gorm:"size:200"`   // Identificador estável do autor (email, UUID, account ID externo)
+	CreatedAt  time.Time    `json:"created_at"`
+	UpdatedAt  time.Time    `json:"updated_at"`
 
 	Task *Task `json:"-" gorm:"foreignKey:TaskID"`
 }

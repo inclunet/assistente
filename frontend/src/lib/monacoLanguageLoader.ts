@@ -22,6 +22,9 @@ const languageLoaders: Record<string, () => Promise<unknown>> = {
   python: () => import('monaco-editor/esm/vs/basic-languages/python/python.contribution.js'),
   go: () => import('monaco-editor/esm/vs/basic-languages/go/go.contribution.js'),
   sql: () => import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution.js'),
+  gotemplate: () => import('./gotemplate-language').then((mod) => {
+    import('monaco-editor').then((monaco) => mod.registerGoTemplateLanguage(monaco));
+  }),
 };
 
 export async function loadMonacoLanguage(language: string) {

@@ -41,7 +41,8 @@ export interface TaskNote {
   taskId: number;
   type: TaskNoteType;
   content: string;
-  author?: string;
+  authorName?: string;
+  authorId?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -53,10 +54,14 @@ export interface Task {
   description: string;
   code?: string;
   link?: string;
-  statusId: number; // ID do status (não label)
-  parentId?: number; // ID da task pai (para subtasks)
+  statusId: number;
+  parentId?: number;
   order: number;
-  dueDate?: string; // ISO date string
+  assigneeName?: string;
+  assigneeId?: string;
+  creatorName?: string;
+  creatorId?: string;
+  dueDate?: string;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
@@ -150,11 +155,6 @@ export interface UpsertTaskParams {
   parentId?: number;
   taskId?: number; // Se presente, é UPDATE; se ausente, é CREATE
   dueDate?: string;
-}
-
-export interface BulkUpsertTasksParams {
-  taskListId: number;
-  tasks: UpsertTaskParams[];
 }
 
 export interface GetTaskListParams {

@@ -45,6 +45,17 @@
   text-decoration: underline;
 }
 
+.task-detail__badge--assignee {
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+
+.task-detail__badge--creator {
+  color: var(--text-tertiary);
+  border-color: var(--border-color);
+  font-style: italic;
+}
+
 .task-detail__badge--due {
   color: var(--text-secondary);
 }

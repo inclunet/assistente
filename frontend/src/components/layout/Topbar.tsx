@@ -16,6 +16,7 @@ import './Topbar.css';
 const PAGE_TITLE_KEYS: Record<string, string> = {
   '/history': 'menu.history',
   '/tasklists': 'menu.tasklists',
+  '/jobs': 'menu.jobs',
   '/profiles': 'menu.profiles',
   '/allowlists': 'menu.allowlists',
   '/skills': 'menu.skills',
@@ -32,6 +33,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
 const ROUTE_IDS: Record<string, string> = {
   '/history': 'history',
   '/tasklists': 'tasklists',
+  '/jobs': 'jobs',
   '/profiles': 'profiles',
   '/allowlists': 'allowlists',
   '/skills': 'skills',
@@ -239,6 +241,7 @@ export function Topbar() {
     ] : []),
     { id: 'history', label: t('menu.history'), icon: '📜', shortcut: 'Alt+H', onClick: () => navigate('/history') },
     { id: 'tasklists', label: t('menu.tasklists'), icon: '✓', onClick: () => navigate('/tasklists') },
+    { id: 'jobs', label: t('menu.jobs'), icon: '⚡', onClick: () => navigate('/jobs') },
     { id: 'profiles', label: t('menu.profiles'), icon: '🎭', shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
     { id: 'allowlists', label: t('menu.allowlists'), icon: '🛡️', onClick: () => navigate('/allowlists') },
     { id: 'skills', label: t('menu.skills'), icon: '🧠', onClick: () => navigate('/skills') },

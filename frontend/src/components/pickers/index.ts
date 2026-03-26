@@ -11,3 +11,5 @@ export { HistoryPicker } from './HistoryPicker';
 export type { HistoryPickerProps, HistoryPickerRef } from './HistoryPicker';
 export { ProfilePicker } from './ProfilePicker';
 export type { ProfilePickerProps, ProfilePickerRef } from './ProfilePicker';
+export { ToolPicker } from './ToolPicker';
+export type { ToolPickerProps, ToolPickerRef } from './ToolPicker';

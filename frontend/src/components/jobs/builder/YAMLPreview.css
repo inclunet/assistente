@@ -1,0 +1,44 @@
+.yaml-preview {
+  border: 1px solid var(--color-border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.yaml-preview__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  background: var(--color-bg-secondary);
+  border-bottom: 1px solid var(--color-border);
+}
+
+.yaml-preview__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--color-text);
+}
+
+.yaml-preview__filename {
+  font-size: 11px;
+  font-family: var(--font-mono);
+  color: var(--color-text-secondary);
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--color-bg);
+}
+
+.yaml-preview__code {
+  margin: 0;
+  padding: 12px;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--color-text);
+  background: var(--color-bg);
+  overflow-x: auto;
+  max-height: 400px;
+  overflow-y: auto;
+  tab-size: 2;
+  white-space: pre;
+}

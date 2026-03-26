@@ -7,14 +7,6 @@
   flex: 1;
 }
 
-.tasks-table-toolbar {
-  display: flex;
-  gap: var(--spacing-sm);
-  align-items: center;
-  padding: var(--spacing-sm) 0;
-  border-bottom: 1px solid var(--border-subtle);
-}
-
 .tasks-table-empty {
   display: flex;
   flex-direction: column;
@@ -104,6 +96,35 @@
 .task-status-cancelled {
   background-color: var(--color-warning);
   color: white;
+}
+
+.task-assignee {
+  font-size: 13px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+  display: inline-block;
+}
+
+.task-assignee--empty {
+  color: var(--text-muted);
+}
+
+.task-creator {
+  font-size: 13px;
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 130px;
+  display: inline-block;
+  font-style: italic;
+}
+
+.task-creator--empty {
+  color: var(--text-muted);
 }
 
 .task-overdue {

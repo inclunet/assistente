@@ -1,16 +1,19 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
-import { isModalOpen } from '../ui/Modal';
+import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
+import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
 import { ProfilePicker } from '../pickers/ProfilePicker';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
-import type { ViewMode } from '../../types/tasklist';
+import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../../types/tasklist';
+
+const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
 
 interface TaskListViewProps {
   taskListId: number;
@@ -35,15 +38,38 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
 
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
-  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList } = useTaskListStore();
+  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus } = useTaskListStore();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
+  const [isWorkflowEditorOpen, setIsWorkflowEditorOpen] = useState(false);
+  const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
 
   useEffect(() => {
     if (!taskList) {
       void loadTaskList(taskListId);
     }
   }, [taskListId, taskList, loadTaskList]);
+
+  const contentAreaRef = useRef<HTMLDivElement>(null);
+
+  const focusContentArea = useCallback((): boolean => {
+    const area = contentAreaRef.current;
+    if (!area) return false;
+    // Kanban: focus the board container which manages card focus internally
+    const board = area.querySelector<HTMLElement>('.kanban-board[tabindex="0"]');
+    if (board) { board.focus(); return true; }
+    // DataGrid: focus a cell with tabindex=0, or the grid container
+    const cell = area.querySelector<HTMLElement>('[role="gridcell"][tabindex="0"]');
+    if (cell) { cell.focus(); return true; }
+    const grid = area.querySelector<HTMLElement>('[role="grid"]');
+    if (grid) { grid.focus(); return true; }
+    return false;
+  }, []);
+
+  useEffect(() => {
+    registerDefaultFocus(focusContentArea);
+    return () => unregisterDefaultFocus(focusContentArea);
+  }, [focusContentArea]);
 
   const tasks = useMemo(() => taskList?.tasks || [], [taskList?.tasks]);
   const currentViewMode: ViewMode = taskList?.preferredViewMode || 'list';
@@ -65,6 +91,33 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       addToast(msg || t('common.error', 'Erro ao alterar visualização'), 'error');
     }
   }, [currentViewMode, taskListId, setViewMode, announce, addToast, t]);
+
+  const handleOpenWorkflowEditor = useCallback(async () => {
+    try {
+      const counts = await getTaskCountsByStatus(taskListId);
+      setTaskCountsByStatus(counts);
+      setIsWorkflowEditorOpen(true);
+    } catch {
+      addToast(t('common.error', 'Erro ao carregar dados'), 'error');
+    }
+  }, [taskListId, getTaskCountsByStatus, addToast, t]);
+
+  const handleSaveWorkflow = useCallback(async (
+    statuses: TaskListWorkflowStatus[],
+    transitions: WorkflowTransitions,
+    initialStatusId: number,
+    statusMigration: Record<number, number>,
+  ) => {
+    try {
+      await updateWorkflowFull(taskListId, statuses, transitions, initialStatusId, statusMigration);
+      setIsWorkflowEditorOpen(false);
+      addToast(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'), 'success');
+      announce(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'));
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(msg || t('tasklist.workflow.saveFailed', 'Erro ao salvar workflow'));
+    }
+  }, [taskListId, updateWorkflowFull, addToast, announce, t]);
 
   const handleClone = useCallback(async () => {
     const newTitle = `${taskList?.title || 'Lista'} (Cópia)`;
@@ -197,6 +250,13 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
                 ]
               : []),
             {
+              key: 'edit-workflow',
+              label: t('tasklist.workflow.editWorkflow', 'Editar Workflow'),
+              icon: '⚙️',
+              onClick: handleOpenWorkflowEditor,
+              variant: 'secondary' as const,
+            },
+            {
               key: 'clone-list',
               label: t('tasklist.duplicate', 'Duplicar'),
               icon: '📋',
@@ -224,7 +284,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
         />
       </div>
 
-      <div className="ws-content-area">
+      <div className="ws-content-area" ref={contentAreaRef}>
         {currentViewMode === 'kanban' ? (
           <KanbanBoard
             ref={(r) => { tasksRef.current = r; }}
@@ -247,6 +307,24 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           />
         )}
       </div>
+
+      {isWorkflowEditorOpen && taskList.workflow && (
+        <Modal
+          isOpen={isWorkflowEditorOpen}
+          onClose={() => setIsWorkflowEditorOpen(false)}
+          title={t('tasklist.workflow.editWorkflow', 'Editar Workflow')}
+          size="lg"
+        >
+          <Suspense fallback={<div>{t('tasklist.loading', 'Carregando...')}</div>}>
+            <WorkflowEditor
+              workflow={taskList.workflow}
+              taskCountsByStatus={taskCountsByStatus}
+              onSave={handleSaveWorkflow}
+              onCancel={() => setIsWorkflowEditorOpen(false)}
+            />
+          </Suspense>
+        </Modal>
+      )}
     </div>
   );
 }
