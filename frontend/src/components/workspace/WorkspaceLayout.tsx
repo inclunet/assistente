@@ -1,4 +1,4 @@
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Spin } from 'antd';
@@ -10,6 +10,7 @@ import { useWorkspaceTerminalBridge } from '../../hooks/useWorkspaceTerminalBrid
 import { useWorkspaceEditorBridge } from '../../hooks/useWorkspaceEditorBridge';
 import { useWorkspaceTasklistBridge } from '../../hooks/useWorkspaceTasklistBridge';
 import { useLandmarkNavigation, type Landmark } from '../../hooks/useLandmarkNavigation';
+import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import { ensureModalCleanup } from '../ui/Modal';
 import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
@@ -164,6 +165,17 @@ export function WorkspaceLayout() {
     enabled: true,
     defaultLandmarkId: defaultLandmark,
   });
+
+  const activeTabId = workspace?.activeTabId;
+  const prevActiveTabIdRef = useRef(activeTabId);
+
+  useEffect(() => {
+    if (!isWorkspaceRoute || !activeTabId) return;
+    if (activeTabId === prevActiveTabIdRef.current) return;
+    prevActiveTabIdRef.current = activeTabId;
+
+    requestAnimationFrame(() => restoreDefaultFocus());
+  }, [activeTabId, isWorkspaceRoute]);
 
   useEffect(() => {
     ensureModalCleanup();

@@ -206,6 +206,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       set({ workspace: backendWorkspaceToFrontend(bws) });
     }));
 
+    unsubs.push(EventsOn('workspace:tab_activated', (tabId: string) => {
+      set(state => ({
+        workspace: state.workspace
+          ? { ...state.workspace, activeTabId: tabId }
+          : null,
+      }));
+    }));
+
     // Content rename events → update matching tab title
     unsubs.push(EventsOn('conversation:renamed', (data: unknown) => {
       const ev = data as { conversation_id?: number; new_title?: string };
