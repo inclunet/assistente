@@ -1,153 +1,57 @@
-# Estrutura de Documentação - Guia de Navegação
-
-**Data**: 5 de março de 2026
-
+---
+title: "Guia de Navegação"
+weight: 50
 ---
 
-## 📍 Localização dos Documentos
+# Guia de Navegação da Documentação
 
-Todos os documentos estão em: `docs/`
+Roteiros de leitura recomendados dependendo do seu perfil.
+
+## Estrutura
 
 ```
-assistente/
-├── docs/
-│   ├── README.md ← COMECE AQUI (visão geral)
-│   ├── COMPONENTIZATION_EXECUTIVE_SUMMARY.md ⭐ (leia PRIMEIRO)
-│   ├── COMPONENTIZATION_PLAN.md (plano completo)
-│   ├── COMPONENTIZATION_QUICK_REFERENCE.md (bookmark!)
-│   ├── COMPONENTIZATION_METRICS.md (tracking)
-│   ├── COMPONENT_ARCHITECTURE.md (padrões)
-│   ├── COMPONENTIZATION_INDEX.md (índice)
-│   └── COMPONENTIZATION_OVERVIEW.txt (1-página)
-│
-├── PLANO_COMPONENTIZACAO_SUMMARY.md (na raiz, resumo geral)
-│
-└── [resto do projeto]
+docs/
+├── Home (_index)              ← COMECE AQUI
+├── Downloads                  ← Baixar o app
+├── Guias/                     ← Build, release, code signing
+├── Configuração/              ← Provedores, voz, MCP, Slack
+└── Recursos/                  ← Workspaces, editor, terminal, tarefas
 ```
 
----
+## Roteiros por Perfil
 
-## 🗺️ Mapa Mental da Documentação
+### Usuário Final
 
-```
-┌─────────────────────────────────────────────────┐
-│  INÍCIO: README.md (5 min)                      │
-│  "Como usar este plano?"                        │
-└────────────────┬────────────────────────────────┘
-                 │
-         ┌───────┴───────┐
-         │               │
-    🔴 DECISÃO      🟠 IMPLEMENTAÇÃO
-         │               │
-         │               │
-    ┌────▼──────┐    ┌────▼─────────┐
-    │ EXECUTIVE │    │ QUICK        │
-    │ SUMMARY   │    │ REFERENCE    │
-    │ (5 min)   │    │ (10 min)     │
-    │           │    │              │
-    │ Para:     │    │ Para:        │
-    │ Stakeholder│   │ Devs         │
-    │ PM        │    │ Team Leads   │
-    │ Decisão   │    │ Implementar  │
-    └────┬──────┘    └────┬─────────┘
-         │                │
-         └────────┬───────┘
-                  │
-        ┌─────────▼────────────────┐
-        │  Se aprovado, ler:       │
-        │  COMPONENTIZATION_PLAN   │
-        │  (20 min)                │
-        │  Entender todas 7 fases  │
-        └────────────┬─────────────┘
-                     │
-        ┌────────────▼──────────────────────┐
-        │  Tech Lead: Também ler:           │
-        │  COMPONENT_ARCHITECTURE.md        │
-        │  (20 min)                         │
-        │  Padrões técnicos & exemplos      │
-        └────────────┬─────────────────────┘
-                     │
-        ┌────────────▼────────────────────┐
-        │  Durante Implementação:          │
-        │  Bookmark & use:                 │
-        │  - QUICK_REFERENCE               │
-        │  - ARCHITECTURE                  │
-        │  - PLAN (fase atual)             │
-        └────────────┬────────────────────┘
-                     │
-        ┌────────────▼────────────────────┐
-        │  Rastreamento Semanal:           │
-        │  COMPONENTIZATION_METRICS.md     │
-        │  Relatório template              │
-        │  Dashboard & projeções           │
-        └────────────┬────────────────────┘
-                     │
-        ┌────────────▼────────────────────┐
-        │  Se perder-se:                   │
-        │  - COMPONENTIZATION_INDEX.md     │
-        │  - README.md                     │
-        │  - COMPONENTIZATION_OVERVIEW.txt │
-        └─────────────────────────────────┘
-```
+**Objetivo**: Instalar, configurar e usar o Assistente
 
----
+1. **[Downloads](downloads/)** — Baixe e instale
+2. **[Provedores LLM](configuracao/PROVIDER_CONFIGURATION/)** — Configure seu primeiro provedor
+3. **[Voz](configuracao/SPEECH_CONFIGURATION/)** — Configure TTS/STT (se desejar)
+4. **Home** → Seção "Atalhos Essenciais" — Aprenda os atalhos
 
-## 📖 Roteiros de Leitura por Perfil
+### Desenvolvedor
 
-### 👔 Para Product Manager
+**Objetivo**: Contribuir ou customizar o projeto
 
-**Objetivo**: Entender impacto, timeline, ROI
+1. **Home** → Seção "Stack Técnica" — Entenda a arquitetura
+2. **[Release Quickstart](guias/RELEASE_QUICKSTART/)** — Como fazer releases
+3. **[Build com Versão](guias/BUILD_WITH_VERSION/)** — Como buildar
+4. **[MCP — Exemplos](configuracao/MCP_CONFIG_EXAMPLES/)** — Adicionar ferramentas
+5. **[Skills — Templates](configuracao/SKILL_TEMPLATE_CONTEXT/)** — Criar skills
+6. **[Deep Links](recursos/DEEP_LINKS/)** — Navegação programática
 
-**Leitura Recomendada**:
-1. `COMPONENTIZATION_EXECUTIVE_SUMMARY.md` (5 min)
-   - Problema, Solução, Números, ROI, Timeline
-   - Tomar decisão de aprovação
+### Administrador / DevOps
 
-2. `COMPONENTIZATION_METRICS.md` (15 min)
-   - Como rastrear progresso
-   - Métricas de sucesso
-   - Template de relatório semanal
+**Objetivo**: Deploy, code signing, automação
 
-**Frequência**: Ler EXECUTIVE_SUMMARY agora, METRICS toda semana
+1. **[Code Signing](guias/CODE_SIGNING_SETUP/)** — Assinar executáveis
+2. **[Versionamento](guias/VERSIONING/)** — Esquema de versões
+3. **[Release Debug](guias/RELEASE_DEBUG/)** — Troubleshooting
+4. **[Downloads](downloads/)** → Seção "Para Desenvolvedores"
 
----
+## Documentação Técnica (AEPs)
 
-### 🏗️ Para Tech Lead / Arquiteto
-
-**Objetivo**: Implementar, validar, garantir qualidade
-
-**Leitura Recomendada**:
-1. `COMPONENTIZATION_PLAN.md` (20 min)
-   - Visão geral das 7 fases
-   - Tarefas específicas
-   - Exemplos de código
-
-2. `COMPONENT_ARCHITECTURE.md` (20 min)
-   - Padrões estabelecidos
-   - Como revisar código
-   - Checklist de implementação
-
-3. `COMPONENTIZATION_QUICK_REFERENCE.md` (10 min)
-   - Red flags
-   - Padrões rápidos
-   - Decisões técnicas
-
-**Frequência**: Ler tudo antes de começar, usar QUICK_REFERENCE diariamente
-
----
-
-### 👨‍💻 Para Developer (Fase 1)
-
-**Objetivo**: Implementar primeira tarefa com sucesso
-
-**Leitura Recomendada**:
-1. `COMPONENTIZATION_QUICK_REFERENCE.md` (10 min)
-   - Oportunidades críticas
-   - Quick start para primeira tarefa
-
-2. `COMPONENT_ARCHITECTURE.md` (20 min)
-   - Padrão de Hook reutilizável
-   - Exemplo completo de implementação
+Propostas de arquitetura e design estão em `aep/` (Assistente Enhancement Proposals). Consulte `aep/README.md` para o índice completo com status de cada proposta.
    - Checklist de implementação
 
 3. `COMPONENTIZATION_PLAN.md` - Fase 1 (5 min)

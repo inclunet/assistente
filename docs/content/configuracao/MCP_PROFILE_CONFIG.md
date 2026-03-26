@@ -1,3 +1,8 @@
+---
+title: "MCP — Perfil"
+weight: 4
+---
+
 # Configurando Modo MCP em Perfis
 
 ## 🎯 Visão Geral

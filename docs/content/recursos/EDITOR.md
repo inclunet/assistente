@@ -1,0 +1,65 @@
+---
+title: "Editor"
+weight: 2
+---
+
+# Editor Integrado
+
+O Assistente possui um editor de texto integrado com suporte a múltiplas abas, modos variados e chat inline com IA.
+
+## Modos de Edição
+
+| Modo | Descrição |
+|---|---|
+| **Código** | Editor Monaco (mesmo do VS Code) com syntax highlighting |
+| **Rich Text** | Editor de texto rico com formatação |
+| **Markdown** | Renderização de Markdown com preview |
+| **Mermaid** | Editor e preview de diagramas Mermaid |
+
+## Funcionalidades
+
+### Múltiplas Abas
+
+Cada aba representa um arquivo ou draft. O estado das abas é preservado por workspace:
+
+- Abrir arquivo: **Menu File → Abrir** ou via deep link
+- Novo arquivo: **Menu File → Novo**
+- Salvar: **Ctrl + S** (salva no disco) ou auto-save
+- Salvar como: **Menu File → Salvar Como**
+
+### Auto-Save
+
+Quando ativado, o editor salva drafts automaticamente conforme você edita. Drafts são preservados mesmo se fechar o app e reabrir.
+
+### Chat Inline
+
+O chat inline permite pedir para a IA editar, gerar ou transformar conteúdo diretamente no editor:
+
+1. Selecione o texto que quer alterar (ou posicione o cursor)
+2. Abra o chat inline
+3. Descreva o que quer (ex: "traduza para inglês", "refatore esta função")
+4. A IA gera sugestões que podem ser aplicadas como patch
+
+### Monitoramento de Arquivos
+
+O editor monitora mudanças em arquivos abertos no disco (via `fsnotify`). Se um arquivo for modificado externamente:
+
+- O editor notifica sobre o conflito
+- Oferece opção de recarregar ou manter a versão local
+- Suporta merge em caso de conflitos
+
+## Formatos Suportados
+
+- Texto puro
+- Markdown (.md)
+- Código-fonte (todas as linguagens suportadas pelo Monaco)
+- Diagramas Mermaid
+
+## Atalhos
+
+| Atalho | Ação |
+|---|---|
+| `Ctrl + S` | Salvar |
+| `Ctrl + W` | Fechar aba |
+| `Ctrl + Tab` | Próxima aba |
+| Deep link | `assistente://editor/{id}` |

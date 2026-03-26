@@ -1,3 +1,8 @@
+---
+title: "MCP — Exemplos"
+weight: 3
+---
+
 # Exemplos de Configuração de Servidores MCP
 
 Este arquivo contém exemplos práticos de configuração de servidores MCP para o Assistente.

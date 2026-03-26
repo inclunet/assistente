@@ -1,3 +1,8 @@
+---
+title: "Skills — Templates"
+weight: 6
+---
+
 # Skill Templates — Contexto disponível
 
 Algumas skills são processadas com Go `text/template` antes de serem inseridas no prompt. Isso permite usar condicionais e interpolar dados do perfil ativo.

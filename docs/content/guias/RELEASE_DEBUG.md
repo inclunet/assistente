@@ -1,3 +1,8 @@
+---
+title: "Release Debug"
+weight: 3
+---
+
 # Debug da Release Action - Melhorias Implementadas
 
 ## 🔍 Problemas Identificados
