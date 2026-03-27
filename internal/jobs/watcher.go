@@ -104,6 +104,9 @@ func (w *Watcher) handleEvent(event fsnotify.Event) {
 	if !isYAMLFile(event.Name) {
 		return
 	}
+	if filepath.Base(event.Name) == "catalog.yaml" {
+		return
+	}
 
 	w.mu.Lock()
 	defer w.mu.Unlock()

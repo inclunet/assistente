@@ -585,7 +585,7 @@ func generateState() string {
 // onConfigUpdate é chamado quando o config precisa ser persistido (ex: porta após DCR).
 func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEvent emitFunc, slug string, onConfigUpdate func(ServerConfig)) *http.Client {
 	rt := &pkceRoundTripper{
-		base:           http.DefaultTransport,
+		base:           newMCPTransport(),
 		credMgr:        credMgr,
 		cfg:            cfg,
 		emitEvent:      emitEvent,

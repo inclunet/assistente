@@ -221,6 +221,11 @@ func (m *Manager) Connect(slug string) error {
 		return fmt.Errorf("servidor MCP '%s' está desabilitado", slug)
 	}
 
+	if status.Status == StatusConnecting {
+		m.mu.Unlock()
+		return fmt.Errorf("servidor MCP '%s' já está conectando — aguarde a tentativa atual", slug)
+	}
+
 	// Se já conectado, desconecta primeiro
 	if _, connected := m.connections[slug]; connected {
 		m.mu.Unlock()
@@ -748,12 +753,12 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 	case AuthBearer:
 		if m.credMgr != nil && cfg.URL != "" {
 			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Token != "" {
-				client := &http.Client{
-					Transport: &bearerRoundTripper{
-						base:  http.DefaultTransport,
-						token: auth.Token,
-					},
-				}
+			client := &http.Client{
+				Transport: &bearerRoundTripper{
+					base:  newMCPTransport(),
+					token: auth.Token,
+				},
+			}
 				log.Printf("[MCP:%s] HTTP client configurado com Bearer token", slug)
 				return client
 			}
@@ -764,13 +769,13 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 	case AuthBasic:
 		if m.credMgr != nil && cfg.URL != "" {
 			if auth, err := m.credMgr.ResolveForURL(cfg.URL); err == nil && auth != nil && auth.Username != "" {
-				client := &http.Client{
-					Transport: &basicAuthRoundTripper{
-						base:     http.DefaultTransport,
-						username: auth.Username,
-						password: auth.Password,
-					},
-				}
+			client := &http.Client{
+				Transport: &basicAuthRoundTripper{
+					base:     newMCPTransport(),
+					username: auth.Username,
+					password: auth.Password,
+				},
+			}
 				log.Printf("[MCP:%s] HTTP client configurado com Basic auth", slug)
 				return client
 			}
@@ -780,6 +785,18 @@ func (m *Manager) buildAuthHTTPClient(slug string, cfg ServerConfig) *http.Clien
 
 	default:
 		return nil
+	}
+}
+
+// newMCPTransport cria um http.Transport com timeouts adequados para conexões MCP.
+// Evita conexões idle prolongadas que causam "unsolicited response on idle HTTP channel".
+func newMCPTransport() *http.Transport {
+	return &http.Transport{
+		MaxIdleConns:        10,
+		MaxIdleConnsPerHost: 2,
+		IdleConnTimeout:     60 * time.Second,
+		TLSHandshakeTimeout: 10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
 	}
 }
 
