@@ -121,8 +121,8 @@ func (m *Manager) syncConfigsFromDisk() {
 			continue
 		}
 
-		var cfg ServerConfig
-		if err := json.Unmarshal(data, &cfg); err != nil {
+		cfg, err := ParseServerConfig(data, f.Name)
+		if err != nil {
 			log.Printf("[MCP:watch] Erro ao parsear %s: %v", f.Filename, err)
 			continue
 		}

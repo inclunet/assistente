@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"assistente/internal/configdir"
 	"assistente/internal/credentials"
 	"assistente/internal/tools"
 )
@@ -303,6 +304,13 @@ func newTestManager() *Manager {
 	return NewManager(registry, credMgr, func(string, any) {})
 }
 
+func newTestManagerWithTempDir(t *testing.T) *Manager {
+	t.Helper()
+	m := newTestManager()
+	m.resolver = configdir.NewResolverWithBase(t.TempDir())
+	return m
+}
+
 func TestCheckAndRefreshToken_SkipsNonExistentServer(t *testing.T) {
 	m := newTestManager()
 	m.checkAndRefreshToken("nonexistent")
@@ -578,4 +586,190 @@ func TestHandleToolCallError_SkipsReconnectingServer(t *testing.T) {
 func TestHandleToolCallError_SkipsNonExistentServer(t *testing.T) {
 	m := newTestManager()
 	m.handleToolCallError("nonexistent", fmt.Errorf("error"))
+}
+
+// ============ Auto-Detect Transport Tests ============
+
+func TestAutoDetectTransport_URL(t *testing.T) {
+	data := []byte(`{"url": "https://mcp.example.com/mcp"}`)
+	cfg, err := ParseServerConfig(data, "example")
+	if err != nil {
+		t.Fatalf("ParseServerConfig failed: %v", err)
+	}
+	if cfg.Transport != TransportStreamable {
+		t.Errorf("expected streamable transport, got %q", cfg.Transport)
+	}
+	if cfg.Name != "Example" {
+		t.Errorf("expected name 'Example', got %q", cfg.Name)
+	}
+	if !cfg.Enabled {
+		t.Error("expected enabled=true by default")
+	}
+	if !cfg.AutoConnect {
+		t.Error("expected auto_connect=true by default")
+	}
+}
+
+func TestAutoDetectTransport_Command(t *testing.T) {
+	data := []byte(`{"command": "node", "args": ["server.js"]}`)
+	cfg, err := ParseServerConfig(data, "my-server")
+	if err != nil {
+		t.Fatalf("ParseServerConfig failed: %v", err)
+	}
+	if cfg.Transport != TransportStdio {
+		t.Errorf("expected stdio transport, got %q", cfg.Transport)
+	}
+	if cfg.Name != "My server" {
+		t.Errorf("expected name 'My server', got %q", cfg.Name)
+	}
+}
+
+func TestAutoDetectTransport_ExplicitOverride(t *testing.T) {
+	data := []byte(`{"url": "https://example.com", "transport": "sse", "enabled": false, "auto_connect": false, "name": "Custom Name"}`)
+	cfg, err := ParseServerConfig(data, "example")
+	if err != nil {
+		t.Fatalf("ParseServerConfig failed: %v", err)
+	}
+	if cfg.Transport != TransportSSE {
+		t.Errorf("expected explicit sse transport, got %q", cfg.Transport)
+	}
+	if cfg.Name != "Custom Name" {
+		t.Errorf("expected explicit name, got %q", cfg.Name)
+	}
+	if cfg.Enabled {
+		t.Error("expected enabled=false when explicitly set")
+	}
+	if cfg.AutoConnect {
+		t.Error("expected auto_connect=false when explicitly set")
+	}
+}
+
+func TestParseServerConfig_DefaultsForMinimalURL(t *testing.T) {
+	data := []byte(`{"url": "https://mcp.ist.nubank.world/mcp"}`)
+	cfg, err := ParseServerConfig(data, "nu-mcp")
+	if err != nil {
+		t.Fatalf("ParseServerConfig failed: %v", err)
+	}
+
+	if cfg.Transport != TransportStreamable {
+		t.Errorf("transport: got %q, want streamable", cfg.Transport)
+	}
+	if !cfg.Enabled {
+		t.Error("enabled should default to true")
+	}
+	if !cfg.AutoConnect {
+		t.Error("auto_connect should default to true")
+	}
+	if cfg.Name != "Nu mcp" {
+		t.Errorf("name: got %q, want 'Nu mcp'", cfg.Name)
+	}
+}
+
+// ============ ImportFromMCPJSON Tests ============
+
+func TestImportFromMCPJSON_CursorFormat(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+
+	mcpJSON := []byte(`{
+		"mcpServers": {
+			"my-server": {
+				"command": "npx",
+				"args": ["-y", "@modelcontextprotocol/server-filesystem"],
+				"env": {"HOME": "/tmp"}
+			},
+			"remote-server": {
+				"url": "https://mcp.example.com/sse"
+			}
+		}
+	}`)
+
+	count, err := m.ImportFromMCPJSON(mcpJSON)
+	if err != nil {
+		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	}
+	if count != 2 {
+		t.Errorf("expected 2 imported, got %d", count)
+	}
+
+	// Check that servers are now loaded
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	if _, ok := m.servers["my-server"]; !ok {
+		t.Error("my-server should be loaded after import")
+	}
+	if _, ok := m.servers["remote-server"]; !ok {
+		t.Error("remote-server should be loaded after import")
+	}
+}
+
+func TestImportFromMCPJSON_SkipsExisting(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+	m.servers["existing-server"] = &ServerStatus{
+		Slug:   "existing-server",
+		Config: ServerConfig{Name: "Existing"},
+		Status: StatusDisconnected,
+	}
+
+	mcpJSON := []byte(`{
+		"mcpServers": {
+			"existing-server": {
+				"command": "node",
+				"args": ["new-server.js"]
+			},
+			"new-server": {
+				"command": "node",
+				"args": ["new.js"]
+			}
+		}
+	}`)
+
+	count, err := m.ImportFromMCPJSON(mcpJSON)
+	if err != nil {
+		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("expected 1 imported (skipping existing), got %d", count)
+	}
+}
+
+func TestImportFromMCPJSON_EmptyInput(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+
+	count, err := m.ImportFromMCPJSON([]byte(`{}`))
+	if err != nil {
+		t.Fatalf("ImportFromMCPJSON failed: %v", err)
+	}
+	if count != 0 {
+		t.Errorf("expected 0 imported for empty input, got %d", count)
+	}
+}
+
+func TestImportFromMCPJSON_InvalidJSON(t *testing.T) {
+	m := newTestManagerWithTempDir(t)
+
+	_, err := m.ImportFromMCPJSON([]byte(`not json`))
+	if err == nil {
+		t.Error("expected error for invalid JSON")
+	}
+}
+
+func TestSanitizeSlug(t *testing.T) {
+	tests := []struct {
+		input string
+		want  string
+	}{
+		{"My Server", "my-server"},
+		{"my_server", "my-server"},
+		{"server-123", "server-123"},
+		{"Server With Spaces", "server-with-spaces"},
+		{"UPPERCASE", "uppercase"},
+		{"special!@#chars", "specialchars"},
+	}
+	for _, tc := range tests {
+		got := sanitizeSlug(tc.input)
+		if got != tc.want {
+			t.Errorf("sanitizeSlug(%q): got %q, want %q", tc.input, got, tc.want)
+		}
+	}
 }

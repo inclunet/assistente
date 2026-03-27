@@ -567,10 +567,12 @@ export default function McpPage() {
 
   function getRowActions(row: ServerRow) {
     const actions = [];
-    if (row.status === 'connected') {
+    if (row.status === 'connected' || row.status === 'connecting') {
       actions.push({
         id: 'disconnect',
-        label: t('mcp.actions.disconnect', 'Desconectar'),
+        label: row.status === 'connecting'
+          ? t('mcp.actions.cancel', 'Cancelar')
+          : t('mcp.actions.disconnect', 'Desconectar'),
         icon: <ApiOutlined />,
         onClick: () => handleDisconnect(row),
       });
@@ -582,12 +584,14 @@ export default function McpPage() {
         onClick: () => handleConnect(row),
       });
     }
-    actions.push({
-      id: 'reconnect',
-      label: t('mcp.actions.reconnect', 'Reconectar'),
-      icon: <ReloadOutlined />,
-      onClick: () => handleReconnect(row),
-    });
+    if (row.status !== 'connecting') {
+      actions.push({
+        id: 'reconnect',
+        label: t('mcp.actions.reconnect', 'Reconectar'),
+        icon: <ReloadOutlined />,
+        onClick: () => handleReconnect(row),
+      });
+    }
     actions.push({
       id: 'duplicate',
       label: t('mcp.actions.duplicate', 'Duplicar'),
@@ -652,11 +656,13 @@ export default function McpPage() {
             key: 'connect-toggle',
             label: focusedRow?.status === 'connected'
               ? t('mcp.actions.disconnect', 'Desconectar')
-              : t('mcp.actions.connect', 'Conectar'),
+              : focusedRow?.status === 'connecting'
+                ? t('mcp.actions.cancel', 'Cancelar')
+                : t('mcp.actions.connect', 'Conectar'),
             icon: <ApiOutlined />,
             onClick: () => {
               if (!focusedRow) return;
-              if (focusedRow.status === 'connected') {
+              if (focusedRow.status === 'connected' || focusedRow.status === 'connecting') {
                 void handleDisconnect(focusedRow);
               } else {
                 void handleConnect(focusedRow);
@@ -669,7 +675,7 @@ export default function McpPage() {
             label: t('mcp.actions.reconnect', 'Reconectar'),
             icon: <ReloadOutlined />,
             onClick: () => focusedRow && handleReconnect(focusedRow),
-            disabled: !focusedRow,
+            disabled: !focusedRow || focusedRow.status === 'connecting',
           },
           {
             key: 'duplicate',
