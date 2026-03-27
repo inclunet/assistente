@@ -1,10 +1,15 @@
 import type { ReactNode } from 'react';
 import { describe, expect, it, vi, beforeEach } from 'vitest';
-import { render, screen, waitFor } from '@testing-library/react';
+import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 let mockTab: string | undefined;
 const mockNavigate = vi.fn();
+const mockAnnounce = vi.fn();
+
+vi.mock('../hooks/useAnnouncer', () => ({
+  announce: (...args: unknown[]) => mockAnnounce(...args),
+}));
 
 vi.mock('react-router-dom', () => ({
   useParams: () => ({ tab: mockTab }),
@@ -62,6 +67,7 @@ describe('SettingsPage', () => {
   beforeEach(() => {
     mockTab = undefined;
     mockNavigate.mockReset();
+    mockAnnounce.mockReset();
   });
 
   it('renderiza todas as tabs de configuração', async () => {
@@ -142,5 +148,84 @@ describe('SettingsPage', () => {
 
     // The Tab mock doesn't call onValueChange, but we verify the tabs render
     expect(mcpTab).toBeInTheDocument();
+  });
+
+  it('possui data-tab-scope no container', () => {
+    render(<SettingsPage />);
+
+    const container = screen.getByTestId('tabs').closest('.settings-page');
+    expect(container).toHaveAttribute('data-tab-scope');
+  });
+
+  describe('Ctrl+Tab / Ctrl+PageDown navigation', () => {
+    it('Ctrl+Tab navega para a próxima aba', () => {
+      mockTab = 'providers';
+      render(<SettingsPage />);
+
+      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/mcp', { replace: true });
+    });
+
+    it('Ctrl+Shift+Tab navega para a aba anterior', () => {
+      mockTab = 'mcp';
+      render(<SettingsPage />);
+
+      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true, shiftKey: true });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/providers', { replace: true });
+    });
+
+    it('Ctrl+PageDown navega para a próxima aba', () => {
+      mockTab = 'skills';
+      render(<SettingsPage />);
+
+      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      fireEvent.keyDown(container, { key: 'PageDown', ctrlKey: true });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/channels', { replace: true });
+    });
+
+    it('Ctrl+PageUp navega para a aba anterior', () => {
+      mockTab = 'skills';
+      render(<SettingsPage />);
+
+      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      fireEvent.keyDown(container, { key: 'PageUp', ctrlKey: true });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/mcp', { replace: true });
+    });
+
+    it('Ctrl+Tab faz wrap da última para a primeira aba', () => {
+      mockTab = 'restore-defaults';
+      render(<SettingsPage />);
+
+      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/providers', { replace: true });
+    });
+
+    it('Ctrl+Shift+Tab faz wrap da primeira para a última aba', () => {
+      mockTab = 'providers';
+      render(<SettingsPage />);
+
+      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true, shiftKey: true });
+
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/restore-defaults', { replace: true });
+    });
+
+    it('anuncia o nome da aba ao navegar', () => {
+      mockTab = 'providers';
+      render(<SettingsPage />);
+
+      const container = screen.getByTestId('tabs').closest('.settings-page')!;
+      fireEvent.keyDown(container, { key: 'Tab', ctrlKey: true });
+
+      expect(mockAnnounce).toHaveBeenCalledWith('MCP');
+    });
   });
 });
