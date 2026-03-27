@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeAll } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ProfileSkillsSection } from './ProfileSkillsSection';
 
@@ -15,10 +15,14 @@ vi.mock('../../services/audioFeedback', () => ({
   playBumpSound: vi.fn(),
 }));
 
-const mockSkills: Array<{ name: string; slug: string; description: string }> = [
-  { name: 'Skill 1', slug: 'skill-1', description: 'First skill' },
-  { name: 'Skill 2', slug: 'skill-2', description: 'Second skill' },
-  { name: 'Skill 3', slug: 'skill-3', description: 'Third skill' },
+beforeAll(() => {
+  Element.prototype.scrollIntoView = vi.fn();
+});
+
+const mockSkills: Array<{ name: string; slug: string; description: string; source?: string }> = [
+  { name: 'Skill 1', slug: 'skill-1', description: 'First skill', source: 'exe' },
+  { name: 'Skill 2', slug: 'skill-2', description: 'Second skill', source: 'home' },
+  { name: 'Skill 3', slug: 'skill-3', description: 'Third skill', source: 'exe' },
 ];
 
 describe('ProfileSkillsSection', () => {
@@ -336,5 +340,107 @@ describe('ProfileSkillsSection', () => {
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: 'ArrowUp', altKey: true });
     expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-2', 'skill-1', 'skill-3']);
+  });
+
+  // ─── Filtro e Busca ──────────────────────────────────────────────
+
+  describe('Filtro e Busca', () => {
+    function selectFilter(testId: string, optionLabel: string) {
+      const container = screen.getByTestId(testId);
+      const pickerBtn = container.querySelector('.picker-button') as HTMLElement;
+      fireEvent.click(pickerBtn);
+      const option = screen.getByRole('option', { name: new RegExp(optionLabel) });
+      fireEvent.mouseDown(option);
+    }
+
+    it('renderiza campo de busca na toolbar', () => {
+      render(
+        <ProfileSkillsSection
+          availableSkills={mockSkills}
+          enabledSkills={[]}
+          onChange={vi.fn()}
+        />
+      );
+      expect(screen.getByTestId('skills-search')).toBeInTheDocument();
+    });
+
+    it('filtra skills por texto de busca', () => {
+      render(
+        <ProfileSkillsSection
+          availableSkills={mockSkills}
+          enabledSkills={[]}
+          onChange={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByTestId('skills-search'), { target: { value: 'First' } });
+      expect(screen.getByText('Skill 1')).toBeInTheDocument();
+      expect(screen.queryByText('Skill 2')).not.toBeInTheDocument();
+      expect(screen.queryByText('Skill 3')).not.toBeInTheDocument();
+    });
+
+    it('renderiza picker de filtro quando há múltiplas fontes', () => {
+      render(
+        <ProfileSkillsSection
+          availableSkills={mockSkills}
+          enabledSkills={[]}
+          onChange={vi.fn()}
+        />
+      );
+      expect(screen.getByTestId('skills-filter')).toBeInTheDocument();
+    });
+
+    it('filtra por fonte específica', () => {
+      render(
+        <ProfileSkillsSection
+          availableSkills={mockSkills}
+          enabledSkills={[]}
+          onChange={vi.fn()}
+        />
+      );
+      selectFilter('skills-filter', 'Home');
+      expect(screen.getByText('Skill 2')).toBeInTheDocument();
+      expect(screen.queryByText('Skill 1')).not.toBeInTheDocument();
+      expect(screen.queryByText('Skill 3')).not.toBeInTheDocument();
+    });
+
+    it('mostra mensagem quando filtro não retorna resultados', () => {
+      render(
+        <ProfileSkillsSection
+          availableSkills={mockSkills}
+          enabledSkills={[]}
+          onChange={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByTestId('skills-search'), { target: { value: 'inexistente' } });
+      expect(screen.getByText('Nenhum skill corresponde ao filtro.')).toBeInTheDocument();
+    });
+
+    it('"Selecionar todas" com filtro ativo seleciona apenas itens filtrados', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileSkillsSection
+          availableSkills={mockSkills}
+          enabledSkills={[]}
+          onChange={onChange}
+        />
+      );
+      selectFilter('skills-filter', 'Builtin');
+      fireEvent.click(screen.getByTestId('skills-select-all'));
+      expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-1', 'skill-3']);
+    });
+
+    it('"Desmarcar todas" com filtro ativo desmarca apenas itens filtrados', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileSkillsSection
+          availableSkills={mockSkills}
+          enabledSkills={['skill-1', 'skill-2', 'skill-3']}
+          onChange={onChange}
+        />
+      );
+      selectFilter('skills-filter', 'Builtin');
+      fireEvent.click(screen.getByTestId('skills-deselect-all'));
+      expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-2']);
+    });
   });
 });

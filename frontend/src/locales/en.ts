@@ -622,6 +622,22 @@ const en = {
         responseTimeout: 'Response Timeout (seconds)',
         responseTimeoutHint: '2nd layer of protection against infinite loops. Responses exceeding this time are interrupted.',
       },
+      filterAll: 'All',
+      filterLocal: 'Local',
+      filterAllMcp: 'All MCP',
+      toolsSearchPlaceholder: 'Search tool…',
+      toolsSearchLabel: 'Filter tools by name',
+      toolsFilterLabel: 'Filter by source',
+      toolsNoResults: 'No tools match the filter.',
+      skillsSearchPlaceholder: 'Search skill…',
+      skillsSearchLabel: 'Filter skills by name',
+      skillsFilterLabel: 'Filter by source',
+      skillsNoResults: 'No skills match the filter.',
+      filterSkillSource: {
+        exe: 'Builtin',
+        home: 'Home',
+        workdir: 'Workspace',
+      },
     },
 
     skills: {

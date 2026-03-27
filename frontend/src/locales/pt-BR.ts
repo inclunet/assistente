@@ -622,6 +622,22 @@ const ptBR = {
         responseTimeout: 'Timeout de Resposta (segundos)',
         responseTimeoutHint: '2ª camada de proteção contra loops infinitos. Respostas que ultrapassam esse tempo são interrompidas.',
       },
+      filterAll: 'Todas',
+      filterLocal: 'Locais',
+      filterAllMcp: 'Todas MCP',
+      toolsSearchPlaceholder: 'Buscar ferramenta…',
+      toolsSearchLabel: 'Filtrar ferramentas por nome',
+      toolsFilterLabel: 'Filtrar por origem',
+      toolsNoResults: 'Nenhuma ferramenta corresponde ao filtro.',
+      skillsSearchPlaceholder: 'Buscar skill…',
+      skillsSearchLabel: 'Filtrar skills por nome',
+      skillsFilterLabel: 'Filtrar por origem',
+      skillsNoResults: 'Nenhum skill corresponde ao filtro.',
+      filterSkillSource: {
+        exe: 'Builtin',
+        home: 'Home',
+        workdir: 'Workspace',
+      },
     },
 
     skills: {

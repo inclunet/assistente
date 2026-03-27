@@ -621,6 +621,22 @@ const es = {
         responseTimeout: 'Tiempo de Espera de Respuesta (segundos)',
         responseTimeoutHint: '2ª capa de protección contra bucles infinitos. Las respuestas que superan este tiempo se interrumpen.',
       },
+      filterAll: 'Todas',
+      filterLocal: 'Locales',
+      filterAllMcp: 'Todas MCP',
+      toolsSearchPlaceholder: 'Buscar herramienta…',
+      toolsSearchLabel: 'Filtrar herramientas por nombre',
+      toolsFilterLabel: 'Filtrar por origen',
+      toolsNoResults: 'Ninguna herramienta coincide con el filtro.',
+      skillsSearchPlaceholder: 'Buscar skill…',
+      skillsSearchLabel: 'Filtrar skills por nombre',
+      skillsFilterLabel: 'Filtrar por origen',
+      skillsNoResults: 'Ningún skill coincide con el filtro.',
+      filterSkillSource: {
+        exe: 'Builtin',
+        home: 'Home',
+        workdir: 'Workspace',
+      },
     },
 
     skills: {

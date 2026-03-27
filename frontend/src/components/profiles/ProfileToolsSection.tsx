@@ -1,9 +1,16 @@
-import { useCallback } from 'react';
+import { useCallback, useMemo, useState } from 'react';
+import { FilterOutlined } from '@ant-design/icons';
 import { main, allowlist } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
+import { useMCPStore } from '../../store/mcpStore';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 import { RangeSlider } from '../ui/RangeSlider';
+import { Combobox, type ComboboxItem } from '../pickers/Combobox';
+import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
+import { parseToolSource, extractMcpServers } from '../../utils/toolSource';
+
+export type ToolFilter = 'all' | 'local' | 'mcp' | `mcp:${string}`;
 
 export interface ProfileToolsSectionProps {
   availableTools: main.ToolInfo[];
@@ -38,18 +45,46 @@ export function ProfileToolsSection({
   disabled = false,
 }: ProfileToolsSectionProps) {
   const { t } = useTranslation();
+  const mcpServers = useMCPStore((s) => s.servers);
+
+  const [filter, setFilter] = useState<ToolFilter>('all');
+  const [search, setSearch] = useState('');
 
   const allNames = availableTools.map(tool => tool.name);
-  const allSelected = !enabledTools;
-  const noneSelected = Array.isArray(enabledTools) && enabledTools.length === 0;
-  const showSelectAll = !allSelected;
-  const showDeselectAll = !noneSelected;
 
-  const toolRows: ToolRow[] = availableTools.map(tool => ({
-    id: tool.name,
-    name: tool.name,
-    description: tool.description || '',
-  }));
+  const mcpServerEntries = useMemo(
+    () => extractMcpServers(allNames, mcpServers.map((s) => ({ slug: s.slug, name: s.name }))),
+    [allNames, mcpServers],
+  );
+
+  const filterItems: ComboboxItem[] = useMemo(() => [
+    { value: 'all', label: t('profiles.filterAll', 'Todas') },
+    { value: 'local', label: t('profiles.filterLocal', 'Locais') },
+    { value: 'mcp', label: t('profiles.filterAllMcp', 'Todas MCP') },
+    ...mcpServerEntries.map((srv) => ({ value: `mcp:${srv.slug}`, label: srv.name })),
+  ], [t, mcpServerEntries]);
+
+  const toolRows: ToolRow[] = useMemo(
+    () => availableTools.map(tool => ({ id: tool.name, name: tool.name, description: tool.description || '' })),
+    [availableTools],
+  );
+
+  const filteredRows = useMemo(() => {
+    const term = search.toLowerCase().trim();
+    return toolRows.filter((row) => {
+      if (filter !== 'all') {
+        const src = parseToolSource(row.name);
+        if (filter === 'local' && src.type !== 'local') return false;
+        if (filter === 'mcp' && src.type !== 'mcp') return false;
+        if (filter.startsWith('mcp:') && (src.type !== 'mcp' || src.serverSlug !== filter.slice(4))) return false;
+      }
+      if (term && !row.name.toLowerCase().includes(term) && !row.description.toLowerCase().includes(term)) return false;
+      return true;
+    });
+  }, [toolRows, filter, search]);
+
+  const filteredNames = useMemo(() => new Set(filteredRows.map((r) => r.name)), [filteredRows]);
+  const isFiltered = filter !== 'all' || search.trim() !== '';
 
   const selectedIds: Set<string | number> = !enabledTools
     ? new Set<string | number>(allNames)
@@ -65,9 +100,46 @@ export function ProfileToolsSection({
     }
   }, [allNames.length, onChange]);
 
+  const handleSelectFiltered = useCallback(() => {
+    if (!isFiltered) {
+      onChange('enabled_tools', null);
+      return;
+    }
+    const current = new Set<string>(enabledTools ?? allNames);
+    for (const name of filteredNames) current.add(name);
+    if (current.size === allNames.length) {
+      onChange('enabled_tools', null);
+    } else {
+      onChange('enabled_tools', Array.from(current));
+    }
+  }, [isFiltered, enabledTools, allNames, filteredNames, onChange]);
+
+  const handleDeselectFiltered = useCallback(() => {
+    if (!isFiltered) {
+      onChange('enabled_tools', []);
+      return;
+    }
+    const current = new Set<string>(enabledTools ?? allNames);
+    for (const name of filteredNames) current.delete(name);
+    if (current.size === 0) {
+      onChange('enabled_tools', []);
+    } else if (current.size === allNames.length) {
+      onChange('enabled_tools', null);
+    } else {
+      onChange('enabled_tools', Array.from(current));
+    }
+  }, [isFiltered, enabledTools, allNames, filteredNames, onChange]);
+
+  const allFilteredSelected = [...filteredNames].every((n) => selectedIds.has(n));
+  const noneFilteredSelected = [...filteredNames].every((n) => !selectedIds.has(n));
+  const showSelectAll = !allFilteredSelected;
+  const showDeselectAll = !noneFilteredSelected;
+
   const isToolEnabled = useCallback((name: string) => {
     return !enabledTools || enabledTools.includes(name);
   }, [enabledTools]);
+
+  const toolbarRef = useToolbarKeyboardNav();
 
   const columns: DataGridColumn<ToolRow>[] = [
     {
@@ -115,18 +187,38 @@ export function ProfileToolsSection({
           <p className="profiles-field__hint">
             {t('profiles.toolsHint', 'Selecione quais ferramentas este perfil pode usar. Nenhuma seleção = todas habilitadas.')}
           </p>
+          <input
+            type="text"
+            className="profiles-field__filter-search"
+            placeholder={t('profiles.toolsSearchPlaceholder', 'Buscar ferramenta…')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label={t('profiles.toolsSearchLabel', 'Filtrar ferramentas por nome')}
+            data-testid="tools-search"
+          />
           <div
+            ref={toolbarRef}
             className="profiles-field__tools-actions"
             role="toolbar"
             aria-label={t('profiles.toolsActionsLabel', 'Ações de seleção de ferramentas')}
             data-testid="tools-toolbar"
           >
+            <div data-testid="tools-filter">
+              <Combobox
+                items={filterItems}
+                selected={filter}
+                onSelect={(value) => setFilter(value as ToolFilter)}
+                label={t('profiles.toolsFilterLabel', 'Filtrar por origem')}
+                icon={<FilterOutlined />}
+                maxWidth="200px"
+                disabled={disabled}
+              />
+            </div>
             {showSelectAll && (
               <button
                 type="button"
                 className="profiles-field__tools-toggle"
-                tabIndex={0}
-                onClick={() => onChange('enabled_tools', null)}
+                onClick={handleSelectFiltered}
                 disabled={disabled}
                 data-testid="tools-select-all"
               >
@@ -137,8 +229,7 @@ export function ProfileToolsSection({
               <button
                 type="button"
                 className="profiles-field__tools-toggle"
-                tabIndex={showSelectAll ? -1 : 0}
-                onClick={() => onChange('enabled_tools', [])}
+                onClick={handleDeselectFiltered}
                 disabled={disabled}
                 data-testid="tools-deselect-all"
               >
@@ -146,18 +237,24 @@ export function ProfileToolsSection({
               </button>
             )}
           </div>
-          <DataGrid<ToolRow>
-            items={toolRows}
-            columns={columns}
-            label={t('profiles.toolsGridLabel', 'Lista de ferramentas disponíveis')}
-            getItemId={(item) => item.name}
-            selectedIds={selectedIds}
-            selectionMode="checkbox"
-            onSelectionChange={handleSelectionChange}
-            showHeader={true}
-            autoFocusOnMount={false}
-            className="profiles-tools-datagrid"
-          />
+          {filteredRows.length > 0 ? (
+            <DataGrid<ToolRow>
+              items={filteredRows}
+              columns={columns}
+              label={t('profiles.toolsGridLabel', 'Lista de ferramentas disponíveis')}
+              getItemId={(item) => item.name}
+              selectedIds={selectedIds}
+              selectionMode="checkbox"
+              onSelectionChange={handleSelectionChange}
+              showHeader={true}
+              autoFocusOnMount={false}
+              className="profiles-tools-datagrid"
+            />
+          ) : (
+            <p className="profiles-field__hint profiles-field__no-results">
+              {t('profiles.toolsNoResults', 'Nenhuma ferramenta corresponde ao filtro.')}
+            </p>
+          )}
 
           <div className="profiles-field">
             <RangeSlider
