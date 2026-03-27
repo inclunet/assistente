@@ -80,6 +80,31 @@ func defaultStatuses() []database.TaskListWorkflowStatus {
 	}
 }
 
+func (f *fakeTaskListManager) addTaskListWithTransitions(title string, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions) *database.TaskList {
+	id := f.nextListID
+	f.nextListID++
+
+	statusesJSON, _ := json.Marshal(statuses)
+	transitionsJSON, _ := json.Marshal(transitions)
+
+	wf := &database.TaskListWorkflow{
+		ID:                 id,
+		TaskListID:         id,
+		Statuses:           string(statusesJSON),
+		AllowedTransitions: string(transitionsJSON),
+		InitialStatusID:    1,
+	}
+	f.workflows[id] = wf
+
+	tl := &database.TaskList{
+		ID:       id,
+		Title:    title,
+		Workflow: wf,
+	}
+	f.taskLists[id] = tl
+	return tl
+}
+
 func (f *fakeTaskListManager) addTask(taskListID uint, title string, statusID int) *database.Task {
 	id := f.nextTaskID
 	f.nextTaskID++
@@ -239,11 +264,56 @@ func (f *fakeTaskListManager) UpdateTaskStatus(id uint, newStatusID int) error {
 	if !ok {
 		return fmt.Errorf("task not found: %d", id)
 	}
-	if task.StatusID == newStatusID {
-		return fmt.Errorf("transição de %d para %d não permitida", task.StatusID, newStatusID)
+
+	wf, ok := f.workflows[task.TaskListID]
+	if !ok {
+		return fmt.Errorf("workflow not found for task list: %d", task.TaskListID)
 	}
-	task.StatusID = newStatusID
-	return nil
+
+	if task.StatusID == newStatusID {
+		return nil
+	}
+
+	var statuses []database.TaskListWorkflowStatus
+	if err := json.Unmarshal([]byte(wf.Statuses), &statuses); err != nil {
+		return err
+	}
+
+	toExists := false
+	for _, s := range statuses {
+		if s.ID == newStatusID {
+			toExists = true
+			break
+		}
+	}
+	if !toExists {
+		labels := make([]string, len(statuses))
+		for i, s := range statuses {
+			labels[i] = fmt.Sprintf("%d (%s)", s.ID, s.Label)
+		}
+		return fmt.Errorf("status destino %d não existe no workflow. Status válidos: %s",
+			newStatusID, strings.Join(labels, ", "))
+	}
+
+	var transitions database.TaskListWorkflowTransitions
+	if err := json.Unmarshal([]byte(wf.AllowedTransitions), &transitions); err != nil {
+		return err
+	}
+
+	allowedStatuses, fromExists := transitions[task.StatusID]
+	if !fromExists {
+		task.StatusID = newStatusID
+		return nil
+	}
+
+	for _, sid := range allowedStatuses {
+		if sid == newStatusID {
+			task.StatusID = newStatusID
+			return nil
+		}
+	}
+
+	return fmt.Errorf("transição de status %d para %d não é permitida pelo workflow", task.StatusID, newStatusID)
 }
 
 func (f *fakeTaskListManager) DeleteTask(id uint) error {
@@ -1395,8 +1465,8 @@ func TestUpsertTaskList_UpdateWorkflow_RemoveStatusWithMigration(t *testing.T) {
 				"1": []int{3},
 				"3": []int{1},
 			},
-			"initial_status_id":  1,
-			"status_migration": map[string]any{"2": 1},
+			"initial_status_id": 1,
+			"status_migration":  map[string]any{"2": 1},
 		},
 	}))
 	if err != nil {
@@ -1968,10 +2038,14 @@ func TestUpsertTask_DifferentStatus_ValidTransition(t *testing.T) {
 
 func TestUpsertTask_DifferentStatus_InvalidTransition(t *testing.T) {
 	mgr := newFakeManager()
-	tl := mgr.addTaskList("Test", defaultStatuses())
+	statuses := defaultStatuses()
+	transitions := database.TaskListWorkflowTransitions{
+		1: {2},
+		2: {1, 3},
+	}
+	tl := mgr.addTaskListWithTransitions("Test", statuses, transitions)
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 1
-	mgr.updateStatErr = fmt.Errorf("transição de 1 para 3 não permitida")
 	tool := NewUpsertTask(mgr)
 
 	statusID := 3
@@ -2068,5 +2142,197 @@ func TestUpsertTask_SameStatus_NoStatusID_UpdatesFields(t *testing.T) {
 	}
 	if mgr.tasks[task.ID].Description != "new description" {
 		t.Errorf("description not updated")
+	}
+}
+
+// ==================== Workflow Transition Tests ====================
+
+func TestUpsertTask_TransitionToTerminalStatus(t *testing.T) {
+	mgr := newFakeManager()
+	statuses := []database.TaskListWorkflowStatus{
+		{ID: 1, Order: 0, Label: "Backlog"},
+		{ID: 2, Order: 1, Label: "Em Progresso"},
+		{ID: 3, Order: 2, Label: "Concluído"},
+		{ID: 4, Order: 3, Label: "Cancelado"},
+		{ID: 5, Order: 4, Label: "Abandonado"},
+	}
+	transitions := database.TaskListWorkflowTransitions{
+		1: {2, 4, 5},
+		2: {1, 3, 4, 5},
+	}
+	tl := mgr.addTaskListWithTransitions("Jira-like", statuses, transitions)
+	task := mgr.addTask(tl.ID, "Ticket", 1)
+	task.StatusID = 2
+	tool := NewUpsertTask(mgr)
+
+	statusID := 3
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"task_id":      task.ID,
+		"title":        "Ticket",
+		"status_id":    statusID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("transition to terminal status should succeed: %s", result.Content)
+	}
+	if mgr.tasks[task.ID].StatusID != 3 {
+		t.Errorf("expected status 3, got %d", mgr.tasks[task.ID].StatusID)
+	}
+}
+
+func TestUpsertTask_TransitionFromZeroStatus(t *testing.T) {
+	mgr := newFakeManager()
+	statuses := []database.TaskListWorkflowStatus{
+		{ID: 1, Order: 0, Label: "Backlog"},
+		{ID: 2, Order: 1, Label: "Em Progresso"},
+		{ID: 3, Order: 2, Label: "Concluído"},
+	}
+	transitions := database.TaskListWorkflowTransitions{
+		1: {2, 3},
+		2: {1, 3},
+	}
+	tl := mgr.addTaskListWithTransitions("Test", statuses, transitions)
+	task := mgr.addTask(tl.ID, "Orphan task", 0)
+	task.StatusID = 0
+	tool := NewUpsertTask(mgr)
+
+	statusID := 2
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"task_id":      task.ID,
+		"title":        "Orphan task",
+		"status_id":    statusID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("transition from status 0 (invalid) to valid status should succeed: %s", result.Content)
+	}
+	if mgr.tasks[task.ID].StatusID != 2 {
+		t.Errorf("expected status 2, got %d", mgr.tasks[task.ID].StatusID)
+	}
+}
+
+func TestUpsertTask_SameStatusNoop_NoUpdateTaskStatusCall(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Ticket", 1)
+	task.StatusID = 2
+	tool := NewUpsertTask(mgr)
+
+	statusID := 2
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"task_id":      task.ID,
+		"title":        "Ticket",
+		"status_id":    statusID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("same status should not fail: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "noop") {
+		t.Errorf("expected noop for same status and same fields, got: %s", result.Content)
+	}
+}
+
+func TestUpsertTask_InvalidDestinationStatus(t *testing.T) {
+	mgr := newFakeManager()
+	statuses := []database.TaskListWorkflowStatus{
+		{ID: 1, Order: 0, Label: "Backlog"},
+		{ID: 2, Order: 1, Label: "Done"},
+	}
+	transitions := database.TaskListWorkflowTransitions{1: {2}}
+	tl := mgr.addTaskListWithTransitions("Test", statuses, transitions)
+	task := mgr.addTask(tl.ID, "Ticket", 1)
+	task.StatusID = 1
+	tool := NewUpsertTask(mgr)
+
+	statusID := 99
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"task_id":      task.ID,
+		"title":        "Ticket",
+		"status_id":    statusID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for non-existent destination status")
+	}
+	if !strings.Contains(result.Content, "invalid status_id") {
+		t.Errorf("expected 'invalid status_id' message, got: %s", result.Content)
+	}
+}
+
+func TestUpsertTask_TransitionNotAllowedByWorkflow(t *testing.T) {
+	mgr := newFakeManager()
+	statuses := []database.TaskListWorkflowStatus{
+		{ID: 1, Order: 0, Label: "Backlog"},
+		{ID: 2, Order: 1, Label: "Em Progresso"},
+		{ID: 3, Order: 2, Label: "Concluído"},
+	}
+	transitions := database.TaskListWorkflowTransitions{
+		1: {2},
+		2: {3},
+	}
+	tl := mgr.addTaskListWithTransitions("Strict", statuses, transitions)
+	task := mgr.addTask(tl.ID, "Ticket", 1)
+	task.StatusID = 1
+	tool := NewUpsertTask(mgr)
+
+	statusID := 3
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"task_id":      task.ID,
+		"title":        "Ticket",
+		"status_id":    statusID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatalf("expected error: 1->3 is not allowed, only 1->2, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "status change failed") {
+		t.Errorf("expected 'status change failed', got: %s", result.Content)
+	}
+}
+
+func TestUpsertTask_CreateWithTerminalStatus(t *testing.T) {
+	mgr := newFakeManager()
+	statuses := []database.TaskListWorkflowStatus{
+		{ID: 1, Order: 0, Label: "Backlog"},
+		{ID: 2, Order: 1, Label: "Em Progresso"},
+		{ID: 3, Order: 2, Label: "Concluído"},
+	}
+	transitions := database.TaskListWorkflowTransitions{
+		1: {2, 3},
+		2: {3},
+	}
+	tl := mgr.addTaskListWithTransitions("Test", statuses, transitions)
+	tool := NewUpsertTask(mgr)
+
+	statusID := 3
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"title":        "Already done",
+		"status_id":    statusID,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("creating task with terminal status should succeed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "created") {
+		t.Errorf("expected created, got: %s", result.Content)
 	}
 }

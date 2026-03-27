@@ -55,6 +55,7 @@ type ServerConfig struct {
 	OAuth2CallbackPort    int      `json:"oauth2_callback_port,omitempty" yaml:"oauth2_callback_port,omitempty"`
 	OAuth2CallbackHost    string   `json:"oauth2_callback_host,omitempty" yaml:"oauth2_callback_host,omitempty"`
 	OAuth2RegistrationURL string   `json:"oauth2_registration_url,omitempty" yaml:"oauth2_registration_url,omitempty"`
+	DisableSSE  bool              `json:"disable_sse,omitempty" yaml:"disable_sse,omitempty"`
 	Enabled     bool              `json:"enabled" yaml:"enabled"`
 	AutoConnect bool              `json:"auto_connect" yaml:"auto_connect"`
 }

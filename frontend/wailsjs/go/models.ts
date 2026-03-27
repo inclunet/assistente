@@ -2300,6 +2300,7 @@ export namespace mcp {
 	    oauth2_callback_port?: number;
 	    oauth2_callback_host?: string;
 	    oauth2_registration_url?: string;
+	    disable_sse?: boolean;
 	    enabled: boolean;
 	    auto_connect: boolean;
 	
@@ -2324,6 +2325,7 @@ export namespace mcp {
 	        this.oauth2_callback_port = source["oauth2_callback_port"];
 	        this.oauth2_callback_host = source["oauth2_callback_host"];
 	        this.oauth2_registration_url = source["oauth2_registration_url"];
+	        this.disable_sse = source["disable_sse"];
 	        this.enabled = source["enabled"];
 	        this.auto_connect = source["auto_connect"];
 	    }

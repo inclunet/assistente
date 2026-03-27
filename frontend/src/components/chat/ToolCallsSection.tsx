@@ -107,8 +107,6 @@ export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolC
   return (
     <div
       className={`tool-calls-section ${isExpanded ? 'tool-calls-section--expanded' : ''} ${isRunning ? 'tool-calls-section--running' : ''}`}
-      aria-label={isRunning ? t('chat.toolsRunningLabel') : t('chat.toolsUsedLabel')}
-      tabIndex={-1}
     >
       <button
         className="tool-calls-section__header"

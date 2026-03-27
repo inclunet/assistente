@@ -2,7 +2,12 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"testing"
+	"time"
 
 	"assistente/internal/credentials"
 	"assistente/internal/tools"
@@ -288,4 +293,289 @@ func TestSetMultipleHandlers(t *testing.T) {
 	if resp2 != "handler2" {
 		t.Errorf("esperado 'handler2', got %q", resp2)
 	}
+}
+
+// ==================== checkAndRefreshToken Tests ====================
+
+func newTestManager() *Manager {
+	registry := tools.NewRegistry()
+	credMgr := credentials.NewManager(nil)
+	return NewManager(registry, credMgr, func(string, any) {})
+}
+
+func TestCheckAndRefreshToken_SkipsNonExistentServer(t *testing.T) {
+	m := newTestManager()
+	m.checkAndRefreshToken("nonexistent")
+}
+
+func TestCheckAndRefreshToken_SkipsReconnectingServer(t *testing.T) {
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug:         "test",
+		Config:       ServerConfig{AuthType: AuthOAuth2PKCE},
+		Reconnecting: true,
+	}
+	m.checkAndRefreshToken("test")
+}
+
+func TestCheckAndRefreshToken_SkipsNonOAuth2Server(t *testing.T) {
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug:   "test",
+		Config: ServerConfig{AuthType: AuthBearer},
+	}
+	m.checkAndRefreshToken("test")
+}
+
+func TestCheckAndRefreshToken_SkipsWhenNoTokenStored(t *testing.T) {
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug:   "test",
+		Config: ServerConfig{AuthType: AuthOAuth2PKCE},
+	}
+	m.checkAndRefreshToken("test")
+}
+
+func TestCheckAndRefreshToken_SkipsWhenTokenFarFromExpiry(t *testing.T) {
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug:   "test",
+		Config: ServerConfig{AuthType: AuthOAuth2PKCE},
+	}
+
+	farFuture := time.Now().Add(1 * time.Hour).Unix()
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      "access-valid",
+		RefreshURL: "refresh-123",
+		ExpiresAt:  farFuture,
+	})
+
+	m.checkAndRefreshToken("test")
+
+	auth, _ := m.credMgr.GetByPattern(userTokensPattern("test"))
+	if auth.Token != "access-valid" {
+		t.Errorf("token should not have changed, got %q", auth.Token)
+	}
+}
+
+func TestCheckAndRefreshToken_SkipsWhenNoRefreshToken(t *testing.T) {
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug:   "test",
+		Config: ServerConfig{AuthType: AuthOAuth2PKCE},
+	}
+
+	soonExpiry := time.Now().Add(30 * time.Second).Unix()
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+		Type:      "oauth2",
+		Token:     "access-expiring",
+		ExpiresAt: soonExpiry,
+	})
+
+	m.checkAndRefreshToken("test")
+
+	auth, _ := m.credMgr.GetByPattern(userTokensPattern("test"))
+	if auth.Token != "access-expiring" {
+		t.Errorf("token should not have changed (no refresh token), got %q", auth.Token)
+	}
+}
+
+func TestCheckAndRefreshToken_RefreshesExpiringToken(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "new-access-token",
+			"refresh_token": "new-refresh-token",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+		})
+	}))
+	defer tokenServer.Close()
+
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug: "test",
+		Config: ServerConfig{
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "test-client",
+			OAuth2TokenURL: tokenServer.URL,
+			OAuth2AuthURL:  "http://unused/auth",
+		},
+	}
+
+	soonExpiry := time.Now().Add(30 * time.Second).Unix()
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      "old-access-token",
+		RefreshURL: "old-refresh-token",
+		ExpiresAt:  soonExpiry,
+	})
+
+	m.checkAndRefreshToken("test")
+
+	auth, err := m.credMgr.GetByPattern(userTokensPattern("test"))
+	if err != nil {
+		t.Fatalf("error reading token: %v", err)
+	}
+	if auth.Token != "new-access-token" {
+		t.Errorf("expected refreshed token 'new-access-token', got %q", auth.Token)
+	}
+	if auth.RefreshURL != "new-refresh-token" {
+		t.Errorf("expected refreshed refresh_token 'new-refresh-token', got %q", auth.RefreshURL)
+	}
+}
+
+func TestCheckAndRefreshToken_HandlesRefreshFailure(t *testing.T) {
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprint(w, `{"error":"invalid_grant"}`)
+	}))
+	defer tokenServer.Close()
+
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug: "test",
+		Config: ServerConfig{
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "test-client",
+			OAuth2TokenURL: tokenServer.URL,
+			OAuth2AuthURL:  "http://unused/auth",
+		},
+	}
+
+	soonExpiry := time.Now().Add(30 * time.Second).Unix()
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      "old-access-token",
+		RefreshURL: "old-refresh-token",
+		ExpiresAt:  soonExpiry,
+	})
+
+	m.checkAndRefreshToken("test")
+
+	auth, _ := m.credMgr.GetByPattern(userTokensPattern("test"))
+	if auth.Token != "old-access-token" {
+		t.Errorf("token should remain unchanged after failed refresh, got %q", auth.Token)
+	}
+}
+
+func TestCheckAndRefreshToken_UsesStoredClientCreds(t *testing.T) {
+	var receivedAuth string
+	tokenServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		receivedAuth = r.Header.Get("Authorization")
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]any{
+			"access_token":  "refreshed",
+			"refresh_token": "new-refresh",
+			"token_type":    "Bearer",
+			"expires_in":    3600,
+		})
+	}))
+	defer tokenServer.Close()
+
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug: "test",
+		Config: ServerConfig{
+			AuthType:       AuthOAuth2PKCE,
+			OAuth2ClientID: "",
+			OAuth2TokenURL: tokenServer.URL,
+			OAuth2AuthURL:  "http://unused/auth",
+		},
+	}
+
+	rt := &pkceRoundTripper{credMgr: m.credMgr, serverSlug: "test"}
+	rt.persistClientCreds("stored-client-id", "stored-secret")
+
+	soonExpiry := time.Now().Add(30 * time.Second).Unix()
+	_ = m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern("test"), &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      "old",
+		RefreshURL: "refresh-tok",
+		ExpiresAt:  soonExpiry,
+	})
+
+	m.checkAndRefreshToken("test")
+
+	if receivedAuth == "" {
+		t.Error("expected Authorization header with stored client credentials")
+	}
+
+	auth, _ := m.credMgr.GetByPattern(userTokensPattern("test"))
+	if auth.Token != "refreshed" {
+		t.Errorf("expected refreshed token, got %q", auth.Token)
+	}
+}
+
+// ==================== handleToolCallError Tests ====================
+
+func TestHandleToolCallError_SetsErrorAndTriggersReconnect(t *testing.T) {
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug:   "test",
+		Config: ServerConfig{Enabled: true},
+		Status: StatusConnected,
+	}
+	m.connections["test"] = &serverConnection{}
+
+	events := make(chan string, 5)
+	m.emitEvent = func(event string, data any) {
+		events <- event
+	}
+
+	m.handleToolCallError("test", fmt.Errorf("connection reset"))
+
+	s := m.servers["test"]
+	if s.Status != StatusError {
+		t.Errorf("expected StatusError, got %v", s.Status)
+	}
+	if s.ConsecutiveHealthFailures != healthCheckFailThreshold {
+		t.Errorf("expected failures=%d, got %d", healthCheckFailThreshold, s.ConsecutiveHealthFailures)
+	}
+
+	select {
+	case event := <-events:
+		if event != "mcp:server_unhealthy" {
+			t.Errorf("expected mcp:server_unhealthy event, got %q", event)
+		}
+	case <-time.After(1 * time.Second):
+		t.Error("no event emitted within timeout")
+	}
+}
+
+func TestHandleToolCallError_SkipsDisabledServer(t *testing.T) {
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug:   "test",
+		Config: ServerConfig{Enabled: false},
+		Status: StatusConnected,
+	}
+
+	m.handleToolCallError("test", fmt.Errorf("error"))
+
+	if m.servers["test"].Status != StatusConnected {
+		t.Error("should not change status for disabled server")
+	}
+}
+
+func TestHandleToolCallError_SkipsReconnectingServer(t *testing.T) {
+	m := newTestManager()
+	m.servers["test"] = &ServerStatus{
+		Slug:         "test",
+		Config:       ServerConfig{Enabled: true},
+		Status:       StatusError,
+		Reconnecting: true,
+	}
+
+	m.handleToolCallError("test", fmt.Errorf("error"))
+
+	if m.servers["test"].ConsecutiveHealthFailures != 0 {
+		t.Error("should not increment failures for reconnecting server")
+	}
+}
+
+func TestHandleToolCallError_SkipsNonExistentServer(t *testing.T) {
+	m := newTestManager()
+	m.handleToolCallError("nonexistent", fmt.Errorf("error"))
 }

@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"sync"
@@ -425,6 +426,47 @@ func TestIsMethodNotFound(t *testing.T) {
 		got := isMethodNotFound(tc.err)
 		if got != tc.want {
 			t.Errorf("isMethodNotFound(%v): got %v, want %v", tc.err, got, tc.want)
+		}
+	}
+}
+
+func TestSessionExpiredError(t *testing.T) {
+	err404 := &SessionExpiredError{StatusCode: 404}
+	if err404.Error() != "mcp session expired (HTTP 404)" {
+		t.Errorf("unexpected message: %s", err404.Error())
+	}
+
+	err410 := &SessionExpiredError{StatusCode: 410}
+	if err410.Error() != "mcp session expired (HTTP 410)" {
+		t.Errorf("unexpected message: %s", err410.Error())
+	}
+
+	var target *SessionExpiredError
+	wrapped := fmt.Errorf("outer: %w", err404)
+	if !errors.As(wrapped, &target) {
+		t.Error("errors.As should unwrap SessionExpiredError from wrapped error")
+	}
+	if target.StatusCode != 404 {
+		t.Errorf("expected StatusCode 404, got %d", target.StatusCode)
+	}
+}
+
+func TestIsSessionExpiredStatus(t *testing.T) {
+	tests := []struct {
+		code int
+		want bool
+	}{
+		{200, false},
+		{401, false},
+		{403, false},
+		{404, true},
+		{410, true},
+		{500, false},
+	}
+	for _, tc := range tests {
+		got := isSessionExpiredStatus(tc.code)
+		if got != tc.want {
+			t.Errorf("isSessionExpiredStatus(%d): got %v, want %v", tc.code, got, tc.want)
 		}
 	}
 }

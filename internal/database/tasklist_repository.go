@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -378,32 +379,61 @@ func ReorderWorkflowStatuses(taskListID uint, statusOrder []int) error {
 		Update("statuses", string(statusesJSON)).Error
 }
 
-// ValidateStatusTransition valida se uma transição de status é permitida
+// ValidateStatusTransition valida se uma transição de status é permitida.
+// Permite transição livre quando o status atual é inválido/vazio (0 ou ausente no workflow),
+// desde que o status destino exista no workflow.
 func ValidateStatusTransition(taskListID uint, fromStatusID, toStatusID int) error {
+	if fromStatusID == toStatusID {
+		return nil
+	}
+
 	workflow, err := GetWorkflow(taskListID)
 	if err != nil {
 		return err
 	}
 
-	// Desserializa transitions
+	// Desserializa statuses e transitions
+	var statuses []TaskListWorkflowStatus
+	if err := json.Unmarshal([]byte(workflow.Statuses), &statuses); err != nil {
+		return err
+	}
+
 	var transitions TaskListWorkflowTransitions
 	if err := json.Unmarshal([]byte(workflow.AllowedTransitions), &transitions); err != nil {
 		return err
 	}
 
-	// Valida
-	allowedStatuses, exists := transitions[fromStatusID]
-	if !exists {
-		return fmt.Errorf("status %d não existe no workflow", fromStatusID)
+	// Valida que o status destino existe na lista de statuses do workflow
+	toExists := false
+	for _, s := range statuses {
+		if s.ID == toStatusID {
+			toExists = true
+			break
+		}
+	}
+	if !toExists {
+		labels := make([]string, len(statuses))
+		for i, s := range statuses {
+			labels[i] = fmt.Sprintf("%d (%s)", s.ID, s.Label)
+		}
+		return fmt.Errorf("status destino %d não existe no workflow. Status válidos: %s",
+			toStatusID, strings.Join(labels, ", "))
+	}
+
+	// Se o status atual não existe no workflow (task com status zerado/inválido),
+	// permite a transição para qualquer status válido
+	allowedStatuses, fromExists := transitions[fromStatusID]
+	if !fromExists {
+		return nil
 	}
 
 	for _, statusID := range allowedStatuses {
 		if statusID == toStatusID {
-			return nil // Transição válida
+			return nil
 		}
 	}
 
-	return fmt.Errorf("transição de %d para %d não permitida", fromStatusID, toStatusID)
+	return fmt.Errorf("transição de status %d para %d não é permitida pelo workflow", fromStatusID, toStatusID)
 }
 
 // ==================== Task Operations ====================

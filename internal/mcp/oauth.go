@@ -23,6 +23,16 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 )
 
+// SessionExpiredError indica que a sessão Streamable HTTP expirou no servidor.
+// O servidor retornou 404 ou 410, significando que o Mcp-Session-Id é inválido.
+type SessionExpiredError struct {
+	StatusCode int
+}
+
+func (e *SessionExpiredError) Error() string {
+	return fmt.Sprintf("mcp session expired (HTTP %d)", e.StatusCode)
+}
+
 // persistingTokenSource wraps an oauth2.TokenSource and persists tokens
 // to the credential manager whenever a new token is obtained (refresh).
 type persistingTokenSource struct {
@@ -153,6 +163,14 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 			if err != nil {
 				return nil, err
 			}
+
+			// 404/410 = sessão MCP expirou (Mcp-Session-Id inválido).
+			// Não é problema de auth — propaga para o bridge disparar reconexão.
+			if isSessionExpiredStatus(resp.StatusCode) {
+				resp.Body.Close()
+				return nil, &SessionExpiredError{StatusCode: resp.StatusCode}
+			}
+
 			if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
 				return resp, nil
 			}
@@ -175,6 +193,10 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 						if err != nil {
 							return nil, err
 						}
+						if isSessionExpiredStatus(resp.StatusCode) {
+							resp.Body.Close()
+							return nil, &SessionExpiredError{StatusCode: resp.StatusCode}
+						}
 						if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
 							return resp, nil
 						}
@@ -188,6 +210,11 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	resp, err := rt.base.RoundTrip(req)
 	if err != nil {
 		return nil, err
+	}
+
+	if isSessionExpiredStatus(resp.StatusCode) {
+		resp.Body.Close()
+		return nil, &SessionExpiredError{StatusCode: resp.StatusCode}
 	}
 
 	if resp.StatusCode != http.StatusUnauthorized && resp.StatusCode != http.StatusForbidden {
@@ -216,6 +243,12 @@ func (rt *pkceRoundTripper) RoundTrip(req *http.Request) (*http.Response, error)
 	retryReq := req.Clone(req.Context())
 	token.SetAuthHeader(retryReq)
 	return rt.base.RoundTrip(retryReq)
+}
+
+// isSessionExpiredStatus retorna true para status HTTP que indicam sessão MCP expirada.
+// 404 = sessão não encontrada, 410 = sessão encerrada deliberadamente.
+func isSessionExpiredStatus(statusCode int) bool {
+	return statusCode == http.StatusNotFound || statusCode == http.StatusGone
 }
 
 func (rt *pkceRoundTripper) authorize(ctx context.Context) error {

@@ -28,6 +28,10 @@ func (m *Manager) WatchConfigs() {
 	}
 	defer watcher.Close()
 
+	if err := m.resolver.EnsureHomeDir(); err != nil {
+		log.Printf("[MCP:watch] Erro ao garantir diretório home: %v", err)
+	}
+
 	dirs := m.resolver.GetSearchPaths()
 	watching := 0
 	for _, dir := range dirs {
@@ -127,6 +131,7 @@ func (m *Manager) syncConfigsFromDisk() {
 	}
 
 	changed := false
+	var autoConnectSlugs []string
 
 	m.mu.Lock()
 
@@ -142,6 +147,10 @@ func (m *Manager) syncConfigsFromDisk() {
 			}
 			log.Printf("[MCP:watch] Novo servidor detectado: %s", slug)
 			changed = true
+
+			if cfg.Enabled && cfg.AutoConnect {
+				autoConnectSlugs = append(autoConnectSlugs, slug)
+			}
 			continue
 		}
 
@@ -155,9 +164,10 @@ func (m *Manager) syncConfigsFromDisk() {
 	// Detecta removidos
 	for slug := range m.servers {
 		if _, ok := onDisk[slug]; !ok {
-			log.Printf("[MCP:watch] Servidor removido: %s", slug)
-			delete(m.servers, slug)
+			log.Printf("[MCP:watch] Servidor removido: %s — desconectando", slug)
 			changed = true
+			go m.Disconnect(slug)
+			delete(m.servers, slug)
 		}
 	}
 
@@ -165,6 +175,15 @@ func (m *Manager) syncConfigsFromDisk() {
 
 	if changed {
 		m.emit("mcp:config_changed", nil)
+	}
+
+	for _, slug := range autoConnectSlugs {
+		log.Printf("[MCP:watch] Auto-conectando novo servidor: %s", slug)
+		go func(s string) {
+			if err := m.Connect(s); err != nil {
+				log.Printf("[MCP:watch] Erro ao auto-conectar '%s': %v", s, err)
+			}
+		}(slug)
 	}
 }
 

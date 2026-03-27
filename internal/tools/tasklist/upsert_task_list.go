@@ -18,10 +18,10 @@ type workflowStatusArg struct {
 }
 
 type workflowArg struct {
-	Statuses           []workflowStatusArg  `json:"statuses"`
-	AllowedTransitions map[int][]int        `json:"allowed_transitions"`
-	InitialStatusID    int                  `json:"initial_status_id"`
-	StatusMigration    map[int]int          `json:"status_migration,omitempty"`
+	Statuses           []workflowStatusArg `json:"statuses"`
+	AllowedTransitions map[int][]int       `json:"allowed_transitions"`
+	InitialStatusID    int                 `json:"initial_status_id"`
+	StatusMigration    map[int]int         `json:"status_migration,omitempty"`
 }
 
 type upsertTaskListArgs struct {

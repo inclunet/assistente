@@ -16,6 +16,7 @@ import (
 	"assistente/internal/tools"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
+	"golang.org/x/oauth2"
 )
 
 const (
@@ -48,6 +49,12 @@ const (
 
 	// maxRetryDelay é o delay máximo entre retries (usado no modo lento)
 	maxRetryDelay = 5 * time.Minute
+
+	// tokenRefreshCheckInterval é o intervalo para verificar expiração de tokens OAuth2
+	tokenRefreshCheckInterval = 1 * time.Minute
+
+	// tokenRefreshThreshold é a antecedência mínima para forçar refresh antes da expiração
+	tokenRefreshThreshold = 2 * time.Minute
 )
 
 // emitFunc é a callback para emitir eventos Wails
@@ -55,13 +62,14 @@ type emitFunc func(event string, data any)
 
 // serverConnection mantém o estado runtime de um servidor MCP conectado.
 type serverConnection struct {
-	client        *mcpsdk.Client
-	session       *mcpsdk.ClientSession
-	bridges       []*MCPToolBridge // tools registradas no registry
-	cancelHealth  context.CancelFunc // cancela health check goroutine
-	logHandler    func(LogEntry)    // handler para logs do servidor
-	progressHandler func(ProgressNotification) // handler para progresso
-	resourceSubHandler func(ResourceUpdated) // handler para resource updates
+	client             *mcpsdk.Client
+	session            *mcpsdk.ClientSession
+	bridges            []*MCPToolBridge       // tools registradas no registry
+	cancelHealth       context.CancelFunc     // cancela health check goroutine
+	cancelTokenRefresh context.CancelFunc     // cancela token refresh goroutine (OAuth2)
+	logHandler         func(LogEntry)         // handler para logs do servidor
+	progressHandler    func(ProgressNotification) // handler para progresso
+	resourceSubHandler func(ResourceUpdated)  // handler para resource updates
 }
 
 // Manager gerencia servidores MCP: configuração, conexão, discovery de tools.
@@ -258,73 +266,6 @@ func (m *Manager) Connect(slug string) error {
 	capabilities := ServerCapabilities{}
 	log.Printf("[MCP] Servidor '%s' conectado (capabilities não disponíveis no SDK v1.3.0)", slug)
 
-	// Descobre as ferramentas do servidor
-	toolsCtx, toolsCancel := context.WithTimeout(m.ctx, listToolsTimeout)
-	defer toolsCancel()
-
-	toolsResult, err := session.ListTools(toolsCtx, nil)
-	if err != nil {
-		session.Close()
-		m.setError(slug, fmt.Sprintf("erro ao listar ferramentas: %v", err))
-		return fmt.Errorf("falha ao listar tools do servidor MCP '%s': %w", slug, err)
-	}
-
-	// Cria bridges e registra no registry
-	var bridges []*MCPToolBridge
-	var toolInfos []MCPToolInfo
-
-	for _, mcpTool := range toolsResult.Tools {
-		bridge := NewMCPToolBridge(slug, mcpTool, session)
-		bridges = append(bridges, bridge)
-		toolInfos = append(toolInfos, bridge.ToMCPToolInfo())
-
-		// Registra no registry (ignora erro se já existe — pode ser reconexão)
-		if err := m.registry.Register(bridge); err != nil {
-			log.Printf("[MCP] Aviso: tool '%s' já registrada: %v", bridge.Name(), err)
-		}
-	}
-
-	// Descobre resources do servidor
-	var resourceInfos []MCPResourceInfo
-	resourcesResult, err := session.ListResources(toolsCtx, nil)
-	if err == nil && resourcesResult != nil {
-		for _, res := range resourcesResult.Resources {
-			resourceInfos = append(resourceInfos, MCPResourceInfo{
-				URI:         res.URI,
-				Name:        res.Name,
-				Description: res.Description,
-				MIMEType:    res.MIMEType,
-				ServerSlug:  slug,
-			})
-		}
-		log.Printf("[MCP] Servidor '%s': %d resources descobertos", slug, len(resourceInfos))
-	}
-
-	// Descobre prompts do servidor
-	var promptInfos []MCPPromptInfo
-	promptsResult, err := session.ListPrompts(toolsCtx, nil)
-	if err == nil && promptsResult != nil {
-		for _, prompt := range promptsResult.Prompts {
-			args := make([]MCPPromptArgument, len(prompt.Arguments))
-			for i, arg := range prompt.Arguments {
-				args[i] = MCPPromptArgument{
-					Name:        arg.Name,
-					Description: arg.Description,
-					Required:    arg.Required,
-				}
-			}
-			promptInfos = append(promptInfos, MCPPromptInfo{
-				Name:        prompt.Name,
-				Description: prompt.Description,
-				Arguments:   args,
-				ServerSlug:  slug,
-			})
-		}
-		log.Printf("[MCP] Servidor '%s': %d prompts descobertos", slug, len(promptInfos))
-	}
-
-	now := time.Now()
-
 	// TODO: Quando SDK suportar, configurar handlers:
 	// - session.SetLogHandler(logHandler)
 	// - session.SetProgressHandler(progressHandler)
@@ -348,13 +289,23 @@ func (m *Manager) Connect(slug string) error {
 	healthCtx, healthCancel := context.WithCancel(m.ctx)
 	go m.healthCheckLoop(healthCtx, slug)
 
-	// Atualiza estado
+	// Inicia token refresh proativo para servidores OAuth2
+	var tokenRefreshCancel context.CancelFunc
+	if cfg.AuthType == AuthOAuth2PKCE || cfg.AuthType == AuthOAuth2ClientCredentials {
+		tokenCtx, cancel := context.WithCancel(m.ctx)
+		tokenRefreshCancel = cancel
+		go m.tokenRefreshLoop(tokenCtx, slug)
+	}
+
+	now := time.Now()
+
+	// Atualiza estado da conexão (antes de descobrir offerings)
 	m.mu.Lock()
 	m.connections[slug] = &serverConnection{
 		client:             client,
 		session:            session,
-		bridges:            bridges,
 		cancelHealth:       healthCancel,
+		cancelTokenRefresh: tokenRefreshCancel,
 		logHandler:         logHandler,
 		progressHandler:    progressHandler,
 		resourceSubHandler: resourceSubHandler,
@@ -362,30 +313,132 @@ func (m *Manager) Connect(slug string) error {
 	if s, ok := m.servers[slug]; ok {
 		s.Status = StatusConnected
 		s.Error = ""
-		s.Tools = toolInfos
 		s.Capabilities = capabilities
 		s.Roots = currentRoots
-		s.Resources = resourceInfos
-		s.Prompts = promptInfos
 		s.ConnectedAt = &now
 		s.LastPing = &now
 		s.RetryCount = 0
 	}
 	m.mu.Unlock()
 
-	log.Printf("[MCP] Servidor '%s' conectado: %d ferramentas, %d resources, %d prompts", 
-		slug, len(bridges), len(resourceInfos), len(promptInfos))
-	for _, t := range toolInfos {
-		log.Printf("[MCP]   - tool: %s (%s)", t.FullName, t.Name)
+	// Descobre tools, resources e prompts do servidor
+	if err := m.refreshServerOfferings(slug); err != nil {
+		m.Disconnect(slug)
+		m.setError(slug, fmt.Sprintf("erro ao descobrir offerings: %v", err))
+		return fmt.Errorf("falha ao descobrir offerings do servidor MCP '%s': %w", slug, err)
 	}
 
 	m.emit("mcp:server_connected", map[string]any{
-		"slug":          slug,
-		"toolCount":     len(bridges),
-		"resourceCount": len(resourceInfos),
-		"promptCount":   len(promptInfos),
+		"slug": slug,
 	})
-	m.emit("mcp:tools_changed", nil)
+
+	return nil
+}
+
+// refreshServerOfferings re-descobre tools, resources e prompts de um servidor
+// já conectado, atualizando o registry e o ServerStatus.
+// Usado pelo Connect inicial e pelo health check periódico.
+func (m *Manager) refreshServerOfferings(slug string) error {
+	m.mu.RLock()
+	conn, ok := m.connections[slug]
+	if !ok {
+		m.mu.RUnlock()
+		return fmt.Errorf("servidor '%s' não está conectado", slug)
+	}
+	session := conn.session
+	m.mu.RUnlock()
+
+	ctx, cancel := context.WithTimeout(m.ctx, listToolsTimeout)
+	defer cancel()
+
+	// Descobre tools
+	toolsResult, err := session.ListTools(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("erro ao listar ferramentas: %w", err)
+	}
+
+	var bridges []*MCPToolBridge
+	var toolInfos []MCPToolInfo
+	for _, mcpTool := range toolsResult.Tools {
+		bridge := NewMCPToolBridge(slug, mcpTool, session)
+		bridge.onSessionError = m.handleToolCallError
+		bridges = append(bridges, bridge)
+		toolInfos = append(toolInfos, bridge.ToMCPToolInfo())
+	}
+
+	// Descobre resources
+	var resourceInfos []MCPResourceInfo
+	resourcesResult, err := session.ListResources(ctx, nil)
+	if err == nil && resourcesResult != nil {
+		for _, res := range resourcesResult.Resources {
+			resourceInfos = append(resourceInfos, MCPResourceInfo{
+				URI:         res.URI,
+				Name:        res.Name,
+				Description: res.Description,
+				MIMEType:    res.MIMEType,
+				ServerSlug:  slug,
+			})
+		}
+	}
+
+	// Descobre prompts
+	var promptInfos []MCPPromptInfo
+	promptsResult, err := session.ListPrompts(ctx, nil)
+	if err == nil && promptsResult != nil {
+		for _, prompt := range promptsResult.Prompts {
+			args := make([]MCPPromptArgument, len(prompt.Arguments))
+			for i, arg := range prompt.Arguments {
+				args[i] = MCPPromptArgument{
+					Name:        arg.Name,
+					Description: arg.Description,
+					Required:    arg.Required,
+				}
+			}
+			promptInfos = append(promptInfos, MCPPromptInfo{
+				Name:        prompt.Name,
+				Description: prompt.Description,
+				Arguments:   args,
+				ServerSlug:  slug,
+			})
+		}
+	}
+
+	// Atualiza registry: remove bridges antigos, registra novos
+	m.mu.Lock()
+	conn, ok = m.connections[slug]
+	if !ok {
+		m.mu.Unlock()
+		return fmt.Errorf("servidor '%s' desconectou durante refresh", slug)
+	}
+
+	oldBridges := conn.bridges
+	for _, old := range oldBridges {
+		m.registry.Unregister(old.Name())
+	}
+	for _, bridge := range bridges {
+		if err := m.registry.Register(bridge); err != nil {
+			log.Printf("[MCP] Aviso: tool '%s' já registrada: %v", bridge.Name(), err)
+		}
+	}
+	conn.bridges = bridges
+
+	changed := false
+	if s, ok := m.servers[slug]; ok {
+		changed = len(s.Tools) != len(toolInfos) ||
+			len(s.Resources) != len(resourceInfos) ||
+			len(s.Prompts) != len(promptInfos)
+		s.Tools = toolInfos
+		s.Resources = resourceInfos
+		s.Prompts = promptInfos
+	}
+	m.mu.Unlock()
+
+	if changed {
+		m.emit("mcp:tools_changed", nil)
+	}
+
+	log.Printf("[MCP] Servidor '%s' offerings atualizados: %d tools, %d resources, %d prompts",
+		slug, len(toolInfos), len(resourceInfos), len(promptInfos))
 
 	return nil
 }
@@ -399,9 +452,12 @@ func (m *Manager) Disconnect(slug string) error {
 		return nil // não conectado, nada a fazer
 	}
 
-	// Cancela health check
+	// Cancela goroutines
 	if conn.cancelHealth != nil {
 		conn.cancelHealth()
+	}
+	if conn.cancelTokenRefresh != nil {
+		conn.cancelTokenRefresh()
 	}
 
 	// Remove tools do registry
@@ -647,10 +703,17 @@ func (m *Manager) createTransport(slug string, cfg ServerConfig) (mcpsdk.Transpo
 
 		httpClient := m.buildAuthHTTPClient(slug, cfg)
 
-		return &mcpsdk.StreamableClientTransport{
-			Endpoint:   cfg.URL,
-			HTTPClient: httpClient,
-		}, nil
+		transport := &mcpsdk.StreamableClientTransport{
+			Endpoint:             cfg.URL,
+			HTTPClient:           httpClient,
+			DisableStandaloneSSE: cfg.DisableSSE,
+		}
+
+		if cfg.DisableSSE {
+			log.Printf("[MCP:%s] Standalone SSE desabilitado por configuração", slug)
+		}
+
+		return transport, nil
 
 	default:
 		return nil, fmt.Errorf("transport desconhecido: '%s' (use 'stdio', 'sse' ou 'streamable')", cfg.Transport)
@@ -768,6 +831,105 @@ func (m *Manager) emit(event string, data any) {
 	}
 }
 
+// tokenRefreshLoop verifica periodicamente a expiração de tokens OAuth2
+// e força refresh proativo antes que expirem.
+func (m *Manager) tokenRefreshLoop(ctx context.Context, slug string) {
+	ticker := time.NewTicker(tokenRefreshCheckInterval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			m.checkAndRefreshToken(slug)
+		}
+	}
+}
+
+// checkAndRefreshToken verifica se o token OAuth2 está próximo de expirar
+// e força um refresh proativo usando o refresh_token.
+func (m *Manager) checkAndRefreshToken(slug string) {
+	m.mu.RLock()
+	status, ok := m.servers[slug]
+	if !ok || status.Reconnecting {
+		m.mu.RUnlock()
+		return
+	}
+	cfg := status.Config
+	m.mu.RUnlock()
+
+	if cfg.AuthType != AuthOAuth2PKCE {
+		return
+	}
+
+	auth, err := m.credMgr.GetByPattern(userTokensPattern(slug))
+	if err != nil || auth == nil || auth.ExpiresAt == 0 {
+		return
+	}
+
+	expiresAt := time.Unix(auth.ExpiresAt, 0)
+	timeUntilExpiry := time.Until(expiresAt)
+
+	if timeUntilExpiry > tokenRefreshThreshold {
+		return
+	}
+
+	log.Printf("[MCP:%s] Token expira em %v — forçando refresh proativo", slug, timeUntilExpiry.Round(time.Second))
+
+	clientID, clientSecret := loadClientCreds(m.credMgr, slug)
+	if clientID == "" {
+		clientID = cfg.OAuth2ClientID
+	}
+
+	token := loadUserTokens(m.credMgr, slug)
+	if token == nil || token.RefreshToken == "" {
+		log.Printf("[MCP:%s] Sem refresh_token disponível para refresh proativo", slug)
+		return
+	}
+
+	oauthCfg := &oauth2.Config{
+		ClientID:     clientID,
+		ClientSecret: clientSecret,
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  cfg.OAuth2AuthURL,
+			TokenURL: cfg.OAuth2TokenURL,
+		},
+		Scopes: cfg.OAuth2Scopes,
+	}
+
+	// Cria token sintético expirado para forçar refresh
+	expiredToken := &oauth2.Token{
+		RefreshToken: token.RefreshToken,
+		Expiry:       time.Now().Add(-1 * time.Hour),
+	}
+
+	refreshCtx, cancel := context.WithTimeout(m.ctx, 15*time.Second)
+	defer cancel()
+
+	newToken, err := oauthCfg.TokenSource(refreshCtx, expiredToken).Token()
+	if err != nil {
+		log.Printf("[MCP:%s] Refresh proativo falhou: %v", slug, err)
+		return
+	}
+
+	// Persiste o novo token
+	newAuth := &credentials.AuthConfig{
+		Type:       "oauth2",
+		Token:      newToken.AccessToken,
+		RefreshURL: newToken.RefreshToken,
+	}
+	if newToken.Expiry.After(time.Now()) {
+		newAuth.ExpiresAt = newToken.Expiry.Unix()
+	}
+	if err := m.credMgr.RegisterPatternWithContext(context.Background(), userTokensPattern(slug), newAuth); err != nil {
+		log.Printf("[MCP:%s] Erro ao persistir token renovado proativamente: %v", slug, err)
+		return
+	}
+
+	log.Printf("[MCP:%s] Token renovado proativamente (novo expiry: %v)", slug, newToken.Expiry.Format(time.RFC3339))
+}
+
 // healthCheckLoop executa pings periódicos para verificar a saúde do servidor.
 func (m *Manager) healthCheckLoop(ctx context.Context, slug string) {
 	ticker := time.NewTicker(healthCheckInterval)
@@ -784,6 +946,8 @@ func (m *Manager) healthCheckLoop(ctx context.Context, slug string) {
 }
 
 // performHealthCheck executa um ping no servidor e atualiza o status.
+// Para servidores que não suportam ping, faz fallback para refreshServerOfferings,
+// que também mantém tools/resources/prompts sincronizados.
 func (m *Manager) performHealthCheck(slug string) {
 	m.mu.RLock()
 	conn, ok := m.connections[slug]
@@ -804,11 +968,10 @@ func (m *Manager) performHealthCheck(slug string) {
 
 	err := session.Ping(ctx, nil)
 
-	// "Method not found" = servidor respondeu, apenas não suporta ping.
-	// Trata como saudável — o canal de comunicação está funcionando.
 	if err != nil && isMethodNotFound(err) {
-		log.Printf("[MCP] Servidor '%s' não suporta ping, tratando como saudável", slug)
-		err = nil
+		// Ping não suportado — valida a sessão re-descobrindo offerings.
+		// Isso também mantém as tools sincronizadas caso o servidor as altere.
+		err = m.refreshServerOfferings(slug)
 	}
 
 	now := time.Now()
@@ -842,6 +1005,31 @@ func (m *Manager) performHealthCheck(slug string) {
 			"error": err.Error(),
 		})
 	}
+}
+
+// handleToolCallError é chamado pelo MCPToolBridge quando um tool call falha
+// com erro de transporte/sessão. Dispara reconexão imediata.
+func (m *Manager) handleToolCallError(slug string, err error) {
+	m.mu.Lock()
+	status, ok := m.servers[slug]
+	if !ok || !status.Config.Enabled || status.Reconnecting {
+		m.mu.Unlock()
+		return
+	}
+
+	log.Printf("[MCP] Erro de sessão/transporte em tool call para '%s': %v", slug, err)
+
+	status.ConsecutiveHealthFailures = healthCheckFailThreshold
+	status.Status = StatusError
+	status.Error = fmt.Sprintf("sessão perdida: %v", err)
+	m.mu.Unlock()
+
+	m.emit("mcp:server_unhealthy", map[string]string{
+		"slug":  slug,
+		"error": err.Error(),
+	})
+
+	go m.reconnectWithRetry(slug)
 }
 
 // isMethodNotFound detecta erros JSON-RPC "method not found" (código -32601).

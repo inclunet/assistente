@@ -428,19 +428,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             {/* Completed segments — role="log" so screen readers announce each addition
                 and browse mode users can navigate segment by segment */}
             <div
-              role="log"
-              aria-label={t('chat.progressLabel')}
-              aria-relevant="additions"
+              role={isAgenticStreaming ? 'log' : undefined}
+              aria-label={isAgenticStreaming ? t('chat.progressLabel') : undefined}
+              aria-relevant={isAgenticStreaming ? 'additions' : undefined}
               className="chat-message__segments-log"
             >
               {(message._turnSegments || completedSegments || []).map((seg, idx) => (
                 <React.Fragment key={idx}>
                   {seg.type === 'text' && seg.content && (
-                    <section
-                      className="chat-message__text chat-message__text--segment"
-                      aria-label={`${t('chat.step')} ${Math.floor(idx / 2) + 1}`}
-                      tabIndex={-1}
-                    >
+                    <div className="chat-message__text chat-message__text--segment">
                       <MarkdownRenderer
                         content={seg.content}
                         interactiveButtons={!!onSendToEditor}
@@ -448,7 +444,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                         enableSendToEditorButtons={!!onSendToEditor}
                         onSendToEditor={onSendToEditor}
                       />
-                    </section>
+                    </div>
                   )}
                   {seg.type === 'tool_calls' && seg.toolCalls && (
                     <ToolCallsSection

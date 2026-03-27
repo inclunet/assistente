@@ -117,7 +117,7 @@ func (s *Scheduler) scheduleCron(job *Job, t Trigger) error {
 	entryID, err := s.cron.AddFunc(t.Expression, func() {
 		if s.execFunc != nil {
 			ctx := context.Background()
-			s.execFunc(ctx, &jobCopy, &TriggerContext{
+			s.safeExec(ctx, &jobCopy, &TriggerContext{
 				Type: TriggerCron,
 			})
 		}
@@ -151,7 +151,7 @@ func (s *Scheduler) scheduleInterval(job *Job, t Trigger) error {
 				return
 			case <-ticker.C:
 				if s.execFunc != nil {
-					s.execFunc(ctx, &jobCopy, &TriggerContext{
+					s.safeExec(ctx, &jobCopy, &TriggerContext{
 						Type: TriggerInterval,
 					})
 				}
@@ -161,6 +161,17 @@ func (s *Scheduler) scheduleInterval(job *Job, t Trigger) error {
 
 	log.Printf("[Jobs] Scheduled interval for %s: every %s", job.ID, t.Every)
 	return nil
+}
+
+// safeExec executa execFunc com recover para evitar que um panic mate a goroutine
+// do interval ticker permanentemente.
+func (s *Scheduler) safeExec(ctx context.Context, job *Job, trigCtx *TriggerContext) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[Jobs] PANIC recovered in interval execution for %q: %v", job.ID, r)
+		}
+	}()
+	s.execFunc(ctx, job, trigCtx)
 }
 
 func (s *Scheduler) removeJobLocked(jobID string) {
