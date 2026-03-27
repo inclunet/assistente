@@ -6,78 +6,105 @@ import type { ComponentProps } from 'react';
 
 const noop = () => {};
 
-function renderPKCE(overrides: Partial<ComponentProps<typeof McpConnectionSection>> = {}) {
-  const props = {
-    transport: 'streamable',
-    command: '',
-    args: '',
-    url: 'https://example.com/mcp',
-    envText: '',
-    enabled: true,
-    autoConnect: true,
-    authType: 'oauth2_pkce',
-    authToken: '',
-    authUsername: '',
-    authPassword: '',
-    hasExistingAuth: false,
-    oauth2ClientId: 'my-client',
-    oauth2ClientSecret: '',
-    oauth2TokenUrl: 'https://auth.example.com/token',
-    oauth2AuthUrl: 'https://auth.example.com/authorize',
-    oauth2Scopes: 'openid',
-    oauth2CallbackPort: '',
-    oauth2CallbackHost: '',
-    discoveryStatus: 'idle' as const,
-    discoveredFields: new Set<string>(),
-    discoveryResourceName: '',
-    discoveryRegistrationUrl: '',
-    onCommandChange: noop,
-    onArgsChange: noop,
-    onUrlChange: noop,
-    onEnvTextChange: noop,
-    onEnabledChange: noop,
-    onAutoConnectChange: noop,
-    onAuthTypeChange: noop,
-    onAuthTokenChange: noop,
-    onAuthUsernameChange: noop,
-    onAuthPasswordChange: noop,
-    onOAuth2ClientIdChange: noop,
-    onOAuth2ClientSecretChange: noop,
-    onOAuth2TokenUrlChange: noop,
-    onOAuth2AuthUrlChange: noop,
-    onOAuth2ScopesChange: noop,
-    onOAuth2CallbackPortChange: noop,
-    onOAuth2CallbackHostChange: noop,
-    onUrlBlur: noop,
-    onManualOverride: noop,
-    ...overrides,
-  };
-  return render(<McpConnectionSection {...props} />);
+const baseProps: ComponentProps<typeof McpConnectionSection> = {
+  transport: 'streamable',
+  command: '',
+  args: '',
+  url: 'https://example.com/mcp',
+  envText: '',
+  enabled: true,
+  autoConnect: true,
+  authType: 'oauth2_pkce',
+  authToken: '',
+  authUsername: '',
+  authPassword: '',
+  hasExistingAuth: false,
+  oauth2ClientId: 'my-client',
+  oauth2ClientSecret: '',
+  oauth2TokenUrl: 'https://auth.example.com/token',
+  oauth2AuthUrl: 'https://auth.example.com/authorize',
+  oauth2Scopes: 'openid',
+  oauth2CallbackPort: '',
+  oauth2CallbackHost: '',
+  discoveryStatus: 'not_found',
+  discoveredFields: new Set<string>(),
+  discoveryResourceName: '',
+  discoveryRegistrationUrl: '',
+  onCommandChange: noop,
+  onArgsChange: noop,
+  onUrlChange: noop,
+  onEnvTextChange: noop,
+  onEnabledChange: noop,
+  onAutoConnectChange: noop,
+  onAuthTypeChange: noop,
+  onAuthTokenChange: noop,
+  onAuthUsernameChange: noop,
+  onAuthPasswordChange: noop,
+  onOAuth2ClientIdChange: noop,
+  onOAuth2ClientSecretChange: noop,
+  onOAuth2TokenUrlChange: noop,
+  onOAuth2AuthUrlChange: noop,
+  onOAuth2ScopesChange: noop,
+  onOAuth2CallbackPortChange: noop,
+  onOAuth2CallbackHostChange: noop,
+  onUrlBlur: noop,
+  onManualOverride: noop,
+};
+
+function renderWith(overrides: Partial<ComponentProps<typeof McpConnectionSection>> = {}) {
+  return render(<McpConnectionSection {...baseProps} {...overrides} />);
 }
 
-describe('McpConnectionSection — Callback Host', () => {
-  it('exibe Select de Callback Host quando authType é oauth2_pkce', () => {
-    renderPKCE();
+describe('McpConnectionSection — Discovery states', () => {
+  it('DCR disponível: não exibe campos OAuth, mostra mensagem de sucesso', () => {
+    renderWith({
+      discoveryStatus: 'found',
+      discoveryRegistrationUrl: 'https://auth.example.com/register',
+    });
+    expect(screen.queryByLabelText('Client ID')).not.toBeInTheDocument();
+    expect(screen.getByText(/Client ID será registrado via DCR/)).toBeInTheDocument();
+  });
+
+  it('sem DCR: exibe campos Client ID e Client Secret', () => {
+    renderWith({
+      discoveryStatus: 'found',
+      discoveryRegistrationUrl: '',
+    });
+    expect(screen.getByLabelText(/Client ID/)).toBeInTheDocument();
+    expect(screen.getByLabelText(/Client Secret/)).toBeInTheDocument();
+    expect(screen.queryByLabelText('Tipo de autenticação')).not.toBeInTheDocument();
+  });
+
+  it('discovery falhou: exibe configuração manual completa', () => {
+    renderWith({ discoveryStatus: 'not_found' });
+    expect(screen.getByLabelText('Tipo de autenticação')).toBeInTheDocument();
+  });
+
+  it('idle: não exibe campos OAuth', () => {
+    renderWith({ discoveryStatus: 'idle' });
+    expect(screen.queryByLabelText('Client ID')).not.toBeInTheDocument();
+    expect(screen.queryByLabelText('Tipo de autenticação')).not.toBeInTheDocument();
+  });
+
+  it('loading: mostra mensagem de verificação', () => {
+    renderWith({ discoveryStatus: 'loading' });
+    expect(screen.getByText(/Verificando configuração OAuth/)).toBeInTheDocument();
+  });
+});
+
+describe('McpConnectionSection — Callback Host (manual mode)', () => {
+  it('exibe Select de Callback Host no avançado quando PKCE manual', () => {
+    renderWith({ discoveryStatus: 'not_found', authType: 'oauth2_pkce' });
     expect(screen.getByLabelText('Callback Host')).toBeInTheDocument();
   });
 
-  it('não exibe Select de Callback Host quando authType é bearer', () => {
-    renderPKCE({ authType: 'bearer' });
-    expect(screen.queryByLabelText('Callback Host')).not.toBeInTheDocument();
-  });
-
-  it('não exibe Select de Callback Host quando authType é oauth2_client_credentials', () => {
-    renderPKCE({ authType: 'oauth2_client_credentials' });
-    expect(screen.queryByLabelText('Callback Host')).not.toBeInTheDocument();
-  });
-
-  it('não exibe Select de Callback Host quando authType é none', () => {
-    renderPKCE({ authType: 'none' });
+  it('não exibe Callback Host para bearer', () => {
+    renderWith({ discoveryStatus: 'not_found', authType: 'bearer' });
     expect(screen.queryByLabelText('Callback Host')).not.toBeInTheDocument();
   });
 
   it('tem as 3 opções de host corretas', () => {
-    renderPKCE();
+    renderWith({ discoveryStatus: 'not_found', authType: 'oauth2_pkce' });
     const select = screen.getByLabelText('Callback Host');
     const options = within(select).getAllByRole('option');
     expect(options).toHaveLength(3);
@@ -86,54 +113,52 @@ describe('McpConnectionSection — Callback Host', () => {
     expect(options[2]).toHaveValue('[::1]');
   });
 
-  it('valor padrão é localhost quando oauth2CallbackHost está vazio', () => {
-    renderPKCE({ oauth2CallbackHost: '' });
+  it('valor padrão é localhost quando vazio', () => {
+    renderWith({ discoveryStatus: 'not_found', oauth2CallbackHost: '' });
     expect(screen.getByLabelText('Callback Host')).toHaveValue('localhost');
   });
 
-  it('seleciona 127.0.0.1 quando oauth2CallbackHost é "127.0.0.1"', () => {
-    renderPKCE({ oauth2CallbackHost: '127.0.0.1' });
+  it('seleciona 127.0.0.1', () => {
+    renderWith({ discoveryStatus: 'not_found', oauth2CallbackHost: '127.0.0.1' });
     expect(screen.getByLabelText('Callback Host')).toHaveValue('127.0.0.1');
   });
 
-  it('seleciona [::1] quando oauth2CallbackHost é "[::1]"', () => {
-    renderPKCE({ oauth2CallbackHost: '[::1]' });
-    expect(screen.getByLabelText('Callback Host')).toHaveValue('[::1]');
-  });
-
-  it('chama onOAuth2CallbackHostChange ao mudar seleção', async () => {
+  it('chama onOAuth2CallbackHostChange ao mudar', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
-    renderPKCE({ onOAuth2CallbackHostChange: onChange });
+    renderWith({ discoveryStatus: 'not_found', onOAuth2CallbackHostChange: onChange });
 
     await user.selectOptions(screen.getByLabelText('Callback Host'), '127.0.0.1');
     expect(onChange).toHaveBeenCalledWith('127.0.0.1');
   });
 
-  it('exibe hint descritivo sobre o redirect_uri', () => {
-    renderPKCE();
-    expect(
-      screen.getByText(/Host usado no redirect_uri do OAuth/),
-    ).toBeInTheDocument();
-  });
-
   it('preview do redirect URI usa localhost como default', () => {
-    renderPKCE({ oauth2CallbackPort: '3118', oauth2CallbackHost: '' });
+    renderWith({ discoveryStatus: 'not_found', oauth2CallbackPort: '3118', oauth2CallbackHost: '' });
     expect(screen.getByText(/http:\/\/localhost:3118\/callback/)).toBeInTheDocument();
   });
 
   it('preview do redirect URI reflete 127.0.0.1', () => {
-    renderPKCE({ oauth2CallbackPort: '3118', oauth2CallbackHost: '127.0.0.1' });
+    renderWith({ discoveryStatus: 'not_found', oauth2CallbackPort: '3118', oauth2CallbackHost: '127.0.0.1' });
     expect(screen.getByText(/http:\/\/127\.0\.0\.1:3118\/callback/)).toBeInTheDocument();
   });
 
   it('preview do redirect URI reflete [::1]', () => {
-    renderPKCE({ oauth2CallbackPort: '8080', oauth2CallbackHost: '[::1]' });
+    renderWith({ discoveryStatus: 'not_found', oauth2CallbackPort: '8080', oauth2CallbackHost: '[::1]' });
     expect(screen.getByText(/http:\/\/\[::1\]:8080\/callback/)).toBeInTheDocument();
   });
 
-  it('não exibe preview do redirect URI quando porta está vazia', () => {
-    renderPKCE({ oauth2CallbackPort: '', oauth2CallbackHost: 'localhost' });
+  it('não exibe preview quando porta está vazia', () => {
+    renderWith({ discoveryStatus: 'not_found', oauth2CallbackPort: '' });
     expect(screen.queryByText(/Redirect URI:/)).not.toBeInTheDocument();
+  });
+});
+
+describe('McpConnectionSection — Callback Host (discovered, no DCR)', () => {
+  it('exibe Callback Host no avançado quando discovery sem DCR', () => {
+    renderWith({
+      discoveryStatus: 'found',
+      discoveryRegistrationUrl: '',
+    });
+    expect(screen.getByLabelText('Callback Host')).toBeInTheDocument();
   });
 });

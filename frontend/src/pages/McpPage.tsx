@@ -97,7 +97,6 @@ export default function McpPage() {
   const [saving, setSaving] = useState(false);
 
   // Form fields
-  const [formSlug, setFormSlug] = useState('');
   const [formName, setFormName] = useState('');
   const [formDescription, setFormDescription] = useState('');
   const [formTransport, setFormTransport] = useState('stdio');
@@ -155,8 +154,7 @@ export default function McpPage() {
     error: s.error,
   })), [servers]);
 
-  const populateForm = (config: ServerConfig | null, slug: string | null) => {
-    setFormSlug(slug || '');
+  const populateForm = (config: ServerConfig | null, _slug: string | null) => {
     setFormName(config?.name || '');
     setFormDescription(config?.description || '');
     setFormTransport(config?.transport || 'stdio');
@@ -305,8 +303,10 @@ export default function McpPage() {
           fields.add('oauth2Scopes');
         }
         setDiscoveredFields(fields);
-        setDiscoveryResourceName(result.resourceName || '');
+        const resName = result.resourceName || '';
+        setDiscoveryResourceName(resName);
         setDiscoveryRegistrationUrl(result.registrationUrl || '');
+        if (resName && !formName) setFormName(resName);
         setDiscoveryStatus('found');
       } else {
         setDiscoveryStatus('not_found');
@@ -314,18 +314,26 @@ export default function McpPage() {
     } catch {
       setDiscoveryStatus('not_found');
     }
-  }, [lastDiscoveredUrl]);
+  }, [lastDiscoveredUrl, formName]);
 
   const handleUrlBlur = useCallback(() => {
     const isHTTP = formTransport === 'streamable' || formTransport === 'sse';
-    if (isHTTP && formUrl.trim()) {
-      runDiscovery(formUrl.trim());
-    }
-  }, [formTransport, formUrl, runDiscovery]);
+    if (!isHTTP || !formUrl.trim()) return;
+
+    runDiscovery(formUrl.trim());
+
+    if (!isNew) return;
+    try {
+      const host = new URL(formUrl.trim()).hostname;
+      const parts = host.replace(/^(mcp|api|www)\./, '').split('.');
+      const derived = parts[0] || '';
+      if (derived && !formName) setFormName(derived.charAt(0).toUpperCase() + derived.slice(1));
+    } catch { /* URL inválida */ }
+  }, [formTransport, formUrl, formName, isNew, runDiscovery]);
 
   const handleManualOverride = useCallback(() => {
     setDiscoveredFields(new Set());
-    setDiscoveryStatus('idle');
+    setDiscoveryStatus('not_found');
   }, []);
 
   // Dispara discovery quando transport muda para HTTP e URL já está preenchida
@@ -338,14 +346,14 @@ export default function McpPage() {
 
   const handleSave = useCallback(async () => {
     const slug = isNew
-      ? formSlug.trim().toLowerCase().replace(/[^a-z0-9_-]/g, '-')
+      ? formName.trim().toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9_-]/g, '').replace(/-+/g, '-')
       : editingSlug;
 
-    if (!slug) {
-      addToast(t('mcp.error.slugRequired'), 'error');
+    if (!formName.trim()) {
+      addToast(t('mcp.error.nameRequired'), 'error');
       return;
     }
-    if (!formName.trim()) {
+    if (!slug) {
       addToast(t('mcp.error.nameRequired'), 'error');
       return;
     }
@@ -434,7 +442,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({
@@ -724,12 +732,9 @@ export default function McpPage() {
         {editing && (
           <div className="mcp-editor">
             <McpGeneralSection
-              isNew={isNew}
-              slug={formSlug}
               name={formName}
               description={formDescription}
               transport={formTransport}
-              onSlugChange={setFormSlug}
               onNameChange={setFormName}
               onDescriptionChange={setFormDescription}
               onTransportChange={setFormTransport}

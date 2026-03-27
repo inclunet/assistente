@@ -347,6 +347,51 @@ func TestPersistAndLoadClientCreds(t *testing.T) {
 	}
 }
 
+func TestBuildPKCEHTTPClient_AutoImportsClientIDFromConfig(t *testing.T) {
+	credMgr := newTestCredMgr()
+
+	cid, _ := loadClientCreds(credMgr, "slack")
+	if cid != "" {
+		t.Fatal("precondition: cred manager should be empty")
+	}
+
+	cfg := ServerConfig{
+		URL:            "https://mcp.slack.com/mcp",
+		OAuth2ClientID: "pre-registered-id",
+		OAuth2AuthURL:  "https://slack.com/oauth/v2_user/authorize",
+		OAuth2TokenURL: "https://slack.com/api/oauth.v2.user.access",
+	}
+	_ = buildPKCEHTTPClient(cfg, credMgr, nil, "slack", nil)
+
+	cid, _ = loadClientCreds(credMgr, "slack")
+	if cid != "pre-registered-id" {
+		t.Errorf("expected client_id to be auto-imported, got %q", cid)
+	}
+}
+
+func TestBuildPKCEHTTPClient_DoesNotOverwriteExistingCreds(t *testing.T) {
+	credMgr := newTestCredMgr()
+
+	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "test"}
+	rt.persistClientCreds("existing-id", "existing-secret")
+
+	cfg := ServerConfig{
+		URL:            "https://example.com/mcp",
+		OAuth2ClientID: "config-id-should-be-ignored",
+		OAuth2AuthURL:  "https://example.com/auth",
+		OAuth2TokenURL: "https://example.com/token",
+	}
+	_ = buildPKCEHTTPClient(cfg, credMgr, nil, "test", nil)
+
+	cid, csec := loadClientCreds(credMgr, "test")
+	if cid != "existing-id" {
+		t.Errorf("expected cred manager value to be preserved, got %q", cid)
+	}
+	if csec != "existing-secret" {
+		t.Errorf("expected cred manager secret to be preserved, got %q", csec)
+	}
+}
+
 func TestPersistAndLoadUserTokens(t *testing.T) {
 	credMgr := newTestCredMgr()
 

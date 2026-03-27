@@ -865,23 +865,24 @@ func (t *sseAwareTransport) RoundTrip(req *http.Request) (*http.Response, error)
 }
 
 func newMCPTransport() http.RoundTripper {
-	base := func() *http.Transport {
-		return &http.Transport{
-			MaxIdleConns:        10,
-			MaxIdleConnsPerHost: 2,
-			IdleConnTimeout:     60 * time.Second,
-			TLSHandshakeTimeout: 10 * time.Second,
-			ForceAttemptHTTP2:   false,
-			TLSNextProto:       make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
-		}
+	regular := &http.Transport{
+		MaxIdleConns:          10,
+		MaxIdleConnsPerHost:   2,
+		IdleConnTimeout:       60 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		ForceAttemptHTTP2:     true,
 	}
 
-	regular := base()
-	regular.ResponseHeaderTimeout = 30 * time.Second
-
-	sse := base()
-	sse.IdleConnTimeout = 0
-	sse.ResponseHeaderTimeout = 60 * time.Second
+	sse := &http.Transport{
+		MaxIdleConns:          10,
+		MaxIdleConnsPerHost:   2,
+		IdleConnTimeout:       0,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+		ForceAttemptHTTP2:     false,
+		TLSNextProto:          make(map[string]func(authority string, c *tls.Conn) http.RoundTripper),
+	}
 
 	return &sseAwareTransport{regular: regular, sse: sse}
 }

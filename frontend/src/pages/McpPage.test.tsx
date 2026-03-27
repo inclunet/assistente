@@ -116,39 +116,26 @@ vi.mock('../components', () => ({
 
 vi.mock('../components/mcp/McpGeneralSection', () => ({
   McpGeneralSection: ({
-    isNew,
-    slug,
     name,
     transport,
-    onSlugChange,
     onNameChange,
     onTransportChange,
   }: {
-    isNew: boolean;
-    slug: string;
     name: string;
     transport: string;
-    onSlugChange: (value: string) => void;
     onNameChange: (value: string) => void;
     onTransportChange: (value: string) => void;
   }) => (
     <div>
-      {isNew && (
-        <label>
-          Slug
-          <input aria-label="Slug" value={slug} onChange={(e) => onSlugChange(e.target.value)} />
-        </label>
-      )}
       <label>
         Nome
         <input aria-label="Nome" value={name} onChange={(e) => onNameChange(e.target.value)} />
       </label>
       <label>
-        Transporte
-        <select aria-label="Transporte" value={transport} onChange={(e) => onTransportChange(e.target.value)}>
-          <option value="stdio">STDIO</option>
-          <option value="streamable">Streamable</option>
-          <option value="sse">SSE</option>
+        Tipo
+        <select aria-label="Tipo" value={transport} onChange={(e) => onTransportChange(e.target.value)}>
+          <option value="stdio">Local</option>
+          <option value="streamable">Remoto</option>
         </select>
       </label>
     </div>
@@ -237,9 +224,8 @@ describe('McpPage — oauth2_callback_host', () => {
   it('inclui oauth2_callback_host no config ao salvar com PKCE', async () => {
     await openNewServerForm();
 
-    await userEvent.type(screen.getByLabelText('Slug'), 'test-server');
     await userEvent.type(screen.getByLabelText('Nome'), 'Test Server');
-    await userEvent.selectOptions(screen.getByLabelText('Transporte'), 'streamable');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
     await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'oauth2_pkce');
     await userEvent.selectOptions(screen.getByLabelText('Callback Host'), '127.0.0.1');
     await userEvent.type(screen.getByLabelText('Callback Port'), '3118');
@@ -259,9 +245,8 @@ describe('McpPage — oauth2_callback_host', () => {
   it('não inclui oauth2_callback_host quando authType não é PKCE', async () => {
     await openNewServerForm();
 
-    await userEvent.type(screen.getByLabelText('Slug'), 'no-pkce');
     await userEvent.type(screen.getByLabelText('Nome'), 'No PKCE');
-    await userEvent.selectOptions(screen.getByLabelText('Transporte'), 'streamable');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
 
     await userEvent.click(screen.getByText('Salvar'));
 
@@ -316,9 +301,8 @@ describe('McpPage — oauth2_callback_host', () => {
   it('não inclui oauth2_callback_host quando vazio (usa default do backend)', async () => {
     await openNewServerForm();
 
-    await userEvent.type(screen.getByLabelText('Slug'), 'default-host');
     await userEvent.type(screen.getByLabelText('Nome'), 'Default Host');
-    await userEvent.selectOptions(screen.getByLabelText('Transporte'), 'streamable');
+    await userEvent.selectOptions(screen.getByLabelText('Tipo'), 'streamable');
     await userEvent.selectOptions(screen.getByLabelText('Auth Type'), 'oauth2_pkce');
 
     await userEvent.click(screen.getByText('Salvar'));

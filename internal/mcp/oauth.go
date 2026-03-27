@@ -1052,8 +1052,10 @@ func buildPKCEHTTPClient(cfg ServerConfig, credMgr *credentials.Manager, emitEve
 
 	// Entrada 1: dados do cliente (mcp-client:{slug}) → client_id + client_secret
 	clientID, clientSecret := loadClientCreds(credMgr, slug)
-	if clientID == "" {
+	if clientID == "" && cfg.OAuth2ClientID != "" {
 		clientID = cfg.OAuth2ClientID
+		rt.persistClientCreds(clientID, "")
+		log.Printf("[MCP:%s] client_id importado do config para credential manager", slug)
 	}
 	rt.resolvedClientID = clientID
 	rt.resolvedClientSecret = clientSecret

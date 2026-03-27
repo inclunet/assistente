@@ -135,6 +135,29 @@
   border-radius: var(--radius-sm);
 }
 
+/* === Advanced collapsible section === */
+
+.mcp-advanced {
+  margin-top: 0.25rem;
+}
+
+.mcp-advanced > summary {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  user-select: none;
+  padding: 0.25rem 0;
+}
+
+.mcp-advanced > summary:hover {
+  color: var(--text-secondary);
+}
+
+.mcp-advanced > .mcp-fields {
+  margin-top: 0.75rem;
+}
+
 /* === Auto-discovered (read-only) inputs === */
 
 .mcp-input--discovered {

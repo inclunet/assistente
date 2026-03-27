@@ -51,25 +51,6 @@ interface McpConnectionSectionProps {
 
 const isHTTPTransport = (t: string) => t === 'streamable' || t === 'sse';
 
-const isOAuth2Type = (t: string) =>
-  t === 'oauth2_client_credentials' || t === 'oauth2_pkce';
-
-function discoveryMessage(
-  status: DiscoveryStatus,
-  resourceName: string,
-): string {
-  switch (status) {
-    case 'loading':
-      return 'Verificando configuração OAuth do servidor…';
-    case 'found':
-      return `Configuração OAuth detectada automaticamente${resourceName ? ` (${resourceName})` : ''}.`;
-    case 'not_found':
-      return 'Servidor não expõe metadados OAuth. Configure manualmente se necessário.';
-    default:
-      return '';
-  }
-}
-
 export function McpConnectionSection({
   transport,
   command,
@@ -91,7 +72,7 @@ export function McpConnectionSection({
   oauth2CallbackPort,
   oauth2CallbackHost,
   discoveryStatus,
-  discoveredFields,
+  discoveredFields: _discoveredFields,
   discoveryResourceName,
   discoveryRegistrationUrl,
   onCommandChange,
@@ -114,18 +95,34 @@ export function McpConnectionSection({
   onUrlBlur,
   onManualOverride,
 }: McpConnectionSectionProps) {
-  const isDiscovered = (field: string) => discoveredFields.has(field);
-  const hasDiscovery = discoveredFields.size > 0;
   const uid = useId();
   const discoveryLiveId = `${uid}-discovery-live`;
-  const authHintId = `${uid}-auth-hint`;
   const callbackHintId = `${uid}-callback-hint`;
-  const pkceHintId = `${uid}-pkce-hint`;
+
+  const hasDCR = discoveryStatus === 'found' && !!discoveryRegistrationUrl;
+  const discoveredNoDCR = discoveryStatus === 'found' && !discoveryRegistrationUrl;
+  const isManualMode = discoveryStatus === 'not_found';
+
+  const discoveryLiveText = (() => {
+    switch (discoveryStatus) {
+      case 'loading':
+        return 'Verificando configuração OAuth do servidor…';
+      case 'found':
+        return hasDCR
+          ? `OAuth configurado automaticamente${discoveryResourceName ? ` (${discoveryResourceName})` : ''}. Client ID será registrado via DCR.`
+          : `OAuth detectado${discoveryResourceName ? ` (${discoveryResourceName})` : ''}, mas sem registro dinâmico. Informe o Client ID.`;
+      case 'not_found':
+        return 'Metadados OAuth não detectados. Configure manualmente.';
+      default:
+        return '';
+    }
+  })();
 
   return (
     <section className="mcp-section" aria-labelledby="mcp-section-connection">
       <h3 id="mcp-section-connection">Conexão</h3>
       <div className="mcp-fields">
+        {/* === stdio === */}
         {transport === 'stdio' && (
           <>
             <Input
@@ -146,9 +143,19 @@ export function McpConnectionSection({
               hint="Separados por espaço"
               fullWidth
             />
+            <Textarea
+              label="Variáveis de ambiente"
+              rows={4}
+              value={envText}
+              onChange={(e) => onEnvTextChange(e.target.value)}
+              placeholder={"GITHUB_TOKEN=ghp_xxx\nNODE_ENV=production"}
+              hint="Uma variável por linha no formato KEY=VALUE. Linhas começando com # são ignoradas."
+              fullWidth
+            />
           </>
         )}
 
+        {/* === HTTP (remoto) === */}
         {isHTTPTransport(transport) && (
           <>
             <Input
@@ -162,273 +169,276 @@ export function McpConnectionSection({
               fullWidth
             />
 
-            {/* Live region persistente — conteúdo muda, elemento não é recriado */}
             <div
               id={discoveryLiveId}
               aria-live="polite"
               aria-atomic="true"
               className="mcp-discovery-live"
             >
-              {discoveryMessage(discoveryStatus, discoveryResourceName)}
+              {discoveryLiveText}
             </div>
 
-            <fieldset className="mcp-fieldset">
-              <legend className="mcp-fieldset__legend">Autenticação</legend>
+            {/* Estado A: DCR disponível — nada a preencher */}
+            {hasDCR && (
+              <p className="mcp-hint mcp-hint--success" role="status">
+                Na conexão, o browser abrirá para autorizar. Credenciais serão armazenadas com criptografia no cofre do sistema.
+                {' '}
+                <button type="button" className="mcp-link-btn" onClick={onManualOverride}>
+                  Configurar manualmente
+                </button>
+              </p>
+            )}
 
-              <Select
-                label="Tipo de autenticação"
-                value={authType}
-                onChange={(e) => onAuthTypeChange(e.target.value)}
-                disabled={isDiscovered('authType')}
-                hint={isDiscovered('authType') ? 'Detectado automaticamente. Use "Editar manualmente" para alterar.' : undefined}
-                fullWidth
-                options={[
-                  { value: 'none', label: 'Nenhuma' },
-                  { value: 'bearer', label: 'Bearer Token (API Key)' },
-                  { value: 'basic', label: 'Basic Auth (Usuário/Senha)' },
-                  { value: 'oauth2_client_credentials', label: 'OAuth2 Client Credentials' },
-                  { value: 'oauth2_pkce', label: 'OAuth2 Authorization Code (PKCE)' },
-                ]}
-              />
-
-              {discoveryStatus === 'found' && hasDiscovery && (
-                <p className="mcp-hint mcp-hint--success">
-                  <button
-                    type="button"
-                    className="mcp-link-btn"
-                    onClick={onManualOverride}
-                    aria-label="Descartar configuração automática e editar campos OAuth manualmente"
-                  >
-                    Editar manualmente
-                  </button>
-                </p>
-              )}
-
-              {hasExistingAuth && authType !== 'none' && !isOAuth2Type(authType) && (
-                <p className="mcp-hint mcp-hint--success" role="status">
-                  Credencial configurada. Deixe os campos vazios para manter a atual.
-                </p>
-              )}
-
-              {authType === 'bearer' && (
+            {/* Estado B: Discovery sem DCR — pedir Client ID */}
+            {discoveredNoDCR && (
+              <fieldset className="mcp-fieldset">
+                <legend className="mcp-fieldset__legend">Credenciais</legend>
                 <Input
-                  label="Token"
-                  type="password"
-                  value={authToken}
-                  onChange={(e) => onAuthTokenChange(e.target.value)}
-                  placeholder={hasExistingAuth ? '••••••••' : 'sk-xxx ou ghp_xxx'}
+                  label="Client ID"
+                  type="text"
+                  value={oauth2ClientId}
+                  onChange={(e) => onOAuth2ClientIdChange(e.target.value)}
+                  placeholder="ID do app registrado no provedor OAuth"
+                  required
                   autoComplete="off"
                   fullWidth
                 />
-              )}
-
-              {authType === 'basic' && (
-                <>
-                  <Input
-                    label="Usuário"
-                    type="text"
-                    value={authUsername}
-                    onChange={(e) => onAuthUsernameChange(e.target.value)}
-                    placeholder="username"
-                    autoComplete="username"
-                    fullWidth
-                  />
-                  <Input
-                    label="Senha"
-                    type="password"
-                    value={authPassword}
-                    onChange={(e) => onAuthPasswordChange(e.target.value)}
-                    placeholder={hasExistingAuth ? '••••••••' : 'password'}
-                    autoComplete="off"
-                    fullWidth
-                  />
-                </>
-              )}
-
-              {authType === 'oauth2_client_credentials' && (
-                <>
-                  <Input
-                    label="Client ID"
-                    type="text"
-                    value={oauth2ClientId}
-                    onChange={(e) => onOAuth2ClientIdChange(e.target.value)}
-                    placeholder="meu-app-id"
-                    required
-                    autoComplete="off"
-                    fullWidth
-                  />
-                  <Input
-                    label="Client Secret"
-                    type="password"
-                    value={oauth2ClientSecret}
-                    onChange={(e) => onOAuth2ClientSecretChange(e.target.value)}
-                    placeholder={hasExistingAuth ? '••••••••' : 'secret'}
-                    hint={hasExistingAuth ? 'Client secret configurado. Deixe vazio para manter o atual.' : undefined}
-                    required={!hasExistingAuth}
-                    autoComplete="off"
-                    fullWidth
-                  />
-                  <Input
-                    label="Token URL"
-                    type="url"
-                    value={oauth2TokenUrl}
-                    onChange={(e) => onOAuth2TokenUrlChange(e.target.value)}
-                    placeholder="https://auth.example.com/oauth/token"
-                    required
-                    readOnly={isDiscovered('oauth2TokenUrl')}
-                    className={isDiscovered('oauth2TokenUrl') ? 'mcp-input--discovered' : undefined}
-                    hint={isDiscovered('oauth2TokenUrl') ? 'Preenchido automaticamente via discovery.' : undefined}
-                    fullWidth
-                  />
-                  <Input
-                    label="Scopes"
-                    type="text"
-                    value={oauth2Scopes}
-                    onChange={(e) => onOAuth2ScopesChange(e.target.value)}
-                    placeholder="read write"
-                    readOnly={isDiscovered('oauth2Scopes')}
-                    className={isDiscovered('oauth2Scopes') ? 'mcp-input--discovered' : undefined}
-                    hint={isDiscovered('oauth2Scopes') ? 'Preenchido automaticamente via discovery. Separados por espaço.' : 'Separados por espaço'}
-                    fullWidth
-                  />
-                </>
-              )}
-
-              {authType === 'oauth2_pkce' && (
-                <>
-                  <Input
-                    label="Client ID"
-                    type="text"
-                    value={oauth2ClientId}
-                    onChange={(e) => onOAuth2ClientIdChange(e.target.value)}
-                    placeholder={discoveryRegistrationUrl ? '(será registrado automaticamente via DCR)' : 'seu-app-id'}
-                    required={!discoveryRegistrationUrl}
-                    hint={
-                      discoveryRegistrationUrl && !oauth2ClientId
-                        ? 'Servidor suporta registro dinâmico (RFC 7591). O Client ID será obtido automaticamente.'
-                        : !discoveryRegistrationUrl && !oauth2ClientId
-                          ? 'Sem registro dinâmico. Informe um Client ID pré-registrado no provedor OAuth.'
-                          : undefined
-                    }
-                    autoComplete="off"
-                    fullWidth
-                  />
-                  <Select
-                    label="Callback Host"
-                    value={oauth2CallbackHost || 'localhost'}
-                    onChange={(e) => onOAuth2CallbackHostChange(e.target.value)}
-                    hint="Host usado no redirect_uri do OAuth. Use localhost para compatibilidade com a maioria dos servidores MCP."
-                    fullWidth
-                    options={[
-                      { value: 'localhost', label: 'localhost (padrão — compatível com Claude/Slack)' },
-                      { value: '127.0.0.1', label: '127.0.0.1 (RFC 8252/OAuth 2.1 — compatível com Snowflake)' },
-                      { value: '[::1]', label: '[::1] (IPv6 loopback)' },
-                    ]}
-                  />
-                  <Input
-                    label="Client Secret"
-                    type="password"
-                    value={oauth2ClientSecret}
-                    onChange={(e) => onOAuth2ClientSecretChange(e.target.value)}
-                    placeholder={hasExistingAuth ? '••••••••' : '(opcional para public clients)'}
-                    hint={hasExistingAuth ? 'Secret configurado. Deixe vazio para manter o atual.' : 'Necessário apenas se o provedor OAuth exigir.'}
-                    autoComplete="off"
-                    fullWidth
-                  />
-                  <Input
-                    label="Token URL"
-                    type="url"
-                    value={oauth2TokenUrl}
-                    onChange={(e) => onOAuth2TokenUrlChange(e.target.value)}
-                    placeholder="https://auth.example.com/oauth/token"
-                    required
-                    readOnly={isDiscovered('oauth2TokenUrl')}
-                    className={isDiscovered('oauth2TokenUrl') ? 'mcp-input--discovered' : undefined}
-                    hint={isDiscovered('oauth2TokenUrl') ? 'Preenchido automaticamente via discovery.' : undefined}
-                    fullWidth
-                  />
-                  <Input
-                    label="Authorization URL"
-                    type="url"
-                    value={oauth2AuthUrl}
-                    onChange={(e) => onOAuth2AuthUrlChange(e.target.value)}
-                    placeholder="https://auth.example.com/authorize"
-                    required
-                    readOnly={isDiscovered('oauth2AuthUrl')}
-                    className={isDiscovered('oauth2AuthUrl') ? 'mcp-input--discovered' : undefined}
-                    hint={isDiscovered('oauth2AuthUrl') ? 'Preenchido automaticamente via discovery.' : undefined}
-                    fullWidth
-                  />
-                  <Input
-                    label="Scopes"
-                    type="text"
-                    value={oauth2Scopes}
-                    onChange={(e) => onOAuth2ScopesChange(e.target.value)}
-                    placeholder="openid profile"
-                    readOnly={isDiscovered('oauth2Scopes')}
-                    className={isDiscovered('oauth2Scopes') ? 'mcp-input--discovered' : undefined}
-                    hint={isDiscovered('oauth2Scopes') ? 'Preenchido automaticamente via discovery. Separados por espaço.' : 'Separados por espaço'}
-                    fullWidth
-                  />
-                  <Input
-                    label="Porta do callback"
-                    type="number"
-                    value={oauth2CallbackPort}
-                    onChange={(e) => onOAuth2CallbackPortChange(e.target.value)}
-                    placeholder="(aleatória)"
-                    aria-describedby={oauth2CallbackPort ? callbackHintId : pkceHintId}
-                    fullWidth
-                  />
-                  {oauth2CallbackPort && (
-                    <p id={callbackHintId} className="mcp-hint mcp-hint--success" role="status">
-                      Redirect URI: <code>http://{oauth2CallbackHost || 'localhost'}:{oauth2CallbackPort}/callback</code>
-                      {' '}&mdash; registre este URI no provedor OAuth.
-                    </p>
-                  )}
-                  <p id={pkceHintId} className="mcp-hint">
-                    Na conexão, o browser abrirá para autorizar.
-                    {!discoveryRegistrationUrl && ' O provedor não suporta DCR — informe Client ID e Secret do seu app OAuth.'}
-                    {!oauth2CallbackPort && ' Preencha a porta se o provedor exigir redirect_uri exato.'}
-                  </p>
-                </>
-              )}
-
-              {authType !== 'none' && (
-                <p id={authHintId} className="mcp-hint" role="note">
-                  Credenciais armazenadas com criptografia no cofre do sistema.
+                <Input
+                  label="Client Secret"
+                  type="password"
+                  value={oauth2ClientSecret}
+                  onChange={(e) => onOAuth2ClientSecretChange(e.target.value)}
+                  placeholder={hasExistingAuth ? '••••••••' : '(opcional para public clients)'}
+                  hint={hasExistingAuth ? 'Deixe vazio para manter o atual.' : 'Necessário apenas se exigido pelo provedor.'}
+                  autoComplete="off"
+                  fullWidth
+                />
+                <p className="mcp-hint">
+                  Na conexão, o browser abrirá para autorizar. Credenciais armazenadas com criptografia.
+                  {' '}
+                  <button type="button" className="mcp-link-btn" onClick={onManualOverride}>
+                    Configurar manualmente
+                  </button>
                 </p>
-              )}
-            </fieldset>
+              </fieldset>
+            )}
+
+            {/* Estado C: Discovery falhou — configuração manual completa */}
+            {isManualMode && (
+              <fieldset className="mcp-fieldset">
+                <legend className="mcp-fieldset__legend">Autenticação</legend>
+
+                <Select
+                  label="Tipo de autenticação"
+                  value={authType}
+                  onChange={(e) => onAuthTypeChange(e.target.value)}
+                  fullWidth
+                  options={[
+                    { value: 'none', label: 'Nenhuma' },
+                    { value: 'bearer', label: 'Bearer Token (API Key)' },
+                    { value: 'basic', label: 'Basic Auth (Usuário/Senha)' },
+                    { value: 'oauth2_client_credentials', label: 'OAuth2 Client Credentials' },
+                    { value: 'oauth2_pkce', label: 'OAuth2 Authorization Code (PKCE)' },
+                  ]}
+                />
+
+                {hasExistingAuth && authType !== 'none' && authType !== 'oauth2_client_credentials' && authType !== 'oauth2_pkce' && (
+                  <p className="mcp-hint mcp-hint--success" role="status">
+                    Credencial configurada. Deixe os campos vazios para manter a atual.
+                  </p>
+                )}
+
+                {authType === 'bearer' && (
+                  <Input
+                    label="Token"
+                    type="password"
+                    value={authToken}
+                    onChange={(e) => onAuthTokenChange(e.target.value)}
+                    placeholder={hasExistingAuth ? '••••••••' : 'sk-xxx ou ghp_xxx'}
+                    autoComplete="off"
+                    fullWidth
+                  />
+                )}
+
+                {authType === 'basic' && (
+                  <>
+                    <Input
+                      label="Usuário"
+                      type="text"
+                      value={authUsername}
+                      onChange={(e) => onAuthUsernameChange(e.target.value)}
+                      placeholder="username"
+                      autoComplete="username"
+                      fullWidth
+                    />
+                    <Input
+                      label="Senha"
+                      type="password"
+                      value={authPassword}
+                      onChange={(e) => onAuthPasswordChange(e.target.value)}
+                      placeholder={hasExistingAuth ? '••••••••' : 'password'}
+                      autoComplete="off"
+                      fullWidth
+                    />
+                  </>
+                )}
+
+                {authType === 'oauth2_client_credentials' && (
+                  <>
+                    <Input
+                      label="Client ID"
+                      type="text"
+                      value={oauth2ClientId}
+                      onChange={(e) => onOAuth2ClientIdChange(e.target.value)}
+                      placeholder="meu-app-id"
+                      required
+                      autoComplete="off"
+                      fullWidth
+                    />
+                    <Input
+                      label="Client Secret"
+                      type="password"
+                      value={oauth2ClientSecret}
+                      onChange={(e) => onOAuth2ClientSecretChange(e.target.value)}
+                      placeholder={hasExistingAuth ? '••••••••' : 'secret'}
+                      hint={hasExistingAuth ? 'Deixe vazio para manter o atual.' : undefined}
+                      required={!hasExistingAuth}
+                      autoComplete="off"
+                      fullWidth
+                    />
+                    <Input
+                      label="Token URL"
+                      type="url"
+                      value={oauth2TokenUrl}
+                      onChange={(e) => onOAuth2TokenUrlChange(e.target.value)}
+                      placeholder="https://auth.example.com/oauth/token"
+                      required
+                      fullWidth
+                    />
+                    <Input
+                      label="Scopes"
+                      type="text"
+                      value={oauth2Scopes}
+                      onChange={(e) => onOAuth2ScopesChange(e.target.value)}
+                      placeholder="read write"
+                      hint="Separados por espaço"
+                      fullWidth
+                    />
+                  </>
+                )}
+
+                {authType === 'oauth2_pkce' && (
+                  <>
+                    <Input
+                      label="Client ID"
+                      type="text"
+                      value={oauth2ClientId}
+                      onChange={(e) => onOAuth2ClientIdChange(e.target.value)}
+                      placeholder="seu-app-id"
+                      required
+                      autoComplete="off"
+                      fullWidth
+                    />
+                    <Input
+                      label="Client Secret"
+                      type="password"
+                      value={oauth2ClientSecret}
+                      onChange={(e) => onOAuth2ClientSecretChange(e.target.value)}
+                      placeholder={hasExistingAuth ? '••••••••' : '(opcional para public clients)'}
+                      hint={hasExistingAuth ? 'Deixe vazio para manter o atual.' : 'Necessário apenas se exigido pelo provedor.'}
+                      autoComplete="off"
+                      fullWidth
+                    />
+                    <Input
+                      label="Token URL"
+                      type="url"
+                      value={oauth2TokenUrl}
+                      onChange={(e) => onOAuth2TokenUrlChange(e.target.value)}
+                      placeholder="https://auth.example.com/oauth/token"
+                      required
+                      fullWidth
+                    />
+                    <Input
+                      label="Authorization URL"
+                      type="url"
+                      value={oauth2AuthUrl}
+                      onChange={(e) => onOAuth2AuthUrlChange(e.target.value)}
+                      placeholder="https://auth.example.com/authorize"
+                      required
+                      fullWidth
+                    />
+                    <Input
+                      label="Scopes"
+                      type="text"
+                      value={oauth2Scopes}
+                      onChange={(e) => onOAuth2ScopesChange(e.target.value)}
+                      placeholder="openid profile"
+                      hint="Separados por espaço"
+                      fullWidth
+                    />
+                  </>
+                )}
+
+                {authType !== 'none' && (
+                  <p className="mcp-hint" role="note">
+                    Credenciais armazenadas com criptografia no cofre do sistema.
+                  </p>
+                )}
+              </fieldset>
+            )}
           </>
         )}
 
-        {transport === 'stdio' && (
-          <Textarea
-            label="Variáveis de ambiente"
-            rows={4}
-            value={envText}
-            onChange={(e) => onEnvTextChange(e.target.value)}
-            placeholder={"GITHUB_TOKEN=ghp_xxx\nNODE_ENV=production"}
-            hint="Uma variável por linha no formato KEY=VALUE. Linhas começando com # são ignoradas."
-            fullWidth
-          />
-        )}
-
-        <fieldset className="mcp-fieldset">
-          <legend className="mcp-fieldset__legend">Opções</legend>
-          <div className="mcp-options">
-            <Checkbox
-              label="Habilitado"
-              checked={enabled}
-              onChange={(e) => onEnabledChange(e.target.checked)}
-            />
-            <Checkbox
-              label="Conectar automaticamente no início"
-              checked={autoConnect}
-              onChange={(e) => onAutoConnectChange(e.target.checked)}
-            />
+        {/* === Avançado === */}
+        <details className="mcp-advanced">
+          <summary>Avançado</summary>
+          <div className="mcp-fields">
+            {isHTTPTransport(transport) && (isManualMode || discoveredNoDCR) && (authType === 'oauth2_pkce' || discoveredNoDCR) && (
+              <>
+                <Select
+                  label="Callback Host"
+                  value={oauth2CallbackHost || 'localhost'}
+                  onChange={(e) => onOAuth2CallbackHostChange(e.target.value)}
+                  hint="Host usado no redirect_uri do OAuth."
+                  fullWidth
+                  options={[
+                    { value: 'localhost', label: 'localhost (padrão)' },
+                    { value: '127.0.0.1', label: '127.0.0.1 (RFC 8252)' },
+                    { value: '[::1]', label: '[::1] (IPv6)' },
+                  ]}
+                />
+                <Input
+                  label="Porta do callback"
+                  type="number"
+                  value={oauth2CallbackPort}
+                  onChange={(e) => onOAuth2CallbackPortChange(e.target.value)}
+                  placeholder="(aleatória)"
+                  fullWidth
+                />
+                {oauth2CallbackPort && (
+                  <p id={callbackHintId} className="mcp-hint mcp-hint--success" role="status">
+                    Redirect URI: <code>http://{oauth2CallbackHost || 'localhost'}:{oauth2CallbackPort}/callback</code>
+                  </p>
+                )}
+              </>
+            )}
+            <fieldset className="mcp-fieldset">
+              <legend className="mcp-fieldset__legend">Opções</legend>
+              <div className="mcp-options">
+                <Checkbox
+                  label="Habilitado"
+                  checked={enabled}
+                  onChange={(e) => onEnabledChange(e.target.checked)}
+                />
+                <Checkbox
+                  label="Conectar automaticamente no início"
+                  checked={autoConnect}
+                  onChange={(e) => onAutoConnectChange(e.target.checked)}
+                />
+              </div>
+            </fieldset>
           </div>
-        </fieldset>
+        </details>
       </div>
     </section>
   );
