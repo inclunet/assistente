@@ -1,6 +1,14 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import {
+  CheckOutlined,
+  CopyOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  ExportOutlined,
+  ReadOutlined,
+} from '@ant-design/icons';
 import { useTaskListStore } from '../store/taskListStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { Modal, isModalOpen } from '../components/ui/Modal';
@@ -266,19 +274,19 @@ export default function TaskListsPage() {
         {
           id: 'open',
           label: t('tasklist.open', 'Abrir'),
-          icon: '📖',
+          icon: <ReadOutlined />,
           onClick: () => handleOpenTaskList(list.id),
         },
         {
           id: 'edit',
           label: t('tasklist.edit', 'Editar'),
-          icon: '✏️',
+          icon: <EditOutlined />,
           onClick: () => handleOpenEditor(list),
         },
         {
           id: 'clone',
           label: t('tasklist.clone', 'Clonar'),
-          icon: '📋',
+          icon: <CopyOutlined />,
           onClick: () => handleCloneTaskList(list.id),
         },
       ];
@@ -287,21 +295,21 @@ export default function TaskListsPage() {
         actions.push({
           id: 'send-to-workspace',
           label: t('tasklist.sendToWorkspace', 'Enviar ao workspace'),
-          icon: '📤',
+          icon: <ExportOutlined />,
           onClick: undefined as unknown as () => void,
           submenu: workspaces.map(ws => ({
             id: `ws-${ws.id}`,
             label: ws.name,
-            icon: ws.is_active ? '●' : ' ',
+            icon: ws.is_active ? <CheckOutlined /> : undefined,
             onClick: () => handleSendToWorkspace(list.id, list.title, ws.id, ws.is_active),
           })),
-        } as typeof actions[0] & { submenu: { id: string; label: string; icon: string; onClick: () => void }[] });
+        } as typeof actions[0] & { submenu: { id: string; label: string; icon?: ReactNode; onClick: () => void }[] });
       }
 
       actions.push({
         id: 'delete',
         label: t('tasklist.delete', 'Deletar'),
-        icon: '🗑️',
+        icon: <DeleteOutlined />,
         onClick: () => handleDeleteTaskList(list.id),
         danger: true,
       } as typeof actions[0]);

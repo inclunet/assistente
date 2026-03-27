@@ -1,4 +1,5 @@
-import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
+import { CloseCircleOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { GetLLMProvidersWithStatus } from '@wailsjs/go/main/App';
 import { ComboboxItem } from './Combobox';
@@ -11,7 +12,7 @@ export interface LLMProviderPickerProps {
   variant?: 'toolbar' | 'form';
   label?: string;
   helpText?: string;
-  icon?: string;
+  icon?: ReactNode;
   maxWidth?: string;
   disabled?: boolean;
   onAnnounce?: (message: string) => void;
@@ -39,7 +40,7 @@ export const LLMProviderPicker = forwardRef<LLMProviderPickerRef, LLMProviderPic
       variant = 'form',
       label = 'Provedor LLM',
       helpText = 'Selecione o provedor de modelo de linguagem',
-      icon = '🤖',
+      icon = <RobotOutlined />,
       maxWidth,
       disabled = false,
       onAnnounce,
@@ -81,10 +82,11 @@ export const LLMProviderPicker = forwardRef<LLMProviderPickerRef, LLMProviderPic
     }));
 
     const defaultLabel = t('pickers.llmProvider.default', 'Padrão (recomendado)');
-    const defaultOption: ComboboxItem = { value: DEFAULT_PROVIDER_SENTINEL, label: `⭐ ${defaultLabel}` };
+    const defaultOption: ComboboxItem = { value: DEFAULT_PROVIDER_SENTINEL, label: defaultLabel };
     const providerItems: ComboboxItem[] = providers.map((p) => ({
       value: p.id,
-      label: `${p.name} (${p.type})${p.is_default ? ' ★' : ''}`,
+      label: `${p.name} (${p.type})`,
+      sublabel: p.is_default ? t('pickers.llmProvider.isDefault', 'Padrão') : undefined,
     }));
     const items: ComboboxItem[] = [defaultOption, ...providerItems];
 
@@ -108,7 +110,7 @@ export const LLMProviderPicker = forwardRef<LLMProviderPickerRef, LLMProviderPic
         loading={loading}
         error={error || null}
         onRetry={loadProviders}
-        retryLabel="🔄 Tentar novamente"
+        retryLabel={t('common.retry', 'Tentar novamente')}
         showFormLabel={variant === 'form'}
         showFormLabelIcon={false}
         formClassName="llm-provider-picker-form"
@@ -116,7 +118,7 @@ export const LLMProviderPicker = forwardRef<LLMProviderPickerRef, LLMProviderPic
         loadingClassName={{ form: 'loading-state', toolbar: 'llm-provider-picker-toolbar loading' }}
         errorClassName={{ form: 'error-state', toolbar: 'llm-provider-picker-toolbar error' }}
         helpTextClassName="help-text"
-        errorIcon={{ toolbar: '❌', form: undefined }}
+        errorIcon={{ toolbar: <CloseCircleOutlined />, form: undefined }}
         loadingLabel={{ form: 'Carregando provedores...', toolbar: 'Carregando...' }}
         errorLabel={{ form: error || 'Erro ao carregar provedores', toolbar: 'Erro' }}
       />

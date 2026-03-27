@@ -18,7 +18,7 @@
   font-size: 14px;
   font-family: inherit;
   color: var(--text-primary);
-  transition: background-color 0.2s ease;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .collapsible-section__header:hover {
@@ -34,8 +34,12 @@
 
 .collapsible-section__title {
   flex: 1;
+  min-width: 0;
   text-align: left;
   color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .collapsible-section__badge {

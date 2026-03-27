@@ -85,7 +85,7 @@
 }
 
 .task-detail__description--empty {
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-style: italic;
 }
 
@@ -124,7 +124,7 @@
   color: var(--text-primary);
   font-size: 0.8rem;
   cursor: pointer;
-  transition: background 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .task-detail__add-note-btn:hover {
@@ -140,7 +140,7 @@
 
 .task-detail__notes-empty {
   text-align: center;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-style: italic;
   padding: 24px 0;
   font-size: 0.875rem;
@@ -198,7 +198,7 @@
 
 .task-detail__note-date {
   font-size: 0.7rem;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   margin-left: auto;
 }
 
@@ -211,7 +211,7 @@
 .task-detail__note-action {
   background: none;
   border: none;
-  color: var(--text-tertiary);
+  color: var(--text-muted);
   font-size: 0.75rem;
   cursor: pointer;
   padding: 1px 4px;
@@ -309,9 +309,9 @@
 }
 
 .task-detail__note-form-actions button[data-primary] {
-  background: var(--color-accent);
+  background: var(--accent);
   color: var(--text-on-accent);
-  border-color: var(--color-accent);
+  border-color: var(--accent);
 }
 
 .task-detail__note-form-actions button[data-primary]:hover {

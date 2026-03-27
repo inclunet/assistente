@@ -1,6 +1,7 @@
 import React, { useEffect, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import { ClearOutlined, EditOutlined, SettingOutlined } from '@ant-design/icons';
 import { useChatStore } from '../../store/chatStore';
 import { useNavigationStore } from '../../store/navigationStore';
 import { ClearConversation, GetActiveProfileSlug } from '@wailsjs/go/main/App';
@@ -65,7 +66,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     {
       id: 'edit-active-profile',
       label: t('chat.editActiveProfile'),
-      icon: '✏️',
+      icon: <EditOutlined />,
       action: () => {
         useNavigationStore.getState().requestResourceEdit('profiles', activeProfileSlug, 'edit');
         navigate('/profiles');
@@ -74,7 +75,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
     {
       id: 'manage-profiles',
       label: t('chat.manageProfiles'),
-      icon: '⚙️',
+      icon: <SettingOutlined />,
       action: () => {
         navigate('/profiles');
       },
@@ -175,7 +176,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
           <>
             <ToolbarButton
               label={t('chat.clearBtn')}
-              icon="🧹"
+              icon={<ClearOutlined />}
               shortcut="Ctrl+L"
               title={t('chat.clearDescription')}
               aria-label={t('chat.clearBtn')}
@@ -217,7 +218,7 @@ export const ChatToolbar: React.FC<ChatToolbarProps> = ({
                 variant="toolbar"
                 label={t('workspace.tabProfileLabel', 'Perfil')}
                 description={t('workspace.tabProfileDescription')}
-                icon="💬"
+                icon=""
                 maxWidth="180px"
                 onAnnounce={announce}
                 value={effectiveProfileSlug}

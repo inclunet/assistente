@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react';
+
 export interface MenuItem {
   id: string;
   label?: string;
-  icon?: string;
+  icon?: ReactNode;
   shortcut?: string;
   checked?: boolean;
   separator?: boolean;
@@ -9,7 +11,7 @@ export interface MenuItem {
   danger?: boolean;
   submenu?: MenuItem[];
   action?: () => void;
-  ariaLabel?: string; // Label para leitores de tela (sem emoji)
+  ariaLabel?: string;
 }
 
 export interface MenuProps {

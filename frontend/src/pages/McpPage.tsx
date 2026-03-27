@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  ApiOutlined,
+  CopyOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+} from '@ant-design/icons';
 import { useMCPStore } from '../store/mcpStore';
 import { mcp } from '../../wailsjs/go/models';
 import {
@@ -12,7 +20,7 @@ import {
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { Toolbar } from '../components/ui/Toolbar';
 import { MenuButton } from '../components/layout/MenuButton';
-import { Button } from '../components';
+import { Button, PageLoading } from '../components';
 import { McpConnectionSection } from '../components/mcp/McpConnectionSection';
 import { McpGeneralSection } from '../components/mcp/McpGeneralSection';
 import { Modal, isModalOpen } from '../components/ui/Modal';
@@ -563,39 +571,39 @@ export default function McpPage() {
       actions.push({
         id: 'disconnect',
         label: t('mcp.actions.disconnect', 'Desconectar'),
-        icon: '🔌',
+        icon: <ApiOutlined />,
         onClick: () => handleDisconnect(row),
       });
     } else {
       actions.push({
         id: 'connect',
         label: t('mcp.actions.connect', 'Conectar'),
-        icon: '🔌',
+        icon: <ApiOutlined />,
         onClick: () => handleConnect(row),
       });
     }
     actions.push({
       id: 'reconnect',
       label: t('mcp.actions.reconnect', 'Reconectar'),
-      icon: '🔄',
+      icon: <ReloadOutlined />,
       onClick: () => handleReconnect(row),
     });
     actions.push({
       id: 'duplicate',
       label: t('mcp.actions.duplicate', 'Duplicar'),
-      icon: '📄',
+      icon: <CopyOutlined />,
       onClick: () => handleDuplicate(row),
     });
     actions.push({
       id: 'edit',
       label: t('mcp.actions.edit', 'Editar'),
-      icon: '✏️',
+      icon: <EditOutlined />,
       onClick: () => handleEdit(row),
     });
     actions.push({
       id: 'delete',
       label: t('mcp.actions.removeServer', 'Remover'),
-      icon: '🗑️',
+      icon: <DeleteOutlined />,
       onClick: () => handleDelete(row.slug, row.name),
       danger: true,
     });
@@ -618,9 +626,7 @@ export default function McpPage() {
   if (isLoading && rows.length === 0) {
     return (
       <div className="mcp-page">
-        <div className="loading" role="status" aria-live="polite">
-          <span>{t('mcp.loading')}</span>
-        </div>
+        <PageLoading message={t('mcp.loading')} />
       </div>
     );
   }
@@ -637,7 +643,7 @@ export default function McpPage() {
           {
             key: 'new',
             label: t('mcp.buttons.newServer'),
-            icon: '➕',
+            icon: <PlusOutlined />,
             onClick: handleNew,
             shortcut: 'Ctrl+N',
             variant: 'primary',
@@ -647,7 +653,7 @@ export default function McpPage() {
             label: focusedRow?.status === 'connected'
               ? t('mcp.actions.disconnect', 'Desconectar')
               : t('mcp.actions.connect', 'Conectar'),
-            icon: '🔌',
+            icon: <ApiOutlined />,
             onClick: () => {
               if (!focusedRow) return;
               if (focusedRow.status === 'connected') {
@@ -661,28 +667,28 @@ export default function McpPage() {
           {
             key: 'reconnect',
             label: t('mcp.actions.reconnect', 'Reconectar'),
-            icon: '🔄',
+            icon: <ReloadOutlined />,
             onClick: () => focusedRow && handleReconnect(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'duplicate',
             label: t('mcp.actions.duplicate', 'Duplicar'),
-            icon: '📄',
+            icon: <CopyOutlined />,
             onClick: () => focusedRow && handleDuplicate(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'edit',
             label: t('mcp.actions.edit', 'Editar'),
-            icon: '✏️',
+            icon: <EditOutlined />,
             onClick: () => focusedRow && handleEdit(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'delete',
             label: t('mcp.actions.removeServer', 'Remover'),
-            icon: '🗑️',
+            icon: <DeleteOutlined />,
             onClick: () => focusedRow && void handleDelete(focusedRow.slug, focusedRow.name),
             disabled: !focusedRow,
             variant: 'danger',
@@ -795,13 +801,13 @@ export default function McpPage() {
 
       {!editing && rows.length > 0 && (
         <div className="mcp-empty" role="status">
-          <p>Pressione Enter ou clique no servidor para editar.</p>
+          <p>{t('mcp.hint.edit', 'Pressione Enter ou clique no servidor para editar.')}</p>
         </div>
       )}
 
       {!editing && rows.length === 0 && (
         <div className="mcp-empty" role="status">
-          <p>Nenhum servidor MCP encontrado. Use o botão "Novo Servidor" para começar.</p>
+          <p>{t('mcp.empty.noServers', 'Nenhum servidor MCP encontrado. Use o botão "Novo Servidor" para começar.')}</p>
         </div>
       )}
     </div>

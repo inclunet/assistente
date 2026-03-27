@@ -14,7 +14,9 @@
   color: var(--text-primary);
   cursor: pointer;
   font-size: 1.4em;
-  transition: all 0.15s;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default);
 }
 
 .menu-toggle:hover {
@@ -23,7 +25,7 @@
 }
 
 .menu-toggle:focus {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -34,7 +36,8 @@
   list-style: none;
   margin: 0;
   padding: 4px;
-  min-width: 220px;
+  min-width: min(220px, calc(100vw - 16px));
+  max-width: calc(100vw - 16px);
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
   border-radius: var(--border-radius, 8px);
@@ -53,7 +56,9 @@
   color: var(--text-secondary);
   cursor: pointer;
   text-align: left;
-  transition: all 0.15s;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default);
   font-size: var(--font-size-base, 14px);
   gap: 8px;
 }
@@ -64,7 +69,7 @@
 }
 
 .nav-item:focus {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: -2px;
   background: var(--bg-hover);
   color: var(--text-primary);
@@ -72,13 +77,15 @@
 
 .nav-item.active {
   background: var(--accent-dim);
-  color: var(--color-accent, var(--accent));
+  color: var(--accent);
 }
 
 .nav-icon {
   font-size: 1.1em;
   width: 24px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   flex-shrink: 0;
 }
 
@@ -88,6 +95,6 @@
 
 .nav-shortcut {
   font-size: 11px;
-  color: var(--color-text-muted, var(--text-muted));
+  color: var(--text-muted);
   opacity: 0.7;
 }

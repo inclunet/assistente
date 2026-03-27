@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { CheckOutlined, CloseOutlined, ExclamationOutlined, InfoOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import './Toast.css';
 
@@ -26,11 +27,11 @@ export function Toast({ message, variant = 'info', duration = 3000, onClose }: T
       aria-live="assertive"
       aria-atomic="true"
     >
-      <div className="toast__icon">
-        {variant === 'success' && '✓'}
-        {variant === 'error' && '✕'}
-        {variant === 'warning' && '⚠'}
-        {variant === 'info' && 'ℹ'}
+      <div className="toast__icon" aria-hidden="true">
+        {variant === 'success' && <CheckOutlined />}
+        {variant === 'error' && <CloseOutlined />}
+        {variant === 'warning' && <ExclamationOutlined />}
+        {variant === 'info' && <InfoOutlined />}
       </div>
       <div className="toast__message">{message}</div>
       <button
@@ -38,7 +39,7 @@ export function Toast({ message, variant = 'info', duration = 3000, onClose }: T
         onClick={onClose}
         aria-label={t('ui.toast.close')}
       >
-        ✕
+        <CloseOutlined aria-hidden="true" />
       </button>
     </div>
   );

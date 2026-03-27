@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { HistoryOutlined } from '@ant-design/icons';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import { GetConversations } from '@wailsjs/go/main/App';
@@ -139,7 +140,7 @@ export const HistoryPicker = forwardRef<HistoryPickerRef, HistoryPickerProps>(({
       onSelect={handleSelect}
       label={label}
       description={description}
-      icon="📜"
+      icon={<HistoryOutlined />}
       placeholder={isLoading ? 'Carregando...' : 'Buscar conversa...'}
       disabled={disabled || isLoading}
       maxWidth={maxWidth}

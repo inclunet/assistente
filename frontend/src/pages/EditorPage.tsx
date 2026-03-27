@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CompassOutlined, EditOutlined, FileOutlined, MessageOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { ProfilePicker } from '../components/pickers/ProfilePicker';
@@ -2353,7 +2354,7 @@ export default function EditorPage() {
       {
         key: 'ask',
         label: 'Perguntar ao chat',
-        icon: '💬',
+        icon: <MessageOutlined />,
         shortcut: 'Ctrl+Shift+I',
         onClick: async () => {
           if (isAsking) return;
@@ -2406,14 +2407,14 @@ export default function EditorPage() {
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <ToolbarButton
               label={t('editor.buttons.file')}
-              icon="📄"
+              icon={<FileOutlined />}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Arquivo', fileMenuItemsForContextMenu)}
               aria-haspopup="menu"
             />
 
             <ToolbarButton
               label={t('editor.buttons.format')}
-              icon="🎛️"
+              icon={<SlidersOutlined />}
               disabled={!activeTab || isAsking || activeTab.mode !== 'rich' || !richEditorRef.current}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Formatar', formatMenuItemsForContextMenu)}
               aria-haspopup="menu"
@@ -2421,7 +2422,7 @@ export default function EditorPage() {
 
             <ToolbarButton
               label={t('editor.buttons.insert')}
-              icon="➕"
+              icon={<PlusOutlined />}
               disabled={!activeTab || isAsking || activeTab.mode === 'view'}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Inserir', insertMenuItemsForContextMenu)}
               aria-haspopup="menu"
@@ -2429,7 +2430,7 @@ export default function EditorPage() {
 
             <ToolbarButton
               label={t('editor.buttons.mode')}
-              icon="🧭"
+              icon={<CompassOutlined />}
               disabled={!activeTab || isAsking}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Modo', modeMenuItemsForContextMenu)}
               aria-haspopup="menu"
@@ -2450,7 +2451,7 @@ export default function EditorPage() {
             variant="toolbar"
             label={t('workspace.tabProfileLabel', 'Perfil')}
             description={t('workspace.tabProfileDescription')}
-            icon="✍️"
+            icon={<EditOutlined />}
             maxWidth="180px"
           />
         }

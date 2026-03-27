@@ -1,6 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  CopyOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  StarFilled,
+  StarOutlined,
+} from '@ant-design/icons';
+import {
   GetLLMProvidersWithStatus,
   CreateLLMProvider,
   DeleteLLMProvider,
@@ -16,6 +23,7 @@ import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
 import { useUIStore } from '../store/uiStore';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
+import { useConfirm } from '../hooks/useConfirm';
 import './ProvidersPage.css';
 
 interface Provider {
@@ -36,6 +44,7 @@ interface ProviderRow extends Provider {
 
 export default function ProvidersPage() {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { handleGridReady } = useGridFocus();
@@ -172,8 +181,14 @@ export default function ProvidersPage() {
   };
 
   const handleDeleteProvider = async (provider: ProviderRow) => {
-    const confirmMessage = t('providers.confirm.delete', { name: provider.name });
-    if (!confirm(confirmMessage)) return;
+    const confirmed = await confirm({
+      title: t('providers.confirm.deleteTitle'),
+      message: t('providers.confirm.deleteMessage', { name: provider.name }),
+      confirmText: t('common.delete'),
+      cancelText: t('common.cancel'),
+      variant: 'danger',
+    });
+    if (!confirmed) return;
     try {
       type WailsContext = Parameters<typeof DeleteLLMProvider>[0];
       const emptyContext = null as unknown as WailsContext;
@@ -207,7 +222,8 @@ export default function ProvidersPage() {
           {String(value || '')}
           {(row as Provider).is_default && (
             <span className="provider-badge-default" title={t('providers.badge.default', 'Provedor padrão')}>
-              {' '}★ {t('providers.badge.default', 'Padrão')}
+              {' '}
+              <StarFilled aria-hidden="true" /> {t('providers.badge.default', 'Padrão')}
             </span>
           )}
         </span>
@@ -253,25 +269,25 @@ export default function ProvidersPage() {
       {
         id: 'edit',
         label: t('providers.actions.edit', 'Editar'),
-        icon: '✏️',
+        icon: <EditOutlined />,
         onClick: () => handleEditProvider(item),
       },
       ...((item as Provider).is_default ? [] : [{
         id: 'setDefault',
         label: t('providers.actions.setDefault', 'Tornar Padrão'),
-        icon: '⭐',
+        icon: <StarOutlined />,
         onClick: () => handleSetDefault(item),
       }]),
       {
         id: 'duplicate',
         label: t('providers.actions.duplicate', 'Duplicar'),
-        icon: '📄',
+        icon: <CopyOutlined />,
         onClick: () => handleDuplicateProvider(item),
       },
       {
         id: 'delete',
         label: t('providers.actions.delete', 'Excluir'),
-        icon: '🗑️',
+        icon: <DeleteOutlined />,
         onClick: () => handleDeleteProvider(item),
         danger: true,
       },

@@ -23,14 +23,14 @@
 
 .markdown-content code {
   font-family: 'Fira Code', 'Consolas', 'Monaco', monospace;
-  background-color: var(--color-bg-tertiary);
+  background-color: var(--bg-elevated);
   padding: 0.15em 0.4em;
   border-radius: var(--border-radius);
   font-size: 0.9em;
 }
 
 .markdown-content pre {
-  background-color: var(--color-bg-tertiary);
+  background-color: var(--bg-elevated);
   padding: var(--spacing-md);
   border-radius: var(--border-radius);
   overflow-x: auto;
@@ -52,18 +52,18 @@
 
 .markdown-content th,
 .markdown-content td {
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border-default);
   padding: var(--spacing-sm);
   text-align: left;
 }
 
 .markdown-content th {
-  background-color: var(--color-bg-tertiary);
+  background-color: var(--bg-elevated);
   font-weight: 600;
 }
 
 .markdown-content tr:nth-child(even) {
-  background-color: var(--color-bg-secondary);
+  background-color: var(--bg-surface);
 }
 
 .markdown-content ul,
@@ -77,10 +77,10 @@
 }
 
 .markdown-content blockquote {
-  border-left: 3px solid var(--color-accent);
+  border-left: 3px solid var(--accent);
   margin: 0.75em 0;
   padding-left: var(--spacing-md);
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .markdown-content h1,
@@ -101,7 +101,7 @@
 
 .markdown-content hr {
   border: none;
-  border-top: 1px solid var(--color-border);
+  border-top: 1px solid var(--border-default);
   margin: 1em 0;
 }
 
@@ -133,28 +133,28 @@
 .markdown-content .copy-btn {
   flex: 1;
   padding: var(--spacing-xs) var(--spacing-sm);
-  background-color: var(--color-bg-tertiary);
-  border: 1px solid var(--color-border);
+  background-color: var(--bg-elevated);
+  border: 1px solid var(--border-default);
   border-radius: var(--border-radius);
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   font-size: var(--font-size-sm);
   cursor: pointer;
   text-align: center;
-  transition: background-color 0.2s, color 0.2s;
+  transition: background-color var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
 }
 
 .markdown-content .copy-btn:hover {
-  background-color: var(--color-accent);
-  color: var(--color-bg-primary);
+  background-color: var(--accent);
+  color: var(--bg-base);
 }
 
 .markdown-content .copy-btn:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
 .markdown-content .toggle-editor-btn {
-  background-color: var(--color-bg-secondary);
+  background-color: var(--bg-surface);
 }
 
 /* Botões inline ao lado de links */
@@ -171,14 +171,14 @@
 /* Container inline do Monaco Editor */
 .markdown-content .monaco-inline-container {
   height: 250px;
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border-default);
   border-radius: var(--border-radius);
   overflow: hidden;
 }
 
 /* Diagramas Mermaid */
 .markdown-content .mermaid-diagram {
-  background-color: var(--color-bg-tertiary);
+  background-color: var(--bg-elevated);
   border-radius: var(--border-radius);
   padding: var(--spacing-md);
   margin: 0.75em 0;
@@ -186,7 +186,7 @@
 }
 
 .markdown-content .mermaid-diagram:focus-visible {
-  outline: 2px solid var(--color-accent);
+  outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
 
@@ -221,7 +221,7 @@
   padding: 10px;
   border-radius: var(--border-radius);
   background: var(--bg-elevated);
-  border: 1px solid var(--color-border);
+  border: 1px solid var(--border-default);
   white-space: pre-wrap;
   word-break: break-word;
 }
@@ -242,7 +242,7 @@
   line-height: 1.5;
   text-decoration: none;
   cursor: pointer;
-  transition: background 0.15s, border-color 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-default), border-color var(--duration-fast) var(--ease-default);
   vertical-align: baseline;
 }
 
@@ -254,7 +254,7 @@
 }
 
 .markdown-content a.deep-link:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 

@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { BarChartOutlined, LoadingOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { GetConversationTokenStats } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
@@ -116,7 +117,7 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
         disabled
         aria-label={t('chat.loadingTokenStats')}
       >
-        <span className="token-stats-button__icon" aria-hidden="true">⏳</span>
+        <span className="token-stats-button__icon" aria-hidden="true"><LoadingOutlined spin /></span>
         <span className="token-stats-button__text">...</span>
       </button>
     );
@@ -138,10 +139,10 @@ export const TokenStatsButton: React.FC<TokenStatsButtonProps> = ({
     return 'normal';
   };
 
-  const getStatusIcon = (): string => {
-    if (stats.isCritical) return '🔴';
-    if (stats.isNearLimit) return '🟡';
-    return '📊';
+  const getStatusIcon = () => {
+    if (stats.isCritical) return <WarningOutlined style={{ color: 'var(--color-danger)' }} />;
+    if (stats.isNearLimit) return <WarningOutlined style={{ color: 'var(--color-warning)' }} />;
+    return <BarChartOutlined />;
   };
 
   // Se não houver limite de contexto configurado, mostra apenas o total

@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background-color: var(--background);
+  background-color: var(--bg-base);
 }
 
 .profiles-page .loading {
@@ -58,7 +58,7 @@
 .profiles-section {
   background: var(--bg-surface);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 1.5rem;
 }
 
@@ -95,12 +95,12 @@
   width: 100%;
   padding: 0.5rem 0.75rem;
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--bg-input);
   color: var(--text-primary);
   font-size: 0.875rem;
   font-family: inherit;
-  transition: border-color 0.15s;
+  transition: border-color var(--duration-fast) var(--ease-default);
   box-sizing: border-box;
 }
 
@@ -154,7 +154,7 @@
 
 .profiles-field__fieldset {
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 0.75rem;
   margin: 0;
 }
@@ -180,11 +180,11 @@
   padding: 0.25rem 0.75rem;
   background: transparent;
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--accent);
   font-size: 0.8rem;
   cursor: pointer;
-  transition: background-color 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .profiles-field__tools-toggle:hover {
@@ -248,7 +248,7 @@
 .profiles-tools-datagrid.datagrid-container {
   height: auto;
   max-height: 320px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-size: 0.875rem;
 }
 
@@ -286,9 +286,9 @@
 
 .profiles-collapse {
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   overflow: hidden;
-  transition: border-color 0.15s;
+  transition: border-color var(--duration-fast) var(--ease-default);
 }
 
 .profiles-collapse--open {
@@ -313,7 +313,7 @@
   color: var(--text-primary);
   font-family: inherit;
   text-align: left;
-  transition: background-color 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .profiles-collapse__header:hover {
@@ -341,7 +341,7 @@
   font-size: 0.7rem;
   font-weight: 500;
   padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   flex-shrink: 0;
 }
 
@@ -368,7 +368,7 @@
   justify-content: center;
   height: 100%;
   color: var(--text-muted);
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
   padding: 3rem;
   text-align: center;
 }
@@ -396,7 +396,7 @@
 .profiles-badge {
   display: inline-block;
   padding: 0.125rem 0.5rem;
-  border-radius: 9999px;
+  border-radius: var(--radius-full);
   font-size: 0.75rem;
   font-weight: 500;
 }

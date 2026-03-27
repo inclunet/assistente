@@ -1,6 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  CheckOutlined,
+  CopyOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+} from '@ant-design/icons';
+import {
   GetProfiles,
   GetProfile,
   GetActiveProfileSlug,
@@ -15,7 +22,7 @@ import { profiles } from '../../wailsjs/go/models';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
 import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
-import { Button } from '../components';
+import { Button, PageLoading } from '../components';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
 import { CollapsibleSection } from '../components/ui/CollapsibleSection';
@@ -329,26 +336,26 @@ export default function ProfilesPage() {
       {
         id: 'activate',
         label: t('profiles.activate', 'Ativar perfil'),
-        icon: '✅',
+        icon: <CheckOutlined />,
         onClick: () => handleActivateProfile(item),
         disabled: !!item.isActive,
       },
       {
         id: 'edit',
         label: t('profiles.edit', 'Editar perfil'),
-        icon: '✏️',
+        icon: <EditOutlined />,
         onClick: () => handleEditProfile(item),
       },
       {
         id: 'duplicate',
         label: t('profiles.duplicate', 'Duplicar'),
-        icon: '📄',
+        icon: <CopyOutlined />,
         onClick: () => handleDuplicateProfile(item),
       },
       {
         id: 'delete',
         label: t('profiles.delete', 'Excluir perfil'),
-        icon: '🗑️',
+        icon: <DeleteOutlined />,
         onClick: () => crud.deleteItem(item),
         danger: true,
         disabled: !!item.isActive,
@@ -402,7 +409,7 @@ export default function ProfilesPage() {
   if (loading) {
     return (
       <div className="profiles-page">
-        <div className="loading" role="status">{t('profiles.loading', 'Carregando perfis...')}</div>
+        <PageLoading message={t('profiles.loading', 'Carregando perfis...')} />
       </div>
     );
   }
@@ -433,7 +440,7 @@ export default function ProfilesPage() {
           {
             key: 'new-profile',
             label: t('profiles.newProfile', 'Novo Perfil'),
-            icon: '➕',
+            icon: <PlusOutlined />,
             onClick: handleNewProfile,
             shortcut: 'Ctrl+N',
             variant: 'primary',
@@ -441,28 +448,28 @@ export default function ProfilesPage() {
           {
             key: 'activate-profile',
             label: t('profiles.activate', 'Ativar perfil'),
-            icon: '✅',
+            icon: <CheckOutlined />,
             onClick: () => focusedRow && handleActivateProfile(focusedRow),
             disabled: !focusedRow || !!focusedRow?.isActive,
           },
           {
             key: 'edit-profile',
             label: t('profiles.edit', 'Editar perfil'),
-            icon: '✏️',
+            icon: <EditOutlined />,
             onClick: () => focusedRow && handleEditProfile(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'duplicate-profile',
             label: t('profiles.duplicate', 'Duplicar'),
-            icon: '📄',
+            icon: <CopyOutlined />,
             onClick: () => focusedRow && handleDuplicateProfile(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'delete-profile',
             label: t('profiles.delete', 'Excluir perfil'),
-            icon: '🗑️',
+            icon: <DeleteOutlined />,
             onClick: () => focusedRow && crud.deleteItem(focusedRow),
             disabled: !focusedRow || !!focusedRow?.isActive,
             variant: 'danger',
@@ -704,7 +711,11 @@ export default function ProfilesPage() {
       {/* Empty state when no profile is being edited */}
       {!editingProfile && crud.items.length > 0 && (
         <div className="profiles-empty" role="status">
-          <p>{t('profiles.selectHint', 'Pressione Enter ou clique ✏️ para editar um perfil.')}</p>
+          <p>
+            {t('profiles.selectHint', 'Pressione Enter ou clique para editar.')}
+            {' '}
+            <EditOutlined aria-hidden="true" />
+          </p>
         </div>
       )}
 

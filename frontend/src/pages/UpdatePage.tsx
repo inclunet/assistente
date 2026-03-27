@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import { CheckCircleOutlined, CloseCircleOutlined } from '@ant-design/icons';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { StartUpdate } from '@wailsjs/go/main/App';
 import { useUIStore } from '../store/uiStore';
@@ -161,7 +162,9 @@ export default function UpdatePage() {
 
           {phase === 'completed' && (
             <div className="update-success">
-              <div className="success-icon">✅</div>
+              <div className="success-icon">
+                <CheckCircleOutlined aria-hidden="true" />
+              </div>
               <h2>{t('update.successTitle')}</h2>
               <p>{t('update.successDesc')}</p>
               <div className="update-actions">
@@ -183,7 +186,9 @@ export default function UpdatePage() {
 
           {phase === 'error' && (
             <div className="update-error">
-              <div className="error-icon">❌</div>
+              <div className="error-icon">
+                <CloseCircleOutlined aria-hidden="true" />
+              </div>
               <h2>{t('update.errorTitle')}</h2>
               <p className="error-message">{errorMessage}</p>
               <div className="update-actions">

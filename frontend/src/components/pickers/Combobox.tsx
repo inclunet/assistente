@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useId, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useId, useCallback, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { playBumpSound } from '../../services/audioFeedback';
 import './Combobox.css';
@@ -11,7 +11,7 @@ export interface ComboboxItem {
 }
 
 export interface ComboboxProps {
-    icon?: string;
+    icon?: ReactNode;
     label?: string;
     description?: string;
     items: ComboboxItem[];
@@ -28,7 +28,7 @@ export interface ComboboxProps {
 }
 
 export const Combobox = ({
-    icon = '🔧',
+    icon,
     label,
     description,
     items,
@@ -239,7 +239,29 @@ export const Combobox = ({
         }
     };
 
-    // Announce and scroll when highlight changes
+    // Reposiciona dropdown se transbordar a viewport (horizontal e vertical)
+    useLayoutEffect(() => {
+        if (!isOpen || !containerRef.current) return;
+        const dropdown = containerRef.current.querySelector('.picker-dropdown') as HTMLElement;
+        if (!dropdown) return;
+
+        dropdown.style.left = '0';
+        dropdown.style.right = 'auto';
+        dropdown.style.top = '';
+        dropdown.style.bottom = '';
+
+        const rect = dropdown.getBoundingClientRect();
+        if (rect.right > window.innerWidth - 8) {
+            dropdown.style.left = 'auto';
+            dropdown.style.right = '0';
+        }
+        if (rect.bottom > window.innerHeight - 8) {
+            dropdown.style.top = 'auto';
+            dropdown.style.bottom = 'calc(100% + 4px)';
+        }
+    }, [isOpen]);
+
+    // Anunciar quando highlightIndex mudar
     useEffect(() => {
         if (isOpen) {
             announceHighlight(highlightIndex, filteredItems);
@@ -268,7 +290,7 @@ export const Combobox = ({
                     aria-label={`${effectiveLabel}: ${selectedLabel}`}
                     title={description || `${effectiveLabel}: ${selectedLabel}`}
                 >
-                    <span className="picker-icon" aria-hidden="true">{icon}</span>
+                    {icon && <span className="picker-icon" aria-hidden="true">{icon}</span>}
                     <span className="picker-label" aria-hidden="true">{displayLabel}</span>
                     <span className="picker-arrow" aria-hidden="true">▼</span>
                 </button>

@@ -1,4 +1,5 @@
 import React from 'react';
+import { CloseOutlined, LoadingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { MediaFile, MediaCategory } from '../../services/mediaService';
 import './MediaPreview.css';
@@ -31,7 +32,7 @@ export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onRemove }) =
                 title={item.altText || item.fileName}
               />
               {item.generatingAlt && (
-                <span className="alt-generating" aria-label={t('mediaPreview.loading')}>✨</span>
+                <span className="alt-generating" aria-label={t('mediaPreview.loading')}><LoadingOutlined spin /></span>
               )}
             </div>
           )}
@@ -83,7 +84,7 @@ export const MediaPreview: React.FC<MediaPreviewProps> = ({ media, onRemove }) =
             onClick={() => onRemove(item.id)}
             aria-label={`${t('mediaPreview.remove')} ${item.altText || item.fileName}`}
           >
-            ✕
+            <CloseOutlined aria-hidden="true" />
           </button>
         </div>
       ))}

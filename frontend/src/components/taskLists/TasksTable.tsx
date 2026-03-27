@@ -1,8 +1,10 @@
 import { useState, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
 import { openTaskLink } from '../../lib/deepLinks';
+import { Button } from '../ui/Button';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 import { Modal } from '../ui/Modal';
 import type { Task, TaskListWithWorkflow } from '../../types/tasklist';
@@ -145,7 +147,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
                 tabIndex={-1}
                 aria-label={`Link: ${tk.link}`}
                 onClick={(e) => handleLinkClick(e, tk.link!)}
-              >🔗</span>
+              ><LinkOutlined /></span>
             )}
           </span>
         );
@@ -262,18 +264,29 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
   return (
     <div className="tasks-table-container">
       {hasTasks ? (
-        <DataGrid<Task>
-          items={tasks}
-          columns={columns}
-          onActivate={(task) => {
-            setDetailTask(task);
-            setIsDetailModalOpen(true);
-          }}
-          getRowActions={getRowActions}
-        />
+        <>
+          <div className="tasks-table-toolbar">
+            <Button onClick={handleOpenCreateModal} variant="primary">
+              <PlusOutlined /> {t('tasklist.createTask', 'Criar Tarefa')}
+            </Button>
+          </div>
+
+          <DataGrid<Task>
+            items={tasks}
+            columns={columns}
+            onActivate={(task) => {
+              setDetailTask(task);
+              setIsDetailModalOpen(true);
+            }}
+            getRowActions={getRowActions}
+          />
+        </>
       ) : (
         <div className="tasks-table-empty">
           <p>{t('tasklist.noTasks', 'Nenhuma tarefa nesta lista')}</p>
+          <Button onClick={handleOpenCreateModal} variant="primary">
+            <PlusOutlined /> {t('tasklist.createTask', 'Criar Tarefa')}
+          </Button>
         </div>
       )}
 

@@ -1,5 +1,11 @@
-import { useCallback, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  MessageOutlined,
+  FileTextOutlined,
+  CodeOutlined,
+  CheckSquareOutlined,
+} from '@ant-design/icons';
 import { useWorkspaceStore, type WorkspaceTab, type TabType } from '../../store/workspaceStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
@@ -9,11 +15,11 @@ import { ContextMenu } from '../menu';
 import type { MenuItem } from '../menu';
 import './WorkspaceTabList.css';
 
-const TAB_TYPE_ICONS: Record<TabType, string> = {
-  chat: '💬',
-  editor: '📝',
-  terminal: '>_',
-  tasklist: '✅',
+const TAB_TYPE_ICONS: Record<TabType, ReactNode> = {
+  chat: <MessageOutlined />,
+  editor: <FileTextOutlined />,
+  terminal: <CodeOutlined />,
+  tasklist: <CheckSquareOutlined />,
 };
 
 export function WorkspaceTabList() {
@@ -256,7 +262,7 @@ export function WorkspaceTabList() {
     const isEditing = editingTabId === tab.id;
     const isDragging = dragTabId === tab.id;
     const isDropTarget = dropTargetId === tab.id;
-    const icon = TAB_TYPE_ICONS[tab.type] || '📄';
+    const icon = TAB_TYPE_ICONS[tab.type] || <FileTextOutlined />;
 
     return (
       <div
@@ -309,11 +315,11 @@ export function WorkspaceTabList() {
               e.stopPropagation();
               void removeTab(tab.id);
             }}
-            aria-hidden="true"
+            aria-label={`${t('workspace.closeTab', 'Fechar aba')}: ${tab.title}`}
             tabIndex={-1}
             type="button"
           >
-            ×
+            <span aria-hidden="true">×</span>
           </button>
         )}
       </div>

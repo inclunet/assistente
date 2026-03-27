@@ -12,7 +12,9 @@ vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
   useTranslation: () => ({
     t: (_key: string, fallback?: string) => fallback ?? _key,
+    i18n: { language: 'pt-BR' },
   }),
+  Trans: ({ children, defaults }: { children?: ReactNode; defaults?: string }) => <>{defaults ?? children}</>,
 }));
 
 vi.mock('@wailsjs/go/main/App', () => ({
@@ -115,6 +117,7 @@ vi.mock('../components', () => ({
       {children}
     </button>
   ),
+  PageLoading: ({ message }: { message?: string }) => <div role="status">{message}</div>,
 }));
 
 describe('SkillsPage', () => {

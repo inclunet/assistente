@@ -68,6 +68,26 @@ vi.mock('../components/chat/ChatInput', async () => {
   };
 });
 
+vi.mock('../components/pickers/ProfilePicker', () => ({
+  ProfilePicker: ({ value }: { value?: string }) => <span data-testid="profile-picker">{value ?? 'default'}</span>,
+}));
+
+vi.mock('@wailsjs/runtime/runtime', () => ({
+  EventsOn: vi.fn(() => () => {}),
+  EventsOff: vi.fn(),
+}));
+
+vi.mock('../store/workspaceStore', () => ({
+  useWorkspaceStore: Object.assign(
+    (selector: (state: any) => unknown) => selector({
+      workspace: { tabs: [], profile: undefined },
+      getActiveTab: () => undefined,
+      updateTab: vi.fn(),
+    }),
+    { getState: () => ({ workspace: { tabs: [] }, getActiveTab: () => undefined }), subscribe: () => () => {} }
+  ),
+}));
+
 vi.mock('../components/ui/Toolbar', () => ({
   Toolbar: ({ left, right }: { left?: ReactNode; right?: ReactNode }) => (
     <div>

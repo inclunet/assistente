@@ -23,11 +23,11 @@
 .profile-interaction-section__select {
   padding: 0.5rem;
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 0.875rem;
   background-color: var(--bg-surface);
   color: var(--text-primary);
-  transition: border-color 0.2s, box-shadow 0.2s;
+  transition: border-color var(--duration-fast) var(--ease-default), box-shadow var(--duration-fast) var(--ease-default);
 }
 
 .profile-interaction-section__select:focus {
@@ -62,7 +62,7 @@
 }
 
 .profile-interaction-section__hint {
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   color: var(--text-secondary);
   margin-top: 0.25rem;
 }

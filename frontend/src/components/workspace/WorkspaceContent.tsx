@@ -1,4 +1,5 @@
 import { Suspense, lazy } from 'react';
+import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import './WorkspaceContent.css';
 
@@ -12,12 +13,13 @@ const Loading = () => (
 );
 
 export function WorkspaceContent() {
+  const { t } = useTranslation();
   const activeTab = useWorkspaceStore((s) => s.getActiveTab());
 
   if (!activeTab) {
     return (
       <div className="ws-content ws-content--empty">
-        <p>Nenhuma aba aberta</p>
+        <p>{t('workspace.noTabs', 'Nenhuma aba aberta')}</p>
       </div>
     );
   }

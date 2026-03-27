@@ -1,4 +1,5 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, type ReactNode } from 'react';
+import { CalendarOutlined, DeleteOutlined, EditOutlined, FileTextOutlined, LinkOutlined, MessageOutlined, RobotOutlined, SettingOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { Modal } from '../ui/Modal';
@@ -17,11 +18,11 @@ interface TaskDetailModalProps {
   statuses: TaskListWorkflowStatus[];
 }
 
-const NOTE_TYPE_ICONS: Record<TaskNoteType, string> = {
-  1: '📝',
-  2: '💬',
-  3: '🤖',
-  4: '⚙️',
+const NOTE_TYPE_ICONS: Record<TaskNoteType, ReactNode> = {
+  1: <FileTextOutlined aria-hidden="true" />,
+  2: <MessageOutlined aria-hidden="true" />,
+  3: <RobotOutlined aria-hidden="true" />,
+  4: <SettingOutlined aria-hidden="true" />,
 };
 
 const NOTE_TYPE_CSS: Record<TaskNoteType, string> = {
@@ -166,7 +167,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             onKeyDown={task.link ? (e) => { if (e.key === 'Enter') handleLinkClick(); } : undefined}
           >
             {task.code}
-            {task.link && ' 🔗'}
+            {task.link && <> <LinkOutlined aria-hidden="true" /></>}
           </span>
         )}
         {!task.code && task.link && (
@@ -177,7 +178,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === 'Enter') handleLinkClick(); }}
           >
-            🔗 Link
+            <LinkOutlined aria-hidden="true" /> Link
           </span>
         )}
         {task.assigneeName && (
@@ -192,7 +193,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
         )}
         {task.dueDate && (
           <span className={`task-detail__badge task-detail__badge--due${isDueDatePast ? ' task-detail__badge--overdue' : ''}`}>
-            📅 {new Date(task.dueDate).toLocaleDateString()}
+            <CalendarOutlined aria-hidden="true" /> {new Date(task.dueDate).toLocaleDateString()}
           </span>
         )}
       </div>
@@ -255,7 +256,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
                 <>
                   <div className="task-detail__note-header">
                     <span className={`task-detail__note-type task-detail__note-type--${NOTE_TYPE_CSS[note.type] || 'internal'}`}>
-                      {NOTE_TYPE_ICONS[note.type] || '📝'} {t(`tasklist.noteTypes.${NOTE_TYPE_CSS[note.type] || 'internal'}`)}
+                      {NOTE_TYPE_ICONS[note.type] || <FileTextOutlined aria-hidden="true" />} {t(`tasklist.noteTypes.${NOTE_TYPE_CSS[note.type] || 'internal'}`)}
                     </span>
                     {note.authorName && (
                       <span className="task-detail__note-author" title={note.authorId || undefined}>
@@ -270,7 +271,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
                         aria-label={t('tasklist.editNote')}
                         title={t('tasklist.editNote')}
                       >
-                        ✏️
+                        <EditOutlined aria-hidden="true" />
                       </button>
                       <button
                         className="task-detail__note-action task-detail__note-action--danger"
@@ -278,7 +279,7 @@ export default function TaskDetailModal({ isOpen, onClose, task, statuses }: Tas
                         aria-label={t('tasklist.deleteNote')}
                         title={t('tasklist.deleteNote')}
                       >
-                        🗑️
+                        <DeleteOutlined aria-hidden="true" />
                       </button>
                     </div>
                   </div>
@@ -331,10 +332,10 @@ function NoteForm({
             onChange={(e) => onTypeChange(Number(e.target.value) as TaskNoteType)}
             aria-label={t('tasklist.noteType')}
           >
-            <option value={TASK_NOTE_TYPES.INTERNAL}>{NOTE_TYPE_ICONS[1]} {t('tasklist.noteTypes.internal')}</option>
-            <option value={TASK_NOTE_TYPES.CUSTOMER}>{NOTE_TYPE_ICONS[2]} {t('tasklist.noteTypes.customer')}</option>
-            <option value={TASK_NOTE_TYPES.AGENT}>{NOTE_TYPE_ICONS[3]} {t('tasklist.noteTypes.agent')}</option>
-            <option value={TASK_NOTE_TYPES.SYSTEM}>{NOTE_TYPE_ICONS[4]} {t('tasklist.noteTypes.system')}</option>
+            <option value={TASK_NOTE_TYPES.INTERNAL}>{t('tasklist.noteTypes.internal')}</option>
+            <option value={TASK_NOTE_TYPES.CUSTOMER}>{t('tasklist.noteTypes.customer')}</option>
+            <option value={TASK_NOTE_TYPES.AGENT}>{t('tasklist.noteTypes.agent')}</option>
+            <option value={TASK_NOTE_TYPES.SYSTEM}>{t('tasklist.noteTypes.system')}</option>
           </select>
           {showAuthor && onAuthorChange && (
             <input

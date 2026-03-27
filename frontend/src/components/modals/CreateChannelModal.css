@@ -23,11 +23,15 @@
   align-items: flex-start;
   gap: 1rem;
   padding: 1.25rem;
-  background: var(--bg-secondary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default),
+    box-shadow var(--duration-fast) var(--ease-default);
   text-align: left;
   width: 100%;
 }
@@ -74,9 +78,9 @@
   align-items: flex-start;
   gap: 1rem;
   padding: 1rem;
-  background: var(--bg-secondary);
-  border-radius: 8px;
-  border: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
+  border: 1px solid var(--border-default);
 }
 
 .channel-form-icon {
@@ -98,7 +102,7 @@
   font-size: 0.85rem;
   color: var(--accent);
   text-decoration: none;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--duration-fast) var(--ease-default);
 }
 
 .channel-form-docs:hover {
@@ -129,7 +133,7 @@
   padding: 0.875rem 1rem;
   background: var(--color-danger-dim);
   border: 1px solid var(--color-danger);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--color-danger);
   font-size: 0.9rem;
   line-height: 1.4;
@@ -140,7 +144,7 @@
   justify-content: space-between;
   gap: 1rem;
   padding-top: 1rem;
-  border-top: 1px solid var(--border-color);
+  border-top: 1px solid var(--border-default);
 }
 
 @media (max-width: 768px) {

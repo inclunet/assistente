@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
+import { DeleteOutlined, EditOutlined, EyeOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ListCredentials, UpsertCredential, DeleteCredential } from '@wailsjs/go/main/App';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -224,7 +225,7 @@ export default function CredentialsPage() {
         {
           id: 'view',
           label: t('credentials.buttons.view', 'Visualizar'),
-          icon: '👁',
+          icon: <EyeOutlined />,
           onClick: () => setViewingManaged(row),
         },
       ];
@@ -233,13 +234,13 @@ export default function CredentialsPage() {
       {
         id: 'edit',
         label: t('credentials.buttons.edit', 'Editar'),
-        icon: '✏️',
+        icon: <EditOutlined />,
         onClick: () => crud.openEdit(row),
       },
       {
         id: 'delete',
         label: t('credentials.buttons.delete', 'Excluir'),
-        icon: '🗑️',
+        icon: <DeleteOutlined />,
         onClick: () => crud.deleteItem(row),
         danger: true,
       },
@@ -255,7 +256,7 @@ export default function CredentialsPage() {
           {
             key: 'new',
             label: t('credentials.buttons.new'),
-            icon: '+',
+            icon: <PlusOutlined />,
             onClick: crud.openNew,
             shortcut: 'Ctrl+N',
             variant: 'primary',
@@ -263,14 +264,14 @@ export default function CredentialsPage() {
           {
             key: 'edit',
             label: t('credentials.buttons.edit', 'Editar'),
-            icon: '✏️',
+            icon: <EditOutlined />,
             onClick: () => focusedRow && !focusedRow.managed && crud.openEdit(focusedRow),
             disabled: !focusedRow || focusedRow.managed,
           },
           {
             key: 'delete',
             label: t('credentials.buttons.delete', 'Excluir'),
-            icon: '🗑️',
+            icon: <DeleteOutlined />,
             onClick: () => focusedRow && !focusedRow.managed && crud.deleteItem(focusedRow),
             disabled: !focusedRow || focusedRow.managed,
             variant: 'danger',

@@ -19,11 +19,11 @@
 .profile-general-section__input {
   padding: 8px 12px;
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-size: 14px;
   background-color: var(--bg-surface);
   color: var(--text-primary);
-  transition: border-color 0.2s ease;
+  transition: border-color var(--duration-fast) var(--ease-default);
 }
 
 .profile-general-section__input:focus {

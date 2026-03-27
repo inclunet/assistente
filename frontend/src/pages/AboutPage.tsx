@@ -1,6 +1,14 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
+import {
+  BugOutlined,
+  CheckCircleOutlined,
+  FileTextOutlined,
+  InfoCircleOutlined,
+  LinkOutlined,
+  RobotOutlined,
+} from '@ant-design/icons';
 import { GetAppVersion, CheckForUpdates, StartUpdate } from '@wailsjs/go/main/App';
 import { useUIStore } from '../store/uiStore';
 import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
@@ -100,7 +108,9 @@ export default function AboutPage() {
     <div className="about-page">
       <div className="about-container">
         <div className="about-header">
-          <div className="app-icon">🤖</div>
+          <div className="app-icon" aria-hidden="true">
+            <RobotOutlined aria-hidden="true" />
+          </div>
           <h1>{t('about.pageTitle')}</h1>
           <p className="app-tagline">{t('about.tagline')}</p>
         </div>
@@ -151,7 +161,9 @@ export default function AboutPage() {
 
             {updateInfo && !updateInfo.available && (
               <div className="update-current">
-                <div className="status-icon">✅</div>
+                <div className="status-icon" aria-hidden="true">
+                  <CheckCircleOutlined aria-hidden="true" />
+                </div>
                 <h3>{t('about.upToDateTitle')}</h3>
                 <p>{t('about.upToDateDesc', { version: updateInfo.currentVersion })}</p>
                 <button 
@@ -166,7 +178,9 @@ export default function AboutPage() {
 
             {updateInfo && updateInfo.available && (
               <div className="update-available">
-                <div className="status-icon">🆕</div>
+                <div className="status-icon" aria-hidden="true">
+                  <InfoCircleOutlined aria-hidden="true" />
+                </div>
                 <h3>{t('about.newVersionTitle')}</h3>
                 
                 <div className="version-info">
@@ -238,7 +252,9 @@ export default function AboutPage() {
                 rel="noopener noreferrer"
                 className="link-item"
               >
-                <span className="link-icon">🔗</span>
+                <span className="link-icon" aria-hidden="true">
+                  <LinkOutlined aria-hidden="true" />
+                </span>
                 <span>{t('about.links.github')}</span>
               </a>
               <a 
@@ -247,7 +263,9 @@ export default function AboutPage() {
                 rel="noopener noreferrer"
                 className="link-item"
               >
-                <span className="link-icon">🐛</span>
+                <span className="link-icon" aria-hidden="true">
+                  <BugOutlined aria-hidden="true" />
+                </span>
                 <span>{t('about.links.reportBug')}</span>
               </a>
               <a 
@@ -256,7 +274,9 @@ export default function AboutPage() {
                 rel="noopener noreferrer"
                 className="link-item"
               >
-                <span className="link-icon">📋</span>
+                <span className="link-icon" aria-hidden="true">
+                  <FileTextOutlined aria-hidden="true" />
+                </span>
                 <span>{t('about.links.releaseNotes')}</span>
               </a>
             </div>

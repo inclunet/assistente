@@ -17,6 +17,9 @@ export type { SelectProps, SelectOption } from './ui/Select';
 export { Checkbox } from './ui/Checkbox';
 export type { CheckboxProps } from './ui/Checkbox';
 
+export { EmptyState } from './ui/EmptyState';
+export { PageLoading } from './ui/PageLoading';
+
 // Chat Components
 export { ChatMessage } from './chat/ChatMessage';
 export type { ChatMessageProps } from './chat/ChatMessage';

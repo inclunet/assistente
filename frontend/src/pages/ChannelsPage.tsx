@@ -1,6 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  DeleteOutlined,
+  DownOutlined,
+  EditOutlined,
+  PlusOutlined,
+  ReloadOutlined,
+  WarningOutlined,
+} from '@ant-design/icons';
+import {
   GetChannelConfig,
   SaveChannelConfig,
   GetMessagingStatus,
@@ -785,13 +793,13 @@ export default function ChannelsPage() {
       {
         id: 'edit',
         label: t('channels.actions.edit', 'Editar'),
-        icon: '✏️',
+        icon: <EditOutlined />,
         onClick: () => handleEditChannel(row),
       },
       {
         id: 'reconnect',
         label: t('channels.actions.reconnectChannel', 'Reconectar'),
-        icon: '🔄',
+        icon: <ReloadOutlined />,
         onClick: () => handleReconnectChannel(row.name),
       },
     ];
@@ -818,7 +826,7 @@ export default function ChannelsPage() {
       {
         id: 'remove',
         label: t('channels.actions.removeContact', 'Remover'),
-        icon: '🗑️',
+        icon: <DeleteOutlined />,
         onClick: () => handleDeleteContact(row),
         danger: true,
       },
@@ -844,7 +852,7 @@ export default function ChannelsPage() {
     : [{
       id: 'no-templates',
       label: t('channels.empty.noChannels'),
-      icon: '⚠️',
+      icon: <WarningOutlined />,
       ariaLabel: t('channels.empty.noChannels'),
       action: closeCreateMenu,
     }];
@@ -865,14 +873,14 @@ export default function ChannelsPage() {
           {
             key: 'edit-channel',
             label: t('channels.actions.edit', 'Editar'),
-            icon: '✏️',
+            icon: <EditOutlined />,
             onClick: () => focusedChannel && handleEditChannel(focusedChannel),
             disabled: !focusedChannel,
           },
           {
             key: 'reconnect-channel',
             label: t('channels.actions.reconnectChannel', 'Reconectar'),
-            icon: '🔄',
+            icon: <ReloadOutlined />,
             onClick: () => focusedChannel && handleReconnectChannel(focusedChannel.name),
             disabled: !focusedChannel,
           },
@@ -881,7 +889,7 @@ export default function ChannelsPage() {
           {
             key: 'remove-contact',
             label: t('channels.actions.removeContact', 'Remover'),
-            icon: '🗑️',
+            icon: <DeleteOutlined />,
             onClick: () => focusedContact && handleDeleteContact(focusedContact),
             disabled: !focusedContact,
             variant: 'danger',
@@ -891,7 +899,7 @@ export default function ChannelsPage() {
     {
       key: 'reload',
       label: t('channels.buttons.reload', 'Recarregar'),
-      icon: '🔄',
+      icon: <ReloadOutlined />,
       variant: 'secondary' as const,
       onClick: loadAll,
       disabled: false,
@@ -981,7 +989,7 @@ export default function ChannelsPage() {
   if (loading) {
     return (
       <div className="channels-page">
-        <div className="channels-page__loading" role="status">Carregando canais...</div>
+        <div className="channels-page__loading" role="status">{t('channels.loading', 'Carregando canais...')}</div>
       </div>
     );
   }
@@ -1013,8 +1021,8 @@ export default function ChannelsPage() {
             <ToolbarButton
               ref={createMenuButtonRef}
               label="Novo"
-              icon="➕"
-              endIcon="▾"
+              icon={<PlusOutlined />}
+              endIcon={<DownOutlined />}
               shortcut="Ctrl+N"
               variant="primary"
               onClick={openCreateMenu}

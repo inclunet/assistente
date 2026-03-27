@@ -1,5 +1,6 @@
-import { useMemo, useRef, forwardRef, useImperativeHandle, useCallback, useLayoutEffect, useState } from 'react';
+import { type ReactNode, useMemo, useRef, forwardRef, useImperativeHandle, useCallback, useLayoutEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { MenuOutlined } from '@ant-design/icons';
 import './MenuButton.css';
 import { Menu, type MenuItem as MenuModelItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
@@ -8,7 +9,7 @@ import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 export interface MenuItem {
   id: string;
   label?: string;
-  icon?: string;
+  icon?: ReactNode;
   shortcut?: string;
   separator?: boolean;
   onClick?: () => void;
@@ -135,7 +136,7 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
         tabIndex={tabIndex ?? autoTabIndex ?? 0}
       >
         <span className="menu-icon" aria-hidden="true">
-          ☰
+          <MenuOutlined />
         </span>
       </button>
 

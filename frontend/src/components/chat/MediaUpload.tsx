@@ -1,4 +1,5 @@
 import React, { useRef, useState } from 'react';
+import { CustomerServiceOutlined, FileOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { Button } from '../ui/Button';
 import './MediaUpload.css';
@@ -127,8 +128,8 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
                     className="media-upload__preview-image"
                   />
                 ) : (
-                  <div className="media-upload__preview-icon">
-                    {mediaFile.type === 'audio' ? '🎵' : '📄'}
+                  <div className="media-upload__preview-icon" aria-hidden="true">
+                    {mediaFile.type === 'audio' ? <CustomerServiceOutlined /> : <FileOutlined />}
                   </div>
                 )}
 
@@ -145,7 +146,7 @@ export const MediaUpload: React.FC<MediaUploadProps> = ({
                   size="sm"
                   aria-label={`${t('mediaUpload.remove')} ${mediaFile.file.name}`}
                 >
-                  ✕
+                  {t('mediaUpload.remove')}
                 </Button>
               </div>
             ))}

@@ -1,13 +1,13 @@
 .context-menu {
   position: fixed;
   z-index: 10000;
-  background: var(--bg-secondary, var(--bg-elevated));
-  border: 1px solid var(--border-color, var(--border-default));
-  border-radius: 8px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
   box-shadow: 0 4px 12px var(--bg-overlay);
   padding: 4px;
-  min-width: 200px;
-  max-width: 320px;
+  min-width: min(200px, calc(100vw - 16px));
+  max-width: min(320px, calc(100vw - 16px));
 }
 
 .context-menu--submenu {
@@ -15,6 +15,7 @@
   left: calc(100% + 4px);
   top: 0;
   margin: 0;
+  max-width: calc(100vw - 16px);
 }
 
 .context-menu__item-wrapper {
@@ -23,6 +24,7 @@
 
 .context-menu__item {
   width: 100%;
+  min-height: 36px;
   padding: 8px 12px;
   background: transparent;
   border: none;
@@ -33,8 +35,8 @@
   gap: 8px;
   font-size: 14px;
   text-align: left;
-  border-radius: 4px;
-  transition: background 0.15s ease;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .context-menu__item:hover,
@@ -66,7 +68,9 @@
   flex-shrink: 0;
   font-size: 16px;
   width: 20px;
-  text-align: center;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
 }
 
 .context-menu__label {
@@ -95,23 +99,23 @@
 
 .context-menu__separator {
   height: 1px;
-  background: var(--border-color, var(--border-default));
+  background: var(--border-default);
   margin: 4px 0;
 }
 
 /* Busca integrada */
 .context-menu__search {
   padding: 4px;
-  border-bottom: 1px solid var(--border-color, var(--border-default));
+  border-bottom: 1px solid var(--border-default);
   margin-bottom: 4px;
 }
 
 .context-menu__search-input {
   width: 100%;
   padding: 6px 8px;
-  border: 1px solid var(--border-color, var(--border-default));
-  border-radius: 4px;
-  background: var(--bg-input, var(--bg-primary));
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  background: var(--bg-input, var(--bg-surface));
   color: var(--text-primary);
   font-size: 13px;
   font-family: inherit;
@@ -119,8 +123,8 @@
 }
 
 .context-menu__search-input:focus {
-  border-color: var(--primary-color, var(--accent));
-  box-shadow: 0 0 0 1px var(--primary-color, var(--accent));
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
 }
 
 .context-menu__search-input::placeholder {
@@ -148,7 +152,7 @@
 
 /* Acessibilidade */
 .context-menu__item:focus-visible {
-  outline: 2px solid var(--primary-color, var(--accent));
+  outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
 

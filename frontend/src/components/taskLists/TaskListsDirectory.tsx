@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
@@ -82,7 +83,7 @@ export default function TaskListsDirectory({
       <div className="tasklists-directory-empty">
         <p>{t('tasklist.noLists', 'Nenhuma lista de tarefas criada')}</p>
         <Button onClick={onCreateNew} variant="primary">
-          ➕ {t('tasklist.createFirst', 'Criar Primeira Lista')}
+          <PlusOutlined /> {t('tasklist.createFirst', 'Criar Primeira Lista')}
         </Button>
       </div>
     );
@@ -94,7 +95,7 @@ export default function TaskListsDirectory({
         left={<span>{t('tasklist.allLists', 'Todas as Listas')}</span>}
         right={
           <Button onClick={onCreateNew} variant="primary">
-            ➕ {t('tasklist.newList', 'Nova Lista')}
+            <PlusOutlined /> {t('tasklist.newList', 'Nova Lista')}
           </Button>
         }
       />

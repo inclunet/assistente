@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import { CheckCircleOutlined, CloseCircleOutlined, DownOutlined, LoadingOutlined, SettingOutlined, ToolOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import './ToolCallsSection.css';
 
@@ -45,10 +46,10 @@ const RESULT_PREVIEW_LENGTH = 300;
  * 1. **Streaming**: mostra `activeToolCalls` com status em tempo real (running/done/error)
  * 2. **Histórico**: parseia `toolCallsJson` para exibir chamadas + resultados
  */
-export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
+export const ToolCallsSection = React.memo<ToolCallsSectionProps>(function ToolCallsSection({
   toolCallsJson,
   activeToolCalls,
-}) => {
+}) {
   const { t } = useTranslation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [expandedResults, setExpandedResults] = useState<Set<string>>(new Set());
@@ -118,7 +119,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
         tabIndex={-1}
       >
         <span className="tool-calls-section__icon" aria-hidden="true">
-          {isRunning ? '⚙️' : '🔧'}
+          {isRunning ? <SettingOutlined spin /> : <ToolOutlined />}
         </span>
         <span className="tool-calls-section__title">
           {uniqueNames.join(', ')}
@@ -130,7 +131,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
           className={`tool-calls-section__chevron ${isExpanded ? 'tool-calls-section__chevron--expanded' : ''}`}
           aria-hidden="true"
         >
-          ▼
+          <DownOutlined />
         </span>
       </button>
 
@@ -143,7 +144,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
                 <li key={tc.callId} className={`tool-calls-section__item tool-calls-section__item--${tc.status}`}>
                   <div className="tool-calls-section__item-header">
                     <span className="tool-calls-section__status-icon" aria-hidden="true">
-                      {tc.status === 'running' ? '⏳' : tc.status === 'done' ? '✅' : '❌'}
+                      {tc.status === 'running' ? <LoadingOutlined spin /> : tc.status === 'done' ? <CheckCircleOutlined /> : <CloseCircleOutlined />}
                     </span>
                     <span className="tool-calls-section__name">{tc.name}</span>
                     {tc.summary && (
@@ -170,7 +171,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
                 return (
                   <li key={tc.id} className="tool-calls-section__item tool-calls-section__item--done">
                     <div className="tool-calls-section__item-header">
-                      <span className="tool-calls-section__status-icon" aria-hidden="true">✅</span>
+                      <span className="tool-calls-section__status-icon" aria-hidden="true"><CheckCircleOutlined /></span>
                       <span className="tool-calls-section__name">{tc.function.name}</span>
                     </div>
 
@@ -212,7 +213,7 @@ export const ToolCallsSection: React.FC<ToolCallsSectionProps> = ({
       )}
     </div>
   );
-};
+});
 
 /**
  * Formata string JSON de argumentos para exibição legível.

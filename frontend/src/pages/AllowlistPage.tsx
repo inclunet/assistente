@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
+  CopyOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  PlusOutlined,
+} from '@ant-design/icons';
+import {
   GetAllowlists,
   GetAllowlist,
   CreateAllowlist,
@@ -243,19 +249,19 @@ export default function AllowlistPage() {
       {
         id: 'edit',
         label: t('allowlist.buttons.edit', 'Editar'),
-        icon: '✏️',
+        icon: <EditOutlined />,
         onClick: () => handleEdit(row),
       },
       {
         id: 'duplicate',
         label: t('allowlist.buttons.duplicate', 'Duplicar'),
-        icon: '📄',
+        icon: <CopyOutlined />,
         onClick: () => handleDuplicate(row),
       },
       {
         id: 'delete',
         label: t('allowlist.buttons.delete', 'Excluir'),
-        icon: '🗑️',
+        icon: <DeleteOutlined />,
         onClick: () => crud.deleteItem(row),
         danger: true,
       },
@@ -271,7 +277,7 @@ export default function AllowlistPage() {
           {
             key: 'new',
             label: t('allowlist.buttons.new'),
-            icon: '+',
+            icon: <PlusOutlined />,
             onClick: crud.openNew,
             shortcut: 'Ctrl+N',
             variant: 'primary',
@@ -279,21 +285,21 @@ export default function AllowlistPage() {
           {
             key: 'edit',
             label: t('allowlist.buttons.edit', 'Editar'),
-            icon: '✏️',
+            icon: <EditOutlined />,
             onClick: () => focusedRow && handleEdit(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'duplicate',
             label: t('allowlist.buttons.duplicate', 'Duplicar'),
-            icon: '📄',
+            icon: <CopyOutlined />,
             onClick: () => focusedRow && handleDuplicate(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'delete',
             label: t('allowlist.buttons.delete', 'Excluir'),
-            icon: '🗑️',
+            icon: <DeleteOutlined />,
             onClick: () => focusedRow && crud.deleteItem(focusedRow),
             disabled: !focusedRow,
             variant: 'danger',

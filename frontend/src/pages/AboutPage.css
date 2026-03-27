@@ -1,13 +1,13 @@
 .about-page {
   min-height: 100vh;
   padding: 2rem;
-  background: var(--bg-secondary);
+  background: var(--bg-elevated);
 }
 
 .about-container {
   max-width: 800px;
   margin: 0 auto;
-  background: var(--bg-primary);
+  background: var(--bg-surface);
   border-radius: var(--radius-xl);
   box-shadow: 0 4px 12px var(--bg-overlay);
   overflow: hidden;
@@ -53,7 +53,7 @@
   margin: 0 0 1.5rem 0;
   font-size: 1.3rem;
   color: var(--text-primary);
-  border-bottom: 2px solid var(--border-color);
+  border-bottom: 2px solid var(--border-default);
   padding-bottom: 0.5rem;
 }
 
@@ -67,8 +67,8 @@
   justify-content: space-between;
   align-items: center;
   padding: 0.75rem 1rem;
-  background: var(--bg-secondary);
-  border-radius: 8px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
 }
 
 .info-label {
@@ -86,8 +86,8 @@
 .update-available {
   text-align: center;
   padding: 2rem;
-  background: var(--bg-secondary);
-  border-radius: 8px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
 }
 
 .status-icon {
@@ -118,7 +118,7 @@
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: transform 0.2s ease;
+  transition: transform var(--duration-fast) var(--ease-default);
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -147,16 +147,11 @@
   animation: spin 1s linear infinite;
 }
 
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
-}
-
 .version-info {
   margin: 1.5rem 0;
   padding: 1rem;
-  background: var(--bg-primary);
-  border-radius: 8px;
+  background: var(--bg-surface);
+  border-radius: var(--radius-lg);
   text-align: left;
 }
 
@@ -164,7 +159,7 @@
   display: flex;
   justify-content: space-between;
   padding: 0.5rem 0;
-  border-bottom: 1px solid var(--border-color);
+  border-bottom: 1px solid var(--border-default);
 }
 
 .version-row:last-child {
@@ -196,7 +191,7 @@
 
 .notes-content {
   padding: 1rem;
-  background: var(--bg-primary);
+  background: var(--bg-surface);
   border-radius: var(--radius-lg);
   border-left: 4px solid var(--accent);
   max-height: 200px;
@@ -218,11 +213,14 @@
 .btn-update-later {
   padding: 0.75rem 1.5rem;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   font-size: 1rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default),
+    box-shadow var(--duration-fast) var(--ease-default);
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
@@ -245,13 +243,13 @@
 }
 
 .btn-update-later {
-  background: var(--bg-primary);
+  background: var(--bg-surface);
   color: var(--text-primary);
-  border: 1px solid var(--border-color);
+  border: 1px solid var(--border-default);
 }
 
 .btn-update-later:hover {
-  background: var(--bg-tertiary);
+  background: var(--bg-hover);
 }
 
 .links-grid {
@@ -264,11 +262,13 @@
   align-items: center;
   gap: 1rem;
   padding: 1rem;
-  background: var(--bg-secondary);
-  border-radius: 8px;
+  background: var(--bg-elevated);
+  border-radius: var(--radius-lg);
   text-decoration: none;
   color: var(--text-primary);
-  transition: all 0.2s ease;
+  transition:
+    border-color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default);
   border: 1px solid transparent;
 }
 
@@ -283,22 +283,22 @@
 
 .about-footer {
   padding: 1.5rem 2rem;
-  background: var(--bg-secondary);
-  border-top: 1px solid var(--border-color);
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border-default);
   text-align: center;
 }
 
 .btn-back {
   padding: 0.5rem 1.5rem;
-  background: var(--bg-primary);
+  background: var(--bg-surface);
   color: var(--text-primary);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-lg);
   font-size: 0.95rem;
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .btn-back:hover {
-  background: var(--bg-tertiary);
+  background: var(--bg-hover);
 }

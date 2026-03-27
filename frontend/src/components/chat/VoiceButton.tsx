@@ -239,13 +239,13 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
       short: 'VAD',
       idle: t('voice.clickContinuous'),
       active: isRecordingState ? t('voice.recordingSilence') : t('voice.listeningSpeakTo'),
-      hint: 'Escuta',
+      hint: t('voice.vadHint'),
     },
     wakeword: {
-      short: '🗣️',
+      short: '',
       idle: t('voice.clickWakeWord'),
       active: isRecordingState ? t('voice.recording') : `${t('voice.listeningSay')} "${wakewordKeyword}"`,
-      hint: 'Wake',
+      hint: t('voice.wakeHint'),
     },
   };
 

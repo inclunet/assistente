@@ -50,7 +50,7 @@
   font-size: 1rem;
   color: var(--text-secondary);
   border-radius: var(--radius-sm);
-  transition: color 0.2s ease, background-color 0.2s ease;
+  transition: color var(--duration-fast) var(--ease-default), background-color var(--duration-fast) var(--ease-default);
 }
 
 .tasklist-header-edit-btn:hover {
@@ -59,7 +59,7 @@
 }
 
 .tasklist-header-edit-btn:focus {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -75,9 +75,9 @@
 .tasklist-header-stats {
   display: flex;
   gap: var(--spacing-lg);
-  flex-wrap: wrap;
   justify-content: flex-end;
   align-items: center;
+  flex-shrink: 0;
 }
 
 @media (max-width: 1024px) {
@@ -125,7 +125,7 @@
 .tasklist-progress-fill {
   height: 100%;
   background: linear-gradient(90deg, var(--color-success), var(--accent));
-  transition: width 0.3s ease;
+  transition: width var(--duration-normal) var(--ease-default);
   border-radius: var(--radius-sm);
 }
 
@@ -151,7 +151,7 @@
 .tasklist-header-error {
   padding: var(--spacing-sm) var(--spacing-md);
   background-color: var(--color-danger);
-  color: white;
+  color: var(--text-inverse);
   border-radius: var(--radius-sm);
   font-size: 0.875rem;
   margin-bottom: var(--spacing-md);

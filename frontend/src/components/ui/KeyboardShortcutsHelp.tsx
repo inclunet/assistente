@@ -1,4 +1,5 @@
 import React from 'react';
+import { CloseOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { SHORTCUTS } from '../../constants/chat';
 import './KeyboardShortcutsHelp.css';
@@ -60,7 +61,7 @@ export function KeyboardShortcutsHelp({ isOpen, onClose }: KeyboardShortcutsHelp
             onClick={onClose}
             aria-label={t('ui.shortcuts.close')}
           >
-            ✕
+            <CloseOutlined aria-hidden="true" />
           </button>
         </div>
 

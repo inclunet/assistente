@@ -1,4 +1,5 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
+import { AppstoreOutlined, CheckOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
@@ -225,7 +226,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               variant="toolbar"
               label={t('workspace.tabProfileLabel', 'Perfil')}
               description={t('workspace.tabProfileDescription')}
-              icon="✅"
+              icon={<CheckOutlined />}
               maxWidth="180px"
             />
           }
@@ -233,7 +234,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
             {
               key: 'new-task',
               label: t('tasklist.createTask', 'Nova Tarefa'),
-              icon: '➕',
+              icon: <PlusOutlined />,
               onClick: handleOpenCreateTask,
               shortcut: 'N',
               variant: 'primary',
@@ -243,7 +244,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
                   {
                     key: 'toggle-view',
                     label: currentViewMode === 'list' ? 'Kanban' : 'Lista',
-                    icon: currentViewMode === 'list' ? '🎯' : '📋',
+                    icon: currentViewMode === 'list' ? <AppstoreOutlined /> : <UnorderedListOutlined />,
                     onClick: handleToggleViewMode,
                     variant: 'secondary' as const,
                   },
@@ -259,7 +260,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
             {
               key: 'clone-list',
               label: t('tasklist.duplicate', 'Duplicar'),
-              icon: '📋',
+              icon: <CopyOutlined />,
               shortcut: 'D',
               onClick: handleClone,
               variant: 'secondary' as const,
@@ -267,7 +268,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
             {
               key: 'clear-list',
               label: t('tasklist.clear', 'Limpar'),
-              icon: '🧹',
+              icon: <ClearOutlined />,
               shortcut: 'Ctrl+L',
               onClick: () => void handleClear(),
               variant: 'danger' as const,
@@ -276,7 +277,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
             {
               key: 'delete-list',
               label: t('tasklist.delete', 'Apagar'),
-              icon: '🗑️',
+              icon: <DeleteOutlined />,
               onClick: handleDelete,
               variant: 'danger' as const,
             },

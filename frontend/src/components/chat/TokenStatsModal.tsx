@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { GetConversationTokenStats } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
@@ -86,7 +87,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
 
         {error && (
           <div className="token-stats-modal__error">
-            <span>⚠️ {error}</span>
+            <span><WarningOutlined aria-hidden="true" /> {error}</span>
           </div>
         )}
 
@@ -129,9 +130,9 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                   {stats.isNearLimit && (
                     <div className="token-stats-warning">
                       {stats.isCritical ? (
-                        <span>🔴 {t('tokenStats.contextCritical')}</span>
+                        <span><WarningOutlined aria-hidden="true" style={{ color: 'var(--color-danger)' }} /> {t('tokenStats.contextCritical')}</span>
                       ) : (
-                        <span>🟡 {t('tokenStats.contextWarning')}</span>
+                        <span><WarningOutlined aria-hidden="true" style={{ color: 'var(--color-warning)' }} /> {t('tokenStats.contextWarning')}</span>
                       )}
                     </div>
                   )}

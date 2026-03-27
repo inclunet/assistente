@@ -1,8 +1,10 @@
 .message-list {
   flex: 1;
   overflow-y: auto;
-  overflow-x: hidden;
+  overflow-x: auto;
   min-height: 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-default) transparent;
 }
 
 .message-list__messages {
@@ -21,48 +23,58 @@
   text-align: center;
   padding: 48px 24px;
   max-width: 400px;
+  animation: slideUp var(--duration-slow) var(--ease-out);
 }
 
 .message-list__empty-icon {
-  font-size: 64px;
-  margin-bottom: 16px;
-  opacity: 0.5;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 72px;
+  height: 72px;
+  margin: 0 auto 20px;
+  border-radius: 50%;
+  background: var(--accent-dim);
+  color: var(--accent);
+  font-size: 32px;
 }
 
 .message-list__empty-title {
-  font-size: 24px;
+  font-size: 20px;
   font-weight: 600;
   color: var(--text-primary);
   margin: 0 0 8px 0;
 }
 
 .message-list__empty-description {
-  font-size: 16px;
-  color: var(--text-secondary);
+  font-size: 15px;
+  color: var(--text-muted);
   margin: 0;
-  line-height: 1.5;
+  line-height: 1.6;
 }
 
 .message-list__loading {
-  padding: 16px;
+  padding: 12px 16px;
   display: flex;
-  justify-content: flex-start;
-  gap: 12px;
+  flex-direction: column;
+  gap: 6px;
+  margin-left: 44px;
+  animation: slideUp var(--duration-normal) var(--ease-out);
 }
 
 .message-list__loading-dots {
-  display: flex;
-  gap: 6px;
-  padding: 12px 16px;
+  display: inline-flex;
+  gap: 5px;
+  padding: 10px 16px;
   background-color: var(--bg-elevated);
-  border-radius: 18px;
-  margin-left: 44px; /* Align with assistant avatar */
+  border-radius: var(--radius-lg);
+  width: fit-content;
 }
 
 .message-list__loading-dots span {
-  width: 8px;
-  height: 8px;
-  background-color: var(--text-muted);
+  width: 7px;
+  height: 7px;
+  background-color: var(--accent);
   border-radius: 50%;
   animation: loadingDot 1.4s infinite ease-in-out both;
 }
@@ -76,17 +88,15 @@
 }
 
 .message-list__loading-text {
-  margin-left: 44px; /* Align with assistant avatar */
-  padding: 0 16px 4px;
-  font-size: 13px;
+  padding: 0 4px;
+  font-size: 12px;
   color: var(--text-muted);
-  font-style: italic;
 }
 
 @keyframes loadingDot {
   0%, 80%, 100% {
-    transform: scale(0.8);
-    opacity: 0.5;
+    transform: scale(0.7);
+    opacity: 0.4;
   }
   40% {
     transform: scale(1);
@@ -105,7 +115,7 @@
 
 .message-list::-webkit-scrollbar-thumb {
   background-color: var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .message-list::-webkit-scrollbar-thumb:hover {

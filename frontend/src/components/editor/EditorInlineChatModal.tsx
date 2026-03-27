@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
+import { ClearOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
 import { MessageList } from '../chat/MessageList';
@@ -198,7 +199,7 @@ export function EditorInlineChatModal({
             {
               key: 'new-conversation',
               label: t('editor.inlineChat.newBtn'),
-              icon: '➕',
+              icon: <PlusOutlined />,
               onClick: () => void handleNewConversation(),
               disabled: isLoading,
               shortcut: 'Ctrl+N',
@@ -206,7 +207,7 @@ export function EditorInlineChatModal({
             {
               key: 'clear-conversation',
               label: t('editor.inlineChat.clearBtn'),
-              icon: '🧹',
+              icon: <ClearOutlined />,
               onClick: () => void handleClearConversation(),
               disabled: isLoading,
               shortcut: 'Ctrl+L',

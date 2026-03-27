@@ -149,6 +149,34 @@ describe('useEditableList', () => {
     expect(addToastMock).toHaveBeenCalledWith('Item excluído com sucesso!', 'success');
   });
 
+  it('deleteItem com canDelete assíncrono e skipBuiltInDeleteConfirm não chama window.confirm', async () => {
+    const deleteItemMock = vi.fn().mockResolvedValue(undefined);
+
+    const { result } = renderHook(() =>
+      useEditableList<Item>(
+        {
+          loadItems: vi.fn().mockResolvedValue([]),
+          createItem: vi.fn().mockResolvedValue('3'),
+          updateItem: vi.fn().mockResolvedValue(undefined),
+          deleteItem: deleteItemMock,
+        },
+        {
+          entityName: 'Item',
+          createDefault: () => ({ id: 'new', name: '' }),
+          skipBuiltInDeleteConfirm: true,
+          canDelete: async () => true,
+        }
+      )
+    );
+
+    await act(async () => {
+      await result.current.deleteItem({ id: '1', name: 'Item 1' });
+    });
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    expect(deleteItemMock).toHaveBeenCalledWith('1');
+  });
+
   it('deleteItem bloqueia quando canDelete retorna string', async () => {
     const deleteItemMock = vi.fn().mockResolvedValue(undefined);
 

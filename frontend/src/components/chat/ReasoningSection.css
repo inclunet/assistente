@@ -1,6 +1,6 @@
 .reasoning-section {
   margin-bottom: 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background-color: var(--bg-surface);
   border: 1px solid var(--border-subtle);
   overflow: hidden;
@@ -33,7 +33,7 @@
   text-align: left;
   color: var(--text-secondary);
   font-size: 0.85em;
-  transition: background-color 0.2s ease;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .reasoning-section__header:hover {
@@ -56,12 +56,16 @@
 
 .reasoning-section__summary {
   flex: 1;
+  min-width: 0;
   color: var(--text-muted);
   font-size: 0.9em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .reasoning-section__chevron {
-  transition: transform 0.2s ease;
+  transition: transform var(--duration-fast) var(--ease-default);
   font-size: 0.8em;
 }
 
@@ -82,7 +86,7 @@
 .reasoning-section__content pre {
   background-color: var(--bg-elevated);
   padding: 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   overflow-x: auto;
 }
 
@@ -92,7 +96,3 @@
   color: var(--accent);
 }
 
-@keyframes blink {
-  0%, 50% { opacity: 1; }
-  51%, 100% { opacity: 0; }
-}
