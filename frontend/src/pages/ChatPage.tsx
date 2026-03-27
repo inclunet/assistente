@@ -312,6 +312,7 @@ export default function ChatPage() {
       {/* Error banner with retry */}
       {sendError && lastFailedMessage && (
         <Alert
+          role="alert"
           type="error"
           showIcon
           closable

@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
 import { openTaskLink } from '../../lib/deepLinks';
+import { Button } from '../ui/Button';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 import { Modal } from '../ui/Modal';
 import type { Task, TaskListWithWorkflow } from '../../types/tasklist';
