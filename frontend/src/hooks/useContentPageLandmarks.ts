@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useLandmarkNavigation, type Landmark } from './useLandmarkNavigation';
+import { useLandmarkNavigation, useHasParentLandmarks, type Landmark } from './useLandmarkNavigation';
 
 export interface UseContentPageLandmarksOptions {
   /** CSS class of the page root, used to scope queries (e.g. 'about-page') */
@@ -16,6 +16,7 @@ export interface UseContentPageLandmarksOptions {
  */
 export function useContentPageLandmarks({ pageClass, extraLandmarks }: UseContentPageLandmarksOptions) {
   const { t } = useTranslation();
+  const parentOwns = useHasParentLandmarks();
 
   const landmarks = useMemo<Landmark[]>(() => {
     const scope = () => document.querySelector(`.${pageClass}`) as HTMLElement | null;
@@ -63,5 +64,5 @@ export function useContentPageLandmarks({ pageClass, extraLandmarks }: UseConten
     return base;
   }, [pageClass, extraLandmarks, t]);
 
-  useLandmarkNavigation({ landmarks, defaultLandmarkId: 'pageContent' });
+  useLandmarkNavigation({ landmarks, defaultLandmarkId: 'pageContent', enabled: !parentOwns });
 }

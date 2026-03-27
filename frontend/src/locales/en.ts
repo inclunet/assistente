@@ -50,6 +50,7 @@ const en = {
       theme: 'Theme',
       language: 'Language',
       restoreDefaults: 'Restore Defaults',
+      settings: 'Settings',
       help: 'Help',
       about: 'About',
       navLabel: 'Navigation menu (Alt+M)',
@@ -236,7 +237,34 @@ const en = {
       agenticLoopPlaceholder: 'Information about agentic loop iterations will appear here after the first message.',
     },
 
+    settingsPage: {
+      tabListLabel: 'Settings',
+      tabs: {
+        providers: 'LLM Providers',
+        mcp: 'MCP',
+        skills: 'Skills',
+        channels: 'Channels',
+        contacts: 'Contacts',
+        credentials: 'Cred Manager',
+        allowlists: 'Allow Lists',
+        'restore-defaults': 'Restore Defaults',
+      },
+    },
+
+    contacts: {
+      title: 'Authorized Contacts',
+      loading: 'Loading contacts...',
+      toolbarLabel: 'Contacts toolbar',
+      gridLabel: 'Authorized contacts',
+      description: 'Contacts that can communicate with the assistant through each channel. Remove a contact to free up a slot for new authorizations.',
+      empty: 'No authorized contacts.',
+      error: {
+        loadFailed: 'Error loading contacts',
+      },
+    },
+
     channels: {
+      title: 'Communication Channels',
       tabs: { channels: 'Channels', contacts: 'Contacts' },
       loading: 'Loading channels...',
       status: { disconnected: 'disconnected', connected: 'connected' },

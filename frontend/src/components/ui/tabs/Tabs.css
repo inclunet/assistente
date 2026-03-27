@@ -36,3 +36,7 @@
   outline: var(--tabs-focus-outline);
   outline-offset: var(--tabs-focus-outline-offset);
 }
+
+[role="tabpanel"][hidden] {
+  display: none !important;
+}

@@ -5,12 +5,10 @@ import userEvent from '@testing-library/user-event';
 
 const mockGetChannelConfig = vi.fn();
 const mockGetMessagingStatus = vi.fn();
-const mockGetAuthorizedContacts = vi.fn();
 const mockGetChannelTemplates = vi.fn();
 const mockListCredentials = vi.fn();
 const mockSaveChannelConfig = vi.fn();
 const mockRestartChannel = vi.fn();
-const mockRemoveAuthorizedContact = vi.fn();
 const mockDeleteCredential = vi.fn();
 const mockAddToast = vi.fn();
 const mockAnnounce = vi.fn();
@@ -35,8 +33,6 @@ vi.mock('@wailsjs/go/main/App', () => ({
   GetChannelConfig: (name: string) => mockGetChannelConfig(name),
   SaveChannelConfig: (name: string, payload: unknown) => mockSaveChannelConfig(name, payload),
   GetMessagingStatus: () => mockGetMessagingStatus(),
-  GetAuthorizedContacts: () => mockGetAuthorizedContacts(),
-  RemoveAuthorizedContact: (channel: string, contactId: string) => mockRemoveAuthorizedContact(channel, contactId),
   RestartChannel: (name: string) => mockRestartChannel(name),
   GetChannelTemplates: () => mockGetChannelTemplates(),
   ListCredentials: () => mockListCredentials(),
@@ -71,17 +67,6 @@ vi.mock('../hooks/useGridFocus', () => ({
 
 vi.mock('../hooks/useConfirm', () => ({
   useConfirm: () => vi.fn(() => Promise.resolve(true)),
-}));
-
-vi.mock('../services/audioFeedback', () => ({
-  playBumpSound: vi.fn(),
-}));
-
-vi.mock('../components/ui/tabs', () => ({
-  Tabs: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  TabList: ({ children }: { children: ReactNode }) => <div>{children}</div>,
-  Tab: ({ children }: { children: ReactNode }) => <button type="button">{children}</button>,
-  TabPanel: ({ children }: { children: ReactNode }) => <div>{children}</div>,
 }));
 
 vi.mock('../components/ui/Toolbar', async () => {
@@ -188,14 +173,12 @@ describe('ChannelsPage', () => {
       max_contacts: 1,
     });
     mockGetMessagingStatus.mockResolvedValue({});
-    mockGetAuthorizedContacts.mockResolvedValue({});
     mockGetChannelTemplates.mockResolvedValue([
       { type: 'telegram', display_name: 'Telegram', icon: '📨' },
     ]);
     mockListCredentials.mockResolvedValue([]);
     mockSaveChannelConfig.mockResolvedValue(undefined);
     mockRestartChannel.mockResolvedValue(undefined);
-    mockRemoveAuthorizedContact.mockResolvedValue(undefined);
     mockDeleteCredential.mockResolvedValue(undefined);
     mockAddToast.mockReset();
     mockAnnounce.mockReset();

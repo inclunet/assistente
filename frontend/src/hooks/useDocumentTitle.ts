@@ -15,13 +15,7 @@ import { useWorkspaceStore } from '../store/workspaceStore';
 const DEFAULT_TITLE_RE = /^nova\s+conversa$/i;
 
 const ROUTE_I18N_KEYS: Record<string, string> = {
-  '/allowlists': 'menu.allowlists',
-  '/skills': 'menu.skills',
-  '/mcp': 'menu.mcp',
-  '/channels': 'menu.channels',
-  '/credentials': 'menu.credentials',
-  '/providers': 'menu.providers',
-  '/settings': 'menu.restoreDefaults',
+  '/settings': 'menu.settings',
   '/profiles': 'menu.profiles',
   '/history': 'menu.history',
   '/help': 'menu.help',
@@ -45,7 +39,8 @@ export function useDocumentTitle(): void {
         ? `${t('chat.newConversation')} — ${appName}`
         : `${activeTabTitle} — ${appName}`;
     } else {
-      const i18nKey = ROUTE_I18N_KEYS[pathname];
+      const resolvedPath = pathname.startsWith('/settings') ? '/settings' : pathname;
+      const i18nKey = ROUTE_I18N_KEYS[resolvedPath];
       const pageTitle = i18nKey ? t(i18nKey) : pathname.slice(1);
       title = `${pageTitle} — ${appName}`;
     }

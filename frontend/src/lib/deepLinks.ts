@@ -28,9 +28,10 @@ export type DeepLinkAction =
 
 // Routes the app actually supports (validated in navigate action)
 const VALID_ROUTES = new Set([
-  '', 'allowlists', 'skills', 'mcp',
-  'channels', 'credentials', 'providers', 'settings', 'profiles',
-  'history', 'tasklists', 'help', 'about', 'update',
+  '', 'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
+  'settings/channels', 'settings/contacts', 'settings/credentials',
+  'settings/allowlists', 'settings/restore-defaults',
+  'profiles', 'history', 'tasklists', 'help', 'about', 'update',
 ]);
 
 const EDITABLE_RESOURCES = new Set<EditableResource>([
@@ -43,13 +44,15 @@ const TAB_RESOURCES = new Set<TabType>(['tasklist', 'editor', 'terminal']);
 // Human-readable labels per route (keys into i18n menu namespace)
 const ROUTE_I18N_KEYS: Record<string, string> = {
   '': 'menu.chat',
-  allowlists: 'menu.allowlists',
-  skills: 'menu.skills',
-  mcp: 'menu.mcpServers',
-  channels: 'menu.channels',
-  credentials: 'menu.credentials',
-  providers: 'menu.providers',
   settings: 'menu.settings',
+  'settings/providers': 'menu.providers',
+  'settings/mcp': 'menu.mcp',
+  'settings/skills': 'menu.skills',
+  'settings/channels': 'menu.channels',
+  'settings/contacts': 'settingsPage.tabs.contacts',
+  'settings/credentials': 'menu.credentials',
+  'settings/allowlists': 'menu.allowlists',
+  'settings/restore-defaults': 'menu.restoreDefaults',
   profiles: 'menu.profiles',
   history: 'menu.history',
   tasklists: 'menu.tasklists',
@@ -314,7 +317,9 @@ export async function executeDeepLink(
     case 'resource:edit': {
       const navStore = useNavigationStore.getState();
       navStore.requestResourceEdit(action.resource, action.resourceId, 'edit');
-      deps.navigate(`/${action.resource}`);
+      const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
+      const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
+      deps.navigate(path);
       announce(t('deepLink.announcedEditResource', { id: action.resourceId }));
       break;
     }
@@ -322,7 +327,9 @@ export async function executeDeepLink(
     case 'resource:new': {
       const navStore = useNavigationStore.getState();
       navStore.requestResourceEdit(action.resource, '', 'new');
-      deps.navigate(`/${action.resource}`);
+      const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
+      const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
+      deps.navigate(path);
       announce(t('deepLink.announcedNewResource'));
       break;
     }

@@ -1,7 +1,6 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
-  DeleteOutlined,
   DownOutlined,
   EditOutlined,
   PlusOutlined,
@@ -12,8 +11,6 @@ import {
   GetChannelConfig,
   SaveChannelConfig,
   GetMessagingStatus,
-  GetAuthorizedContacts,
-  RemoveAuthorizedContact,
   SignalCheckAPI,
   SignalListAccounts,
   SignalRegister,
@@ -34,21 +31,17 @@ import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { Button } from '../components';
 import { ChannelsTelegramSection, ChannelsSignalSection, ChannelsSlackSection } from '../components/channels';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
-import { Tabs, TabList, Tab, TabPanel } from '../components/ui/tabs';
-import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
+import { DataGrid, type DataGridColumn } from '../components/ui/DataGrid';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFields, EditorPanelFooter } from '../components/ui/EditorPanel';
 import { ContextMenu, MenuItem } from '../components/menu';
 import { MenuButton } from '../components/layout/MenuButton';
 import CreateChannelModal from '../components/modals/CreateChannelModal';
-import { playBumpSound } from '../services/audioFeedback';
 import { useConfirm } from '../hooks/useConfirm';
 import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import './ChannelsPage.css';
 
 // ─── Types ───────────────────────────────────────────────────────────
-
-type ActiveTab = 'channels' | 'contacts';
 
 interface ChannelRow {
   id: string;
@@ -58,27 +51,11 @@ interface ChannelRow {
   status: string;
 }
 
-interface ContactRow {
-  id: string;
-  channel: string;
-  contactId: string;
-  displayName: string;
-  username: string;
-}
-
 interface CredentialSummary {
   pattern: string;
   type: string;
   masked: string;
 }
-
-interface AuthorizedContact {
-  id?: string;
-  display_name?: string;
-  username?: string;
-}
-
-type AuthorizedContactsResponse = Record<string, AuthorizedContact[]>;
 
 interface TelegramForm {
   enabled: boolean;
@@ -116,7 +93,6 @@ export default function ChannelsPage() {
   const { addToast } = useUIStore();
   const { announce } = useAnnouncer();
   const { handleGridReady: channelsHandleGridReady } = useGridFocus();
-  const { handleGridReady: contactsHandleGridReady } = useGridFocus();
   useGridPageLandmarks({ pageClass: 'channels-page' });
   const defaultChannelProfile = 'canais-comunicacao';
   const requestConfirm = useConfirm();
@@ -124,13 +100,6 @@ export default function ChannelsPage() {
     error instanceof Error ? error.message : String(error ?? '');
 
   const channelCredentialPattern = useCallback((channel: string, key: string) => `channel:${channel}:${key}`, []);
-
-  // ── Tab ──────────────────────────────────────────────────────────
-  const [activeTab, setActiveTab] = useState<ActiveTab>('channels');
-  const tabs: { id: ActiveTab; label: string }[] = [
-    { id: 'channels', label: t('channels.tabs.channels') },
-    { id: 'contacts', label: t('channels.tabs.contacts') },
-  ];
 
   // ── Loading ──────────────────────────────────────────────────────
   const [loading, setLoading] = useState(true);
@@ -173,10 +142,6 @@ export default function ChannelsPage() {
   const [signalLinking, setSignalLinking] = useState(false);
   const [signalUnregistering, setSignalUnregistering] = useState<string | null>(null);
   const linkPollRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // ── Contacts grid ────────────────────────────────────────────────
-  const [contactRows, setContactRows] = useState<ContactRow[]>([]);
-  const [focusedContact, setFocusedContact] = useState<ContactRow | null>(null);
 
   // ── Create Channel Modal ─────────────────────────────────────────
   const [showCreateChannelModal, setShowCreateChannelModal] = useState(false);
@@ -290,31 +255,6 @@ export default function ChannelsPage() {
         },
       ]);
 
-      // Load contacts separately, don't block if it fails
-      try {
-        const allContacts = await GetAuthorizedContacts() as AuthorizedContactsResponse | null;
-        const rows: ContactRow[] = [];
-        if (allContacts) {
-          for (const [ch, contacts] of Object.entries(allContacts)) {
-            if (Array.isArray(contacts)) {
-              for (const c of contacts) {
-                rows.push({
-                  id: `${ch}:${c.id}`,
-                  channel: ch,
-                  contactId: c.id || '',
-                  displayName: c.display_name || '',
-                  username: c.username || '',
-                });
-              }
-            }
-          }
-        }
-        setContactRows(rows);
-      } catch (contactError) {
-        console.error('Erro ao carregar contatos (não-crítico):', contactError);
-        setContactRows([]);
-        // Don't show toast for non-critical contact loading error
-      }
     } catch (error) {
       console.error('Erro ao carregar canais:', error);
       addToast(t('channels.error.loadFailed'), 'error');
@@ -408,18 +348,6 @@ export default function ChannelsPage() {
     setShowCreateChannelModal(true);
   };
 
-  const handleTabChange = useCallback(
-    (tabId: ActiveTab) => {
-      const tab = tabs.find((t) => t.id === tabId);
-      setActiveTab(tabId);
-      setEditingChannel(null);
-      setFocusedChannel(null);
-      setFocusedContact(null);
-      announce(t('channels.announce.tabSelected', { label: tab?.label ?? tabId }));
-    },
-    [announce, tabs, t]
-  );
-
   // ── Save channel ─────────────────────────────────────────────────
 
   const handleSaveChannel = async (channelName: string) => {
@@ -505,7 +433,6 @@ export default function ChannelsPage() {
       announce(t('channels.toast.channelSaved', { name: channelName }));
       await loadAll();
       setEditingChannel(null);
-      setActiveTab('channels');
     } catch (error: unknown) {
       addToast(getErrorMessage(error) || `Erro ao salvar canal ${channelName}`, 'error');
     } finally {
@@ -723,30 +650,6 @@ export default function ChannelsPage() {
     }
   };
 
-  // ── Contact removal ──────────────────────────────────────────────
-
-  const handleDeleteContact = useCallback(async (row: ContactRow) => {
-    const name = row.displayName || row.contactId;
-    const shouldRemove = await requestConfirm({
-      title: t('channels.confirm.removeContactTitle'),
-      message: `Remover ${name} do canal ${row.channel}?`,
-      confirmText: 'Remover',
-      cancelText: 'Cancelar',
-      variant: 'danger',
-    });
-
-    if (!shouldRemove) return;
-
-    try {
-      await RemoveAuthorizedContact(row.channel, row.contactId);
-      addToast(t('channels.toast.contactRemoved'), 'success');
-      announce(t('channels.announce.contactRemoved'));
-      await loadAll();
-    } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao remover contato', 'error');
-    }
-  }, [addToast, announce, loadAll, requestConfirm, t]);
-
   const handleRemoveCredential = useCallback(async (pattern: string, label: string) => {
     const shouldRemove = await requestConfirm({
       title: t('channels.confirm.removeCredentialTitle'),
@@ -805,41 +708,11 @@ export default function ChannelsPage() {
     ];
   }
 
-  const contactColumns: DataGridColumn<ContactRow>[] = [
-    { key: 'channel', label: t('channels.columns.channel'), width: '100px' },
-    { key: 'displayName', label: t('channels.columns.name'), width: '200px', truncate: true },
-    { key: 'username', label: t('channels.columns.username'), width: '150px', truncate: true },
-    { key: 'contactId', label: t('channels.columns.id'), width: '200px', truncate: true },
-    {
-      key: 'actions', label: '', width: '80px',
-      format: (_val, row) => (
-        <MenuButton
-          items={getContactRowActions(row)}
-          buttonLabel={t('channels.actions.actions', 'Ações')}
-        />
-      ),
-    },
-  ];
-
-  function getContactRowActions(row: ContactRow) {
-    return [
-      {
-        id: 'remove',
-        label: t('channels.actions.removeContact', 'Remover'),
-        icon: <DeleteOutlined />,
-        onClick: () => handleDeleteContact(row),
-        danger: true,
-      },
-    ];
-  }
-
   // ── Stable DataGrid callbacks (memoization) ─────────────────────────
 
   const getChannelRowId = useCallback((item: ChannelRow) => item.id, []);
   const handleActivateChannelRow = useCallback((item: ChannelRow) => handleEditChannel(item), [handleEditChannel]);
   const handleChannelFocusChange = useCallback((item: ChannelRow | null) => setFocusedChannel(item), []);
-  const getContactRowId = useCallback((item: ContactRow) => item.id, []);
-  const handleContactFocusChange = useCallback((item: ContactRow | null) => setFocusedContact(item), []);
 
   const createMenuItems: MenuItem[] = channelTemplates.length > 0
     ? channelTemplates.map((template) => ({
@@ -867,35 +740,21 @@ export default function ChannelsPage() {
         ? 'Slack'
         : '';
 
-  const toolbarActions = (
-    activeTab === 'channels'
-      ? [
-          {
-            key: 'edit-channel',
-            label: t('channels.actions.edit', 'Editar'),
-            icon: <EditOutlined />,
-            onClick: () => focusedChannel && handleEditChannel(focusedChannel),
-            disabled: !focusedChannel,
-          },
-          {
-            key: 'reconnect-channel',
-            label: t('channels.actions.reconnectChannel', 'Reconectar'),
-            icon: <ReloadOutlined />,
-            onClick: () => focusedChannel && handleReconnectChannel(focusedChannel.name),
-            disabled: !focusedChannel,
-          },
-        ]
-      : [
-          {
-            key: 'remove-contact',
-            label: t('channels.actions.removeContact', 'Remover'),
-            icon: <DeleteOutlined />,
-            onClick: () => focusedContact && handleDeleteContact(focusedContact),
-            disabled: !focusedContact,
-            variant: 'danger',
-          },
-        ]
-  ).concat([
+  const toolbarActions = [
+    {
+      key: 'edit-channel',
+      label: t('channels.actions.edit', 'Editar'),
+      icon: <EditOutlined />,
+      onClick: () => focusedChannel && handleEditChannel(focusedChannel),
+      disabled: !focusedChannel,
+    },
+    {
+      key: 'reconnect-channel',
+      label: t('channels.actions.reconnectChannel', 'Reconectar'),
+      icon: <ReloadOutlined />,
+      onClick: () => focusedChannel && handleReconnectChannel(focusedChannel.name),
+      disabled: !focusedChannel,
+    },
     {
       key: 'reload',
       label: t('channels.buttons.reload', 'Recarregar'),
@@ -904,7 +763,7 @@ export default function ChannelsPage() {
       onClick: loadAll,
       disabled: false,
     },
-  ]);
+  ];
 
   // ── Render: Telegram editor ──────────────────────────────────────
 
@@ -996,86 +855,39 @@ export default function ChannelsPage() {
 
   return (
     <div className="channels-page">
-      <Tabs
-        value={activeTab}
-        onValueChange={(v) => handleTabChange(v as ActiveTab)}
-        idBase="channels"
-        onBump={playBumpSound}
-      >
-        <TabList className="channels-page__tabs" ariaLabel="Seções de canais">
-          {tabs.map((tab) => (
-            <Tab
-              key={tab.id}
-              value={tab.id}
-              className="channels-page__tab"
-              activeClassName="channels-page__tab--active"
-            >
-              {tab.id === 'contacts' ? `${tab.label} (${contactRows.length})` : tab.label}
-            </Tab>
-          ))}
-        </TabList>
+      <Toolbar
+        left={<h1 className="page-toolbar__title">{t('channels.title', 'Canais de Comunicação')}</h1>}
+        right={
+          <ToolbarButton
+            ref={createMenuButtonRef}
+            label="Novo"
+            icon={<PlusOutlined />}
+            endIcon={<DownOutlined />}
+            shortcut="Ctrl+N"
+            variant="primary"
+            onClick={openCreateMenu}
+            aria-haspopup="menu"
+            aria-expanded={createMenuVisible}
+            aria-label="Novo canal"
+          />
+        }
+        actions={toolbarActions}
+        ariaLabel="Barra de ferramentas de canais"
+      />
 
-        <Toolbar
-          left={<h1 className="page-toolbar__title">Canais de Comunicação</h1>}
-          right={
-            <ToolbarButton
-              ref={createMenuButtonRef}
-              label="Novo"
-              icon={<PlusOutlined />}
-              endIcon={<DownOutlined />}
-              shortcut="Ctrl+N"
-              variant="primary"
-              onClick={openCreateMenu}
-              aria-haspopup="menu"
-              aria-expanded={createMenuVisible}
-              aria-label="Novo canal"
-            />
-          }
-          actions={toolbarActions}
-          ariaLabel="Barra de ferramentas de canais"
+      <div className="channels-page__content">
+        <DataGrid
+          items={channelRows}
+          columns={channelColumns}
+          label="Canais de comunicação"
+          autoFocusOnMount={false}
+          getItemId={getChannelRowId}
+          onActivate={handleActivateChannelRow}
+          onGridReady={channelsHandleGridReady}
+          getRowActions={getChannelRowActions}
+          onFocusChange={handleChannelFocusChange}
         />
-
-        {/* Channels tab panel */}
-        {activeTab === 'channels' && (
-          <TabPanel value="channels" className="channels-page__content">
-            <DataGrid
-              items={channelRows}
-              columns={channelColumns}
-              label="Canais de comunicação"
-              autoFocusOnMount={false}
-              getItemId={getChannelRowId}
-              onActivate={handleActivateChannelRow}
-              onGridReady={channelsHandleGridReady}
-              getRowActions={getChannelRowActions}
-              onFocusChange={handleChannelFocusChange}
-            />
-          </TabPanel>
-        )}
-
-        {/* Contacts tab panel */}
-        {activeTab === 'contacts' && (
-          <TabPanel value="contacts" className="channels-page__content">
-            <p className="channels-page__tab-description">
-              Contatos que podem se comunicar com o assistente por cada canal.
-              Remova um contato para liberar uma vaga para novas autorizações.
-            </p>
-            {contactRows.length > 0 ? (
-              <DataGrid
-                items={contactRows}
-                columns={contactColumns}
-                label="Contatos autorizados"
-                autoFocusOnMount={false}
-                getItemId={getContactRowId}
-                onGridReady={contactsHandleGridReady}
-                getRowActions={getContactRowActions}
-                onFocusChange={handleContactFocusChange}
-              />
-            ) : (
-              <p className="channels-page__empty" role="status">Nenhum contato autorizado.</p>
-            )}
-          </TabPanel>
-        )}
-      </Tabs>
+      </div>
 
       {/* Editor Modal */}
       <Modal

@@ -50,6 +50,7 @@ const ptBR = {
       theme: 'Tema',
       language: 'Idioma',
       restoreDefaults: 'Restaurar Padrões',
+      settings: 'Configurações',
       help: 'Ajuda',
       about: 'Sobre',
       navLabel: 'Menu de navegação (Alt+M)',
@@ -236,7 +237,34 @@ const ptBR = {
       agenticLoopPlaceholder: 'Informações sobre iterações do agentic loop aparecerão aqui após a primeira mensagem.',
     },
 
+    settingsPage: {
+      tabListLabel: 'Configurações',
+      tabs: {
+        providers: 'Provedores LLM',
+        mcp: 'MCP',
+        skills: 'Skills',
+        channels: 'Canais',
+        contacts: 'Contatos',
+        credentials: 'Cred Manager',
+        allowlists: 'Allow Lists',
+        'restore-defaults': 'Restaurar Padrões',
+      },
+    },
+
+    contacts: {
+      title: 'Contatos Autorizados',
+      loading: 'Carregando contatos...',
+      toolbarLabel: 'Barra de ferramentas de contatos',
+      gridLabel: 'Contatos autorizados',
+      description: 'Contatos que podem se comunicar com o assistente por cada canal. Remova um contato para liberar uma vaga para novas autorizações.',
+      empty: 'Nenhum contato autorizado.',
+      error: {
+        loadFailed: 'Erro ao carregar contatos',
+      },
+    },
+
     channels: {
+      title: 'Canais de Comunicação',
       tabs: { channels: 'Canais', contacts: 'Contatos' },
       loading: 'Carregando canais...',
       status: { disconnected: 'desconectado', connected: 'conectado' },

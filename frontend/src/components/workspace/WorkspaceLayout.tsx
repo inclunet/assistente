@@ -54,6 +54,84 @@ export function WorkspaceLayout() {
       return true;
     };
 
+    const isSettingsRoute = pathname.startsWith('/settings');
+
+    if (isSettingsRoute) {
+      const activePanel = () =>
+        document.querySelector('.settings-tabs__panel:not([hidden])') as HTMLElement | null;
+
+      return [
+        {
+          id: 'topbar',
+          label: t('landmarks.topbar', 'Barra de navegação'),
+          focus: focusTopbar,
+          contains: () => !!document.activeElement?.closest?.('.topbar'),
+        },
+        {
+          id: 'settingsTabs',
+          label: t('landmarks.settingsTabs', 'Abas de configurações'),
+          focus: () => {
+            const active = document.querySelector('.settings-tabs__list [role="tab"][aria-selected="true"]') as HTMLElement | null;
+            const anyTab = document.querySelector('.settings-tabs__list [role="tab"]') as HTMLElement | null;
+            (active || anyTab)?.focus();
+            return !!(active || anyTab);
+          },
+          contains: () => !!document.activeElement?.closest?.('.settings-tabs__list'),
+        },
+        {
+          id: 'settingsToolbar',
+          label: t('landmarks.settingsToolbar', 'Barra de ferramentas'),
+          isAvailable: () => !!activePanel()?.querySelector('[role="toolbar"]'),
+          focus: () => {
+            const panel = activePanel();
+            if (!panel) return false;
+            const toolbar = panel.querySelector('[role="toolbar"]') as Element | null;
+            if (!toolbar) return false;
+            const btn = toolbar.querySelector('button:not([disabled])') as HTMLButtonElement | null;
+            if (!btn) return false;
+            btn.focus();
+            return true;
+          },
+          contains: () => {
+            const panel = activePanel();
+            if (!panel) return false;
+            return !!document.activeElement?.closest?.('[role="toolbar"]') &&
+                   panel.contains(document.activeElement);
+          },
+        },
+        {
+          id: 'settingsContent',
+          label: t('landmarks.settingsContent', 'Conteúdo da configuração'),
+          focus: () => {
+            const panel = activePanel();
+            if (!panel) return false;
+            const grid = panel.querySelector('[role="grid"]') as HTMLElement | null;
+            if (grid) {
+              const cell = panel.querySelector('.datagrid-container [role="gridcell"][tabindex="0"], .datagrid-container [role="gridcell"]') as HTMLElement | null;
+              if (cell) { cell.focus(); return true; }
+              grid.focus();
+              return true;
+            }
+            const toolbar = panel.querySelector('[role="toolbar"]');
+            const focusable = Array.from(
+              panel.querySelectorAll('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')
+            ).find((el) => !toolbar?.contains(el)) as HTMLElement | undefined;
+            if (focusable) { focusable.focus(); return true; }
+            panel.setAttribute('tabindex', '-1');
+            panel.focus();
+            return true;
+          },
+          contains: () => {
+            const panel = activePanel();
+            if (!panel) return false;
+            if (!panel.contains(document.activeElement)) return false;
+            return !document.activeElement?.closest?.('[role="toolbar"]') ||
+                   !panel.querySelector('[role="toolbar"]')?.contains(document.activeElement);
+          },
+        },
+      ];
+    }
+
     if (!isWorkspaceRoute) {
       return [
         {
@@ -156,9 +234,10 @@ export function WorkspaceLayout() {
         contains: () => !!document.activeElement?.closest?.('.ws-content-area'),
       },
     ];
-  }, [t, isWorkspaceRoute]);
+  }, [t, isWorkspaceRoute, pathname]);
 
-  const defaultLandmark = isWorkspaceRoute ? 'contentArea' : 'pageContent';
+  const isSettingsRoute = pathname.startsWith('/settings');
+  const defaultLandmark = isWorkspaceRoute ? 'contentArea' : isSettingsRoute ? 'settingsContent' : 'pageContent';
 
   useLandmarkNavigation({
     landmarks,

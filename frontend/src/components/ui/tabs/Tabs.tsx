@@ -202,6 +202,7 @@ export interface TabPanelProps {
 
 export function TabPanel({ value, className, children }: TabPanelProps) {
   const { value: activeValue, idBase } = useTabsContext();
+  const isActive = activeValue === value;
 
   return (
     <div
@@ -209,9 +210,9 @@ export function TabPanel({ value, className, children }: TabPanelProps) {
       role="tabpanel"
       aria-labelledby={`${idBase}-tab-${value}`}
       className={className}
-      hidden={activeValue !== value}
+      hidden={!isActive}
     >
-      {children}
+      {isActive ? children : null}
     </div>
   );
 }

@@ -1,6 +1,15 @@
-import { useEffect, useCallback, useRef } from 'react';
+import { useEffect, useCallback, useRef, createContext, useContext } from 'react';
 import { registerDefaultFocus, unregisterDefaultFocus } from './useDefaultFocus';
 import { isModalOpen } from '../components/ui/Modal';
+
+/**
+ * When a parent component (e.g. SettingsPage) manages landmark navigation
+ * for its children, it wraps them in this provider so child hooks like
+ * useGridPageLandmarks automatically disable themselves.
+ */
+const ParentLandmarkContext = createContext(false);
+export const ParentLandmarkProvider = ParentLandmarkContext.Provider;
+export const useHasParentLandmarks = () => useContext(ParentLandmarkContext);
 
 export interface Landmark {
   /** Unique id for the zone (e.g. 'tabs', 'toolbar', 'grid', 'editor') */

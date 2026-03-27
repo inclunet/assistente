@@ -17,12 +17,7 @@ import {
   HistoryOutlined,
   CheckSquareOutlined,
   UserSwitchOutlined,
-  SafetyOutlined,
   ThunderboltOutlined,
-  ApiOutlined,
-  SendOutlined,
-  LockOutlined,
-  RobotOutlined,
   BgColorsOutlined,
   GlobalOutlined,
   SettingOutlined,
@@ -42,13 +37,7 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
   '/tasklists': 'menu.tasklists',
   '/jobs': 'menu.jobs',
   '/profiles': 'menu.profiles',
-  '/allowlists': 'menu.allowlists',
-  '/skills': 'menu.skills',
-  '/mcp': 'menu.mcp',
-  '/channels': 'menu.channels',
-  '/credentials': 'menu.credentials',
-  '/providers': 'menu.providers',
-  '/settings': 'menu.restoreDefaults',
+  '/settings': 'menu.settings',
   '/help': 'menu.help',
   '/about': 'menu.about',
   '/update': 'menu.about',
@@ -59,12 +48,6 @@ const ROUTE_IDS: Record<string, string> = {
   '/tasklists': 'tasklists',
   '/jobs': 'jobs',
   '/profiles': 'profiles',
-  '/allowlists': 'allowlists',
-  '/skills': 'skills',
-  '/mcp': 'mcp',
-  '/channels': 'channels',
-  '/credentials': 'credentials',
-  '/providers': 'providers',
   '/settings': 'settings',
   '/help': 'help',
   '/about': 'about',
@@ -91,9 +74,10 @@ export function Topbar() {
   const [renameValue, setRenameValue] = useState('');
 
   // --- Page title ---
+  const resolvedPath = pathname.startsWith('/settings') ? '/settings' : pathname;
   const pageTitle = isWorkspaceRoute
     ? (workspace?.name || t('menu.appTitle'))
-    : t(PAGE_TITLE_KEYS[pathname] || 'menu.appTitle');
+    : t(PAGE_TITLE_KEYS[resolvedPath] || 'menu.appTitle');
 
   // --- Workspace picker (left, workspace route) — only workspace list ---
   const {
@@ -254,7 +238,7 @@ export function Topbar() {
     updateConfig({ language: id });
   }, [i18n, updateConfig]);
 
-  const currentPage = ROUTE_IDS[pathname] || 'workspace';
+  const currentPage = ROUTE_IDS[resolvedPath] || 'workspace';
 
   const mainMenuItems: MenuButtonItem[] = useMemo(() => [
     ...(!isWorkspaceRoute ? [
@@ -265,12 +249,7 @@ export function Topbar() {
     { id: 'tasklists', label: t('menu.tasklists'), icon: <CheckSquareOutlined />, onClick: () => navigate('/tasklists') },
     { id: 'jobs', label: t('menu.jobs'), icon: <ThunderboltOutlined />, onClick: () => navigate('/jobs') },
     { id: 'profiles', label: t('menu.profiles'), icon: <UserSwitchOutlined />, shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
-    { id: 'allowlists', label: t('menu.allowlists'), icon: <SafetyOutlined />, onClick: () => navigate('/allowlists') },
-    { id: 'skills', label: t('menu.skills'), icon: <ThunderboltOutlined />, onClick: () => navigate('/skills') },
-    { id: 'mcp', label: t('menu.mcp'), icon: <ApiOutlined />, onClick: () => navigate('/mcp') },
-    { id: 'channels', label: t('menu.channels'), icon: <SendOutlined />, onClick: () => navigate('/channels') },
-    { id: 'credentials', label: t('menu.credentials'), icon: <LockOutlined />, onClick: () => navigate('/credentials') },
-    { id: 'providers', label: t('menu.providers'), icon: <RobotOutlined />, onClick: () => navigate('/providers') },
+    { id: 'settings', label: t('menu.settings'), icon: <SettingOutlined />, onClick: () => navigate('/settings') },
     {
       id: 'theme', label: t('menu.theme'), icon: <BgColorsOutlined />,
       submenu: THEMES.map((th) => ({
@@ -289,7 +268,6 @@ export function Topbar() {
         onClick: () => setLanguage(lang.id),
       })),
     },
-    { id: 'settings', label: t('menu.restoreDefaults'), icon: <SettingOutlined />, onClick: () => navigate('/settings') },
     { id: 'help', label: t('menu.help'), icon: <QuestionCircleOutlined />, shortcut: 'F1', onClick: () => navigate('/help') },
     { id: 'about', label: t('menu.about'), icon: <InfoCircleOutlined />, onClick: () => navigate('/about') },
   ], [navigate, t, currentTheme, setTheme, currentLang, setLanguage, isWorkspaceRoute]);

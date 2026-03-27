@@ -49,6 +49,7 @@ const es = {
       theme: 'Tema',
       language: 'Idioma',
       restoreDefaults: 'Restaurar valores predeterminados',
+      settings: 'Configuración',
       help: 'Ayuda',
       about: 'Acerca de',
       navLabel: 'Menú de navegación (Alt+M)',
@@ -235,7 +236,34 @@ const es = {
       agenticLoopPlaceholder: 'La información sobre las iteraciones del bucle agentico aparecerá aquí después del primer mensaje.',
     },
 
+    settingsPage: {
+      tabListLabel: 'Configuración',
+      tabs: {
+        providers: 'Proveedores LLM',
+        mcp: 'MCP',
+        skills: 'Skills',
+        channels: 'Canales',
+        contacts: 'Contactos',
+        credentials: 'Cred Manager',
+        allowlists: 'Allow Lists',
+        'restore-defaults': 'Restaurar valores predeterminados',
+      },
+    },
+
+    contacts: {
+      title: 'Contactos Autorizados',
+      loading: 'Cargando contactos...',
+      toolbarLabel: 'Barra de herramientas de contactos',
+      gridLabel: 'Contactos autorizados',
+      description: 'Contactos que pueden comunicarse con el asistente a través de cada canal. Elimine un contacto para liberar un espacio para nuevas autorizaciones.',
+      empty: 'No hay contactos autorizados.',
+      error: {
+        loadFailed: 'Error al cargar contactos',
+      },
+    },
+
     channels: {
+      title: 'Canales de Comunicación',
       tabs: { channels: 'Canales', contacts: 'Contactos' },
       loading: 'Cargando canales...',
       status: { disconnected: 'desconectado', connected: 'conectado' },

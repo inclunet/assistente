@@ -190,9 +190,10 @@ describe('parseDeepLink', () => {
   describe('navigate', () => {
     it('faz parse de rotas válidas', () => {
       const validRoutes = [
-        'allowlists', 'skills', 'mcp',
-        'channels', 'credentials', 'providers', 'settings', 'profiles',
-        'history', 'tasklists', 'help', 'about', 'update',
+        'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
+        'settings/channels', 'settings/contacts', 'settings/credentials',
+        'settings/allowlists', 'settings/restore-defaults',
+        'profiles', 'history', 'tasklists', 'help', 'about', 'update',
       ];
 
       for (const route of validRoutes) {
@@ -700,14 +701,14 @@ describe('executeDeepLink', () => {
   });
 
   describe('resource:new', () => {
-    it('navega para a página e solicita criação no store', async () => {
+    it('navega para settings/skills e solicita criação no store', async () => {
       await executeDeepLink(
         { type: 'resource:new', resource: 'skills' },
         deps,
       );
 
       expect(mockRequestResourceEdit).toHaveBeenCalledWith('skills', '', 'new');
-      expect(mockNavigate).toHaveBeenCalledWith('/skills');
+      expect(mockNavigate).toHaveBeenCalledWith('/settings/skills');
       expect(mockAnnounce).toHaveBeenCalled();
     });
   });
