@@ -247,8 +247,19 @@ const ptBR = {
         contacts: 'Contatos',
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
+        appearance: 'Aparência',
         'restore-defaults': 'Restaurar Padrões',
       },
+    },
+
+    appearance: {
+      pageTitle: 'Aparência',
+      description: 'Personalize o tema visual e o idioma do aplicativo.',
+      themeTitle: 'Tema',
+      languageTitle: 'Idioma',
+      languageDescription: 'Selecione o idioma da interface. A alteração é aplicada imediatamente.',
+      aria: { selectTheme: 'Selecionar tema', selectLanguage: 'Selecionar idioma' },
+      announce: { themeChanged: 'Tema alterado para {{label}}', languageChanged: 'Idioma alterado para {{label}}' },
     },
 
     contacts: {

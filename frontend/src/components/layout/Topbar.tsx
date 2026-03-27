@@ -4,9 +4,6 @@ import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
 import { Menu, type MenuItem } from '../menu';
-import { useTheme, THEMES, type ThemeId } from '../../hooks/useTheme';
-import { LANGUAGES, type LanguageId } from '../../lib/i18n';
-import { useSettingsStore } from '../../store/settingsStore';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
@@ -18,8 +15,6 @@ import {
   CheckSquareOutlined,
   UserSwitchOutlined,
   ThunderboltOutlined,
-  BgColorsOutlined,
-  GlobalOutlined,
   SettingOutlined,
   QuestionCircleOutlined,
   InfoCircleOutlined,
@@ -55,15 +50,11 @@ const ROUTE_IDS: Record<string, string> = {
 };
 
 export function Topbar() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { announce } = useAnnouncer();
   const { workspace, workspaces, switchWorkspace, createWorkspace, renameWorkspace } = useWorkspaceStore();
-  const { theme: currentTheme, setTheme } = useTheme();
-  const updateConfig = useSettingsStore((s) => s.updateConfig);
-  const currentLang = i18n.language as LanguageId;
-
   const isWorkspaceRoute = pathname === '/' || pathname === '';
   const toolbarRef = useToolbarKeyboardNav();
   const menuButtonRef = useRef<MenuButtonRef>(null);
@@ -232,12 +223,6 @@ export function Topbar() {
     }
   }, [handleConfirmRename]);
 
-  // --- Main menu items (right, always) ---
-  const setLanguage = useCallback((id: LanguageId) => {
-    i18n.changeLanguage(id);
-    updateConfig({ language: id });
-  }, [i18n, updateConfig]);
-
   const currentPage = ROUTE_IDS[resolvedPath] || 'workspace';
 
   const mainMenuItems: MenuButtonItem[] = useMemo(() => [
@@ -250,27 +235,9 @@ export function Topbar() {
     { id: 'jobs', label: t('menu.jobs'), icon: <ThunderboltOutlined />, onClick: () => navigate('/jobs') },
     { id: 'profiles', label: t('menu.profiles'), icon: <UserSwitchOutlined />, shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
     { id: 'settings', label: t('menu.settings'), icon: <SettingOutlined />, onClick: () => navigate('/settings') },
-    {
-      id: 'theme', label: t('menu.theme'), icon: <BgColorsOutlined />,
-      submenu: THEMES.map((th) => ({
-        id: `theme-${th.id}`,
-        label: th.label,
-        icon: currentTheme === th.id ? <CheckOutlined /> : undefined,
-        onClick: () => setTheme(th.id as ThemeId),
-      })),
-    },
-    {
-      id: 'language', label: t('menu.language'), icon: <GlobalOutlined />,
-      submenu: LANGUAGES.map((lang) => ({
-        id: `lang-${lang.id}`,
-        label: lang.nativeLabel,
-        icon: currentLang === lang.id ? <CheckOutlined /> : undefined,
-        onClick: () => setLanguage(lang.id),
-      })),
-    },
     { id: 'help', label: t('menu.help'), icon: <QuestionCircleOutlined />, shortcut: 'F1', onClick: () => navigate('/help') },
     { id: 'about', label: t('menu.about'), icon: <InfoCircleOutlined />, onClick: () => navigate('/about') },
-  ], [navigate, t, currentTheme, setTheme, currentLang, setLanguage, isWorkspaceRoute]);
+  ], [navigate, t, isWorkspaceRoute]);
 
   // --- Keyboard shortcuts ---
   useEffect(() => {

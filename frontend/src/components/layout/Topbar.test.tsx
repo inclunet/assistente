@@ -4,15 +4,12 @@ import { Topbar } from './Topbar';
 
 const navigateSpy = vi.fn();
 const toggleMenuSpy = vi.fn();
-const setThemeSpy = vi.fn();
-const updateConfigSpy = vi.fn();
-const changeLanguageSpy = vi.fn();
 const announceSpy = vi.fn();
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => key,
-    i18n: { language: 'en', changeLanguage: changeLanguageSpy },
+    i18n: { language: 'en', changeLanguage: vi.fn() },
   }),
 }));
 
@@ -25,24 +22,9 @@ vi.mock('react-router-dom', async () => {
   };
 });
 
-vi.mock('../../hooks/useTheme', () => ({
-  useTheme: () => ({ theme: 'assistente', setTheme: setThemeSpy }),
-  THEMES: [
-    { id: 'assistente', label: 'Assistente' },
-    { id: 'claro', label: 'Claro' },
-  ],
-}));
-
-vi.mock('../../lib/i18n', () => ({
-  LANGUAGES: [
-    { id: 'pt-BR', nativeLabel: 'Portugues' },
-    { id: 'en', nativeLabel: 'English' },
-  ],
-}));
-
 vi.mock('../../store/settingsStore', () => ({
   useSettingsStore: (selector: (state: { updateConfig: (cfg: unknown) => void }) => unknown) =>
-    selector({ updateConfig: updateConfigSpy }),
+    selector({ updateConfig: vi.fn() }),
 }));
 
 vi.mock('../../store/workspaceStore', () => ({
@@ -101,8 +83,9 @@ describe('Topbar', () => {
     expect(screen.getByTestId('current-item')).toHaveTextContent('history');
 
     const items = screen.getByTestId('menu-items').textContent || '';
-    expect(items).toContain('theme');
-    expect(items).toContain('language');
+    expect(items).toContain('settings');
+    expect(items).not.toContain('theme');
+    expect(items).not.toContain('language');
   });
 
   it('mostra botão voltar em sub-rota', () => {

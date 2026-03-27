@@ -246,8 +246,19 @@ const es = {
         contacts: 'Contactos',
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
+        appearance: 'Apariencia',
         'restore-defaults': 'Restaurar valores predeterminados',
       },
+    },
+
+    appearance: {
+      pageTitle: 'Apariencia',
+      description: 'Personaliza el tema visual y el idioma de la aplicación.',
+      themeTitle: 'Tema',
+      languageTitle: 'Idioma',
+      languageDescription: 'Selecciona el idioma de la interfaz. El cambio se aplica inmediatamente.',
+      aria: { selectTheme: 'Seleccionar tema', selectLanguage: 'Seleccionar idioma' },
+      announce: { themeChanged: 'Tema cambiado a {{label}}', languageChanged: 'Idioma cambiado a {{label}}' },
     },
 
     contacts: {

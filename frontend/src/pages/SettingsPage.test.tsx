@@ -23,6 +23,7 @@ vi.mock('react-i18next', () => ({
         'settingsPage.tabs.contacts': 'Contatos',
         'settingsPage.tabs.credentials': 'Cred Manager',
         'settingsPage.tabs.allowlists': 'Allow Lists',
+        'settingsPage.tabs.appearance': 'Aparência',
         'settingsPage.tabs.restore-defaults': 'Restaurar Padrões',
       } as Record<string, string>)[key] ?? fallback ?? key,
   }),
@@ -52,6 +53,7 @@ vi.mock('./ChannelsPage', () => ({ default: () => <div>ChannelsPage</div> }));
 vi.mock('./ContactsPage', () => ({ default: () => <div>ContactsPage</div> }));
 vi.mock('./CredentialsPage', () => ({ default: () => <div>CredentialsPage</div> }));
 vi.mock('./AllowlistPage', () => ({ default: () => <div>AllowlistPage</div> }));
+vi.mock('./AppearancePage', () => ({ default: () => <div>AppearancePage</div> }));
 vi.mock('./RestoreDefaultsPage', () => ({ default: () => <div>RestoreDefaultsPage</div> }));
 
 import SettingsPage from './SettingsPage';
@@ -75,6 +77,7 @@ describe('SettingsPage', () => {
     expect(screen.getByText('Contatos')).toBeInTheDocument();
     expect(screen.getByText('Cred Manager')).toBeInTheDocument();
     expect(screen.getByText('Allow Lists')).toBeInTheDocument();
+    expect(screen.getByText('Aparência')).toBeInTheDocument();
     expect(screen.getByText('Restaurar Padrões')).toBeInTheDocument();
   });
 
@@ -108,18 +111,18 @@ describe('SettingsPage', () => {
     expect(tablist).toHaveAttribute('aria-label', 'Configurações');
   });
 
-  it('renderiza todas as 8 tabs com role="tab"', () => {
+  it('renderiza todas as 9 tabs com role="tab"', () => {
     render(<SettingsPage />);
 
     const tabs = screen.getAllByRole('tab');
-    expect(tabs).toHaveLength(8);
+    expect(tabs).toHaveLength(9);
   });
 
-  it('renderiza todos os 8 tabpanels', () => {
+  it('renderiza todos os 9 tabpanels', () => {
     render(<SettingsPage />);
 
     const panels = screen.getAllByRole('tabpanel');
-    expect(panels).toHaveLength(8);
+    expect(panels).toHaveLength(9);
   });
 
   it('renderiza o conteúdo do ProvidersPage no panel correspondente', async () => {

@@ -247,8 +247,19 @@ const en = {
         contacts: 'Contacts',
         credentials: 'Cred Manager',
         allowlists: 'Allow Lists',
+        appearance: 'Appearance',
         'restore-defaults': 'Restore Defaults',
       },
+    },
+
+    appearance: {
+      pageTitle: 'Appearance',
+      description: 'Customize the visual theme and language of the application.',
+      themeTitle: 'Theme',
+      languageTitle: 'Language',
+      languageDescription: 'Select the interface language. The change is applied immediately.',
+      aria: { selectTheme: 'Select theme', selectLanguage: 'Select language' },
+      announce: { themeChanged: 'Theme changed to {{label}}', languageChanged: 'Language changed to {{label}}' },
     },
 
     contacts: {

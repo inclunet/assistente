@@ -192,7 +192,7 @@ describe('parseDeepLink', () => {
       const validRoutes = [
         'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
         'settings/channels', 'settings/contacts', 'settings/credentials',
-        'settings/allowlists', 'settings/restore-defaults',
+        'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
         'profiles', 'history', 'tasklists', 'help', 'about', 'update',
       ];
 
