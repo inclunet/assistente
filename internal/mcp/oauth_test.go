@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -17,6 +18,11 @@ import (
 
 	"golang.org/x/oauth2"
 )
+
+func TestMain(m *testing.M) {
+	browserOpen = func(url string) error { return nil }
+	os.Exit(m.Run())
+}
 
 type oauth2Token struct {
 	AccessToken  string

@@ -24,6 +24,9 @@ import (
 	"golang.org/x/oauth2/clientcredentials"
 )
 
+// browserOpen opens a URL in the user's browser. Variable so tests can stub it.
+var browserOpen = browser.OpenURL
+
 // SessionExpiredError indica que a sessão Streamable HTTP expirou no servidor.
 // O servidor retornou 404 ou 410, significando que o Mcp-Session-Id é inválido.
 type SessionExpiredError struct {
@@ -633,7 +636,7 @@ func (rt *pkceRoundTripper) authorizeDeviceFlow(parentCtx context.Context) error
 	}
 
 	if verifyURL != "" {
-		if err := browser.OpenURL(verifyURL); err != nil {
+		if err := browserOpen(verifyURL); err != nil {
 			log.Printf("[MCP:%s] Erro ao abrir browser para device flow: %v", rt.serverSlug, err)
 		}
 	}
@@ -813,7 +816,7 @@ func (rt *pkceRoundTripper) authorizePKCE(ctx context.Context) error {
 		})
 	}
 
-	if err := browser.OpenURL(authURL); err != nil {
+	if err := browserOpen(authURL); err != nil {
 		log.Printf("[MCP:%s] Erro ao abrir browser: %v. URL: %s", rt.serverSlug, err, authURL)
 	}
 
