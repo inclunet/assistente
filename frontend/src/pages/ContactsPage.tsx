@@ -80,9 +80,9 @@ export default function ContactsPage() {
     const name = row.displayName || row.contactId;
     const shouldRemove = await requestConfirm({
       title: t('channels.confirm.removeContactTitle'),
-      message: `Remover ${name} do canal ${row.channel}?`,
-      confirmText: 'Remover',
-      cancelText: 'Cancelar',
+      message: t('channels.confirm.removeContactMessage', { name, channel: row.channel }),
+      confirmText: t('common.remove'),
+      cancelText: t('common.cancel'),
       variant: 'danger',
     });
 
@@ -94,7 +94,7 @@ export default function ContactsPage() {
       announce(t('channels.announce.contactRemoved'));
       await loadContacts();
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao remover contato', 'error');
+      addToast(getErrorMessage(error) || t('contacts.error.removeFailed'), 'error');
     }
   }, [addToast, announce, loadContacts, requestConfirm, t]);
 
@@ -103,7 +103,7 @@ export default function ContactsPage() {
       {
         id: 'remove',
         label: t('channels.actions.removeContact', 'Remover'),
-        icon: <DeleteOutlined />,
+        icon: <DeleteOutlined aria-hidden="true" />,
         onClick: () => handleDeleteContact(row),
         danger: true,
       },
@@ -116,7 +116,7 @@ export default function ContactsPage() {
     { key: 'username', label: t('channels.columns.username'), width: '150px', truncate: true },
     { key: 'contactId', label: t('channels.columns.id'), width: '200px', truncate: true },
     {
-      key: 'actions', label: '', width: '80px',
+      key: 'actions', label: t('common.actions'), width: '80px',
       format: (_val, row) => (
         <MenuButton
           items={getContactRowActions(row)}
@@ -133,7 +133,7 @@ export default function ContactsPage() {
     {
       key: 'remove-contact',
       label: t('channels.actions.removeContact', 'Remover'),
-      icon: <DeleteOutlined />,
+      icon: <DeleteOutlined aria-hidden="true" />,
       onClick: () => focusedContact && handleDeleteContact(focusedContact),
       disabled: !focusedContact,
       variant: 'danger' as const,
@@ -141,7 +141,7 @@ export default function ContactsPage() {
     {
       key: 'reload',
       label: t('channels.buttons.reload', 'Recarregar'),
-      icon: <ReloadOutlined />,
+      icon: <ReloadOutlined aria-hidden="true" />,
       variant: 'secondary' as const,
       onClick: loadContacts,
       disabled: false,

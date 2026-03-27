@@ -11,7 +11,7 @@
   justify-content: center;
   height: 100%;
   color: var(--text-muted);
-  font-size: 1rem;
+  font-size: var(--font-size-lg);
 }
 
 .contacts-page__content {
@@ -26,14 +26,14 @@
 
 .contacts-page__description {
   color: var(--text-secondary);
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
   margin: 0;
   line-height: 1.5;
 }
 
 .contacts-page__empty {
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
   text-align: center;
   padding: 2rem 0;
 }

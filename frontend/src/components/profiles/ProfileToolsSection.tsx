@@ -144,7 +144,7 @@ export function ProfileToolsSection({
   const columns: DataGridColumn<ToolRow>[] = [
     {
       key: 'checked',
-      label: '',
+      label: t('common.enabled'),
       width: '40px',
       format: (_value: unknown, item: ToolRow) => {
         const checked = isToolEnabled(item.name);

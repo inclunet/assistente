@@ -27,6 +27,12 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+vi.mock('../lib/i18n', () => ({
+  default: {
+    t: (key: string) => (key === 'chat.newConversation' ? 'Nova conversa' : key),
+  },
+}));
+
 vi.mock('@wailsjs/runtime/runtime', () => ({
   WindowSetTitle: (title: string) => setTitleSpy(title),
 }));

@@ -147,7 +147,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
                 tabIndex={-1}
                 aria-label={`Link: ${tk.link}`}
                 onClick={(e) => handleLinkClick(e, tk.link!)}
-              ><LinkOutlined /></span>
+              ><LinkOutlined aria-hidden="true" /></span>
             )}
           </span>
         );
@@ -267,7 +267,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
         <>
           <div className="tasks-table-toolbar">
             <Button onClick={handleOpenCreateModal} variant="primary">
-              <PlusOutlined /> {t('tasklist.createTask', 'Criar Tarefa')}
+              <PlusOutlined aria-hidden="true" /> {t('tasklist.createTask', 'Criar Tarefa')}
             </Button>
           </div>
 
@@ -285,7 +285,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
         <div className="tasks-table-empty">
           <p>{t('tasklist.noTasks', 'Nenhuma tarefa nesta lista')}</p>
           <Button onClick={handleOpenCreateModal} variant="primary">
-            <PlusOutlined /> {t('tasklist.createTask', 'Criar Tarefa')}
+            <PlusOutlined aria-hidden="true" /> {t('tasklist.createTask', 'Criar Tarefa')}
           </Button>
         </div>
       )}

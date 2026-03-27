@@ -11,7 +11,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  font-size: 1.1rem;
+  font-size: var(--font-size-lg);
   color: var(--text-secondary);
 }
 
@@ -34,7 +34,7 @@
 
 .profiles-editor__header h2 {
   margin: 0;
-  font-size: 1.25rem;
+  font-size: var(--font-size-xl);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -64,7 +64,7 @@
 
 .profiles-section h3 {
   margin: 0 0 1rem;
-  font-size: 1rem;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -84,7 +84,7 @@
 }
 
 .profiles-field__label {
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-secondary);
 }
@@ -98,10 +98,15 @@
   border-radius: var(--radius-md);
   background: var(--bg-input);
   color: var(--text-primary);
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
   font-family: inherit;
   transition: border-color var(--duration-fast) var(--ease-default);
   box-sizing: border-box;
+}
+
+.profiles-field__input,
+.profiles-field__select {
+  height: 32px;
 }
 
 .profiles-field__input:focus,
@@ -115,7 +120,7 @@
 .profiles-field__textarea {
   resize: vertical;
   font-family: 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 0.85rem;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 
@@ -132,7 +137,7 @@
 }
 
 .profiles-field__range-value {
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
   min-width: 3rem;
   text-align: right;
@@ -166,7 +171,7 @@
 
 .profiles-field__hint {
   margin: 0 0 0.5rem 0;
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -186,7 +191,9 @@
   max-width: 300px;
   padding: 0.25rem 0.5rem;
   margin-bottom: 0.5rem;
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
+  height: 32px;
+  box-sizing: border-box;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   background: var(--bg-surface);
@@ -216,11 +223,12 @@
 
 .profiles-field__tools-toggle {
   padding: 0.25rem 0.75rem;
+  min-height: 36px;
   background: transparent;
   border: 1px solid var(--border-default);
   border-radius: var(--radius-sm);
   color: var(--accent);
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
   cursor: pointer;
   transition: background-color var(--duration-fast) var(--ease-default);
 }
@@ -266,7 +274,7 @@
 
 .profiles-field__tool-name {
   font-family: 'Cascadia Code', 'Fira Code', monospace;
-  font-size: 0.85rem;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-primary);
 }
@@ -287,7 +295,7 @@
   height: auto;
   max-height: 320px;
   border-radius: var(--radius-md);
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
 }
 
 .profiles-skills-datagrid .datagrid-body,
@@ -315,7 +323,7 @@
 }
 
 .profiles-field__tool-desc {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   line-height: 1.3;
 }
@@ -342,11 +350,12 @@
   align-items: center;
   gap: 0.5rem;
   width: 100%;
+  min-height: 36px;
   padding: 0.625rem 0.75rem;
   background: var(--bg-surface);
   border: none;
   cursor: pointer;
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
   font-weight: 500;
   color: var(--text-primary);
   font-family: inherit;
@@ -364,7 +373,7 @@
 }
 
 .profiles-collapse__chevron {
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   width: 1rem;
   text-align: center;
   flex-shrink: 0;
@@ -376,7 +385,7 @@
 }
 
 .profiles-collapse__badge {
-  font-size: 0.7rem;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   padding: 0.125rem 0.5rem;
   border-radius: var(--radius-full);
@@ -406,7 +415,7 @@
   justify-content: center;
   height: 100%;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
   padding: 3rem;
   text-align: center;
 }
@@ -415,7 +424,7 @@
 
 .profiles-search-paths {
   padding: 0.75rem 1.5rem;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   border-top: 1px solid var(--border-default);
 }
@@ -435,7 +444,7 @@
   display: inline-block;
   padding: 0.125rem 0.5rem;
   border-radius: var(--radius-full);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-weight: 500;
 }
 

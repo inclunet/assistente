@@ -79,7 +79,7 @@ Todas as cores DEVEM vir de variáveis CSS definidas em `frontend/src/theme.css`
 | Acento | `--accent`, `--accent-hover`, `--accent-dim`, `--accent-strong` |
 | Semântico | `--color-success`, `--color-warning`, `--color-danger`, `--color-info` (+ `-hover`, `-dim`) |
 | Foco | `--focus-ring`, `--color-focus` |
-| Raio | `--radius-sm` (4px), `--radius-md` (6px), `--radius-lg` (8px), `--radius-xl` (12px) |
+| Raio | `--radius-sm` (4px), `--radius-md` (8px), `--radius-lg` (12px), `--radius-xl` (12px) |
 | Tipografia | `--font-size-xs`, `--font-size-sm`, `--font-size-base`, `--font-size-lg`, `--font-size-xl`, `--font-mono` |
 
 ```css

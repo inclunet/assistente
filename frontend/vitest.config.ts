@@ -12,7 +12,7 @@ export default defineConfig({
     environment: 'jsdom',
     include: ['src/**/*.{test,spec}.{ts,tsx}'],
     clearMocks: true,
-    setupFiles: ['src/vitest.setup.ts'],
+    setupFiles: ['src/vitest.setup.ts', 'src/test/a11y-setup.ts'],
     globals: true,
   },
 });

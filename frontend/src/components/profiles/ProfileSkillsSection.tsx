@@ -1,5 +1,5 @@
 import { useState, useCallback, useMemo } from 'react';
-import { FilterOutlined } from '@ant-design/icons';
+import { FilterOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
 import { skills } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
@@ -260,7 +260,7 @@ export function ProfileSkillsSection({
                   selected={filter}
                   onSelect={(value) => setFilter(value as SkillFilter)}
                   label={t('profiles.skillsFilterLabel', 'Filtrar por origem')}
-                  icon={<FilterOutlined />}
+                  icon={<FilterOutlined aria-hidden="true" />}
                   maxWidth="180px"
                   disabled={disabled}
                 />
@@ -297,7 +297,7 @@ export function ProfileSkillsSection({
               aria-label={t('profiles.skillMoveUp', 'Subir skill')}
               data-testid="skills-move-up"
             >
-              ↑
+              <UpOutlined aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -308,7 +308,7 @@ export function ProfileSkillsSection({
               aria-label={t('profiles.skillMoveDown', 'Descer skill')}
               data-testid="skills-move-down"
             >
-              ↓
+              <DownOutlined aria-hidden="true" />
             </button>
             <button
               type="button"

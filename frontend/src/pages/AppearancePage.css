@@ -20,7 +20,7 @@
 .appearance-page__header p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 0.95rem;
+  font-size: var(--font-size-base);
 }
 
 .appearance-page__content {
@@ -37,14 +37,14 @@
 
 .appearance-section__title {
   margin: 0 0 0.5rem 0;
-  font-size: 1.1rem;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--text-primary);
 }
 
 .appearance-section__description {
   margin: 0 0 1rem 0;
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   line-height: 1.5;
 }
@@ -102,12 +102,12 @@
 
 .theme-card__name {
   font-weight: 600;
-  font-size: 0.9rem;
+  font-size: var(--font-size-base);
   color: var(--text-primary);
 }
 
 .theme-card__desc {
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 
@@ -151,12 +151,12 @@
 
 .language-card__name {
   font-weight: 600;
-  font-size: 0.95rem;
+  font-size: var(--font-size-base);
   color: var(--text-primary);
 }
 
 .language-card__alt {
-  font-size: 0.8rem;
+  font-size: var(--font-size-sm);
   color: var(--text-muted);
 }
 

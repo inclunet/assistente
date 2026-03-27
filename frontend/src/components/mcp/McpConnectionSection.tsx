@@ -1,4 +1,5 @@
 import { useId } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Checkbox, Input, Textarea } from '../index';
 import { Select } from '../index';
 
@@ -49,7 +50,8 @@ interface McpConnectionSectionProps {
   onManualOverride: () => void;
 }
 
-const isHTTPTransport = (t: string) => t === 'streamable' || t === 'sse';
+const isHTTPTransport = (transportKind: string) =>
+  transportKind === 'streamable' || transportKind === 'sse';
 
 export function McpConnectionSection({
   transport,
@@ -95,9 +97,12 @@ export function McpConnectionSection({
   onUrlBlur,
   onManualOverride,
 }: McpConnectionSectionProps) {
+  const { t } = useTranslation();
   const uid = useId();
   const discoveryLiveId = `${uid}-discovery-live`;
   const callbackHintId = `${uid}-callback-hint`;
+
+  const resourceSuffix = discoveryResourceName ? ` (${discoveryResourceName})` : '';
 
   const hasDCR = discoveryStatus === 'found' && !!discoveryRegistrationUrl;
   const discoveredNoDCR = discoveryStatus === 'found' && !discoveryRegistrationUrl;
@@ -106,13 +111,19 @@ export function McpConnectionSection({
   const discoveryLiveText = (() => {
     switch (discoveryStatus) {
       case 'loading':
-        return 'Verificando configuração OAuth do servidor…';
+        return t('mcp.connection.checkingOAuth', 'Verificando configuração OAuth do servidor…');
       case 'found':
         return hasDCR
-          ? `OAuth configurado automaticamente${discoveryResourceName ? ` (${discoveryResourceName})` : ''}. Client ID será registrado via DCR.`
-          : `OAuth detectado${discoveryResourceName ? ` (${discoveryResourceName})` : ''}, mas sem registro dinâmico. Informe o Client ID.`;
+          ? t('mcp.connection.oauthAutoConfiguredDCR', {
+              defaultValue: `OAuth configurado automaticamente${resourceSuffix}. Client ID será registrado via DCR.`,
+              resourceName: resourceSuffix,
+            })
+          : t('mcp.connection.oauthDetectedNoDCR', {
+              defaultValue: `OAuth detectado${resourceSuffix}, mas sem registro dinâmico. Informe o Client ID.`,
+              resourceName: resourceSuffix,
+            });
       case 'not_found':
-        return 'Metadados OAuth não detectados. Configure manualmente.';
+        return t('mcp.connection.oauthNotDetected', 'Metadados OAuth não detectados. Configure manualmente.');
       default:
         return '';
     }
@@ -120,36 +131,42 @@ export function McpConnectionSection({
 
   return (
     <section className="mcp-section" aria-labelledby="mcp-section-connection">
-      <h3 id="mcp-section-connection">Conexão</h3>
+      <h3 id="mcp-section-connection">{t('mcp.connection.title', 'Conexão')}</h3>
       <div className="mcp-fields">
         {/* === stdio === */}
         {transport === 'stdio' && (
           <>
             <Input
-              label="Comando"
+              label={t('mcp.connection.command', 'Comando')}
               type="text"
               value={command}
               onChange={(e) => onCommandChange(e.target.value)}
-              placeholder="ex: npx, node, python"
+              placeholder={t('mcp.connection.commandPlaceholder', 'ex: npx, node, python')}
               required
               fullWidth
             />
             <Input
-              label="Argumentos"
+              label={t('mcp.connection.args', 'Argumentos')}
               type="text"
               value={args}
               onChange={(e) => onArgsChange(e.target.value)}
-              placeholder="ex: -y @modelcontextprotocol/server-filesystem /home"
-              hint="Separados por espaço"
+              placeholder={t('mcp.connection.argsPlaceholder', 'ex: -y @modelcontextprotocol/server-filesystem /home')}
+              hint={t('mcp.connection.argsSeparated', 'Separados por espaço')}
               fullWidth
             />
             <Textarea
-              label="Variáveis de ambiente"
+              label={t('mcp.connection.envVars', 'Variáveis de ambiente')}
               rows={4}
               value={envText}
               onChange={(e) => onEnvTextChange(e.target.value)}
-              placeholder={"GITHUB_TOKEN=ghp_xxx\nNODE_ENV=production"}
-              hint="Uma variável por linha no formato KEY=VALUE. Linhas começando com # são ignoradas."
+              placeholder={t(
+                'mcp.connection.envExample',
+                'GITHUB_TOKEN=ghp_xxx\nNODE_ENV=production',
+              )}
+              hint={t(
+                'mcp.connection.envVarsHint',
+                'Uma variável por linha no formato KEY=VALUE. Linhas começando com # são ignoradas.',
+              )}
               fullWidth
             />
           </>
@@ -159,12 +176,12 @@ export function McpConnectionSection({
         {isHTTPTransport(transport) && (
           <>
             <Input
-              label="URL do servidor"
+              label={t('mcp.connection.serverUrl', 'URL do servidor')}
               type="url"
               value={url}
               onChange={(e) => onUrlChange(e.target.value)}
               onBlur={onUrlBlur}
-              placeholder="https://example.com/mcp"
+              placeholder={t('mcp.connection.serverUrlPlaceholder', 'https://example.com/mcp')}
               required
               fullWidth
             />
@@ -181,10 +198,12 @@ export function McpConnectionSection({
             {/* Estado A: DCR disponível — nada a preencher */}
             {hasDCR && (
               <p className="mcp-hint mcp-hint--success" role="status">
-                Na conexão, o browser abrirá para autorizar. Credenciais serão armazenadas com criptografia no cofre do sistema.
-                {' '}
+                {t(
+                  'mcp.connection.browserAuthHint',
+                  'Na conexão, o browser abrirá para autorizar. Credenciais serão armazenadas com criptografia no cofre do sistema.',
+                )}{' '}
                 <button type="button" className="mcp-link-btn" onClick={onManualOverride}>
-                  Configurar manualmente
+                  {t('mcp.connection.configureManually', 'Configurar manualmente')}
                 </button>
               </p>
             )}
@@ -192,32 +211,50 @@ export function McpConnectionSection({
             {/* Estado B: Discovery sem DCR — pedir Client ID */}
             {discoveredNoDCR && (
               <fieldset className="mcp-fieldset">
-                <legend className="mcp-fieldset__legend">Credenciais</legend>
+                <legend className="mcp-fieldset__legend">
+                  {t('mcp.connection.credentials', 'Credenciais')}
+                </legend>
                 <Input
-                  label="Client ID"
+                  label={t('mcp.connection.clientId', 'Client ID')}
                   type="text"
                   value={oauth2ClientId}
                   onChange={(e) => onOAuth2ClientIdChange(e.target.value)}
-                  placeholder="ID do app registrado no provedor OAuth"
+                  placeholder={t(
+                    'mcp.connection.clientIdPlaceholder',
+                    'ID do app registrado no provedor OAuth',
+                  )}
                   required
                   autoComplete="off"
                   fullWidth
                 />
                 <Input
-                  label="Client Secret"
+                  label={t('mcp.connection.clientSecret', 'Client Secret')}
                   type="password"
                   value={oauth2ClientSecret}
                   onChange={(e) => onOAuth2ClientSecretChange(e.target.value)}
-                  placeholder={hasExistingAuth ? '••••••••' : '(opcional para public clients)'}
-                  hint={hasExistingAuth ? 'Deixe vazio para manter o atual.' : 'Necessário apenas se exigido pelo provedor.'}
+                  placeholder={
+                    hasExistingAuth
+                      ? t('mcp.connection.passwordMask', '••••••••')
+                      : t('mcp.connection.clientSecretOptional', '(opcional para public clients)')
+                  }
+                  hint={
+                    hasExistingAuth
+                      ? t('mcp.connection.keepExisting', 'Deixe vazio para manter o atual.')
+                      : t(
+                          'mcp.connection.clientSecretHint',
+                          'Necessário apenas se exigido pelo provedor.',
+                        )
+                  }
                   autoComplete="off"
                   fullWidth
                 />
                 <p className="mcp-hint">
-                  Na conexão, o browser abrirá para autorizar. Credenciais armazenadas com criptografia.
-                  {' '}
+                  {t(
+                    'mcp.connection.browserAuthHintBrief',
+                    'Na conexão, o browser abrirá para autorizar. Credenciais armazenadas com criptografia.',
+                  )}{' '}
                   <button type="button" className="mcp-link-btn" onClick={onManualOverride}>
-                    Configurar manualmente
+                    {t('mcp.connection.configureManually', 'Configurar manualmente')}
                   </button>
                 </p>
               </fieldset>
@@ -226,35 +263,45 @@ export function McpConnectionSection({
             {/* Estado C: Discovery falhou — configuração manual completa */}
             {isManualMode && (
               <fieldset className="mcp-fieldset">
-                <legend className="mcp-fieldset__legend">Autenticação</legend>
+                <legend className="mcp-fieldset__legend">{t('mcp.connection.auth', 'Autenticação')}</legend>
 
                 <Select
-                  label="Tipo de autenticação"
+                  label={t('mcp.connection.authType', 'Tipo de autenticação')}
                   value={authType}
                   onChange={(e) => onAuthTypeChange(e.target.value)}
                   fullWidth
                   options={[
-                    { value: 'none', label: 'Nenhuma' },
-                    { value: 'bearer', label: 'Bearer Token (API Key)' },
-                    { value: 'basic', label: 'Basic Auth (Usuário/Senha)' },
-                    { value: 'oauth2_client_credentials', label: 'OAuth2 Client Credentials' },
-                    { value: 'oauth2_pkce', label: 'OAuth2 Authorization Code (PKCE)' },
+                    { value: 'none', label: t('mcp.connection.authNone', 'Nenhuma') },
+                    { value: 'bearer', label: t('mcp.connection.authBearer', 'Bearer Token (API Key)') },
+                    { value: 'basic', label: t('mcp.connection.authBasic', 'Basic Auth (Usuário/Senha)') },
+                    {
+                      value: 'oauth2_client_credentials',
+                      label: t('mcp.connection.authClientCredentials', 'OAuth2 Client Credentials'),
+                    },
+                    { value: 'oauth2_pkce', label: t('mcp.connection.authPKCE', 'OAuth2 Authorization Code (PKCE)') },
                   ]}
                 />
 
                 {hasExistingAuth && authType !== 'none' && authType !== 'oauth2_client_credentials' && authType !== 'oauth2_pkce' && (
                   <p className="mcp-hint mcp-hint--success" role="status">
-                    Credencial configurada. Deixe os campos vazios para manter a atual.
+                    {t(
+                      'mcp.connection.credentialConfigured',
+                      'Credencial configurada. Deixe os campos vazios para manter a atual.',
+                    )}
                   </p>
                 )}
 
                 {authType === 'bearer' && (
                   <Input
-                    label="Token"
+                    label={t('mcp.connection.token', 'Token')}
                     type="password"
                     value={authToken}
                     onChange={(e) => onAuthTokenChange(e.target.value)}
-                    placeholder={hasExistingAuth ? '••••••••' : 'sk-xxx ou ghp_xxx'}
+                    placeholder={
+                      hasExistingAuth
+                        ? t('mcp.connection.passwordMask', '••••••••')
+                        : t('mcp.connection.tokenExample', 'sk-xxx ou ghp_xxx')
+                    }
                     autoComplete="off"
                     fullWidth
                   />
@@ -263,20 +310,24 @@ export function McpConnectionSection({
                 {authType === 'basic' && (
                   <>
                     <Input
-                      label="Usuário"
+                      label={t('mcp.connection.username', 'Usuário')}
                       type="text"
                       value={authUsername}
                       onChange={(e) => onAuthUsernameChange(e.target.value)}
-                      placeholder="username"
+                      placeholder={t('mcp.connection.inputUsernamePlaceholder', 'username')}
                       autoComplete="username"
                       fullWidth
                     />
                     <Input
-                      label="Senha"
+                      label={t('mcp.connection.password', 'Senha')}
                       type="password"
                       value={authPassword}
                       onChange={(e) => onAuthPasswordChange(e.target.value)}
-                      placeholder={hasExistingAuth ? '••••••••' : 'password'}
+                      placeholder={
+                        hasExistingAuth
+                          ? t('mcp.connection.passwordMask', '••••••••')
+                          : t('mcp.connection.inputPasswordPlaceholder', 'password')
+                      }
                       autoComplete="off"
                       fullWidth
                     />
@@ -286,42 +337,53 @@ export function McpConnectionSection({
                 {authType === 'oauth2_client_credentials' && (
                   <>
                     <Input
-                      label="Client ID"
+                      label={t('mcp.connection.clientId', 'Client ID')}
                       type="text"
                       value={oauth2ClientId}
                       onChange={(e) => onOAuth2ClientIdChange(e.target.value)}
-                      placeholder="meu-app-id"
+                      placeholder={t('mcp.connection.ccClientIdPlaceholder', 'meu-app-id')}
                       required
                       autoComplete="off"
                       fullWidth
                     />
                     <Input
-                      label="Client Secret"
+                      label={t('mcp.connection.clientSecret', 'Client Secret')}
                       type="password"
                       value={oauth2ClientSecret}
                       onChange={(e) => onOAuth2ClientSecretChange(e.target.value)}
-                      placeholder={hasExistingAuth ? '••••••••' : 'secret'}
-                      hint={hasExistingAuth ? 'Deixe vazio para manter o atual.' : undefined}
+                      placeholder={
+                        hasExistingAuth
+                          ? t('mcp.connection.passwordMask', '••••••••')
+                          : t('mcp.connection.ccSecretPlaceholder', 'secret')
+                      }
+                      hint={
+                        hasExistingAuth
+                          ? t('mcp.connection.keepExisting', 'Deixe vazio para manter o atual.')
+                          : undefined
+                      }
                       required={!hasExistingAuth}
                       autoComplete="off"
                       fullWidth
                     />
                     <Input
-                      label="Token URL"
+                      label={t('mcp.connection.tokenUrl', 'Token URL')}
                       type="url"
                       value={oauth2TokenUrl}
                       onChange={(e) => onOAuth2TokenUrlChange(e.target.value)}
-                      placeholder="https://auth.example.com/oauth/token"
+                      placeholder={t(
+                        'mcp.connection.oauthTokenUrlPlaceholder',
+                        'https://auth.example.com/oauth/token',
+                      )}
                       required
                       fullWidth
                     />
                     <Input
-                      label="Scopes"
+                      label={t('mcp.connection.scopes', 'Scopes')}
                       type="text"
                       value={oauth2Scopes}
                       onChange={(e) => onOAuth2ScopesChange(e.target.value)}
-                      placeholder="read write"
-                      hint="Separados por espaço"
+                      placeholder={t('mcp.connection.scopesPlaceholderCc', 'read write')}
+                      hint={t('mcp.connection.argsSeparated', 'Separados por espaço')}
                       fullWidth
                     />
                   </>
@@ -330,50 +392,67 @@ export function McpConnectionSection({
                 {authType === 'oauth2_pkce' && (
                   <>
                     <Input
-                      label="Client ID"
+                      label={t('mcp.connection.clientId', 'Client ID')}
                       type="text"
                       value={oauth2ClientId}
                       onChange={(e) => onOAuth2ClientIdChange(e.target.value)}
-                      placeholder="seu-app-id"
+                      placeholder={t('mcp.connection.pkceClientIdPlaceholder', 'seu-app-id')}
                       required
                       autoComplete="off"
                       fullWidth
                     />
                     <Input
-                      label="Client Secret"
+                      label={t('mcp.connection.clientSecret', 'Client Secret')}
                       type="password"
                       value={oauth2ClientSecret}
                       onChange={(e) => onOAuth2ClientSecretChange(e.target.value)}
-                      placeholder={hasExistingAuth ? '••••••••' : '(opcional para public clients)'}
-                      hint={hasExistingAuth ? 'Deixe vazio para manter o atual.' : 'Necessário apenas se exigido pelo provedor.'}
+                      placeholder={
+                        hasExistingAuth
+                          ? t('mcp.connection.passwordMask', '••••••••')
+                          : t('mcp.connection.clientSecretOptional', '(opcional para public clients)')
+                      }
+                      hint={
+                        hasExistingAuth
+                          ? t('mcp.connection.keepExisting', 'Deixe vazio para manter o atual.')
+                          : t(
+                              'mcp.connection.clientSecretHint',
+                              'Necessário apenas se exigido pelo provedor.',
+                            )
+                      }
                       autoComplete="off"
                       fullWidth
                     />
                     <Input
-                      label="Token URL"
+                      label={t('mcp.connection.tokenUrl', 'Token URL')}
                       type="url"
                       value={oauth2TokenUrl}
                       onChange={(e) => onOAuth2TokenUrlChange(e.target.value)}
-                      placeholder="https://auth.example.com/oauth/token"
+                      placeholder={t(
+                        'mcp.connection.oauthTokenUrlPlaceholder',
+                        'https://auth.example.com/oauth/token',
+                      )}
                       required
                       fullWidth
                     />
                     <Input
-                      label="Authorization URL"
+                      label={t('mcp.connection.authorizationUrl', 'Authorization URL')}
                       type="url"
                       value={oauth2AuthUrl}
                       onChange={(e) => onOAuth2AuthUrlChange(e.target.value)}
-                      placeholder="https://auth.example.com/authorize"
+                      placeholder={t(
+                        'mcp.connection.oauthAuthUrlPlaceholder',
+                        'https://auth.example.com/authorize',
+                      )}
                       required
                       fullWidth
                     />
                     <Input
-                      label="Scopes"
+                      label={t('mcp.connection.scopes', 'Scopes')}
                       type="text"
                       value={oauth2Scopes}
                       onChange={(e) => onOAuth2ScopesChange(e.target.value)}
-                      placeholder="openid profile"
-                      hint="Separados por espaço"
+                      placeholder={t('mcp.connection.scopesPlaceholderPkce', 'openid profile')}
+                      hint={t('mcp.connection.argsSeparated', 'Separados por espaço')}
                       fullWidth
                     />
                   </>
@@ -381,7 +460,10 @@ export function McpConnectionSection({
 
                 {authType !== 'none' && (
                   <p className="mcp-hint" role="note">
-                    Credenciais armazenadas com criptografia no cofre do sistema.
+                    {t(
+                      'mcp.connection.encryptedStorage',
+                      'Credenciais armazenadas com criptografia no cofre do sistema.',
+                    )}
                   </p>
                 )}
               </fieldset>
@@ -391,47 +473,59 @@ export function McpConnectionSection({
 
         {/* === Avançado === */}
         <details className="mcp-advanced">
-          <summary>Avançado</summary>
+          <summary>{t('mcp.connection.advanced', 'Avançado')}</summary>
           <div className="mcp-fields">
             {isHTTPTransport(transport) && (isManualMode || discoveredNoDCR) && (authType === 'oauth2_pkce' || discoveredNoDCR) && (
               <>
                 <Select
-                  label="Callback Host"
+                  label={t('mcp.connection.callbackHost', 'Callback Host')}
                   value={oauth2CallbackHost || 'localhost'}
                   onChange={(e) => onOAuth2CallbackHostChange(e.target.value)}
-                  hint="Host usado no redirect_uri do OAuth."
+                  hint={t(
+                    'mcp.connection.callbackHostHint',
+                    'Host usado no redirect_uri do OAuth.',
+                  )}
                   fullWidth
                   options={[
-                    { value: 'localhost', label: 'localhost (padrão)' },
-                    { value: '127.0.0.1', label: '127.0.0.1 (RFC 8252)' },
-                    { value: '[::1]', label: '[::1] (IPv6)' },
+                    {
+                      value: 'localhost',
+                      label: t('mcp.connection.callbackHostLocalhost', 'localhost (padrão)'),
+                    },
+                    {
+                      value: '127.0.0.1',
+                      label: t('mcp.connection.callbackHostIPv4', '127.0.0.1 (RFC 8252)'),
+                    },
+                    { value: '[::1]', label: t('mcp.connection.callbackHostIPv6', '[::1] (IPv6)') },
                   ]}
                 />
                 <Input
-                  label="Porta do callback"
+                  label={t('mcp.connection.callbackPort', 'Porta do callback')}
                   type="number"
                   value={oauth2CallbackPort}
                   onChange={(e) => onOAuth2CallbackPortChange(e.target.value)}
-                  placeholder="(aleatória)"
+                  placeholder={t('mcp.connection.callbackPortRandom', '(aleatória)')}
                   fullWidth
                 />
                 {oauth2CallbackPort && (
                   <p id={callbackHintId} className="mcp-hint mcp-hint--success" role="status">
-                    Redirect URI: <code>http://{oauth2CallbackHost || 'localhost'}:{oauth2CallbackPort}/callback</code>
+                    {t('mcp.connection.redirectUriLabel', 'Redirect URI:')}{' '}
+                    <code>
+                      http://{oauth2CallbackHost || 'localhost'}:{oauth2CallbackPort}/callback
+                    </code>
                   </p>
                 )}
               </>
             )}
             <fieldset className="mcp-fieldset">
-              <legend className="mcp-fieldset__legend">Opções</legend>
+              <legend className="mcp-fieldset__legend">{t('mcp.connection.options', 'Opções')}</legend>
               <div className="mcp-options">
                 <Checkbox
-                  label="Habilitado"
+                  label={t('mcp.connection.enabled', 'Habilitado')}
                   checked={enabled}
                   onChange={(e) => onEnabledChange(e.target.checked)}
                 />
                 <Checkbox
-                  label="Conectar automaticamente no início"
+                  label={t('mcp.connection.autoConnect', 'Conectar automaticamente no início')}
                   checked={autoConnect}
                   onChange={(e) => onAutoConnectChange(e.target.checked)}
                 />

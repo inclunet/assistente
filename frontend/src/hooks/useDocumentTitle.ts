@@ -11,8 +11,7 @@ import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { WindowSetTitle } from '@wailsjs/runtime/runtime';
 import { useWorkspaceStore } from '../store/workspaceStore';
-
-const DEFAULT_TITLE_RE = /^nova\s+conversa$/i;
+import i18n from '../lib/i18n';
 
 const ROUTE_I18N_KEYS: Record<string, string> = {
   '/settings': 'menu.settings',
@@ -21,6 +20,7 @@ const ROUTE_I18N_KEYS: Record<string, string> = {
   '/help': 'menu.help',
   '/about': 'menu.about',
   '/update': 'update.pageTitle',
+  '/jobs': 'menu.jobs',
 };
 
 export function useDocumentTitle(): void {
@@ -34,7 +34,10 @@ export function useDocumentTitle(): void {
     let title: string;
 
     if (pathname === '/' || pathname === '') {
-      const isDefault = !activeTabTitle || DEFAULT_TITLE_RE.test(activeTabTitle);
+      const defaultChatTitle = i18n.t('chat.newConversation').toLowerCase();
+      const isDefault =
+        !activeTabTitle ||
+        activeTabTitle.toLowerCase() === defaultChatTitle;
       title = isDefault
         ? `${t('chat.newConversation')} — ${appName}`
         : `${activeTabTitle} — ${appName}`;
