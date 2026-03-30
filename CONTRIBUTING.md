@@ -43,6 +43,7 @@ npm run test        # Vitest + axe-core
 
 O workflow em `.github/workflows/ci.yml` roda em todo PR:
 
+- **Go tests**: `go test ./...` — testes unitários e de integração do backend
 - **TypeScript**: `tsc --noEmit`
 - **ESLint** (incluindo regras `jsx-a11y`): detecta ARIA inválido, roles ausentes
 - **Stylelint**: impede cores e font-sizes hardcoded (deve usar tokens do `theme.css`)
