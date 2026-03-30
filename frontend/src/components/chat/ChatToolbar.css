@@ -12,7 +12,7 @@
 /* Toggle button para tools */
 .toolbar__toggle {
   opacity: 0.6;
-  transition: opacity 0.2s ease;
+  transition: opacity var(--duration-fast) var(--ease-default);
 }
 
 .toolbar__toggle--active {
@@ -33,10 +33,11 @@
   top: calc(100% + 6px);
   right: 0;
   z-index: 100;
-  min-width: 260px;
+  min-width: min(260px, calc(100vw - 32px));
+  max-width: calc(100vw - 32px);
   background: var(--bg-elevated);
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 12px 16px;
   box-shadow: 0 8px 24px color-mix(in srgb, var(--bg-base) 35%, transparent);
 }
@@ -61,10 +62,15 @@
   padding: 4px 0;
   font-size: 0.9rem;
   color: var(--text-primary);
+  gap: 8px;
 }
 
 .chat-toolbar__stats-row dt {
   color: var(--text-secondary);
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .chat-toolbar__stats-row dd {

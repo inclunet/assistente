@@ -108,6 +108,7 @@ type authServerMetadata struct {
 	AuthorizationEndpoint          string   `json:"authorization_endpoint"`
 	TokenEndpoint                  string   `json:"token_endpoint"`
 	RegistrationEndpoint           string   `json:"registration_endpoint"`
+	DeviceAuthorizationEndpoint    string   `json:"device_authorization_endpoint"`
 	ScopesSupported                []string `json:"scopes_supported"`
 	GrantTypesSupported            []string `json:"grant_types_supported"`
 	CodeChallengeMethodsSupported  []string `json:"code_challenge_methods_supported"`

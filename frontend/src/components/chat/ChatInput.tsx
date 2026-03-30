@@ -1,5 +1,6 @@
 import React, { useState, useRef, KeyboardEvent, useEffect, forwardRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
+import { PaperClipOutlined } from '@ant-design/icons';
 import { Button } from '../ui/Button';
 import { MediaPreview } from './MediaPreview';
 import { VoiceButton } from './VoiceButton';
@@ -301,7 +302,7 @@ export const ChatInput = forwardRef<HTMLTextAreaElement, ChatInputProps>((
           aria-label={t('chat.attachFile')}
           title={t('chat.attachFile')}
         >
-          📎
+          <PaperClipOutlined aria-hidden="true" />
         </button>
 
         <textarea

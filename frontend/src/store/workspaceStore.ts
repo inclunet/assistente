@@ -128,54 +128,70 @@ function generateTabId(): string {
   return `tab-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`;
 }
 
+let initializingPromise: Promise<void> | null = null;
+
 export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
   workspace: null,
   workspaces: [],
   isInitialized: false,
 
   initialize: async () => {
-    try {
-      const [bws, list] = await Promise.all([
-        GetActiveWorkspace(),
-        ListWorkspaces(),
-      ]);
+    if (initializingPromise) return initializingPromise;
 
-      if (bws) {
-        const ws = backendWorkspaceToFrontend(bws);
-
-        // Se o workspace não tem tabs, cria uma aba de chat padrão
-        if (ws.tabs.length === 0) {
-          const tab: WorkspaceTab = {
-            id: generateTabId(),
-            type: 'chat',
-            contentId: '',
-            title: 'Nova conversa',
-            position: 0,
-          };
-          const backendTab = frontendTabToBackend(tab);
-          const updatedWs = await AddWorkspaceTab(backendTab);
-          if (updatedWs) {
-            set({
-              workspace: backendWorkspaceToFrontend(updatedWs),
-              workspaces: list || [],
-              isInitialized: true,
-            });
-            return;
-          }
-        }
-
-        set({
-          workspace: ws,
-          workspaces: list || [],
-          isInitialized: true,
-        });
-      } else {
-        set({ isInitialized: true, workspaces: list || [] });
-      }
-    } catch (error) {
-      console.error('[Workspace] Error initializing:', error);
-      set({ isInitialized: true });
+    const wailsWindow = window as Window & { go?: unknown };
+    if (typeof window === 'undefined' || !wailsWindow.go) {
+      setTimeout(() => get().initialize(), 100);
+      return;
     }
+
+    const run = async () => {
+      try {
+        const [bws, list] = await Promise.all([
+          GetActiveWorkspace(),
+          ListWorkspaces(),
+        ]);
+
+        if (bws) {
+          const ws = backendWorkspaceToFrontend(bws);
+
+          if (ws.tabs.length === 0) {
+            const tab: WorkspaceTab = {
+              id: generateTabId(),
+              type: 'chat',
+              contentId: '',
+              title: 'Nova conversa',
+              position: 0,
+            };
+            const backendTab = frontendTabToBackend(tab);
+            const updatedWs = await AddWorkspaceTab(backendTab);
+            if (updatedWs) {
+              set({
+                workspace: backendWorkspaceToFrontend(updatedWs),
+                workspaces: list || [],
+                isInitialized: true,
+              });
+              return;
+            }
+          }
+
+          set({
+            workspace: ws,
+            workspaces: list || [],
+            isInitialized: true,
+          });
+        } else {
+          set({ isInitialized: true, workspaces: list || [] });
+        }
+      } catch (error) {
+        console.error('[Workspace] Error initializing:', error);
+        set({ isInitialized: true });
+      } finally {
+        initializingPromise = null;
+      }
+    };
+
+    initializingPromise = run();
+    return initializingPromise;
   },
 
   setupEventListeners: () => {
@@ -204,6 +220,14 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
     unsubs.push(EventsOn('workspace:tab_removed', (bws: workspace.Workspace) => {
       set({ workspace: backendWorkspaceToFrontend(bws) });
+    }));
+
+    unsubs.push(EventsOn('workspace:tab_activated', (tabId: string) => {
+      set(state => ({
+        workspace: state.workspace
+          ? { ...state.workspace, activeTabId: tabId }
+          : null,
+      }));
     }));
 
     // Content rename events → update matching tab title

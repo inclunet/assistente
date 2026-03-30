@@ -11,22 +11,16 @@ import { useLocation } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { WindowSetTitle } from '@wailsjs/runtime/runtime';
 import { useWorkspaceStore } from '../store/workspaceStore';
-
-const DEFAULT_TITLE_RE = /^nova\s+conversa$/i;
+import i18n from '../lib/i18n';
 
 const ROUTE_I18N_KEYS: Record<string, string> = {
-  '/allowlists': 'menu.allowlists',
-  '/skills': 'menu.skills',
-  '/mcp': 'menu.mcp',
-  '/channels': 'menu.channels',
-  '/credentials': 'menu.credentials',
-  '/providers': 'menu.providers',
-  '/settings': 'menu.restoreDefaults',
+  '/settings': 'menu.settings',
   '/profiles': 'menu.profiles',
   '/history': 'menu.history',
   '/help': 'menu.help',
   '/about': 'menu.about',
   '/update': 'update.pageTitle',
+  '/jobs': 'menu.jobs',
 };
 
 export function useDocumentTitle(): void {
@@ -40,12 +34,16 @@ export function useDocumentTitle(): void {
     let title: string;
 
     if (pathname === '/' || pathname === '') {
-      const isDefault = !activeTabTitle || DEFAULT_TITLE_RE.test(activeTabTitle);
+      const defaultChatTitle = i18n.t('chat.newConversation').toLowerCase();
+      const isDefault =
+        !activeTabTitle ||
+        activeTabTitle.toLowerCase() === defaultChatTitle;
       title = isDefault
         ? `${t('chat.newConversation')} — ${appName}`
         : `${activeTabTitle} — ${appName}`;
     } else {
-      const i18nKey = ROUTE_I18N_KEYS[pathname];
+      const resolvedPath = pathname.startsWith('/settings') ? '/settings' : pathname;
+      const i18nKey = ROUTE_I18N_KEYS[resolvedPath];
       const pageTitle = i18nKey ? t(i18nKey) : pathname.slice(1);
       title = `${pageTitle} — ${appName}`;
     }

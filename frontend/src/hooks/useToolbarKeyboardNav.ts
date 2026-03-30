@@ -78,14 +78,14 @@ export const useToolbarKeyboardNav = (onFocusContent?: (() => void) | null) => {
         return;
       }
 
-      // NÃO interceptar teclas de navegação se o foco está no campo de busca
-      // O campo de busca precisa de navegação livre para edição de texto
-      const isSearchInput = 
-        target.matches('input[type="text"].toolbar__search') ||
-        target.classList.contains('toolbar__search');
-      
-      if (isSearchInput) {
-        if (event.key === 'Enter') {
+      // NÃO interceptar teclas de navegação se o foco está em um campo de texto
+      const isTextInput =
+        (target.tagName === 'INPUT' && !target.matches('[role="combobox"]')) ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable;
+
+      if (isTextInput) {
+        if (target.classList.contains('toolbar__search') && event.key === 'Enter') {
           event.preventDefault();
           if (onFocusContent) {
             onFocusContent();
@@ -158,15 +158,13 @@ export const useToolbarKeyboardNav = (onFocusContent?: (() => void) | null) => {
     // Quando um item recebe foco (via clique ou Tab)
     const handleFocusIn = (event: FocusEvent) => {
       const target = event.target as HTMLElement;
-      
-      // Ignora se o foco foi para o campo de busca
-      const isSearchInput = 
-        target.matches('input[type="text"].toolbar__search') ||
-        target.classList.contains('toolbar__search');
-      
-      if (isSearchInput) {
-        return; // Campo de busca não faz parte da navegação por setas
-      }
+
+      const isTextInput =
+        (target.tagName === 'INPUT' && !target.matches('[role="combobox"]')) ||
+        target.tagName === 'TEXTAREA' ||
+        target.isContentEditable;
+
+      if (isTextInput) return;
       
       const items = getFocusableItems();
       const index = items.indexOf(target);

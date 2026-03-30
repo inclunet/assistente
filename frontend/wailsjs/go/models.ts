@@ -413,6 +413,52 @@ export namespace database {
 		    return a;
 		}
 	}
+	export class TaskNote {
+	    id: number;
+	    task_id: number;
+	    type: number;
+	    content: string;
+	    author_name?: string;
+	    author_id?: string;
+	    // Go type: time
+	    created_at: any;
+	    // Go type: time
+	    updated_at: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new TaskNote(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.task_id = source["task_id"];
+	        this.type = source["type"];
+	        this.content = source["content"];
+	        this.author_name = source["author_name"];
+	        this.author_id = source["author_id"];
+	        this.created_at = this.convertValues(source["created_at"], null);
+	        this.updated_at = this.convertValues(source["updated_at"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
 	export class TaskListWorkflow {
 	    id: number;
 	    task_list_id: number;
@@ -510,9 +556,15 @@ export namespace database {
 	    task_list_id: number;
 	    title: string;
 	    description: string;
+	    code?: string;
+	    link?: string;
 	    status_id: number;
 	    parent_id?: number;
 	    order: number;
+	    assignee_name?: string;
+	    assignee_id?: string;
+	    creator_name?: string;
+	    creator_id?: string;
 	    // Go type: time
 	    due_date?: any;
 	    // Go type: time
@@ -524,6 +576,7 @@ export namespace database {
 	    task_list?: TaskList;
 	    parent?: Task;
 	    subtasks?: Task[];
+	    notes?: TaskNote[];
 	
 	    static createFrom(source: any = {}) {
 	        return new Task(source);
@@ -535,9 +588,15 @@ export namespace database {
 	        this.task_list_id = source["task_list_id"];
 	        this.title = source["title"];
 	        this.description = source["description"];
+	        this.code = source["code"];
+	        this.link = source["link"];
 	        this.status_id = source["status_id"];
 	        this.parent_id = source["parent_id"];
 	        this.order = source["order"];
+	        this.assignee_name = source["assignee_name"];
+	        this.assignee_id = source["assignee_id"];
+	        this.creator_name = source["creator_name"];
+	        this.creator_id = source["creator_id"];
 	        this.due_date = this.convertValues(source["due_date"], null);
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
@@ -545,6 +604,7 @@ export namespace database {
 	        this.task_list = this.convertValues(source["task_list"], TaskList);
 	        this.parent = this.convertValues(source["parent"], Task);
 	        this.subtasks = this.convertValues(source["subtasks"], Task);
+	        this.notes = this.convertValues(source["notes"], TaskNote);
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -587,6 +647,510 @@ export namespace database {
 	        this.icon = source["icon"];
 	    }
 	}
+
+}
+
+export namespace jobs {
+	
+	export class CatalogEntry {
+	    name: string;
+	    description: string;
+	    schema: number[];
+	    source: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new CatalogEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.schema = source["schema"];
+	        this.source = source["source"];
+	    }
+	}
+	export class DryRunConfig {
+	    enabled?: boolean;
+	    mock_output?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new DryRunConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.mock_output = source["mock_output"];
+	    }
+	}
+	export class TriggerInfo {
+	    type: string;
+	    // Go type: time
+	    at: any;
+	    event?: string;
+	    data?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new TriggerInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.at = this.convertValues(source["at"], null);
+	        this.event = source["event"];
+	        this.data = source["data"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class RunLog {
+	    run_id: string;
+	    job_id: string;
+	    tool_name?: string;
+	    trigger: TriggerInfo;
+	    status: string;
+	    // Go type: time
+	    started_at: any;
+	    // Go type: time
+	    completed_at?: any;
+	    duration?: string;
+	    resolved_inputs?: Record<string, any>;
+	    output?: Record<string, any>;
+	    output_size?: number;
+	    error?: string;
+	    retry_count?: number;
+	    events_emitted?: string[];
+	    is_dry_run?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new RunLog(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.run_id = source["run_id"];
+	        this.job_id = source["job_id"];
+	        this.tool_name = source["tool_name"];
+	        this.trigger = this.convertValues(source["trigger"], TriggerInfo);
+	        this.status = source["status"];
+	        this.started_at = this.convertValues(source["started_at"], null);
+	        this.completed_at = this.convertValues(source["completed_at"], null);
+	        this.duration = source["duration"];
+	        this.resolved_inputs = source["resolved_inputs"];
+	        this.output = source["output"];
+	        this.output_size = source["output_size"];
+	        this.error = source["error"];
+	        this.retry_count = source["retry_count"];
+	        this.events_emitted = source["events_emitted"];
+	        this.is_dry_run = source["is_dry_run"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class DryRunResult {
+	    success: boolean;
+	    output?: Record<string, any>;
+	    error?: string;
+	    run_log?: RunLog;
+	
+	    static createFrom(source: any = {}) {
+	        return new DryRunResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.output = source["output"];
+	        this.error = source["error"];
+	        this.run_log = this.convertValues(source["run_log"], RunLog);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class ErrorPolicy {
+	    strategy?: string;
+	    max_retries?: number;
+	    retry_delay?: string;
+	    backoff?: string;
+	    on_exhausted?: string;
+	    notify_channels?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new ErrorPolicy(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.strategy = source["strategy"];
+	        this.max_retries = source["max_retries"];
+	        this.retry_delay = source["retry_delay"];
+	        this.backoff = source["backoff"];
+	        this.on_exhausted = source["on_exhausted"];
+	        this.notify_channels = source["notify_channels"];
+	    }
+	}
+	export class EventEntry {
+	    // Go type: time
+	    timestamp: any;
+	    type: string;
+	    job_id: string;
+	    event?: string;
+	    message?: string;
+	    data?: Record<string, any>;
+	
+	    static createFrom(source: any = {}) {
+	        return new EventEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.timestamp = this.convertValues(source["timestamp"], null);
+	        this.type = source["type"];
+	        this.job_id = source["job_id"];
+	        this.event = source["event"];
+	        this.message = source["message"];
+	        this.data = source["data"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PayloadFilter {
+	    include?: string[];
+	    exclude?: string[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PayloadFilter(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.include = source["include"];
+	        this.exclude = source["exclude"];
+	    }
+	}
+	export class EventsConfig {
+	    on_success?: string;
+	    on_failure?: string;
+	    for_each?: string;
+	    payload_template?: string;
+	    payload_filter?: PayloadFilter;
+	
+	    static createFrom(source: any = {}) {
+	        return new EventsConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.on_success = source["on_success"];
+	        this.on_failure = source["on_failure"];
+	        this.for_each = source["for_each"];
+	        this.payload_template = source["payload_template"];
+	        this.payload_filter = this.convertValues(source["payload_filter"], PayloadFilter);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class Metadata {
+	    created_at?: string;
+	    created_by?: string;
+	    updated_at?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Metadata(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.created_at = source["created_at"];
+	        this.created_by = source["created_by"];
+	        this.updated_at = source["updated_at"];
+	    }
+	}
+	export class OutputConfig {
+	    schema?: number[];
+	    map?: Record<string, string>;
+	
+	    static createFrom(source: any = {}) {
+	        return new OutputConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.schema = source["schema"];
+	        this.map = source["map"];
+	    }
+	}
+	export class Trigger {
+	    type: string;
+	    expression?: string;
+	    every?: string;
+	    listen?: string;
+	    keys?: string;
+	    path?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Trigger(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.type = source["type"];
+	        this.expression = source["expression"];
+	        this.every = source["every"];
+	        this.listen = source["listen"];
+	        this.keys = source["keys"];
+	        this.path = source["path"];
+	    }
+	}
+	export class Job {
+	    id: string;
+	    name: string;
+	    description: string;
+	    enabled: boolean;
+	    pipeline?: string;
+	    tags?: string[];
+	    triggers: Trigger[];
+	    tool: string;
+	    inputs?: Record<string, any>;
+	    output?: OutputConfig;
+	    events?: EventsConfig;
+	    error_policy?: ErrorPolicy;
+	    max_runs_per_hour?: number;
+	    dry_run?: DryRunConfig;
+	    metadata?: Metadata;
+	    file_path?: string;
+	    last_run?: RunLog;
+	    status: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new Job(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.enabled = source["enabled"];
+	        this.pipeline = source["pipeline"];
+	        this.tags = source["tags"];
+	        this.triggers = this.convertValues(source["triggers"], Trigger);
+	        this.tool = source["tool"];
+	        this.inputs = source["inputs"];
+	        this.output = this.convertValues(source["output"], OutputConfig);
+	        this.events = this.convertValues(source["events"], EventsConfig);
+	        this.error_policy = this.convertValues(source["error_policy"], ErrorPolicy);
+	        this.max_runs_per_hour = source["max_runs_per_hour"];
+	        this.dry_run = this.convertValues(source["dry_run"], DryRunConfig);
+	        this.metadata = this.convertValues(source["metadata"], Metadata);
+	        this.file_path = source["file_path"];
+	        this.last_run = this.convertValues(source["last_run"], RunLog);
+	        this.status = source["status"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class JobInfo {
+	    id: string;
+	    name: string;
+	    description: string;
+	    enabled: boolean;
+	    pipeline?: string;
+	    tags?: string[];
+	    tool: string;
+	    status: string;
+	    triggers: Trigger[];
+	    last_run?: RunLog;
+	
+	    static createFrom(source: any = {}) {
+	        return new JobInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.enabled = source["enabled"];
+	        this.pipeline = source["pipeline"];
+	        this.tags = source["tags"];
+	        this.tool = source["tool"];
+	        this.status = source["status"];
+	        this.triggers = this.convertValues(source["triggers"], Trigger);
+	        this.last_run = this.convertValues(source["last_run"], RunLog);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	
+	
+	export class PipelineInfo {
+	    name: string;
+	    jobs: JobInfo[];
+	
+	    static createFrom(source: any = {}) {
+	        return new PipelineInfo(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.name = source["name"];
+	        this.jobs = this.convertValues(source["jobs"], JobInfo);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	
+	export class TestToolResult {
+	    success: boolean;
+	    output?: Record<string, any>;
+	    error?: string;
+	    duration?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TestToolResult(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.success = source["success"];
+	        this.output = source["output"];
+	        this.error = source["error"];
+	        this.duration = source["duration"];
+	    }
+	}
+	
 
 }
 
@@ -1736,6 +2300,8 @@ export namespace mcp {
 	    oauth2_callback_port?: number;
 	    oauth2_callback_host?: string;
 	    oauth2_registration_url?: string;
+	    oauth2_device_auth_url?: string;
+	    disable_sse?: boolean;
 	    enabled: boolean;
 	    auto_connect: boolean;
 	
@@ -1760,6 +2326,8 @@ export namespace mcp {
 	        this.oauth2_callback_port = source["oauth2_callback_port"];
 	        this.oauth2_callback_host = source["oauth2_callback_host"];
 	        this.oauth2_registration_url = source["oauth2_registration_url"];
+	        this.oauth2_device_auth_url = source["oauth2_device_auth_url"];
+	        this.disable_sse = source["disable_sse"];
 	        this.enabled = source["enabled"];
 	        this.auto_connect = source["auto_connect"];
 	    }

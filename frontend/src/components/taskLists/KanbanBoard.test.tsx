@@ -1,6 +1,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 
 /* ── Mock fns ──────────────────────────────────────────────── */
 
@@ -12,11 +13,15 @@ const mockAnnounce = vi.fn();
 
 /* ── Mocks de módulos ──────────────────────────────────────── */
 
-vi.mock('react-i18next', () => ({
-  useTranslation: () => ({
-    t: (_key: string, fallback?: string) => fallback ?? _key,
-  }),
-}));
+vi.mock('react-i18next', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-i18next')>();
+  return {
+    ...actual,
+    useTranslation: () => ({
+      t: (_key: string, fallback?: string) => fallback ?? _key,
+    }),
+  };
+});
 
 vi.mock('../../store/taskListStore', () => ({
   useTaskListStore: Object.assign(
@@ -120,7 +125,9 @@ describe('KanbanBoard', () => {
     const taskList = makeTaskList(tasks);
     const { default: KanbanBoard } = await import('./KanbanBoard');
     return render(
-      <KanbanBoard taskListId={1} tasks={tasks} taskList={taskList} />,
+      <MemoryRouter>
+        <KanbanBoard taskListId={1} tasks={tasks} taskList={taskList} />
+      </MemoryRouter>,
     );
   }
 
@@ -185,6 +192,15 @@ describe('KanbanBoard', () => {
       expect.stringContaining('Tarefa Alpha'),
       'assertive',
     );
+  });
+
+  it('card tem aria-describedby com status e posição', async () => {
+    await renderBoard();
+
+    const desc = document.getElementById('card-desc-10');
+    expect(desc).toBeInTheDocument();
+    expect(desc?.textContent).toContain('A Fazer');
+    expect(desc?.textContent).toContain('1 de 2');
   });
 
   // ── Navegação por teclado ─────────────────────────────────

@@ -1,5 +1,6 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { CompassOutlined, EditOutlined, FileOutlined, MessageOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
 import { ProfilePicker } from '../components/pickers/ProfilePicker';
@@ -55,13 +56,11 @@ import {
   EditorWriteDraft,
   EditorWriteFile,
 } from '@wailsjs/go/main/App';
-import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './EditorPage.css';
 
 export default function EditorPage() {
   const { t } = useTranslation();
   const { addToast } = useUIStore();
-  useContentPageLandmarks({ pageClass: 'editor-page' });
   const requestQuestionnaire = useQuestionnaireUIStore((s) => s.request);
 
   const { waitForChatDone, waitForEditorPatch, getMaxNumericMessageId } = useEditorInlineChatPatch();
@@ -81,6 +80,20 @@ export default function EditorPage() {
   const setEditorProfileSlug = useEditorStore((s) => s.setEditorProfileSlug);
   const hydrate = useEditorStore((s) => s.hydrate);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
+  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
+
+  const tabProfileSlug = wsActiveTab?.type === 'editor'
+    ? (wsActiveTab.profileOverride?.slug as string | undefined)
+    : undefined;
+  const effectiveProfileSlug = tabProfileSlug || wsProfile || editorProfileSlug;
+
+  useEffect(() => {
+    if (tabProfileSlug && tabProfileSlug !== editorProfileSlug) {
+      setEditorProfileSlug(tabProfileSlug);
+    }
+  }, [tabProfileSlug]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const activeTab = useMemo(() => activeDocumentId ? documents[activeDocumentId] ?? null : null, [documents, activeDocumentId]);
 
@@ -2341,7 +2354,7 @@ export default function EditorPage() {
       {
         key: 'ask',
         label: 'Perguntar ao chat',
-        icon: '💬',
+        icon: <MessageOutlined />,
         shortcut: 'Ctrl+Shift+I',
         onClick: async () => {
           if (isAsking) return;
@@ -2388,20 +2401,20 @@ export default function EditorPage() {
   return (
     <div className="editor-page" ref={pageRootRef}>
       <Toolbar
-        className="editor-page__toolbar"
+        className="editor-page__toolbar ws-content-toolbar"
         left={<div className="editor-page__title">{activeTab?.title || t('editor.fallback.title')}</div>}
         right={
           <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
             <ToolbarButton
               label={t('editor.buttons.file')}
-              icon="📄"
+              icon={<FileOutlined />}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Arquivo', fileMenuItemsForContextMenu)}
               aria-haspopup="menu"
             />
 
             <ToolbarButton
               label={t('editor.buttons.format')}
-              icon="🎛️"
+              icon={<SlidersOutlined />}
               disabled={!activeTab || isAsking || activeTab.mode !== 'rich' || !richEditorRef.current}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Formatar', formatMenuItemsForContextMenu)}
               aria-haspopup="menu"
@@ -2409,7 +2422,7 @@ export default function EditorPage() {
 
             <ToolbarButton
               label={t('editor.buttons.insert')}
-              icon="➕"
+              icon={<PlusOutlined />}
               disabled={!activeTab || isAsking || activeTab.mode === 'view'}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Inserir', insertMenuItemsForContextMenu)}
               aria-haspopup="menu"
@@ -2417,26 +2430,35 @@ export default function EditorPage() {
 
             <ToolbarButton
               label={t('editor.buttons.mode')}
-              icon="🧭"
+              icon={<CompassOutlined />}
               disabled={!activeTab || isAsking}
               onClick={(e) => openToolbarMenu(e.currentTarget, 'Menu Modo', modeMenuItemsForContextMenu)}
               aria-haspopup="menu"
             />
 
-            <ProfilePicker
-              value={editorProfileSlug}
-              onChange={(slug) => setEditorProfileSlug(slug)}
-              label={t('editor.labels.profile')}
-              icon="✍️"
-              maxWidth="280px"
-            />
           </div>
         }
         actions={actions}
+        rightEnd={
+          <ProfilePicker
+            value={effectiveProfileSlug}
+            onChange={(slug) => {
+              setEditorProfileSlug(slug);
+              if (wsActiveTab) {
+                void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
+              }
+            }}
+            variant="toolbar"
+            label={t('workspace.tabProfileLabel', 'Perfil')}
+            description={t('workspace.tabProfileDescription')}
+            icon={<EditOutlined />}
+            maxWidth="180px"
+          />
+        }
         ariaLabel={t('editor.aria.toolbar')}
       />
 
-      <div className="editor-page__content">
+      <div className="editor-page__content ws-content-area">
         {!activeTab ? (
           <div className="editor-page__empty">{t('editor.empty.noTabs')}</div>
         ) : activeTab.mode === 'markdown' ? (

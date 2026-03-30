@@ -1,0 +1,129 @@
+.jobs-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  gap: var(--radius-md);
+  padding: var(--radius-md);
+  background-color: var(--bg-base);
+  color: var(--text-primary);
+}
+
+.jobs-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted);
+  font-size: 1.1em;
+}
+
+.jobs-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  gap: var(--radius-md);
+  padding: var(--radius-lg);
+  color: var(--text-muted);
+  text-align: center;
+}
+
+.jobs-empty-message {
+  font-size: 1.1em;
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+
+.jobs-empty-hint {
+  font-size: 0.95em;
+  color: var(--text-muted);
+}
+
+.jobs-empty-cta {
+  margin-top: 8px;
+  padding: 8px 20px;
+  border: none;
+  border-radius: 6px;
+  background: var(--color-accent, #0969da);
+  color: white;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 120ms;
+}
+
+.jobs-empty-cta:hover {
+  opacity: 0.85;
+}
+
+/* Toggle button in grid */
+.job-toggle {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  padding: 0 2px;
+  line-height: 1;
+}
+
+.job-toggle--on {
+  color: var(--color-success, #0a0);
+}
+
+.job-toggle--off {
+  color: var(--text-muted);
+}
+
+.job-toggle:hover {
+  opacity: 0.8;
+}
+
+/* Name cell with pipeline badge */
+.job-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+.job-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.job-pipeline-badge {
+  flex-shrink: 0;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: var(--font-size-xs, 11px);
+  background: var(--color-info-bg, rgba(0, 120, 200, 0.1));
+  color: var(--color-info, #07a);
+  white-space: nowrap;
+}
+
+/* Status badges */
+.job-status-badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: var(--font-size-xs, 11px);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.job-status--idle {
+  background: var(--bg-elevated, rgba(128, 128, 128, 0.08));
+  color: var(--text-secondary);
+}
+
+.job-status--running {
+  background: var(--color-info-bg, rgba(0, 120, 200, 0.1));
+  color: var(--color-info, #07a);
+}
+
+.job-status--error {
+  background: var(--color-error-bg, rgba(220, 0, 0, 0.1));
+  color: var(--color-error, #c00);
+}

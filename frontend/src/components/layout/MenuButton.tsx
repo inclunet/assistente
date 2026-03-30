@@ -1,5 +1,6 @@
-import { useMemo, useRef, forwardRef, useImperativeHandle, useCallback, useLayoutEffect, useState } from 'react';
+import { type ReactNode, useMemo, useRef, forwardRef, useImperativeHandle, useCallback, useLayoutEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { MenuOutlined } from '@ant-design/icons';
 import './MenuButton.css';
 import { Menu, type MenuItem as MenuModelItem } from '../menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
@@ -7,9 +8,10 @@ import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 
 export interface MenuItem {
   id: string;
-  label: string;
-  icon: string;
+  label?: string;
+  icon?: ReactNode;
   shortcut?: string;
+  separator?: boolean;
   onClick?: () => void;
   submenu?: MenuItem[];
 }
@@ -45,16 +47,19 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
   const [autoTabIndex, setAutoTabIndex] = useState<number | null>(null);
 
   const mapItems = (srcItems: MenuItem[]): MenuModelItem[] =>
-    srcItems.map((item) => ({
-      id: item.id,
-      label: item.label,
-      icon: item.icon,
-      shortcut: item.shortcut,
-      checked: currentItemId === item.id,
-      ariaLabel: item.label,
-      action: item.onClick,
-      submenu: item.submenu ? mapItems(item.submenu) : undefined,
-    }));
+    srcItems.map((item) => {
+      if (item.separator) return { id: item.id, separator: true };
+      return {
+        id: item.id,
+        label: item.label,
+        icon: item.icon,
+        shortcut: item.shortcut,
+        checked: currentItemId === item.id,
+        ariaLabel: item.label,
+        action: item.onClick,
+        submenu: item.submenu ? mapItems(item.submenu) : undefined,
+      };
+    });
 
   const menuItems: MenuModelItem[] = useMemo(
     () => mapItems(items),
@@ -131,7 +136,7 @@ export const MenuButton = forwardRef<MenuButtonRef, MenuButtonProps>(
         tabIndex={tabIndex ?? autoTabIndex ?? 0}
       >
         <span className="menu-icon" aria-hidden="true">
-          ☰
+          <MenuOutlined />
         </span>
       </button>
 

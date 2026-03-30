@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { EyeOutlined, EyeInvisibleOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { CreateLLMProvider, UpdateLLMProvider, ListModelsRaw } from '@wailsjs/go/main/App';
 import { Input, Select, Button, FormField } from '../';
@@ -632,7 +633,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
               aria-label={showPassword ? t('providerForm.hideKey') : t('providerForm.showKey')}
               aria-pressed={showPassword}
             >
-              <span aria-hidden="true">{showPassword ? '🔒' : '🔓'}</span>
+              <span aria-hidden="true">{showPassword ? <EyeInvisibleOutlined /> : <EyeOutlined />}</span>
             </Button>
           </div>
           )}
@@ -677,7 +678,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
               aria-label={showPassword ? t('providerForm.hideKey') : t('providerForm.showKey')}
               aria-pressed={showPassword}
             >
-              <span aria-hidden="true">{showPassword ? '🔒' : '🔓'}</span>
+              <span aria-hidden="true">{showPassword ? <EyeInvisibleOutlined /> : <EyeOutlined />}</span>
             </Button>
           </div>
           )}
@@ -737,7 +738,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
 
       {errors.submit && (
         <div className="provider-form__error" role="alert">
-          ⚠️ {errors.submit}
+          <WarningOutlined aria-hidden="true" /> {errors.submit}
         </div>
       )}
 

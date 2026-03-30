@@ -1,7 +1,7 @@
 .rich-text-editor {
   height: 100%;
   border: 1px solid var(--border-subtle);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   background: var(--bg-elevated);
   overflow: auto;
 }
@@ -33,13 +33,13 @@
 
 .rich-text-editor__content .ProseMirror code {
   background: var(--bg-muted);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 1px 5px;
 }
 
 .rich-text-editor__content .ProseMirror pre {
   background: var(--bg-base);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 10px 12px;
   overflow: auto;
 }
@@ -53,7 +53,7 @@
 /* NodeView: Mermaid como card */
 .rich-text-editor__content .ProseMirror .rich-mermaid-block {
   border: 1px solid var(--border-default);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--bg-base);
   overflow: hidden;
   margin: 0 0 12px 0;
@@ -84,7 +84,7 @@
   border: 1px solid var(--border-default);
   background: var(--bg-muted);
   color: inherit;
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   padding: 6px 10px;
   font-size: 0.85rem;
   cursor: pointer;
@@ -105,7 +105,7 @@
 }
 
 .rich-text-editor__content .ProseMirror .rich-mermaid-block__preview:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: -2px;
 }
 
@@ -129,10 +129,10 @@
 .rich-text-editor__content .ProseMirror table {
   border-collapse: collapse;
   width: 100%;
-  min-width: 420px;
+  min-width: min(420px, 100%);
   background: var(--bg-base);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
 }
 
 .rich-text-editor__content .ProseMirror th,

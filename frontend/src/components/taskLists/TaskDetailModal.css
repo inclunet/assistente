@@ -1,0 +1,319 @@
+.task-detail-modal .modal-body {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 0;
+}
+
+/* Header info */
+.task-detail__header {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  padding: 16px 24px 0;
+}
+
+.task-detail__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.task-detail__badge--status {
+  border: 1px solid var(--border-default);
+}
+
+.task-detail__badge--code {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+}
+
+.task-detail__badge--link {
+  color: var(--color-info);
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.task-detail__badge--link:hover {
+  text-decoration: underline;
+}
+
+.task-detail__badge--assignee {
+  color: var(--text-secondary);
+  border-color: var(--border-color);
+}
+
+.task-detail__badge--creator {
+  color: var(--text-tertiary);
+  border-color: var(--border-color);
+  font-style: italic;
+}
+
+.task-detail__badge--due {
+  color: var(--text-secondary);
+}
+
+.task-detail__badge--overdue {
+  color: var(--color-danger);
+}
+
+/* Description */
+.task-detail__section {
+  padding: 0 24px;
+}
+
+.task-detail__section-title {
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+  margin: 0 0 8px;
+}
+
+.task-detail__description {
+  color: var(--text-primary);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+
+.task-detail__description--empty {
+  color: var(--text-muted);
+  font-style: italic;
+}
+
+/* Notes section */
+.task-detail__notes {
+  border-top: 1px solid var(--border-default);
+  padding: 16px 24px 24px;
+  flex: 1;
+  overflow-y: auto;
+}
+
+.task-detail__notes-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.task-detail__notes-header h3 {
+  margin: 0;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: var(--text-secondary);
+}
+
+.task-detail__add-note-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-default);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background-color var(--duration-fast) var(--ease-default);
+}
+
+.task-detail__add-note-btn:hover {
+  background: var(--bg-subtle);
+}
+
+/* Notes list */
+.task-detail__notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-detail__notes-empty {
+  text-align: center;
+  color: var(--text-muted);
+  font-style: italic;
+  padding: 24px 0;
+  font-size: 0.875rem;
+}
+
+/* Single note */
+.task-detail__note {
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-md);
+  padding: 10px 12px;
+  background: var(--bg-default);
+}
+
+.task-detail__note-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+
+.task-detail__note-type {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  font-size: 0.7rem;
+  font-weight: 600;
+}
+
+.task-detail__note-type--internal {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+
+.task-detail__note-type--customer {
+  background: color-mix(in srgb, var(--color-info) 15%, transparent);
+  color: var(--color-info);
+}
+
+.task-detail__note-type--agent {
+  background: color-mix(in srgb, var(--color-success) 15%, transparent);
+  color: var(--color-success);
+}
+
+.task-detail__note-type--system {
+  background: color-mix(in srgb, var(--color-warning) 15%, transparent);
+  color: var(--color-warning);
+}
+
+.task-detail__note-author {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+.task-detail__note-date {
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  margin-left: auto;
+}
+
+.task-detail__note-actions {
+  display: flex;
+  gap: 4px;
+  margin-left: 4px;
+}
+
+.task-detail__note-action {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 0.75rem;
+  cursor: pointer;
+  padding: 1px 4px;
+  border-radius: var(--radius-xs);
+}
+
+.task-detail__note-action:hover {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+}
+
+.task-detail__note-action--danger:hover {
+  color: var(--color-danger);
+}
+
+.task-detail__note-content {
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--text-primary);
+}
+
+.task-detail__note-content p {
+  margin: 0;
+}
+
+/* Note form (inline) */
+.task-detail__note-form {
+  border: 1px solid var(--border-focus);
+  border-radius: var(--radius-md);
+  padding: 12px;
+  background: var(--bg-subtle);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.task-detail__note-form-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.task-detail__note-form-row select {
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-default);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  min-width: 150px;
+}
+
+.task-detail__note-form-row input {
+  flex: 1;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-default);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+
+.task-detail__note-form textarea {
+  width: 100%;
+  min-height: 80px;
+  padding: 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-default);
+  color: var(--text-primary);
+  font-size: 0.85rem;
+  font-family: inherit;
+  resize: vertical;
+  box-sizing: border-box;
+}
+
+.task-detail__note-form-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.task-detail__note-form-actions button {
+  padding: 4px 12px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border-default);
+  background: var(--bg-default);
+  color: var(--text-primary);
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.task-detail__note-form-actions button:hover {
+  background: var(--bg-subtle);
+}
+
+.task-detail__note-form-actions button[data-primary] {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border-color: var(--accent);
+}
+
+.task-detail__note-form-actions button[data-primary]:hover {
+  opacity: 0.9;
+}

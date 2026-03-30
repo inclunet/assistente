@@ -1,8 +1,19 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo } from 'react';
+import { FilterOutlined, UpOutlined, DownOutlined } from '@ant-design/icons';
 import { skills } from '@wailsjs/go/models';
 import { useTranslation } from 'react-i18next';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { DataGrid, DataGridColumn } from '../ui/DataGrid';
+import { Combobox, type ComboboxItem } from '../pickers/Combobox';
+import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
+
+export type SkillFilter = 'all' | 'exe' | 'home' | 'workdir';
+
+const SKILL_SOURCE_LABELS: Record<string, string> = {
+  exe: 'Builtin',
+  home: 'Home',
+  workdir: 'Workspace',
+};
 
 export interface ProfileSkillsSectionProps {
   availableSkills: Array<
@@ -24,6 +35,7 @@ interface SkillRow {
   slug: string;
   name: string;
   description: string;
+  source: string;
 }
 
 export function ProfileSkillsSection({
@@ -36,27 +48,59 @@ export function ProfileSkillsSection({
 }: ProfileSkillsSectionProps) {
   const { t } = useTranslation();
   const [focusedSlug, setFocusedSlug] = useState<string | null>(null);
+  const [filter, setFilter] = useState<SkillFilter>('all');
+  const [search, setSearch] = useState('');
 
   const autoloadSet = new Set(enabledSkills);
 
   const autoloadSkills = enabledSkills
     .map(slug => availableSkills.find(s => s.slug === slug))
-    .filter(Boolean) as Array<{ slug: string; name: string; description?: string }>; 
+    .filter(Boolean) as Array<{ slug: string; name: string; description?: string; source?: string }>;
   const onDemandSkills = availableSkills.filter(s => !autoloadSet.has(s.slug));
-  const sortedSkills: SkillRow[] = [...autoloadSkills, ...onDemandSkills].map(s => ({
-    id: s.slug,
-    slug: s.slug,
-    name: s.name,
-    description: s.description || '',
-  }));
+  const sortedSkills: SkillRow[] = useMemo(
+    () => [...autoloadSkills, ...onDemandSkills].map(s => ({
+      id: s.slug,
+      slug: s.slug,
+      name: s.name,
+      description: s.description || '',
+      source: s.source || 'exe',
+    })),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [availableSkills, enabledSkills],
+  );
+
+  const availableSources = useMemo(() => {
+    const sources = new Set(sortedSkills.map((s) => s.source));
+    return Array.from(sources).sort();
+  }, [sortedSkills]);
+
+  const filterItems: ComboboxItem[] = useMemo(() => [
+    { value: 'all', label: t('profiles.filterAll', 'Todas') },
+    ...availableSources.map((src) => ({
+      value: src,
+      label: t(`profiles.filterSkillSource.${src}`, SKILL_SOURCE_LABELS[src] ?? src),
+    })),
+  ], [t, availableSources]);
+
+  const filteredSkills = useMemo(() => {
+    const term = search.toLowerCase().trim();
+    return sortedSkills.filter((row) => {
+      if (filter !== 'all' && row.source !== filter) return false;
+      if (term && !row.name.toLowerCase().includes(term) && !row.description.toLowerCase().includes(term)) return false;
+      return true;
+    });
+  }, [sortedSkills, filter, search]);
+
+  const filteredSlugs = useMemo(() => new Set(filteredSkills.map((r) => r.slug)), [filteredSkills]);
+  const isFiltered = filter !== 'all' || search.trim() !== '';
 
   const selectedIds = new Set<string | number>(enabledSkills);
 
   const allSlugs = availableSkills.map(s => s.slug);
-  const allAutoloaded = enabledSkills.length === allSlugs.length && allSlugs.length > 0;
-  const noneAutoloaded = enabledSkills.length === 0;
-  const showSelectAll = !allAutoloaded;
-  const showDeselectAll = !noneAutoloaded;
+  const allFilteredSelected = [...filteredSlugs].every((s) => selectedIds.has(s));
+  const noneFilteredSelected = [...filteredSlugs].every((s) => !selectedIds.has(s));
+  const showSelectAll = !allFilteredSelected;
+  const showDeselectAll = !noneFilteredSelected;
 
   const handleSelectionChange = useCallback((newSelectedIds: Set<string | number>) => {
     const prevSet = new Set(enabledSkills);
@@ -79,9 +123,29 @@ export function ProfileSkillsSection({
     }
   }, [enabledSkills, allSlugs, onChange]);
 
+  const handleSelectFiltered = useCallback(() => {
+    if (!isFiltered) {
+      onChange('enabled_skills', allSlugs);
+      return;
+    }
+    const current = new Set(enabledSkills);
+    for (const slug of filteredSlugs) current.add(slug);
+    const result = allSlugs.filter((s) => current.has(s));
+    onChange('enabled_skills', result.length === allSlugs.length ? allSlugs : result);
+  }, [isFiltered, enabledSkills, allSlugs, filteredSlugs, onChange]);
+
+  const handleDeselectFiltered = useCallback(() => {
+    if (!isFiltered) {
+      onChange('enabled_skills', []);
+      return;
+    }
+    const result = enabledSkills.filter((s) => !filteredSlugs.has(s));
+    onChange('enabled_skills', result);
+  }, [isFiltered, enabledSkills, filteredSlugs, onChange]);
+
   const handleMoveItem = useCallback((fromIndex: number, toIndex: number) => {
-    const item = sortedSkills[fromIndex];
-    const target = sortedSkills[toIndex];
+    const item = filteredSkills[fromIndex];
+    const target = filteredSkills[toIndex];
     if (!item || !target) return;
     if (!autoloadSet.has(item.slug) || !autoloadSet.has(target.slug)) return;
 
@@ -92,7 +156,7 @@ export function ProfileSkillsSection({
     const newList = [...enabledSkills];
     [newList[fromEnabledIdx], newList[toEnabledIdx]] = [newList[toEnabledIdx], newList[fromEnabledIdx]];
     onChange('enabled_skills', newList);
-  }, [sortedSkills, autoloadSet, enabledSkills, onChange]);
+  }, [filteredSkills, autoloadSet, enabledSkills, onChange]);
 
   const handleMoveButton = useCallback((direction: 'up' | 'down') => {
     if (!focusedSlug || !autoloadSet.has(focusedSlug)) return;
@@ -114,6 +178,8 @@ export function ProfileSkillsSection({
   const focusedEnabledIdx = focusedSlug ? enabledSkills.indexOf(focusedSlug) : -1;
   const canMoveUp = focusedIsEnabled && focusedEnabledIdx > 0;
   const canMoveDown = focusedIsEnabled && focusedEnabledIdx >= 0 && focusedEnabledIdx < enabledSkills.length - 1;
+
+  const toolbarRef = useToolbarKeyboardNav();
 
   const columns: DataGridColumn<SkillRow>[] = [
     {
@@ -171,18 +237,40 @@ export function ProfileSkillsSection({
           <p className="profiles-field__hint">
             {t('profiles.skillsHint', 'Marque skills para autoload (injetados no system prompt em ordem). Desmarcados ficam disponíveis sob demanda.')}
           </p>
+          <input
+            type="text"
+            className="profiles-field__filter-search"
+            placeholder={t('profiles.skillsSearchPlaceholder', 'Buscar skill…')}
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            aria-label={t('profiles.skillsSearchLabel', 'Filtrar skills por nome')}
+            data-testid="skills-search"
+          />
           <div
+            ref={toolbarRef}
             className="profiles-field__tools-actions"
             role="toolbar"
             aria-label={t('profiles.skillsActionsLabel', 'Ações de seleção de skills')}
             data-testid="skills-toolbar"
           >
+            {availableSources.length > 1 && (
+              <div data-testid="skills-filter">
+                <Combobox
+                  items={filterItems}
+                  selected={filter}
+                  onSelect={(value) => setFilter(value as SkillFilter)}
+                  label={t('profiles.skillsFilterLabel', 'Filtrar por origem')}
+                  icon={<FilterOutlined aria-hidden="true" />}
+                  maxWidth="180px"
+                  disabled={disabled}
+                />
+              </div>
+            )}
             {showSelectAll && (
               <button
                 type="button"
                 className="profiles-field__tools-toggle"
-                tabIndex={0}
-                onClick={() => onChange('enabled_skills', allSlugs)}
+                onClick={handleSelectFiltered}
                 disabled={disabled}
                 data-testid="skills-select-all"
               >
@@ -193,8 +281,7 @@ export function ProfileSkillsSection({
               <button
                 type="button"
                 className="profiles-field__tools-toggle"
-                tabIndex={showSelectAll ? -1 : 0}
-                onClick={() => onChange('enabled_skills', [])}
+                onClick={handleDeselectFiltered}
                 disabled={disabled}
                 data-testid="skills-deselect-all"
               >
@@ -210,7 +297,7 @@ export function ProfileSkillsSection({
               aria-label={t('profiles.skillMoveUp', 'Subir skill')}
               data-testid="skills-move-up"
             >
-              ↑
+              <UpOutlined aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -221,7 +308,7 @@ export function ProfileSkillsSection({
               aria-label={t('profiles.skillMoveDown', 'Descer skill')}
               data-testid="skills-move-down"
             >
-              ↓
+              <DownOutlined aria-hidden="true" />
             </button>
             <button
               type="button"
@@ -237,20 +324,26 @@ export function ProfileSkillsSection({
                 : t('profiles.skillsOnDemandOn', 'Sob demanda: ativado')}
             </button>
           </div>
-          <DataGrid<SkillRow>
-            items={sortedSkills}
-            columns={columns}
-            label={t('profiles.skillsGridLabel', 'Lista de skills')}
-            getItemId={(item) => item.slug}
-            selectedIds={selectedIds}
-            selectionMode="checkbox"
-            onSelectionChange={handleSelectionChange}
-            onMoveItem={handleMoveItem}
-            onFocusChange={handleFocusChange}
-            showHeader={true}
-            autoFocusOnMount={false}
-            className="profiles-skills-datagrid"
-          />
+          {filteredSkills.length > 0 ? (
+            <DataGrid<SkillRow>
+              items={filteredSkills}
+              columns={columns}
+              label={t('profiles.skillsGridLabel', 'Lista de skills')}
+              getItemId={(item) => item.slug}
+              selectedIds={selectedIds}
+              selectionMode="checkbox"
+              onSelectionChange={handleSelectionChange}
+              onMoveItem={handleMoveItem}
+              onFocusChange={handleFocusChange}
+              showHeader={true}
+              autoFocusOnMount={false}
+              className="profiles-skills-datagrid"
+            />
+          ) : (
+            <p className="profiles-field__hint profiles-field__no-results">
+              {t('profiles.skillsNoResults', 'Nenhum skill corresponde ao filtro.')}
+            </p>
+          )}
         </>
       ) : (
         <p className="profiles-field__hint" style={{ margin: 0 }}>

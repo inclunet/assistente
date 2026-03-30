@@ -1,0 +1,65 @@
+.template-editor {
+  position: relative;
+  border-radius: var(--radius-md, 6px);
+  overflow: hidden;
+}
+
+/* --- Single-line: match <Input> appearance --- */
+
+.template-editor--single-line {
+  border: 1px solid var(--border-default, #444);
+  border-radius: var(--radius-md, 6px);
+  background: var(--bg-input, #1e1e1e);
+  transition: border-color 0.2s, box-shadow 0.2s, outline 0.2s;
+}
+
+.template-editor--single-line .monaco-editor,
+.template-editor--single-line .monaco-editor .overflow-guard {
+  border-radius: var(--radius-md, 6px);
+}
+
+.template-editor--single-line .monaco-editor .margin {
+  display: none !important;
+}
+
+.template-editor--single-line .monaco-editor,
+.template-editor--single-line .monaco-editor .monaco-editor-background {
+  background: transparent !important;
+}
+
+.template-editor--single-line .monaco-editor .lines-content {
+  padding-left: 0.75rem;
+}
+
+.template-editor--focused {
+  outline: 2px solid var(--accent, #007acc);
+  outline-offset: 1px;
+  border-color: var(--accent, #007acc);
+  box-shadow: 0 0 0 3px var(--focus-ring, rgba(0, 122, 204, 0.3));
+}
+
+/* --- Placeholder --- */
+
+.template-editor__placeholder {
+  position: absolute;
+  top: 50%;
+  left: 0.75rem;
+  right: 0.75rem;
+  transform: translateY(-50%);
+  pointer-events: none;
+  color: var(--text-muted, #7e97b8);
+  font-size: 0.9375rem;
+  font-family: var(--font-mono, 'Consolas', 'Monaco', 'Courier New', monospace);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* --- Loading skeleton --- */
+
+.template-editor__loading {
+  height: 38px;
+  background: var(--bg-input, #1e1e1e);
+  border-radius: var(--radius-md, 6px);
+  border: 1px solid var(--border-default, #444);
+}

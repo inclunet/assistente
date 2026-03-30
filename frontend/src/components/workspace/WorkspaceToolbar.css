@@ -1,6 +1,8 @@
-/* Overrides para o Toolbar padrão quando usado como workspace toolbar */
-.workspace-toolbar {
+/* Overrides para o Toolbar quando usado como workspace toolbar */
+.toolbar.workspace-toolbar {
   min-height: 40px;
+  padding: 0.375rem 0.75rem;
+  flex-shrink: 0;
 }
 
 .workspace-toolbar__rename-input {
@@ -18,4 +20,15 @@
 
 .workspace-toolbar__rename-input:focus {
   box-shadow: 0 0 0 2px var(--accent-dim);
+}
+
+/* Ghost style for picker buttons inside workspace toolbar */
+.toolbar.workspace-toolbar .picker-button {
+  background: transparent;
+  border-color: transparent;
+}
+
+.toolbar.workspace-toolbar .picker-button:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-subtle);
 }

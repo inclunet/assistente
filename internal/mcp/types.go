@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	mcpsdk "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -55,8 +56,76 @@ type ServerConfig struct {
 	OAuth2CallbackPort    int      `json:"oauth2_callback_port,omitempty" yaml:"oauth2_callback_port,omitempty"`
 	OAuth2CallbackHost    string   `json:"oauth2_callback_host,omitempty" yaml:"oauth2_callback_host,omitempty"`
 	OAuth2RegistrationURL string   `json:"oauth2_registration_url,omitempty" yaml:"oauth2_registration_url,omitempty"`
+	OAuth2DeviceAuthURL   string   `json:"oauth2_device_auth_url,omitempty" yaml:"oauth2_device_auth_url,omitempty"`
+	DisableSSE  bool              `json:"disable_sse,omitempty" yaml:"disable_sse,omitempty"`
 	Enabled     bool              `json:"enabled" yaml:"enabled"`
 	AutoConnect bool              `json:"auto_connect" yaml:"auto_connect"`
+}
+
+// ParseServerConfig unmarshals JSON data into a ServerConfig, applying smart
+// defaults: transport is auto-detected from url/command; enabled and auto_connect
+// default to true when not explicitly present in JSON; name defaults to slug.
+func ParseServerConfig(data []byte, slug string) (ServerConfig, error) {
+	var cfg ServerConfig
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return cfg, err
+	}
+
+	// Detect whether "enabled" and "auto_connect" were explicitly set
+	var raw map[string]json.RawMessage
+	_ = json.Unmarshal(data, &raw)
+	if _, ok := raw["enabled"]; !ok {
+		cfg.Enabled = true
+	}
+	if _, ok := raw["auto_connect"]; !ok {
+		cfg.AutoConnect = true
+	}
+
+	cfg.applyDefaults(slug)
+	return cfg, nil
+}
+
+func (cfg *ServerConfig) applyDefaults(slug string) {
+	if cfg.Transport == "" {
+		switch {
+		case cfg.URL != "":
+			cfg.Transport = TransportStreamable
+		case cfg.Command != "":
+			cfg.Transport = TransportStdio
+		}
+	}
+	if cfg.AuthType == "" {
+		cfg.AuthType = cfg.inferAuthType()
+	}
+	if cfg.Name == "" && slug != "" {
+		cfg.Name = formatSlugAsName(slug)
+	}
+}
+
+func (cfg *ServerConfig) inferAuthType() AuthType {
+	hasOAuthEndpoints := cfg.OAuth2AuthURL != "" || cfg.OAuth2TokenURL != ""
+	hasClientID := cfg.OAuth2ClientID != ""
+	hasRegistrationURL := cfg.OAuth2RegistrationURL != ""
+	hasDeviceAuthURL := cfg.OAuth2DeviceAuthURL != ""
+
+	if hasOAuthEndpoints || hasClientID || hasRegistrationURL || hasDeviceAuthURL {
+		return AuthOAuth2PKCE
+	}
+
+	if cfg.URL != "" && cfg.Command == "" {
+		return AuthOAuth2PKCE
+	}
+
+	return AuthNone
+}
+
+func formatSlugAsName(slug string) string {
+	slug = strings.ReplaceAll(slug, "-", " ")
+	slug = strings.ReplaceAll(slug, "_", " ")
+	if len(slug) > 0 {
+		return strings.ToUpper(slug[:1]) + slug[1:]
+	}
+	return slug
 }
 
 // ServerStatus é o estado runtime de um servidor MCP (não persistido).

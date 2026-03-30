@@ -26,7 +26,10 @@ describe('Tabs', () => {
     const panelB = document.getElementById('tabsmain-tabpanel-b');
 
     expect(panelA).not.toHaveAttribute('hidden');
+    expect(panelA).toHaveTextContent('Painel A');
+
     expect(panelB).toHaveAttribute('hidden');
+    expect(panelB).toBeEmptyDOMElement();
   });
 
   it('dispara onValueChange no clique', () => {
@@ -43,6 +46,40 @@ describe('Tabs', () => {
 
     fireEvent.click(screen.getByRole('tab', { name: 'B' }));
     expect(onValueChange).toHaveBeenCalledWith('b');
+  });
+
+  it('não renderiza conteúdo de painéis inativos (acessibilidade)', () => {
+    const { rerender } = render(
+      <Tabs value="a" onValueChange={() => {}} idBase="acc">
+        <TabList ariaLabel="Abas">
+          <Tab value="a">A</Tab>
+          <Tab value="b">B</Tab>
+        </TabList>
+        <TabPanel value="a">Conteúdo A</TabPanel>
+        <TabPanel value="b">Conteúdo B</TabPanel>
+      </Tabs>
+    );
+
+    expect(screen.getByText('Conteúdo A')).toBeInTheDocument();
+    expect(screen.queryByText('Conteúdo B')).not.toBeInTheDocument();
+
+    rerender(
+      <Tabs value="b" onValueChange={() => {}} idBase="acc">
+        <TabList ariaLabel="Abas">
+          <Tab value="a">A</Tab>
+          <Tab value="b">B</Tab>
+        </TabList>
+        <TabPanel value="a">Conteúdo A</TabPanel>
+        <TabPanel value="b">Conteúdo B</TabPanel>
+      </Tabs>
+    );
+
+    expect(screen.queryByText('Conteúdo A')).not.toBeInTheDocument();
+    expect(screen.getByText('Conteúdo B')).toBeInTheDocument();
+
+    const panelA = document.getElementById('acc-tabpanel-a');
+    expect(panelA).toHaveAttribute('hidden');
+    expect(panelA).toBeEmptyDOMElement();
   });
 
   it('navega com teclado e dispara onDelete', () => {

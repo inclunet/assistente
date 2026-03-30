@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useLandmarkNavigation, type Landmark } from './useLandmarkNavigation';
+import { useLandmarkNavigation, useHasParentLandmarks, type Landmark } from './useLandmarkNavigation';
 
 export interface UseGridPageLandmarksOptions {
   /** CSS class of the page root, used to scope queries (e.g. 'history-page') */
@@ -16,6 +16,7 @@ export interface UseGridPageLandmarksOptions {
  */
 export function useGridPageLandmarks({ pageClass, extraLandmarks }: UseGridPageLandmarksOptions) {
   const { t } = useTranslation();
+  const parentOwns = useHasParentLandmarks();
 
   const landmarks = useMemo<Landmark[]>(() => {
     const scope = () => document.querySelector(`.${pageClass}`) as HTMLElement | null;
@@ -73,5 +74,5 @@ export function useGridPageLandmarks({ pageClass, extraLandmarks }: UseGridPageL
     return base;
   }, [pageClass, extraLandmarks, t]);
 
-  useLandmarkNavigation({ landmarks, defaultLandmarkId: 'grid' });
+  useLandmarkNavigation({ landmarks, defaultLandmarkId: 'grid', enabled: !parentOwns });
 }

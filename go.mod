@@ -14,6 +14,7 @@ require (
 	github.com/inconshreveable/go-update v0.0.0-20160112193335-8152e7eb6ccf
 	github.com/modelcontextprotocol/go-sdk v1.4.0
 	github.com/pkg/browser v0.0.0-20240102092130-5ac0b6a4141c
+	github.com/robfig/cron/v3 v3.0.1
 	github.com/slack-go/slack v0.13.0
 	github.com/stretchr/testify v1.11.1
 	github.com/wailsapp/wails/v2 v2.10.2

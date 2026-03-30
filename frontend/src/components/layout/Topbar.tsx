@@ -4,25 +4,35 @@ import { useTranslation } from 'react-i18next';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { MenuButton, type MenuItem as MenuButtonItem, type MenuButtonRef } from './MenuButton';
 import { Menu, type MenuItem } from '../menu';
-import { useTheme, THEMES, type ThemeId } from '../../hooks/useTheme';
-import { LANGUAGES, type LanguageId } from '../../lib/i18n';
-import { useSettingsStore } from '../../store/settingsStore';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
+import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
+import {
+  ArrowLeftOutlined,
+  FolderOutlined,
+  HistoryOutlined,
+  CheckSquareOutlined,
+  UserSwitchOutlined,
+  ThunderboltOutlined,
+  SettingOutlined,
+  QuestionCircleOutlined,
+  InfoCircleOutlined,
+  PlusOutlined,
+  EditOutlined,
+  ExportOutlined,
+  ImportOutlined,
+  CheckOutlined,
+  DownOutlined,
+} from '@ant-design/icons';
 import './Topbar.css';
 
 const PAGE_TITLE_KEYS: Record<string, string> = {
   '/history': 'menu.history',
   '/tasklists': 'menu.tasklists',
+  '/jobs': 'menu.jobs',
   '/profiles': 'menu.profiles',
-  '/allowlists': 'menu.allowlists',
-  '/skills': 'menu.skills',
-  '/mcp': 'menu.mcp',
-  '/channels': 'menu.channels',
-  '/credentials': 'menu.credentials',
-  '/providers': 'menu.providers',
-  '/settings': 'menu.restoreDefaults',
+  '/settings': 'menu.settings',
   '/help': 'menu.help',
   '/about': 'menu.about',
   '/update': 'menu.about',
@@ -31,13 +41,8 @@ const PAGE_TITLE_KEYS: Record<string, string> = {
 const ROUTE_IDS: Record<string, string> = {
   '/history': 'history',
   '/tasklists': 'tasklists',
+  '/jobs': 'jobs',
   '/profiles': 'profiles',
-  '/allowlists': 'allowlists',
-  '/skills': 'skills',
-  '/mcp': 'mcp',
-  '/channels': 'channels',
-  '/credentials': 'credentials',
-  '/providers': 'providers',
   '/settings': 'settings',
   '/help': 'help',
   '/about': 'about',
@@ -45,16 +50,13 @@ const ROUTE_IDS: Record<string, string> = {
 };
 
 export function Topbar() {
-  const { t, i18n } = useTranslation();
+  const { t } = useTranslation();
   const navigate = useNavigate();
   const { pathname } = useLocation();
   const { announce } = useAnnouncer();
   const { workspace, workspaces, switchWorkspace, createWorkspace, renameWorkspace } = useWorkspaceStore();
-  const { theme: currentTheme, setTheme } = useTheme();
-  const updateConfig = useSettingsStore((s) => s.updateConfig);
-  const currentLang = i18n.language as LanguageId;
-
   const isWorkspaceRoute = pathname === '/' || pathname === '';
+  const toolbarRef = useToolbarKeyboardNav();
   const menuButtonRef = useRef<MenuButtonRef>(null);
   const pickerButtonRef = useRef<HTMLButtonElement>(null);
   const renameInputRef = useRef<HTMLInputElement>(null);
@@ -63,9 +65,10 @@ export function Topbar() {
   const [renameValue, setRenameValue] = useState('');
 
   // --- Page title ---
+  const resolvedPath = pathname.startsWith('/settings') ? '/settings' : pathname;
   const pageTitle = isWorkspaceRoute
     ? (workspace?.name || t('menu.appTitle'))
-    : t(PAGE_TITLE_KEYS[pathname] || 'menu.appTitle');
+    : t(PAGE_TITLE_KEYS[resolvedPath] || 'menu.appTitle');
 
   // --- Workspace picker (left, workspace route) — only workspace list ---
   const {
@@ -128,24 +131,22 @@ export function Topbar() {
     setRenameValue(workspace.name);
   }, [workspace]);
 
-  // Picker items: workspace list only
   const pickerItems = useMemo((): MenuItem[] => {
     return workspaces.map((ws) => ({
       id: `ws-${ws.id}`,
       label: ws.name,
-      icon: ws.is_active ? '●' : ' ',
+      icon: ws.is_active ? <CheckOutlined /> : undefined,
       shortcut: `${ws.tab_count} ${ws.tab_count === 1 ? t('workspace.tabSingular', 'aba') : t('workspace.tabPlural', 'abas')}`,
       checked: ws.is_active,
       action: () => { if (!ws.is_active) void switchWorkspace(ws.id); },
     }));
   }, [workspaces, switchWorkspace, t]);
 
-  // Context menu items: workspace management
   const ctxMenuItems = useMemo((): MenuItem[] => [
     {
       id: 'new-workspace',
       label: t('workspace.newWorkspace'),
-      icon: '➕',
+      icon: <PlusOutlined />,
       shortcut: 'Ctrl+Shift+N',
       action: () => {
         const name = `Workspace ${workspaces.length + 1}`;
@@ -156,7 +157,7 @@ export function Topbar() {
     {
       id: 'rename-workspace',
       label: t('workspace.rename', 'Renomear workspace'),
-      icon: '✏️',
+      icon: <EditOutlined />,
       shortcut: 'F2',
       action: startRename,
     },
@@ -164,13 +165,13 @@ export function Topbar() {
     {
       id: 'export-workspace',
       label: t('workspace.export', 'Exportar workspace'),
-      icon: '📤',
+      icon: <ExportOutlined />,
       action: handleExportWorkspace,
     },
     {
       id: 'import-workspace',
       label: t('workspace.import', 'Importar workspace'),
-      icon: '📥',
+      icon: <ImportOutlined />,
       action: handleImportWorkspace,
     },
   ], [workspaces.length, createWorkspace, announce, t, startRename, handleExportWorkspace, handleImportWorkspace]);
@@ -222,46 +223,21 @@ export function Topbar() {
     }
   }, [handleConfirmRename]);
 
-  // --- Main menu items (right, always) ---
-  const setLanguage = useCallback((id: LanguageId) => {
-    i18n.changeLanguage(id);
-    updateConfig({ language: id });
-  }, [i18n, updateConfig]);
-
-  const currentPage = ROUTE_IDS[pathname] || 'workspace';
+  const currentPage = ROUTE_IDS[resolvedPath] || 'workspace';
 
   const mainMenuItems: MenuButtonItem[] = useMemo(() => [
-    { id: 'history', label: t('menu.history'), icon: '📜', shortcut: 'Alt+H', onClick: () => navigate('/history') },
-    { id: 'tasklists', label: t('menu.tasklists'), icon: '✓', onClick: () => navigate('/tasklists') },
-    { id: 'profiles', label: t('menu.profiles'), icon: '🎭', shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
-    { id: 'allowlists', label: t('menu.allowlists'), icon: '🛡️', onClick: () => navigate('/allowlists') },
-    { id: 'skills', label: t('menu.skills'), icon: '🧠', onClick: () => navigate('/skills') },
-    { id: 'mcp', label: t('menu.mcp'), icon: '🔌', onClick: () => navigate('/mcp') },
-    { id: 'channels', label: t('menu.channels'), icon: '📡', onClick: () => navigate('/channels') },
-    { id: 'credentials', label: t('menu.credentials'), icon: '🔐', onClick: () => navigate('/credentials') },
-    { id: 'providers', label: t('menu.providers'), icon: '🤖', onClick: () => navigate('/providers') },
-    {
-      id: 'theme', label: t('menu.theme'), icon: '🎨',
-      submenu: THEMES.map((th) => ({
-        id: `theme-${th.id}`,
-        label: th.label,
-        icon: currentTheme === th.id ? '✓' : ' ',
-        onClick: () => setTheme(th.id as ThemeId),
-      })),
-    },
-    {
-      id: 'language', label: t('menu.language'), icon: '🌐',
-      submenu: LANGUAGES.map((lang) => ({
-        id: `lang-${lang.id}`,
-        label: lang.nativeLabel,
-        icon: currentLang === lang.id ? '✓' : ' ',
-        onClick: () => setLanguage(lang.id),
-      })),
-    },
-    { id: 'settings', label: t('menu.restoreDefaults'), icon: '↩️', onClick: () => navigate('/settings') },
-    { id: 'help', label: t('menu.help'), icon: '📚', shortcut: 'F1', onClick: () => navigate('/help') },
-    { id: 'about', label: t('menu.about'), icon: 'ℹ️', onClick: () => navigate('/about') },
-  ], [navigate, t, currentTheme, setTheme, currentLang, setLanguage]);
+    ...(!isWorkspaceRoute ? [
+      { id: 'back-to-workspace', label: t('menu.backToWorkspace'), icon: <ArrowLeftOutlined />, onClick: () => navigate('/') },
+      { id: 'sep-back', separator: true as const },
+    ] : []),
+    { id: 'history', label: t('menu.history'), icon: <HistoryOutlined />, shortcut: 'Alt+H', onClick: () => navigate('/history') },
+    { id: 'tasklists', label: t('menu.tasklists'), icon: <CheckSquareOutlined />, onClick: () => navigate('/tasklists') },
+    { id: 'jobs', label: t('menu.jobs'), icon: <ThunderboltOutlined />, onClick: () => navigate('/jobs') },
+    { id: 'profiles', label: t('menu.profiles'), icon: <UserSwitchOutlined />, shortcut: 'Alt+P', onClick: () => navigate('/profiles') },
+    { id: 'settings', label: t('menu.settings'), icon: <SettingOutlined />, onClick: () => navigate('/settings') },
+    { id: 'help', label: t('menu.help'), icon: <QuestionCircleOutlined />, shortcut: 'F1', onClick: () => navigate('/help') },
+    { id: 'about', label: t('menu.about'), icon: <InfoCircleOutlined />, onClick: () => navigate('/about') },
+  ], [navigate, t, isWorkspaceRoute]);
 
   // --- Keyboard shortcuts ---
   useEffect(() => {
@@ -281,8 +257,26 @@ export function Topbar() {
 
   return (
     <>
-      <header className="topbar" role="banner">
+      <header className="topbar">
+        <div
+          className="topbar__toolbar"
+          role="toolbar"
+          aria-label={t('landmarks.topbar', 'Barra de navegação')}
+          ref={toolbarRef as React.RefObject<HTMLDivElement>}
+        >
         <div className="topbar__left">
+          <MenuButton
+            ref={menuButtonRef}
+            items={mainMenuItems}
+            currentItemId={currentPage}
+            buttonLabel={t('menu.navLabel')}
+            tabIndex={-1}
+          />
+        </div>
+
+        <h1 className="topbar__title">{pageTitle}</h1>
+
+        <div className="topbar__right">
           {isWorkspaceRoute ? (
             isRenaming ? (
               <input
@@ -304,10 +298,11 @@ export function Topbar() {
                 onDoubleClick={startRename}
                 aria-expanded={pickerMenu.visible}
                 aria-label={t('workspace.workspaceList')}
+                tabIndex={-1}
               >
-                <span className="topbar__picker-icon" aria-hidden="true">📂</span>
+                <span className="topbar__picker-icon" aria-hidden="true"><FolderOutlined /></span>
                 <span className="topbar__picker-name">{workspace?.name || 'Workspace'}</span>
-                <span className="topbar__picker-arrow" aria-hidden="true">▾</span>
+                <span className="topbar__picker-arrow" aria-hidden="true"><DownOutlined /></span>
               </button>
             )
           ) : (
@@ -316,22 +311,13 @@ export function Topbar() {
               onClick={() => navigate('/')}
               aria-label={t('menu.backToWorkspace')}
               title={t('menu.backToWorkspace')}
+              tabIndex={-1}
             >
-              <span aria-hidden="true">←</span>
+              <ArrowLeftOutlined aria-hidden="true" />
               <span>{t('menu.backToWorkspace')}</span>
             </button>
           )}
         </div>
-
-        <h1 className="topbar__title">{pageTitle}</h1>
-
-        <div className="topbar__right">
-          <MenuButton
-            ref={menuButtonRef}
-            items={mainMenuItems}
-            currentItemId={currentPage}
-            buttonLabel={t('menu.navLabel')}
-          />
         </div>
       </header>
 
@@ -341,6 +327,8 @@ export function Topbar() {
         y={pickerMenu.y}
         visible={pickerMenu.visible}
         ariaLabel={pickerMenu.ariaLabel || t('workspace.workspaceList')}
+        searchable
+        searchPlaceholder={t('workspace.searchWorkspaces', 'Buscar workspace...')}
         onClose={closePicker}
         onSelect={onPickerSelect}
       />

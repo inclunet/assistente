@@ -1,4 +1,5 @@
-import { useState, useEffect, useImperativeHandle, forwardRef } from 'react';
+import { useState, useEffect, useImperativeHandle, forwardRef, type ReactNode } from 'react';
+import { CloseCircleOutlined, RobotOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { GetModels, GetModelsByProvider, GetLLMProvidersWithStatus } from '@wailsjs/go/main/App';
 import { ComboboxItem } from './Combobox';
@@ -12,7 +13,7 @@ export interface ModelPickerProps {
     value: string;
     onChange: (value: string) => void;
     label?: string;
-    icon?: string;
+    icon?: ReactNode;
     placeholder?: string;
     disabled?: boolean;
     maxWidth?: string;
@@ -30,7 +31,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   value,
   onChange,
   label = 'Modelo',
-  icon = '🤖',
+  icon = <RobotOutlined />,
   placeholder = 'Filtrar modelos...',
   disabled = false,
   maxWidth = '180px',
@@ -120,7 +121,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
   }));
 
   const defaultModelLabel = t('pickers.model.default', 'Padrão do provedor');
-  const defaultModelOption: ComboboxItem = { value: DEFAULT_MODEL_SENTINEL, label: `⭐ ${defaultModelLabel}` };
+  const defaultModelOption: ComboboxItem = { value: DEFAULT_MODEL_SENTINEL, label: defaultModelLabel };
   const modelItems: ComboboxItem[] = models.map(m => ({ value: m, label: m }));
   const items: ComboboxItem[] = variant === 'form'
     ? [defaultModelOption, ...modelItems]
@@ -156,7 +157,7 @@ export const ModelPicker = forwardRef<ModelPickerRef, ModelPickerProps>(({
       loadingClassName={{ form: 'loading-state', toolbar: 'model-picker-toolbar loading' }}
       errorClassName={{ form: 'error-state', toolbar: 'model-picker-toolbar error' }}
       helpTextClassName="help-text"
-      errorIcon={{ toolbar: '❌', form: undefined }}
+      errorIcon={{ toolbar: <CloseCircleOutlined />, form: undefined }}
       loadingLabel={{ form: t('pickers.model.loading'), toolbar: t('common.loading') }}
       errorLabel={{ form: error || t('pickers.model.loadError'), toolbar: t('common.error') }}
     />

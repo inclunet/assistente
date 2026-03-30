@@ -1,4 +1,6 @@
 import React, { useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { LoadingOutlined, CaretRightOutlined } from '@ant-design/icons';
 import './ThreadIndicator.css';
 
 export interface ThreadIndicatorProps {
@@ -15,7 +17,7 @@ export const ThreadIndicator: React.FC<ThreadIndicatorProps> = React.memo(({
   isLoading = false,
   onToggle,
 }) => {
-  // Retorna null cedo se não há filhos (não precisa renderizar nada)
+  const { t } = useTranslation();
   if (childCount === 0) return null;
 
   const handleClick = useCallback((e: React.MouseEvent) => {
@@ -30,17 +32,20 @@ export const ThreadIndicator: React.FC<ThreadIndicatorProps> = React.memo(({
       className={`thread-indicator ${isExpanded ? 'expanded' : ''}`}
       onClick={handleClick}
       aria-expanded={isExpanded}
-      aria-label={isExpanded ? 'Recolher interações' : 'Expandir interações'}
+      aria-label={isExpanded
+        ? `${t('chat.collapseThread')}, ${t('chat.interactionCount', { count: childCount })}`
+        : `${t('chat.expandThread')}, ${t('chat.interactionCount', { count: childCount })}`
+      }
       disabled={isLoading}
       tabIndex={-1}
     >
       {isLoading ? (
-        <span className="thread-indicator__spinner">⏳</span>
+        <span className="thread-indicator__spinner" aria-hidden="true"><LoadingOutlined /></span>
       ) : (
-        <span className={`thread-indicator__arrow ${isExpanded ? 'expanded' : ''}`}>▶</span>
+        <span className={`thread-indicator__arrow ${isExpanded ? 'expanded' : ''}`} aria-hidden="true"><CaretRightOutlined /></span>
       )}
       <span className="thread-indicator__count">
-        {childCount} {childCount === 1 ? 'interação' : 'interações'}
+        {t('chat.interactionCount', { count: childCount })}
       </span>
     </button>
   );

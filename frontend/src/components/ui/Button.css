@@ -7,8 +7,23 @@
   border-radius: var(--radius-md);
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.2s;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default),
+    box-shadow var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default);
   font-family: inherit;
+}
+
+.btn:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 4px var(--focus-ring);
+}
+
+.btn:active:not(:disabled) {
+  transform: translateY(0) scale(0.98);
 }
 
 .btn:disabled {
@@ -24,7 +39,7 @@
 
 .btn--md {
   padding: 0.5rem 1rem;
-  font-size: 0.9375rem;
+  font-size: 0.875rem;
 }
 
 .btn--lg {
@@ -40,6 +55,8 @@
 
 .btn--primary:hover:not(:disabled) {
   background: var(--accent-strong);
+  transform: translateY(-1px);
+  box-shadow: 0 2px 8px var(--accent-dim);
 }
 
 .btn--secondary {
@@ -101,8 +118,4 @@
   border-top-color: var(--text-inverse);
   border-radius: 50%;
   animation: spin 0.6s linear infinite;
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
 }

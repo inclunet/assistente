@@ -1,5 +1,17 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  PlusOutlined,
+  SettingOutlined,
+  MessageOutlined,
+  FileTextOutlined,
+  CodeOutlined,
+  CheckSquareOutlined,
+  EditOutlined,
+  ExportOutlined,
+  ImportOutlined,
+  FolderOutlined,
+} from '@ant-design/icons';
 import { useWorkspaceStore, type TabType } from '../../store/workspaceStore';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../ui/Toolbar';
 import { Menu, type MenuItem } from '../menu';
@@ -9,11 +21,11 @@ import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import './WorkspaceToolbar.css';
 
-const TAB_TYPE_OPTIONS: { type: TabType; icon: string; labelKey: string; chordKey: string }[] = [
-  { type: 'chat', icon: '💬', labelKey: 'workspace.newChat', chordKey: 'C' },
-  { type: 'editor', icon: '📝', labelKey: 'workspace.newEditor', chordKey: 'E' },
-  { type: 'terminal', icon: '>_', labelKey: 'workspace.newTerminal', chordKey: 'R' },
-  { type: 'tasklist', icon: '✅', labelKey: 'workspace.newTasklist', chordKey: 'T' },
+const TAB_TYPE_OPTIONS: { type: TabType; icon: ReactNode; labelKey: string; chordKey: string }[] = [
+  { type: 'chat', icon: <MessageOutlined />, labelKey: 'workspace.newChat', chordKey: 'C' },
+  { type: 'editor', icon: <FileTextOutlined />, labelKey: 'workspace.newEditor', chordKey: 'E' },
+  { type: 'terminal', icon: <CodeOutlined />, labelKey: 'workspace.newTerminal', chordKey: 'R' },
+  { type: 'tasklist', icon: <CheckSquareOutlined />, labelKey: 'workspace.newTasklist', chordKey: 'T' },
 ];
 
 const TAB_TYPE_DEFAULTS: Record<TabType, string> = {
@@ -128,7 +140,7 @@ export function WorkspaceToolbar() {
     {
       id: 'new-workspace',
       label: t('workspace.newWorkspace'),
-      icon: '➕',
+      icon: <PlusOutlined />,
       shortcut: 'Ctrl+Shift+N',
       action: () => {
         const name = `Workspace ${workspaces.length + 1}`;
@@ -139,7 +151,7 @@ export function WorkspaceToolbar() {
     {
       id: 'rename-workspace',
       label: t('workspace.rename', 'Renomear workspace'),
-      icon: '✏️',
+      icon: <EditOutlined />,
       shortcut: 'F2',
       action: startRename,
     },
@@ -147,20 +159,20 @@ export function WorkspaceToolbar() {
     {
       id: 'export-workspace',
       label: t('workspace.export', 'Exportar workspace'),
-      icon: '📤',
+      icon: <ExportOutlined />,
       action: handleExportWorkspace,
     },
     {
       id: 'import-workspace',
       label: t('workspace.import', 'Importar workspace'),
-      icon: '📥',
+      icon: <ImportOutlined />,
       action: handleImportWorkspace,
     },
     { id: 'sep-2', separator: true },
     {
       id: 'set-workdir',
       label: t('workspace.setWorkDir', 'Diretório de trabalho...'),
-      icon: '📁',
+      icon: <FolderOutlined />,
       disabled: true,
     },
   ], [workspaces.length, createWorkspace, announce, t, startRename, handleExportWorkspace, handleImportWorkspace]);
@@ -235,7 +247,7 @@ export function WorkspaceToolbar() {
             <ToolbarButton
               ref={newTabButtonRef}
               label={t('workspace.newTab')}
-              icon="➕"
+              icon={<PlusOutlined />}
               shortcut="Ctrl+N"
               onClick={handleOpenNewTab}
               aria-expanded={newTabMenu.visible}
@@ -257,7 +269,7 @@ export function WorkspaceToolbar() {
               <ToolbarButton
                 ref={wsMenuButtonRef}
                 label={t('workspace.workspaceOptions', 'Opções do workspace')}
-                icon="⚙️"
+                icon={<SettingOutlined />}
                 onClick={handleOpenWsMenu}
                 aria-expanded={wsMenu.visible}
               />
@@ -271,7 +283,7 @@ export function WorkspaceToolbar() {
               variant="toolbar"
               label={t('workspace.profileLabel', 'Perfil')}
               description={t('workspace.profileDescription')}
-              icon="🎭"
+              icon=""
               onChange={handleProfileChange}
               onAnnounce={announce}
               onAfterSelect={() => restoreDefaultFocus()}

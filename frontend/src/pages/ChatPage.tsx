@@ -1,5 +1,7 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useTranslation } from 'react-i18next';
+import { Alert, Button } from 'antd';
 import { useChatStore } from '../store/chatStore';
 import { useEditorStore } from '../store/editorStore';
 import { ttsService } from '../services/tts';
@@ -9,20 +11,21 @@ import { ChatToolbar } from '../components/chat/ChatToolbar';
 import { ContextMenu } from '../components/menu';
 import { KeyboardShortcutsHelp } from '../components/ui/KeyboardShortcutsHelp';
 import { useChatKeyboardNav } from '../hooks/useChatKeyboardNav';
+import { useTabScrollState } from '../hooks/useTabScrollState';
 import { useContextMenu, useMessageActions } from '../hooks/useContextMenu';
 import { MediaFile } from '../services/mediaService';
 import { DeleteMessage } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { announce } from '../hooks/useAnnouncer';
 import { handleError, ErrorSeverity, ErrorMessages } from '../utils/errorHandler';
-import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
 import './ChatPage.css';
 
 export default function ChatPage() {
+  const { t } = useTranslation();
   const navigate = useNavigate();
-  useContentPageLandmarks({ pageClass: 'chat-page' });
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
+  useTabScrollState(messagesContainerRef);
   const hasAutoFocusedRef = useRef(false);
   const retryButtonRef = useRef<HTMLButtonElement>(null);
   const wasLoadingRef = useRef(false);
@@ -68,7 +71,7 @@ export default function ChatPage() {
       messageId = Number.isNaN(parsedId) ? null : parsedId;
       if (messageId !== null) {
         await DeleteMessage(messageId);
-        announce('Mensagem excluída');
+        announce(t('chat.announce.messageDeleted'));
         const conv = getActiveConversation();
         if (conv?.id) {
           await loadConversation(conv.id);
@@ -77,8 +80,14 @@ export default function ChatPage() {
     } catch (error) {
       // Se o usuário cancelou a exclusão, não mostra erro
       const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('cancelada')) {
-        announce('Exclusão cancelada');
+      const lower = errorMessage.toLowerCase();
+      const userCanceled =
+        lower.includes('cancelada') ||
+        lower.includes('cancelado') ||
+        lower.includes('canceled') ||
+        lower.includes('cancelled');
+      if (userCanceled) {
+        announce(t('chat.announce.deleteCancelled'));
         return;
       }
       
@@ -89,7 +98,7 @@ export default function ChatPage() {
         metadata: { messageId },
       });
     }
-  }, [announce, getActiveConversation, loadConversation]);
+  }, [announce, getActiveConversation, loadConversation, t]);
 
   // Menu de contexto
   const sendToEditor = useCallback(
@@ -105,14 +114,14 @@ export default function ChatPage() {
       useEditorStore.getState().requestInsert({
         target: payload.target,
         format: payload.format,
-        title: payload.title || 'Do chat',
+        title: payload.title || t('editor.fallback.fromChat'),
         content,
         focus: true,
       });
 
       navigate('/editor');
     },
-    [navigate]
+    [navigate, t]
   );
 
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
@@ -128,7 +137,7 @@ export default function ChatPage() {
     onResend: async (message) => {
       if (message.content) {
         await sendMessage(message.content);
-        announce('Mensagem reenviada');
+        announce(t('chat.announce.messageResent'));
       }
     },
     onDelete: handleDeleteMessage,
@@ -136,12 +145,12 @@ export default function ChatPage() {
     onPin: (_message) => {
       // Pin requer campo adicional no modelo ChatMessage
       // Deixar para implementação futura
-      announce('Funcionalidade de fixar mensagem será implementada em breve');
+      announce(t('chat.announce.pinComingSoon'));
     },
     onToggleReasoning: (message) => {
       toggleReasoningExpanded(message.id);
       const isExpanded = isReasoningExpanded(message.id);
-      announce(isExpanded ? 'Raciocínio ocultado' : 'Raciocínio exibido');
+      announce(isExpanded ? t('chat.reasoningHidden') : t('chat.reasoningShown'));
     },
     isReasoningExpanded: (messageId: string) => isReasoningExpanded(messageId),
     isTTSDisabled,
@@ -237,13 +246,13 @@ export default function ChatPage() {
       if (e.key === 'Escape' && sendError) {
         setSendError(null);
         setLastFailedMessage(null);
-        announce('Erro descartado');
+        announce(t('chat.announce.errorDismissed'));
       }
     };
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [sendError]);
+  }, [sendError, announce, t]);
 
 
   const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
@@ -290,7 +299,10 @@ export default function ChatPage() {
 
   return (
     <div className="chat-page">
-      <ChatToolbar inputRef={inputRef} />
+      <div className="ws-content-toolbar">
+        <ChatToolbar inputRef={inputRef} />
+      </div>
+      <div className="ws-content-area">
       <MessageList
         threadedMessages={threadedMessages}
         onLoadChildren={loadMessageChildren}
@@ -305,31 +317,29 @@ export default function ChatPage() {
 
       {/* Error banner with retry */}
       {sendError && lastFailedMessage && (
-        <div
-          className="chat-page__error-banner"
+        <Alert
           role="alert"
-          aria-live="assertive"
-        >
-          <span className="chat-page__error-message">{sendError}</span>
-          <button
-            ref={retryButtonRef}
-            className="chat-page__retry-button"
-            onClick={handleRetry}
-            aria-label="Tentar enviar novamente"
-          >
-            Tentar novamente
-          </button>
-          <button
-            className="chat-page__dismiss-button"
-            onClick={() => {
-              setSendError(null);
-              setLastFailedMessage(null);
-            }}
-            aria-label="Descartar erro"
-          >
-            ✕
-          </button>
-        </div>
+          type="error"
+          showIcon
+          closable
+          message={sendError}
+          action={
+            <Button
+              ref={retryButtonRef}
+              size="small"
+              danger
+              onClick={handleRetry}
+              aria-label={t('chat.retryAriaLabel')}
+            >
+              {t('chat.retry')}
+            </Button>
+          }
+          onClose={() => {
+            setSendError(null);
+            setLastFailedMessage(null);
+          }}
+          style={{ flexShrink: 0 }}
+        />
       )}
 
       <ChatInput 
@@ -340,17 +350,16 @@ export default function ChatPage() {
         onArrowUp={() => {
           const container = messagesContainerRef.current;
           if (container) {
-            // Foca na última mensagem da lista
             const lastMessage = container.querySelector('[data-message-node]:last-child') as HTMLElement;
             if (lastMessage) {
               lastMessage.focus();
             } else {
-              // Se não houver mensagens em estrutura de árvore, foca no container
               container.focus();
             }
           }
         }}
       />
+      </div>
 
       {/* Menu de contexto */}
       <ContextMenu
@@ -359,7 +368,7 @@ export default function ChatPage() {
         x={menuPosition.x}
         y={menuPosition.y}
         onClose={hideMenu}
-        ariaLabel="Ações da mensagem"
+        ariaLabel={t('chat.contextMenuAriaLabel')}
       />
 
       {/* Painel de ajuda de atalhos de teclado */}

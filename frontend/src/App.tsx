@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Outlet, useNavigate } from 'react-router-dom';
-import './App.css';
+import { useTranslation } from 'react-i18next';
 import { GetConfig, RespondQuestionnaire, NeedsWelcomeWizard, RunWelcomeWizard } from "@wailsjs/go/main/App";
 import { EventsOn } from "@wailsjs/runtime/runtime";
 import { useSettingsStore } from './store/settingsStore';
@@ -12,10 +12,31 @@ import { ConfirmHost } from './components/ui/ConfirmHost';
 import { QuestionnaireDialog, QuestionnairePayload } from './components/ui/QuestionnaireDialog';
 import { useQuestionnaireUIStore } from './store/questionnaireUIStore';
 import { useTheme } from './hooks/useTheme';
+import { ConfigProvider } from 'antd';
+import type { Locale } from 'antd/es/locale';
+import { getAntdTheme } from './theme/antdTheme';
+
+function useAntdLocale(lang: string): Locale | undefined {
+    const [locale, setLocale] = useState<Locale | undefined>(undefined);
+    useEffect(() => {
+        let cancelled = false;
+        const loaders: Record<string, () => Promise<{ default: Locale }>> = {
+            'pt-BR': () => import('antd/locale/pt_BR'),
+            'en':    () => import('antd/locale/en_US'),
+            'es':    () => import('antd/locale/es_ES'),
+        };
+        const load = loaders[lang] ?? loaders['en'];
+        void load().then((m) => { if (!cancelled) setLocale(m.default); });
+        return () => { cancelled = true; };
+    }, [lang]);
+    return locale;
+}
 
 function App() {
-    useTheme();
+    const { theme } = useTheme();
+    const { i18n } = useTranslation();
     const navigate = useNavigate();
+    const antLocale = useAntdLocale(i18n.language);
     const { setConfig, setLoading, setError } = useSettingsStore();
     const { addToast } = useUIStore();
     const { handleConversationDeleted, handleConversationCleared, handleConversationRenamed, handleDatabaseReset, handleExternalIncoming } = useChatStore();
@@ -273,20 +294,19 @@ function App() {
     };
 
     return (
-        <>
+        <ConfigProvider theme={getAntdTheme(theme)} locale={antLocale}>
             <ScreenReaderAnnouncer />
             <Outlet />
 
             <ConfirmHost />
 
-            {/* Dialog de questionário global */}
             <QuestionnaireDialog
                 isOpen={effectiveQuestionnaireOpen}
                 data={effectiveQuestionnaireData}
                 onSubmit={handleQuestionnaireSubmit}
                 onCancel={handleQuestionnaireCancel}
             />
-        </>
+        </ConfigProvider>
     )
 }
 

@@ -36,20 +36,22 @@ export const Select = forwardRef<HTMLSelectElement, SelectProps>(
             {props.required && <span aria-hidden="true"> *</span>}
           </label>
         )}
-        <select
-          ref={ref}
-          id={selectId}
-          className={`select ${error ? 'select--error' : ''} ${className}`}
-          aria-invalid={error ? true : undefined}
-          aria-describedby={describedBy}
-          {...props}
-        >
-          {options.map((option) => (
-            <option key={option.value} value={option.value} disabled={option.disabled}>
-              {option.label}
-            </option>
-          ))}
-        </select>
+        <div className="select-field">
+          <select
+            ref={ref}
+            id={selectId}
+            className={`select ${error ? 'select--error' : ''} ${className}`}
+            aria-invalid={error ? true : undefined}
+            aria-describedby={describedBy}
+            {...props}
+          >
+            {options.map((option) => (
+              <option key={option.value} value={option.value} disabled={option.disabled}>
+                {option.label}
+              </option>
+            ))}
+          </select>
+        </div>
         {hint && <span id={hintId} className="select-hint">{hint}</span>}
         {error && <span id={errorId} className="select-error" role="alert">{error}</span>}
       </div>

@@ -74,5 +74,10 @@ coverage/
 *_output.txt
 final_test.txt
 
+# Hugo (docs site)
+.hugo_build.lock
+docs/public/
+public/
+
 # Wails
 wails.json.bak

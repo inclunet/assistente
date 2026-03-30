@@ -1,17 +1,26 @@
 import { useEffect, useRef, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
+import { ProfilePicker } from '../components/pickers/ProfilePicker';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
-import { useContentPageLandmarks } from '../hooks/useContentPageLandmarks';
+import { useTabScrollState } from '../hooks/useTabScrollState';
 import './TerminalPage.css';
 
 export default function TerminalPage() {
   const { t } = useTranslation();
-  useContentPageLandmarks({ pageClass: 'terminal-page' });
+  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
+  const tabProfileSlug = wsActiveTab?.type === 'terminal'
+    ? (wsActiveTab.profileOverride?.slug as string | undefined)
+    : undefined;
+  const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const historyContainerRef = useRef<HTMLDivElement>(null);
+  useTabScrollState(historyContainerRef);
 
   const {
     sessions,
@@ -77,33 +86,50 @@ export default function TerminalPage() {
 
   return (
     <div className="terminal-page">
-      <Toolbar
-        ariaLabel={t('terminal.aria.toolbar')}
-        left={
-          <h1 className="page-toolbar__title" id="terminal-heading">
-            {activeSession?.name || t('terminal.pageTitle')}
-          </h1>
-        }
-        right={
-          <>
-            {activeSession && (
-              <>
-                <span className="terminal-page__toolbar-cwd" title={activeSession.cwd}>
-                  {activeSession.cwd}
-                </span>
-                <ToolbarSeparator />
-              </>
-            )}
-            <ToolbarButton
-              label={t('terminal.buttons.stop')}
-              icon="■"
-              shortcut="Ctrl+C"
-              onClick={() => interrupt()}
-            />
-          </>
-        }
-      />
+      <div className="ws-content-toolbar">
+        <Toolbar
+          ariaLabel={t('terminal.aria.toolbar')}
+          left={
+            <h1 className="page-toolbar__title" id="terminal-heading">
+              {activeSession?.name || t('terminal.pageTitle')}
+            </h1>
+          }
+          right={
+            <>
+              {activeSession && (
+                <>
+                  <span className="terminal-page__toolbar-cwd" title={activeSession.cwd}>
+                    {activeSession.cwd}
+                  </span>
+                  <ToolbarSeparator />
+                </>
+              )}
+              <ToolbarButton
+                label={t('terminal.buttons.stop')}
+                icon="■"
+                shortcut="Ctrl+C"
+                onClick={() => interrupt()}
+              />
+              <ToolbarSeparator />
+              <ProfilePicker
+                value={effectiveProfileSlug}
+                onChange={(slug) => {
+                  if (wsActiveTab) {
+                    void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
+                  }
+                }}
+                variant="toolbar"
+                label={t('workspace.tabProfileLabel', 'Perfil')}
+                description={t('workspace.tabProfileDescription')}
+                icon=">_"
+                maxWidth="180px"
+              />
+            </>
+          }
+        />
+      </div>
 
+      <div className="ws-content-area">
       <TerminalHistory
         ref={historyContainerRef}
         entries={currentHistory}
@@ -125,6 +151,7 @@ export default function TerminalPage() {
           voiceEnabled={false}
           onArrowUp={handleArrowUp}
         />
+      </div>
       </div>
     </div>
   );

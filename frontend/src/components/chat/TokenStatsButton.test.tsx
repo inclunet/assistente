@@ -45,11 +45,13 @@ describe('TokenStatsButton', () => {
     const onOpenModal = vi.fn();
     render(<TokenStatsButton conversationId={1} onOpenModal={onOpenModal} />);
 
-    await waitFor(() => {
-      expect(screen.getByRole('button')).toBeInTheDocument();
+    const button = await waitFor(() => {
+      const el = screen.getByRole('button');
+      expect(el).not.toBeDisabled();
+      return el;
     });
 
-    fireEvent.click(screen.getByRole('button'));
+    fireEvent.click(button);
     expect(onOpenModal).toHaveBeenCalled();
   });
 

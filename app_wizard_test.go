@@ -804,6 +804,95 @@ func TestResolveProfileDefaults_PartialSentinel_OnlyProvider(t *testing.T) {
 	}
 }
 
+// --- ensureDefaultProvider migrates legacy providers ---
+
+func TestEnsureDefaultProvider_MarksFirstWhenNoneIsDefault(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	// Simulate legacy provider (created before IsDefault feature)
+	legacyProv := &database.LLMProvider{
+		ID:      "litellm-legacy",
+		Name:    "LiteLLM Legacy",
+		Type:    "openai",
+		BaseURL: "http://localhost:4000/v1",
+		Model:   "gpt-4o",
+	}
+	if err := database.SaveLLMProvider(legacyProv); err != nil {
+		t.Fatalf("save legacy provider: %v", err)
+	}
+
+	cfg := &llm.ProviderConfig{
+		ID:      legacyProv.ID,
+		Name:    legacyProv.Name,
+		Type:    llm.ProviderType(legacyProv.Type),
+		BaseURL: legacyProv.BaseURL,
+		Model:   legacyProv.Model,
+	}
+	app.llmRegistry.Register(cfg)
+
+	// Verify no default exists
+	defProv, _ := database.GetDefaultProvider()
+	if defProv != nil {
+		t.Fatal("expected no default provider before migration")
+	}
+
+	app.ensureDefaultProvider()
+
+	// Now should have a default
+	defProv, err := database.GetDefaultProvider()
+	if err != nil {
+		t.Fatalf("GetDefaultProvider: %v", err)
+	}
+	if defProv.ID != "litellm-legacy" {
+		t.Errorf("default provider: got %q, want 'litellm-legacy'", defProv.ID)
+	}
+	if defProv.DefaultModel != "gpt-4o" {
+		t.Errorf("default model: got %q, want 'gpt-4o' (migrated from Model)", defProv.DefaultModel)
+	}
+}
+
+func TestEnsureDefaultProvider_DoesNotOverrideExistingDefault(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	// Create two providers, second one is default
+	prov1 := &database.LLMProvider{
+		ID:      "provider-1",
+		Name:    "Provider 1",
+		Type:    "openai",
+		BaseURL: "http://localhost:4000/v1",
+	}
+	prov2 := &database.LLMProvider{
+		ID:           "provider-2",
+		Name:         "Provider 2",
+		Type:         "openai",
+		BaseURL:      "http://localhost:5000/v1",
+		IsDefault:    true,
+		DefaultModel: "my-model",
+	}
+	database.SaveLLMProvider(prov1)
+	database.SaveLLMProvider(prov2)
+	database.SetDefaultProvider(prov2.ID)
+
+	for _, p := range []*database.LLMProvider{prov1, prov2} {
+		app.llmRegistry.Register(&llm.ProviderConfig{
+			ID:      p.ID,
+			Name:    p.Name,
+			Type:    llm.ProviderType(p.Type),
+			BaseURL: p.BaseURL,
+		})
+	}
+
+	app.ensureDefaultProvider()
+
+	defProv, err := database.GetDefaultProvider()
+	if err != nil {
+		t.Fatalf("GetDefaultProvider: %v", err)
+	}
+	if defProv.ID != "provider-2" {
+		t.Errorf("default should still be provider-2, got %q", defProv.ID)
+	}
+}
+
 // --- Builtin padrao.json has active:true ---
 
 func TestBuiltinPadraoJSON_HasActiveTrue(t *testing.T) {

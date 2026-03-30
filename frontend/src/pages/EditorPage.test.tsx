@@ -44,9 +44,11 @@ vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
     (selector: (state: any) => unknown) => selector({
       addTab: vi.fn(),
-      workspace: { tabs: [] },
+      updateTab: vi.fn(),
+      workspace: { tabs: [], profile: undefined },
+      getActiveTab: () => undefined,
     }),
-    { getState: () => ({ workspace: { tabs: [] }, addTab: vi.fn() }), subscribe: () => () => {} }
+    { getState: () => ({ workspace: { tabs: [] }, addTab: vi.fn(), getActiveTab: () => undefined }), subscribe: () => () => {} }
   ),
 }));
 

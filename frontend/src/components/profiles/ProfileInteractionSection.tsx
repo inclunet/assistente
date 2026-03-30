@@ -1,3 +1,4 @@
+import { AudioOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { STTProviderPicker } from '../pickers/STTProviderPicker';
 import './ProfileInteractionSection.css';
@@ -32,7 +33,7 @@ export function ProfileInteractionSection({
           variant="form"
           label={t('profiles.interactionSection.sttTitle')}
           helpText={t('profiles.interactionSection.sttDescription')}
-          icon="🎤"
+          icon={<AudioOutlined />}
         />
       </div>
 

@@ -9,6 +9,7 @@ import {profiles} from '../models';
 import {terminal} from '../models';
 import {context} from '../models';
 import {mcp} from '../models';
+import {jobs} from '../models';
 import {channels} from '../models';
 import {contacts} from '../models';
 import {config} from '../models';
@@ -51,6 +52,8 @@ export function ClearMCPTest(arg1:string):Promise<void>;
 
 export function ClearMessages():Promise<void>;
 
+export function ClearTaskList(arg1:number):Promise<void>;
+
 export function CloneTaskList(arg1:number,arg2:string):Promise<database.TaskList>;
 
 export function CloseTerminalSession(arg1:string):Promise<void>;
@@ -73,9 +76,11 @@ export function CreateProfile(arg1:profiles.Profile):Promise<string>;
 
 export function CreateSkill(arg1:main.SkillCreateRequest):Promise<string>;
 
-export function CreateTask(arg1:number,arg2:string,arg3:string,arg4:any):Promise<database.Task>;
+export function CreateTask(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:any):Promise<database.Task>;
 
 export function CreateTaskList(arg1:string,arg2:string):Promise<database.TaskList>;
+
+export function CreateTaskNote(arg1:number,arg2:number,arg3:string,arg4:string,arg5:string):Promise<database.TaskNote>;
 
 export function CreateTerminalSession(arg1:string):Promise<terminal.SessionInfo>;
 
@@ -86,6 +91,8 @@ export function DeleteAllowlist(arg1:string):Promise<void>;
 export function DeleteConversation(arg1:number):Promise<void>;
 
 export function DeleteCredential(arg1:string):Promise<void>;
+
+export function DeleteJob(arg1:string):Promise<void>;
 
 export function DeleteLLMProvider(arg1:context.Context,arg2:string):Promise<void>;
 
@@ -105,6 +112,8 @@ export function DeleteTask(arg1:number):Promise<void>;
 
 export function DeleteTaskList(arg1:number):Promise<void>;
 
+export function DeleteTaskNote(arg1:number):Promise<void>;
+
 export function DeleteWorkspace(arg1:string):Promise<void>;
 
 export function DemoteTask(arg1:number,arg2:number):Promise<void>;
@@ -112,6 +121,8 @@ export function DemoteTask(arg1:number,arg2:number):Promise<void>;
 export function DisconnectMCPServer(arg1:string):Promise<void>;
 
 export function DiscoverMCPServerAuth(arg1:string):Promise<mcp.OAuthDiscoveryResult>;
+
+export function DryRunJob(arg1:string):Promise<jobs.DryRunResult>;
 
 export function DuplicateMCPServer(arg1:string):Promise<string>;
 
@@ -205,6 +216,16 @@ export function GetConversations():Promise<Array<database.Conversation>>;
 
 export function GetEffectiveModel():Promise<string>;
 
+export function GetJob(arg1:string):Promise<jobs.Job>;
+
+export function GetJobEvents(arg1:string):Promise<Array<jobs.EventEntry>>;
+
+export function GetJobPipelines():Promise<Array<jobs.PipelineInfo>>;
+
+export function GetJobRuns(arg1:string,arg2:number):Promise<Array<jobs.RunLog>>;
+
+export function GetJobs():Promise<Array<jobs.JobInfo>>;
+
 export function GetLLMProvider(arg1:string):Promise<llm.ProviderConfig>;
 
 export function GetLLMProviders():Promise<Array<llm.ProviderConfig>>;
@@ -259,11 +280,15 @@ export function GetSubtasks(arg1:number):Promise<Array<database.Task>>;
 
 export function GetTask(arg1:number):Promise<database.Task>;
 
+export function GetTaskCountsByStatus(arg1:number):Promise<Record<number, number>>;
+
 export function GetTaskList(arg1:number):Promise<database.TaskList>;
 
 export function GetTaskListStats(arg1:number):Promise<Record<string, any>>;
 
 export function GetTaskListWithHierarchy(arg1:number):Promise<database.TaskList>;
+
+export function GetTaskNotes(arg1:number):Promise<Array<database.TaskNote>>;
 
 export function GetTasksByStatus(arg1:number,arg2:number):Promise<Array<database.Task>>;
 
@@ -272,6 +297,8 @@ export function GetTasksByTaskListID(arg1:number):Promise<Array<database.Task>>;
 export function GetTerminalHistory(arg1:string):Promise<Array<terminal.HistoryEntry>>;
 
 export function GetTerminalStats():Promise<terminal.ManagerStats>;
+
+export function GetToolCatalog():Promise<Array<jobs.CatalogEntry>>;
 
 export function GetTurnTokenStats(arg1:number,arg2:number):Promise<main.TokenStatsResult>;
 
@@ -282,6 +309,8 @@ export function GetWorkflow(arg1:number):Promise<database.TaskListWorkflow>;
 export function ImportConversations(arg1:string):Promise<main.ImportResult>;
 
 export function ImportWorkspace(arg1:string):Promise<workspace.Workspace>;
+
+export function InferEventSchema(arg1:string):Promise<Record<string, any>>;
 
 export function InitSpeechManager(arg1:string,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
 
@@ -296,6 +325,8 @@ export function IsSAPI5Speaking():Promise<boolean>;
 export function ListCredentials():Promise<Array<main.CredentialSummary>>;
 
 export function ListExternalSources(arg1:string):Promise<Array<main.ExternalSourceSuggestion>>;
+
+export function ListKnownEvents():Promise<Array<string>>;
 
 export function ListMCPServers():Promise<Array<mcp.ServerInfo>>;
 
@@ -319,6 +350,8 @@ export function RebuildSearchIndex():Promise<void>;
 
 export function ReconnectMCPServer(arg1:string):Promise<void>;
 
+export function RegenerateJobCatalog():Promise<void>;
+
 export function ReloadLLMClient():Promise<void>;
 
 export function RemoveAuthorizedContact(arg1:string,arg2:string):Promise<void>;
@@ -335,6 +368,8 @@ export function ReorderWorkflowStatuses(arg1:number,arg2:Array<number>):Promise<
 
 export function ReorderWorkspaceTabs(arg1:Array<string>):Promise<void>;
 
+export function ReplayRun(arg1:string,arg2:string):Promise<jobs.TestToolResult>;
+
 export function ResetConfig():Promise<void>;
 
 export function ResetDatabase():Promise<void>;
@@ -343,11 +378,15 @@ export function RespondQuestionnaire(arg1:string,arg2:Record<string, any>,arg3:b
 
 export function RestartChannel(arg1:string):Promise<void>;
 
+export function RunJob(arg1:string):Promise<jobs.RunLog>;
+
 export function RunTerminalCommand(arg1:string,arg2:string):Promise<void>;
 
 export function RunWelcomeWizard():Promise<boolean>;
 
 export function SaveChannelConfig(arg1:string,arg2:channels.ChannelConfig):Promise<void>;
+
+export function SaveJob(arg1:string):Promise<void>;
 
 export function SaveMCPServer(arg1:string,arg2:mcp.ServerConfig):Promise<void>;
 
@@ -433,6 +472,10 @@ export function TestLLMProvider(arg1:main.TestLLMProviderRequest):Promise<boolea
 
 export function TestMCPNativeSupport(arg1:string):Promise<boolean>;
 
+export function TestTool(arg1:string,arg2:string,arg3:string):Promise<jobs.TestToolResult>;
+
+export function ToggleJob(arg1:string,arg2:boolean):Promise<void>;
+
 export function TranscribeWhisper(arg1:string,arg2:string):Promise<main.TranscriptionResultInfo>;
 
 export function UnassignConversationFromChannel(arg1:number):Promise<void>;
@@ -455,13 +498,21 @@ export function UpdateProfileMediaSupport(arg1:string,arg2:boolean):Promise<void
 
 export function UpdateSkill(arg1:string,arg2:main.SkillCreateRequest):Promise<void>;
 
-export function UpdateTask(arg1:number,arg2:string,arg3:string):Promise<void>;
+export function UpdateTask(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string):Promise<void>;
+
+export function UpdateTaskAssignee(arg1:number,arg2:string,arg3:string):Promise<void>;
+
+export function UpdateTaskFull(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:string,arg7:string,arg8:string,arg9:string):Promise<void>;
 
 export function UpdateTaskList(arg1:number,arg2:string,arg3:string):Promise<void>;
+
+export function UpdateTaskNote(arg1:number,arg2:string):Promise<void>;
 
 export function UpdateTaskStatus(arg1:number,arg2:number):Promise<void>;
 
 export function UpdateWorkflow(arg1:number,arg2:Array<database.TaskListWorkflowStatus>,arg3:Record<number, Array<number>>):Promise<void>;
+
+export function UpdateWorkflowFull(arg1:number,arg2:Array<database.TaskListWorkflowStatus>,arg3:Record<number, Array<number>>,arg4:number,arg5:Record<number, number>):Promise<void>;
 
 export function UpdateWorkspaceTab(arg1:string,arg2:Record<string, any>):Promise<void>;
 

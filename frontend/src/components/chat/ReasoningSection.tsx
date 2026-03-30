@@ -1,4 +1,5 @@
 import React from 'react';
+import { BulbOutlined, DownOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import './ReasoningSection.css';
@@ -10,12 +11,12 @@ export interface ReasoningSectionProps {
   onToggle?: () => void; // Callback para toggle
 }
 
-export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
+export const ReasoningSection = React.memo<ReasoningSectionProps>(function ReasoningSection({
   reasoning,
   isStreaming = false,
   isExpanded = false,
   onToggle,
-}) => {
+}) {
   const { t } = useTranslation();
   if (!reasoning && !isStreaming) return null;
 
@@ -53,7 +54,7 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
         tabIndex={-1}
       >
         <span className="reasoning-section__icon" aria-hidden="true">
-          {isStreaming ? '🧠' : '💭'}
+          <BulbOutlined />
         </span>
         <span className="reasoning-section__title">
           {isStreaming ? t('chat.thinking') : t('chat.reasoning')}
@@ -65,7 +66,7 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
           className={`reasoning-section__chevron ${isExpanded ? 'reasoning-section__chevron--expanded' : ''}`}
           aria-hidden="true"
         >
-          ▼
+          <DownOutlined />
         </span>
       </button>
       
@@ -85,4 +86,4 @@ export const ReasoningSection: React.FC<ReasoningSectionProps> = ({
       )}
     </div>
   );
-};
+});

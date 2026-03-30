@@ -8,7 +8,52 @@ permissions:
   contents: write # Necessário para fazer upload de assets
 
 jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: sudo apt-get update && sudo apt-get install -y libx11-dev xvfb
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: '1.24'
+
+      - name: Go tests
+        run: |
+          Xvfb :99 -screen 0 1024x768x24 > /dev/null 2>&1 &
+          export DISPLAY=:99.0
+          go test ./...
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: TypeScript check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: ESLint
+        working-directory: frontend
+        run: npm run lint
+
+      - name: Stylelint
+        working-directory: frontend
+        run: npm run lint:css
+
+      - name: Frontend tests
+        working-directory: frontend
+        run: npm run test
+
   build:
+    needs: test
     strategy:
       matrix:
         include:
@@ -416,3 +461,19 @@ jobs:
           echo ""
           echo "📦 GitHub Release: https://github.com/inclunet/assistente/releases/tag/${VERSION}"
           echo "🔄 Auto-update detectará a nova versão automaticamente via GitHub API"
+
+  cleanup:
+    needs: [test, build, release]
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Remove release on failure
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG=${GITHUB_REF#refs/tags/}
+          echo "❌ Build ou upload de artefatos falhou. Removendo release ${TAG}..."
+          gh release delete "$TAG" --repo "$GITHUB_REPOSITORY" --yes --cleanup-tag || echo "⚠️ Não foi possível remover a release (pode já ter sido removida)"
+          echo "🗑️ Release ${TAG} removida para evitar release sem artefatos."

@@ -13,17 +13,11 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => {
       const translations: Record<string, string> = {
-        'menu.mcp': 'MCP',
+        'menu.settings': 'Configura\u00e7\u00f5es',
         'menu.profiles': 'Perfis',
         'menu.history': 'Hist\u00f3rico',
         'menu.help': 'Ajuda',
         'menu.about': 'Sobre',
-        'menu.allowlists': 'Allowlists',
-        'menu.skills': 'Skills',
-        'menu.channels': 'Canais',
-        'menu.credentials': 'Credenciais',
-        'menu.providers': 'Provedores LLM',
-        'menu.restoreDefaults': 'Restaurar Padr\u00f5es',
         'menu.appTitle': 'Assistente IA',
         'chat.newConversation': 'Nova conversa',
         'update.pageTitle': 'Atualiza\u00e7\u00e3o',
@@ -31,6 +25,12 @@ vi.mock('react-i18next', () => ({
       return translations[key] ?? key;
     },
   }),
+}));
+
+vi.mock('../lib/i18n', () => ({
+  default: {
+    t: (key: string) => (key === 'chat.newConversation' ? 'Nova conversa' : key),
+  },
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
@@ -102,12 +102,19 @@ describe('useDocumentTitle', () => {
     expect(document.title).toBe(`Compras da semana ${SEP} Assistente IA`);
   });
 
-  it('define titulo para pagina MCP', () => {
-    mockPathname = '/mcp';
+  it('define titulo para pagina de configurações', () => {
+    mockPathname = '/settings';
     render(<Fixture />);
 
-    expect(document.title).toBe(`MCP ${SEP} Assistente IA`);
-    expect(setTitleSpy).toHaveBeenCalledWith(`MCP ${SEP} Assistente IA`);
+    expect(document.title).toBe(`Configurações ${SEP} Assistente IA`);
+    expect(setTitleSpy).toHaveBeenCalledWith(`Configurações ${SEP} Assistente IA`);
+  });
+
+  it('define titulo para sub-pagina de configurações', () => {
+    mockPathname = '/settings/mcp';
+    render(<Fixture />);
+
+    expect(document.title).toBe(`Configurações ${SEP} Assistente IA`);
   });
 
   it('define titulo para pagina de perfis', () => {

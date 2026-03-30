@@ -20,7 +20,7 @@
 .range-slider__input {
   flex: 1;
   height: 6px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   background: var(--color-input-bg, var(--bg-input, var(--bg-muted)));
   outline: none;
   -webkit-appearance: none;
@@ -41,7 +41,7 @@
   border-radius: 50%;
   background: var(--color-primary, var(--accent));
   cursor: pointer;
-  transition: background 0.2s ease;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .range-slider__input::-webkit-slider-thumb:hover {
@@ -55,7 +55,7 @@
   background: var(--color-primary, var(--accent));
   cursor: pointer;
   border: none;
-  transition: background 0.2s ease;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .range-slider__input::-moz-range-thumb:hover {

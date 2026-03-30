@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -107,9 +108,28 @@ func CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	return cloned, nil
 }
 
+// ClearTaskList remove todas as tasks de uma tasklist, mantendo a lista e o workflow
+func ClearTaskList(id uint) error {
+	// Deleta notas de todas as tasks da lista
+	if err := db.Where("task_id IN (?)", db.Model(&Task{}).Select("id").Where("task_list_id = ?", id)).
+		Delete(&TaskNote{}).Error; err != nil {
+		return err
+	}
+	if err := db.Where("task_list_id = ?", id).Delete(&Task{}).Error; err != nil {
+		return err
+	}
+	return nil
+}
+
 // DeleteTaskList deleta uma tasklist e todas suas tasks
 func DeleteTaskList(id uint) error {
-	// Deleta tasks (cascata handled by GORM)
+	// Deleta notas de todas as tasks da lista
+	if err := db.Where("task_id IN (?)", db.Model(&Task{}).Select("id").Where("task_list_id = ?", id)).
+		Delete(&TaskNote{}).Error; err != nil {
+		return err
+	}
+
+	// Deleta tasks
 	if err := db.Where("task_list_id = ?", id).Delete(&Task{}).Error; err != nil {
 		return err
 	}
@@ -188,6 +208,141 @@ func UpdateWorkflow(taskListID uint, statuses []TaskListWorkflowStatus, transiti
 		}).Error
 }
 
+// UpdateWorkflowFull atualiza statuses, transitions e initial_status_id de um workflow
+// com validação completa:
+// - initial_status_id deve existir nos statuses
+// - todas as transições devem referenciar status IDs válidos
+// - status IDs em uso por tasks não podem ser removidos (a menos que status_migration mapeie-os)
+// - status_migration pode ser nil se nenhum status será removido
+func UpdateWorkflowFull(
+	taskListID uint,
+	statuses []TaskListWorkflowStatus,
+	transitions TaskListWorkflowTransitions,
+	initialStatusID int,
+	statusMigration map[int]int,
+) error {
+	if len(statuses) == 0 {
+		return errors.New("workflow deve ter pelo menos um status")
+	}
+
+	statusIDs := make(map[int]bool, len(statuses))
+	for _, s := range statuses {
+		if s.ID <= 0 {
+			return fmt.Errorf("status ID deve ser > 0, encontrado: %d", s.ID)
+		}
+		if statusIDs[s.ID] {
+			return fmt.Errorf("status ID duplicado: %d", s.ID)
+		}
+		statusIDs[s.ID] = true
+	}
+
+	if !statusIDs[initialStatusID] {
+		return fmt.Errorf("initial_status_id %d não existe nos statuses fornecidos", initialStatusID)
+	}
+
+	for fromID, toIDs := range transitions {
+		if !statusIDs[fromID] {
+			return fmt.Errorf("transição referencia status de origem inexistente: %d", fromID)
+		}
+		for _, toID := range toIDs {
+			if !statusIDs[toID] {
+				return fmt.Errorf("transição de %d referencia status de destino inexistente: %d", fromID, toID)
+			}
+		}
+	}
+
+	if statusMigration != nil {
+		for oldID, newID := range statusMigration {
+			if statusIDs[oldID] {
+				return fmt.Errorf("status_migration mapeia ID %d que ainda existe nos novos statuses", oldID)
+			}
+			if !statusIDs[newID] {
+				return fmt.Errorf("status_migration mapeia para ID %d inexistente nos novos statuses", newID)
+			}
+		}
+	}
+
+	counts, err := GetTaskCountsByStatus(taskListID)
+	if err != nil {
+		return fmt.Errorf("erro ao verificar tasks existentes: %w", err)
+	}
+
+	for usedStatusID, count := range counts {
+		if count == 0 {
+			continue
+		}
+		if statusIDs[usedStatusID] {
+			continue
+		}
+		if statusMigration != nil {
+			if _, ok := statusMigration[usedStatusID]; ok {
+				continue
+			}
+		}
+		return fmt.Errorf(
+			"status_id %d está em uso por %d task(s) e não existe nos novos statuses; forneça status_migration para migrá-las",
+			usedStatusID, count,
+		)
+	}
+
+	return db.Transaction(func(tx *gorm.DB) error {
+		if statusMigration != nil {
+			for oldID, newID := range statusMigration {
+				if err := tx.Model(&Task{}).
+					Where("task_list_id = ? AND status_id = ?", taskListID, oldID).
+					Update("status_id", newID).Error; err != nil {
+					return fmt.Errorf("erro ao migrar tasks de status %d para %d: %w", oldID, newID, err)
+				}
+			}
+		}
+
+		statusesJSON, _ := json.Marshal(statuses)
+		transitionsJSON, _ := json.Marshal(transitions)
+
+		return tx.Model(&TaskListWorkflow{}).
+			Where("task_list_id = ?", taskListID).
+			Updates(map[string]interface{}{
+				"statuses":            string(statusesJSON),
+				"allowed_transitions": string(transitionsJSON),
+				"initial_status_id":   initialStatusID,
+			}).Error
+	})
+}
+
+// GetTaskCountsByStatus retorna a contagem de tasks por status_id para uma tasklist
+func GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
+	var counts []struct {
+		StatusID int
+		Count    int64
+	}
+	err := db.Model(&Task{}).
+		Where("task_list_id = ?", taskListID).
+		Group("status_id").
+		Select("status_id, count(*) as count").
+		Scan(&counts).Error
+	if err != nil {
+		return nil, err
+	}
+
+	result := make(map[int]int64, len(counts))
+	for _, c := range counts {
+		result[c.StatusID] = c.Count
+	}
+	return result, nil
+}
+
+// UpdateTaskListFull atualiza title, description e preferred_view_mode de uma tasklist
+func UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
+	updates := map[string]interface{}{
+		"title":       title,
+		"description": description,
+	}
+	if preferredViewMode == "list" || preferredViewMode == "kanban" {
+		updates["preferred_view_mode"] = preferredViewMode
+	}
+	return db.Model(&TaskList{}).Where("id = ?", id).Updates(updates).Error
+}
+
 // ReorderWorkflowStatuses reordena os statuses mantendo seus IDs e labels
 func ReorderWorkflowStatuses(taskListID uint, statusOrder []int) error {
 	// Busca workflow atual
@@ -224,38 +379,67 @@ func ReorderWorkflowStatuses(taskListID uint, statusOrder []int) error {
 		Update("statuses", string(statusesJSON)).Error
 }
 
-// ValidateStatusTransition valida se uma transição de status é permitida
+// ValidateStatusTransition valida se uma transição de status é permitida.
+// Permite transição livre quando o status atual é inválido/vazio (0 ou ausente no workflow),
+// desde que o status destino exista no workflow.
 func ValidateStatusTransition(taskListID uint, fromStatusID, toStatusID int) error {
+	if fromStatusID == toStatusID {
+		return nil
+	}
+
 	workflow, err := GetWorkflow(taskListID)
 	if err != nil {
 		return err
 	}
 
-	// Desserializa transitions
+	// Desserializa statuses e transitions
+	var statuses []TaskListWorkflowStatus
+	if err := json.Unmarshal([]byte(workflow.Statuses), &statuses); err != nil {
+		return err
+	}
+
 	var transitions TaskListWorkflowTransitions
 	if err := json.Unmarshal([]byte(workflow.AllowedTransitions), &transitions); err != nil {
 		return err
 	}
 
-	// Valida
-	allowedStatuses, exists := transitions[fromStatusID]
-	if !exists {
-		return fmt.Errorf("status %d não existe no workflow", fromStatusID)
+	// Valida que o status destino existe na lista de statuses do workflow
+	toExists := false
+	for _, s := range statuses {
+		if s.ID == toStatusID {
+			toExists = true
+			break
+		}
+	}
+	if !toExists {
+		labels := make([]string, len(statuses))
+		for i, s := range statuses {
+			labels[i] = fmt.Sprintf("%d (%s)", s.ID, s.Label)
+		}
+		return fmt.Errorf("status destino %d não existe no workflow. Status válidos: %s",
+			toStatusID, strings.Join(labels, ", "))
+	}
+
+	// Se o status atual não existe no workflow (task com status zerado/inválido),
+	// permite a transição para qualquer status válido
+	allowedStatuses, fromExists := transitions[fromStatusID]
+	if !fromExists {
+		return nil
 	}
 
 	for _, statusID := range allowedStatuses {
 		if statusID == toStatusID {
-			return nil // Transição válida
+			return nil
 		}
 	}
 
-	return fmt.Errorf("transição de %d para %d não permitida", fromStatusID, toStatusID)
+	return fmt.Errorf("transição de status %d para %d não é permitida pelo workflow", fromStatusID, toStatusID)
 }
 
 // ==================== Task Operations ====================
 
 // CreateTask cria uma nova task em uma tasklist
-func CreateTask(taskListID uint, title, description string, parentID *uint) (*Task, error) {
+func CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*Task, error) {
 	// Busca workflow para status inicial
 	workflow, err := GetWorkflow(taskListID)
 	if err != nil {
@@ -276,6 +460,8 @@ func CreateTask(taskListID uint, title, description string, parentID *uint) (*Ta
 		TaskListID:  taskListID,
 		Title:       title,
 		Description: description,
+		Code:        code,
+		Link:        link,
 		StatusID:    workflow.InitialStatusID,
 		ParentID:    parentID,
 		Order:       maxOrder + 1,
@@ -286,6 +472,58 @@ func CreateTask(taskListID uint, title, description string, parentID *uint) (*Ta
 	}
 
 	return task, nil
+}
+
+// CreateTaskFull cria uma nova task com todos os campos, incluindo assignee e creator
+func CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*Task, error) {
+	workflow, err := GetWorkflow(taskListID)
+	if err != nil {
+		return nil, err
+	}
+
+	var maxOrder int
+	query := db.Model(&Task{}).Where("task_list_id = ?", taskListID)
+	if parentID != nil {
+		query = query.Where("parent_id = ?", parentID)
+	} else {
+		query = query.Where("parent_id IS NULL")
+	}
+	query.Select("COALESCE(MAX(order), -1)").Scan(&maxOrder)
+
+	task := &Task{
+		TaskListID:   taskListID,
+		Title:        title,
+		Description:  description,
+		Code:         code,
+		Link:         link,
+		AssigneeName: assigneeName,
+		AssigneeID:   assigneeID,
+		CreatorName:  creatorName,
+		CreatorID:    creatorID,
+		StatusID:     workflow.InitialStatusID,
+		ParentID:     parentID,
+		Order:        maxOrder + 1,
+	}
+
+	if err := db.Create(task).Error; err != nil {
+		return nil, err
+	}
+
+	return task, nil
+}
+
+// FindTaskByCode busca uma task pelo code dentro de uma tasklist.
+// Retorna nil, nil se nao encontrar.
+func FindTaskByCode(taskListID uint, code string) (*Task, error) {
+	var task Task
+	err := db.Where("task_list_id = ? AND code = ?", taskListID, code).First(&task).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &task, nil
 }
 
 // GetTask retorna uma task com subtasks
@@ -316,13 +554,41 @@ func GetTasksByStatus(taskListID uint, statusID int) ([]Task, error) {
 	return tasks, err
 }
 
-// UpdateTask atualiza title e description de uma task
-func UpdateTask(id uint, title, description string) error {
+// UpdateTask atualiza title, description, code e link de uma task
+func UpdateTask(id uint, title, description, code, link string) error {
 	return db.Model(&Task{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
 			"title":       title,
 			"description": description,
+			"code":        code,
+			"link":        link,
+		}).Error
+}
+
+// UpdateTaskFull atualiza todos os campos editáveis de uma task, incluindo assignee e creator
+func UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	return db.Model(&Task{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"title":         title,
+			"description":   description,
+			"code":          code,
+			"link":          link,
+			"assignee_name": assigneeName,
+			"assignee_id":   assigneeID,
+			"creator_name":  creatorName,
+			"creator_id":    creatorID,
+		}).Error
+}
+
+// UpdateTaskAssignee atualiza apenas o assignee de uma task
+func UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
+	return db.Model(&Task{}).
+		Where("id = ?", id).
+		Updates(map[string]interface{}{
+			"assignee_name": assigneeName,
+			"assignee_id":   assigneeID,
 		}).Error
 }
 
@@ -401,11 +667,18 @@ func GetSubtasks(parentID uint) ([]Task, error) {
 	return tasks, err
 }
 
-// DeleteTask deleta uma task e todas suas subtasks
+// DeleteTask deleta uma task, suas notas e todas suas subtasks
 func DeleteTask(id uint) error {
-	// Busca task para deletar subtasks associadas
 	var task Task
 	if err := db.First(&task, id).Error; err != nil {
+		return err
+	}
+
+	// Deleta notas das subtasks e da task
+	var subtaskIDs []uint
+	db.Model(&Task{}).Where("parent_id = ?", id).Pluck("id", &subtaskIDs)
+	allIDs := append(subtaskIDs, id)
+	if err := db.Where("task_id IN ?", allIDs).Delete(&TaskNote{}).Error; err != nil {
 		return err
 	}
 
@@ -416,6 +689,56 @@ func DeleteTask(id uint) error {
 
 	// Deleta task
 	return db.Delete(&Task{}, id).Error
+}
+
+// ==================== TaskNote Operations ====================
+
+// CreateTaskNote cria uma nova nota/interação para uma task.
+func CreateTaskNote(taskID uint, noteType TaskNoteType, content, authorName, authorID string) (*TaskNote, error) {
+	var task Task
+	if err := db.First(&task, taskID).Error; err != nil {
+		return nil, fmt.Errorf("task %d não encontrada: %w", taskID, err)
+	}
+
+	note := &TaskNote{
+		TaskID:     taskID,
+		Type:       noteType,
+		Content:    content,
+		AuthorName: authorName,
+		AuthorID:   authorID,
+	}
+
+	if err := db.Create(note).Error; err != nil {
+		return nil, err
+	}
+
+	return note, nil
+}
+
+// GetTaskNotes retorna todas as notas de uma task ordenadas cronologicamente
+func GetTaskNotes(taskID uint) ([]TaskNote, error) {
+	var notes []TaskNote
+	err := db.Where("task_id = ?", taskID).
+		Order("created_at ASC").
+		Find(&notes).Error
+	return notes, err
+}
+
+// UpdateTaskNote atualiza o conteúdo de uma nota existente
+func UpdateTaskNote(noteID uint, content string) error {
+	return db.Model(&TaskNote{}).
+		Where("id = ?", noteID).
+		Update("content", content).Error
+}
+
+// DeleteTaskNote remove uma nota
+func DeleteTaskNote(noteID uint) error {
+	return db.Delete(&TaskNote{}, noteID).Error
+}
+
+// DeleteTaskNotes remove todas as notas de uma task (usado em cascata ao deletar tasks)
+func DeleteTaskNotes(taskID uint) error {
+	return db.Where("task_id = ?", taskID).Delete(&TaskNote{}).Error
 }
 
 // ==================== Utility Functions ====================

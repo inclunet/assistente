@@ -550,6 +550,7 @@ func (m *Manager) ReorderTabs(orderedIDs []string) error {
 }
 
 // ExportWorkspace serializa o workspace ativo como YAML (estrutura apenas, sem conteúdo).
+// Omite content_id das abas — conteúdo é local e não faz sentido em outro ambiente.
 func (m *Manager) ExportWorkspace() ([]byte, error) {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
@@ -558,7 +559,18 @@ func (m *Manager) ExportWorkspace() ([]byte, error) {
 		return nil, fmt.Errorf("no active workspace")
 	}
 
-	return yaml.Marshal(m.active)
+	exported := *m.active
+	exported.Tabs.Items = make([]Tab, len(m.active.Tabs.Items))
+	for i, tab := range m.active.Tabs.Items {
+		exported.Tabs.Items[i] = Tab{
+			ID:       tab.ID,
+			Type:     tab.Type,
+			Title:    tab.Title,
+			Position: tab.Position,
+		}
+	}
+
+	return yaml.Marshal(&exported)
 }
 
 // ImportWorkspace cria um novo workspace a partir de dados YAML exportados.

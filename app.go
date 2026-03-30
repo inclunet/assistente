@@ -44,6 +44,7 @@ import (
 	"assistente/internal/tools/shell"
 	tasklisttool "assistente/internal/tools/tasklist"
 	"assistente/internal/tools/web"
+	"assistente/internal/jobs"
 	"assistente/internal/updater"
 	"assistente/internal/workspace"
 
@@ -117,6 +118,9 @@ type App struct {
 
 	// Workspace manager (unified tabs)
 	workspaceMgr *workspace.Manager
+
+	// Jobs manager (event-driven automation)
+	jobMgr *jobs.Manager
 }
 
 // ==================== Tipos para Threads ====================
@@ -234,6 +238,9 @@ func (a *App) startup(ctx context.Context) {
 
 	// Registra hotkeys do perfil ativo
 	a.registerActiveProfileHotkeys()
+
+	// Inicializa o sistema de jobs (event-driven automation)
+	a.initJobs()
 
 	// Inicializa o workspace manager
 	a.initWorkspace()
@@ -646,6 +653,17 @@ func (a *App) initTerminalAndAllowlists() {
 func (a *App) initMCP() {
 	emitEvent := func(event string, data any) {
 		runtime.EventsEmit(a.ctx, event, data)
+
+		// Quando o set de tools MCP muda, regenera o catalogo de jobs
+		if event == "mcp:tools_changed" && a.jobMgr != nil {
+			go func() {
+				if err := a.jobMgr.RegenerateCatalog(); err != nil {
+					log.Printf("[Jobs] Catalog regeneration on MCP change failed: %v", err)
+				} else {
+					log.Printf("[Jobs] Catalog regenerated after MCP tools change")
+				}
+			}()
+		}
 	}
 
 	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, a.credMgr, emitEvent)
@@ -1547,7 +1565,9 @@ func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioRe
 }
 
 // appTaskListManager adapta o App para a interface tasklisttool.TaskListManager
-type appTaskListManager struct{}
+type appTaskListManager struct {
+	ctx context.Context
+}
 
 // appDeepLinkEmitter emite deep links para o frontend via eventos Wails.
 type appDeepLinkEmitter struct {
@@ -1574,20 +1594,70 @@ func (m *appTaskListManager) GetTaskListStats(taskListID uint) (map[string]inter
 	return database.GetTaskListStats(taskListID)
 }
 
-func (m *appTaskListManager) CreateTask(taskListID uint, title, description string, parentID *uint) (*database.Task, error) {
-	return database.CreateTask(taskListID, title, description, parentID)
+func (m *appTaskListManager) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error) {
+	task, err := database.CreateTask(taskListID, title, description, code, link, parentID)
+	if err == nil && task != nil && m.ctx != nil {
+		runtime.EventsEmit(m.ctx, "task:created", task)
+	}
+	return task, err
+}
+
+func (m *appTaskListManager) CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*database.Task, error) {
+	task, err := database.CreateTaskFull(taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
+	if err == nil && task != nil && m.ctx != nil {
+		runtime.EventsEmit(m.ctx, "task:created", task)
+	}
+	return task, err
 }
 
 func (m *appTaskListManager) GetTask(id uint) (*database.Task, error) {
 	return database.GetTask(id)
 }
 
-func (m *appTaskListManager) UpdateTask(id uint, title, description string) error {
-	return database.UpdateTask(id, title, description)
+func (m *appTaskListManager) FindTaskByCode(taskListID uint, code string) (*database.Task, error) {
+	return database.FindTaskByCode(taskListID, code)
+}
+
+func (m *appTaskListManager) UpdateTask(id uint, title, description, code, link string) error {
+	if err := database.UpdateTask(id, title, description, code, link); err != nil {
+		return err
+	}
+	m.emitTaskUpdated(id)
+	return nil
+}
+
+func (m *appTaskListManager) UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	if err := database.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID); err != nil {
+		return err
+	}
+	m.emitTaskUpdated(id)
+	return nil
+}
+
+func (m *appTaskListManager) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
+	if err := database.UpdateTaskAssignee(id, assigneeName, assigneeID); err != nil {
+		return err
+	}
+	m.emitTaskUpdated(id)
+	return nil
 }
 
 func (m *appTaskListManager) UpdateTaskStatus(id uint, newStatusID int) error {
-	return database.UpdateTaskStatus(id, newStatusID)
+	if err := database.UpdateTaskStatus(id, newStatusID); err != nil {
+		return err
+	}
+	m.emitTaskUpdated(id)
+	return nil
+}
+
+func (m *appTaskListManager) emitTaskUpdated(id uint) {
+	if m.ctx == nil {
+		return
+	}
+	task, err := database.GetTask(id)
+	if err == nil && task != nil {
+		runtime.EventsEmit(m.ctx, "task:updated", task)
+	}
 }
 
 func (m *appTaskListManager) DeleteTask(id uint) error {
@@ -1596,6 +1666,26 @@ func (m *appTaskListManager) DeleteTask(id uint) error {
 
 func (m *appTaskListManager) GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error) {
 	return database.GetWorkflow(taskListID)
+}
+
+func (m *appTaskListManager) CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
+	return database.CreateTaskNote(taskID, noteType, content, authorName, authorID)
+}
+
+func (m *appTaskListManager) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
+	return database.GetTaskNotes(taskID)
+}
+
+func (m *appTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
+	return database.UpdateTaskListFull(id, title, description, preferredViewMode)
+}
+
+func (m *appTaskListManager) UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+	return database.UpdateWorkflowFull(taskListID, statuses, transitions, initialStatusID, statusMigration)
+}
+
+func (m *appTaskListManager) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
+	return database.GetTaskCountsByStatus(taskListID)
 }
 // initToolRegistry inicializa o registro de ferramentas disponíveis
 func (a *App) initToolRegistry() {
@@ -1736,14 +1826,16 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(history.NewSearchConversations())
 
 	// Registra ferramentas de gerenciamento de task lists
-	tlMgr := &appTaskListManager{}
+	tlMgr := &appTaskListManager{ctx: a.ctx}
 	a.toolRegistry.MustRegister(tasklisttool.NewCreateTaskList(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewListTaskLists(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewGetTaskList(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewGetTaskListStatus(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewUpsertTask(tlMgr))
-	a.toolRegistry.MustRegister(tasklisttool.NewBulkUpsertTasks(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewDeleteTask(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewAddTaskNote(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewGetTaskNotes(tlMgr))
+	a.toolRegistry.MustRegister(tasklisttool.NewUpsertTaskList(tlMgr))
 
 	// Registra ferramenta de deep links
 	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{ctx: a.ctx}))
@@ -1865,6 +1957,11 @@ func (a *App) shutdown(_ context.Context) {
 	// Encerra todos os mensageiros
 	if a.msgGateway != nil {
 		a.msgGateway.Shutdown()
+	}
+
+	// Encerra o sistema de jobs
+	if a.jobMgr != nil {
+		a.jobMgr.Stop()
 	}
 }
 
@@ -2003,7 +2100,41 @@ func (a *App) loadLLMProviders() error {
 	}
 
 	log.Printf("Provedores LLM carregados do SQLite: %d", len(providers))
+
+	a.ensureDefaultProvider()
+
 	return nil
+}
+
+// ensureDefaultProvider marks the first provider as default when none is.
+// Handles migration for providers created before the IsDefault feature.
+func (a *App) ensureDefaultProvider() {
+	defaultProv, err := database.GetDefaultProvider()
+	if err == nil && defaultProv != nil {
+		return
+	}
+
+	allProviders := a.llmRegistry.List()
+	if len(allProviders) == 0 {
+		return
+	}
+
+	first := allProviders[0]
+	log.Printf("[ProviderManager] Nenhum provedor default — marcando '%s' como default", first.Name)
+
+	if err := database.SetDefaultProvider(first.ID); err != nil {
+		log.Printf("[ProviderManager] Erro ao definir default: %v", err)
+		return
+	}
+	first.IsDefault = true
+
+	if first.DefaultModel == "" && first.Model != "" {
+		first.DefaultModel = first.Model
+		if dbProv, err := database.GetLLMProvider(first.ID); err == nil {
+			dbProv.DefaultModel = first.Model
+			database.SaveLLMProvider(dbProv)
+		}
+	}
 }
 
 // InterruptTerminalCommand envia Ctrl+C para uma sessão de terminal.

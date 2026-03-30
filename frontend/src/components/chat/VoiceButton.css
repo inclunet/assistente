@@ -5,7 +5,7 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 4px;
+  gap: 6px;
 }
 
 .voice-button {
@@ -21,7 +21,11 @@
   background: var(--bg-elevated);
   color: var(--text-primary);
   cursor: pointer;
-  transition: all 0.2s ease;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default);
   overflow: visible;
   touch-action: none; /* Importante para pointer events */
   user-select: none;
@@ -33,7 +37,7 @@
 }
 
 .voice-button:focus-visible {
-  outline: 2px solid var(--focus-ring);
+  outline: 2px solid var(--color-focus);
   outline-offset: 2px;
 }
 
@@ -133,7 +137,7 @@
   transform: translate(-50%, -50%) scale(1);
   transform-origin: center;
   pointer-events: none;
-  transition: transform 0.1s ease;
+  transition: transform var(--duration-instant) var(--ease-default);
   z-index: -1;
 }
 
@@ -160,7 +164,7 @@
   background: var(--bg-elevated);
   color: var(--text-muted);
   padding: 1px 3px;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   line-height: 1;
 }
 
@@ -175,6 +179,8 @@
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
+  line-height: 1;
+  white-space: nowrap;
 }
 
 /* Texto interim (preview da transcrição) */
@@ -187,16 +193,16 @@
   padding: 8px 12px;
   background: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 8px;
+  border-radius: var(--radius-lg);
   color: var(--text-primary);
   font-size: 14px;
-  max-width: 300px;
+  max-width: min(300px, calc(100vw - 32px));
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   box-shadow: 0 4px 6px -1px color-mix(in srgb, var(--bg-base) 10%, transparent);
   z-index: 10;
-  animation: fadeIn 0.2s ease;
+  animation: voiceInterimIn var(--duration-fast) var(--ease-default);
 }
 
 .voice-button__interim::after {
@@ -209,7 +215,7 @@
   border-top-color: var(--bg-elevated);
 }
 
-@keyframes fadeIn {
+@keyframes voiceInterimIn {
   from {
     opacity: 0;
     transform: translateX(-50%) translateY(4px);
@@ -221,7 +227,7 @@
 }
 
 /* Responsivo - botão menor em telas pequenas */
-@media (max-width: 480px) {
+@media (max-width: 640px) {
   .voice-button {
     width: 40px;
     height: 40px;
@@ -252,6 +258,10 @@
 /* Reduced motion */
 @media (prefers-reduced-motion: reduce) {
   .voice-button--recording {
+    animation: none;
+  }
+  
+  .voice-button--listening {
     animation: none;
   }
   

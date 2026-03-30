@@ -30,7 +30,12 @@ func NewOpenDeepLink(emitter DeepLinkEmitter) *OpenDeepLinkTool {
 func (t *OpenDeepLinkTool) Name() string { return "open_deep_link" }
 
 func (t *OpenDeepLinkTool) Description() string {
-	return "Opens a deep link in the application. Use to navigate, open tabs, or trigger actions. Supported URIs: assistente://conversation/{id}, assistente://conversation/new?message=..., assistente://tasklist/{id}, assistente://editor/{id}, assistente://terminal/{id}, assistente://navigate/{route}"
+	return `Opens a deep link in the application. Supported URIs:
+- Conversations: assistente://conversation/{id}, assistente://conversation/new?message=...&title=..., assistente://conversation/{id}/send?message=...
+- Tab open: assistente://tasklist/{id}, assistente://editor/{id}, assistente://terminal/{id}
+- Tab create: assistente://tasklist/new?title=..., assistente://editor/new?title=..., assistente://editor/open?file=..., assistente://terminal/new?cmd=...
+- Navigate: assistente://navigate/{route} (routes: history, tasklists, settings, profiles, providers, credentials, skills, mcp, channels, allowlists, help, about, update)
+- Resource edit/new: assistente://{resource}/new, assistente://{resource}/edit/{id} (resources: profiles, providers, credentials, allowlists, skills, mcp, channels, tasklists)`
 }
 
 func (t *OpenDeepLinkTool) Parameters() json.RawMessage {

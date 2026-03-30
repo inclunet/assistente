@@ -1,8 +1,12 @@
 import type { NavigateFunction } from 'react-router-dom';
 import { useChatStore } from '../store/chatStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { useEditorStore } from '../store/editorStore';
 import { useNavigationStore, type EditableResource } from '../store/navigationStore';
 import { announce } from '../hooks/useAnnouncer';
+import { EditorReadFile } from '@wailsjs/go/main/App';
+import { RunTerminalCommand } from '@wailsjs/go/main/App';
+import { BrowserOpenURL } from '@wailsjs/runtime/runtime';
 import i18n from './i18n';
 
 // ─── Protocol ────────────────────────────────────────────────────────
@@ -19,36 +23,45 @@ export type DeepLinkAction =
   | { type: 'navigate'; route: string }
   | { type: 'resource:edit'; resource: EditableResource; resourceId: string }
   | { type: 'resource:new'; resource: EditableResource }
-  | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string };
+  | { type: 'tab:open'; tabType: TabType; contentId: string; title?: string }
+  | { type: 'tab:new'; tabType: TabType; title?: string; file?: string; cmd?: string };
 
 // Routes the app actually supports (validated in navigate action)
 const VALID_ROUTES = new Set([
-  '', 'terminal', 'editor', 'allowlists', 'skills', 'mcp',
-  'channels', 'credentials', 'providers', 'settings', 'profiles',
-  'history', 'help', 'about', 'update',
+  '', 'settings', 'settings/providers', 'settings/mcp', 'settings/skills',
+  'settings/channels', 'settings/contacts', 'settings/credentials',
+  'settings/allowlists', 'settings/appearance', 'settings/restore-defaults',
+  'profiles', 'history', 'tasklists', 'help', 'about', 'update',
 ]);
 
 const EDITABLE_RESOURCES = new Set<EditableResource>([
   'profiles', 'providers', 'credentials', 'allowlists',
-  'skills', 'mcp', 'channels',
+  'skills', 'mcp', 'channels', 'tasklists',
 ]);
 
 const TAB_RESOURCES = new Set<TabType>(['tasklist', 'editor', 'terminal']);
 
+function defaultTitleForNewTab(tabType: TabType): string {
+  const typeLabel = i18n.t(`workspace.tabType.${tabType}`);
+  return i18n.t('deepLink.newTab', { type: typeLabel });
+}
+
 // Human-readable labels per route (keys into i18n menu namespace)
 const ROUTE_I18N_KEYS: Record<string, string> = {
   '': 'menu.chat',
-  terminal: 'menu.terminal',
-  editor: 'menu.editor',
-  allowlists: 'menu.allowlists',
-  skills: 'menu.skills',
-  mcp: 'menu.mcpServers',
-  channels: 'menu.channels',
-  credentials: 'menu.credentials',
-  providers: 'menu.providers',
   settings: 'menu.settings',
+  'settings/providers': 'menu.providers',
+  'settings/mcp': 'menu.mcp',
+  'settings/skills': 'menu.skills',
+  'settings/channels': 'menu.channels',
+  'settings/contacts': 'settingsPage.tabs.contacts',
+  'settings/credentials': 'menu.credentials',
+  'settings/allowlists': 'menu.allowlists',
+  'settings/appearance': 'appearance.pageTitle',
+  'settings/restore-defaults': 'menu.restoreDefaults',
   profiles: 'menu.profiles',
   history: 'menu.history',
+  tasklists: 'menu.tasklists',
   help: 'menu.help',
   about: 'menu.about',
   update: 'menu.update',
@@ -106,6 +119,27 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
       return { type: 'navigate', route };
     }
 
+    // assistente://tasklist/new, assistente://editor/new, assistente://editor/open, assistente://terminal/new
+    if (TAB_RESOURCES.has(resource as TabType)) {
+      if (segments[1] === 'new') {
+        return {
+          type: 'tab:new',
+          tabType: resource as TabType,
+          title: params.get('title') || undefined,
+          cmd: resource === 'terminal' ? (params.get('cmd') || undefined) : undefined,
+        };
+      }
+      if (resource === 'editor' && segments[1] === 'open') {
+        const file = params.get('file');
+        if (!file) return null;
+        return { type: 'tab:new', tabType: 'editor', file, title: params.get('title') || undefined };
+      }
+      // assistente://tasklist/{id}, assistente://editor/{id}, assistente://terminal/{id}
+      if (segments[1]) {
+        return { type: 'tab:open', tabType: resource as TabType, contentId: decodeURIComponent(segments[1]) };
+      }
+    }
+
     // assistente://{resource}/edit/{id} or assistente://{resource}/new
     if (EDITABLE_RESOURCES.has(resource as EditableResource)) {
       const action = segments[1];
@@ -116,11 +150,6 @@ export function parseDeepLink(uri: string): DeepLinkAction | null {
         const resourceId = decodeURIComponent(segments.slice(2).join('/'));
         return { type: 'resource:edit', resource: resource as EditableResource, resourceId };
       }
-    }
-
-    // assistente://tasklist/{id}, assistente://editor/{id}, assistente://terminal/{id}
-    if (TAB_RESOURCES.has(resource as TabType) && segments[1]) {
-      return { type: 'tab:open', tabType: resource as TabType, contentId: decodeURIComponent(segments[1]) };
     }
 
     return null;
@@ -161,6 +190,20 @@ export function buildDeepLink(action: DeepLinkAction): string {
 
     case 'tab:open':
       return `${DEEP_LINK_PREFIX}${action.tabType}/${encodeURIComponent(action.contentId)}`;
+
+    case 'tab:new': {
+      if (action.file) {
+        const params = new URLSearchParams();
+        params.set('file', action.file);
+        if (action.title) params.set('title', action.title);
+        return `${DEEP_LINK_PREFIX}editor/open?${params}`;
+      }
+      const params = new URLSearchParams();
+      if (action.title) params.set('title', action.title);
+      if (action.cmd) params.set('cmd', action.cmd);
+      const qs = params.toString();
+      return `${DEEP_LINK_PREFIX}${action.tabType}/new${qs ? `?${qs}` : ''}`;
+    }
   }
 }
 
@@ -193,6 +236,8 @@ export function getDeepLinkLabel(action: DeepLinkAction): string {
     }
     case 'tab:open':
       return t('deepLink.openTab', { type: action.tabType, id: action.contentId });
+    case 'tab:new':
+      return t('deepLink.newTab', { type: action.tabType });
   }
 }
 
@@ -206,6 +251,7 @@ export function getDeepLinkTypeClass(action: DeepLinkAction): string {
     case 'resource:edit': return 'deep-link--resource-edit';
     case 'resource:new': return 'deep-link--resource-new';
     case 'tab:open': return `deep-link--${action.tabType}`;
+    case 'tab:new': return `deep-link--${action.tabType}-new`;
   }
 }
 
@@ -223,40 +269,41 @@ export async function executeDeepLink(
 
   const wsStore = useWorkspaceStore.getState();
 
-  const openOrCreateChatTab = (conversationId: number, title?: string) => {
+  const openOrCreateChatTab = async (conversationId: number, title?: string) => {
     const existing = (wsStore.workspace?.tabs || []).find(
       (tab) => tab.type === 'chat' && tab.contentId === String(conversationId),
     );
     if (existing) {
-      void wsStore.setActiveTab(existing.id);
+      await wsStore.setActiveTab(existing.id);
     } else {
-      void wsStore.addTab('chat', String(conversationId), title || t('chat.newConversation'));
+      await wsStore.addTab('chat', String(conversationId), title || t('chat.newConversation'));
     }
   };
 
   switch (action.type) {
     case 'conversation:open': {
-      openOrCreateChatTab(action.conversationId, action.title);
+      await openOrCreateChatTab(action.conversationId, action.title);
       deps.navigate('/');
       announce(t('deepLink.announcedOpen', { id: action.conversationId }));
       break;
     }
 
     case 'conversation:new': {
-      void wsStore.addTab('chat', '', action.title || 'Nova Conversa');
+      const title = action.title || t('chat.newConversation');
+      const convId = await useChatStore.getState().createConversation(title);
+      await wsStore.addTab('chat', String(convId), title);
       deps.navigate('/');
       if (action.message) {
-        await new Promise((r) => setTimeout(r, 200));
         await useChatStore.getState().sendMessage(action.message);
       }
-      announce(action.title || t('deepLink.announcedNewConversation'));
+      announce(title);
       break;
     }
 
     case 'conversation:send': {
-      openOrCreateChatTab(action.conversationId);
+      await openOrCreateChatTab(action.conversationId);
       deps.navigate('/');
-      await new Promise((r) => setTimeout(r, 200));
+      await useChatStore.getState().loadConversation(action.conversationId);
       await useChatStore.getState().sendMessage(action.message);
       announce(t('deepLink.announcedSent', { id: action.conversationId }));
       break;
@@ -274,7 +321,9 @@ export async function executeDeepLink(
     case 'resource:edit': {
       const navStore = useNavigationStore.getState();
       navStore.requestResourceEdit(action.resource, action.resourceId, 'edit');
-      deps.navigate(`/${action.resource}`);
+      const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
+      const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
+      deps.navigate(path);
       announce(t('deepLink.announcedEditResource', { id: action.resourceId }));
       break;
     }
@@ -282,7 +331,9 @@ export async function executeDeepLink(
     case 'resource:new': {
       const navStore = useNavigationStore.getState();
       navStore.requestResourceEdit(action.resource, '', 'new');
-      deps.navigate(`/${action.resource}`);
+      const settingsResources = new Set(['providers', 'mcp', 'skills', 'channels', 'credentials', 'allowlists']);
+      const path = settingsResources.has(action.resource) ? `/settings/${action.resource}` : `/${action.resource}`;
+      deps.navigate(path);
       announce(t('deepLink.announcedNewResource'));
       break;
     }
@@ -293,13 +344,62 @@ export async function executeDeepLink(
         (tab) => tab.type === action.tabType && tab.contentId === action.contentId,
       );
       if (existing) {
-        void wsStore.setActiveTab(existing.id);
+        await wsStore.setActiveTab(existing.id);
       } else {
-        void wsStore.addTab(action.tabType, action.contentId, action.title || `${action.tabType} ${action.contentId}`);
+        await wsStore.addTab(action.tabType, action.contentId, action.title || `${action.tabType} ${action.contentId}`);
       }
       deps.navigate('/');
       announce(t('deepLink.announcedOpenTab', { type: action.tabType, id: action.contentId }));
       break;
     }
+
+    case 'tab:new': {
+      if (action.file && action.tabType === 'editor') {
+        const content = String(await EditorReadFile(action.file) || '');
+        const fileName = action.file.split(/[/\\]/).pop() || i18n.t('editor.prompts.file');
+        const title = action.title || fileName;
+        const editorStore = useEditorStore.getState();
+        const docId = editorStore.createDocument({ title, markdown: content });
+        editorStore.setDocFilePath(docId, action.file);
+        await wsStore.addTab('editor', docId, title);
+      } else if (action.tabType === 'terminal') {
+        const tabId = await wsStore.addTab('terminal', '', action.title || i18n.t('terminal.pageTitle'));
+        if (action.cmd) {
+          const waitForContentId = (): Promise<string> => new Promise((resolve) => {
+            const check = () => {
+              const tab = (useWorkspaceStore.getState().workspace?.tabs || []).find(
+                (t) => t.id === tabId,
+              );
+              if (tab?.contentId) { resolve(tab.contentId); return; }
+              setTimeout(check, 50);
+            };
+            check();
+          });
+          const sessionId = await waitForContentId();
+          await RunTerminalCommand(sessionId, action.cmd);
+        }
+      } else {
+        await wsStore.addTab(action.tabType, '', action.title || defaultTitleForNewTab(action.tabType));
+      }
+      deps.navigate('/');
+      announce(t('deepLink.announcedNewTab', { type: action.tabType }));
+      break;
+    }
+  }
+}
+
+/**
+ * Abre um link associado a uma task.
+ * - Deep links internos (assistente://) são executados via parseDeepLink + executeDeepLink.
+ * - URLs externas (http/https) são abertas no navegador do sistema.
+ */
+export function openTaskLink(url: string, deps: DeepLinkDeps): void {
+  if (url.startsWith('assistente://')) {
+    const action = parseDeepLink(url);
+    if (action) {
+      void executeDeepLink(action, deps);
+    }
+  } else if (url.startsWith('http://') || url.startsWith('https://')) {
+    BrowserOpenURL(url);
   }
 }

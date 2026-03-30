@@ -9,6 +9,7 @@ import (
 // Re-exporta tipos do database para compatibilidade
 type TaskList = database.TaskList
 type Task = database.Task
+type TaskNote = database.TaskNote
 type TaskListWorkflow = database.TaskListWorkflow
 type TaskListWorkflowStatus = database.TaskListWorkflowStatus
 
@@ -92,6 +93,17 @@ func (a *App) CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	return fullTaskList, nil
 }
 
+// ClearTaskList remove todas as tasks de uma lista, mantendo a lista e o workflow
+func (a *App) ClearTaskList(id uint) error {
+	err := database.ClearTaskList(id)
+	if err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskList:cleared", id)
+	return nil
+}
+
 // DeleteTaskList deleta uma lista e todas suas tasks
 func (a *App) DeleteTaskList(id uint) error {
 	err := database.DeleteTaskList(id)
@@ -122,6 +134,25 @@ func (a *App) UpdateWorkflow(taskListID uint, statuses []TaskListWorkflowStatus,
 	return nil
 }
 
+// UpdateWorkflowFull atualiza workflow completo (statuses, transitions, initial_status_id)
+// com validação e migração segura de tasks
+func (a *App) UpdateWorkflowFull(taskListID uint, statuses []TaskListWorkflowStatus, transitions map[int][]int, initialStatusID int, statusMigration map[int]int) error {
+	err := database.UpdateWorkflowFull(taskListID, statuses, database.TaskListWorkflowTransitions(transitions), initialStatusID, statusMigration)
+	if err != nil {
+		return err
+	}
+
+	taskList, _ := database.GetTaskList(taskListID)
+	runtime.EventsEmit(a.ctx, "workflow:updated", taskList.Workflow)
+	runtime.EventsEmit(a.ctx, "taskList:updated", taskList)
+	return nil
+}
+
+// GetTaskCountsByStatus retorna contagem de tasks por status_id
+func (a *App) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
+	return database.GetTaskCountsByStatus(taskListID)
+}
+
 // ReorderWorkflowStatuses reordena os statuses de um workflow
 func (a *App) ReorderWorkflowStatuses(taskListID uint, statusOrder []int) error {
 	err := database.ReorderWorkflowStatuses(taskListID, statusOrder)
@@ -142,8 +173,8 @@ func (a *App) ValidateStatusTransition(taskListID uint, fromStatusID, toStatusID
 // ==================== Task Operations ====================
 
 // CreateTask cria uma nova tarefa
-func (a *App) CreateTask(taskListID uint, title, description string, parentID *uint) (*Task, error) {
-	task, err := database.CreateTask(taskListID, title, description, parentID)
+func (a *App) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*Task, error) {
+	task, err := database.CreateTask(taskListID, title, description, code, link, parentID)
 	if err != nil {
 		return nil, err
 	}
@@ -167,11 +198,52 @@ func (a *App) GetTasksByStatus(taskListID uint, statusID int) ([]Task, error) {
 	return database.GetTasksByStatus(taskListID, statusID)
 }
 
-// UpdateTask atualiza title e description de uma task
-func (a *App) UpdateTask(id uint, title, description string) error {
-	err := database.UpdateTask(id, title, description)
+// UpdateTask atualiza title, description, code e link de uma task
+func (a *App) UpdateTask(id uint, title, description, code, link string) error {
+	err := database.UpdateTask(id, title, description, code, link)
 	if err != nil {
 		return err
+	}
+
+	task, _ := database.GetTask(id)
+	runtime.EventsEmit(a.ctx, "task:updated", task)
+	return nil
+}
+
+// UpdateTaskFull atualiza todos os campos editáveis de uma task, incluindo assignee e creator
+func (a *App) UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	err := database.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
+	if err != nil {
+		return err
+	}
+
+	task, _ := database.GetTask(id)
+	runtime.EventsEmit(a.ctx, "task:updated", task)
+	return nil
+}
+
+// UpdateTaskAssignee atualiza apenas o assignee de uma task
+func (a *App) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
+	oldTask, _ := database.GetTask(id)
+	err := database.UpdateTaskAssignee(id, assigneeName, assigneeID)
+	if err != nil {
+		return err
+	}
+
+	if oldTask != nil && oldTask.AssigneeName != assigneeName {
+		var content string
+		switch {
+		case oldTask.AssigneeName == "" && assigneeName != "":
+			content = "Responsável definido: " + assigneeName
+		case oldTask.AssigneeName != "" && assigneeName == "":
+			content = "Responsável removido (era " + oldTask.AssigneeName + ")"
+		default:
+			content = "Responsável alterado de " + oldTask.AssigneeName + " para " + assigneeName
+		}
+		note, _ := database.CreateTaskNote(id, database.TaskNoteSystem, content, "system", "")
+		if note != nil {
+			runtime.EventsEmit(a.ctx, "taskNote:created", note)
+		}
 	}
 
 	task, _ := database.GetTask(id)
@@ -240,6 +312,46 @@ func (a *App) DeleteTask(id uint) error {
 // GetSubtasks retorna subtasks de uma task
 func (a *App) GetSubtasks(parentID uint) ([]Task, error) {
 	return database.GetSubtasks(parentID)
+}
+
+// ==================== TaskNote Operations ====================
+
+// CreateTaskNote cria uma nova nota/interação para uma task
+func (a *App) CreateTaskNote(taskID uint, noteType int, content, authorName, authorID string) (*TaskNote, error) {
+	note, err := database.CreateTaskNote(taskID, database.TaskNoteType(noteType), content, authorName, authorID)
+	if err != nil {
+		return nil, err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskNote:created", note)
+	return note, nil
+}
+
+// GetTaskNotes retorna todas as notas de uma task
+func (a *App) GetTaskNotes(taskID uint) ([]TaskNote, error) {
+	return database.GetTaskNotes(taskID)
+}
+
+// UpdateTaskNote atualiza o conteúdo de uma nota
+func (a *App) UpdateTaskNote(noteID uint, content string) error {
+	err := database.UpdateTaskNote(noteID, content)
+	if err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskNote:updated", noteID)
+	return nil
+}
+
+// DeleteTaskNote remove uma nota
+func (a *App) DeleteTaskNote(noteID uint) error {
+	err := database.DeleteTaskNote(noteID)
+	if err != nil {
+		return err
+	}
+
+	runtime.EventsEmit(a.ctx, "taskNote:deleted", noteID)
+	return nil
 }
 
 // ==================== Utility Operations ====================

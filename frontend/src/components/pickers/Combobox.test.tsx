@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { Combobox, ComboboxItem } from './Combobox';
 
@@ -155,12 +155,20 @@ describe('Combobox - allowFreeInput', () => {
     let dropdown = container.querySelector('.picker-dropdown');
     expect(dropdown).toBeInTheDocument();
 
-    // Pressiona Escape
+    // Aguarda input ser focado (setTimeout de 10ms no open())
+    await waitFor(() => {
+      const input = container.querySelector('input');
+      expect(input).toHaveFocus();
+    });
+
+    // Pressiona Escape no input focado
     await user.keyboard('{Escape}');
 
     // Dropdown é fechado
-    dropdown = container.querySelector('.picker-dropdown');
-    expect(dropdown).not.toBeInTheDocument();
+    await waitFor(() => {
+      dropdown = container.querySelector('.picker-dropdown');
+      expect(dropdown).not.toBeInTheDocument();
+    });
   });
 
   it('desabilita entrada quando disabled=true', () => {

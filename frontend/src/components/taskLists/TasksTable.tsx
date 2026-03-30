@@ -1,11 +1,15 @@
-import { useState, forwardRef, useImperativeHandle } from 'react';
+import { useState, useCallback, forwardRef, useImperativeHandle } from 'react';
+import { LinkOutlined, PlusOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { useNavigate } from 'react-router-dom';
 import { useTaskListStore } from '../../store/taskListStore';
-import { DataGrid, DataGridColumn } from '../ui/DataGrid';
+import { openTaskLink } from '../../lib/deepLinks';
 import { Button } from '../ui/Button';
+import { DataGrid, DataGridColumn } from '../ui/DataGrid';
 import { Modal } from '../ui/Modal';
 import type { Task, TaskListWithWorkflow } from '../../types/tasklist';
 import TaskForm from './TaskForm';
+import TaskDetailModal from './TaskDetailModal';
 import './TasksTable.css';
 
 interface TasksTableProps {
@@ -30,11 +34,19 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
   onTaskDeleted,
 }, ref) {
   const { t } = useTranslation();
+  const navigate = useNavigate();
   const { deleteTask, promoteTask, demoteTask } = useTaskListStore();
+
+  const handleLinkClick = useCallback((e: React.MouseEvent, link: string) => {
+    e.stopPropagation();
+    openTaskLink(link, { navigate });
+  }, [navigate]);
 
   const [isCreateModalOpen, setIsCreateModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [isDetailModalOpen, setIsDetailModalOpen] = useState(false);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
+  const [detailTask, setDetailTask] = useState<Task | null>(null);
   const [isDemoteModalOpen, setIsDemoteModalOpen] = useState(false);
   const [demotingTask, setDemotingTask] = useState<Task | null>(null);
 
@@ -51,7 +63,9 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
   const handleCloseModals = () => {
     setIsCreateModalOpen(false);
     setIsEditModalOpen(false);
+    setIsDetailModalOpen(false);
     setEditingTask(null);
+    setDetailTask(null);
     setIsDemoteModalOpen(false);
     setDemotingTask(null);
   };
@@ -105,12 +119,39 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
     return d.toLocaleDateString('pt-BR', { month: '2-digit', day: '2-digit' });
   };
 
-  // Colunas customizadas para a tabela
   const columns: DataGridColumn<Task>[] = [
+    {
+      key: 'code',
+      label: t('tasklist.code', 'Código'),
+      width: '140px',
+      format: (code) => {
+        const val = code as string | undefined;
+        if (!val) return <span className="task-code--empty">—</span>;
+        return <span className="task-code">{val}</span>;
+      },
+    },
     {
       key: 'title',
       label: t('tasklist.taskTitle', 'Título'),
       width: '400px',
+      format: (title, item) => {
+        const tk = item as Task;
+        return (
+          <span className="task-title-cell">
+            <span>{title as string}</span>
+            {tk.link && (
+              <span
+                className="task-link-icon"
+                title={tk.link}
+                role="button"
+                tabIndex={-1}
+                aria-label={`Link: ${tk.link}`}
+                onClick={(e) => handleLinkClick(e, tk.link!)}
+              ><LinkOutlined aria-hidden="true" /></span>
+            )}
+          </span>
+        );
+      },
     },
     {
       key: 'statusId',
@@ -123,6 +164,26 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
             {status?.label || `Status ${statusId}`}
           </span>
         );
+      },
+    },
+    {
+      key: 'assigneeName',
+      label: t('tasklist.assignee', 'Responsável'),
+      width: '140px',
+      format: (assigneeName) => {
+        const name = assigneeName as string | undefined;
+        if (!name) return <span className="task-assignee--empty">—</span>;
+        return <span className="task-assignee">{name}</span>;
+      },
+    },
+    {
+      key: 'creatorName',
+      label: t('tasklist.creator', 'Criador'),
+      width: '140px',
+      format: (creatorName) => {
+        const name = creatorName as string | undefined;
+        if (!name) return <span className="task-creator--empty">—</span>;
+        return <span className="task-creator">{name}</span>;
       },
     },
     {
@@ -151,6 +212,14 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
 
   const getRowActions = (task: Task) => {
     const actions = [
+      {
+        id: `details-${task.id}`,
+        label: t('tasklist.details', 'Detalhes'),
+        action: () => {
+          setDetailTask(task);
+          setIsDetailModalOpen(true);
+        },
+      },
       {
         id: `edit-${task.id}`,
         label: t('tasklist.edit', 'Editar'),
@@ -198,14 +267,17 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
         <>
           <div className="tasks-table-toolbar">
             <Button onClick={handleOpenCreateModal} variant="primary">
-              ➕ {t('tasklist.createTask', 'Criar Tarefa')}
+              <PlusOutlined aria-hidden="true" /> {t('tasklist.createTask', 'Criar Tarefa')}
             </Button>
           </div>
 
           <DataGrid<Task>
             items={tasks}
             columns={columns}
-            onActivate={(task) => handleOpenEditModal(task)}
+            onActivate={(task) => {
+              setDetailTask(task);
+              setIsDetailModalOpen(true);
+            }}
             getRowActions={getRowActions}
           />
         </>
@@ -213,7 +285,7 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
         <div className="tasks-table-empty">
           <p>{t('tasklist.noTasks', 'Nenhuma tarefa nesta lista')}</p>
           <Button onClick={handleOpenCreateModal} variant="primary">
-            ➕ {t('tasklist.createTask', 'Criar Tarefa')}
+            <PlusOutlined aria-hidden="true" /> {t('tasklist.createTask', 'Criar Tarefa')}
           </Button>
         </div>
       )}
@@ -272,6 +344,13 @@ const TasksTable = forwardRef<TasksTableRef, TasksTableProps>(function TasksTabl
           </div>
         )}
       </Modal>
+      {/* Modal de Detalhes da Tarefa */}
+      <TaskDetailModal
+        isOpen={isDetailModalOpen}
+        onClose={handleCloseModals}
+        task={detailTask}
+        statuses={taskList?.workflow?.statuses ?? []}
+      />
     </div>
   );
 });

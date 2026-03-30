@@ -67,9 +67,14 @@ export interface EditableListOptions<T extends EditableItem> {
    */
   onDeleteSuccess?: () => void;
   /**
-   * Verifica se o item pode ser deletado (ex: não deletar item ativo)
+   * Verifica se o item pode ser deletado (ex: não deletar item ativo).
+   * Pode ser assíncrono (ex.: diálogo de confirmação acessível).
    */
-  canDelete?: (item: T) => boolean | string;
+  canDelete?: (item: T) => boolean | string | Promise<boolean | string>;
+  /**
+   * Quando true, não chama window.confirm após canDelete (ex.: confirmação já feita em canDelete).
+   */
+  skipBuiltInDeleteConfirm?: boolean;
 }
 
 export interface UseEditableListResult<T extends EditableItem> {
@@ -239,7 +244,7 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
   const deleteItem = useCallback(async (item: T) => {
     // Verifica se pode deletar
     if (options.canDelete) {
-      const canDelete = options.canDelete(item);
+      const canDelete = await Promise.resolve(options.canDelete(item));
       if (typeof canDelete === 'string') {
         addToast(canDelete, 'error');
         return;
@@ -250,12 +255,14 @@ export function useEditableList<T extends EditableItem, TCreate = T, TUpdate = T
       }
     }
 
-    // Confirmação
-    const confirmMessage =
-      typeof messages.deleteConfirm === 'function'
-        ? messages.deleteConfirm(item)
-        : messages.deleteConfirm || `Tem certeza que deseja excluir "${getName(item)}"?`;
-    if (!confirm(confirmMessage)) return;
+    // Confirmação nativa (omitida quando a página usa confirmação própria, ex. useConfirm em canDelete)
+    if (!options.skipBuiltInDeleteConfirm) {
+      const confirmMessage =
+        typeof messages.deleteConfirm === 'function'
+          ? messages.deleteConfirm(item)
+          : messages.deleteConfirm || `Tem certeza que deseja excluir "${getName(item)}"?`;
+      if (!confirm(confirmMessage)) return;
+    }
 
     try {
       await operations.deleteItem(item.id);

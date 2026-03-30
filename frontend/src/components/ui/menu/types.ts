@@ -1,7 +1,9 @@
+import type { ReactNode } from 'react';
+
 export interface MenuItem {
   id: string;
   label?: string;
-  icon?: string;
+  icon?: ReactNode;
   shortcut?: string;
   checked?: boolean;
   separator?: boolean;
@@ -9,7 +11,7 @@ export interface MenuItem {
   danger?: boolean;
   submenu?: MenuItem[];
   action?: () => void;
-  ariaLabel?: string; // Label para leitores de tela (sem emoji)
+  ariaLabel?: string;
 }
 
 export interface MenuProps {
@@ -23,6 +25,10 @@ export interface MenuProps {
    * Útil para menus de navegação principal.
    */
   initialFocusItemId?: string;
+  /** Renderiza um campo de busca acima dos itens para filtrar por label. */
+  searchable?: boolean;
+  /** Placeholder do campo de busca (default: "Buscar..."). */
+  searchPlaceholder?: string;
   onClose?: () => void;
   onSelect?: (item: MenuItem) => void;
   /** Callback for custom key handling on the focused item. Return true to prevent default menu behavior. */

@@ -4,7 +4,7 @@
   gap: var(--spacing-sm);
   margin-bottom: var(--spacing-sm);
   padding: var(--spacing-sm);
-  background: var(--color-bg-tertiary);
+  background: var(--bg-elevated);
   border-radius: var(--border-radius);
 }
 
@@ -13,14 +13,14 @@
   align-items: center;
   gap: var(--spacing-sm);
   padding: var(--spacing-xs) var(--spacing-sm);
-  background: var(--color-bg-secondary);
+  background: var(--bg-surface);
   border-radius: calc(var(--border-radius) * 0.5);
   max-width: 300px;
-  transition: background-color 0.2s;
+  transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .media-preview:hover {
-  background: var(--color-bg-hover);
+  background: var(--bg-hover);
 }
 
 .media-thumbnail-wrapper {
@@ -45,16 +45,6 @@
   animation: pulse 1.5s ease-in-out infinite;
 }
 
-@keyframes pulse {
-  0%, 100% {
-    opacity: 1;
-    transform: scale(1);
-  }
-  50% {
-    opacity: 0.5;
-    transform: scale(1.1);
-  }
-}
 
 .media-audio-preview {
   display: flex;
@@ -87,7 +77,7 @@
 .media-name {
   font-size: var(--font-size-sm);
   font-weight: 500;
-  color: var(--color-text-primary);
+  color: var(--text-primary);
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -95,7 +85,7 @@
 
 .media-size {
   font-size: var(--font-size-xs);
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
 }
 
 .media-remove {
@@ -107,16 +97,19 @@
   justify-content: center;
   border: none;
   background: transparent;
-  color: var(--color-text-secondary);
+  color: var(--text-secondary);
   border-radius: calc(var(--border-radius) * 0.5);
   cursor: pointer;
   font-size: var(--font-size-md);
   line-height: 1;
-  transition: all 0.2s;
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default),
+    transform var(--duration-fast) var(--ease-default);
 }
 
 .media-remove:hover {
-  background: var(--color-bg-hover);
+  background: var(--bg-hover);
   color: var(--color-danger);
 }
 

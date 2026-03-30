@@ -1,40 +1,35 @@
 .ws-tabs {
-  --tab-accent: var(--accent-color, var(--accent));
-  --tab-radius: 6px;
+  --tab-accent: var(--accent);
+  --tab-radius: var(--radius-md);
   --tab-bg-hover: var(--bg-hover);
-  --tab-bg-active: var(--bg-elevated);
+  --tab-bg-active: var(--bg-base);
   --tab-color: var(--text-primary);
   --tab-color-muted: var(--text-secondary);
   --tabs-focus-outline: 2px solid var(--tab-accent);
   --tabs-focus-outline-offset: -2px;
 
   display: flex;
-  align-items: center;
+  align-items: stretch;
+  padding-top: 16px;
   background-color: var(--tabs-bar-bg, var(--bg-elevated));
   border-bottom: 1px solid var(--tabs-bar-border, var(--border-default));
-  overflow-x: auto;
-  overflow-y: hidden;
-  height: var(--tabs-height, 40px);
-  min-height: var(--tabs-height, 40px);
+  overflow: hidden;
+  height: var(--tabs-height, 56px);
+  min-height: var(--tabs-height, 56px);
 }
 
 .ws-tabs__list {
   display: flex;
+  align-items: stretch;
   flex: 1;
   gap: 2px;
-  padding: 0 8px;
+  padding: 0 12px;
   overflow-x: auto;
-  scrollbar-width: thin;
-  scrollbar-color: var(--scrollbar-thumb, var(--border-default)) transparent;
+  scrollbar-width: none;
 }
 
 .ws-tabs__list::-webkit-scrollbar {
-  height: 6px;
-}
-
-.ws-tabs__list::-webkit-scrollbar-thumb {
-  background-color: var(--scrollbar-thumb, var(--border-default));
-  border-radius: 3px;
+  display: none;
 }
 
 .ws-tabs__tab-wrapper {
@@ -51,15 +46,15 @@
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 6px 12px;
+  padding: 0 16px;
   padding-right: 32px;
   background-color: transparent;
   border: none;
   border-radius: var(--tab-radius) var(--tab-radius) 0 0;
   color: var(--tab-color-muted);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   cursor: pointer;
-  transition: background-color 0.15s, color 0.15s;
+  transition: background-color var(--duration-fast) var(--ease-default), color var(--duration-fast) var(--ease-default);
   white-space: nowrap;
   min-width: 100px;
   max-width: 200px;
@@ -80,12 +75,18 @@
 .ws-tabs__tab--active {
   background-color: var(--tab-bg-active);
   color: var(--tab-color);
-  border-bottom: 2px solid var(--tab-accent);
+  border-top: 2px solid var(--tab-accent);
+  border-left: 1px solid var(--border-default);
+  border-right: 1px solid var(--border-default);
+  border-bottom: 1px solid var(--tab-bg-active);
+  margin-bottom: -1px;
 }
 
 .ws-tabs__tab-icon {
   font-size: 0.875rem;
   flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
 }
 
 .ws-tabs__tab-title {
@@ -108,11 +109,11 @@
   padding: 0;
   background-color: transparent;
   border: none;
-  border-radius: 3px;
+  border-radius: var(--radius-sm);
   color: inherit;
   cursor: pointer;
   opacity: 0.5;
-  transition: opacity 0.15s, background-color 0.15s;
+  transition: opacity var(--duration-fast) var(--ease-default), background-color var(--duration-fast) var(--ease-default);
   font-size: 0.875rem;
 }
 
@@ -137,11 +138,11 @@
   left: 32px;
   right: 34px;
   padding: 2px 6px;
-  background-color: var(--bg-tertiary, var(--bg-elevated));
+  background-color: var(--bg-hover, var(--bg-elevated));
   border: 1px solid var(--tab-accent);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   color: var(--tab-color);
-  font-size: 0.8125rem;
+  font-size: 0.75rem;
   font-family: inherit;
   outline: none;
   z-index: 2;
@@ -150,4 +151,13 @@
 .ws-tabs__tab-edit:focus {
   border-color: var(--accent-bright, var(--tab-accent));
   box-shadow: 0 0 0 2px var(--focus-ring);
+}
+
+/* Drag & drop */
+.ws-tabs__tab-wrapper--dragging {
+  opacity: 0.4;
+}
+
+.ws-tabs__tab-wrapper--drop-target {
+  border-left: 2px solid var(--tab-accent);
 }

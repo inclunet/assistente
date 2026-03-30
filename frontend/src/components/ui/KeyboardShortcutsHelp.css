@@ -9,19 +9,19 @@
   align-items: center;
   justify-content: center;
   z-index: 1000;
-  animation: fadeIn 0.2s ease;
+  animation: fadeIn var(--duration-fast) var(--ease-default);
 }
 
 .keyboard-shortcuts-panel {
   background-color: var(--bg-surface);
-  border-radius: 16px;
+  border-radius: var(--radius-xl);
   box-shadow: 0 10px 40px var(--bg-overlay);
   max-width: 600px;
   width: 90%;
   max-height: 80vh;
   display: flex;
   flex-direction: column;
-  animation: slideUp 0.3s ease;
+  animation: slideUp var(--duration-normal) var(--ease-default);
 }
 
 .keyboard-shortcuts-header {
@@ -46,8 +46,10 @@
   color: var(--text-muted);
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 4px;
-  transition: all 0.2s;
+  border-radius: var(--radius-sm);
+  transition:
+    background-color var(--duration-fast) var(--ease-default),
+    color var(--duration-fast) var(--ease-default);
 }
 
 .keyboard-shortcuts-close:hover {
@@ -79,7 +81,7 @@
   font-weight: 600;
   background-color: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 6px 12px;
   min-width: 80px;
   text-align: center;
@@ -89,6 +91,7 @@
 
 .keyboard-shortcut-description {
   flex: 1;
+  min-width: 0;
   margin-left: 20px;
   font-size: 15px;
   color: var(--text-secondary);
@@ -112,27 +115,8 @@
   font-weight: 600;
   background-color: var(--bg-elevated);
   border: 1px solid var(--border-default);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 2px 6px;
   margin: 0 2px;
 }
 
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-  }
-  to {
-    opacity: 1;
-  }
-}
-
-@keyframes slideUp {
-  from {
-    transform: translateY(20px);
-    opacity: 0;
-  }
-  to {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}

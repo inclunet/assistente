@@ -27,7 +27,8 @@ type ResolvedFile struct {
 // Resolver resolve arquivos dentro de pastas .assistente/ nos 3 diretórios.
 // Opera EXCLUSIVAMENTE dentro de .assistente/ — nunca acessa arquivos fora desse escopo.
 type Resolver struct {
-	subdir string // "" para raiz, "profiles" para subdir, etc.
+	subdir  string // "" para raiz, "profiles" para subdir, etc.
+	baseDir string // override for testing — when set, only this dir is used
 }
 
 // NewResolver cria um resolver para um subdiretório de .assistente/.
@@ -39,7 +40,19 @@ func NewResolver(subdir string) *Resolver {
 	}
 }
 
+// NewResolverWithBase creates a resolver rooted at a single fixed directory.
+// Intended for testing — bypasses the standard 3-directory resolution.
+func NewResolverWithBase(baseDir string) *Resolver {
+	return &Resolver{
+		baseDir: baseDir,
+	}
+}
+
 func (r *Resolver) getPaths() []string {
+	if r.baseDir != "" {
+		return []string{r.baseDir}
+	}
+
 	basePaths := GetBasePaths()
 	paths := make([]string, 0, len(basePaths))
 
@@ -259,6 +272,10 @@ func (r *Resolver) EnsureHomeDir() error {
 // O diretório home é sempre o segundo na lista de prioridade,
 // mas se houver apenas 1 ou 2 paths (deduplicação), precisamos encontrá-lo.
 func (r *Resolver) GetHomeDir() string {
+	if r.baseDir != "" {
+		return r.baseDir
+	}
+
 	initPaths()
 
 	baseHome := cachedHomeDir

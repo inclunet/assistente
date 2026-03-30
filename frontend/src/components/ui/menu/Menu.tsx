@@ -1,4 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { CheckOutlined, RightOutlined } from '@ant-design/icons';
 import type { MenuItem, MenuProps } from './types';
 import { restoreDefaultFocus } from '../../../hooks/useDefaultFocus';
 
@@ -11,21 +13,31 @@ export const Menu: React.FC<MenuProps> = ({
   visible = false,
   ariaLabel = 'Menu',
   initialFocusItemId,
+  searchable = false,
+  searchPlaceholder = 'Buscar...',
   onClose,
   onSelect,
   onItemKeyDown,
 }) => {
+  const { t } = useTranslation();
   const menuRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const onCloseRef = useRef(onClose);
   onCloseRef.current = onClose;
   const itemsRef = useRef(items);
   itemsRef.current = items;
   const [position, setPosition] = useState({ x, y });
+  const [searchQuery, setSearchQuery] = useState('');
   // Stack de submenus abertos (IDs dos items)
   const [submenuStack, setSubmenuStack] = useState<string[]>([]);
   // Stack de índices focados em cada nível
   const [focusStack, setFocusStack] = useState<number[]>([0]);
   const [announcement, setAnnouncement] = useState('');
+  const [searchFocused, setSearchFocused] = useState(false);
+
+  const filteredItems = searchable && searchQuery.trim()
+    ? items.filter(item => item.separator || item.label?.toLowerCase().includes(searchQuery.toLowerCase()))
+    : items;
 
   // Anuncia mudanças para leitores de tela
   const announce = (message: string) => {
@@ -56,7 +68,7 @@ export const Menu: React.FC<MenuProps> = ({
   };
 
   const getCurrentItems = (): MenuItem[] => {
-    let currentItems = items;
+    let currentItems = filteredItems;
     for (const submenuId of submenuStack) {
       const parentItem = currentItems.find((item) => item.id === submenuId);
       if (parentItem?.submenu) {
@@ -106,27 +118,45 @@ export const Menu: React.FC<MenuProps> = ({
     };
   }, [visible]);
 
-  // Foca no primeiro item quando abre
+  // Foca no primeiro item (ou no campo de busca) quando abre
   useEffect(() => {
     if (visible && menuRef.current) {
       setSubmenuStack([]);
+      setSearchQuery('');
       const topLevelItems = itemsRef.current.filter((i) => !i.separator);
       const preferredIndex =
         initialFocusItemId
           ? topLevelItems.findIndex((i) => i.id === initialFocusItemId && isFocusableItem(i))
           : -1;
       setFocusStack([preferredIndex >= 0 ? preferredIndex : firstFocusableIndex(topLevelItems)]);
-      const firstButton = menuRef.current.querySelector('button:not([disabled])');
-      if (firstButton instanceof HTMLElement) {
-        firstButton.focus();
+
+      if (searchable) {
+        setSearchFocused(true);
+        requestAnimationFrame(() => searchInputRef.current?.focus());
+      } else {
+        setSearchFocused(false);
+        const firstButton = menuRef.current.querySelector('button:not([disabled])');
+        if (firstButton instanceof HTMLElement) {
+          firstButton.focus();
+        }
       }
     }
-  }, [visible, initialFocusItemId]);
+  }, [visible, initialFocusItemId, searchable]);
+
+  // Resetar foco quando o filtro muda
+  useEffect(() => {
+    if (searchable && visible) {
+      setSubmenuStack([]);
+      const topItems = filteredItems.filter(i => !i.separator);
+      setFocusStack([firstFocusableIndex(topItems)]);
+    }
+  }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Move o foco quando muda
   useEffect(() => {
     if (visible && menuRef.current) {
-      let currentItems = itemsRef.current;
+      if (searchFocused) return;
+      let currentItems = filteredItems as MenuItem[];
       for (const submenuId of submenuStack) {
         const parentItem = currentItems.find((item) => item.id === submenuId);
         if (parentItem?.submenu) {
@@ -145,6 +175,37 @@ export const Menu: React.FC<MenuProps> = ({
       }
     }
   }, [focusStack, submenuStack, visible]);
+
+  const handleSearchKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSearchFocused(false);
+      const currentItems = getCurrentItems();
+      setFocusStack([firstFocusableIndex(currentItems)]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      if (searchQuery) {
+        setSearchQuery('');
+      } else {
+        onClose?.();
+        requestAnimationFrame(() => restoreDefaultFocus());
+      }
+    } else if (e.key === 'Tab') {
+      e.preventDefault();
+      onClose?.();
+      requestAnimationFrame(() => restoreDefaultFocus());
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      const currentItems = getCurrentItems();
+      const first = currentItems.find(i => isFocusableItem(i));
+      if (first?.action) {
+        first.action();
+        onSelect?.(first);
+        onClose?.();
+        requestAnimationFrame(() => restoreDefaultFocus());
+      }
+    }
+  };
 
   // Navegação por teclado
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -180,6 +241,11 @@ export const Menu: React.FC<MenuProps> = ({
 
       case 'ArrowUp':
         e.preventDefault();
+        if (searchable && submenuStack.length === 0 && currentFocusIndex <= firstFocusableIndex(currentItems)) {
+          setSearchFocused(true);
+          requestAnimationFrame(() => searchInputRef.current?.focus());
+          break;
+        }
         setFocusStack((prev) => {
           const newStack = [...prev];
           newStack[newStack.length - 1] = nextFocusableIndex(currentItems, currentFocusIndex, -1);
@@ -314,11 +380,11 @@ export const Menu: React.FC<MenuProps> = ({
             <span className="context-menu__label">{item.label}</span>
             {item.checked && (
               <span className="context-menu__check" aria-hidden="true">
-                ✓
+                <CheckOutlined />
               </span>
             )}
             {item.shortcut && <span className="context-menu__shortcut" aria-hidden="true">{item.shortcut}</span>}
-            {hasSubmenu && <span className="context-menu__arrow" aria-hidden="true">▶</span>}
+            {hasSubmenu && <span className="context-menu__arrow" aria-hidden="true"><RightOutlined /></span>}
           </button>
       );
 
@@ -358,15 +424,36 @@ export const Menu: React.FC<MenuProps> = ({
 
       <div
         ref={menuRef}
-        className="context-menu"
+        className={`context-menu${searchable ? ' context-menu--searchable' : ''}`}
         style={{ left: `${position.x}px`, top: `${position.y}px` }}
         role="menu"
         aria-label={ariaLabel}
-        aria-activedescendant={activeItemId}
+        aria-activedescendant={searchFocused ? undefined : activeItemId}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
-        {renderItems(items, 0)}
+        {searchable && (
+          <div className="context-menu__search" role="presentation">
+            <input
+              ref={searchInputRef}
+              type="text"
+              className="context-menu__search-input"
+              placeholder={searchPlaceholder}
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              onKeyDown={handleSearchKeyDown}
+              onFocus={() => setSearchFocused(true)}
+              aria-label={searchPlaceholder}
+              autoComplete="off"
+            />
+          </div>
+        )}
+        {renderItems(filteredItems, 0)}
+        {searchable && searchQuery && filteredItems.filter(i => !i.separator).length === 0 && (
+          <div className="context-menu__empty" role="presentation">
+            {t('common.noResults', 'Nenhum resultado')}
+          </div>
+        )}
       </div>
     </>
   );

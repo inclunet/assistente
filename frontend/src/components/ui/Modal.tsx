@@ -1,5 +1,6 @@
 import { ReactNode, useEffect, useRef, useCallback, useId } from 'react';
 import { createPortal } from 'react-dom';
+import { CloseOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { restoreDefaultFocus } from '../../hooks/useDefaultFocus';
 import './Modal.css';
@@ -248,16 +249,16 @@ export function Modal({
     >
       <div ref={modalRef} className={`modal-content ${size}${className ? ` ${className}` : ''}`}>
         <div className="modal-header">
-          <h2 id={titleId} className="modal-title">{title}</h2>
           {allowClose && (
             <button 
               className="modal-close"
               onClick={onClose}
               aria-label={t('ui.modal.close')}
             >
-              ✕
+              <CloseOutlined aria-hidden="true" />
             </button>
           )}
+          <h1 id={titleId} className="modal-title">{title}</h1>
         </div>
         <div className="modal-body">
           {children}

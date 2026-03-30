@@ -1,13 +1,20 @@
-import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
+import { AppstoreOutlined, CheckOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
+import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
+import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
+import { ProfilePicker } from '../pickers/ProfilePicker';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
-import type { ViewMode } from '../../types/tasklist';
+import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../../types/tasklist';
+
+const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
 
 interface TaskListViewProps {
   taskListId: number;
@@ -23,16 +30,47 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
   const { announce } = useAnnouncer();
   const requestConfirm = useConfirm();
 
+  const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
+  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
+  const tabProfileSlug = wsActiveTab?.type === 'tasklist'
+    ? (wsActiveTab.profileOverride?.slug as string | undefined)
+    : undefined;
+  const effectiveProfileSlug = tabProfileSlug || wsProfile || '';
+
   const taskList = useTaskListStore((s) => s.taskLists.get(taskListId));
-  const { loadTaskList, setViewMode, cloneTaskList, deleteTaskList } = useTaskListStore();
+  const { loadTaskList, setViewMode, cloneTaskList, clearTaskList, deleteTaskList, updateWorkflowFull, getTaskCountsByStatus } = useTaskListStore();
 
   const tasksRef = useRef<TasksTableRef | KanbanBoardRef | null>(null);
+  const [isWorkflowEditorOpen, setIsWorkflowEditorOpen] = useState(false);
+  const [taskCountsByStatus, setTaskCountsByStatus] = useState<Record<number, number>>({});
 
   useEffect(() => {
     if (!taskList) {
       void loadTaskList(taskListId);
     }
   }, [taskListId, taskList, loadTaskList]);
+
+  const contentAreaRef = useRef<HTMLDivElement>(null);
+
+  const focusContentArea = useCallback((): boolean => {
+    const area = contentAreaRef.current;
+    if (!area) return false;
+    // Kanban: focus the board container which manages card focus internally
+    const board = area.querySelector<HTMLElement>('.kanban-board[tabindex="0"]');
+    if (board) { board.focus(); return true; }
+    // DataGrid: focus a cell with tabindex=0, or the grid container
+    const cell = area.querySelector<HTMLElement>('[role="gridcell"][tabindex="0"]');
+    if (cell) { cell.focus(); return true; }
+    const grid = area.querySelector<HTMLElement>('[role="grid"]');
+    if (grid) { grid.focus(); return true; }
+    return false;
+  }, []);
+
+  useEffect(() => {
+    registerDefaultFocus(focusContentArea);
+    return () => unregisterDefaultFocus(focusContentArea);
+  }, [focusContentArea]);
 
   const tasks = useMemo(() => taskList?.tasks || [], [taskList?.tasks]);
   const currentViewMode: ViewMode = taskList?.preferredViewMode || 'list';
@@ -55,6 +93,33 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     }
   }, [currentViewMode, taskListId, setViewMode, announce, addToast, t]);
 
+  const handleOpenWorkflowEditor = useCallback(async () => {
+    try {
+      const counts = await getTaskCountsByStatus(taskListId);
+      setTaskCountsByStatus(counts);
+      setIsWorkflowEditorOpen(true);
+    } catch {
+      addToast(t('common.error', 'Erro ao carregar dados'), 'error');
+    }
+  }, [taskListId, getTaskCountsByStatus, addToast, t]);
+
+  const handleSaveWorkflow = useCallback(async (
+    statuses: TaskListWorkflowStatus[],
+    transitions: WorkflowTransitions,
+    initialStatusId: number,
+    statusMigration: Record<number, number>,
+  ) => {
+    try {
+      await updateWorkflowFull(taskListId, statuses, transitions, initialStatusId, statusMigration);
+      setIsWorkflowEditorOpen(false);
+      addToast(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'), 'success');
+      announce(t('tasklist.workflow.saved', 'Workflow atualizado com sucesso'));
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      throw new Error(msg || t('tasklist.workflow.saveFailed', 'Erro ao salvar workflow'));
+    }
+  }, [taskListId, updateWorkflowFull, addToast, announce, t]);
+
   const handleClone = useCallback(async () => {
     const newTitle = `${taskList?.title || 'Lista'} (Cópia)`;
     try {
@@ -68,6 +133,56 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
       addToast(msg || t('common.error', 'Erro ao clonar'), 'error');
     }
   }, [taskList?.title, taskListId, cloneTaskList, addToast, announce, t]);
+
+  const handleClear = useCallback(async () => {
+    const confirmed = await requestConfirm({
+      title: t('tasklist.clearConfirmTitle', 'Limpar Lista'),
+      message: t(
+        'tasklist.clearConfirmMessage',
+        `Tem certeza que deseja remover todas as tarefas de "${taskList?.title}"? Esta ação não pode ser desfeita.`
+      ),
+    });
+    if (!confirmed) return;
+
+    try {
+      await clearTaskList(taskListId);
+      addToast(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'), 'success');
+      announce(t('tasklist.clearedSuccess', 'Lista limpa com sucesso'));
+    } catch (error) {
+      const msg = error instanceof Error ? error.message : String(error);
+      addToast(msg || t('common.error', 'Erro ao limpar'), 'error');
+    }
+  }, [taskList?.title, taskListId, requestConfirm, clearTaskList, addToast, announce, t]);
+
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (isModalOpen()) return;
+
+      if (e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey && (e.key === 'l' || e.key === 'L')) {
+        e.preventDefault();
+        void handleClear();
+        return;
+      }
+
+      if (e.ctrlKey || e.altKey || e.metaKey || e.shiftKey) return;
+      const tag = (e.target as HTMLElement)?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || (e.target as HTMLElement)?.isContentEditable) return;
+
+      if (e.key === 'n' || e.key === 'N') {
+        e.preventDefault();
+        handleOpenCreateTask();
+        return;
+      }
+
+      if (e.key === 'd' || e.key === 'D') {
+        e.preventDefault();
+        void handleClone();
+        return;
+      }
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [handleOpenCreateTask, handleClear, handleClone]);
 
   const handleDelete = useCallback(async () => {
     const confirmed = await requestConfirm({
@@ -95,48 +210,82 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
   return (
     <div className="tasklist-detail">
-      <Toolbar
-        left={
-          <h1 className="page-toolbar__title">{taskList.title}</h1>
-        }
-        actions={[
-          {
-            key: 'new-task',
-            label: t('tasklist.createTask', 'Nova Tarefa'),
-            icon: '➕',
-            onClick: handleOpenCreateTask,
-            shortcut: 'Ctrl+N',
-            variant: 'primary',
-          },
-          ...(hasTasks
-            ? [
-                {
-                  key: 'toggle-view',
-                  label: currentViewMode === 'list' ? 'Kanban' : 'Lista',
-                  icon: currentViewMode === 'list' ? '🎯' : '📋',
-                  onClick: handleToggleViewMode,
-                  variant: 'secondary' as const,
-                },
-              ]
-            : []),
-          {
-            key: 'clone-list',
-            label: t('tasklist.cloneList', 'Clonar Lista'),
-            icon: '📋',
-            onClick: handleClone,
-            variant: 'secondary' as const,
-          },
-          {
-            key: 'delete-list',
-            label: t('tasklist.deleteList', 'Deletar Lista'),
-            icon: '🗑️',
-            onClick: handleDelete,
-            variant: 'danger' as const,
-          },
-        ]}
-      />
+      <div className="ws-content-toolbar">
+        <Toolbar
+          left={
+            <h1 className="page-toolbar__title">{taskList.title}</h1>
+          }
+          rightEnd={
+            <ProfilePicker
+              value={effectiveProfileSlug}
+              onChange={(slug) => {
+                if (wsActiveTab) {
+                  void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
+                }
+              }}
+              variant="toolbar"
+              label={t('workspace.tabProfileLabel', 'Perfil')}
+              description={t('workspace.tabProfileDescription')}
+              icon={<CheckOutlined />}
+              maxWidth="180px"
+            />
+          }
+          actions={[
+            {
+              key: 'new-task',
+              label: t('tasklist.createTask', 'Nova Tarefa'),
+              icon: <PlusOutlined />,
+              onClick: handleOpenCreateTask,
+              shortcut: 'N',
+              variant: 'primary',
+            },
+            ...(hasTasks
+              ? [
+                  {
+                    key: 'toggle-view',
+                    label: currentViewMode === 'list' ? 'Kanban' : 'Lista',
+                    icon: currentViewMode === 'list' ? <AppstoreOutlined /> : <UnorderedListOutlined />,
+                    onClick: handleToggleViewMode,
+                    variant: 'secondary' as const,
+                  },
+                ]
+              : []),
+            {
+              key: 'edit-workflow',
+              label: t('tasklist.workflow.editWorkflow', 'Editar Workflow'),
+              icon: '⚙️',
+              onClick: handleOpenWorkflowEditor,
+              variant: 'secondary' as const,
+            },
+            {
+              key: 'clone-list',
+              label: t('tasklist.duplicate', 'Duplicar'),
+              icon: <CopyOutlined />,
+              shortcut: 'D',
+              onClick: handleClone,
+              variant: 'secondary' as const,
+            },
+            {
+              key: 'clear-list',
+              label: t('tasklist.clear', 'Limpar'),
+              icon: <ClearOutlined />,
+              shortcut: 'Ctrl+L',
+              onClick: () => void handleClear(),
+              variant: 'danger' as const,
+              disabled: !hasTasks,
+            },
+            {
+              key: 'delete-list',
+              label: t('tasklist.delete', 'Apagar'),
+              icon: <DeleteOutlined />,
+              onClick: handleDelete,
+              variant: 'danger' as const,
+            },
+          ]}
+        />
+      </div>
 
-      <div>
+      <div className="ws-content-area" ref={contentAreaRef}>
         {currentViewMode === 'kanban' ? (
           <KanbanBoard
             ref={(r) => { tasksRef.current = r; }}
@@ -159,6 +308,24 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           />
         )}
       </div>
+
+      {isWorkflowEditorOpen && taskList.workflow && (
+        <Modal
+          isOpen={isWorkflowEditorOpen}
+          onClose={() => setIsWorkflowEditorOpen(false)}
+          title={t('tasklist.workflow.editWorkflow', 'Editar Workflow')}
+          size="lg"
+        >
+          <Suspense fallback={<div>{t('tasklist.loading', 'Carregando...')}</div>}>
+            <WorkflowEditor
+              workflow={taskList.workflow}
+              taskCountsByStatus={taskCountsByStatus}
+              onSave={handleSaveWorkflow}
+              onCancel={() => setIsWorkflowEditorOpen(false)}
+            />
+          </Suspense>
+        </Modal>
+      )}
     </div>
   );
 }

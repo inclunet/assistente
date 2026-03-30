@@ -3,7 +3,7 @@
   flex-direction: column;
   height: 100%;
   overflow: hidden;
-  background-color: var(--background);
+  background-color: var(--bg-base);
 }
 
 .history-page .loading {
@@ -32,6 +32,10 @@
 
 .history-page__title-text {
   font-weight: 500;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .history-page__title-snippet {

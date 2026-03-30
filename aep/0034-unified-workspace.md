@@ -1,6 +1,6 @@
 # AEP-0034: Unified Workspace
 
-- **Status**: Draft
+- **Status**: Done
 - **Autor**: Leonardo Gleison Ferreira
 - **Data**: 2026-03-20
 
@@ -416,7 +416,7 @@ O contexto é rastreável de ponta a ponta — ticket → tasklist → conversa 
 - Perfil por workspace com override por aba
 - Páginas de listagem (ChatHistory, TasklistLibrary) com modal
 - "Enviar ao workspace" das listagens
-- Split view (visual) com acessibilidade (1 aba por vez)
+- ~~Split view (visual) com acessibilidade (1 aba por vez)~~ → Extraído para **AEP-0035**
 - Restauração completa ao reabrir o app
 - Mover abas entre workspaces (drag & drop / menu)
 - Exportar/importar workspace (estrutura, sem conteúdo)

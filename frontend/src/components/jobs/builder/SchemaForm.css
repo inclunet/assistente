@@ -1,0 +1,27 @@
+.schema-form {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.schema-form__hint {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+  background: var(--color-info-subtle);
+  padding: 8px 12px;
+  border-radius: 6px;
+  border-left: 3px solid var(--color-info);
+  line-height: 1.4;
+}
+
+.schema-form__json-field {
+  font-family: var(--font-mono);
+  font-size: 12px;
+}
+
+.schema-form__empty {
+  padding: 16px;
+  text-align: center;
+  color: var(--color-text-secondary);
+  font-size: 13px;
+}

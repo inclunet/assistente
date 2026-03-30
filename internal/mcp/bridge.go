@@ -3,7 +3,10 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"net"
 	"strings"
 
 	"assistente/internal/tools"
@@ -14,12 +17,13 @@ import (
 // MCPToolBridge adapta uma tool MCP para a interface tools.Tool do nosso sistema.
 // Cada instância representa uma tool de um servidor MCP específico.
 type MCPToolBridge struct {
-	serverSlug  string
-	toolName    string // nome original da tool no servidor MCP
-	fullName    string // nome registrado no registry (namespaced)
-	description string
-	inputSchema json.RawMessage
-	session     *mcpsdk.ClientSession
+	serverSlug     string
+	toolName       string // nome original da tool no servidor MCP
+	fullName       string // nome registrado no registry (namespaced)
+	description    string
+	inputSchema    json.RawMessage
+	session        *mcpsdk.ClientSession
+	onSessionError func(slug string, err error) // notifica o Manager sobre erros de transporte/sessão
 }
 
 // NewMCPToolBridge cria um bridge para uma tool MCP.
@@ -83,7 +87,6 @@ func (b *MCPToolBridge) Parameters() json.RawMessage {
 
 // Execute chama a tool no servidor MCP via session.CallTool.
 func (b *MCPToolBridge) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
-	// Converte os args JSON para map[string]any (formato esperado pelo MCP SDK)
 	var arguments map[string]any
 	if len(args) > 0 {
 		if err := json.Unmarshal(args, &arguments); err != nil {
@@ -94,19 +97,20 @@ func (b *MCPToolBridge) Execute(ctx context.Context, args json.RawMessage) (tool
 		}
 	}
 
-	// Chama a tool no servidor MCP
 	result, err := b.session.CallTool(ctx, &mcpsdk.CallToolParams{
 		Name:      b.toolName,
 		Arguments: arguments,
 	})
 	if err != nil {
+		if b.onSessionError != nil && isSessionOrTransportError(err) {
+			go b.onSessionError(b.serverSlug, err)
+		}
 		return tools.ToolResult{
 			Content: fmt.Sprintf("Erro ao chamar tool MCP '%s' no servidor '%s': %v", b.toolName, b.serverSlug, err),
 			IsError: true,
 		}, nil
 	}
 
-	// Converte o resultado MCP para ToolResult
 	content := extractTextContent(result)
 
 	return tools.ToolResult{
@@ -117,6 +121,52 @@ func (b *MCPToolBridge) Execute(ctx context.Context, args json.RawMessage) (tool
 			"mcpTool":   b.toolName,
 		},
 	}, nil
+}
+
+// isSessionOrTransportError detecta erros que indicam que a sessão ou transporte
+// estão quebrados e uma reconexão é necessária.
+func isSessionOrTransportError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	// EOF / conexão fechada
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		return true
+	}
+
+	// Erros de rede
+	var netErr *net.OpError
+	if errors.As(err, &netErr) {
+		return true
+	}
+
+	// SessionExpiredError do nosso round tripper
+	var sessErr *SessionExpiredError
+	if errors.As(err, &sessErr) {
+		return true
+	}
+
+	msg := strings.ToLower(err.Error())
+	sessionIndicators := []string{
+		"connection reset",
+		"connection refused",
+		"connection closed",
+		"client is closing",
+		"broken pipe",
+		"session expired",
+		"session not found",
+		"use of closed network connection",
+		"exceeded",
+		"eof",
+	}
+	for _, indicator := range sessionIndicators {
+		if strings.Contains(msg, indicator) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // extractTextContent extrai o conteúdo textual de um CallToolResult.

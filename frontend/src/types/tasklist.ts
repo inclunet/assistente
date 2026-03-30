@@ -27,21 +27,48 @@ export interface TaskListWorkflow {
 
 // ==================== Task Types ====================
 
+export type TaskNoteType = 1 | 2 | 3 | 4;
+
+export const TASK_NOTE_TYPES = {
+  INTERNAL: 1 as TaskNoteType,
+  CUSTOMER: 2 as TaskNoteType,
+  AGENT: 3 as TaskNoteType,
+  SYSTEM: 4 as TaskNoteType,
+} as const;
+
+export interface TaskNote {
+  id: number;
+  taskId: number;
+  type: TaskNoteType;
+  content: string;
+  authorName?: string;
+  authorId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
 export interface Task {
   id: number;
   taskListId: number;
   title: string;
   description: string;
-  statusId: number; // ID do status (não label)
-  parentId?: number; // ID da task pai (para subtasks)
+  code?: string;
+  link?: string;
+  statusId: number;
+  parentId?: number;
   order: number;
-  dueDate?: string; // ISO date string
+  assigneeName?: string;
+  assigneeId?: string;
+  creatorName?: string;
+  creatorId?: string;
+  dueDate?: string;
   createdAt: string;
   updatedAt: string;
   completedAt?: string;
   
   // Relações
   subtasks?: Task[];
+  notes?: TaskNote[];
 }
 
 // ==================== TaskList Types ====================
@@ -128,11 +155,6 @@ export interface UpsertTaskParams {
   parentId?: number;
   taskId?: number; // Se presente, é UPDATE; se ausente, é CREATE
   dueDate?: string;
-}
-
-export interface BulkUpsertTasksParams {
-  taskListId: number;
-  tasks: UpsertTaskParams[];
 }
 
 export interface GetTaskListParams {

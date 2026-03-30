@@ -1,5 +1,13 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
+import {
+  CheckOutlined,
+  DeleteOutlined,
+  ExportOutlined,
+  FolderOpenOutlined,
+  ImportOutlined,
+  PlusOutlined,
+} from '@ant-design/icons';
 import { GetConversations, DeleteConversation, UpdateConversation, ExportConversations, ImportConversations, SearchConversationHistory } from '@wailsjs/go/main/App';
 import { useTranslation } from 'react-i18next';
 import { DataGrid, DataGridColumn } from '../components/ui/DataGrid';
@@ -8,6 +16,7 @@ import { MenuButton } from '../components/layout/MenuButton';
 import { Toolbar } from '../components/ui/Toolbar';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
+import { useConfirm } from '../hooks/useConfirm';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { executeDeepLink } from '../lib/deepLinks';
 import { formatRelativeTime } from '../lib/dateUtils';
@@ -25,6 +34,7 @@ interface Conversation {
 
 export default function HistoryPage() {
   const { t } = useTranslation();
+  const confirm = useConfirm();
   const navigate = useNavigate();
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [loading, setLoading] = useState(true);
@@ -134,8 +144,17 @@ export default function HistoryPage() {
   };
 
   const handleDeleteConversation = useCallback(async (conversationId: number) => {
-    if (!confirm(t('history.confirmDelete', 'Tem certeza que deseja deletar esta conversa?'))) return;
-    
+    const conv = conversations.find((c) => c.id === conversationId);
+    const title = conv?.title || t('history.untitled');
+    const ok = await confirm({
+      title: t('history.confirmDeleteTitle'),
+      message: t('history.confirmDelete', { title }),
+      confirmText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      variant: 'danger',
+    });
+    if (!ok) return;
+
     try {
       await DeleteConversation(conversationId);
       setConversations(prev => prev.filter(c => c.id !== conversationId));
@@ -147,20 +166,30 @@ export default function HistoryPage() {
     } catch (error) {
       console.error('Erro ao deletar conversa:', error);
     }
-  }, [t]);
+  }, [confirm, conversations, t]);
 
-  const handleDeleteSelected = async () => {
+  const handleDeleteSelected = useCallback(async () => {
     if (selectedIds.size === 0) return;
-    if (!confirm(t('history.confirmDeleteMultiple', `Tem certeza que deseja deletar ${selectedIds.size} conversa(s)?`))) return;
+    const ids = Array.from(selectedIds);
+    const count = ids.length;
+    const ok = await confirm({
+      title: t('history.confirmDeleteMultipleTitle'),
+      message: t('history.confirmDeleteMultiple', { count }),
+      confirmText: t('common.confirm'),
+      cancelText: t('common.cancel'),
+      variant: 'danger',
+    });
+    if (!ok) return;
 
     try {
-      await Promise.all(Array.from(selectedIds).map(id => DeleteConversation(Number(id))));
-      setConversations(prev => prev.filter(c => !selectedIds.has(c.id)));
+      await Promise.all(ids.map((id) => DeleteConversation(Number(id))));
+      const idSet = new Set(ids);
+      setConversations((prev) => prev.filter((c) => !idSet.has(c.id)));
       setSelectedIds(new Set());
     } catch (error) {
       console.error('Erro ao deletar conversas:', error);
     }
-  };
+  }, [confirm, selectedIds, t]);
 
   const handleExport = async () => {
     const idsToExport = selectedIds.size > 0 
@@ -202,13 +231,13 @@ export default function HistoryPage() {
 
   const handleDeleteAction = useCallback(() => {
     if (selectedIds.size > 0) {
-      handleDeleteSelected();
+      void handleDeleteSelected();
       return;
     }
     if (focusedRow) {
-      handleDeleteConversation(focusedRow.id);
+      void handleDeleteConversation(focusedRow.id);
     }
-  }, [focusedRow, handleDeleteConversation, handleDeleteSelected, selectedIds.size]);
+  }, [focusedRow, handleDeleteConversation, handleDeleteSelected, selectedIds]);
 
   const displayItems = useMemo(() => {
     if (searchResultIds === null) return conversations;
@@ -223,19 +252,20 @@ export default function HistoryPage() {
     handleDeleteConversation(item.id);
   }, [handleDeleteConversation]);
 
-  const handleSendToWorkspace = useCallback(async (conversationId: number, title: string, targetWorkspaceId: string) => {
+  const handleSendToWorkspace = useCallback(async (conversationId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
-      const tabId = await addWorkspaceTab('chat', String(conversationId), title || t('chat.newConversation', 'Nova conversa'));
-      await moveTabToWorkspace(tabId, targetWorkspaceId);
+      const tabTitle = title || t('chat.newConversation', 'Nova conversa');
+      if (isActive) {
+        await addWorkspaceTab('chat', String(conversationId), tabTitle);
+        navigate('/');
+      } else {
+        const tabId = await addWorkspaceTab('chat', String(conversationId), tabTitle);
+        await moveTabToWorkspace(tabId, targetWorkspaceId);
+      }
     } catch (error) {
       console.error('Erro ao enviar conversa ao workspace:', error);
     }
-  }, [addWorkspaceTab, moveTabToWorkspace, t]);
-
-  const otherWorkspaces = useMemo(
-    () => workspaces.filter(ws => !ws.is_active),
-    [workspaces]
-  );
+  }, [addWorkspaceTab, moveTabToWorkspace, navigate, t]);
 
   const getRowActions = useCallback(
     (item: Conversation): ContextMenuItem[] => {
@@ -243,21 +273,21 @@ export default function HistoryPage() {
         {
           id: 'open',
           label: t('history.openConversation', 'Abrir conversa'),
-          icon: '📂',
+          icon: <FolderOpenOutlined />,
           action: () => handleOpenConversation(item.id, item.title),
         },
       ];
 
-      if (otherWorkspaces.length > 0) {
+      if (workspaces.length > 0) {
         actions.push({
           id: 'send-to-workspace',
           label: t('history.sendToWorkspace', 'Enviar ao workspace'),
-          icon: '📤',
-          submenu: otherWorkspaces.map(ws => ({
+          icon: <ExportOutlined />,
+          submenu: workspaces.map(ws => ({
             id: `ws-${ws.id}`,
             label: ws.name,
-            icon: '📂',
-            action: () => handleSendToWorkspace(item.id, item.title, ws.id),
+            icon: ws.is_active ? <CheckOutlined /> : undefined,
+            action: () => handleSendToWorkspace(item.id, item.title, ws.id, ws.is_active),
           })),
         });
       }
@@ -265,13 +295,13 @@ export default function HistoryPage() {
       actions.push({
         id: 'delete',
         label: t('history.deleteConversation', 'Excluir conversa'),
-        icon: '🗑️',
+        icon: <DeleteOutlined />,
         action: () => handleDeleteConversation(item.id),
       });
 
       return actions;
     },
-    [handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, otherWorkspaces, t]
+    [handleDeleteConversation, handleOpenConversation, handleSendToWorkspace, workspaces, t]
   );
 
   const getMenuButtonItems = useCallback(
@@ -279,14 +309,14 @@ export default function HistoryPage() {
       getRowActions(item).map((action) => ({
         id: action.id,
         label: action.label ?? '',
-        icon: action.icon ?? '',
+        icon: action.icon,
         shortcut: action.shortcut,
         onClick: action.action,
         submenu: action.submenu
           ? action.submenu.map((submenuItem) => ({
               id: submenuItem.id,
               label: submenuItem.label ?? '',
-              icon: submenuItem.icon ?? '',
+              icon: submenuItem.icon,
               shortcut: submenuItem.shortcut,
               onClick: submenuItem.action,
             }))
@@ -393,7 +423,7 @@ export default function HistoryPage() {
           {
             key: 'new-conversation',
             label: t('history.newConversation', 'Nova Conversa'),
-            icon: '➕',
+            icon: <PlusOutlined />,
             onClick: handleNewConversation,
             variant: 'primary',
             shortcut: 'Ctrl+N',
@@ -401,7 +431,7 @@ export default function HistoryPage() {
           {
             key: 'open-conversation',
             label: t('history.openConversation', 'Abrir conversa'),
-            icon: '📂',
+            icon: <FolderOpenOutlined />,
             onClick: () => focusedRow && handleOpenConversation(focusedRow.id, focusedRow.title),
             disabled: !focusedRow,
           },
@@ -410,7 +440,7 @@ export default function HistoryPage() {
             label: selectedIds.size > 0
               ? t('history.deleteSelected', `Deletar (${selectedIds.size})`)
               : t('history.deleteConversation', 'Excluir conversa'),
-            icon: '🗑️',
+            icon: <DeleteOutlined />,
             onClick: handleDeleteAction,
             disabled: selectedIds.size === 0 && !focusedRow,
             variant: 'danger',
@@ -420,14 +450,14 @@ export default function HistoryPage() {
             label: selectedIds.size > 0 
               ? t('history.exportSelected', `Exportar (${selectedIds.size})`)
               : t('history.exportAll', 'Exportar Tudo'),
-            icon: '📤',
+            icon: <ExportOutlined />,
             onClick: handleExport,
             variant: 'secondary',
           },
           {
             key: 'import',
             label: t('history.import', 'Importar'),
-            icon: '📥',
+            icon: <ImportOutlined />,
             onClick: handleImport,
             variant: 'secondary',
           },

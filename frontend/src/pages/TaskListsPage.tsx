@@ -1,6 +1,14 @@
-import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useNavigate } from 'react-router-dom';
+import {
+  CheckOutlined,
+  CopyOutlined,
+  DeleteOutlined,
+  EditOutlined,
+  ExportOutlined,
+  ReadOutlined,
+} from '@ant-design/icons';
 import { useTaskListStore } from '../store/taskListStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { Modal, isModalOpen } from '../components/ui/Modal';
@@ -18,6 +26,7 @@ import { useGridFocus } from '../hooks/useGridFocus';
 import { useConfirm } from '../hooks/useConfirm';
 import { useUIStore } from '../store/uiStore';
 import { executeDeepLink } from '../lib/deepLinks';
+import { useResourceEditRequest } from '../hooks/useResourceEditRequest';
 import type { TaskListWithWorkflow } from '../types/tasklist';
 import './TaskListsPage.css';
 
@@ -68,6 +77,15 @@ export default function TaskListsPage() {
       }
     });
   }, [fetchAllTaskLists]);
+
+  useResourceEditRequest('tasklists', {
+    onEdit: (id) => {
+      const list = taskLists.get(Number(id));
+      if (list) handleOpenEditor(list as TaskListRow);
+    },
+    onNew: () => handleOpenEditor(),
+    ready: loadedRef.current,
+  });
 
   const allTaskLists = useMemo(() => Array.from(taskLists.values()), [taskLists]);
 
@@ -235,20 +253,20 @@ export default function TaskListsPage() {
     }
   }, [filteredTaskLists.length]);
 
-  const handleSendToWorkspace = useCallback(async (taskListId: number, title: string, targetWorkspaceId: string) => {
+  const handleSendToWorkspace = useCallback(async (taskListId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
-      const tabId = await addTab('tasklist', String(taskListId), title);
-      await moveTabToWorkspace(tabId, targetWorkspaceId);
+      if (isActive) {
+        await addTab('tasklist', String(taskListId), title);
+        navigate('/');
+      } else {
+        const tabId = await addTab('tasklist', String(taskListId), title);
+        await moveTabToWorkspace(tabId, targetWorkspaceId);
+      }
       announce(t('tasklist.sentToWorkspace', 'Lista enviada ao workspace'));
     } catch (error) {
       console.error('Erro ao enviar lista ao workspace:', error);
     }
-  }, [addTab, moveTabToWorkspace, announce, t]);
-
-  const otherWorkspaces = useMemo(
-    () => workspaces.filter(ws => !ws.is_active),
-    [workspaces]
-  );
+  }, [addTab, moveTabToWorkspace, navigate, announce, t]);
 
   const getTaskListRowActions = useCallback(
     (list: TaskListRow) => {
@@ -256,49 +274,49 @@ export default function TaskListsPage() {
         {
           id: 'open',
           label: t('tasklist.open', 'Abrir'),
-          icon: '📖',
+          icon: <ReadOutlined />,
           onClick: () => handleOpenTaskList(list.id),
         },
         {
           id: 'edit',
           label: t('tasklist.edit', 'Editar'),
-          icon: '✏️',
+          icon: <EditOutlined />,
           onClick: () => handleOpenEditor(list),
         },
         {
           id: 'clone',
           label: t('tasklist.clone', 'Clonar'),
-          icon: '📋',
+          icon: <CopyOutlined />,
           onClick: () => handleCloneTaskList(list.id),
         },
       ];
 
-      if (otherWorkspaces.length > 0) {
+      if (workspaces.length > 0) {
         actions.push({
           id: 'send-to-workspace',
           label: t('tasklist.sendToWorkspace', 'Enviar ao workspace'),
-          icon: '📤',
+          icon: <ExportOutlined />,
           onClick: undefined as unknown as () => void,
-          submenu: otherWorkspaces.map(ws => ({
+          submenu: workspaces.map(ws => ({
             id: `ws-${ws.id}`,
             label: ws.name,
-            icon: '📂',
-            onClick: () => handleSendToWorkspace(list.id, list.title, ws.id),
+            icon: ws.is_active ? <CheckOutlined /> : undefined,
+            onClick: () => handleSendToWorkspace(list.id, list.title, ws.id, ws.is_active),
           })),
-        } as typeof actions[0] & { submenu: { id: string; label: string; icon: string; onClick: () => void }[] });
+        } as typeof actions[0] & { submenu: { id: string; label: string; icon?: ReactNode; onClick: () => void }[] });
       }
 
       actions.push({
         id: 'delete',
         label: t('tasklist.delete', 'Deletar'),
-        icon: '🗑️',
+        icon: <DeleteOutlined />,
         onClick: () => handleDeleteTaskList(list.id),
         danger: true,
       } as typeof actions[0]);
 
       return actions;
     },
-    [t, handleOpenTaskList, handleOpenEditor, handleCloneTaskList, handleDeleteTaskList, handleSendToWorkspace, otherWorkspaces]
+    [t, handleOpenTaskList, handleOpenEditor, handleCloneTaskList, handleDeleteTaskList, handleSendToWorkspace, workspaces]
   );
 
   const columns: DataGridColumn<TaskListRow>[] = useMemo(

@@ -1,5 +1,9 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import {
+  ToolOutlined, RobotOutlined, SendOutlined, LockOutlined,
+  MessageOutlined, MobileOutlined, SoundOutlined, PauseCircleOutlined,
+} from '@ant-design/icons';
 import { Message, TurnSegment, useChatStore } from '../../store/chatStore';
 import { MarkdownRenderer } from '../ui/MarkdownRenderer';
 import { ThreadIndicator } from './ThreadIndicator';
@@ -356,7 +360,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       tabIndex={-1}
     >
       {isReading && (
-        <div className="chat-message__reading-badge" aria-hidden="true">
+        <div className="chat-message__reading-badge">
           {t('chat.reading')}
         </div>
       )}
@@ -364,10 +368,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
         {role === 'user' ? (
           <div className="chat-message__avatar-user">U</div>
         ) : role === 'tool' ? (
-          <div className="chat-message__avatar-tool">🛠️</div>
+          <div className="chat-message__avatar-tool"><ToolOutlined /></div>
         ) : (
           <div className="chat-message__avatar-assistant">
-            {isAgentMessage(message) ? '🤖' : 'AI'}
+            {isAgentMessage(message) ? <RobotOutlined /> : 'AI'}
           </div>
         )}
       </div>
@@ -378,10 +382,10 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
           </h3>
           {message.source && message.source !== 'wails' && message.source !== '' && (
             <span className="chat-message__source-badge" aria-label={`${t('chat.via')} ${message.source}`}>
-              {message.source === 'telegram' && '✈'}
-              {message.source === 'signal' && '🔒'}
-              {message.source === 'whatsapp' && '💬'}
-              {!['telegram', 'signal', 'whatsapp'].includes(message.source) && '📱'}
+              {message.source === 'telegram' && <SendOutlined aria-hidden="true" />}
+              {message.source === 'signal' && <LockOutlined aria-hidden="true" />}
+              {message.source === 'whatsapp' && <MessageOutlined aria-hidden="true" />}
+              {!['telegram', 'signal', 'whatsapp'].includes(message.source) && <MobileOutlined aria-hidden="true" />}
               <span className="chat-message__source-name">{message.source}</span>
             </span>
           )}
@@ -395,7 +399,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
               aria-label={isPlayingAudio ? t('chat.stopAudio') : t('chat.playAudio')}
               tabIndex={-1}
             >
-              {isPlayingAudio ? '⏹' : '🔊'}
+              {isPlayingAudio ? <PauseCircleOutlined aria-hidden="true" /> : <SoundOutlined aria-hidden="true" />}
             </button>
           )}
           {hasThreadIndicator && onThreadToggle && (
@@ -424,19 +428,15 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
             {/* Completed segments — role="log" so screen readers announce each addition
                 and browse mode users can navigate segment by segment */}
             <div
-              role="log"
-              aria-label={t('chat.progressLabel')}
-              aria-relevant="additions"
+              role={isAgenticStreaming ? 'log' : undefined}
+              aria-label={isAgenticStreaming ? t('chat.progressLabel') : undefined}
+              aria-relevant={isAgenticStreaming ? 'additions' : undefined}
               className="chat-message__segments-log"
             >
               {(message._turnSegments || completedSegments || []).map((seg, idx) => (
                 <React.Fragment key={idx}>
                   {seg.type === 'text' && seg.content && (
-                    <section
-                      className="chat-message__text chat-message__text--segment"
-                      aria-label={`${t('chat.step')} ${Math.floor(idx / 2) + 1}`}
-                      tabIndex={-1}
-                    >
+                    <div className="chat-message__text chat-message__text--segment">
                       <MarkdownRenderer
                         content={seg.content}
                         interactiveButtons={!!onSendToEditor}
@@ -444,7 +444,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
                         enableSendToEditorButtons={!!onSendToEditor}
                         onSendToEditor={onSendToEditor}
                       />
-                    </section>
+                    </div>
                   )}
                   {seg.type === 'tool_calls' && seg.toolCalls && (
                     <ToolCallsSection

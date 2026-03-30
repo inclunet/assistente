@@ -1,4 +1,5 @@
-import { useState, useEffect, forwardRef, useImperativeHandle } from 'react';
+import { useState, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
+import { SoundOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
@@ -15,7 +16,7 @@ export interface VoicePickerProps {
   variant?: 'toolbar' | 'form';
   label?: string;
   helpText?: string;
-  icon?: string;
+  icon?: ReactNode;
   maxWidth?: string;
   allowDisabled?: boolean;
   onAnnounce?: (message: string) => void;
@@ -27,13 +28,7 @@ export interface VoicePickerRef {
 
 // Mapeia provider para label amigável (valores traduzidos via useTranslation no componente)
 
-// Ícones por provider
-const providerIcons: Record<TTSProvider, string> = {
-  [TTSProvider.DISABLED]: '🔇',
-  [TTSProvider.WEBSPEECH]: '🔊',
-  [TTSProvider.SAPI5]: '🪟',
-  [TTSProvider.OPENAI]: '💎'
-};
+// Provider icons removed — provider info is shown in sublabel
 
 export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
   (
@@ -43,7 +38,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       variant = 'form',
       label,
       helpText,
-      icon = '🔊',
+      icon = <SoundOutlined />,
       maxWidth,
       allowDisabled = true,
       onAnnounce,
@@ -129,12 +124,11 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
 
       // Adiciona vozes do provider
       providerVoices.forEach(voice => {
-        const providerIcon = providerIcons[voice.provider];
         const providerLabel = providerLabels[voice.provider];
         
         items.push({
           value: voice.id,
-          label: `${providerIcon} ${voice.name}`,
+          label: voice.name,
           sublabel: `${providerLabel} • ${voice.language}${voice.premium ? ` • ${t('pickers.voice.premium')}` : ''}`
         });
       });
@@ -165,7 +159,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
         errorClassName={{ form: 'error-state', toolbar: 'voice-picker-toolbar voice-picker-error' }}
         errorLabel={{ form: error || t('pickers.voice.loadError'), toolbar: '' }}
         errorLabelVisuallyHidden={{ toolbar: true }}
-        errorIcon={{ form: '⚠️', toolbar: '⚠️' }}
+        errorIcon={{ form: <WarningOutlined />, toolbar: <WarningOutlined /> }}
         retryClassName="retry-btn"
       />
     );

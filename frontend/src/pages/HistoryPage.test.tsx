@@ -1,5 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { MockInstance } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
@@ -49,6 +48,12 @@ vi.mock('../hooks/useGridFocus', () => ({
   useGridFocus: () => ({
     handleGridReady: vi.fn(),
   }),
+}));
+
+const mockRequestConfirm = vi.fn(() => Promise.resolve(true));
+
+vi.mock('../hooks/useConfirm', () => ({
+  useConfirm: () => mockRequestConfirm,
 }));
 
 vi.mock('../lib/deepLinks', () => ({
@@ -140,8 +145,6 @@ const conversations: ConversationItem[] = [
 ];
 
 describe('HistoryPage', () => {
-  let confirmSpy: MockInstance<(message?: string) => boolean>;
-
   beforeEach(() => {
     mockGetConversations.mockResolvedValue(conversations);
     mockDeleteConversation.mockResolvedValue(undefined);
@@ -152,11 +155,8 @@ describe('HistoryPage', () => {
     mockAddTab.mockResolvedValue(undefined);
     mockNavigate.mockReset();
     lastToolbarActions = [];
-    confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
-  });
-
-  afterEach(() => {
-    confirmSpy.mockRestore();
+    mockRequestConfirm.mockReset();
+    mockRequestConfirm.mockResolvedValue(true);
   });
 
   it('nao duplica acao de deletar na toolbar', async () => {

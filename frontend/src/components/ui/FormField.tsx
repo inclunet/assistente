@@ -7,6 +7,7 @@ export interface FormFieldProps {
   error?: string | null;
   required?: boolean;
   id?: string;
+  visuallyHidden?: boolean;
   children: ReactNode;
 }
 
@@ -16,31 +17,40 @@ export const FormField = ({
   error,
   required = false,
   id,
+  visuallyHidden = false,
   children,
 }: FormFieldProps) => {
   const generatedId = useId();
   const fieldId = id ?? generatedId;
+  const descId = description ? `${fieldId}-desc` : undefined;
+  const errorId = error ? `${fieldId}-error` : undefined;
 
-  // Propaga fieldId para o input filho se for um elemento React válido
   const childrenWithId = isValidElement(children)
-    ? cloneElement(children as React.ReactElement<{ id?: string }>, { id: fieldId })
+    ? cloneElement(children as React.ReactElement<{ id?: string; 'aria-describedby'?: string }>, {
+        id: fieldId,
+        'aria-describedby': [descId, errorId].filter(Boolean).join(' ') || undefined,
+      })
     : children;
 
   return (
     <div className="form-field-group">
       {label && (
-        <label className="form-field-group__label" htmlFor={fieldId}>
+        <label
+          className={`form-field-group__label${visuallyHidden ? ' sr-only' : ''}`}
+          htmlFor={fieldId}
+        >
           {label}
-          {required && <span className="form-field-group__required">*</span>}
+          {required && <span className="form-field-group__required" aria-hidden="true">*</span>}
+          {required && <span className="sr-only"> ({'\u00A0'}obrigatório)</span>}
         </label>
       )}
       <div className="form-field-group__control">
         {childrenWithId}
       </div>
       {description && !error && (
-        <p className="form-field-group__description">{description}</p>
+        <p id={descId} className="form-field-group__description">{description}</p>
       )}
-      {error && <p className="form-field-group__error">{error}</p>}
+      {error && <p id={errorId} className="form-field-group__error" role="alert">{error}</p>}
     </div>
   );
 };

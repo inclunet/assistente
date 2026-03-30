@@ -8,23 +8,26 @@
     gap: var(--spacing-xs);
     padding: var(--spacing-xs) var(--spacing-sm);
     max-width: var(--max-width, 180px);
-    background: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
+    background: var(--bg-surface);
+    border: 1px solid var(--border-default);
     border-radius: var(--border-radius);
-    color: var(--color-text-primary);
+    color: var(--text-primary);
     font-size: var(--font-size-sm);
     cursor: pointer;
-    transition: all 0.15s;
-    min-height: 36px;
+    transition:
+        background-color var(--duration-fast) var(--ease-default),
+        border-color var(--duration-fast) var(--ease-default),
+        color var(--duration-fast) var(--ease-default);
+    min-height: 32px;
 }
 
 .picker-button:hover:not(:disabled) {
-    background: var(--color-bg-primary);
-    border-color: var(--color-accent);
+    background: var(--bg-base);
+    border-color: var(--accent);
 }
 
-.picker-button:focus {
-    outline: 2px solid var(--color-accent);
+.picker-button:focus-visible {
+    outline: 2px solid var(--accent);
     outline-offset: 2px;
 }
 
@@ -53,51 +56,54 @@
 
 .picker-dropdown {
     position: absolute;
-    top: 0;
+    top: calc(100% + 4px);
     left: 0;
     z-index: 100;
-    min-width: 100%;
-    width: max-content;
-    max-width: 320px;
-    max-height: 300px;
-    background-color: var(--color-bg-secondary);
-    border: 1px solid var(--color-border);
-    border-radius: var(--border-radius);
-    box-shadow: 0 4px 12px var(--bg-overlay);
+    min-width: min(280px, calc(100vw - 16px));
+    max-width: min(400px, calc(100vw - 16px));
+    max-height: min(440px, calc(100vh - 120px));
+    background-color: var(--bg-surface);
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-md);
+    box-shadow: 0 8px 24px var(--bg-overlay);
     display: flex;
     flex-direction: column;
 }
 
 .picker-dropdown input {
-    margin: var(--spacing-sm);
-    padding: var(--spacing-sm);
-    border: 1px solid var(--color-border);
-    border-radius: var(--border-radius);
-    background-color: var(--color-bg-input);
-    color: var(--color-text-primary);
+    margin: 6px 8px;
+    padding: 6px 8px;
+    border: 1px solid var(--border-default);
+    border-radius: var(--radius-sm);
+    background-color: var(--bg-input);
+    color: var(--text-primary);
     font-size: var(--font-size-sm);
 }
 
 .picker-dropdown input:focus {
-    border-color: var(--color-accent);
+    border-color: var(--accent);
     outline: none;
 }
 
 .picker-dropdown ul {
     list-style: none;
     margin: 0;
-    padding: 0;
+    padding: 4px;
     overflow-y: auto;
-    max-height: 220px;
+    flex: 1;
+    min-height: 0;
 }
 
 .picker-dropdown li {
-    padding: var(--spacing-sm) var(--spacing-md);
+    padding: 6px 10px;
     cursor: pointer;
     display: flex;
-    justify-content: space-between;
     align-items: center;
-    gap: var(--spacing-sm);
+    justify-content: flex-start;
+    gap: 8px;
+    overflow: hidden;
+    border-radius: var(--radius-sm);
+    text-align: left;
 }
 
 .picker-dropdown li.disabled {
@@ -111,7 +117,7 @@
 
 .picker-dropdown li:hover,
 .picker-dropdown li.highlighted {
-    background-color: var(--color-bg-tertiary);
+    background-color: var(--bg-elevated);
 }
 
 .picker-dropdown li.selected {
@@ -124,32 +130,55 @@
 }
 
 .picker-dropdown li.no-results {
-    color: var(--color-text-muted);
+    color: var(--text-muted);
     cursor: default;
     justify-content: center;
 }
 
 .option-label {
     flex: 1;
+    min-width: 0;
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+    text-align: left;
 }
 
 .option-sublabel {
-    flex-shrink: 0;
+    flex-shrink: 1;
+    min-width: 0;
+    max-width: 180px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
     font-size: var(--font-size-xs);
-    color: var(--color-text-muted);
-    background: var(--color-bg-tertiary);
+    color: var(--text-muted);
+    background: var(--bg-elevated);
     padding: 2px 6px;
     border-radius: var(--border-radius);
 }
 
 .highlighted .option-sublabel {
-    background: var(--color-bg-secondary);
+    background: var(--bg-surface);
 }
 
 .highlighted.selected .option-sublabel {
     background: var(--accent-dim);
     color: inherit;
+}
+
+.free-input-hint {
+    font-style: italic;
+}
+
+.combobox-picker > .sr-only {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    padding: 0;
+    margin: -1px;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    white-space: nowrap;
+    border: 0;
 }

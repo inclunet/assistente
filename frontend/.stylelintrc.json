@@ -1,0 +1,21 @@
+{
+  "extends": ["stylelint-config-standard"],
+  "defaultSeverity": "warning",
+  "plugins": ["stylelint-declaration-strict-value"],
+  "rules": {
+    "scale-unlimited/declaration-strict-value": [
+      ["/color/", "background", "background-color", "border-color", "outline-color", "fill", "stroke", "font-size"],
+      {
+        "ignoreValues": [
+          "transparent", "inherit", "currentColor", "none", "initial", "unset", "0",
+          "/^1\\.[2-9]/", "/^\\d+\\.?\\d*em$/"
+        ],
+        "disableFix": true,
+        "message": "Use design token from theme.css (e.g. var(--font-size-base), var(--bg-surface)). Headings >1.25rem and em units are exempt."
+      }
+    ],
+    "declaration-no-important": true,
+    "no-descending-specificity": null,
+    "no-duplicate-selectors": null
+  }
+}

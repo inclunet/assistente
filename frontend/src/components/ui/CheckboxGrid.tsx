@@ -1,4 +1,5 @@
 import React, { useRef, useEffect } from 'react';
+import { useTranslation } from 'react-i18next';
 import './CheckboxGrid.css';
 
 export interface CheckboxGridProps<T> {
@@ -51,6 +52,7 @@ export function CheckboxGrid<T>({
   className,
   ariaLabel,
 }: CheckboxGridProps<T>) {
+  const { t } = useTranslation();
   const containerRef = useRef<HTMLDivElement>(null);
   const checkboxRefs = useRef<Map<string, HTMLInputElement>>(new Map());
 
@@ -109,7 +111,7 @@ export function CheckboxGrid<T>({
     >
       {items.length === 0 ? (
         <div className="checkbox-grid__empty" data-testid="empty-state">
-          Nenhum item disponível
+          {t('common.emptyState', 'Nenhum item disponível')}
         </div>
       ) : (
         items.map((item) => {

@@ -80,3 +80,25 @@ Todas as strings visíveis ao usuário DEVEM ser internacionalizadas.
 - Detecção automática do idioma da máquina, fallback para inglês
 - Ao criar nova string de UI, adicionar a chave nos 3 arquivos de locale
 - Troca de idioma via menu principal, persistida com Zustand
+
+## Enforcement Automatizado (CI)
+
+Todo PR para `main` roda automaticamente:
+- **TypeScript**: `tsc --noEmit`
+- **ESLint** com `jsx-a11y`: detecta ARIA invalido, roles ausentes
+- **Stylelint**: impede cores e font-sizes hardcoded (deve usar tokens do `theme.css`)
+- **Vitest** com `axe-core`: testes de acessibilidade nos componentes UI
+
+### O que o CI bloqueia
+- Cores hardcoded (#hex, rgb, rgba) em CSS — use variaveis do tema
+- Atributos ARIA invalidos — use os padroes documentados
+- Componentes sem labels de acessibilidade
+- Testes falhando (incluindo testes axe-core)
+
+### Checklist para novo codigo
+- [ ] Strings visiveis usam `t('key', 'fallback')` nos 3 locales
+- [ ] Icones decorativos tem `aria-hidden="true"`
+- [ ] Botoes icon-only tem `aria-label`
+- [ ] Cores vem de variaveis CSS (`--bg-*`, `--text-*`, etc.)
+- [ ] Font-sizes usam tokens (`--font-size-sm`, `--font-size-base`, etc.)
+- [ ] Inputs/selects tem `height: 32px`, botoes tem `min-height: 36px`

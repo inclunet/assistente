@@ -1,3 +1,4 @@
+import { SoundOutlined } from '@ant-design/icons';
 import { VoicePicker, VOICE_DISABLED } from '../pickers/VoicePicker';
 import { RangeSlider } from '../ui/RangeSlider';
 import './ProfileVoiceSection.css';
@@ -31,7 +32,7 @@ export function ProfileVoiceSection({
           variant="form"
           label="Voz (TTS)"
           helpText="Selecione a voz para síntese de fala"
-          icon="🔊"
+          icon={<SoundOutlined />}
           allowDisabled={true}
         />
       </div>

@@ -1,4 +1,4 @@
-import { ReactNode, forwardRef, useRef, useEffect } from 'react';
+import { type ReactNode, forwardRef, useRef, useEffect } from 'react';
 import { useToolbarKeyboardNav } from '../../hooks/useToolbarKeyboardNav';
 import './Toolbar.css';
 
@@ -7,8 +7,8 @@ export type ToolbarButtonVariant = 'primary' | 'secondary' | 'danger';
 export interface ToolbarButtonProps
   extends Omit<React.ButtonHTMLAttributes<HTMLButtonElement>, 'children'> {
   label: string;
-  icon?: string;
-  endIcon?: string;
+  icon?: ReactNode;
+  endIcon?: ReactNode;
   shortcut?: string;
   variant?: ToolbarButtonVariant;
 }
@@ -87,6 +87,8 @@ export interface ToolbarProps {
   searchPlaceholder?: string;
   /** Array de ações como botões */
   actions?: ToolbarAction[];
+  /** Conteúdo à direita, após os botões de ação (ex: ProfilePicker) */
+  rightEnd?: ReactNode;
   /** Aria label da toolbar */
   ariaLabel?: string;
   /** Classe CSS adicional */
@@ -108,6 +110,7 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
   onSearchChange,
   searchPlaceholder = 'Buscar...',
   actions = [],
+  rightEnd,
   ariaLabel = 'Barra de ferramentas. Use setas para navegar entre os botões',
   className = '',
   onFocusContent,
@@ -173,12 +176,13 @@ export const Toolbar = forwardRef<HTMLDivElement, ToolbarProps>(({
         </div>
       )}
 
-      {(right || actions.length > 0) && (
+      {(right || rightEnd || actions.length > 0) && (
         <div className="toolbar__section toolbar__right">
           {right}
           {actions.map(({ key, buttonRef, ...buttonProps }) => (
             <ToolbarButton key={key} ref={buttonRef} {...buttonProps} />
           ))}
+          {rightEnd}
         </div>
       )}
     </div>

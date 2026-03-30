@@ -1,6 +1,6 @@
 ---
 name: workspace
-version: 2.0.0
+version: 2.1.0
 description: "Gerenciamento de workspace: orienta o assistente sobre como navegar entre abas, abrir recursos e usar deep links para controlar a interface"
 displayName: Workspace Manager
 author: Assistente
@@ -47,7 +47,21 @@ Ao responder sobre o workspace, use títulos e tipos. Exemplo:
 > 2. Sprint Tasks (lista de tarefas)
 > 3. Nova conversa
 
-Use `open_deep_link` para navegar. Deep links das abas estão acima. Outros:
-- Nova conversa: `assistente://conversation/new` (aceita `?message=...&title=...`)
-- Páginas: `assistente://navigate/{rota}` (rotas: `history`, `settings`, `profiles`, `providers`, `credentials`, `skills`, `mcp`, `channels`, `allowlists`, `help`, `about`)
-- Criar/editar recurso: `assistente://{recurso}/new`, `assistente://{recurso}/edit/{id}`
+Use `open_deep_link` para navegar. Deep links das abas ativas estão listados acima. Referência completa:
+
+**Conversas:**
+- `assistente://conversation/{id}` — abrir conversa existente
+- `assistente://conversation/new` — nova conversa (aceita `?message=...&title=...`)
+- `assistente://conversation/{id}/send?message=...` — enviar mensagem em conversa existente
+
+**Criar abas:**
+- `assistente://tasklist/new` — nova lista de tarefas (aceita `?title=...`)
+- `assistente://editor/new` — novo documento vazio (aceita `?title=...`)
+- `assistente://editor/open?file=caminho` — abrir arquivo no editor (aceita `&title=...`)
+- `assistente://terminal/new` — novo terminal (aceita `?cmd=...` para executar comando, `&title=...`)
+
+**Páginas:** `assistente://navigate/{rota}`
+- Rotas: `history`, `tasklists`, `settings`, `profiles`, `providers`, `credentials`, `skills`, `mcp`, `channels`, `allowlists`, `help`, `about`, `update`
+
+**Criar/editar recurso:** `assistente://{recurso}/new`, `assistente://{recurso}/edit/{id}`
+- Recursos: `profiles`, `providers`, `credentials`, `allowlists`, `skills`, `mcp`, `channels`, `tasklists`

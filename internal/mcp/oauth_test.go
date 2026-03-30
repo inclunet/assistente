@@ -1,8 +1,15 @@
 package mcp
 
 import (
+	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -11,6 +18,11 @@ import (
 
 	"golang.org/x/oauth2"
 )
+
+func TestMain(m *testing.M) {
+	browserOpen = func(url string) error { return nil }
+	os.Exit(m.Run())
+}
 
 type oauth2Token struct {
 	AccessToken  string
@@ -335,6 +347,51 @@ func TestPersistAndLoadClientCreds(t *testing.T) {
 	}
 }
 
+func TestBuildPKCEHTTPClient_AutoImportsClientIDFromConfig(t *testing.T) {
+	credMgr := newTestCredMgr()
+
+	cid, _ := loadClientCreds(credMgr, "slack")
+	if cid != "" {
+		t.Fatal("precondition: cred manager should be empty")
+	}
+
+	cfg := ServerConfig{
+		URL:            "https://mcp.slack.com/mcp",
+		OAuth2ClientID: "pre-registered-id",
+		OAuth2AuthURL:  "https://slack.com/oauth/v2_user/authorize",
+		OAuth2TokenURL: "https://slack.com/api/oauth.v2.user.access",
+	}
+	_ = buildPKCEHTTPClient(cfg, credMgr, nil, "slack", nil)
+
+	cid, _ = loadClientCreds(credMgr, "slack")
+	if cid != "pre-registered-id" {
+		t.Errorf("expected client_id to be auto-imported, got %q", cid)
+	}
+}
+
+func TestBuildPKCEHTTPClient_DoesNotOverwriteExistingCreds(t *testing.T) {
+	credMgr := newTestCredMgr()
+
+	rt := &pkceRoundTripper{credMgr: credMgr, serverSlug: "test"}
+	rt.persistClientCreds("existing-id", "existing-secret")
+
+	cfg := ServerConfig{
+		URL:            "https://example.com/mcp",
+		OAuth2ClientID: "config-id-should-be-ignored",
+		OAuth2AuthURL:  "https://example.com/auth",
+		OAuth2TokenURL: "https://example.com/token",
+	}
+	_ = buildPKCEHTTPClient(cfg, credMgr, nil, "test", nil)
+
+	cid, csec := loadClientCreds(credMgr, "test")
+	if cid != "existing-id" {
+		t.Errorf("expected cred manager value to be preserved, got %q", cid)
+	}
+	if csec != "existing-secret" {
+		t.Errorf("expected cred manager secret to be preserved, got %q", csec)
+	}
+}
+
 func TestPersistAndLoadUserTokens(t *testing.T) {
 	credMgr := newTestCredMgr()
 
@@ -426,5 +483,422 @@ func TestIsMethodNotFound(t *testing.T) {
 		if got != tc.want {
 			t.Errorf("isMethodNotFound(%v): got %v, want %v", tc.err, got, tc.want)
 		}
+	}
+}
+
+func TestSessionExpiredError(t *testing.T) {
+	err404 := &SessionExpiredError{StatusCode: 404}
+	if err404.Error() != "mcp session expired (HTTP 404)" {
+		t.Errorf("unexpected message: %s", err404.Error())
+	}
+
+	err410 := &SessionExpiredError{StatusCode: 410}
+	if err410.Error() != "mcp session expired (HTTP 410)" {
+		t.Errorf("unexpected message: %s", err410.Error())
+	}
+
+	var target *SessionExpiredError
+	wrapped := fmt.Errorf("outer: %w", err404)
+	if !errors.As(wrapped, &target) {
+		t.Error("errors.As should unwrap SessionExpiredError from wrapped error")
+	}
+	if target.StatusCode != 404 {
+		t.Errorf("expected StatusCode 404, got %d", target.StatusCode)
+	}
+}
+
+func TestIsSessionExpiredStatus(t *testing.T) {
+	tests := []struct {
+		code int
+		want bool
+	}{
+		{200, false},
+		{401, false},
+		{403, false},
+		{404, true},
+		{410, true},
+		{500, false},
+	}
+	for _, tc := range tests {
+		got := isSessionExpiredStatus(tc.code)
+		if got != tc.want {
+			t.Errorf("isSessionExpiredStatus(%d): got %v, want %v", tc.code, got, tc.want)
+		}
+	}
+}
+
+// ============ Discovery Tests ============
+
+func TestDiscoverOAuthEndpoints(t *testing.T) {
+	asSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"authorization_endpoint":        "https://auth.example.com/authorize",
+				"token_endpoint":                "https://auth.example.com/token",
+				"registration_endpoint":         "https://auth.example.com/register",
+				"device_authorization_endpoint": "https://auth.example.com/device/authorize",
+				"grant_types_supported":         []string{"authorization_code", "urn:ietf:params:oauth:grant-type:device_code"},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer asSrv.Close()
+
+	var prmURL string
+	prmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-protected-resource" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"resource":              prmURL + "/mcp",
+				"authorization_servers": []string{asSrv.URL},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer prmSrv.Close()
+	prmURL = prmSrv.URL
+
+	disc, err := discoverOAuthEndpoints(prmSrv.URL + "/mcp")
+	if err != nil {
+		t.Fatalf("discoverOAuthEndpoints failed: %v", err)
+	}
+
+	if disc.AuthorizationEndpoint != "https://auth.example.com/authorize" {
+		t.Errorf("AuthorizationEndpoint: got %q", disc.AuthorizationEndpoint)
+	}
+	if disc.TokenEndpoint != "https://auth.example.com/token" {
+		t.Errorf("TokenEndpoint: got %q", disc.TokenEndpoint)
+	}
+	if disc.RegistrationEndpoint != "https://auth.example.com/register" {
+		t.Errorf("RegistrationEndpoint: got %q", disc.RegistrationEndpoint)
+	}
+	if disc.DeviceAuthorizationEndpoint != "https://auth.example.com/device/authorize" {
+		t.Errorf("DeviceAuthorizationEndpoint: got %q", disc.DeviceAuthorizationEndpoint)
+	}
+	if !strings.HasSuffix(disc.Resource, "/mcp") {
+		t.Errorf("Resource: got %q, want suffix /mcp", disc.Resource)
+	}
+}
+
+func TestDiscoverOAuthEndpoints_Fallback(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	_, err := discoverOAuthEndpoints(srv.URL + "/mcp")
+	if err == nil {
+		t.Error("expected error when discovery returns 404")
+	}
+
+	// Config manual should still work (tested through authorize chain)
+	rt := &pkceRoundTripper{
+		cfg: ServerConfig{
+			URL:            srv.URL + "/mcp",
+			OAuth2AuthURL:  "https://manual.example.com/authorize",
+			OAuth2TokenURL: "https://manual.example.com/token",
+			OAuth2ClientID: "manual-client",
+		},
+		serverSlug: "test",
+	}
+
+	rt.mergeDiscovery()
+
+	if rt.cfg.OAuth2AuthURL != "https://manual.example.com/authorize" {
+		t.Errorf("manual auth URL should not be overwritten: got %q", rt.cfg.OAuth2AuthURL)
+	}
+}
+
+// ============ Device Flow Tests ============
+
+func TestAuthorizeDeviceFlow_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/device/authorize":
+			json.NewEncoder(w).Encode(map[string]any{
+				"device_code":                "DEV-CODE-123",
+				"user_code":                  "ABCD-1234",
+				"verification_uri":           "https://auth.example.com/verify",
+				"verification_uri_complete":  "https://auth.example.com/verify?user_code=ABCD-1234",
+				"expires_in":                 300,
+				"interval":                   1,
+			})
+		case "/token":
+			json.NewEncoder(w).Encode(map[string]any{
+				"access_token":  "device-access-token",
+				"token_type":    "Bearer",
+				"refresh_token": "device-refresh-token",
+				"expires_in":    3600,
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+
+	rt := &pkceRoundTripper{
+		cfg: ServerConfig{
+			OAuth2DeviceAuthURL: srv.URL + "/device/authorize",
+			OAuth2TokenURL:      srv.URL + "/token",
+			OAuth2AuthURL:       "https://auth.example.com/authorize",
+		},
+		credMgr:          credentials.NewManager(nil),
+		serverSlug:       "test-device",
+		resolvedClientID: "test-client",
+		resourceURL:      "https://mcp.example.com/mcp",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	err := rt.authorizeDeviceFlow(ctx)
+	if err != nil {
+		t.Fatalf("authorizeDeviceFlow failed: %v", err)
+	}
+
+	if rt.tokenSource == nil {
+		t.Error("tokenSource should be set after successful device flow")
+	}
+	if rt.oauthCfg == nil {
+		t.Error("oauthCfg should be set after successful device flow")
+	}
+}
+
+func TestAuthorizeDeviceFlow_SlowDown(t *testing.T) {
+	pollCount := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/device/authorize":
+			json.NewEncoder(w).Encode(map[string]any{
+				"device_code":     "DEV-CODE",
+				"user_code":       "SLOW-1234",
+				"verification_uri": "https://example.com/verify",
+				"expires_in":      300,
+				"interval":        1,
+			})
+		case "/token":
+			pollCount++
+			if pollCount == 1 {
+				json.NewEncoder(w).Encode(map[string]string{"error": "slow_down"})
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{
+				"access_token":  "slow-token",
+				"token_type":    "Bearer",
+				"expires_in":    3600,
+			})
+		}
+	}))
+	defer srv.Close()
+
+	rt := &pkceRoundTripper{
+		cfg: ServerConfig{
+			OAuth2DeviceAuthURL: srv.URL + "/device/authorize",
+			OAuth2TokenURL:      srv.URL + "/token",
+			OAuth2AuthURL:       "https://example.com/authorize",
+		},
+		credMgr:          credentials.NewManager(nil),
+		serverSlug:       "test-slow",
+		resolvedClientID: "test-client",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+
+	err := rt.authorizeDeviceFlow(ctx)
+	if err != nil {
+		t.Fatalf("authorizeDeviceFlow with slow_down failed: %v", err)
+	}
+
+	if pollCount < 2 {
+		t.Errorf("expected at least 2 polls (got %d), first should be slow_down", pollCount)
+	}
+}
+
+func TestAuthorizeDeviceFlow_Timeout(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/device/authorize":
+			json.NewEncoder(w).Encode(map[string]any{
+				"device_code":     "DEV-TIMEOUT",
+				"user_code":       "TIMEOUT-1",
+				"verification_uri": "https://example.com/verify",
+				"expires_in":      2,
+				"interval":        1,
+			})
+		case "/token":
+			json.NewEncoder(w).Encode(map[string]string{"error": "authorization_pending"})
+		}
+	}))
+	defer srv.Close()
+
+	rt := &pkceRoundTripper{
+		cfg: ServerConfig{
+			OAuth2DeviceAuthURL: srv.URL + "/device/authorize",
+			OAuth2TokenURL:      srv.URL + "/token",
+			OAuth2AuthURL:       "https://example.com/authorize",
+		},
+		credMgr:          credentials.NewManager(nil),
+		serverSlug:       "test-timeout",
+		resolvedClientID: "test-client",
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+
+	err := rt.authorizeDeviceFlow(ctx)
+	if err == nil {
+		t.Fatal("expected timeout error")
+	}
+	if !strings.Contains(err.Error(), "timed out") {
+		t.Errorf("expected timeout error, got: %v", err)
+	}
+}
+
+// ============ DCR Tests ============
+
+func TestDCRIncludesDeviceCodeGrant(t *testing.T) {
+	var receivedGrants []string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		if grants, ok := body["grant_types"].([]any); ok {
+			for _, g := range grants {
+				receivedGrants = append(receivedGrants, g.(string))
+			}
+		}
+		json.NewEncoder(w).Encode(map[string]string{
+			"client_id": "dcr-test-client",
+		})
+	}))
+	defer srv.Close()
+
+	cfg := ServerConfig{
+		OAuth2RegistrationURL: srv.URL + "/register",
+	}
+	_, err := registerDynamicClient(cfg, "http://localhost:9999/callback")
+	if err != nil {
+		t.Fatalf("registerDynamicClient failed: %v", err)
+	}
+
+	found := false
+	for _, g := range receivedGrants {
+		if g == "urn:ietf:params:oauth:grant-type:device_code" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("DCR request should include device_code grant type. Got: %v", receivedGrants)
+	}
+}
+
+// ============ Resource Param Tests ============
+
+func TestResourceParamInAuthURL(t *testing.T) {
+	rt := &pkceRoundTripper{
+		cfg: ServerConfig{
+			OAuth2AuthURL:  "https://auth.example.com/authorize",
+			OAuth2TokenURL: "https://auth.example.com/token",
+		},
+		resourceURL: "https://mcp.example.com/mcp",
+	}
+
+	oauthCfg := &oauth2.Config{
+		ClientID: "test-client",
+		Endpoint: oauth2.Endpoint{
+			AuthURL:  rt.cfg.OAuth2AuthURL,
+			TokenURL: rt.cfg.OAuth2TokenURL,
+		},
+		RedirectURL: "http://localhost:9999/callback",
+	}
+
+	codeVerifier := oauth2.GenerateVerifier()
+	opts := []oauth2.AuthCodeOption{oauth2.S256ChallengeOption(codeVerifier)}
+	if rt.resourceURL != "" {
+		opts = append(opts, oauth2.SetAuthURLParam("resource", rt.resourceURL))
+	}
+	authURL := oauthCfg.AuthCodeURL("test-state", opts...)
+
+	if !strings.Contains(authURL, "resource=") {
+		t.Errorf("auth URL should contain resource param: %s", authURL)
+	}
+	if !strings.Contains(authURL, "mcp.example.com") {
+		t.Errorf("auth URL should contain the resource URL: %s", authURL)
+	}
+}
+
+// ============ MergeDiscovery Tests ============
+
+func TestMergeDiscovery_FillsEmpty(t *testing.T) {
+	rt := &pkceRoundTripper{
+		cfg:       ServerConfig{},
+		discovery: &OAuthDiscovery{
+			Resource:                    "https://mcp.example.com/mcp",
+			AuthorizationEndpoint:       "https://auth.example.com/authorize",
+			TokenEndpoint:               "https://auth.example.com/token",
+			RegistrationEndpoint:        "https://auth.example.com/register",
+			DeviceAuthorizationEndpoint: "https://auth.example.com/device/authorize",
+		},
+	}
+
+	rt.mergeDiscovery()
+
+	if rt.resourceURL != "https://mcp.example.com/mcp" {
+		t.Errorf("resourceURL: got %q", rt.resourceURL)
+	}
+	if rt.cfg.OAuth2AuthURL != "https://auth.example.com/authorize" {
+		t.Errorf("OAuth2AuthURL: got %q", rt.cfg.OAuth2AuthURL)
+	}
+	if rt.cfg.OAuth2TokenURL != "https://auth.example.com/token" {
+		t.Errorf("OAuth2TokenURL: got %q", rt.cfg.OAuth2TokenURL)
+	}
+	if rt.cfg.OAuth2RegistrationURL != "https://auth.example.com/register" {
+		t.Errorf("OAuth2RegistrationURL: got %q", rt.cfg.OAuth2RegistrationURL)
+	}
+	if rt.cfg.OAuth2DeviceAuthURL != "https://auth.example.com/device/authorize" {
+		t.Errorf("OAuth2DeviceAuthURL: got %q", rt.cfg.OAuth2DeviceAuthURL)
+	}
+}
+
+func TestMergeDiscovery_ManualHasPriority(t *testing.T) {
+	rt := &pkceRoundTripper{
+		cfg: ServerConfig{
+			OAuth2AuthURL:  "https://manual.example.com/authorize",
+			OAuth2TokenURL: "https://manual.example.com/token",
+		},
+		resourceURL: "https://manual-resource.example.com/mcp",
+		discovery: &OAuthDiscovery{
+			Resource:              "https://discovered.example.com/mcp",
+			AuthorizationEndpoint: "https://discovered.example.com/authorize",
+			TokenEndpoint:         "https://discovered.example.com/token",
+		},
+	}
+
+	rt.mergeDiscovery()
+
+	if rt.resourceURL != "https://manual-resource.example.com/mcp" {
+		t.Errorf("manual resourceURL should not be overwritten: got %q", rt.resourceURL)
+	}
+	if rt.cfg.OAuth2AuthURL != "https://manual.example.com/authorize" {
+		t.Errorf("manual OAuth2AuthURL should not be overwritten: got %q", rt.cfg.OAuth2AuthURL)
+	}
+	if rt.cfg.OAuth2TokenURL != "https://manual.example.com/token" {
+		t.Errorf("manual OAuth2TokenURL should not be overwritten: got %q", rt.cfg.OAuth2TokenURL)
+	}
+}
+
+func TestMergeDiscovery_NilDiscovery(t *testing.T) {
+	rt := &pkceRoundTripper{
+		cfg: ServerConfig{
+			OAuth2AuthURL: "https://existing.example.com/authorize",
+		},
+	}
+
+	rt.mergeDiscovery()
+
+	if rt.cfg.OAuth2AuthURL != "https://existing.example.com/authorize" {
+		t.Errorf("config should be unchanged when discovery is nil: got %q", rt.cfg.OAuth2AuthURL)
 	}
 }

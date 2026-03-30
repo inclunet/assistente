@@ -112,8 +112,12 @@ export function useWorkspaceKeyboardShortcuts() {
         return;
       }
 
+      // Ctrl+Tab / Ctrl+PageDown/Up: delega para escopos de abas aninhados
+      const insideTabScope = target.closest('[data-tab-scope]') !== null;
+
       // Ctrl+Tab: Próxima aba
       if (event.ctrlKey && event.key === 'Tab' && !event.shiftKey) {
+        if (insideTabScope) return;
         event.preventDefault();
         navigateTab(1);
         return;
@@ -121,6 +125,7 @@ export function useWorkspaceKeyboardShortcuts() {
 
       // Ctrl+Shift+Tab: Aba anterior
       if (event.ctrlKey && event.key === 'Tab' && event.shiftKey) {
+        if (insideTabScope) return;
         event.preventDefault();
         navigateTab(-1);
         return;
@@ -128,6 +133,7 @@ export function useWorkspaceKeyboardShortcuts() {
 
       // Ctrl+PageDown: Próxima aba
       if (event.ctrlKey && event.key === 'PageDown') {
+        if (insideTabScope) return;
         event.preventDefault();
         navigateTab(1);
         return;
@@ -135,6 +141,7 @@ export function useWorkspaceKeyboardShortcuts() {
 
       // Ctrl+PageUp: Aba anterior
       if (event.ctrlKey && event.key === 'PageUp') {
+        if (insideTabScope) return;
         event.preventDefault();
         navigateTab(-1);
         return;

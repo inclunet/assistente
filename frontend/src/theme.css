@@ -41,25 +41,27 @@
   --border-default:    #294572;
   --border-strong:     #3a5a8e;
 
-  /* ── Accent (IncluNet blue #2b7ef4) ─────────────────────── */
-  --accent:            #5799f5;
-  --accent-hover:      #83b4f8;
-  --accent-dim:        rgba(43, 126, 244, 0.18);
-  --accent-strong:     #2b7ef4;
+  /* ── Accent (Nubank purple family) ─────────────────────── */
+  --accent:            #a78bfa;
+  --accent-hover:      #c4b5fd;
+  --accent-dim:        rgba(139, 92, 246, 0.18);
+  --accent-strong:     #8b5cf6;
 
   /* ── Semantic ───────────────────────────────────────────── */
   --color-success:       #4ade80;
   --color-success-hover: #22c55e;
   --color-success-dim:   rgba(74, 222, 128, 0.15);
 
-  --color-warning:       #fbbf24;
-  --color-warning-hover: #f59e0b;
-  --color-warning-dim:   rgba(251, 191, 36, 0.15);
+  --color-warning:           #fbbf24;
+  --color-warning-hover:     #f59e0b;
+  --color-warning-dim:       rgba(251, 191, 36, 0.15);
+  --color-warning-dim-hover: rgba(251, 191, 36, 0.25);
 
-  --color-danger:        #f87171;
-  --color-danger-hover:  #ef4444;
-  --color-danger-dim:    rgba(248, 113, 113, 0.12);
-  --color-danger-dark:   #dc2626;
+  --color-danger:            #f87171;
+  --color-danger-hover:      #ef4444;
+  --color-danger-dim:        rgba(248, 113, 113, 0.12);
+  --color-danger-dim-hover:  rgba(248, 113, 113, 0.22);
+  --color-danger-dark:       #dc2626;
 
   --color-info:          #60a5fa;
   --color-info-hover:    #3b82f6;
@@ -68,106 +70,67 @@
   --color-purple:        #a78bfa;
 
   /* ── Focus ──────────────────────────────────────────────── */
-  --focus-ring:        rgba(43, 126, 244, 0.4);
-  --color-focus:       #2b7ef4;
+  --focus-ring:        rgba(139, 92, 246, 0.1);
+  --color-focus:       #8b5cf6;
 
-  /* ── Radius ─────────────────────────────────────────────── */
+  /* ── Radius (aligned with Workflows: 8px base) ────────── */
   --radius-sm:   4px;
-  --radius-md:   6px;
-  --radius-lg:   8px;
+  --radius-md:   8px;
+  --radius-lg:  12px;
   --radius-xl:  12px;
-  --border-radius: 6px;
+  --radius-full: 9999px;
+  --border-radius: 8px;
 
-  /* ── Spacing ────────────────────────────────────────────── */
-  --spacing-xs:   0.25rem;
-  --spacing-sm:   0.5rem;
-  --spacing-md:   1rem;
-  --spacing-lg:   1.5rem;
+  /* ── Shadows (aligned with Workflows: ultra-subtle) ────── */
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.12);
+
+  /* ── Elevation (Workflows canonical: cards, panels) ────── */
+  --elevation-sm: 0px 2px 0px 0px rgba(0, 0, 0, 0.02);
+  --elevation-md: 0px 4px 8px rgba(0, 0, 0, 0.04);
+
+  /* ── Spacing (legacy aliases + Workflows numeric scale) ── */
+  --spacing-xs:   4px;
+  --spacing-sm:   8px;
+  --spacing-md:  16px;
+  --spacing-lg:  24px;
+  --spacing-1:   4px;
+  --spacing-2:   8px;
+  --spacing-3:  12px;
+  --spacing-4:  16px;
+  --spacing-6:  24px;
+  --spacing-8:  32px;
+  --spacing-12: 48px;
+
+  /* ── Breakpoints (reference only — CSS vars don't work in @media) ── */
+  /* Use these literal values in @media queries:                       */
+  /*   sm: 640px  |  md: 768px  |  lg: 1024px                        */
+  --bp-sm:  640px;
+  --bp-md:  768px;
+  --bp-lg: 1024px;
+
+  /* ── Motion (durations & easing) ───────────────────────── */
+  --duration-instant:  75ms;
+  --duration-fast:    150ms;
+  --duration-normal:  250ms;
+  --duration-slow:    350ms;
+  --duration-slower:  500ms;
+
+  --ease-default:  cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-in:       cubic-bezier(0.4, 0, 1, 1);
+  --ease-out:      cubic-bezier(0, 0, 0.2, 1);
+  --ease-in-out:   cubic-bezier(0.4, 0, 0.2, 1);
+  --ease-bounce:   cubic-bezier(0.34, 1.56, 0.64, 1);
 
   /* ── Typography ─────────────────────────────────────────── */
   --font-size-xs:   0.75rem;
   --font-size-sm:   0.8125rem;
-  --font-size-base: 0.9375rem;
+  --font-size-base: 0.875rem;
   --font-size-lg:   1.125rem;
   --font-size-xl:   1.5rem;
   --font-mono:      ui-monospace, 'Cascadia Code', 'Fira Code', monospace;
 
-  /* ════════════════════════════════════════════════════════
-     LEGACY ALIASES
-     ════════════════════════════════════════════════════════ */
-
-  --background:              var(--bg-base);
-  --background-dark:         var(--bg-base);
-  --background-tertiary:     var(--bg-elevated);
-  --background-hover:        var(--bg-hover);
-  --bg:                      var(--bg-base);
-  --bg-primary:              var(--bg-surface);
-  --bg-secondary:            var(--bg-elevated);
-  --bg-tertiary:             var(--bg-hover);
-  --bg-card:                 var(--bg-surface);
-  --bg-hover:                var(--bg-hover);
-  --bg-disabled:             var(--bg-muted);
-  --color-bg-primary:        var(--bg-base);
-  --color-bg-secondary:      var(--bg-surface);
-  --color-bg-tertiary:       var(--bg-elevated);
-  --color-bg-hover:          var(--bg-hover);
-
-  --bg-primary-dark:         var(--bg-surface);
-  --bg-secondary-dark:       var(--bg-elevated);
-  --bg-tertiary-dark:        var(--bg-hover);
-  --color-bg-primary-dark:   var(--bg-base);
-  --color-bg-tertiary-dark:  var(--bg-elevated);
-  --color-bg-hover-dark:     var(--bg-hover);
-
-  --text:                    var(--text-primary);
-  --text-tertiary:           var(--text-muted);
-  --color-text-primary:      var(--text-primary);
-  --color-text-secondary:    var(--text-secondary);
-  --color-text-tertiary:     var(--text-muted);
-  --color-text-muted:        var(--text-muted);
-  --text-primary-dark:       var(--text-primary);
-  --text-secondary-dark:     var(--text-secondary);
-
-  --border:                  var(--border-default);
-  --border-color:            var(--border-default);
-  --border-light:            var(--border-subtle);
-  --color-border:            var(--border-default);
-  --color-border-subtle:     var(--border-subtle);
-  --color-border-dark:       var(--border-default);
-  --border-color-dark:       var(--border-default);
-  --border-light-dark:       var(--border-subtle);
-
-  --accent-color:            var(--accent);
-  --accent-color-subtle:     var(--accent-dim);
-  --accent-light:            var(--accent-dim);
-  --accent-lighter:          var(--accent-dim);
-  --accent-bg:               var(--accent-dim);
-  --primary:                 var(--accent);
-  --primary-color:           var(--accent);
-  --primary-alpha:           var(--accent-dim);
-  --primary-dim:             var(--accent-dim);
-  --color-accent:            var(--accent);
-  --color-accent-light:      var(--accent-dim);
-  --accent-dark:             rgba(43, 126, 244, 0.22);
-  --accent-darker:           rgba(43, 126, 244, 0.12);
-
-  --color-error:             var(--color-danger);
-  --color-error-bg:          var(--color-danger-dim);
-  --danger-bg:               var(--color-danger-dim);
-  --warning-background:      var(--color-warning-dim);
-  --warning-background-hover: rgba(251, 191, 36, 0.25);
-  --error-background:        var(--color-danger-dim);
-  --error-background-hover:  rgba(248, 113, 113, 0.22);
-  --color-info-bg:           var(--color-info-dim);
-
-  --color-surface-secondary: var(--bg-surface);
-  --color-surface-tertiary:  var(--bg-elevated);
-  --color-surface-hover:     var(--bg-hover);
-  --color-surface-code:      var(--bg-elevated);
-  --color-bg-highlight:      var(--accent-dim);
-
-  --reading-bg:              var(--bg-surface);
-  --button-hover-background: var(--bg-hover);
 }
 
 
@@ -199,65 +162,29 @@
   --accent-dim:        rgba(167, 139, 250, 0.18);
   --accent-strong:     #8b5cf6;
 
-  --color-purple:      #a78bfa;
-  --focus-ring:        rgba(167, 139, 250, 0.45);
+  --color-success:       #4ade80;
+  --color-success-hover: #22c55e;
+  --color-success-dim:   rgba(74, 222, 128, 0.15);
+  --color-warning:           #fbbf24;
+  --color-warning-hover:     #f59e0b;
+  --color-warning-dim:       rgba(251, 191, 36, 0.15);
+  --color-warning-dim-hover: rgba(251, 191, 36, 0.25);
+  --color-danger:            #f87171;
+  --color-danger-hover:      #ef4444;
+  --color-danger-dim:        rgba(248, 113, 113, 0.12);
+  --color-danger-dim-hover:  rgba(248, 113, 113, 0.22);
+  --color-danger-dark:       #dc2626;
+  --color-info:          #60a5fa;
+  --color-info-hover:    #3b82f6;
+  --color-info-dim:      rgba(96, 165, 250, 0.15);
+  --color-purple:        #a78bfa;
+
+  --focus-ring:        rgba(167, 139, 250, 0.1);
   --color-focus:       #a78bfa;
 
-  /* legacy aliases */
-  --bg-primary:              var(--bg-surface);
-  --bg-secondary:            var(--bg-elevated);
-  --bg-tertiary:             var(--bg-hover);
-  --bg-card:                 var(--bg-surface);
-  --bg-primary-dark:         var(--bg-surface);
-  --bg-secondary-dark:       var(--bg-elevated);
-  --bg-tertiary-dark:        var(--bg-hover);
-  --background:              var(--bg-base);
-  --color-bg-primary:        var(--bg-base);
-  --color-bg-secondary:      var(--bg-surface);
-  --color-bg-tertiary:       var(--bg-elevated);
-  --color-bg-hover:          var(--bg-hover);
-  --color-bg-primary-dark:   var(--bg-base);
-  --color-bg-hover-dark:     var(--bg-hover);
-
-  --text:                    var(--text-primary);
-  --text-tertiary:           var(--text-muted);
-  --color-text-primary:      var(--text-primary);
-  --color-text-secondary:    var(--text-secondary);
-  --color-text-tertiary:     var(--text-muted);
-  --color-text-muted:        var(--text-muted);
-  --text-primary-dark:       var(--text-primary);
-  --text-secondary-dark:     var(--text-secondary);
-
-  --border:                  var(--border-default);
-  --border-color:            var(--border-default);
-  --border-light:            var(--border-subtle);
-  --color-border:            var(--border-default);
-  --color-border-subtle:     var(--border-subtle);
-  --color-border-dark:       var(--border-default);
-  --border-color-dark:       var(--border-default);
-  --border-light-dark:       var(--border-subtle);
-
-  --accent-color:            var(--accent);
-  --accent-color-subtle:     var(--accent-dim);
-  --accent-light:            var(--accent-dim);
-  --accent-lighter:          var(--accent-dim);
-  --accent-bg:               var(--accent-dim);
-  --primary:                 var(--accent);
-  --primary-color:           var(--accent);
-  --primary-alpha:           var(--accent-dim);
-  --primary-dim:             var(--accent-dim);
-  --color-accent:            var(--accent);
-  --color-accent-light:      var(--accent-dim);
-  --accent-dark:             rgba(167, 139, 250, 0.22);
-  --accent-darker:           rgba(167, 139, 250, 0.12);
-
-  --color-surface-secondary: var(--bg-surface);
-  --color-surface-tertiary:  var(--bg-elevated);
-  --color-surface-hover:     var(--bg-hover);
-  --color-surface-code:      var(--bg-elevated);
-  --color-bg-highlight:      var(--accent-dim);
-  --reading-bg:              var(--bg-surface);
-  --button-hover-background: var(--bg-hover);
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.12);
 }
 
 
@@ -284,69 +211,34 @@
   --border-default:    #2f3848;
   --border-strong:     #3e495c;
 
-  --accent:            #60a5fa;
-  --accent-hover:      #93c5fd;
-  --accent-dim:        rgba(96, 165, 250, 0.15);
-  --accent-strong:     #3b82f6;
+  --accent:            #a78bfa;
+  --accent-hover:      #c4b5fd;
+  --accent-dim:        rgba(139, 92, 246, 0.15);
+  --accent-strong:     #8b5cf6;
 
-  --focus-ring:        rgba(96, 165, 250, 0.4);
-  --color-focus:       #60a5fa;
+  --color-success:       #4ade80;
+  --color-success-hover: #22c55e;
+  --color-success-dim:   rgba(74, 222, 128, 0.15);
+  --color-warning:           #fbbf24;
+  --color-warning-hover:     #f59e0b;
+  --color-warning-dim:       rgba(251, 191, 36, 0.15);
+  --color-warning-dim-hover: rgba(251, 191, 36, 0.25);
+  --color-danger:            #f87171;
+  --color-danger-hover:      #ef4444;
+  --color-danger-dim:        rgba(248, 113, 113, 0.12);
+  --color-danger-dim-hover:  rgba(248, 113, 113, 0.22);
+  --color-danger-dark:       #dc2626;
+  --color-info:          #60a5fa;
+  --color-info-hover:    #3b82f6;
+  --color-info-dim:      rgba(96, 165, 250, 0.15);
+  --color-purple:        #93c5fd;
 
-  /* legacy aliases */
-  --bg-primary:              var(--bg-surface);
-  --bg-secondary:            var(--bg-elevated);
-  --bg-tertiary:             var(--bg-hover);
-  --bg-card:                 var(--bg-surface);
-  --bg-primary-dark:         var(--bg-surface);
-  --bg-secondary-dark:       var(--bg-elevated);
-  --bg-tertiary-dark:        var(--bg-hover);
-  --background:              var(--bg-base);
-  --color-bg-primary:        var(--bg-base);
-  --color-bg-secondary:      var(--bg-surface);
-  --color-bg-tertiary:       var(--bg-elevated);
-  --color-bg-hover:          var(--bg-hover);
-  --color-bg-primary-dark:   var(--bg-base);
-  --color-bg-hover-dark:     var(--bg-hover);
+  --focus-ring:        rgba(139, 92, 246, 0.1);
+  --color-focus:       #a78bfa;
 
-  --text:                    var(--text-primary);
-  --text-tertiary:           var(--text-muted);
-  --color-text-primary:      var(--text-primary);
-  --color-text-secondary:    var(--text-secondary);
-  --color-text-tertiary:     var(--text-muted);
-  --color-text-muted:        var(--text-muted);
-  --text-primary-dark:       var(--text-primary);
-  --text-secondary-dark:     var(--text-secondary);
-
-  --border:                  var(--border-default);
-  --border-color:            var(--border-default);
-  --border-light:            var(--border-subtle);
-  --color-border:            var(--border-default);
-  --color-border-subtle:     var(--border-subtle);
-  --color-border-dark:       var(--border-default);
-  --border-color-dark:       var(--border-default);
-  --border-light-dark:       var(--border-subtle);
-
-  --accent-color:            var(--accent);
-  --accent-color-subtle:     var(--accent-dim);
-  --accent-light:            var(--accent-dim);
-  --accent-lighter:          var(--accent-dim);
-  --accent-bg:               var(--accent-dim);
-  --primary:                 var(--accent);
-  --primary-color:           var(--accent);
-  --primary-alpha:           var(--accent-dim);
-  --primary-dim:             var(--accent-dim);
-  --color-accent:            var(--accent);
-  --color-accent-light:      var(--accent-dim);
-  --accent-dark:             rgba(96, 165, 250, 0.2);
-  --accent-darker:           rgba(96, 165, 250, 0.1);
-
-  --color-surface-secondary: var(--bg-surface);
-  --color-surface-tertiary:  var(--bg-elevated);
-  --color-surface-hover:     var(--bg-hover);
-  --color-surface-code:      var(--bg-elevated);
-  --color-bg-highlight:      var(--accent-dim);
-  --reading-bg:              var(--bg-surface);
-  --button-hover-background: var(--bg-hover);
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.12);
 }
 
 
@@ -368,99 +260,41 @@
   --text-secondary:    #374a64;
   --text-muted:        #5a7090;
   --text-inverse:      #eef2f9;
-  --text-code:         #1d5fc0;
+  --text-code:         #6200A3;
 
   --border-subtle:     #dce4f0;
   --border-default:    #c5d0e0;
   --border-strong:     #a8b8d0;
 
-  --accent:            #2b7ef4;
-  --accent-hover:      #1a60c4;
-  --accent-dim:        rgba(43, 126, 244, 0.1);
-  --accent-strong:     #1550a8;
+  /* ── Accent (Nubank purple — max Workflows alignment) ──── */
+  --accent:            #820AD1;
+  --accent-hover:      #6200A3;
+  --accent-dim:        rgba(130, 10, 209, 0.08);
+  --accent-strong:     #6200A3;
 
-  --color-success:       #16a34a;
-  --color-success-hover: #15803d;
-  --color-success-dim:   rgba(22, 163, 74, 0.1);
-  --color-warning:       #d97706;
-  --color-warning-hover: #b45309;
-  --color-warning-dim:   rgba(217, 119, 6, 0.1);
-  --color-danger:        #dc2626;
-  --color-danger-hover:  #b91c1c;
-  --color-danger-dim:    rgba(220, 38, 38, 0.08);
-  --color-danger-dark:   #991b1b;
-  --color-info:          #2563eb;
-  --color-info-hover:    #1d4ed8;
-  --color-info-dim:      rgba(37, 99, 235, 0.1);
+  --color-success:       #00A86B;
+  --color-success-hover: #008f5a;
+  --color-success-dim:   rgba(0, 168, 107, 0.1);
+  --color-warning:           #d97706;
+  --color-warning-hover:     #b45309;
+  --color-warning-dim:       rgba(217, 119, 6, 0.1);
+  --color-warning-dim-hover: rgba(217, 119, 6, 0.18);
+  --color-danger:            #B40000;
+  --color-danger-hover:      #900000;
+  --color-danger-dim:        rgba(180, 0, 0, 0.08);
+  --color-danger-dim-hover:  rgba(180, 0, 0, 0.15);
+  --color-danger-dark:       #800000;
+  --color-info:          #1677FF;
+  --color-info-hover:    #0958d9;
+  --color-info-dim:      rgba(22, 119, 255, 0.1);
   --color-purple:        #7c3aed;
 
-  --focus-ring:        rgba(43, 126, 244, 0.3);
-  --color-focus:       #2b7ef4;
+  --focus-ring:        rgba(148, 54, 225, 0.2);
+  --color-focus:       #820AD1;
 
-  /* legacy aliases */
-  --bg-primary:              var(--bg-surface);
-  --bg-secondary:            var(--bg-elevated);
-  --bg-tertiary:             var(--bg-hover);
-  --bg-card:                 var(--bg-surface);
-  --bg-primary-dark:         var(--bg-surface);
-  --bg-secondary-dark:       var(--bg-elevated);
-  --bg-tertiary-dark:        var(--bg-hover);
-  --background:              var(--bg-base);
-  --color-bg-primary:        var(--bg-base);
-  --color-bg-secondary:      var(--bg-surface);
-  --color-bg-tertiary:       var(--bg-elevated);
-  --color-bg-hover:          var(--bg-hover);
-  --color-bg-primary-dark:   var(--bg-base);
-  --color-bg-hover-dark:     var(--bg-hover);
-
-  --text:                    var(--text-primary);
-  --text-tertiary:           var(--text-muted);
-  --color-text-primary:      var(--text-primary);
-  --color-text-secondary:    var(--text-secondary);
-  --color-text-tertiary:     var(--text-muted);
-  --color-text-muted:        var(--text-muted);
-  --text-primary-dark:       var(--text-primary);
-  --text-secondary-dark:     var(--text-secondary);
-
-  --border:                  var(--border-default);
-  --border-color:            var(--border-default);
-  --border-light:            var(--border-subtle);
-  --color-border:            var(--border-default);
-  --color-border-subtle:     var(--border-subtle);
-  --color-border-dark:       var(--border-default);
-  --border-color-dark:       var(--border-default);
-  --border-light-dark:       var(--border-subtle);
-
-  --accent-color:            var(--accent);
-  --accent-color-subtle:     var(--accent-dim);
-  --accent-light:            var(--accent-dim);
-  --accent-lighter:          var(--accent-dim);
-  --accent-bg:               var(--accent-dim);
-  --primary:                 var(--accent);
-  --primary-color:           var(--accent);
-  --primary-alpha:           var(--accent-dim);
-  --primary-dim:             var(--accent-dim);
-  --color-accent:            var(--accent);
-  --color-accent-light:      var(--accent-dim);
-  --accent-dark:             var(--accent-dim);
-  --accent-darker:           rgba(43, 126, 244, 0.06);
-
-  --color-error:             var(--color-danger);
-  --color-error-bg:          var(--color-danger-dim);
-  --danger-bg:               var(--color-danger-dim);
-  --warning-background:      var(--color-warning-dim);
-  --warning-background-hover: rgba(217, 119, 6, 0.18);
-  --error-background:        var(--color-danger-dim);
-  --error-background-hover:  rgba(220, 38, 38, 0.15);
-  --color-info-bg:           var(--color-info-dim);
-
-  --color-surface-secondary: var(--bg-surface);
-  --color-surface-tertiary:  var(--bg-elevated);
-  --color-surface-hover:     var(--bg-hover);
-  --color-surface-code:      var(--bg-elevated);
-  --color-bg-highlight:      var(--accent-dim);
-  --reading-bg:              var(--bg-surface);
-  --button-hover-background: var(--bg-hover);
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.08);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.12);
 }
 
 
@@ -482,97 +316,38 @@
   --text-secondary:    #e0e0e0;
   --text-muted:        #bbbbbb;
   --text-inverse:      #000000;
-  --text-code:         #93c5fd;
+  --text-code:         #d8b4fe;
 
   --border-subtle:     #555555;
   --border-default:    #777777;
   --border-strong:     #999999;
 
-  --accent:            #5babff;
-  --accent-hover:      #8cc8ff;
-  --accent-dim:        rgba(91, 171, 255, 0.2);
-  --accent-strong:     #2b7ef4;
+  --accent:            #c084fc;
+  --accent-hover:      #d8b4fe;
+  --accent-dim:        rgba(192, 132, 252, 0.2);
+  --accent-strong:     #a855f7;
 
   --color-success:       #86efac;
   --color-success-hover: #4ade80;
   --color-success-dim:   rgba(134, 239, 172, 0.2);
-  --color-warning:       #fde68a;
-  --color-warning-hover: #fbbf24;
-  --color-warning-dim:   rgba(253, 230, 138, 0.2);
-  --color-danger:        #fca5a5;
-  --color-danger-hover:  #f87171;
-  --color-danger-dim:    rgba(252, 165, 165, 0.15);
-  --color-danger-dark:   #ef4444;
+  --color-warning:           #fde68a;
+  --color-warning-hover:     #fbbf24;
+  --color-warning-dim:       rgba(253, 230, 138, 0.2);
+  --color-warning-dim-hover: rgba(253, 230, 138, 0.3);
+  --color-danger:            #fca5a5;
+  --color-danger-hover:      #f87171;
+  --color-danger-dim:        rgba(252, 165, 165, 0.15);
+  --color-danger-dim-hover:  rgba(252, 165, 165, 0.25);
+  --color-danger-dark:       #ef4444;
   --color-info:          #93c5fd;
   --color-info-hover:    #60a5fa;
   --color-info-dim:      rgba(147, 197, 253, 0.2);
   --color-purple:        #c084fc;
 
-  --focus-ring:        rgba(91, 171, 255, 0.6);
-  --color-focus:       #5babff;
+  --focus-ring:        rgba(192, 132, 252, 0.6);
+  --color-focus:       #c084fc;
 
-  /* legacy aliases */
-  --bg-primary:              var(--bg-surface);
-  --bg-secondary:            var(--bg-elevated);
-  --bg-tertiary:             var(--bg-hover);
-  --bg-card:                 var(--bg-surface);
-  --bg-primary-dark:         var(--bg-surface);
-  --bg-secondary-dark:       var(--bg-elevated);
-  --bg-tertiary-dark:        var(--bg-hover);
-  --background:              var(--bg-base);
-  --color-bg-primary:        var(--bg-base);
-  --color-bg-secondary:      var(--bg-surface);
-  --color-bg-tertiary:       var(--bg-elevated);
-  --color-bg-hover:          var(--bg-hover);
-  --color-bg-primary-dark:   var(--bg-base);
-  --color-bg-hover-dark:     var(--bg-hover);
-
-  --text:                    var(--text-primary);
-  --text-tertiary:           var(--text-muted);
-  --color-text-primary:      var(--text-primary);
-  --color-text-secondary:    var(--text-secondary);
-  --color-text-tertiary:     var(--text-muted);
-  --color-text-muted:        var(--text-muted);
-  --text-primary-dark:       var(--text-primary);
-  --text-secondary-dark:     var(--text-secondary);
-
-  --border:                  var(--border-default);
-  --border-color:            var(--border-default);
-  --border-light:            var(--border-subtle);
-  --color-border:            var(--border-default);
-  --color-border-subtle:     var(--border-subtle);
-  --color-border-dark:       var(--border-default);
-  --border-color-dark:       var(--border-default);
-  --border-light-dark:       var(--border-subtle);
-
-  --accent-color:            var(--accent);
-  --accent-color-subtle:     var(--accent-dim);
-  --accent-light:            var(--accent-dim);
-  --accent-lighter:          var(--accent-dim);
-  --accent-bg:               var(--accent-dim);
-  --primary:                 var(--accent);
-  --primary-color:           var(--accent);
-  --primary-alpha:           var(--accent-dim);
-  --primary-dim:             var(--accent-dim);
-  --color-accent:            var(--accent);
-  --color-accent-light:      var(--accent-dim);
-  --accent-dark:             var(--accent-dim);
-  --accent-darker:           rgba(91, 171, 255, 0.1);
-
-  --color-error:             var(--color-danger);
-  --color-error-bg:          var(--color-danger-dim);
-  --danger-bg:               var(--color-danger-dim);
-  --warning-background:      var(--color-warning-dim);
-  --warning-background-hover: rgba(253, 230, 138, 0.3);
-  --error-background:        var(--color-danger-dim);
-  --error-background-hover:  rgba(252, 165, 165, 0.25);
-  --color-info-bg:           var(--color-info-dim);
-
-  --color-surface-secondary: var(--bg-surface);
-  --color-surface-tertiary:  var(--bg-elevated);
-  --color-surface-hover:     var(--bg-hover);
-  --color-surface-code:      var(--bg-elevated);
-  --color-bg-highlight:      var(--accent-dim);
-  --reading-bg:              var(--bg-surface);
-  --button-hover-background: var(--bg-hover);
+  --shadow-sm:  0px 2px 4px rgba(0, 0, 0, 0.4);
+  --shadow-md:  0px 4px 8px rgba(0, 0, 0, 0.5);
+  --shadow-lg:  0px 8px 16px rgba(0, 0, 0, 0.6);
 }

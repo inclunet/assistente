@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useId } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useId, useCallback, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { playBumpSound } from '../../services/audioFeedback';
 import './Combobox.css';
@@ -11,7 +11,7 @@ export interface ComboboxItem {
 }
 
 export interface ComboboxProps {
-    icon?: string;
+    icon?: ReactNode;
     label?: string;
     description?: string;
     items: ComboboxItem[];
@@ -21,14 +21,14 @@ export interface ComboboxProps {
     disabled?: boolean;
     maxWidth?: string;
     onAnnounce?: (message: string) => void;
-    onOpen?: () => void; // Callback quando o picker é aberto
-    allowFreeInput?: boolean; // Permite entrada livre quando não há itens
+    onOpen?: () => void;
+    allowFreeInput?: boolean;
     /** Called after an item is selected and the dropdown closes. Use to customize focus restoration. */
     onAfterSelect?: () => void;
 }
 
 export const Combobox = ({
-    icon = '🔧',
+    icon,
     label,
     description,
     items,
@@ -48,52 +48,71 @@ export const Combobox = ({
     const [isOpen, setIsOpen] = useState(false);
     const [filter, setFilter] = useState('');
     const [highlightIndex, setHighlightIndex] = useState(0);
-    
+    const [liveMessage, setLiveMessage] = useState('');
+
     const inputRef = useRef<HTMLInputElement>(null);
     const buttonRef = useRef<HTMLButtonElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const listboxRef = useRef<HTMLUListElement>(null);
     const uniqueId = useId();
 
-    // Filtra items
     const filteredItems = items.filter(item =>
         item.label.toLowerCase().includes(filter.toLowerCase()) ||
         (item.sublabel && item.sublabel.toLowerCase().includes(filter.toLowerCase()))
     );
 
-    // Label do item selecionado
     const selectedItem = items.find(i => i.value === selected);
-    // Se allowFreeInput está ativo e há um valor selecionado mas não está em items, usa o valor direto
     const selectedLabel = selectedItem?.label || (allowFreeInput && selected ? selected : effectiveLabel);
     const displayLabel = selectedLabel.length > 20
         ? selectedLabel.substring(0, 17) + '...'
         : selectedLabel;
 
+    const announceMessage = useCallback((msg: string) => {
+        if (onAnnounce) {
+            onAnnounce(msg);
+        }
+        setLiveMessage('');
+        requestAnimationFrame(() => setLiveMessage(msg));
+    }, [onAnnounce]);
+
+    const announceHighlight = useCallback((index: number, list: ComboboxItem[]) => {
+        if (index >= 0 && list[index]) {
+            const item = list[index];
+            const sublabel = item.sublabel ? `, ${item.sublabel}` : '';
+            announceMessage(`${item.label}${sublabel}, ${index + 1} ${t('common.of')} ${list.length}`);
+        }
+    }, [announceMessage, t]);
+
+    const scrollToOption = useCallback((index: number) => {
+        const option = document.getElementById(`${uniqueId}-option-${index}`);
+        if (option && typeof option.scrollIntoView === 'function') {
+            try {
+                option.scrollIntoView({ block: 'nearest' });
+            } catch {
+                // scrollIntoView may fail in jsdom
+            }
+        }
+    }, [uniqueId]);
+
     const open = () => {
         if (disabled) return;
-
-        // Notifica que o picker foi aberto
-        if (onOpen) {
-            onOpen();
-        }
-
+        onOpen?.();
         setIsOpen(true);
         setFilter('');
 
-        // Inicia no item atual ou no primeiro
-        const currentIdx = filteredItems.findIndex(i => i.value === selected);
+        const currentIdx = items.findIndex(i => i.value === selected);
         setHighlightIndex(currentIdx >= 0 ? currentIdx : 0);
 
         setTimeout(() => {
             inputRef.current?.focus();
-            announce();
         }, 10);
     };
 
-    const close = (reason: 'select' | 'dismiss' = 'dismiss') => {
+    const close = useCallback((reason: 'select' | 'dismiss' = 'dismiss') => {
         setIsOpen(false);
         setFilter('');
         setHighlightIndex(0);
+        setLiveMessage('');
 
         setTimeout(() => {
             if (reason === 'select' && onAfterSelect) {
@@ -102,37 +121,25 @@ export const Combobox = ({
                 buttonRef.current?.focus();
             }
         }, 10);
-    };
+    }, [onAfterSelect]);
 
-    const selectItem = (item: ComboboxItem) => {
+    const selectItem = useCallback((item: ComboboxItem) => {
         if (item.disabled) {
             playBumpSound();
             return;
         }
         onSelect(item.value, item);
         close('select');
-    };
+    }, [onSelect, close]);
 
-    const announce = () => {
-        if (highlightIndex >= 0 && filteredItems[highlightIndex] && onAnnounce) {
-            const item = filteredItems[highlightIndex];
-            const sublabel = item.sublabel ? `, ${item.sublabel}` : '';
-            onAnnounce(`${item.label}${sublabel}, ${highlightIndex + 1} ${t('common.of')} ${filteredItems.length}`);
-        }
-    };
+    // Reset highlight when filter changes
+    useEffect(() => {
+        if (!isOpen) return;
+        const currentIdx = filteredItems.findIndex(i => i.value === selected);
+        const newIdx = currentIdx >= 0 ? currentIdx : 0;
+        setHighlightIndex(newIdx);
+    }, [filter]);
 
-    const scrollToOption = () => {
-        const option = document.getElementById(`${uniqueId}-option-${highlightIndex}`);
-        if (option && typeof option.scrollIntoView === 'function') {
-            try {
-                option.scrollIntoView({ block: 'nearest' });
-            } catch {
-                // Ignora erros de scroll (pode falhar em jsdom ou em alguns navegadores)
-            }
-        }
-    };
-
-    // Detecta cliques fora do componente
     useEffect(() => {
         if (!isOpen) return;
 
@@ -142,7 +149,6 @@ export const Combobox = ({
             }
         };
 
-        // Adiciona listener após um pequeno delay para evitar fechar imediatamente ao abrir
         const timer = setTimeout(() => {
             document.addEventListener('mousedown', handleClickOutside);
         }, 100);
@@ -151,52 +157,45 @@ export const Combobox = ({
             clearTimeout(timer);
             document.removeEventListener('mousedown', handleClickOutside);
         };
-    }, [isOpen]);
+    }, [isOpen, close]);
 
     const handleKeyDown = (event: React.KeyboardEvent) => {
         if (event.key === 'ArrowDown') {
             event.preventDefault();
             event.stopPropagation();
             if (filteredItems.length > 0) {
-                if (highlightIndex === filteredItems.length - 1) {
+                if (highlightIndex >= filteredItems.length - 1) {
                     playBumpSound();
                     return;
                 }
-                const newIndex = Math.min(highlightIndex + 1, filteredItems.length - 1);
-                setHighlightIndex(newIndex);
+                setHighlightIndex(prev => Math.min(prev + 1, filteredItems.length - 1));
             }
         } else if (event.key === 'ArrowUp') {
             event.preventDefault();
             event.stopPropagation();
-            if (highlightIndex === 0) {
+            if (highlightIndex <= 0) {
                 playBumpSound();
                 return;
             }
-            if (highlightIndex > 0) {
-                setHighlightIndex(highlightIndex - 1);
-            }
+            setHighlightIndex(prev => Math.max(prev - 1, 0));
         } else if (event.key === 'PageDown') {
             event.preventDefault();
             event.stopPropagation();
             if (filteredItems.length > 0) {
-                if (highlightIndex === filteredItems.length - 1) {
+                if (highlightIndex >= filteredItems.length - 1) {
                     playBumpSound();
                     return;
                 }
-                const newIndex = Math.min(highlightIndex + 10, filteredItems.length - 1);
-                setHighlightIndex(newIndex);
+                setHighlightIndex(prev => Math.min(prev + 10, filteredItems.length - 1));
             }
         } else if (event.key === 'PageUp') {
             event.preventDefault();
             event.stopPropagation();
-            if (highlightIndex === 0) {
+            if (highlightIndex <= 0) {
                 playBumpSound();
                 return;
             }
-            if (highlightIndex > 0) {
-                const newIndex = Math.max(highlightIndex - 10, 0);
-                setHighlightIndex(newIndex);
-            }
+            setHighlightIndex(prev => Math.max(prev - 10, 0));
         } else if (event.key === 'Enter') {
             event.preventDefault();
             event.stopPropagation();
@@ -205,7 +204,6 @@ export const Combobox = ({
             } else if (filteredItems.length === 1) {
                 selectItem(filteredItems[0]);
             } else if (allowFreeInput && filter.trim()) {
-                // Modo entrada livre: registra o texto digitado
                 onSelect(filter.trim(), { value: filter.trim(), label: filter.trim() });
                 close('select');
             }
@@ -214,15 +212,10 @@ export const Combobox = ({
             event.stopPropagation();
             close();
         } else if (event.key === 'Tab') {
-            event.preventDefault();
-            event.stopPropagation();
             if (allowFreeInput && filter.trim() && filteredItems.length === 0) {
-                // Modo entrada livre: registra o texto digitado ao dar Tab
                 onSelect(filter.trim(), { value: filter.trim(), label: filter.trim() });
-                close('select');
-            } else {
-                close();
             }
+            close(allowFreeInput && filter.trim() && filteredItems.length === 0 ? 'select' : 'dismiss');
         } else if (event.key === 'Home') {
             event.preventDefault();
             event.stopPropagation();
@@ -237,7 +230,7 @@ export const Combobox = ({
             event.preventDefault();
             event.stopPropagation();
             if (filteredItems.length > 0) {
-                if (highlightIndex === filteredItems.length - 1) {
+                if (highlightIndex >= filteredItems.length - 1) {
                     playBumpSound();
                     return;
                 }
@@ -246,18 +239,44 @@ export const Combobox = ({
         }
     };
 
+    // Reposiciona dropdown se transbordar a viewport (horizontal e vertical)
+    useLayoutEffect(() => {
+        if (!isOpen || !containerRef.current) return;
+        const dropdown = containerRef.current.querySelector('.picker-dropdown') as HTMLElement;
+        if (!dropdown) return;
+
+        dropdown.style.left = '0';
+        dropdown.style.right = 'auto';
+        dropdown.style.top = '';
+        dropdown.style.bottom = '';
+
+        const rect = dropdown.getBoundingClientRect();
+        if (rect.right > window.innerWidth - 8) {
+            dropdown.style.left = 'auto';
+            dropdown.style.right = '0';
+        }
+        if (rect.bottom > window.innerHeight - 8) {
+            dropdown.style.top = 'auto';
+            dropdown.style.bottom = 'calc(100% + 4px)';
+        }
+    }, [isOpen]);
+
     // Anunciar quando highlightIndex mudar
     useEffect(() => {
         if (isOpen) {
-            announce();
-            scrollToOption();
+            announceHighlight(highlightIndex, filteredItems);
+            scrollToOption(highlightIndex);
         }
     }, [highlightIndex, isOpen]);
 
+    const activeDescendant = isOpen && highlightIndex >= 0 && filteredItems[highlightIndex]
+        ? `${uniqueId}-option-${highlightIndex}`
+        : undefined;
+
     return (
-        <div 
+        <div
             ref={containerRef}
-            className="combobox-picker" 
+            className="combobox-picker"
             style={{ '--max-width': maxWidth } as React.CSSProperties}
         >
             {!isOpen ? (
@@ -266,11 +285,12 @@ export const Combobox = ({
                     className="picker-button"
                     onClick={open}
                     disabled={disabled}
-                    aria-expanded={isOpen}
+                    aria-expanded={false}
+                    aria-haspopup="listbox"
                     aria-label={`${effectiveLabel}: ${selectedLabel}`}
                     title={description || `${effectiveLabel}: ${selectedLabel}`}
                 >
-                    <span className="picker-icon" aria-hidden="true">{icon}</span>
+                    {icon && <span className="picker-icon" aria-hidden="true">{icon}</span>}
                     <span className="picker-label" aria-hidden="true">{displayLabel}</span>
                     <span className="picker-arrow" aria-hidden="true">▼</span>
                 </button>
@@ -285,8 +305,9 @@ export const Combobox = ({
                         placeholder={effectivePlaceholder}
                         role="combobox"
                         aria-expanded="true"
+                        aria-haspopup="listbox"
                         aria-controls={`${uniqueId}-listbox`}
-                        aria-activedescendant={highlightIndex >= 0 ? `${uniqueId}-option-${highlightIndex}` : ''}
+                        aria-activedescendant={activeDescendant}
                         aria-autocomplete="list"
                         aria-label={`${effectiveLabel} - ${t('pickers.combobox.filterLabel')}`}
                     />
@@ -302,11 +323,11 @@ export const Combobox = ({
                                 key={item.value}
                                 id={`${uniqueId}-option-${i}`}
                                 role="option"
-                                aria-selected={i === highlightIndex}
-                                aria-disabled={item.disabled ? 'true' : 'false'}
+                                aria-selected={item.value === selected}
+                                aria-disabled={item.disabled ? 'true' : undefined}
                                 className={`${i === highlightIndex ? 'highlighted' : ''} ${item.value === selected ? 'selected' : ''} ${item.disabled ? 'disabled' : ''}`}
                                 onMouseDown={(e) => {
-                                    e.preventDefault(); // Previne perda de foco do input
+                                    e.preventDefault();
                                     if (item.disabled) {
                                         playBumpSound();
                                         return;
@@ -321,14 +342,32 @@ export const Combobox = ({
                                 )}
                             </li>
                         ))}
-                        {filteredItems.length === 0 && (
-                            <li className="no-results" role="option" aria-disabled="true">
+                        {filteredItems.length === 0 && !allowFreeInput && (
+                            <li className="no-results" role="status">
                                 {t('pickers.combobox.noResults')}
+                            </li>
+                        )}
+                        {filteredItems.length === 0 && allowFreeInput && filter.trim() && (
+                            <li className="no-results free-input-hint" role="status">
+                                {t('pickers.combobox.pressEnterToUse', { value: filter.trim() })}
+                            </li>
+                        )}
+                        {filteredItems.length === 0 && allowFreeInput && !filter.trim() && (
+                            <li className="no-results" role="status">
+                                {t('pickers.combobox.typeToCreate')}
                             </li>
                         )}
                     </ul>
                 </div>
             )}
+            <div
+                className="sr-only"
+                aria-live="assertive"
+                aria-atomic="true"
+                role="log"
+            >
+                {liveMessage}
+            </div>
         </div>
     );
 };
