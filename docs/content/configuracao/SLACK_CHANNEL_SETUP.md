@@ -1,3 +1,8 @@
+---
+title: "Slack"
+weight: 5
+---
+
 # Slack (canal de comunicação)
 
 Este guia explica como criar e configurar um bot Slack para uso no Assistente.

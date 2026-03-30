@@ -9,6 +9,7 @@ assistente.exe
 
 # Build artifacts
 build/bin/
+docs/public/
 *.log
 
 # Go

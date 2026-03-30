@@ -1,0 +1,77 @@
+<div id="download-links" role="region" aria-label="Links de download" aria-live="polite">
+  <p>Carregando links de download...</p>
+</div>
+
+<script>
+(function() {
+  var container = document.getElementById('download-links');
+  if (!container) return;
+
+  fetch('https://api.github.com/repos/inclunet/assistente/releases/latest')
+    .then(function(res) { return res.json(); })
+    .then(function(release) {
+      var version = release.tag_name.replace('v', '');
+      var baseUrl = 'https://github.com/inclunet/assistente/releases/download/' + release.tag_name;
+
+      var assets = {};
+      (release.assets || []).forEach(function(a) {
+        assets[a.name] = a.browser_download_url;
+      });
+
+      var winInstaller = assets['assistente-windows-amd64-installer.exe'] || baseUrl + '/assistente-windows-amd64-installer.exe';
+      var winPortable  = assets['assistente-windows-amd64.exe'] || baseUrl + '/assistente-windows-amd64.exe';
+      var macDmg       = assets['assistente-darwin-arm64.dmg'] || assets['assistente-darwin-amd64.dmg'] || baseUrl + '/assistente-darwin-arm64.dmg';
+      var linuxAI      = assets['assistente-linux-amd64.AppImage'] || baseUrl + '/assistente-linux-amd64.AppImage';
+      var linuxBin     = assets['assistente-linux-amd64'] || baseUrl + '/assistente-linux-amd64';
+
+      var html = '<p class="dl-version">Versão <strong>' + version + '</strong></p>';
+      html += '<div class="download-grid">';
+
+      html += '<div class="download-card">';
+      html += '<h3 aria-label="Windows">🪟 Windows</h3>';
+      html += '<p>Windows 10/11 (64-bit)</p>';
+      html += '<a href="' + winInstaller + '" class="dl-btn dl-btn-primary">Instalador (.exe)</a> ';
+      html += '<a href="' + winPortable + '" class="dl-btn dl-btn-secondary">Portátil (.exe)</a>';
+      html += '</div>';
+
+      html += '<div class="download-card">';
+      html += '<h3 aria-label="macOS">🍎 macOS</h3>';
+      html += '<p>macOS 11+ (Intel &amp; Apple Silicon)</p>';
+      html += '<a href="' + macDmg + '" class="dl-btn dl-btn-primary">Download (.dmg)</a>';
+      html += '</div>';
+
+      html += '<div class="download-card">';
+      html += '<h3 aria-label="Linux">🐧 Linux</h3>';
+      html += '<p>Ubuntu 20.04+, Debian 11+</p>';
+      html += '<a href="' + linuxAI + '" class="dl-btn dl-btn-primary">AppImage</a> ';
+      html += '<a href="' + linuxBin + '" class="dl-btn dl-btn-secondary">Executável</a>';
+      html += '</div>';
+
+      html += '</div>';
+
+      if (release.body) {
+        var items = [];
+        release.body.split('\n').forEach(function(line) {
+          line = line.trim();
+          if (line.startsWith('- ') || line.startsWith('* ')) {
+            items.push('<li>' + line.substring(2) + '</li>');
+          }
+        });
+        if (items.length > 0) {
+          html += '<div class="release-notes">';
+          html += '<h3>Novidades nesta versão</h3>';
+          html += '<ul>' + items.join('') + '</ul>';
+          html += '</div>';
+        }
+      }
+
+      html += '<p class="dl-changelog"><a href="' + release.html_url + '" target="_blank" rel="noopener">Ver changelog completo no GitHub →</a></p>';
+
+      container.innerHTML = html;
+    })
+    .catch(function() {
+      container.innerHTML = '<p>Não foi possível carregar os downloads automaticamente. ' +
+        '<a href="https://github.com/inclunet/assistente/releases/latest">Acesse diretamente no GitHub</a>.</p>';
+    });
+})();
+</script>

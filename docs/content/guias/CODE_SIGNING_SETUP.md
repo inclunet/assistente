@@ -1,3 +1,8 @@
+---
+title: "Code Signing"
+weight: 2
+---
+
 # Configuração de Assinatura de Código para Windows
 
 ## ✅ O que já foi configurado

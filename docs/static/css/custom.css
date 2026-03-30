@@ -1,0 +1,94 @@
+/* Download page styles */
+
+.download-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+  gap: 1.5rem;
+  margin: 2rem 0;
+}
+
+.download-card {
+  border: 2px solid rgba(128, 128, 128, 0.3);
+  border-radius: 8px;
+  padding: 1.5rem;
+  text-align: center;
+  background: rgba(128, 128, 128, 0.06);
+  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.download-card:hover {
+  border-color: rgba(100, 149, 237, 0.6);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+}
+
+.download-card h3 {
+  margin-top: 0;
+  font-size: 1.4rem;
+}
+
+.download-card p {
+  opacity: 0.8;
+  margin-bottom: 1rem;
+}
+
+.dl-btn {
+  display: inline-block;
+  padding: 0.6rem 1.4rem;
+  border-radius: 6px;
+  text-decoration: none !important;
+  font-weight: 600;
+  margin: 0.3rem;
+  transition: opacity 0.2s ease, transform 0.15s ease;
+  min-width: 140px;
+}
+
+.dl-btn:hover {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
+.dl-btn:focus-visible {
+  outline: 3px solid cornflowerblue;
+  outline-offset: 2px;
+}
+
+.dl-btn-primary {
+  background: #4a8fe7;
+  color: #fff !important;
+}
+
+.dl-btn-secondary {
+  background: rgba(128, 128, 128, 0.25);
+  color: inherit !important;
+}
+
+.dl-version {
+  text-align: center;
+  font-size: 1.1rem;
+  margin-bottom: 0.5rem;
+}
+
+.dl-changelog {
+  text-align: center;
+  margin-top: 1.5rem;
+}
+
+.release-notes {
+  margin-top: 2rem;
+  padding: 1.5rem;
+  border-radius: 8px;
+  background: rgba(128, 128, 128, 0.06);
+  border: 1px solid rgba(128, 128, 128, 0.2);
+}
+
+.release-notes h3 {
+  margin-top: 0;
+}
+
+.release-notes ul {
+  padding-left: 1.5rem;
+}
+
+.release-notes li {
+  margin-bottom: 0.4rem;
+}
