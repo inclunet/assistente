@@ -7,6 +7,7 @@ import { useEditorStore } from '../store/editorStore';
  *
  * - contentId vazio -> cria documento via editorStore.createDocument() e salva id como contentId
  * - contentId existente -> ativa documento via editorStore.setActiveDocument()
+ * - contentId existente mas documento sumiu -> recria documento vazio
  * - Remocao de aba -> remove documento via editorStore.removeDocument()
  * - Sincroniza titulo de volta (editorStore -> workspace)
  */
@@ -34,8 +35,11 @@ export function useWorkspaceEditorBridge() {
         if (store.activeDocumentId !== docId) {
           store.setActiveDocument(docId);
         }
+        lastSyncedRef.current = syncKey;
+      } else if (!creatingRef.current) {
+        console.warn('[WorkspaceEditorBridge] Documento %s não encontrado no store; recriando.', docId);
+        createDocumentForWsTab(activeTab.id);
       }
-      lastSyncedRef.current = syncKey;
     } else if (!creatingRef.current) {
       createDocumentForWsTab(activeTab.id);
     }
@@ -79,20 +83,29 @@ export function useWorkspaceEditorBridge() {
     });
   }, []);
 
-  // Cleanup: remover documento quando aba de editor e removida do workspace
+  // Cleanup: remover documento quando aba de editor é definitivamente removida.
+  // Só remove se o tab.id desapareceu completamente (não apenas se o contentId está vazio
+  // temporariamente — isso pode acontecer durante race conditions com eventos do backend).
   const prevEditorTabsRef = useRef<Map<string, string>>(new Map());
   useEffect(() => {
     const unsub = useWorkspaceStore.subscribe((state) => {
       const wsTabs = state.workspace?.tabs || [];
+
       const currentEditorTabs = new Map<string, string>();
+      const allWsTabIds = new Set<string>();
       for (const t of wsTabs) {
+        allWsTabIds.add(t.id);
         if (t.type === 'editor' && t.contentId) {
           currentEditorTabs.set(t.id, t.contentId);
         }
       }
 
+      // Coleta docIds que AINDA são referenciados por alguma aba.
+      const activeDocIds = new Set(currentEditorTabs.values());
+
       for (const [wsTabId, docId] of prevEditorTabsRef.current) {
-        if (!currentEditorTabs.has(wsTabId) && docId) {
+        // Só remove se a aba sumiu completamente do workspace E o doc não é referenciado por outra.
+        if (!allWsTabIds.has(wsTabId) && docId && !activeDocIds.has(docId)) {
           useEditorStore.getState().removeDocument(docId);
         }
       }

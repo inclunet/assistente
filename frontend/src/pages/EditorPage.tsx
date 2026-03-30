@@ -13,7 +13,7 @@ import { RichTextEditor } from '../components/editor/RichTextEditor';
 import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
 import { useRichEditorFlushEvents } from './useRichEditorFlushEvents';
 import { EditorInlineChatModal } from '@/components/editor/EditorInlineChatModal';
-import { useEditorStore, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
+import { useEditorStore, DEFAULT_MD, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
@@ -80,7 +80,9 @@ export default function EditorPage() {
   const setEditorProfileSlug = useEditorStore((s) => s.setEditorProfileSlug);
   const hydrate = useEditorStore((s) => s.hydrate);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
+  const setActiveWsTab = useWorkspaceStore((s) => s.setActiveTab);
   const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
+  const wsTabs = useWorkspaceStore((s) => s.workspace?.tabs);
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
 
@@ -1930,24 +1932,55 @@ export default function EditorPage() {
       if (!path) return;
 
       const key = normalizePathKey(path);
-      const fromTabs = Object.values(documents).find((t) => t.filePath && normalizePathKey(String(t.filePath)) === key)?.mode;
-      const preferredMode: EditorMode =
-        fileModeByPathRef.current[key] || (fromTabs === 'rich' ? 'rich' : 'markdown');
+      const content = String(res?.content || '');
 
+      // Se o arquivo já está aberto em outra aba, apenas ativa essa aba.
+      const existingDoc = Object.values(documents).find(
+        (t) => t.filePath && normalizePathKey(String(t.filePath)) === key,
+      );
+      if (existingDoc) {
+        const wsTab = (wsTabs || []).find(
+          (t) => t.type === 'editor' && t.contentId === existingDoc.id,
+        );
+        if (wsTab) {
+          await setActiveWsTab(wsTab.id);
+          addToast('Arquivo já aberto — aba ativada', 'info');
+          focusEditorSoon();
+          return;
+        }
+      }
+
+      const preferredMode: EditorMode =
+        fileModeByPathRef.current[key] || (existingDoc?.mode === 'rich' ? 'rich' : 'markdown');
       const title = basenameFromPath(path);
-      const id = createDocument({ title, markdown: String(res?.content || ''), mode: preferredMode });
-      addWorkspaceTab('editor', id, title);
-      renameDocument(id, title);
+
+      // Se a aba atual está "virgem" (sem arquivo, conteúdo padrão), reutiliza-a.
+      const isPristine = activeTab && !activeTab.filePath && !activeTab.isDirty && activeTab.markdown === DEFAULT_MD;
+      let id: string;
+
+      if (isPristine) {
+        id = activeTab.id;
+        renameDocument(id, title);
+        setDocMarkdown(id, content);
+        useEditorStore.getState().setDocMode(id, preferredMode);
+        if (wsActiveTab) {
+          void updateWsTab(wsActiveTab.id, { title });
+        }
+      } else {
+        id = createDocument({ title, markdown: content, mode: preferredMode });
+        addWorkspaceTab('editor', id, title);
+      }
+
       setDocFilePath(id, path);
       setDocDraftId(id, null);
       setDocDirty(id, false);
 
-      updateLatestMarkdownForTab(id, String(res?.content || ''));
-      setDiskBaselineForTab(id, String(res?.content || ''));
+      updateLatestMarkdownForTab(id, content);
+      setDiskBaselineForTab(id, content);
       const diskTab: EditorDocument = {
         id,
         title,
-        markdown: String(res?.content || ''),
+        markdown: content,
         mode: preferredMode,
         filePath: path,
       };
@@ -1955,7 +1988,6 @@ export default function EditorPage() {
 
       fileModeByPathRef.current[key] = preferredMode === 'rich' ? 'rich' : 'markdown';
 
-      // createDocument cria um draftId por padrão; como agora é um arquivo real, limpamos.
       EditorDeleteDraft(id).catch(() => null);
       addToast('Arquivo aberto', 'success');
       focusEditorSoon();
