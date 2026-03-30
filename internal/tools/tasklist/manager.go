@@ -20,8 +20,11 @@ type TaskListManager interface {
 	UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error
 	UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error
 	UpdateTaskStatus(id uint, newStatusID int) error
+	MoveTaskToList(taskID uint, targetTaskListID uint) (*database.Task, error)
 	DeleteTask(id uint) error
 	GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error)
 	CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error)
+	UpdateTaskNote(noteID uint, content string) error
 	GetTaskNotes(taskID uint) ([]database.TaskNote, error)
+	GetTaskNote(noteID uint) (*database.TaskNote, error)
 }

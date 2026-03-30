@@ -658,6 +658,50 @@ func DemoteTask(id uint, parentID uint) error {
 	return db.Model(&Task{}).Where("id = ?", id).Update("parent_id", parentID).Error
 }
 
+// MoveTaskToList move uma task (e suas subtasks) para outra tasklist.
+// Reseta status para o inicial do workflow destino, limpa parent e recalcula order.
+func MoveTaskToList(taskID uint, targetTaskListID uint) (*Task, error) {
+	var task Task
+	if err := db.First(&task, taskID).Error; err != nil {
+		return nil, fmt.Errorf("task %d não encontrada: %w", taskID, err)
+	}
+
+	if task.TaskListID == targetTaskListID {
+		return &task, nil
+	}
+
+	workflow, err := GetWorkflow(targetTaskListID)
+	if err != nil {
+		return nil, fmt.Errorf("workflow da lista destino %d não encontrado: %w", targetTaskListID, err)
+	}
+
+	var maxOrder int
+	db.Model(&Task{}).
+		Where("task_list_id = ? AND parent_id IS NULL", targetTaskListID).
+		Select("COALESCE(MAX(`order`), -1)").
+		Scan(&maxOrder)
+
+	updates := map[string]interface{}{
+		"task_list_id": targetTaskListID,
+		"status_id":    workflow.InitialStatusID,
+		"parent_id":    nil,
+		"order":        maxOrder + 1,
+		"completed_at": nil,
+	}
+	if err := db.Model(&Task{}).Where("id = ?", taskID).Updates(updates).Error; err != nil {
+		return nil, err
+	}
+
+	// Subtasks acompanham a task pai
+	db.Model(&Task{}).Where("parent_id = ?", taskID).Updates(map[string]interface{}{
+		"task_list_id": targetTaskListID,
+		"status_id":    workflow.InitialStatusID,
+		"completed_at": nil,
+	})
+
+	return GetTask(taskID)
+}
+
 // GetSubtasks retorna todas as subtasks de uma task
 func GetSubtasks(parentID uint) ([]Task, error) {
 	var tasks []Task
@@ -713,6 +757,15 @@ func CreateTaskNote(taskID uint, noteType TaskNoteType, content, authorName, aut
 	}
 
 	return note, nil
+}
+
+// GetTaskNote retorna uma nota pelo ID
+func GetTaskNote(noteID uint) (*TaskNote, error) {
+	var note TaskNote
+	if err := db.First(&note, noteID).Error; err != nil {
+		return nil, fmt.Errorf("note %d não encontrada: %w", noteID, err)
+	}
+	return &note, nil
 }
 
 // GetTaskNotes retorna todas as notas de uma task ordenadas cronologicamente

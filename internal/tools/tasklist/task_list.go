@@ -1,0 +1,548 @@
+package tasklist
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"strings"
+
+	"assistente/internal/database"
+	"assistente/internal/tools"
+)
+
+type workflowStatusArg struct {
+	ID    int    `json:"id"`
+	Label string `json:"label"`
+	Color string `json:"color,omitempty"`
+	Icon  string `json:"icon,omitempty"`
+}
+
+type workflowArg struct {
+	Statuses           []workflowStatusArg `json:"statuses"`
+	AllowedTransitions map[int][]int       `json:"allowed_transitions"`
+	InitialStatusID    int                 `json:"initial_status_id"`
+	StatusMigration    map[int]int         `json:"status_migration,omitempty"`
+}
+
+type taskListArgs struct {
+	TaskListID        *uint        `json:"task_list_id,omitempty"`
+	Duplicate         bool         `json:"duplicate,omitempty"`
+	SummaryOnly       bool         `json:"summary_only,omitempty"`
+	Title             string       `json:"title,omitempty"`
+	Description       string       `json:"description,omitempty"`
+	PreferredViewMode string       `json:"preferred_view_mode,omitempty"`
+	Workflow          *workflowArg `json:"workflow,omitempty"`
+}
+
+type TaskListTool struct {
+	mgr TaskListManager
+}
+
+func NewTaskList(mgr TaskListManager) *TaskListTool {
+	return &TaskListTool{mgr: mgr}
+}
+
+func (t *TaskListTool) Name() string { return "task_list" }
+
+func (t *TaskListTool) Description() string {
+	return `Full CRUD for task lists. Without params → lists all. With task_list_id only → full details (tasks, workflow, status counts). With task_list_id + summary_only → lightweight status counts. With title (no task_list_id) → create. With task_list_id + title → update. With task_list_id + duplicate + title → copy (inherits description, view mode, workflow; tasks NOT copied). When updating a workflow with tasks on removed statuses, provide status_migration.`
+}
+
+func (t *TaskListTool) Parameters() json.RawMessage {
+	return json.RawMessage(`{
+		"type": "object",
+		"properties": {
+			"task_list_id": {
+				"type": "integer",
+				"description": "ID of the task list. Omit to list all (read) or create (write). With only this → read details. With title → update. With duplicate → copy as template"
+			},
+			"summary_only": {
+				"type": "boolean",
+				"description": "When true with task_list_id, returns only task counts per status (lightweight). Requires task_list_id"
+			},
+			"duplicate": {
+				"type": "boolean",
+				"description": "When true, creates a copy of the task list referenced by task_list_id. Inherits description, view mode, and workflow. Tasks are NOT copied. Requires task_list_id and title"
+			},
+			"title": {
+				"type": "string",
+				"description": "Title for the task list. Required for create, update, and duplicate"
+			},
+			"description": {
+				"type": "string",
+				"description": "Description for the task list (optional)"
+			},
+			"preferred_view_mode": {
+				"type": "string",
+				"enum": ["list", "kanban"],
+				"description": "View mode: 'list' or 'kanban'. Defaults to 'list' for new lists"
+			},
+			"workflow": {
+				"type": "object",
+				"description": "Custom workflow definition. If omitted on create, a default kanban workflow is used. If omitted on update, the existing workflow is preserved",
+				"properties": {
+					"statuses": {
+						"type": "array",
+						"description": "Array of workflow statuses. Each status must have a unique integer 'id' (stable across updates) and a 'label'",
+						"items": {
+							"type": "object",
+							"properties": {
+								"id": {
+									"type": "integer",
+									"description": "Unique numeric ID for this status (must be > 0, stable across updates)"
+								},
+								"label": {
+									"type": "string",
+									"description": "Display label for this status"
+								},
+								"color": {
+									"type": "string",
+									"description": "CSS color for this status (optional, e.g. 'var(--color-warning)' or '#ff0000')"
+								},
+								"icon": {
+									"type": "string",
+									"description": "Icon/emoji for this status (optional, e.g. '⌛')"
+								}
+							},
+							"required": ["id", "label"]
+						}
+					},
+					"allowed_transitions": {
+						"type": "object",
+						"description": "Map of status_id to array of status_ids it can transition to. E.g. {\"1\": [2, 3], \"2\": [3]}",
+						"additionalProperties": {
+							"type": "array",
+							"items": {"type": "integer"}
+						}
+					},
+					"initial_status_id": {
+						"type": "integer",
+						"description": "ID of the status assigned to new tasks by default. Must be one of the status IDs"
+					},
+					"status_migration": {
+						"type": "object",
+						"description": "When removing statuses that have existing tasks, map old_status_id to new_status_id to migrate those tasks. E.g. {\"4\": 1} moves tasks from removed status 4 to status 1",
+						"additionalProperties": {"type": "integer"}
+					}
+				},
+				"required": ["statuses", "allowed_transitions", "initial_status_id"]
+			}
+		},
+		"additionalProperties": false
+	}`)
+}
+
+func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
+	var params taskListArgs
+	if err := json.Unmarshal(args, &params); err != nil {
+		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
+	}
+
+	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || params.Description != "" || params.PreferredViewMode != ""
+
+	if params.SummaryOnly && params.TaskListID == nil {
+		return tools.ToolResult{Content: "summary_only requires task_list_id", IsError: true}, nil
+	}
+
+	if params.Duplicate && params.TaskListID == nil {
+		return tools.ToolResult{Content: "duplicate requires task_list_id to reference the source list", IsError: true}, nil
+	}
+
+	// READ modes
+	if !isWrite {
+		if params.TaskListID == nil {
+			return t.listAll()
+		}
+		if *params.TaskListID == 0 {
+			return tools.ToolResult{Content: "task_list_id must be > 0", IsError: true}, nil
+		}
+		if params.SummaryOnly {
+			return t.statusSummary(*params.TaskListID)
+		}
+		return t.fullDetails(*params.TaskListID)
+	}
+
+	// WRITE modes
+	title := strings.TrimSpace(params.Title)
+	if title == "" {
+		return tools.ToolResult{Content: "title is required for create, update, and duplicate operations", IsError: true}, nil
+	}
+
+	if params.TaskListID != nil {
+		if *params.TaskListID == 0 {
+			return tools.ToolResult{Content: "task_list_id must be > 0", IsError: true}, nil
+		}
+		if params.Duplicate {
+			return t.duplicateTaskList(*params.TaskListID, title, params.Description, params.PreferredViewMode, params.Workflow)
+		}
+		return t.updateTaskList(*params.TaskListID, title, params.Description, params.PreferredViewMode, params.Workflow)
+	}
+	return t.createTaskList(title, params.Description, params.PreferredViewMode, params.Workflow)
+}
+
+// ==================== Read Operations ====================
+
+func (t *TaskListTool) listAll() (tools.ToolResult, error) {
+	taskLists, err := t.mgr.GetAllTaskLists()
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error listing task lists: %v", err), IsError: true}, nil
+	}
+
+	if len(taskLists) == 0 {
+		return tools.ToolResult{Content: "No task lists found."}, nil
+	}
+
+	type taskListSummary struct {
+		ID        uint   `json:"id"`
+		Title     string `json:"title"`
+		TaskCount int    `json:"task_count"`
+	}
+
+	summaries := make([]taskListSummary, len(taskLists))
+	for i, tl := range taskLists {
+		summaries[i] = taskListSummary{
+			ID:        tl.ID,
+			Title:     tl.Title,
+			TaskCount: len(tl.Tasks),
+		}
+	}
+
+	resultJSON, _ := json.Marshal(summaries)
+	return tools.ToolResult{
+		Content:  fmt.Sprintf("Found %d task list(s):\n%s", len(summaries), string(resultJSON)),
+		Metadata: map[string]any{"count": len(summaries)},
+	}, nil
+}
+
+func (t *TaskListTool) statusSummary(taskListID uint) (tools.ToolResult, error) {
+	taskList, err := t.mgr.GetTaskList(taskListID)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%d): %v", taskListID, err), IsError: true}, nil
+	}
+
+	stats, err := t.mgr.GetTaskListStats(taskListID)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error getting stats: %v", err), IsError: true}, nil
+	}
+
+	response := map[string]any{
+		"task_list_id":    taskListID,
+		"task_list_title": taskList.Title,
+		"total":           stats["total"],
+	}
+
+	if taskList.Workflow != nil {
+		statuses, err := parseWorkflowStatuses(taskList.Workflow)
+		if err == nil {
+			byStatus, _ := stats["byStatus"].(map[string]int64)
+			statusCounts := make([]map[string]any, 0, len(statuses))
+			for _, s := range statuses {
+				count := int64(0)
+				if byStatus != nil {
+					count = byStatus[fmt.Sprintf("%d", s.ID)]
+				}
+				statusCounts = append(statusCounts, map[string]any{
+					"status_id": s.ID,
+					"label":     s.Label,
+					"count":     count,
+				})
+			}
+			response["statuses"] = statusCounts
+		}
+	}
+
+	resultJSON, _ := json.Marshal(response)
+	return tools.ToolResult{
+		Content:  string(resultJSON),
+		Metadata: map[string]any{"task_list_id": taskListID},
+	}, nil
+}
+
+func (t *TaskListTool) fullDetails(taskListID uint) (tools.ToolResult, error) {
+	taskList, err := t.mgr.GetTaskList(taskListID)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%d): %v", taskListID, err), IsError: true}, nil
+	}
+
+	type statusInfo struct {
+		ID    int    `json:"id"`
+		Label string `json:"label"`
+	}
+	type taskInfo struct {
+		ID          uint       `json:"id"`
+		Title       string     `json:"title"`
+		Description string     `json:"description,omitempty"`
+		StatusID    int        `json:"status_id"`
+		ParentID    *uint      `json:"parent_id,omitempty"`
+		Subtasks    []taskInfo `json:"subtasks,omitempty"`
+	}
+
+	var convertTasks func(tasks []database.Task) []taskInfo
+	convertTasks = func(tasks []database.Task) []taskInfo {
+		result := make([]taskInfo, len(tasks))
+		for i, task := range tasks {
+			result[i] = taskInfo{
+				ID:          task.ID,
+				Title:       task.Title,
+				Description: task.Description,
+				StatusID:    task.StatusID,
+				ParentID:    task.ParentID,
+			}
+			if len(task.Subtasks) > 0 {
+				result[i].Subtasks = convertTasks(task.Subtasks)
+			}
+		}
+		return result
+	}
+
+	response := map[string]any{
+		"id":    taskList.ID,
+		"title": taskList.Title,
+		"tasks": convertTasks(taskList.Tasks),
+	}
+
+	if taskList.Workflow != nil {
+		statuses, err := parseWorkflowStatuses(taskList.Workflow)
+		if err == nil {
+			statusList := make([]statusInfo, len(statuses))
+			for i, s := range statuses {
+				statusList[i] = statusInfo{ID: s.ID, Label: s.Label}
+			}
+			response["workflow_statuses"] = statusList
+			response["initial_status_id"] = taskList.Workflow.InitialStatusID
+
+			stats, statsErr := t.mgr.GetTaskListStats(taskListID)
+			if statsErr == nil {
+				byStatus, _ := stats["byStatus"].(map[string]int64)
+				statusCounts := make([]map[string]any, 0, len(statuses))
+				for _, s := range statuses {
+					count := int64(0)
+					if byStatus != nil {
+						count = byStatus[fmt.Sprintf("%d", s.ID)]
+					}
+					statusCounts = append(statusCounts, map[string]any{
+						"status_id": s.ID,
+						"label":     s.Label,
+						"count":     count,
+					})
+				}
+				response["summary"] = map[string]any{
+					"total":    stats["total"],
+					"statuses": statusCounts,
+				}
+			}
+		}
+	}
+
+	resultJSON, _ := json.Marshal(response)
+	return tools.ToolResult{
+		Content:  string(resultJSON),
+		Metadata: map[string]any{"task_list_id": taskList.ID},
+	}, nil
+}
+
+// ==================== Write Operations ====================
+
+func (t *TaskListTool) createTaskList(title, description, viewMode string, wf *workflowArg) (tools.ToolResult, error) {
+	var template *database.TaskListWorkflow
+	if wf != nil {
+		tpl, err := t.buildWorkflowTemplate(wf)
+		if err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+		}
+		template = tpl
+	}
+
+	taskList, err := t.mgr.CreateTaskList(title, description, template)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error creating task list: %v", err), IsError: true}, nil
+	}
+
+	if viewMode == "kanban" || viewMode == "list" {
+		_ = t.mgr.UpdateTaskListFull(taskList.ID, title, description, viewMode)
+	}
+
+	result := t.buildResult(taskList, "created")
+	resultJSON, _ := json.Marshal(result)
+	return tools.ToolResult{
+		Content:  fmt.Sprintf("Task list created:\n%s", string(resultJSON)),
+		Metadata: map[string]any{"task_list_id": taskList.ID, "action": "created"},
+	}, nil
+}
+
+func (t *TaskListTool) duplicateTaskList(sourceID uint, title, description, viewMode string, wfOverride *workflowArg) (tools.ToolResult, error) {
+	source, err := t.mgr.GetTaskList(sourceID)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Source task list not found (id=%d): %v", sourceID, err), IsError: true}, nil
+	}
+
+	if description == "" {
+		description = source.Description
+	}
+
+	var template *database.TaskListWorkflow
+	if wfOverride != nil {
+		tpl, err := t.buildWorkflowTemplate(wfOverride)
+		if err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+		}
+		template = tpl
+	} else if source.Workflow != nil {
+		template = &database.TaskListWorkflow{
+			Statuses:           source.Workflow.Statuses,
+			AllowedTransitions: source.Workflow.AllowedTransitions,
+			InitialStatusID:    source.Workflow.InitialStatusID,
+		}
+	}
+
+	newList, err := t.mgr.CreateTaskList(title, description, template)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error duplicating task list: %v", err), IsError: true}, nil
+	}
+
+	effectiveViewMode := viewMode
+	if effectiveViewMode == "" {
+		effectiveViewMode = source.PreferredViewMode
+	}
+	if effectiveViewMode == "kanban" || effectiveViewMode == "list" {
+		_ = t.mgr.UpdateTaskListFull(newList.ID, title, description, effectiveViewMode)
+	}
+
+	updated, err := t.mgr.GetTaskList(newList.ID)
+	if err != nil {
+		updated = newList
+	}
+
+	result := t.buildResult(updated, "duplicated")
+	result["source_task_list_id"] = sourceID
+	resultJSON, _ := json.Marshal(result)
+	return tools.ToolResult{
+		Content:  fmt.Sprintf("Task list duplicated (from id=%d):\n%s", sourceID, string(resultJSON)),
+		Metadata: map[string]any{"task_list_id": newList.ID, "source_task_list_id": sourceID, "action": "duplicated"},
+	}, nil
+}
+
+func (t *TaskListTool) updateTaskList(id uint, title, description, viewMode string, wf *workflowArg) (tools.ToolResult, error) {
+	existing, err := t.mgr.GetTaskList(id)
+	if err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%d): %v", id, err), IsError: true}, nil
+	}
+
+	if err := t.mgr.UpdateTaskListFull(id, title, description, viewMode); err != nil {
+		return tools.ToolResult{Content: fmt.Sprintf("Error updating task list: %v", err), IsError: true}, nil
+	}
+
+	if wf != nil {
+		statuses := make([]database.TaskListWorkflowStatus, len(wf.Statuses))
+		for i, s := range wf.Statuses {
+			statuses[i] = database.TaskListWorkflowStatus{
+				ID:    s.ID,
+				Order: i,
+				Label: s.Label,
+				Color: withDefault(s.Color, "var(--accent)"),
+				Icon:  withDefault(s.Icon, "⬜"),
+			}
+		}
+
+		transitions := database.TaskListWorkflowTransitions(wf.AllowedTransitions)
+
+		var migration map[int]int
+		if wf.StatusMigration != nil && len(wf.StatusMigration) > 0 {
+			migration = wf.StatusMigration
+		}
+
+		if err := t.mgr.UpdateWorkflowFull(id, statuses, transitions, wf.InitialStatusID, migration); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("Task list metadata updated but workflow update failed: %v", err), IsError: true}, nil
+		}
+	}
+
+	updated, err := t.mgr.GetTaskList(id)
+	if err != nil {
+		updated = existing
+	}
+
+	result := t.buildResult(updated, "updated")
+	resultJSON, _ := json.Marshal(result)
+	return tools.ToolResult{
+		Content:  fmt.Sprintf("Task list updated:\n%s", string(resultJSON)),
+		Metadata: map[string]any{"task_list_id": id, "action": "updated"},
+	}, nil
+}
+
+// ==================== Helpers ====================
+
+func (t *TaskListTool) buildWorkflowTemplate(wf *workflowArg) (*database.TaskListWorkflow, error) {
+	if len(wf.Statuses) == 0 {
+		return nil, fmt.Errorf("workflow.statuses cannot be empty")
+	}
+
+	statuses := make([]database.TaskListWorkflowStatus, len(wf.Statuses))
+	idSet := make(map[int]bool, len(wf.Statuses))
+	for i, s := range wf.Statuses {
+		if s.ID <= 0 {
+			return nil, fmt.Errorf("status id must be > 0, got %d", s.ID)
+		}
+		if idSet[s.ID] {
+			return nil, fmt.Errorf("duplicate status id: %d", s.ID)
+		}
+		idSet[s.ID] = true
+		statuses[i] = database.TaskListWorkflowStatus{
+			ID:    s.ID,
+			Order: i,
+			Label: s.Label,
+			Color: withDefault(s.Color, "var(--accent)"),
+			Icon:  withDefault(s.Icon, "⬜"),
+		}
+	}
+
+	if !idSet[wf.InitialStatusID] {
+		return nil, fmt.Errorf("initial_status_id %d not found in statuses", wf.InitialStatusID)
+	}
+
+	for fromID, toIDs := range wf.AllowedTransitions {
+		if !idSet[fromID] {
+			return nil, fmt.Errorf("allowed_transitions references unknown source status: %d", fromID)
+		}
+		for _, toID := range toIDs {
+			if !idSet[toID] {
+				return nil, fmt.Errorf("allowed_transitions from %d references unknown target status: %d", fromID, toID)
+			}
+		}
+	}
+
+	statusesJSON, _ := json.Marshal(statuses)
+	transitionsJSON, _ := json.Marshal(wf.AllowedTransitions)
+
+	return &database.TaskListWorkflow{
+		Statuses:           string(statusesJSON),
+		AllowedTransitions: string(transitionsJSON),
+		InitialStatusID:    wf.InitialStatusID,
+	}, nil
+}
+
+func (t *TaskListTool) buildResult(tl *database.TaskList, action string) map[string]any {
+	result := map[string]any{
+		"id":     tl.ID,
+		"title":  tl.Title,
+		"action": action,
+	}
+	if tl.Workflow != nil {
+		statuses, err := parseWorkflowStatuses(tl.Workflow)
+		if err == nil {
+			statusSummary := make([]map[string]any, len(statuses))
+			for i, s := range statuses {
+				statusSummary[i] = map[string]any{"id": s.ID, "label": s.Label}
+			}
+			result["workflow_statuses"] = statusSummary
+			result["initial_status_id"] = tl.Workflow.InitialStatusID
+		}
+	}
+	return result
+}
+
+func withDefault(val, def string) string {
+	if val == "" {
+		return def
+	}
+	return val
+}

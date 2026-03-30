@@ -327,6 +327,21 @@ func (f *fakeTaskListManager) DeleteTask(id uint) error {
 	return nil
 }
 
+func (f *fakeTaskListManager) MoveTaskToList(taskID uint, targetTaskListID uint) (*database.Task, error) {
+	task, ok := f.tasks[taskID]
+	if !ok {
+		return nil, fmt.Errorf("task not found: %d", taskID)
+	}
+	wf, ok := f.workflows[targetTaskListID]
+	if !ok {
+		return nil, fmt.Errorf("workflow not found for task list: %d", targetTaskListID)
+	}
+	task.TaskListID = targetTaskListID
+	task.StatusID = wf.InitialStatusID
+	task.ParentID = nil
+	return task, nil
+}
+
 func (f *fakeTaskListManager) GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error) {
 	if f.getWorkflowErr != nil {
 		return nil, f.getWorkflowErr
@@ -359,11 +374,34 @@ func (f *fakeTaskListManager) CreateTaskNote(taskID uint, noteType database.Task
 	return &note, nil
 }
 
+func (f *fakeTaskListManager) UpdateTaskNote(noteID uint, content string) error {
+	for taskID, notes := range f.notes {
+		for i, n := range notes {
+			if n.ID == noteID {
+				f.notes[taskID][i].Content = content
+				return nil
+			}
+		}
+	}
+	return fmt.Errorf("note not found: %d", noteID)
+}
+
 func (f *fakeTaskListManager) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
 	if f.getNotesErr != nil {
 		return nil, f.getNotesErr
 	}
 	return f.notes[taskID], nil
+}
+
+func (f *fakeTaskListManager) GetTaskNote(noteID uint) (*database.TaskNote, error) {
+	for _, notes := range f.notes {
+		for i, n := range notes {
+			if n.ID == noteID {
+				return &notes[i], nil
+			}
+		}
+	}
+	return nil, fmt.Errorf("note not found: %d", noteID)
 }
 
 func (f *fakeTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
@@ -458,96 +496,18 @@ func mustMarshal(t *testing.T, v any) json.RawMessage {
 	return b
 }
 
-// ==================== CreateTaskList Tests ====================
+// ==================== GetTaskList Tests (consolidated: list all, full details, summary) ====================
 
-func TestCreateTaskList_Name(t *testing.T) {
-	tool := NewCreateTaskList(nil)
-	if tool.Name() != "create_task_list" {
-		t.Fatalf("expected 'create_task_list', got '%s'", tool.Name())
+func TestGetTaskList_Name(t *testing.T) {
+	tool := NewTaskList(nil)
+	if tool.Name() != "task_list" {
+		t.Fatalf("expected 'task_list', got '%s'", tool.Name())
 	}
 }
 
-func TestCreateTaskList_Success(t *testing.T) {
+func TestGetTaskList_ListAll_Empty(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewCreateTaskList(mgr)
-
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"title": "My List"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.IsError {
-		t.Fatalf("unexpected error: %s", result.Content)
-	}
-	if !strings.Contains(result.Content, "My List") {
-		t.Fatalf("expected content to contain title, got: %s", result.Content)
-	}
-}
-
-func TestCreateTaskList_EmptyTitle(t *testing.T) {
-	mgr := newFakeManager()
-	tool := NewCreateTaskList(mgr)
-
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"title": "  "}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.IsError {
-		t.Fatal("expected error for empty title")
-	}
-}
-
-func TestCreateTaskList_InvalidTemplate(t *testing.T) {
-	mgr := newFakeManager()
-	tool := NewCreateTaskList(mgr)
-
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"title": "X", "workflow_template": "invalid"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.IsError {
-		t.Fatal("expected error for invalid template")
-	}
-}
-
-func TestCreateTaskList_SimpleTemplate(t *testing.T) {
-	mgr := newFakeManager()
-	tool := NewCreateTaskList(mgr)
-
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"title": "Simple", "workflow_template": "simple"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.IsError {
-		t.Fatalf("unexpected error: %s", result.Content)
-	}
-}
-
-func TestCreateTaskList_Error(t *testing.T) {
-	mgr := newFakeManager()
-	mgr.createListErr = fmt.Errorf("db error")
-	tool := NewCreateTaskList(mgr)
-
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"title": "Test"}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.IsError {
-		t.Fatal("expected error")
-	}
-}
-
-// ==================== ListTaskLists Tests ====================
-
-func TestListTaskLists_Name(t *testing.T) {
-	tool := NewListTaskLists(nil)
-	if tool.Name() != "list_task_lists" {
-		t.Fatalf("expected 'list_task_lists', got '%s'", tool.Name())
-	}
-}
-
-func TestListTaskLists_Empty(t *testing.T) {
-	mgr := newFakeManager()
-	tool := NewListTaskLists(mgr)
+	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{}))
 	if err != nil {
@@ -561,11 +521,11 @@ func TestListTaskLists_Empty(t *testing.T) {
 	}
 }
 
-func TestListTaskLists_WithItems(t *testing.T) {
+func TestGetTaskList_ListAll_WithItems(t *testing.T) {
 	mgr := newFakeManager()
 	mgr.addTaskList("List 1", defaultStatuses())
 	mgr.addTaskList("List 2", defaultStatuses())
-	tool := NewListTaskLists(mgr)
+	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{}))
 	if err != nil {
@@ -579,20 +539,12 @@ func TestListTaskLists_WithItems(t *testing.T) {
 	}
 }
 
-// ==================== GetTaskList Tests ====================
-
-func TestGetTaskList_Name(t *testing.T) {
-	tool := NewGetTaskList(nil)
-	if tool.Name() != "get_task_list" {
-		t.Fatalf("expected 'get_task_list', got '%s'", tool.Name())
-	}
-}
-
-func TestGetTaskList_Success(t *testing.T) {
+func TestGetTaskList_FullDetails(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test List", defaultStatuses())
 	mgr.addTask(tl.ID, "Task 1", 1)
-	tool := NewGetTaskList(mgr)
+	mgr.addTask(tl.ID, "Task 2", 2)
+	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_list_id": tl.ID}))
 	if err != nil {
@@ -604,11 +556,17 @@ func TestGetTaskList_Success(t *testing.T) {
 	if !strings.Contains(result.Content, "Test List") {
 		t.Fatalf("expected content to contain title, got: %s", result.Content)
 	}
+	if !strings.Contains(result.Content, "summary") {
+		t.Fatalf("expected content to contain summary stats, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "\"total\"") {
+		t.Fatalf("expected content to contain total count, got: %s", result.Content)
+	}
 }
 
 func TestGetTaskList_NotFound(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewGetTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_list_id": 999}))
 	if err != nil {
@@ -621,7 +579,7 @@ func TestGetTaskList_NotFound(t *testing.T) {
 
 func TestGetTaskList_ZeroID(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewGetTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_list_id": 0}))
 	if err != nil {
@@ -632,23 +590,17 @@ func TestGetTaskList_ZeroID(t *testing.T) {
 	}
 }
 
-// ==================== GetTaskListStatus Tests ====================
-
-func TestGetTaskListStatus_Name(t *testing.T) {
-	tool := NewGetTaskListStatus(nil)
-	if tool.Name() != "get_task_list_status" {
-		t.Fatalf("expected 'get_task_list_status', got '%s'", tool.Name())
-	}
-}
-
-func TestGetTaskListStatus_Success(t *testing.T) {
+func TestGetTaskList_SummaryOnly(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Status Test", defaultStatuses())
 	mgr.addTask(tl.ID, "Task 1", 1)
 	mgr.addTask(tl.ID, "Task 2", 2)
-	tool := NewGetTaskListStatus(mgr)
+	tool := NewTaskList(mgr)
 
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_list_id": tl.ID}))
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"summary_only": true,
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -660,11 +612,14 @@ func TestGetTaskListStatus_Success(t *testing.T) {
 	}
 }
 
-func TestGetTaskListStatus_NotFound(t *testing.T) {
+func TestGetTaskList_SummaryOnly_NotFound(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewGetTaskListStatus(mgr)
+	tool := NewTaskList(mgr)
 
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_list_id": 999}))
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": 999,
+		"summary_only": true,
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -673,11 +628,127 @@ func TestGetTaskListStatus_NotFound(t *testing.T) {
 	}
 }
 
+func TestGetTaskList_SummaryOnly_WithoutID_Error(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"summary_only": true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error when summary_only without task_list_id")
+	}
+	if !strings.Contains(result.Content, "summary_only requires task_list_id") {
+		t.Errorf("expected 'summary_only requires task_list_id', got: %s", result.Content)
+	}
+}
+
+func TestTask_ReadNoNotes(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task 1", 1)
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Task 1") {
+		t.Fatalf("expected task title in content, got: %s", result.Content)
+	}
+	if strings.Contains(result.Content, "notes") {
+		t.Fatalf("expected no notes key in output when empty, got: %s", result.Content)
+	}
+}
+
+func TestTask_ReadWithNotes(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task 1", 1)
+
+	mgr.CreateTaskNote(task.ID, 1, "First note", "Alice", "")
+	mgr.CreateTaskNote(task.ID, 2, "Customer replied", "Bob", "")
+
+	tool := NewTask(mgr)
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Task 1") {
+		t.Fatalf("expected task title in content, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "First note") {
+		t.Fatalf("expected 'First note' in content, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Customer replied") {
+		t.Fatalf("expected 'Customer replied' in content, got: %s", result.Content)
+	}
+}
+
+func TestTask_ReadIncludesFields(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Detailed Task", 1)
+	task.Description = "Some description"
+	task.Code = "FSD-123"
+	task.Link = "https://example.com"
+	task.AssigneeName = "Alice"
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	for _, expected := range []string{"Detailed Task", "Some description", "FSD-123", "https://example.com", "Alice"} {
+		if !strings.Contains(result.Content, expected) {
+			t.Errorf("expected '%s' in content, got: %s", expected, result.Content)
+		}
+	}
+}
+
+func TestTask_ReadNotFound(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": 999}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for non-existent task")
+	}
+}
+
+func TestTask_ReadZeroID(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": 0}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for zero task ID")
+	}
+}
+
 // ==================== UpsertTask Tests ====================
 
 func TestUpsertTask_Name(t *testing.T) {
-	tool := NewUpsertTask(nil)
-	if tool.Name() != "upsert_task" {
+	tool := NewTask(nil)
+	if tool.Name() != "task" {
 		t.Fatalf("expected 'upsert_task', got '%s'", tool.Name())
 	}
 }
@@ -685,7 +756,7 @@ func TestUpsertTask_Name(t *testing.T) {
 func TestUpsertTask_Create(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
@@ -706,7 +777,7 @@ func TestUpsertTask_Update(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Old Title", 1)
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	taskID := task.ID
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -728,7 +799,7 @@ func TestUpsertTask_Update(t *testing.T) {
 func TestUpsertTask_InvalidStatus(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 99
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -750,7 +821,7 @@ func TestUpsertTask_InvalidStatus(t *testing.T) {
 func TestUpsertTask_EmptyTitle(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
@@ -767,7 +838,7 @@ func TestUpsertTask_EmptyTitle(t *testing.T) {
 func TestUpsertTask_WithStatus(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 2
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -788,7 +859,7 @@ func TestUpsertTask_WithStatus(t *testing.T) {
 func TestUpsertTask_DedupByCode_CreatesWhenNew(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Dedup", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
@@ -809,7 +880,7 @@ func TestUpsertTask_DedupByCode_CreatesWhenNew(t *testing.T) {
 func TestUpsertTask_DedupByCode_UpdatesExisting(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Dedup", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	// First call: creates
 	result1, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -856,7 +927,7 @@ func TestUpsertTask_DedupByCode_SameCodeDifferentLists(t *testing.T) {
 	mgr := newFakeManager()
 	tl1 := mgr.addTaskList("List A", defaultStatuses())
 	tl2 := mgr.addTaskList("List B", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	// Create in list A
 	r1, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -899,7 +970,7 @@ func TestUpsertTask_DedupByCode_SameCodeDifferentLists(t *testing.T) {
 func TestUpsertTask_DedupByCode_EmptyCodeAlwaysCreates(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("No Code", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	// Two creates without code — both should create new tasks
 	r1, _ := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -922,7 +993,7 @@ func TestUpsertTask_DedupByCode_EmptyCodeAlwaysCreates(t *testing.T) {
 func TestUpsertTask_DedupByCode_TaskIdTakesPrecedence(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Precedence", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	// Create two tasks with different codes
 	tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -973,7 +1044,7 @@ func TestUpsertTask_DedupByCode_TaskIdTakesPrecedence(t *testing.T) {
 func TestUpsertTask_DedupByCode_UpdatesStatusToo(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Status", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	// Create task
 	tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1010,36 +1081,40 @@ func TestUpsertTask_DedupByCode_UpdatesStatusToo(t *testing.T) {
 
 // ==================== DeleteTask Tests ====================
 
-func TestDeleteTask_Name(t *testing.T) {
-	tool := NewDeleteTask(nil)
-	if tool.Name() != "delete_task" {
-		t.Fatalf("expected 'delete_task', got '%s'", tool.Name())
-	}
-}
-
-func TestDeleteTask_Success(t *testing.T) {
+func TestUpsertTask_DeleteSuccess(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Doomed Task", 1)
-	tool := NewDeleteTask(mgr)
+	tool := NewTask(mgr)
 
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"task_id":      task.ID,
+		"delete":       true,
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if result.IsError {
 		t.Fatalf("unexpected error: %s", result.Content)
 	}
+	if !strings.Contains(result.Content, "deleted") {
+		t.Fatalf("expected 'deleted' in content, got: %s", result.Content)
+	}
 	if !strings.Contains(result.Content, "Doomed Task") {
 		t.Fatalf("expected task title in content, got: %s", result.Content)
 	}
 }
 
-func TestDeleteTask_NotFound(t *testing.T) {
+func TestUpsertTask_DeleteNotFound(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewDeleteTask(mgr)
+	tool := NewTask(mgr)
 
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": 999}))
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": 1,
+		"task_id":      999,
+		"delete":       true,
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1048,33 +1123,62 @@ func TestDeleteTask_NotFound(t *testing.T) {
 	}
 }
 
-func TestDeleteTask_ZeroID(t *testing.T) {
+func TestUpsertTask_DeleteWithoutTaskID_Error(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewDeleteTask(mgr)
+	tool := NewTask(mgr)
 
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": 0}))
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": 1,
+		"delete":       true,
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !result.IsError {
-		t.Fatal("expected error for zero ID")
+		t.Fatal("expected error when delete without task_id")
+	}
+	if !strings.Contains(result.Content, "delete requires task_id") {
+		t.Errorf("expected 'delete requires task_id', got: %s", result.Content)
 	}
 }
 
-// ==================== AddTaskNote Tests ====================
+func TestUpsertTask_DeleteAndDuplicate_Error(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task", 1)
+	tool := NewTask(mgr)
 
-func TestAddTaskNote_Name(t *testing.T) {
-	tool := NewAddTaskNote(nil)
-	if tool.Name() != "add_task_note" {
-		t.Fatalf("expected 'add_task_note', got '%s'", tool.Name())
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": tl.ID,
+		"task_id":      task.ID,
+		"delete":       true,
+		"duplicate":    true,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error when delete and duplicate combined")
+	}
+	if !strings.Contains(result.Content, "cannot be used together") {
+		t.Errorf("expected 'cannot be used together', got: %s", result.Content)
 	}
 }
 
-func TestAddTaskNote_Success(t *testing.T) {
+// ==================== UpsertTaskNote Tests ====================
+
+func TestUpsertTaskNote_Name(t *testing.T) {
+	tool := NewTaskNote(nil)
+	if tool.Name() != "task_note" {
+		t.Fatalf("expected 'upsert_task_note', got '%s'", tool.Name())
+	}
+}
+
+func TestUpsertTaskNote_CreateSuccess(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
-	tool := NewAddTaskNote(mgr)
+	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_id":     task.ID,
@@ -1091,13 +1195,16 @@ func TestAddTaskNote_Success(t *testing.T) {
 	if !strings.Contains(result.Content, "internal note") {
 		t.Fatalf("expected 'internal note' in content, got: %s", result.Content)
 	}
+	if !strings.Contains(result.Content, "created") {
+		t.Fatalf("expected 'created' in content, got: %s", result.Content)
+	}
 }
 
-func TestAddTaskNote_CustomerType(t *testing.T) {
+func TestUpsertTaskNote_CreateCustomerType(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
-	tool := NewAddTaskNote(mgr)
+	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_id": task.ID,
@@ -1115,12 +1222,86 @@ func TestAddTaskNote_CustomerType(t *testing.T) {
 	}
 }
 
-func TestAddTaskNote_EmptyContent(t *testing.T) {
+func TestUpsertTaskNote_UpdateSuccess(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewAddTaskNote(mgr)
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task 1", 1)
+
+	note, _ := mgr.CreateTaskNote(task.ID, 1, "Original content", "Alice", "")
+	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
-		"task_id": 1,
+		"task_id": task.ID,
+		"note_id": note.ID,
+		"content": "Updated content",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "updated") {
+		t.Fatalf("expected 'updated' in content, got: %s", result.Content)
+	}
+	updated, _ := mgr.GetTaskNote(note.ID)
+	if updated.Content != "Updated content" {
+		t.Errorf("expected content 'Updated content', got '%s'", updated.Content)
+	}
+}
+
+func TestUpsertTaskNote_UpdateNotFound(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task 1", 1)
+	tool := NewTaskNote(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task.ID,
+		"note_id": 999,
+		"content": "Updated content",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for non-existent note")
+	}
+}
+
+func TestUpsertTaskNote_UpdateWrongTask(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task1 := mgr.addTask(tl.ID, "Task 1", 1)
+	task2 := mgr.addTask(tl.ID, "Task 2", 1)
+
+	note, _ := mgr.CreateTaskNote(task1.ID, 1, "Note on task 1", "Alice", "")
+	tool := NewTaskNote(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task2.ID,
+		"note_id": note.ID,
+		"content": "Trying to update via wrong task",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error when note does not belong to task")
+	}
+	if !strings.Contains(result.Content, "does not belong to task") {
+		t.Errorf("expected 'does not belong to task', got: %s", result.Content)
+	}
+}
+
+func TestUpsertTaskNote_EmptyContent(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task 1", 1)
+	tool := NewTaskNote(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task.ID,
 		"type":    1,
 		"content": "  ",
 	}))
@@ -1132,12 +1313,14 @@ func TestAddTaskNote_EmptyContent(t *testing.T) {
 	}
 }
 
-func TestAddTaskNote_InvalidType(t *testing.T) {
+func TestUpsertTaskNote_InvalidType(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewAddTaskNote(mgr)
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task 1", 1)
+	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
-		"task_id": 1,
+		"task_id": task.ID,
 		"type":    5,
 		"content": "note",
 	}))
@@ -1149,9 +1332,9 @@ func TestAddTaskNote_InvalidType(t *testing.T) {
 	}
 }
 
-func TestAddTaskNote_ZeroTaskID(t *testing.T) {
+func TestUpsertTaskNote_ZeroTaskID(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewAddTaskNote(mgr)
+	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_id": 0,
@@ -1166,9 +1349,9 @@ func TestAddTaskNote_ZeroTaskID(t *testing.T) {
 	}
 }
 
-func TestAddTaskNote_TaskNotFound(t *testing.T) {
+func TestUpsertTaskNote_TaskNotFound(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewAddTaskNote(mgr)
+	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_id": 999,
@@ -1183,98 +1366,39 @@ func TestAddTaskNote_TaskNotFound(t *testing.T) {
 	}
 }
 
-// ==================== GetTaskNotes Tests ====================
-
-func TestGetTaskNotes_Name(t *testing.T) {
-	tool := NewGetTaskNotes(nil)
-	if tool.Name() != "get_task_notes" {
-		t.Fatalf("expected 'get_task_notes', got '%s'", tool.Name())
-	}
-}
-
-func TestGetTaskNotes_Empty(t *testing.T) {
+func TestUpsertTaskNote_CreateWithoutType_Error(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task 1", 1)
-	tool := NewGetTaskNotes(mgr)
+	tool := NewTaskNote(mgr)
 
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.IsError {
-		t.Fatalf("unexpected error: %s", result.Content)
-	}
-	if !strings.Contains(result.Content, "No notes") {
-		t.Fatalf("expected 'No notes' in content, got: %s", result.Content)
-	}
-}
-
-func TestGetTaskNotes_WithNotes(t *testing.T) {
-	mgr := newFakeManager()
-	tl := mgr.addTaskList("Test", defaultStatuses())
-	task := mgr.addTask(tl.ID, "Task 1", 1)
-
-	mgr.CreateTaskNote(task.ID, 1, "First note", "Alice", "")
-	mgr.CreateTaskNote(task.ID, 2, "Customer replied", "Bob", "")
-
-	tool := NewGetTaskNotes(mgr)
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if result.IsError {
-		t.Fatalf("unexpected error: %s", result.Content)
-	}
-	if !strings.Contains(result.Content, "2 note(s)") {
-		t.Fatalf("expected '2 note(s)' in content, got: %s", result.Content)
-	}
-	if !strings.Contains(result.Content, "First note") {
-		t.Fatalf("expected 'First note' in content, got: %s", result.Content)
-	}
-	if !strings.Contains(result.Content, "Customer replied") {
-		t.Fatalf("expected 'Customer replied' in content, got: %s", result.Content)
-	}
-}
-
-func TestGetTaskNotes_TaskNotFound(t *testing.T) {
-	mgr := newFakeManager()
-	tool := NewGetTaskNotes(mgr)
-
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": 999}))
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task.ID,
+		"content": "note without type",
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
 	if !result.IsError {
-		t.Fatal("expected error for non-existent task")
+		t.Fatal("expected error when type not provided for create")
 	}
-}
-
-func TestGetTaskNotes_ZeroID(t *testing.T) {
-	mgr := newFakeManager()
-	tool := NewGetTaskNotes(mgr)
-
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": 0}))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if !result.IsError {
-		t.Fatal("expected error for zero ID")
+	if !strings.Contains(result.Content, "type is required") {
+		t.Errorf("expected 'type is required', got: %s", result.Content)
 	}
 }
 
 // ==================== UpsertTaskList Tests ====================
 
 func TestUpsertTaskList_Name(t *testing.T) {
-	tool := NewUpsertTaskList(nil)
-	if tool.Name() != "upsert_task_list" {
+	tool := NewTaskList(nil)
+	if tool.Name() != "task_list" {
 		t.Fatalf("expected 'upsert_task_list', got '%s'", tool.Name())
 	}
 }
 
 func TestUpsertTaskList_CreateSimple(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"title":       "My Project",
@@ -1296,7 +1420,7 @@ func TestUpsertTaskList_CreateSimple(t *testing.T) {
 
 func TestUpsertTaskList_CreateWithCustomWorkflow(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"title": "Jira Mirror",
@@ -1331,9 +1455,12 @@ func TestUpsertTaskList_CreateWithCustomWorkflow(t *testing.T) {
 
 func TestUpsertTaskList_CreateEmptyTitle(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
-	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"title": "  "}))
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"title":       "  ",
+		"description": "forces write mode",
+	}))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1344,7 +1471,7 @@ func TestUpsertTaskList_CreateEmptyTitle(t *testing.T) {
 
 func TestUpsertTaskList_CreateInvalidWorkflow_DuplicateIDs(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"title": "Bad",
@@ -1367,7 +1494,7 @@ func TestUpsertTaskList_CreateInvalidWorkflow_DuplicateIDs(t *testing.T) {
 
 func TestUpsertTaskList_CreateInvalidWorkflow_BadInitialStatus(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"title": "Bad",
@@ -1388,7 +1515,7 @@ func TestUpsertTaskList_CreateInvalidWorkflow_BadInitialStatus(t *testing.T) {
 func TestUpsertTaskList_UpdateMetadata(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Old Title", defaultStatuses())
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	tlID := tl.ID
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1413,7 +1540,7 @@ func TestUpsertTaskList_UpdateMetadata(t *testing.T) {
 func TestUpsertTaskList_UpdateWorkflow(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("List", defaultStatuses())
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	tlID := tl.ID
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1450,7 +1577,7 @@ func TestUpsertTaskList_UpdateWorkflow_RemoveStatusWithMigration(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("List", defaultStatuses())
 	mgr.addTask(tl.ID, "Task in Progress", 2)
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	tlID := tl.ID
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1487,7 +1614,7 @@ func TestUpsertTaskList_UpdateWorkflow_RemoveStatusWithoutMigration_Fails(t *tes
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("List", defaultStatuses())
 	mgr.addTask(tl.ID, "Task in Progress", 2)
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	tlID := tl.ID
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1515,7 +1642,7 @@ func TestUpsertTaskList_UpdateWorkflow_RemoveStatusWithoutMigration_Fails(t *tes
 
 func TestUpsertTaskList_UpdateNotFound(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	var id uint = 999
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1532,7 +1659,7 @@ func TestUpsertTaskList_UpdateNotFound(t *testing.T) {
 
 func TestUpsertTaskList_CreateWithViewMode(t *testing.T) {
 	mgr := newFakeManager()
-	tool := NewUpsertTaskList(mgr)
+	tool := NewTaskList(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"title":               "Kanban List",
@@ -1549,12 +1676,230 @@ func TestUpsertTaskList_CreateWithViewMode(t *testing.T) {
 	}
 }
 
+// ==================== Duplicate TaskList Tests ====================
+
+func TestUpsertTaskList_DuplicateBasic(t *testing.T) {
+	mgr := newFakeManager()
+	source := mgr.addTaskList("Source List", defaultStatuses())
+	mgr.taskLists[source.ID].Description = "source description"
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": source.ID,
+		"duplicate":    true,
+		"title":        "Copy of Source",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("duplicate should succeed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "duplicated") {
+		t.Errorf("expected action duplicated, got: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Copy of Source") {
+		t.Errorf("expected title in result, got: %s", result.Content)
+	}
+
+	// Verify a new list was created (not the source)
+	found := false
+	for _, tl := range mgr.taskLists {
+		if tl.ID != source.ID && tl.Title == "Copy of Source" {
+			found = true
+			if tl.Description != "source description" {
+				t.Errorf("expected description inherited, got %q", tl.Description)
+			}
+			break
+		}
+	}
+	if !found {
+		t.Fatal("duplicate task list not found")
+	}
+}
+
+func TestUpsertTaskList_DuplicateInheritsWorkflow(t *testing.T) {
+	mgr := newFakeManager()
+	customStatuses := []database.TaskListWorkflowStatus{
+		{ID: 10, Order: 0, Label: "Novo"},
+		{ID: 20, Order: 1, Label: "Andamento"},
+		{ID: 30, Order: 2, Label: "Feito"},
+	}
+	source := mgr.addTaskList("Custom WF", customStatuses)
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": source.ID,
+		"duplicate":    true,
+		"title":        "Copy WF",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("duplicate should succeed: %s", result.Content)
+	}
+
+	// Find the new list and verify its workflow matches source
+	for _, tl := range mgr.taskLists {
+		if tl.ID != source.ID && tl.Title == "Copy WF" {
+			if tl.Workflow == nil {
+				t.Fatal("expected workflow on duplicated list")
+			}
+			if tl.Workflow.InitialStatusID != source.Workflow.InitialStatusID {
+				t.Errorf("expected initial_status_id=%d, got %d", source.Workflow.InitialStatusID, tl.Workflow.InitialStatusID)
+			}
+			return
+		}
+	}
+	t.Fatal("duplicate task list not found")
+}
+
+func TestUpsertTaskList_DuplicateOverridesDescription(t *testing.T) {
+	mgr := newFakeManager()
+	source := mgr.addTaskList("Source", defaultStatuses())
+	mgr.taskLists[source.ID].Description = "original desc"
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": source.ID,
+		"duplicate":    true,
+		"title":        "Copy",
+		"description":  "overridden desc",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("duplicate should succeed: %s", result.Content)
+	}
+
+	for _, tl := range mgr.taskLists {
+		if tl.ID != source.ID && tl.Title == "Copy" {
+			if tl.Description != "overridden desc" {
+				t.Errorf("expected overridden description, got %q", tl.Description)
+			}
+			return
+		}
+	}
+	t.Fatal("duplicate task list not found")
+}
+
+func TestUpsertTaskList_DuplicateOverridesWorkflow(t *testing.T) {
+	mgr := newFakeManager()
+	source := mgr.addTaskList("Source", defaultStatuses())
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": source.ID,
+		"duplicate":    true,
+		"title":        "Copy Custom WF",
+		"workflow": map[string]any{
+			"statuses": []map[string]any{
+				{"id": 1, "label": "Open"},
+				{"id": 2, "label": "Closed"},
+			},
+			"allowed_transitions": map[string]any{
+				"1": []int{2},
+				"2": []int{1},
+			},
+			"initial_status_id": 1,
+		},
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("duplicate with workflow override should succeed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "duplicated") {
+		t.Errorf("expected duplicated, got: %s", result.Content)
+	}
+}
+
+func TestUpsertTaskList_DuplicateSourceNotFound(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewTaskList(mgr)
+
+	var ghostID uint = 9999
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": ghostID,
+		"duplicate":    true,
+		"title":        "Ghost copy",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for non-existent source")
+	}
+	if !strings.Contains(result.Content, "Source task list not found") {
+		t.Errorf("expected 'Source task list not found', got: %s", result.Content)
+	}
+}
+
+func TestUpsertTaskList_DuplicateWithoutTaskListID_Error(t *testing.T) {
+	mgr := newFakeManager()
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"duplicate": true,
+		"title":     "No source",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error when duplicate is true without task_list_id")
+	}
+	if !strings.Contains(result.Content, "duplicate requires task_list_id") {
+		t.Errorf("expected 'duplicate requires task_list_id', got: %s", result.Content)
+	}
+}
+
+func TestUpsertTaskList_DuplicateDoesNotCopyTasks(t *testing.T) {
+	mgr := newFakeManager()
+	source := mgr.addTaskList("Source", defaultStatuses())
+	mgr.addTask(source.ID, "Task 1", 1)
+	mgr.addTask(source.ID, "Task 2", 2)
+	tool := NewTaskList(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": source.ID,
+		"duplicate":    true,
+		"title":        "Empty Copy",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("duplicate should succeed: %s", result.Content)
+	}
+
+	// Find the new list and verify it has no tasks
+	for _, tl := range mgr.taskLists {
+		if tl.ID != source.ID && tl.Title == "Empty Copy" {
+			taskCount := 0
+			for _, task := range mgr.tasks {
+				if task.TaskListID == tl.ID {
+					taskCount++
+				}
+			}
+			if taskCount != 0 {
+				t.Errorf("expected 0 tasks in duplicated list, got %d", taskCount)
+			}
+			return
+		}
+	}
+	t.Fatal("duplicate task list not found")
+}
+
 // ==================== Assignee Tests ====================
 
 func TestUpsertTask_CreateWithAssignee(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	aName := "Alice"
 	aID := "alice@example.com"
@@ -1597,7 +1942,7 @@ func TestUpsertTask_UpdateAssignee(t *testing.T) {
 	task := mgr.addTask(tl.ID, "Task", 1)
 	task.AssigneeName = "Alice"
 	task.AssigneeID = "alice@example.com"
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	newName := "Bob"
 	newID := "bob@example.com"
@@ -1631,7 +1976,7 @@ func TestUpsertTask_ClearAssignee(t *testing.T) {
 	task := mgr.addTask(tl.ID, "Task", 1)
 	task.AssigneeName = "Alice"
 	task.AssigneeID = "alice@example.com"
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	empty := ""
 	taskID := task.ID
@@ -1661,7 +2006,7 @@ func TestUpsertTask_ClearAssignee(t *testing.T) {
 func TestUpsertTask_CreateWithoutAssignee_NoChange(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
@@ -1690,7 +2035,7 @@ func TestUpsertTask_UpdatePreservesAssigneeWhenOmitted(t *testing.T) {
 	task := mgr.addTask(tl.ID, "Task", 1)
 	task.AssigneeName = "Alice"
 	task.AssigneeID = "alice@example.com"
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	taskID := task.ID
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1714,7 +2059,7 @@ func TestUpsertTask_UpdatePreservesAssigneeWhenOmitted(t *testing.T) {
 func TestUpsertTask_DedupByCode_WithAssignee(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	aName := "Alice"
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1760,7 +2105,7 @@ func TestUpsertTask_DedupByCode_WithAssignee(t *testing.T) {
 func TestUpsertTask_CreateWithCreator(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
@@ -1794,7 +2139,7 @@ func TestUpsertTask_CreateWithCreator(t *testing.T) {
 func TestUpsertTask_CreateWithCreatorAndAssignee(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id":  tl.ID,
@@ -1830,7 +2175,7 @@ func TestUpsertTask_UpdatePreservesCreatorWhenOmitted(t *testing.T) {
 	task := mgr.addTask(tl.ID, "Task", 1)
 	task.CreatorName = "Original"
 	task.CreatorID = "orig-id"
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	taskID := task.ID
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1857,7 +2202,7 @@ func TestUpsertTask_ClearCreator(t *testing.T) {
 	task := mgr.addTask(tl.ID, "Task", 1)
 	task.CreatorName = "Someone"
 	task.CreatorID = "some-id"
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	empty := ""
 	taskID := task.ID
@@ -1881,13 +2226,13 @@ func TestUpsertTask_ClearCreator(t *testing.T) {
 	}
 }
 
-// ==================== TaskNote Author Tests ====================
+// ==================== UpsertTaskNote Author Tests ====================
 
-func TestAddTaskNote_WithStructuredAuthor(t *testing.T) {
+func TestUpsertTaskNote_CreateWithStructuredAuthor(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
-	tool := NewAddTaskNote(mgr)
+	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_id":     task.ID,
@@ -1916,11 +2261,11 @@ func TestAddTaskNote_WithStructuredAuthor(t *testing.T) {
 	}
 }
 
-func TestAddTaskNote_NoAuthor(t *testing.T) {
+func TestUpsertTaskNote_CreateNoAuthor(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Task", 1)
-	tool := NewAddTaskNote(mgr)
+	tool := NewTaskNote(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_id": task.ID,
@@ -1950,7 +2295,7 @@ func TestUpsertTask_SameStatus_DifferentDescription(t *testing.T) {
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 3
 	task.Description = "old description"
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 3
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -1985,7 +2330,7 @@ func TestUpsertTask_SameStatus_SameFields_Noop(t *testing.T) {
 	task.StatusID = 3
 	task.Description = "same description"
 	task.Code = "FSD-100"
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 3
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2012,7 +2357,7 @@ func TestUpsertTask_DifferentStatus_ValidTransition(t *testing.T) {
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 1
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 2
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2046,7 +2391,7 @@ func TestUpsertTask_DifferentStatus_InvalidTransition(t *testing.T) {
 	tl := mgr.addTaskListWithTransitions("Test", statuses, transitions)
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 1
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 3
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2069,7 +2414,7 @@ func TestUpsertTask_DifferentStatus_InvalidTransition(t *testing.T) {
 func TestUpsertTask_Create_StillWorks(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
@@ -2090,7 +2435,7 @@ func TestUpsertTask_Create_StillWorks(t *testing.T) {
 func TestUpsertTask_DedupByCode_StillWorks(t *testing.T) {
 	mgr := newFakeManager()
 	tl := mgr.addTaskList("Test", defaultStatuses())
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	result1, _ := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
@@ -2123,7 +2468,7 @@ func TestUpsertTask_SameStatus_NoStatusID_UpdatesFields(t *testing.T) {
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.Description = "old"
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
 		"task_list_id": tl.ID,
@@ -2163,7 +2508,7 @@ func TestUpsertTask_TransitionToTerminalStatus(t *testing.T) {
 	tl := mgr.addTaskListWithTransitions("Jira-like", statuses, transitions)
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 2
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 3
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2197,7 +2542,7 @@ func TestUpsertTask_TransitionFromZeroStatus(t *testing.T) {
 	tl := mgr.addTaskListWithTransitions("Test", statuses, transitions)
 	task := mgr.addTask(tl.ID, "Orphan task", 0)
 	task.StatusID = 0
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 2
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2222,7 +2567,7 @@ func TestUpsertTask_SameStatusNoop_NoUpdateTaskStatusCall(t *testing.T) {
 	tl := mgr.addTaskList("Test", defaultStatuses())
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 2
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 2
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2252,7 +2597,7 @@ func TestUpsertTask_InvalidDestinationStatus(t *testing.T) {
 	tl := mgr.addTaskListWithTransitions("Test", statuses, transitions)
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 1
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 99
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2286,7 +2631,7 @@ func TestUpsertTask_TransitionNotAllowedByWorkflow(t *testing.T) {
 	tl := mgr.addTaskListWithTransitions("Strict", statuses, transitions)
 	task := mgr.addTask(tl.ID, "Ticket", 1)
 	task.StatusID = 1
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 3
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2318,7 +2663,7 @@ func TestUpsertTask_CreateWithTerminalStatus(t *testing.T) {
 		2: {3},
 	}
 	tl := mgr.addTaskListWithTransitions("Test", statuses, transitions)
-	tool := NewUpsertTask(mgr)
+	tool := NewTask(mgr)
 
 	statusID := 3
 	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
@@ -2334,5 +2679,340 @@ func TestUpsertTask_CreateWithTerminalStatus(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "created") {
 		t.Errorf("expected created, got: %s", result.Content)
+	}
+}
+
+// ==================== Move Task Tests ====================
+
+func TestUpsertTask_MoveToAnotherList(t *testing.T) {
+	mgr := newFakeManager()
+	listA := mgr.addTaskList("List A", defaultStatuses())
+	listB := mgr.addTaskList("List B", defaultStatuses())
+	task := mgr.addTask(listA.ID, "My task", 1)
+	task.Description = "original desc"
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": listB.ID,
+		"task_id":      task.ID,
+		"title":        "My task",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("move should succeed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "moved") {
+		t.Errorf("expected action moved, got: %s", result.Content)
+	}
+	if mgr.tasks[task.ID].TaskListID != listB.ID {
+		t.Errorf("expected task_list_id=%d, got %d", listB.ID, mgr.tasks[task.ID].TaskListID)
+	}
+}
+
+func TestUpsertTask_MoveSameList_Noop(t *testing.T) {
+	mgr := newFakeManager()
+	listA := mgr.addTaskList("List A", defaultStatuses())
+	task := mgr.addTask(listA.ID, "My task", 1)
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": listA.ID,
+		"task_id":      task.ID,
+		"title":        "My task",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("same-list update should succeed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "noop") {
+		t.Errorf("expected noop (no move, same fields), got: %s", result.Content)
+	}
+}
+
+func TestUpsertTask_MoveAndUpdateFields(t *testing.T) {
+	mgr := newFakeManager()
+	listA := mgr.addTaskList("List A", defaultStatuses())
+	listB := mgr.addTaskList("List B", defaultStatuses())
+	task := mgr.addTask(listA.ID, "Old title", 1)
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": listB.ID,
+		"task_id":      task.ID,
+		"title":        "New title",
+		"description":  "new desc",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("move+update should succeed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "moved") {
+		t.Errorf("expected action moved, got: %s", result.Content)
+	}
+	if mgr.tasks[task.ID].Title != "New title" {
+		t.Errorf("title not updated")
+	}
+	if mgr.tasks[task.ID].Description != "new desc" {
+		t.Errorf("description not updated")
+	}
+}
+
+func TestUpsertTask_MoveResetsStatus(t *testing.T) {
+	mgr := newFakeManager()
+	listA := mgr.addTaskList("List A", defaultStatuses())
+	listB := mgr.addTaskList("List B", defaultStatuses())
+	task := mgr.addTask(listA.ID, "Task", 1)
+	task.StatusID = 2 // Em Progresso
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": listB.ID,
+		"task_id":      task.ID,
+		"title":        "Task",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("move should succeed: %s", result.Content)
+	}
+	// MoveTaskToList resets status to initial (1)
+	if mgr.tasks[task.ID].StatusID != 1 {
+		t.Errorf("expected status reset to 1 after move, got %d", mgr.tasks[task.ID].StatusID)
+	}
+}
+
+// ==================== Duplicate Task Tests ====================
+
+func TestUpsertTask_DuplicateSameList(t *testing.T) {
+	mgr := newFakeManager()
+	list := mgr.addTaskList("List", defaultStatuses())
+	source := mgr.addTask(list.ID, "Source task", 1)
+	source.Description = "source desc"
+	source.Link = "https://example.com"
+	source.AssigneeName = "Alice"
+	source.AssigneeID = "alice@example.com"
+	source.CreatorName = "Bob"
+	source.CreatorID = "bob@example.com"
+	source.Code = "JIRA-123"
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": list.ID,
+		"task_id":      source.ID,
+		"duplicate":    true,
+		"title":        "Copy of Source",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("duplicate should succeed: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "duplicated") {
+		t.Errorf("expected action duplicated, got: %s", result.Content)
+	}
+
+	// Find the new task (not source)
+	var newTask *database.Task
+	for _, tk := range mgr.tasks {
+		if tk.ID != source.ID && tk.Title == "Copy of Source" {
+			newTask = tk
+			break
+		}
+	}
+	if newTask == nil {
+		t.Fatal("duplicate task not found")
+	}
+	if newTask.TaskListID != list.ID {
+		t.Errorf("expected task_list_id=%d, got %d", list.ID, newTask.TaskListID)
+	}
+	if newTask.Description != "source desc" {
+		t.Errorf("expected description inherited, got %q", newTask.Description)
+	}
+	if newTask.Link != "https://example.com" {
+		t.Errorf("expected link inherited, got %q", newTask.Link)
+	}
+	if newTask.AssigneeName != "Alice" {
+		t.Errorf("expected assignee inherited, got %q", newTask.AssigneeName)
+	}
+	if newTask.CreatorName != "Bob" {
+		t.Errorf("expected creator inherited, got %q", newTask.CreatorName)
+	}
+	// Code should NOT be inherited
+	if newTask.Code != "" {
+		t.Errorf("expected code NOT inherited, got %q", newTask.Code)
+	}
+}
+
+func TestUpsertTask_DuplicateToAnotherList(t *testing.T) {
+	mgr := newFakeManager()
+	listA := mgr.addTaskList("List A", defaultStatuses())
+	listB := mgr.addTaskList("List B", defaultStatuses())
+	source := mgr.addTask(listA.ID, "Source", 1)
+	source.Description = "original"
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": listB.ID,
+		"task_id":      source.ID,
+		"duplicate":    true,
+		"title":        "Copy",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("cross-list duplicate should succeed: %s", result.Content)
+	}
+
+	var newTask *database.Task
+	for _, tk := range mgr.tasks {
+		if tk.ID != source.ID && tk.Title == "Copy" {
+			newTask = tk
+			break
+		}
+	}
+	if newTask == nil {
+		t.Fatal("duplicate task not found")
+	}
+	if newTask.TaskListID != listB.ID {
+		t.Errorf("expected task_list_id=%d, got %d", listB.ID, newTask.TaskListID)
+	}
+	if newTask.Description != "original" {
+		t.Errorf("expected description inherited, got %q", newTask.Description)
+	}
+}
+
+func TestUpsertTask_DuplicateOverridesFields(t *testing.T) {
+	mgr := newFakeManager()
+	list := mgr.addTaskList("List", defaultStatuses())
+	source := mgr.addTask(list.ID, "Source", 1)
+	source.Description = "source desc"
+	source.Link = "https://old.com"
+	source.AssigneeName = "Alice"
+	tool := NewTask(mgr)
+
+	newAssignee := "Charlie"
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id":  list.ID,
+		"task_id":       source.ID,
+		"duplicate":     true,
+		"title":         "Override copy",
+		"description":   "new desc",
+		"link":          "https://new.com",
+		"assignee_name": newAssignee,
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("duplicate with overrides should succeed: %s", result.Content)
+	}
+
+	var newTask *database.Task
+	for _, tk := range mgr.tasks {
+		if tk.ID != source.ID && tk.Title == "Override copy" {
+			newTask = tk
+			break
+		}
+	}
+	if newTask == nil {
+		t.Fatal("duplicate task not found")
+	}
+	if newTask.Description != "new desc" {
+		t.Errorf("expected overridden description, got %q", newTask.Description)
+	}
+	if newTask.Link != "https://new.com" {
+		t.Errorf("expected overridden link, got %q", newTask.Link)
+	}
+	if newTask.AssigneeName != "Charlie" {
+		t.Errorf("expected overridden assignee, got %q", newTask.AssigneeName)
+	}
+}
+
+func TestUpsertTask_DuplicateWithCode(t *testing.T) {
+	mgr := newFakeManager()
+	list := mgr.addTaskList("List", defaultStatuses())
+	source := mgr.addTask(list.ID, "Source", 1)
+	source.Code = "JIRA-100"
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": list.ID,
+		"task_id":      source.ID,
+		"duplicate":    true,
+		"title":        "Copy with code",
+		"code":         "JIRA-200",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("duplicate with explicit code should succeed: %s", result.Content)
+	}
+
+	var newTask *database.Task
+	for _, tk := range mgr.tasks {
+		if tk.ID != source.ID && tk.Title == "Copy with code" {
+			newTask = tk
+			break
+		}
+	}
+	if newTask == nil {
+		t.Fatal("duplicate task not found")
+	}
+	if newTask.Code != "JIRA-200" {
+		t.Errorf("expected explicit code JIRA-200, got %q", newTask.Code)
+	}
+}
+
+func TestUpsertTask_DuplicateSourceNotFound(t *testing.T) {
+	mgr := newFakeManager()
+	list := mgr.addTaskList("List", defaultStatuses())
+	tool := NewTask(mgr)
+
+	var ghostID uint = 9999
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": list.ID,
+		"task_id":      ghostID,
+		"duplicate":    true,
+		"title":        "Ghost copy",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error for non-existent source task")
+	}
+	if !strings.Contains(result.Content, "Source task not found") {
+		t.Errorf("expected 'Source task not found', got: %s", result.Content)
+	}
+}
+
+func TestUpsertTask_DuplicateWithoutTaskID_Error(t *testing.T) {
+	mgr := newFakeManager()
+	list := mgr.addTaskList("List", defaultStatuses())
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_id": list.ID,
+		"duplicate":    true,
+		"title":        "No source",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !result.IsError {
+		t.Fatal("expected error when duplicate is true without task_id")
+	}
+	if !strings.Contains(result.Content, "duplicate requires task_id") {
+		t.Errorf("expected 'duplicate requires task_id', got: %s", result.Content)
 	}
 }
