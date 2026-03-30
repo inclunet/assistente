@@ -17,25 +17,29 @@ func TestValidatePath_PathTraversal(t *testing.T) {
 		path      string
 		shouldErr bool
 		desc      string
+		winOnly   bool
 	}{
 		// Path traversal attempts
-		{"traversal_parent", "../../../etc/passwd", true, "deve bloquear ../"},
-		{"traversal_parent2", "..\\..\\.\\etc\\passwd", true, "deve bloquear ..\\"},
-		{"traversal_double_dot", "dir/../../etc/passwd", true, "deve bloquear traversal após subdir"},
+		{"traversal_parent", "../../../etc/passwd", true, "deve bloquear ../", false},
+		{"traversal_parent2", "..\\..\\.\\etc\\passwd", true, "deve bloquear ..\\", true},
+		{"traversal_double_dot", "dir/../../etc/passwd", true, "deve bloquear traversal após subdir", false},
 
 		// Valid paths within workDir
-		{"valid_file", "file.txt", false, "arquivo simples"},
-		{"valid_subdir", "subdir/file.txt", false, "arquivo em subdiretório"},
-		{"valid_nested", "a/b/c/d/file.txt", false, "arquivo profundamente aninhado"},
+		{"valid_file", "file.txt", false, "arquivo simples", false},
+		{"valid_subdir", "subdir/file.txt", false, "arquivo em subdiretório", false},
+		{"valid_nested", "a/b/c/d/file.txt", false, "arquivo profundamente aninhado", false},
 
 		// Edge cases
-		{"dot_prefix", ".hidden/file.txt", false, "arquivo em diretório hidden"},
-		{"root_name", ".", false, "raiz do workDir"},
-		{"current_dir", "./file.txt", false, "arquivo com ./ prefixo"},
+		{"dot_prefix", ".hidden/file.txt", false, "arquivo em diretório hidden", false},
+		{"root_name", ".", false, "raiz do workDir", false},
+		{"current_dir", "./file.txt", false, "arquivo com ./ prefixo", false},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			if tt.winOnly && runtime.GOOS != "windows" {
+				t.Skipf("backslash path traversal only applies on Windows")
+			}
 			fullPath := filepath.Join(workDir, tt.path)
 			err := validatePath(fullPath, workDir)
 
