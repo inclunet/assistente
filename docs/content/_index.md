@@ -1,112 +1,110 @@
 ---
 title: "Assistente IA"
 archetype: "home"
-description: "Cliente de chat multi-modelo e multi-conversa completamente acessível"
+description: "Cliente de chat multi-modelo e multi-conversa completamente acessível — feito por uma pessoa cega, para ela mesma"
 ---
 
-**Cliente de chat multi-modelo e multi-conversa completamente acessível, feito por quem usa para quem usa.**
+## Um chat de IA feito por quem não consegue usar os outros
 
-{{% notice style="primary" title="Download" icon="download" %}}
-Baixe a última versão para **Windows**, **macOS** ou **Linux** na [página de downloads](downloads/).
+A maioria dos clientes de chat com IA ignora quem depende de leitores de tela. Eles não são "inacessíveis" — simplesmente nunca foram pensados por alguém que precisa deles.
+
+**O Assistente é diferente.** Foi criado por uma pessoa cega que queria uma ferramenta de trabalho real, não uma adaptação. Cada recurso nasceu da pergunta: *"Como isso me ajudaria hoje?"*
+
+O resultado é um cliente desktop que funciona com **qualquer provedor de IA** (OpenAI, Claude, Groq, Ollama, e [mais 15](configuracao/PROVIDER_CONFIGURATION/)), otimizado para **NVDA, JAWS e Narrator**, mas igualmente poderoso para qualquer usuário.
+
+{{% notice style="primary" title="Baixe agora" icon="download" %}}
+Disponível para **Windows**, **macOS** e **Linux** — [ir para downloads](downloads/).
 {{% /notice %}}
 
-## Por que o Assistente?
+---
 
-Este projeto começou como uma **prova de conceito**: será que é possível criar uma aplicação de IA verdadeiramente acessível para pessoas cegas? Não apenas "usável", mas **otimizada** para quem depende de leitores de tela?
+## O que torna o Assistente único
 
-A resposta é sim. E o projeto evoluiu muito além disso.
+### Acessibilidade que não é checkbox
 
-Concebido inicialmente para testar a viabilidade de um chat acessível compatível com qualquer provedor de IA, o Assistente rapidamente se tornou uma **ferramenta de trabalho indispensável**. O projeto cresceu organicamente, incorporando novas funcionalidades conforme surgiam necessidades reais no dia-a-dia.
+Não é uma camada de ARIA colocada depois. A interface foi desenhada _a partir_ da experiência com leitor de tela:
 
-**Este não é um projeto feito "para" pessoas cegas. É feito "por" uma pessoa cega, para ela mesma.** Cada recurso foi pensado a partir da pergunta: "Como isso me ajudaria hoje?"
+- **Navegação por teclado completa** — tudo funciona sem mouse, sem exceção
+- **Modo Acessibilidade** — desativa streaming e anuncia respostas inteiras de uma vez
+- **Navegação de mensagens como IDE** — `↑` no input vai para o histórico, `Enter` isola uma mensagem para leitura, `ESC` volta. Sem dead-ends
+- **Feedback por voz e anúncios** — ações são comunicadas via live regions para leitores de tela
+- **5 temas** incluindo Alto Contraste (WCAG AAA)
 
-## Um Experimento Pessoal
+Testado com NVDA, JAWS e Narrator.
 
-Este projeto também é um experimento sobre **até onde uma pessoa cega consegue ir construindo software usando IA como assistente**. Todo o desenvolvimento foi feito usando ferramentas como Cursor, GitHub Copilot, Antigravity e Claude Code.
+### Voz bidirecional
 
-A meta era **escrever o mínimo de código manualmente possível**, delegando a construção para IAs enquanto focava em arquitetura, design de acessibilidade e experiência do usuário.
+Fale com a IA e ouça as respostas — sem tocar no teclado se preferir.
 
-## Recursos
+- **Text-to-Speech**: 3 engines — OpenAI (alta qualidade), SAPI5 (integrado com leitores de tela), Web Speech (gratuito) — [configurar](configuracao/SPEECH_CONFIGURATION/)
+- **Speech-to-Text**: Whisper API ou Web Speech, com modos push-to-talk, toggle e detecção de silêncio
+- **Wake Word**: Ative o assistente por voz mesmo com a janela minimizada
 
-| Recurso | Descrição |
+### Mais do que um chat
+
+O Assistente evoluiu para um ambiente de trabalho completo:
+
+- **[Editor integrado](recursos/EDITOR/)** — múltiplas abas, chat inline com IA, syntax highlighting (Monaco), Markdown e Mermaid
+- **[Terminal](recursos/TERMINAL/)** — sessões PTY reais com histórico, a IA executa comandos quando precisa
+- **[Listas de Tarefas](recursos/TASK_LISTS/)** — workflows customizáveis, subtarefas, visualização em lista ou kanban
+- **[Workspaces](recursos/WORKSPACES/)** — agrupe conversas, editor, terminal e tarefas por projeto
+- **[MCP (Model Context Protocol)](configuracao/MCP_CONFIG_EXAMPLES/)** — conecte ferramentas externas ao assistente
+
+### Qualquer modelo, local ou cloud
+
+Use [15+ provedores](configuracao/PROVIDER_CONFIGURATION/) sem ficar preso a nenhum:
+
+| Para começar | Recomendação |
 |---|---|
-| 🗂️ **Multi-Conversa em Abas** | Várias conversas simultâneas em abas paralelas, alternando contextos sem perder o fio |
-| ⌨️ **Navegação Inovadora** | ↑ no input vai pra última mensagem, ↑/↓ navega, Enter isola, ESC retorna |
-| 🔊 **TTS Multi-Engine** | OpenAI voices, Web Speech API, SAPI5 — [configurar voz](configuracao/SPEECH_CONFIGURATION/) |
-| 🎤 **STT com Wake Word** | Reconhecimento de voz fora da janela do app |
-| ♿ **Acessibilidade Real** | Otimizado para NVDA, JAWS, Narrator — design centrado em quem usa |
-| 🔌 **15+ Provedores** | OpenAI, Claude, DeepSeek, Groq, Mistral, Ollama e mais — [ver todos](configuracao/PROVIDER_CONFIGURATION/) |
-| 🛠️ **MCP Integrado** | Model Context Protocol para ferramentas externas — [exemplos](configuracao/MCP_CONFIG_EXAMPLES/) |
-| 📝 **Editor Integrado** | Editor com múltiplas abas, chat inline com IA e suporte a Mermaid — [saiba mais](recursos/EDITOR/) |
-| 💻 **Terminal** | Terminal integrado com sessões PTY persistentes — [saiba mais](recursos/TERMINAL/) |
-| 📋 **Listas de Tarefas** | Workflows customizáveis, subtarefas e kanban — [saiba mais](recursos/TASK_LISTS/) |
-| 📦 **Workspaces** | Organize projetos em espaços de trabalho separados — [saiba mais](recursos/WORKSPACES/) |
-| 🔗 **Deep Links** | Navegação programática via `assistente://` — [saiba mais](recursos/DEEP_LINKS/) |
-| 🔄 **Auto-Update** | Atualizações automáticas silenciosas |
-| 🌐 **Multiplataforma** | Windows, macOS e Linux com interface nativa |
+| **Gratuito e rápido** | [Groq](https://console.groq.com) — plano free generoso |
+| **Sem internet** | [Ollama](https://ollama.ai) — roda 100% no seu PC |
+| **Melhor qualidade** | OpenAI (GPT-4o) ou Claude (Sonnet) |
+| **Maior variedade** | [OpenRouter](https://openrouter.ai) — 100+ modelos com uma API key |
 
-## Acessibilidade em Primeiro Lugar
+---
 
-### Navegação e Estrutura
+## Como aconteceu
 
-- Skip link para pular direto ao conteúdo principal
-- Landmarks ARIA para navegação rápida entre seções
-- Navegação completa por teclado — nenhuma funcionalidade requer mouse
-- Focus visível e ordem lógica de tabulação
+Este projeto é também um experimento: **até onde uma pessoa cega consegue ir construindo software usando IA como assistente?**
 
-### Leitores de Tela
+Todo o desenvolvimento foi feito com Cursor, GitHub Copilot, Claude Code e Antigravity. A meta era escrever o mínimo de código manualmente, delegando a construção para IAs enquanto o foco ficava em **arquitetura, acessibilidade e experiência do usuário**.
 
-- Live regions para comunicar mudanças dinâmicas
-- **Modo Acessibilidade** — desativa streaming, anuncia respostas completas
-- Labels descritivos em todos os controles e botões
-- Roles e estados ARIA corretamente implementados
-- Anúncios contextuais para feedback de ações
+O que começou como prova de conceito se tornou ferramenta de trabalho diária. E continua crescendo.
 
-### Visual e Design
-
-- Alto contraste com suporte a preferências do sistema
-- Áreas de toque mínimas de 44x44px (WCAG AAA)
-- Textos redimensionáveis sem perda de funcionalidade
-
-**Testado com:** NVDA, JAWS e Narrator (Windows)
+---
 
 ## Atalhos Essenciais
 
 | Atalho | Ação |
 |---|---|
-| `F1` | Abrir menu de ajuda |
-| `Alt + 1` | Ir para Chat |
-| `Alt + 2` | Ir para Configurações |
+| `F1` | Menu de ajuda |
+| `Alt + 1` / `Alt + 2` | Chat / Configurações |
 | `Ctrl + N` | Nova conversa |
 | `Ctrl + K` | Busca rápida |
 | `↑` (no input) | Ir para última mensagem |
-| `↑/↓` (navegando) | Navegar entre mensagens |
-| `Enter` (em mensagem) | Isolar mensagem com foco total |
-| `ESC` | Retornar ao contexto anterior |
-| `Shift + Enter` | Nova linha |
+| `↑/↓` | Navegar entre mensagens |
+| `Enter` (em mensagem) | Isolar com foco total |
+| `ESC` | Voltar ao contexto anterior |
 
-## Inspirações
-
-A interface foi inspirada em ferramentas que funcionam bem com leitores de tela:
-
-- **IDEs modernos** — Visual Studio Code, Cursor: navegação por atalhos, busca rápida
-- **Ferramentas de comunicação** — Slack: threads e canais, navegação entre mensagens
-- **Terminais** — Bash, PowerShell, CMD: comandos eficientes, navegação por histórico
-- **Aplicações produtivas** — Windows Explorer, Excel, Google Sheets: atalhos estruturados
+---
 
 ## Documentação
 
-- [Downloads](downloads/) — Baixe a última versão para Windows, macOS ou Linux
-- [Guias](guias/) — Build, release, versionamento e code signing
-- [Configuração](configuracao/) — Provedores LLM, voz, MCP, Slack e skills
-- [Recursos](recursos/) — Workspaces, editor, terminal, tarefas, deep links e hotkeys
+| Seção | Conteúdo |
+|---|---|
+| **[Downloads](downloads/)** | Windows, macOS e Linux |
+| **[Configuração](configuracao/)** | [Provedores LLM](configuracao/PROVIDER_CONFIGURATION/), [voz](configuracao/SPEECH_CONFIGURATION/), [MCP](configuracao/MCP_CONFIG_EXAMPLES/), [Slack](configuracao/SLACK_CHANNEL_SETUP/) e [skills](configuracao/SKILL_TEMPLATE_CONTEXT/) |
+| **[Recursos](recursos/)** | [Workspaces](recursos/WORKSPACES/), [editor](recursos/EDITOR/), [terminal](recursos/TERMINAL/), [tarefas](recursos/TASK_LISTS/), [deep links](recursos/DEEP_LINKS/) e [hotkeys](recursos/HOTKEYS/) |
+| **[Guias](guias/)** | [Build](guias/BUILD_WITH_VERSION/), [release](guias/RELEASE_QUICKSTART/), [versionamento](guias/VERSIONING/) e [code signing](guias/CODE_SIGNING_SETUP/) |
 
 ## Stack Técnica
 
-- **Backend**: Go (Golang) — alto desempenho e compilação nativa
-- **Frontend**: React + TypeScript — interface moderna e acessível
-- **Desktop**: Wails v2 — combina Go + WebView nativo do sistema
-- **Auto-update**: Sistema próprio via GitHub Releases API
+| Camada | Tecnologia |
+|---|---|
+| Backend | Go — alto desempenho e compilação nativa |
+| Frontend | React + TypeScript |
+| Desktop | Wails v2 — Go + WebView nativo |
+| Auto-update | Sistema próprio via GitHub Releases API |
 
 ## Links
 

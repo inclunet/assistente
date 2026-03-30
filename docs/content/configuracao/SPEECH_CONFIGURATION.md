@@ -1,6 +1,6 @@
 ---
 title: "Voz (TTS e STT)"
-weight: 6
+weight: 2
 ---
 
 # Configuração de Voz (TTS e STT)

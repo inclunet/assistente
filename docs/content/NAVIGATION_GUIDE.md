@@ -52,11 +52,6 @@ docs/
 ## Documentação Técnica (AEPs)
 
 Propostas de arquitetura e design estão em `aep/` (Assistente Enhancement Proposals). Consulte `aep/README.md` para o índice completo com status de cada proposta.
-   - Checklist de implementação
-
-3. `COMPONENTIZATION_PLAN.md` - Fase 1 (5 min)
-   - Tarefas específicas de Fase 1
-   - Código de exemplo
 
 **Frequência**: Ler tudo antes de começar, usar ARCHITECTURE para code review
 
