@@ -1,3 +1,8 @@
+---
+title: "Build com Versão"
+weight: 1
+---
+
 # Como Fazer Build com Versão Personalizada
 
 ## Versão em Desenvolvimento

@@ -1,4 +1,9 @@
-# 🚀 Release Rápido - GitHub Actions + Pages
+---
+title: "Release Quickstart"
+weight: 4
+---
+
+# Release Rápido - GitHub Actions + Pages
 
 ## Setup Inicial (Uma Vez - 5 minutos)
 
