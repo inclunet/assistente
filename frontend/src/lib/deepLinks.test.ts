@@ -682,8 +682,8 @@ describe('executeDeepLink', () => {
     it('cria conversa, abre aba com contentId e navega para chat', async () => {
       await executeDeepLink({ type: 'conversation:new' }, deps);
 
-      expect(mockCreateConversation).toHaveBeenCalledWith('chat.newConversation');
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '100', 'chat.newConversation');
+      expect(mockCreateConversation).toHaveBeenCalledWith('Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '100', 'Nova Conversa');
       expect(mockNavigate).toHaveBeenCalledWith('/');
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
@@ -695,7 +695,7 @@ describe('executeDeepLink', () => {
       );
 
       expect(mockCreateConversation).toHaveBeenCalled();
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '100', 'chat.newConversation');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '100', 'Nova Conversa');
       expect(mockSendMessage).toHaveBeenCalledWith('analise isso');
     });
 
