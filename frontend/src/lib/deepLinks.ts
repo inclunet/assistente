@@ -289,16 +289,14 @@ export async function executeDeepLink(
     }
 
     case 'conversation:new': {
-      await wsStore.addTab('chat', '', action.title || t('chat.newConversation'));
+      const title = action.title || t('chat.newConversation');
+      const convId = await useChatStore.getState().createConversation(title);
+      await wsStore.addTab('chat', String(convId), title);
       deps.navigate('/');
       if (action.message) {
-        const chatState = useChatStore.getState();
-        if (chatState.activeConversationId) {
-          await chatState.loadConversation(chatState.activeConversationId);
-        }
-        await chatState.sendMessage(action.message);
+        await useChatStore.getState().sendMessage(action.message);
       }
-      announce(action.title || t('deepLink.announcedNewConversation'));
+      announce(title);
       break;
     }
 

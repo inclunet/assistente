@@ -28,12 +28,14 @@ vi.mock('../store/workspaceStore', () => ({
 }));
 
 const mockLoadConversation = vi.fn().mockResolvedValue(undefined);
+const mockCreateConversation = vi.fn().mockResolvedValue(100);
 
 vi.mock('../store/chatStore', () => ({
   useChatStore: {
     getState: () => ({
       sendMessage: mockSendMessage,
       loadConversation: mockLoadConversation,
+      createConversation: mockCreateConversation,
       activeConversationId: 1,
     }),
   },
@@ -677,22 +679,34 @@ describe('executeDeepLink', () => {
   });
 
   describe('conversation:new', () => {
-    it('cria nova aba e navega para chat', async () => {
+    it('cria conversa, abre aba com contentId e navega para chat', async () => {
       await executeDeepLink({ type: 'conversation:new' }, deps);
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '', 'Nova Conversa');
+      expect(mockCreateConversation).toHaveBeenCalledWith('chat.newConversation');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '100', 'chat.newConversation');
       expect(mockNavigate).toHaveBeenCalledWith('/');
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
 
-    it('cria nova aba e envia mensagem se fornecida', async () => {
+    it('cria conversa e envia mensagem se fornecida', async () => {
       await executeDeepLink(
         { type: 'conversation:new', message: 'analise isso' },
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalled();
+      expect(mockCreateConversation).toHaveBeenCalled();
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '100', 'chat.newConversation');
       expect(mockSendMessage).toHaveBeenCalledWith('analise isso');
+    });
+
+    it('usa título customizado quando fornecido', async () => {
+      await executeDeepLink(
+        { type: 'conversation:new', title: 'Minha Análise' },
+        deps,
+      );
+
+      expect(mockCreateConversation).toHaveBeenCalledWith('Minha Análise');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '100', 'Minha Análise');
     });
   });
 
