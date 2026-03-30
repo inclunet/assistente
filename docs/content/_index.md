@@ -1,16 +1,18 @@
 ---
 title: "Assistente IA"
 archetype: "home"
-description: "Cliente de chat multi-modelo e multi-conversa completamente acessível — feito por uma pessoa cega, para ela mesma"
+description: "Um ambiente de trabalho com IA, feito para pessoas — independente de como cada uma usa o computador"
 ---
 
-## Um chat de IA feito por quem não consegue usar os outros
+## Uma ferramenta feita para pessoas
 
-A maioria dos clientes de chat com IA ignora quem depende de leitores de tela. Eles não são "inacessíveis" — simplesmente nunca foram pensados por alguém que precisa deles.
+O Assistente é um ambiente de trabalho desktop open source com inteligência artificial. Conversa, edição de texto, listas de tarefas e terminal — tudo em um só lugar, integrado com [mais de 15 provedores de IA compatíveis com a API da OpenAI](configuracao/PROVIDER_CONFIGURATION/). Funciona no Windows, macOS e Linux.
 
-**O Assistente é diferente.** Foi criado por uma pessoa cega que queria uma ferramenta de trabalho real, não uma adaptação. Cada recurso nasceu da pergunta: *"Como isso me ajudaria hoje?"*
+A premissa é simples: ferramentas de IA devem funcionar para pessoas, independente da forma como cada uma interage com o computador — seja por teclado, mouse, voz ou leitor de tela.
 
-O resultado é um cliente desktop que funciona com **qualquer provedor de IA** (OpenAI, Claude, Groq, Ollama, e [mais 15](configuracao/PROVIDER_CONFIGURATION/)), otimizado para **NVDA, JAWS e Narrator**, mas igualmente poderoso para qualquer usuário.
+O projeto nasceu de uma frustração real: pedir melhorias de acessibilidade a empresas que nunca as implementam, ou que entregam mudanças tímidas depois de anos. Com o boom da IA, essas mesmas empresas começaram a abrir seus sistemas e APIs para integração com ferramentas inteligentes. Vimos uma oportunidade: aproveitar essas novas integrações para diminuir a distância entre pessoas e os sistemas, serviços e aplicações que não investem o suficiente em acessibilidade.
+
+O Assistente nem tem um nome de verdade — era um experimento que se provou útil e continua sendo desenvolvido. Esse trabalho não está pronto. Novas formas de interação estão sendo incluídas e melhoradas continuamente, e o projeto é usado diariamente como ferramenta de trabalho enquanto evolui.
 
 {{% notice style="primary" title="Baixe agora" icon="download" %}}
 Disponível para **Windows**, **macOS** e **Linux** — [ir para downloads](downloads/).
@@ -18,58 +20,56 @@ Disponível para **Windows**, **macOS** e **Linux** — [ir para downloads](down
 
 ---
 
-## O que torna o Assistente único
+## O que o Assistente oferece
 
-### Acessibilidade que não é checkbox
+### Pensado para diferentes formas de interação
 
-Não é uma camada de ARIA colocada depois. A interface foi desenhada _a partir_ da experiência com leitor de tela:
+A interface é projetada para funcionar com diferentes formas de uso — e novas formas continuam sendo adicionadas:
 
-- **Navegação por teclado completa** — tudo funciona sem mouse, sem exceção
+- **Navegação por teclado completa** — todas as funcionalidades operam sem mouse
 - **Modo Acessibilidade** — desativa streaming e anuncia respostas inteiras de uma vez
-- **Navegação de mensagens como IDE** — `↑` no input vai para o histórico, `Enter` isola uma mensagem para leitura, `ESC` volta. Sem dead-ends
-- **Feedback por voz e anúncios** — ações são comunicadas via live regions para leitores de tela
+- **Navegação intuitiva de mensagens** — `↑` no input vai para o histórico, `Enter` isola uma mensagem para leitura, `ESC` volta
+- **Feedback contextual** — ações comunicadas via live regions para leitores de tela
 - **5 temas** incluindo Alto Contraste (WCAG AAA)
 
 Testado com NVDA, JAWS e Narrator.
 
 ### Voz bidirecional
 
-Fale com a IA e ouça as respostas — sem tocar no teclado se preferir.
+Interação por voz completa — falar com a IA e ouvir as respostas.
 
-- **Text-to-Speech**: 3 engines — OpenAI (alta qualidade), SAPI5 (integrado com leitores de tela), Web Speech (gratuito) — [configurar](configuracao/SPEECH_CONFIGURATION/)
+- **Text-to-Speech**: 3 engines — OpenAI (alta qualidade), SAPI5 (integrado com leitores de tela), Web Speech (gratuito) — [configurar voz](configuracao/SPEECH_CONFIGURATION/)
 - **Speech-to-Text**: Whisper API ou Web Speech, com modos push-to-talk, toggle e detecção de silêncio
-- **Wake Word**: Ative o assistente por voz mesmo com a janela minimizada
+- **Wake Word**: Ativação por voz mesmo com a janela minimizada
 
 ### Mais do que um chat
 
-O Assistente evoluiu para um ambiente de trabalho completo:
+Um espaço de trabalho onde painéis de chat, editores, tarefas e terminais funcionam juntos — com ou sem IA:
 
-- **[Editor integrado](recursos/EDITOR/)** — múltiplas abas, chat inline com IA, syntax highlighting (Monaco), Markdown e Mermaid
-- **[Terminal](recursos/TERMINAL/)** — sessões PTY reais com histórico, a IA executa comandos quando precisa
+- **[Workspaces](recursos/WORKSPACES/)** — agrupe conversas, arquivos, tarefas e terminais por projeto; cada workspace mantém seu próprio contexto
+- **[Editor](recursos/EDITOR/)** — múltiplas abas, chat inline com IA, syntax highlighting (Monaco), Markdown e Mermaid
+- **[Terminal](recursos/TERMINAL/)** — sessões PTY reais com histórico; a IA executa comandos quando necessário
 - **[Listas de Tarefas](recursos/TASK_LISTS/)** — workflows customizáveis, subtarefas, visualização em lista ou kanban
-- **[Workspaces](recursos/WORKSPACES/)** — agrupe conversas, editor, terminal e tarefas por projeto
-- **[MCP (Model Context Protocol)](configuracao/MCP_CONFIG_EXAMPLES/)** — conecte ferramentas externas ao assistente
+- **[MCP (Model Context Protocol)](configuracao/MCP_CONFIG_EXAMPLES/)** — ferramentas externas conectadas ao assistente
 
 ### Qualquer modelo, local ou cloud
 
-Use [15+ provedores](configuracao/PROVIDER_CONFIGURATION/) sem ficar preso a nenhum:
+Compatível com [mais de 15 provedores de IA com API compatível OpenAI](configuracao/PROVIDER_CONFIGURATION/), sem dependência de nenhum:
 
 | Para começar | Recomendação |
 |---|---|
 | **Gratuito e rápido** | [Groq](https://console.groq.com) — plano free generoso |
-| **Sem internet** | [Ollama](https://ollama.ai) — roda 100% no seu PC |
+| **Sem internet** | [Ollama](https://ollama.ai) — roda 100% local |
 | **Melhor qualidade** | OpenAI (GPT-4o) ou Claude (Sonnet) |
 | **Maior variedade** | [OpenRouter](https://openrouter.ai) — 100+ modelos com uma API key |
 
 ---
 
-## Como aconteceu
+## Origem do projeto
 
-Este projeto é também um experimento: **até onde uma pessoa cega consegue ir construindo software usando IA como assistente?**
+O Assistente começou como um experimento: seria possível usar IA para remover barreiras de acesso a serviços, sistemas e aplicativos que não investem em acessibilidade?
 
-Todo o desenvolvimento foi feito com Cursor, GitHub Copilot, Claude Code e Antigravity. A meta era escrever o mínimo de código manualmente, delegando a construção para IAs enquanto o foco ficava em **arquitetura, acessibilidade e experiência do usuário**.
-
-O que começou como prova de conceito se tornou ferramenta de trabalho diária. E continua crescendo.
+Ironicamente, o próprio desenvolvimento depende de ferramentas de IA que têm pouca ou nenhuma acessibilidade. Todo o código é produzido com auxílio de Cursor, GitHub Copilot, Claude Code e Antigravity — ferramentas que, elas mesmas, ainda precisam melhorar o acesso para pessoas com deficiência.
 
 ---
 
