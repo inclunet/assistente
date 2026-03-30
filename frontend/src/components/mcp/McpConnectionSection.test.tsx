@@ -4,6 +4,27 @@ import userEvent from '@testing-library/user-event';
 import { McpConnectionSection } from './McpConnectionSection';
 import type { ComponentProps } from 'react';
 
+vi.mock('react-i18next', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('react-i18next')>();
+  return {
+    ...actual,
+    useTranslation: () => ({
+      t: (key: string, options?: string | Record<string, unknown>) => {
+        if (typeof options === 'string') {
+          return options;
+        }
+        if (options && typeof options === 'object' && options !== null) {
+          const def = (options as { defaultValue?: string }).defaultValue;
+          if (typeof def === 'string') {
+            return def;
+          }
+        }
+        return key;
+      },
+    }),
+  };
+});
+
 const noop = () => {};
 
 const baseProps: ComponentProps<typeof McpConnectionSection> = {

@@ -308,19 +308,17 @@ export function WorkspaceTabList() {
         )}
 
         {tabs.length > 1 && (
-          <button
+          <span
             className="ws-tabs__tab-close"
+            aria-hidden="true"
             onClick={(e) => {
               e.preventDefault();
               e.stopPropagation();
               void removeTab(tab.id);
             }}
-            aria-label={`${t('workspace.closeTab', 'Fechar aba')}: ${tab.title}`}
-            tabIndex={-1}
-            type="button"
           >
-            <span aria-hidden="true">×</span>
-          </button>
+            ×
+          </span>
         )}
       </div>
     );

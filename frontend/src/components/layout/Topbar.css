@@ -1,4 +1,9 @@
 .topbar {
+  position: relative;
+  z-index: 10;
+}
+
+.topbar__toolbar {
   display: grid;
   grid-template-columns: 1fr auto 1fr;
   align-items: center;
@@ -7,8 +12,6 @@
   background: var(--bg-surface);
   border-bottom: 1px solid var(--border-default);
   box-shadow: 0 1px 3px var(--bg-overlay);
-  position: relative;
-  z-index: 10;
 }
 
 .topbar__left {

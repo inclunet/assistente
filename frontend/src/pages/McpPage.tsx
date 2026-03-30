@@ -271,8 +271,8 @@ export default function McpPage() {
     setEditing(null);
     setEditingSlug(null);
     setIsNew(false);
-    announce('Editor fechado');
-  }, [announce]);
+    announce(t('mcp.announce.editorClosed'));
+  }, [announce, t]);
 
   const runDiscovery = useCallback(async (urlToDiscover: string) => {
     if (!urlToDiscover || !urlToDiscover.startsWith('https://')) return;
@@ -438,18 +438,18 @@ export default function McpPage() {
       announce(isNew ? t('mcp.toast.created') : t('mcp.toast.updated'));
       handleCloseEditor();
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao salvar', 'error');
+      addToast(getErrorMessage(error) || t('mcp.error.saveFailed'), 'error');
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({
-      title: 'Remover Servidor MCP',
-      message: `Tem certeza que deseja remover o servidor "${name}"? A configuração será apagada.`,
-      confirmText: 'Remover',
-      cancelText: 'Cancelar',
+      title: t('mcp.confirm.removeTitle'),
+      message: t('mcp.confirm.removeMessage', { name }),
+      confirmText: t('common.remove'),
+      cancelText: t('common.cancel'),
       variant: 'danger',
     });
 
@@ -458,46 +458,46 @@ export default function McpPage() {
     try {
       await remove(slug);
       addToast(t('mcp.toast.removed'), 'success');
-      announce('Servidor removido');
+      announce(t('mcp.announce.serverRemoved'));
       if (editingSlug === slug) {
         setEditing(null);
         setEditingSlug(null);
         setIsNew(false);
       }
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao remover', 'error');
+      addToast(getErrorMessage(error) || t('mcp.error.removeFailed'), 'error');
     }
-  }, [addToast, announce, confirm, editingSlug, remove]);
+  }, [addToast, announce, confirm, editingSlug, remove, t]);
 
   const handleConnect = useCallback(async (row: ServerRow) => {
     try {
       await connect(row.slug);
-      addToast(`Servidor "${row.name}" conectado!`, 'success');
-      announce(`Servidor ${row.name} conectado`);
+      addToast(t('mcp.toast.serverConnected', { name: row.name }), 'success');
+      announce(t('mcp.announce.serverConnected', { name: row.name }));
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao conectar', 'error');
+      addToast(getErrorMessage(error) || t('mcp.error.connectFailed'), 'error');
     }
-  }, [connect, addToast, announce]);
+  }, [connect, addToast, announce, t]);
 
   const handleDisconnect = useCallback(async (row: ServerRow) => {
     try {
       await disconnect(row.slug);
-      addToast(`Servidor "${row.name}" desconectado`, 'success');
-      announce(`Servidor ${row.name} desconectado`);
+      addToast(t('mcp.toast.serverDisconnected', { name: row.name }), 'success');
+      announce(t('mcp.announce.serverDisconnected', { name: row.name }));
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao desconectar', 'error');
+      addToast(getErrorMessage(error) || t('mcp.error.disconnectFailed'), 'error');
     }
-  }, [disconnect, addToast, announce]);
+  }, [disconnect, addToast, announce, t]);
 
   const handleReconnect = useCallback(async (row: ServerRow) => {
     try {
       await reconnect(row.slug);
-      addToast(`Servidor "${row.name}" reconectado!`, 'success');
-      announce(`Servidor ${row.name} reconectado`);
+      addToast(t('mcp.toast.serverReconnected', { name: row.name }), 'success');
+      announce(t('mcp.announce.serverReconnected', { name: row.name }));
     } catch (error: unknown) {
-      addToast(getErrorMessage(error) || 'Erro ao reconectar', 'error');
+      addToast(getErrorMessage(error) || t('mcp.error.reconnectFailed'), 'error');
     }
-  }, [reconnect, addToast, announce]);
+  }, [reconnect, addToast, announce, t]);
 
   const handleDuplicate = useCallback(async (row: ServerRow) => {
     try {
@@ -562,12 +562,12 @@ export default function McpPage() {
     },
     {
       key: 'actions',
-      label: '',
+      label: t('common.actions'),
       width: '6%',
       format: (_val, row) => (
         <MenuButton
           items={getRowActions(row)}
-          buttonLabel={t('mcp.actions.actions', 'Ações')}
+          buttonLabel={t('mcp.actions.actions')}
         />
       ),
     },
@@ -579,43 +579,43 @@ export default function McpPage() {
       actions.push({
         id: 'disconnect',
         label: row.status === 'connecting'
-          ? t('mcp.actions.cancel', 'Cancelar')
-          : t('mcp.actions.disconnect', 'Desconectar'),
-        icon: <ApiOutlined />,
+          ? t('mcp.actions.cancel')
+          : t('mcp.actions.disconnect'),
+        icon: <ApiOutlined aria-hidden="true" />,
         onClick: () => handleDisconnect(row),
       });
     } else {
       actions.push({
         id: 'connect',
-        label: t('mcp.actions.connect', 'Conectar'),
-        icon: <ApiOutlined />,
+        label: t('mcp.actions.connect'),
+        icon: <ApiOutlined aria-hidden="true" />,
         onClick: () => handleConnect(row),
       });
     }
     if (row.status !== 'connecting') {
       actions.push({
         id: 'reconnect',
-        label: t('mcp.actions.reconnect', 'Reconectar'),
-        icon: <ReloadOutlined />,
+        label: t('mcp.actions.reconnect'),
+        icon: <ReloadOutlined aria-hidden="true" />,
         onClick: () => handleReconnect(row),
       });
     }
     actions.push({
       id: 'duplicate',
-      label: t('mcp.actions.duplicate', 'Duplicar'),
-      icon: <CopyOutlined />,
+      label: t('mcp.actions.duplicate'),
+      icon: <CopyOutlined aria-hidden="true" />,
       onClick: () => handleDuplicate(row),
     });
     actions.push({
       id: 'edit',
-      label: t('mcp.actions.edit', 'Editar'),
-      icon: <EditOutlined />,
+      label: t('mcp.actions.edit'),
+      icon: <EditOutlined aria-hidden="true" />,
       onClick: () => handleEdit(row),
     });
     actions.push({
       id: 'delete',
-      label: t('mcp.actions.removeServer', 'Remover'),
-      icon: <DeleteOutlined />,
+      label: t('mcp.actions.removeServer'),
+      icon: <DeleteOutlined aria-hidden="true" />,
       onClick: () => handleDelete(row.slug, row.name),
       danger: true,
     });
@@ -655,7 +655,7 @@ export default function McpPage() {
           {
             key: 'new',
             label: t('mcp.buttons.newServer'),
-            icon: <PlusOutlined />,
+            icon: <PlusOutlined aria-hidden="true" />,
             onClick: handleNew,
             shortcut: 'Ctrl+N',
             variant: 'primary',
@@ -667,7 +667,7 @@ export default function McpPage() {
               : focusedRow?.status === 'connecting'
                 ? t('mcp.actions.cancel', 'Cancelar')
                 : t('mcp.actions.connect', 'Conectar'),
-            icon: <ApiOutlined />,
+            icon: <ApiOutlined aria-hidden="true" />,
             onClick: () => {
               if (!focusedRow) return;
               if (focusedRow.status === 'connected' || focusedRow.status === 'connecting') {
@@ -680,29 +680,29 @@ export default function McpPage() {
           },
           {
             key: 'reconnect',
-            label: t('mcp.actions.reconnect', 'Reconectar'),
-            icon: <ReloadOutlined />,
+            label: t('mcp.actions.reconnect'),
+            icon: <ReloadOutlined aria-hidden="true" />,
             onClick: () => focusedRow && handleReconnect(focusedRow),
             disabled: !focusedRow || focusedRow.status === 'connecting',
           },
           {
             key: 'duplicate',
-            label: t('mcp.actions.duplicate', 'Duplicar'),
-            icon: <CopyOutlined />,
+            label: t('mcp.actions.duplicate'),
+            icon: <CopyOutlined aria-hidden="true" />,
             onClick: () => focusedRow && handleDuplicate(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'edit',
-            label: t('mcp.actions.edit', 'Editar'),
-            icon: <EditOutlined />,
+            label: t('mcp.actions.edit'),
+            icon: <EditOutlined aria-hidden="true" />,
             onClick: () => focusedRow && handleEdit(focusedRow),
             disabled: !focusedRow,
           },
           {
             key: 'delete',
-            label: t('mcp.actions.removeServer', 'Remover'),
-            icon: <DeleteOutlined />,
+            label: t('mcp.actions.removeServer'),
+            icon: <DeleteOutlined aria-hidden="true" />,
             onClick: () => focusedRow && void handleDelete(focusedRow.slug, focusedRow.name),
             disabled: !focusedRow,
             variant: 'danger',
@@ -790,20 +790,28 @@ export default function McpPage() {
                 <Button
                   variant="danger"
                   onClick={() => void handleDelete(editingSlug, formName || editingSlug)}
-                  aria-label={`Excluir servidor ${formName || editingSlug}`}
+                  aria-label={t('mcp.aria.deleteServer', {
+                    name: formName || editingSlug || '',
+                  })}
                 >
-                  Excluir
+                  {t('mcp.buttons.delete')}
                 </Button>
               )}
-              <Button variant="ghost" onClick={handleCloseEditor} aria-label="Fechar editor">
-                Fechar
+              <Button variant="ghost" onClick={handleCloseEditor} aria-label={t('mcp.aria.closeEditor')}>
+                {t('mcp.buttons.close')}
               </Button>
               <Button
                 onClick={handleSave}
                 loading={saving}
-                aria-label={saving ? 'Salvando…' : `Salvar servidor ${formName || 'MCP'}`}
+                aria-label={
+                  saving
+                    ? t('mcp.aria.saving')
+                    : t('mcp.aria.saveServer', {
+                        name: formName || editingSlug || t('mcp.pageTitle'),
+                      })
+                }
               >
-                Salvar
+                {t('common.save')}
               </Button>
             </EditorPanelFooter>
           </div>

@@ -681,7 +681,7 @@ export default function ChannelsPage() {
     },
     { key: 'status', label: t('channels.columns.status'), width: '200px', truncate: true },
     {
-      key: 'actions', label: '', width: '80px',
+      key: 'actions', label: t('common.actions'), width: '80px',
       format: (_val, row) => (
         <MenuButton
           items={getChannelRowActions(row)}
@@ -696,13 +696,13 @@ export default function ChannelsPage() {
       {
         id: 'edit',
         label: t('channels.actions.edit', 'Editar'),
-        icon: <EditOutlined />,
+        icon: <EditOutlined aria-hidden="true" />,
         onClick: () => handleEditChannel(row),
       },
       {
         id: 'reconnect',
         label: t('channels.actions.reconnectChannel', 'Reconectar'),
-        icon: <ReloadOutlined />,
+        icon: <ReloadOutlined aria-hidden="true" />,
         onClick: () => handleReconnectChannel(row.name),
       },
     ];
@@ -725,7 +725,7 @@ export default function ChannelsPage() {
     : [{
       id: 'no-templates',
       label: t('channels.empty.noChannels'),
-      icon: <WarningOutlined />,
+      icon: <WarningOutlined aria-hidden="true" />,
       ariaLabel: t('channels.empty.noChannels'),
       action: closeCreateMenu,
     }];
@@ -744,21 +744,21 @@ export default function ChannelsPage() {
     {
       key: 'edit-channel',
       label: t('channels.actions.edit', 'Editar'),
-      icon: <EditOutlined />,
+      icon: <EditOutlined aria-hidden="true" />,
       onClick: () => focusedChannel && handleEditChannel(focusedChannel),
       disabled: !focusedChannel,
     },
     {
       key: 'reconnect-channel',
       label: t('channels.actions.reconnectChannel', 'Reconectar'),
-      icon: <ReloadOutlined />,
+      icon: <ReloadOutlined aria-hidden="true" />,
       onClick: () => focusedChannel && handleReconnectChannel(focusedChannel.name),
       disabled: !focusedChannel,
     },
     {
       key: 'reload',
       label: t('channels.buttons.reload', 'Recarregar'),
-      icon: <ReloadOutlined />,
+      icon: <ReloadOutlined aria-hidden="true" />,
       variant: 'secondary' as const,
       onClick: loadAll,
       disabled: false,
@@ -861,8 +861,8 @@ export default function ChannelsPage() {
           <ToolbarButton
             ref={createMenuButtonRef}
             label="Novo"
-            icon={<PlusOutlined />}
-            endIcon={<DownOutlined />}
+            icon={<PlusOutlined aria-hidden="true" />}
+            endIcon={<DownOutlined aria-hidden="true" />}
             shortcut="Ctrl+N"
             variant="primary"
             onClick={openCreateMenu}

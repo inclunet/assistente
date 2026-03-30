@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { Input, Select } from '../index';
 
 interface McpGeneralSectionProps {
@@ -17,39 +18,40 @@ export function McpGeneralSection({
   onDescriptionChange,
   onTransportChange,
 }: McpGeneralSectionProps) {
+  const { t } = useTranslation();
   const normalizedTransport = transport === 'sse' ? 'streamable' : transport;
 
   return (
     <section className="mcp-section" aria-labelledby="mcp-section-general">
-      <h3 id="mcp-section-general">Geral</h3>
+      <h3 id="mcp-section-general">{t('mcp.general.title')}</h3>
       <div className="mcp-fields">
         <Input
-          label="Nome"
+          label={t('common.name')}
           type="text"
           value={name}
           onChange={(e) => onNameChange(e.target.value)}
-          placeholder="ex: GitHub Tools"
+          placeholder={t('mcp.general.namePlaceholder')}
           required
           fullWidth
         />
 
         <Input
-          label="Descrição"
+          label={t('common.description')}
           type="text"
           value={description}
           onChange={(e) => onDescriptionChange(e.target.value)}
-          placeholder="Descrição opcional do servidor"
+          placeholder={t('mcp.general.descriptionPlaceholder')}
           fullWidth
         />
 
         <Select
-          label="Tipo"
+          label={t('mcp.general.transport')}
           value={normalizedTransport === 'stdio' ? 'stdio' : 'streamable'}
           onChange={(e) => onTransportChange(e.target.value)}
           fullWidth
           options={[
-            { value: 'stdio', label: 'Local (stdio)' },
-            { value: 'streamable', label: 'Remoto (HTTP)' },
+            { value: 'stdio', label: t('mcp.general.transportStdio') },
+            { value: 'streamable', label: t('mcp.general.transportHTTP') },
           ]}
         />
       </div>

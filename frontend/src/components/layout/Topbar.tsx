@@ -257,12 +257,13 @@ export function Topbar() {
 
   return (
     <>
-      <header
-        className="topbar"
-        role="toolbar"
-        aria-label={t('landmarks.topbar', 'Barra de navegação')}
-        ref={toolbarRef as React.RefObject<HTMLElement>}
-      >
+      <header className="topbar">
+        <div
+          className="topbar__toolbar"
+          role="toolbar"
+          aria-label={t('landmarks.topbar', 'Barra de navegação')}
+          ref={toolbarRef as React.RefObject<HTMLDivElement>}
+        >
         <div className="topbar__left">
           <MenuButton
             ref={menuButtonRef}
@@ -316,6 +317,7 @@ export function Topbar() {
               <span>{t('menu.backToWorkspace')}</span>
             </button>
           )}
+        </div>
         </div>
       </header>
 

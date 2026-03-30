@@ -360,7 +360,7 @@ export const ChatMessage: React.FC<ChatMessageProps> = React.memo(({
       tabIndex={-1}
     >
       {isReading && (
-        <div className="chat-message__reading-badge" aria-hidden="true">
+        <div className="chat-message__reading-badge">
           {t('chat.reading')}
         </div>
       )}

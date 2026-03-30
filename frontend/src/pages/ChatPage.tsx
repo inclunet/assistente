@@ -71,7 +71,7 @@ export default function ChatPage() {
       messageId = Number.isNaN(parsedId) ? null : parsedId;
       if (messageId !== null) {
         await DeleteMessage(messageId);
-        announce('Mensagem excluída');
+        announce(t('chat.announce.messageDeleted'));
         const conv = getActiveConversation();
         if (conv?.id) {
           await loadConversation(conv.id);
@@ -80,8 +80,14 @@ export default function ChatPage() {
     } catch (error) {
       // Se o usuário cancelou a exclusão, não mostra erro
       const errorMessage = error instanceof Error ? error.message : String(error);
-      if (errorMessage.includes('cancelada')) {
-        announce('Exclusão cancelada');
+      const lower = errorMessage.toLowerCase();
+      const userCanceled =
+        lower.includes('cancelada') ||
+        lower.includes('cancelado') ||
+        lower.includes('canceled') ||
+        lower.includes('cancelled');
+      if (userCanceled) {
+        announce(t('chat.announce.deleteCancelled'));
         return;
       }
       
@@ -92,7 +98,7 @@ export default function ChatPage() {
         metadata: { messageId },
       });
     }
-  }, [announce, getActiveConversation, loadConversation]);
+  }, [announce, getActiveConversation, loadConversation, t]);
 
   // Menu de contexto
   const sendToEditor = useCallback(
@@ -108,14 +114,14 @@ export default function ChatPage() {
       useEditorStore.getState().requestInsert({
         target: payload.target,
         format: payload.format,
-        title: payload.title || 'Do chat',
+        title: payload.title || t('editor.fallback.fromChat'),
         content,
         focus: true,
       });
 
       navigate('/editor');
     },
-    [navigate]
+    [navigate, t]
   );
 
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
@@ -131,7 +137,7 @@ export default function ChatPage() {
     onResend: async (message) => {
       if (message.content) {
         await sendMessage(message.content);
-        announce('Mensagem reenviada');
+        announce(t('chat.announce.messageResent'));
       }
     },
     onDelete: handleDeleteMessage,
@@ -139,12 +145,12 @@ export default function ChatPage() {
     onPin: (_message) => {
       // Pin requer campo adicional no modelo ChatMessage
       // Deixar para implementação futura
-      announce('Funcionalidade de fixar mensagem será implementada em breve');
+      announce(t('chat.announce.pinComingSoon'));
     },
     onToggleReasoning: (message) => {
       toggleReasoningExpanded(message.id);
       const isExpanded = isReasoningExpanded(message.id);
-      announce(isExpanded ? 'Raciocínio ocultado' : 'Raciocínio exibido');
+      announce(isExpanded ? t('chat.reasoningHidden') : t('chat.reasoningShown'));
     },
     isReasoningExpanded: (messageId: string) => isReasoningExpanded(messageId),
     isTTSDisabled,
@@ -240,13 +246,13 @@ export default function ChatPage() {
       if (e.key === 'Escape' && sendError) {
         setSendError(null);
         setLastFailedMessage(null);
-        announce('Erro descartado');
+        announce(t('chat.announce.errorDismissed'));
       }
     };
 
     document.addEventListener('keydown', handleEscape);
     return () => document.removeEventListener('keydown', handleEscape);
-  }, [sendError]);
+  }, [sendError, announce, t]);
 
 
   const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
@@ -362,7 +368,7 @@ export default function ChatPage() {
         x={menuPosition.x}
         y={menuPosition.y}
         onClose={hideMenu}
-        ariaLabel="Ações da mensagem"
+        ariaLabel={t('chat.contextMenuAriaLabel')}
       />
 
       {/* Painel de ajuda de atalhos de teclado */}

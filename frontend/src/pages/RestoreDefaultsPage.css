@@ -2,7 +2,7 @@
   display: flex;
   flex-direction: column;
   height: 100%;
-  background: var(--color-background);
+  background: var(--bg-base);
 }
 
 .restore-header {
@@ -15,13 +15,13 @@
   margin: 0 0 0.5rem 0;
   font-size: 1.75rem;
   font-weight: 600;
-  color: var(--color-text);
+  color: var(--text-primary);
 }
 
 .restore-header p {
   margin: 0;
   color: var(--text-secondary);
-  font-size: 0.95rem;
+  font-size: var(--font-size-base);
 }
 
 .restore-content {
@@ -56,14 +56,14 @@
   align-items: flex-start;
   gap: 1rem;
   padding: 1rem;
-  background: var(--color-background);
+  background: var(--bg-surface);
   border: 1px solid var(--border-default);
   border-radius: var(--radius-md);
   transition: background-color var(--duration-fast) var(--ease-default);
 }
 
 .restore-item:hover {
-  background: var(--color-background-hover);
+  background: var(--bg-hover);
 }
 
 .restore-item-danger {
@@ -101,14 +101,14 @@
 
 .restore-item-info h3 {
   margin: 0;
-  font-size: 0.95rem;
+  font-size: var(--font-size-base);
   font-weight: 600;
-  color: var(--color-text);
+  color: var(--text-primary);
 }
 
 .restore-item-info p {
   margin: 0;
-  font-size: 0.85rem;
+  font-size: var(--font-size-sm);
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -127,7 +127,7 @@
 
 .security-info p {
   margin: 0;
-  font-size: 0.9rem;
+  font-size: var(--font-size-base);
   color: var(--text-secondary);
   line-height: 1.5;
 }

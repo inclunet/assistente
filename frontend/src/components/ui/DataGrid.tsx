@@ -716,22 +716,10 @@ export function DataGrid<T = unknown>({
     );
   }
 
+  const gridAriaRowCount = showHeader ? rowCount + 1 : rowCount;
+
   return (
-    <div
-      ref={gridRef}
-      className={`datagrid-container${isCheckboxMode ? ' datagrid-container--checkbox' : ''}${className ? ` ${className}` : ''}`}
-      role="grid"
-      aria-label={label}
-      aria-rowcount={rowCount}
-      aria-colcount={columnCount}
-      aria-describedby="datagrid-instructions"
-      onKeyDown={handleKeyDown}
-      onClick={() => {
-        if (items.length > 0 && columns.length > 0) {
-          focusCell(focusedRow, focusedCol);
-        }
-      }}
-    >
+    <>
       <div
         role="status"
         aria-live="assertive"
@@ -748,26 +736,38 @@ export function DataGrid<T = unknown>({
         className="sr-only"
         style={{ position: 'absolute' }}
         key="announce-2"
-      >
-      </div>
-
+      />
       <div id="datagrid-instructions" className="sr-only">
-        Grade de dados com {rowCount} linhas e {columnCount} colunas. 
-        Use as setas verticais para navegar entre linhas. 
-        Use as setas horizontais para navegar entre colunas. 
-        Pressione Enter para ativar um item. 
+        Grade de dados com {rowCount} linhas e {columnCount} colunas.
+        Use as setas verticais para navegar entre linhas.
+        Use as setas horizontais para navegar entre colunas.
+        Pressione Enter para ativar um item.
         {isCheckboxMode
           ? 'Pressione Espaço para marcar ou desmarcar. '
           : 'Pressione Ctrl+Espaço para marcar ou desmarcar. '}
         {isMultiSelect && 'Pressione Ctrl+A para selecionar todos. '}
         {onMoveItem && 'Pressione Alt+Seta para mover o item. '}
-        Pressione Delete para remover. 
-        Pressione F2 para editar. 
+        Pressione Delete para remover.
+        Pressione F2 para editar.
         Pressione Escape para limpar a seleção.
       </div>
-
+      <div
+        ref={gridRef}
+        className={`datagrid-container${isCheckboxMode ? ' datagrid-container--checkbox' : ''}${className ? ` ${className}` : ''}`}
+        role="grid"
+        aria-label={label}
+        aria-rowcount={gridAriaRowCount}
+        aria-colcount={columnCount}
+        aria-describedby="datagrid-instructions"
+        onKeyDown={handleKeyDown}
+        onClick={() => {
+          if (items.length > 0 && columns.length > 0) {
+            focusCell(focusedRow, focusedCol);
+          }
+        }}
+      >
       {showHeader && (
-        <div className="datagrid-header" role="row" aria-rowindex={0}>
+        <div className="datagrid-header" role="row" aria-rowindex={1}>
           {columns.map((column, colIndex) => (
             <div
               key={column.key}
@@ -794,7 +794,7 @@ export function DataGrid<T = unknown>({
               key={itemId}
               className={`datagrid-row ${isSelected ? 'selected' : ''} ${isFocused ? 'focused' : ''}`}
               role="row"
-              aria-rowindex={rowIndex + 1}
+              aria-rowindex={showHeader ? rowIndex + 2 : rowIndex + 1}
               aria-selected={isSelected}
               onContextMenu={getRowActions ? handleRowContextMenu(item, rowIndex) : undefined}
             >
@@ -836,5 +836,6 @@ export function DataGrid<T = unknown>({
           />
       </div>
     </div>
+    </>
   );
 }

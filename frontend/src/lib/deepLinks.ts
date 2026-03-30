@@ -41,6 +41,11 @@ const EDITABLE_RESOURCES = new Set<EditableResource>([
 
 const TAB_RESOURCES = new Set<TabType>(['tasklist', 'editor', 'terminal']);
 
+function defaultTitleForNewTab(tabType: TabType): string {
+  const typeLabel = i18n.t(`workspace.tabType.${tabType}`);
+  return i18n.t('deepLink.newTab', { type: typeLabel });
+}
+
 // Human-readable labels per route (keys into i18n menu namespace)
 const ROUTE_I18N_KEYS: Record<string, string> = {
   '': 'menu.chat',
@@ -351,14 +356,14 @@ export async function executeDeepLink(
     case 'tab:new': {
       if (action.file && action.tabType === 'editor') {
         const content = String(await EditorReadFile(action.file) || '');
-        const fileName = action.file.split(/[/\\]/).pop() || 'Arquivo';
+        const fileName = action.file.split(/[/\\]/).pop() || i18n.t('editor.prompts.file');
         const title = action.title || fileName;
         const editorStore = useEditorStore.getState();
         const docId = editorStore.createDocument({ title, markdown: content });
         editorStore.setDocFilePath(docId, action.file);
         await wsStore.addTab('editor', docId, title);
       } else if (action.tabType === 'terminal') {
-        const tabId = await wsStore.addTab('terminal', '', action.title || 'Terminal');
+        const tabId = await wsStore.addTab('terminal', '', action.title || i18n.t('terminal.pageTitle'));
         if (action.cmd) {
           const waitForContentId = (): Promise<string> => new Promise((resolve) => {
             const check = () => {
@@ -374,7 +379,7 @@ export async function executeDeepLink(
           await RunTerminalCommand(sessionId, action.cmd);
         }
       } else {
-        await wsStore.addTab(action.tabType, '', action.title || `Novo ${action.tabType}`);
+        await wsStore.addTab(action.tabType, '', action.title || defaultTitleForNewTab(action.tabType));
       }
       deps.navigate('/');
       announce(t('deepLink.announcedNewTab', { type: action.tabType }));

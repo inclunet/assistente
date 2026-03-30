@@ -27,7 +27,8 @@
 
 .settings-tabs__tab {
   padding: 10px 20px;
-  font-size: 0.85rem;
+  min-height: 36px;
+  font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-secondary);
   background: none;

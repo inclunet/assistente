@@ -7,9 +7,19 @@
     "dev": "vite",
     "build": "tsc && vite build",
     "lint": "eslint src --ext .ts,.tsx",
+    "lint:css": "stylelint 'src/**/*.css'",
     "preview": "vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "prepare": "husky"
+  },
+  "lint-staged": {
+    "src/**/*.{ts,tsx}": [
+      "eslint --fix"
+    ],
+    "src/**/*.css": [
+      "stylelint --fix"
+    ]
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
@@ -58,16 +68,24 @@
     "@typescript-eslint/parser": "^8.53.0",
     "@vitejs/plugin-react": "^5.2.0",
     "autoprefixer": "^10.4.23",
+    "axe-core": "^4.11.1",
     "eslint": "^9.39.2",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-jsx-a11y": "^6.10.2",
     "eslint-plugin-react-hooks": "^7.0.1",
+    "husky": "^9.1.7",
     "jsdom": "^25.0.1",
+    "lint-staged": "^16.4.0",
     "postcss": "^8.5.6",
     "prettier": "^3.8.0",
+    "stylelint": "^17.6.0",
+    "stylelint-config-standard": "^40.0.0",
+    "stylelint-declaration-strict-value": "^1.11.1",
     "tailwindcss": "^4.1.18",
     "typescript": "^5.7.3",
     "vite": "^6.4.1",
     "vitest": "^3.2.4",
+    "vitest-axe": "^0.1.0",
     "vitest-dom": "^0.1.1"
   }
 }

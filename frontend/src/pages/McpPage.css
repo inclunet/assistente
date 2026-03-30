@@ -11,7 +11,7 @@
   align-items: center;
   justify-content: center;
   height: 100%;
-  font-size: 1.1rem;
+  font-size: var(--font-size-lg);
   color: var(--text-secondary);
 }
 
@@ -42,7 +42,7 @@
 
 .mcp-section h3 {
   margin: 0 0 1rem;
-  font-size: 1rem;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--text-primary);
 }
@@ -62,7 +62,7 @@
 }
 
 .mcp-fieldset__legend {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-secondary);
   text-transform: uppercase;
@@ -82,7 +82,7 @@
 
 .mcp-hint {
   margin: 0.25rem 0 0;
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   line-height: 1.4;
 }
@@ -92,7 +92,7 @@
 }
 
 .mcp-hint code {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   background: var(--bg-muted);
   padding: 0.15rem 0.4rem;
   border-radius: var(--radius-sm);
@@ -103,7 +103,7 @@
 /* === Discovery live region === */
 
 .mcp-discovery-live {
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   color: var(--text-muted);
   min-height: 1.2em;
 }
@@ -115,6 +115,9 @@
 /* === Link button (a11y: needs focus-visible) === */
 
 .mcp-link-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
   background: none;
   border: none;
   color: var(--accent);
@@ -142,7 +145,10 @@
 }
 
 .mcp-advanced > summary {
-  font-size: 0.75rem;
+  display: flex;
+  align-items: center;
+  min-height: 36px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
@@ -179,7 +185,7 @@
   display: inline-block;
   padding: 0.125rem 0.5rem;
   border-radius: var(--radius-full);
-  font-size: 0.75rem;
+  font-size: var(--font-size-xs);
   font-weight: 500;
 }
 
@@ -211,7 +217,7 @@
   justify-content: center;
   height: 100%;
   color: var(--text-muted);
-  font-size: 0.875rem;
+  font-size: var(--font-size-base);
   padding: 3rem;
   text-align: center;
 }
