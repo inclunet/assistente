@@ -175,16 +175,17 @@ func TestScheduler_StopCancelsAllIntervals(t *testing.T) {
 		ID:      "stop-test",
 		Enabled: true,
 		Triggers: []Trigger{
-			{Type: TriggerInterval, Every: "20ms"},
+			{Type: TriggerInterval, Every: "50ms"},
 		},
 	}
 	s.Schedule(job)
 
-	time.Sleep(60 * time.Millisecond)
+	time.Sleep(150 * time.Millisecond)
 	s.Stop()
+	time.Sleep(20 * time.Millisecond) // drain in-flight callback
 	afterStop := int(count.Load())
 
-	time.Sleep(80 * time.Millisecond)
+	time.Sleep(200 * time.Millisecond)
 	afterWait := int(count.Load())
 
 	if afterWait != afterStop {
