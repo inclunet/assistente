@@ -35,8 +35,7 @@ func NewChatProvider(provider *ProviderConfig, credMgr *credentials.Manager) Cha
 	case APIFormatAnthropic:
 		return NewAnthropicProvider(provider, credMgr)
 	case APIFormatGoogle:
-		// TODO: Fase 3
-		return NewOpenAIProvider(provider, credMgr)
+		return NewGoogleProvider(provider, credMgr)
 	default:
 		return NewOpenAIProvider(provider, credMgr)
 	}

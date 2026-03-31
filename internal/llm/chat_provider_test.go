@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"assistente/internal/credentials"
+	"google.golang.org/genai"
 )
 
 func TestGetAPIFormat_Default(t *testing.T) {
@@ -46,14 +47,16 @@ func TestNewChatProvider_Factory(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 
 	tests := []struct {
-		name       string
-		format     APIFormat
-		isAnthropic bool
+		name        string
+		format      APIFormat
+		wantOpenAI  bool
+		wantAnthropic bool
+		wantGoogle  bool
 	}{
-		{"default_empty", "", false},
-		{"openai", APIFormatOpenAI, false},
-		{"anthropic", APIFormatAnthropic, true},
-		{"google_fallback", APIFormatGoogle, false}, // TODO: mudará na Fase 3
+		{"default_empty", "", true, false, false},
+		{"openai", APIFormatOpenAI, true, false, false},
+		{"anthropic", APIFormatAnthropic, false, true, false},
+		{"google", APIFormatGoogle, false, false, true},
 	}
 
 	for _, tt := range tests {
@@ -68,9 +71,17 @@ func TestNewChatProvider_Factory(t *testing.T) {
 			if provider == nil {
 				t.Fatal("NewChatProvider returned nil")
 			}
+			_, isOpenAI := provider.(*OpenAIProvider)
 			_, isAnthropic := provider.(*AnthropicProvider)
-			if isAnthropic != tt.isAnthropic {
-				t.Errorf("isAnthropic = %v, want %v", isAnthropic, tt.isAnthropic)
+			_, isGoogle := provider.(*GoogleProvider)
+			if isOpenAI != tt.wantOpenAI {
+				t.Errorf("isOpenAI = %v, want %v", isOpenAI, tt.wantOpenAI)
+			}
+			if isAnthropic != tt.wantAnthropic {
+				t.Errorf("isAnthropic = %v, want %v", isAnthropic, tt.wantAnthropic)
+			}
+			if isGoogle != tt.wantGoogle {
+				t.Errorf("isGoogle = %v, want %v", isGoogle, tt.wantGoogle)
 			}
 		})
 	}
@@ -347,5 +358,162 @@ func TestAPIFormatConstants(t *testing.T) {
 	}
 	if APIFormatGoogle != "google" {
 		t.Errorf("APIFormatGoogle = %q", APIFormatGoogle)
+	}
+}
+
+// --- GoogleProvider tests ---
+
+func TestGoogleProvider_SupportsNativeMCP(t *testing.T) {
+	p := NewGoogleProvider(&ProviderConfig{
+		ID:   "gp",
+		Name: "Google",
+	}, nil)
+	if !p.SupportsNativeMCP() {
+		t.Error("GoogleProvider should support native MCP")
+	}
+}
+
+func TestGoogleProvider_WithMCPServers(t *testing.T) {
+	p := NewGoogleProvider(&ProviderConfig{ID: "gp"}, nil)
+	p2 := p.WithMCPServers([]MCPServerConfig{{Label: "test", URL: "http://test"}})
+	if p2 == nil {
+		t.Fatal("WithMCPServers returned nil")
+	}
+}
+
+func TestConvertToGoogleContents_SystemExtraction(t *testing.T) {
+	msgs := []Message{
+		{Role: "system", Content: "You are a helper."},
+		{Role: "user", Content: "Hi"},
+	}
+
+	system, contents := convertToGoogleContents(msgs)
+
+	if system == nil {
+		t.Fatal("Expected system instruction")
+	}
+	if len(system.Parts) != 1 || system.Parts[0].Text != "You are a helper." {
+		t.Errorf("System text = %q, want %q", system.Parts[0].Text, "You are a helper.")
+	}
+	if len(contents) != 1 {
+		t.Fatalf("Expected 1 content, got %d", len(contents))
+	}
+	if contents[0].Role != "user" {
+		t.Errorf("Role = %q, want user", contents[0].Role)
+	}
+}
+
+func TestConvertToGoogleContents_AssistantRole(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi there!"},
+	}
+
+	_, contents := convertToGoogleContents(msgs)
+
+	if len(contents) != 2 {
+		t.Fatalf("Expected 2 contents, got %d", len(contents))
+	}
+	if contents[1].Role != "model" {
+		t.Errorf("Role = %q, want model", contents[1].Role)
+	}
+	if contents[1].Parts[0].Text != "Hi there!" {
+		t.Errorf("Text = %q, want %q", contents[1].Parts[0].Text, "Hi there!")
+	}
+}
+
+func TestConvertToGoogleContents_ToolResults(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "What time?"},
+		{
+			Role:    "assistant",
+			Content: "",
+			ToolCalls: []ToolCall{
+				{ID: "call_1", Type: "function", Function: FunctionCall{
+					Name:      "get_time",
+					Arguments: `{"tz":"UTC"}`,
+				}},
+			},
+		},
+		{Role: "tool", ToolCallID: "get_time", Content: `{"time":"12:00"}`},
+	}
+
+	_, contents := convertToGoogleContents(msgs)
+
+	if len(contents) != 3 {
+		t.Fatalf("Expected 3 contents, got %d", len(contents))
+	}
+
+	// assistant -> model with function call
+	model := contents[1]
+	if model.Role != "model" {
+		t.Errorf("Role = %q, want model", model.Role)
+	}
+	if len(model.Parts) != 1 || model.Parts[0].FunctionCall == nil {
+		t.Fatal("Expected function call in model content")
+	}
+	if model.Parts[0].FunctionCall.Name != "get_time" {
+		t.Errorf("FunctionCall.Name = %q, want get_time", model.Parts[0].FunctionCall.Name)
+	}
+
+	// tool -> user with function response
+	toolResp := contents[2]
+	if toolResp.Role != "user" {
+		t.Errorf("Role = %q, want user", toolResp.Role)
+	}
+	if len(toolResp.Parts) != 1 || toolResp.Parts[0].FunctionResponse == nil {
+		t.Fatal("Expected function response in tool content")
+	}
+}
+
+func TestConvertGoogleTools(t *testing.T) {
+	tools := []ToolDefinition{
+		{
+			Type: "function",
+			Function: FunctionDefinition{
+				Name:        "search",
+				Description: "Search the web",
+				Parameters:  []byte(`{"type":"object","properties":{"query":{"type":"string"}},"required":["query"]}`),
+			},
+		},
+		{
+			Type: "function",
+			Function: FunctionDefinition{
+				Name:        "calc",
+				Description: "Calculate expression",
+				Parameters:  []byte(`{"type":"object","properties":{"expr":{"type":"string"}}}`),
+			},
+		},
+	}
+
+	result := convertGoogleTools(tools)
+	if len(result.FunctionDeclarations) != 2 {
+		t.Fatalf("Expected 2 function declarations, got %d", len(result.FunctionDeclarations))
+	}
+	if result.FunctionDeclarations[0].Name != "search" {
+		t.Errorf("Name = %q, want search", result.FunctionDeclarations[0].Name)
+	}
+	if result.FunctionDeclarations[1].Name != "calc" {
+		t.Errorf("Name = %q, want calc", result.FunctionDeclarations[1].Name)
+	}
+}
+
+func TestMakeGoogleToolConfig(t *testing.T) {
+	tests := []struct {
+		choice string
+		want   genai.FunctionCallingConfigMode
+	}{
+		{"auto", genai.FunctionCallingConfigModeAuto},
+		{"required", genai.FunctionCallingConfigModeAny},
+		{"none", genai.FunctionCallingConfigModeNone},
+		{"anything_else", genai.FunctionCallingConfigModeAuto},
+	}
+	for _, tt := range tests {
+		t.Run(tt.choice, func(t *testing.T) {
+			cfg := makeGoogleToolConfig(tt.choice)
+			if cfg.FunctionCallingConfig.Mode != tt.want {
+				t.Errorf("Mode = %q, want %q", cfg.FunctionCallingConfig.Mode, tt.want)
+			}
+		})
 	}
 }
