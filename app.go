@@ -88,7 +88,6 @@ type UpdateLLMProviderRequest struct {
 // App struct
 type App struct {
 	ctx                   context.Context
-	llmStreamClient       *llm.Client // DEPRECATED: mantido como fallback para providers sem api_format
 	llmRegistry           *llm.ProviderRegistry // Registro de provedores LLM
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
@@ -263,31 +262,20 @@ func (a *App) startup(ctx context.Context) {
 
 // initLLMClient inicializa o cliente LLM usando o provider do perfil ativo
 func (a *App) initLLMClient() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Printf("Erro ao carregar config para LLM: %v", err)
-		return
-	}
-
-	// Load active profile to get provider
 	activeProfile, err := a.profileManager.GetActive()
 	if err != nil || activeProfile == nil {
-		log.Printf("Erro ao carregar perfil ativo: %v", err)
+		log.Printf("[initLLMClient] Perfil ativo não encontrado: %v", err)
 		return
 	}
-
 	activeProfile = a.resolveProfileDefaults(activeProfile)
 
-	// Get provider from registry
 	provider := a.llmRegistry.Get(activeProfile.Chat.LLMProvider)
 	if provider == nil {
-		log.Printf("Provedor LLM não encontrado: %s", activeProfile.Chat.LLMProvider)
+		log.Printf("[initLLMClient] Provedor LLM não encontrado: %s", activeProfile.Chat.LLMProvider)
 		return
 	}
 
-	// Create clients with provider config
-	a.llmStreamClient = llm.NewClient(provider, cfg, a.credMgr)
-	log.Printf("LLM Client inicializado com provedor: %s", provider.Name)
+	log.Printf("[initLLMClient] Provedor ativo: %s (api_format=%s)", provider.Name, provider.GetAPIFormat())
 }
 
 // ReloadLLMClient recarrega o cliente LLM (chamado quando config muda)
@@ -295,35 +283,9 @@ func (a *App) ReloadLLMClient() {
 	a.initLLMClient()
 }
 
-// getStreamerForProvider cria o Streamer adequado para um provedor específico.
-// Se o provedor tem api_format definido, usa ChatProvider (SDK oficial).
-// Caso contrário, usa o Client legado (HTTP raw OpenAI-compat).
-func (a *App) getStreamerForProvider(providerID string) (llm.Streamer, error) {
-	if a.llmRegistry == nil {
-		return nil, fmt.Errorf("registro de provedores não inicializado")
-	}
-
-	provider := a.llmRegistry.Get(providerID)
-	if provider == nil {
-		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
-	}
-
-	if provider.APIFormat != "" {
-		log.Printf("[Streamer] Usando ChatProvider (SDK) para provedor '%s' (api_format=%s)", provider.Name, provider.APIFormat)
-		return llm.NewChatProvider(provider, a.credMgr), nil
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, fmt.Errorf("erro ao carregar config: %w", err)
-	}
-
-	log.Printf("[Streamer] Usando Client legado para provedor '%s'", provider.Name)
-	return llm.NewClient(provider, cfg, a.credMgr), nil
-}
-
 // getChatProviderForProvider retorna um ChatProvider para o provedor especificado.
-// Só funciona para provedores com api_format definido. Retorna erro se for legacy.
+// Usa NewChatProvider que roteia para o SDK correto via GetAPIFormat()
+// (default: OpenAI SDK, que é compatível com todos os provedores OpenAI-compat).
 func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, error) {
 	if a.llmRegistry == nil {
 		return nil, fmt.Errorf("registro de provedores não inicializado")
@@ -334,31 +296,7 @@ func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, e
 		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
 	}
 
-	if provider.APIFormat == "" {
-		return nil, fmt.Errorf("provedor '%s' não tem api_format (legacy)", provider.Name)
-	}
-
 	return llm.NewChatProvider(provider, a.credMgr), nil
-}
-
-// getClientForProvider creates a new legacy LLM client for a specific provider.
-// Used as fallback for providers without api_format.
-func (a *App) getClientForProvider(providerID string) (*llm.Client, error) {
-	if a.llmRegistry == nil {
-		return nil, fmt.Errorf("registro de provedores não inicializado")
-	}
-
-	provider := a.llmRegistry.Get(providerID)
-	if provider == nil {
-		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, fmt.Errorf("erro ao carregar config: %w", err)
-	}
-
-	return llm.NewClient(provider, cfg, a.credMgr), nil
 }
 
 // resolveProfileDefaults substitui sentinelas "$default" no profile pelo provedor/modelo

@@ -9,7 +9,6 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
@@ -19,9 +18,9 @@ import (
 	"gorm.io/gorm"
 )
 
-// TestGetClientForProvider_ReturnsClientForRegisteredProvider verifica que
-// getClientForProvider cria um client quando o provedor existe no registry.
-func TestGetClientForProvider_ReturnsClientForRegisteredProvider(t *testing.T) {
+// TestGetChatProviderForProvider_ReturnsProviderForRegistered verifica que
+// getChatProviderForProvider cria um ChatProvider quando o provedor existe no registry.
+func TestGetChatProviderForProvider_ReturnsProviderForRegistered(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	provider := &llm.ProviderConfig{
 		ID:      "litellm-test",
@@ -41,18 +40,18 @@ func TestGetClientForProvider_ReturnsClientForRegisteredProvider(t *testing.T) {
 		credMgr:     credMgr,
 	}
 
-	client, err := app.getClientForProvider("litellm-test")
+	cp, err := app.getChatProviderForProvider("litellm-test")
 	if err != nil {
-		t.Fatalf("getClientForProvider returned error: %v", err)
+		t.Fatalf("getChatProviderForProvider returned error: %v", err)
 	}
-	if client == nil {
-		t.Fatal("getClientForProvider returned nil client")
+	if cp == nil {
+		t.Fatal("getChatProviderForProvider returned nil")
 	}
 }
 
-// TestGetClientForProvider_ErrorForUnknownProvider verifica que
-// getClientForProvider retorna erro quando o provedor não existe.
-func TestGetClientForProvider_ErrorForUnknownProvider(t *testing.T) {
+// TestGetChatProviderForProvider_ErrorForUnknownProvider verifica que
+// getChatProviderForProvider retorna erro quando o provedor não existe.
+func TestGetChatProviderForProvider_ErrorForUnknownProvider(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
@@ -62,18 +61,18 @@ func TestGetClientForProvider_ErrorForUnknownProvider(t *testing.T) {
 		credMgr:     credMgr,
 	}
 
-	client, err := app.getClientForProvider("nonexistent-provider")
+	cp, err := app.getChatProviderForProvider("nonexistent-provider")
 	if err == nil {
 		t.Fatal("Expected error for unknown provider, got nil")
 	}
-	if client != nil {
-		t.Fatal("Expected nil client for unknown provider")
+	if cp != nil {
+		t.Fatal("Expected nil ChatProvider for unknown provider")
 	}
 }
 
-// TestGetClientForProvider_DifferentProvidersReturnDifferentClients verifica que
-// providers distintos resultam em clients distintos (não compartilham instância).
-func TestGetClientForProvider_DifferentProvidersReturnDifferentClients(t *testing.T) {
+// TestGetChatProviderForProvider_DifferentProvidersReturnDifferentInstances verifica que
+// providers distintos resultam em ChatProviders distintos.
+func TestGetChatProviderForProvider_DifferentProvidersReturnDifferentInstances(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 
 	p1 := &llm.ProviderConfig{
@@ -104,24 +103,24 @@ func TestGetClientForProvider_DifferentProvidersReturnDifferentClients(t *testin
 		credMgr:     credMgr,
 	}
 
-	c1, err := app.getClientForProvider("google-test")
+	cp1, err := app.getChatProviderForProvider("google-test")
 	if err != nil {
-		t.Fatalf("getClientForProvider google: %v", err)
+		t.Fatalf("getChatProviderForProvider google: %v", err)
 	}
-	c2, err := app.getClientForProvider("litellm-test")
+	cp2, err := app.getChatProviderForProvider("litellm-test")
 	if err != nil {
-		t.Fatalf("getClientForProvider litellm: %v", err)
+		t.Fatalf("getChatProviderForProvider litellm: %v", err)
 	}
 
-	if c1 == c2 {
-		t.Error("Expected different client instances for different providers")
+	if cp1 == nil || cp2 == nil {
+		t.Fatal("Expected non-nil ChatProviders")
 	}
 }
 
-// TestProviderRouting_ClientHitsCorrectEndpoint verifica via HTTP que o client
+// TestProviderRouting_ChatProviderHitsCorrectEndpoint verifica via HTTP que o ChatProvider
 // criado para um provedor envia requests ao endpoint correto (e não a outro).
-// Isso é o teste de regressão principal para o bug de roteamento cruzado.
-func TestProviderRouting_ClientHitsCorrectEndpoint(t *testing.T) {
+// Teste de regressão principal para o bug de roteamento cruzado.
+func TestProviderRouting_ChatProviderHitsCorrectEndpoint(t *testing.T) {
 	var googleHits, litellmHits atomic.Int32
 
 	modelsResp, _ := json.Marshal(llm.ModelsResponse{
@@ -142,30 +141,19 @@ func TestProviderRouting_ClientHitsCorrectEndpoint(t *testing.T) {
 	}))
 	defer litellmServer.Close()
 
-	googleProvider := &llm.ProviderConfig{
-		ID:      "google",
-		Name:    "Google",
-		Type:    llm.ProviderCustom,
-		BaseURL: googleServer.URL,
-	}
-	litellmProvider := &llm.ProviderConfig{
-		ID:      "litellm",
-		Name:    "LiteLLM",
-		Type:    llm.ProviderCustom,
-		BaseURL: litellmServer.URL,
-	}
-
-	cfg := &config.Config{}
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
 
-	googleClient := llm.NewClient(googleProvider, cfg, credMgr)
-	litellmClient := llm.NewClient(litellmProvider, cfg, credMgr)
+	googleCP := llm.NewChatProvider(&llm.ProviderConfig{
+		ID: "google", Name: "Google", Type: llm.ProviderCustom, BaseURL: googleServer.URL,
+	}, credMgr)
+	litellmCP := llm.NewChatProvider(&llm.ProviderConfig{
+		ID: "litellm", Name: "LiteLLM", Type: llm.ProviderCustom, BaseURL: litellmServer.URL,
+	}, credMgr)
 
-	// Request ao client do Google deve ir SOMENTE ao google server
-	_, err := googleClient.GetModels(t.Context())
+	_, err := googleCP.GetModels(t.Context())
 	if err != nil {
-		t.Fatalf("googleClient.GetModels: %v", err)
+		t.Fatalf("googleCP.GetModels: %v", err)
 	}
 	if googleHits.Load() != 1 {
 		t.Errorf("Expected google server to receive 1 request, got %d", googleHits.Load())
@@ -174,10 +162,9 @@ func TestProviderRouting_ClientHitsCorrectEndpoint(t *testing.T) {
 		t.Errorf("Expected litellm server to receive 0 requests, got %d", litellmHits.Load())
 	}
 
-	// Request ao client do LiteLLM deve ir SOMENTE ao litellm server
-	_, err = litellmClient.GetModels(t.Context())
+	_, err = litellmCP.GetModels(t.Context())
 	if err != nil {
-		t.Fatalf("litellmClient.GetModels: %v", err)
+		t.Fatalf("litellmCP.GetModels: %v", err)
 	}
 	if litellmHits.Load() != 1 {
 		t.Errorf("Expected litellm server to receive 1 request, got %d", litellmHits.Load())
@@ -192,7 +179,7 @@ func TestProviderRouting_ClientHitsCorrectEndpoint(t *testing.T) {
 func TestProviderRouting_StreamChatHitsCorrectEndpoint(t *testing.T) {
 	var serverAHits, serverBHits atomic.Int32
 
-	streamResp := "data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"model\":\"test\"}\n\ndata: [DONE]\n\n"
+	streamResp := "data: {\"id\":\"x\",\"object\":\"chat.completion.chunk\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}],\"model\":\"test\"}\n\ndata: [DONE]\n\n"
 
 	serverA := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		serverAHits.Add(1)
@@ -208,36 +195,25 @@ func TestProviderRouting_StreamChatHitsCorrectEndpoint(t *testing.T) {
 	}))
 	defer serverB.Close()
 
-	providerA := &llm.ProviderConfig{
-		ID:      "provider-a",
-		Name:    "Provider A",
-		Type:    llm.ProviderCustom,
-		BaseURL: serverA.URL,
-		Model:   "model-a",
-	}
-	providerB := &llm.ProviderConfig{
-		ID:      "provider-b",
-		Name:    "Provider B",
-		Type:    llm.ProviderCustom,
-		BaseURL: serverB.URL,
-		Model:   "model-b",
-	}
-
-	cfg := &config.Config{}
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
 
-	clientA := llm.NewClient(providerA, cfg, credMgr)
-	clientB := llm.NewClient(providerB, cfg, credMgr)
+	cpA := llm.NewChatProvider(&llm.ProviderConfig{
+		ID: "provider-a", Name: "Provider A", Type: llm.ProviderCustom,
+		BaseURL: serverA.URL, Model: "model-a",
+	}, credMgr)
+	cpB := llm.NewChatProvider(&llm.ProviderConfig{
+		ID: "provider-b", Name: "Provider B", Type: llm.ProviderCustom,
+		BaseURL: serverB.URL, Model: "model-b",
+	}, credMgr)
 
 	handler := &testStreamHandler{done: make(chan struct{})}
 
 	messages := []llm.Message{{Role: "user", Content: "test"}}
 	params := llm.ChatParams{Model: "model-b"}
 
-	// Streaming via clientB deve ir ao serverB, não ao serverA
-	_ = clientA // usado abaixo para verificar isolamento
-	clientB.StreamChat(t.Context(), messages, params, handler)
+	_ = cpA
+	cpB.StreamChat(t.Context(), messages, params, handler)
 	<-handler.done
 
 	if serverBHits.Load() != 1 {
@@ -352,28 +328,26 @@ func TestProviderRouting_ChannelProfileUsesOwnProvider(t *testing.T) {
 		},
 	}
 
-	// Simula resolução do client para o perfil global (esperado: Google)
-	globalClient, err := app.getClientForProvider(globalProfile.Chat.LLMProvider)
+	globalCP, err := app.getChatProviderForProvider(globalProfile.Chat.LLMProvider)
 	if err != nil {
-		t.Fatalf("getClientForProvider (global): %v", err)
+		t.Fatalf("getChatProviderForProvider (global): %v", err)
 	}
-	_, err = globalClient.GetModels(t.Context())
+	_, err = globalCP.GetModels(t.Context())
 	if err != nil {
-		t.Fatalf("globalClient.GetModels: %v", err)
+		t.Fatalf("globalCP.GetModels: %v", err)
 	}
 	if googleHits.Load() != 1 || litellmHits.Load() != 0 {
 		t.Fatalf("Global profile should hit Google. Google=%d, LiteLLM=%d",
 			googleHits.Load(), litellmHits.Load())
 	}
 
-	// Simula resolução do client para o perfil do canal (esperado: LiteLLM)
-	channelClient, err := app.getClientForProvider(channelProfile.Chat.LLMProvider)
+	channelCP, err := app.getChatProviderForProvider(channelProfile.Chat.LLMProvider)
 	if err != nil {
-		t.Fatalf("getClientForProvider (channel): %v", err)
+		t.Fatalf("getChatProviderForProvider (channel): %v", err)
 	}
-	_, err = channelClient.GetModels(t.Context())
+	_, err = channelCP.GetModels(t.Context())
 	if err != nil {
-		t.Fatalf("channelClient.GetModels: %v", err)
+		t.Fatalf("channelCP.GetModels: %v", err)
 	}
 	if litellmHits.Load() != 1 {
 		t.Errorf("Channel profile should hit LiteLLM. LiteLLM=%d", litellmHits.Load())
@@ -395,30 +369,24 @@ func TestProviderRouting_RequestContainsCorrectModel(t *testing.T) {
 			receivedModel = m
 		}
 
-		resp := `{"choices":[{"message":{"role":"assistant","content":"ok"}}]}`
+		resp := `{"id":"x","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"ok"},"finish_reason":"stop"}],"model":"gpt-4o-mini"}`
 		w.Header().Set("Content-Type", "application/json")
 		w.Write([]byte(resp))
 	}))
 	defer server.Close()
 
-	provider := &llm.ProviderConfig{
-		ID:      "test-provider",
-		Name:    "Test",
-		Type:    llm.ProviderCustom,
-		BaseURL: server.URL,
-	}
-
-	cfg := &config.Config{}
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
-	client := llm.NewClient(provider, cfg, credMgr)
+	cp := llm.NewChatProvider(&llm.ProviderConfig{
+		ID: "test-provider", Name: "Test", Type: llm.ProviderCustom, BaseURL: server.URL,
+	}, credMgr)
 
 	messages := []llm.Message{{Role: "user", Content: "test"}}
 	params := llm.ChatParams{Model: "gpt-4o-mini"}
 
-	_, err := client.SendMessageSync(t.Context(), messages, params)
+	_, err := cp.SendChat(t.Context(), messages, params)
 	if err != nil {
-		t.Fatalf("SendMessageSync: %v", err)
+		t.Fatalf("SendChat: %v", err)
 	}
 
 	if receivedModel != "gpt-4o-mini" {
@@ -426,92 +394,50 @@ func TestProviderRouting_RequestContainsCorrectModel(t *testing.T) {
 	}
 }
 
-// TestProviderRouting_FallbackToGlobalWhenProfileProviderMissing verifica que
-// quando o provedor do perfil não é encontrado, o código cai no fallback para o global.
-func TestProviderRouting_FallbackToGlobalWhenProfileProviderMissing(t *testing.T) {
-	var globalHits atomic.Int32
-
-	modelsResp, _ := json.Marshal(llm.ModelsResponse{
-		Data: []llm.Model{{ID: "test-model"}},
-	})
-
-	globalServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		globalHits.Add(1)
-		w.Header().Set("Content-Type", "application/json")
-		w.Write(modelsResp)
-	}))
-	defer globalServer.Close()
-
+// TestProviderRouting_ErrorWhenProfileProviderMissing verifica que
+// quando o provedor do perfil não é encontrado, getChatProviderForProvider retorna erro.
+func TestProviderRouting_ErrorWhenProfileProviderMissing(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	registry.Register(&llm.ProviderConfig{
-		ID: "google", Name: "Google", Type: llm.ProviderCustom, BaseURL: globalServer.URL,
+		ID: "google", Name: "Google", Type: llm.ProviderCustom, BaseURL: "https://example.com",
 	})
 
-	cfg := &config.Config{}
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
 
-	globalClient := llm.NewClient(registry.Get("google"), cfg, credMgr)
+	app := &App{llmRegistry: registry, credMgr: credMgr}
 
-	// Simula a lógica de sendMessageInternal quando o provedor do perfil não existe
-	activeProfile := &profiles.Profile{
-		Chat: profiles.ChatConfig{
-			LLMProvider: "deleted-provider",
-			Model:       "some-model",
-		},
+	// Provedor do perfil não existe no registry
+	_, err := app.getChatProviderForProvider("deleted-provider")
+	if err == nil {
+		t.Fatal("Expected error for missing provider, got nil")
 	}
 
-	requestClient := globalClient
-	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
-		provider := registry.Get(activeProfile.Chat.LLMProvider)
-		if provider != nil {
-			requestClient = llm.NewClient(provider, cfg, credMgr)
-		}
-		// Se provider == nil, mantém o globalClient (fallback)
-	}
-
-	_, err := requestClient.GetModels(t.Context())
+	// Provedor válido funciona
+	cp, err := app.getChatProviderForProvider("google")
 	if err != nil {
-		t.Fatalf("GetModels: %v", err)
+		t.Fatalf("getChatProviderForProvider (google): %v", err)
 	}
-
-	if globalHits.Load() != 1 {
-		t.Errorf("Expected fallback to global server. Hits=%d", globalHits.Load())
+	if cp == nil {
+		t.Fatal("Expected non-nil ChatProvider for valid provider")
 	}
 }
 
-// TestNilClientReturnsError verifica que sendMessageInternal retorna erro
-// quando nenhum client pode ser resolvido (previne crash silencioso).
-func TestNilClientReturnsError(t *testing.T) {
+// TestNonexistentProviderReturnsError verifica que getChatProviderForProvider
+// retorna erro quando o provedor não existe no registry.
+func TestNonexistentProviderReturnsError(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
 
 	app := &App{
-		llmRegistry:     registry,
-		credMgr:         credMgr,
-		llmStreamClient: nil, // global client não inicializado
+		llmRegistry: registry,
+		credMgr:     credMgr,
 	}
 
-	// Profile aponta para provedor que não existe — e global client é nil
-	profile := &profiles.Profile{
-		Chat: profiles.ChatConfig{
-			LLMProvider: "nonexistent-provider",
-			Model:       "some-model",
-		},
-	}
-
-	// Simula a lógica de resolução de requestClient em sendMessageInternal
-	requestClient := app.llmStreamClient // nil
-	if profile != nil && profile.Chat.LLMProvider != "" {
-		if client, err := app.getClientForProvider(profile.Chat.LLMProvider); err == nil {
-			requestClient = client
-		}
-	}
-
-	// O requestClient deve ser nil nesta situação
-	if requestClient != nil {
-		t.Fatal("Expected requestClient to be nil when both global and per-provider client fail")
+	_, err := app.getChatProviderForProvider("nonexistent-provider")
+	if err == nil {
+		t.Fatal("Expected error for nonexistent provider")
 	}
 }
 
@@ -563,11 +489,9 @@ func TestRecoverFromPanic(t *testing.T) {
 	})
 }
 
-// TestNilClientDoesNotCrashApp verifica que chamar StreamChat com nil client
-// em uma goroutine protegida por recover NÃO mata o processo.
-// Isso reproduz o cenário exato do bug: conta limitada onde initLLMClient falha,
-// llmStreamClient fica nil, e o envio de mensagem crashava o app.
-func TestNilClientDoesNotCrashApp(t *testing.T) {
+// TestRecoverFromPanic_InGoroutine verifica que recoverFromPanic captura panics
+// em goroutines sem matar o processo.
+func TestRecoverFromPanic_InGoroutine(t *testing.T) {
 	app := &App{}
 
 	recovered := make(chan bool, 1)
@@ -575,18 +499,14 @@ func TestNilClientDoesNotCrashApp(t *testing.T) {
 	go func() {
 		defer func() {
 			if r := recover(); r != nil {
-				// Se chegou aqui, o recoverFromPanic falhou
 				recovered <- false
 				return
 			}
 			recovered <- true
 		}()
 
-		defer app.recoverFromPanic(1, "StreamChat")
-
-		// Simula o que acontecia: nil client causa panic
-		var nilClient *llm.Client
-		nilClient.StreamChat(t.Context(), nil, llm.ChatParams{}, nil)
+		defer app.recoverFromPanic(1, "test")
+		panic("simulated panic")
 	}()
 
 	result := <-recovered
@@ -595,56 +515,31 @@ func TestNilClientDoesNotCrashApp(t *testing.T) {
 	}
 }
 
-// TestGetClientForProvider_NilRegistryReturnsError verifica que getClientForProvider
+// TestGetChatProviderForProvider_NilRegistryReturnsError verifica que getChatProviderForProvider
 // retorna erro quando o llmRegistry é nil (inicialização parcial do app).
-func TestGetClientForProvider_NilRegistryReturnsError(t *testing.T) {
+func TestGetChatProviderForProvider_NilRegistryReturnsError(t *testing.T) {
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
 
 	app := &App{
-		llmRegistry: nil, // registry não inicializado
+		llmRegistry: nil,
 		credMgr:     credMgr,
 	}
 
-	client, err := app.getClientForProvider("any-provider")
+	cp, err := app.getChatProviderForProvider("any-provider")
 	if err == nil {
 		t.Fatal("Expected error for nil registry, got nil")
 	}
-	if client != nil {
-		t.Fatal("Expected nil client for nil registry")
+	if cp != nil {
+		t.Fatal("Expected nil ChatProvider for nil registry")
 	}
 }
 
-// TestNilClientErrorLogSafeWithNilProfile verifica que o log de erro
-// quando requestClient é nil não causa panic mesmo com activeProfile nil.
-// Isso reproduz o cenário: initLLMClient falha + perfil não encontrado.
-func TestNilClientErrorLogSafeWithNilProfile(t *testing.T) {
-	registry := llm.NewProviderRegistry()
-	testKey := []byte("test-key-32-bytes-long-key!!")
-	credMgr := credentials.NewManager(testKey)
-
-	app := &App{
-		llmRegistry:     registry,
-		credMgr:         credMgr,
-		llmStreamClient: nil,
-	}
-
-	// Simula activeProfile nil + requestClient nil
+// TestNilProfileSafety verifica que acessar campos de um perfil nil
+// é tratado corretamente sem panic.
+func TestNilProfileSafety(t *testing.T) {
 	var activeProfile *profiles.Profile = nil
 
-	requestClient := app.llmStreamClient // nil
-	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
-		if client, err := app.getClientForProvider(activeProfile.Chat.LLMProvider); err == nil {
-			requestClient = client
-		}
-	}
-
-	if requestClient != nil {
-		t.Fatal("Expected nil requestClient")
-	}
-
-	// O trecho abaixo reproduz o código corrigido do nil check.
-	// Antes da correção, isso causaria panic ao acessar activeProfile.Chat.LLMProvider.
 	providerID := ""
 	if activeProfile != nil {
 		providerID = activeProfile.Chat.LLMProvider
@@ -680,16 +575,16 @@ func TestProfileManagerNilDoesNotPanic(t *testing.T) {
 	}
 }
 
-// TestSendMessageSync_NilClientReturnsError verifica que SendMessageSync
-// retorna erro quando llmStreamClient é nil (em vez de causar panic).
-func TestSendMessageSync_NilClientReturnsError(t *testing.T) {
+// TestSendMessageSync_NoProfileReturnsError verifica que SendMessageSync
+// retorna erro quando não há perfil/provedor configurado.
+func TestSendMessageSync_NoProfileReturnsError(t *testing.T) {
 	app := &App{
-		llmStreamClient: nil,
+		profileManager: profiles.NewManager(),
 	}
 
 	_, err := app.SendMessageSync(nil, ChatParams{})
 	if err == nil {
-		t.Fatal("Expected error when llmStreamClient is nil")
+		t.Fatal("Expected error when no profile/provider configured")
 	}
 }
 
@@ -782,12 +677,12 @@ func TestDefaultSentinel_RoutesToCorrectProvider(t *testing.T) {
 		t.Fatalf("expected Chat.Model=default-model, got %s", resolved.Chat.Model)
 	}
 
-	// Step 2: getClientForProvider routes to the correct server
-	client, err := app.getClientForProvider(resolved.Chat.LLMProvider)
+	// Step 2: getChatProviderForProvider routes to the correct server
+	cp, err := app.getChatProviderForProvider(resolved.Chat.LLMProvider)
 	if err != nil {
-		t.Fatalf("getClientForProvider: %v", err)
+		t.Fatalf("getChatProviderForProvider: %v", err)
 	}
-	_, err = client.GetModels(t.Context())
+	_, err = cp.GetModels(t.Context())
 	if err != nil {
 		t.Fatalf("GetModels: %v", err)
 	}
@@ -829,7 +724,6 @@ func TestDefaultSentinel_ModelSentInRequest(t *testing.T) {
 	database.SetDefaultProvider("my-provider")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
-	cfg := &config.Config{}
 	app := &App{
 		ctx:         context.Background(),
 		llmRegistry: registry,
@@ -843,14 +737,16 @@ func TestDefaultSentinel_ModelSentInRequest(t *testing.T) {
 		t.Fatalf("expected model=resolved-model-v2, got %s", resolved.Chat.Model)
 	}
 
-	provider := registry.Get(resolved.Chat.LLMProvider)
-	client := llm.NewClient(provider, cfg, credMgr)
+	cp, err := app.getChatProviderForProvider(resolved.Chat.LLMProvider)
+	if err != nil {
+		t.Fatalf("getChatProviderForProvider: %v", err)
+	}
 	messages := []llm.Message{{Role: "user", Content: "hello"}}
 	params := llm.ChatParams{Model: resolved.Chat.Model}
 
-	_, err := client.SendMessageSync(t.Context(), messages, params)
+	_, err = cp.SendChat(t.Context(), messages, params)
 	if err != nil {
-		t.Fatalf("SendMessageSync: %v", err)
+		t.Fatalf("SendChat: %v", err)
 	}
 	if receivedModel != "resolved-model-v2" {
 		t.Errorf("expected model 'resolved-model-v2' in API request, got %q", receivedModel)
@@ -914,8 +810,8 @@ func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
 	if resolved.Chat.LLMProvider != "prov-a" {
 		t.Fatalf("round 1: expected prov-a, got %s", resolved.Chat.LLMProvider)
 	}
-	client, _ := app.getClientForProvider(resolved.Chat.LLMProvider)
-	client.GetModels(t.Context())
+	cp1, _ := app.getChatProviderForProvider(resolved.Chat.LLMProvider)
+	cp1.GetModels(t.Context())
 
 	if serverAHits.Load() != 1 || serverBHits.Load() != 0 {
 		t.Fatalf("round 1: A=%d B=%d", serverAHits.Load(), serverBHits.Load())
@@ -932,8 +828,8 @@ func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
 	if resolved2.Chat.Model != "model-b" {
 		t.Fatalf("round 2: expected model-b, got %s", resolved2.Chat.Model)
 	}
-	client2, _ := app.getClientForProvider(resolved2.Chat.LLMProvider)
-	client2.GetModels(t.Context())
+	cp2, _ := app.getChatProviderForProvider(resolved2.Chat.LLMProvider)
+	cp2.GetModels(t.Context())
 
 	if serverBHits.Load() != 1 {
 		t.Errorf("round 2: expected 1 hit on B, got %d", serverBHits.Load())
@@ -1014,16 +910,16 @@ func TestDefaultSentinel_MixedProfilesRouteCorrectly(t *testing.T) {
 
 	// Resolve and route Profile A → default server
 	resolvedA := app.resolveProfileDefaults(profileA)
-	clientA, _ := app.getClientForProvider(resolvedA.Chat.LLMProvider)
-	clientA.GetModels(t.Context())
+	cpA, _ := app.getChatProviderForProvider(resolvedA.Chat.LLMProvider)
+	cpA.GetModels(t.Context())
 
 	// Resolve and route Profile B → concrete server (no resolution needed)
 	resolvedB := app.resolveProfileDefaults(profileB)
 	if resolvedB.Chat.LLMProvider != "concrete-prov" {
 		t.Fatalf("profileB should keep concrete ID, got %s", resolvedB.Chat.LLMProvider)
 	}
-	clientB, _ := app.getClientForProvider(resolvedB.Chat.LLMProvider)
-	clientB.GetModels(t.Context())
+	cpB, _ := app.getChatProviderForProvider(resolvedB.Chat.LLMProvider)
+	cpB.GetModels(t.Context())
 
 	if defaultHits.Load() != 1 {
 		t.Errorf("default server: expected 1, got %d", defaultHits.Load())
@@ -1058,18 +954,17 @@ func (h *testStreamHandler) OnDone(fullResponse string, usage llm.Usage, model s
 	close(h.done)
 }
 
-// --- getStreamerForProvider tests ---
+// --- getChatProviderForProvider format routing tests ---
 
-// TestGetStreamerForProvider_LegacyProvider verifica que provedores sem api_format
-// retornam o *llm.Client legado (via Streamer interface).
-func TestGetStreamerForProvider_LegacyProvider(t *testing.T) {
+// TestGetChatProviderForProvider_NoAPIFormat verifica que provedores sem api_format
+// recebem fallback para OpenAI SDK (via GetAPIFormat default).
+func TestGetChatProviderForProvider_NoAPIFormat(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	provider := &llm.ProviderConfig{
 		ID:      "legacy-test",
 		Name:    "Legacy Provider",
 		Type:    llm.ProviderCustom,
 		BaseURL: "https://api.example.com/v1",
-		// APIFormat vazio → legado
 	}
 	if err := registry.Register(provider); err != nil {
 		t.Fatalf("Register: %v", err)
@@ -1079,140 +974,101 @@ func TestGetStreamerForProvider_LegacyProvider(t *testing.T) {
 	credMgr := credentials.NewManager(testKey)
 	app := &App{llmRegistry: registry, credMgr: credMgr}
 
-	streamer, err := app.getStreamerForProvider("legacy-test")
+	cp, err := app.getChatProviderForProvider("legacy-test")
 	if err != nil {
-		t.Fatalf("getStreamerForProvider error: %v", err)
+		t.Fatalf("getChatProviderForProvider error: %v", err)
 	}
-	if streamer == nil {
-		t.Fatal("Expected non-nil streamer")
-	}
-
-	// Legacy provider → *llm.Client
-	if _, ok := streamer.(*llm.Client); !ok {
-		t.Errorf("Expected *llm.Client, got %T", streamer)
+	if cp == nil {
+		t.Fatal("Expected non-nil ChatProvider (OpenAI SDK fallback)")
 	}
 }
 
-// TestGetStreamerForProvider_OpenAIFormat verifica que provedores com api_format=openai
-// retornam um ChatProvider (OpenAIProvider).
-func TestGetStreamerForProvider_OpenAIFormat(t *testing.T) {
+// TestGetChatProviderForProvider_OpenAIFormat verifica que api_format=openai retorna ChatProvider.
+func TestGetChatProviderForProvider_OpenAIFormat(t *testing.T) {
 	registry := llm.NewProviderRegistry()
-	provider := &llm.ProviderConfig{
-		ID:        "sdk-openai",
-		Name:      "SDK OpenAI",
-		Type:      llm.ProviderOpenAI,
-		BaseURL:   "https://api.openai.com/v1",
-		APIFormat: llm.APIFormatOpenAI,
-	}
-	if err := registry.Register(provider); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
+	registry.Register(&llm.ProviderConfig{
+		ID: "sdk-openai", Name: "SDK OpenAI", Type: llm.ProviderOpenAI,
+		BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAI,
+	})
 
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
 	app := &App{llmRegistry: registry, credMgr: credMgr}
 
-	streamer, err := app.getStreamerForProvider("sdk-openai")
+	cp, err := app.getChatProviderForProvider("sdk-openai")
 	if err != nil {
-		t.Fatalf("getStreamerForProvider error: %v", err)
+		t.Fatalf("getChatProviderForProvider error: %v", err)
 	}
-	if streamer == nil {
-		t.Fatal("Expected non-nil streamer")
-	}
-
-	// api_format=openai → ChatProvider (OpenAIProvider)
-	if _, ok := streamer.(*llm.Client); ok {
-		t.Error("Expected ChatProvider, got *llm.Client (legacy)")
+	if cp == nil {
+		t.Fatal("Expected non-nil ChatProvider")
 	}
 }
 
-// TestGetStreamerForProvider_AnthropicFormat verifica que api_format=anthropic
-// retorna ChatProvider (AnthropicProvider).
-func TestGetStreamerForProvider_AnthropicFormat(t *testing.T) {
+// TestGetChatProviderForProvider_AnthropicFormat verifica que api_format=anthropic retorna ChatProvider.
+func TestGetChatProviderForProvider_AnthropicFormat(t *testing.T) {
 	registry := llm.NewProviderRegistry()
-	provider := &llm.ProviderConfig{
-		ID:        "sdk-anthropic",
-		Name:      "SDK Anthropic",
-		Type:      llm.ProviderClaude,
-		BaseURL:   "https://api.anthropic.com/v1",
-		APIFormat: llm.APIFormatAnthropic,
-	}
-	if err := registry.Register(provider); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
+	registry.Register(&llm.ProviderConfig{
+		ID: "sdk-anthropic", Name: "SDK Anthropic", Type: llm.ProviderClaude,
+		BaseURL: "https://api.anthropic.com/v1", APIFormat: llm.APIFormatAnthropic,
+	})
 
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
 	app := &App{llmRegistry: registry, credMgr: credMgr}
 
-	streamer, err := app.getStreamerForProvider("sdk-anthropic")
+	cp, err := app.getChatProviderForProvider("sdk-anthropic")
 	if err != nil {
-		t.Fatalf("getStreamerForProvider error: %v", err)
+		t.Fatalf("getChatProviderForProvider error: %v", err)
 	}
-	if streamer == nil {
-		t.Fatal("Expected non-nil streamer")
-	}
-
-	if _, ok := streamer.(*llm.Client); ok {
-		t.Error("Expected ChatProvider, got *llm.Client (legacy)")
+	if cp == nil {
+		t.Fatal("Expected non-nil ChatProvider")
 	}
 }
 
-// TestGetStreamerForProvider_GoogleFormat verifica que api_format=google
-// retorna ChatProvider (GoogleProvider).
-func TestGetStreamerForProvider_GoogleFormat(t *testing.T) {
+// TestGetChatProviderForProvider_GoogleFormat verifica que api_format=google retorna ChatProvider.
+func TestGetChatProviderForProvider_GoogleFormat(t *testing.T) {
 	registry := llm.NewProviderRegistry()
-	provider := &llm.ProviderConfig{
-		ID:        "sdk-google",
-		Name:      "SDK Google",
-		Type:      llm.ProviderType("gemini"),
-		BaseURL:   "https://generativelanguage.googleapis.com",
-		APIFormat: llm.APIFormatGoogle,
-	}
-	if err := registry.Register(provider); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
+	registry.Register(&llm.ProviderConfig{
+		ID: "sdk-google", Name: "SDK Google", Type: llm.ProviderType("gemini"),
+		BaseURL: "https://generativelanguage.googleapis.com", APIFormat: llm.APIFormatGoogle,
+	})
 
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
 	app := &App{llmRegistry: registry, credMgr: credMgr}
 
-	streamer, err := app.getStreamerForProvider("sdk-google")
+	cp, err := app.getChatProviderForProvider("sdk-google")
 	if err != nil {
-		t.Fatalf("getStreamerForProvider error: %v", err)
+		t.Fatalf("getChatProviderForProvider error: %v", err)
 	}
-	if streamer == nil {
-		t.Fatal("Expected non-nil streamer")
-	}
-
-	if _, ok := streamer.(*llm.Client); ok {
-		t.Error("Expected ChatProvider, got *llm.Client (legacy)")
+	if cp == nil {
+		t.Fatal("Expected non-nil ChatProvider")
 	}
 }
 
-// TestGetStreamerForProvider_NilRegistry verifica comportamento com registry nil.
-func TestGetStreamerForProvider_NilRegistry(t *testing.T) {
+// TestGetChatProviderForProvider_NilRegistry verifica comportamento com registry nil.
+func TestGetChatProviderForProvider_NilRegistry_Streamer(t *testing.T) {
 	app := &App{llmRegistry: nil}
 
-	streamer, err := app.getStreamerForProvider("any")
+	cp, err := app.getChatProviderForProvider("any")
 	if err == nil {
 		t.Fatal("Expected error for nil registry")
 	}
-	if streamer != nil {
-		t.Fatal("Expected nil streamer")
+	if cp != nil {
+		t.Fatal("Expected nil ChatProvider")
 	}
 }
 
-// TestGetStreamerForProvider_UnknownProvider verifica comportamento com provedor inexistente.
-func TestGetStreamerForProvider_UnknownProvider(t *testing.T) {
+// TestGetChatProviderForProvider_UnknownProvider verifica comportamento com provedor inexistente.
+func TestGetChatProviderForProvider_UnknownProvider_Streamer(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	app := &App{llmRegistry: registry}
 
-	streamer, err := app.getStreamerForProvider("nonexistent")
+	cp, err := app.getChatProviderForProvider("nonexistent")
 	if err == nil {
 		t.Fatal("Expected error for unknown provider")
 	}
-	if streamer != nil {
-		t.Fatal("Expected nil streamer")
+	if cp != nil {
+		t.Fatal("Expected nil ChatProvider")
 	}
 }

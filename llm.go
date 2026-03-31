@@ -385,17 +385,15 @@ func (a *App) GetModels() ([]string, error) {
 	activeProfile, _ := a.profileManager.GetActive()
 	activeProfile = a.resolveProfileDefaults(activeProfile)
 
-	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
-		if cp, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider); err == nil {
-			log.Printf("[GetModels] Usando ChatProvider (SDK) para provedor '%s'", activeProfile.Chat.LLMProvider)
-			return cp.GetModels(a.ctx)
-		}
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		return nil, fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
 	}
 
-	if a.llmStreamClient == nil {
-		return nil, fmt.Errorf("cliente LLM não inicializado. Configure um perfil com provedor LLM primeiro")
+	cp, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider)
+	if err != nil {
+		return nil, err
 	}
-	return a.llmStreamClient.GetModels(a.ctx)
+	return cp.GetModels(a.ctx)
 }
 
 // GetModelsByProvider retorna a lista de modelos de um provedor específico.
@@ -404,33 +402,11 @@ func (a *App) GetModelsByProvider(providerID string) ([]string, error) {
 		return []string{}, nil
 	}
 
-	if cp, err := a.getChatProviderForProvider(providerID); err == nil {
-		log.Printf("[GetModelsByProvider] Usando ChatProvider (SDK) para provedor '%s'", providerID)
-		return cp.GetModels(a.ctx)
-	}
-
-	// Fallback: legacy client
-	provider := a.llmRegistry.Get(providerID)
-	if provider == nil {
-		return nil, fmt.Errorf("provedor '%s' não encontrado", providerID)
-	}
-
-	var apiKey string
-	if authCfg, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && authCfg != nil {
-		apiKey = authCfg.Token
-	}
-
-	tempCfg := &config.Config{
-		APIKey:     apiKey,
-		APIBaseURL: provider.BaseURL,
-	}
-	tempClient := llm.NewClient(provider, tempCfg, a.credMgr)
-
-	models, err := tempClient.GetModels(a.ctx)
+	cp, err := a.getChatProviderForProvider(providerID)
 	if err != nil {
-		return nil, fmt.Errorf("erro ao buscar modelos do provedor '%s': %w", providerID, err)
+		return nil, err
 	}
-	return models, nil
+	return cp.GetModels(a.ctx)
 }
 
 // Constantes de validação de input
@@ -769,30 +745,21 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 	}
 
-	// Resolve o streamer correto para o provedor do perfil ativo.
-	// Se o provedor tem api_format definido, usa ChatProvider (SDK oficial).
-	// Caso contrário, usa o Client legado (HTTP raw OpenAI-compat).
-	var requestStreamer llm.Streamer = a.llmStreamClient
-	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
-		if streamer, err := a.getStreamerForProvider(activeProfile.Chat.LLMProvider); err == nil {
-			requestStreamer = streamer
-			log.Printf("[SendMessage] Streamer resolvido para provedor do perfil: %s", activeProfile.Chat.LLMProvider)
-		} else {
-			log.Printf("[SendMessage] Erro ao resolver streamer para provedor '%s': %v — usando client global", activeProfile.Chat.LLMProvider, err)
-		}
-	}
-
-	if requestStreamer == nil {
-		providerID := ""
-		if activeProfile != nil {
-			providerID = activeProfile.Chat.LLMProvider
-		}
-		errMsg := "Cliente LLM não disponível. Verifique se o provedor está configurado corretamente."
-		log.Printf("[SendMessage] ERRO: requestStreamer é nil (llmStreamClient=%v, profile.LLMProvider=%q)",
-			a.llmStreamClient == nil, providerID)
+	// Resolve o ChatProvider para o provedor do perfil ativo.
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		errMsg := "Nenhum provedor LLM configurado no perfil ativo."
 		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
 	}
+
+	requestStreamer, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider)
+	if err != nil {
+		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
+		log.Printf("[SendMessage] ERRO: %s", errMsg)
+		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		return 0, fmt.Errorf("%s", errMsg)
+	}
+	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
 	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
 	if len(llmToolDefs) > 0 {
@@ -1625,17 +1592,15 @@ func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, er
 	activeProfile, _ := a.profileManager.GetActive()
 	activeProfile = a.resolveProfileDefaults(activeProfile)
 
-	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
-		if cp, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider); err == nil {
-			log.Printf("[SendMessageSync] Usando ChatProvider (SDK) para provedor '%s'", activeProfile.Chat.LLMProvider)
-			return cp.SendChat(a.ctx, messages, params)
-		}
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
 	}
 
-	if a.llmStreamClient == nil {
-		return "", fmt.Errorf("cliente LLM não inicializado. Configure um perfil com provedor LLM primeiro")
+	cp, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider)
+	if err != nil {
+		return "", err
 	}
-	return a.llmStreamClient.SendMessageSync(a.ctx, messages, params)
+	return cp.SendChat(a.ctx, messages, params)
 }
 
 // GetConfig retorna a configuração atual
