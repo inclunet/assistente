@@ -33,8 +33,7 @@ type ChatProvider interface {
 func NewChatProvider(provider *ProviderConfig, credMgr *credentials.Manager) ChatProvider {
 	switch provider.GetAPIFormat() {
 	case APIFormatAnthropic:
-		// TODO: Fase 2
-		return NewOpenAIProvider(provider, credMgr)
+		return NewAnthropicProvider(provider, credMgr)
 	case APIFormatGoogle:
 		// TODO: Fase 3
 		return NewOpenAIProvider(provider, credMgr)

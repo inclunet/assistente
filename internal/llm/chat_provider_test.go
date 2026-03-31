@@ -46,14 +46,14 @@ func TestNewChatProvider_Factory(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 
 	tests := []struct {
-		name      string
-		format    APIFormat
-		wantType  string
+		name       string
+		format     APIFormat
+		isAnthropic bool
 	}{
-		{"default_empty", "", "*llm.OpenAIProvider"},
-		{"openai", APIFormatOpenAI, "*llm.OpenAIProvider"},
-		{"anthropic_fallback", APIFormatAnthropic, "*llm.OpenAIProvider"}, // TODO: mudará na Fase 2
-		{"google_fallback", APIFormatGoogle, "*llm.OpenAIProvider"},       // TODO: mudará na Fase 3
+		{"default_empty", "", false},
+		{"openai", APIFormatOpenAI, false},
+		{"anthropic", APIFormatAnthropic, true},
+		{"google_fallback", APIFormatGoogle, false}, // TODO: mudará na Fase 3
 	}
 
 	for _, tt := range tests {
@@ -67,6 +67,10 @@ func TestNewChatProvider_Factory(t *testing.T) {
 			provider := NewChatProvider(p, credMgr)
 			if provider == nil {
 				t.Fatal("NewChatProvider returned nil")
+			}
+			_, isAnthropic := provider.(*AnthropicProvider)
+			if isAnthropic != tt.isAnthropic {
+				t.Errorf("isAnthropic = %v, want %v", isAnthropic, tt.isAnthropic)
 			}
 		})
 	}
@@ -210,6 +214,127 @@ func TestCredentialTransport_NilCredMgr(t *testing.T) {
 	tr := newCredentialTransport(nil, "test.com")
 	if tr == nil {
 		t.Fatal("newCredentialTransport returned nil")
+	}
+}
+
+func TestAnthropicProvider_SupportsNativeMCP(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:      "test",
+		Name:    "Test",
+		BaseURL: "https://api.anthropic.com",
+	}
+	provider := NewAnthropicProvider(p, credMgr)
+	if !provider.SupportsNativeMCP() {
+		t.Error("AnthropicProvider.SupportsNativeMCP() = false, want true")
+	}
+}
+
+func TestConvertToAnthropicMessages_SystemExtraction(t *testing.T) {
+	msgs := []Message{
+		{Role: "system", Content: "You are helpful"},
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi!"},
+	}
+
+	system, result := convertToAnthropicMessages(msgs)
+
+	if len(system) != 1 {
+		t.Fatalf("Expected 1 system block, got %d", len(system))
+	}
+	if system[0].Text != "You are helpful" {
+		t.Errorf("System text = %q, want %q", system[0].Text, "You are helpful")
+	}
+	if len(result) != 2 {
+		t.Fatalf("Expected 2 messages (user+assistant), got %d", len(result))
+	}
+}
+
+func TestConvertToAnthropicMessages_ToolResults(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "Check weather"},
+		{
+			Role:    "assistant",
+			Content: "",
+			ToolCalls: []ToolCall{
+				{ID: "call_1", Type: "function", Function: FunctionCall{Name: "weather", Arguments: `{"city":"SP"}`}},
+			},
+		},
+		{Role: "tool", Content: `{"temp": 25}`, ToolCallID: "call_1"},
+	}
+
+	system, result := convertToAnthropicMessages(msgs)
+
+	if len(system) != 0 {
+		t.Fatalf("Expected 0 system blocks, got %d", len(system))
+	}
+
+	// user + assistant + user(tool_result)
+	if len(result) != 3 {
+		t.Fatalf("Expected 3 messages, got %d", len(result))
+	}
+
+	// Last message should be user with tool_result
+	last := result[2]
+	if string(last.Role) != "user" {
+		t.Errorf("Last message role = %q, want %q", last.Role, "user")
+	}
+	if len(last.Content) != 1 {
+		t.Fatalf("Expected 1 content block in tool result message, got %d", len(last.Content))
+	}
+	if last.Content[0].OfToolResult == nil {
+		t.Fatal("Expected ToolResult content block")
+	}
+}
+
+func TestConvertToAnthropicMessages_MultipleToolResults(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "Do two things"},
+		{
+			Role: "assistant",
+			ToolCalls: []ToolCall{
+				{ID: "call_a", Type: "function", Function: FunctionCall{Name: "a", Arguments: `{}`}},
+				{ID: "call_b", Type: "function", Function: FunctionCall{Name: "b", Arguments: `{}`}},
+			},
+		},
+		{Role: "tool", Content: "result_a", ToolCallID: "call_a"},
+		{Role: "tool", Content: "result_b", ToolCallID: "call_b"},
+	}
+
+	_, result := convertToAnthropicMessages(msgs)
+
+	// user + assistant + user(2 tool_results merged)
+	if len(result) != 3 {
+		t.Fatalf("Expected 3 messages, got %d", len(result))
+	}
+
+	toolResultMsg := result[2]
+	if len(toolResultMsg.Content) != 2 {
+		t.Errorf("Expected 2 tool_result blocks merged in one user message, got %d", len(toolResultMsg.Content))
+	}
+}
+
+func TestConvertAnthropicTools(t *testing.T) {
+	tools := []ToolDefinition{
+		{
+			Type: "function",
+			Function: FunctionDefinition{
+				Name:        "get_time",
+				Description: "Returns current time",
+				Parameters:  []byte(`{"type":"object","properties":{}}`),
+			},
+		},
+	}
+
+	result := convertAnthropicTools(tools)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 tool, got %d", len(result))
+	}
+	if result[0].OfTool == nil {
+		t.Fatal("Expected OfTool to be set")
+	}
+	if result[0].OfTool.Name != "get_time" {
+		t.Errorf("Tool name = %q, want %q", result[0].OfTool.Name, "get_time")
 	}
 }
 
