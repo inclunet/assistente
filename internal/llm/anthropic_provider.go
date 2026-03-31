@@ -3,7 +3,9 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -51,18 +53,73 @@ func (p *AnthropicProvider) WithMCPServers(_ []MCPServerConfig) ChatProvider {
 	return p
 }
 
-func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
-	model := params.Model
+func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
+	model := resolveModel(p.provider, params.Model)
 	if model == "" {
-		if p.provider.Model != "" {
-			model = p.provider.Model
-		} else if p.provider.DefaultModel != "" {
-			model = p.provider.DefaultModel
+		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrão configurado")
+	}
+
+	maxTokens := int64(params.MaxTokens)
+	if maxTokens <= 0 {
+		maxTokens = 4096
+	}
+
+	system, anthropicMsgs := convertToAnthropicMessages(messages)
+
+	sdkParams := anthropic.MessageNewParams{
+		Model:     anthropic.Model(model),
+		Messages:  anthropicMsgs,
+		MaxTokens: maxTokens,
+	}
+	if len(system) > 0 {
+		sdkParams.System = system
+	}
+	if params.Temperature > 0 {
+		sdkParams.Temperature = anthropicparam.NewOpt(params.Temperature)
+	}
+
+	msg, err := p.client.Messages.New(ctx, sdkParams)
+	if err != nil {
+		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
+	}
+
+	var sb strings.Builder
+	for _, block := range msg.Content {
+		if block.Type == "text" {
+			sb.WriteString(block.Text)
 		}
-		if model == "" {
-			handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
-			return
-		}
+	}
+	return sb.String(), nil
+}
+
+func (p *AnthropicProvider) GetModels(ctx context.Context) ([]string, error) {
+	page, err := p.client.Models.List(ctx, anthropic.ModelListParams{})
+	if err != nil {
+		return nil, fmt.Errorf("erro ao listar modelos: %w", err)
+	}
+
+	var models []string
+	for _, m := range page.Data {
+		models = append(models, m.ID)
+	}
+
+	sort.Strings(models)
+	return models, nil
+}
+
+func (p *AnthropicProvider) SimpleChat(ctx context.Context, model, systemPrompt, userMessage string) (string, error) {
+	msgs := []Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userMessage},
+	}
+	return p.SendChat(ctx, msgs, ChatParams{Model: model})
+}
+
+func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
+	model := resolveModel(p.provider, params.Model)
+	if model == "" {
+		handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
+		return
 	}
 
 	maxTokens := int64(params.MaxTokens)

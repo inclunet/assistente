@@ -1,3 +1,6 @@
+// Deprecated: SyncClient is the legacy HTTP-raw sync client.
+// Use ChatProvider.SendChat / ChatProvider.SimpleChat instead for providers with api_format set.
+// This file will be removed once all providers are migrated to SDKs.
 package llm
 
 import (

@@ -20,7 +20,9 @@ import (
 	httpclient "assistente/internal/tools/http"
 )
 
-// Client encapsula a lógica de comunicação com a API LLM com suporte a streaming
+// Deprecated: Client is the legacy HTTP-raw streaming/sync client (OpenAI-compat only).
+// Use ChatProvider (via NewChatProvider) for providers with api_format set.
+// Client is kept as fallback for providers without api_format.
 type Client struct {
 	provider   *ProviderConfig
 	cfg        *config.Config // DEPRECATED: mantido para backward compatibility

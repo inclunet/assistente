@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -58,18 +59,83 @@ func (p *GoogleProvider) newClient(ctx context.Context) (*genai.Client, error) {
 	return genai.NewClient(ctx, cc)
 }
 
-func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
-	model := params.Model
+func (p *GoogleProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
+	model := resolveModel(p.provider, params.Model)
 	if model == "" {
-		if p.provider.Model != "" {
-			model = p.provider.Model
-		} else if p.provider.DefaultModel != "" {
-			model = p.provider.DefaultModel
+		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrão configurado")
+	}
+
+	client, err := p.newClient(ctx)
+	if err != nil {
+		return "", fmt.Errorf("erro ao criar cliente Google: %w", err)
+	}
+
+	system, contents := convertToGoogleContents(messages)
+
+	config := &genai.GenerateContentConfig{}
+	if system != nil {
+		config.SystemInstruction = system
+	}
+	if params.Temperature > 0 {
+		t := float32(params.Temperature)
+		config.Temperature = &t
+	}
+	if params.MaxTokens > 0 {
+		config.MaxOutputTokens = int32(params.MaxTokens)
+	}
+
+	resp, err := client.Models.GenerateContent(ctx, model, contents, config)
+	if err != nil {
+		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
+	}
+	if len(resp.Candidates) == 0 || resp.Candidates[0].Content == nil {
+		return "", fmt.Errorf("nenhuma resposta recebida")
+	}
+
+	var sb strings.Builder
+	for _, part := range resp.Candidates[0].Content.Parts {
+		if part.Text != "" {
+			sb.WriteString(part.Text)
 		}
-		if model == "" {
-			handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
-			return
+	}
+	return sb.String(), nil
+}
+
+func (p *GoogleProvider) GetModels(ctx context.Context) ([]string, error) {
+	client, err := p.newClient(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar cliente Google: %w", err)
+	}
+
+	var models []string
+	page, err := client.Models.List(ctx, &genai.ListModelsConfig{})
+	if err != nil {
+		return nil, fmt.Errorf("erro ao listar modelos: %w", err)
+	}
+
+	for _, m := range page.Items {
+		if m.Name != "" {
+			models = append(models, strings.TrimPrefix(m.Name, "models/"))
 		}
+	}
+
+	sort.Strings(models)
+	return models, nil
+}
+
+func (p *GoogleProvider) SimpleChat(ctx context.Context, model, systemPrompt, userMessage string) (string, error) {
+	msgs := []Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userMessage},
+	}
+	return p.SendChat(ctx, msgs, ChatParams{Model: model})
+}
+
+func (p *GoogleProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
+	model := resolveModel(p.provider, params.Model)
+	if model == "" {
+		handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
+		return
 	}
 
 	client, err := p.newClient(ctx)

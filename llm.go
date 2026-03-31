@@ -380,68 +380,56 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 
 // ==================== Wails Bindings ====================
 
-// GetModels retorna a lista de modelos disponíveis na API
+// GetModels retorna a lista de modelos disponíveis na API do provedor ativo.
 func (a *App) GetModels() ([]string, error) {
+	activeProfile, _ := a.profileManager.GetActive()
+	activeProfile = a.resolveProfileDefaults(activeProfile)
+
+	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
+		if cp, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider); err == nil {
+			log.Printf("[GetModels] Usando ChatProvider (SDK) para provedor '%s'", activeProfile.Chat.LLMProvider)
+			return cp.GetModels(a.ctx)
+		}
+	}
+
 	if a.llmStreamClient == nil {
-		log.Printf("[GetModels] llmStreamClient não inicializado. Verifique se há perfil ativo com provedor configurado.")
 		return nil, fmt.Errorf("cliente LLM não inicializado. Configure um perfil com provedor LLM primeiro")
 	}
-	log.Printf("[GetModels] Buscando modelos do provedor...")
-	models, err := a.llmStreamClient.GetModels(a.ctx)
-	if err != nil {
-		log.Printf("[GetModels] Erro ao buscar modelos: %v", err)
-		return nil, fmt.Errorf("erro ao buscar modelos: %w", err)
-	}
-	log.Printf("[GetModels] %d modelos encontrados", len(models))
-	return models, nil
+	return a.llmStreamClient.GetModels(a.ctx)
 }
 
-// GetModelsByProvider retorna a lista de modelos de um provedor específico
+// GetModelsByProvider retorna a lista de modelos de um provedor específico.
 func (a *App) GetModelsByProvider(providerID string) ([]string, error) {
 	if providerID == "" {
 		return []string{}, nil
 	}
 
+	if cp, err := a.getChatProviderForProvider(providerID); err == nil {
+		log.Printf("[GetModelsByProvider] Usando ChatProvider (SDK) para provedor '%s'", providerID)
+		return cp.GetModels(a.ctx)
+	}
+
+	// Fallback: legacy client
 	provider := a.llmRegistry.Get(providerID)
 	if provider == nil {
 		return nil, fmt.Errorf("provedor '%s' não encontrado", providerID)
 	}
 
-	log.Printf("[GetModelsByProvider] Provedor: %s, Type: %s, Hostname: '%s'", provider.Name, provider.Type, provider.CredentialPattern)
-
-	// Buscar credencial do provedor (opcional para provedores locais)
 	var apiKey string
-	authCfg, err := a.credMgr.GetByPattern(provider.CredentialPattern)
-	if err == nil && authCfg != nil {
+	if authCfg, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && authCfg != nil {
 		apiKey = authCfg.Token
-		log.Printf("[GetModelsByProvider] ✓ Credencial encontrada (len=%d chars)", len(apiKey))
-	} else {
-		log.Printf("[GetModelsByProvider] ✗ Credencial NÃO encontrada para hostname '%s': %v", provider.CredentialPattern, err)
 	}
-	// Se não houver credencial, apiKey fica vazio (OK para provedores locais)
 
-	// Criar cliente temporário para buscar modelos
 	tempCfg := &config.Config{
 		APIKey:     apiKey,
 		APIBaseURL: provider.BaseURL,
 	}
-
-	if apiKey != "" {
-		log.Printf("[GetModelsByProvider] APIKey passada para o client (primeiros 10 chars): %s...", apiKey[:min(10, len(apiKey))])
-	} else {
-		log.Printf("[GetModelsByProvider] ATENÇÃO: APIKey VAZIA sendo passada para o client!")
-	}
-
 	tempClient := llm.NewClient(provider, tempCfg, a.credMgr)
 
 	models, err := tempClient.GetModels(a.ctx)
 	if err != nil {
-		log.Printf("[GetModelsByProvider] ERRO ao buscar modelos: %v", err)
 		return nil, fmt.Errorf("erro ao buscar modelos do provedor '%s': %w", providerID, err)
 	}
-
-	log.Printf("[GetModelsByProvider] Sucesso! %d modelos encontrados", len(models))
-
 	return models, nil
 }
 
@@ -1634,6 +1622,16 @@ func truncateStr(s string, maxLen int) string {
 
 // SendMessageSync envia uma mensagem sem streaming (para acessibilidade)
 func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, error) {
+	activeProfile, _ := a.profileManager.GetActive()
+	activeProfile = a.resolveProfileDefaults(activeProfile)
+
+	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
+		if cp, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider); err == nil {
+			log.Printf("[SendMessageSync] Usando ChatProvider (SDK) para provedor '%s'", activeProfile.Chat.LLMProvider)
+			return cp.SendChat(a.ctx, messages, params)
+		}
+	}
+
 	if a.llmStreamClient == nil {
 		return "", fmt.Errorf("cliente LLM não inicializado. Configure um perfil com provedor LLM primeiro")
 	}

@@ -3,7 +3,9 @@ package llm
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"time"
 
@@ -56,18 +58,66 @@ func (p *OpenAIProvider) WithMCPServers(_ []MCPServerConfig) ChatProvider {
 	return p
 }
 
-func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
-	model := params.Model
+func (p *OpenAIProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
+	model := resolveModel(p.provider, params.Model)
 	if model == "" {
-		if p.provider.Model != "" {
-			model = p.provider.Model
-		} else if p.provider.DefaultModel != "" {
-			model = p.provider.DefaultModel
+		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrão configurado")
+	}
+
+	sdkParams := openai.ChatCompletionNewParams{
+		Model:    shared.ChatModel(model),
+		Messages: convertMessages(messages),
+	}
+	if params.Temperature > 0 {
+		sdkParams.Temperature = param.NewOpt(params.Temperature)
+	}
+	if params.MaxTokensMode == "completion_tokens" {
+		sdkParams.MaxCompletionTokens = param.NewOpt(int64(params.MaxTokens))
+	} else if params.MaxTokens > 0 {
+		sdkParams.MaxTokens = param.NewOpt(int64(params.MaxTokens))
+	}
+
+	completion, err := p.client.Chat.Completions.New(ctx, sdkParams)
+	if err != nil {
+		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
+	}
+	if len(completion.Choices) == 0 {
+		return "", fmt.Errorf("nenhuma resposta recebida")
+	}
+	return completion.Choices[0].Message.Content, nil
+}
+
+func (p *OpenAIProvider) GetModels(ctx context.Context) ([]string, error) {
+	page, err := p.client.Models.List(ctx)
+	if err != nil {
+		if strings.Contains(err.Error(), "404") {
+			return nil, fmt.Errorf("models_endpoint_not_supported")
 		}
-		if model == "" {
-			handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
-			return
-		}
+		return nil, fmt.Errorf("erro ao listar modelos: %w", err)
+	}
+
+	var models []string
+	for _, m := range page.Data {
+		models = append(models, m.ID)
+	}
+
+	sort.Strings(models)
+	return models, nil
+}
+
+func (p *OpenAIProvider) SimpleChat(ctx context.Context, model, systemPrompt, userMessage string) (string, error) {
+	msgs := []Message{
+		{Role: "system", Content: systemPrompt},
+		{Role: "user", Content: userMessage},
+	}
+	return p.SendChat(ctx, msgs, ChatParams{Model: model})
+}
+
+func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, params ChatParams, handler StreamHandler, tools ...ToolDefinition) {
+	model := resolveModel(p.provider, params.Model)
+	if model == "" {
+		handler.OnError("Nenhum modelo especificado e nenhum modelo padrão configurado")
+		return
 	}
 
 	sdkParams := openai.ChatCompletionNewParams{

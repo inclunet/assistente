@@ -88,8 +88,7 @@ type UpdateLLMProviderRequest struct {
 // App struct
 type App struct {
 	ctx                   context.Context
-	llmClient             *llm.SyncClient
-	llmStreamClient       *llm.Client
+	llmStreamClient       *llm.Client // DEPRECATED: mantido como fallback para providers sem api_format
 	llmRegistry           *llm.ProviderRegistry // Registro de provedores LLM
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
@@ -287,7 +286,6 @@ func (a *App) initLLMClient() {
 	}
 
 	// Create clients with provider config
-	a.llmClient = llm.NewSyncClient(provider, a.credMgr)
 	a.llmStreamClient = llm.NewClient(provider, cfg, a.credMgr)
 	log.Printf("LLM Client inicializado com provedor: %s", provider.Name)
 }
@@ -324,8 +322,27 @@ func (a *App) getStreamerForProvider(providerID string) (llm.Streamer, error) {
 	return llm.NewClient(provider, cfg, a.credMgr), nil
 }
 
+// getChatProviderForProvider retorna um ChatProvider para o provedor especificado.
+// Só funciona para provedores com api_format definido. Retorna erro se for legacy.
+func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, error) {
+	if a.llmRegistry == nil {
+		return nil, fmt.Errorf("registro de provedores não inicializado")
+	}
+
+	provider := a.llmRegistry.Get(providerID)
+	if provider == nil {
+		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
+	}
+
+	if provider.APIFormat == "" {
+		return nil, fmt.Errorf("provedor '%s' não tem api_format (legacy)", provider.Name)
+	}
+
+	return llm.NewChatProvider(provider, a.credMgr), nil
+}
+
 // getClientForProvider creates a new legacy LLM client for a specific provider.
-// Used for non-streaming operations (GetModels, SendMessageSync).
+// Used as fallback for providers without api_format.
 func (a *App) getClientForProvider(providerID string) (*llm.Client, error) {
 	if a.llmRegistry == nil {
 		return nil, fmt.Errorf("registro de provedores não inicializado")
@@ -3708,7 +3725,6 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
 		}
 	}
 
-	// Cria provider temporário para usar o client LLM
 	hostname := parsedURL.Hostname()
 	tempProvider := &llm.ProviderConfig{
 		ID:                "temp-form",
@@ -3718,17 +3734,25 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
 		CredentialPattern: hostname,
 		Timeout:           15,
 	}
-	tempCfg := &config.Config{
-		APIKey:     apiKey,
-		APIBaseURL: req.BaseURL,
-	}
 
-	tempClient := llm.NewClient(tempProvider, tempCfg, a.credMgr)
+	// Se tem API key ad-hoc, registra temporariamente para o credential manager achar
+	if apiKey != "" && a.credMgr != nil {
+		_ = a.credMgr.RegisterPatternWithContext(a.ctx, hostname, &credentials.AuthConfig{
+			Type: "bearer", Token: apiKey,
+		})
+		defer func() {
+			if req.ProviderID == "" {
+				_ = a.credMgr.DeletePattern(a.ctx, hostname)
+			}
+		}()
+	}
 
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 
-	models, err := tempClient.GetModels(ctx)
+	// Usa ChatProvider se o tipo tem api_format inferível
+	cp := llm.NewChatProvider(tempProvider, a.credMgr)
+	models, err := cp.GetModels(ctx)
 	if err != nil {
 		return nil, err
 	}
