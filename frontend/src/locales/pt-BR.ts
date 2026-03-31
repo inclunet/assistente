@@ -917,6 +917,8 @@ const ptBR = {
       name: 'Nome',
       namePlaceholder: 'Meu Provedor OpenAI',
       providerType: 'Tipo de Provedor',
+      apiProtocol: 'Protocolo API',
+      apiProtocolHelp: 'SDK usado para comunicação. Preenchido automaticamente com base no tipo do provedor.',
       baseUrl: 'Base URL',
       defaultUrl: 'https://api.openai.com/v1',
       urlReadonly: 'URL padrão - não pode ser alterada para este tipo',

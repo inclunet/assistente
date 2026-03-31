@@ -26,7 +26,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0018](0018-http-unified-client.md) | Cliente HTTP Unificado | ✅ Done |
 | [0019](0019-http-client-centralization.md) | Centralização do Cliente HTTP | ✅ Done |
 | [0020](0020-mcp-implementation.md) | MCP Complete Implementation | ✅ Done |
-| [0021](0021-mcp-native-mode.md) | MCP Modo Nativo | ✅ Done |
+| [0021](0021-mcp-native-mode.md) | MCP Modo Nativo (v2) | 🚧 In Progress |
 | [0022](0022-welcome-wizard.md) | Welcome Wizard | ✅ Done |
 | [0023](0023-deep-links.md) | Deep Links (assistente://) | ✅ Done |
 | [0024](0024-speech-architecture.md) | Arquitetura de Voz (TTS/STT) | ✅ Done |
@@ -39,6 +39,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0031](0031-email-refinements-security.md) | Email + Chat Security | 📋 Open |
 | [0032](0032-editor-rico.md) | Editor Rico + Inline Chat | 📋 Open |
 | [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery | 📋 Open |
+| [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |
 
 ## Status Legend
 

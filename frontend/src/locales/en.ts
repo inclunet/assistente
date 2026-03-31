@@ -943,6 +943,8 @@ const en = {
       name: 'Name',
       namePlaceholder: 'My OpenAI Provider',
       providerType: 'Provider Type',
+      apiProtocol: 'API Protocol',
+      apiProtocolHelp: 'SDK used for communication. Auto-filled based on provider type.',
       baseUrl: 'Base URL',
       defaultUrl: 'https://api.openai.com/v1',
       urlReadonly: 'Default URL - cannot be changed for this type',

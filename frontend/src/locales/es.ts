@@ -942,6 +942,8 @@ const es = {
       name: 'Nombre',
       namePlaceholder: 'Mi proveedor OpenAI',
       providerType: 'Tipo de proveedor',
+      apiProtocol: 'Protocolo API',
+      apiProtocolHelp: 'SDK utilizado para la comunicación. Se completa automáticamente según el tipo de proveedor.',
       baseUrl: 'URL base',
       defaultUrl: 'https://api.openai.com/v1',
       urlReadonly: 'URL predeterminada - no puede cambiarse para este tipo',

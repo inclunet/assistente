@@ -20,6 +20,7 @@ export interface ProviderFormData {
   base_url: string;
   api_key: string;
   default_model?: string;
+  api_format?: string;
 }
 
 export interface ProviderFormProps {
@@ -37,10 +38,11 @@ interface ProviderConfig {
   testRequiresApiKey: boolean;
   helpText?: string;
   defaultModel?: string;
+  apiFormat?: string; // "openai" | "anthropic" | "google" | "" (legacy HTTP)
 }
 
 export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
-  // Commercial API providers - require API key only
+  // Commercial API providers - native SDKs
   openai: {
     label: 'OpenAI',
     defaultUrl: 'https://api.openai.com/v1',
@@ -49,6 +51,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://platform.openai.com/api-keys',
     defaultModel: 'gpt-4o-mini',
+    apiFormat: 'openai',
   },
   anthropic: {
     label: 'Anthropic',
@@ -58,6 +61,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.anthropic.com',
     defaultModel: 'claude-sonnet-4-20250514',
+    apiFormat: 'anthropic',
   },
   google: {
     label: 'Google (Gemini)',
@@ -67,7 +71,10 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://aistudio.google.com',
     defaultModel: 'gemini-2.0-flash',
+    apiFormat: 'google',
   },
+
+  // OpenAI-compatible providers - use OpenAI SDK
   openrouter: {
     label: 'OpenRouter',
     defaultUrl: 'https://openrouter.ai/api',
@@ -75,6 +82,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://openrouter.ai/keys',
+    apiFormat: 'openai',
   },
   deepseek: {
     label: 'DeepSeek',
@@ -84,6 +92,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://platform.deepseek.com',
     defaultModel: 'deepseek-chat',
+    apiFormat: 'openai',
   },
   xai: {
     label: 'xAI (Grok)',
@@ -93,6 +102,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.x.ai',
     defaultModel: 'grok-3-mini',
+    apiFormat: 'openai',
   },
   mistral: {
     label: 'Mistral AI',
@@ -102,6 +112,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.mistral.ai',
     defaultModel: 'mistral-small-latest',
+    apiFormat: 'openai',
   },
   groq: {
     label: 'Groq',
@@ -111,6 +122,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://console.groq.com',
     defaultModel: 'llama-3.3-70b-versatile',
+    apiFormat: 'openai',
   },
   together: {
     label: 'Together AI',
@@ -119,6 +131,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://api.together.ai/settings/api-keys',
+    apiFormat: 'openai',
   },
   fireworks: {
     label: 'Fireworks AI',
@@ -127,6 +140,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://fireworks.ai/account/api-keys',
+    apiFormat: 'openai',
   },
   perplexity: {
     label: 'Perplexity',
@@ -136,6 +150,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://www.perplexity.ai/settings/api',
     defaultModel: 'sonar',
+    apiFormat: 'openai',
   },
   cohere: {
     label: 'Cohere',
@@ -144,6 +159,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://dashboard.cohere.ai',
+    apiFormat: 'openai',
   },
 
   // Local/self-hosted providers - URL editable, token optional
@@ -154,6 +170,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: false,
     testRequiresApiKey: false,
     helpText: 'Running locally. You can change the URL if using a different host/port',
+    apiFormat: 'openai',
   },
   localai: {
     label: 'LocalAI',
@@ -162,6 +179,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: false,
     testRequiresApiKey: false,
     helpText: 'Running locally. Configure URL and optional API key if needed',
+    apiFormat: 'openai',
   },
 
   // LiteLLM proxy - both URL and token required
@@ -172,6 +190,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     apiKeyRequired: true,
     testRequiresApiKey: true,
     helpText: 'LiteLLM proxy server. Requires URL and API key',
+    apiFormat: 'openai',
   },
 
   // Custom provider - user must configure everything
@@ -191,6 +210,13 @@ const PROVIDER_TYPES = Object.entries(PROVIDER_CONFIG).map(([key, config]) => ({
   label: config.label,
 }));
 
+const API_FORMAT_OPTIONS = [
+  { value: '',          label: 'Compatível (HTTP legacy)' },
+  { value: 'openai',    label: 'OpenAI SDK' },
+  { value: 'anthropic', label: 'Anthropic SDK' },
+  { value: 'google',    label: 'Google SDK' },
+];
+
 export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) => {
   const { t } = useTranslation();
   const [formData, setFormData] = useState<ProviderFormData>({
@@ -198,6 +224,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     type: 'openai',
     base_url: '',
     api_key: '',
+    api_format: PROVIDER_CONFIG.openai.apiFormat || '',
   });
   const [showPassword, setShowPassword] = useState(false);
   const [showApiKeyField, setShowApiKeyField] = useState(false);
@@ -282,6 +309,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
 
   useEffect(() => {
     if (provider) {
+      const provConfig = PROVIDER_CONFIG[provider.type] || PROVIDER_CONFIG.custom;
       setFormData({
         id: provider.id,
         name: provider.name,
@@ -289,6 +317,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         base_url: provider.base_url,
         api_key: '',
         default_model: provider.default_model || '',
+        api_format: provider.api_format ?? provConfig.apiFormat ?? '',
       });
       setApiTested(false);
       setShowApiKeyField(false);
@@ -304,6 +333,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         type: defaultType,
         base_url: config.defaultUrl,
         api_key: '',
+        api_format: config.apiFormat || '',
       });
       setApiTested(false);
       setShowApiKeyField(true);
@@ -340,7 +370,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
     }
   }, [provider]);
 
-  // Atualiza URL quando tipo de provedor muda
+  // Atualiza URL e api_format quando tipo de provedor muda
   useEffect(() => {
     if (!provider) {
       const config = PROVIDER_CONFIG[formData.type] || PROVIDER_CONFIG.custom;
@@ -348,8 +378,8 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
         ...prev,
         base_url: config.defaultUrl,
         default_model: '',
+        api_format: config.apiFormat || '',
       }));
-      // Reset state quando muda tipo
       setApiTested(false);
       setModels([]);
       setModelsLoaded(false);
@@ -499,6 +529,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             base_url: canonicalUrl,
             api_key: formData.api_key || undefined,
             default_model: formData.default_model || undefined,
+            api_format: formData.api_format || undefined,
           }),
           15000,
           'UpdateLLMProvider'
@@ -514,6 +545,7 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
             base_url: canonicalUrl,
             api_key: formData.api_key || undefined,
             default_model: formData.default_model || suggestedDefault || undefined,
+            api_format: formData.api_format || undefined,
           }),
           15000,
           'CreateLLMProvider'
@@ -563,6 +595,18 @@ export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) 
           options={PROVIDER_TYPES}
           value={formData.type}
           onChange={(e) => handleChange('type', e.target.value)}
+          fullWidth
+        />
+      </FormField>
+
+      <FormField
+        label={t('providerForm.apiProtocol')}
+        description={t('providerForm.apiProtocolHelp')}
+      >
+        <Select
+          options={API_FORMAT_OPTIONS}
+          value={formData.api_format || ''}
+          onChange={(e) => setFormData(prev => ({ ...prev, api_format: e.target.value }))}
           fullWidth
         />
       </FormField>

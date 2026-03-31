@@ -30,6 +30,7 @@ interface Provider {
   id: string;
   name: string;
   type: string;
+  api_format?: string;
   base_url: string;
   credential_required: boolean;
   credential_status: 'none' | 'configured' | 'missing';
@@ -137,6 +138,7 @@ export default function ProvidersPage() {
       base_url: provider.base_url,
       api_key: '',
       default_model: (provider as Provider).default_model || '',
+      api_format: (provider as Provider).api_format || '',
     });
     setIsEditing(true);
   }, []);
@@ -171,6 +173,7 @@ export default function ProvidersPage() {
         name,
         type: provider.type,
         base_url: provider.base_url,
+        api_format: (provider as Provider).api_format || undefined,
       });
       addToast(t('providers.toast.duplicated'), 'success');
       announce(t('providers.toast.duplicated'));

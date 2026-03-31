@@ -3,7 +3,6 @@ package main
 import (
 	"testing"
 
-	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -166,8 +165,8 @@ func TestProviderValidation(t *testing.T) {
 	}
 }
 
-// TestClientUsesProviderConfig verifica que o cliente usa configuração do provider
-func TestClientUsesProviderConfig(t *testing.T) {
+// TestChatProviderUsesProviderConfig verifica que o ChatProvider é criado a partir da config do provider
+func TestChatProviderUsesProviderConfig(t *testing.T) {
 	provider := &llm.ProviderConfig{
 		ID:      "test-client",
 		Name:    "Test Client",
@@ -177,18 +176,13 @@ func TestClientUsesProviderConfig(t *testing.T) {
 		Timeout: 120,
 	}
 
-	cfg := &config.Config{}
-	// Criar credentials manager com chave de teste
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
 
-	client := llm.NewClient(provider, cfg, credMgr)
-	if client == nil {
-		t.Fatal("Cliente não foi criado")
+	cp := llm.NewChatProvider(provider, credMgr)
+	if cp == nil {
+		t.Fatal("ChatProvider não foi criado")
 	}
-
-	// Não podemos testar internos privados, mas verificamos que não crashou
-	// Em testes reais, mockariamos HTTP para verificar URL/headers
 }
 
 // TestActiveProviderFromProfile verifica que perfil ativo determina provider
