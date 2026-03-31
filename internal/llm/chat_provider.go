@@ -6,6 +6,14 @@ import (
 	"assistente/internal/credentials"
 )
 
+// Streamer é a interface mínima para streaming de chat.
+// Tanto *Client (legado, HTTP raw) quanto ChatProvider (SDKs oficiais) a satisfazem.
+// Usado como parâmetro de runAgenticLoop e no routing de sendMessageInternal.
+type Streamer interface {
+	StreamChat(ctx context.Context, messages []Message, params ChatParams,
+		handler StreamHandler, tools ...ToolDefinition)
+}
+
 // MCPServerConfig descreve um MCP server HTTP remoto para resolução nativa server-side.
 type MCPServerConfig struct {
 	Label      string `json:"label"`
@@ -16,10 +24,9 @@ type MCPServerConfig struct {
 
 // ChatProvider abstrai a comunicação com LLMs via SDKs oficiais.
 // Cada implementação (OpenAI, Anthropic, Google) encapsula o SDK correspondente.
+// ChatProvider é um superset de Streamer com suporte adicional a MCP.
 type ChatProvider interface {
-	// StreamChat envia mensagens com streaming e executa handler para cada evento.
-	StreamChat(ctx context.Context, messages []Message, params ChatParams,
-		handler StreamHandler, tools ...ToolDefinition)
+	Streamer
 
 	// SupportsNativeMCP indica se este provider suporta MCP connector nativo.
 	SupportsNativeMCP() bool

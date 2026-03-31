@@ -1057,3 +1057,162 @@ func (h *testStreamHandler) OnDone(fullResponse string, usage llm.Usage, model s
 	h.model = model
 	close(h.done)
 }
+
+// --- getStreamerForProvider tests ---
+
+// TestGetStreamerForProvider_LegacyProvider verifica que provedores sem api_format
+// retornam o *llm.Client legado (via Streamer interface).
+func TestGetStreamerForProvider_LegacyProvider(t *testing.T) {
+	registry := llm.NewProviderRegistry()
+	provider := &llm.ProviderConfig{
+		ID:      "legacy-test",
+		Name:    "Legacy Provider",
+		Type:    llm.ProviderCustom,
+		BaseURL: "https://api.example.com/v1",
+		// APIFormat vazio → legado
+	}
+	if err := registry.Register(provider); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	testKey := []byte("test-key-32-bytes-long-key!!")
+	credMgr := credentials.NewManager(testKey)
+	app := &App{llmRegistry: registry, credMgr: credMgr}
+
+	streamer, err := app.getStreamerForProvider("legacy-test")
+	if err != nil {
+		t.Fatalf("getStreamerForProvider error: %v", err)
+	}
+	if streamer == nil {
+		t.Fatal("Expected non-nil streamer")
+	}
+
+	// Legacy provider → *llm.Client
+	if _, ok := streamer.(*llm.Client); !ok {
+		t.Errorf("Expected *llm.Client, got %T", streamer)
+	}
+}
+
+// TestGetStreamerForProvider_OpenAIFormat verifica que provedores com api_format=openai
+// retornam um ChatProvider (OpenAIProvider).
+func TestGetStreamerForProvider_OpenAIFormat(t *testing.T) {
+	registry := llm.NewProviderRegistry()
+	provider := &llm.ProviderConfig{
+		ID:        "sdk-openai",
+		Name:      "SDK OpenAI",
+		Type:      llm.ProviderOpenAI,
+		BaseURL:   "https://api.openai.com/v1",
+		APIFormat: llm.APIFormatOpenAI,
+	}
+	if err := registry.Register(provider); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	testKey := []byte("test-key-32-bytes-long-key!!")
+	credMgr := credentials.NewManager(testKey)
+	app := &App{llmRegistry: registry, credMgr: credMgr}
+
+	streamer, err := app.getStreamerForProvider("sdk-openai")
+	if err != nil {
+		t.Fatalf("getStreamerForProvider error: %v", err)
+	}
+	if streamer == nil {
+		t.Fatal("Expected non-nil streamer")
+	}
+
+	// api_format=openai → ChatProvider (OpenAIProvider)
+	if _, ok := streamer.(*llm.Client); ok {
+		t.Error("Expected ChatProvider, got *llm.Client (legacy)")
+	}
+}
+
+// TestGetStreamerForProvider_AnthropicFormat verifica que api_format=anthropic
+// retorna ChatProvider (AnthropicProvider).
+func TestGetStreamerForProvider_AnthropicFormat(t *testing.T) {
+	registry := llm.NewProviderRegistry()
+	provider := &llm.ProviderConfig{
+		ID:        "sdk-anthropic",
+		Name:      "SDK Anthropic",
+		Type:      llm.ProviderClaude,
+		BaseURL:   "https://api.anthropic.com/v1",
+		APIFormat: llm.APIFormatAnthropic,
+	}
+	if err := registry.Register(provider); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	testKey := []byte("test-key-32-bytes-long-key!!")
+	credMgr := credentials.NewManager(testKey)
+	app := &App{llmRegistry: registry, credMgr: credMgr}
+
+	streamer, err := app.getStreamerForProvider("sdk-anthropic")
+	if err != nil {
+		t.Fatalf("getStreamerForProvider error: %v", err)
+	}
+	if streamer == nil {
+		t.Fatal("Expected non-nil streamer")
+	}
+
+	if _, ok := streamer.(*llm.Client); ok {
+		t.Error("Expected ChatProvider, got *llm.Client (legacy)")
+	}
+}
+
+// TestGetStreamerForProvider_GoogleFormat verifica que api_format=google
+// retorna ChatProvider (GoogleProvider).
+func TestGetStreamerForProvider_GoogleFormat(t *testing.T) {
+	registry := llm.NewProviderRegistry()
+	provider := &llm.ProviderConfig{
+		ID:        "sdk-google",
+		Name:      "SDK Google",
+		Type:      llm.ProviderType("gemini"),
+		BaseURL:   "https://generativelanguage.googleapis.com",
+		APIFormat: llm.APIFormatGoogle,
+	}
+	if err := registry.Register(provider); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	testKey := []byte("test-key-32-bytes-long-key!!")
+	credMgr := credentials.NewManager(testKey)
+	app := &App{llmRegistry: registry, credMgr: credMgr}
+
+	streamer, err := app.getStreamerForProvider("sdk-google")
+	if err != nil {
+		t.Fatalf("getStreamerForProvider error: %v", err)
+	}
+	if streamer == nil {
+		t.Fatal("Expected non-nil streamer")
+	}
+
+	if _, ok := streamer.(*llm.Client); ok {
+		t.Error("Expected ChatProvider, got *llm.Client (legacy)")
+	}
+}
+
+// TestGetStreamerForProvider_NilRegistry verifica comportamento com registry nil.
+func TestGetStreamerForProvider_NilRegistry(t *testing.T) {
+	app := &App{llmRegistry: nil}
+
+	streamer, err := app.getStreamerForProvider("any")
+	if err == nil {
+		t.Fatal("Expected error for nil registry")
+	}
+	if streamer != nil {
+		t.Fatal("Expected nil streamer")
+	}
+}
+
+// TestGetStreamerForProvider_UnknownProvider verifica comportamento com provedor inexistente.
+func TestGetStreamerForProvider_UnknownProvider(t *testing.T) {
+	registry := llm.NewProviderRegistry()
+	app := &App{llmRegistry: registry}
+
+	streamer, err := app.getStreamerForProvider("nonexistent")
+	if err == nil {
+		t.Fatal("Expected error for unknown provider")
+	}
+	if streamer != nil {
+		t.Fatal("Expected nil streamer")
+	}
+}

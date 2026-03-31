@@ -295,9 +295,35 @@ func (a *App) ReloadLLMClient() {
 	a.initLLMClient()
 }
 
-// getClientForProvider creates a new LLM client for a specific provider.
-// Used to ensure requests are routed to the correct provider endpoint
-// when the active profile differs from the global default.
+// getStreamerForProvider cria o Streamer adequado para um provedor específico.
+// Se o provedor tem api_format definido, usa ChatProvider (SDK oficial).
+// Caso contrário, usa o Client legado (HTTP raw OpenAI-compat).
+func (a *App) getStreamerForProvider(providerID string) (llm.Streamer, error) {
+	if a.llmRegistry == nil {
+		return nil, fmt.Errorf("registro de provedores não inicializado")
+	}
+
+	provider := a.llmRegistry.Get(providerID)
+	if provider == nil {
+		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
+	}
+
+	if provider.APIFormat != "" {
+		log.Printf("[Streamer] Usando ChatProvider (SDK) para provedor '%s' (api_format=%s)", provider.Name, provider.APIFormat)
+		return llm.NewChatProvider(provider, a.credMgr), nil
+	}
+
+	cfg, err := config.Load()
+	if err != nil {
+		return nil, fmt.Errorf("erro ao carregar config: %w", err)
+	}
+
+	log.Printf("[Streamer] Usando Client legado para provedor '%s'", provider.Name)
+	return llm.NewClient(provider, cfg, a.credMgr), nil
+}
+
+// getClientForProvider creates a new legacy LLM client for a specific provider.
+// Used for non-streaming operations (GetModels, SendMessageSync).
 func (a *App) getClientForProvider(providerID string) (*llm.Client, error) {
 	if a.llmRegistry == nil {
 		return nil, fmt.Errorf("registro de provedores não inicializado")

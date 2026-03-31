@@ -253,11 +253,11 @@ func (a *App) runAgenticLoop(
 	conversationID uint,
 	turnID uint, // ID da mensagem do usuário (agrupa o turno)
 	toolDefs []llm.ToolDefinition,
-	client *llm.Client, // client específico do provedor do perfil (evita enviar para provedor errado)
+	streamer llm.Streamer, // ChatProvider (SDK) ou *Client (legado) — ambos satisfazem Streamer
 ) {
-	if client == nil {
+	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
-		log.Printf("🔴 [AGENT] client nil na conversa %d", conversationID)
+		log.Printf("🔴 [AGENT] streamer nil na conversa %d", conversationID)
 		runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
 			Content:        "",
 			Done:           true,
@@ -306,7 +306,7 @@ func (a *App) runAgenticLoop(
 		if editorToolOnly && iteration == 0 {
 			iterCtx = llm.WithToolChoice(iterCtx, "required")
 		}
-		client.StreamChat(iterCtx, messages, params, handler, toolDefs...)
+		streamer.StreamChat(iterCtx, messages, params, handler, toolDefs...)
 
 		result := handler.result
 

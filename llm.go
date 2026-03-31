@@ -781,26 +781,26 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 	}
 
-	// Resolve o client correto para o provedor do perfil ativo.
-	// Isso garante que o request seja enviado ao endpoint correto,
-	// mesmo quando o perfil selecionado usa um provedor diferente do global.
-	requestClient := a.llmStreamClient
+	// Resolve o streamer correto para o provedor do perfil ativo.
+	// Se o provedor tem api_format definido, usa ChatProvider (SDK oficial).
+	// Caso contrário, usa o Client legado (HTTP raw OpenAI-compat).
+	var requestStreamer llm.Streamer = a.llmStreamClient
 	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
-		if client, err := a.getClientForProvider(activeProfile.Chat.LLMProvider); err == nil {
-			requestClient = client
-			log.Printf("[SendMessage] Client resolvido para provedor do perfil: %s", activeProfile.Chat.LLMProvider)
+		if streamer, err := a.getStreamerForProvider(activeProfile.Chat.LLMProvider); err == nil {
+			requestStreamer = streamer
+			log.Printf("[SendMessage] Streamer resolvido para provedor do perfil: %s", activeProfile.Chat.LLMProvider)
 		} else {
-			log.Printf("[SendMessage] Erro ao resolver client para provedor '%s': %v — usando client global", activeProfile.Chat.LLMProvider, err)
+			log.Printf("[SendMessage] Erro ao resolver streamer para provedor '%s': %v — usando client global", activeProfile.Chat.LLMProvider, err)
 		}
 	}
 
-	if requestClient == nil {
+	if requestStreamer == nil {
 		providerID := ""
 		if activeProfile != nil {
 			providerID = activeProfile.Chat.LLMProvider
 		}
 		errMsg := "Cliente LLM não disponível. Verifique se o provedor está configurado corretamente."
-		log.Printf("[SendMessage] ERRO: requestClient é nil (llmStreamClient=%v, profile.LLMProvider=%q)",
+		log.Printf("[SendMessage] ERRO: requestStreamer é nil (llmStreamClient=%v, profile.LLMProvider=%q)",
 			a.llmStreamClient == nil, providerID)
 		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
@@ -817,10 +817,10 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 		go func() {
 			defer a.recoverFromPanic(conversationID, "runAgenticLoop")
-			a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs, requestClient)
+			a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs, requestStreamer)
 		}()
 	} else {
-		// Sem ferramentas: streaming simples (comportamento original)
+		// Sem ferramentas: streaming simples
 		handler := &appStreamHandler{
 			app:            a,
 			conversationID: conversationID,
@@ -828,7 +828,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 		go func() {
 			defer a.recoverFromPanic(conversationID, "StreamChat")
-			requestClient.StreamChat(a.ctx, messages, params, handler)
+			requestStreamer.StreamChat(a.ctx, messages, params, handler)
 		}()
 	}
 	return conversationID, nil
