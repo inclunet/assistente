@@ -66,6 +66,7 @@ type CreateLLMProviderRequest struct {
 	BaseURL      string `json:"base_url"`
 	APIKey       string `json:"api_key,omitempty"`
 	DefaultModel string `json:"default_model,omitempty"`
+	APIFormat    string `json:"api_format,omitempty"`
 }
 
 type TestLLMProviderRequest struct {
@@ -81,6 +82,7 @@ type UpdateLLMProviderRequest struct {
 	BaseURL      string `json:"base_url,omitempty"`
 	APIKey       string `json:"api_key,omitempty"`
 	DefaultModel string `json:"default_model,omitempty"`
+	APIFormat    string `json:"api_format,omitempty"`
 }
 
 // App struct
@@ -3776,6 +3778,7 @@ func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interf
 		ID:                req.ID,
 		Name:              req.Name,
 		Type:              llm.ProviderType(req.Type),
+		APIFormat:         llm.APIFormat(req.APIFormat),
 		BaseURL:           req.BaseURL,
 		Model:             "",
 		DefaultModel:      req.DefaultModel,
@@ -3830,6 +3833,7 @@ func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[st
 		ID:                existing.ID,
 		Name:              existing.Name,
 		Type:              existing.Type,
+		APIFormat:         existing.APIFormat,
 		BaseURL:           existing.BaseURL,
 		Model:             existing.Model,
 		DefaultModel:      existing.DefaultModel,
@@ -3843,6 +3847,9 @@ func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[st
 	}
 	if req.Type != "" {
 		updated.Type = llm.ProviderType(req.Type)
+	}
+	if req.APIFormat != "" {
+		updated.APIFormat = llm.APIFormat(req.APIFormat)
 	}
 	if req.DefaultModel != "" {
 		updated.DefaultModel = req.DefaultModel
@@ -3964,6 +3971,7 @@ func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 			"id":                    p.ID,
 			"name":                  p.Name,
 			"type":                  string(p.Type),
+			"api_format":            string(p.APIFormat),
 			"base_url":              p.BaseURL,
 			"model":                 p.Model,
 			"default_model":         p.DefaultModel,

@@ -1296,6 +1296,7 @@ export namespace llm {
 	    id: string;
 	    name: string;
 	    type: string;
+	    api_format?: string;
 	    base_url: string;
 	    model?: string;
 	    default_model?: string;
@@ -1303,16 +1304,17 @@ export namespace llm {
 	    timeout?: number;
 	    headers?: Record<string, string>;
 	    credential_pattern?: string;
-	
+
 	    static createFrom(source: any = {}) {
 	        return new ProviderConfig(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.type = source["type"];
+	        this.api_format = source["api_format"];
 	        this.base_url = source["base_url"];
 	        this.model = source["model"];
 	        this.default_model = source["default_model"];
@@ -1589,11 +1591,12 @@ export namespace main {
 	    base_url: string;
 	    api_key?: string;
 	    default_model?: string;
-	
+	    api_format?: string;
+
 	    static createFrom(source: any = {}) {
 	        return new CreateLLMProviderRequest(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1602,6 +1605,7 @@ export namespace main {
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
+	        this.api_format = source["api_format"];
 	    }
 	}
 	export class CredentialInput {
@@ -2133,6 +2137,7 @@ export namespace main {
 	    base_url?: string;
 	    api_key?: string;
 	    default_model?: string;
+	    api_format?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateLLMProviderRequest(source);
@@ -2145,6 +2150,7 @@ export namespace main {
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
+	        this.api_format = source["api_format"];
 	    }
 	}
 
