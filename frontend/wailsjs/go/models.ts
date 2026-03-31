@@ -897,6 +897,7 @@ export namespace jobs {
 	export class EventsConfig {
 	    on_success?: string;
 	    on_failure?: string;
+	    emit_when?: string;
 	    for_each?: string;
 	    payload_template?: string;
 	    payload_filter?: PayloadFilter;
@@ -909,6 +910,7 @@ export namespace jobs {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.on_success = source["on_success"];
 	        this.on_failure = source["on_failure"];
+	        this.emit_when = source["emit_when"];
 	        this.for_each = source["for_each"];
 	        this.payload_template = source["payload_template"];
 	        this.payload_filter = this.convertValues(source["payload_filter"], PayloadFilter);
@@ -969,6 +971,7 @@ export namespace jobs {
 	    listen?: string;
 	    keys?: string;
 	    path?: string;
+	    when?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Trigger(source);
@@ -982,6 +985,7 @@ export namespace jobs {
 	        this.listen = source["listen"];
 	        this.keys = source["keys"];
 	        this.path = source["path"];
+	        this.when = source["when"];
 	    }
 	}
 	export class Job {

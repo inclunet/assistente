@@ -14,6 +14,7 @@ export interface TriggerData {
   every?: string;
   listen?: string;
   keys?: string;
+  when?: string;
 }
 
 interface TriggerEditorProps {
@@ -120,6 +121,18 @@ function TriggerRow({
             />
           </FormField>
         )}
+
+        {trigger.type === 'event' && (
+          <FormField label={t('jobs.builder.triggerWhen')} visuallyHidden description={t('jobs.builder.triggerWhenHint')}>
+            <Input
+              value={trigger.when ?? ''}
+              onChange={(e) => onUpdate(index, 'when', e.target.value)}
+              placeholder={'{{ eq .event.type "issue_updated" }}'}
+              fullWidth
+              aria-label={`${triggerLabel} — ${t('jobs.builder.triggerWhen')}`}
+            />
+          </FormField>
+        )}
       </div>
 
       {canRemove && (
@@ -189,6 +202,7 @@ export function TriggerEditor({ triggers, onChange, onEventSchemaResolved, known
           delete next.every;
           delete next.listen;
           delete next.keys;
+          delete next.when;
         }
         return next;
       });

@@ -317,6 +317,7 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 	if job.Events.ForEach != "" {
 		items := resolveForEachItems(rl.Output, job.Events.ForEach)
 		if len(items) > 0 {
+			emitted := 0
 			for i, item := range items {
 				itemPayload := make(map[string]any)
 				if m, ok := item.(map[string]any); ok {
@@ -329,7 +330,12 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 				itemPayload["_fan_out_index"] = i
 				itemPayload["_fan_out_total"] = len(items)
 
-				itemPayload = e.applyPayloadTemplate(job, itemPayload)
+				// Per-item emit_when filter
+				if !e.checkEmitWhen(job, itemPayload, trigCtx) {
+					continue
+				}
+
+				itemPayload = e.applyPayloadTemplate(job, itemPayload, trigCtx)
 				filtered := e.buildEventPayload(job, itemPayload)
 				enriched := make(map[string]any, len(filtered)+2)
 				for k, v := range filtered {
@@ -339,18 +345,28 @@ func (e *JobExecutor) emitSuccess(ctx context.Context, job *Job, rl *RunLog, tri
 				enriched["_chain_history"] = chainHistory
 
 				e.eventBus.Publish(ctx, job.Events.OnSuccess, enriched)
+				emitted++
 			}
 
-			e.logEvent("event_emitted", job.ID, job.Events.OnSuccess,
-				fmt.Sprintf("[%s] -> emitted %q x%d (fan-out on %q)", job.ID, job.Events.OnSuccess, len(items), job.Events.ForEach), nil)
-			rl.EventsEmitted = append(rl.EventsEmitted, fmt.Sprintf("%s x%d", job.Events.OnSuccess, len(items)))
+			if emitted > 0 {
+				e.logEvent("event_emitted", job.ID, job.Events.OnSuccess,
+					fmt.Sprintf("[%s] -> emitted %q x%d/%d (fan-out on %q)", job.ID, job.Events.OnSuccess, emitted, len(items), job.Events.ForEach), nil)
+				rl.EventsEmitted = append(rl.EventsEmitted, fmt.Sprintf("%s x%d", job.Events.OnSuccess, emitted))
+			} else {
+				log.Printf("[Jobs] %s: all %d fan-out items filtered by emit_when", job.ID, len(items))
+			}
 			return
 		}
 		log.Printf("[Jobs] %s: for_each %q did not resolve to array, emitting single event", job.ID, job.Events.ForEach)
 	}
 
-	// Comportamento padrao: um unico evento
-	output := e.applyPayloadTemplate(job, rl.Output)
+	// Single event: emit_when against full output
+	if !e.checkEmitWhen(job, rl.Output, trigCtx) {
+		log.Printf("[Jobs] %s: emit_when condition not met, skipping event %q", job.ID, job.Events.OnSuccess)
+		return
+	}
+
+	output := e.applyPayloadTemplate(job, rl.Output, trigCtx)
 	payload := e.buildEventPayload(job, output)
 
 	e.logEvent("event_emitted", job.ID, job.Events.OnSuccess,
@@ -432,15 +448,35 @@ func (e *JobExecutor) emitFailure(ctx context.Context, job *Job, rl *RunLog, tri
 	e.eventBus.Publish(ctx, job.Events.OnFailure, payload)
 }
 
+// checkEmitWhen evaluates the emit_when condition against the given data.
+// Returns true if the event should be emitted (condition met or not set).
+// Both .output (tool result or fan-out item) and .event (trigger payload) are available.
+func (e *JobExecutor) checkEmitWhen(job *Job, data map[string]any, trigCtx *TriggerContext) bool {
+	if job.Events.EmitWhen == "" {
+		return true
+	}
+	ok, err := EvaluateCondition(job.Events.EmitWhen, &TemplateContext{
+		Event:  trigCtx.EventPayload,
+		Output: data,
+		Now:    time.Now(),
+	})
+	if err != nil {
+		log.Printf("[Jobs] %s: emit_when eval error: %v", job.ID, err)
+		return false
+	}
+	return ok
+}
+
 // applyPayloadTemplate renderiza o PayloadTemplate contra o output, retornando
 // o resultado parseado como map. Se o template não está definido ou falha,
-// retorna o output original.
-func (e *JobExecutor) applyPayloadTemplate(job *Job, output map[string]any) map[string]any {
+// retorna o output original. Both .output and .event are available.
+func (e *JobExecutor) applyPayloadTemplate(job *Job, output map[string]any, trigCtx *TriggerContext) map[string]any {
 	if job.Events.PayloadTemplate == "" {
 		return output
 	}
 
 	tmplCtx := &TemplateContext{
+		Event:  trigCtx.EventPayload,
 		Output: output,
 		Now:    time.Now(),
 	}

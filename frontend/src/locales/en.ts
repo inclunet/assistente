@@ -1470,6 +1470,10 @@ const en = {
         payloadTemplateEditor: 'Payload template',
         payloadTemplateHint: 'Use {{ .output.field }} to insert values. The template must produce valid JSON.',
         payloadTemplateHintEmpty: 'Leave empty to emit the full tool output as the event payload.',
+        triggerWhen: 'Condition',
+        triggerWhenHint: 'Go template evaluated before running. If falsy, the job is skipped. Leave empty to always run.',
+        emitWhen: 'Emit condition',
+        emitWhenHint: 'Go template evaluated after the tool runs. If falsy, the event is not emitted. Leave empty to always emit.',
       },
     },
     tasklist: {

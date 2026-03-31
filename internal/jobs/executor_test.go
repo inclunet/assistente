@@ -313,6 +313,254 @@ func TestEmitSuccess_FanOut_ForEachMissing_FallsBackToSingle(t *testing.T) {
 	}
 }
 
+// --- emit_when: single event ---
+
+func TestEmitSuccess_EmitWhen_ConditionMet_Emits(t *testing.T) {
+	eb := NewEventBus()
+	logger := NewLogger(t.TempDir())
+	executor := NewJobExecutor(ExecutorConfig{
+		EventBus:       eb,
+		Logger:         logger,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	job := &Job{
+		ID: "cond-job",
+		Events: EventsConfig{
+			OnSuccess: "cond.success",
+			EmitWhen:  `{{ eq .output.status "done" }}`,
+		},
+	}
+
+	rl := &RunLog{
+		RunID:  "run-cond-1",
+		JobID:  "cond-job",
+		Output: map[string]any{"status": "done", "id": "123"},
+	}
+
+	collector := newEventCollector(eb, "cond.success", 1)
+	executor.emitSuccess(context.Background(), job, rl, &TriggerContext{Type: TriggerManual})
+	received := collector.wait(t, 2*time.Second)
+
+	if len(received) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(received))
+	}
+	if received[0]["id"] != "123" {
+		t.Errorf("id: got %v, want 123", received[0]["id"])
+	}
+}
+
+func TestEmitSuccess_EmitWhen_ConditionNotMet_Skips(t *testing.T) {
+	eb := NewEventBus()
+	logger := NewLogger(t.TempDir())
+	executor := NewJobExecutor(ExecutorConfig{
+		EventBus:       eb,
+		Logger:         logger,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	job := &Job{
+		ID: "skip-job",
+		Events: EventsConfig{
+			OnSuccess: "skip.success",
+			EmitWhen:  `{{ eq .output.status "done" }}`,
+		},
+	}
+
+	rl := &RunLog{
+		RunID:  "run-skip-1",
+		JobID:  "skip-job",
+		Output: map[string]any{"status": "open"},
+	}
+
+	var received []map[string]any
+	eb.Subscribe("skip.success", "spy", func(_ context.Context, _ string, payload map[string]any) {
+		received = append(received, payload)
+	})
+
+	executor.emitSuccess(context.Background(), job, rl, &TriggerContext{Type: TriggerManual})
+	time.Sleep(100 * time.Millisecond)
+
+	if len(received) != 0 {
+		t.Fatalf("expected 0 events (condition not met), got %d", len(received))
+	}
+	if len(rl.EventsEmitted) != 0 {
+		t.Errorf("expected no events emitted in run log, got %v", rl.EventsEmitted)
+	}
+}
+
+func TestEmitSuccess_EmitWhen_AccessesEventPayload(t *testing.T) {
+	eb := NewEventBus()
+	logger := NewLogger(t.TempDir())
+	executor := NewJobExecutor(ExecutorConfig{
+		EventBus:       eb,
+		Logger:         logger,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	job := &Job{
+		ID: "event-ctx-job",
+		Events: EventsConfig{
+			OnSuccess: "event.ctx.success",
+			EmitWhen:  `{{ eq .event.action "deploy" }}`,
+		},
+	}
+
+	rl := &RunLog{
+		RunID:  "run-ectx-1",
+		JobID:  "event-ctx-job",
+		Output: map[string]any{"result": "ok"},
+	}
+
+	trigCtx := &TriggerContext{
+		Type:         TriggerEvent,
+		EventPayload: map[string]any{"action": "deploy"},
+	}
+
+	collector := newEventCollector(eb, "event.ctx.success", 1)
+	executor.emitSuccess(context.Background(), job, rl, trigCtx)
+	received := collector.wait(t, 2*time.Second)
+
+	if len(received) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(received))
+	}
+}
+
+func TestEmitSuccess_EmitWhen_EventMismatch_Skips(t *testing.T) {
+	eb := NewEventBus()
+	logger := NewLogger(t.TempDir())
+	executor := NewJobExecutor(ExecutorConfig{
+		EventBus:       eb,
+		Logger:         logger,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	job := &Job{
+		ID: "event-mismatch",
+		Events: EventsConfig{
+			OnSuccess: "mismatch.success",
+			EmitWhen:  `{{ eq .event.action "deploy" }}`,
+		},
+	}
+
+	rl := &RunLog{
+		RunID:  "run-mm-1",
+		JobID:  "event-mismatch",
+		Output: map[string]any{"result": "ok"},
+	}
+
+	trigCtx := &TriggerContext{
+		Type:         TriggerEvent,
+		EventPayload: map[string]any{"action": "rollback"},
+	}
+
+	var received []map[string]any
+	eb.Subscribe("mismatch.success", "spy", func(_ context.Context, _ string, payload map[string]any) {
+		received = append(received, payload)
+	})
+
+	executor.emitSuccess(context.Background(), job, rl, trigCtx)
+	time.Sleep(100 * time.Millisecond)
+
+	if len(received) != 0 {
+		t.Fatalf("expected 0 events (event mismatch), got %d", len(received))
+	}
+}
+
+// --- emit_when: fan-out per-item filtering ---
+
+func TestEmitSuccess_EmitWhen_FanOut_FiltersItems(t *testing.T) {
+	eb := NewEventBus()
+	logger := NewLogger(t.TempDir())
+	executor := NewJobExecutor(ExecutorConfig{
+		EventBus:       eb,
+		Logger:         logger,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	job := &Job{
+		ID: "fanout-filter",
+		Events: EventsConfig{
+			OnSuccess: "filtered.fanout",
+			ForEach:   "issues",
+			EmitWhen:  `{{ eq .output.priority "high" }}`,
+		},
+	}
+
+	rl := &RunLog{
+		RunID: "run-ff-1",
+		JobID: "fanout-filter",
+		Output: map[string]any{
+			"issues": []any{
+				map[string]any{"key": "A-1", "priority": "high"},
+				map[string]any{"key": "A-2", "priority": "low"},
+				map[string]any{"key": "A-3", "priority": "high"},
+			},
+		},
+	}
+
+	collector := newEventCollector(eb, "filtered.fanout", 2)
+	executor.emitSuccess(context.Background(), job, rl, &TriggerContext{Type: TriggerManual})
+	received := collector.wait(t, 2*time.Second)
+
+	if len(received) != 2 {
+		t.Fatalf("expected 2 events (only high priority), got %d", len(received))
+	}
+
+	keys := make(map[string]bool)
+	for _, ev := range received {
+		keys[ev["key"].(string)] = true
+	}
+	if !keys["A-1"] || !keys["A-3"] {
+		t.Errorf("expected A-1 and A-3, got %v", keys)
+	}
+	if keys["A-2"] {
+		t.Error("A-2 (low priority) should have been filtered out")
+	}
+}
+
+func TestEmitSuccess_EmitWhen_FanOut_AllFiltered(t *testing.T) {
+	eb := NewEventBus()
+	logger := NewLogger(t.TempDir())
+	executor := NewJobExecutor(ExecutorConfig{
+		EventBus:       eb,
+		Logger:         logger,
+		CircuitBreaker: NewCircuitBreaker(),
+	})
+
+	job := &Job{
+		ID: "all-filtered",
+		Events: EventsConfig{
+			OnSuccess: "none.emitted",
+			ForEach:   "items",
+			EmitWhen:  `{{ eq .output.status "critical" }}`,
+		},
+	}
+
+	rl := &RunLog{
+		RunID: "run-af-1",
+		JobID: "all-filtered",
+		Output: map[string]any{
+			"items": []any{
+				map[string]any{"id": "1", "status": "ok"},
+				map[string]any{"id": "2", "status": "warning"},
+			},
+		},
+	}
+
+	var received []map[string]any
+	eb.Subscribe("none.emitted", "spy", func(_ context.Context, _ string, payload map[string]any) {
+		received = append(received, payload)
+	})
+
+	executor.emitSuccess(context.Background(), job, rl, &TriggerContext{Type: TriggerManual})
+	time.Sleep(100 * time.Millisecond)
+
+	if len(received) != 0 {
+		t.Fatalf("expected 0 events (all filtered), got %d", len(received))
+	}
+}
+
 // --- End-to-end: fan-out + template resolution in downstream ---
 
 func TestFanOut_DownstreamTemplateResolution(t *testing.T) {

@@ -84,6 +84,7 @@ type Trigger struct {
 	Listen     string      `yaml:"listen,omitempty" json:"listen,omitempty"`         // event name
 	Keys       string      `yaml:"keys,omitempty" json:"keys,omitempty"`             // hotkey combo
 	Path       string      `yaml:"path,omitempty" json:"path,omitempty"`             // webhook path (v2)
+	When       string      `yaml:"when,omitempty" json:"when,omitempty"`             // Go template condition; truthy = run
 }
 
 // OutputConfig define schema e mapeamento do output da tool call.
@@ -96,6 +97,7 @@ type OutputConfig struct {
 type EventsConfig struct {
 	OnSuccess       string         `yaml:"on_success,omitempty" json:"on_success,omitempty"`
 	OnFailure       string         `yaml:"on_failure,omitempty" json:"on_failure,omitempty"`
+	EmitWhen        string         `yaml:"emit_when,omitempty" json:"emit_when,omitempty"`
 	ForEach         string         `yaml:"for_each,omitempty" json:"for_each,omitempty"`
 	PayloadTemplate string         `yaml:"payload_template,omitempty" json:"payload_template,omitempty"`
 	PayloadFilter   *PayloadFilter `yaml:"payload_filter,omitempty" json:"payload_filter,omitempty"`

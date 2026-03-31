@@ -1444,6 +1444,10 @@ const ptBR = {
         payloadTemplateEditor: 'Template do payload',
         payloadTemplateHint: 'Use {{ .output.campo }} para inserir valores. O template deve gerar JSON válido.',
         payloadTemplateHintEmpty: 'Deixe vazio para emitir o output completo da ferramenta como payload.',
+        triggerWhen: 'Condição',
+        triggerWhenHint: 'Template Go avaliado antes de executar. Se falso, o job é ignorado. Deixe vazio para sempre executar.',
+        emitWhen: 'Condição de emissão',
+        emitWhenHint: 'Template Go avaliado após a execução da tool. Se falso, o evento não é emitido. Deixe vazio para sempre emitir.',
       },
     },
     tasklist: {

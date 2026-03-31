@@ -47,17 +47,20 @@ _No tasks yet._
 ## Guidelines
 
 - When the user asks about progress or status, refer to the task data above.
-- When a task is completed or its status changes during the conversation, use `upsert_task` to update it.
-- When the user asks to add a new task, use `upsert_task` with the correct `task_list_id`.
-- Use `get_task_list` or `get_task_list_status` for the latest data if significant time has passed.
+- When a task is completed or its status changes during the conversation, use `task` with `task_id` + updated fields.
+- When the user asks to add a new task, use `task` with `task_list_id` + `title`.
+- Use `task_list` with `task_list_id` for the latest data if significant time has passed. Use `task` with `task_id` alone to read task details + notes.
 - Do NOT invent task IDs — always use the IDs shown above or retrieved via tools.
-- To create or update a task list (including custom workflows), use `upsert_task_list`.
+- To create or update a task list (including custom workflows), use `task_list`.
 - When changing workflows, provide `status_migration` if removing statuses that have tasks.
 - Status IDs are stable integers — always reference statuses by ID, not by label.
-- `upsert_task` supports `assignee_name` and `assignee_id` to track who is currently working on a task.
+- `task` supports `assignee_name` and `assignee_id` to track who is currently working on a task.
 - Set `assignee_name` to empty string to clear the assignee. Omit the field entirely to preserve the current value.
 - Assignee changes are automatically recorded as system notes for audit trail.
+- To delete a task, use `task` with `task_id` + `delete: true`.
+- To duplicate a task, use `task` with `task_id` + `duplicate: true`.
+- To move a task, use `task` with `task_id` + different `task_list_id`.
 {{- if .ToolCallingEnabled }}
-- Tools available: `upsert_task`, `delete_task`, `get_task_list`, `get_task_list_status`, `create_task_list`, `list_task_lists`, `upsert_task_list`, `add_task_note`, `get_task_notes`.
+- Tools available: `task_list` (CRUD for task lists), `task` (CRUD for tasks), `task_note` (create/update notes).
 {{- end }}
 {{- end }}

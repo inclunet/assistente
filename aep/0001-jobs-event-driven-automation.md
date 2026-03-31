@@ -82,6 +82,21 @@ Todos suportados, qualquer um pode disparar o job:
 | `manual` | Sempre disponível via UI/chat | — |
 | `webhook` | HTTP externo (v2) | `path: "/jobs/xyz/trigger"` |
 
+### Conditional Triggers (`when`)
+
+Qualquer trigger pode ter um campo `when` com um Go template. O template é avaliado antes de executar o job — se o resultado for falsy (vazio, `"false"` ou `"<no value>"`), o job é ignorado silenciosamente. Isso evita tool calls desnecessárias.
+
+Contexto disponível: `{{ .event.* }}` (payload do evento), `{{ .now }}` (timestamp).
+
+```yaml
+triggers:
+  - type: event
+    listen: "jira_webhook"
+    when: '{{ eq .event.webhookEvent "jira:issue_updated" }}'
+```
+
+Sem `when`, o trigger sempre dispara (comportamento padrão).
+
 ## Schema YAML
 
 ```yaml
@@ -141,6 +156,8 @@ output:
 events:
   on_success: "tickets.fetched"
   on_failure: "tickets.fetch_failed"
+  # Condição: só emite se o resultado justificar (opcional)
+  emit_when: '{{ ne .output.count "0" }}'
   # Filtrar payload (default = output.map completo)
   payload_filter:
     include: ["tickets", "count"]
@@ -203,6 +220,31 @@ output:
 
 O payload do evento emitido será os campos mapeados. Sem map, vai o output completo.
 
+### Conditional Events (`emit_when`)
+
+O campo `emit_when` em `events` permite decidir se o evento de sucesso deve ser emitido com base no resultado da tool. É um Go template avaliado após a execução — se falsy, o evento é suprimido.
+
+Contexto disponível: `{{ .output.* }}` (resultado da tool), `{{ .event.* }}` (payload do trigger original), `{{ .now }}`.
+
+```yaml
+events:
+  on_success: "ticket_became_done"
+  emit_when: '{{ eq .output.status "Done" }}'
+```
+
+**Com fan-out:** `emit_when` é avaliado **por item**, filtrando individualmente. Útil para emitir eventos apenas para itens que atendem a um critério:
+
+```yaml
+events:
+  on_success: "critical_ticket_found"
+  for_each: "issues"
+  emit_when: '{{ eq .output.priority "Critical" }}'
+```
+
+Neste exemplo, de 50 tickets retornados, apenas os com prioridade Critical geram evento.
+
+**Combinando `when` + `emit_when`:** formam um par simétrico de filtros — `when` na entrada (evita rodar a tool), `emit_when` na saída (evita propagar o evento).
+
 ### Autocomplete no Encadeamento
 
 Quando um job escuta um evento, o builder sabe qual job emite esse evento e oferece autocomplete dos campos disponíveis no payload.
@@ -238,6 +280,7 @@ tool: internal.writeFile
 triggers:
   - type: event
     listen: "tickets.fetched"
+    when: '{{ .event.count }}'  # só roda se houver tickets
 inputs:
   path: "~/.assistente/tasklists/jira-fsd.md"
   content: |

@@ -3,6 +3,7 @@ package jobs
 import (
 	"fmt"
 	"strings"
+	"text/template"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -48,6 +49,10 @@ func Validate(job *Job) error {
 	}
 
 	if err := validateErrorPolicy(job.ID, &job.ErrorPolicy); err != nil {
+		return err
+	}
+
+	if err := validateConditions(job); err != nil {
 		return err
 	}
 
@@ -122,6 +127,26 @@ func validateErrorPolicy(jobID string, ep *ErrorPolicy) error {
 			// ok
 		default:
 			return fmt.Errorf("job validation [%s]: unknown backoff type %q", jobID, ep.Backoff)
+		}
+	}
+
+	return nil
+}
+
+func validateConditions(job *Job) error {
+	funcs := templateFuncs(nil)
+
+	for i, t := range job.Triggers {
+		if t.When != "" {
+			if _, err := template.New("").Funcs(funcs).Parse(t.When); err != nil {
+				return fmt.Errorf("job validation [%s] trigger[%d]: invalid when template: %w", job.ID, i, err)
+			}
+		}
+	}
+
+	if job.Events.EmitWhen != "" {
+		if _, err := template.New("").Funcs(funcs).Parse(job.Events.EmitWhen); err != nil {
+			return fmt.Errorf("job validation [%s]: invalid emit_when template: %w", job.ID, err)
 		}
 	}
 

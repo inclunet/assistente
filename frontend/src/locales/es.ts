@@ -1469,6 +1469,10 @@ const es = {
         payloadTemplateEditor: 'Template del payload',
         payloadTemplateHint: 'Use {{ .output.campo }} para insertar valores. El template debe generar JSON válido.',
         payloadTemplateHintEmpty: 'Deje vacío para emitir la salida completa de la herramienta como payload.',
+        triggerWhen: 'Condición',
+        triggerWhenHint: 'Template Go evaluado antes de ejecutar. Si es falso, el job se omite. Deje vacío para ejecutar siempre.',
+        emitWhen: 'Condición de emisión',
+        emitWhenHint: 'Template Go evaluado después de ejecutar la herramienta. Si es falso, el evento no se emite. Deje vacío para emitir siempre.',
       },
     },
     tasklist: {

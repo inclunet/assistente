@@ -27,6 +27,7 @@ export interface TriggerData {
   every?: string;
   listen?: string;
   keys?: string;
+  when?: string;
 }
 
 export interface JobDraft {
@@ -44,6 +45,7 @@ export interface JobDraft {
     on_success: string;
     emit_failure: boolean;
     on_failure: string;
+    emit_when: string;
     mode: EventMode;
     for_each: string;
     payload_template: string;
@@ -91,6 +93,7 @@ function createEmptyDraft(): JobDraft {
       on_success: '',
       emit_failure: false,
       on_failure: '',
+      emit_when: '',
       mode: 'simple',
       for_each: '',
       payload_template: '',
@@ -117,6 +120,7 @@ function jobToDraft(job: jobs.Job): JobDraft {
       every: t.every,
       listen: t.listen,
       keys: t.keys,
+      when: t.when,
     })),
     tool: job.tool,
     inputs: (job.inputs as Record<string, unknown>) ?? {},
@@ -125,6 +129,7 @@ function jobToDraft(job: jobs.Job): JobDraft {
       on_success: job.events?.on_success ?? '',
       emit_failure: hasOnFailure,
       on_failure: job.events?.on_failure ?? '',
+      emit_when: job.events?.emit_when ?? '',
       mode: hasForEach ? 'fanout' : 'simple',
       for_each: job.events?.for_each ?? '',
       payload_template: job.events?.payload_template ?? '',
@@ -332,6 +337,8 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
         events: {
           on_success: draft.events.emit_success ? (draft.events.on_success || undefined) : undefined,
           on_failure: draft.events.emit_failure ? (draft.events.on_failure || undefined) : undefined,
+          emit_when: draft.events.emit_success
+            ? (draft.events.emit_when || undefined) : undefined,
           for_each: draft.events.emit_success && draft.events.mode === 'fanout'
             ? (draft.events.for_each || undefined) : undefined,
           payload_template: draft.events.emit_success
@@ -534,6 +541,15 @@ export function JobBuilder({ editJob, onClose, onSaved }: JobBuilderProps) {
                 placeholder={t('jobs.builder.eventNamePlaceholder')}
                 allowFreeInput
                 maxWidth="100%"
+              />
+            </FormField>
+
+            <FormField label={t('jobs.builder.emitWhen')} description={t('jobs.builder.emitWhenHint')}>
+              <Input
+                value={draft.events.emit_when}
+                onChange={(e) => updateEvents('emit_when', e.target.value)}
+                placeholder={'{{ eq .output.status "done" }}'}
+                fullWidth
               />
             </FormField>
 
