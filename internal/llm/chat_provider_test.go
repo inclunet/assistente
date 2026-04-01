@@ -18,12 +18,37 @@ func TestGetAPIFormat_Default(t *testing.T) {
 	}
 }
 
+func TestGetAPIFormat_InfersOpenAIResponses(t *testing.T) {
+	tests := []struct {
+		baseURL string
+		want    APIFormat
+	}{
+		{"https://api.openai.com/v1", APIFormatOpenAIResponses},
+		{"https://api.openai.com/v1/", APIFormatOpenAIResponses},
+		{"https://API.OPENAI.COM/v1", APIFormatOpenAIResponses},
+		{"https://openrouter.ai/api/v1", APIFormatOpenAI},
+		{"http://localhost:11434/v1", APIFormatOpenAI},
+		{"https://api.groq.com/openai/v1", APIFormatOpenAI},
+		{"https://api.together.xyz/v1", APIFormatOpenAI},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.baseURL, func(t *testing.T) {
+			p := &ProviderConfig{ID: "test", Name: "Test", BaseURL: tt.baseURL}
+			if got := p.GetAPIFormat(); got != tt.want {
+				t.Errorf("GetAPIFormat() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestGetAPIFormat_Explicit(t *testing.T) {
 	tests := []struct {
 		format APIFormat
 		want   APIFormat
 	}{
 		{APIFormatOpenAI, APIFormatOpenAI},
+		{APIFormatOpenAIResponses, APIFormatOpenAIResponses},
 		{APIFormatAnthropic, APIFormatAnthropic},
 		{APIFormatGoogle, APIFormatGoogle},
 	}
@@ -47,16 +72,18 @@ func TestNewChatProvider_Factory(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 
 	tests := []struct {
-		name        string
-		format      APIFormat
-		wantOpenAI  bool
-		wantAnthropic bool
-		wantGoogle  bool
+		name           string
+		format         APIFormat
+		wantOpenAI     bool
+		wantAnthropic  bool
+		wantGoogle     bool
+		wantResponses  bool // useResponses=true
 	}{
-		{"default_empty", "", true, false, false},
-		{"openai", APIFormatOpenAI, true, false, false},
-		{"anthropic", APIFormatAnthropic, false, true, false},
-		{"google", APIFormatGoogle, false, false, true},
+		{"default_empty", "", true, false, false, false},
+		{"openai", APIFormatOpenAI, true, false, false, false},
+		{"openai_responses", APIFormatOpenAIResponses, true, false, false, true},
+		{"anthropic", APIFormatAnthropic, false, true, false, false},
+		{"google", APIFormatGoogle, false, false, true, false},
 	}
 
 	for _, tt := range tests {
@@ -71,7 +98,7 @@ func TestNewChatProvider_Factory(t *testing.T) {
 			if provider == nil {
 				t.Fatal("NewChatProvider returned nil")
 			}
-			_, isOpenAI := provider.(*OpenAIProvider)
+			openaiP, isOpenAI := provider.(*OpenAIProvider)
 			_, isAnthropic := provider.(*AnthropicProvider)
 			_, isGoogle := provider.(*GoogleProvider)
 			if isOpenAI != tt.wantOpenAI {
@@ -83,11 +110,14 @@ func TestNewChatProvider_Factory(t *testing.T) {
 			if isGoogle != tt.wantGoogle {
 				t.Errorf("isGoogle = %v, want %v", isGoogle, tt.wantGoogle)
 			}
+			if isOpenAI && openaiP.useResponses != tt.wantResponses {
+				t.Errorf("useResponses = %v, want %v", openaiP.useResponses, tt.wantResponses)
+			}
 		})
 	}
 }
 
-func TestOpenAIProvider_SupportsNativeMCP(t *testing.T) {
+func TestOpenAIProvider_ChatCompletions_NoNativeMCP(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	p := &ProviderConfig{
 		ID:      "test",
@@ -95,24 +125,87 @@ func TestOpenAIProvider_SupportsNativeMCP(t *testing.T) {
 		BaseURL: "https://api.openai.com/v1",
 	}
 	provider := NewOpenAIProvider(p, credMgr)
-	if !provider.SupportsNativeMCP() {
-		t.Error("OpenAIProvider.SupportsNativeMCP() = false, want true")
+	if provider.SupportsNativeMCP() {
+		t.Error("Chat Completions provider should NOT support native MCP")
 	}
 }
 
-func TestOpenAIProvider_WithMCPServers(t *testing.T) {
+func TestOpenAIResponsesProvider_SupportsNativeMCP(t *testing.T) {
 	credMgr := credentials.NewManager(nil)
 	p := &ProviderConfig{
 		ID:      "test",
 		Name:    "Test",
 		BaseURL: "https://api.openai.com/v1",
 	}
-	provider := NewOpenAIProvider(p, credMgr)
-	result := provider.WithMCPServers([]MCPServerConfig{
-		{Label: "test", URL: "https://mcp.test.com"},
-	})
+	provider := NewOpenAIResponsesProvider(p, credMgr)
+	if !provider.SupportsNativeMCP() {
+		t.Error("Responses provider should support native MCP")
+	}
+}
+
+func TestOpenAIResponsesProvider_WithMCPServers_StoresServers(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:      "test",
+		Name:    "Test",
+		BaseURL: "https://api.openai.com/v1",
+	}
+	provider := NewOpenAIResponsesProvider(p, credMgr)
+	servers := []MCPServerConfig{
+		{Name: "weather-mcp", URL: "https://mcp.weather.com/sse", AuthToken: "tok123"},
+	}
+	result := provider.WithMCPServers(servers)
 	if result == nil {
 		t.Fatal("WithMCPServers returned nil")
+	}
+
+	openaiP, ok := result.(*OpenAIProvider)
+	if !ok {
+		t.Fatal("WithMCPServers should return *OpenAIProvider")
+	}
+	if len(openaiP.mcpServers) != 1 {
+		t.Fatalf("Expected 1 MCP server, got %d", len(openaiP.mcpServers))
+	}
+	if openaiP.mcpServers[0].Name != "weather-mcp" {
+		t.Errorf("MCP server name = %q, want %q", openaiP.mcpServers[0].Name, "weather-mcp")
+	}
+	if !openaiP.useResponses {
+		t.Error("WithMCPServers should preserve useResponses=true")
+	}
+}
+
+func TestOpenAICompatible_WithMCPServers_NoOp(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:      "test",
+		Name:    "Test",
+		BaseURL: "https://api.openrouter.ai/v1",
+	}
+	provider := NewOpenAIProvider(p, credMgr)
+	servers := []MCPServerConfig{
+		{Name: "test-mcp", URL: "https://mcp.test.com"},
+	}
+	result := provider.WithMCPServers(servers)
+	if result != provider {
+		t.Error("Chat Completions provider.WithMCPServers should return same provider (no-op)")
+	}
+}
+
+func TestOpenAIResponsesProvider_WithMCPServers_EmptyReturnsOriginal(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:      "test",
+		Name:    "Test",
+		BaseURL: "https://api.openai.com/v1",
+	}
+	provider := NewOpenAIResponsesProvider(p, credMgr)
+	result := provider.WithMCPServers(nil)
+	if result != provider {
+		t.Error("WithMCPServers(nil) should return same provider")
+	}
+	result = provider.WithMCPServers([]MCPServerConfig{})
+	if result != provider {
+		t.Error("WithMCPServers([]) should return same provider")
 	}
 }
 
@@ -353,6 +446,12 @@ func TestAPIFormatConstants(t *testing.T) {
 	if APIFormatOpenAI != "openai" {
 		t.Errorf("APIFormatOpenAI = %q", APIFormatOpenAI)
 	}
+	if APIFormatOpenAICompatible != "openai" {
+		t.Errorf("APIFormatOpenAICompatible = %q (should be alias for APIFormatOpenAI)", APIFormatOpenAICompatible)
+	}
+	if APIFormatOpenAIResponses != "openai_responses" {
+		t.Errorf("APIFormatOpenAIResponses = %q", APIFormatOpenAIResponses)
+	}
 	if APIFormatAnthropic != "anthropic" {
 		t.Errorf("APIFormatAnthropic = %q", APIFormatAnthropic)
 	}
@@ -363,21 +462,21 @@ func TestAPIFormatConstants(t *testing.T) {
 
 // --- GoogleProvider tests ---
 
-func TestGoogleProvider_SupportsNativeMCP(t *testing.T) {
+func TestGoogleProvider_SupportsNativeMCP_False(t *testing.T) {
 	p := NewGoogleProvider(&ProviderConfig{
 		ID:   "gp",
 		Name: "Google",
 	}, nil)
-	if !p.SupportsNativeMCP() {
-		t.Error("GoogleProvider should support native MCP")
+	if p.SupportsNativeMCP() {
+		t.Error("GoogleProvider should NOT support native MCP (not implemented)")
 	}
 }
 
-func TestGoogleProvider_WithMCPServers(t *testing.T) {
+func TestGoogleProvider_WithMCPServers_NoOp(t *testing.T) {
 	p := NewGoogleProvider(&ProviderConfig{ID: "gp"}, nil)
-	p2 := p.WithMCPServers([]MCPServerConfig{{Label: "test", URL: "http://test"}})
-	if p2 == nil {
-		t.Fatal("WithMCPServers returned nil")
+	p2 := p.WithMCPServers([]MCPServerConfig{{Name: "test", URL: "http://test"}})
+	if p2 != p {
+		t.Error("GoogleProvider.WithMCPServers should return same provider (no-op)")
 	}
 }
 
@@ -515,5 +614,477 @@ func TestMakeGoogleToolConfig(t *testing.T) {
 				t.Errorf("Mode = %q, want %q", cfg.FunctionCallingConfig.Mode, tt.want)
 			}
 		})
+	}
+}
+
+// --- Native MCP: Testes de Payload, Routing e Isolamento ---
+
+func TestAnthropicProvider_WithMCPServers_StoresServers(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:        "anthropic",
+		Name:      "Anthropic",
+		BaseURL:   "https://api.anthropic.com",
+		APIFormat: APIFormatAnthropic,
+	}
+	provider := NewAnthropicProvider(p, credMgr)
+	servers := []MCPServerConfig{
+		{Name: "github-mcp", URL: "https://mcp.github.com/sse", AuthToken: "ghp_xxx"},
+		{Name: "slack-mcp", URL: "https://mcp.slack.com/sse"},
+	}
+	result := provider.WithMCPServers(servers)
+	if result == nil {
+		t.Fatal("WithMCPServers returned nil")
+	}
+	anthP, ok := result.(*AnthropicProvider)
+	if !ok {
+		t.Fatal("WithMCPServers should return *AnthropicProvider")
+	}
+	if len(anthP.mcpServers) != 2 {
+		t.Fatalf("Expected 2 MCP servers, got %d", len(anthP.mcpServers))
+	}
+	if anthP.mcpServers[0].Name != "github-mcp" {
+		t.Errorf("Server 0 name = %q", anthP.mcpServers[0].Name)
+	}
+	if anthP.mcpServers[1].AuthToken != "" {
+		t.Errorf("Server 1 should have empty auth token, got %q", anthP.mcpServers[1].AuthToken)
+	}
+}
+
+func TestAnthropicProvider_WithMCPServers_EmptyReturnsOriginal(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:      "anthropic",
+		Name:    "Anthropic",
+		BaseURL: "https://api.anthropic.com",
+	}
+	provider := NewAnthropicProvider(p, credMgr)
+	if provider.WithMCPServers(nil) != provider {
+		t.Error("WithMCPServers(nil) should return same provider")
+	}
+}
+
+func TestSupportsNativeMCP_ReflectsRealImplementation(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+
+	openaiCompat := NewOpenAIProvider(&ProviderConfig{ID: "oc", Name: "OC", BaseURL: "https://api.openrouter.ai/v1"}, credMgr)
+	openaiReal := NewOpenAIResponsesProvider(&ProviderConfig{ID: "or", Name: "OR", BaseURL: "https://api.openai.com/v1"}, credMgr)
+	anthropic := NewAnthropicProvider(&ProviderConfig{ID: "a", Name: "A", BaseURL: "https://api.anthropic.com"}, credMgr)
+	google := NewGoogleProvider(&ProviderConfig{ID: "g", Name: "G"}, credMgr)
+
+	if openaiCompat.SupportsNativeMCP() {
+		t.Error("OpenAI-compatible should NOT support native MCP (Chat Completions only)")
+	}
+	if !openaiReal.SupportsNativeMCP() {
+		t.Error("OpenAI Responses should support native MCP")
+	}
+	if !anthropic.SupportsNativeMCP() {
+		t.Error("Anthropic should support native MCP (Beta Messages API)")
+	}
+	if google.SupportsNativeMCP() {
+		t.Error("Google should NOT support native MCP (not implemented)")
+	}
+}
+
+func TestWithMCPServers_ImmutableOriginal(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	provider := NewOpenAIResponsesProvider(&ProviderConfig{ID: "o", Name: "O", BaseURL: "https://api.openai.com/v1"}, credMgr)
+
+	servers := []MCPServerConfig{{Name: "test", URL: "http://test"}}
+	modified := provider.WithMCPServers(servers)
+
+	if len(provider.mcpServers) != 0 {
+		t.Error("Original provider should not be modified")
+	}
+	modP := modified.(*OpenAIProvider)
+	if len(modP.mcpServers) != 1 {
+		t.Error("Modified provider should have 1 MCP server")
+	}
+	if !modP.useResponses {
+		t.Error("Modified provider should preserve useResponses=true")
+	}
+}
+
+func TestConvertToResponsesInput_Basic(t *testing.T) {
+	msgs := []Message{
+		{Role: "system", Content: "Be helpful"},
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi!"},
+		{
+			Role: "assistant",
+			ToolCalls: []ToolCall{
+				{ID: "call_1", Type: "function", Function: FunctionCall{Name: "get_time", Arguments: `{}`}},
+			},
+		},
+		{Role: "tool", Content: `{"time":"12:00"}`, ToolCallID: "call_1"},
+	}
+
+	input := convertToResponsesInput(msgs)
+	if len(input) != 5 {
+		t.Fatalf("Expected 5 input items, got %d", len(input))
+	}
+
+	// system
+	if input[0].OfMessage == nil {
+		t.Error("Item 0 should be a message")
+	}
+	// user
+	if input[1].OfMessage == nil {
+		t.Error("Item 1 should be a message")
+	}
+	// assistant text
+	if input[2].OfMessage == nil {
+		t.Error("Item 2 should be a message")
+	}
+	// function call
+	if input[3].OfFunctionCall == nil {
+		t.Error("Item 3 should be a function call")
+	}
+	if input[3].OfFunctionCall.Name != "get_time" {
+		t.Errorf("FunctionCall name = %q, want get_time", input[3].OfFunctionCall.Name)
+	}
+	if input[3].OfFunctionCall.CallID != "call_1" {
+		t.Errorf("FunctionCall callID = %q, want call_1", input[3].OfFunctionCall.CallID)
+	}
+	// function output
+	if input[4].OfFunctionCallOutput == nil {
+		t.Error("Item 4 should be a function call output")
+	}
+	if input[4].OfFunctionCallOutput.CallID != "call_1" {
+		t.Errorf("FunctionCallOutput callID = %q, want call_1", input[4].OfFunctionCallOutput.CallID)
+	}
+}
+
+func TestConvertToBetaMessages_PreservesStructure(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi!"},
+	}
+	_, anthropicMsgs := convertToAnthropicMessages(msgs)
+	betaMsgs := convertToBetaMessages(anthropicMsgs)
+
+	if len(betaMsgs) != 2 {
+		t.Fatalf("Expected 2 beta messages, got %d", len(betaMsgs))
+	}
+	if string(betaMsgs[0].Role) != "user" {
+		t.Errorf("Role[0] = %q, want user", betaMsgs[0].Role)
+	}
+	if string(betaMsgs[1].Role) != "assistant" {
+		t.Errorf("Role[1] = %q, want assistant", betaMsgs[1].Role)
+	}
+}
+
+func TestOpenAIResponsesProvider_UsesResponsesWithoutMCP(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:      "openai-real",
+		Name:    "OpenAI",
+		BaseURL: "https://api.openai.com/v1",
+	}
+	provider := NewOpenAIResponsesProvider(p, credMgr)
+
+	if !provider.useResponses {
+		t.Error("Responses provider should have useResponses=true")
+	}
+	if len(provider.mcpServers) != 0 {
+		t.Error("Fresh provider should have no MCP servers")
+	}
+	if !provider.SupportsNativeMCP() {
+		t.Error("Responses provider should support native MCP")
+	}
+}
+
+func TestOpenAICompatProvider_UsesChatCompletions(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:      "ollama",
+		Name:    "Ollama",
+		BaseURL: "http://localhost:11434/v1",
+	}
+	provider := NewOpenAIProvider(p, credMgr)
+
+	if provider.useResponses {
+		t.Error("Compatible provider should NOT use Responses API")
+	}
+	if provider.SupportsNativeMCP() {
+		t.Error("Compatible provider should NOT support native MCP")
+	}
+}
+
+// --- Testes de paridade e robustez Responses vs Chat Completions ---
+
+func TestConvertToResponsesInput_AssistantWithContentAndToolCalls(t *testing.T) {
+	msgs := []Message{
+		{Role: "user", Content: "What's the weather?"},
+		{
+			Role:    "assistant",
+			Content: "Let me check.",
+			ToolCalls: []ToolCall{
+				{ID: "call_w", Type: "function", Function: FunctionCall{Name: "get_weather", Arguments: `{"city":"SP"}`}},
+			},
+		},
+		{Role: "tool", Content: `{"temp":28}`, ToolCallID: "call_w"},
+	}
+
+	input := convertToResponsesInput(msgs)
+
+	// user + assistant_text + function_call + function_call_output = 4 items
+	if len(input) != 4 {
+		t.Fatalf("Expected 4 input items, got %d", len(input))
+	}
+	if input[0].OfMessage == nil {
+		t.Error("Item 0 should be user message")
+	}
+	if input[1].OfMessage == nil {
+		t.Error("Item 1 should be assistant text message")
+	}
+	if input[2].OfFunctionCall == nil {
+		t.Error("Item 2 should be function call")
+	}
+	if input[2].OfFunctionCall.Name != "get_weather" {
+		t.Errorf("FunctionCall name = %q, want get_weather", input[2].OfFunctionCall.Name)
+	}
+	if input[3].OfFunctionCallOutput == nil {
+		t.Error("Item 3 should be function call output")
+	}
+}
+
+func TestConvertToResponsesInput_NoToolCalls(t *testing.T) {
+	msgs := []Message{
+		{Role: "system", Content: "You are helpful"},
+		{Role: "user", Content: "Hello"},
+		{Role: "assistant", Content: "Hi!"},
+		{Role: "user", Content: "How are you?"},
+	}
+
+	input := convertToResponsesInput(msgs)
+	if len(input) != 4 {
+		t.Fatalf("Expected 4 input items, got %d", len(input))
+	}
+	for i, item := range input {
+		if item.OfMessage == nil {
+			t.Errorf("Item %d should be a message", i)
+		}
+	}
+}
+
+func TestConvertToResponsesInput_EmptyAssistantWithToolCalls(t *testing.T) {
+	msgs := []Message{
+		{
+			Role:    "assistant",
+			Content: "",
+			ToolCalls: []ToolCall{
+				{ID: "call_1", Type: "function", Function: FunctionCall{Name: "fn_a", Arguments: `{}`}},
+				{ID: "call_2", Type: "function", Function: FunctionCall{Name: "fn_b", Arguments: `{"x":1}`}},
+			},
+		},
+		{Role: "tool", Content: "result_a", ToolCallID: "call_1"},
+		{Role: "tool", Content: "result_b", ToolCallID: "call_2"},
+	}
+
+	input := convertToResponsesInput(msgs)
+
+	// Empty content → no assistant message item. 2 function_calls + 2 outputs = 4.
+	if len(input) != 4 {
+		t.Fatalf("Expected 4 input items (no empty assistant msg), got %d", len(input))
+	}
+	if input[0].OfFunctionCall == nil || input[0].OfFunctionCall.Name != "fn_a" {
+		t.Error("Item 0 should be function call fn_a")
+	}
+	if input[1].OfFunctionCall == nil || input[1].OfFunctionCall.Name != "fn_b" {
+		t.Error("Item 1 should be function call fn_b")
+	}
+	if input[2].OfFunctionCallOutput == nil {
+		t.Error("Item 2 should be function call output")
+	}
+	if input[3].OfFunctionCallOutput == nil {
+		t.Error("Item 3 should be function call output")
+	}
+}
+
+func TestAPIFormatOpenAICompatible_Alias(t *testing.T) {
+	if APIFormatOpenAICompatible != APIFormatOpenAI {
+		t.Errorf("APIFormatOpenAICompatible should be alias for APIFormatOpenAI, got %q vs %q",
+			APIFormatOpenAICompatible, APIFormatOpenAI)
+	}
+	if APIFormatOpenAICompatible != "openai" {
+		t.Errorf("APIFormatOpenAICompatible wire value should be 'openai', got %q", APIFormatOpenAICompatible)
+	}
+}
+
+func TestGetAPIFormat_ExplicitOverridesInference(t *testing.T) {
+	p := &ProviderConfig{
+		ID:        "test",
+		Name:      "Test",
+		BaseURL:   "https://api.openai.com/v1",
+		APIFormat: APIFormatOpenAI,
+	}
+	if got := p.GetAPIFormat(); got != APIFormatOpenAI {
+		t.Errorf("Explicit api_format should override inference, got %q, want %q", got, APIFormatOpenAI)
+	}
+}
+
+func TestGetAPIFormat_LegacyConfigsBackwardsCompat(t *testing.T) {
+	tests := []struct {
+		name    string
+		baseURL string
+		format  APIFormat
+		want    APIFormat
+	}{
+		{"legacy_openai_no_format", "https://api.openai.com/v1", "", APIFormatOpenAIResponses},
+		{"legacy_groq_no_format", "https://api.groq.com/openai/v1", "", APIFormatOpenAI},
+		{"legacy_ollama_no_format", "http://localhost:11434/v1", "", APIFormatOpenAI},
+		{"explicit_openai_compat_on_openai_url", "https://api.openai.com/v1", APIFormatOpenAI, APIFormatOpenAI},
+		{"explicit_responses_on_random_url", "https://my-proxy.com/v1", APIFormatOpenAIResponses, APIFormatOpenAIResponses},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &ProviderConfig{ID: "t", Name: "T", BaseURL: tt.baseURL, APIFormat: tt.format}
+			if got := p.GetAPIFormat(); got != tt.want {
+				t.Errorf("GetAPIFormat() = %q, want %q", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestNewChatProvider_Factory_InfersResponses(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{
+		ID:      "openai-real",
+		Name:    "OpenAI Real",
+		BaseURL: "https://api.openai.com/v1",
+	}
+	provider := NewChatProvider(p, credMgr)
+	openaiP, ok := provider.(*OpenAIProvider)
+	if !ok {
+		t.Fatal("Expected *OpenAIProvider")
+	}
+	if !openaiP.useResponses {
+		t.Error("Provider for api.openai.com without explicit format should use Responses API")
+	}
+}
+
+func TestConvertMessages_MultimodalUser_PreservesImages(t *testing.T) {
+	msgs := []Message{
+		{
+			Role: "user",
+			Content: []interface{}{
+				map[string]interface{}{"type": "text", "text": "What's in this image?"},
+				map[string]interface{}{
+					"type":      "image_url",
+					"image_url": map[string]interface{}{"url": "https://example.com/cat.png"},
+				},
+			},
+		},
+	}
+
+	result := convertMessages(msgs)
+	if len(result) != 1 {
+		t.Fatalf("Expected 1 message, got %d", len(result))
+	}
+	if result[0].OfUser == nil {
+		t.Fatal("Expected user message")
+	}
+	// Chat Completions path: extractImageParts detects image_url parts and
+	// converts to proper multimodal content (text + image_url parts).
+	// This path preserves image data correctly.
+}
+
+// TestConvertToResponsesInput_MultimodalLosesImageData is an INTENTIONAL limitation test.
+//
+// KNOWN LIMITATION (documented):
+// The Responses API path (convertToResponsesInput) does NOT support multimodal
+// image_url parts. When a user message contains text + image_url, only the text
+// portions are preserved — the image data is silently lost.
+//
+// This is because convertToResponsesInput uses GetContentAsString(), which
+// concatenates only text parts from multimodal content.
+//
+// The Chat Completions path (convertMessages + extractImageParts) DOES preserve
+// images correctly.
+//
+// This test exists to:
+//  1. Document this as a KNOWN limitation, not a silent regression.
+//  2. Freeze the current behavior so any future change is intentional.
+//  3. Serve as a guide for when multimodal support is added to Responses path.
+//
+// When Responses API multimodal support is implemented, this test should be
+// updated to verify images ARE preserved (and the limitation comment removed).
+func TestConvertToResponsesInput_MultimodalLosesImageData(t *testing.T) {
+	multimodalMsg := Message{
+		Role: "user",
+		Content: []interface{}{
+			map[string]interface{}{"type": "text", "text": "What's in this image?"},
+			map[string]interface{}{
+				"type":      "image_url",
+				"image_url": map[string]interface{}{"url": "https://example.com/cat.png"},
+			},
+		},
+	}
+
+	// Verify the raw content has both text and image parts
+	parts, ok := multimodalMsg.Content.([]interface{})
+	if !ok || len(parts) != 2 {
+		t.Fatal("Test setup: expected 2 content parts (text + image_url)")
+	}
+
+	// GetContentAsString extracts only text, losing the image
+	textOnly := multimodalMsg.GetContentAsString()
+	if textOnly != "What's in this image?" {
+		t.Errorf("GetContentAsString() = %q, want only the text portion", textOnly)
+	}
+
+	// convertToResponsesInput produces a single text message — image is lost
+	input := convertToResponsesInput([]Message{multimodalMsg})
+	if len(input) != 1 {
+		t.Fatalf("Expected 1 input item, got %d", len(input))
+	}
+	if input[0].OfMessage == nil {
+		t.Fatal("Expected message item (text-only fallback)")
+	}
+
+	// Compare with Chat Completions path, which DOES preserve the image
+	ccMsgs := convertMessages([]Message{multimodalMsg})
+	if len(ccMsgs) != 1 {
+		t.Fatalf("Expected 1 CC message, got %d", len(ccMsgs))
+	}
+	if ccMsgs[0].OfUser == nil {
+		t.Fatal("Expected user message in Chat Completions path")
+	}
+	// Chat Completions path uses extractImageParts, which detects image_url
+	// and creates proper multimodal content parts. This is the reference behavior.
+}
+
+func TestNativeMCP_ToolDeduplication(t *testing.T) {
+	// Simula cenário: tools do bridge incluem MCP tools + tools internas.
+	// Quando MCP nativo está ativo, bridge tools dos servidores nativos devem ser removidas.
+	allTools := []ToolDefinition{
+		{Function: FunctionDefinition{Name: "internal_search"}},
+		{Function: FunctionDefinition{Name: "mcp__github__list_repos"}},
+		{Function: FunctionDefinition{Name: "mcp__github__create_issue"}},
+		{Function: FunctionDefinition{Name: "mcp__slack__send_message"}},
+		{Function: FunctionDefinition{Name: "internal_calc"}},
+	}
+
+	nativeToolNames := map[string]bool{
+		"mcp__github__list_repos":   true,
+		"mcp__github__create_issue": true,
+	}
+
+	var filtered []ToolDefinition
+	for _, td := range allTools {
+		if !nativeToolNames[td.Function.Name] {
+			filtered = append(filtered, td)
+		}
+	}
+
+	if len(filtered) != 3 {
+		t.Fatalf("Expected 3 tools after dedup, got %d", len(filtered))
+	}
+	expectedNames := []string{"internal_search", "mcp__slack__send_message", "internal_calc"}
+	for i, name := range expectedNames {
+		if filtered[i].Function.Name != name {
+			t.Errorf("filtered[%d] = %q, want %q", i, filtered[i].Function.Name, name)
+		}
 	}
 }

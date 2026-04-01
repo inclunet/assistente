@@ -15,11 +15,13 @@ type Streamer interface {
 }
 
 // MCPServerConfig descreve um MCP server HTTP remoto para resolução nativa server-side.
+// Usado por ChatProvider.WithMCPServers() para passar servidores ao LLM provider.
 type MCPServerConfig struct {
-	Label      string `json:"label"`
-	URL        string `json:"url"`
-	APIKeyName string `json:"api_key_name,omitempty"` // header name para autenticação
-	APIKey     string `json:"api_key,omitempty"`
+	Name       string            `json:"name"`
+	URL        string            `json:"url"`
+	AuthToken  string            `json:"auth_token,omitempty"`
+	Headers    map[string]string `json:"headers,omitempty"`
+	ToolNames  []string          `json:"tool_names,omitempty"` // tools expostas por este server (para filtragem)
 }
 
 // ChatProvider abstrai a comunicação com LLMs via SDKs oficiais.
@@ -37,11 +39,14 @@ type ChatProvider interface {
 	// SimpleChat é um atalho para enviar system+user e obter a resposta (sem tools).
 	SimpleChat(ctx context.Context, model, systemPrompt, userMessage string) (string, error)
 
-	// SupportsNativeMCP indica se este provider suporta MCP connector nativo.
+	// SupportsNativeMCP indica se este provider implementa MCP connector nativo real.
+	// Retorna true somente se WithMCPServers produz efeito operacional (altera a request ao LLM).
 	SupportsNativeMCP() bool
 
-	// WithMCPServers retorna uma cópia do provider configurada com MCP servers
-	// para resolução nativa server-side.
+	// WithMCPServers retorna uma cópia do provider configurada com MCP servers HTTP remotos.
+	// Quando SupportsNativeMCP() é true, os servers são incorporados na request ao LLM
+	// (ex: Anthropic mcp_servers, OpenAI Responses type:mcp).
+	// Quando false, retorna o provider inalterado (os servers devem usar adapter/bridge).
 	WithMCPServers(servers []MCPServerConfig) ChatProvider
 }
 
@@ -63,6 +68,8 @@ func NewChatProvider(provider *ProviderConfig, credMgr *credentials.Manager) Cha
 		return NewAnthropicProvider(provider, credMgr)
 	case APIFormatGoogle:
 		return NewGoogleProvider(provider, credMgr)
+	case APIFormatOpenAIResponses:
+		return NewOpenAIResponsesProvider(provider, credMgr)
 	default:
 		return NewOpenAIProvider(provider, credMgr)
 	}

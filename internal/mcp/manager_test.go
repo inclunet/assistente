@@ -754,6 +754,71 @@ func TestImportFromMCPJSON_InvalidJSON(t *testing.T) {
 	}
 }
 
+func TestIsNativeMCPEligibleURL(t *testing.T) {
+	tests := []struct {
+		url  string
+		want bool
+	}{
+		{"https://mcp.example.com/sse", true},
+		{"https://localhost:8443/mcp", true},
+		{"http://localhost:3000/mcp", true},
+		{"http://127.0.0.1:8080/mcp", true},
+		{"http://[::1]:8080/mcp", true},
+		{"http://192.168.1.100:3000/mcp", false},
+		{"http://mcp.example.com/sse", false},
+		{"http://10.0.0.5:8080/mcp", false},
+		{"", false},
+		{"ftp://example.com", false},
+	}
+	for _, tc := range tests {
+		got := isNativeMCPEligibleURL(tc.url)
+		if got != tc.want {
+			t.Errorf("isNativeMCPEligibleURL(%q): got %v, want %v", tc.url, got, tc.want)
+		}
+	}
+}
+
+func TestGetEligibleNativeMCPServers_URLFiltering(t *testing.T) {
+	registry := tools.NewRegistry()
+	credMgr := credentials.NewManager(nil)
+	m := NewManager(registry, credMgr, func(string, any) {})
+
+	dummyTool := MCPToolInfo{Name: "test", FullName: "srv__test", Description: "test tool"}
+
+	m.servers["https-remote"] = &ServerStatus{
+		Status: StatusConnected,
+		Config: ServerConfig{Transport: TransportSSE, URL: "https://mcp.example.com/sse"},
+		Tools:  []MCPToolInfo{dummyTool},
+	}
+	m.servers["http-localhost"] = &ServerStatus{
+		Status: StatusConnected,
+		Config: ServerConfig{Transport: TransportStreamable, URL: "http://localhost:3000/mcp"},
+		Tools:  []MCPToolInfo{dummyTool},
+	}
+	m.servers["http-remote"] = &ServerStatus{
+		Status: StatusConnected,
+		Config: ServerConfig{Transport: TransportSSE, URL: "http://192.168.1.100:8080/mcp"},
+		Tools:  []MCPToolInfo{dummyTool},
+	}
+
+	result := m.GetEligibleNativeMCPServers()
+
+	slugs := map[string]bool{}
+	for _, srv := range result {
+		slugs[srv.Slug] = true
+	}
+
+	if !slugs["https-remote"] {
+		t.Error("HTTPS remote should be eligible")
+	}
+	if !slugs["http-localhost"] {
+		t.Error("HTTP localhost should be eligible")
+	}
+	if slugs["http-remote"] {
+		t.Error("HTTP remote should NOT be eligible")
+	}
+}
+
 func TestSanitizeSlug(t *testing.T) {
 	tests := []struct {
 		input string

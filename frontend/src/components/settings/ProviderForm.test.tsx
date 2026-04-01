@@ -1,7 +1,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { ProviderForm, PROVIDER_CONFIG } from "./ProviderForm";
+import { ProviderForm, PROVIDER_CONFIG, API_FORMAT_OPTIONS } from "./ProviderForm";
 
 vi.mock('react-i18next', () => ({
   initReactI18next: { type: '3rdParty', init: () => {} },
@@ -456,6 +456,69 @@ describe("ProviderForm - Salvar", () => {
       expect(App.UpdateLLMProvider).toHaveBeenCalled();
       expect(mockOnSave).toHaveBeenCalled();
     });
+  });
+});
+
+describe("api_format semantics", () => {
+  it("OpenAI real deve usar openai_responses como default", () => {
+    expect(PROVIDER_CONFIG.openai.apiFormat).toBe("openai_responses");
+  });
+
+  it("providers OpenAI-compatible devem usar openai como default", () => {
+    const compatibleProviders = [
+      "openrouter", "deepseek", "xai", "mistral", "groq",
+      "together", "fireworks", "perplexity", "cohere",
+      "ollama", "localai", "litellm",
+    ];
+    for (const key of compatibleProviders) {
+      expect(PROVIDER_CONFIG[key as keyof typeof PROVIDER_CONFIG]?.apiFormat).toBe(
+        "openai",
+      );
+    }
+  });
+
+  it("Anthropic deve usar anthropic como default", () => {
+    expect(PROVIDER_CONFIG.anthropic.apiFormat).toBe("anthropic");
+  });
+
+  it("Google deve usar google como default", () => {
+    expect(PROVIDER_CONFIG.google.apiFormat).toBe("google");
+  });
+
+  it("API_FORMAT_OPTIONS deve ter labels corretos", () => {
+    const responsesOpt = API_FORMAT_OPTIONS.find(o => o.value === "openai_responses");
+    expect(responsesOpt).toBeDefined();
+    expect(responsesOpt!.label).toBe("OpenAI — Responses API");
+
+    const compatOpt = API_FORMAT_OPTIONS.find(o => o.value === "openai");
+    expect(compatOpt).toBeDefined();
+    expect(compatOpt!.label).toBe("OpenAI-compatible — Chat Completions");
+  });
+
+  it("formulário de criação OpenAI deve iniciar com openai_responses", () => {
+    render(
+      <ProviderForm onCancel={() => {}} onSave={() => {}} />
+    );
+
+    const apiFormatLabel = screen.getByText("providerForm.apiProtocol");
+    const selectId = apiFormatLabel.closest("label")?.getAttribute("for");
+    const select = document.getElementById(selectId!) as HTMLSelectElement;
+    expect(select.value).toBe("openai_responses");
+  });
+
+  it("mudar para Ollama deve trocar api_format para openai", async () => {
+    const user = userEvent.setup();
+    render(
+      <ProviderForm onCancel={() => {}} onSave={() => {}} />
+    );
+
+    const typeSelect = screen.getByLabelText(/tipo/i);
+    await user.selectOptions(typeSelect, "ollama");
+
+    const apiFormatLabel = screen.getByText("providerForm.apiProtocol");
+    const selectId = apiFormatLabel.closest("label")?.getAttribute("for");
+    const select = document.getElementById(selectId!) as HTMLSelectElement;
+    expect(select.value).toBe("openai");
   });
 });
 

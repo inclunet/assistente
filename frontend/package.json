@@ -23,6 +23,7 @@
   },
   "dependencies": {
     "@ant-design/icons": "^6.1.0",
+    "@floating-ui/dom": "^1.7.6",
     "@monaco-editor/react": "^4.7.0",
     "@tiptap/extension-link": "^3.20.0",
     "@tiptap/extension-placeholder": "^3.20.0",

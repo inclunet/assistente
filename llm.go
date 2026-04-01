@@ -761,6 +761,48 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	}
 	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
+	// MCP nativo: se provider suporta e há servidores HTTP elegíveis, configura native path.
+	// Servidores HTTP elegíveis vão para o LLM via native connector; suas bridge tools
+	// são removidas do llmToolDefs para evitar duplicatas.
+	// Servidores STDIO/locais continuam via bridge/adapter normalmente.
+	if !disableTools && requestStreamer.SupportsNativeMCP() && a.mcpMgr != nil {
+		nativeServers := a.mcpMgr.GetEligibleNativeMCPServers()
+		if len(nativeServers) > 0 {
+			var mcpConfigs []llm.MCPServerConfig
+			nativeToolNames := make(map[string]bool)
+
+			for _, srv := range nativeServers {
+				mcpConfigs = append(mcpConfigs, llm.MCPServerConfig{
+					Name:      srv.Name,
+					URL:       srv.URL,
+					AuthToken: srv.AuthToken,
+					ToolNames: srv.ToolNames,
+				})
+				for _, tn := range srv.ToolNames {
+					nativeToolNames[tn] = true
+				}
+			}
+
+			requestStreamer = requestStreamer.WithMCPServers(mcpConfigs)
+			log.Printf("[SendMessage] MCP nativo: %d servidores HTTP configurados", len(mcpConfigs))
+
+			// Remove bridge tools que agora vão por native (evita duplicata)
+			if len(nativeToolNames) > 0 {
+				filtered := make([]llm.ToolDefinition, 0, len(llmToolDefs))
+				for _, td := range llmToolDefs {
+					if !nativeToolNames[td.Function.Name] {
+						filtered = append(filtered, td)
+					}
+				}
+				removed := len(llmToolDefs) - len(filtered)
+				if removed > 0 {
+					log.Printf("[SendMessage] MCP nativo: %d bridge tools removidas (nativas agora)", removed)
+				}
+				llmToolDefs = filtered
+			}
+		}
+	}
+
 	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
 	if len(llmToolDefs) > 0 {
 		agentCtx := a.ctx

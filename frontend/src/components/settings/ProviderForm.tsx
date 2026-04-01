@@ -38,7 +38,7 @@ interface ProviderConfig {
   testRequiresApiKey: boolean;
   helpText?: string;
   defaultModel?: string;
-  apiFormat?: string; // "openai" | "anthropic" | "google" | "" (legacy HTTP)
+  apiFormat?: string; // "openai" | "openai_responses" | "anthropic" | "google"
 }
 
 export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
@@ -51,7 +51,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderConfig> = {
     testRequiresApiKey: true,
     helpText: 'Get your API key from https://platform.openai.com/api-keys',
     defaultModel: 'gpt-4o-mini',
-    apiFormat: 'openai',
+    apiFormat: 'openai_responses',
   },
   anthropic: {
     label: 'Anthropic',
@@ -210,11 +210,11 @@ const PROVIDER_TYPES = Object.entries(PROVIDER_CONFIG).map(([key, config]) => ({
   label: config.label,
 }));
 
-const API_FORMAT_OPTIONS = [
-  { value: '',          label: 'Compatível (HTTP legacy)' },
-  { value: 'openai',    label: 'OpenAI SDK' },
-  { value: 'anthropic', label: 'Anthropic SDK' },
-  { value: 'google',    label: 'Google SDK' },
+export const API_FORMAT_OPTIONS = [
+  { value: 'openai_responses', label: 'OpenAI — Responses API' },
+  { value: 'openai',           label: 'OpenAI-compatible — Chat Completions' },
+  { value: 'anthropic',        label: 'Anthropic — Messages API' },
+  { value: 'google',           label: 'Google — Gemini API' },
 ];
 
 export const ProviderForm = ({ provider, onSave, onCancel }: ProviderFormProps) => {

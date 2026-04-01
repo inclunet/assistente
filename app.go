@@ -368,6 +368,7 @@ func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
 			ID:                "openai-default",
 			Name:              "OpenAI",
 			Type:              llm.ProviderOpenAI,
+			APIFormat:         llm.APIFormatOpenAIResponses,
 			BaseURL:           "https://api.openai.com/v1",
 			Model:             "gpt-4o-mini",
 			Timeout:           180,
@@ -2488,14 +2489,6 @@ func (a *App) GetMCPPrompt(slug, name string, arguments map[string]string) ([]st
 	return a.mcpMgr.GetPrompt(slug, name, arguments)
 }
 
-// GetNativeMCPServers retorna informações dos servidores MCP para uso nativo por modelos.
-func (a *App) GetNativeMCPServers() []map[string]any {
-	if a.mcpMgr == nil {
-		return []map[string]any{}
-	}
-	return a.mcpMgr.GetNativeServerInfo()
-}
-
 // LLMSettings contém configurações da API LLM
 type LLMSettings struct {
 	APIKey  string
@@ -2661,62 +2654,6 @@ func (a *App) GetLLMSettings() (*LLMSettings, error) {
 		APIKey:  cfg.APIKey,
 		BaseURL: cfg.APIBaseURL,
 	}, nil
-}
-
-// TestMCPNativeSupport testa se o modelo configurado no perfil suporta MCP nativo.
-// Faz chamada real à API. Deve ser chamado ao configurar perfil pela primeira vez.
-// Retorna (suporta, mensagemErro, erro)
-func (a *App) TestMCPNativeSupport(profileSlug string) (bool, string, error) {
-	// Carregar perfil
-	profile, err := a.profileManager.Get(profileSlug)
-	if err != nil {
-		return false, "", fmt.Errorf("erro ao carregar perfil: %w", err)
-	}
-
-	// Obter configurações da API do LLM settings atual
-	settings, err := a.GetLLMSettings()
-	if err != nil {
-		return false, "", fmt.Errorf("erro ao obter configurações: %w", err)
-	}
-
-	// Fazer teste
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	supported, errMsg, err := profiles.TestMCPNativeSupport(
-		ctx,
-		settings.APIKey,
-		settings.BaseURL,
-		profile.Chat.Model,
-	)
-
-	if err != nil {
-		return false, errMsg, err
-	}
-
-	// Salvar resultado no perfil
-	profile.SetMCPNativeSupport(supported)
-	if err := a.profileManager.Update(profileSlug, profile); err != nil {
-		return supported, "", fmt.Errorf("erro ao salvar perfil: %w", err)
-	}
-
-	return supported, "", nil
-}
-
-// ClearMCPTest limpa resultado do teste MCP de um perfil para forçar re-teste.
-func (a *App) ClearMCPTest(profileSlug string) error {
-	profile, err := a.profileManager.Get(profileSlug)
-	if err != nil {
-		return fmt.Errorf("erro ao carregar perfil: %w", err)
-	}
-
-	profile.ClearMCPTest()
-
-	if err := a.profileManager.Update(profileSlug, profile); err != nil {
-		return fmt.Errorf("erro ao salvar perfil: %w", err)
-	}
-
-	return nil
 }
 
 // SetMCPWorkspaceRoots configura os diretórios raiz do workspace para servidores MCP.
@@ -4821,6 +4758,7 @@ type wizardProviderInfo struct {
 	ID           string
 	Name         string
 	Type         llm.ProviderType
+	APIFormat    llm.APIFormat // se vazio, será inferido por GetAPIFormat()
 	DefaultModel string
 }
 
@@ -4828,9 +4766,9 @@ type wizardProviderInfo struct {
 func getWizardProviderInfo(providerChoice string) wizardProviderInfo {
 	switch providerChoice {
 	case "OpenAI":
-		return wizardProviderInfo{ID: "openai-default", Name: "OpenAI", Type: llm.ProviderOpenAI, DefaultModel: "gpt-4o-mini"}
+		return wizardProviderInfo{ID: "openai-default", Name: "OpenAI", Type: llm.ProviderOpenAI, APIFormat: llm.APIFormatOpenAIResponses, DefaultModel: "gpt-4o-mini"}
 	case "Anthropic (Claude)":
-		return wizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude, DefaultModel: "claude-sonnet-4-20250514"}
+		return wizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude, APIFormat: llm.APIFormatAnthropic, DefaultModel: "claude-sonnet-4-20250514"}
 	case "Google (Gemini)":
 		return wizardProviderInfo{ID: "google-gemini", Name: "Google (Gemini)", Type: llm.ProviderOpenAI, DefaultModel: "gemini-2.0-flash"}
 	case "OpenRouter":
@@ -4884,6 +4822,7 @@ func (a *App) createWizardProvider(providerChoice, baseURL, apiKey, model string
 		ID:                info.ID,
 		Name:              info.Name,
 		Type:              info.Type,
+		APIFormat:         info.APIFormat,
 		BaseURL:           baseURL,
 		Model:             model,
 		DefaultModel:      defaultModel,

@@ -18,8 +18,9 @@ import (
 
 // AnthropicProvider implementa ChatProvider usando a SDK anthropic-sdk-go.
 type AnthropicProvider struct {
-	client   *anthropic.Client
-	provider *ProviderConfig
+	client     *anthropic.Client
+	provider   *ProviderConfig
+	mcpServers []MCPServerConfig // MCP servers HTTP para native connector
 }
 
 // NewAnthropicProvider cria um provider Anthropic com a SDK oficial.
@@ -48,9 +49,15 @@ func (p *AnthropicProvider) SupportsNativeMCP() bool {
 	return true
 }
 
-func (p *AnthropicProvider) WithMCPServers(_ []MCPServerConfig) ChatProvider {
-	// TODO: MCP Connector (mcp_servers[] + beta header mcp-client-2025-11-20)
-	return p
+func (p *AnthropicProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {
+	if len(servers) == 0 {
+		return p
+	}
+	return &AnthropicProvider{
+		client:     p.client,
+		provider:   p.provider,
+		mcpServers: servers,
+	}
 }
 
 func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
@@ -129,6 +136,12 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 
 	system, anthropicMsgs := convertToAnthropicMessages(messages)
 
+	// Se há MCP servers configurados, usa Beta Messages API com MCP connector
+	if len(p.mcpServers) > 0 {
+		p.streamChatWithMCP(ctx, model, maxTokens, system, anthropicMsgs, params, handler, tools...)
+		return
+	}
+
 	sdkParams := anthropic.MessageNewParams{
 		Model:     anthropic.Model(model),
 		Messages:  anthropicMsgs,
@@ -182,6 +195,274 @@ func (p *AnthropicProvider) StreamChat(ctx context.Context, messages []Message, 
 		}
 
 		handler.OnError("Máximo de tentativas de streaming excedido")
+	}
+}
+
+// streamChatWithMCP usa a Beta Messages API com MCP connector nativo.
+// MCP servers HTTP são passados diretamente ao Anthropic, que faz a comunicação server-side.
+// Tools locais (function calling) continuam funcionando normalmente junto com MCP.
+func (p *AnthropicProvider) streamChatWithMCP(
+	ctx context.Context,
+	model string,
+	maxTokens int64,
+	system []anthropic.TextBlockParam,
+	msgs []anthropic.MessageParam,
+	params ChatParams,
+	handler StreamHandler,
+	tools ...ToolDefinition,
+) {
+	betaParams := anthropic.BetaMessageNewParams{
+		Model:     anthropic.Model(model),
+		Messages:  convertToBetaMessages(msgs),
+		MaxTokens: maxTokens,
+		Betas:     []anthropic.AnthropicBeta{"mcp-client-2025-11-20"},
+	}
+
+	if len(system) > 0 {
+		betaSystem := make([]anthropic.BetaTextBlockParam, len(system))
+		for i, s := range system {
+			betaSystem[i] = anthropic.BetaTextBlockParam{Text: s.Text}
+		}
+		betaParams.System = betaSystem
+	}
+
+	if params.Temperature > 0 {
+		betaParams.Temperature = anthropicparam.NewOpt(params.Temperature)
+	}
+	if params.TopP > 0 && params.TopP != 1.0 {
+		betaParams.TopP = anthropicparam.NewOpt(params.TopP)
+	}
+
+	// Adiciona MCP servers
+	for _, srv := range p.mcpServers {
+		mcpDef := anthropic.BetaRequestMCPServerURLDefinitionParam{
+			Name: srv.Name,
+			URL:  srv.URL,
+		}
+		if srv.AuthToken != "" {
+			mcpDef.AuthorizationToken = anthropicparam.NewOpt(srv.AuthToken)
+		}
+		betaParams.MCPServers = append(betaParams.MCPServers, mcpDef)
+	}
+
+	// Adiciona MCP toolsets (habilita todas as tools de cada server)
+	var betaTools []anthropic.BetaToolUnionParam
+	for _, srv := range p.mcpServers {
+		betaTools = append(betaTools, anthropic.BetaToolUnionParamOfMCPToolset(srv.Name))
+	}
+
+	// Adiciona tools locais (function calling) junto com MCP toolsets
+	if len(tools) > 0 {
+		for _, tool := range tools {
+			var schema anthropic.BetaToolInputSchemaParam
+			if len(tool.Function.Parameters) > 0 {
+				if err := json.Unmarshal(tool.Function.Parameters, &schema); err != nil {
+					log.Printf("[AnthropicProvider] Erro ao parsear parameters de %s: %v", tool.Function.Name, err)
+					continue
+				}
+			}
+			betaTools = append(betaTools, anthropic.BetaToolUnionParam{
+				OfTool: &anthropic.BetaToolParam{
+					Name:        tool.Function.Name,
+					Description: anthropicparam.NewOpt(tool.Function.Description),
+					InputSchema: schema,
+				},
+			})
+		}
+
+		toolChoice := "auto"
+		if choice, ok := toolChoiceFromContext(ctx); ok {
+			if s, ok := choice.(string); ok {
+				toolChoice = s
+			}
+		}
+		betaParams.ToolChoice = makeBetaAnthropicToolChoice(toolChoice)
+	}
+
+	betaParams.Tools = betaTools
+
+	log.Printf("[AnthropicProvider] MCP nativo: %d servers, %d tools locais", len(p.mcpServers), len(tools))
+
+	const maxAttempts = 10
+	bk := 500 * time.Millisecond
+	maxBk := 8 * time.Second
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return
+		default:
+		}
+
+		done := p.doStreamBeta(ctx, betaParams, handler)
+		if done {
+			return
+		}
+
+		if attempt < maxAttempts {
+			sleepWithJitter(ctx, bk)
+			bk = nextBackoff(bk, maxBk)
+			continue
+		}
+
+		handler.OnError("Máximo de tentativas de streaming excedido")
+	}
+}
+
+// doStreamBeta executa streaming via Beta Messages API (MCP connector).
+// Eventos de MCP (mcp_tool_use, mcp_tool_result) são transparentes — o Anthropic
+// executa as tool calls MCP server-side. Tool calls locais (tool_use) continuam
+// sendo reportadas via OnToolCalls para execução local.
+func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.BetaMessageNewParams, handler StreamHandler) bool {
+	stream := p.client.Beta.Messages.NewStreaming(ctx, params)
+
+	var fullResponse strings.Builder
+	var fullReasoning strings.Builder
+	var emittedAnything bool
+	var lastUsage Usage
+	var lastModel string
+
+	type pendingToolCall struct {
+		ID       string
+		Name     string
+		ArgsJSON strings.Builder
+	}
+	activeToolCalls := make(map[int64]*pendingToolCall)
+	var finishedToolCalls []ToolCall
+	var stopReason string
+
+	for stream.Next() {
+		event := stream.Current()
+
+		switch event.Type {
+		case "message_start":
+			if event.Message.Model != "" {
+				lastModel = string(event.Message.Model)
+			}
+			if event.Message.Usage.InputTokens > 0 {
+				lastUsage.PromptTokens = int(event.Message.Usage.InputTokens)
+			}
+
+		case "content_block_start":
+			cb := event.ContentBlock
+			switch cb.Type {
+			case "text":
+				// streamed via deltas
+			case "thinking":
+				// streamed via deltas
+			case "tool_use":
+				activeToolCalls[event.Index] = &pendingToolCall{
+					ID:   cb.ID,
+					Name: cb.Name,
+				}
+			case "mcp_tool_use":
+				log.Printf("[AnthropicProvider] MCP tool call: %s (server-side)", cb.Name)
+			case "mcp_tool_result":
+				log.Printf("[AnthropicProvider] MCP tool result (server-side)")
+			}
+
+		case "content_block_delta":
+			delta := event.Delta
+			switch delta.Type {
+			case "text_delta":
+				if delta.Text != "" {
+					fullResponse.WriteString(delta.Text)
+					emittedAnything = true
+					handler.OnChunk(delta.Text)
+				}
+			case "thinking_delta":
+				if delta.Thinking != "" {
+					fullReasoning.WriteString(delta.Thinking)
+					emittedAnything = true
+					handler.OnThinking(delta.Thinking)
+				}
+			case "input_json_delta":
+				if tc, ok := activeToolCalls[event.Index]; ok {
+					tc.ArgsJSON.WriteString(delta.PartialJSON)
+				}
+			}
+
+		case "content_block_stop":
+			if tc, ok := activeToolCalls[event.Index]; ok {
+				finishedToolCalls = append(finishedToolCalls, ToolCall{
+					ID:   tc.ID,
+					Type: "function",
+					Function: FunctionCall{
+						Name:      tc.Name,
+						Arguments: tc.ArgsJSON.String(),
+					},
+				})
+				delete(activeToolCalls, event.Index)
+			}
+
+		case "message_delta":
+			if string(event.Delta.StopReason) != "" {
+				stopReason = string(event.Delta.StopReason)
+			}
+			if event.Usage.OutputTokens > 0 {
+				lastUsage.CompletionTokens = int(event.Usage.OutputTokens)
+				lastUsage.TotalTokens = lastUsage.PromptTokens + lastUsage.CompletionTokens
+			}
+		}
+	}
+
+	if err := stream.Err(); err != nil {
+		errStr := err.Error()
+		log.Printf("[AnthropicProvider] Beta stream error: %s", errStr)
+		if !emittedAnything && isRetryableError(errStr) {
+			return false
+		}
+		handler.OnError(errStr)
+		return true
+	}
+
+	if fullReasoning.Len() > 0 {
+		handler.OnThinkingDone(fullReasoning.String())
+	}
+
+	if stopReason == "tool_use" && len(finishedToolCalls) > 0 {
+		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), lastUsage, lastModel)
+		return true
+	}
+
+	handler.OnDone(fullResponse.String(), lastUsage, lastModel)
+	return true
+}
+
+// convertToBetaMessages converte MessageParam regulares para BetaMessageParam.
+func convertToBetaMessages(msgs []anthropic.MessageParam) []anthropic.BetaMessageParam {
+	result := make([]anthropic.BetaMessageParam, len(msgs))
+	for i, msg := range msgs {
+		betaContent := make([]anthropic.BetaContentBlockParamUnion, len(msg.Content))
+		for j, block := range msg.Content {
+			data, _ := json.Marshal(block)
+			var betaBlock anthropic.BetaContentBlockParamUnion
+			json.Unmarshal(data, &betaBlock)
+			betaContent[j] = betaBlock
+		}
+		result[i] = anthropic.BetaMessageParam{
+			Role:    anthropic.BetaMessageParamRole(msg.Role),
+			Content: betaContent,
+		}
+	}
+	return result
+}
+
+func makeBetaAnthropicToolChoice(choice string) anthropic.BetaToolChoiceUnionParam {
+	switch choice {
+	case "required":
+		return anthropic.BetaToolChoiceUnionParam{
+			OfAny: &anthropic.BetaToolChoiceAnyParam{},
+		}
+	case "none":
+		return anthropic.BetaToolChoiceUnionParam{
+			OfNone: &anthropic.BetaToolChoiceNoneParam{},
+		}
+	default:
+		return anthropic.BetaToolChoiceUnionParam{
+			OfAuto: &anthropic.BetaToolChoiceAutoParam{},
+		}
 	}
 }
 

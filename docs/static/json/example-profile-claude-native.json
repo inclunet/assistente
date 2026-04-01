@@ -1,18 +1,17 @@
 {
-  "name": "Claude Native MCP",
-  "description": "Perfil configurado para usar Claude com MCP nativo",
+  "name": "Claude (Anthropic)",
+  "description": "Perfil para Claude via API Anthropic com suporte a MCP nativo",
   "icon": "flash",
   "chat": {
-    "model": "claude-3-7-sonnet-20250219",
+    "llm_provider": "anthropic-claude",
+    "model": "claude-sonnet-4-20250514",
     "temperature": 0.7,
     "max_tokens": 4096,
     "top_p": 1.0,
     "response_timeout": 180,
-    "enable_thinking": true,
     "enabled_tools": null,
     "enabled_skills": null,
-    "command_allowlist": "",
-    "mcp_mode": "native"
+    "command_allowlist": ""
   },
   "voice": {
     "provider": "disabled",

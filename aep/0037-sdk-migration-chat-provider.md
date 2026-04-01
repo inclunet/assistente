@@ -1,6 +1,6 @@
 # SDK Migration + ChatProvider Interface
 
-## Status: Draft
+## Status: Implementado (v2)
 
 ---
 
@@ -50,28 +50,32 @@ Novo campo que determina qual SDK/protocolo usar:
 type APIFormat string
 
 const (
-    APIFormatOpenAI    APIFormat = "openai"    // openai-go SDK
-    APIFormatAnthropic APIFormat = "anthropic" // anthropic-sdk-go SDK
-    APIFormatGoogle    APIFormat = "google"    // google.golang.org/genai SDK
+    APIFormatOpenAI          APIFormat = "openai"           // Chat Completions only (OpenAI-compatible)
+    APIFormatOpenAICompatible          = APIFormatOpenAI    // alias semantico
+    APIFormatOpenAIResponses APIFormat = "openai_responses" // Responses API first (OpenAI real)
+    APIFormatAnthropic       APIFormat = "anthropic"        // anthropic-sdk-go SDK
+    APIFormatGoogle          APIFormat = "google"           // google.golang.org/genai SDK
 )
 
 type ProviderConfig struct {
     // ... campos existentes ...
-    APIFormat APIFormat `json:"api_format,omitempty"` // default: "openai"
+    APIFormat APIFormat `json:"api_format,omitempty"` // default inferido por GetAPIFormat()
 }
 ```
 
 `api_format` e independente de `ProviderType` (que continua como label de marca):
 
-| Cenario | ProviderType | api_format | SDK |
-|---------|-------------|------------|-----|
-| OpenAI direto | openai | openai | openai-go |
-| Claude direto | claude | anthropic | anthropic-sdk-go |
-| Claude via OpenRouter | claude | openai | openai-go |
-| Ollama local | ollama | openai | openai-go |
-| Gemini direto | gemini | google | genai |
-| DeepSeek | deepseek | openai | openai-go |
-| Custom endpoint | custom | openai | openai-go |
+| Cenario | ProviderType | api_format | SDK | MCP Nativo |
+|---------|-------------|------------|-----|------------|
+| OpenAI direto | openai | openai_responses | openai-go (Responses API) | Sim |
+| Claude direto | claude | anthropic | anthropic-sdk-go | Sim |
+| Claude via OpenRouter | claude | openai | openai-go (Chat Completions) | Nao |
+| Ollama local | ollama | openai | openai-go (Chat Completions) | Nao |
+| Gemini direto | gemini | google | genai | Nao |
+| DeepSeek | deepseek | openai | openai-go (Chat Completions) | Nao |
+| Custom endpoint | custom | openai | openai-go (Chat Completions) | Nao |
+
+> **Default conservador:** Quando `api_format` nao esta definido, `GetAPIFormat()` infere `openai_responses` para URLs com `api.openai.com`. Qualquer outro URL cai em `openai` (Chat Completions). Isso garante compatibilidade com configs legadas sem exigir migracao.
 
 ---
 
@@ -102,6 +106,8 @@ func NewChatProvider(provider *ProviderConfig, credMgr *credentials.Manager) Cha
         return NewAnthropicProvider(provider, credMgr)
     case APIFormatGoogle:
         return NewGoogleProvider(provider, credMgr)
+    case APIFormatOpenAIResponses:
+        return NewOpenAIResponsesProvider(provider, credMgr)
     default:
         return NewOpenAIProvider(provider, credMgr)
     }
@@ -110,9 +116,10 @@ func NewChatProvider(provider *ProviderConfig, credMgr *credentials.Manager) Cha
 
 ### Implementacoes
 
-- **`OpenAIProvider`**: usa `openai-go`. Responses API para MCP nativo (`type: "mcp"`), Chat Completions como fallback. `SupportsNativeMCP()` retorna `true`.
+- **`OpenAIProvider(useResponses=false)`**: usa `openai-go` via Chat Completions API. Para provedores OpenAI-compatible (OpenRouter, Ollama, Groq, etc). `SupportsNativeMCP()` retorna `false`. Construtor: `NewOpenAIProvider()`.
+- **`OpenAIProvider(useResponses=true)`**: usa `openai-go` via Responses API. Para OpenAI real. Suporta MCP nativo (`type: "mcp"`), reasoning summaries, tool_choice. `SupportsNativeMCP()` retorna `true`. Construtor: `NewOpenAIResponsesProvider()`.
 - **`AnthropicProvider`**: usa `anthropic-sdk-go`. Messages API com MCP Connector (`mcp_servers[]` + `mcp_toolset`, beta header `mcp-client-2025-11-20`). `SupportsNativeMCP()` retorna `true`.
-- **`GoogleProvider`**: usa `google.golang.org/genai`. Gemini API. `SupportsNativeMCP()` retorna `true` quando suporte estabilizar.
+- **`GoogleProvider`**: usa `google.golang.org/genai`. Gemini API. `SupportsNativeMCP()` retorna `false` (nao implementado).
 
 ---
 
@@ -176,10 +183,11 @@ Depois:
 ```go
 chatProvider := llm.NewChatProvider(provider, credMgr)
 
-// Se MCP nativo ativo, configura servers HTTP
-if chatProvider.SupportsNativeMCP() && profile.NativeMCP {
-    httpServers := mcpMgr.GetNativeEligibleServers()
+// MCP nativo: capability-driven, sem toggle de perfil
+if chatProvider.SupportsNativeMCP() {
+    httpServers := mcpMgr.GetEligibleNativeMCPServers()
     chatProvider = chatProvider.WithMCPServers(httpServers)
+    // Remove bridge tools que agora vao por nativo (evita duplicata)
 }
 
 // Tools: internas + STDIO bridges (MCP HTTP servers nao vao como tools)
@@ -257,17 +265,18 @@ Este caminho nao envolve o cliente LLM nem o `ChatProvider`. MCP tools continuam
 - `agent.go`: adaptar agentic loop para `ChatProvider`
 - `mcp/manager.go`: `GetNativeEligibleServers()`
 
-### Fase 5: Config e UI
+### Fase 5: Config e UI ✅
 
-- Wizard define `api_format` automatico por provider
-- Toggle `native_mcp` no perfil (substituindo `mcp_mode`)
-- Frontend: dropdown `api_format` em providers, toggle em perfil
+- ✅ Wizard define `api_format` automatico por provider
+- ✅ Decisao MCP nativo e capability-driven (sem toggle no perfil)
+- ✅ Frontend: dropdown `api_format` em ProviderForm com labels claros por formato
+- ✅ OpenAI real usa `openai_responses` como default; providers compatible usam `openai`
 
-### Fase 6: Cleanup
+### Fase 6: Cleanup ✅
 
-- Remover `client.go`, `sync_client.go`, tipos manuais de `types.go`
-- Remover `mcp_mode`, `mcp_native_tested`, `ShouldUseMCPNative()`, `TestMCPNativeSupport()`
-- Remover `internal/tools/http` se nao usado por outros modulos
+- ✅ Removidos: `mcp_mode`, `mcp_native_tested`, `ShouldUseMCPNative()`, `TestMCPNativeSupport()`, `ModelSupportsNativeMCP()`, `GetNativeServerInfo()`, `mcp_testing.go`
+- Pendente: Remover `client.go`, `sync_client.go`, tipos manuais de `types.go` (cliente legado mantido como fallback temporario para ListModels)
+- Pendente: Remover `internal/tools/http` se nao usado por outros modulos
 
 ---
 
@@ -289,13 +298,13 @@ Este caminho nao envolve o cliente LLM nem o `ChatProvider`. MCP tools continuam
 - `agent.go` — agentic loop usando `ChatProvider`
 - `app.go` — wizard, CRUD de providers
 - `internal/mcp/manager.go` — `GetNativeEligibleServers()`
-- `internal/profiles/types.go` — `NativeMCP` bool substituindo `mcp_mode`
+- `internal/profiles/types.go` — removidos campos legados `mcp_mode`, `mcp_native_tested` e metodos associados
 
 ### Removidos (Fase 6)
 
 - `internal/llm/client.go`
 - `internal/llm/sync_client.go`
-- `internal/profiles/mcp_testing.go`
+- `internal/profiles/mcp_testing.go` ✅ removido
 
 ---
 

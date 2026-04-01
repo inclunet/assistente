@@ -1574,47 +1574,84 @@ func sanitizeSlug(name string) string {
 	return string(clean)
 }
 
-// GetNativeServerInfo retorna informações para uso nativo de MCP por modelos.
-// Permite que modelos com suporte MCP nativo acessem os servidores diretamente.
-func (m *Manager) GetNativeServerInfo() []map[string]any {
+// NativeMCPServer descreve um servidor MCP HTTP elegível para passthrough nativo.
+// Usado pelo chat loop para montar MCPServerConfig e passar ao ChatProvider.
+type NativeMCPServer struct {
+	Slug      string
+	Name      string
+	URL       string
+	AuthToken string
+	ToolNames []string // nomes das tools registradas (namespaced, para filtragem)
+}
+
+// isNativeMCPEligibleURL verifica se a URL é segura para MCP nativo.
+// HTTPS é sempre aceito. HTTP é aceito apenas para localhost/loopback (dev local).
+// URLs HTTP com host remoto são rejeitadas: o LLM provider faz a conexão
+// server-side, e enviar auth tokens por HTTP sem encriptação é inseguro.
+func isNativeMCPEligibleURL(rawURL string) bool {
+	if strings.HasPrefix(rawURL, "https://") {
+		return true
+	}
+	if strings.HasPrefix(rawURL, "http://") {
+		host := hostnameFromURL(rawURL)
+		return host == "localhost" || host == "127.0.0.1" || host == "::1" || host == "[::1]"
+	}
+	return false
+}
+
+// GetEligibleNativeMCPServers retorna servidores HTTP conectados e com tools,
+// elegíveis para MCP nativo (SSE ou Streamable HTTP).
+// Servidores STDIO são excluídos — não podem ser acessados remotamente.
+// Servidores HTTP com URL insegura (HTTP em host não-local) são excluídos.
+func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	var servers []map[string]any
+	var result []NativeMCPServer
 	for slug, status := range m.servers {
 		if status.Status != StatusConnected {
 			continue
 		}
-
-		conn, ok := m.connections[slug]
-		if !ok {
+		if status.Config.Transport != TransportSSE && status.Config.Transport != TransportStreamable {
+			continue
+		}
+		if status.Config.URL == "" {
+			continue
+		}
+		if len(status.Tools) == 0 {
+			continue
+		}
+		if !isNativeMCPEligibleURL(status.Config.URL) {
+			log.Printf("[MCP] servidor %q excluído do MCP nativo: URL %q não é HTTPS nem localhost (adapter será usado)",
+				slug, status.Config.URL)
 			continue
 		}
 
-		serverInfo := map[string]any{
-			"slug":        slug,
-			"name":        status.Config.Name,
-			"description": status.Config.Description,
-			"transport":   status.Config.Transport,
-			"capabilities": map[string]any{
-				"tools":     len(status.Tools) > 0,
-				"resources": len(status.Resources) > 0,
-				"prompts":   len(status.Prompts) > 0,
-			},
+		srv := NativeMCPServer{
+			Slug: slug,
+			Name: status.Config.Name,
+			URL:  status.Config.URL,
 		}
 
-		// Inclui informação de transporte para acesso direto
-		if status.Config.Transport == TransportSSE || status.Config.Transport == TransportStreamable {
-			serverInfo["endpoint"] = status.Config.URL
+		// Coleta nomes das tools registradas (fullName = namespaced)
+		for _, t := range status.Tools {
+			srv.ToolNames = append(srv.ToolNames, t.FullName)
 		}
 
-		// Inclui session ID para uso direto
-		if conn.session != nil {
-			serverInfo["sessionId"] = conn.session.ID()
+		// Resolve auth token se disponível
+		if m.credMgr != nil {
+			// Tenta OAuth tokens primeiro
+			if auth, err := m.credMgr.GetByPattern(userTokensPattern(slug)); err == nil && auth != nil && auth.Token != "" {
+				srv.AuthToken = auth.Token
+			} else if hostname := hostnameFromURL(status.Config.URL); hostname != "" {
+				if auth, err := m.credMgr.GetByPattern(hostname); err == nil && auth != nil && auth.Token != "" {
+					srv.AuthToken = auth.Token
+				}
+			}
 		}
 
-		servers = append(servers, serverInfo)
+		result = append(result, srv)
 	}
-
-	return servers
+	return result
 }
+

@@ -32,11 +32,10 @@ func NewGoogleProvider(provider *ProviderConfig, credMgr *credentials.Manager) *
 }
 
 func (p *GoogleProvider) SupportsNativeMCP() bool {
-	return true
+	return false
 }
 
 func (p *GoogleProvider) WithMCPServers(_ []MCPServerConfig) ChatProvider {
-	// TODO: Gemini MCP servers via Tool.MCPServers
 	return p
 }
 
