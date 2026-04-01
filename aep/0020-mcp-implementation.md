@@ -33,10 +33,10 @@ Este documento descreve a implementação completa de MCP no assistente, incluin
 - ✅ Notificações de estado no frontend
 
 ### 5. **Native MCP Mode** ✅ FUNCIONAL
-- ✅ Detecção de suporte via testes reais
-- ✅ Configuração por perfil
-- ✅ Cache de resultados de teste
-- ✅ Modo auto/adapter/native
+- ✅ MCP nativo real via Responses API (OpenAI) e MCP Connector (Anthropic)
+- ✅ Decisão capability-driven baseada em `api_format` do provider
+- ✅ Coexistência: tools internas + MCP nativo + STDIO bridges na mesma request
+- ✅ Deduplicação automática de tools (bridges removidas quando há caminho nativo)
 
 ### 6. **Workspace Roots** ✅ PREPARADO
 - ✅ Tipos definidos (`Root`)
@@ -110,7 +110,7 @@ app.mcpMgr.SetSamplingHandler(func(ctx context.Context, req mcpmgr.SamplingReque
 | Resources | ✅ Funcional | ✅ | ✅ |
 | Prompts | ✅ Funcional | ✅ | ✅ |
 | Health Checks | ✅ Funcional | ✅ | ✅ |
-| Native Mode | ✅ Funcional | ✅ | ✅ |
+| Native Mode | ✅ Funcional (capability-driven) | ✅ | ✅ |
 | Roots | 🔄 Preparado | ❌ | ✅ |
 | Logging | 🔄 Preparado | ❌ | ✅ |
 | Progress | 🔄 Preparado | ❌ | ✅ |

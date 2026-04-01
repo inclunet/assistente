@@ -215,8 +215,8 @@ func (a *App) executeSummarization(
 		return
 	}
 
-	client := llm.NewSyncClient(provider, a.credMgr)
-	summary, err := client.SimpleChat(context.Background(), model, SummaryPrompt, userPrompt)
+	cp := llm.NewChatProvider(provider, a.credMgr)
+	summary, err := cp.SimpleChat(context.Background(), model, SummaryPrompt, userPrompt)
 	if err != nil {
 		log.Printf("[Summary] Erro na chamada LLM: %v", err)
 		runtime.EventsEmit(a.ctx, "chat:summary_error", map[string]interface{}{

@@ -382,6 +382,23 @@ func CoerceInputs(inputs map[string]any, schemaJSON json.RawMessage) map[string]
 	return result
 }
 
+// EvaluateCondition renders a Go template condition against the given context
+// and returns whether the result is truthy (non-empty and not "false").
+// An empty condition string is always truthy (no filtering).
+func EvaluateCondition(condition string, ctx *TemplateContext) (bool, error) {
+	if condition == "" {
+		return true, nil
+	}
+
+	result, err := resolveTemplate(condition, ctx)
+	if err != nil {
+		return false, fmt.Errorf("condition eval: %w", err)
+	}
+
+	s := strings.TrimSpace(fmt.Sprintf("%v", result))
+	return s != "" && s != "false" && s != "<no value>", nil
+}
+
 func encodeJSON(v any) ([]byte, error) {
 	b, err := json.Marshal(v)
 	if err != nil {

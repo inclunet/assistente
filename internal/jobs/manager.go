@@ -567,6 +567,7 @@ func (m *Manager) registerTriggers(job *Job) {
 	for _, t := range job.Triggers {
 		if t.Type == TriggerEvent && t.Listen != "" {
 			jobCopy := *job
+			triggerWhen := t.When
 			m.eventBus.Subscribe(t.Listen, job.ID, func(ctx context.Context, eventName string, payload map[string]any) {
 				// Extrai chain context do payload
 				chainID, _ := payload["_chain_id"].(string)
@@ -577,6 +578,22 @@ func (m *Manager) registerTriggers(job *Job) {
 				for k, v := range payload {
 					if k != "_chain_id" && k != "_chain_history" {
 						cleanPayload[k] = v
+					}
+				}
+
+				// Evaluate trigger condition before executing
+				if triggerWhen != "" {
+					ok, err := EvaluateCondition(triggerWhen, &TemplateContext{
+						Event: cleanPayload,
+						Now:   time.Now(),
+					})
+					if err != nil {
+						log.Printf("[Jobs] %s: trigger when eval error: %v", jobCopy.ID, err)
+						return
+					}
+					if !ok {
+						log.Printf("[Jobs] %s: trigger when condition not met, skipping", jobCopy.ID)
+						return
 					}
 				}
 

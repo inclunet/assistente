@@ -274,29 +274,28 @@ func TestIntegration_FirstMessageWithMCPDisabled(t *testing.T) {
 
 	db := setupIntegrationDB(t)
 
-	// 1. Setup: perfil com MCP desabilitado
-	// Para simular isso, usamos MCPMode = "" (sistema não carrega MCP servers)
 	noMCPProfile := profiles.Profile{
 		Name:        "Sem MCP",
 		Description: "Sem Model Context Protocol",
 		Icon:        "🔒",
 		Active:      true,
 		Chat: profiles.ChatConfig{
-			LLMProvider:  "openai",
-			Model:        "gpt-4o",
-			Temperature:  0.7,
-			MaxTokens:    1000,
-			DisableTools: false,
-			EnabledTools: []string{}, // Apenas built-in tools, sem MCP
-			MCPMode:      "",         // VAZIO - MCP desabilitado
+			LLMProvider:     "openai",
+			Model:           "gpt-4o",
+			Temperature:     0.7,
+			MaxTokens:       1000,
+			TopP:            1.0,
+			ResponseTimeout: 180,
+			DisableTools:    false,
+			EnabledTools:    []string{},
 		},
 		Voice: profiles.VoiceConfig{
 			Disabled: true,
 		},
 	}
 
-	if noMCPProfile.Chat.MCPMode != "" {
-		t.Errorf("MCPMode deveria ser vazio, obteve: %s", noMCPProfile.Chat.MCPMode)
+	if err := noMCPProfile.Validate(); err != nil {
+		t.Fatalf("perfil sem MCP deveria ser válido: %v", err)
 	}
 
 	// 2. Criar conversa
@@ -336,7 +335,7 @@ func TestIntegration_FirstMessageWithMCPDisabled(t *testing.T) {
 		t.Fatalf("falha ao criar resposta: %v", err)
 	}
 
-	t.Log("✓ Perfil sem MCP (MCPMode='') respeitado na primeira mensagem")
+	t.Log("✓ Perfil sem MCP servers respeitado na primeira mensagem")
 }
 
 // TestIntegration_FirstMessageDifferentModels testa primeira mensagem com diferentes modelos
@@ -1027,84 +1026,6 @@ func TestIntegration_FirstMessageProfileChannelResponseMode(t *testing.T) {
 	}
 
 	t.Logf("✓ ChannelResponseMode validado para %d modos (mirror, always_text, always_audio)", len(modes))
-}
-
-// TestIntegration_FirstMessageProfileMCPMode testa diferentes MCPModes
-func TestIntegration_FirstMessageProfileMCPMode(t *testing.T) {
-	if testing.Short() {
-		t.Skip("Utilizando -short, pulando teste de integração")
-	}
-
-	db := setupIntegrationDB(t)
-
-	// 1. Setup: diferentes MCPModes
-	modes := []string{"adapter", "native", "auto"}
-
-	for _, mode := range modes {
-		// Determina MCPNativeTested baseado no modo
-		var nativeTested *bool
-		if mode == "native" {
-			trueVal := true
-			nativeTested = &trueVal
-		}
-
-		profile := profiles.Profile{
-			Name:   "MCP Mode " + mode,
-			Active: true,
-			Chat: profiles.ChatConfig{
-				LLMProvider:     "openai",
-				Model:           "gpt-4o",
-				Temperature:     0.7,
-				MaxTokens:       1000,
-				MCPMode:         mode,
-				MCPNativeTested: nativeTested,
-			},
-			Voice: profiles.VoiceConfig{
-				Disabled: true,
-			},
-		}
-
-		if profile.Chat.MCPMode != mode {
-			t.Errorf("MCPMode esperado %s, obteve %s", mode, profile.Chat.MCPMode)
-		}
-
-		// Criar conversa
-		conv := &database.Conversation{
-			Title:     "Chat MCPMode " + mode,
-			CreatedAt: time.Now(),
-			UpdatedAt: time.Now(),
-		}
-
-		if err := db.Create(conv).Error; err != nil {
-			t.Fatalf("falha ao criar conversa: %v", err)
-		}
-
-		userMsg := &database.ChatMessage{
-			ConversationID: conv.ID,
-			Role:           "user",
-			Content:        "Use MCP tools",
-			Source:         "wails",
-			CreatedAt:      time.Now(),
-		}
-
-		if err := db.Create(userMsg).Error; err != nil {
-			t.Fatalf("falha ao criar mensagem: %v", err)
-		}
-
-		assistantMsg := &database.ChatMessage{
-			ConversationID: conv.ID,
-			Role:           "assistant",
-			Content:        "Resposta usando MCPMode=" + mode,
-			Source:         "wails",
-			CreatedAt:      time.Now().Add(100 * time.Millisecond),
-		}
-
-		if err := db.Create(assistantMsg).Error; err != nil {
-			t.Fatalf("falha ao criar resposta: %v", err)
-		}
-	}
-
-	t.Logf("✓ MCPMode validado para %d modos (adapter, native, auto)", len(modes))
 }
 
 // Helper: converter float para string para mensagem

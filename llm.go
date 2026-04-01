@@ -16,6 +16,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	mcplib "assistente/internal/mcp"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
@@ -246,6 +247,16 @@ func (h *appStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string
 	h.OnDone(fullResponse, usage, model)
 }
 
+func (h *appStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
+	if event.IsCompleted {
+		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
+			event.Name, event.ServerLabel, event.ID, len(event.Output))
+	} else {
+		log.Printf("[MCP Native] 🔧 %s (server=%s, id=%s)",
+			event.Name, event.ServerLabel, event.ID)
+	}
+}
+
 func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
 	// Cancela qualquer timer pendente e obtém conteúdo acumulado
 	h.mu.Lock()
@@ -380,69 +391,33 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 
 // ==================== Wails Bindings ====================
 
-// GetModels retorna a lista de modelos disponíveis na API
+// GetModels retorna a lista de modelos disponíveis na API do provedor ativo.
 func (a *App) GetModels() ([]string, error) {
-	if a.llmStreamClient == nil {
-		log.Printf("[GetModels] llmStreamClient não inicializado. Verifique se há perfil ativo com provedor configurado.")
-		return nil, fmt.Errorf("cliente LLM não inicializado. Configure um perfil com provedor LLM primeiro")
+	activeProfile, _ := a.profileManager.GetActive()
+	activeProfile = a.resolveProfileDefaults(activeProfile)
+
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		return nil, fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
 	}
-	log.Printf("[GetModels] Buscando modelos do provedor...")
-	models, err := a.llmStreamClient.GetModels(a.ctx)
+
+	cp, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider)
 	if err != nil {
-		log.Printf("[GetModels] Erro ao buscar modelos: %v", err)
-		return nil, fmt.Errorf("erro ao buscar modelos: %w", err)
+		return nil, err
 	}
-	log.Printf("[GetModels] %d modelos encontrados", len(models))
-	return models, nil
+	return cp.GetModels(a.ctx)
 }
 
-// GetModelsByProvider retorna a lista de modelos de um provedor específico
+// GetModelsByProvider retorna a lista de modelos de um provedor específico.
 func (a *App) GetModelsByProvider(providerID string) ([]string, error) {
 	if providerID == "" {
 		return []string{}, nil
 	}
 
-	provider := a.llmRegistry.Get(providerID)
-	if provider == nil {
-		return nil, fmt.Errorf("provedor '%s' não encontrado", providerID)
-	}
-
-	log.Printf("[GetModelsByProvider] Provedor: %s, Type: %s, Hostname: '%s'", provider.Name, provider.Type, provider.CredentialPattern)
-
-	// Buscar credencial do provedor (opcional para provedores locais)
-	var apiKey string
-	authCfg, err := a.credMgr.GetByPattern(provider.CredentialPattern)
-	if err == nil && authCfg != nil {
-		apiKey = authCfg.Token
-		log.Printf("[GetModelsByProvider] ✓ Credencial encontrada (len=%d chars)", len(apiKey))
-	} else {
-		log.Printf("[GetModelsByProvider] ✗ Credencial NÃO encontrada para hostname '%s': %v", provider.CredentialPattern, err)
-	}
-	// Se não houver credencial, apiKey fica vazio (OK para provedores locais)
-
-	// Criar cliente temporário para buscar modelos
-	tempCfg := &config.Config{
-		APIKey:     apiKey,
-		APIBaseURL: provider.BaseURL,
-	}
-
-	if apiKey != "" {
-		log.Printf("[GetModelsByProvider] APIKey passada para o client (primeiros 10 chars): %s...", apiKey[:min(10, len(apiKey))])
-	} else {
-		log.Printf("[GetModelsByProvider] ATENÇÃO: APIKey VAZIA sendo passada para o client!")
-	}
-
-	tempClient := llm.NewClient(provider, tempCfg, a.credMgr)
-
-	models, err := tempClient.GetModels(a.ctx)
+	cp, err := a.getChatProviderForProvider(providerID)
 	if err != nil {
-		log.Printf("[GetModelsByProvider] ERRO ao buscar modelos: %v", err)
-		return nil, fmt.Errorf("erro ao buscar modelos do provedor '%s': %w", providerID, err)
+		return nil, err
 	}
-
-	log.Printf("[GetModelsByProvider] Sucesso! %d modelos encontrados", len(models))
-
-	return models, nil
+	return cp.GetModels(a.ctx)
 }
 
 // Constantes de validação de input
@@ -781,29 +756,94 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 	}
 
-	// Resolve o client correto para o provedor do perfil ativo.
-	// Isso garante que o request seja enviado ao endpoint correto,
-	// mesmo quando o perfil selecionado usa um provedor diferente do global.
-	requestClient := a.llmStreamClient
-	if activeProfile != nil && activeProfile.Chat.LLMProvider != "" {
-		if client, err := a.getClientForProvider(activeProfile.Chat.LLMProvider); err == nil {
-			requestClient = client
-			log.Printf("[SendMessage] Client resolvido para provedor do perfil: %s", activeProfile.Chat.LLMProvider)
-		} else {
-			log.Printf("[SendMessage] Erro ao resolver client para provedor '%s': %v — usando client global", activeProfile.Chat.LLMProvider, err)
-		}
-	}
-
-	if requestClient == nil {
-		providerID := ""
-		if activeProfile != nil {
-			providerID = activeProfile.Chat.LLMProvider
-		}
-		errMsg := "Cliente LLM não disponível. Verifique se o provedor está configurado corretamente."
-		log.Printf("[SendMessage] ERRO: requestClient é nil (llmStreamClient=%v, profile.LLMProvider=%q)",
-			a.llmStreamClient == nil, providerID)
+	// Resolve o ChatProvider para o provedor do perfil ativo.
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		errMsg := "Nenhum provedor LLM configurado no perfil ativo."
 		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
+	}
+
+	requestStreamer, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider)
+	if err != nil {
+		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
+		log.Printf("[SendMessage] ERRO: %s", errMsg)
+		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		return 0, fmt.Errorf("%s", errMsg)
+	}
+	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
+
+	// MCP nativo: se provider suporta e há servidores HTTP elegíveis, configura native path.
+	// Servidores HTTP elegíveis vão para o LLM via native connector; suas bridge tools
+	// são removidas do llmToolDefs para evitar duplicatas.
+	// Servidores STDIO/locais continuam via bridge/adapter normalmente.
+	// Se o perfil tem EnabledTools, apenas tools permitidas passam pelo caminho nativo.
+	if !disableTools && requestStreamer.SupportsNativeMCP() && a.mcpMgr != nil {
+		nativeServers := a.mcpMgr.GetEligibleNativeMCPServers()
+		if len(nativeServers) > 0 {
+			var enabledSet map[string]bool
+			if activeProfile.Chat.EnabledTools != nil {
+				enabledSet = make(map[string]bool, len(activeProfile.Chat.EnabledTools))
+				for _, n := range activeProfile.Chat.EnabledTools {
+					enabledSet[n] = true
+				}
+			}
+
+			var mcpConfigs []llm.MCPServerConfig
+			nativeToolNames := make(map[string]bool)
+
+			for _, srv := range nativeServers {
+				cfg := llm.MCPServerConfig{
+					Name:      srv.Name,
+					URL:       srv.URL,
+					AuthToken: srv.AuthToken,
+					ToolNames: srv.ToolNames,
+				}
+
+				if enabledSet != nil {
+					var allowed []string
+					var allowedFull []string
+					for _, fullName := range srv.ToolNames {
+						if enabledSet[fullName] {
+							if _, originalName, ok := mcplib.ParseToolName(fullName); ok {
+								allowed = append(allowed, originalName)
+							}
+							allowedFull = append(allowedFull, fullName)
+						}
+					}
+					if len(allowed) == 0 {
+						log.Printf("[SendMessage] MCP nativo: servidor %q excluído (nenhuma tool habilitada no perfil)", srv.Name)
+						continue
+					}
+					cfg.AllowedTools = allowed
+					cfg.ToolNames = allowedFull
+				}
+
+				mcpConfigs = append(mcpConfigs, cfg)
+				for _, tn := range cfg.ToolNames {
+					nativeToolNames[tn] = true
+				}
+			}
+
+			if len(mcpConfigs) > 0 {
+				requestStreamer = requestStreamer.WithMCPServers(mcpConfigs)
+				log.Printf("[SendMessage] MCP nativo: %d servidores HTTP configurados", len(mcpConfigs))
+			}
+
+			// Remove bridge tools que agora vão por native (evita duplicata)
+			if len(nativeToolNames) > 0 {
+				filtered := make([]llm.ToolDefinition, 0, len(llmToolDefs))
+				for _, td := range llmToolDefs {
+					if !nativeToolNames[td.Function.Name] {
+						filtered = append(filtered, td)
+					}
+				}
+				removed := len(llmToolDefs) - len(filtered)
+				if removed > 0 {
+					log.Printf("[SendMessage] MCP nativo: %d bridge tools removidas (nativas agora)", removed)
+				}
+				llmToolDefs = filtered
+			}
+		}
 	}
 
 	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
@@ -817,10 +857,10 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 		go func() {
 			defer a.recoverFromPanic(conversationID, "runAgenticLoop")
-			a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs, requestClient)
+			a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs, requestStreamer)
 		}()
 	} else {
-		// Sem ferramentas: streaming simples (comportamento original)
+		// Sem ferramentas: streaming simples
 		handler := &appStreamHandler{
 			app:            a,
 			conversationID: conversationID,
@@ -828,7 +868,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 		go func() {
 			defer a.recoverFromPanic(conversationID, "StreamChat")
-			requestClient.StreamChat(a.ctx, messages, params, handler)
+			requestStreamer.StreamChat(a.ctx, messages, params, handler)
 		}()
 	}
 	return conversationID, nil
@@ -1289,18 +1329,25 @@ func (a *App) loadConversationHistory(conversationID uint, profile *profiles.Pro
 
 	messages := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
+		// Otimização de contexto: omitir mensagens intermediárias de tool calling
+		// de turnos anteriores. O modelo já processou esses resultados e produziu
+		// uma resposta final com a informação sintetizada — reenviar a cadeia
+		// tool_call→tool_result desperdiça tokens sem valor.
+		// Dados completos permanecem no banco e visíveis na UI.
+		if m.Role == "tool" {
+			continue
+		}
+		if m.Role == "assistant" && m.ToolCalls != "" && strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+
 		msg := Message{
 			Role:       m.Role,
 			ToolCallID: m.ToolCallID,
 		}
 
-		// Reconstrói tool_calls do JSON armazenado no banco (para mensagens assistant com tool calls)
-		if m.ToolCalls != "" {
-			var toolCalls []llm.ToolCall
-			if err := json.Unmarshal([]byte(m.ToolCalls), &toolCalls); err == nil {
-				msg.ToolCalls = toolCalls
-			}
-		}
+		// Assistant com conteúdo textual + tool_calls: preserva texto, descarta tool_calls.
+		// O texto intermediário ("Vou buscar...") pode ter valor de contexto.
 
 		// Processa conteúdo (pode ser texto simples ou multimodal)
 		if m.Media != "" {
@@ -1634,10 +1681,18 @@ func truncateStr(s string, maxLen int) string {
 
 // SendMessageSync envia uma mensagem sem streaming (para acessibilidade)
 func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, error) {
-	if a.llmStreamClient == nil {
-		return "", fmt.Errorf("cliente LLM não inicializado. Configure um perfil com provedor LLM primeiro")
+	activeProfile, _ := a.profileManager.GetActive()
+	activeProfile = a.resolveProfileDefaults(activeProfile)
+
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
 	}
-	return a.llmStreamClient.SendMessageSync(a.ctx, messages, params)
+
+	cp, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider)
+	if err != nil {
+		return "", err
+	}
+	return cp.SendChat(a.ctx, messages, params)
 }
 
 // GetConfig retorna a configuração atual

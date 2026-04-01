@@ -11,6 +11,7 @@ type LLMProvider struct {
 	ID                string `gorm:"primaryKey"`
 	Name              string `gorm:"not null"`
 	Type              string `gorm:"not null"` // openai, claude, ollama, etc
+	APIFormat         string // openai, anthropic, google (SDK/protocolo)
 	BaseURL           string `gorm:"not null"`
 	Model             string
 	DefaultModel      string

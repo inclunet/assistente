@@ -72,6 +72,35 @@ Cada provedor possui:
 - **Timeout**: 180s (padrão) ou 300s (Ollama, para modelos grandes)
 - **Headers customizados**: Para autenticação alternativa ou proxy
 - **Credential Pattern**: Domínio usado para resolver credenciais automaticamente (ex: `api.openai.com`)
+- **API Format** (`api_format`): Determina qual protocolo/SDK usar (ver abaixo)
+
+### API Format (protocolo de comunicação)
+
+O campo `api_format` determina como o Assistente se comunica com o provedor. Na maioria dos casos, o sistema infere o formato correto automaticamente.
+
+| Formato | Valor | Quando usar |
+|---|---|---|
+| **OpenAI Chat Completions** | `openai` | Provedores OpenAI-compatible: OpenRouter, Groq, Together, Ollama, etc. Usa `/v1/chat/completions`. **NÃO** suporta MCP nativo. |
+| **OpenAI Responses** | `openai_responses` | OpenAI real (`api.openai.com`). Usa `/v1/responses`. Suporta MCP nativo, reasoning summaries, e features modernas. |
+| **Anthropic** | `anthropic` | Claude via SDK oficial. Suporta MCP nativo via Beta Messages API. |
+| **Google** | `google` | Gemini via SDK oficial. **NÃO** suporta MCP nativo. |
+
+**Inferência automática**: Se `api_format` não for definido, o sistema usa:
+- `openai_responses` quando a URL contém `api.openai.com`
+- `openai` para qualquer outra URL (comportamento conservador e compatível)
+
+**Dica**: Provedores criados pelo wizard já têm `api_format` definido corretamente. Você só precisa configurar manualmente se criar providers via API ou banco de dados.
+
+### Suporte a MCP Nativo
+
+Apenas providers com suporte real a MCP nativo podem resolver MCP servers diretamente no lado do LLM (sem bridge/adapter local):
+
+| Provider | MCP Nativo | Mecanismo |
+|---|---|---|
+| OpenAI (Responses) | Sim | `type:mcp` tools na Responses API |
+| Anthropic | Sim | `mcp_servers` na Beta Messages API |
+| Google | Não | Usa bridge/adapter local |
+| OpenAI-compatible | Não | Usa bridge/adapter local |
 
 ## Adicionando Provedores ao Código
 

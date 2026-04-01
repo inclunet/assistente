@@ -1,252 +1,167 @@
-# Modo MCP Nativo
+# MCP Modo Nativo
 
-## O que é?
+## Status: Revisado (v3)
 
-O Assistente agora suporta **dois modos** de usar servidores MCP (Model Context Protocol):
-
-### 1. **Modo Adapter (Atual - Padrão)**
-- O modelo usa function calling tradicional
-- O Assistente faz bridge das chamadas para servidores MCP
-- **Compatível com qualquer modelo** (GPT, Claude, Gemini, LLaMA, etc.)
-
-### 2. **Modo Nativo (Novo)**
-- O modelo acessa servidores MCP **diretamente**
-- Requer que o modelo tenha suporte MCP nativo
-- **Mais eficiente** - remove camada intermediária
+> **Historico:** A versao original desta AEP descrevia um conceito aspiracional de modo nativo com `mcp_mode` (adapter/native/auto) no perfil. A infraestrutura foi parcialmente criada (`GetNativeServerInfo`, `TestMCPNativeSupport`, `ShouldUseMCPNative`) mas **nunca foi consumida no chat loop**. O sistema sempre operou em modo adapter.
+>
+> A v2 refletia a arquitetura [AEP-0037](0037-sdk-migration-chat-provider.md), mas descrevia `api_format: "openai"` como suportando MCP nativo, o que era incorreto.
+>
+> Esta v3 reflete a separacao real entre `openai` (Chat Completions only) e `openai_responses` (Responses API first), implementada no runtime.
 
 ---
 
-## Modelos com Suporte MCP Nativo
+## O que e MCP Nativo?
 
-### Claude (Anthropic API)
-```typescript
-// Claude suporta MCP via prompt do sistema
-const response = await anthropic.messages.create({
-  model: "claude-3-7-sonnet-20250219",
-  mcp_servers: getAssistenteNativeServers(), // ← nossa função
-  messages: [...]
-});
-```
+MCP nativo permite que o **provider LLM** se conecte diretamente a MCP servers remotos, sem que o Assistente precise fazer bridge local. O provider descobre as tools, chama-as, e retorna os resultados — tudo server-side.
 
-### Outros modelos
-- Atualmente, apenas Claude tem suporte oficial
-- Outros vendors podem adicionar no futuro
-
----
-
-## Como Usar Modo Nativo
-
-### 1. No código Go (Backend)
-
-```go
-// Obter informações dos servidores MCP para passar ao modelo
-nativeServers := app.GetNativeMCPServers()
-
-// Resultado: []map[string]any{
-//   {
-//     "slug": "filesystem",
-//     "name": "Filesystem MCP Server",
-//     "description": "Acesso a arquivos",
-//     "transport": "stdio",
-//     "sessionId": "abc123",
-//     "capabilities": {
-//       "tools": true,
-//       "resources": true,
-//       "prompts": false
-//     }
-//   },
-//   ...
-// }
-```
-
-### 2. Passando para Claude
-
-```go
-import anthropic "github.com/anthropics/anthropic-sdk-go"
-
-// Converter formato do Assistente para formato Claude
-mcpServers := convertToClaudeMCPFormat(nativeServers)
-
-client := anthropic.NewClient(...)
-response, err := client.Messages.New(ctx, anthropic.MessageNewParams{
-    Model: "claude-3-7-sonnet-20250219",
-    MCPServers: mcpServers, // ← servidores MCP diretos
-    Messages: []anthropic.MessageParam{...},
-})
-```
-
-### 3. Claude usa MCP diretamente
-
-O modelo agora pode:
-- Listar tools/resources dos servidores
-- Chamar tools diretamente
-- Ler resources
-- Executar prompts
-
-**Sem passar pelo nosso bridge!**
-
----
-
-## Vantagens do Modo Nativo
-
-### ✅ **Performance**
-- Remove hop intermediário
-- Latência menor
-- Menos serialização/deserialização
-
-### ✅ **Recursos Completos**
-- Acesso a resources MCP (arquivos, dados)
-- Execução de prompts
-- Subscriptions em tempo real
-
-### ✅ **Streaming**
-- Claude pode fazer streaming direto do servidor MCP
-- Melhor experiência do usuário
-
----
-
-## Quando Usar Cada Modo
-
-### Use **Modo Adapter** quando:
-- Modelo não suporta MCP nativamente (maioria dos casos)
-- Quer controle total sobre chamadas MCP
-- Precisa adicionar autorização/auditoria
-
-### Use **Modo Nativo** quando:
-- Modelo suporta MCP (ex: Claude via API)
-- Quer máxima performance
-- Quer usar recursos avançados (streaming, subscriptions)
-
----
-
-## Implementação Atual
-
-### Estrutura
+### Modo Adapter (atual, funcional)
 
 ```
-┌─────────────────────────────────────────────────────┐
-│                    Assistente                       │
-│                                                     │
-│  ┌──────────────┐         ┌──────────────┐        │
-│  │   Modo       │         │    Modo      │        │
-│  │   Adapter    │         │   Nativo     │        │
-│  │              │         │              │        │
-│  │  Model       │         │  Model       │        │
-│  │    ↓         │         │    ↓         │        │
-│  │  Bridge      │         │  Direto ao   │        │
-│  │    ↓         │         │  MCP Server  │        │
-│  │  MCP Server  │         │              │        │
-│  └──────────────┘         └──────────────┘        │
-└─────────────────────────────────────────────────────┘
+Usuario → LLM → tool_call → Assistente → MCPToolBridge → MCP Server
+                                ↑ execucao local
 ```
 
-### Métodos Disponíveis
+### Modo Nativo (novo)
 
-```go
-// Backend (app.go)
-func (a *App) GetNativeMCPServers() []map[string]any
-
-// Frontend (TypeScript)
-const servers = await GetNativeMCPServers();
+```
+Usuario → LLM+Provider API → MCP Server (direto, server-side)
 ```
 
 ---
 
-## Exemplo Completo
+## Suporte por Provider (marco 2026)
 
-### Scenario: Chat com Claude usando MCP Nativo
+| Provider | api_format | API | MCP Nativo | Formato |
+|----------|------------|-----|------------|---------|
+| OpenAI (real) | `openai_responses` | Responses API (`/v1/responses`) | **Sim** | `type: "mcp"` tool com `server_url` |
+| Anthropic | `anthropic` | Messages API (`/v1/messages`) | **Sim** | `mcp_servers[]` + `mcp_toolset` + beta header |
+| Google (Gemini) | `google` | Gemini API | **Nao** | Nao implementado |
+| OpenAI-compatible | `openai` | Chat Completions (`/v1/chat/completions`) | **Nao** | N/A |
 
-```go
-// 1. Obter servidores MCP ativos
-nativeServers := app.GetNativeMCPServers()
+> **Nota:** `api_format: "openai"` (Chat Completions) **nao** suporta MCP nativo. Apenas `openai_responses` (Responses API) suporta. Essa separacao foi feita para nao fingir suporte em provedores OpenAI-compatible (OpenRouter, Ollama, Groq, etc) que apenas falam Chat Completions.
 
-// 2. Converter para formato Claude
-claudeMCP := make([]anthropic.MCPServer, len(nativeServers))
-for i, srv := range nativeServers {
-    claudeMCP[i] = anthropic.MCPServer{
-        Name:        srv["name"].(string),
-        Endpoint:    srv["endpoint"].(string), // se SSE
-        SessionID:   srv["sessionId"].(string),
-        Capabilities: srv["capabilities"].(map[string]any),
-    }
-}
+### Limitacoes comuns
 
-// 3. Criar mensagem com MCP nativo
-response, err := anthropicClient.Messages.New(ctx, 
-    anthropic.MessageNewParams{
-        Model: "claude-3-7-sonnet-20250219",
-        MCPServers: claudeMCP, // ← MODO NATIVO
-        Messages: []anthropic.MessageParam{
-            {
-                Role: "user",
-                Content: "Liste os arquivos do projeto",
-            },
-        },
-    },
-)
-
-// 4. Claude acessa filesystem MCP server diretamente!
-// Sem passar pelo nosso bridge
-```
+- Apenas MCP servers **remotos HTTP** (SSE / Streamable HTTP) podem ser usados nativamente
+- Servers **STDIO locais** devem continuar usando adapter (MCPToolBridge)
+- Apenas **tool calls** sao suportados nativamente (nao resources/prompts/sampling)
 
 ---
 
-## Configuração
+## Nova Arquitetura
 
-### Habilitar para um servidor específico
+### Determinacao automatica via `api_format`
 
-No arquivo `.assistente/mcp/filesystem.json`:
+O campo `api_format` no `ProviderConfig` (ver [AEP-0037](0037-sdk-migration-chat-provider.md)) determina qual SDK/protocolo e usado. Cada `ChatProvider` implementa `SupportsNativeMCP() bool`:
+
+- `api_format: "openai_responses"` → `OpenAIProvider(useResponses=true)` → Responses API → **suporta MCP nativo**
+- `api_format: "openai"` → `OpenAIProvider(useResponses=false)` → Chat Completions → **nao suporta MCP nativo**
+- `api_format: "anthropic"` → `AnthropicProvider` → Messages API → **suporta MCP nativo**
+- `api_format: "google"` → `GoogleProvider` → Gemini API → **nao suporta MCP nativo**
+
+Se o provider suporta MCP nativo (`SupportsNativeMCP() == true`), o Assistente envia os MCP servers HTTP diretamente na request ao provider via `WithMCPServers()`. MCP servers STDIO continuam como bridges no `tools[]` (adapter).
+
+Providers sem suporte nativo (`SupportsNativeMCP() == false`) usam todos os MCP servers via adapter/bridge local, independente do tipo de transporte.
+
+**Inferencia automatica:** Quando `api_format` nao esta definido, `GetAPIFormat()` infere `openai_responses` se o BaseURL contem `api.openai.com`. Qualquer outro URL cai no default conservador `openai` (Chat Completions).
+
+### Decisao em runtime (sem toggle no perfil)
+
+A decisao e puramente capability-driven, sem campo de perfil:
+
+```
+usarNativo = provider.SupportsNativeMCP() && server.Transport != "stdio"
+```
+
+O perfil nao participa da decisao. Se o provider suporta MCP nativo e o servidor e HTTP remoto, o caminho nativo e usado automaticamente.
+
+### Codigo legado removido
+
+Os seguintes artefatos da era `mcp_mode` foram removidos por nao terem efeito operacional:
+
+- `mcp_mode` (campo de perfil "adapter"/"native"/"auto") — nunca consumido pelo chat loop
+- `mcp_native_tested` (campo de perfil) — resultado de teste que nunca influenciou o runtime
+- `ShouldUseMCPNative()` — decisao por profile, substituida por capability do provider
+- `TestMCPNativeSupport()` — teste real a API que nunca foi integrado ao chat loop
+- `ModelSupportsNativeMCP()` — heuristica hardcoded por nome de modelo
+- `GetNativeServerInfo()` — retornava info para frontend que nunca a consumiu
+- `GetMCPMode()`, `MCPNativeWasTested()`, `SetMCPNativeSupport()`, `ClearMCPTest()` — helpers dos campos acima
+
+---
+
+## Coexistencia: Tools Locais + MCP Nativo
+
+Na mesma request, o Assistente envia:
+
+1. **Tools internas** (task, task_list, etc.) como function calling normal
+2. **MCP servers HTTP** na config MCP nativa do provider
+3. **MCP servers STDIO** como bridges no function calling
+
+O modelo pode usar todas simultaneamente. O agentic loop so executa localmente tools internas e STDIO bridges. MCP nativos sao resolvidos server-side.
+
+### Exemplo: Anthropic
 
 ```json
 {
-  "name": "Filesystem Server",
-  "transport": "sse",
-  "url": "http://localhost:3000/mcp",
-  "enabled": true,
-  "auto_connect": true,
-  "expose_native": true  ← NOVA OPÇÃO (futuro)
+  "model": "claude-opus-4-6",
+  "tools": [
+    {"type": "custom", "name": "task", "description": "...", "input_schema": {}},
+    {"type": "custom", "name": "mcp_local_fs__read_file", "description": "...", "input_schema": {}},
+    {"type": "mcp_toolset", "mcp_server_name": "jira-mcp"}
+  ],
+  "mcp_servers": [
+    {"type": "url", "url": "https://jira-mcp.example.com/sse", "name": "jira-mcp"}
+  ],
+  "messages": [{"role": "user", "content": "Crie um ticket no Jira"}]
+}
+```
+
+### Exemplo: OpenAI
+
+```json
+{
+  "model": "gpt-5",
+  "tools": [
+    {"type": "function", "name": "task", "function": {"description": "...", "parameters": {}}},
+    {"type": "function", "name": "mcp_local_fs__read_file", "function": {"description": "...", "parameters": {}}},
+    {"type": "mcp", "server_label": "jira-mcp", "server_url": "https://jira-mcp.example.com/sse", "require_approval": "never"}
+  ],
+  "input": [{"role": "user", "content": "Crie um ticket no Jira"}]
 }
 ```
 
 ---
 
-## Roadmap
+## Impacto nos Jobs
 
-### ✅ Implementado
-- [x] Detecção de servidores conectados
-- [x] Exposição de metadata para modelos nativos
-- [x] Suporte a capabilities (tools/resources/prompts)
-
-### 🚧 Em Desenvolvimento
-- [ ] UI para toggle Modo Nativo vs Adapter
-- [ ] Métricas de uso nativo vs adapter
-- [ ] Suporte a mais modelos além de Claude
-
-### 📋 Planejado
-- [ ] Proxy MCP para adicionar auth mesmo em modo nativo
-- [ ] Streaming direto do MCP para UI
-- [ ] Resource subscriptions em tempo real
+**Nenhum.** Jobs chamam `toolRegistry.Get(name).Execute()` diretamente, sem LLM. MCP tools continuam registradas como `MCPToolBridge` no registry e funcionam identicamente.
 
 ---
 
-## FAQ
+## Servidor Elegivel para MCP Nativo
 
-### P: Posso usar ambos os modos ao mesmo tempo?
-**R:** Sim! Você pode usar modo adapter para alguns modelos e nativo para outros.
+`GetNativeEligibleServers()` retorna apenas servers que:
 
-### P: Como sei se meu modelo suporta MCP nativo?
-**R:** Verifique a documentação da API. Atualmente apenas Claude 3.7+ tem suporte oficial.
+1. Estao conectados
+2. Tem transporte HTTP (SSE ou Streamable HTTP)
+3. Tem URL elegivel (ver regra abaixo)
+4. Tem pelo menos uma tool disponivel
 
-### P: Modo nativo é mais seguro?
-**R:** Não necessariamente. Modo adapter permite adicionar validação/auditoria. Planejamos adicionar proxy para segurança em modo nativo.
+Servers STDIO sao automaticamente excluidos e continuam via adapter.
 
-### P: Qual é mais rápido?
-**R:** Modo nativo é teoricamente mais rápido (menos hops), mas a diferença é mínima para a maioria dos casos.
+**Regra de URL para MCP nativo:**
+
+- `https://` → sempre elegivel
+- `http://localhost`, `http://127.0.0.1`, `http://[::1]` → elegivel (dev local)
+- `http://` com host remoto → **excluido** do caminho nativo (cai para adapter com log warning)
+
+Racional: no MCP nativo, o provider LLM (OpenAI, Anthropic) faz a conexao server-side. Enviar auth tokens por HTTP sem encriptacao para hosts remotos e inseguro. URLs localhost sao permitidas para facilitar desenvolvimento e testes locais.
 
 ---
 
-## Conclusão
+## Referencias
 
-O suporte a **MCP Nativo** é um **diferencial importante** para quando você usar modelos de última geração como Claude. Mantemos o modo adapter para **compatibilidade universal**, mas oferecemos modo nativo para **máxima performance** quando disponível.
-
-**Ambos os modos coexistem perfeitamente!** 🚀
+- [AEP-0020: MCP Implementation](0020-mcp-implementation.md)
+- [AEP-0037: SDK Migration + ChatProvider](0037-sdk-migration-chat-provider.md)
+- [Anthropic MCP Connector](https://docs.anthropic.com/en/docs/agents-and-tools/mcp-connector)
+- [OpenAI MCP and Connectors](https://developers.openai.com/api/docs/guides/tools-remote-mcp)

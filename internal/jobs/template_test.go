@@ -824,6 +824,144 @@ func TestTplAny(t *testing.T) {
 	}
 }
 
+// --- EvaluateCondition ---
+
+func TestEvaluateCondition_EmptyAlwaysTrue(t *testing.T) {
+	ok, err := EvaluateCondition("", &TemplateContext{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !ok {
+		t.Error("empty condition should be truthy")
+	}
+}
+
+func TestEvaluateCondition_TruthyValues(t *testing.T) {
+	tests := []struct {
+		name      string
+		condition string
+		ctx       *TemplateContext
+		want      bool
+	}{
+		{
+			"eq true",
+			`{{ eq .output.status "done" }}`,
+			&TemplateContext{Output: map[string]any{"status": "done"}},
+			true,
+		},
+		{
+			"eq false",
+			`{{ eq .output.status "done" }}`,
+			&TemplateContext{Output: map[string]any{"status": "open"}},
+			false,
+		},
+		{
+			"ne true",
+			`{{ ne .output.old .output.new }}`,
+			&TemplateContext{Output: map[string]any{"old": "A", "new": "B"}},
+			true,
+		},
+		{
+			"ne false (same values)",
+			`{{ ne .output.old .output.new }}`,
+			&TemplateContext{Output: map[string]any{"old": "A", "new": "A"}},
+			false,
+		},
+		{
+			"field exists and non-empty",
+			`{{ .output.action }}`,
+			&TemplateContext{Output: map[string]any{"action": "deploy"}},
+			true,
+		},
+		{
+			"field missing renders as no value",
+			`{{ .output.action }}`,
+			&TemplateContext{Output: map[string]any{}},
+			false,
+		},
+		{
+			"event payload condition",
+			`{{ eq .event.type "issue_updated" }}`,
+			&TemplateContext{Event: map[string]any{"type": "issue_updated"}},
+			true,
+		},
+		{
+			"event payload mismatch",
+			`{{ eq .event.type "issue_updated" }}`,
+			&TemplateContext{Event: map[string]any{"type": "issue_created"}},
+			false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := EvaluateCondition(tt.condition, tt.ctx)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if got != tt.want {
+				t.Errorf("EvaluateCondition() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestEvaluateCondition_InvalidTemplate(t *testing.T) {
+	_, err := EvaluateCondition("{{ invalid }", &TemplateContext{})
+	if err == nil {
+		t.Error("expected error for invalid template")
+	}
+}
+
+// --- Validate: when / emit_when template syntax ---
+
+func TestValidate_InvalidTriggerWhen(t *testing.T) {
+	job := &Job{
+		ID:   "bad-when",
+		Tool: "some_tool",
+		Triggers: []Trigger{
+			{Type: TriggerEvent, Listen: "evt", When: "{{ broken }"},
+		},
+	}
+	if err := Validate(job); err == nil {
+		t.Error("expected validation error for invalid trigger when template")
+	}
+}
+
+func TestValidate_InvalidEmitWhen(t *testing.T) {
+	job := &Job{
+		ID:   "bad-emit",
+		Tool: "some_tool",
+		Triggers: []Trigger{
+			{Type: TriggerManual},
+		},
+		Events: EventsConfig{
+			OnSuccess: "evt",
+			EmitWhen:  "{{ broken }",
+		},
+	}
+	if err := Validate(job); err == nil {
+		t.Error("expected validation error for invalid emit_when template")
+	}
+}
+
+func TestValidate_ValidConditions(t *testing.T) {
+	job := &Job{
+		ID:   "good-cond",
+		Tool: "some_tool",
+		Triggers: []Trigger{
+			{Type: TriggerEvent, Listen: "evt", When: `{{ eq .event.type "update" }}`},
+		},
+		Events: EventsConfig{
+			OnSuccess: "out",
+			EmitWhen:  `{{ ne .output.old .output.new }}`,
+		},
+	}
+	if err := Validate(job); err != nil {
+		t.Errorf("unexpected validation error: %v", err)
+	}
+}
+
 func TestNavigatePath(t *testing.T) {
 	data := map[string]any{
 		"a": map[string]any{

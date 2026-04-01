@@ -89,6 +89,9 @@ function buildYAML(draft: JobDraft): string {
     if (hasSuccessEvent && draft.events.mode === 'fanout' && draft.events.for_each) {
       events.for_each = draft.events.for_each;
     }
+    if (hasSuccessEvent && draft.events.emit_when) {
+      events.emit_when = draft.events.emit_when;
+    }
     if (hasSuccessEvent && draft.events.payload_template) {
       events.payload_template = draft.events.payload_template;
     }

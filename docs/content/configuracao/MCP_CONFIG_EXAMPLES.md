@@ -7,6 +7,18 @@ weight: 3
 
 Este arquivo contém exemplos práticos de configuração de servidores MCP para o Assistente.
 
+## Transporte e MCP Nativo
+
+A forma como o Assistente consome um servidor MCP depende de dois fatores: o **transporte** do servidor e a **capacidade do provider LLM**.
+
+| Transporte | Caminho | Quando |
+|------------|---------|--------|
+| `stdio` | Sempre **adapter/bridge local** | Servidor roda como processo local; não pode ser acessado remotamente |
+| `sse` / `streamable` | **MCP nativo** | Provider suporta (`openai_responses` ou `anthropic`) **e** URL é `https://`, ou `http://` apenas em localhost/loopback |
+| `sse` / `streamable` | **Adapter/bridge local** | Provider sem suporte nativo, ou URL `http://` com host remoto |
+
+A decisão é automática — baseada em `SupportsNativeMCP()` do provider e na elegibilidade da URL, não em configuração manual. URLs `http://` com host remoto são excluídas do caminho nativo por segurança (auth tokens seriam transmitidos sem encriptação).
+
 ## 📁 Localização
 
 Arquivos de configuração ficam em:
@@ -101,6 +113,7 @@ Arquivos de configuração ficam em:
 - Permite deployar servidor MCP em container/cloud
 - Suporte a múltiplos clientes simultaneamente
 - Facilita load balancing
+- **Elegível para MCP nativo** quando o provider suportar (OpenAI Responses API, Anthropic) e URL for `https://`, ou `http://` apenas em localhost/loopback
 
 ---
 
@@ -363,14 +376,10 @@ servers.forEach(srv => {
 
 ---
 
-## Conclusão
+## Resumo
 
-Com essas configurações, você pode integrar qualquer servidor MCP ao Assistente:
-
-- 🔧 **Stdio**: Para servidores locais (Node, Python, Go, Rust)
-- 🌐 **SSE**: Para servidores HTTP/Cloud
-- 🔐 **Auth**: Tokens via env vars
-- 🐳 **Docker**: Servidores containerizados
-- 🔄 **Auto-reconnect**: Resiliência automática
-
-**Todos os exemplos são production-ready!** 🚀
+- **Stdio**: Para servidores locais (Node, Python, Go, Rust) — sempre via adapter/bridge
+- **SSE / Streamable HTTP**: Para servidores remotos/locais — elegíveis para MCP nativo com providers que suportam e URL segura (`https://`, ou `http://` apenas em localhost/loopback)
+- **Auth**: Tokens via env vars, nunca hardcoded no JSON
+- **Docker**: Servidores containerizados via stdio
+- **Auto-reconnect**: Health checks + exponential backoff automático

@@ -58,6 +58,7 @@ type ServerConfig struct {
 	OAuth2RegistrationURL string   `json:"oauth2_registration_url,omitempty" yaml:"oauth2_registration_url,omitempty"`
 	OAuth2DeviceAuthURL   string   `json:"oauth2_device_auth_url,omitempty" yaml:"oauth2_device_auth_url,omitempty"`
 	DisableSSE  bool              `json:"disable_sse,omitempty" yaml:"disable_sse,omitempty"`
+	PreferBridge bool             `json:"prefer_bridge,omitempty" yaml:"prefer_bridge,omitempty"`
 	Enabled     bool              `json:"enabled" yaml:"enabled"`
 	AutoConnect bool              `json:"auto_connect" yaml:"auto_connect"`
 }

@@ -23,13 +23,14 @@ import (
 // agenticResult captura o resultado de uma iteração do streaming LLM.
 // Preenchido pelos callbacks OnDone/OnToolCalls/OnError.
 type agenticResult struct {
-	FullResponse string
-	Reasoning    string
-	ToolCalls    []llm.ToolCall
-	Usage        llm.Usage
-	Model        string
-	Error        string
-	IsDone       bool // true = finish_reason:"stop", false = finish_reason:"tool_calls"
+	FullResponse    string
+	Reasoning       string
+	ToolCalls       []llm.ToolCall
+	NativeMCPEvents []llm.MCPToolEvent // MCP tool calls executadas server-side (para persistência)
+	Usage           llm.Usage
+	Model           string
+	Error           string
+	IsDone          bool // true = finish_reason:"stop", false = finish_reason:"tool_calls"
 }
 
 // agenticStreamHandler implementa llm.StreamHandler para uso no agentic loop.
@@ -58,6 +59,9 @@ type agenticStreamHandler struct {
 
 	// Resultado da iteração (preenchido por OnDone/OnToolCalls/OnError)
 	result agenticResult
+
+	// MCP tool events acumulados durante o streaming (para persistência)
+	nativeMCPEvents []llm.MCPToolEvent
 }
 
 func (h *agenticStreamHandler) OnChunk(content string) {
@@ -182,6 +186,8 @@ func (h *agenticStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse st
 	h.pendingEmit = false
 	content := h.accumulatedContent
 	reasoning := h.accumulatedReasoning
+	mcpEvents := h.nativeMCPEvents
+	h.nativeMCPEvents = nil
 	h.mu.Unlock()
 
 	finalContent := fullResponse
@@ -190,12 +196,55 @@ func (h *agenticStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse st
 	}
 
 	h.result = agenticResult{
-		FullResponse: finalContent,
-		Reasoning:    reasoning,
-		ToolCalls:    calls,
-		Usage:        usage,
-		Model:        model,
-		IsDone:       false,
+		FullResponse:    finalContent,
+		Reasoning:       reasoning,
+		ToolCalls:       calls,
+		NativeMCPEvents: mcpEvents,
+		Usage:           usage,
+		Model:           model,
+		IsDone:          false,
+	}
+}
+
+func (h *agenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
+	if event.IsCompleted {
+		h.mu.Lock()
+		h.nativeMCPEvents = append(h.nativeMCPEvents, event)
+		h.mu.Unlock()
+
+		status := "ok"
+		errSummary := ""
+		if event.Error != "" {
+			status = "error"
+			errSummary = truncateString(event.Error, 200)
+		}
+		outputSummary := truncateString(event.Output, 200)
+
+		runtime.EventsEmit(h.app.ctx, "chat:tool_end", map[string]interface{}{
+			"name":           event.Name,
+			"callId":         event.ID,
+			"status":         status,
+			"summary":        outputSummary,
+			"error":          errSummary,
+			"serverLabel":    event.ServerLabel,
+			"native":         true,
+			"conversationId": h.conversationID,
+		})
+
+		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
+			event.Name, event.ServerLabel, event.ID, len(event.Output))
+	} else {
+		runtime.EventsEmit(h.app.ctx, "chat:tool_start", map[string]interface{}{
+			"name":           event.Name,
+			"callId":         event.ID,
+			"args":           event.Arguments,
+			"serverLabel":    event.ServerLabel,
+			"native":         true,
+			"conversationId": h.conversationID,
+		})
+
+		log.Printf("[MCP Native] 🔧 %s (server=%s, id=%s)",
+			event.Name, event.ServerLabel, event.ID)
 	}
 }
 
@@ -222,6 +271,8 @@ func (h *agenticStreamHandler) OnDone(fullResponse string, usage llm.Usage, mode
 	h.pendingEmit = false
 	content := h.accumulatedContent
 	reasoning := h.accumulatedReasoning
+	mcpEvents := h.nativeMCPEvents
+	h.nativeMCPEvents = nil
 	h.mu.Unlock()
 
 	finalContent := fullResponse
@@ -230,11 +281,12 @@ func (h *agenticStreamHandler) OnDone(fullResponse string, usage llm.Usage, mode
 	}
 
 	h.result = agenticResult{
-		FullResponse: finalContent,
-		Reasoning:    reasoning,
-		Usage:        usage,
-		Model:        model,
-		IsDone:       true,
+		FullResponse:    finalContent,
+		Reasoning:       reasoning,
+		NativeMCPEvents: mcpEvents,
+		Usage:           usage,
+		Model:           model,
+		IsDone:          true,
 	}
 }
 
@@ -253,11 +305,11 @@ func (a *App) runAgenticLoop(
 	conversationID uint,
 	turnID uint, // ID da mensagem do usuário (agrupa o turno)
 	toolDefs []llm.ToolDefinition,
-	client *llm.Client, // client específico do provedor do perfil (evita enviar para provedor errado)
+	streamer llm.Streamer, // ChatProvider (SDK) ou *Client (legado) — ambos satisfazem Streamer
 ) {
-	if client == nil {
+	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
-		log.Printf("🔴 [AGENT] client nil na conversa %d", conversationID)
+		log.Printf("🔴 [AGENT] streamer nil na conversa %d", conversationID)
 		runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
 			Content:        "",
 			Done:           true,
@@ -306,7 +358,7 @@ func (a *App) runAgenticLoop(
 		if editorToolOnly && iteration == 0 {
 			iterCtx = llm.WithToolChoice(iterCtx, "required")
 		}
-		client.StreamChat(iterCtx, messages, params, handler, toolDefs...)
+		streamer.StreamChat(iterCtx, messages, params, handler, toolDefs...)
 
 		result := handler.result
 
@@ -344,7 +396,12 @@ func (a *App) runAgenticLoop(
 		// 6. finish_reason="tool_calls" → executar ferramentas
 		fmt.Printf("🔧 [AGENT] LLM pediu %d ferramentas na iteração %d\n", len(result.ToolCalls), iteration)
 
-		// 6a. Salva mensagem do assistant com tool_calls no banco
+		// 6a. Se houve MCP calls nativas nesta iteração, persiste antes das bridge calls
+		if len(result.NativeMCPEvents) > 0 {
+			a.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
+		}
+
+		// 6b. Salva mensagem do assistant com bridge tool_calls no banco
 		toolCallsJSON, _ := json.Marshal(result.ToolCalls)
 		assistantMsg, err := database.AddAssistantToolMessage(
 			conversationID,
@@ -364,7 +421,7 @@ func (a *App) runAgenticLoop(
 			fmt.Printf("✅ [AGENT] Assistant com tool_calls salvo: ID=%d\n", assistantMsg.ID)
 		}
 
-		// 6b. Adiciona mensagem do assistant ao histórico de mensagens (para próxima iteração)
+		// 6c. Adiciona mensagem do assistant ao histórico de mensagens (para próxima iteração)
 		assistantMessage := llm.Message{
 			Role:      "assistant",
 			Content:   result.FullResponse,
@@ -372,13 +429,13 @@ func (a *App) runAgenticLoop(
 		}
 		messages = append(messages, assistantMessage)
 
-		// 6c. Executa ferramentas em paralelo
+		// 6d. Executa ferramentas em paralelo
 		toolCalls := convertToolCalls(result.ToolCalls)
 		a.emitToolStarts(conversationID, result.ToolCalls)
 
 		execResults := a.toolExecutor.ExecuteAll(ctx, toolCalls)
 
-		// 6d. Salva resultados e adiciona ao histórico
+		// 6e. Salva resultados e adiciona ao histórico
 		for _, execResult := range execResults {
 			// Emite evento de conclusão da tool
 			status := "ok"
@@ -483,10 +540,15 @@ func (a *App) runAgenticLoop(
 }
 
 // saveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
+// Se houve MCP tool calls nativas, salva no mesmo formato que bridge tool calls:
+// assistant message com tool_calls + mensagens tool separadas com resultados.
 func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
 	var savedMsgID uint
 	if conversationID > 0 && result.FullResponse != "" {
-		// Se houve tool calls no turno, salva com TurnID
+		if len(result.NativeMCPEvents) > 0 && turnID > 0 {
+			a.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
+		}
+
 		opts := database.MessageOptions{
 			ConversationID:   conversationID,
 			Role:             "assistant",
@@ -497,7 +559,6 @@ func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
 			TotalTokens:      result.Usage.TotalTokens,
 			Model:            result.Model,
 		}
-		// Só associa ao turno se houve iterações (tool calls) — ou seja, turnID > 0
 		if turnID > 0 {
 			opts.TurnID = &turnID
 		}
@@ -566,6 +627,60 @@ func convertToolCalls(llmCalls []llm.ToolCall) []tools.ToolCall {
 		}
 	}
 	return result
+}
+
+// persistNativeMCPCalls salva MCP tool calls nativas no banco no mesmo formato que bridge:
+// 1. Uma mensagem assistant com tool_calls JSON (as chamadas feitas)
+// 2. Mensagens tool separadas com resultados (uma por chamada)
+// Isso permite que o MessageList.tsx consolide tudo automaticamente via turnID.
+func (a *App) persistNativeMCPCalls(conversationID, turnID uint, events []llm.MCPToolEvent) {
+	var toolCalls []llm.ToolCall
+	for _, ev := range events {
+		if !ev.IsCompleted {
+			continue
+		}
+		name := ev.Name
+		if ev.ServerLabel != "" {
+			name = ev.ServerLabel + "/" + ev.Name
+		}
+		toolCalls = append(toolCalls, llm.ToolCall{
+			ID:   ev.ID,
+			Type: "function",
+			Function: llm.FunctionCall{
+				Name:      name,
+				Arguments: ev.Arguments,
+			},
+		})
+	}
+	if len(toolCalls) == 0 {
+		return
+	}
+
+	toolCallsJSON, err := json.Marshal(toolCalls)
+	if err != nil {
+		log.Printf("[MCP Native] Erro ao serializar tool calls: %v", err)
+		return
+	}
+
+	_, err = database.AddAssistantToolMessage(conversationID, turnID, "", string(toolCallsJSON), "", "")
+	if err != nil {
+		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
+		return
+	}
+
+	for _, ev := range events {
+		if !ev.IsCompleted {
+			continue
+		}
+		content := ev.Output
+		if ev.Error != "" {
+			content = "ERROR: " + ev.Error
+		}
+		_, err := database.AddToolResultMessage(conversationID, turnID, content, ev.ID)
+		if err != nil {
+			log.Printf("[MCP Native] Erro ao salvar tool result (id=%s): %v", ev.ID, err)
+		}
+	}
 }
 
 // truncateString trunca uma string ao tamanho máximo

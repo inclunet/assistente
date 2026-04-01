@@ -897,6 +897,7 @@ export namespace jobs {
 	export class EventsConfig {
 	    on_success?: string;
 	    on_failure?: string;
+	    emit_when?: string;
 	    for_each?: string;
 	    payload_template?: string;
 	    payload_filter?: PayloadFilter;
@@ -909,6 +910,7 @@ export namespace jobs {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.on_success = source["on_success"];
 	        this.on_failure = source["on_failure"];
+	        this.emit_when = source["emit_when"];
 	        this.for_each = source["for_each"];
 	        this.payload_template = source["payload_template"];
 	        this.payload_filter = this.convertValues(source["payload_filter"], PayloadFilter);
@@ -969,6 +971,7 @@ export namespace jobs {
 	    listen?: string;
 	    keys?: string;
 	    path?: string;
+	    when?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Trigger(source);
@@ -982,6 +985,7 @@ export namespace jobs {
 	        this.listen = source["listen"];
 	        this.keys = source["keys"];
 	        this.path = source["path"];
+	        this.when = source["when"];
 	    }
 	}
 	export class Job {
@@ -1292,6 +1296,7 @@ export namespace llm {
 	    id: string;
 	    name: string;
 	    type: string;
+	    api_format?: string;
 	    base_url: string;
 	    model?: string;
 	    default_model?: string;
@@ -1309,6 +1314,7 @@ export namespace llm {
 	        this.id = source["id"];
 	        this.name = source["name"];
 	        this.type = source["type"];
+	        this.api_format = source["api_format"];
 	        this.base_url = source["base_url"];
 	        this.model = source["model"];
 	        this.default_model = source["default_model"];
@@ -1585,6 +1591,7 @@ export namespace main {
 	    base_url: string;
 	    api_key?: string;
 	    default_model?: string;
+	    api_format?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new CreateLLMProviderRequest(source);
@@ -1598,6 +1605,7 @@ export namespace main {
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
+	        this.api_format = source["api_format"];
 	    }
 	}
 	export class CredentialInput {
@@ -2092,7 +2100,10 @@ export namespace main {
 	}
 	export class ToolInfo {
 	    name: string;
+	    display_name: string;
 	    description: string;
+	    source_type: string;
+	    source_label: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ToolInfo(source);
@@ -2101,7 +2112,10 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
+	        this.display_name = source["display_name"];
 	        this.description = source["description"];
+	        this.source_type = source["source_type"];
+	        this.source_label = source["source_label"];
 	    }
 	}
 	
@@ -2129,6 +2143,7 @@ export namespace main {
 	    base_url?: string;
 	    api_key?: string;
 	    default_model?: string;
+	    api_format?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new UpdateLLMProviderRequest(source);
@@ -2141,6 +2156,7 @@ export namespace main {
 	        this.base_url = source["base_url"];
 	        this.api_key = source["api_key"];
 	        this.default_model = source["default_model"];
+	        this.api_format = source["api_format"];
 	    }
 	}
 
@@ -2302,6 +2318,7 @@ export namespace mcp {
 	    oauth2_registration_url?: string;
 	    oauth2_device_auth_url?: string;
 	    disable_sse?: boolean;
+	    prefer_bridge?: boolean;
 	    enabled: boolean;
 	    auto_connect: boolean;
 	
@@ -2328,6 +2345,7 @@ export namespace mcp {
 	        this.oauth2_registration_url = source["oauth2_registration_url"];
 	        this.oauth2_device_auth_url = source["oauth2_device_auth_url"];
 	        this.disable_sse = source["disable_sse"];
+	        this.prefer_bridge = source["prefer_bridge"];
 	        this.enabled = source["enabled"];
 	        this.auto_connect = source["auto_connect"];
 	    }
@@ -2421,8 +2439,6 @@ export namespace profiles {
 	    disable_skills?: boolean;
 	    disable_on_demand_skills?: boolean;
 	    command_allowlist?: string;
-	    mcp_mode?: string;
-	    mcp_native_tested?: boolean;
 	    max_agentic_iterations?: number;
 	
 	    static createFrom(source: any = {}) {
@@ -2448,8 +2464,6 @@ export namespace profiles {
 	        this.disable_skills = source["disable_skills"];
 	        this.disable_on_demand_skills = source["disable_on_demand_skills"];
 	        this.command_allowlist = source["command_allowlist"];
-	        this.mcp_mode = source["mcp_mode"];
-	        this.mcp_native_tested = source["mcp_native_tested"];
 	        this.max_agentic_iterations = source["max_agentic_iterations"];
 	    }
 	}

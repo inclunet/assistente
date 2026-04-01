@@ -66,6 +66,7 @@ type CreateLLMProviderRequest struct {
 	BaseURL      string `json:"base_url"`
 	APIKey       string `json:"api_key,omitempty"`
 	DefaultModel string `json:"default_model,omitempty"`
+	APIFormat    string `json:"api_format,omitempty"`
 }
 
 type TestLLMProviderRequest struct {
@@ -81,13 +82,12 @@ type UpdateLLMProviderRequest struct {
 	BaseURL      string `json:"base_url,omitempty"`
 	APIKey       string `json:"api_key,omitempty"`
 	DefaultModel string `json:"default_model,omitempty"`
+	APIFormat    string `json:"api_format,omitempty"`
 }
 
 // App struct
 type App struct {
 	ctx                   context.Context
-	llmClient             *llm.SyncClient
-	llmStreamClient       *llm.Client
 	llmRegistry           *llm.ProviderRegistry // Registro de provedores LLM
 	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
@@ -262,32 +262,20 @@ func (a *App) startup(ctx context.Context) {
 
 // initLLMClient inicializa o cliente LLM usando o provider do perfil ativo
 func (a *App) initLLMClient() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Printf("Erro ao carregar config para LLM: %v", err)
-		return
-	}
-
-	// Load active profile to get provider
 	activeProfile, err := a.profileManager.GetActive()
 	if err != nil || activeProfile == nil {
-		log.Printf("Erro ao carregar perfil ativo: %v", err)
+		log.Printf("[initLLMClient] Perfil ativo não encontrado: %v", err)
 		return
 	}
-
 	activeProfile = a.resolveProfileDefaults(activeProfile)
 
-	// Get provider from registry
 	provider := a.llmRegistry.Get(activeProfile.Chat.LLMProvider)
 	if provider == nil {
-		log.Printf("Provedor LLM não encontrado: %s", activeProfile.Chat.LLMProvider)
+		log.Printf("[initLLMClient] Provedor LLM não encontrado: %s", activeProfile.Chat.LLMProvider)
 		return
 	}
 
-	// Create clients with provider config
-	a.llmClient = llm.NewSyncClient(provider, a.credMgr)
-	a.llmStreamClient = llm.NewClient(provider, cfg, a.credMgr)
-	log.Printf("LLM Client inicializado com provedor: %s", provider.Name)
+	log.Printf("[initLLMClient] Provedor ativo: %s (api_format=%s)", provider.Name, provider.GetAPIFormat())
 }
 
 // ReloadLLMClient recarrega o cliente LLM (chamado quando config muda)
@@ -295,10 +283,10 @@ func (a *App) ReloadLLMClient() {
 	a.initLLMClient()
 }
 
-// getClientForProvider creates a new LLM client for a specific provider.
-// Used to ensure requests are routed to the correct provider endpoint
-// when the active profile differs from the global default.
-func (a *App) getClientForProvider(providerID string) (*llm.Client, error) {
+// getChatProviderForProvider retorna um ChatProvider para o provedor especificado.
+// Usa NewChatProvider que roteia para o SDK correto via GetAPIFormat()
+// (default: OpenAI SDK, que é compatível com todos os provedores OpenAI-compat).
+func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, error) {
 	if a.llmRegistry == nil {
 		return nil, fmt.Errorf("registro de provedores não inicializado")
 	}
@@ -308,12 +296,7 @@ func (a *App) getClientForProvider(providerID string) (*llm.Client, error) {
 		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
 	}
 
-	cfg, err := config.Load()
-	if err != nil {
-		return nil, fmt.Errorf("erro ao carregar config: %w", err)
-	}
-
-	return llm.NewClient(provider, cfg, a.credMgr), nil
+	return llm.NewChatProvider(provider, a.credMgr), nil
 }
 
 // resolveProfileDefaults substitui sentinelas "$default" no profile pelo provedor/modelo
@@ -385,6 +368,7 @@ func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
 			ID:                "openai-default",
 			Name:              "OpenAI",
 			Type:              llm.ProviderOpenAI,
+			APIFormat:         llm.APIFormatOpenAIResponses,
 			BaseURL:           "https://api.openai.com/v1",
 			Model:             "gpt-4o-mini",
 			Timeout:           180,
@@ -1936,8 +1920,11 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 
 // ToolInfo é um resumo de uma ferramenta para listagem no frontend.
 type ToolInfo struct {
-	Name        string `json:"name"`
+	Name        string `json:"name"`         // id interno (namespaced para MCP, ex: mcp_github__create_issue)
+	DisplayName string `json:"display_name"` // nome curto para exibição (ex: create_issue)
 	Description string `json:"description"`
+	SourceType  string `json:"source_type"`  // "local" | "mcp"
+	SourceLabel string `json:"source_label"` // "Local" | nome amigável do servidor MCP
 }
 
 // GetAvailableTools retorna a lista de ferramentas registradas no registry.
@@ -1950,10 +1937,27 @@ func (a *App) GetAvailableTools() []ToolInfo {
 	allTools := a.toolRegistry.All()
 	result := make([]ToolInfo, len(allTools))
 	for i, t := range allTools {
-		result[i] = ToolInfo{
-			Name:        t.Name(),
+		name := t.Name()
+		info := ToolInfo{
+			Name:        name,
+			DisplayName: name,
 			Description: t.Description(),
+			SourceType:  "local",
+			SourceLabel: "Local",
 		}
+
+		if slug, originalName, ok := mcpmgr.ParseToolName(name); ok {
+			info.DisplayName = originalName
+			info.SourceType = "mcp"
+			info.SourceLabel = slug
+			if a.mcpMgr != nil {
+				if cfg, err := a.mcpMgr.GetConfig(slug); err == nil && cfg.Name != "" {
+					info.SourceLabel = cfg.Name
+				}
+			}
+		}
+
+		result[i] = info
 	}
 	return result
 }
@@ -2077,6 +2081,7 @@ func (a *App) saveLLMProviders() error {
 			ID:                p.ID,
 			Name:              p.Name,
 			Type:              string(p.Type),
+			APIFormat:         string(p.APIFormat),
 			BaseURL:           p.BaseURL,
 			Model:             p.Model,
 			DefaultModel:      p.DefaultModel,
@@ -2109,6 +2114,7 @@ func (a *App) loadLLMProviders() error {
 			ID:                dbProvider.ID,
 			Name:              dbProvider.Name,
 			Type:              llm.ProviderType(dbProvider.Type),
+			APIFormat:         llm.APIFormat(dbProvider.APIFormat),
 			BaseURL:           dbProvider.BaseURL,
 			Model:             dbProvider.Model,
 			DefaultModel:      dbProvider.DefaultModel,
@@ -2503,14 +2509,6 @@ func (a *App) GetMCPPrompt(slug, name string, arguments map[string]string) ([]st
 	return a.mcpMgr.GetPrompt(slug, name, arguments)
 }
 
-// GetNativeMCPServers retorna informações dos servidores MCP para uso nativo por modelos.
-func (a *App) GetNativeMCPServers() []map[string]any {
-	if a.mcpMgr == nil {
-		return []map[string]any{}
-	}
-	return a.mcpMgr.GetNativeServerInfo()
-}
-
 // LLMSettings contém configurações da API LLM
 type LLMSettings struct {
 	APIKey  string
@@ -2676,62 +2674,6 @@ func (a *App) GetLLMSettings() (*LLMSettings, error) {
 		APIKey:  cfg.APIKey,
 		BaseURL: cfg.APIBaseURL,
 	}, nil
-}
-
-// TestMCPNativeSupport testa se o modelo configurado no perfil suporta MCP nativo.
-// Faz chamada real à API. Deve ser chamado ao configurar perfil pela primeira vez.
-// Retorna (suporta, mensagemErro, erro)
-func (a *App) TestMCPNativeSupport(profileSlug string) (bool, string, error) {
-	// Carregar perfil
-	profile, err := a.profileManager.Get(profileSlug)
-	if err != nil {
-		return false, "", fmt.Errorf("erro ao carregar perfil: %w", err)
-	}
-
-	// Obter configurações da API do LLM settings atual
-	settings, err := a.GetLLMSettings()
-	if err != nil {
-		return false, "", fmt.Errorf("erro ao obter configurações: %w", err)
-	}
-
-	// Fazer teste
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-
-	supported, errMsg, err := profiles.TestMCPNativeSupport(
-		ctx,
-		settings.APIKey,
-		settings.BaseURL,
-		profile.Chat.Model,
-	)
-
-	if err != nil {
-		return false, errMsg, err
-	}
-
-	// Salvar resultado no perfil
-	profile.SetMCPNativeSupport(supported)
-	if err := a.profileManager.Update(profileSlug, profile); err != nil {
-		return supported, "", fmt.Errorf("erro ao salvar perfil: %w", err)
-	}
-
-	return supported, "", nil
-}
-
-// ClearMCPTest limpa resultado do teste MCP de um perfil para forçar re-teste.
-func (a *App) ClearMCPTest(profileSlug string) error {
-	profile, err := a.profileManager.Get(profileSlug)
-	if err != nil {
-		return fmt.Errorf("erro ao carregar perfil: %w", err)
-	}
-
-	profile.ClearMCPTest()
-
-	if err := a.profileManager.Update(profileSlug, profile); err != nil {
-		return fmt.Errorf("erro ao salvar perfil: %w", err)
-	}
-
-	return nil
 }
 
 // SetMCPWorkspaceRoots configura os diretórios raiz do workspace para servidores MCP.
@@ -3678,7 +3620,6 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
 		}
 	}
 
-	// Cria provider temporário para usar o client LLM
 	hostname := parsedURL.Hostname()
 	tempProvider := &llm.ProviderConfig{
 		ID:                "temp-form",
@@ -3688,17 +3629,25 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
 		CredentialPattern: hostname,
 		Timeout:           15,
 	}
-	tempCfg := &config.Config{
-		APIKey:     apiKey,
-		APIBaseURL: req.BaseURL,
-	}
 
-	tempClient := llm.NewClient(tempProvider, tempCfg, a.credMgr)
+	// Se tem API key ad-hoc, registra temporariamente para o credential manager achar
+	if apiKey != "" && a.credMgr != nil {
+		_ = a.credMgr.RegisterPatternWithContext(a.ctx, hostname, &credentials.AuthConfig{
+			Type: "bearer", Token: apiKey,
+		})
+		defer func() {
+			if req.ProviderID == "" {
+				_ = a.credMgr.DeletePattern(a.ctx, hostname)
+			}
+		}()
+	}
 
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 
-	models, err := tempClient.GetModels(ctx)
+	// Usa ChatProvider se o tipo tem api_format inferível
+	cp := llm.NewChatProvider(tempProvider, a.credMgr)
+	models, err := cp.GetModels(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -3748,6 +3697,7 @@ func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interf
 		ID:                req.ID,
 		Name:              req.Name,
 		Type:              llm.ProviderType(req.Type),
+		APIFormat:         llm.APIFormat(req.APIFormat),
 		BaseURL:           req.BaseURL,
 		Model:             "",
 		DefaultModel:      req.DefaultModel,
@@ -3802,6 +3752,7 @@ func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[st
 		ID:                existing.ID,
 		Name:              existing.Name,
 		Type:              existing.Type,
+		APIFormat:         existing.APIFormat,
 		BaseURL:           existing.BaseURL,
 		Model:             existing.Model,
 		DefaultModel:      existing.DefaultModel,
@@ -3815,6 +3766,9 @@ func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[st
 	}
 	if req.Type != "" {
 		updated.Type = llm.ProviderType(req.Type)
+	}
+	if req.APIFormat != "" {
+		updated.APIFormat = llm.APIFormat(req.APIFormat)
 	}
 	if req.DefaultModel != "" {
 		updated.DefaultModel = req.DefaultModel
@@ -3936,6 +3890,7 @@ func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 			"id":                    p.ID,
 			"name":                  p.Name,
 			"type":                  string(p.Type),
+			"api_format":            string(p.APIFormat),
 			"base_url":              p.BaseURL,
 			"model":                 p.Model,
 			"default_model":         p.DefaultModel,
@@ -4823,6 +4778,7 @@ type wizardProviderInfo struct {
 	ID           string
 	Name         string
 	Type         llm.ProviderType
+	APIFormat    llm.APIFormat // se vazio, será inferido por GetAPIFormat()
 	DefaultModel string
 }
 
@@ -4830,9 +4786,9 @@ type wizardProviderInfo struct {
 func getWizardProviderInfo(providerChoice string) wizardProviderInfo {
 	switch providerChoice {
 	case "OpenAI":
-		return wizardProviderInfo{ID: "openai-default", Name: "OpenAI", Type: llm.ProviderOpenAI, DefaultModel: "gpt-4o-mini"}
+		return wizardProviderInfo{ID: "openai-default", Name: "OpenAI", Type: llm.ProviderOpenAI, APIFormat: llm.APIFormatOpenAIResponses, DefaultModel: "gpt-4o-mini"}
 	case "Anthropic (Claude)":
-		return wizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude, DefaultModel: "claude-sonnet-4-20250514"}
+		return wizardProviderInfo{ID: "anthropic-claude", Name: "Claude (Anthropic)", Type: llm.ProviderClaude, APIFormat: llm.APIFormatAnthropic, DefaultModel: "claude-sonnet-4-20250514"}
 	case "Google (Gemini)":
 		return wizardProviderInfo{ID: "google-gemini", Name: "Google (Gemini)", Type: llm.ProviderOpenAI, DefaultModel: "gemini-2.0-flash"}
 	case "OpenRouter":
@@ -4886,6 +4842,7 @@ func (a *App) createWizardProvider(providerChoice, baseURL, apiKey, model string
 		ID:                info.ID,
 		Name:              info.Name,
 		Type:              info.Type,
+		APIFormat:         info.APIFormat,
 		BaseURL:           baseURL,
 		Model:             model,
 		DefaultModel:      defaultModel,

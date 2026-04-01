@@ -13,6 +13,7 @@ interface McpConnectionSectionProps {
   envText: string;
   enabled: boolean;
   autoConnect: boolean;
+  preferBridge: boolean;
   authType: string;
   authToken: string;
   authUsername: string;
@@ -35,6 +36,7 @@ interface McpConnectionSectionProps {
   onEnvTextChange: (value: string) => void;
   onEnabledChange: (value: boolean) => void;
   onAutoConnectChange: (value: boolean) => void;
+  onPreferBridgeChange: (value: boolean) => void;
   onAuthTypeChange: (value: string) => void;
   onAuthTokenChange: (value: string) => void;
   onAuthUsernameChange: (value: string) => void;
@@ -61,6 +63,7 @@ export function McpConnectionSection({
   envText,
   enabled,
   autoConnect,
+  preferBridge,
   authType,
   authToken,
   authUsername,
@@ -83,6 +86,7 @@ export function McpConnectionSection({
   onEnvTextChange,
   onEnabledChange,
   onAutoConnectChange,
+  onPreferBridgeChange,
   onAuthTypeChange,
   onAuthTokenChange,
   onAuthUsernameChange,
@@ -529,6 +533,13 @@ export function McpConnectionSection({
                   checked={autoConnect}
                   onChange={(e) => onAutoConnectChange(e.target.checked)}
                 />
+                {isHTTPTransport(transport) && (
+                  <Checkbox
+                    label={t('mcp.connection.preferBridge', 'Usar bridge local (não enviar ao provider via MCP nativo)')}
+                    checked={preferBridge}
+                    onChange={(e) => onPreferBridgeChange(e.target.checked)}
+                  />
+                )}
               </div>
             </fieldset>
           </div>

@@ -151,6 +151,28 @@ func TestGetWizardProviderInfo_IDsMatchCreateDefaultLLMProvider(t *testing.T) {
 	}
 }
 
+func TestGetWizardProviderInfo_APIFormats(t *testing.T) {
+	tests := []struct {
+		choice    string
+		wantFmt   llm.APIFormat
+	}{
+		{"OpenAI", llm.APIFormatOpenAIResponses},
+		{"Anthropic (Claude)", llm.APIFormatAnthropic},
+		{"Google (Gemini)", ""},
+		{"OpenRouter", ""},
+		{"Groq", ""},
+		{"Ollama (Local)", ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.choice, func(t *testing.T) {
+			info := getWizardProviderInfo(tt.choice)
+			if info.APIFormat != tt.wantFmt {
+				t.Errorf("APIFormat: got %q, want %q", info.APIFormat, tt.wantFmt)
+			}
+		})
+	}
+}
+
 // --- createWizardProvider ---
 
 func TestCreateWizardProvider_OpenAI(t *testing.T) {
@@ -697,6 +719,63 @@ func TestCreateLLMProvider_FirstProviderIsAutoDefault(t *testing.T) {
 	}
 	if def.ID != "first-prov" {
 		t.Errorf("DB default: got %s, want first-prov", def.ID)
+	}
+}
+
+func TestCreateLLMProvider_APIFormatPersisted(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	_, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+		ID:        "openai-test",
+		Name:      "OpenAI Test",
+		Type:      "openai",
+		BaseURL:   "https://api.openai.com/v1",
+		APIFormat: "openai_responses",
+	})
+	if err != nil {
+		t.Fatalf("CreateLLMProvider: %v", err)
+	}
+
+	provider := app.llmRegistry.Get("openai-test")
+	if provider == nil {
+		t.Fatal("provider not found in registry")
+	}
+	if string(provider.APIFormat) != "openai_responses" {
+		t.Errorf("APIFormat: got %q, want openai_responses", provider.APIFormat)
+	}
+	if provider.GetAPIFormat() != llm.APIFormatOpenAIResponses {
+		t.Errorf("GetAPIFormat: got %q, want %q", provider.GetAPIFormat(), llm.APIFormatOpenAIResponses)
+	}
+
+	dbProv, err := database.GetLLMProvider("openai-test")
+	if err != nil {
+		t.Fatalf("GetLLMProvider: %v", err)
+	}
+	if dbProv.APIFormat != "openai_responses" {
+		t.Errorf("DB APIFormat: got %q, want openai_responses", dbProv.APIFormat)
+	}
+}
+
+func TestCreateLLMProvider_OpenAICompatibleKeepsDefaultFormat(t *testing.T) {
+	app := setupWizardTestApp(t)
+
+	_, err := app.CreateLLMProvider(CreateLLMProviderRequest{
+		ID:        "groq-test",
+		Name:      "Groq Test",
+		Type:      "groq",
+		BaseURL:   "https://api.groq.com/openai",
+		APIFormat: "openai",
+	})
+	if err != nil {
+		t.Fatalf("CreateLLMProvider: %v", err)
+	}
+
+	provider := app.llmRegistry.Get("groq-test")
+	if provider == nil {
+		t.Fatal("provider not found in registry")
+	}
+	if provider.GetAPIFormat() != llm.APIFormatOpenAI {
+		t.Errorf("GetAPIFormat: got %q, want %q", provider.GetAPIFormat(), llm.APIFormatOpenAI)
 	}
 }
 
