@@ -1621,6 +1621,11 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 		if len(status.Tools) == 0 {
 			continue
 		}
+		if status.Config.PreferBridge {
+			log.Printf("[MCP] servidor %q excluído do MCP nativo: prefer_bridge=true (bridge local será usado)",
+				slug)
+			continue
+		}
 		if !isNativeMCPEligibleURL(status.Config.URL) {
 			log.Printf("[MCP] servidor %q excluído do MCP nativo: URL %q não é HTTPS nem localhost (adapter será usado)",
 				slug, status.Config.URL)
@@ -1640,12 +1645,24 @@ func (m *Manager) GetEligibleNativeMCPServers() []NativeMCPServer {
 
 		// Resolve auth token se disponível
 		if m.credMgr != nil {
-			// Tenta OAuth tokens primeiro
+			// Tenta OAuth tokens primeiro (mcp-tokens:{slug})
 			if auth, err := m.credMgr.GetByPattern(userTokensPattern(slug)); err == nil && auth != nil && auth.Token != "" {
 				srv.AuthToken = auth.Token
-			} else if hostname := hostnameFromURL(status.Config.URL); hostname != "" {
-				if auth, err := m.credMgr.GetByPattern(hostname); err == nil && auth != nil && auth.Token != "" {
-					srv.AuthToken = auth.Token
+				log.Printf("[MCP] servidor %q: token OAuth resolvido (pattern=%s, len=%d, expires=%d)",
+					slug, userTokensPattern(slug), len(auth.Token), auth.ExpiresAt)
+			} else {
+				// Fallback: tenta por hostname
+				if hostname := hostnameFromURL(status.Config.URL); hostname != "" {
+					if auth, err := m.credMgr.GetByPattern(hostname); err == nil && auth != nil && auth.Token != "" {
+						srv.AuthToken = auth.Token
+						log.Printf("[MCP] servidor %q: token resolvido por hostname (pattern=%s)", slug, hostname)
+					} else {
+						log.Printf("[MCP] servidor %q: NENHUM token encontrado (oauth=%s, hostname=%s)",
+							slug, userTokensPattern(slug), hostname)
+					}
+				} else {
+					log.Printf("[MCP] servidor %q: NENHUM token encontrado (oauth=%s, sem hostname)",
+						slug, userTokensPattern(slug))
 				}
 			}
 		}

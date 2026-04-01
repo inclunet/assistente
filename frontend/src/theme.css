@@ -41,7 +41,7 @@
   --border-default:    #294572;
   --border-strong:     #3a5a8e;
 
-  /* ── Accent (Nubank purple family) ─────────────────────── */
+  /* ── Accent (purple family) ─────────────────────── */
   --accent:            #a78bfa;
   --accent-hover:      #c4b5fd;
   --accent-dim:        rgba(139, 92, 246, 0.18);
@@ -266,7 +266,7 @@
   --border-default:    #c5d0e0;
   --border-strong:     #a8b8d0;
 
-  /* ── Accent (Nubank purple — max Workflows alignment) ──── */
+  /* ── Accent (purple — max Workflows alignment) ──── */
   --accent:            #820AD1;
   --accent-hover:      #6200A3;
   --accent-dim:        rgba(130, 10, 209, 0.08);

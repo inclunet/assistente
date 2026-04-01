@@ -610,6 +610,314 @@ func TestDiscoverOAuthEndpoints_Fallback(t *testing.T) {
 	}
 }
 
+// ============ Discovery Fallback Tests ============
+
+func TestBuildPRMCandidates(t *testing.T) {
+	tests := []struct {
+		name       string
+		mcpURL     string
+		wantCount  int
+		wantFirst  string
+		wantLast   string
+	}{
+		{
+			name:      "URL with path tries resource first, then origin",
+			mcpURL:    "https://example.com/mcp/default",
+			wantCount: 2,
+			wantFirst: "https://example.com/mcp/default/.well-known/oauth-protected-resource",
+			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
+		},
+		{
+			name:      "URL at root only tries origin",
+			mcpURL:    "https://example.com",
+			wantCount: 1,
+			wantFirst: "https://example.com/.well-known/oauth-protected-resource",
+			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
+		},
+		{
+			name:      "URL with single path segment",
+			mcpURL:    "https://example.com/mcp",
+			wantCount: 2,
+			wantFirst: "https://example.com/mcp/.well-known/oauth-protected-resource",
+			wantLast:  "https://example.com/.well-known/oauth-protected-resource",
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			candidates := buildPRMCandidates(tc.mcpURL)
+			if len(candidates) != tc.wantCount {
+				t.Fatalf("got %d candidates, want %d: %v", len(candidates), tc.wantCount, candidates)
+			}
+			if candidates[0] != tc.wantFirst {
+				t.Errorf("first candidate: got %q, want %q", candidates[0], tc.wantFirst)
+			}
+			if candidates[len(candidates)-1] != tc.wantLast {
+				t.Errorf("last candidate: got %q, want %q", candidates[len(candidates)-1], tc.wantLast)
+			}
+		})
+	}
+}
+
+func TestBuildASMCandidates(t *testing.T) {
+	tests := []struct {
+		name      string
+		base      string
+		wantCount int
+		wantURLs  []string
+	}{
+		{
+			name:      "auth server at origin has 2 candidates",
+			base:      "https://example.com",
+			wantCount: 2,
+			wantURLs: []string{
+				"https://example.com/.well-known/oauth-authorization-server",
+				"https://example.com/.well-known/openid-configuration",
+			},
+		},
+		{
+			name:      "auth server with path generates 6 candidates",
+			base:      "https://example.com/oauth",
+			wantCount: 6,
+			wantURLs: []string{
+				"https://example.com/oauth/.well-known/oauth-authorization-server",
+				"https://example.com/oauth/.well-known/openid-configuration",
+				"https://example.com/.well-known/oauth-authorization-server/oauth",
+				"https://example.com/.well-known/openid-configuration/oauth",
+				"https://example.com/.well-known/oauth-authorization-server",
+				"https://example.com/.well-known/openid-configuration",
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			candidates := buildASMCandidates(tc.base)
+			if len(candidates) != tc.wantCount {
+				t.Fatalf("got %d candidates, want %d: %v", len(candidates), tc.wantCount, candidates)
+			}
+			for i, want := range tc.wantURLs {
+				if candidates[i] != want {
+					t.Errorf("candidate[%d]: got %q, want %q", i, candidates[i], want)
+				}
+			}
+		})
+	}
+}
+
+func TestDiscoverOAuth_AuthServerWithPath_FallbackToOriginRoot(t *testing.T) {
+	// PRM aponta para auth server em /oauth,
+	// mas ASM está publicado na raiz do origin.
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource":
+			json.NewEncoder(w).Encode(map[string]any{
+				"resource":              "https://example.com",
+				"resource_name":         "TestService",
+				"authorization_servers": []string{srvURL + "/oauth"},
+			})
+		case "/.well-known/oauth-authorization-server":
+			json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                          srvURL + "/oauth",
+				"authorization_endpoint":          srvURL + "/oauth/authorize",
+				"token_endpoint":                  srvURL + "/oauth/token",
+				"registration_endpoint":           srvURL + "/oauth/register",
+				"code_challenge_methods_supported": []string{"S256"},
+				"grant_types_supported":           []string{"authorization_code", "refresh_token"},
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	result := DiscoverOAuth(srv.URL + "/mcp/default")
+	if !result.Found {
+		t.Fatalf("expected discovery to succeed, got error: %s", result.Error)
+	}
+	if result.AuthURL != srv.URL+"/oauth/authorize" {
+		t.Errorf("AuthURL: got %q", result.AuthURL)
+	}
+	if result.TokenURL != srv.URL+"/oauth/token" {
+		t.Errorf("TokenURL: got %q", result.TokenURL)
+	}
+	if result.RegistrationURL != srv.URL+"/oauth/register" {
+		t.Errorf("RegistrationURL: got %q", result.RegistrationURL)
+	}
+	if result.ResourceName != "TestService" {
+		t.Errorf("ResourceName: got %q", result.ResourceName)
+	}
+	if !result.SupportsPKCE {
+		t.Error("expected SupportsPKCE=true")
+	}
+}
+
+func TestDiscoverOAuth_PRMOnlyAtOrigin(t *testing.T) {
+	// PRM não existe em /mcp/.well-known/..., só no origin root.
+	asSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"authorization_endpoint":          "https://auth.test.com/authorize",
+				"token_endpoint":                  "https://auth.test.com/token",
+				"code_challenge_methods_supported": []string{"S256"},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer asSrv.Close()
+
+	var prmSrvURL string
+	prmSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-protected-resource" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"resource":              prmSrvURL + "/mcp",
+				"authorization_servers": []string{asSrv.URL},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer prmSrv.Close()
+	prmSrvURL = prmSrv.URL
+
+	result := DiscoverOAuth(prmSrv.URL + "/mcp")
+	if !result.Found {
+		t.Fatalf("expected discovery to succeed, got error: %s", result.Error)
+	}
+	if result.AuthURL != "https://auth.test.com/authorize" {
+		t.Errorf("AuthURL: got %q", result.AuthURL)
+	}
+	if result.TokenURL != "https://auth.test.com/token" {
+		t.Errorf("TokenURL: got %q", result.TokenURL)
+	}
+}
+
+func TestDiscoverOAuth_PRMAtResourcePath(t *testing.T) {
+	// PRM existe no path do recurso (ex: /api/.well-known/oauth-protected-resource)
+	asSrv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/.well-known/oauth-authorization-server" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"authorization_endpoint": "https://auth.path.com/authorize",
+				"token_endpoint":         "https://auth.path.com/token",
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer asSrv.Close()
+
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/api/.well-known/oauth-protected-resource" {
+			json.NewEncoder(w).Encode(map[string]any{
+				"resource":              srvURL + "/api",
+				"authorization_servers": []string{asSrv.URL},
+			})
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	disc, err := discoverOAuthEndpoints(srv.URL + "/api")
+	if err != nil {
+		t.Fatalf("expected discovery to succeed: %v", err)
+	}
+	if disc.AuthorizationEndpoint != "https://auth.path.com/authorize" {
+		t.Errorf("AuthorizationEndpoint: got %q", disc.AuthorizationEndpoint)
+	}
+}
+
+func TestDiscoverOAuth_ASMAtRFC8414PathLocation(t *testing.T) {
+	// Auth server metadata publicado em {origin}/.well-known/oauth-authorization-server{path}
+	// (RFC 8414 §3 correto para issuer com path)
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource":
+			json.NewEncoder(w).Encode(map[string]any{
+				"resource":              srvURL,
+				"authorization_servers": []string{srvURL + "/auth"},
+			})
+		case "/.well-known/oauth-authorization-server/auth":
+			json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                 srvURL + "/auth",
+				"authorization_endpoint": srvURL + "/auth/authorize",
+				"token_endpoint":         srvURL + "/auth/token",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	disc, err := discoverOAuthEndpoints(srv.URL + "/mcp")
+	if err != nil {
+		t.Fatalf("expected discovery to succeed: %v", err)
+	}
+	if disc.AuthorizationEndpoint != srv.URL+"/auth/authorize" {
+		t.Errorf("AuthorizationEndpoint: got %q", disc.AuthorizationEndpoint)
+	}
+	if disc.TokenEndpoint != srv.URL+"/auth/token" {
+		t.Errorf("TokenEndpoint: got %q", disc.TokenEndpoint)
+	}
+}
+
+func TestDiscoverOAuth_TotalFailure(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.NotFound(w, r)
+	}))
+	defer srv.Close()
+
+	result := DiscoverOAuth(srv.URL + "/mcp/default")
+	if result.Found {
+		t.Error("expected discovery to fail when all endpoints return 404")
+	}
+	if result.Error == "" {
+		t.Error("expected diagnostic error message on total failure")
+	}
+}
+
+func TestDiscoverOAuth_ASMDirectAtBase(t *testing.T) {
+	// Auth server sem path — ASM no próprio base (comportamento original)
+	var srvURL string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/.well-known/oauth-protected-resource":
+			json.NewEncoder(w).Encode(map[string]any{
+				"resource":              srvURL,
+				"authorization_servers": []string{srvURL},
+			})
+		case "/.well-known/oauth-authorization-server":
+			json.NewEncoder(w).Encode(map[string]any{
+				"issuer":                 srvURL,
+				"authorization_endpoint": srvURL + "/authorize",
+				"token_endpoint":         srvURL + "/token",
+			})
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer srv.Close()
+	srvURL = srv.URL
+
+	result := DiscoverOAuth(srv.URL + "/mcp")
+	if !result.Found {
+		t.Fatalf("expected discovery to succeed, got error: %s", result.Error)
+	}
+	if result.AuthURL != srv.URL+"/authorize" {
+		t.Errorf("AuthURL: got %q", result.AuthURL)
+	}
+	if result.TokenURL != srv.URL+"/token" {
+		t.Errorf("TokenURL: got %q", result.TokenURL)
+	}
+}
+
 // ============ Device Flow Tests ============
 
 func TestAuthorizeDeviceFlow_Success(t *testing.T) {

@@ -2318,6 +2318,7 @@ export namespace mcp {
 	    oauth2_registration_url?: string;
 	    oauth2_device_auth_url?: string;
 	    disable_sse?: boolean;
+	    prefer_bridge?: boolean;
 	    enabled: boolean;
 	    auto_connect: boolean;
 	
@@ -2344,6 +2345,7 @@ export namespace mcp {
 	        this.oauth2_registration_url = source["oauth2_registration_url"];
 	        this.oauth2_device_auth_url = source["oauth2_device_auth_url"];
 	        this.disable_sse = source["disable_sse"];
+	        this.prefer_bridge = source["prefer_bridge"];
 	        this.enabled = source["enabled"];
 	        this.auto_connect = source["auto_connect"];
 	    }
