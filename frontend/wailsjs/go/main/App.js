@@ -66,10 +66,6 @@ export function ClearConversation(arg1) {
   return window['go']['main']['App']['ClearConversation'](arg1);
 }
 
-export function ClearMCPTest(arg1) {
-  return window['go']['main']['App']['ClearMCPTest'](arg1);
-}
-
 export function ClearMessages() {
   return window['go']['main']['App']['ClearMessages']();
 }
@@ -480,10 +476,6 @@ export function GetModels() {
 
 export function GetModelsByProvider(arg1) {
   return window['go']['main']['App']['GetModelsByProvider'](arg1);
-}
-
-export function GetNativeMCPServers() {
-  return window['go']['main']['App']['GetNativeMCPServers']();
 }
 
 export function GetOpenAITTSVoices() {
@@ -908,10 +900,6 @@ export function TestConnectionWithModels() {
 
 export function TestLLMProvider(arg1) {
   return window['go']['main']['App']['TestLLMProvider'](arg1);
-}
-
-export function TestMCPNativeSupport(arg1) {
-  return window['go']['main']['App']['TestMCPNativeSupport'](arg1);
 }
 
 export function TestTool(arg1, arg2, arg3) {

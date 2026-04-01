@@ -28,17 +28,21 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-const mockTools: Array<{ name: string; description: string }> = [
-  { name: 'Tool 1', description: 'First tool' },
-  { name: 'Tool 2', description: 'Second tool' },
-  { name: 'Tool 3', description: 'Third tool' },
+function tool(name: string, description: string, sourceType = 'local', sourceLabel = 'Local', displayName?: string) {
+  return { name, display_name: displayName ?? name, description, source_type: sourceType, source_label: sourceLabel };
+}
+
+const mockTools = [
+  tool('Tool 1', 'First tool'),
+  tool('Tool 2', 'Second tool'),
+  tool('Tool 3', 'Third tool'),
 ];
 
-const mockToolsMixed: Array<{ name: string; description: string }> = [
-  { name: 'local_tool', description: 'Local tool' },
-  { name: 'mcp_atlassian__search', description: 'Atlassian search' },
-  { name: 'mcp_atlassian__create', description: 'Atlassian create' },
-  { name: 'mcp_slack__send', description: 'Slack send' },
+const mockToolsMixed = [
+  tool('local_tool', 'Local tool'),
+  tool('mcp_atlassian__search', 'Atlassian search', 'mcp', 'Atlassian', 'search'),
+  tool('mcp_atlassian__create', 'Atlassian create', 'mcp', 'Atlassian', 'create'),
+  tool('mcp_slack__send', 'Slack send', 'mcp', 'Slack', 'send'),
 ];
 
 const mockAllowlists: Array<allowlist.AllowlistInfo> = [
@@ -622,8 +626,8 @@ describe('ProfileToolsSection', () => {
       );
       selectFilter('tools-filter', 'Todas MCP');
       expect(screen.queryByText('local_tool')).not.toBeInTheDocument();
-      expect(screen.getByText('mcp_atlassian__search')).toBeInTheDocument();
-      expect(screen.getByText('mcp_slack__send')).toBeInTheDocument();
+      expect(screen.getByText('search')).toBeInTheDocument();
+      expect(screen.getByText('send')).toBeInTheDocument();
     });
 
     it('filtra por servidor MCP específico', () => {
@@ -636,9 +640,9 @@ describe('ProfileToolsSection', () => {
         />
       );
       selectFilter('tools-filter', 'Atlassian');
-      expect(screen.getByText('mcp_atlassian__search')).toBeInTheDocument();
-      expect(screen.getByText('mcp_atlassian__create')).toBeInTheDocument();
-      expect(screen.queryByText('mcp_slack__send')).not.toBeInTheDocument();
+      expect(screen.getByText('search')).toBeInTheDocument();
+      expect(screen.getByText('create')).toBeInTheDocument();
+      expect(screen.queryByText('send')).not.toBeInTheDocument();
       expect(screen.queryByText('local_tool')).not.toBeInTheDocument();
     });
 
@@ -702,9 +706,117 @@ describe('ProfileToolsSection', () => {
       );
       selectFilter('tools-filter', 'Todas MCP');
       fireEvent.change(screen.getByTestId('tools-search'), { target: { value: 'search' } });
-      expect(screen.getByText('mcp_atlassian__search')).toBeInTheDocument();
-      expect(screen.queryByText('mcp_atlassian__create')).not.toBeInTheDocument();
+      expect(screen.getByText('search')).toBeInTheDocument();
+      expect(screen.queryByText('create')).not.toBeInTheDocument();
+      expect(screen.queryByText('send')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Display names e coluna de origem', () => {
+    it('exibe displayName curto em vez do nome namespaced para tools MCP', () => {
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          onChange={vi.fn()}
+        />
+      );
+      expect(screen.getByText('search')).toBeInTheDocument();
+      expect(screen.getByText('create')).toBeInTheDocument();
+      expect(screen.getByText('send')).toBeInTheDocument();
+      expect(screen.queryByText('mcp_atlassian__search')).not.toBeInTheDocument();
       expect(screen.queryByText('mcp_slack__send')).not.toBeInTheDocument();
+    });
+
+    it('exibe nome original para tools locais', () => {
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          onChange={vi.fn()}
+        />
+      );
+      expect(screen.getByText('local_tool')).toBeInTheDocument();
+    });
+
+    it('exibe coluna Origem com labels corretos', () => {
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          onChange={vi.fn()}
+        />
+      );
+      expect(screen.getByText('Origem')).toBeInTheDocument();
+      expect(screen.getByText('Local')).toBeInTheDocument();
+      const atlassianBadges = screen.getAllByText('Atlassian');
+      expect(atlassianBadges.length).toBeGreaterThanOrEqual(1);
+      const slackBadges = screen.getAllByText('Slack');
+      expect(slackBadges.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('busca encontra tools pelo nome completo namespaced', () => {
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          onChange={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByTestId('tools-search'), { target: { value: 'mcp_atlassian' } });
+      expect(screen.getByText('search')).toBeInTheDocument();
+      expect(screen.getByText('create')).toBeInTheDocument();
+      expect(screen.queryByText('send')).not.toBeInTheDocument();
+      expect(screen.queryByText('local_tool')).not.toBeInTheDocument();
+    });
+
+    it('busca encontra tools pelo sourceLabel', () => {
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          onChange={vi.fn()}
+        />
+      );
+      fireEvent.change(screen.getByTestId('tools-search'), { target: { value: 'Slack' } });
+      expect(screen.getByText('send')).toBeInTheDocument();
+      expect(screen.queryByText('search')).not.toBeInTheDocument();
+      expect(screen.queryByText('local_tool')).not.toBeInTheDocument();
+    });
+
+    it('aria-label do checkbox inclui displayName e sourceLabel para MCP', () => {
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          enabledTools={null}
+          availableAllowlists={mockAllowlists}
+          onChange={vi.fn()}
+        />
+      );
+      expect(screen.getByLabelText('search (Atlassian) ativada')).toBeInTheDocument();
+      expect(screen.getByLabelText('send (Slack) ativada')).toBeInTheDocument();
+      expect(screen.getByLabelText('local_tool ativada')).toBeInTheDocument();
+    });
+
+    it('enabled_tools continua usando nomes namespaced internos', () => {
+      const onChange = vi.fn();
+      render(
+        <ProfileToolsSection
+          availableTools={mockToolsMixed}
+          enabledTools={['mcp_atlassian__search', 'local_tool']}
+          availableAllowlists={mockAllowlists}
+          onChange={onChange}
+        />
+      );
+      expect(screen.getByLabelText('search (Atlassian) ativada')).toBeInTheDocument();
+      expect(screen.getByLabelText('local_tool ativada')).toBeInTheDocument();
+      expect(screen.getByLabelText('create (Atlassian) desativada')).toBeInTheDocument();
+      expect(screen.getByLabelText('send (Slack) desativada')).toBeInTheDocument();
     });
   });
 });

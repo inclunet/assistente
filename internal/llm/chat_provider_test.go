@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"assistente/internal/credentials"
+	mcplib "assistente/internal/mcp"
 	"google.golang.org/genai"
 )
 
@@ -1086,5 +1087,305 @@ func TestNativeMCP_ToolDeduplication(t *testing.T) {
 		if filtered[i].Function.Name != name {
 			t.Errorf("filtered[%d] = %q, want %q", i, filtered[i].Function.Name, name)
 		}
+	}
+}
+
+func TestMCPServerConfig_AllowedToolsPreserved(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{ID: "o", Name: "O", BaseURL: "https://api.openai.com/v1"}
+	provider := NewOpenAIResponsesProvider(p, credMgr)
+
+	servers := []MCPServerConfig{
+		{
+			Name:         "github-mcp",
+			URL:          "https://mcp.github.com/sse",
+			ToolNames:    []string{"mcp_github__create_issue"},
+			AllowedTools: []string{"create_issue"},
+		},
+	}
+	result := provider.WithMCPServers(servers)
+	openaiP := result.(*OpenAIProvider)
+	if len(openaiP.mcpServers[0].AllowedTools) != 1 {
+		t.Fatalf("Expected 1 AllowedTools, got %d", len(openaiP.mcpServers[0].AllowedTools))
+	}
+	if openaiP.mcpServers[0].AllowedTools[0] != "create_issue" {
+		t.Errorf("AllowedTools[0] = %q, want %q", openaiP.mcpServers[0].AllowedTools[0], "create_issue")
+	}
+}
+
+func TestMCPServerConfig_EmptyAllowedToolsMeansAll(t *testing.T) {
+	cfg := MCPServerConfig{
+		Name:      "test-mcp",
+		URL:       "https://test.com/mcp",
+		ToolNames: []string{"mcp_test__tool_a", "mcp_test__tool_b"},
+	}
+	if len(cfg.AllowedTools) != 0 {
+		t.Error("Empty AllowedTools should mean all tools are allowed")
+	}
+}
+
+func TestAnthropicProvider_AllowedToolsPreserved(t *testing.T) {
+	credMgr := credentials.NewManager(nil)
+	p := &ProviderConfig{ID: "a", Name: "A", BaseURL: "https://api.anthropic.com", APIFormat: APIFormatAnthropic}
+	provider := NewAnthropicProvider(p, credMgr)
+
+	servers := []MCPServerConfig{
+		{
+			Name:         "github-mcp",
+			URL:          "https://mcp.github.com/sse",
+			AllowedTools: []string{"create_issue", "list_repos"},
+		},
+	}
+	result := provider.WithMCPServers(servers)
+	antP := result.(*AnthropicProvider)
+	if len(antP.mcpServers) != 1 {
+		t.Fatal("Expected 1 MCP server")
+	}
+	if len(antP.mcpServers[0].AllowedTools) != 2 {
+		t.Fatalf("Expected 2 AllowedTools, got %d", len(antP.mcpServers[0].AllowedTools))
+	}
+}
+
+// filterNativeMCPByProfile replica a lógica de filtragem do chat loop (llm.go)
+// usando mcplib.ParseToolName como fonte canônica de naming.
+func filterNativeMCPByProfile(enabledTools []string, servers []struct {
+	slug      string
+	toolNames []string
+}) (configs []MCPServerConfig, nativeToolNames map[string]bool) {
+	var enabledSet map[string]bool
+	if enabledTools != nil {
+		enabledSet = make(map[string]bool, len(enabledTools))
+		for _, n := range enabledTools {
+			enabledSet[n] = true
+		}
+	}
+
+	nativeToolNames = make(map[string]bool)
+	for _, srv := range servers {
+		cfg := MCPServerConfig{
+			Name:      srv.slug + "-mcp",
+			URL:       "https://" + srv.slug + ".com/mcp",
+			ToolNames: srv.toolNames,
+		}
+		if enabledSet != nil {
+			var allowed []string
+			var allowedFull []string
+			for _, fullName := range srv.toolNames {
+				if enabledSet[fullName] {
+					if _, originalName, ok := mcplib.ParseToolName(fullName); ok {
+						allowed = append(allowed, originalName)
+					}
+					allowedFull = append(allowedFull, fullName)
+				}
+			}
+			if len(allowed) == 0 {
+				continue
+			}
+			cfg.AllowedTools = allowed
+			cfg.ToolNames = allowedFull
+		}
+		configs = append(configs, cfg)
+		for _, tn := range cfg.ToolNames {
+			nativeToolNames[tn] = true
+		}
+	}
+	return
+}
+
+func TestProfileEnabledTools_FilterNativeMCPServers(t *testing.T) {
+	type serverInput struct {
+		slug      string
+		toolNames []string
+	}
+	type testCase struct {
+		name         string
+		enabledTools []string
+		servers      []serverInput
+		wantConfigs  int
+		wantAllowed  map[string][]string
+	}
+
+	tests := []testCase{
+		{
+			name:         "nil EnabledTools passes all servers",
+			enabledTools: nil,
+			servers: []serverInput{
+				{slug: "github", toolNames: []string{"mcp_github__create_issue", "mcp_github__list_repos"}},
+			},
+			wantConfigs: 1,
+			wantAllowed: map[string][]string{"github": nil},
+		},
+		{
+			name:         "filter keeps only enabled tools",
+			enabledTools: []string{"mcp_github__create_issue", "internal_search"},
+			servers: []serverInput{
+				{slug: "github", toolNames: []string{"mcp_github__create_issue", "mcp_github__list_repos"}},
+			},
+			wantConfigs: 1,
+			wantAllowed: map[string][]string{"github": {"create_issue"}},
+		},
+		{
+			name:         "server excluded when no tools match",
+			enabledTools: []string{"internal_search"},
+			servers: []serverInput{
+				{slug: "github", toolNames: []string{"mcp_github__create_issue"}},
+			},
+			wantConfigs: 0,
+		},
+		{
+			name:         "multiple servers with partial match",
+			enabledTools: []string{"mcp_github__create_issue", "mcp_slack__send_message"},
+			servers: []serverInput{
+				{slug: "github", toolNames: []string{"mcp_github__create_issue", "mcp_github__list_repos"}},
+				{slug: "slack", toolNames: []string{"mcp_slack__send_message"}},
+				{slug: "jira", toolNames: []string{"mcp_jira__create_ticket"}},
+			},
+			wantConfigs: 2,
+			wantAllowed: map[string][]string{
+				"github": {"create_issue"},
+				"slack":  {"send_message"},
+			},
+		},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			srvInputs := make([]struct {
+				slug      string
+				toolNames []string
+			}, len(tc.servers))
+			for i, s := range tc.servers {
+				srvInputs[i].slug = s.slug
+				srvInputs[i].toolNames = s.toolNames
+			}
+			configs, _ := filterNativeMCPByProfile(tc.enabledTools, srvInputs)
+
+			if len(configs) != tc.wantConfigs {
+				t.Fatalf("got %d configs, want %d", len(configs), tc.wantConfigs)
+			}
+			for slug, wantAllowed := range tc.wantAllowed {
+				found := false
+				for _, cfg := range configs {
+					if cfg.Name == slug+"-mcp" {
+						found = true
+						if wantAllowed == nil {
+							if len(cfg.AllowedTools) != 0 {
+								t.Errorf("server %q: want nil AllowedTools, got %v", slug, cfg.AllowedTools)
+							}
+						} else {
+							if len(cfg.AllowedTools) != len(wantAllowed) {
+								t.Errorf("server %q: got %d AllowedTools, want %d", slug, len(cfg.AllowedTools), len(wantAllowed))
+							}
+							for i, want := range wantAllowed {
+								if i < len(cfg.AllowedTools) && cfg.AllowedTools[i] != want {
+									t.Errorf("server %q AllowedTools[%d] = %q, want %q", slug, i, cfg.AllowedTools[i], want)
+								}
+							}
+						}
+					}
+				}
+				if !found {
+					t.Errorf("server %q not found in configs", slug)
+				}
+			}
+		})
+	}
+}
+
+func TestNativeMCP_NoDuplicateWithBridge(t *testing.T) {
+	bridgeToolDefs := []ToolDefinition{
+		{Function: FunctionDefinition{Name: "internal_search"}},
+		{Function: FunctionDefinition{Name: "mcp_github__create_issue"}},
+		{Function: FunctionDefinition{Name: "mcp_github__list_repos"}},
+		{Function: FunctionDefinition{Name: "mcp_slack__send_message"}},
+	}
+
+	servers := []struct {
+		slug      string
+		toolNames []string
+	}{
+		{slug: "github", toolNames: []string{"mcp_github__create_issue", "mcp_github__list_repos"}},
+	}
+
+	_, nativeToolNames := filterNativeMCPByProfile(nil, servers)
+
+	var afterDedup []ToolDefinition
+	for _, td := range bridgeToolDefs {
+		if !nativeToolNames[td.Function.Name] {
+			afterDedup = append(afterDedup, td)
+		}
+	}
+
+	nativeNames := make(map[string]bool)
+	for name := range nativeToolNames {
+		nativeNames[name] = true
+	}
+	bridgeNames := make(map[string]bool)
+	for _, td := range afterDedup {
+		bridgeNames[td.Function.Name] = true
+	}
+
+	for name := range nativeNames {
+		if bridgeNames[name] {
+			t.Errorf("tool %q presente tanto em native quanto em bridge (duplicata!)", name)
+		}
+	}
+
+	if len(afterDedup) != 2 {
+		t.Fatalf("após dedup, esperado 2 tools restantes, obtido %d", len(afterDedup))
+	}
+	if afterDedup[0].Function.Name != "internal_search" {
+		t.Errorf("afterDedup[0] = %q, esperado internal_search", afterDedup[0].Function.Name)
+	}
+	if afterDedup[1].Function.Name != "mcp_slack__send_message" {
+		t.Errorf("afterDedup[1] = %q, esperado mcp_slack__send_message", afterDedup[1].Function.Name)
+	}
+}
+
+func TestNativeMCP_NoDuplicateWithProfile(t *testing.T) {
+	bridgeToolDefs := []ToolDefinition{
+		{Function: FunctionDefinition{Name: "internal_search"}},
+		{Function: FunctionDefinition{Name: "mcp_github__create_issue"}},
+	}
+
+	servers := []struct {
+		slug      string
+		toolNames []string
+	}{
+		{slug: "github", toolNames: []string{"mcp_github__create_issue", "mcp_github__list_repos"}},
+	}
+
+	enabledTools := []string{"mcp_github__create_issue", "internal_search"}
+	configs, nativeToolNames := filterNativeMCPByProfile(enabledTools, servers)
+
+	if len(configs) != 1 {
+		t.Fatalf("esperado 1 config, obtido %d", len(configs))
+	}
+	if len(configs[0].AllowedTools) != 1 || configs[0].AllowedTools[0] != "create_issue" {
+		t.Errorf("AllowedTools = %v, esperado [create_issue]", configs[0].AllowedTools)
+	}
+
+	var afterDedup []ToolDefinition
+	for _, td := range bridgeToolDefs {
+		if !nativeToolNames[td.Function.Name] {
+			afterDedup = append(afterDedup, td)
+		}
+	}
+
+	for _, td := range afterDedup {
+		if nativeToolNames[td.Function.Name] {
+			t.Errorf("tool %q duplicada: aparece em bridge E native", td.Function.Name)
+		}
+	}
+
+	if len(afterDedup) != 1 || afterDedup[0].Function.Name != "internal_search" {
+		t.Errorf("após dedup com perfil, esperado apenas [internal_search], obtido %v",
+			func() []string {
+				var names []string
+				for _, td := range afterDedup {
+					names = append(names, td.Function.Name)
+				}
+				return names
+			}())
 	}
 }

@@ -1304,11 +1304,11 @@ export namespace llm {
 	    timeout?: number;
 	    headers?: Record<string, string>;
 	    credential_pattern?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new ProviderConfig(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -1592,11 +1592,11 @@ export namespace main {
 	    api_key?: string;
 	    default_model?: string;
 	    api_format?: string;
-
+	
 	    static createFrom(source: any = {}) {
 	        return new CreateLLMProviderRequest(source);
 	    }
-
+	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
@@ -2100,7 +2100,10 @@ export namespace main {
 	}
 	export class ToolInfo {
 	    name: string;
+	    display_name: string;
 	    description: string;
+	    source_type: string;
+	    source_label: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ToolInfo(source);
@@ -2109,7 +2112,10 @@ export namespace main {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.name = source["name"];
+	        this.display_name = source["display_name"];
 	        this.description = source["description"];
+	        this.source_type = source["source_type"];
+	        this.source_label = source["source_label"];
 	    }
 	}
 	
@@ -2431,8 +2437,6 @@ export namespace profiles {
 	    disable_skills?: boolean;
 	    disable_on_demand_skills?: boolean;
 	    command_allowlist?: string;
-	    mcp_mode?: string;
-	    mcp_native_tested?: boolean;
 	    max_agentic_iterations?: number;
 	
 	    static createFrom(source: any = {}) {
@@ -2458,8 +2462,6 @@ export namespace profiles {
 	        this.disable_skills = source["disable_skills"];
 	        this.disable_on_demand_skills = source["disable_on_demand_skills"];
 	        this.command_allowlist = source["command_allowlist"];
-	        this.mcp_mode = source["mcp_mode"];
-	        this.mcp_native_tested = source["mcp_native_tested"];
 	        this.max_agentic_iterations = source["max_agentic_iterations"];
 	    }
 	}

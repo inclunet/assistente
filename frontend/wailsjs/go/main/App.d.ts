@@ -48,8 +48,6 @@ export function ClearAllSkills():Promise<void>;
 
 export function ClearConversation(arg1:number):Promise<void>;
 
-export function ClearMCPTest(arg1:string):Promise<void>;
-
 export function ClearMessages():Promise<void>;
 
 export function ClearTaskList(arg1:number):Promise<void>;
@@ -255,8 +253,6 @@ export function GetMessagingStatus():Promise<Record<string, string>>;
 export function GetModels():Promise<Array<string>>;
 
 export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
-
-export function GetNativeMCPServers():Promise<Array<Record<string, any>>>;
 
 export function GetOpenAITTSVoices():Promise<Array<main.OpenAITTSVoiceInfo>>;
 
@@ -469,8 +465,6 @@ export function TestConnection():Promise<boolean>;
 export function TestConnectionWithModels():Promise<Array<string>>;
 
 export function TestLLMProvider(arg1:main.TestLLMProviderRequest):Promise<boolean>;
-
-export function TestMCPNativeSupport(arg1:string):Promise<boolean>;
 
 export function TestTool(arg1:string,arg2:string,arg3:string):Promise<jobs.TestToolResult>;
 

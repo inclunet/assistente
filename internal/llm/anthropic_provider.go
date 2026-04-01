@@ -245,10 +245,25 @@ func (p *AnthropicProvider) streamChatWithMCP(
 		betaParams.MCPServers = append(betaParams.MCPServers, mcpDef)
 	}
 
-	// Adiciona MCP toolsets (habilita todas as tools de cada server)
+	// Adiciona MCP toolsets — se AllowedTools está definido, desabilita por default
+	// e habilita apenas as tools permitidas pelo perfil.
 	var betaTools []anthropic.BetaToolUnionParam
 	for _, srv := range p.mcpServers {
-		betaTools = append(betaTools, anthropic.BetaToolUnionParamOfMCPToolset(srv.Name))
+		toolset := anthropic.BetaMCPToolsetParam{
+			MCPServerName: srv.Name,
+		}
+		if len(srv.AllowedTools) > 0 {
+			toolset.DefaultConfig = anthropic.BetaMCPToolDefaultConfigParam{
+				Enabled: anthropicparam.NewOpt(false),
+			}
+			toolset.Configs = make(map[string]anthropic.BetaMCPToolConfigParam, len(srv.AllowedTools))
+			for _, name := range srv.AllowedTools {
+				toolset.Configs[name] = anthropic.BetaMCPToolConfigParam{
+					Enabled: anthropicparam.NewOpt(true),
+				}
+			}
+		}
+		betaTools = append(betaTools, anthropic.BetaToolUnionParam{OfMCPToolset: &toolset})
 	}
 
 	// Adiciona tools locais (function calling) junto com MCP toolsets
