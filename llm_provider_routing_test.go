@@ -946,6 +946,7 @@ func (h *testStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse strin
 	h.model = model
 	close(h.done)
 }
+func (h *testStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {}
 func (h *testStreamHandler) OnError(err string) {
 	h.err = err
 	close(h.done)

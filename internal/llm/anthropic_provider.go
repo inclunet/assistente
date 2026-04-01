@@ -347,6 +347,14 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 	var finishedToolCalls []ToolCall
 	var stopReason string
 
+	type mcpToolInfo struct {
+		ID         string
+		Name       string
+		ServerName string
+		ArgsJSON   string
+	}
+	activeMCPTools := make(map[string]*mcpToolInfo) // keyed by tool use ID
+
 	for stream.Next() {
 		event := stream.Current()
 
@@ -372,9 +380,48 @@ func (p *AnthropicProvider) doStreamBeta(ctx context.Context, params anthropic.B
 					Name: cb.Name,
 				}
 			case "mcp_tool_use":
-				log.Printf("[AnthropicProvider] MCP tool call: %s (server-side)", cb.Name)
+				mcpBlock := cb.AsMCPToolUse()
+				argsStr := ""
+				if mcpBlock.Input != nil {
+					if b, err := json.Marshal(mcpBlock.Input); err == nil {
+						argsStr = string(b)
+					}
+				}
+				activeMCPTools[mcpBlock.ID] = &mcpToolInfo{
+					ID:         mcpBlock.ID,
+					Name:       mcpBlock.Name,
+					ServerName: mcpBlock.ServerName,
+					ArgsJSON:   argsStr,
+				}
+				handler.OnMCPToolEvent(MCPToolEvent{
+					ID:          mcpBlock.ID,
+					Name:        mcpBlock.Name,
+					ServerLabel: mcpBlock.ServerName,
+					Arguments:   argsStr,
+					IsCompleted: false,
+				})
 			case "mcp_tool_result":
-				log.Printf("[AnthropicProvider] MCP tool result (server-side)")
+				mcpResult := cb.AsMCPToolResult()
+				output := mcpResult.Content.RawJSON()
+				toolName := ""
+				serverName := ""
+				if info, ok := activeMCPTools[mcpResult.ToolUseID]; ok {
+					toolName = info.Name
+					serverName = info.ServerName
+					delete(activeMCPTools, mcpResult.ToolUseID)
+				}
+				errMsg := ""
+				if mcpResult.IsError {
+					errMsg = output
+				}
+				handler.OnMCPToolEvent(MCPToolEvent{
+					ID:          mcpResult.ToolUseID,
+					Name:        toolName,
+					ServerLabel: serverName,
+					Output:      output,
+					Error:       errMsg,
+					IsCompleted: true,
+				})
 			}
 
 		case "content_block_delta":

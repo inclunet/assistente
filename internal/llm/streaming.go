@@ -7,6 +7,19 @@ import (
 	"time"
 )
 
+// MCPToolEvent descreve uma chamada MCP nativa executada server-side pelo LLM provider.
+// Usado para tracking/auditoria — no caminho nativo o Assistente não executa a tool localmente,
+// então este evento é a única forma de auditar o que aconteceu.
+type MCPToolEvent struct {
+	ID          string // ID único da chamada (atribuído pelo provider)
+	Name        string // Nome da tool chamada (ex: "jira_search")
+	ServerLabel string // Label do servidor MCP (ex: "Atlassian")
+	Arguments   string // JSON dos argumentos enviados
+	Output      string // Resultado retornado pelo servidor MCP (pode ser grande)
+	Error       string // Mensagem de erro, se houver
+	IsCompleted bool   // true = chamada concluída (com ou sem erro), false = em andamento
+}
+
 // StreamHandler é a interface para lidar com eventos de streaming de LLM.
 type StreamHandler interface {
 	OnChunk(content string)
@@ -15,6 +28,10 @@ type StreamHandler interface {
 	OnToolCalls(calls []ToolCall, fullResponse string, usage Usage, model string)
 	OnError(err string)
 	OnDone(fullResponse string, usage Usage, model string)
+
+	// OnMCPToolEvent é chamado quando uma tool MCP nativa é invocada ou concluída server-side.
+	// Permite tracking/auditoria de chamadas que o Assistente não executa localmente.
+	OnMCPToolEvent(event MCPToolEvent)
 }
 
 func nextBackoff(current, max time.Duration) time.Duration {
