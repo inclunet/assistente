@@ -14,18 +14,51 @@ import (
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
 	"github.com/openai/openai-go/packages/param"
+	"github.com/openai/openai-go/responses"
 	"github.com/openai/openai-go/shared"
 )
 
 // OpenAIProvider implementa ChatProvider usando a SDK openai-go.
-// Cobre OpenAI nativo e qualquer endpoint OpenAI-compatible (OpenRouter, Ollama, etc).
+//
+// Dois modos de operação, determinados pelo APIFormat do ProviderConfig:
+//
+//   - useResponses=false (APIFormatOpenAI / APIFormatOpenAICompatible):
+//     Chat Completions API only (/v1/chat/completions).
+//     Para provedores OpenAI-compatible: OpenRouter, Ollama, Groq, Together, etc.
+//     Não suporta MCP nativo. SupportsNativeMCP() retorna false.
+//     WithMCPServers() é no-op (retorna o provider inalterado).
+//
+//   - useResponses=true (APIFormatOpenAIResponses):
+//     Responses API first (/v1/responses).
+//     Para OpenAI real (api.openai.com). Suporta MCP nativo (type:mcp),
+//     reasoning summaries (via Reasoning param), tool_choice, e features modernas.
+//     SupportsNativeMCP() retorna true.
+//     WithMCPServers() cria uma cópia com MCP servers configurados.
+//
+// Limitações conhecidas do path Responses vs Chat Completions:
+//   - Multimodalidade: imagens em user messages são convertidas como texto.
+//     A Responses API suporta imagens mas com formato diferente (input_image).
 type OpenAIProvider struct {
-	client   *openai.Client
-	provider *ProviderConfig
+	client       *openai.Client
+	provider     *ProviderConfig
+	useResponses bool              // true = Responses API first; false = Chat Completions only
+	mcpServers   []MCPServerConfig // MCP servers HTTP (só efetivo quando useResponses=true)
 }
 
-// NewOpenAIProvider cria um provider OpenAI-compatible com a SDK oficial.
+// NewOpenAIProvider cria um provider Chat Completions-only (OpenAI-compatible).
+// Usado para OpenRouter, Ollama, Groq, Together, e qualquer endpoint /v1/chat/completions.
 func NewOpenAIProvider(provider *ProviderConfig, credMgr *credentials.Manager) *OpenAIProvider {
+	return newOpenAIProviderBase(provider, credMgr, false)
+}
+
+// NewOpenAIResponsesProvider cria um provider Responses API-first (OpenAI real).
+// Usa /v1/responses como caminho padrão para streaming/chat.
+// Suporta MCP nativo, reasoning summaries, e features modernas da OpenAI.
+func NewOpenAIResponsesProvider(provider *ProviderConfig, credMgr *credentials.Manager) *OpenAIProvider {
+	return newOpenAIProviderBase(provider, credMgr, true)
+}
+
+func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manager, useResponses bool) *OpenAIProvider {
 	httpClient := newHTTPClientForProvider(provider, credMgr)
 
 	opts := []option.RequestOption{
@@ -44,18 +77,26 @@ func NewOpenAIProvider(provider *ProviderConfig, credMgr *credentials.Manager) *
 	client := openai.NewClient(opts...)
 
 	return &OpenAIProvider{
-		client:   &client,
-		provider: provider,
+		client:       &client,
+		provider:     provider,
+		useResponses: useResponses,
 	}
 }
 
 func (p *OpenAIProvider) SupportsNativeMCP() bool {
-	return true
+	return p.useResponses
 }
 
-func (p *OpenAIProvider) WithMCPServers(_ []MCPServerConfig) ChatProvider {
-	// TODO: Fase 4 — Responses API com type:"mcp"
-	return p
+func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider {
+	if !p.useResponses || len(servers) == 0 {
+		return p
+	}
+	return &OpenAIProvider{
+		client:       p.client,
+		provider:     p.provider,
+		useResponses: p.useResponses,
+		mcpServers:   servers,
+	}
 }
 
 func (p *OpenAIProvider) SendChat(ctx context.Context, messages []Message, params ChatParams) (string, error) {
@@ -64,6 +105,13 @@ func (p *OpenAIProvider) SendChat(ctx context.Context, messages []Message, param
 		return "", fmt.Errorf("nenhum modelo especificado e nenhum modelo padrão configurado")
 	}
 
+	if p.useResponses {
+		return p.sendChatResponses(ctx, model, messages, params)
+	}
+	return p.sendChatCompletions(ctx, model, messages, params)
+}
+
+func (p *OpenAIProvider) sendChatCompletions(ctx context.Context, model string, messages []Message, params ChatParams) (string, error) {
 	sdkParams := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(model),
 		Messages: convertMessages(messages),
@@ -85,6 +133,27 @@ func (p *OpenAIProvider) SendChat(ctx context.Context, messages []Message, param
 		return "", fmt.Errorf("nenhuma resposta recebida")
 	}
 	return completion.Choices[0].Message.Content, nil
+}
+
+func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, messages []Message, params ChatParams) (string, error) {
+	respParams := responses.ResponseNewParams{
+		Model: shared.ResponsesModel(model),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: convertToResponsesInput(messages),
+		},
+	}
+	if params.Temperature > 0 {
+		respParams.Temperature = param.NewOpt(params.Temperature)
+	}
+	if params.MaxTokens > 0 {
+		respParams.MaxOutputTokens = param.NewOpt(int64(params.MaxTokens))
+	}
+
+	resp, err := p.client.Responses.New(ctx, respParams)
+	if err != nil {
+		return "", fmt.Errorf("erro ao enviar mensagem: %w", err)
+	}
+	return resp.OutputText(), nil
 }
 
 func (p *OpenAIProvider) GetModels(ctx context.Context) ([]string, error) {
@@ -120,6 +189,13 @@ func (p *OpenAIProvider) StreamChat(ctx context.Context, messages []Message, par
 		return
 	}
 
+	// Responses-first: SEMPRE usa Responses API (com ou sem MCP servers)
+	if p.useResponses {
+		p.streamChatResponses(ctx, model, messages, params, handler, tools...)
+		return
+	}
+
+	// Chat Completions path (OpenAI-compatible legado)
 	sdkParams := openai.ChatCompletionNewParams{
 		Model:    shared.ChatModel(model),
 		Messages: convertMessages(messages),
@@ -414,6 +490,314 @@ func makeToolChoice(choice string) openai.ChatCompletionToolChoiceOptionUnionPar
 	return openai.ChatCompletionToolChoiceOptionUnionParam{
 		OfAuto: param.NewOpt(choice),
 	}
+}
+
+// streamChatResponses usa a Responses API como caminho padrão.
+// Se há MCP servers configurados, eles são incluídos como tools type:mcp.
+// Function tools locais coexistem normalmente.
+//
+// Limitações conhecidas vs Chat Completions:
+//   - Multimodalidade (imagens): user messages com image_url são convertidas como texto puro.
+//     A Responses API suporta imagens mas com formato diferente (não image_url parts).
+//     TODO: implementar conversão de imagens para o formato Responses quando necessário.
+func (p *OpenAIProvider) streamChatResponses(
+	ctx context.Context,
+	model string,
+	messages []Message,
+	params ChatParams,
+	handler StreamHandler,
+	tools ...ToolDefinition,
+) {
+	respParams := responses.ResponseNewParams{
+		Model: shared.ResponsesModel(model),
+		Input: responses.ResponseNewParamsInputUnion{
+			OfInputItemList: convertToResponsesInput(messages),
+		},
+	}
+
+	if params.Temperature > 0 {
+		respParams.Temperature = param.NewOpt(params.Temperature)
+	}
+	if params.MaxTokens > 0 {
+		respParams.MaxOutputTokens = param.NewOpt(int64(params.MaxTokens))
+	}
+	if params.TopP > 0 && params.TopP != 1.0 {
+		respParams.TopP = param.NewOpt(params.TopP)
+	}
+
+	switch params.ReasoningEffort {
+	case "low", "medium", "high":
+		respParams.Reasoning = shared.ReasoningParam{
+			Effort:  shared.ReasoningEffort(params.ReasoningEffort),
+			Summary: shared.ReasoningSummaryAuto,
+		}
+	}
+
+	var respTools []responses.ToolUnionParam
+
+	// MCP tools nativos (se configurados via WithMCPServers)
+	for _, srv := range p.mcpServers {
+		mcpTool := responses.ToolParamOfMcp(srv.Name, srv.URL)
+		if srv.AuthToken != "" {
+			mcpTool.OfMcp.Headers = map[string]string{
+				"Authorization": "Bearer " + srv.AuthToken,
+			}
+		}
+		for k, v := range srv.Headers {
+			if mcpTool.OfMcp.Headers == nil {
+				mcpTool.OfMcp.Headers = make(map[string]string)
+			}
+			mcpTool.OfMcp.Headers[k] = v
+		}
+		respTools = append(respTools, mcpTool)
+	}
+
+	// Function tools locais
+	for _, tool := range tools {
+		var fnParams map[string]any
+		if len(tool.Function.Parameters) > 0 {
+			if err := json.Unmarshal(tool.Function.Parameters, &fnParams); err != nil {
+				log.Printf("[OpenAIProvider] Erro ao parsear parameters de %s: %v", tool.Function.Name, err)
+				continue
+			}
+		}
+		ft := responses.ToolParamOfFunction(tool.Function.Name, fnParams, false)
+		if ft.OfFunction != nil {
+			ft.OfFunction.Description = param.NewOpt(tool.Function.Description)
+		}
+		respTools = append(respTools, ft)
+	}
+
+	if len(respTools) > 0 {
+		respParams.Tools = respTools
+
+		toolChoice := responses.ToolChoiceOptionsAuto
+		if choice, ok := toolChoiceFromContext(ctx); ok {
+			if s, ok := choice.(string); ok {
+				switch s {
+				case "required":
+					toolChoice = responses.ToolChoiceOptionsRequired
+				case "none":
+					toolChoice = responses.ToolChoiceOptionsNone
+				default:
+					toolChoice = responses.ToolChoiceOptionsAuto
+				}
+			}
+		}
+		respParams.ToolChoice = responses.ResponseNewParamsToolChoiceUnion{
+			OfToolChoiceMode: param.NewOpt(toolChoice),
+		}
+	}
+
+	log.Printf("[OpenAIProvider] Responses API: %d MCP servers, %d tools locais", len(p.mcpServers), len(tools))
+
+	const maxAttempts = 10
+	bk := 500 * time.Millisecond
+	maxBk := 8 * time.Second
+
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		select {
+		case <-ctx.Done():
+			handler.OnError("Streaming cancelado: " + ctx.Err().Error())
+			return
+		default:
+		}
+
+		done := p.doStreamResponses(ctx, respParams, handler)
+		if done {
+			return
+		}
+
+		if attempt < maxAttempts {
+			sleepWithJitter(ctx, bk)
+			bk = nextBackoff(bk, maxBk)
+			continue
+		}
+
+		handler.OnError("Máximo de tentativas de streaming excedido")
+	}
+}
+
+// doStreamResponses executa streaming via Responses API.
+// Trata eventos de texto, function calls locais e MCP (transparente/server-side).
+func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses.ResponseNewParams, handler StreamHandler) bool {
+	stream := p.client.Responses.NewStreaming(ctx, params)
+
+	var fullResponse strings.Builder
+	var fullReasoning strings.Builder
+	var emittedAnything bool
+	var lastUsage Usage
+	var lastModel string
+
+	type pendingFuncCall struct {
+		ID   string
+		Name string
+		Args strings.Builder
+	}
+	activeFuncCalls := make(map[string]*pendingFuncCall) // keyed by item_id
+	var finishedToolCalls []ToolCall
+
+	for stream.Next() {
+		event := stream.Current()
+
+		switch event.Type {
+		case "response.created":
+			ev := event.AsResponseCreated()
+			if string(ev.Response.Model) != "" {
+				lastModel = string(ev.Response.Model)
+			}
+
+		case "response.output_text.delta":
+			ev := event.AsResponseOutputTextDelta()
+			if ev.Delta != "" {
+				content := processThinkingTags(ev.Delta, nil, nil, &fullReasoning, handler)
+				if content != "" {
+					fullResponse.WriteString(content)
+					emittedAnything = true
+					handler.OnChunk(content)
+				}
+			}
+
+		case "response.reasoning_summary_text.delta":
+			ev := event.AsResponseReasoningSummaryTextDelta()
+			if ev.Delta != "" {
+				fullReasoning.WriteString(ev.Delta)
+				emittedAnything = true
+				handler.OnThinking(ev.Delta)
+			}
+
+		case "response.output_item.added":
+			ev := event.AsResponseOutputItemAdded()
+			if ev.Item.Type == "function_call" {
+				activeFuncCalls[ev.Item.ID] = &pendingFuncCall{
+					ID:   ev.Item.CallID,
+					Name: ev.Item.Name,
+				}
+			}
+
+		case "response.function_call_arguments.delta":
+			ev := event.AsResponseFunctionCallArgumentsDelta()
+			if fc, ok := activeFuncCalls[ev.ItemID]; ok {
+				fc.Args.WriteString(ev.Delta)
+			}
+
+		case "response.function_call_arguments.done":
+			ev := event.AsResponseFunctionCallArgumentsDone()
+			if fc, ok := activeFuncCalls[ev.ItemID]; ok {
+				finishedToolCalls = append(finishedToolCalls, ToolCall{
+					ID:   fc.ID,
+					Type: "function",
+					Function: FunctionCall{
+						Name:      fc.Name,
+						Arguments: fc.Args.String(),
+					},
+				})
+				delete(activeFuncCalls, ev.ItemID)
+			}
+
+		case "response.mcp_call.in_progress":
+			log.Printf("[OpenAIProvider] MCP call in progress (server-side)")
+		case "response.mcp_call.completed":
+			log.Printf("[OpenAIProvider] MCP call completed (server-side)")
+		case "response.mcp_call.failed":
+			log.Printf("[OpenAIProvider] MCP call failed (server-side)")
+		case "response.mcp_list_tools.in_progress":
+			log.Printf("[OpenAIProvider] MCP listing tools (server-side)")
+		case "response.mcp_list_tools.completed":
+			log.Printf("[OpenAIProvider] MCP tool listing done (server-side)")
+
+		case "response.completed":
+			ev := event.AsResponseCompleted()
+			if ev.Response.Usage.TotalTokens > 0 {
+				lastUsage = Usage{
+					PromptTokens:     int(ev.Response.Usage.InputTokens),
+					CompletionTokens: int(ev.Response.Usage.OutputTokens),
+					TotalTokens:      int(ev.Response.Usage.TotalTokens),
+				}
+			}
+			if string(ev.Response.Model) != "" {
+				lastModel = string(ev.Response.Model)
+			}
+
+		case "response.failed":
+			ev := event.AsResponseFailed()
+			errMsg := "Responses API error"
+			if ev.Response.Error.Message != "" {
+				errMsg = ev.Response.Error.Message
+			}
+			handler.OnError(errMsg)
+			return true
+		}
+	}
+
+	if err := stream.Err(); err != nil {
+		errStr := err.Error()
+		log.Printf("[OpenAIProvider] Responses stream error: %s", errStr)
+		if !emittedAnything && isRetryableError(errStr) {
+			return false
+		}
+		handler.OnError(errStr)
+		return true
+	}
+
+	if fullReasoning.Len() > 0 {
+		handler.OnThinkingDone(fullReasoning.String())
+	}
+
+	if len(finishedToolCalls) > 0 {
+		handler.OnToolCalls(finishedToolCalls, fullResponse.String(), lastUsage, lastModel)
+		return true
+	}
+
+	handler.OnDone(fullResponse.String(), lastUsage, lastModel)
+	return true
+}
+
+// convertToResponsesInput converte mensagens internas para o formato Responses API.
+//
+// Diferenças conhecidas vs convertMessages (Chat Completions):
+//   - Imagens: user messages com image_url são convertidas apenas como texto (GetContentAsString).
+//     A Responses API suporta imagens via input_image, mas com formato diferente.
+//   - Assistant com content + tool_calls: gera items separados (message + function_call),
+//     que é o formato correto para a Responses API (items são independentes).
+//   - Tool results: mapeados para function_call_output (equivalente funcional).
+func convertToResponsesInput(msgs []Message) responses.ResponseInputParam {
+	var items []responses.ResponseInputItemUnionParam
+
+	for _, msg := range msgs {
+		content := msg.GetContentAsString()
+
+		switch msg.Role {
+		case "system":
+			items = append(items, responses.ResponseInputItemParamOfMessage(
+				content, responses.EasyInputMessageRoleSystem,
+			))
+
+		case "user":
+			items = append(items, responses.ResponseInputItemParamOfMessage(
+				content, responses.EasyInputMessageRoleUser,
+			))
+
+		case "assistant":
+			if content != "" {
+				items = append(items, responses.ResponseInputItemParamOfMessage(
+					content, responses.EasyInputMessageRoleAssistant,
+				))
+			}
+			for _, tc := range msg.ToolCalls {
+				items = append(items, responses.ResponseInputItemParamOfFunctionCall(
+					tc.Function.Arguments, tc.ID, tc.Function.Name,
+				))
+			}
+
+		case "tool":
+			items = append(items, responses.ResponseInputItemParamOfFunctionCallOutput(
+				msg.ToolCallID, content,
+			))
+		}
+	}
+
+	return items
 }
 
 var _ ChatProvider = (*OpenAIProvider)(nil)

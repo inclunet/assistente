@@ -578,6 +578,8 @@ func TestProfileManagerNilDoesNotPanic(t *testing.T) {
 // TestSendMessageSync_NoProfileReturnsError verifica que SendMessageSync
 // retorna erro quando não há perfil/provedor configurado.
 func TestSendMessageSync_NoProfileReturnsError(t *testing.T) {
+	setupRoutingTestDB(t)
+
 	app := &App{
 		profileManager: profiles.NewManager(),
 	}
