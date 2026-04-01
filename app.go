@@ -1920,8 +1920,11 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 
 // ToolInfo é um resumo de uma ferramenta para listagem no frontend.
 type ToolInfo struct {
-	Name        string `json:"name"`
+	Name        string `json:"name"`         // id interno (namespaced para MCP, ex: mcp_github__create_issue)
+	DisplayName string `json:"display_name"` // nome curto para exibição (ex: create_issue)
 	Description string `json:"description"`
+	SourceType  string `json:"source_type"`  // "local" | "mcp"
+	SourceLabel string `json:"source_label"` // "Local" | nome amigável do servidor MCP
 }
 
 // GetAvailableTools retorna a lista de ferramentas registradas no registry.
@@ -1934,10 +1937,27 @@ func (a *App) GetAvailableTools() []ToolInfo {
 	allTools := a.toolRegistry.All()
 	result := make([]ToolInfo, len(allTools))
 	for i, t := range allTools {
-		result[i] = ToolInfo{
-			Name:        t.Name(),
+		name := t.Name()
+		info := ToolInfo{
+			Name:        name,
+			DisplayName: name,
 			Description: t.Description(),
+			SourceType:  "local",
+			SourceLabel: "Local",
 		}
+
+		if slug, originalName, ok := mcpmgr.ParseToolName(name); ok {
+			info.DisplayName = originalName
+			info.SourceType = "mcp"
+			info.SourceLabel = slug
+			if a.mcpMgr != nil {
+				if cfg, err := a.mcpMgr.GetConfig(slug); err == nil && cfg.Name != "" {
+					info.SourceLabel = cfg.Name
+				}
+			}
+		}
+
+		result[i] = info
 	}
 	return result
 }

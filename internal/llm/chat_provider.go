@@ -17,11 +17,12 @@ type Streamer interface {
 // MCPServerConfig descreve um MCP server HTTP remoto para resolução nativa server-side.
 // Usado por ChatProvider.WithMCPServers() para passar servidores ao LLM provider.
 type MCPServerConfig struct {
-	Name       string            `json:"name"`
-	URL        string            `json:"url"`
-	AuthToken  string            `json:"auth_token,omitempty"`
-	Headers    map[string]string `json:"headers,omitempty"`
-	ToolNames  []string          `json:"tool_names,omitempty"` // tools expostas por este server (para filtragem)
+	Name         string            `json:"name"`
+	URL          string            `json:"url"`
+	AuthToken    string            `json:"auth_token,omitempty"`
+	Headers      map[string]string `json:"headers,omitempty"`
+	ToolNames    []string          `json:"tool_names,omitempty"`    // todas as tools do server (namespaced, para dedup bridge)
+	AllowedTools []string          `json:"allowed_tools,omitempty"` // tools permitidas pelo perfil (nomes originais do MCP server); vazio = todas
 }
 
 // ChatProvider abstrai a comunicação com LLMs via SDKs oficiais.

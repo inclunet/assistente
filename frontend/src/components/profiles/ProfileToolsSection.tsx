@@ -30,7 +30,10 @@ export interface ProfileToolsSectionProps {
 interface ToolRow {
   id: string;
   name: string;
+  displayName: string;
   description: string;
+  sourceType: string;
+  sourceLabel: string;
 }
 
 export function ProfileToolsSection({
@@ -65,7 +68,14 @@ export function ProfileToolsSection({
   ], [t, mcpServerEntries]);
 
   const toolRows: ToolRow[] = useMemo(
-    () => availableTools.map(tool => ({ id: tool.name, name: tool.name, description: tool.description || '' })),
+    () => availableTools.map(tool => ({
+      id: tool.name,
+      name: tool.name,
+      displayName: tool.display_name || tool.name,
+      description: tool.description || '',
+      sourceType: tool.source_type || 'local',
+      sourceLabel: tool.source_label || 'Local',
+    })),
     [availableTools],
   );
 
@@ -73,12 +83,19 @@ export function ProfileToolsSection({
     const term = search.toLowerCase().trim();
     return toolRows.filter((row) => {
       if (filter !== 'all') {
-        const src = parseToolSource(row.name);
-        if (filter === 'local' && src.type !== 'local') return false;
-        if (filter === 'mcp' && src.type !== 'mcp') return false;
-        if (filter.startsWith('mcp:') && (src.type !== 'mcp' || src.serverSlug !== filter.slice(4))) return false;
+        if (filter === 'local' && row.sourceType !== 'local') return false;
+        if (filter === 'mcp' && row.sourceType !== 'mcp') return false;
+        if (filter.startsWith('mcp:')) {
+          const src = parseToolSource(row.name);
+          if (src.type !== 'mcp' || src.serverSlug !== filter.slice(4)) return false;
+        }
       }
-      if (term && !row.name.toLowerCase().includes(term) && !row.description.toLowerCase().includes(term)) return false;
+      if (term
+        && !row.displayName.toLowerCase().includes(term)
+        && !row.name.toLowerCase().includes(term)
+        && !row.description.toLowerCase().includes(term)
+        && !row.sourceLabel.toLowerCase().includes(term)
+      ) return false;
       return true;
     });
   }, [toolRows, filter, search]);
@@ -148,6 +165,9 @@ export function ProfileToolsSection({
       width: '40px',
       format: (_value: unknown, item: ToolRow) => {
         const checked = isToolEnabled(item.name);
+        const label = item.sourceType === 'mcp'
+          ? `${item.displayName} (${item.sourceLabel})`
+          : item.displayName;
         return (
           <input
             type="checkbox"
@@ -155,17 +175,27 @@ export function ProfileToolsSection({
             readOnly
             tabIndex={-1}
             aria-label={checked
-              ? t('profiles.toolEnabled', `${item.name} ativada`)
-              : t('profiles.toolDisabled', `${item.name} desativada`)}
+              ? t('profiles.toolEnabled', `${label} ativada`)
+              : t('profiles.toolDisabled', `${label} desativada`)}
             style={{ pointerEvents: 'none' }}
           />
         );
       },
     },
     {
-      key: 'name',
+      key: 'displayName',
       label: t('profiles.toolColName', 'Nome'),
       width: '30%',
+    },
+    {
+      key: 'sourceLabel',
+      label: t('profiles.toolColSource', 'Origem'),
+      width: '120px',
+      format: (value: unknown) => (
+        <span className={`tool-source-badge tool-source-badge--${value === 'Local' ? 'local' : 'mcp'}`}>
+          {value as string}
+        </span>
+      ),
     },
     {
       key: 'description',

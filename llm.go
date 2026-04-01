@@ -16,6 +16,7 @@ import (
 
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	mcplib "assistente/internal/mcp"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
@@ -765,26 +766,58 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// Servidores HTTP elegíveis vão para o LLM via native connector; suas bridge tools
 	// são removidas do llmToolDefs para evitar duplicatas.
 	// Servidores STDIO/locais continuam via bridge/adapter normalmente.
+	// Se o perfil tem EnabledTools, apenas tools permitidas passam pelo caminho nativo.
 	if !disableTools && requestStreamer.SupportsNativeMCP() && a.mcpMgr != nil {
 		nativeServers := a.mcpMgr.GetEligibleNativeMCPServers()
 		if len(nativeServers) > 0 {
+			var enabledSet map[string]bool
+			if activeProfile.Chat.EnabledTools != nil {
+				enabledSet = make(map[string]bool, len(activeProfile.Chat.EnabledTools))
+				for _, n := range activeProfile.Chat.EnabledTools {
+					enabledSet[n] = true
+				}
+			}
+
 			var mcpConfigs []llm.MCPServerConfig
 			nativeToolNames := make(map[string]bool)
 
 			for _, srv := range nativeServers {
-				mcpConfigs = append(mcpConfigs, llm.MCPServerConfig{
+				cfg := llm.MCPServerConfig{
 					Name:      srv.Name,
 					URL:       srv.URL,
 					AuthToken: srv.AuthToken,
 					ToolNames: srv.ToolNames,
-				})
-				for _, tn := range srv.ToolNames {
+				}
+
+				if enabledSet != nil {
+					var allowed []string
+					var allowedFull []string
+					for _, fullName := range srv.ToolNames {
+						if enabledSet[fullName] {
+							if _, originalName, ok := mcplib.ParseToolName(fullName); ok {
+								allowed = append(allowed, originalName)
+							}
+							allowedFull = append(allowedFull, fullName)
+						}
+					}
+					if len(allowed) == 0 {
+						log.Printf("[SendMessage] MCP nativo: servidor %q excluído (nenhuma tool habilitada no perfil)", srv.Name)
+						continue
+					}
+					cfg.AllowedTools = allowed
+					cfg.ToolNames = allowedFull
+				}
+
+				mcpConfigs = append(mcpConfigs, cfg)
+				for _, tn := range cfg.ToolNames {
 					nativeToolNames[tn] = true
 				}
 			}
 
-			requestStreamer = requestStreamer.WithMCPServers(mcpConfigs)
-			log.Printf("[SendMessage] MCP nativo: %d servidores HTTP configurados", len(mcpConfigs))
+			if len(mcpConfigs) > 0 {
+				requestStreamer = requestStreamer.WithMCPServers(mcpConfigs)
+				log.Printf("[SendMessage] MCP nativo: %d servidores HTTP configurados", len(mcpConfigs))
+			}
 
 			// Remove bridge tools que agora vão por native (evita duplicata)
 			if len(nativeToolNames) > 0 {

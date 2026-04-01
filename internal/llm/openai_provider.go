@@ -549,6 +549,11 @@ func (p *OpenAIProvider) streamChatResponses(
 			}
 			mcpTool.OfMcp.Headers[k] = v
 		}
+		if len(srv.AllowedTools) > 0 {
+			mcpTool.OfMcp.AllowedTools = responses.ToolMcpAllowedToolsUnionParam{
+				OfMcpAllowedTools: srv.AllowedTools,
+			}
+		}
 		respTools = append(respTools, mcpTool)
 	}
 
