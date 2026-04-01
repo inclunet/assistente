@@ -538,6 +538,9 @@ func (p *OpenAIProvider) streamChatResponses(
 	// MCP tools nativos (se configurados via WithMCPServers)
 	for _, srv := range p.mcpServers {
 		mcpTool := responses.ToolParamOfMcp(srv.Name, srv.URL)
+		mcpTool.OfMcp.RequireApproval = responses.ToolMcpRequireApprovalUnionParam{
+			OfMcpToolApprovalSetting: param.NewOpt(string(responses.ToolMcpRequireApprovalMcpToolApprovalSettingNever)),
+		}
 		if srv.AuthToken != "" {
 			mcpTool.OfMcp.Headers = map[string]string{
 				"Authorization": "Bearer " + srv.AuthToken,
@@ -555,6 +558,8 @@ func (p *OpenAIProvider) streamChatResponses(
 			}
 		}
 		respTools = append(respTools, mcpTool)
+		log.Printf("[OpenAIProvider] MCP native tool: label=%q url=%q hasAuth=%v allowedTools=%d",
+			srv.Name, srv.URL, srv.AuthToken != "", len(srv.AllowedTools))
 	}
 
 	// Function tools locais
@@ -633,6 +638,8 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	var emittedAnything bool
 	var lastUsage Usage
 	var lastModel string
+	var isThinking bool
+	var thinkingBuffer strings.Builder
 
 	type pendingFuncCall struct {
 		ID   string
@@ -642,8 +649,19 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 	activeFuncCalls := make(map[string]*pendingFuncCall) // keyed by item_id
 	var finishedToolCalls []ToolCall
 
+	type pendingMCPCall struct {
+		ID          string
+		Name        string
+		ServerLabel string
+		Args        strings.Builder
+	}
+	activeMCPCalls := make(map[string]*pendingMCPCall) // keyed by item_id
+
+	var eventCount int
+
 	for stream.Next() {
 		event := stream.Current()
+		eventCount++
 
 		switch event.Type {
 		case "response.created":
@@ -652,16 +670,22 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				lastModel = string(ev.Response.Model)
 			}
 
+		case "response.in_progress":
+			// Response is being processed, nothing to do
+
 		case "response.output_text.delta":
 			ev := event.AsResponseOutputTextDelta()
 			if ev.Delta != "" {
-				content := processThinkingTags(ev.Delta, nil, nil, &fullReasoning, handler)
+				content := processThinkingTags(ev.Delta, &isThinking, &thinkingBuffer, &fullReasoning, handler)
 				if content != "" {
 					fullResponse.WriteString(content)
 					emittedAnything = true
 					handler.OnChunk(content)
 				}
 			}
+
+		case "response.output_text.done":
+			// Final text for an output item, already accumulated via deltas
 
 		case "response.reasoning_summary_text.delta":
 			ev := event.AsResponseReasoningSummaryTextDelta()
@@ -671,14 +695,60 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				handler.OnThinking(ev.Delta)
 			}
 
+		case "response.reasoning_summary_text.done",
+			"response.reasoning_summary_part.added",
+			"response.reasoning_summary_part.done":
+			// Reasoning summary lifecycle events, content already handled via deltas
+
 		case "response.output_item.added":
 			ev := event.AsResponseOutputItemAdded()
-			if ev.Item.Type == "function_call" {
+			switch ev.Item.Type {
+			case "function_call":
 				activeFuncCalls[ev.Item.ID] = &pendingFuncCall{
 					ID:   ev.Item.CallID,
 					Name: ev.Item.Name,
 				}
+			case "mcp_call":
+				mc := &pendingMCPCall{
+					ID:          ev.Item.ID,
+					Name:        ev.Item.Name,
+					ServerLabel: ev.Item.ServerLabel,
+				}
+				activeMCPCalls[ev.Item.ID] = mc
+				handler.OnMCPToolEvent(MCPToolEvent{
+					ID:          mc.ID,
+					Name:        mc.Name,
+					ServerLabel: mc.ServerLabel,
+					IsCompleted: false,
+				})
 			}
+
+		case "response.output_item.done":
+			ev := event.AsResponseOutputItemDone()
+			if ev.Item.Type == "mcp_call" {
+				mc, ok := activeMCPCalls[ev.Item.ID]
+				args := ""
+				if ok {
+					args = mc.Args.String()
+				}
+				if args == "" {
+					args = ev.Item.Arguments
+				}
+				handler.OnMCPToolEvent(MCPToolEvent{
+					ID:          ev.Item.ID,
+					Name:        ev.Item.Name,
+					ServerLabel: ev.Item.ServerLabel,
+					Arguments:   args,
+					Output:      ev.Item.Output,
+					Error:       ev.Item.Error,
+					IsCompleted: true,
+				})
+				delete(activeMCPCalls, ev.Item.ID)
+			}
+
+		case "response.content_part.added",
+			"response.content_part.done":
+			// Content part lifecycle events
 
 		case "response.function_call_arguments.delta":
 			ev := event.AsResponseFunctionCallArgumentsDelta()
@@ -700,16 +770,35 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 				delete(activeFuncCalls, ev.ItemID)
 			}
 
+		case "response.mcp_call_arguments.delta":
+			ev := event.AsResponseMcpCallArgumentsDelta()
+			if mc, ok := activeMCPCalls[ev.ItemID]; ok {
+				mc.Args.WriteString(ev.Delta)
+			}
+
+		case "response.mcp_call_arguments.done":
+			ev := event.AsResponseMcpCallArgumentsDone()
+			if mc, ok := activeMCPCalls[ev.ItemID]; ok {
+				mc.Args.Reset()
+				mc.Args.WriteString(ev.Arguments)
+			}
+
 		case "response.mcp_call.in_progress":
-			log.Printf("[OpenAIProvider] MCP call in progress (server-side)")
+			// Server-side execution in progress, tracking handled via output_item events
+
 		case "response.mcp_call.completed":
-			log.Printf("[OpenAIProvider] MCP call completed (server-side)")
+			// Completion tracked via output_item.done for full data
+
 		case "response.mcp_call.failed":
-			log.Printf("[OpenAIProvider] MCP call failed (server-side)")
+			ev := event.AsResponseMcpCallFailed()
+			log.Printf("[OpenAIProvider] MCP call FAILED: itemID=%s", ev.ItemID)
+
 		case "response.mcp_list_tools.in_progress":
 			log.Printf("[OpenAIProvider] MCP listing tools (server-side)")
 		case "response.mcp_list_tools.completed":
 			log.Printf("[OpenAIProvider] MCP tool listing done (server-side)")
+		case "response.mcp_list_tools.failed":
+			log.Printf("[OpenAIProvider] MCP tool listing FAILED (server-side)")
 
 		case "response.completed":
 			ev := event.AsResponseCompleted()
@@ -723,6 +812,8 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			if string(ev.Response.Model) != "" {
 				lastModel = string(ev.Response.Model)
 			}
+			log.Printf("[OpenAIProvider] Stream completed: %d events, response=%d bytes, toolCalls=%d, model=%s",
+				eventCount, fullResponse.Len(), len(finishedToolCalls), lastModel)
 
 		case "response.failed":
 			ev := event.AsResponseFailed()
@@ -730,8 +821,12 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 			if ev.Response.Error.Message != "" {
 				errMsg = ev.Response.Error.Message
 			}
+			log.Printf("[OpenAIProvider] Response FAILED: %s", errMsg)
 			handler.OnError(errMsg)
 			return true
+
+		default:
+			log.Printf("[OpenAIProvider] Unhandled event type: %s", event.Type)
 		}
 	}
 
@@ -744,6 +839,9 @@ func (p *OpenAIProvider) doStreamResponses(ctx context.Context, params responses
 		handler.OnError(errStr)
 		return true
 	}
+
+	log.Printf("[OpenAIProvider] Stream loop ended: %d events, response=%d bytes, reasoning=%d bytes, toolCalls=%d",
+		eventCount, fullResponse.Len(), fullReasoning.Len(), len(finishedToolCalls))
 
 	if fullReasoning.Len() > 0 {
 		handler.OnThinkingDone(fullReasoning.String())

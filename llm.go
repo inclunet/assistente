@@ -247,6 +247,16 @@ func (h *appStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string
 	h.OnDone(fullResponse, usage, model)
 }
 
+func (h *appStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
+	if event.IsCompleted {
+		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
+			event.Name, event.ServerLabel, event.ID, len(event.Output))
+	} else {
+		log.Printf("[MCP Native] 🔧 %s (server=%s, id=%s)",
+			event.Name, event.ServerLabel, event.ID)
+	}
+}
+
 func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
 	// Cancela qualquer timer pendente e obtém conteúdo acumulado
 	h.mu.Lock()
@@ -1319,18 +1329,25 @@ func (a *App) loadConversationHistory(conversationID uint, profile *profiles.Pro
 
 	messages := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
+		// Otimização de contexto: omitir mensagens intermediárias de tool calling
+		// de turnos anteriores. O modelo já processou esses resultados e produziu
+		// uma resposta final com a informação sintetizada — reenviar a cadeia
+		// tool_call→tool_result desperdiça tokens sem valor.
+		// Dados completos permanecem no banco e visíveis na UI.
+		if m.Role == "tool" {
+			continue
+		}
+		if m.Role == "assistant" && m.ToolCalls != "" && strings.TrimSpace(m.Content) == "" {
+			continue
+		}
+
 		msg := Message{
 			Role:       m.Role,
 			ToolCallID: m.ToolCallID,
 		}
 
-		// Reconstrói tool_calls do JSON armazenado no banco (para mensagens assistant com tool calls)
-		if m.ToolCalls != "" {
-			var toolCalls []llm.ToolCall
-			if err := json.Unmarshal([]byte(m.ToolCalls), &toolCalls); err == nil {
-				msg.ToolCalls = toolCalls
-			}
-		}
+		// Assistant com conteúdo textual + tool_calls: preserva texto, descarta tool_calls.
+		// O texto intermediário ("Vou buscar...") pode ter valor de contexto.
 
 		// Processa conteúdo (pode ser texto simples ou multimodal)
 		if m.Media != "" {

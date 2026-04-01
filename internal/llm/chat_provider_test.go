@@ -1342,6 +1342,115 @@ func TestNativeMCP_NoDuplicateWithBridge(t *testing.T) {
 	}
 }
 
+// mcpTrackingHandler captura MCPToolEvents para validação em testes.
+type mcpTrackingHandler struct {
+	captureHandler
+	events []MCPToolEvent
+}
+
+func (h *mcpTrackingHandler) OnMCPToolEvent(event MCPToolEvent) {
+	h.events = append(h.events, event)
+}
+
+func TestMCPToolEvent_StreamHandlerInterface(t *testing.T) {
+	var handler StreamHandler = &mcpTrackingHandler{}
+
+	handler.OnMCPToolEvent(MCPToolEvent{
+		ID:          "call_001",
+		Name:        "jira_search",
+		ServerLabel: "Atlassian",
+		IsCompleted: false,
+	})
+
+	handler.OnMCPToolEvent(MCPToolEvent{
+		ID:          "call_001",
+		Name:        "jira_search",
+		ServerLabel: "Atlassian",
+		Arguments:   `{"query":"project=FSD"}`,
+		Output:      `{"issues":[{"key":"FSD-123"}]}`,
+		IsCompleted: true,
+	})
+
+	h := handler.(*mcpTrackingHandler)
+	if len(h.events) != 2 {
+		t.Fatalf("esperado 2 eventos, obtido %d", len(h.events))
+	}
+
+	start := h.events[0]
+	if start.Name != "jira_search" || start.ServerLabel != "Atlassian" || start.IsCompleted {
+		t.Errorf("evento start incorreto: %+v", start)
+	}
+
+	end := h.events[1]
+	if end.Name != "jira_search" || !end.IsCompleted || end.Output == "" {
+		t.Errorf("evento end incorreto: %+v", end)
+	}
+	if end.Arguments != `{"query":"project=FSD"}` {
+		t.Errorf("Arguments = %q, esperado query JQL", end.Arguments)
+	}
+}
+
+func TestMCPToolEvent_ErrorTracking(t *testing.T) {
+	handler := &mcpTrackingHandler{}
+
+	handler.OnMCPToolEvent(MCPToolEvent{
+		ID:          "call_err",
+		Name:        "search",
+		ServerLabel: "Slack",
+		Error:       "unauthorized",
+		IsCompleted: true,
+	})
+
+	if len(handler.events) != 1 {
+		t.Fatalf("esperado 1 evento, obtido %d", len(handler.events))
+	}
+	ev := handler.events[0]
+	if ev.Error != "unauthorized" || !ev.IsCompleted {
+		t.Errorf("evento de erro incorreto: %+v", ev)
+	}
+}
+
+func TestMCPToolEvent_MultipleServers(t *testing.T) {
+	handler := &mcpTrackingHandler{}
+
+	handler.OnMCPToolEvent(MCPToolEvent{
+		ID: "mc1", Name: "search", ServerLabel: "Atlassian", IsCompleted: false,
+	})
+	handler.OnMCPToolEvent(MCPToolEvent{
+		ID: "mc2", Name: "read_channel", ServerLabel: "Slack", IsCompleted: false,
+	})
+	handler.OnMCPToolEvent(MCPToolEvent{
+		ID: "mc1", Name: "search", ServerLabel: "Atlassian",
+		Output: `[{"key":"FSD-1"}]`, IsCompleted: true,
+	})
+	handler.OnMCPToolEvent(MCPToolEvent{
+		ID: "mc2", Name: "read_channel", ServerLabel: "Slack",
+		Output: "messages...", IsCompleted: true,
+	})
+
+	if len(handler.events) != 4 {
+		t.Fatalf("esperado 4 eventos, obtido %d", len(handler.events))
+	}
+
+	starts := 0
+	ends := 0
+	servers := map[string]bool{}
+	for _, ev := range handler.events {
+		if ev.IsCompleted {
+			ends++
+		} else {
+			starts++
+		}
+		servers[ev.ServerLabel] = true
+	}
+	if starts != 2 || ends != 2 {
+		t.Errorf("esperado 2 starts + 2 ends, obtido %d starts + %d ends", starts, ends)
+	}
+	if !servers["Atlassian"] || !servers["Slack"] {
+		t.Errorf("servidores rastreados: %v", servers)
+	}
+}
+
 func TestNativeMCP_NoDuplicateWithProfile(t *testing.T) {
 	bridgeToolDefs := []ToolDefinition{
 		{Function: FunctionDefinition{Name: "internal_search"}},

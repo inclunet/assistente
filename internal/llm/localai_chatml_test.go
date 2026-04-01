@@ -15,7 +15,8 @@ func (h *captureHandler) OnThinking(content string)           { h.thinking.Write
 func (h *captureHandler) OnThinkingDone(fullReasoning string) {}
 func (h *captureHandler) OnToolCalls(calls []ToolCall, fullResponse string, usage Usage, model string) {
 }
-func (h *captureHandler) OnError(err string) {}
+func (h *captureHandler) OnMCPToolEvent(event MCPToolEvent) {}
+func (h *captureHandler) OnError(err string)                {}
 func (h *captureHandler) OnDone(fullResponse string, usage Usage, model string) {
 }
 
