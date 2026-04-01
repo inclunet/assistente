@@ -645,7 +645,7 @@ func TestAutoDetectTransport_ExplicitOverride(t *testing.T) {
 }
 
 func TestParseServerConfig_DefaultsForMinimalURL(t *testing.T) {
-	data := []byte(`{"url": "https://mcp.ist.nubank.world/mcp"}`)
+	data := []byte(`{"url": "https://mcp.example.com/mcp"}`)
 	cfg, err := ParseServerConfig(data, "nu-mcp")
 	if err != nil {
 		t.Fatalf("ParseServerConfig failed: %v", err)

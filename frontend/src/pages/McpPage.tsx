@@ -106,6 +106,7 @@ export default function McpPage() {
   const [formUrl, setFormUrl] = useState('');
   const [formEnabled, setFormEnabled] = useState(true);
   const [formAutoConnect, setFormAutoConnect] = useState(true);
+  const [formPreferBridge, setFormPreferBridge] = useState(false);
 
   // Auth fields (armazenados no credential manager, não no config JSON)
   const [formAuthType, setFormAuthType] = useState('none');
@@ -166,6 +167,7 @@ export default function McpPage() {
     setFormUrl(config?.url || '');
     setFormEnabled(config?.enabled ?? true);
     setFormAutoConnect(config?.auto_connect ?? true);
+    setFormPreferBridge(config?.prefer_bridge ?? false);
 
     setFormAuthToken('');
     setFormAuthUsername('');
@@ -237,6 +239,7 @@ export default function McpPage() {
     populateForm(null, null);
     setFormEnabled(true);
     setFormAutoConnect(true);
+    setFormPreferBridge(false);
   }, []);
 
   useResourceEditRequest('mcp', {
@@ -388,6 +391,7 @@ export default function McpPage() {
       url: isHTTP ? formUrl.trim() : undefined,
       enabled: formEnabled,
       auto_connect: formAutoConnect,
+      prefer_bridge: isHTTP ? formPreferBridge : undefined,
       auth_type: isHTTP ? formAuthType : undefined,
       oauth2_client_id: isHTTP && isOAuth2 ? formOAuth2ClientId.trim() || undefined : undefined,
       oauth2_token_url: isHTTP && isOAuth2 ? formOAuth2TokenUrl.trim() || undefined : undefined,
@@ -442,7 +446,7 @@ export default function McpPage() {
     } finally {
       setSaving(false);
     }
-  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
+  }, [isNew, editingSlug, formName, formDescription, formTransport, formCommand, formArgs, formEnvText, formUrl, formEnabled, formAutoConnect, formPreferBridge, formAuthType, formAuthToken, formAuthUsername, formAuthPassword, formOAuth2ClientId, formOAuth2ClientSecret, formOAuth2TokenUrl, formOAuth2AuthUrl, formOAuth2Scopes, formOAuth2CallbackPort, formOAuth2CallbackHost, discoveryRegistrationUrl, hasExistingAuth, save, addToast, announce, handleCloseEditor, t]);
 
   const handleDelete = useCallback(async (slug: string, name: string) => {
     const shouldDelete = await confirm({
@@ -748,6 +752,7 @@ export default function McpPage() {
               envText={formEnvText}
               enabled={formEnabled}
               autoConnect={formAutoConnect}
+              preferBridge={formPreferBridge}
               authType={formAuthType}
               authToken={formAuthToken}
               authUsername={formAuthUsername}
@@ -768,6 +773,7 @@ export default function McpPage() {
               onEnvTextChange={setFormEnvText}
               onEnabledChange={setFormEnabled}
               onAutoConnectChange={setFormAutoConnect}
+              onPreferBridgeChange={setFormPreferBridge}
               onAuthTypeChange={setFormAuthType}
               onAuthTokenChange={setFormAuthToken}
               onAuthUsernameChange={setFormAuthUsername}

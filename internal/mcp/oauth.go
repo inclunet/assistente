@@ -139,7 +139,7 @@ func discoverOAuthEndpoints(mcpURL string) (*OAuthDiscovery, error) {
 	authServerBase := origin
 	var resource string
 
-	prm, err := fetchProtectedResourceMetadata(origin)
+	prm, err := fetchProtectedResourceMetadata(mcpURL)
 	if err != nil {
 		return nil, fmt.Errorf("protected resource metadata unavailable: %w", err)
 	}

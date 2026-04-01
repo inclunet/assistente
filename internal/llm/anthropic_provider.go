@@ -243,6 +243,8 @@ func (p *AnthropicProvider) streamChatWithMCP(
 			mcpDef.AuthorizationToken = anthropicparam.NewOpt(srv.AuthToken)
 		}
 		betaParams.MCPServers = append(betaParams.MCPServers, mcpDef)
+		log.Printf("[AnthropicProvider] MCP native server: name=%q url=%q hasAuth=%v allowedTools=%d",
+			srv.Name, srv.URL, srv.AuthToken != "", len(srv.AllowedTools))
 	}
 
 	// Adiciona MCP toolsets — se AllowedTools está definido, desabilita por default

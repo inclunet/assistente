@@ -31,22 +31,22 @@ var discoveryHTTPClient = &http.Client{Timeout: 5 * time.Second}
 // DiscoverOAuth consulta os endpoints well-known de um servidor MCP para
 // preencher automaticamente a configuração de autenticação OAuth.
 //
-// Segue a spec MCP Authorization:
-// 1. GET {origin}/.well-known/oauth-protected-resource
-// 2. GET {auth_server}/.well-known/oauth-authorization-server
+// Segue a spec MCP Authorization (RFC 9470 + RFC 8414):
+// 1. GET protected resource metadata (resource URL → origin fallback)
+// 2. GET auth server metadata (issuer URL → RFC 8414 path → origin fallback)
 func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 	origin, err := extractOrigin(serverURL)
 	if err != nil {
 		return OAuthDiscoveryResult{Error: err.Error()}
 	}
 
-	log.Printf("[MCP:discovery] Tentando discovery OAuth para %s", origin)
+	log.Printf("[MCP:discovery] Tentando discovery OAuth para %s (origin=%s)", serverURL, origin)
 
 	authServerBase := origin
 	var resourceName string
 	var resourceScopes []string
 
-	prm, err := fetchProtectedResourceMetadata(origin)
+	prm, err := fetchProtectedResourceMetadata(serverURL)
 	if err == nil && prm != nil {
 		if len(prm.AuthorizationServers) > 0 {
 			authServerBase = prm.AuthorizationServers[0]
@@ -56,13 +56,13 @@ func DiscoverOAuth(serverURL string) OAuthDiscoveryResult {
 		log.Printf("[MCP:discovery] Protected Resource Metadata encontrado: auth_server=%s, resource=%s",
 			authServerBase, resourceName)
 	} else {
-		log.Printf("[MCP:discovery] Protected Resource Metadata não encontrado para %s, usando origin", origin)
+		log.Printf("[MCP:discovery] Protected Resource Metadata não encontrado para %s, usando origin", serverURL)
 	}
 
 	asm, err := fetchAuthServerMetadata(authServerBase)
 	if err != nil || asm == nil {
 		log.Printf("[MCP:discovery] Auth Server Metadata não encontrado para %s", authServerBase)
-		return OAuthDiscoveryResult{Found: false}
+		return OAuthDiscoveryResult{Found: false, Error: err.Error()}
 	}
 
 	log.Printf("[MCP:discovery] Auth Server Metadata encontrado: auth_endpoint=%s, token_endpoint=%s",
@@ -115,33 +115,100 @@ type authServerMetadata struct {
 	ResponseTypesSupported         []string `json:"response_types_supported"`
 }
 
-func fetchProtectedResourceMetadata(origin string) (*protectedResourceMetadata, error) {
-	wellKnownURL := strings.TrimRight(origin, "/") + "/.well-known/oauth-protected-resource"
-	var result protectedResourceMetadata
-	if err := fetchJSON(wellKnownURL, &result); err != nil {
-		return nil, err
+// fetchProtectedResourceMetadata tenta descobrir metadata do recurso protegido (RFC 9470).
+// Candidatos tentados em ordem:
+//  1. {resourceURL}/.well-known/oauth-protected-resource (relativo ao recurso)
+//  2. {origin}/.well-known/oauth-protected-resource (fallback no origin)
+func fetchProtectedResourceMetadata(mcpURL string) (*protectedResourceMetadata, error) {
+	candidates := buildPRMCandidates(mcpURL)
+	for _, candidateURL := range candidates {
+		log.Printf("[MCP:discovery] PRM: tentando %s", candidateURL)
+		var result protectedResourceMetadata
+		if err := fetchJSON(candidateURL, &result); err == nil {
+			log.Printf("[MCP:discovery] PRM: encontrado em %s", candidateURL)
+			return &result, nil
+		}
 	}
-	return &result, nil
+	return nil, fmt.Errorf("protected resource metadata not found (tentou %d URLs)", len(candidates))
 }
 
-func fetchAuthServerMetadata(authServerBase string) (*authServerMetadata, error) {
-	base := strings.TrimRight(authServerBase, "/")
-
-	urls := []string{
-		base + "/.well-known/oauth-authorization-server",
-		base + "/.well-known/openid-configuration",
+func buildPRMCandidates(mcpURL string) []string {
+	u, err := url.Parse(mcpURL)
+	if err != nil {
+		return nil
 	}
+	origin := u.Scheme + "://" + u.Host
+	resourceBase := strings.TrimRight(mcpURL, "/")
 
-	for _, u := range urls {
-		var result authServerMetadata
-		if err := fetchJSON(u, &result); err == nil {
-			if result.TokenEndpoint != "" {
-				return &result, nil
-			}
+	seen := make(map[string]bool)
+	var candidates []string
+	add := func(s string) {
+		if !seen[s] {
+			seen[s] = true
+			candidates = append(candidates, s)
 		}
 	}
 
-	return nil, fmt.Errorf("auth server metadata not found")
+	if resourceBase != origin {
+		add(resourceBase + "/.well-known/oauth-protected-resource")
+	}
+	add(origin + "/.well-known/oauth-protected-resource")
+	return candidates
+}
+
+// fetchAuthServerMetadata tenta descobrir metadata do authorization server (RFC 8414).
+// Candidatos tentados em ordem:
+//  1. {base}/.well-known/oauth-authorization-server (implementação comum)
+//  2. {base}/.well-known/openid-configuration
+//  3. {origin}/.well-known/oauth-authorization-server{path} (RFC 8414 §3 para issuer com path)
+//  4. {origin}/.well-known/openid-configuration{path}
+//  5. {origin}/.well-known/oauth-authorization-server (origin root fallback)
+//  6. {origin}/.well-known/openid-configuration
+func fetchAuthServerMetadata(authServerBase string) (*authServerMetadata, error) {
+	candidates := buildASMCandidates(authServerBase)
+	for _, candidateURL := range candidates {
+		log.Printf("[MCP:discovery] ASM: tentando %s", candidateURL)
+		var result authServerMetadata
+		if err := fetchJSON(candidateURL, &result); err == nil && result.TokenEndpoint != "" {
+			log.Printf("[MCP:discovery] ASM: encontrado em %s", candidateURL)
+			return &result, nil
+		}
+	}
+	return nil, fmt.Errorf("auth server metadata not found (tentou %d URLs)", len(candidates))
+}
+
+func buildASMCandidates(authServerBase string) []string {
+	base := strings.TrimRight(authServerBase, "/")
+	u, err := url.Parse(base)
+	if err != nil {
+		return []string{base + "/.well-known/oauth-authorization-server"}
+	}
+
+	origin := u.Scheme + "://" + u.Host
+	path := strings.TrimRight(u.Path, "/")
+
+	seen := make(map[string]bool)
+	var candidates []string
+	add := func(s string) {
+		if !seen[s] {
+			seen[s] = true
+			candidates = append(candidates, s)
+		}
+	}
+
+	add(base + "/.well-known/oauth-authorization-server")
+	add(base + "/.well-known/openid-configuration")
+
+	if path != "" {
+		// RFC 8414 §3: .well-known inserido no início do path component do issuer
+		add(origin + "/.well-known/oauth-authorization-server" + path)
+		add(origin + "/.well-known/openid-configuration" + path)
+		// Origin root fallback
+		add(origin + "/.well-known/oauth-authorization-server")
+		add(origin + "/.well-known/openid-configuration")
+	}
+
+	return candidates
 }
 
 func fetchJSON(url string, target any) error {
