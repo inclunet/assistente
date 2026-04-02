@@ -42,7 +42,7 @@ vi.mock('../store/editorStore', () => ({
 
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
-    (selector: (state: any) => unknown) => selector({
+    (selector: (state: Record<string, unknown>) => unknown) => selector({
       addTab: vi.fn(),
       updateTab: vi.fn(),
       workspace: { tabs: [], profile: undefined },

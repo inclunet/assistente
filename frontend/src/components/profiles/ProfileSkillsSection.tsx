@@ -65,7 +65,6 @@ export function ProfileSkillsSection({
       description: s.description || '',
       source: s.source || 'exe',
     })),
-    // eslint-disable-next-line react-hooks/exhaustive-deps
     [availableSkills, enabledSkills],
   );
 

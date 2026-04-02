@@ -95,7 +95,7 @@ export default function EditorPage() {
     if (tabProfileSlug && tabProfileSlug !== editorProfileSlug) {
       setEditorProfileSlug(tabProfileSlug);
     }
-  }, [tabProfileSlug]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [tabProfileSlug]);
 
   const activeTab = useMemo(() => activeDocumentId ? documents[activeDocumentId] ?? null : null, [documents, activeDocumentId]);
 

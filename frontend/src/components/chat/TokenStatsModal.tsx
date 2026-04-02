@@ -7,6 +7,34 @@ import { Modal } from '../ui/Modal';
 import { Tabs, TabList, Tab, TabPanel } from '../ui/tabs';
 import './TokenStatsModal.css';
 
+interface ToolBreakdownEntry {
+  toolName: string;
+  callCount: number;
+  totalPromptTokens: number;
+  totalCompletionTokens: number;
+  totalTokens: number;
+}
+
+interface TokenStats {
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  contextLimit: number;
+  contextUsage: number;
+  isNearLimit: boolean;
+  isCritical: boolean;
+  messageCount: number;
+  mostUsedModel: string;
+  systemPromptEstimatedTokens: number;
+  summaryTokens: number;
+  messagesInContextTokens: number;
+  messagesOutOfContextTokens: number;
+  messagesInContextCount: number;
+  messagesOutOfContextCount: number;
+  toolsUsedCount: number;
+  toolBreakdown: ToolBreakdownEntry[];
+}
+
 interface TokenStatsModalProps {
   conversationId: number;
   isOpen: boolean;
@@ -19,7 +47,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
   onClose,
 }) => {
   const { t } = useTranslation();
-  const [stats, setStats] = useState<any>(null);
+  const [stats, setStats] = useState<TokenStats | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('overview');
@@ -47,7 +75,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
     loadStats();
 
     // Escuta atualizações em tempo real
-    const unsubscribe = EventsOn('chat:token_stats', (data: any) => {
+    const unsubscribe = EventsOn('chat:token_stats', (data: TokenStats & { conversationId: number }) => {
       if (data.conversationId === conversationId) {
         setStats(data);
       }
@@ -306,7 +334,7 @@ export const TokenStatsModal: React.FC<TokenStatsModalProps> = ({
                       </tr>
                     </thead>
                     <tbody>
-                      {stats.toolBreakdown.map((tool: any) => (
+                      {stats.toolBreakdown.map((tool) => (
                         <tr key={tool.toolName}>
                           <th scope="row">{tool.toolName}</th>
                           <td>{formatNumber(tool.callCount)}</td>

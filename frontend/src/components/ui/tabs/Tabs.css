@@ -37,6 +37,9 @@
   outline-offset: var(--tabs-focus-outline-offset);
 }
 
+/* Painéis inativos: força display:none quando hidden está presente.
+   Necessário porque classes com display explícito (ex: display:flex)
+   sobrescrevem o display:none do atributo hidden do navegador. */
 [role="tabpanel"][hidden] {
   display: none !important;
 }

@@ -50,7 +50,8 @@
   outline-offset: -2px;
 }
 
-.settings-tabs__tab--active {
+.settings-tabs__tab--active,
+.settings-tabs__tab[aria-selected="true"] {
   color: var(--accent);
   border-bottom-color: var(--accent);
 }

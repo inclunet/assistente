@@ -159,6 +159,7 @@ describe('ProfileToolsSection', () => {
     );
     const grid = screen.getByRole('grid');
     // Space toggles first tool (Tool 1) — removes it from "all"
+    fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_tools', ['Tool 2', 'Tool 3']);
   });
@@ -174,6 +175,7 @@ describe('ProfileToolsSection', () => {
       />
     );
     const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_tools', ['Tool 2']);
   });
@@ -190,6 +192,7 @@ describe('ProfileToolsSection', () => {
     );
     const grid = screen.getByRole('grid');
     // Navigate to Tool 2 (row 1) then Space
+    fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_tools', ['Tool 1', 'Tool 2']);
@@ -207,6 +210,7 @@ describe('ProfileToolsSection', () => {
     );
     const grid = screen.getByRole('grid');
     // Navigate to Tool 3 (row 2) then Space to select all
+    fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: ' ' });

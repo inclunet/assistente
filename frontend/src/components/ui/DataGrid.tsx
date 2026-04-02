@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { ContextMenu, MenuItem } from './menu';
 import { useAnchoredContextMenu } from '../../hooks/useAnchoredContextMenu';
@@ -65,8 +65,10 @@ export function DataGrid<T = unknown>({
   getRowActions,
 }: DataGridProps<T>) {
   const { t } = useTranslation();
-  // Menu de contexto (clique direito)
-  const [focusedRow, setFocusedRow] = useState(0);
+  // Foco lazy: começa em -1 (nenhuma linha focada).
+  // Só inicializa quando o grid recebe foco real do usuário.
+  // Isso evita que leitores de tela leiam o conteúdo ao montar/remontar.
+  const [focusedRow, setFocusedRow] = useState(-1);
   const [focusedCol, setFocusedCol] = useState(0);
   const [editingRow, setEditingRow] = useState(-1);
   const [editingCol, setEditingCol] = useState(-1);
@@ -76,9 +78,12 @@ export function DataGrid<T = unknown>({
   
   const gridRef = useRef<HTMLDivElement>(null);
   const editInputRef = useRef<HTMLInputElement>(null);
+  const instructionsId = useId().replace(/[^a-zA-Z0-9_-]/g, '') + '-instructions';
   const cellRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const announceTimerRef = useRef<NodeJS.Timeout>();
   const hasInitializedRef = useRef(false);
+  // Indica que o grid já recebeu foco pelo menos uma vez
+  const hasReceivedFocusRef = useRef(false);
   const focusedItemIdRef = useRef<string | number | null>(null);
   const onFocusChangeRef = useRef(onFocusChange);
   onFocusChangeRef.current = onFocusChange;
@@ -113,6 +118,11 @@ export function DataGrid<T = unknown>({
     if (announceTimerRef.current) {
       clearTimeout(announceTimerRef.current);
     }
+
+    // Só anuncia quando o grid (ou algo dentro dele) tem foco.
+    // Evita anúncios indesejados quando o componente monta em
+    // background (ex: troca de abas com lazy loading).
+    if (!gridRef.current?.contains(document.activeElement)) return;
     
     setAnnouncement(message);
     
@@ -135,14 +145,16 @@ export function DataGrid<T = unknown>({
         
         // Pequeno delay para garantir que o grid foi renderizado
         setTimeout(() => {
-          // Só foca se nenhum elemento do grid já está focado
+          // Só foca se nenhum elemento interativo já está focado.
+          // Evita roubar foco de tab buttons e outros controles
+          // quando o grid monta em background (ex: troca de abas).
           const activeElement = document.activeElement;
-          const isSearchFocused = activeElement?.classList.contains('toolbar__search');
-          const isGridCellFocused = activeElement?.classList.contains('grid-cell');
+          const isFocusIdle = !activeElement || activeElement === document.body;
+          const isInsideGrid = gridRef.current?.contains(activeElement);
           
-          // Foca no grid, exceto se o search field já estiver focado ou uma célula já estiver focada
-          if (!isSearchFocused && !isGridCellFocused) {
-            focusFirstCell();
+          if (isFocusIdle || isInsideGrid) {
+            // Ativa o foco lazy e foca a primeira célula
+            activateFocus(0, 0);
           }
         }, 100);
       }
@@ -182,11 +194,30 @@ export function DataGrid<T = unknown>({
     focusCell(focusedRowRef.current, focusedColRef.current);
   }, [focusCell]);
 
+  // Ativa o foco lazy: marca o grid como "já recebeu foco" e
+  // posiciona focusedRow/Col. Chamada no primeiro foco real do usuário.
+  const activateFocus = useCallback((row: number, col: number) => {
+    hasReceivedFocusRef.current = true;
+    setFocusedRow(row);
+    setFocusedCol(col);
+    focusedRowRef.current = row;
+    focusedColRef.current = col;
+    setTimeout(() => {
+      const cellKey = `${row}-${col}`;
+      const cellElement = cellRefs.current.get(cellKey);
+      if (cellElement) {
+        cellElement.focus();
+      }
+    }, 0);
+  }, []);
+
   // Rastreia qual item está focado por ID e notifica o pai.
   // Só notifica quando o ID do item focado realmente mudou, para evitar
   // loops infinitos quando `items` é recriado com mesmos dados.
+  // Não notifica enquanto o grid não recebeu foco (focusedRow === -1).
   useEffect(() => {
-    if (items.length > 0 && focusedRow >= 0 && focusedRow < items.length) {
+    if (focusedRow < 0) return; // Foco lazy: ainda não ativado
+    if (items.length > 0 && focusedRow < items.length) {
       const newId = getItemId(items[focusedRow]);
       if (newId !== focusedItemIdRef.current) {
         focusedItemIdRef.current = newId;
@@ -200,6 +231,7 @@ export function DataGrid<T = unknown>({
 
   // Segue o item quando a lista é reordenada
   useEffect(() => {
+    if (focusedRow < 0) return; // Foco lazy: não rastrear antes de ativar
     if (focusedItemIdRef.current === null || items.length === 0) return;
 
     const row = focusedRowRef.current;
@@ -322,8 +354,34 @@ export function DataGrid<T = unknown>({
     gridRef.current?.focus();
   };
 
+  // Handler de foco no container do grid.
+  // Quando o grid recebe foco diretamente (tabIndex=0 no container),
+  // ativa o foco lazy e move para a primeira célula.
+  const handleGridFocus = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    // Se o foco veio de dentro do grid (célula → célula), ignora
+    if (gridRef.current?.contains(event.relatedTarget as Node)) return;
+    // Se já tem uma célula ativa, apenas garantir que o foco vai pra ela
+    if (hasReceivedFocusRef.current && focusedRowRef.current >= 0) {
+      const cellKey = `${focusedRowRef.current}-${focusedColRef.current}`;
+      const cellElement = cellRefs.current.get(cellKey);
+      if (cellElement && event.target === gridRef.current) {
+        cellElement.focus();
+      }
+      return;
+    }
+    // Primeiro foco: ativa o foco lazy
+    if (items.length > 0 && columns.length > 0) {
+      activateFocus(0, 0);
+    }
+  }, [items.length, columns.length, activateFocus]);
+
   const handleKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (rowCount === 0 || columnCount === 0) return;
+    // Se o foco lazy não foi ativado, ativa ao pressionar qualquer tecla
+    if (focusedRow < 0) {
+      activateFocus(0, 0);
+      return;
+    }
 
     const keyTarget = event.target as HTMLElement | null;
     if (keyTarget?.closest('.context-menu')) {
@@ -625,6 +683,7 @@ export function DataGrid<T = unknown>({
   const handleCellClick = (rowIndex: number, colIndex: number, event: React.MouseEvent) => {
     const target = event.target as HTMLElement | null;
     if (target?.closest('.menu-wrapper') || target?.closest('.menu-toggle')) {
+      hasReceivedFocusRef.current = true;
       setFocusedRow(rowIndex);
       setFocusedCol(colIndex);
       setTimeout(() => focusCell(rowIndex, colIndex), 0);
@@ -632,6 +691,8 @@ export function DataGrid<T = unknown>({
     }
     const col = columns[colIndex];
     
+    // Ativa o foco lazy ao clicar (primeiro contato do usuário)
+    hasReceivedFocusRef.current = true;
     setFocusedRow(rowIndex);
     setFocusedCol(colIndex);
     
@@ -720,24 +781,38 @@ export function DataGrid<T = unknown>({
 
   return (
     <>
+      {announcement && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="sr-only"
+        >
+          {announcement}
+        </div>
+      )}
       <div
-        role="status"
-        aria-live="assertive"
-        aria-atomic="true"
-        className="sr-only"
-        key="announce-1"
+        ref={gridRef}
+        className={`datagrid-container${isCheckboxMode ? ' datagrid-container--checkbox' : ''}${className ? ` ${className}` : ''}`}
+        role="grid"
+        aria-label={label}
+        aria-rowcount={gridAriaRowCount}
+        aria-colcount={columnCount}
+        aria-describedby={instructionsId}
+        tabIndex={focusedRow < 0 ? 0 : -1}
+        onFocus={handleGridFocus}
+        onKeyDown={handleKeyDown}
+        onClick={() => {
+          if (items.length > 0 && columns.length > 0) {
+            if (focusedRow < 0) {
+              activateFocus(0, 0);
+            } else {
+              focusCell(focusedRow, focusedCol);
+            }
+          }
+        }}
       >
-        {announcement}
-      </div>
-      <div
-        role="status"
-        aria-live="assertive"
-        aria-atomic="true"
-        className="sr-only"
-        style={{ position: 'absolute' }}
-        key="announce-2"
-      />
-      <div id="datagrid-instructions" className="sr-only">
+      <div id={instructionsId} className="sr-only">
         Grade de dados com {rowCount} linhas e {columnCount} colunas.
         Use as setas verticais para navegar entre linhas.
         Use as setas horizontais para navegar entre colunas.
@@ -751,21 +826,6 @@ export function DataGrid<T = unknown>({
         Pressione F2 para editar.
         Pressione Escape para limpar a seleção.
       </div>
-      <div
-        ref={gridRef}
-        className={`datagrid-container${isCheckboxMode ? ' datagrid-container--checkbox' : ''}${className ? ` ${className}` : ''}`}
-        role="grid"
-        aria-label={label}
-        aria-rowcount={gridAriaRowCount}
-        aria-colcount={columnCount}
-        aria-describedby="datagrid-instructions"
-        onKeyDown={handleKeyDown}
-        onClick={() => {
-          if (items.length > 0 && columns.length > 0) {
-            focusCell(focusedRow, focusedCol);
-          }
-        }}
-      >
       {showHeader && (
         <div className="datagrid-header" role="row" aria-rowindex={1}>
           {columns.map((column, colIndex) => (
@@ -787,7 +847,7 @@ export function DataGrid<T = unknown>({
         {items.map((item, rowIndex) => {
           const itemId = getItemId(item);
           const isSelected = localSelectedIds.has(itemId);
-          const isFocused = rowIndex === focusedRow;
+          const isFocused = focusedRow >= 0 && rowIndex === focusedRow;
 
           return (
             <div
@@ -799,7 +859,7 @@ export function DataGrid<T = unknown>({
               onContextMenu={getRowActions ? handleRowContextMenu(item, rowIndex) : undefined}
             >
               {columns.map((column, colIndex) => {
-                const isCellFocused = rowIndex === focusedRow && colIndex === focusedCol;
+                const isCellFocused = focusedRow >= 0 && rowIndex === focusedRow && colIndex === focusedCol;
                 const cellKey = `${rowIndex}-${colIndex}`;
 
                 return (

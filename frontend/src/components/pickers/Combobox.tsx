@@ -282,12 +282,13 @@ export const Combobox = ({
             {!isOpen ? (
                 <button
                     ref={buttonRef}
+                    type="button"
                     className="picker-button"
                     onClick={open}
                     disabled={disabled}
                     aria-expanded={false}
                     aria-haspopup="listbox"
-                    aria-label={`${effectiveLabel}: ${selectedLabel}`}
+                    aria-label={`${effectiveLabel}, ${selectedLabel}`}
                     title={description || `${effectiveLabel}: ${selectedLabel}`}
                 >
                     {icon && <span className="picker-icon" aria-hidden="true">{icon}</span>}

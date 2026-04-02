@@ -150,7 +150,7 @@ export const Menu: React.FC<MenuProps> = ({
       const topItems = filteredItems.filter(i => !i.separator);
       setFocusStack([firstFocusableIndex(topItems)]);
     }
-  }, [searchQuery]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [searchQuery]);
 
   // Move o foco quando muda
   useEffect(() => {

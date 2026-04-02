@@ -579,7 +579,6 @@ const KanbanBoard = forwardRef<KanbanBoardRef, KanbanBoardProps>(function Kanban
 
   return (
     <div className="kanban-board-wrapper">
-      {/* eslint-disable-next-line jsx-a11y/no-static-element-interactions -- role via inner elements */}
       <div
         ref={boardRef}
         className="kanban-board"

@@ -25,14 +25,7 @@ import { Toolbar } from '../components/ui/Toolbar';
 import { Button, PageLoading } from '../components';
 import { Modal, isModalOpen } from '../components/ui/Modal';
 import { EditorPanelFooter } from '../components/ui/EditorPanel';
-import { CollapsibleSection } from '../components/ui/CollapsibleSection';
-import { ProfileGeneralSection } from '../components/profiles/ProfileGeneralSection';
-import { ProfileChatSection } from '../components/profiles/ProfileChatSection';
-import { ProfileSkillsSection } from '../components/profiles/ProfileSkillsSection';
-import { ProfileToolsSection } from '../components/profiles/ProfileToolsSection';
-import { ProfileVoiceSection } from '../components/profiles/ProfileVoiceSection';
-import { ProfileInteractionSection } from '../components/profiles/ProfileInteractionSection';
-import { VOICE_DISABLED } from '../components/pickers/VoicePicker';
+import { ProfileEditorTabs } from '../components/profiles/ProfileEditorTabs';
 import { useGridFocus } from '../hooks/useGridFocus';
 import { useGridPageLandmarks } from '../hooks/useGridPageLandmarks';
 import { useAnnouncer } from '../hooks/useAnnouncer';
@@ -500,178 +493,15 @@ export default function ProfilesPage() {
         size="xl"
       >
         {editingProfile && (
-          <div className="profiles-editor" aria-live="polite">
-            {/* General Section */}
-            <section className="profiles-section" aria-labelledby="section-general">
-              <h3 id="section-general">{t('profiles.sectionGeneral', 'Geral')}</h3>
-              <ProfileGeneralSection
-                name={editingProfile.name}
-                description={editingProfile.description || ''}
-                icon={editingProfile.icon || ''}
-                onChange={(field, value) => updateField(field, value)}
-              />
-            </section>
-
-            {/* Chat Section */}
-            <section className="profiles-section" aria-labelledby="section-chat">
-              <h3 id="section-chat">{t('profiles.sectionChat', 'Chat (LLM)')}</h3>
-              <ProfileChatSection
-                llmProvider={editingProfile.chat?.llm_provider || ''}
-                model={editingProfile.chat?.model || ''}
-                temperature={editingProfile.chat?.temperature ?? 0.7}
-                maxTokens={editingProfile.chat?.max_tokens ?? 4096}
-                maxTokensMode={editingProfile.chat?.max_tokens_mode || 'legacy'}
-                contextWindow={editingProfile.chat?.context_window ?? 0}
-                maxContextMessages={editingProfile.chat?.max_context_messages ?? 0}
-                minContextMessages={editingProfile.chat?.min_context_messages ?? 0}
-                topP={editingProfile.chat?.top_p ?? 1.0}
-                responseTimeout={editingProfile.chat?.response_timeout ?? 180}
-                reasoningEffort={editingProfile.chat?.reasoning_effort || ''}
-                onChange={(field, value) => updateField(`chat.${field}`, value)}
-                onMultiChange={(updates) => {
-                  const prefixedUpdates = Object.fromEntries(
-                    Object.entries(updates).map(([k, v]) => [`chat.${k}`, v])
-                  );
-                  updateFields(prefixedUpdates);
-                }}
-              />
-              <ProfileSkillsSection
-                availableSkills={availableSkills}
-                enabledSkills={editingProfile.chat?.enabled_skills || []}
-                disableOnDemand={editingProfile.chat?.disable_on_demand_skills ?? false}
-                skillsDisabled={editingProfile.chat?.disable_skills ?? false}
-                onChange={(field, value) => updateField(`chat.${field}`, value)}
-              />
-              <ProfileToolsSection
-                availableTools={availableTools}
-                enabledTools={editingProfile.chat?.enabled_tools ?? null}
-                toolsDisabled={editingProfile.chat?.disable_tools ?? false}
-                commandAllowlist={editingProfile.chat?.command_allowlist || ''}
-                availableAllowlists={availableAllowlists}
-                maxAgenticIterations={editingProfile.chat?.max_agentic_iterations ?? 0}
-                responseTimeout={editingProfile.chat?.response_timeout ?? 180}
-                onChange={(field, value) => updateField(`chat.${field}`, value)}
-              />
-            </section>
-
-          {/* Voice (TTS) — colapsável */}
-          {(() => {
-            const isVoiceDisabled = editingProfile.voice?.provider === 'disabled';
-            return (
-              <CollapsibleSection
-                title={t('profiles.collapseVoice', 'Voz (TTS)')}
-                isOpen={!isVoiceDisabled}
-                onToggle={() => {
-                  if (isVoiceDisabled) {
-                    updateField('voice.provider', 'webspeech');
-                  } else {
-                    updateField('voice.provider', 'disabled');
-                    updateField('voice.voice_id', '');
-                  }
-                }}
-                badge={isVoiceDisabled ? 'off' : 'on'}
-              >
-                <ProfileVoiceSection
-                  voice={isVoiceDisabled ? VOICE_DISABLED : editingProfile.voice?.voice_id || ''}
-                  rate={editingProfile.voice?.rate ?? 1.0}
-                  volume={editingProfile.voice?.volume ?? 1.0}
-                  onChange={(field, value) => {
-                    if (field === 'voice') {
-                      if (value === VOICE_DISABLED) {
-                        updateField('voice.provider', 'disabled');
-                        updateField('voice.voice_id', '');
-                        return;
-                      }
-                      updateField('voice.voice_id', value);
-                      if (!editingProfile.voice?.provider || editingProfile.voice.provider === 'disabled') {
-                        updateField('voice.provider', 'webspeech');
-                      }
-                      return;
-                    }
-                    updateField(`voice.${field}`, value);
-                  }}
-                />
-                <div className="profiles-fields">
-                  <div className="profiles-field profiles-field--checkbox">
-                    <input
-                      id="pf-tts-agent"
-                      type="checkbox"
-                      checked={editingProfile.voice?.enabled_for_agent ?? false}
-                      onChange={(e) => updateField('voice.enabled_for_agent', e.target.checked)}
-                    />
-                    <label htmlFor="pf-tts-agent" className="profiles-field__label">
-                      {t('profiles.fieldTTSAgent', 'TTS para mensagens do assistente')}
-                    </label>
-                  </div>
-                  <div className="profiles-field profiles-field--checkbox">
-                    <input
-                      id="pf-tts-user"
-                      type="checkbox"
-                      checked={editingProfile.voice?.enabled_for_user ?? false}
-                      onChange={(e) => updateField('voice.enabled_for_user', e.target.checked)}
-                    />
-                    <label htmlFor="pf-tts-user" className="profiles-field__label">
-                      {t('profiles.fieldTTSUser', 'TTS para mensagens do usuário')}
-                    </label>
-                  </div>
-                  <div className="profiles-field">
-                    <label htmlFor="pf-channel-response" className="profiles-field__label">
-                      {t('profiles.fieldChannelResponse', 'Resposta em canais externos')}
-                    </label>
-                    <select
-                      id="pf-channel-response"
-                      className="profiles-field__select"
-                      value={editingProfile.voice?.channel_response_mode || 'mirror'}
-                      onChange={(e) => updateField('voice.channel_response_mode', e.target.value)}
-                    >
-                      <option value="mirror">Espelhar (texto→texto, audio→audio)</option>
-                      <option value="always_text">Sempre texto</option>
-                      <option value="always_audio">Sempre audio (TTS)</option>
-                    </select>
-                    <p className="profiles-field__hint">
-                      Define como conversas via Signal, Telegram e outros canais respondem.
-                    </p>
-                  </div>
-                </div>
-              </CollapsibleSection>
-            );
-          })()}
-
-          {/* Interaction (STT) — colapsável */}
-          {(() => {
-            const isSTTDisabled = !editingProfile.interaction?.stt_provider;
-            return (
-              <CollapsibleSection
-                title={t('profiles.collapseInteraction', 'Interação (STT)')}
-                isOpen={!isSTTDisabled}
-                onToggle={() => {
-                  if (isSTTDisabled) {
-                    updateField('interaction.stt_provider', 'webspeech');
-                  } else {
-                    updateField('interaction.stt_provider', '');
-                  }
-                }}
-                badge={isSTTDisabled ? 'off' : 'on'}
-              >
-                <ProfileInteractionSection
-                  sttProvider={editingProfile.interaction?.stt_provider || 'webspeech'}
-                  sttLanguage={editingProfile.interaction?.language || 'pt-BR'}
-                  enableFeedbackSounds={editingProfile.interaction?.feedback_sounds ?? true}
-                  onChange={(field, value) => {
-                    if (field === 'sttProvider') {
-                      updateField('interaction.stt_provider', value);
-                      return;
-                    }
-                    if (field === 'sttLanguage') {
-                      updateField('interaction.language', value);
-                      return;
-                    }
-                    updateField('interaction.feedback_sounds', value);
-                  }}
-                />
-              </CollapsibleSection>
-            );
-          })()}
+          <div className="profiles-editor">
+            <ProfileEditorTabs
+              editingProfile={editingProfile}
+              availableTools={availableTools}
+              availableSkills={availableSkills}
+              availableAllowlists={availableAllowlists}
+              updateField={updateField}
+              updateFields={updateFields}
+            />
 
             <EditorPanelFooter className="profiles-editor__footer">
               <Button onClick={handleSave} loading={saving}>

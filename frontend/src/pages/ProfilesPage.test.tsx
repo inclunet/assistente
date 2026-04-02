@@ -177,7 +177,7 @@ describe('ProfilesPage', () => {
     mockDuplicateProfile.mockResolvedValue('perfil-padrao-copia');
   });
 
-  it('abre editor ao criar novo perfil e renderiza seções principais', async () => {
+  it('abre editor ao criar novo perfil e renderiza abas do editor', async () => {
     const user = userEvent.setup();
     const { default: ProfilesPage } = await import('./ProfilesPage');
     render(<ProfilesPage />);
@@ -185,17 +185,51 @@ describe('ProfilesPage', () => {
     const newButton = await screen.findByRole('button', { name: 'Novo Perfil' });
     await user.click(newButton);
 
+    // Aba "Geral" é a padrão — ProfileGeneralSection visível
     await waitFor(() => {
       expect(screen.getByTestId('profile-general-section')).toBeInTheDocument();
     });
 
-    expect(screen.getByTestId('profile-chat-section')).toBeInTheDocument();
-    expect(screen.getByText('Skills')).toBeInTheDocument();
-    expect(screen.getByText('Ferramentas (Tool Calling)')).toBeInTheDocument();
-    expect(screen.getByText('Voz (TTS)')).toBeInTheDocument();
-    expect(screen.getByText('Interação (STT)')).toBeInTheDocument();
-    expect(screen.getByText('Nenhum skill encontrado.')).toBeInTheDocument();
-    expect(screen.getByText('Nenhuma ferramenta encontrada.')).toBeInTheDocument();
+    // Todas as abas do editor devem estar visíveis como botões
+    const tabs = screen.getAllByRole('tab');
+    expect(tabs.length).toBeGreaterThanOrEqual(5);
+
+    // Clica na aba "Modelos" — ProfileChatSection deve aparecer
+    const modelsTab = tabs.find((t) => t.getAttribute('data-tab-value') === 'models');
+    expect(modelsTab).toBeTruthy();
+    await user.click(modelsTab!);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('profile-chat-section')).toBeInTheDocument();
+    });
+
+    // Clica na aba "Skills"
+    const skillsTab = tabs.find((t) => t.getAttribute('data-tab-value') === 'skills');
+    expect(skillsTab).toBeTruthy();
+    await user.click(skillsTab!);
+
+    await waitFor(() => {
+      expect(screen.getByText('Nenhum skill encontrado.')).toBeInTheDocument();
+    });
+
+    // Clica na aba "Tools"
+    const toolsTab = tabs.find((t) => t.getAttribute('data-tab-value') === 'tools');
+    expect(toolsTab).toBeTruthy();
+    await user.click(toolsTab!);
+
+    await waitFor(() => {
+      expect(screen.getByText('Nenhuma ferramenta encontrada.')).toBeInTheDocument();
+    });
+
+    // Clica na aba "Audio"
+    const audioTab = tabs.find((t) => t.getAttribute('data-tab-value') === 'audio');
+    expect(audioTab).toBeTruthy();
+    await user.click(audioTab!);
+
+    await waitFor(() => {
+      expect(screen.getByText('Voz (TTS)')).toBeInTheDocument();
+      expect(screen.getByText('Interação (STT)')).toBeInTheDocument();
+    });
   }, 10000);
 
   it('duplica um perfil via menu de acoes', async () => {

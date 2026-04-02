@@ -93,6 +93,7 @@ describe('ProfileSkillsSection', () => {
       />
     );
     const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-1']);
   });
@@ -107,6 +108,7 @@ describe('ProfileSkillsSection', () => {
       />
     );
     const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
     // First item is skill-1 (enabled, focused by default)
     fireEvent.keyDown(grid, { key: ' ' });
     expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-2']);
@@ -322,6 +324,7 @@ describe('ProfileSkillsSection', () => {
       />
     );
     const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
     fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
     expect(onChange).toHaveBeenCalledWith('enabled_skills', ['skill-2', 'skill-1', 'skill-3']);
   });
@@ -336,6 +339,7 @@ describe('ProfileSkillsSection', () => {
       />
     );
     const grid = screen.getByRole('grid');
+    fireEvent.focus(grid);
     // Navigate to row 1 (skill-2) first
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     fireEvent.keyDown(grid, { key: 'ArrowUp', altKey: true });

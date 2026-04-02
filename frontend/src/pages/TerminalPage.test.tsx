@@ -79,7 +79,7 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: Object.assign(
-    (selector: (state: any) => unknown) => selector({
+    (selector: (state: Record<string, unknown>) => unknown) => selector({
       workspace: { tabs: [], profile: undefined },
       getActiveTab: () => undefined,
       updateTab: vi.fn(),
