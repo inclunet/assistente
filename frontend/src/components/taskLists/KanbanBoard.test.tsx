@@ -2,6 +2,7 @@ import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
+import KanbanBoard from './KanbanBoard';
 
 /* ── Mock fns ──────────────────────────────────────────────── */
 
@@ -123,7 +124,6 @@ describe('KanbanBoard', () => {
 
   async function renderBoard(tasks = makeTasks()) {
     const taskList = makeTaskList(tasks);
-    const { default: KanbanBoard } = await import('./KanbanBoard');
     return render(
       <MemoryRouter>
         <KanbanBoard taskListId={1} tasks={tasks} taskList={taskList} />

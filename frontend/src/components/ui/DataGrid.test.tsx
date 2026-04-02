@@ -37,6 +37,11 @@ function getCells() {
   return screen.getAllByRole('gridcell');
 }
 
+/** Ativa o foco lazy do DataGrid — simula o usuário tabbando para o grid. */
+function focusGrid() {
+  fireEvent.focus(getGrid());
+}
+
 // ─── Backward compatibility (list mode) ────────────────────────────
 
 describe('DataGrid (list mode — backward compat)', () => {
@@ -64,6 +69,7 @@ describe('DataGrid (list mode — backward compat)', () => {
       <DataGrid items={items} columns={columns} multiSelect
         selectedIds={new Set()} onSelectionChange={onSel} autoFocusOnMount={false} />
     );
+    focusGrid();
     const grid = getGrid();
     fireEvent.keyDown(grid, { key: ' ', ctrlKey: true });
     expect(onSel).toHaveBeenCalled();
@@ -75,6 +81,7 @@ describe('DataGrid (list mode — backward compat)', () => {
       <DataGrid items={items} columns={columns} multiSelect
         selectedIds={new Set()} onSelectionChange={onSel} autoFocusOnMount={false} />
     );
+    focusGrid();
     const grid = getGrid();
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     expect(onSel).toHaveBeenCalledWith(new Set(['b']));
@@ -116,6 +123,7 @@ describe('DataGrid (checkbox mode)', () => {
 
   it('Space (sem Ctrl) faz toggle de seleção', () => {
     renderCheckbox();
+    focusGrid();
     fireEvent.keyDown(getGrid(), { key: ' ' });
     expect(onSelectionChange).toHaveBeenCalled();
     const set = onSelectionChange.mock.calls[0][0] as Set<string>;
@@ -124,6 +132,7 @@ describe('DataGrid (checkbox mode)', () => {
 
   it('Space desmarca item já selecionado', () => {
     renderCheckbox(new Set(['a']));
+    focusGrid();
     fireEvent.keyDown(getGrid(), { key: ' ' });
     expect(onSelectionChange).toHaveBeenCalled();
     const set = onSelectionChange.mock.calls[0][0] as Set<string>;
@@ -132,6 +141,7 @@ describe('DataGrid (checkbox mode)', () => {
 
   it('Arrow navigation NÃO altera seleção', () => {
     renderCheckbox(new Set(['a']));
+    focusGrid();
     const grid = getGrid();
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
     expect(onSelectionChange).not.toHaveBeenCalled();
@@ -158,6 +168,7 @@ describe('DataGrid (checkbox mode)', () => {
 
   it('Ctrl+A seleciona todos', () => {
     renderCheckbox();
+    focusGrid();
     fireEvent.keyDown(getGrid(), { key: 'a', ctrlKey: true });
     expect(onSelectionChange).toHaveBeenCalled();
     const set = onSelectionChange.mock.calls[0][0] as Set<string>;
@@ -166,6 +177,7 @@ describe('DataGrid (checkbox mode)', () => {
 
   it('Escape limpa seleção', () => {
     renderCheckbox(new Set(['a', 'b']));
+    focusGrid();
     fireEvent.keyDown(getGrid(), { key: 'Escape' });
     expect(onSelectionChange).toHaveBeenCalled();
     const set = onSelectionChange.mock.calls[0][0] as Set<string>;
@@ -210,6 +222,7 @@ describe('DataGrid (onMoveItem)', () => {
 
   it('Alt+Down move item para baixo', () => {
     renderMoveable();
+    focusGrid();
     const grid = getGrid();
     fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
     expect(onMoveItem).toHaveBeenCalledWith(0, 1);
@@ -217,6 +230,7 @@ describe('DataGrid (onMoveItem)', () => {
 
   it('Alt+Up no primeiro item não chama onMoveItem', () => {
     renderMoveable();
+    focusGrid();
     const grid = getGrid();
     fireEvent.keyDown(grid, { key: 'ArrowUp', altKey: true });
     expect(onMoveItem).not.toHaveBeenCalled();
@@ -224,6 +238,7 @@ describe('DataGrid (onMoveItem)', () => {
 
   it('Alt+Down no último item não chama onMoveItem', () => {
     renderMoveable();
+    focusGrid();
     const grid = getGrid();
     // navigate to last item
     fireEvent.keyDown(grid, { key: 'ArrowDown' });
@@ -236,6 +251,7 @@ describe('DataGrid (onMoveItem)', () => {
 
   it('Alt+Up move item para cima (a partir da segunda linha)', () => {
     renderMoveable();
+    focusGrid();
     const grid = getGrid();
     fireEvent.keyDown(grid, { key: 'ArrowDown' }); // focus row 1
     fireEvent.keyDown(grid, { key: 'ArrowUp', altKey: true });
@@ -248,6 +264,7 @@ describe('DataGrid (onMoveItem)', () => {
       <DataGrid items={items} columns={columns} multiSelect
         selectedIds={new Set()} onSelectionChange={onSel} autoFocusOnMount={false} />
     );
+    focusGrid();
     const grid = getGrid();
     fireEvent.keyDown(grid, { key: 'ArrowDown', altKey: true });
     // without onMoveItem prop, behaves as normal arrow
@@ -258,12 +275,16 @@ describe('DataGrid (onMoveItem)', () => {
 // ─── onFocusChange ─────────────────────────────────────────────────
 
 describe('DataGrid (onFocusChange)', () => {
-  it('chama onFocusChange no mount com o primeiro item', () => {
+  it('chama onFocusChange ao receber foco pela primeira vez', () => {
     const onFocus = vi.fn();
     render(
       <DataGrid items={items} columns={columns}
         onFocusChange={onFocus} autoFocusOnMount={false} />
     );
+    // Foco lazy: não dispara no mount
+    expect(onFocus).not.toHaveBeenCalled();
+    // Ao receber foco, ativa e notifica com o primeiro item
+    focusGrid();
     expect(onFocus).toHaveBeenCalledWith(items[0], 0);
   });
 
@@ -273,6 +294,7 @@ describe('DataGrid (onFocusChange)', () => {
       <DataGrid items={items} columns={columns}
         onFocusChange={onFocus} autoFocusOnMount={false} />
     );
+    focusGrid();
     onFocus.mockClear();
     fireEvent.keyDown(getGrid(), { key: 'ArrowDown' });
     expect(onFocus).toHaveBeenCalledWith(items[1], 1);
@@ -299,6 +321,8 @@ describe('DataGrid (regressão: loop infinito de re-renders)', () => {
         onFocusChange={onFocus} autoFocusOnMount={false} />
     );
 
+    // Ativa o foco lazy
+    focusGrid();
     expect(onFocus).toHaveBeenCalledTimes(1);
     onFocus.mockClear();
 
@@ -324,6 +348,8 @@ describe('DataGrid (regressão: loop infinito de re-renders)', () => {
         onFocusChange={onFocus} autoFocusOnMount={false} />
     );
 
+    // Ativa o foco lazy
+    focusGrid();
     expect(onFocus).toHaveBeenCalledTimes(1);
     onFocus.mockClear();
 
@@ -350,6 +376,8 @@ describe('DataGrid (regressão: loop infinito de re-renders)', () => {
         onFocusChange={onFocus} autoFocusOnMount={false} />
     );
 
+    // Ativa o foco lazy
+    focusGrid();
     expect(onFocus).toHaveBeenCalledTimes(1);
     onFocus.mockClear();
 

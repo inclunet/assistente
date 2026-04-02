@@ -23,7 +23,7 @@ describe('BasePicker', () => {
       />
     );
 
-    expect(screen.getByRole('status')).toHaveTextContent('Carregando...');
+    expect(screen.getByText('Carregando...')).toBeInTheDocument();
   });
 
   it('renderiza estado de erro com retry', () => {
@@ -54,7 +54,7 @@ describe('BasePicker', () => {
       />
     );
 
-    expect(screen.getByRole('status')).toHaveTextContent('Nenhuma opção disponível');
+    expect(screen.getByText('Nenhuma opção disponível')).toBeInTheDocument();
   });
 
   it('renderiza combobox quando ha itens', () => {

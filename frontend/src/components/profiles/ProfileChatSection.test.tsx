@@ -8,6 +8,9 @@ vi.mock('react-i18next', () => ({
   useTranslation: () => ({
     t: (key: string) => {
       const translations: Record<string, string> = {
+        'profiles.chatSection.groupProvider': 'Provedor e Modelo',
+        'profiles.chatSection.groupGeneration': 'Parâmetros de Geração',
+        'profiles.chatSection.groupContext': 'Contexto e Limites',
         'profiles.chatSection.provider': 'Provedor LLM',
         'profiles.chatSection.model': 'Modelo',
         'profiles.chatSection.temperature': 'Temperatura',

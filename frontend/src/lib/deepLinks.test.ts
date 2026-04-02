@@ -545,7 +545,7 @@ describe('roundtrip build → parse', () => {
   ];
 
   for (const action of actions) {
-    it(`roundtrip para ${action.type}${action.type === 'tab:new' && (action as any).file ? ' (open)' : ''}`, () => {
+    it(`roundtrip para ${action.type}${action.type === 'tab:new' && 'file' in action && (action as Record<string, unknown>).file ? ' (open)' : ''}`, () => {
       const uri = buildDeepLink(action);
       const parsed = parseDeepLink(uri);
       expect(parsed).toEqual(action);

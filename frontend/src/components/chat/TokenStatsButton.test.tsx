@@ -3,7 +3,7 @@ import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { TokenStatsButton } from './TokenStatsButton';
 
 const getStatsSpy = vi.fn();
-let mockEventsOnCallback: ((data: any) => void) | null = null;
+let mockEventsOnCallback: ((data: Record<string, unknown>) => void) | null = null;
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({ t: (key: string) => key }),
@@ -14,7 +14,7 @@ vi.mock('@wailsjs/go/main/App', () => ({
 }));
 
 vi.mock('@wailsjs/runtime/runtime', () => ({
-  EventsOn: (event: string, callback: (data: any) => void) => {
+  EventsOn: (event: string, callback: (data: Record<string, unknown>) => void) => {
     if (event === 'chat:token_stats_update') {
       mockEventsOnCallback = callback;
     }

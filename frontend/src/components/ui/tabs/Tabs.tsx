@@ -1,5 +1,5 @@
-import type { KeyboardEventHandler, MouseEventHandler, Ref } from 'react';
-import { ReactNode, createContext, useContext, useId, useMemo, useRef } from 'react';
+    import type { KeyboardEventHandler, MouseEventHandler, Ref } from 'react';
+import { ReactNode, createContext, useCallback, useContext, useId, useLayoutEffect, useMemo, useRef } from 'react';
 import { useTabsKeyboardNav, type TabsActivationMode } from './useTabsKeyboardNav';
 import './Tabs.css';
 
@@ -167,19 +167,67 @@ export function Tab({
   const { value: activeValue, onValueChange, idBase } = useTabsContext();
   const isActive = value === activeValue;
   const ariaControls = controlsId === null ? undefined : (controlsId ?? `${idBase}-tabpanel-${value}`);
+  const buttonRef = useRef<HTMLButtonElement>(null);
+
+  // Manage aria-selected and tabIndex via DOM instead of React props.
+  // React reconciliation calls setAttribute even when the DOM already has
+  // the correct value (it compares against its virtual DOM, not the real
+  // DOM).  That redundant setAttribute fires a UIA PropertyChanged event
+  // which makes NVDA restart its announcement — the "double read" bug.
+  // By keeping these out of JSX and guarding writes here, we ensure the
+  // browser only fires one accessibility notification per interaction.
+  useLayoutEffect(() => {
+    const el = buttonRef.current;
+    if (!el) return;
+    const selectedStr = String(isActive);
+    if (el.getAttribute('aria-selected') !== selectedStr) {
+      el.setAttribute('aria-selected', selectedStr);
+    }
+    const idx = isActive ? 0 : -1;
+    if (el.tabIndex !== idx) {
+      el.tabIndex = idx;
+    }
+
+    // Toggle panel visibility in sync with tab activation.
+    // If the panel is toggled inside a microtask after focus (the previous attempt),
+    // NVDA would often re-announce the tab when its controlled element was modified.
+    // By keeping this here and guarded, we only mutate when the React state changes.
+    if (ariaControls) {
+      const panel = document.getElementById(ariaControls);
+      if (panel && panel.hidden !== !isActive) {
+        panel.hidden = !isActive;
+      }
+    }
+  }, [isActive, ariaControls]);
 
   return (
     <button
+      ref={buttonRef}
       type="button"
       role="tab"
       data-tab-value={value}
       id={`${idBase}-tab-${value}`}
-      aria-selected={isActive}
       aria-controls={ariaControls}
       aria-label={ariaLabel}
       aria-description={ariaDescription}
-      tabIndex={isActive ? 0 : -1}
       className={`tabs__tab${className ? ` ${className}` : ''}${isActive && activeClassName ? ` ${activeClassName}` : ''}`}
+      onMouseDown={(event) => {
+        // Set all accessibility-relevant DOM attributes before the browser
+        // moves focus (which happens right after mousedown returns).
+        if (event.button !== 0 || isActive) return;
+        const btn = event.currentTarget;
+        const tablist = btn.closest('[role="tablist"]');
+
+        const prev = tablist?.querySelector<HTMLElement>('button[role="tab"][aria-selected="true"]');
+
+        // Toggle tab selection
+        if (prev && prev !== btn) {
+          prev.setAttribute('aria-selected', 'false');
+          prev.tabIndex = -1;
+        }
+        btn.setAttribute('aria-selected', 'true');
+        btn.tabIndex = 0;
+      }}
       onClick={(event) => {
         onValueChange(value);
         onClick?.(event);
@@ -203,16 +251,36 @@ export interface TabPanelProps {
 export function TabPanel({ value, className, children }: TabPanelProps) {
   const { value: activeValue, idBase } = useTabsContext();
   const isActive = activeValue === value;
+  const panelRef = useRef<HTMLDivElement | null>(null);
+
+  // Set hidden on mount so the panel never flashes visible.
+  const setRef = useCallback((node: HTMLDivElement | null) => {
+    panelRef.current = node;
+    if (node) node.hidden = !isActive;
+  }, []); // intentionally stable — useLayoutEffect handles updates
+
+  // Manage hidden via DOM with guard — same pattern as Tab's aria-selected.
+  // If useTabsKeyboardNav already toggled hidden before focus(), the guard
+  // prevents React from redundantly setting it again — which would fire an
+  // accessibility event and cause NVDA to re-announce the focused tab.
+  useLayoutEffect(() => {
+    const el = panelRef.current;
+    if (!el) return;
+    const shouldHide = !isActive;
+    if (el.hidden !== shouldHide) {
+      el.hidden = shouldHide;
+    }
+  }, [isActive]);
 
   return (
     <div
+      ref={setRef}
       id={`${idBase}-tabpanel-${value}`}
       role="tabpanel"
       aria-labelledby={`${idBase}-tab-${value}`}
       className={className}
-      hidden={!isActive}
     >
-      {isActive ? children : null}
+      {children}
     </div>
   );
 }

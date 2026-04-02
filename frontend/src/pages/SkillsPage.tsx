@@ -405,7 +405,7 @@ export default function SkillsPage() {
         size="lg"
       >
         {crud.editingItem && (
-          <div className="skills-editor" aria-live="polite">
+          <div className="skills-editor">
             <SkillGeneralSection
               item={crud.editingItem}
               onFieldChange={(field, value) => {

@@ -456,7 +456,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
       try {
         const currentWorkflow = get().taskLists.get(taskListId)?.workflow;
         const initialStatusId = currentWorkflow?.initialStatusId ?? statuses[0]?.id ?? 1;
-        await UpdateWorkflowFull(taskListId, statuses as any, transitions, initialStatusId, {});
+        await UpdateWorkflowFull(taskListId, statuses as TaskListWorkflowStatus[], transitions, initialStatusId, {});
         await get().loadTaskList(taskListId);
       } catch (error) {
         get().setError('updateWorkflow', String(error));
@@ -465,7 +465,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
 
     updateWorkflowFull: async (taskListId: number, statuses: TaskListWorkflowStatus[], transitions: Record<number, number[]>, initialStatusId: number, statusMigration?: Record<number, number>) => {
       try {
-        await UpdateWorkflowFull(taskListId, statuses as any, transitions, initialStatusId, statusMigration ?? {});
+        await UpdateWorkflowFull(taskListId, statuses as TaskListWorkflowStatus[], transitions, initialStatusId, statusMigration ?? {});
         await get().loadTaskList(taskListId);
       } catch (error) {
         get().setError('updateWorkflowFull', String(error));

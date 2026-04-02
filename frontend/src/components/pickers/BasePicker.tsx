@@ -163,7 +163,7 @@ export const BasePicker = ({
       return <>{loadingState}</>;
     }
     return (
-      <div className={effectiveLoadingClassName} role="status" aria-live="polite">
+      <div className={effectiveLoadingClassName}>
         <span className="loading-spinner" aria-hidden="true" />
         {renderLabelText(resolvedLoadingLabel, resolvedLoadingHidden)}
       </div>
@@ -193,7 +193,7 @@ export const BasePicker = ({
     }
 
     return (
-      <div className={effectiveEmptyClassName} role="status" aria-live="polite">
+      <div className={effectiveEmptyClassName}>
         {renderLabelText(resolvedEmptyLabel, false)}
       </div>
     );
@@ -232,12 +232,12 @@ export const BasePicker = ({
   return (
     <div className={formClassName}>
       {showFormLabel && (
-        <label className={formLabelClassName}>
+        <span className={formLabelClassName} aria-hidden="true">
           {showFormLabelIcon && icon && (
             <span className={formLabelIconClassName}>{icon}</span>
           )}
           {label}
-        </label>
+        </span>
       )}
       {wrapCombobox ? (
         <div className={comboboxWrapperClassName} {...comboboxWrapperProps}>

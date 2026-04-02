@@ -1,0 +1,87 @@
+/* ── ProfileEditorTabs ──────────────────────────────────── */
+
+.profile-editor-tabs {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1;
+}
+
+/* ── Tab list ──────────────────────────────────────────── */
+
+.profile-editor-tabs__list {
+  display: flex;
+  align-items: stretch;
+  gap: 0;
+  padding: 0 1rem;
+  background-color: var(--bg-elevated);
+  border-bottom: 1px solid var(--border-default);
+  overflow-x: auto;
+  scrollbar-width: none;
+  flex-shrink: 0;
+}
+
+.profile-editor-tabs__list::-webkit-scrollbar {
+  display: none;
+}
+
+/* ── Tab button ────────────────────────────────────────── */
+
+.profile-editor-tabs__tab {
+  padding: 0.625rem 1rem;
+  min-height: 36px;
+  font-size: var(--font-size-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    color var(--duration-fast) var(--ease-default),
+    border-color var(--duration-fast) var(--ease-default);
+}
+
+.profile-editor-tabs__tab:hover {
+  color: var(--text-primary);
+}
+
+.profile-editor-tabs__tab:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.profile-editor-tabs__tab--active,
+.profile-editor-tabs__tab[aria-selected="true"] {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+/* ── Tab panel ─────────────────────────────────────────── */
+
+.profile-editor-tabs__panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  overflow-y: auto;
+  padding: 1.25rem 1.5rem;
+  max-width: 800px;
+}
+
+/* ── Responsive ────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .profile-editor-tabs__list {
+    padding: 0 0.5rem;
+  }
+
+  .profile-editor-tabs__tab {
+    padding: 0.5rem 0.625rem;
+    font-size: var(--font-size-xs);
+  }
+
+  .profile-editor-tabs__panel {
+    padding: 1rem;
+  }
+}

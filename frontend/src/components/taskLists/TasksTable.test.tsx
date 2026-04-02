@@ -3,6 +3,7 @@ import type { ReactNode } from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { MemoryRouter } from 'react-router-dom';
+import TasksTable from './TasksTable';
 
 /* ── mocks de dependências externas ────────────────────────── */
 
@@ -134,7 +135,6 @@ describe('TasksTable', () => {
     tasks = makeTasks(),
     props: Record<string, unknown> = {},
   ) {
-    const { default: TasksTable } = await import('./TasksTable');
     return render(
       <MemoryRouter>
         <TasksTable

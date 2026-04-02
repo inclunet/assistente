@@ -25,7 +25,7 @@ export function useTabScrollState(
         scrollRef.current.scrollTop = saved;
       }
     });
-  }, [activeTab?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [activeTab?.id]);
 
   // Rastreia scroll position
   useEffect(() => {
@@ -46,5 +46,5 @@ export function useTabScrollState(
         void updateTab(tabId, { state: { scrollTop: scrollTopRef.current } });
       }
     };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []);
 }

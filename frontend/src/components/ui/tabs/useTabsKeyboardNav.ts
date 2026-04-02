@@ -135,34 +135,25 @@ export function useTabsKeyboardNav({
       const nextValue = nextTab ? getTabValue(nextTab) : null;
 
       if (activationMode === 'auto' && nextValue) {
+        const prevTab = tabs[currentIndex];
+
+        // 1. Disable current tab
+        if (prevTab) {
+          prevTab.setAttribute('aria-selected', 'false');
+          prevTab.tabIndex = -1;
+        }
+
+        // 2. Select next tab immediately (before focus)
+        nextTab.setAttribute('aria-selected', 'true');
+        nextTab.tabIndex = 0;
+
+        // 3. Update state (this triggers re-render but our guards in useLayoutEffect will skip redundant DOM writes)
         onValueChange?.(nextValue);
 
-        // After re-render, the tab button DOM node may be replaced by React.
-        // Find it by data attribute instead of holding a stale reference.
-        const refocus = () => {
-          const list = tabListRef.current;
-          if (!list) return;
-          const btn = list.querySelector(
-            `button[role="tab"][data-tab-value="${nextValue}"]`
-          ) as HTMLButtonElement | null;
-          btn?.focus();
-        };
-
-        refocus();
-
-        // Guard against content components that steal focus during mount.
-        let guardActive = true;
-        const focusGuard = (e: Event) => {
-          if (!guardActive) return;
-          const el = e.target as HTMLElement;
-          if (el?.closest?.('[role="tablist"]')) return;
-          requestAnimationFrame(refocus);
-        };
-        document.addEventListener('focusin', focusGuard, true);
-        setTimeout(() => {
-          guardActive = false;
-          document.removeEventListener('focusin', focusGuard, true);
-        }, 350);
+        // 4. Focus last. This is the crucial event.
+        // Screen readers usually announce the element receiving focus. 
+        // If the state is already correctly "selected", they announce "Tab Name, Selected, 1 of X".
+        nextTab.focus();
 
         return;
       }
