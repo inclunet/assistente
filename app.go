@@ -3706,6 +3706,32 @@ func (a *App) GetSpeechProviders() []*llm.ProviderConfig {
 	return result
 }
 
+// GetTTSModels retorna modelos TTS disponíveis para um provedor.
+// Busca dinamicamente via /v1/models, com fallback para lista estática.
+func (a *App) GetTTSModels(providerID string) []speech.SpeechModelInfo {
+	if providerID == "" {
+		return []speech.SpeechModelInfo{}
+	}
+	client := a.createTTSClientForProvider(providerID, "")
+	if client == nil {
+		return speech.StaticTTSModels()
+	}
+	return client.FetchTTSModels()
+}
+
+// GetSTTModels retorna modelos STT disponíveis para um provedor.
+// Busca dinamicamente via /v1/models, com fallback para lista estática.
+func (a *App) GetSTTModels(providerID string) []speech.SpeechModelInfo {
+	if providerID == "" {
+		return []speech.SpeechModelInfo{}
+	}
+	client := a.createTTSClientForProvider(providerID, "")
+	if client == nil {
+		return speech.StaticSTTModels()
+	}
+	return client.FetchSTTModels()
+}
+
 // GetLLMProviders retorna todos os provedores LLM disponíveis
 func (a *App) GetLLMProviders() []*llm.ProviderConfig {
 	if a.llmRegistry == nil {

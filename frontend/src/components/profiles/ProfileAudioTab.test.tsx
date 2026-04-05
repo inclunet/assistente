@@ -13,6 +13,8 @@ vi.mock('react-i18next', () => ({
 vi.mock('@wailsjs/go/main/App', () => ({
   GetLLMProviders: () => Promise.resolve([]),
   GetSpeechProviders: () => Promise.resolve([]),
+  GetTTSModels: () => Promise.resolve([]),
+  GetSTTModels: () => Promise.resolve([]),
 }));
 
 vi.mock('@wailsjs/go/models', () => ({
@@ -235,7 +237,10 @@ describe('ProfileAudioTab', () => {
 
       // Collect all calls - find the one for system picker (value = system's current provider)
       const systemCalls = voiceProviderPickerItemsSpy.mock.calls.filter(
-        ([ids]: [string[]]) => ids.includes('ref_assistant') && !ids.includes('ref_user')
+        (call: unknown[]) => {
+          const ids = call[0] as string[];
+          return ids.includes('ref_assistant') && !ids.includes('ref_user');
+        }
       );
       // System picker should NOT have ref_user since user follows system
       expect(systemCalls.length).toBeGreaterThanOrEqual(1);
@@ -253,7 +258,10 @@ describe('ProfileAudioTab', () => {
       render(<ProfileAudioTab editingProfile={profile} updateField={vi.fn()} updateFields={vi.fn()} profileId="test" />);
 
       const userCalls = voiceProviderPickerItemsSpy.mock.calls.filter(
-        ([ids]: [string[]]) => ids.includes('ref_assistant') && !ids.includes('ref_system')
+        (call: unknown[]) => {
+          const ids = call[0] as string[];
+          return ids.includes('ref_assistant') && !ids.includes('ref_system');
+        }
       );
       // User picker should NOT have ref_system since system follows user
       expect(userCalls.length).toBeGreaterThanOrEqual(1);
@@ -272,7 +280,10 @@ describe('ProfileAudioTab', () => {
 
       // At least one picker should have both ref_assistant and ref_system
       const userCalls = voiceProviderPickerItemsSpy.mock.calls.filter(
-        ([ids]: [string[]]) => ids.includes('ref_assistant') && ids.includes('ref_system')
+        (call: unknown[]) => {
+          const ids = call[0] as string[];
+          return ids.includes('ref_assistant') && ids.includes('ref_system');
+        }
       );
       expect(userCalls.length).toBeGreaterThanOrEqual(1);
     });

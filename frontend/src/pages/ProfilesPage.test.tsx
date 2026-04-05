@@ -82,6 +82,8 @@ vi.mock('@wailsjs/go/main/App', () => ({
   GetOpenAITTSVoices: vi.fn().mockResolvedValue([]),
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
   GetSpeechProviders: vi.fn().mockResolvedValue([]),
+  GetTTSModels: vi.fn().mockResolvedValue([]),
+  GetSTTModels: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@wailsjs/go/models', () => ({

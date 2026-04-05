@@ -208,4 +208,75 @@ describe('ProfileInteractionSection', () => {
     
     expect(handleChange).toHaveBeenCalledWith('enableFeedbackSounds', true);
   });
+
+  describe('modelos STT dinâmicos', () => {
+    const whisperProps = {
+      ...defaultProps,
+      sttProvider: 'whisper_api',
+      sttLLMProviderId: 'openai-1',
+    };
+
+    it('renderiza modelos STT dinâmicos quando sttModels é fornecido', () => {
+      const sttModels = [
+        { id: 'whisper-1', name: 'Whisper 1' },
+        { id: 'custom-stt-model', name: 'Custom STT' },
+      ];
+
+      render(<ProfileInteractionSection {...whisperProps} sttModels={sttModels} />);
+
+      const select = screen.getByTestId('stt-model-select') as HTMLSelectElement;
+      const options = Array.from(select.querySelectorAll('option'));
+
+      expect(options).toHaveLength(2);
+      expect(options[0]).toHaveValue('whisper-1');
+      expect(options[0]).toHaveTextContent('Whisper 1');
+      expect(options[1]).toHaveValue('custom-stt-model');
+      expect(options[1]).toHaveTextContent('Custom STT');
+    });
+
+    it('renderiza modelos STT estáticos como fallback quando sttModels está vazio', () => {
+      render(<ProfileInteractionSection {...whisperProps} sttModels={[]} />);
+
+      const select = screen.getByTestId('stt-model-select') as HTMLSelectElement;
+      const options = Array.from(select.querySelectorAll('option'));
+
+      // Fallback estático: whisper-1, gpt-4o-transcribe, gpt-4o-mini-transcribe
+      expect(options).toHaveLength(3);
+      expect(options[0]).toHaveValue('whisper-1');
+      expect(options[1]).toHaveValue('gpt-4o-transcribe');
+      expect(options[2]).toHaveValue('gpt-4o-mini-transcribe');
+    });
+
+    it('renderiza modelos STT estáticos como fallback quando sttModels é undefined', () => {
+      render(<ProfileInteractionSection {...whisperProps} />);
+
+      const select = screen.getByTestId('stt-model-select') as HTMLSelectElement;
+      const options = Array.from(select.querySelectorAll('option'));
+
+      expect(options).toHaveLength(3);
+      expect(options[0]).toHaveValue('whisper-1');
+    });
+
+    it('chama onChange ao selecionar modelo STT dinâmico', async () => {
+      const handleChange = vi.fn();
+      const user = userEvent.setup();
+      const sttModels = [
+        { id: 'whisper-1', name: 'Whisper 1' },
+        { id: 'custom-stt', name: 'Custom STT' },
+      ];
+
+      render(
+        <ProfileInteractionSection
+          {...whisperProps}
+          onChange={handleChange}
+          sttModels={sttModels}
+        />
+      );
+
+      const select = screen.getByTestId('stt-model-select');
+      await user.selectOptions(select, 'custom-stt');
+
+      expect(handleChange).toHaveBeenCalledWith('sttModel', 'custom-stt');
+    });
+  });
 });

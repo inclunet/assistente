@@ -434,6 +434,14 @@ export function GetSpeechProviders() {
   return window['go']['main']['App']['GetSpeechProviders']();
 }
 
+export function GetTTSModels(arg1) {
+  return window['go']['main']['App']['GetTTSModels'](arg1);
+}
+
+export function GetSTTModels(arg1) {
+  return window['go']['main']['App']['GetSTTModels'](arg1);
+}
+
 export function GetLLMSettings() {
   return window['go']['main']['App']['GetLLMSettings']();
 }

@@ -15,9 +15,10 @@ export interface ProfileVoiceSectionProps {
   label?: string;
   helpText?: string;
   references?: Array<{ id: string; label: string }>;
-  resolvedVoiceId?: string; // ID final resolvido se for uma referência
-  ttsModel?: string; // Modelo do TTS (pode ser tts-1, tts-1-hd)
-  onModelChange?: (model: string) => void; // Callback para mudança de modelo TTS
+  resolvedVoiceId?: string;
+  ttsModel?: string;
+  ttsModels?: Array<{ id: string; name: string }>; // Modelos disponíveis (dinâmico via backend)
+  onModelChange?: (model: string) => void;
   onChange: (field: 'voice' | 'rate' | 'volume', value: string | number) => void;
   disabled?: boolean;
 }
@@ -33,6 +34,7 @@ export function ProfileVoiceSection({
   providerId,
   profileId,
   ttsModel,
+  ttsModels,
   onModelChange,
   label,
   helpText,
@@ -127,8 +129,12 @@ export function ProfileVoiceSection({
             onChange={(e) => onModelChange(e.target.value)}
             disabled={disabled}
           >
-            <option value="tts-1">{t('profiles.ttsModel.tts1', 'tts-1 (Rápido)')}</option>
-            <option value="tts-1-hd">{t('profiles.ttsModel.tts1hd', 'tts-1-hd (Alta Definição)')}</option>
+            {(ttsModels && ttsModels.length > 0 ? ttsModels : [
+              { id: 'tts-1', name: t('profiles.ttsModel.tts1', 'tts-1 (Rápido)') },
+              { id: 'tts-1-hd', name: t('profiles.ttsModel.tts1hd', 'tts-1-hd (Alta Definição)') },
+            ]).map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
           </select>
         </div>
       )}

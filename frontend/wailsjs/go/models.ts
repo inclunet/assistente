@@ -3344,6 +3344,25 @@ export namespace skills {
 
 }
 
+export namespace speech {
+
+	export class SpeechModelInfo {
+	    id: string;
+	    name: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SpeechModelInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
+	}
+
+}
+
 export namespace terminal {
 	
 	export class HistoryEntry {
