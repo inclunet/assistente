@@ -338,24 +338,37 @@ var knownSTTModels = map[string]bool{
 	"gpt-4o-transcribe": true, "gpt-4o-mini-transcribe": true,
 }
 
-// ttsPatterns são prefixos/sufixos heurísticos para modelos TTS não catalogados.
-var ttsPatterns = []string{"tts-"}
+// ttsPrefixes são prefixos heurísticos para modelos TTS não catalogados.
+// - "tts-": OpenAI (tts-1, tts-1-hd)
+// - "voice-": Piper/LocalAI (voice-pt_BR-cadu-medium, voice-en_US-amy-medium)
+var ttsPrefixes = []string{"tts-", "voice-"}
 
-// sttPatterns são prefixos/sufixos heurísticos para modelos STT não catalogados.
-// Sufixos usam o prefixo "-" como marcador (ex: "-transcribe" → strings.HasSuffix).
+// ttsInfixes são substrings que indicam modelo TTS quando aparecem no meio do ID.
+// Ex: qwen3-tts-0.6b-custom-voice, vllm-omni-qwen3-tts-custom-voice
+var ttsInfixes = []string{"-tts-", "-tts"}
+
+// sttPrefixes são prefixos heurísticos para modelos STT não catalogados.
 var sttPrefixes = []string{"whisper"}
+
+// sttSuffixes são sufixos heurísticos para modelos STT não catalogados.
 var sttSuffixes = []string{"-transcribe", "-asr"}
 
 // isTTSModel retorna true se o ID é um modelo TTS conhecido ou corresponde
-// a padrões heurísticos (prefixo "tts-"). Para providers alternativos com nomes
-// fora desses padrões, o modelo aparece na lista estática de fallback.
+// a padrões heurísticos:
+//   - prefixo "tts-" (OpenAI), "voice-" (Piper/LocalAI)
+//   - infixo "-tts-" ou sufixo "-tts" (qwen3-tts-*, vllm-omni-*-tts-*)
 func isTTSModel(id string) bool {
 	lower := strings.ToLower(id)
 	if knownTTSModels[lower] {
 		return true
 	}
-	for _, p := range ttsPatterns {
+	for _, p := range ttsPrefixes {
 		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	for _, infix := range ttsInfixes {
+		if strings.Contains(lower, infix) {
 			return true
 		}
 	}
