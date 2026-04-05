@@ -23,6 +23,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
+	"assistente/internal/jobs"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
@@ -35,20 +36,21 @@ import (
 	"assistente/internal/speech"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
+	deeplinktool "assistente/internal/tools/deeplink"
 	"assistente/internal/tools/editor"
 	"assistente/internal/tools/filesystem"
 	"assistente/internal/tools/history"
-	deeplinktool "assistente/internal/tools/deeplink"
 	msgtool "assistente/internal/tools/messaging"
 	questiontool "assistente/internal/tools/questionnaire"
 	"assistente/internal/tools/shell"
 	tasklisttool "assistente/internal/tools/tasklist"
 	"assistente/internal/tools/web"
-	"assistente/internal/jobs"
 	"assistente/internal/updater"
 	"assistente/internal/workspace"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"runtime"
+
+	wails_runtime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 var (
@@ -121,6 +123,10 @@ type App struct {
 
 	// Jobs manager (event-driven automation)
 	jobMgr *jobs.Manager
+
+	// Per-conversation streaming cancellation (barge-in, abort)
+	streamingMu       sync.Mutex
+	streamingContexts map[uint]context.CancelFunc // conversationID → cancel
 }
 
 // ==================== Tipos para Threads ====================
@@ -176,10 +182,11 @@ type StreamEvent struct {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		hotkeyLastFired:  make(map[uint]time.Time),
-		hotkeyThrottleMs: 1000,
-		profileManager:   profiles.NewManager(),
-		llmRegistry:      llm.NewProviderRegistry(),
+		hotkeyLastFired:   make(map[uint]time.Time),
+		hotkeyThrottleMs:  1000,
+		profileManager:    profiles.NewManager(),
+		llmRegistry:       llm.NewProviderRegistry(),
+		streamingContexts: make(map[uint]context.CancelFunc),
 	}
 }
 
@@ -239,6 +246,11 @@ func (a *App) startup(ctx context.Context) {
 	// Registra hotkeys do perfil ativo
 	a.registerActiveProfileHotkeys()
 
+	// Inicializa o speech manager a partir do perfil ativo
+	if err := a.InitSpeechManagerFromProfile(); err != nil {
+		log.Printf("[Speech] Init no startup falhou (lazy-init disponível): %v", err)
+	}
+
 	// Inicializa o sistema de jobs (event-driven automation)
 	a.initJobs()
 
@@ -255,7 +267,7 @@ func (a *App) startup(ctx context.Context) {
 	// Deixa 400ms para garantir que a janela está completamente pronta
 	go func() {
 		time.Sleep(400 * time.Millisecond)
-		runtime.WindowShow(a.ctx)
+		wails_runtime.WindowShow(a.ctx)
 		log.Printf("[App] WindowShow chamado após startup")
 	}()
 }
@@ -309,8 +321,8 @@ func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 
 	needsResolve := p.Chat.LLMProvider == profiles.DefaultProviderSentinel ||
 		p.Chat.Model == profiles.DefaultProviderSentinel ||
-		p.Voice.LLMProviderID == profiles.DefaultProviderSentinel ||
-		p.Interaction.LLMProviderID == profiles.DefaultProviderSentinel
+		p.Voice.Assistant.LLMProviderID == profiles.DefaultProviderSentinel ||
+		p.Input.LLMProviderID == profiles.DefaultProviderSentinel
 	if !needsResolve {
 		return p
 	}
@@ -324,7 +336,7 @@ func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 	resolved := *p
 	resolved.Chat = p.Chat
 	resolved.Voice = p.Voice
-	resolved.Interaction = p.Interaction
+	resolved.Input = p.Input
 
 	if resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel {
 		resolved.Chat.LLMProvider = defaultProvider.ID
@@ -332,11 +344,11 @@ func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 	if resolved.Chat.Model == profiles.DefaultProviderSentinel {
 		resolved.Chat.Model = defaultProvider.DefaultModel
 	}
-	if resolved.Voice.LLMProviderID == profiles.DefaultProviderSentinel {
-		resolved.Voice.LLMProviderID = defaultProvider.ID
+	if resolved.Voice.Assistant.LLMProviderID == profiles.DefaultProviderSentinel {
+		resolved.Voice.Assistant.LLMProviderID = defaultProvider.ID
 	}
-	if resolved.Interaction.LLMProviderID == profiles.DefaultProviderSentinel {
-		resolved.Interaction.LLMProviderID = defaultProvider.ID
+	if resolved.Input.LLMProviderID == profiles.DefaultProviderSentinel {
+		resolved.Input.LLMProviderID = defaultProvider.ID
 	}
 
 	log.Printf("[ResolveDefaults] Resolvido $default → provider=%s, model=%s", defaultProvider.ID, defaultProvider.DefaultModel)
@@ -614,7 +626,7 @@ func (a *App) migrateLegacyConfig() {
 func (a *App) initTerminalAndAllowlists() {
 	// Callback para emitir eventos Wails a partir dos managers
 	emitEvent := func(event string, data any) {
-		runtime.EventsEmit(a.ctx, event, data)
+		wails_runtime.EventsEmit(a.ctx, event, data)
 	}
 
 	// Terminal Manager (pool compartilhado LLM + usuário)
@@ -636,7 +648,7 @@ func (a *App) initTerminalAndAllowlists() {
 // Deve ser chamado após initToolRegistry (precisa do registry para registrar tools MCP).
 func (a *App) initMCP() {
 	emitEvent := func(event string, data any) {
-		runtime.EventsEmit(a.ctx, event, data)
+		wails_runtime.EventsEmit(a.ctx, event, data)
 
 		// Quando o set de tools MCP muda, regenera o catalogo de jobs
 		if event == "mcp:tools_changed" && a.jobMgr != nil {
@@ -669,7 +681,7 @@ func (a *App) initMessaging() {
 	a.responseNotifier = messaging.NewResponseNotifier()
 
 	emitEvent := func(event string, data any) {
-		runtime.EventsEmit(a.ctx, event, data)
+		wails_runtime.EventsEmit(a.ctx, event, data)
 	}
 
 	// Função TTS para sintetizar respostas em áudio para canais externos.
@@ -708,13 +720,14 @@ func (a *App) initMessaging() {
 
 		// Verifica se o provider de voz suporta canais externos
 		if profile != nil {
-			if profile.Voice.Provider == "disabled" || profile.Voice.Provider == "" {
+			assistantProvider := profile.Voice.Assistant.Provider
+			if !profile.Voice.Assistant.Enabled || assistantProvider == "disabled" || assistantProvider == "" {
 				log.Printf("[TTS-Channel] Voz desabilitada no perfil para canal %s — respondendo com texto", channel)
 				return nil, nil
 			}
 			// WebSpeech e SAPI5 são providers locais do desktop — não funcionam para canais externos
-			if profile.Voice.Provider == "webspeech" || profile.Voice.Provider == "sapi5" {
-				log.Printf("[TTS-Channel] Provider '%s' é local e não suporta canais externos — respondendo com texto", profile.Voice.Provider)
+			if assistantProvider == "webspeech" || assistantProvider == "sapi5" {
+				log.Printf("[TTS-Channel] Provider '%s' é local e não suporta canais externos — respondendo com texto", assistantProvider)
 				return nil, nil
 			}
 		}
@@ -726,8 +739,8 @@ func (a *App) initMessaging() {
 		// Usa a voz do perfil se especificada, senão usa Synthesize padrão
 		var result *speech.SynthesisResult
 		var err error
-		if profile != nil && profile.Voice.VoiceID != "" {
-			result, err = a.speechManager.SynthesizeWithVoice(text, profile.Voice.VoiceID)
+		if profile != nil && profile.Voice.Assistant.VoiceID != "" {
+			result, err = a.speechManager.SynthesizeWithVoice(text, profile.Voice.Assistant.VoiceID)
 		} else {
 			result, err = a.speechManager.Synthesize(text)
 		}
@@ -868,6 +881,8 @@ func (a *App) initMessaging() {
 			log.Printf("[Messaging] Slack habilitado")
 		}
 	}
+
+	// SIP (Telefonia) — desabilitado neste branch, ver feat/sip-voip-channel
 
 	// Registra a tool send_message no registry de ferramentas
 	if a.toolRegistry != nil {
@@ -1193,7 +1208,7 @@ func (a *App) CreateChannelFromTemplate(templateType string, values map[string]i
 	}
 
 	// Emite evento para atualizar UI
-	runtime.EventsEmit(a.ctx, "channel:created", map[string]string{"type": templateType})
+	wails_runtime.EventsEmit(a.ctx, "channel:created", map[string]string{"type": templateType})
 
 	return nil
 }
@@ -1559,7 +1574,7 @@ type appDeepLinkEmitter struct {
 }
 
 func (e *appDeepLinkEmitter) EmitDeepLink(uri string) {
-	runtime.EventsEmit(e.ctx, "deeplink:execute", uri)
+	wails_runtime.EventsEmit(e.ctx, "deeplink:execute", uri)
 }
 
 func (m *appTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
@@ -1581,7 +1596,7 @@ func (m *appTaskListManager) GetTaskListStats(taskListID uint) (map[string]inter
 func (m *appTaskListManager) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error) {
 	task, err := database.CreateTask(taskListID, title, description, code, link, parentID)
 	if err == nil && task != nil && m.ctx != nil {
-		runtime.EventsEmit(m.ctx, "task:created", task)
+		wails_runtime.EventsEmit(m.ctx, "task:created", task)
 	}
 	return task, err
 }
@@ -1589,7 +1604,7 @@ func (m *appTaskListManager) CreateTask(taskListID uint, title, description, cod
 func (m *appTaskListManager) CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*database.Task, error) {
 	task, err := database.CreateTaskFull(taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
 	if err == nil && task != nil && m.ctx != nil {
-		runtime.EventsEmit(m.ctx, "task:created", task)
+		wails_runtime.EventsEmit(m.ctx, "task:created", task)
 	}
 	return task, err
 }
@@ -1647,9 +1662,9 @@ func (m *appTaskListManager) MoveTaskToList(taskID uint, targetTaskListID uint) 
 	}
 
 	if m.ctx != nil && oldListID != targetTaskListID {
-		runtime.EventsEmit(m.ctx, "task:updated", task)
-		runtime.EventsEmit(m.ctx, "taskList:updated", oldListID)
-		runtime.EventsEmit(m.ctx, "taskList:updated", targetTaskListID)
+		wails_runtime.EventsEmit(m.ctx, "task:updated", task)
+		wails_runtime.EventsEmit(m.ctx, "taskList:updated", oldListID)
+		wails_runtime.EventsEmit(m.ctx, "taskList:updated", targetTaskListID)
 	}
 	return task, err
 }
@@ -1660,7 +1675,7 @@ func (m *appTaskListManager) emitTaskUpdated(id uint) {
 	}
 	task, err := database.GetTask(id)
 	if err == nil && task != nil {
-		runtime.EventsEmit(m.ctx, "task:updated", task)
+		wails_runtime.EventsEmit(m.ctx, "task:updated", task)
 	}
 }
 
@@ -1699,6 +1714,7 @@ func (m *appTaskListManager) UpdateWorkflowFull(taskListID uint, statuses []data
 func (m *appTaskListManager) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
 	return database.GetTaskCountsByStatus(taskListID)
 }
+
 // initToolRegistry inicializa o registro de ferramentas disponíveis
 func (a *App) initToolRegistry() {
 	a.toolRegistry = tools.NewRegistry()
@@ -2333,7 +2349,7 @@ func (a *App) CreateSkill(req SkillCreateRequest) (string, error) {
 		return "", err
 	}
 
-	runtime.EventsEmit(a.ctx, "skill:created", map[string]interface{}{
+	wails_runtime.EventsEmit(a.ctx, "skill:created", map[string]interface{}{
 		"slug": slug,
 		"name": req.Name,
 	})
@@ -2357,7 +2373,7 @@ func (a *App) DuplicateSkill(slug string) (string, error) {
 		name = copied.Name
 	}
 
-	runtime.EventsEmit(a.ctx, "skill:created", map[string]interface{}{
+	wails_runtime.EventsEmit(a.ctx, "skill:created", map[string]interface{}{
 		"slug": newSlug,
 		"name": name,
 	})
@@ -2376,7 +2392,7 @@ func (a *App) UpdateSkill(slug string, req SkillCreateRequest) error {
 		return err
 	}
 
-	runtime.EventsEmit(a.ctx, "skill:updated", map[string]interface{}{
+	wails_runtime.EventsEmit(a.ctx, "skill:updated", map[string]interface{}{
 		"slug": slug,
 		"name": req.Name,
 	})
@@ -2394,7 +2410,7 @@ func (a *App) DeleteSkill(slug string) error {
 		return err
 	}
 
-	runtime.EventsEmit(a.ctx, "skill:deleted", map[string]interface{}{
+	wails_runtime.EventsEmit(a.ctx, "skill:deleted", map[string]interface{}{
 		"slug": slug,
 	})
 
@@ -2777,12 +2793,12 @@ func (a *App) registerActiveProfileHotkeys() {
 	// Remove todos os hotkeys anteriores
 	a.hotkeyManager.UnregisterAllProfileHotkeys()
 
-	if activeProfile == nil || len(activeProfile.Interaction.Triggers) == 0 {
+	if activeProfile == nil || len(activeProfile.Input.Triggers) == 0 {
 		return
 	}
 
 	hotkeyCount := 0
-	for _, trigger := range activeProfile.Interaction.Triggers {
+	for _, trigger := range activeProfile.Input.Triggers {
 		if !trigger.Enabled || trigger.Hotkey == "" {
 			continue
 		}
@@ -2809,13 +2825,13 @@ func (a *App) registerActiveProfileHotkeys() {
 				a.hotkeyLastFired[triggerKey] = now
 
 				log.Printf("[Hotkey] HOTKEY ACIONADA! Trigger tipo %s", t.Type)
-				runtime.EventsEmit(a.ctx, "interaction:hotkey:triggered", map[string]interface{}{
+				wails_runtime.EventsEmit(a.ctx, "interaction:hotkey:triggered", map[string]interface{}{
 					"triggerType":  t.Type,
 					"bringToFront": t.HotkeyBringToFront,
 				})
 
 				if t.HotkeyGlobal && t.HotkeyBringToFront {
-					runtime.WindowShow(a.ctx)
+					wails_runtime.WindowShow(a.ctx)
 				}
 			},
 		)
@@ -2949,97 +2965,133 @@ type SynthesisResultInfo struct {
 	Provider    string `json:"provider"`
 }
 
-// InitSpeechManager inicializa o gerenciador de speech com as configurações
-// DEPRECATED: Use InitSpeechManagerFromProfile() que usa providers do perfil
-func (a *App) InitSpeechManager(apiKey, apiBaseURL, whisperLanguage, ttsVoice, ttsModel string) error {
-	config := speech.SpeechConfig{
-		STTProvider:      speech.STTProviderWhisper,
-		TTSProvider:      speech.TTSProviderOpenAI,
-		OpenAIAPIKey:     apiKey,
-		OpenAIAPIBaseURL: apiBaseURL,
-		WhisperModel:     "whisper-1",
-		WhisperLanguage:  whisperLanguage,
-		TTSModel:         ttsModel,
-		TTSVoice:         ttsVoice,
-	}
-
-	a.speechManager = speech.NewSpeechManager(config, a.credMgr)
-	log.Printf("Speech Manager inicializado (STT: whisper, TTS: openai)")
-	return nil
-}
-
-// InitSpeechManagerFromProfile inicializa o gerenciador de speech usando providers do perfil ativo
-// Permite TTS e STT usarem providers diferentes do LLM (ex: Claude para chat, OpenAI para vozes)
+// InitSpeechManagerFromProfile inicializa o gerenciador de speech usando o perfil ativo.
+// Resolve credenciais para cada role independentemente.
 func (a *App) InitSpeechManagerFromProfile() error {
-	// Carregar perfil ativo
 	activeProfile, err := a.profileManager.GetActive()
 	if err != nil || activeProfile == nil {
 		return fmt.Errorf("perfil ativo não encontrado: %w", err)
 	}
 
-	// Provider para TTS (se habilitado e usar OpenAI)
-	var ttsProviderConfig *llm.ProviderConfig
-	if activeProfile.Voice.Provider == "openai" && activeProfile.Voice.LLMProviderID != "" {
-		ttsProviderConfig = a.llmRegistry.Get(activeProfile.Voice.LLMProviderID)
-		if ttsProviderConfig == nil {
-			log.Printf("[Speech] TTS provider não encontrado: %s, usando fallback", activeProfile.Voice.LLMProviderID)
-		}
+	sm := a.createSpeechManagerForProfile(activeProfile)
+	if sm == nil {
+		return fmt.Errorf("falha ao criar speech manager para perfil ativo")
 	}
-
-	// Provider para STT (se usar whisper_api)
-	var sttProviderConfig *llm.ProviderConfig
-	if activeProfile.Interaction.STTProvider == "whisper_api" && activeProfile.Interaction.LLMProviderID != "" {
-		sttProviderConfig = a.llmRegistry.Get(activeProfile.Interaction.LLMProviderID)
-		if sttProviderConfig == nil {
-			log.Printf("[Speech] STT provider não encontrado: %s, usando fallback", activeProfile.Interaction.LLMProviderID)
-		}
-	}
-
-	// Usar provider de TTS se disponível, senão fallback para config global (migração)
-	apiKey := ""
-	apiBaseURL := ""
-	if ttsProviderConfig != nil {
-		apiBaseURL = ttsProviderConfig.BaseURL
-		// Credentials serão resolvidas automaticamente pelo httpclient via credMgr
-	} else if sttProviderConfig != nil {
-		apiBaseURL = sttProviderConfig.BaseURL
-	} else {
-		// Fallback: carregar da config global (compatibilidade)
-		cfg, _ := config.Load()
-		if cfg != nil {
-			apiKey = cfg.APIKey
-			apiBaseURL = cfg.APIBaseURL
-		}
-	}
-
-	// Configurar speech manager
-	config := speech.SpeechConfig{
-		STTProvider:      speech.STTProvider(activeProfile.Interaction.STTProvider),
-		TTSProvider:      speech.TTSProvider(activeProfile.Voice.Provider),
-		OpenAIAPIKey:     apiKey, // Usado apenas em fallback legacy
-		OpenAIAPIBaseURL: apiBaseURL,
-		WhisperModel:     "whisper-1",
-		WhisperLanguage:  activeProfile.Interaction.Language,
-		TTSModel:         "tts-1",
-		TTSVoice:         activeProfile.Voice.VoiceID,
-	}
-
-	a.speechManager = speech.NewSpeechManager(config, a.credMgr)
-
-	ttsInfo := "disabled"
-	if ttsProviderConfig != nil {
-		ttsInfo = fmt.Sprintf("%s (%s)", activeProfile.Voice.Provider, ttsProviderConfig.Name)
-	} else if activeProfile.Voice.Provider != "disabled" {
-		ttsInfo = activeProfile.Voice.Provider
-	}
-
-	sttInfo := activeProfile.Interaction.STTProvider
-	if sttProviderConfig != nil {
-		sttInfo = fmt.Sprintf("%s (%s)", sttInfo, sttProviderConfig.Name)
-	}
-
-	log.Printf("[Speech] Manager inicializado | TTS: %s | STT: %s", ttsInfo, sttInfo)
+	a.speechManager = sm
 	return nil
+}
+
+// createSpeechManagerForProfile cria um SpeechManager configurado a partir de um perfil.
+// Resolve defaults e credenciais. Retorna nil se o perfil for nil.
+func (a *App) createSpeechManagerForProfile(p *profiles.Profile) *speech.SpeechManager {
+	if p == nil {
+		return nil
+	}
+
+	// Resolve defaults ($default → provider ID real)
+	p = a.resolveProfileDefaults(p)
+
+	// Helper: resolve credenciais de uma role OpenAI
+	resolveAPICreds := func(llmProviderID string) (apiKey, baseURL, credPattern string) {
+		if llmProviderID == "" {
+			return "", "", ""
+		}
+		cfg := a.llmRegistry.Get(llmProviderID)
+		if cfg == nil {
+			log.Printf("[Speech] Provider '%s' não encontrado no registry", llmProviderID)
+			return "", "", ""
+		}
+		baseURL = cfg.BaseURL
+		credPattern = cfg.CredentialPattern
+		if cfg.CredentialPattern != "" {
+			if auth, err := a.credMgr.GetByPattern(cfg.CredentialPattern); err == nil && auth != nil {
+				apiKey = auth.Token
+			} else {
+				log.Printf("[Speech] Credencial não encontrada para pattern '%s' (provider=%s): %v",
+					cfg.CredentialPattern, llmProviderID, err)
+			}
+		} else {
+			log.Printf("[Speech] Provider '%s' não tem CredentialPattern configurado", llmProviderID)
+		}
+		return apiKey, baseURL, credPattern
+	}
+
+	// Resolve credenciais TTS por role
+	assistantKey, assistantURL, assistantCredPattern := resolveAPICreds(p.Voice.Assistant.LLMProviderID)
+	userKey, userURL, _ := resolveAPICreds(p.Voice.User.LLMProviderID)
+	systemKey, systemURL, _ := resolveAPICreds(p.Voice.System.LLMProviderID)
+
+	// Resolve credenciais STT
+	_, sttURL, sttCredPattern := resolveAPICreds(p.Input.LLMProviderID)
+
+	// Log detalhado para diagnóstico de TTS
+	if p.Voice.Assistant.Provider == "openai" && assistantKey == "" {
+		log.Printf("[Speech] AVISO: Provider assistant é 'openai' mas API key está vazia. "+
+			"LLMProviderID='%s', Voice=%+v",
+			p.Voice.Assistant.LLMProviderID,
+			p.Voice.Assistant)
+	}
+
+	cfg := speech.SpeechConfig{
+		// STT
+		STTProvider:          speech.STTProvider(p.Input.STTProvider),
+		STTAPIBaseURL:        sttURL,
+		STTCredentialPattern: sttCredPattern,
+		WhisperModel:         p.Input.STTModel,
+		WhisperLanguage:      p.Input.Language,
+
+		// Assistant
+		AssistantProvider:          p.Voice.Assistant.Provider,
+		AssistantAPIKey:            assistantKey,
+		AssistantBaseURL:           assistantURL,
+		AssistantCredentialPattern: assistantCredPattern,
+		AssistantVoice:             p.Voice.Assistant.VoiceID,
+		AssistantModel:             p.Voice.Assistant.Model,
+		AssistantRate:              int(p.Voice.Assistant.Rate),
+		AssistantVolume:            int(p.Voice.Assistant.Volume * 100),
+
+		// User
+		UserProvider: p.Voice.User.Provider,
+		UserAPIKey:   userKey,
+		UserBaseURL:  userURL,
+		UserVoice:    p.Voice.User.VoiceID,
+		UserModel:    p.Voice.User.Model,
+		UserRate:     int(p.Voice.User.Rate),
+		UserVolume:   int(p.Voice.User.Volume * 100),
+
+		// System
+		SystemProvider: p.Voice.System.Provider,
+		SystemAPIKey:   systemKey,
+		SystemBaseURL:  systemURL,
+		SystemVoice:    p.Voice.System.VoiceID,
+		SystemModel:    p.Voice.System.Model,
+		SystemRate:     int(p.Voice.System.Rate),
+		SystemVolume:   int(p.Voice.System.Volume * 100),
+	}
+
+	// Default model se não definido
+	if cfg.AssistantModel == "" {
+		cfg.AssistantModel = "tts-1"
+	}
+
+	sm := speech.NewSpeechManager(cfg, a.credMgr)
+
+	log.Printf("[Speech] Manager inicializado | Assistant: %s | User: %s | System: %s | STT: %s",
+		p.Voice.Assistant.Provider,
+		p.Voice.User.Provider,
+		p.Voice.System.Provider,
+		p.Input.STTProvider)
+	return sm
+}
+
+// cancelStreamingForContact cancela o streaming LLM em andamento para uma conversa
+// de um contato em um canal. Usado pelo SIP adapter durante barge-in.
+func (a *App) cancelStreamingForContact(channel, contactID string) {
+	conv, _, err := database.FindOrCreateChannelConversation(channel, contactID, "")
+	if err != nil || conv == nil {
+		return
+	}
+	a.CancelStreamingForConversation(conv.ID)
 }
 
 // ensureSpeechManager garante que o speechManager está inicializado.
@@ -3057,6 +3109,115 @@ func (a *App) ensureSpeechManager() bool {
 	}
 
 	return a.speechManager != nil
+}
+
+// getOrCreateAdHocTTSClient retorna um TTSClient funcional.
+// Primeiro verifica se o speechManager já tem um; se não, cria um ad-hoc
+// usando credenciais do LLM provider default.
+// Isso permite preview de voz mesmo quando o perfil ainda não salvou TTS como "openai".
+func (a *App) getOrCreateAdHocTTSClient() *speech.TTSClient {
+	// 1. Tenta o speech manager existente
+	if a.speechManager != nil && a.speechManager.HasTTSClient() {
+		return a.speechManager.GetTTSClient()
+	}
+
+	// 2. Tenta reinicializar do perfil
+	if err := a.InitSpeechManagerFromProfile(); err == nil && a.speechManager != nil && a.speechManager.HasTTSClient() {
+		return a.speechManager.GetTTSClient()
+	}
+
+	// 3. Fallback: cria ad-hoc com provider default ou primeiro provider disponível
+	provider := a.findOpenAILikeProvider()
+	if provider == nil {
+		return nil
+	}
+
+	// Lê o modelo TTS do perfil ativo (se existir)
+	var model speech.TTSModel
+	if profile, err := a.profileManager.GetActive(); err == nil && profile != nil {
+		resolved := a.resolveProfileDefaults(profile)
+		if resolved.Voice.Assistant.Model != "" {
+			model = speech.TTSModel(resolved.Voice.Assistant.Model)
+		}
+	}
+
+	log.Printf("[TTS] Criando TTSClient ad-hoc com provider %s (baseURL=%s, model=%s)", provider.ID, provider.BaseURL, model)
+	return speech.NewTTSClient(speech.TTSConfig{
+		BaseURL:           provider.BaseURL,
+		CredentialPattern: provider.CredentialPattern,
+		Model:             model,
+	}, a.credMgr)
+}
+
+// createTTSClientForProvider cria um TTSClient para um provider LLM específico.
+// Usado quando o frontend sabe exatamente qual provider quer usar (ex: preview de voz).
+func (a *App) createTTSClientForProvider(providerID string, model string) *speech.TTSClient {
+	cfg := a.llmRegistry.Get(providerID)
+	if cfg == nil || cfg.CredentialPattern == "" {
+		log.Printf("[TTS] Provider %s não encontrado ou sem credenciais", providerID)
+		return nil
+	}
+
+	log.Printf("[TTS] Criando TTSClient para provider %s (baseURL=%s, model=%s)", providerID, cfg.BaseURL, model)
+	return speech.NewTTSClient(speech.TTSConfig{
+		BaseURL:           cfg.BaseURL,
+		CredentialPattern: cfg.CredentialPattern,
+		Model:             speech.TTSModel(model),
+	}, a.credMgr)
+}
+
+// findOpenAILikeProvider procura um provider LLM com API OpenAI-compatible que suporte TTS.
+// Provedores Google e Anthropic não suportam a API /audio/speech.
+// Prefere providers com a API oficial do OpenAI (api.openai.com) sobre proxies.
+func (a *App) findOpenAILikeProvider() *llm.ProviderConfig {
+	isOpenAILike := func(cfg *llm.ProviderConfig) bool {
+		if cfg == nil || cfg.CredentialPattern == "" {
+			return false
+		}
+		format := cfg.GetAPIFormat()
+		return format == llm.APIFormatOpenAI || format == llm.APIFormatOpenAIResponses
+	}
+
+	isOfficialOpenAI := func(cfg *llm.ProviderConfig) bool {
+		return cfg.BaseURL == "" || strings.Contains(cfg.BaseURL, "api.openai.com")
+	}
+
+	// Tenta o provider do perfil ativo primeiro (voice → chat → default)
+	if profile, err := a.profileManager.GetActive(); err == nil && profile != nil {
+		resolved := a.resolveProfileDefaults(profile)
+		if resolved.Voice.Assistant.LLMProviderID != "" {
+			if cfg := a.llmRegistry.Get(resolved.Voice.Assistant.LLMProviderID); isOpenAILike(cfg) {
+				return cfg
+			}
+		}
+		if resolved.Chat.LLMProvider != "" {
+			if cfg := a.llmRegistry.Get(resolved.Chat.LLMProvider); isOpenAILike(cfg) {
+				return cfg
+			}
+		}
+	}
+
+	// Tenta o provider default do sistema
+	if dp, err := database.GetDefaultProvider(); err == nil && dp != nil {
+		if cfg := a.llmRegistry.Get(dp.ID); isOpenAILike(cfg) {
+			return cfg
+		}
+	}
+
+	// Último recurso: prefere providers com URL oficial do OpenAI
+	var fallbackProxy *llm.ProviderConfig
+	for _, cfg := range a.llmRegistry.List() {
+		if isOpenAILike(cfg) {
+			if isOfficialOpenAI(cfg) {
+				return cfg
+			}
+			if fallbackProxy == nil {
+				fallbackProxy = cfg
+			}
+		}
+	}
+
+	return fallbackProxy
 }
 
 func maskIdentifier(value string) string {
@@ -3189,21 +3350,24 @@ func (a *App) SynthesizeOpenAI(text string) (*SynthesisResultInfo, error) {
 	}, nil
 }
 
-// SynthesizeOpenAIWithVoice sintetiza texto usando OpenAI TTS com uma voz específica
+// SynthesizeOpenAIWithVoice sintetiza texto usando OpenAI TTS com uma voz específica.
+// Usa TTSClient do speech manager ou cria ad-hoc com provider default.
 func (a *App) SynthesizeOpenAIWithVoice(text string, voice string) (*SynthesisResultInfo, error) {
-	if !a.ensureSpeechManager() {
-		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
+	client := a.getOrCreateAdHocTTSClient()
+	if client == nil {
+		return nil, fmt.Errorf("nenhum provedor OpenAI com credenciais encontrado — configure um provedor LLM")
 	}
 
-	result, err := a.speechManager.SynthesizeWithVoice(text, voice)
+	audioData, err := client.SynthesizeWithVoice(text, speech.TTSVoice(voice))
 	if err != nil {
 		return nil, err
 	}
 
+	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
 	return &SynthesisResultInfo{
-		AudioBase64: result.AudioBase64,
-		Format:      result.Format,
-		Provider:    result.Provider,
+		AudioBase64: audioBase64,
+		Format:      "mp3",
+		Provider:    "openai",
 	}, nil
 }
 
@@ -3216,67 +3380,42 @@ type TTSStreamEvent struct {
 	Error       string `json:"error"`
 }
 
-// SynthesizeOpenAIStream sintetiza texto usando OpenAI TTS com streaming
+// SynthesizeOpenAIStream sintetiza texto usando OpenAI TTS com streaming.
+// Usa TTSClient do speech manager ou cria ad-hoc com provider default.
 func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string) error {
-	if !a.ensureSpeechManager() {
-		runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+	client := a.getOrCreateAdHocTTSClient()
+	if client == nil {
+		wails_runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
 			SessionID: sessionID,
-			Error:     "speech manager não disponível - configure um provedor no perfil",
+			Error:     "nenhum provedor OpenAI com credenciais encontrado — configure um provedor LLM",
 		})
-		return fmt.Errorf("speech manager não disponível")
-	}
-
-	if !a.speechManager.SupportsStreaming() {
-		go func() {
-			result, err := a.speechManager.SynthesizeWithVoice(text, voice)
-			if err != nil {
-				runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
-					SessionID: sessionID,
-					Error:     err.Error(),
-				})
-				return
-			}
-
-			runtime.EventsEmit(a.ctx, "tts:stream:start", TTSStreamEvent{
-				SessionID: sessionID,
-				Format:    result.Format,
-			})
-			runtime.EventsEmit(a.ctx, "tts:stream:chunk", TTSStreamEvent{
-				SessionID:   sessionID,
-				ChunkBase64: result.AudioBase64,
-				Format:      result.Format,
-			})
-			runtime.EventsEmit(a.ctx, "tts:stream:done", TTSStreamEvent{
-				SessionID: sessionID,
-				Done:      true,
-			})
-		}()
-		return nil
+		return fmt.Errorf("no OpenAI-like provider with credentials found")
 	}
 
 	go func() {
-		runtime.EventsEmit(a.ctx, "tts:stream:start", TTSStreamEvent{
+		wails_runtime.EventsEmit(a.ctx, "tts:stream:start", TTSStreamEvent{
 			SessionID: sessionID,
 			Format:    "mp3",
 		})
 
-		callbacks := speech.StreamCallbacks{
-			OnChunk: func(chunkBase64 string) {
-				runtime.EventsEmit(a.ctx, "tts:stream:chunk", TTSStreamEvent{
+		callbacks := speech.TTSStreamCallbacks{
+			OnChunk: func(chunk []byte) {
+				chunkBase64 := base64.StdEncoding.EncodeToString(chunk)
+				wails_runtime.EventsEmit(a.ctx, "tts:stream:chunk", TTSStreamEvent{
 					SessionID:   sessionID,
 					ChunkBase64: chunkBase64,
 					Format:      "mp3",
 				})
 			},
 			OnDone: func() {
-				runtime.EventsEmit(a.ctx, "tts:stream:done", TTSStreamEvent{
+				wails_runtime.EventsEmit(a.ctx, "tts:stream:done", TTSStreamEvent{
 					SessionID: sessionID,
 					Done:      true,
 				})
 			},
 			OnError: func(err error) {
 				log.Printf("[TTS] Stream error: %v", err)
-				runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+				wails_runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
 					SessionID: sessionID,
 					Error:     err.Error(),
 				})
@@ -3286,9 +3425,14 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 		defer cancel()
 
-		err := a.speechManager.SynthesizeStream(ctx, text, voice, callbacks)
+		var err error
+		if voice != "" {
+			err = client.SynthesizeStreamWithVoice(ctx, text, speech.TTSVoice(voice), callbacks)
+		} else {
+			err = client.SynthesizeStream(ctx, text, callbacks)
+		}
 		if err != nil {
-			runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+			wails_runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
 				SessionID: sessionID,
 				Error:     err.Error(),
 			})
@@ -3298,7 +3442,89 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 	return nil
 }
 
-// GetOpenAITTSVoices retorna as vozes disponíveis do OpenAI TTS
+// GetPlatform retorna o sistema operacional atual (windows, darwin, linux)
+func (a *App) GetPlatform() string {
+	return runtime.GOOS
+}
+
+// GetTTSVoices retorna as vozes disponíveis para o provedor configurado no perfil.
+func (a *App) GetTTSVoices(profileId string, providerId string) ([]OpenAITTSVoiceInfo, error) {
+	if providerId == "webspeech" {
+		return []OpenAITTSVoiceInfo{}, nil
+	}
+
+	if providerId == "sapi5" {
+		voices, err := a.GetSAPI5Voices()
+		if err != nil {
+			return []OpenAITTSVoiceInfo{}, err
+		}
+		result := make([]OpenAITTSVoiceInfo, len(voices))
+		for i, v := range voices {
+			result[i] = OpenAITTSVoiceInfo{
+				ID:          v.ID,
+				Name:        v.Name,
+				Description: v.Description,
+				Gender:      v.Gender,
+				Provider:    "sapi5",
+			}
+		}
+		return result, nil
+	}
+
+	if providerId != "" {
+		if cfg := a.llmRegistry.Get(providerId); cfg != nil {
+			if cfg.CredentialPattern == "" {
+				return []OpenAITTSVoiceInfo{}, nil
+			}
+
+			client := speech.NewTTSClient(speech.TTSConfig{
+				BaseURL:           cfg.BaseURL,
+				CredentialPattern: cfg.CredentialPattern,
+			}, a.credMgr)
+
+			voices, err := client.FetchVoices()
+			if err != nil {
+				return []OpenAITTSVoiceInfo{}, err
+			}
+			result := make([]OpenAITTSVoiceInfo, len(voices))
+			for i, v := range voices {
+				result[i] = OpenAITTSVoiceInfo{
+					ID:          v.ID,
+					Name:        v.Name,
+					Description: v.Description,
+					Gender:      v.Gender,
+					Provider:    v.Provider,
+				}
+			}
+			return result, nil
+		}
+	}
+
+	if a.speechManager == nil {
+		return []OpenAITTSVoiceInfo{}, nil
+	}
+
+	voices, err := a.speechManager.GetAvailableTTSVoices()
+	if err != nil {
+		return []OpenAITTSVoiceInfo{}, err
+	}
+
+	result := make([]OpenAITTSVoiceInfo, len(voices))
+
+	for i, v := range voices {
+		result[i] = OpenAITTSVoiceInfo{
+			ID:          v.ID,
+			Name:        v.Name,
+			Description: v.Description,
+			Gender:      v.Gender,
+			Provider:    v.Provider,
+		}
+	}
+
+	return result, nil
+}
+
+// GetOpenAITTSVoices retorna as vozes disponíveis do OpenAI TTS (Legacy)
 func (a *App) GetOpenAITTSVoices() []OpenAITTSVoiceInfo {
 	voices := speech.GetAvailableVoices()
 	result := make([]OpenAITTSVoiceInfo, len(voices))
@@ -3327,6 +3553,13 @@ func (a *App) SetOpenAITTSVoice(voice string) {
 func (a *App) SetOpenAITTSSpeed(rate int) {
 	if a.speechManager != nil {
 		a.speechManager.SetTTSSpeed(rate)
+	}
+}
+
+// SetOpenAITTSModel altera o modelo do OpenAI TTS
+func (a *App) SetOpenAITTSModel(model string) {
+	if a.speechManager != nil {
+		a.speechManager.SetTTSModel(model)
 	}
 }
 
@@ -3372,7 +3605,7 @@ func (a *App) SetActiveProfile(slug string) error {
 	a.registerActiveProfileHotkeys()
 
 	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "profile:changed", map[string]interface{}{
+	wails_runtime.EventsEmit(a.ctx, "profile:changed", map[string]interface{}{
 		"slug": slug,
 	})
 
@@ -3386,7 +3619,7 @@ func (a *App) CreateProfile(profile profiles.Profile) (string, error) {
 		return "", err
 	}
 
-	runtime.EventsEmit(a.ctx, "profile:created", map[string]interface{}{
+	wails_runtime.EventsEmit(a.ctx, "profile:created", map[string]interface{}{
 		"slug": slug,
 		"name": profile.Name,
 	})
@@ -3403,7 +3636,7 @@ func (a *App) DuplicateProfile(slug string) (string, error) {
 
 	profile, err := a.profileManager.Get(newSlug)
 	if err == nil && profile != nil {
-		runtime.EventsEmit(a.ctx, "profile:created", map[string]interface{}{
+		wails_runtime.EventsEmit(a.ctx, "profile:created", map[string]interface{}{
 			"slug": newSlug,
 			"name": profile.Name,
 		})
@@ -3418,12 +3651,15 @@ func (a *App) UpdateProfile(slug string, profile profiles.Profile) error {
 		return err
 	}
 
-	// Se for o perfil ativo, re-registra hotkeys
+	// Se for o perfil ativo, re-registra hotkeys e reinicializa speech
 	if slug == a.profileManager.GetActiveSlug() {
 		a.registerActiveProfileHotkeys()
+		if err := a.InitSpeechManagerFromProfile(); err != nil {
+			log.Printf("[Profile] Erro ao reinicializar speech após UpdateProfile: %v", err)
+		}
 	}
 
-	runtime.EventsEmit(a.ctx, "profile:updated", map[string]interface{}{
+	wails_runtime.EventsEmit(a.ctx, "profile:updated", map[string]interface{}{
 		"slug": slug,
 		"name": profile.Name,
 	})
@@ -3442,7 +3678,7 @@ func (a *App) DeleteProfile(slug string) error {
 		return err
 	}
 
-	runtime.EventsEmit(a.ctx, "profile:deleted", map[string]interface{}{
+	wails_runtime.EventsEmit(a.ctx, "profile:deleted", map[string]interface{}{
 		"slug": slug,
 	})
 
@@ -3905,6 +4141,97 @@ func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 }
 
 // PreviewVoiceSettings reproduz um texto de teste com configurações ad-hoc
+// SpeakPreview reproduz um preview de voz com o provider e voz específicos.
+// providerId: "webspeech", "sapi5" ou um LLM provider ID (ex: "openai-default-xxx")
+// voiceId: nome/ID da voz (ex: "alloy", "Microsoft Maria Desktop")
+// model: modelo TTS (ex: "tts-1", "tts-1-hd") — só para LLM providers
+// sessionId: ID para eventos de streaming (gerado pelo frontend)
+func (a *App) SpeakPreview(providerId string, voiceId string, model string, rate float64, volume float64, text string, sessionId string) error {
+	if text == "" {
+		text = "Este é um teste das configurações de voz"
+	}
+
+	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, rate=%.2f, volume=%.2f", providerId, voiceId, model, rate, volume)
+
+	switch providerId {
+	case "webspeech":
+		// WebSpeech é handled no frontend — este caso não deveria chegar aqui
+		return fmt.Errorf("webspeech preview deve ser feito no frontend")
+
+	case "sapi5":
+		// SAPI5 usa COM do Windows — delega ao manager
+		manager := speech.GetSAPI5Manager()
+		sapiRate := int((rate - 1.0) * 10) // 0.5→-5, 1.0→0, 2.0→10
+		sapiVolume := int(volume * 100)
+		if err := manager.SetRate(sapiRate); err != nil {
+			log.Printf("[SpeakPreview] SetRate error: %v", err)
+		}
+		if err := manager.SetVolume(sapiVolume); err != nil {
+			log.Printf("[SpeakPreview] SetVolume error: %v", err)
+		}
+		return manager.Speak(text, voiceId)
+
+	default:
+		// LLM provider (OpenAI-like) — cria TTSClient com provider específico
+		client := a.createTTSClientForProvider(providerId, model)
+		if client == nil {
+			// Fallback para ad-hoc
+			client = a.getOrCreateAdHocTTSClient()
+		}
+		if client == nil {
+			wails_runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+				SessionID: sessionId,
+				Error:     "nenhum provedor OpenAI com credenciais encontrado",
+			})
+			return fmt.Errorf("no TTS provider available for %s", providerId)
+		}
+
+		go func() {
+			wails_runtime.EventsEmit(a.ctx, "tts:stream:start", TTSStreamEvent{
+				SessionID: sessionId,
+				Format:    "mp3",
+			})
+
+			callbacks := speech.TTSStreamCallbacks{
+				OnChunk: func(chunk []byte) {
+					chunkBase64 := base64.StdEncoding.EncodeToString(chunk)
+					wails_runtime.EventsEmit(a.ctx, "tts:stream:chunk", TTSStreamEvent{
+						SessionID:   sessionId,
+						ChunkBase64: chunkBase64,
+						Format:      "mp3",
+					})
+				},
+				OnDone: func() {
+					wails_runtime.EventsEmit(a.ctx, "tts:stream:done", TTSStreamEvent{
+						SessionID: sessionId,
+						Done:      true,
+					})
+				},
+				OnError: func(err error) {
+					log.Printf("[SpeakPreview] Stream error: %v", err)
+					wails_runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+						SessionID: sessionId,
+						Error:     err.Error(),
+					})
+				},
+			}
+
+			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			defer cancel()
+
+			voice := speech.TTSVoice(voiceId)
+			if err := client.SynthesizeStreamWithVoice(ctx, text, voice, callbacks); err != nil {
+				wails_runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
+					SessionID: sessionId,
+					Error:     err.Error(),
+				})
+			}
+		}()
+
+		return nil
+	}
+}
+
 func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume float64, sampleText string) error {
 	if sampleText == "" {
 		sampleText = "Este é um teste das configurações de voz"
@@ -3912,19 +4239,27 @@ func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume
 
 	log.Printf("[PreviewVoiceSettings] provider=%s, voiceID=%s, rate=%.2f", provider, voiceID, rate)
 
-	if a.speechManager == nil {
-		cfg, err := config.Load()
+	if provider == "openai" {
+		client := a.getOrCreateAdHocTTSClient()
+		if client == nil {
+			return fmt.Errorf("nenhum provedor OpenAI com credenciais encontrado — configure um provedor LLM")
+		}
+
+		audioData, err := client.SynthesizeWithVoice(sampleText, speech.TTSVoice(voiceID))
 		if err != nil {
-			return fmt.Errorf("erro ao carregar config: %w", err)
+			return fmt.Errorf("erro ao sintetizar: %w", err)
 		}
-		if cfg.APIKey == "" {
-			return fmt.Errorf("API key não configurada")
-		}
-		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voiceID, "tts-1")
+
+		audioBase64 := base64.StdEncoding.EncodeToString(audioData)
+		wails_runtime.EventsEmit(a.ctx, "voice_profile:preview", map[string]interface{}{
+			"audio_base64": audioBase64,
+			"format":       "mp3",
+		})
+		return nil
 	}
 
-	if provider == "openai" {
-		a.speechManager.SetTTSVoice(voiceID)
+	if !a.ensureSpeechManager() {
+		return fmt.Errorf("speech manager não disponível — configure um provedor no perfil")
 	}
 
 	result, err := a.speechManager.SynthesizeWithVoice(sampleText, voiceID)
@@ -3932,7 +4267,7 @@ func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume
 		return fmt.Errorf("erro ao sintetizar: %w", err)
 	}
 
-	runtime.EventsEmit(a.ctx, "voice_profile:preview", map[string]interface{}{
+	wails_runtime.EventsEmit(a.ctx, "voice_profile:preview", map[string]interface{}{
 		"audio_base64": result.AudioBase64,
 		"format":       result.Format,
 	})
@@ -3959,7 +4294,7 @@ func (a *App) initUpdater() {
 			percentage = float64(bytesDownloaded) / float64(totalBytes) * 100
 		}
 
-		runtime.EventsEmit(a.ctx, "update:progress", map[string]interface{}{
+		wails_runtime.EventsEmit(a.ctx, "update:progress", map[string]interface{}{
 			"phase":           phase,
 			"bytesDownloaded": bytesDownloaded,
 			"totalBytes":      totalBytes,
@@ -4102,7 +4437,7 @@ func (a *App) promptForUpdate(info *updater.UpdateInfo) {
 	if confirm, ok := resp.Answers["confirm"].(bool); ok && confirm {
 		// Navega para página de atualização
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "navigate:update", nil)
+			wails_runtime.EventsEmit(a.ctx, "navigate:update", nil)
 		}
 		go a.applyUpdateWithProgress()
 	}
@@ -4138,7 +4473,7 @@ func (a *App) StartUpdate() error {
 
 	// Emite evento para navegar para página de atualização
 	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "navigate:update", nil)
+		wails_runtime.EventsEmit(a.ctx, "navigate:update", nil)
 	}
 
 	// Aguarda um pouco para garantir que a navegação ocorreu
@@ -4151,7 +4486,7 @@ func (a *App) StartUpdate() error {
 // applyUpdateWithProgress aplica a atualização com feedback de progresso
 func (a *App) applyUpdateWithProgress() {
 	// Emite evento de início
-	runtime.EventsEmit(a.ctx, "update:started", nil)
+	wails_runtime.EventsEmit(a.ctx, "update:started", nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -4161,14 +4496,14 @@ func (a *App) applyUpdateWithProgress() {
 	err := a.updater.ApplyUpdate(ctx)
 	if err != nil {
 		log.Printf("[Updater] Erro ao aplicar atualização: %v", err)
-		runtime.EventsEmit(a.ctx, "update:error", map[string]interface{}{
+		wails_runtime.EventsEmit(a.ctx, "update:error", map[string]interface{}{
 			"error": err.Error(),
 		})
 		return
 	}
 
 	log.Printf("[Updater] Atualização aplicada com sucesso. Reinicie o aplicativo.")
-	runtime.EventsEmit(a.ctx, "update:completed", map[string]interface{}{
+	wails_runtime.EventsEmit(a.ctx, "update:completed", map[string]interface{}{
 		"message": "Atualização instalada com sucesso! Feche e reabra o aplicativo para aplicar as mudanças.",
 	})
 }
@@ -4971,7 +5306,7 @@ func (a *App) CreateWorkspace(name string) (*workspace.Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:created", ws)
+	wails_runtime.EventsEmit(a.ctx, "workspace:created", ws)
 	return ws, nil
 }
 
@@ -4984,7 +5319,7 @@ func (a *App) SwitchWorkspace(workspaceID string) (*workspace.Workspace, error) 
 	if err != nil {
 		return nil, err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:switched", ws)
+	wails_runtime.EventsEmit(a.ctx, "workspace:switched", ws)
 	return ws, nil
 }
 
@@ -4996,7 +5331,7 @@ func (a *App) RenameWorkspace(newName string) error {
 	if err := a.workspaceMgr.Rename(newName); err != nil {
 		return err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:renamed", a.workspaceMgr.Active())
+	wails_runtime.EventsEmit(a.ctx, "workspace:renamed", a.workspaceMgr.Active())
 	return nil
 }
 
@@ -5008,7 +5343,7 @@ func (a *App) DeleteWorkspace(workspaceID string) error {
 	if err := a.workspaceMgr.Delete(workspaceID); err != nil {
 		return err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:deleted", workspaceID)
+	wails_runtime.EventsEmit(a.ctx, "workspace:deleted", workspaceID)
 	return nil
 }
 
@@ -5039,7 +5374,7 @@ func (a *App) AddWorkspaceTab(tab workspace.Tab) (*workspace.Workspace, error) {
 		return nil, err
 	}
 	ws := a.workspaceMgr.Active()
-	runtime.EventsEmit(a.ctx, "workspace:tab_added", ws)
+	wails_runtime.EventsEmit(a.ctx, "workspace:tab_added", ws)
 	return ws, nil
 }
 
@@ -5052,7 +5387,7 @@ func (a *App) RemoveWorkspaceTab(tabID string) (*workspace.Workspace, error) {
 		return nil, err
 	}
 	ws := a.workspaceMgr.Active()
-	runtime.EventsEmit(a.ctx, "workspace:tab_removed", ws)
+	wails_runtime.EventsEmit(a.ctx, "workspace:tab_removed", ws)
 	return ws, nil
 }
 
@@ -5064,7 +5399,7 @@ func (a *App) SetActiveWorkspaceTab(tabID string) error {
 	if err := a.workspaceMgr.SetActiveTab(tabID); err != nil {
 		return err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:tab_activated", tabID)
+	wails_runtime.EventsEmit(a.ctx, "workspace:tab_activated", tabID)
 	return nil
 }
 
@@ -5093,7 +5428,7 @@ func (a *App) MoveWorkspaceTabTo(tabID, targetWorkspaceID string) (*workspace.Wo
 		return nil, err
 	}
 	ws := a.workspaceMgr.Active()
-	runtime.EventsEmit(a.ctx, "workspace:tab_removed", ws)
+	wails_runtime.EventsEmit(a.ctx, "workspace:tab_removed", ws)
 	return ws, nil
 }
 
@@ -5118,6 +5453,6 @@ func (a *App) ImportWorkspace(yamlData string) (*workspace.Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:created", ws)
+	wails_runtime.EventsEmit(a.ctx, "workspace:created", ws)
 	return ws, nil
 }

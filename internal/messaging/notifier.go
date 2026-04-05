@@ -87,6 +87,23 @@ func (n *ResponseNotifier) Notify(conversationID uint, response string, assistan
 	}
 }
 
+// Cancel remove todos os callbacks pendentes de uma conversa sem chamá-los.
+// Usado quando o streaming LLM é cancelado (ex: barge-in SIP) e a resposta
+// não será gerada — evita callbacks órfãos que nunca disparariam.
+func (n *ResponseNotifier) Cancel(conversationID uint) {
+	n.mu.Lock()
+	cbs, ok := n.callbacks[conversationID]
+	if ok {
+		delete(n.callbacks, conversationID)
+	}
+	n.mu.Unlock()
+	if ok && len(cbs) > 0 {
+		traceID := cbs[0].TraceID
+		fmt.Printf("[Messaging] Callbacks cancelados trace=%s conv=%d count=%d (barge-in)\n",
+			traceID, conversationID, len(cbs))
+	}
+}
+
 // PendingCount retorna quantos callbacks estão pendentes (útil para debug/testes).
 func (n *ResponseNotifier) PendingCount() int {
 	n.mu.Lock()
