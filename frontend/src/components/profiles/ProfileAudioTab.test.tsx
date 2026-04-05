@@ -150,10 +150,7 @@ describe('ProfileAudioTab', () => {
     const voiceHeader = screen.getByText('Voz (TTS)').closest('button');
     fireEvent.click(voiceHeader!);
 
-    expect(updateFields).toHaveBeenCalledWith({
-      'voice.assistant.provider': 'disabled',
-      'voice.assistant.enabled': false,
-    });
+    expect(updateField).toHaveBeenCalledWith('voice.assistant.enabled', false);
   });
 
   it('ativa STT ao toggle da seção interaction quando desabilitado', () => {

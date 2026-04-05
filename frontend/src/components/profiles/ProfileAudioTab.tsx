@@ -49,7 +49,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   const userVoice = voice?.user;
   const systemVoice = voice?.system;
 
-  const isVoiceDisabled = !assistantVoice?.enabled || assistantVoice?.provider === 'disabled';
+  const isVoiceDisabled = !assistantVoice?.enabled;
   const isSTTDisabled = !editingProfile.input?.stt_provider;
 
   const llmProviderItems: VoiceProviderItem[] = llmProviders.map((p) => ({
@@ -76,12 +76,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
     ...llmProviderItems,
   ];
 
-  const screenReaderProvider: VoiceProviderItem = {
-    id: 'disabled',
-    label: t('pickers.voiceProvider.screenReader'),
-    description: t('pickers.voiceProvider.screenReaderDesc'),
-  };
-
   const defaultProvider: VoiceProviderItem = {
     id: '',
     label: t('pickers.voiceProvider.default'),
@@ -107,15 +101,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   };
 
   const handleProviderChange = (type: 'assistant' | 'user' | 'system', pId: string) => {
-    if (pId === 'disabled') {
-      updateFields({
-        [`voice.${type}.provider`]: 'disabled',
-        [`voice.${type}.enabled`]: false,
-      });
-      if (type === 'assistant') setVoiceExpanded(false);
-      return;
-    }
-
     const followVoiceMap: Record<string, string> = {
       ref_assistant: VOICE_REF_ASSISTANT,
       ref_user: VOICE_REF_USER,
@@ -210,15 +195,14 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
             if (isVoiceDisabled) {
               setVoiceExpanded(true);
               updateFields({
-                'voice.assistant.provider': 'webspeech',
                 'voice.assistant.enabled': true,
+                ...(!assistantVoice?.provider || assistantVoice.provider === 'disabled'
+                  ? { 'voice.assistant.provider': 'webspeech' }
+                  : {}),
               });
             } else {
               setVoiceExpanded(false);
-              updateFields({
-                'voice.assistant.provider': 'disabled',
-                'voice.assistant.enabled': false,
-              });
+              updateField('voice.assistant.enabled', false);
             }
           }}
           badge={isVoiceDisabled ? 'off' : 'on'}
@@ -236,7 +220,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 <VoiceProviderPicker
                   value={currentAssistantProvider}
                   onChange={(value) => handleProviderChange('assistant', value)}
-                  items={[screenReaderProvider, ...baseProviderItems]}
+                  items={baseProviderItems}
                   label={t('pickers.voiceProvider.label')}
                   helpText={t('pickers.voiceProvider.description')}
                   variant="form"
