@@ -326,14 +326,60 @@ func StaticTTSModels() []SpeechModelInfo { return staticTTSModels }
 // StaticSTTModels retorna a lista estática de modelos STT (para uso quando não há client).
 func StaticSTTModels() []SpeechModelInfo { return staticSTTModels }
 
-// isTTSModel retorna true se o ID de modelo parece ser um modelo TTS.
-func isTTSModel(id string) bool {
-	return strings.HasPrefix(id, "tts-")
+// knownTTSModels são IDs exatos de modelos TTS reconhecidos.
+var knownTTSModels = map[string]bool{
+	"tts-1": true, "tts-1-hd": true,
+	"tts-1-1106": true, "tts-1-hd-1106": true,
 }
 
-// isSTTModel retorna true se o ID de modelo parece ser um modelo STT.
+// knownSTTModels são IDs exatos de modelos STT reconhecidos.
+var knownSTTModels = map[string]bool{
+	"whisper-1": true, "whisper-large-v3": true,
+	"gpt-4o-transcribe": true, "gpt-4o-mini-transcribe": true,
+}
+
+// ttsPatterns são prefixos/sufixos heurísticos para modelos TTS não catalogados.
+var ttsPatterns = []string{"tts-"}
+
+// sttPatterns são prefixos/sufixos heurísticos para modelos STT não catalogados.
+// Sufixos usam o prefixo "-" como marcador (ex: "-transcribe" → strings.HasSuffix).
+var sttPrefixes = []string{"whisper"}
+var sttSuffixes = []string{"-transcribe", "-asr"}
+
+// isTTSModel retorna true se o ID é um modelo TTS conhecido ou corresponde
+// a padrões heurísticos (prefixo "tts-"). Para providers alternativos com nomes
+// fora desses padrões, o modelo aparece na lista estática de fallback.
+func isTTSModel(id string) bool {
+	lower := strings.ToLower(id)
+	if knownTTSModels[lower] {
+		return true
+	}
+	for _, p := range ttsPatterns {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// isSTTModel retorna true se o ID é um modelo STT conhecido ou corresponde
+// a padrões heurísticos (prefixo "whisper", sufixo "-transcribe"/"-asr").
 func isSTTModel(id string) bool {
-	return strings.HasPrefix(id, "whisper") || strings.HasSuffix(id, "-transcribe")
+	lower := strings.ToLower(id)
+	if knownSTTModels[lower] {
+		return true
+	}
+	for _, p := range sttPrefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	for _, s := range sttSuffixes {
+		if strings.HasSuffix(lower, s) {
+			return true
+		}
+	}
+	return false
 }
 
 // FetchTTSModels retorna modelos TTS disponíveis no provider.
