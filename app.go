@@ -28,6 +28,7 @@ import (
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/messaging/signal"
+	"assistente/internal/messaging/sip"
 	"assistente/internal/messaging/slack"
 	"assistente/internal/messaging/telegram"
 	"assistente/internal/profiles"
@@ -250,6 +251,9 @@ func (a *App) startup(ctx context.Context) {
 	if err := a.InitSpeechManagerFromProfile(); err != nil {
 		log.Printf("[Speech] Init no startup falhou (lazy-init disponível): %v", err)
 	}
+
+	// Injeta speechManager no SIP adapter baseado no perfil DO CANAL (não do global)
+	a.injectSIPSpeechManager()
 
 	// Inicializa o sistema de jobs (event-driven automation)
 	a.initJobs()
@@ -691,6 +695,9 @@ func (a *App) initMessaging() {
 	//   - "always_audio":    sempre gera TTS
 	// Retorna (nil, nil) se não deve gerar áudio (gateway enviará texto).
 	synthesizeTTS := messaging.SynthesizeTTSFunc(func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
+		// Canal SIP: chamadas são sempre voice-only, forçar áudio
+		isSIP := channel == "sip"
+
 		// Resolve o perfil do canal
 		var profile *profiles.Profile
 		if chCfg, _ := channels.Load(channel); chCfg != nil && chCfg.Profile != "" {
@@ -705,16 +712,19 @@ func (a *App) initMessaging() {
 		}
 
 		// Consulta ChannelResponseMode do perfil para decidir se gera áudio
-		if profile != nil {
-			if !profile.ShouldRespondWithAudio(incomingIsAudio) {
-				log.Printf("[TTS-Channel] Modo '%s': não gerar áudio para canal %s (incoming_audio=%v)",
-					profile.GetChannelResponseMode(), channel, incomingIsAudio)
-				return nil, nil
-			}
-		} else {
-			// Sem perfil: fallback para mirror
-			if !incomingIsAudio {
-				return nil, nil
+		// SIP sempre gera áudio (chamada telefônica = voice-only)
+		if !isSIP {
+			if profile != nil {
+				if !profile.ShouldRespondWithAudio(incomingIsAudio) {
+					log.Printf("[TTS-Channel] Modo '%s': não gerar áudio para canal %s (incoming_audio=%v)",
+						profile.GetChannelResponseMode(), channel, incomingIsAudio)
+					return nil, nil
+				}
+			} else {
+				// Sem perfil: fallback para mirror
+				if !incomingIsAudio {
+					return nil, nil
+				}
 			}
 		}
 
@@ -722,7 +732,11 @@ func (a *App) initMessaging() {
 		if profile != nil {
 			assistantProvider := profile.Voice.Assistant.Provider
 			if !profile.Voice.Assistant.Enabled || assistantProvider == "disabled" || assistantProvider == "" {
-				log.Printf("[TTS-Channel] Voz desabilitada no perfil para canal %s — respondendo com texto", channel)
+				if isSIP {
+					log.Printf("[TTS-Channel] SIP requer TTS mas voz desabilitada no perfil")
+				} else {
+					log.Printf("[TTS-Channel] Voz desabilitada no perfil para canal %s — respondendo com texto", channel)
+				}
 				return nil, nil
 			}
 			// WebSpeech e SAPI5 são providers locais do desktop — não funcionam para canais externos
@@ -734,6 +748,13 @@ func (a *App) initMessaging() {
 
 		if !a.ensureSpeechManager() {
 			return nil, fmt.Errorf("speech manager indisponível para TTS")
+		}
+
+		// SIP: o adapter faz streaming TTS diretamente (menor latência)
+		// O texto é passado ao adapter via OutgoingMessage.Text e
+		// sintetizado via SpeechManager.SynthesizeStream no pipeline de áudio.
+		if isSIP {
+			return nil, nil
 		}
 
 		// Usa a voz do perfil se especificada, senão usa Synthesize padrão
@@ -882,7 +903,37 @@ func (a *App) initMessaging() {
 		}
 	}
 
-	// SIP (Telefonia) — desabilitado neste branch, ver feat/sip-voip-channel
+	// SIP (Telefonia)
+	if cfg, ok := enabledChannels["sip"]; ok && cfg.SIPServer != "" && cfg.SIPUser != "" {
+		sipPassword := cfg.SIPPassword
+		if sipPassword == "" && cfg.SIPPasswordRef != "" {
+			sipPassword = a.resolveCredentialRef(cfg.SIPPasswordRef)
+		}
+		if sipPassword == "" {
+			log.Printf("[Messaging] SIP: senha vazia, não conectando")
+		} else {
+			sipCfg := sip.SIPConfig{
+				Server:      cfg.SIPServer,
+				Port:        cfg.SIPPort,
+				Transport:   cfg.SIPTransport,
+				User:        cfg.SIPUser,
+				Password:    sipPassword,
+				DisplayName: cfg.SIPDisplayName,
+				LocalIP:     cfg.SIPLocalIP,
+			}
+			adapter := sip.NewAdapter(sipCfg)
+			adapter.CancelStreamingForContact = a.cancelStreamingForContact
+			a.msgGateway.Register("sip", adapter)
+			go func() {
+				if err := adapter.Connect(a.ctx); err != nil {
+					log.Printf("[Messaging] Erro ao conectar SIP: %v", err)
+				}
+			}()
+			log.Printf("[Messaging] SIP habilitado (%s@%s:%d)", cfg.SIPUser, cfg.SIPServer, sipCfg.GetPort())
+		}
+	} else {
+		log.Printf("[Messaging] SIP não configurado ou desabilitado")
+	}
 
 	// Registra a tool send_message no registry de ferramentas
 	if a.toolRegistry != nil {
@@ -1077,6 +1128,19 @@ func (a *App) persistChannelCredentials(channelName string, cfg *channels.Channe
 			}
 			cfg.APIToken = ""
 		}
+	case "sip":
+		if cfg.SIPPasswordRef == "" && cfg.SIPPassword != "" {
+			cfg.SIPPasswordRef = fmt.Sprintf("channel:%s:sip_password", channelName)
+		}
+		if cfg.SIPPasswordRef != "" && cfg.SIPPassword != "" {
+			if err := a.credMgr.RegisterPatternWithContext(ctx, cfg.SIPPasswordRef, &credentials.AuthConfig{
+				Type:  "secret",
+				Token: cfg.SIPPassword,
+			}); err != nil {
+				return err
+			}
+			cfg.SIPPassword = ""
+		}
 	}
 
 	return nil
@@ -1165,6 +1229,52 @@ func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 		}()
 		log.Printf("[Messaging] Slack reconectado")
 
+	case "sip":
+		if cfg.SIPServer == "" || cfg.SIPUser == "" {
+			log.Printf("[Messaging] SIP: servidor ou usuário vazios, não conectando")
+			return
+		}
+		sipPassword := cfg.SIPPassword
+		if sipPassword == "" && cfg.SIPPasswordRef != "" {
+			sipPassword = a.resolveCredentialRef(cfg.SIPPasswordRef)
+		}
+		if sipPassword == "" {
+			log.Printf("[Messaging] SIP: senha vazia, não conectando")
+			return
+		}
+		sipCfg := sip.SIPConfig{
+			Server:      cfg.SIPServer,
+			Port:        cfg.SIPPort,
+			Transport:   cfg.SIPTransport,
+			User:        cfg.SIPUser,
+			Password:    sipPassword,
+			DisplayName: cfg.SIPDisplayName,
+			LocalIP:     cfg.SIPLocalIP,
+		}
+		adapter := sip.NewAdapter(sipCfg)
+		adapter.CancelStreamingForContact = a.cancelStreamingForContact
+		// Injeta speechManager do perfil do canal (não do global)
+		if cfg.Profile != "" {
+			if p, err := a.profileManager.Get(cfg.Profile); err == nil {
+				sm := a.createSpeechManagerForProfile(p)
+				if sm != nil {
+					adapter.SetSpeechManager(sm)
+				}
+				if p.Voice.Assistant.VoiceID != "" {
+					adapter.SetVoiceID(p.Voice.Assistant.VoiceID)
+				}
+			}
+		} else if a.speechManager != nil {
+			adapter.SetSpeechManager(a.speechManager)
+		}
+		a.msgGateway.Register("sip", adapter)
+		go func() {
+			if err := adapter.Connect(a.ctx); err != nil {
+				log.Printf("[Messaging] Erro ao conectar SIP: %v", err)
+			}
+		}()
+		log.Printf("[Messaging] SIP reconectado (%s@%s:%d)", cfg.SIPUser, cfg.SIPServer, sipCfg.GetPort())
+
 	default:
 		log.Printf("[Messaging] Canal desconhecido: %s", channelName)
 	}
@@ -1196,6 +1306,7 @@ func (a *App) getSupportedChannelTypes() map[string]struct{} {
 		"telegram": {},
 		"signal":   {},
 		"slack":    {},
+		"sip":      {},
 	}
 }
 
@@ -3094,6 +3205,116 @@ func (a *App) cancelStreamingForContact(channel, contactID string) {
 	a.CancelStreamingForConversation(conv.ID)
 }
 
+// injectSIPSpeechManager cria e injeta um SpeechManager no SIP adapter.
+// Usa o perfil do canal SIP quando configurado; caso contrário, usa o speechManager global.
+func (a *App) injectSIPSpeechManager() {
+	sipAdapter, err := a.getSIPAdapter()
+	if err != nil {
+		return // SIP não configurado — nada a fazer
+	}
+
+	// Tenta carregar o perfil do canal SIP
+	if chCfg, _ := channels.Load("sip"); chCfg != nil && chCfg.Profile != "" {
+		if p, err := a.profileManager.Get(chCfg.Profile); err == nil {
+			pCopy := *p
+
+			// SIP é server-side: webspeech não funciona, força whisper
+			if pCopy.Input.STTProvider == "webspeech" || pCopy.Input.STTProvider == "" {
+				pCopy.Input.STTProvider = "whisper"
+			}
+
+			// Whisper é API OpenAI — sempre usar o LLMProviderID do assistant voice
+			// (o Input.LLMProviderID pode apontar para Google ou outro provider sem Whisper)
+			isWhisper := pCopy.Input.STTProvider == "whisper" || pCopy.Input.STTProvider == "whisper_api"
+			if isWhisper && pCopy.Voice.Assistant.LLMProviderID != "" {
+				pCopy.Input.LLMProviderID = pCopy.Voice.Assistant.LLMProviderID
+				log.Printf("[Speech] SIP override: STT=%s, LLMProviderID=%s (do assistant voice)",
+					pCopy.Input.STTProvider, pCopy.Input.LLMProviderID)
+			}
+
+			p = &pCopy
+			sm := a.createSpeechManagerForProfile(p)
+			if sm != nil {
+				sipAdapter.SetSpeechManager(sm)
+				if p.Voice.Assistant.VoiceID != "" {
+					sipAdapter.SetVoiceID(p.Voice.Assistant.VoiceID)
+				}
+				log.Printf("[Speech] SpeechManager do perfil '%s' injetado no SIP adapter", chCfg.Profile)
+				return
+			}
+		} else {
+			log.Printf("[Speech] Perfil '%s' do canal SIP não encontrado: %v", chCfg.Profile, err)
+		}
+	}
+
+	// Fallback: usa o speechManager global
+	if a.speechManager != nil {
+		sipAdapter.SetSpeechManager(a.speechManager)
+		log.Printf("[Speech] SpeechManager global injetado no SIP adapter (fallback)")
+	}
+}
+
+// SIPCall inicia uma chamada SIP de saída para o número/ramal especificado.
+// O número pode ser um ramal ("200"), user@host ("200@pbx"), ou SIP URI.
+// Requer que o canal SIP esteja conectado.
+func (a *App) SIPCall(number string) (sip.CallInfo, error) {
+	if number == "" {
+		return sip.CallInfo{}, fmt.Errorf("número não pode ser vazio")
+	}
+
+	adapter, err := a.getSIPAdapter()
+	if err != nil {
+		return sip.CallInfo{}, err
+	}
+
+	call, err := adapter.Dial(a.ctx, number)
+	if err != nil {
+		return sip.CallInfo{}, err
+	}
+
+	return sip.CallInfo{
+		ID:        call.ID,
+		CallerID:  call.CallerID,
+		State:     string(call.GetState()),
+		Duration:  "0s",
+		StartedAt: call.StartedAt,
+	}, nil
+}
+
+// SIPHangup encerra uma chamada SIP ativa pelo seu ID.
+func (a *App) SIPHangup(callID string) error {
+	adapter, err := a.getSIPAdapter()
+	if err != nil {
+		return err
+	}
+	return adapter.HangupCall(a.ctx, callID)
+}
+
+// SIPActiveCalls retorna as chamadas SIP ativas.
+func (a *App) SIPActiveCalls() []sip.CallInfo {
+	adapter, err := a.getSIPAdapter()
+	if err != nil {
+		return nil
+	}
+	return adapter.ActiveCalls()
+}
+
+// getSIPAdapter retorna o SIPAdapter do gateway, se conectado.
+func (a *App) getSIPAdapter() (*sip.SIPAdapter, error) {
+	if a.msgGateway == nil {
+		return nil, fmt.Errorf("sip: gateway não inicializado")
+	}
+	m, ok := a.msgGateway.GetMessenger("sip")
+	if !ok {
+		return nil, fmt.Errorf("sip: canal SIP não configurado")
+	}
+	adapter, ok := m.(*sip.SIPAdapter)
+	if !ok {
+		return nil, fmt.Errorf("sip: adapter inválido")
+	}
+	return adapter, nil
+}
+
 // ensureSpeechManager garante que o speechManager está inicializado.
 // Tenta inicializar a partir do perfil ativo.
 // Retorna true se disponível, false caso contrário.
@@ -3601,6 +3822,9 @@ func (a *App) SetActiveProfile(slug string) error {
 		log.Printf("[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
 	}
 
+	// Atualiza SIP adapter se o perfil alterado é usado pelo canal
+	a.injectSIPSpeechManager()
+
 	// Re-registra hotkeys do novo perfil
 	a.registerActiveProfileHotkeys()
 
@@ -3658,6 +3882,9 @@ func (a *App) UpdateProfile(slug string, profile profiles.Profile) error {
 			log.Printf("[Profile] Erro ao reinicializar speech após UpdateProfile: %v", err)
 		}
 	}
+
+	// Atualiza SIP adapter se o perfil alterado é usado pelo canal
+	a.injectSIPSpeechManager()
 
 	wails_runtime.EventsEmit(a.ctx, "profile:updated", map[string]interface{}{
 		"slug": slug,

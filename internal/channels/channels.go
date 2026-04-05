@@ -40,6 +40,16 @@ type ChannelConfig struct {
 	MaxHistory  int    `json:"max_history,omitempty"`   // Mensagens no contexto (0 = padrão)
 	MaxContacts int    `json:"max_contacts,omitempty"`  // Máximo de contatos autorizados (0 = 1)
 
+	// SIP: configuração para canal de telefonia
+	SIPServer      string `json:"sip_server,omitempty"`       // Endereço do servidor SIP (ex: "asterisk.local")
+	SIPPort        int    `json:"sip_port,omitempty"`         // Porta do servidor SIP (0 = padrão: 5060)
+	SIPTransport   string `json:"sip_transport,omitempty"`    // Transporte: "udp" (padrão), "tcp", "tls"
+	SIPUser        string `json:"sip_user,omitempty"`         // Ramal/usuário SIP (ex: "100")
+	SIPPassword    string `json:"sip_password,omitempty"`     // Senha SIP (em texto, será migrada para ref)
+	SIPPasswordRef string `json:"sip_password_ref,omitempty"` // Referência no credential manager
+	SIPDisplayName string `json:"sip_display_name,omitempty"` // Nome exibido no caller ID
+	SIPLocalIP     string `json:"sip_local_ip,omitempty"`     // IP local para bind (vazio = todas as interfaces)
+
 	// Conversations mapeia contactID → conversationID (persistido entre reinícios).
 	// Permite reaproveitar conversas existentes ao reiniciar o app.
 	Conversations map[string]uint `json:"conversations,omitempty"`
