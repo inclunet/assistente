@@ -3151,12 +3151,11 @@ func (a *App) getOrCreateAdHocTTSClient() *speech.TTSClient {
 // Usado quando o frontend sabe exatamente qual provider quer usar (ex: preview de voz).
 func (a *App) createTTSClientForProvider(providerID string, model string) *speech.TTSClient {
 	cfg := a.llmRegistry.Get(providerID)
-	if cfg == nil || cfg.CredentialPattern == "" {
-		log.Printf("[TTS] Provider %s não encontrado ou sem credenciais", providerID)
+	if cfg == nil {
+		log.Printf("[TTS] Provider %s não encontrado", providerID)
 		return nil
 	}
 
-	log.Printf("[TTS] Criando TTSClient para provider %s (baseURL=%s, model=%s)", providerID, cfg.BaseURL, model)
 	return speech.NewTTSClient(speech.TTSConfig{
 		BaseURL:           cfg.BaseURL,
 		CredentialPattern: cfg.CredentialPattern,

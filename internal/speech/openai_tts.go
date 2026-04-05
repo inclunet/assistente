@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"strings"
 	"time"
 
@@ -404,6 +405,7 @@ func (c *TTSClient) FetchTTSModels() []SpeechModelInfo {
 
 	page, err := c.client.Models.List(ctx)
 	if err != nil {
+		log.Printf("[FetchTTSModels] erro ao listar modelos: %v", err)
 		return staticTTSModels
 	}
 
@@ -428,6 +430,7 @@ func (c *TTSClient) FetchSTTModels() []SpeechModelInfo {
 
 	page, err := c.client.Models.List(ctx)
 	if err != nil {
+		log.Printf("[FetchSTTModels] erro ao listar modelos: %v", err)
 		return staticSTTModels
 	}
 
