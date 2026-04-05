@@ -3694,6 +3694,20 @@ func (a *App) GetProfileSearchPaths() []string {
 // LLM Provider API
 // ============================================================================
 
+// GetSpeechProviders retorna provedores LLM cujo SDK suporta TTS e/ou STT.
+// Atualmente apenas provedores com api_format "openai" ou "openai_responses"
+// possuem endpoints de áudio (/audio/speech, /audio/transcriptions).
+func (a *App) GetSpeechProviders() []*llm.ProviderConfig {
+	all := a.GetLLMProviders()
+	result := make([]*llm.ProviderConfig, 0, len(all))
+	for _, p := range all {
+		if p.SupportsTTS() || p.SupportsSTT() {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
 // GetLLMProviders retorna todos os provedores LLM disponíveis
 func (a *App) GetLLMProviders() []*llm.ProviderConfig {
 	if a.llmRegistry == nil {

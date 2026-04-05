@@ -1,5 +1,6 @@
 import { AudioOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { llm } from '@wailsjs/go/models';
 import { STTProviderPicker, STT_WEBSPEECH } from '../pickers/STTProviderPicker';
 import './ProfileInteractionSection.css';
 
@@ -10,6 +11,8 @@ export interface ProfileInteractionSectionProps {
   sttLanguage: string;
   enableFeedbackSounds: boolean;
   onChange: (field: 'sttProvider' | 'sttLLMProviderId' | 'sttModel' | 'sttLanguage' | 'enableFeedbackSounds', value: string | boolean) => void;
+  /** Provedores com suporte a speech (TTS/STT). Evita fetch duplicado no STTProviderPicker. */
+  speechProviders?: llm.ProviderConfig[];
   disabled?: boolean;
 }
 
@@ -24,6 +27,7 @@ export function ProfileInteractionSection({
   sttLanguage,
   enableFeedbackSounds,
   onChange,
+  speechProviders,
   disabled = false,
 }: ProfileInteractionSectionProps) {
   const { t } = useTranslation();
@@ -36,6 +40,7 @@ export function ProfileInteractionSection({
       <div className="profile-interaction-section__field">
         <STTProviderPicker
           value={isWhisper ? sttLLMProviderId : STT_WEBSPEECH}
+          providers={speechProviders}
           onChange={(provider, llmProviderId) => {
             if (provider === STT_WEBSPEECH) {
               onChange('sttProvider', 'webspeech');

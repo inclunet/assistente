@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTranslation } from 'react-i18next';
 import { profiles, llm } from '@wailsjs/go/models';
-import { GetLLMProviders } from '@wailsjs/go/main/App';
+import { GetSpeechProviders } from '@wailsjs/go/main/App';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { ProfileInteractionSection } from './ProfileInteractionSection';
@@ -33,12 +33,12 @@ const fetchPlatform = async (): Promise<string | null> => {
 
 export function ProfileAudioTab({ editingProfile, updateField, updateFields, profileId }: ProfileAudioTabProps) {
   const { t } = useTranslation();
-  const [llmProviders, setLLMProviders] = useState<llm.ProviderConfig[]>([]);
+  const [speechProviders, setSpeechProviders] = useState<llm.ProviderConfig[]>([]);
   const [isWindows, setIsWindows] = useState(false);
   const [voiceExpanded, setVoiceExpanded] = useState(false);
 
   useEffect(() => {
-    GetLLMProviders().then(setLLMProviders).catch(console.error);
+    GetSpeechProviders().then(setSpeechProviders).catch(console.error);
     fetchPlatform()
       .then((platform) => setIsWindows(platform === 'windows'))
       .catch(() => setIsWindows(false));
@@ -52,7 +52,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   const isVoiceDisabled = !assistantVoice?.enabled;
   const isSTTDisabled = !editingProfile.input?.stt_provider;
 
-  const llmProviderItems: VoiceProviderItem[] = llmProviders.map((p) => ({
+  const llmProviderItems: VoiceProviderItem[] = speechProviders.map((p) => ({
     id: p.id,
     label: p.name,
     description: t('pickers.voiceProvider.llmProvider'),
@@ -372,6 +372,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
             sttModel={editingProfile.input?.stt_model || ''}
             sttLanguage={editingProfile.input?.language || 'pt-BR'}
             enableFeedbackSounds={editingProfile.input?.feedback_sounds ?? true}
+            speechProviders={speechProviders}
             onChange={(field, value) => {
               if (field === 'sttProvider') {
                 updateField('input.stt_provider', value);

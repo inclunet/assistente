@@ -137,3 +137,17 @@ func (p *ProviderConfig) Validate() error {
 	}
 	return nil
 }
+
+// SupportsTTS retorna true se o SDK do provider suporta síntese de voz (TTS).
+// Atualmente apenas o SDK OpenAI (formatos openai e openai_responses) tem endpoint /audio/speech.
+func (p *ProviderConfig) SupportsTTS() bool {
+	f := p.GetAPIFormat()
+	return f == APIFormatOpenAI || f == APIFormatOpenAIResponses
+}
+
+// SupportsSTT retorna true se o SDK do provider suporta transcrição de voz (STT/Whisper).
+// Atualmente apenas o SDK OpenAI (formatos openai e openai_responses) tem endpoint /audio/transcriptions.
+func (p *ProviderConfig) SupportsSTT() bool {
+	f := p.GetAPIFormat()
+	return f == APIFormatOpenAI || f == APIFormatOpenAIResponses
+}

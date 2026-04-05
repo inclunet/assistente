@@ -230,6 +230,8 @@ export function GetLLMProviders():Promise<Array<llm.ProviderConfig>>;
 
 export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
 
+export function GetSpeechProviders():Promise<Array<llm.ProviderConfig>>;
+
 export function GetLLMSettings():Promise<main.LLMSettings>;
 
 export function GetMCPPrompt(arg1:string,arg2:string,arg3:Record<string, string>):Promise<Array<string>>;

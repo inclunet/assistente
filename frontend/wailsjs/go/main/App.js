@@ -430,6 +430,10 @@ export function GetLLMProvidersWithStatus() {
   return window['go']['main']['App']['GetLLMProvidersWithStatus']();
 }
 
+export function GetSpeechProviders() {
+  return window['go']['main']['App']['GetSpeechProviders']();
+}
+
 export function GetLLMSettings() {
   return window['go']['main']['App']['GetLLMSettings']();
 }

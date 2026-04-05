@@ -1,7 +1,7 @@
 import { useState, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { AudioOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { GetLLMProviders } from '@wailsjs/go/main/App';
+import { GetSpeechProviders } from '@wailsjs/go/main/App';
 import { llm } from '@wailsjs/go/models';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
@@ -16,6 +16,8 @@ export interface STTProviderPickerProps {
   value: string;
   /** Callback com o provider selecionado e o llmProviderId (para provedores LLM) */
   onChange: (provider: string, llmProviderId?: string) => void;
+  /** Provedores com suporte a speech (TTS/STT). Se fornecido, evita fetch interno. */
+  providers?: llm.ProviderConfig[];
   variant?: 'toolbar' | 'form';
   label?: string;
   helpText?: string;
@@ -33,6 +35,7 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
     {
       value,
       onChange,
+      providers: externalProviders,
       variant = 'form',
       label,
       helpText,
@@ -43,17 +46,18 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
     ref
   ) => {
     const { t } = useTranslation();
-    const [llmProviders, setLLMProviders] = useState<llm.ProviderConfig[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [internalProviders, setInternalProviders] = useState<llm.ProviderConfig[]>([]);
+    const [loading, setLoading] = useState(!externalProviders);
     const [error, setError] = useState<string | null>(null);
 
     const loadProviders = async () => {
+      if (externalProviders) return;
       setLoading(true);
       setError(null);
 
       try {
-        const providers = await GetLLMProviders();
-        setLLMProviders(providers || []);
+        const providers = await GetSpeechProviders();
+        setInternalProviders(providers || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('pickers.stt.loadError'));
       } finally {
@@ -62,12 +66,16 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
     };
 
     useEffect(() => {
-      loadProviders();
-    }, []);
+      if (!externalProviders) {
+        loadProviders();
+      }
+    }, [externalProviders]);
 
     useImperativeHandle(ref, () => ({
       reload: loadProviders,
     }));
+
+    const speechProviders = externalProviders ?? internalProviders;
 
     const items: ComboboxItem[] = [
       {
@@ -75,7 +83,7 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
         label: t('pickers.stt.webSpeech'),
         sublabel: t('pickers.stt.webSpeechDesc'),
       },
-      ...llmProviders.map((p) => ({
+      ...speechProviders.map((p) => ({
         value: p.id,
         label: p.name,
         sublabel: t('pickers.stt.whisperViaProvider'),

@@ -7,7 +7,7 @@ vi.mock('react-i18next', () => ({
 }));
 
 vi.mock('@wailsjs/go/main/App', () => ({
-  GetLLMProviders: vi.fn().mockResolvedValue([
+  GetSpeechProviders: vi.fn().mockResolvedValue([
     { id: 'openai-1', name: 'OpenAI', api_format: 'openai', base_url: 'https://api.openai.com/v1' },
   ]),
 }));
