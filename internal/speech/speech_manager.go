@@ -37,37 +37,28 @@ type SpeechConfig struct {
 	WhisperLanguage      string      `json:"whisperLanguage"`
 
 	// TTS — configuração por role
-	AssistantProvider          string `json:"assistantProvider"` // "disabled", "webspeech", "sapi5", "openai"
-	AssistantAPIKey            string `json:"-"`
-	AssistantBaseURL           string `json:"-"`
-	AssistantCredentialPattern string `json:"-"` // para resolução lazy de credenciais
-	AssistantVoice             string `json:"assistantVoice"`
-	AssistantModel             string `json:"assistantModel"` // "tts-1", "tts-1-hd"
-	AssistantRate              int    `json:"assistantRate"`
-	AssistantVolume            int    `json:"assistantVolume"` // 0-100
+	Assistant RoleVoiceConfig `json:"assistant"`
+	User      RoleVoiceConfig `json:"user"`
+	System    RoleVoiceConfig `json:"system"`
+}
 
-	UserProvider string `json:"userProvider"`
-	UserAPIKey   string `json:"-"`
-	UserBaseURL  string `json:"-"`
-	UserVoice    string `json:"userVoice"`
-	UserModel    string `json:"userModel"`
-	UserRate     int    `json:"userRate"`
-	UserVolume   int    `json:"userVolume"`
-
-	SystemProvider string `json:"systemProvider"`
-	SystemAPIKey   string `json:"-"`
-	SystemBaseURL  string `json:"-"`
-	SystemVoice    string `json:"systemVoice"`
-	SystemModel    string `json:"systemModel"`
-	SystemRate     int    `json:"systemRate"`
-	SystemVolume   int    `json:"systemVolume"`
+// RoleVoiceConfig configuração de voz para um role (assistant, user, system)
+type RoleVoiceConfig struct {
+	Provider          string `json:"provider"` // "disabled", "webspeech", "sapi5", "openai"
+	APIKey            string `json:"-"`
+	BaseURL           string `json:"-"`
+	CredentialPattern string `json:"-"` // para resolução lazy de credenciais
+	Voice             string `json:"voice"`
+	Model             string `json:"model"` // "tts-1", "tts-1-hd"
+	Rate              int    `json:"rate"`
+	Volume            int    `json:"volume"` // 0-100
 }
 
 // SpeechManager gerenciador central de speech
 type SpeechManager struct {
 	config        SpeechConfig
 	whisperClient *WhisperClient
-	ttsClient     *TTSClient
+	ttsClients    map[string]*TTSClient // key: "assistant", "user", "system"
 	credMgr       *credentials.Manager
 	mu            sync.RWMutex
 }
@@ -116,22 +107,32 @@ func (sm *SpeechManager) reinitClients() {
 		sm.whisperClient = nil
 	}
 
-	// TTS client — cria sempre que provider é OpenAI (credenciais via transport)
-	if sm.config.AssistantProvider == string(TTSProviderOpenAI) {
-		log.Printf("[Speech] reinitClients: criando TTSClient (provider=%q, baseURL=%q, credPattern=%q, voice=%q, model=%q)",
-			sm.config.AssistantProvider, sm.config.AssistantBaseURL, sm.config.AssistantCredentialPattern,
-			sm.config.AssistantVoice, sm.config.AssistantModel)
-		sm.ttsClient = NewTTSClient(TTSConfig{
-			BaseURL:           sm.config.AssistantBaseURL,
-			CredentialPattern: sm.config.AssistantCredentialPattern,
-			Model:             TTSModel(sm.config.AssistantModel),
-			Voice:             TTSVoice(sm.config.AssistantVoice),
-			Speed:             sm.rateToSpeed(sm.config.AssistantRate),
-		}, sm.credMgr)
-	} else {
-		log.Printf("[Speech] reinitClients: TTSClient NÃO criado — AssistantProvider=%q (esperado %q)",
-			sm.config.AssistantProvider, TTSProviderOpenAI)
-		sm.ttsClient = nil
+	// TTS clients por role — cria para cada role com provider OpenAI
+	sm.ttsClients = make(map[string]*TTSClient, 3)
+	for _, entry := range []struct {
+		name string
+		role RoleVoiceConfig
+	}{
+		{"assistant", sm.config.Assistant},
+		{"user", sm.config.User},
+		{"system", sm.config.System},
+	} {
+		if entry.role.Provider == string(TTSProviderOpenAI) && entry.role.CredentialPattern != "" {
+			log.Printf("[Speech] reinitClients: criando TTSClient[%s] (baseURL=%q, credPattern=%q, voice=%q, model=%q)",
+				entry.name, entry.role.BaseURL, entry.role.CredentialPattern,
+				entry.role.Voice, entry.role.Model)
+			sm.ttsClients[entry.name] = NewTTSClient(TTSConfig{
+				BaseURL:           entry.role.BaseURL,
+				CredentialPattern: entry.role.CredentialPattern,
+				Model:             TTSModel(entry.role.Model),
+				Voice:             TTSVoice(entry.role.Voice),
+				Speed:             sm.rateToSpeed(entry.role.Rate),
+			}, sm.credMgr)
+		}
+	}
+
+	if len(sm.ttsClients) == 0 {
+		log.Printf("[Speech] reinitClients: nenhum TTSClient criado (nenhum role com provider OpenAI)")
 	}
 }
 
@@ -200,70 +201,85 @@ func (sm *SpeechManager) transcribeWhisperCtx(ctx context.Context, audioBase64 s
 	}, nil
 }
 
-// Synthesize converte texto em áudio
+// getTTSClientForRole retorna o TTSClient para um role específico.
+// Roles válidos: "assistant", "user", "system". Deve ser chamado com sm.mu held.
+func (sm *SpeechManager) getTTSClientForRole(role string) *TTSClient {
+	if sm.ttsClients == nil {
+		return nil
+	}
+	return sm.ttsClients[role]
+}
+
+// getRoleConfig retorna o RoleVoiceConfig para um role. Deve ser chamado com sm.mu held.
+func (sm *SpeechManager) getRoleConfig(role string) RoleVoiceConfig {
+	switch role {
+	case "user":
+		return sm.config.User
+	case "system":
+		return sm.config.System
+	default:
+		return sm.config.Assistant
+	}
+}
+
+// Synthesize converte texto em áudio usando o role assistant.
 func (sm *SpeechManager) Synthesize(text string) (*SynthesisResult, error) {
+	return sm.SynthesizeForRole("assistant", text)
+}
+
+// SynthesizeForRole converte texto em áudio para um role específico.
+func (sm *SpeechManager) SynthesizeForRole(role string, text string) (*SynthesisResult, error) {
 	sm.mu.RLock()
-	provider := sm.config.AssistantProvider
+	rc := sm.getRoleConfig(role)
+	client := sm.getTTSClientForRole(role)
 	sm.mu.RUnlock()
 
-	switch TTSProvider(provider) {
+	switch TTSProvider(rc.Provider) {
 	case TTSProviderOpenAI:
-		return sm.synthesizeOpenAI(text)
+		if client == nil {
+			return nil, fmt.Errorf("TTS client not configured for role %s", role)
+		}
+		audioData, err := client.Synthesize(text)
+		if err != nil {
+			return nil, err
+		}
+		audioBase64 := base64.StdEncoding.EncodeToString(audioData)
+		return &SynthesisResult{
+			AudioData:   audioData,
+			AudioBase64: audioBase64,
+			Format:      "mp3",
+			Provider:    "openai",
+		}, nil
 	case TTSProviderSAPI5:
 		return nil, fmt.Errorf("SAPI5 TTS is handled directly via SpeakSAPI5")
 	case TTSProviderWebSpeech:
 		return nil, fmt.Errorf("WebSpeech TTS is handled in the frontend")
 	default:
-		return nil, fmt.Errorf("unknown TTS provider: %s", provider)
+		return nil, fmt.Errorf("unknown TTS provider: %s", rc.Provider)
 	}
 }
 
-// synthesizeOpenAI sintetiza usando OpenAI TTS
-func (sm *SpeechManager) synthesizeOpenAI(text string) (*SynthesisResult, error) {
-	sm.mu.RLock()
-	client := sm.ttsClient
-	sm.mu.RUnlock()
-
-	if client == nil {
-		return nil, fmt.Errorf("TTS client not configured")
-	}
-
-	// Sintetiza
-	audioData, err := client.Synthesize(text)
-	if err != nil {
-		return nil, err
-	}
-
-	// Codifica em base64 para enviar ao frontend
-	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
-
-	return &SynthesisResult{
-		AudioData:   audioData,
-		AudioBase64: audioBase64,
-		Format:      "mp3",
-		Provider:    "openai",
-	}, nil
-}
-
-// SynthesizeWithVoice sintetiza com uma voz específica
+// SynthesizeWithVoice sintetiza com uma voz específica (role assistant).
 func (sm *SpeechManager) SynthesizeWithVoice(text string, voice string) (*SynthesisResult, error) {
+	return sm.SynthesizeWithVoiceForRole("assistant", text, voice)
+}
+
+// SynthesizeWithVoiceForRole sintetiza com voz específica para um role.
+func (sm *SpeechManager) SynthesizeWithVoiceForRole(role string, text string, voice string) (*SynthesisResult, error) {
 	sm.mu.RLock()
-	client := sm.ttsClient
+	client := sm.getTTSClientForRole(role)
 	sm.mu.RUnlock()
 
 	if client == nil {
-		return nil, fmt.Errorf("TTS client not configured")
+		return nil, fmt.Errorf("TTS client not configured for role %s", role)
 	}
 
-	// Sintetiza com voz específica
 	audioData, err := client.SynthesizeWithVoice(text, TTSVoice(voice))
 	if err != nil {
 		return nil, err
 	}
 
-	// Codifica em base64
 	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
-
 	return &SynthesisResult{
 		AudioData:   audioData,
 		AudioBase64: audioBase64,
@@ -280,18 +296,23 @@ type StreamCallbacks struct {
 	OnError func(err error)          // Erro no streaming
 }
 
-// SynthesizeStream sintetiza com streaming (OpenAI)
+// SynthesizeStream sintetiza com streaming (role assistant).
 func (sm *SpeechManager) SynthesizeStream(ctx context.Context, text string, voice string, callbacks StreamCallbacks) error {
+	return sm.SynthesizeStreamForRole(ctx, "assistant", text, voice, callbacks)
+}
+
+// SynthesizeStreamForRole sintetiza com streaming para um role específico.
+func (sm *SpeechManager) SynthesizeStreamForRole(ctx context.Context, role string, text string, voice string, callbacks StreamCallbacks) error {
 	sm.mu.RLock()
-	provider := sm.config.AssistantProvider
-	client := sm.ttsClient
+	rc := sm.getRoleConfig(role)
+	client := sm.getTTSClientForRole(role)
 	sm.mu.RUnlock()
 
-	switch TTSProvider(provider) {
+	switch TTSProvider(rc.Provider) {
 	case TTSProviderOpenAI:
 		return sm.synthesizeStreamOpenAI(ctx, text, voice, client, callbacks)
 	default:
-		return fmt.Errorf("streaming not supported for provider: %s", provider)
+		return fmt.Errorf("streaming not supported for provider: %s", rc.Provider)
 	}
 }
 
@@ -329,12 +350,11 @@ func (sm *SpeechManager) synthesizeStreamOpenAI(ctx context.Context, text string
 	return client.SynthesizeStream(ctx, text, internalCallbacks)
 }
 
-// SupportsStreaming retorna true se o provedor atual suporta streaming
-// e o client TTS está inicializado
+// SupportsStreaming retorna true se o provedor do role assistant suporta streaming.
 func (sm *SpeechManager) SupportsStreaming() bool {
 	sm.mu.RLock()
-	provider := sm.config.AssistantProvider
-	client := sm.ttsClient
+	provider := sm.config.Assistant.Provider
+	client := sm.getTTSClientForRole("assistant")
 	sm.mu.RUnlock()
 
 	switch TTSProvider(provider) {
@@ -345,18 +365,18 @@ func (sm *SpeechManager) SupportsStreaming() bool {
 	}
 }
 
-// HasTTSClient retorna true se o client TTS está inicializado
+// HasTTSClient retorna true se o client TTS do assistant está inicializado.
 func (sm *SpeechManager) HasTTSClient() bool {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	return sm.ttsClient != nil
+	return sm.getTTSClientForRole("assistant") != nil
 }
 
-// GetTTSClient retorna o client TTS (pode ser nil)
+// GetTTSClient retorna o client TTS do assistant (pode ser nil).
 func (sm *SpeechManager) GetTTSClient() *TTSClient {
 	sm.mu.RLock()
 	defer sm.mu.RUnlock()
-	return sm.ttsClient
+	return sm.getTTSClientForRole("assistant")
 }
 
 // GetAvailableSTTProviders retorna os provedores de STT disponíveis
@@ -379,8 +399,8 @@ func (sm *SpeechManager) GetAvailableTTSProviders() []string {
 	providers := []string{"webspeech", "sapi5"}
 
 	sm.mu.RLock()
-	hasOpenAI := sm.config.AssistantProvider == string(TTSProviderOpenAI) &&
-		(sm.config.AssistantAPIKey != "" || sm.config.AssistantCredentialPattern != "")
+	hasOpenAI := sm.config.Assistant.Provider == string(TTSProviderOpenAI) &&
+		(sm.config.Assistant.APIKey != "" || sm.config.Assistant.CredentialPattern != "")
 	sm.mu.RUnlock()
 
 	if hasOpenAI {
@@ -393,8 +413,8 @@ func (sm *SpeechManager) GetAvailableTTSProviders() []string {
 // GetAvailableTTSVoices retorna as vozes disponíveis no provedor dinâmico.
 func (sm *SpeechManager) GetAvailableTTSVoices() ([]TTSVoiceInfo, error) {
 	sm.mu.RLock()
-	client := sm.ttsClient
-	provider := sm.config.AssistantProvider
+	client := sm.getTTSClientForRole("assistant")
+	provider := sm.config.Assistant.Provider
 	sm.mu.RUnlock()
 
 	// Se for OpenAI-like e temos cliente, tentamos buscar dinamicamente
@@ -437,9 +457,9 @@ func (sm *SpeechManager) SetTTSVoice(voice string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	sm.config.AssistantVoice = voice
-	if sm.ttsClient != nil {
-		sm.ttsClient.SetVoice(TTSVoice(voice))
+	sm.config.Assistant.Voice = voice
+	if client := sm.ttsClients["assistant"]; client != nil {
+		client.SetVoice(TTSVoice(voice))
 	}
 }
 
@@ -448,9 +468,9 @@ func (sm *SpeechManager) SetTTSSpeed(rate int) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	sm.config.AssistantRate = rate
-	if sm.ttsClient != nil {
-		sm.ttsClient.SetSpeed(sm.rateToSpeed(rate))
+	sm.config.Assistant.Rate = rate
+	if client := sm.ttsClients["assistant"]; client != nil {
+		client.SetSpeed(sm.rateToSpeed(rate))
 	}
 }
 
@@ -459,8 +479,8 @@ func (sm *SpeechManager) SetTTSModel(model string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	sm.config.AssistantModel = model
-	if sm.ttsClient != nil {
-		sm.ttsClient.SetModel(TTSModel(model))
+	sm.config.Assistant.Model = model
+	if client := sm.ttsClients["assistant"]; client != nil {
+		client.SetModel(TTSModel(model))
 	}
 }

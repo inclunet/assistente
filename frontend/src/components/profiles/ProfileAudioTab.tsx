@@ -52,11 +52,20 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   const isVoiceDisabled = !assistantVoice?.enabled;
   const isSTTDisabled = !editingProfile.input?.stt_provider;
 
-  const llmProviderItems: VoiceProviderItem[] = speechProviders.map((p) => ({
-    id: p.id,
-    label: p.name,
-    description: t('pickers.voiceProvider.llmProvider'),
-  }));
+  const llmProviderItems: VoiceProviderItem[] = speechProviders.map((p) => {
+    // Mostra o host da base_url para distinguir providers (ex: "api.openai.com", "litellm.local:4000")
+    let hostHint = '';
+    try {
+      hostHint = new URL(p.base_url).host;
+    } catch { /* URL inválida */ }
+    return {
+      id: p.id,
+      label: p.name,
+      description: hostHint
+        ? t('pickers.voiceProvider.llmProviderWithHost', { host: hostHint })
+        : t('pickers.voiceProvider.llmProvider'),
+    };
+  });
 
   const baseProviderItems: VoiceProviderItem[] = [
     {
@@ -310,7 +319,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
               {currentAssistantProvider !== 'webspeech' && currentAssistantProvider !== 'sapi5' && (
                 <div className="profiles-field">
                   <label htmlFor="pf-tts-model" className="profiles-field__label">
-                    {t('profiles.fieldTTSModel', 'Modelo de voz (OpenAI)')}
+                    {t('profiles.fieldTTSModel', 'Modelo TTS')}
                   </label>
                   <select
                     id="pf-tts-model"
@@ -318,8 +327,8 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                     value={assistantVoice?.model || 'tts-1'}
                     onChange={(e) => updateField('voice.assistant.model', e.target.value)}
                   >
-                    <option value="tts-1">tts-1 (Rápido)</option>
-                    <option value="tts-1-hd">tts-1-hd (Alta Definição)</option>
+                    <option value="tts-1">{t('profiles.ttsModel.tts1', 'tts-1 (Rápido)')}</option>
+                    <option value="tts-1-hd">{t('profiles.ttsModel.tts1hd', 'tts-1-hd (Alta Definição)')}</option>
                   </select>
                 </div>
               )}

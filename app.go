@@ -2991,14 +2991,23 @@ func (a *App) createSpeechManagerForProfile(p *profiles.Profile) *speech.SpeechM
 	// Resolve defaults ($default → provider ID real)
 	p = a.resolveProfileDefaults(p)
 
-	// Helper: resolve credenciais de uma role OpenAI
+	// Cache de credenciais por providerID para evitar resolver o mesmo provider múltiplas vezes
+	type resolvedCreds struct {
+		apiKey, baseURL, credPattern string
+	}
+	credsCache := map[string]*resolvedCreds{}
+
 	resolveAPICreds := func(llmProviderID string) (apiKey, baseURL, credPattern string) {
 		if llmProviderID == "" {
 			return "", "", ""
 		}
+		if cached, ok := credsCache[llmProviderID]; ok {
+			return cached.apiKey, cached.baseURL, cached.credPattern
+		}
 		cfg := a.llmRegistry.Get(llmProviderID)
 		if cfg == nil {
 			log.Printf("[Speech] Provider '%s' não encontrado no registry", llmProviderID)
+			credsCache[llmProviderID] = &resolvedCreds{}
 			return "", "", ""
 		}
 		baseURL = cfg.BaseURL
@@ -3013,24 +3022,41 @@ func (a *App) createSpeechManagerForProfile(p *profiles.Profile) *speech.SpeechM
 		} else {
 			log.Printf("[Speech] Provider '%s' não tem CredentialPattern configurado", llmProviderID)
 		}
+		credsCache[llmProviderID] = &resolvedCreds{apiKey, baseURL, credPattern}
 		return apiKey, baseURL, credPattern
 	}
 
-	// Resolve credenciais TTS por role
-	assistantKey, assistantURL, assistantCredPattern := resolveAPICreds(p.Voice.Assistant.LLMProviderID)
-	userKey, userURL, _ := resolveAPICreds(p.Voice.User.LLMProviderID)
-	systemKey, systemURL, _ := resolveAPICreds(p.Voice.System.LLMProviderID)
+	// Helper: converte profile role para RoleVoiceConfig
+	buildRoleConfig := func(role profiles.VoiceRoleConfig) speech.RoleVoiceConfig {
+		apiKey, baseURL, credPattern := resolveAPICreds(role.LLMProviderID)
+		model := role.Model
+		if model == "" {
+			model = "tts-1"
+		}
+		return speech.RoleVoiceConfig{
+			Provider:          role.Provider,
+			APIKey:            apiKey,
+			BaseURL:           baseURL,
+			CredentialPattern: credPattern,
+			Voice:             role.VoiceID,
+			Model:             model,
+			Rate:              int(role.Rate),
+			Volume:            int(role.Volume * 100),
+		}
+	}
 
-	// Resolve credenciais STT
-	_, sttURL, sttCredPattern := resolveAPICreds(p.Input.LLMProviderID)
+	assistantCfg := buildRoleConfig(p.Voice.Assistant)
 
 	// Log detalhado para diagnóstico de TTS
-	if p.Voice.Assistant.Provider == "openai" && assistantKey == "" {
+	if p.Voice.Assistant.Provider == "openai" && assistantCfg.APIKey == "" {
 		log.Printf("[Speech] AVISO: Provider assistant é 'openai' mas API key está vazia. "+
 			"LLMProviderID='%s', Voice=%+v",
 			p.Voice.Assistant.LLMProviderID,
 			p.Voice.Assistant)
 	}
+
+	// Resolve credenciais STT
+	_, sttURL, sttCredPattern := resolveAPICreds(p.Input.LLMProviderID)
 
 	cfg := speech.SpeechConfig{
 		// STT
@@ -3040,38 +3066,10 @@ func (a *App) createSpeechManagerForProfile(p *profiles.Profile) *speech.SpeechM
 		WhisperModel:         p.Input.STTModel,
 		WhisperLanguage:      p.Input.Language,
 
-		// Assistant
-		AssistantProvider:          p.Voice.Assistant.Provider,
-		AssistantAPIKey:            assistantKey,
-		AssistantBaseURL:           assistantURL,
-		AssistantCredentialPattern: assistantCredPattern,
-		AssistantVoice:             p.Voice.Assistant.VoiceID,
-		AssistantModel:             p.Voice.Assistant.Model,
-		AssistantRate:              int(p.Voice.Assistant.Rate),
-		AssistantVolume:            int(p.Voice.Assistant.Volume * 100),
-
-		// User
-		UserProvider: p.Voice.User.Provider,
-		UserAPIKey:   userKey,
-		UserBaseURL:  userURL,
-		UserVoice:    p.Voice.User.VoiceID,
-		UserModel:    p.Voice.User.Model,
-		UserRate:     int(p.Voice.User.Rate),
-		UserVolume:   int(p.Voice.User.Volume * 100),
-
-		// System
-		SystemProvider: p.Voice.System.Provider,
-		SystemAPIKey:   systemKey,
-		SystemBaseURL:  systemURL,
-		SystemVoice:    p.Voice.System.VoiceID,
-		SystemModel:    p.Voice.System.Model,
-		SystemRate:     int(p.Voice.System.Rate),
-		SystemVolume:   int(p.Voice.System.Volume * 100),
-	}
-
-	// Default model se não definido
-	if cfg.AssistantModel == "" {
-		cfg.AssistantModel = "tts-1"
+		// TTS por role
+		Assistant: assistantCfg,
+		User:      buildRoleConfig(p.Voice.User),
+		System:    buildRoleConfig(p.Voice.System),
 	}
 
 	sm := speech.NewSpeechManager(cfg, a.credMgr)
