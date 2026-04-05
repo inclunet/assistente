@@ -10,13 +10,14 @@ export interface ProfileVoiceSectionProps {
   voice: string;
   rate: number;
   volume: number;
-  providerId?: string; // NOVO
-  profileId?: string;  // NOVO
+  providerId?: string;
+  profileId?: string;
   label?: string;
   helpText?: string;
   references?: Array<{ id: string; label: string }>;
   resolvedVoiceId?: string; // ID final resolvido se for uma referência
   ttsModel?: string; // Modelo do TTS (pode ser tts-1, tts-1-hd)
+  onModelChange?: (model: string) => void; // Callback para mudança de modelo TTS
   onChange: (field: 'voice' | 'rate' | 'volume', value: string | number) => void;
   disabled?: boolean;
 }
@@ -32,6 +33,7 @@ export function ProfileVoiceSection({
   providerId,
   profileId,
   ttsModel,
+  onModelChange,
   label,
   helpText,
   references,
@@ -41,6 +43,8 @@ export function ProfileVoiceSection({
 }: ProfileVoiceSectionProps) {
   const { t } = useTranslation();
   const { speakWithOverride, stop, isSpeaking } = useTTS();
+
+  const isOpenAILike = providerId && providerId !== 'webspeech' && providerId !== 'sapi5' && !providerId.startsWith('ref_');
 
   const handlePreview = async () => {
     if (isSpeaking) {
@@ -109,6 +113,25 @@ export function ProfileVoiceSection({
           disabled={disabled}
         />
       </div>
+
+      {/* TTS Model selector (only for OpenAI-like providers) */}
+      {isOpenAILike && onModelChange && (
+        <div className="profile-voice-section__field">
+          <label htmlFor={`tts-model-${label?.replace(/\s+/g, '-').toLowerCase() || 'default'}`} className="profile-voice-section__label">
+            {t('profiles.fieldTTSModel', 'Modelo TTS')}
+          </label>
+          <select
+            id={`tts-model-${label?.replace(/\s+/g, '-').toLowerCase() || 'default'}`}
+            className="profiles-field__select"
+            value={ttsModel || 'tts-1'}
+            onChange={(e) => onModelChange(e.target.value)}
+            disabled={disabled}
+          >
+            <option value="tts-1">{t('profiles.ttsModel.tts1', 'tts-1 (Rápido)')}</option>
+            <option value="tts-1-hd">{t('profiles.ttsModel.tts1hd', 'tts-1-hd (Alta Definição)')}</option>
+          </select>
+        </div>
+      )}
 
       <div className="profile-voice-section__actions">
         <Button

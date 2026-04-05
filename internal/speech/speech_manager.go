@@ -44,14 +44,14 @@ type SpeechConfig struct {
 
 // RoleVoiceConfig configuração de voz para um role (assistant, user, system)
 type RoleVoiceConfig struct {
-	Provider          string `json:"provider"` // "disabled", "webspeech", "sapi5", "openai"
-	APIKey            string `json:"-"`
-	BaseURL           string `json:"-"`
-	CredentialPattern string `json:"-"` // para resolução lazy de credenciais
-	Voice             string `json:"voice"`
-	Model             string `json:"model"` // "tts-1", "tts-1-hd"
-	Rate              int    `json:"rate"`
-	Volume            int    `json:"volume"` // 0-100
+	Provider          string  `json:"provider"` // "disabled", "webspeech", "sapi5", "openai"
+	APIKey            string  `json:"-"`
+	BaseURL           string  `json:"-"`
+	CredentialPattern string  `json:"-"` // para resolução lazy de credenciais
+	Voice             string  `json:"voice"`
+	Model             string  `json:"model"`   // "tts-1", "tts-1-hd"
+	Rate              float64 `json:"rate"`     // 0.25–4.0 (speed para OpenAI)
+	Volume            float64 `json:"volume"`   // 0.0–1.0
 }
 
 // SpeechManager gerenciador central de speech
@@ -121,12 +121,16 @@ func (sm *SpeechManager) reinitClients() {
 			log.Printf("[Speech] reinitClients: criando TTSClient[%s] (baseURL=%q, credPattern=%q, voice=%q, model=%q)",
 				entry.name, entry.role.BaseURL, entry.role.CredentialPattern,
 				entry.role.Voice, entry.role.Model)
+			speed := entry.role.Rate
+			if speed < 0.25 {
+				speed = 1.0
+			}
 			sm.ttsClients[entry.name] = NewTTSClient(TTSConfig{
 				BaseURL:           entry.role.BaseURL,
 				CredentialPattern: entry.role.CredentialPattern,
 				Model:             TTSModel(entry.role.Model),
 				Voice:             TTSVoice(entry.role.Voice),
-				Speed:             sm.rateToSpeed(entry.role.Rate),
+				Speed:             speed,
 			}, sm.credMgr)
 		}
 	}
@@ -431,25 +435,15 @@ func (sm *SpeechManager) GetOpenAIVoices() []TTSVoiceInfo {
 	return GetAvailableVoices()
 }
 
-// rateToSpeed converte rate (-10 a 10) para speed (0.25 a 4.0)
-func (sm *SpeechManager) rateToSpeed(rate int) float64 {
-	// -10 -> 0.25
-	// 0 -> 1.0
-	// 10 -> 4.0
-	if rate < -10 {
-		rate = -10
+// clampSpeed garante que o speed está dentro dos limites da API OpenAI (0.25–4.0).
+func clampSpeed(speed float64) float64 {
+	if speed < 0.25 {
+		return 0.25
 	}
-	if rate > 10 {
-		rate = 10
+	if speed > 4.0 {
+		return 4.0
 	}
-
-	if rate <= 0 {
-		// -10 a 0 mapeia para 0.25 a 1.0
-		return 1.0 - float64(-rate)*0.075
-	} else {
-		// 0 a 10 mapeia para 1.0 a 4.0
-		return 1.0 + float64(rate)*0.3
-	}
+	return speed
 }
 
 // SetTTSVoice altera a voz do TTS (assistant role)
@@ -463,14 +457,15 @@ func (sm *SpeechManager) SetTTSVoice(voice string) {
 	}
 }
 
-// SetTTSSpeed altera a velocidade do TTS (assistant role)
-func (sm *SpeechManager) SetTTSSpeed(rate int) {
+// SetTTSSpeed altera a velocidade do TTS (assistant role).
+// speed: 0.25–4.0 (valores do OpenAI TTS).
+func (sm *SpeechManager) SetTTSSpeed(speed float64) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	sm.config.Assistant.Rate = rate
+	sm.config.Assistant.Rate = speed
 	if client := sm.ttsClients["assistant"]; client != nil {
-		client.SetSpeed(sm.rateToSpeed(rate))
+		client.SetSpeed(clampSpeed(speed))
 	}
 }
 

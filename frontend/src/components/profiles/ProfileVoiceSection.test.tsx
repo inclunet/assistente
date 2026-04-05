@@ -162,4 +162,76 @@ describe('ProfileVoiceSection', () => {
     expect(volumeInput.max).toBe('1');
     expect(volumeInput.step).toBe('0.05');
   });
+
+  it('mostra seletor de modelo TTS quando provider é OpenAI-like e onModelChange fornecido', () => {
+    const handleModelChange = vi.fn();
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="openai-default"
+        ttsModel="tts-1"
+        onModelChange={handleModelChange}
+      />
+    );
+
+    const modelSelect = screen.getByLabelText('profiles.fieldTTSModel') as HTMLSelectElement;
+    expect(modelSelect).toBeInTheDocument();
+    expect(modelSelect.value).toBe('tts-1');
+  });
+
+  it('NÃO mostra seletor de modelo TTS para webspeech', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="webspeech"
+        ttsModel="tts-1"
+        onModelChange={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+  });
+
+  it('NÃO mostra seletor de modelo TTS para sapi5', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="sapi5"
+        ttsModel="tts-1"
+        onModelChange={vi.fn()}
+      />
+    );
+
+    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+  });
+
+  it('chama onModelChange ao alterar modelo TTS', async () => {
+    const handleModelChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="openai-default"
+        ttsModel="tts-1"
+        onModelChange={handleModelChange}
+      />
+    );
+
+    const modelSelect = screen.getByLabelText('profiles.fieldTTSModel');
+    await user.selectOptions(modelSelect, 'tts-1-hd');
+
+    expect(handleModelChange).toHaveBeenCalledWith('tts-1-hd');
+  });
+
+  it('NÃO mostra seletor de modelo quando onModelChange não é fornecido', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="openai-default"
+        ttsModel="tts-1"
+      />
+    );
+
+    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+  });
 });

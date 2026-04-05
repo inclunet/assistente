@@ -147,6 +147,23 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   const isUserVoiceFollowing = userVoice?.voice_id === VOICE_REF_ASSISTANT || userVoice?.voice_id === VOICE_REF_SYSTEM;
   const isSystemVoiceFollowing = systemVoice?.voice_id === VOICE_REF_ASSISTANT || systemVoice?.voice_id === VOICE_REF_USER;
 
+  // Previne referência circular na UI:
+  // Se User segue System, System NÃO pode seguir User (e vice-versa)
+  const userProviderItems: VoiceProviderItem[] = [
+    defaultProvider,
+    followAssistantProvider,
+    // Só oferece "seguir system" se system NÃO segue user
+    ...(isSystemVoiceFollowing && systemVoice?.voice_id === VOICE_REF_USER ? [] : [followSystemProvider]),
+    ...baseProviderItems,
+  ];
+  const systemProviderItems: VoiceProviderItem[] = [
+    defaultProvider,
+    followAssistantProvider,
+    // Só oferece "seguir user" se user NÃO segue system
+    ...(isUserVoiceFollowing && userVoice?.voice_id === VOICE_REF_SYSTEM ? [] : [followUserProvider]),
+    ...baseProviderItems,
+  ];
+
   const userFollowHelpText = userVoice?.voice_id === VOICE_REF_ASSISTANT
     ? t('profiles.voiceFollow.assistantHelp')
     : userVoice?.voice_id === VOICE_REF_SYSTEM
@@ -168,15 +185,18 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   };
 
   /**
-   * Resolve referências de provedor (ex: ref_assistant)
-   * Nunca retorna 'disabled' ou IDs de referência — esses são tratados como "sem provedor"
+   * Resolve referências de provedor (ex: ref_assistant).
+   * Usa set de visitados para detectar ciclos e retornar '' se houver referência circular.
    */
-  const resolveProviderId = (pId: string | undefined, type: 'assistant' | 'user' | 'system'): string => {
+  const resolveProviderId = (pId: string | undefined, type: 'assistant' | 'user' | 'system', visited?: Set<string>): string => {
     if (!pId || pId === 'disabled') return '';
     if (pId.startsWith('ref_')) {
-      if (pId === 'ref_assistant' && type !== 'assistant') return resolveProviderId(assistantVoice?.llm_provider_id || assistantVoice?.provider || 'webspeech', 'assistant');
-      if (pId === 'ref_user' && type !== 'user') return resolveProviderId(userVoice?.llm_provider_id || userVoice?.provider, 'user');
-      if (pId === 'ref_system' && type !== 'system') return resolveProviderId(systemVoice?.llm_provider_id || systemVoice?.provider, 'system');
+      const v = visited ?? new Set<string>();
+      if (v.has(type)) return ''; // ciclo detectado
+      v.add(type);
+      if (pId === 'ref_assistant' && type !== 'assistant') return resolveProviderId(assistantVoice?.llm_provider_id || assistantVoice?.provider || 'webspeech', 'assistant', v);
+      if (pId === 'ref_user' && type !== 'user') return resolveProviderId(userVoice?.llm_provider_id || userVoice?.provider, 'user', v);
+      if (pId === 'ref_system' && type !== 'system') return resolveProviderId(systemVoice?.llm_provider_id || systemVoice?.provider, 'system', v);
       return '';
     }
     return pId;
@@ -184,12 +204,26 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
 
   /**
    * Resolve referências de voz (ex: VOICE_REF_ASSISTANT) para o ID real da voz.
+   * Usa set de visitados para detectar ciclos e retornar undefined se houver referência circular.
    */
-  const resolveVoiceId = (voiceId: string | undefined): string | undefined => {
+  const resolveVoiceId = (voiceId: string | undefined, visited?: Set<string>): string | undefined => {
     if (!voiceId) return undefined;
-    if (voiceId === VOICE_REF_ASSISTANT) return assistantVoice?.voice_id;
-    if (voiceId === VOICE_REF_USER) return userVoice?.voice_id;
-    if (voiceId === VOICE_REF_SYSTEM) return systemVoice?.voice_id;
+    const v = visited ?? new Set<string>();
+    if (voiceId === VOICE_REF_ASSISTANT) {
+      if (v.has('assistant')) return undefined;
+      v.add('assistant');
+      return resolveVoiceId(assistantVoice?.voice_id, v);
+    }
+    if (voiceId === VOICE_REF_USER) {
+      if (v.has('user')) return undefined;
+      v.add('user');
+      return resolveVoiceId(userVoice?.voice_id, v);
+    }
+    if (voiceId === VOICE_REF_SYSTEM) {
+      if (v.has('system')) return undefined;
+      v.add('system');
+      return resolveVoiceId(systemVoice?.voice_id, v);
+    }
     return voiceId;
   };
 
@@ -243,6 +277,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 providerId={resolveProviderId(currentAssistantProvider, 'assistant')}
                 profileId={profileId}
                 ttsModel={assistantVoice?.model}
+                onModelChange={(m) => updateField('voice.assistant.model', m)}
                 label={t('profiles.voiceLabels.assistantPicker')}
                 onChange={(f, v) => handleVoiceChange('assistant', f, v)}
                 disabled={isVoiceDisabled}
@@ -261,7 +296,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 <VoiceProviderPicker
                   value={currentUserProvider}
                   onChange={(value) => handleProviderChange('user', value)}
-                  items={[defaultProvider, followAssistantProvider, followSystemProvider, ...baseProviderItems]}
+                  items={userProviderItems}
                   label={t('pickers.voiceProvider.label')}
                   helpText={t('pickers.voiceProvider.description')}
                   variant="form"
@@ -275,6 +310,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 providerId={resolveProviderId(currentUserProvider, 'user')}
                 profileId={profileId}
                 ttsModel={userVoice?.model}
+                onModelChange={(m) => updateField('voice.user.model', m)}
                 label={t('profiles.voiceLabels.userPicker')}
                 helpText={userFollowHelpText}
                 onChange={(f, v) => handleVoiceChange('user', f, v)}
@@ -294,7 +330,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 <VoiceProviderPicker
                   value={currentSystemProvider}
                   onChange={(value) => handleProviderChange('system', value)}
-                  items={[defaultProvider, followAssistantProvider, followUserProvider, ...baseProviderItems]}
+                  items={systemProviderItems}
                   label={t('pickers.voiceProvider.label')}
                   helpText={t('pickers.voiceProvider.description')}
                   variant="form"
@@ -308,6 +344,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 providerId={resolveProviderId(currentSystemProvider, 'system')}
                 profileId={profileId}
                 ttsModel={systemVoice?.model}
+                onModelChange={(m) => updateField('voice.system.model', m)}
                 label={t('profiles.voiceLabels.systemPicker')}
                 helpText={systemFollowHelpText}
                 onChange={(f, v) => handleVoiceChange('system', f, v)}
@@ -316,24 +353,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
             </CollapsibleSection>
 
             <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {currentAssistantProvider !== 'webspeech' && currentAssistantProvider !== 'sapi5' && (
-                <div className="profiles-field">
-                  <label htmlFor="pf-tts-model" className="profiles-field__label">
-                    {t('profiles.fieldTTSModel', 'Modelo TTS')}
-                  </label>
-                  <select
-                    id="pf-tts-model"
-                    className="profiles-field__select"
-                    value={assistantVoice?.model || 'tts-1'}
-                    onChange={(e) => updateField('voice.assistant.model', e.target.value)}
-                  >
-                    <option value="tts-1">{t('profiles.ttsModel.tts1', 'tts-1 (Rápido)')}</option>
-                    <option value="tts-1-hd">{t('profiles.ttsModel.tts1hd', 'tts-1-hd (Alta Definição)')}</option>
-                  </select>
-                </div>
-              )}
-
-
               <div className="profiles-field">
                 <label htmlFor="pf-channel-response" className="profiles-field__label">
                   {t('profiles.fieldChannelResponse', 'Resposta em canais externos')}

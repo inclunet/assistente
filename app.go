@@ -3040,8 +3040,8 @@ func (a *App) createSpeechManagerForProfile(p *profiles.Profile) *speech.SpeechM
 			CredentialPattern: credPattern,
 			Voice:             role.VoiceID,
 			Model:             model,
-			Rate:              int(role.Rate),
-			Volume:            int(role.Volume * 100),
+			Rate:              role.Rate,
+			Volume:            role.Volume,
 		}
 	}
 
@@ -3548,9 +3548,9 @@ func (a *App) SetOpenAITTSVoice(voice string) {
 }
 
 // SetOpenAITTSSpeed altera a velocidade do OpenAI TTS
-func (a *App) SetOpenAITTSSpeed(rate int) {
+func (a *App) SetOpenAITTSSpeed(speed float64) {
 	if a.speechManager != nil {
-		a.speechManager.SetTTSSpeed(rate)
+		a.speechManager.SetTTSSpeed(speed)
 	}
 }
 
