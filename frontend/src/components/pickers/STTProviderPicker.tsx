@@ -1,6 +1,8 @@
 import { useState, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { AudioOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { GetLLMProviders } from '@wailsjs/go/main/App';
+import { llm } from '@wailsjs/go/models';
 import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import './STTProviderPicker.css';
@@ -10,8 +12,10 @@ export const STT_WEBSPEECH = 'webspeech';
 export const STT_WHISPER = 'whisper_api';
 
 export interface STTProviderPickerProps {
+  /** Valor atual: 'webspeech' ou ID do provider LLM (ex: 'openai-123') */
   value: string;
-  onChange: (provider: string) => void;
+  /** Callback com o provider selecionado e o llmProviderId (para provedores LLM) */
+  onChange: (provider: string, llmProviderId?: string) => void;
   variant?: 'toolbar' | 'form';
   label?: string;
   helpText?: string;
@@ -22,12 +26,6 @@ export interface STTProviderPickerProps {
 
 export interface STTProviderPickerRef {
   reload: () => Promise<void>;
-}
-
-interface STTProvider {
-  id: string;
-  name: string;
-  description: string;
 }
 
 export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPickerProps>(
@@ -45,7 +43,7 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
     ref
   ) => {
     const { t } = useTranslation();
-    const [providers, setProviders] = useState<STTProvider[]>([]);
+    const [llmProviders, setLLMProviders] = useState<llm.ProviderConfig[]>([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
 
@@ -54,23 +52,10 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
       setError(null);
 
       try {
-        const providersList: STTProvider[] = [
-          {
-            id: STT_WEBSPEECH,
-            name: t('pickers.stt.webSpeech'),
-            description: t('pickers.stt.webSpeechDesc'),
-          },
-          {
-            id: STT_WHISPER,
-            name: t('pickers.stt.whisper'),
-            description: t('pickers.stt.whisperDesc'),
-          },
-        ];
-
-        setProviders(providersList);
+        const providers = await GetLLMProviders();
+        setLLMProviders(providers || []);
       } catch (err) {
         setError(err instanceof Error ? err.message : t('pickers.stt.loadError'));
-        console.error('Failed to load STT providers:', err);
       } finally {
         setLoading(false);
       }
@@ -84,18 +69,38 @@ export const STTProviderPicker = forwardRef<STTProviderPickerRef, STTProviderPic
       reload: loadProviders,
     }));
 
-    const items: ComboboxItem[] = providers.map((provider) => ({
-      value: provider.id,
-      label: provider.name,
-      sublabel: provider.description,
-    }));
+    const items: ComboboxItem[] = [
+      {
+        value: STT_WEBSPEECH,
+        label: t('pickers.stt.webSpeech'),
+        sublabel: t('pickers.stt.webSpeechDesc'),
+      },
+      ...llmProviders.map((p) => ({
+        value: p.id,
+        label: p.name,
+        sublabel: t('pickers.stt.whisperViaProvider'),
+      })),
+    ];
+
+    const handleSelect = (selected: string) => {
+      if (selected === STT_WEBSPEECH) {
+        onChange(STT_WEBSPEECH, undefined);
+      } else {
+        // Selecionou um provider LLM → usa whisper_api com esse provider
+        onChange(STT_WHISPER, selected);
+      }
+    };
+
+    // Para exibição: se é whisper_api, mostra o llmProviderId (que é o value real)
+    // Se é webspeech, mostra 'webspeech'
+    const displayValue = value === STT_WEBSPEECH ? STT_WEBSPEECH : value;
 
     return (
       <BasePicker
         variant={variant}
         items={items}
-        selected={value}
-        onSelect={onChange}
+        selected={displayValue}
+        onSelect={handleSelect}
         label={label ?? t('pickers.stt.label')}
         icon={icon}
         maxWidth={maxWidth}

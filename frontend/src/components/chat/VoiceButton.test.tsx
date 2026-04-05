@@ -20,7 +20,7 @@ vi.mock('../../hooks/useInteractionProfile', () => ({
     volume: 0,
     interimText: '',
     activeProfile: {
-      interaction: {
+      input: {
         triggers: [{ type: 'button_toggle', enabled: true }],
       },
     },

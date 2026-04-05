@@ -10,15 +10,23 @@ import './VoicePicker.css';
 // Valor especial para voz desativada (usa leitor de telas)
 export const VOICE_DISABLED = '__disabled__';
 
+// Valores especiais para referenciar outras vozes
+export const VOICE_REF_ASSISTANT = '__ref_assistant__';
+export const VOICE_REF_USER = '__ref_user__';
+export const VOICE_REF_SYSTEM = '__ref_system__';
+
 export interface VoicePickerProps {
   value: string;
   onChange: (voice: string) => void;
+  providerId?: string; // NOVO: Filtra por provedor
+  profileId?: string;  // NOVO: Usado para buscar vozes do provedor
   variant?: 'toolbar' | 'form';
   label?: string;
   helpText?: string;
   icon?: ReactNode;
   maxWidth?: string;
   allowDisabled?: boolean;
+  references?: Array<{ id: string; label: string }>;
   onAnnounce?: (message: string) => void;
 }
 
@@ -26,21 +34,20 @@ export interface VoicePickerRef {
   reload: () => Promise<void>;
 }
 
-// Mapeia provider para label amigável (valores traduzidos via useTranslation no componente)
-
-// Provider icons removed — provider info is shown in sublabel
-
 export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
   (
     {
       value,
       onChange,
+      providerId,
+      profileId,
       variant = 'form',
       label,
       helpText,
       icon = <SoundOutlined />,
       maxWidth,
       allowDisabled = true,
+      references = [],
       onAnnounce,
     },
     ref
@@ -49,15 +56,42 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
     const effectiveLabel = label ?? t('pickers.voice.label');
     const effectiveHelpText = helpText ?? t('pickers.voice.description');
     const [voices, setVoices] = useState<TTSVoice[]>([]);
-    const [loading, setLoading] = useState(true);
+    const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const loadVoices = async () => {
+      // Provedores especiais não têm vozes próprias
+      const isSpecialProvider = !providerId || providerId === 'disabled' || providerId.startsWith('ref_');
+      
+      if (isSpecialProvider && !allowDisabled) {
+        setVoices([]);
+        setLoading(false);
+        return;
+      }
+
+      if (isSpecialProvider) {
+        // Para provedores especiais com allowDisabled, mantemos a lista vazia (só mostra a opção "disabled")
+        setVoices([]);
+        setLoading(false);
+        return;
+      }
+
       setLoading(true);
       setError(null);
 
       try {
-        const allVoices = await ttsService.getVoices();
+        let allVoices: TTSVoice[] = [];
+        
+        if (providerId && profileId) {
+          // Busca específica para este provedor
+          allVoices = await ttsService.getVoicesForProvider(providerId, profileId);
+        } else if (providerId) {
+          // Tem provedor mas não tem profileId — tenta com string vazia
+          allVoices = await ttsService.getVoicesForProvider(providerId, '');
+        } else {
+          // Fallback legada: busca todas as vozes (usado na Home/Toolbar se não houver perfil)
+          allVoices = await ttsService.getVoices();
+        }
 
         setVoices(allVoices);
       } catch (err) {
@@ -70,7 +104,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
 
     useEffect(() => {
       loadVoices();
-    }, []);
+    }, [providerId, profileId]);
 
     useImperativeHandle(ref, () => ({
       reload: loadVoices,
@@ -78,15 +112,16 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
 
     // Agrupa vozes por provider
     const voicesByProvider = voices.reduce((acc, voice) => {
-      if (!acc[voice.provider]) {
-        acc[voice.provider] = [];
+      const pId = voice.provider.toString();
+      if (!acc[pId]) {
+        acc[pId] = [];
       }
-      acc[voice.provider].push(voice);
+      acc[pId].push(voice);
       return acc;
-    }, {} as Record<TTSProvider, TTSVoice[]>);
+    }, {} as Record<string, TTSVoice[]>);
 
     // Opção de desativado
-    const providerLabels: Record<TTSProvider, string> = {
+    const providerLabels: Record<string, string> = {
       [TTSProvider.DISABLED]: t('pickers.voice.disabled'),
       [TTSProvider.WEBSPEECH]: t('pickers.voice.system'),
       [TTSProvider.SAPI5]: t('pickers.voice.windows'),
@@ -100,6 +135,11 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
 
     // Constrói lista de itens com grupos por provider
     const items: ComboboxItem[] = [
+      ...references.map(ref => ({
+        value: ref.id,
+        label: ref.label,
+        sublabel: t('pickers.voice.reference'),
+      })),
       ...(allowDisabled ? [disabledOption] : []),
     ];
 
@@ -107,8 +147,12 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
     const providerOrder = [
       TTSProvider.WEBSPEECH,
       TTSProvider.SAPI5,
-      TTSProvider.OPENAI
+      TTSProvider.OPENAI,
     ];
+
+    if (providerId && !providerOrder.includes(providerId as TTSProvider)) {
+      providerOrder.unshift(providerId as TTSProvider);
+    }
 
     for (const providerType of providerOrder) {
       const providerVoices = voicesByProvider[providerType];
@@ -124,7 +168,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
 
       // Adiciona vozes do provider
       providerVoices.forEach(voice => {
-        const providerLabel = providerLabels[voice.provider];
+        const providerLabel = providerLabels[voice.provider] ?? String(voice.provider);
         
         items.push({
           value: voice.id,

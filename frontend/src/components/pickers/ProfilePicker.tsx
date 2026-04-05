@@ -4,6 +4,7 @@ import { ComboboxItem } from './Combobox';
 import { BasePicker } from './BasePicker';
 import { GetProfiles, GetActiveProfileSlug, SetActiveProfile } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
+import { useTranslation } from 'react-i18next';
 
 export interface ProfilePickerProps {
   /** Callback when profile is selected */
@@ -44,6 +45,7 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     ref
   ) => {
     const isControlled = value !== undefined;
+    const { t } = useTranslation();
     const [profileList, setProfileList] = useState<Array<{ name: string; slug: string; description: string; icon: string; source: string }>>([]);
     const [activeSlug, setActiveSlug] = useState<string>('padrao');
     const [loading, setLoading] = useState(true);
@@ -114,11 +116,22 @@ export const ProfilePicker = forwardRef<ProfilePickerRef, ProfilePickerProps>(
     }));
 
     const buildItems = (): ComboboxItem[] => {
-      return profileList.map(profile => ({
-        value: profile.slug,
-        label: `${profile.name}`.trim(),
-        sublabel: profile.description || undefined,
-      }));
+      const items: ComboboxItem[] = [];
+      // In controlled mode (channel pickers), add option to use global active profile
+      if (isControlled) {
+        items.push({
+          value: '',
+          label: t('profiles.useActiveGlobal'),
+        });
+      }
+      for (const profile of profileList) {
+        items.push({
+          value: profile.slug,
+          label: `${profile.name}`.trim(),
+          sublabel: profile.description || undefined,
+        });
+      }
+      return items;
     };
 
     const handleSelect = async (newValue: string) => {

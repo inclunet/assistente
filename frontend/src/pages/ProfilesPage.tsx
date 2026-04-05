@@ -141,19 +141,38 @@ export default function ProfilesPage() {
             system_prompt_position: 'after',
           },
           voice: {
-            provider: 'disabled',
-            voice_id: '',
-            rate: 1.0,
-            pitch: 1.0,
-            volume: 1.0,
-            enabled_for_agent: false,
-            enabled_for_user: false,
+            assistant: {
+              enabled: false,
+              provider: 'disabled',
+              voice_id: '',
+              rate: 1.0,
+              pitch: 1.0,
+              volume: 1.0,
+            },
+            user: {
+              enabled: false,
+              provider: 'disabled',
+              rate: 1.0,
+              pitch: 1.0,
+              volume: 1.0,
+            },
+            system: {
+              enabled: false,
+              provider: 'disabled',
+              rate: 1.0,
+              pitch: 1.0,
+              volume: 1.0,
+            },
           },
-          interaction: {
+          input: {
+            enabled: true,
             stt_provider: 'webspeech',
             language: 'pt-BR',
             feedback_sounds: true,
             triggers: [],
+          },
+          channels: {
+            response_mode: 'mirror',
           },
         }) as ProfileRow;
         defaultProfile.id = '';
@@ -242,17 +261,25 @@ export default function ProfilesPage() {
   const updateFields = (updates: Record<string, unknown>) => {
     if (!crud.editingItem) return;
     const updated = JSON.parse(JSON.stringify(crud.editingItem));
-    
-    // Aplica todas as atualizações
-    for (const [path, value] of Object.entries(updates)) {
+
+    const setDeepValue = (target: Record<string, unknown>, path: string, value: unknown) => {
       const keys = path.split('.');
-      let obj = updated;
+      let obj = target as Record<string, unknown>;
       for (let i = 0; i < keys.length - 1; i++) {
-        obj = obj[keys[i]];
+        const key = keys[i];
+        const next = obj[key];
+        if (!next || typeof next !== 'object') {
+          obj[key] = {};
+        }
+        obj = obj[key] as Record<string, unknown>;
       }
       obj[keys[keys.length - 1]] = value;
+    };
+
+    for (const [path, value] of Object.entries(updates)) {
+      setDeepValue(updated, path, value);
     }
-    
+
     const next = profiles.Profile.createFrom(updated) as ProfileRow;
     next.id = crud.editingItem.id || next.slug || String(crud.editingId || '');
     next.source = crud.editingItem.source;

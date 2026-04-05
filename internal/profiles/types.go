@@ -9,18 +9,19 @@ import (
 const DefaultProviderSentinel = "$default"
 
 // Profile representa um perfil de conversa unificado.
-// Combina configurações de chat (LLM), voz (TTS) e interação (STT/triggers)
+// Combina configurações de chat (LLM), voz (TTS) e input (STT/triggers)
 // em um único arquivo JSON armazenado em .assistente/profiles/.
 type Profile struct {
-	BuiltinVersion string            `json:"_builtin_version,omitempty"` // Version for builtin profiles (used by installBuiltinProfiles)
-	Name           string            `json:"name"`
-	Description    string            `json:"description,omitempty"`
-	Icon           string            `json:"icon,omitempty"`
-	Active         bool              `json:"active,omitempty"` // Marca se este é o perfil ativo
-	Chat           ChatConfig        `json:"chat"`
-	Voice          VoiceConfig       `json:"voice"`
-	Interaction    InteractionConfig `json:"interaction"`
-	MediaSupport   *MediaSupport     `json:"media_support,omitempty"` // Suporte a mídia do modelo (auto-detectado)
+	BuiltinVersion string         `json:"_builtin_version,omitempty"` // Version for builtin profiles (used by installBuiltinProfiles)
+	Name           string         `json:"name"`
+	Description    string         `json:"description,omitempty"`
+	Icon           string         `json:"icon,omitempty"`
+	Active         bool           `json:"active,omitempty"` // Marca se este é o perfil ativo
+	Chat           ChatConfig     `json:"chat"`
+	Voice          VoiceConfig    `json:"voice"`
+	Input          InputConfig    `json:"input"`
+	Channels       ChannelsConfig `json:"channels,omitempty"`
+	MediaSupport   *MediaSupport  `json:"media_support,omitempty"` // Suporte a mídia do modelo (auto-detectado)
 }
 
 // MediaSupport indica quais tipos de mídia o modelo LLM suporta nativamente.
@@ -53,7 +54,7 @@ type ChatConfig struct {
 	DisableTools          bool     `json:"disable_tools,omitempty"`            // Desabilita completamente tool calling
 	DisableSkills         bool     `json:"disable_skills,omitempty"`           // Desabilita injeção de skills no prompt
 	DisableOnDemandSkills bool     `json:"disable_on_demand_skills,omitempty"` // Desabilita skills sob demanda (apenas autoload)
-	CommandAllowlist string `json:"command_allowlist,omitempty"` // Slug da allowlist de comandos
+	CommandAllowlist      string   `json:"command_allowlist,omitempty"`        // Slug da allowlist de comandos
 
 	// MaxAgenticIterations define o limite máximo de iterações do loop de agentes
 	// Cada tool call conta como uma iteração
@@ -63,24 +64,47 @@ type ChatConfig struct {
 	MaxAgenticIterations int `json:"max_agentic_iterations,omitempty"`
 }
 
-// VoiceConfig define as configurações de voz TTS
-type VoiceConfig struct {
-	Disabled        bool    `json:"disabled,omitempty"`        // Desabilita completamente TTS neste perfil
-	Provider        string  `json:"provider"`                  // disabled, webspeech, sapi5, openai
-	LLMProviderID   string  `json:"llm_provider_id,omitempty"` // ID do provedor LLM para TTS (ex: "openai-default", independente do chat)
-	VoiceID         string  `json:"voice_id,omitempty"`        // ID da voz
-	Rate            float64 `json:"rate"`                      // Velocidade
-	Pitch           float64 `json:"pitch"`                     // Tom
-	Volume          float64 `json:"volume"`                    // Volume (0-1)
-	EnabledForAgent bool    `json:"enabled_for_agent"`         // TTS para mensagens do assistente
-	EnabledForUser  bool    `json:"enabled_for_user"`          // TTS para mensagens do usuário
+// VoiceRoleConfig configura TTS para uma role específica (assistant, user ou system).
+type VoiceRoleConfig struct {
+	Enabled       bool    `json:"enabled"`                           // Habilita TTS para esta role
+	Provider      string  `json:"provider"`                          // "disabled", "webspeech", "sapi5", "openai"
+	LLMProviderID string  `json:"llm_provider_id,omitempty"`         // ID do provedor LLM (para credenciais da API)
+	VoiceID       string  `json:"voice_id,omitempty"`                // ID da voz (ex: "nova", "alloy", "echo")
+	Model         string  `json:"model,omitempty"`                   // Modelo TTS (ex: "tts-1", "tts-1-hd")
+	Rate          float64 `json:"rate"`                              // Velocidade (0.5–2.0)
+	Pitch         float64 `json:"pitch"`                             // Tom (0.5–2.0)
+	Volume        float64 `json:"volume"`                            // Volume (0.0–1.0)
+}
 
-	// ChannelResponseMode define como o canal externo responde em relação ao formato de mídia.
-	// Afeta apenas conversas via canais (Signal, Telegram, etc.) — não afeta o desktop.
+// VoiceConfig configura TTS — uma sub-config independente por role.
+//   - Assistant: voz para respostas do LLM
+//   - User: voz para confirmação/leitura de mensagens do usuário (acessibilidade)
+//   - System: voz para notificações, alertas, tool calling, MCP
+type VoiceConfig struct {
+	Assistant VoiceRoleConfig `json:"assistant"`
+	User      VoiceRoleConfig `json:"user"`
+	System    VoiceRoleConfig `json:"system"`
+}
+
+// InputConfig configura STT e triggers de interação por voz.
+// Substitui a antiga InteractionConfig.
+type InputConfig struct {
+	Enabled        bool            `json:"enabled"`                           // Habilita input por voz
+	STTProvider    string          `json:"stt_provider"`                      // "webspeech", "whisper_api"
+	LLMProviderID  string          `json:"llm_provider_id,omitempty"`         // ID do provedor LLM para Whisper API
+	STTModel       string          `json:"stt_model,omitempty"`               // Modelo STT (ex: "whisper-1", "whisper-large-v3")
+	Language       string          `json:"language"`                          // Idioma (ex: "pt-BR")
+	FeedbackSounds bool            `json:"feedback_sounds"`                   // Sons de início/fim de gravação
+	Triggers       []TriggerConfig `json:"triggers,omitempty"`                // Lista de triggers de ativação
+}
+
+// ChannelsConfig configura comportamento para canais externos (Telegram, Signal, etc.).
+type ChannelsConfig struct {
+	// ResponseMode define como o canal externo responde em relação ao formato de mídia.
 	//   "mirror"       (padrão) — espelha o formato: texto→texto, áudio→áudio
 	//   "always_text"  — sempre responde em texto, mesmo se recebeu áudio
 	//   "always_audio" — sempre responde em áudio (TTS), mesmo se recebeu texto
-	ChannelResponseMode string `json:"channel_response_mode,omitempty"`
+	ResponseMode string `json:"response_mode,omitempty"`
 }
 
 // Channel response mode constants
@@ -89,17 +113,6 @@ const (
 	ChannelResponseAlwaysText  = "always_text"  // sempre texto
 	ChannelResponseAlwaysAudio = "always_audio" // sempre áudio (TTS)
 )
-
-
-// InteractionConfig define as configurações de interação por voz
-type InteractionConfig struct {
-	Disabled       bool            `json:"disabled,omitempty"`        // Desabilita completamente STT/interação neste perfil
-	STTProvider    string          `json:"stt_provider"`              // webspeech, whisper_api
-	LLMProviderID  string          `json:"llm_provider_id,omitempty"` // ID do provedor LLM para Whisper (ex: "openai-default", independente do chat)
-	Language       string          `json:"language"`                  // Idioma (ex: pt-BR)
-	FeedbackSounds bool            `json:"feedback_sounds"`           // Sons de início/fim
-	Triggers       []TriggerConfig `json:"triggers,omitempty"`        // Lista de triggers
-}
 
 // TriggerConfig define uma forma de ativar interação por voz
 type TriggerConfig struct {
@@ -147,6 +160,13 @@ const (
 // DefaultProfile retorna um perfil com valores padrão.
 // Usa $default para provedor e modelo — resolvido em runtime pelo sistema de default provider.
 func DefaultProfile() *Profile {
+	defaultRole := VoiceRoleConfig{
+		Enabled:  false,
+		Provider: "disabled",
+		Rate:     1.0,
+		Pitch:    1.0,
+		Volume:   1.0,
+	}
 	return &Profile{
 		Name:        "Padrão",
 		Description: "Configuração padrão.",
@@ -161,21 +181,28 @@ func DefaultProfile() *Profile {
 			ReasoningEffort: "",
 		},
 		Voice: VoiceConfig{
-			Provider:        "disabled",
-			LLMProviderID:   DefaultProviderSentinel,
-			VoiceID:         "",
-			Rate:            1.0,
-			Pitch:           1.0,
-			Volume:          1.0,
-			EnabledForAgent: false,
-			EnabledForUser:  false,
+			Assistant: VoiceRoleConfig{
+				Enabled:       false,
+				Provider:      "disabled",
+				LLMProviderID: DefaultProviderSentinel,
+				Model:         "tts-1",
+				Rate:          1.0,
+				Pitch:         1.0,
+				Volume:        1.0,
+			},
+			User:   defaultRole,
+			System: defaultRole,
 		},
-		Interaction: InteractionConfig{
+		Input: InputConfig{
+			Enabled:        true,
 			STTProvider:    "webspeech",
 			LLMProviderID:  DefaultProviderSentinel,
 			Language:       "pt-BR",
 			FeedbackSounds: true,
 			Triggers:       []TriggerConfig{},
+		},
+		Channels: ChannelsConfig{
+			ResponseMode: ChannelResponseMirror,
 		},
 	}
 }
@@ -219,35 +246,42 @@ func (p *Profile) Validate() error {
 		return fmt.Errorf("chat.reasoning_effort must be one of: off, low, medium, high")
 	}
 
-	// Validação da voz
-	validVoiceProviders := []string{"disabled", "webspeech", "sapi5", "openai"}
-	if p.Voice.Provider != "" && !containsStr(validVoiceProviders, p.Voice.Provider) {
-		return fmt.Errorf("voice.provider must be one of: disabled, webspeech, sapi5, openai")
+	// Validação da voz — cada role independente
+	validVoiceProviders := []string{"", "disabled", "webspeech", "sapi5", "openai"}
+	voiceRoles := map[string]VoiceRoleConfig{
+		"voice.assistant": p.Voice.Assistant,
+		"voice.user":      p.Voice.User,
+		"voice.system":    p.Voice.System,
+	}
+	for name, role := range voiceRoles {
+		if !containsStr(validVoiceProviders, role.Provider) {
+			return fmt.Errorf("%s.provider must be one of: disabled, webspeech, sapi5, openai", name)
+		}
 	}
 
 	// Validação do modo de resposta para canais
 	validChannelModes := []string{"", ChannelResponseMirror, ChannelResponseAlwaysText, ChannelResponseAlwaysAudio}
-	if !containsStr(validChannelModes, p.Voice.ChannelResponseMode) {
-		return fmt.Errorf("voice.channel_response_mode must be one of: mirror, always_text, always_audio")
+	if !containsStr(validChannelModes, p.Channels.ResponseMode) {
+		return fmt.Errorf("channels.response_mode must be one of: mirror, always_text, always_audio")
 	}
 
-	// Validação da interação
+	// Validação do input (STT)
 	validSTTProviders := []string{"webspeech", "whisper_api", ""}
-	if !containsStr(validSTTProviders, p.Interaction.STTProvider) {
-		return fmt.Errorf("interaction.stt_provider must be one of: webspeech, whisper_api")
+	if !containsStr(validSTTProviders, p.Input.STTProvider) {
+		return fmt.Errorf("input.stt_provider must be one of: webspeech, whisper_api")
 	}
 
 	// Validação dos triggers
 	validTriggerTypes := []string{TriggerTypeHotkey, TriggerTypeButtonPTT, TriggerTypeButtonToggle, TriggerTypeWakeword, TriggerTypeVAD}
-	for i, t := range p.Interaction.Triggers {
+	for i, t := range p.Input.Triggers {
 		if !containsStr(validTriggerTypes, t.Type) {
-			return fmt.Errorf("interaction.triggers[%d].type must be one of: hotkey, button_ptt, button_toggle, wakeword, vad", i)
+			return fmt.Errorf("input.triggers[%d].type must be one of: hotkey, button_ptt, button_toggle, wakeword, vad", i)
 		}
 		if t.Type == TriggerTypeHotkey && t.Hotkey == "" {
-			return fmt.Errorf("interaction.triggers[%d].hotkey is required for type hotkey", i)
+			return fmt.Errorf("input.triggers[%d].hotkey is required for type hotkey", i)
 		}
 		if t.Type == TriggerTypeWakeword && t.WakewordKeyword == "" {
-			return fmt.Errorf("interaction.triggers[%d].wakeword_keyword is required for type wakeword", i)
+			return fmt.Errorf("input.triggers[%d].wakeword_keyword is required for type wakeword", i)
 		}
 	}
 
@@ -256,25 +290,25 @@ func (p *Profile) Validate() error {
 
 // ShouldUseAriaLiveForAgent retorna se deve usar aria-live para mensagens do assistente
 func (p *Profile) ShouldUseAriaLiveForAgent() bool {
-	return p.Voice.Disabled || p.Voice.Provider == "disabled" || !p.Voice.EnabledForAgent
+	return !p.Voice.Assistant.Enabled || p.Voice.Assistant.Provider == "disabled"
 }
 
 // ShouldUseAriaLiveForUser retorna se deve usar aria-live para mensagens do usuário
 func (p *Profile) ShouldUseAriaLiveForUser() bool {
-	return p.Voice.Disabled || p.Voice.Provider == "disabled" || !p.Voice.EnabledForUser
+	return !p.Voice.User.Enabled || p.Voice.User.Provider == "disabled"
 }
 
-// IsVoiceDisabled retorna true se o perfil não usa TTS
+// IsVoiceDisabled retorna true se nenhuma role de TTS está ativa
 func (p *Profile) IsVoiceDisabled() bool {
-	return p.Voice.Disabled || p.Voice.Provider == "disabled" || (!p.Voice.EnabledForAgent && !p.Voice.EnabledForUser)
+	return !p.Voice.Assistant.Enabled && !p.Voice.User.Enabled && !p.Voice.System.Enabled
 }
 
 // GetChannelResponseMode retorna o modo de resposta efetivo para canais externos.
 func (p *Profile) GetChannelResponseMode() string {
-	if p.Voice.ChannelResponseMode == "" {
+	if p.Channels.ResponseMode == "" {
 		return ChannelResponseMirror
 	}
-	return p.Voice.ChannelResponseMode
+	return p.Channels.ResponseMode
 }
 
 // ShouldRespondWithAudio retorna se o canal deve responder com áudio dado o modo e se a mensagem original era áudio.
@@ -316,4 +350,3 @@ func containsStr(slice []string, item string) bool {
 	}
 	return false
 }
-

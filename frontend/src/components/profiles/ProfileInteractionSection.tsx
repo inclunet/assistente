@@ -1,41 +1,81 @@
 import { AudioOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
-import { STTProviderPicker } from '../pickers/STTProviderPicker';
+import { STTProviderPicker, STT_WEBSPEECH } from '../pickers/STTProviderPicker';
 import './ProfileInteractionSection.css';
 
 export interface ProfileInteractionSectionProps {
   sttProvider: string;
+  sttLLMProviderId: string;
+  sttModel: string;
   sttLanguage: string;
   enableFeedbackSounds: boolean;
-  onChange: (field: 'sttProvider' | 'sttLanguage' | 'enableFeedbackSounds', value: string | boolean) => void;
+  onChange: (field: 'sttProvider' | 'sttLLMProviderId' | 'sttModel' | 'sttLanguage' | 'enableFeedbackSounds', value: string | boolean) => void;
   disabled?: boolean;
 }
 
 /**
  * Seção de configuração de interação de um perfil.
- * Permite escolher provedor STT, idioma e ativar sons de feedback.
+ * Permite escolher provedor STT, modelo, idioma e ativar sons de feedback.
  */
 export function ProfileInteractionSection({
   sttProvider,
+  sttLLMProviderId,
+  sttModel,
   sttLanguage,
   enableFeedbackSounds,
   onChange,
   disabled = false,
 }: ProfileInteractionSectionProps) {
   const { t } = useTranslation();
+
+  const isWhisper = sttProvider === 'whisper_api';
+
   return (
     <div className="profile-interaction-section" data-testid="profile-interaction-section">
       {/* STT Provider picker */}
       <div className="profile-interaction-section__field">
         <STTProviderPicker
-          value={sttProvider || 'webspeech'}
-          onChange={(value) => onChange('sttProvider', value)}
+          value={isWhisper ? sttLLMProviderId : STT_WEBSPEECH}
+          onChange={(provider, llmProviderId) => {
+            if (provider === STT_WEBSPEECH) {
+              onChange('sttProvider', 'webspeech');
+              onChange('sttLLMProviderId', '');
+            } else {
+              onChange('sttProvider', 'whisper_api');
+              onChange('sttLLMProviderId', llmProviderId || '');
+            }
+          }}
           variant="form"
           label={t('profiles.interactionSection.sttTitle')}
           helpText={t('profiles.interactionSection.sttDescription')}
           icon={<AudioOutlined />}
         />
       </div>
+
+      {/* STT Model (só para Whisper) */}
+      {isWhisper && (
+        <div className="profile-interaction-section__field">
+          <label htmlFor="stt-model" className="profile-interaction-section__label">
+            {t('profiles.interactionSection.sttModelLabel')}
+          </label>
+          <select
+            id="stt-model"
+            className="profile-interaction-section__select"
+            value={sttModel || 'whisper-1'}
+            onChange={(e) => onChange('sttModel', e.target.value)}
+            disabled={disabled}
+            data-testid="stt-model-select"
+          >
+            <option value="whisper-1">{t('profiles.interactionSection.sttModelWhisper1')}</option>
+            <option value="whisper-large-v3">{t('profiles.interactionSection.sttModelWhisperLargeV3')}</option>
+            <option value="gpt-4o-transcribe">{t('profiles.interactionSection.sttModelGpt4oTranscribe')}</option>
+            <option value="gpt-4o-mini-transcribe">{t('profiles.interactionSection.sttModelGpt4oMiniTranscribe')}</option>
+          </select>
+          <span className="profile-interaction-section__hint">
+            {t('profiles.interactionSection.sttModelHint')}
+          </span>
+        </div>
+      )}
 
       {/* STT Language */}
       <div className="profile-interaction-section__field">

@@ -176,6 +176,8 @@ export function ProfileEditorTabs({
           <ProfileAudioTab
             editingProfile={editingProfile}
             updateField={updateField}
+            updateFields={updateFields}
+            profileId={editingProfile.id || ''}
           />
         </TabPanel>
       </Tabs>

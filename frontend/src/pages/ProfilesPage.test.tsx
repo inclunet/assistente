@@ -43,24 +43,44 @@ vi.mock('@wailsjs/go/main/App', () => ({
       reasoning_effort: '',
     },
     voice: {
-      provider: 'disabled',
-      voice_id: '',
-      rate: 1.0,
-      pitch: 1.0,
-      volume: 1.0,
-      enabled_for_agent: false,
-      enabled_for_user: false,
+      assistant: {
+        enabled: false,
+        provider: 'disabled',
+        voice_id: '',
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+      },
+      user: {
+        enabled: false,
+        provider: 'disabled',
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+      },
+      system: {
+        enabled: false,
+        provider: 'disabled',
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+      },
     },
-    interaction: {
+    input: {
+      enabled: true,
       stt_provider: 'webspeech',
       language: 'pt-BR',
       feedback_sounds: true,
       triggers: [],
     },
+    channels: {
+      response_mode: 'mirror',
+    },
   }),
   GetModels: vi.fn().mockResolvedValue([]),
   GetSAPI5Voices: vi.fn().mockResolvedValue([]),
   GetOpenAITTSVoices: vi.fn().mockResolvedValue([]),
+  GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@wailsjs/go/models', () => ({
@@ -228,7 +248,7 @@ describe('ProfilesPage', () => {
 
     await waitFor(() => {
       expect(screen.getByText('Voz (TTS)')).toBeInTheDocument();
-      expect(screen.getByText('Interação (STT)')).toBeInTheDocument();
+      expect(screen.getByText('Entrada de Voz (STT)')).toBeInTheDocument();
     });
   }, 10000);
 

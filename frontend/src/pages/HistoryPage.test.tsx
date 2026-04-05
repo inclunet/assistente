@@ -42,6 +42,7 @@ vi.mock('@wailsjs/go/main/App', () => ({
   ExportConversations: (ids: number[]) => mockExportConversations(ids),
   ImportConversations: (payload: string) => mockImportConversations(payload),
   SearchConversationHistory: (query: string, limit: number) => mockSearchConversationHistory(query, limit),
+  GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('../hooks/useGridFocus', () => ({
@@ -163,9 +164,7 @@ describe('HistoryPage', () => {
     const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Conversa 1')).toBeInTheDocument();
-    });
+    await screen.findByText('Conversa 1');
 
     const actionKeys = lastToolbarActions.map((action) => action.key);
     expect(actionKeys).not.toContain('delete-selected');
@@ -176,11 +175,10 @@ describe('HistoryPage', () => {
     const { default: HistoryPage } = await import('./HistoryPage');
     render(<HistoryPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText('Conversa 1')).toBeInTheDocument();
-    });
+    await screen.findByText('Conversa 1');
 
-    await user.click(screen.getByRole('button', { name: 'select-two' }));
+    const selectTwoButtons = screen.getAllByRole('button', { name: 'select-two' });
+    await user.click(selectTwoButtons[0]);
 
     const deleteButton = await screen.findByRole('button', { name: 'Deletar (2)' });
     await user.click(deleteButton);

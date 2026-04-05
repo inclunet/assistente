@@ -34,7 +34,7 @@ describe('CollapsibleSection', () => {
     expect(screen.getByText('Hidden Content')).toBeInTheDocument();
   });
 
-  it('não renderiza conteúdo quando isOpen = false', () => {
+  it('mantém conteúdo oculto quando isOpen = false', () => {
     const handleToggle = vi.fn();
     render(
       <CollapsibleSection
@@ -46,7 +46,10 @@ describe('CollapsibleSection', () => {
       </CollapsibleSection>
     );
 
-    expect(screen.queryByText('Hidden Content')).not.toBeInTheDocument();
+    const content = screen.getByText('Hidden Content');
+    expect(content).toBeInTheDocument();
+    expect(content).not.toBeVisible();
+    expect(screen.getByRole('region', { hidden: true })).toHaveAttribute('hidden');
   });
 
   it('chama onToggle ao clicar no header', async () => {

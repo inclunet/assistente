@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"sync"
 
 	"assistente/internal/credentials"
@@ -26,26 +27,40 @@ const (
 	TTSProviderOpenAI    TTSProvider = "openai"
 )
 
-// SpeechConfig configuração global de speech
+// SpeechConfig configuração de speech derivada do perfil ativo
 type SpeechConfig struct {
 	// STT
-	STTProvider STTProvider `json:"sttProvider"`
+	STTProvider          STTProvider `json:"sttProvider"`
+	STTAPIBaseURL        string      `json:"-"` // Base URL para Whisper API
+	STTCredentialPattern string      `json:"-"` // padrão para credential transport
+	WhisperModel         string      `json:"whisperModel"`
+	WhisperLanguage      string      `json:"whisperLanguage"`
 
-	// TTS
-	TTSProvider TTSProvider `json:"ttsProvider"`
-	TTSVoice    string      `json:"ttsVoice"`
-	TTSVolume   int         `json:"ttsVolume"` // 0-100
-	TTSRate     int         `json:"ttsRate"`   // -10 a 10 (SAPI5) ou 0.25-4.0 mapeado (OpenAI)
+	// TTS — configuração por role
+	AssistantProvider          string `json:"assistantProvider"` // "disabled", "webspeech", "sapi5", "openai"
+	AssistantAPIKey            string `json:"-"`
+	AssistantBaseURL           string `json:"-"`
+	AssistantCredentialPattern string `json:"-"` // para resolução lazy de credenciais
+	AssistantVoice             string `json:"assistantVoice"`
+	AssistantModel             string `json:"assistantModel"` // "tts-1", "tts-1-hd"
+	AssistantRate              int    `json:"assistantRate"`
+	AssistantVolume            int    `json:"assistantVolume"` // 0-100
 
-	// OpenAI API
-	OpenAIAPIKey     string `json:"openaiApiKey"`
-	OpenAIAPIBaseURL string `json:"openaiApiBaseUrl"`
-	WhisperModel     string `json:"whisperModel"`
-	WhisperLanguage  string `json:"whisperLanguage"`
-	TTSModel         string `json:"ttsModel"` // tts-1 ou tts-1-hd
+	UserProvider string `json:"userProvider"`
+	UserAPIKey   string `json:"-"`
+	UserBaseURL  string `json:"-"`
+	UserVoice    string `json:"userVoice"`
+	UserModel    string `json:"userModel"`
+	UserRate     int    `json:"userRate"`
+	UserVolume   int    `json:"userVolume"`
 
-	// Comportamento
-	AutoSpeak bool `json:"autoSpeak"`
+	SystemProvider string `json:"systemProvider"`
+	SystemAPIKey   string `json:"-"`
+	SystemBaseURL  string `json:"-"`
+	SystemVoice    string `json:"systemVoice"`
+	SystemModel    string `json:"systemModel"`
+	SystemRate     int    `json:"systemRate"`
+	SystemVolume   int    `json:"systemVolume"`
 }
 
 // SpeechManager gerenciador central de speech
@@ -80,25 +95,44 @@ func NewSpeechManager(config SpeechConfig, credMgr *credentials.Manager) *Speech
 		credMgr: credMgr,
 	}
 
-	// Inicializa clientes se API key disponível
-	if config.OpenAIAPIKey != "" {
-		sm.whisperClient = NewWhisperClient(WhisperConfig{
-			APIKey:     config.OpenAIAPIKey,
-			APIBaseURL: config.OpenAIAPIBaseURL,
-			Model:      config.WhisperModel,
-			Language:   config.WhisperLanguage,
-		}, credMgr)
+	sm.reinitClients()
+	return sm
+}
 
-		sm.ttsClient = NewTTSClient(TTSConfig{
-			APIKey:     config.OpenAIAPIKey,
-			APIBaseURL: config.OpenAIAPIBaseURL,
-			Model:      TTSModel(config.TTSModel),
-			Voice:      TTSVoice(config.TTSVoice),
-			Speed:      sm.rateToSpeed(config.TTSRate),
-		}, credMgr)
+// reinitClients inicializa os clientes com base na config atual
+func (sm *SpeechManager) reinitClients() {
+	// Whisper STT client — usa SDK openai-go com CredentialTransport
+	if sm.config.STTCredentialPattern != "" {
+		log.Printf("[Speech] reinitClients: criando WhisperClient (baseURL=%q, credPattern=%q, model=%q, lang=%q)",
+			sm.config.STTAPIBaseURL, sm.config.STTCredentialPattern,
+			sm.config.WhisperModel, sm.config.WhisperLanguage)
+		sm.whisperClient = NewWhisperClient(WhisperConfig{
+			BaseURL:           sm.config.STTAPIBaseURL,
+			CredentialPattern: sm.config.STTCredentialPattern,
+			Model:             sm.config.WhisperModel,
+			Language:          sm.config.WhisperLanguage,
+		}, sm.credMgr)
+	} else {
+		sm.whisperClient = nil
 	}
 
-	return sm
+	// TTS client — cria sempre que provider é OpenAI (credenciais via transport)
+	if sm.config.AssistantProvider == string(TTSProviderOpenAI) {
+		log.Printf("[Speech] reinitClients: criando TTSClient (provider=%q, baseURL=%q, credPattern=%q, voice=%q, model=%q)",
+			sm.config.AssistantProvider, sm.config.AssistantBaseURL, sm.config.AssistantCredentialPattern,
+			sm.config.AssistantVoice, sm.config.AssistantModel)
+		sm.ttsClient = NewTTSClient(TTSConfig{
+			BaseURL:           sm.config.AssistantBaseURL,
+			CredentialPattern: sm.config.AssistantCredentialPattern,
+			Model:             TTSModel(sm.config.AssistantModel),
+			Voice:             TTSVoice(sm.config.AssistantVoice),
+			Speed:             sm.rateToSpeed(sm.config.AssistantRate),
+		}, sm.credMgr)
+	} else {
+		log.Printf("[Speech] reinitClients: TTSClient NÃO criado — AssistantProvider=%q (esperado %q)",
+			sm.config.AssistantProvider, TTSProviderOpenAI)
+		sm.ttsClient = nil
+	}
 }
 
 // UpdateConfig atualiza a configuração
@@ -107,37 +141,25 @@ func (sm *SpeechManager) UpdateConfig(config SpeechConfig) {
 	defer sm.mu.Unlock()
 
 	sm.config = config
-
-	// Recria clientes se necessário
-	if config.OpenAIAPIKey != "" {
-		sm.whisperClient = NewWhisperClient(WhisperConfig{
-			APIKey:     config.OpenAIAPIKey,
-			APIBaseURL: config.OpenAIAPIBaseURL,
-			Model:      config.WhisperModel,
-			Language:   config.WhisperLanguage,
-		}, sm.credMgr)
-
-		sm.ttsClient = NewTTSClient(TTSConfig{
-			APIKey:     config.OpenAIAPIKey,
-			APIBaseURL: config.OpenAIAPIBaseURL,
-			Model:      TTSModel(config.TTSModel),
-			Voice:      TTSVoice(config.TTSVoice),
-			Speed:      sm.rateToSpeed(config.TTSRate),
-		}, sm.credMgr)
-	}
+	sm.reinitClients()
 }
 
 // Transcribe transcreve áudio para texto
 // audioBase64: áudio codificado em base64
 // filename: nome do arquivo com extensão
 func (sm *SpeechManager) Transcribe(audioBase64 string, filename string) (*TranscriptionResult, error) {
+	return sm.TranscribeWithContext(context.Background(), audioBase64, filename)
+}
+
+// TranscribeWithContext transcreve áudio com context cancelável (suporta timeout/barge-in).
+func (sm *SpeechManager) TranscribeWithContext(ctx context.Context, audioBase64 string, filename string) (*TranscriptionResult, error) {
 	sm.mu.RLock()
 	provider := sm.config.STTProvider
 	sm.mu.RUnlock()
 
 	switch provider {
-	case STTProviderWhisper:
-		return sm.transcribeWhisper(audioBase64, filename)
+	case STTProviderWhisper, "whisper_api":
+		return sm.transcribeWhisperCtx(ctx, audioBase64, filename)
 	case STTProviderWebSpeech:
 		return nil, fmt.Errorf("WebSpeech STT is handled in the frontend")
 	default:
@@ -147,6 +169,11 @@ func (sm *SpeechManager) Transcribe(audioBase64 string, filename string) (*Trans
 
 // transcribeWhisper transcreve usando Whisper
 func (sm *SpeechManager) transcribeWhisper(audioBase64 string, filename string) (*TranscriptionResult, error) {
+	return sm.transcribeWhisperCtx(context.Background(), audioBase64, filename)
+}
+
+// transcribeWhisperCtx transcreve usando Whisper com context cancelável.
+func (sm *SpeechManager) transcribeWhisperCtx(ctx context.Context, audioBase64 string, filename string) (*TranscriptionResult, error) {
 	sm.mu.RLock()
 	client := sm.whisperClient
 	sm.mu.RUnlock()
@@ -161,8 +188,8 @@ func (sm *SpeechManager) transcribeWhisper(audioBase64 string, filename string) 
 		return nil, fmt.Errorf("failed to decode audio: %w", err)
 	}
 
-	// Transcreve
-	text, err := client.Transcribe(audioData, filename)
+	// Transcreve com context cancelável
+	text, err := client.TranscribeWithContext(ctx, audioData, filename)
 	if err != nil {
 		return nil, err
 	}
@@ -176,10 +203,10 @@ func (sm *SpeechManager) transcribeWhisper(audioBase64 string, filename string) 
 // Synthesize converte texto em áudio
 func (sm *SpeechManager) Synthesize(text string) (*SynthesisResult, error) {
 	sm.mu.RLock()
-	provider := sm.config.TTSProvider
+	provider := sm.config.AssistantProvider
 	sm.mu.RUnlock()
 
-	switch provider {
+	switch TTSProvider(provider) {
 	case TTSProviderOpenAI:
 		return sm.synthesizeOpenAI(text)
 	case TTSProviderSAPI5:
@@ -256,11 +283,11 @@ type StreamCallbacks struct {
 // SynthesizeStream sintetiza com streaming (OpenAI)
 func (sm *SpeechManager) SynthesizeStream(ctx context.Context, text string, voice string, callbacks StreamCallbacks) error {
 	sm.mu.RLock()
-	provider := sm.config.TTSProvider
+	provider := sm.config.AssistantProvider
 	client := sm.ttsClient
 	sm.mu.RUnlock()
 
-	switch provider {
+	switch TTSProvider(provider) {
 	case TTSProviderOpenAI:
 		return sm.synthesizeStreamOpenAI(ctx, text, voice, client, callbacks)
 	default:
@@ -303,17 +330,33 @@ func (sm *SpeechManager) synthesizeStreamOpenAI(ctx context.Context, text string
 }
 
 // SupportsStreaming retorna true se o provedor atual suporta streaming
+// e o client TTS está inicializado
 func (sm *SpeechManager) SupportsStreaming() bool {
 	sm.mu.RLock()
-	provider := sm.config.TTSProvider
+	provider := sm.config.AssistantProvider
+	client := sm.ttsClient
 	sm.mu.RUnlock()
 
-	switch provider {
+	switch TTSProvider(provider) {
 	case TTSProviderOpenAI:
-		return true
+		return client != nil
 	default:
 		return false
 	}
+}
+
+// HasTTSClient retorna true se o client TTS está inicializado
+func (sm *SpeechManager) HasTTSClient() bool {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.ttsClient != nil
+}
+
+// GetTTSClient retorna o client TTS (pode ser nil)
+func (sm *SpeechManager) GetTTSClient() *TTSClient {
+	sm.mu.RLock()
+	defer sm.mu.RUnlock()
+	return sm.ttsClient
 }
 
 // GetAvailableSTTProviders retorna os provedores de STT disponíveis
@@ -321,10 +364,10 @@ func (sm *SpeechManager) GetAvailableSTTProviders() []string {
 	providers := []string{"webspeech"}
 
 	sm.mu.RLock()
-	hasOpenAI := sm.config.OpenAIAPIKey != ""
+	hasWhisper := sm.config.STTCredentialPattern != ""
 	sm.mu.RUnlock()
 
-	if hasOpenAI {
+	if hasWhisper {
 		providers = append(providers, "whisper")
 	}
 
@@ -336,7 +379,8 @@ func (sm *SpeechManager) GetAvailableTTSProviders() []string {
 	providers := []string{"webspeech", "sapi5"}
 
 	sm.mu.RLock()
-	hasOpenAI := sm.config.OpenAIAPIKey != ""
+	hasOpenAI := sm.config.AssistantProvider == string(TTSProviderOpenAI) &&
+		(sm.config.AssistantAPIKey != "" || sm.config.AssistantCredentialPattern != "")
 	sm.mu.RUnlock()
 
 	if hasOpenAI {
@@ -346,7 +390,23 @@ func (sm *SpeechManager) GetAvailableTTSProviders() []string {
 	return providers
 }
 
-// GetOpenAIVoices retorna as vozes disponíveis do OpenAI TTS
+// GetAvailableTTSVoices retorna as vozes disponíveis no provedor dinâmico.
+func (sm *SpeechManager) GetAvailableTTSVoices() ([]TTSVoiceInfo, error) {
+	sm.mu.RLock()
+	client := sm.ttsClient
+	provider := sm.config.AssistantProvider
+	sm.mu.RUnlock()
+
+	// Se for OpenAI-like e temos cliente, tentamos buscar dinamicamente
+	if TTSProvider(provider) == TTSProviderOpenAI && client != nil {
+		return client.FetchVoices()
+	}
+
+	// Fallback para vozes estáticas para outros provedores (WebSpeech, SAPI5 expostos no frontend)
+	return GetAvailableVoices(), nil
+}
+
+// GetOpenAIVoices retorna as vozes disponíveis do OpenAI TTS (Legacy)
 func (sm *SpeechManager) GetOpenAIVoices() []TTSVoiceInfo {
 	return GetAvailableVoices()
 }
@@ -372,24 +432,35 @@ func (sm *SpeechManager) rateToSpeed(rate int) float64 {
 	}
 }
 
-// SetTTSVoice altera a voz do TTS
+// SetTTSVoice altera a voz do TTS (assistant role)
 func (sm *SpeechManager) SetTTSVoice(voice string) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	sm.config.TTSVoice = voice
+	sm.config.AssistantVoice = voice
 	if sm.ttsClient != nil {
 		sm.ttsClient.SetVoice(TTSVoice(voice))
 	}
 }
 
-// SetTTSSpeed altera a velocidade do TTS
+// SetTTSSpeed altera a velocidade do TTS (assistant role)
 func (sm *SpeechManager) SetTTSSpeed(rate int) {
 	sm.mu.Lock()
 	defer sm.mu.Unlock()
 
-	sm.config.TTSRate = rate
+	sm.config.AssistantRate = rate
 	if sm.ttsClient != nil {
 		sm.ttsClient.SetSpeed(sm.rateToSpeed(rate))
+	}
+}
+
+// SetTTSModel altera o modelo do TTS (assistant role)
+func (sm *SpeechManager) SetTTSModel(model string) {
+	sm.mu.Lock()
+	defer sm.mu.Unlock()
+
+	sm.config.AssistantModel = model
+	if sm.ttsClient != nil {
+		sm.ttsClient.SetModel(TTSModel(model))
 	}
 }

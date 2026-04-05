@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "3.1.0",
+  "_builtin_version": "4.0.0",
   "name": "Editor de Texto",
   "description": "Perfil para edição dentro do editor de texto (sem ferramentas de filesystem).",
   "icon": "create-outline",
@@ -15,16 +15,37 @@
     "enabled_skills": ["workspace", "editor-texto"]
   },
   "voice": {
-    "provider": "disabled",
-    "llm_provider_id": "$default",
-    "rate": 1.0,
-    "pitch": 1.0,
-    "volume": 1.0
+    "assistant": {
+      "enabled": false,
+      "provider": "disabled",
+      "llm_provider_id": "$default",
+      "rate": 1.0,
+      "pitch": 1.0,
+      "volume": 1.0
+    },
+    "user": {
+      "enabled": false,
+      "provider": "disabled",
+      "rate": 1.0,
+      "pitch": 1.0,
+      "volume": 1.0
+    },
+    "system": {
+      "enabled": false,
+      "provider": "disabled",
+      "rate": 1.0,
+      "pitch": 1.0,
+      "volume": 1.0
+    }
   },
-  "interaction": {
+  "input": {
+    "enabled": true,
     "stt_provider": "webspeech",
     "llm_provider_id": "$default",
     "language": "pt-BR",
     "feedback_sounds": true
+  },
+  "channels": {
+    "response_mode": "mirror"
   }
 }

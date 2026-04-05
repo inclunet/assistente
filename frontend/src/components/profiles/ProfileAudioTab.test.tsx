@@ -10,6 +10,10 @@ vi.mock('react-i18next', () => ({
   }),
 }));
 
+vi.mock('@wailsjs/go/main/App', () => ({
+  GetLLMProviders: () => Promise.resolve([]),
+}));
+
 vi.mock('@wailsjs/go/models', () => ({
   profiles: {
     Profile: class {
@@ -32,32 +36,60 @@ vi.mock('./ProfileInteractionSection', () => ({
 
 vi.mock('../pickers/VoicePicker', () => ({
   VOICE_DISABLED: '__disabled__',
+  VOICE_REF_ASSISTANT: 'ref_assistant',
+  VOICE_REF_USER: 'ref_user',
+  VOICE_REF_SYSTEM: 'ref_system',
   VoicePicker: () => null,
 }));
 
 /* ── Helpers ───────────────────────────────────────────── */
 
 function makeProfile(overrides: Record<string, unknown> = {}) {
+  const voiceOverrides = (overrides.voice ?? {}) as Record<string, unknown>;
+  const inputOverrides = (overrides.input ?? {}) as Record<string, unknown>;
+  const channelsOverrides = (overrides.channels ?? {}) as Record<string, unknown>;
   return {
     name: 'Test',
     description: '',
     icon: '',
     chat: {},
     voice: {
-      provider: 'disabled',
-      voice_id: '',
-      rate: 1.0,
-      volume: 1.0,
-      enabled_for_agent: false,
-      enabled_for_user: false,
-      channel_response_mode: 'mirror',
-      ...((overrides.voice ?? {}) as Record<string, unknown>),
+      assistant: {
+        enabled: false,
+        provider: 'disabled',
+        voice_id: '',
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+        ...((voiceOverrides.assistant ?? {}) as Record<string, unknown>),
+      },
+      user: {
+        enabled: false,
+        provider: 'disabled',
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+        ...((voiceOverrides.user ?? {}) as Record<string, unknown>),
+      },
+      system: {
+        enabled: false,
+        provider: 'disabled',
+        rate: 1.0,
+        pitch: 1.0,
+        volume: 1.0,
+        ...((voiceOverrides.system ?? {}) as Record<string, unknown>),
+      },
     },
-    interaction: {
+    input: {
+      enabled: true,
       stt_provider: 'webspeech',
       language: 'pt-BR',
       feedback_sounds: true,
-      ...((overrides.interaction ?? {}) as Record<string, unknown>),
+      ...inputOverrides,
+    },
+    channels: {
+      response_mode: 'mirror',
+      ...channelsOverrides,
     },
   } as never;
 }
@@ -65,17 +97,19 @@ function makeProfile(overrides: Record<string, unknown> = {}) {
 /* ── Testes ─────────────────────────────────────────────── */
 
 describe('ProfileAudioTab', () => {
-  it('renderiza seções de voz e interação colapsáveis', () => {
+  it('renderiza seções de voz e input colapsáveis', () => {
     const updateField = vi.fn();
-    render(<ProfileAudioTab editingProfile={makeProfile()} updateField={updateField} />);
+    const updateFields = vi.fn();
+    render(<ProfileAudioTab editingProfile={makeProfile()} updateField={updateField} updateFields={updateFields} profileId="test-profile" />);
 
     expect(screen.getByText('Voz (TTS)')).toBeInTheDocument();
-    expect(screen.getByText('Interação (STT)')).toBeInTheDocument();
+    expect(screen.getByText('Entrada de Voz (STT)')).toBeInTheDocument();
   });
 
   it('mostra badge "off" quando TTS está desabilitado', () => {
     const updateField = vi.fn();
-    render(<ProfileAudioTab editingProfile={makeProfile()} updateField={updateField} />);
+    const updateFields = vi.fn();
+    render(<ProfileAudioTab editingProfile={makeProfile()} updateField={updateField} updateFields={updateFields} profileId="test-profile" />);
 
     // Voice disabled by default
     const offBadges = screen.getAllByTestId('badge-off');
@@ -84,8 +118,9 @@ describe('ProfileAudioTab', () => {
 
   it('mostra badge "on" quando TTS está habilitado', () => {
     const updateField = vi.fn();
-    const profile = makeProfile({ voice: { provider: 'webspeech' } });
-    render(<ProfileAudioTab editingProfile={profile} updateField={updateField} />);
+    const updateFields = vi.fn();
+    const profile = makeProfile({ voice: { assistant: { enabled: true, provider: 'webspeech' } } });
+    render(<ProfileAudioTab editingProfile={profile} updateField={updateField} updateFields={updateFields} profileId="test-profile" />);
 
     const onBadges = screen.getAllByTestId('badge-on');
     expect(onBadges.length).toBeGreaterThanOrEqual(1);
@@ -93,66 +128,84 @@ describe('ProfileAudioTab', () => {
 
   it('ativa TTS ao toggle da seção voice quando desabilitado', () => {
     const updateField = vi.fn();
-    render(<ProfileAudioTab editingProfile={makeProfile()} updateField={updateField} />);
+    const updateFields = vi.fn();
+    render(<ProfileAudioTab editingProfile={makeProfile()} updateField={updateField} updateFields={updateFields} profileId="test-profile" />);
 
     // Clica no header da collapsible de voz
     const voiceHeader = screen.getByText('Voz (TTS)').closest('button');
     fireEvent.click(voiceHeader!);
 
-    expect(updateField).toHaveBeenCalledWith('voice.provider', 'webspeech');
+    expect(updateFields).toHaveBeenCalledWith({
+      'voice.assistant.provider': 'webspeech',
+      'voice.assistant.enabled': true,
+    });
   });
 
   it('desativa TTS ao toggle da seção voice quando habilitado', () => {
     const updateField = vi.fn();
-    const profile = makeProfile({ voice: { provider: 'webspeech' } });
-    render(<ProfileAudioTab editingProfile={profile} updateField={updateField} />);
+    const updateFields = vi.fn();
+    const profile = makeProfile({ voice: { assistant: { enabled: true, provider: 'webspeech' } } });
+    render(<ProfileAudioTab editingProfile={profile} updateField={updateField} updateFields={updateFields} profileId="test-profile" />);
 
     const voiceHeader = screen.getByText('Voz (TTS)').closest('button');
     fireEvent.click(voiceHeader!);
 
-    expect(updateField).toHaveBeenCalledWith('voice.provider', 'disabled');
+    expect(updateFields).toHaveBeenCalledWith({
+      'voice.assistant.provider': 'disabled',
+      'voice.assistant.enabled': false,
+    });
   });
 
   it('ativa STT ao toggle da seção interaction quando desabilitado', () => {
     const updateField = vi.fn();
-    const profile = makeProfile({ interaction: { stt_provider: '' } });
-    render(<ProfileAudioTab editingProfile={profile} updateField={updateField} />);
+    const updateFields = vi.fn();
+    const profile = makeProfile({ input: { stt_provider: '' } });
+    render(<ProfileAudioTab editingProfile={profile} updateField={updateField} updateFields={updateFields} profileId="test-profile" />);
 
-    const sttHeader = screen.getByText('Interação (STT)').closest('button');
+    const sttHeader = screen.getByText('Entrada de Voz (STT)').closest('button');
     fireEvent.click(sttHeader!);
 
-    expect(updateField).toHaveBeenCalledWith('interaction.stt_provider', 'webspeech');
+    expect(updateFields).toHaveBeenCalledWith({
+      'input.stt_provider': 'webspeech',
+      'input.enabled': true,
+    });
   });
 
   it('desativa STT ao toggle da seção interaction quando habilitado', () => {
     const updateField = vi.fn();
-    render(<ProfileAudioTab editingProfile={makeProfile()} updateField={updateField} />);
+    const updateFields = vi.fn();
+    render(<ProfileAudioTab editingProfile={makeProfile()} updateField={updateField} updateFields={updateFields} profileId="test-profile" />);
 
-    const sttHeader = screen.getByText('Interação (STT)').closest('button');
+    const sttHeader = screen.getByText('Entrada de Voz (STT)').closest('button');
     fireEvent.click(sttHeader!);
 
-    expect(updateField).toHaveBeenCalledWith('interaction.stt_provider', '');
+    expect(updateFields).toHaveBeenCalledWith({
+      'input.stt_provider': '',
+      'input.enabled': false,
+    });
   });
 
-  it('checkbox TTS agent chama updateField', () => {
+  it('toggle da voz do assistente chama updateField', () => {
     const updateField = vi.fn();
-    const profile = makeProfile({ voice: { provider: 'webspeech' } });
-    render(<ProfileAudioTab editingProfile={profile} updateField={updateField} />);
+    const updateFields = vi.fn();
+    const profile = makeProfile({ voice: { assistant: { enabled: true, provider: 'webspeech' } } });
+    render(<ProfileAudioTab editingProfile={profile} updateField={updateField} updateFields={updateFields} profileId="test-profile" />);
 
-    const checkbox = screen.getByLabelText('TTS para mensagens do assistente');
-    fireEvent.click(checkbox);
+    const assistantHeader = screen.getByText('profiles.voiceLabels.assistant').closest('button');
+    fireEvent.click(assistantHeader!);
 
-    expect(updateField).toHaveBeenCalledWith('voice.enabled_for_agent', true);
+    expect(updateField).toHaveBeenCalledWith('voice.assistant.enabled', false);
   });
 
   it('select de resposta do canal chama updateField', () => {
     const updateField = vi.fn();
-    const profile = makeProfile({ voice: { provider: 'webspeech' } });
-    render(<ProfileAudioTab editingProfile={profile} updateField={updateField} />);
+    const updateFields = vi.fn();
+    const profile = makeProfile({ voice: { assistant: { enabled: true, provider: 'webspeech' } } });
+    render(<ProfileAudioTab editingProfile={profile} updateField={updateField} updateFields={updateFields} profileId="test-profile" />);
 
     const select = screen.getByLabelText('Resposta em canais externos');
     fireEvent.change(select, { target: { value: 'always_text' } });
 
-    expect(updateField).toHaveBeenCalledWith('voice.channel_response_mode', 'always_text');
+    expect(updateField).toHaveBeenCalledWith('channels.response_mode', 'always_text');
   });
 });

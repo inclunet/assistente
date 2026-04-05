@@ -29,10 +29,10 @@ vi.mock('react-i18next', () => ({
 vi.mock('../pickers/STTProviderPicker', () => ({
   STT_WEBSPEECH: 'webspeech',
   STT_WHISPER: 'whisper_api',
-  STTProviderPicker: ({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) => (
+  STTProviderPicker: ({ value, onChange, label }: { value: string; onChange: (provider: string, llmProviderId?: string) => void; label: string }) => (
     <div data-testid="stt-provider-picker-mock">
       <label>{label}</label>
-      <button onClick={() => onChange('test-provider')}>
+      <button onClick={() => onChange('whisper_api', 'openai-1')}>
         {value}
       </button>
     </div>
@@ -42,6 +42,8 @@ vi.mock('../pickers/STTProviderPicker', () => ({
 describe('ProfileInteractionSection', () => {
   const defaultProps = {
     sttProvider: 'webspeech',
+    sttLLMProviderId: '',
+    sttModel: '',
     sttLanguage: 'pt-BR',
     enableFeedbackSounds: true,
     onChange: vi.fn(),
@@ -145,6 +147,8 @@ describe('ProfileInteractionSection', () => {
     render(
       <ProfileInteractionSection
         sttProvider=""
+        sttLLMProviderId=""
+        sttModel=""
         sttLanguage=""
         enableFeedbackSounds={false}
         onChange={vi.fn()}

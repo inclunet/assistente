@@ -451,6 +451,47 @@ func (a *App) recoverFromPanic(conversationID uint, source string) {
 	}
 }
 
+// registerStreamingContext registra um context cancelável para uma conversa.
+// Permite que barge-in (SIP) ou outros mecanismos cancelem o streaming em andamento.
+func (a *App) registerStreamingContext(conversationID uint, cancel context.CancelFunc) {
+	a.streamingMu.Lock()
+	// Cancela contexto anterior se houver (nova mensagem sobrepõe a anterior)
+	if prev, ok := a.streamingContexts[conversationID]; ok {
+		prev()
+	}
+	a.streamingContexts[conversationID] = cancel
+	a.streamingMu.Unlock()
+}
+
+// unregisterStreamingContext remove o context de streaming de uma conversa.
+func (a *App) unregisterStreamingContext(conversationID uint) {
+	a.streamingMu.Lock()
+	delete(a.streamingContexts, conversationID)
+	a.streamingMu.Unlock()
+}
+
+// CancelStreamingForConversation cancela o streaming LLM em andamento para uma conversa.
+// Usado pelo pipeline SIP para barge-in: quando o usuário fala durante a resposta,
+// o LLM é cancelado imediatamente para processar a nova entrada.
+func (a *App) CancelStreamingForConversation(conversationID uint) {
+	a.streamingMu.Lock()
+	cancel, ok := a.streamingContexts[conversationID]
+	if ok {
+		cancel()
+		delete(a.streamingContexts, conversationID)
+	}
+	a.streamingMu.Unlock()
+
+	// Limpa callbacks pendentes no notifier (resposta não será gerada)
+	if ok && a.responseNotifier != nil {
+		a.responseNotifier.Cancel(conversationID)
+	}
+
+	if ok {
+		log.Printf("[LLM] Streaming cancelado para conversa %d (barge-in)", conversationID)
+	}
+}
+
 // SendMessage é o binding Wails para envio de mensagens. Source padrão: "wails".
 // Se a conversa pertence a um canal externo (Signal, Telegram), a resposta do assistente
 // também será reenviada ao mensageiro de origem (bridge bidirecional).
@@ -602,7 +643,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	if userContent == "" && userMedia != "" {
 		// Verifica se o perfil tem STT configurado como whisper_api (necessário para canais)
 		if source != "wails" && activeProfile != nil {
-			sttProvider := activeProfile.Interaction.STTProvider
+			sttProvider := activeProfile.Input.STTProvider
 			if sttProvider == "webspeech" || sttProvider == "" {
 				log.Printf("[SendMessage] Canal %s: STT '%s' não suporta transcrição server-side — ignorando áudio", source, sttProvider)
 				userContent = "[Mensagem de áudio recebida, mas transcrição automática não está configurada. Configure Whisper no perfil deste canal para processar mensagens de voz.]"
@@ -847,8 +888,12 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	}
 
 	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
+	// Cria contexto cancelável por conversa — permite barge-in (SIP) cancelar LLM em andamento.
+	convCtx, convCancel := context.WithCancel(a.ctx)
+	a.registerStreamingContext(conversationID, convCancel)
+
 	if len(llmToolDefs) > 0 {
-		agentCtx := a.ctx
+		agentCtx := convCtx
 		if invokedSkillSlug != "" {
 			agentCtx = tools.WithExecutionContext(agentCtx, tools.ExecutionContext{
 				InvokedSkillSlug: invokedSkillSlug,
@@ -857,6 +902,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 		go func() {
 			defer a.recoverFromPanic(conversationID, "runAgenticLoop")
+			defer a.unregisterStreamingContext(conversationID)
 			a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs, requestStreamer)
 		}()
 	} else {
@@ -868,7 +914,8 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 		go func() {
 			defer a.recoverFromPanic(conversationID, "StreamChat")
-			requestStreamer.StreamChat(a.ctx, messages, params, handler)
+			defer a.unregisterStreamingContext(conversationID)
+			requestStreamer.StreamChat(convCtx, messages, params, handler)
 		}()
 	}
 	return conversationID, nil

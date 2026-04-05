@@ -663,9 +663,9 @@ func TestDefaultSentinel_RoutesToCorrectProvider(t *testing.T) {
 			Model:       profiles.DefaultProviderSentinel,
 		},
 		Voice: profiles.VoiceConfig{
-			LLMProviderID: profiles.DefaultProviderSentinel,
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: profiles.DefaultProviderSentinel},
 		},
-		Interaction: profiles.InteractionConfig{
+		Input: profiles.InputConfig{
 			LLMProviderID: profiles.DefaultProviderSentinel,
 		},
 	}

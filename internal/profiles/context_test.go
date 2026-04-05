@@ -64,12 +64,11 @@ func TestValidateContextFields(t *testing.T) {
 				ResponseTimeout: 30,
 			},
 			Voice: VoiceConfig{
-				Provider: "disabled",
-				Rate:     1.0,
-				Pitch:    1.0,
-				Volume:   1.0,
+				Assistant: VoiceRoleConfig{Provider: "disabled", Rate: 1.0, Pitch: 1.0, Volume: 1.0},
+				User:      VoiceRoleConfig{Provider: "disabled", Rate: 1.0, Pitch: 1.0, Volume: 1.0},
+				System:    VoiceRoleConfig{Provider: "disabled", Rate: 1.0, Pitch: 1.0, Volume: 1.0},
 			},
-			Interaction: InteractionConfig{
+			Input: InputConfig{
 				STTProvider: "webspeech",
 				Language:    "pt-BR",
 			},

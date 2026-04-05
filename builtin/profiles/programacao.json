@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "3.1.0",
+  "_builtin_version": "4.0.0",
   "name": "Programação",
   "description": "Otimizado para programação e código.",
   "icon": "code-slash-outline",
@@ -23,18 +23,38 @@
     ]
   },
   "voice": {
-    "provider": "disabled",
-    "llm_provider_id": "$default",
-    "rate": 1,
-    "pitch": 1,
-    "volume": 1,
-    "enabled_for_agent": false,
-    "enabled_for_user": false
+    "assistant": {
+      "enabled": false,
+      "provider": "disabled",
+      "llm_provider_id": "$default",
+      "model": "tts-1",
+      "rate": 1,
+      "pitch": 1,
+      "volume": 1
+    },
+    "user": {
+      "enabled": false,
+      "provider": "disabled",
+      "rate": 1,
+      "pitch": 1,
+      "volume": 1
+    },
+    "system": {
+      "enabled": false,
+      "provider": "disabled",
+      "rate": 1,
+      "pitch": 1,
+      "volume": 1
+    }
   },
-  "interaction": {
+  "input": {
+    "enabled": true,
     "stt_provider": "webspeech",
     "llm_provider_id": "$default",
     "language": "pt-BR",
     "feedback_sounds": true
+  },
+  "channels": {
+    "response_mode": "mirror"
   }
 }

@@ -33,9 +33,7 @@ func TestIntegration_FirstMessageWithCreativeProfile(t *testing.T) {
 			DisableTools:    false,
 			EnabledTools:    []string{},
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	// 2. Simular seleção deste perfil (em um cenário real, viria do frontend)
@@ -129,9 +127,7 @@ func TestIntegration_FirstMessageWithDeterministicProfile(t *testing.T) {
 			ResponseTimeout: 45,
 			DisableTools:    false,
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	expectedTemperature := 0.0
@@ -206,9 +202,7 @@ func TestIntegration_FirstMessageWithToolsDisabled(t *testing.T) {
 			DisableTools: true, // TOOLS DESABILITADAS
 			EnabledTools: []string{},
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	if !noToolsProfile.Chat.DisableTools {
@@ -289,9 +283,7 @@ func TestIntegration_FirstMessageWithMCPDisabled(t *testing.T) {
 			DisableTools:    false,
 			EnabledTools:    []string{},
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	if err := noMCPProfile.Validate(); err != nil {
@@ -367,9 +359,7 @@ func TestIntegration_FirstMessageDifferentModels(t *testing.T) {
 				Temperature: 0.7,
 				MaxTokens:   1000,
 			},
-			Voice: profiles.VoiceConfig{
-				Disabled: true,
-			},
+			Voice: profiles.VoiceConfig{},
 		}
 
 		if profile.Chat.Model != m.model {
@@ -450,9 +440,7 @@ func TestIntegration_FirstMessageWithContextWindowLimit(t *testing.T) {
 			ContextWindow:      4096, // Janela pequena
 			MaxContextMessages: 10,   // Maks 10 mensagens no contexto
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	if limitedContextProfile.Chat.MaxContextMessages != 10 {
@@ -531,9 +519,7 @@ func TestIntegration_FirstMessageProfileResponseTimeout(t *testing.T) {
 			MaxTokens:       1000,
 			ResponseTimeout: 30, // 30 segundos (ao invés de 45s padrão)
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	if quickTimeoutProfile.Chat.ResponseTimeout != 30 {
@@ -601,9 +587,7 @@ func TestIntegration_FirstMessageProfileParametersPropagation(t *testing.T) {
 			MaxTokensMode:   "completion_tokens", // Custom max tokens mode
 			ResponseTimeout: 60,
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	// 2. Validar que parâmetros estão no profile
@@ -695,9 +679,7 @@ func TestIntegration_FirstMessageProfileToolEnabling(t *testing.T) {
 				DisableTools: false,
 				EnabledTools: []string{"web_search", "calculator"},
 			},
-			Voice: profiles.VoiceConfig{
-				Disabled: true,
-			},
+			Voice: profiles.VoiceConfig{},
 		},
 		"without_web_search": {
 			Name:   "Sem Web Search",
@@ -710,9 +692,7 @@ func TestIntegration_FirstMessageProfileToolEnabling(t *testing.T) {
 				DisableTools: false,
 				EnabledTools: []string{"calculator"}, // Apenas calculator
 			},
-			Voice: profiles.VoiceConfig{
-				Disabled: true,
-			},
+			Voice: profiles.VoiceConfig{},
 		},
 	}
 
@@ -802,9 +782,7 @@ func TestIntegration_FirstMessageProfileTopP(t *testing.T) {
 				TopP:        p.topP, // TopP específico
 				MaxTokens:   1000,
 			},
-			Voice: profiles.VoiceConfig{
-				Disabled: true,
-			},
+			Voice: profiles.VoiceConfig{},
 		}
 
 		if profile.Chat.TopP != p.topP {
@@ -871,15 +849,17 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 				MaxTokens:   1000,
 			},
 			Voice: profiles.VoiceConfig{
-				Disabled:            false,
-				Provider:            "openai",
-				VoiceID:             "alloy",
-				Rate:                1.0,
-				Pitch:               0.5,
-				Volume:              1.0,
-				EnabledForAgent:     true,
-				EnabledForUser:      false,
-				ChannelResponseMode: "mirror", // Texto em texto, áudio em áudio
+				Assistant: profiles.VoiceRoleConfig{
+					Enabled:  true,
+					Provider: "openai",
+					VoiceID:  "alloy",
+					Rate:     1.0,
+					Pitch:    0.5,
+					Volume:   1.0,
+				},
+			},
+			Channels: profiles.ChannelsConfig{
+				ResponseMode: "mirror",
 			},
 		},
 		"voice_disabled": {
@@ -892,7 +872,9 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 				MaxTokens:   1000,
 			},
 			Voice: profiles.VoiceConfig{
-				Disabled: true, // Voz desabilitada
+				Assistant: profiles.VoiceRoleConfig{Provider: "disabled"},
+				User:      profiles.VoiceRoleConfig{Provider: "disabled"},
+				System:    profiles.VoiceRoleConfig{Provider: "disabled"},
 			},
 		},
 	}
@@ -900,19 +882,19 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 	for profileName, profile := range voiceProfiles {
 		// Validar voice config
 		if profileName == "voice_enabled" {
-			if profile.Voice.Disabled {
+			if !profile.Voice.Assistant.Enabled {
 				t.Errorf("profile %s deveria ter voz habilitada", profileName)
 			}
-			if profile.Voice.VoiceID != "alloy" {
-				t.Errorf("VoiceID esperado 'alloy', obteve %s", profile.Voice.VoiceID)
+			if profile.Voice.Assistant.VoiceID != "alloy" {
+				t.Errorf("VoiceID esperado 'alloy', obteve %s", profile.Voice.Assistant.VoiceID)
 			}
-			if profile.Voice.EnabledForAgent != true {
-				t.Errorf("EnabledForAgent deveria ser true para %s", profileName)
+			if !profile.Voice.Assistant.Enabled {
+				t.Errorf("Assistant.Enabled deveria ser true para %s", profileName)
 			}
 		}
 
 		if profileName == "voice_disabled" {
-			if !profile.Voice.Disabled {
+			if profile.Voice.Assistant.Enabled {
 				t.Errorf("profile %s deveria ter voz desabilitada", profileName)
 			}
 		}
@@ -978,14 +960,18 @@ func TestIntegration_FirstMessageProfileChannelResponseMode(t *testing.T) {
 				MaxTokens:   1000,
 			},
 			Voice: profiles.VoiceConfig{
-				Disabled:            false,
-				Provider:            "openai",
-				ChannelResponseMode: mode,
+				Assistant: profiles.VoiceRoleConfig{
+					Enabled:  true,
+					Provider: "openai",
+				},
+			},
+			Channels: profiles.ChannelsConfig{
+				ResponseMode: mode,
 			},
 		}
 
-		if profile.Voice.ChannelResponseMode != mode {
-			t.Errorf("ChannelResponseMode esperado %s, obteve %s", mode, profile.Voice.ChannelResponseMode)
+		if profile.Channels.ResponseMode != mode {
+			t.Errorf("ResponseMode esperado %s, obteve %s", mode, profile.Channels.ResponseMode)
 		}
 
 		// Criar conversa para cada mode

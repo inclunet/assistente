@@ -17,11 +17,13 @@ func TestSpeechProviderIndependence(t *testing.T) {
 			Model:       "claude-3-7-sonnet-20250219",
 		},
 		Voice: profiles.VoiceConfig{
-			Provider:      "openai",
-			LLMProviderID: "openai-default", // OpenAI para TTS (diferente do chat!)
-			VoiceID:       "nova",
+			Assistant: profiles.VoiceRoleConfig{
+				Provider:      "openai",
+				LLMProviderID: "openai-default", // OpenAI para TTS (diferente do chat!)
+				VoiceID:       "nova",
+			},
 		},
-		Interaction: profiles.InteractionConfig{
+		Input: profiles.InputConfig{
 			STTProvider:   "whisper_api",
 			LLMProviderID: "openai-default", // OpenAI para Whisper (diferente do chat!)
 			Language:      "pt-BR",
@@ -33,16 +35,16 @@ func TestSpeechProviderIndependence(t *testing.T) {
 		t.Errorf("Chat provider incorreto: %s", profile.Chat.LLMProvider)
 	}
 
-	if profile.Voice.LLMProviderID != "openai-default" {
-		t.Errorf("TTS provider incorreto: %s", profile.Voice.LLMProviderID)
+	if profile.Voice.Assistant.LLMProviderID != "openai-default" {
+		t.Errorf("TTS provider incorreto: %s", profile.Voice.Assistant.LLMProviderID)
 	}
 
-	if profile.Interaction.LLMProviderID != "openai-default" {
-		t.Errorf("STT provider incorreto: %s", profile.Interaction.LLMProviderID)
+	if profile.Input.LLMProviderID != "openai-default" {
+		t.Errorf("STT provider incorreto: %s", profile.Input.LLMProviderID)
 	}
 
 	// Demonstrar independência: chat usa Claude, voice usa OpenAI
-	if profile.Chat.LLMProvider == profile.Voice.LLMProviderID {
+	if profile.Chat.LLMProvider == profile.Voice.Assistant.LLMProviderID {
 		t.Error("ERRO: Chat e Voice deveriam usar providers DIFERENTES neste teste")
 	}
 }
@@ -52,12 +54,12 @@ func TestProfileWithSpeechProviders(t *testing.T) {
 	profile := profiles.DefaultProfile()
 
 	// Verificar que os campos existem e têm defaults
-	if profile.Voice.LLMProviderID == "" {
-		t.Error("VoiceConfig.LLMProviderID deveria ter valor padrão")
+	if profile.Voice.Assistant.LLMProviderID == "" {
+		t.Error("VoiceConfig.Assistant.LLMProviderID deveria ter valor padrão")
 	}
 
-	if profile.Interaction.LLMProviderID == "" {
-		t.Error("InteractionConfig.LLMProviderID deveria ter valor padrão")
+	if profile.Input.LLMProviderID == "" {
+		t.Error("InputConfig.LLMProviderID deveria ter valor padrão")
 	}
 }
 
@@ -98,9 +100,11 @@ func TestBuiltinProfilesHaveSpeechProviders(t *testing.T) {
 					LLMProvider: tc.chatProv,
 				},
 				Voice: profiles.VoiceConfig{
-					LLMProviderID: tc.voiceProv,
+					Assistant: profiles.VoiceRoleConfig{
+						LLMProviderID: tc.voiceProv,
+					},
 				},
-				Interaction: profiles.InteractionConfig{
+				Input: profiles.InputConfig{
 					LLMProviderID: tc.sttProv,
 				},
 			}
@@ -108,10 +112,10 @@ func TestBuiltinProfilesHaveSpeechProviders(t *testing.T) {
 			if profile.Chat.LLMProvider != tc.chatProv {
 				t.Errorf("Chat provider mismatch")
 			}
-			if profile.Voice.LLMProviderID != tc.voiceProv {
+			if profile.Voice.Assistant.LLMProviderID != tc.voiceProv {
 				t.Errorf("Voice provider mismatch")
 			}
-			if profile.Interaction.LLMProviderID != tc.sttProv {
+			if profile.Input.LLMProviderID != tc.sttProv {
 				t.Errorf("STT provider mismatch")
 			}
 		})

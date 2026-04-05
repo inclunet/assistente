@@ -62,10 +62,11 @@ export const Combobox = ({
     );
 
     const selectedItem = items.find(i => i.value === selected);
-    const selectedLabel = selectedItem?.label || (allowFreeInput && selected ? selected : effectiveLabel);
+    const selectedLabel = selectedItem?.label || (selected ? selected : effectiveLabel);
     const displayLabel = selectedLabel.length > 20
         ? selectedLabel.substring(0, 17) + '...'
         : selectedLabel;
+    const hasSelectedItem = Boolean(selected);
 
     const announceMessage = useCallback((msg: string) => {
         if (onAnnounce) {
@@ -283,7 +284,7 @@ export const Combobox = ({
                 <button
                     ref={buttonRef}
                     type="button"
-                    className="picker-button"
+                    className={`picker-button${hasSelectedItem ? ' picker-button--selected' : ''}`}
                     onClick={open}
                     disabled={disabled}
                     aria-expanded={false}
@@ -337,6 +338,9 @@ export const Combobox = ({
                                 }}
                                 onMouseEnter={() => setHighlightIndex(i)}
                             >
+                                {item.value === selected && (
+                                    <span className="option-check" aria-hidden="true" />
+                                )}
                                 <span className="option-label">{item.label}</span>
                                 {item.sublabel && (
                                     <span className="option-sublabel">{item.sublabel}</span>

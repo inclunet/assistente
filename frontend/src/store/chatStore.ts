@@ -371,7 +371,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         playSendSound();
         if (ttsService.isEnabledForUser()) {
           const cleanContent = stripMarkdown(message.content);
-          ttsService.speak(cleanContent).catch((err: unknown) => {
+          ttsService.speakAsRole(cleanContent, 'user').catch((err: unknown) => {
             console.error('[Chat] TTS speak error (user):', err);
           });
         } else if (ttsService.shouldUseAriaLiveForUser()) {
@@ -673,7 +673,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               if (ttsService.isAutoReadEnabled() && isActiveConv && !cleanupExecuted) {
                 messageAudioService.stopAll();
                 ttsService.stop();
-                ttsService.speak(finalMessage.content).catch((err: unknown) => {
+                ttsService.speakAsRole(finalMessage.content, 'assistant').catch((err: unknown) => {
                   console.error('[Chat] TTS speak error:', err);
                 });
               }
@@ -746,7 +746,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (data.content) {
               newSegments.push({ type: 'text', content: data.content });
               if (ttsService.isAutoReadEnabled()) {
-                ttsService.speak(data.content).catch((err: unknown) => {
+                ttsService.speakAsRole(data.content, 'assistant').catch((err: unknown) => {
                   console.error('[Chat] TTS segment error:', err);
                 });
               } else {
@@ -1181,7 +1181,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (ttsService.isAutoReadEnabled() && isActive && !cleanupExecuted) {
               messageAudioService.stopAll();
               ttsService.stop();
-              ttsService.speak(finalMessage.content).catch((err: unknown) => {
+              ttsService.speakAsRole(finalMessage.content, 'assistant').catch((err: unknown) => {
                 console.error('[Chat] TTS error (external):', err);
               });
             }
@@ -1232,7 +1232,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
         if (!activeListeners.has(conversationIdStr)) return;
         if (event.hasMore && event.content && ttsService.isAutoReadEnabled()) {
-          ttsService.speak(event.content).catch((err: unknown) => {
+          ttsService.speakAsRole(event.content, 'assistant').catch((err: unknown) => {
             console.error('[Chat] TTS segment error (external):', err);
           });
         }

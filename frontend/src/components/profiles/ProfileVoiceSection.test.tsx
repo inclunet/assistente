@@ -4,6 +4,12 @@ import userEvent from '@testing-library/user-event';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { VOICE_DISABLED } from '../pickers/VoicePicker';
 
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+  }),
+}));
+
 // Mock VoicePicker para evitar imports de @wailsjs
 vi.mock('../pickers/VoicePicker', () => ({
   VOICE_DISABLED: '__disabled__',
@@ -34,27 +40,26 @@ describe('ProfileVoiceSection', () => {
   it('renderiza o VoicePicker com o valor correto', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    // VoicePicker renderiza um combobox com label "Voz (TTS)"
-    expect(screen.getByText('Voz (TTS)')).toBeInTheDocument();
+    expect(screen.getByText('profiles.voiceSection.voiceLabel')).toBeInTheDocument();
   });
 
   it('renderiza o slider de rate com valor correto', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    const rateLabel = screen.getByText('Taxa de Fala (Rate)');
+    const rateLabel = screen.getByText('profiles.voiceSection.rateLabel');
     expect(rateLabel).toBeInTheDocument();
     
-    const rateInput = screen.getByLabelText('Taxa de Fala (Rate)');
+    const rateInput = screen.getByLabelText('profiles.voiceSection.rateLabel');
     expect(rateInput).toHaveValue('1');
   });
 
   it('renderiza o slider de volume com valor correto', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    const volumeLabel = screen.getByText('Volume');
+    const volumeLabel = screen.getByText('profiles.voiceSection.volumeLabel');
     expect(volumeLabel).toBeInTheDocument();
     
-    const volumeInput = screen.getByLabelText('Volume');
+    const volumeInput = screen.getByLabelText('profiles.voiceSection.volumeLabel');
     expect(volumeInput).toHaveValue('0.8');
   });
 
@@ -75,9 +80,7 @@ describe('ProfileVoiceSection', () => {
   it('VoicePicker está presente e pode receber interações', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    // VoicePicker renderiza um picker com label "Voz (TTS)"
-    // (teste simplificado pois VoicePicker tem seus próprios testes)
-    const label = screen.getByText('Voz (TTS)');
+    const label = screen.getByText('profiles.voiceSection.voiceLabel');
     expect(label).toBeInTheDocument();
   });
 
@@ -87,7 +90,7 @@ describe('ProfileVoiceSection', () => {
     
     render(<ProfileVoiceSection {...defaultProps} onChange={handleChange} />);
     
-    const rateInput = screen.getByLabelText('Taxa de Fala (Rate)');
+    const rateInput = screen.getByLabelText('profiles.voiceSection.rateLabel');
     await user.click(rateInput);
     
     // RangeSlider chama onChange internamente
@@ -100,7 +103,7 @@ describe('ProfileVoiceSection', () => {
     
     render(<ProfileVoiceSection {...defaultProps} onChange={handleChange} />);
     
-    const volumeInput = screen.getByLabelText('Volume');
+    const volumeInput = screen.getByLabelText('profiles.voiceSection.volumeLabel');
     await user.click(volumeInput);
     
     // RangeSlider chama onChange internamente
@@ -133,8 +136,8 @@ describe('ProfileVoiceSection', () => {
   it('desabilita os sliders quando disabled é true', () => {
     render(<ProfileVoiceSection {...defaultProps} disabled={true} />);
     
-    const rateInput = screen.getByLabelText('Taxa de Fala (Rate)');
-    const volumeInput = screen.getByLabelText('Volume');
+    const rateInput = screen.getByLabelText('profiles.voiceSection.rateLabel');
+    const volumeInput = screen.getByLabelText('profiles.voiceSection.volumeLabel');
     
     expect(rateInput).toBeDisabled();
     expect(volumeInput).toBeDisabled();
@@ -143,7 +146,7 @@ describe('ProfileVoiceSection', () => {
   it('permite valores mínimos e máximos corretos no rate', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    const rateInput = screen.getByLabelText('Taxa de Fala (Rate)') as HTMLInputElement;
+    const rateInput = screen.getByLabelText('profiles.voiceSection.rateLabel') as HTMLInputElement;
     
     expect(rateInput.min).toBe('0.5');
     expect(rateInput.max).toBe('2');
@@ -153,7 +156,7 @@ describe('ProfileVoiceSection', () => {
   it('permite valores mínimos e máximos corretos no volume', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    const volumeInput = screen.getByLabelText('Volume') as HTMLInputElement;
+    const volumeInput = screen.getByLabelText('profiles.voiceSection.volumeLabel') as HTMLInputElement;
     
     expect(volumeInput.min).toBe('0');
     expect(volumeInput.max).toBe('1');
