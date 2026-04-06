@@ -7,7 +7,11 @@ import (
 	"os"
 	"time"
 
+	"assistente/internal/allowlist"
+	"assistente/internal/questionnaire"
 	"assistente/internal/terminal"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -106,4 +110,26 @@ func (a *App) GetTerminalStats() *terminal.ManagerStats {
 	}
 	stats := a.terminalMgr.Stats()
 	return &stats
+}
+
+// initTerminalAndAllowlists inicializa os managers de terminal, questionário e allowlists.
+func (a *App) initTerminalAndAllowlists() {
+	// Callback para emitir eventos Wails a partir dos managers
+	emitEvent := func(event string, data any) {
+		runtime.EventsEmit(a.ctx, event, data)
+	}
+
+	// Terminal Manager (pool compartilhado LLM + usuário)
+	a.terminalMgr = terminal.NewManager(terminal.DefaultManagerConfig(), emitEvent)
+
+	// Questionnaire Manager (coleta de respostas estruturadas)
+	a.questionnaireMgr = questionnaire.NewManager(emitEvent)
+
+	// Allowlist Manager (CRUD de allowlists)
+	a.allowlistMgr = allowlist.NewManager()
+	if err := a.allowlistMgr.EnsureDefaults(); err != nil {
+		log.Printf("[Allowlist] Erro ao garantir allowlist padrão: %v", err)
+	}
+
+	log.Printf("[Terminal] Managers de terminal, questionário e allowlist inicializados")
 }

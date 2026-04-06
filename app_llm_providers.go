@@ -5,6 +5,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/profiles"
 	"context"
 	"fmt"
 	"log"
@@ -593,4 +594,252 @@ func (a *App) ensureDefaultProvider() {
 			database.SaveLLMProvider(dbProv)
 		}
 	}
+}
+
+// ============================================================================
+// LLM Client / Provider Init
+// ============================================================================
+
+// initLLMClient inicializa o cliente LLM usando o provider do perfil ativo
+func (a *App) initLLMClient() {
+	activeProfile, err := a.profileManager.GetActive()
+	if err != nil || activeProfile == nil {
+		log.Printf("[initLLMClient] Perfil ativo não encontrado: %v", err)
+		return
+	}
+	activeProfile = a.resolveProfileDefaults(activeProfile)
+
+	provider := a.llmRegistry.Get(activeProfile.Chat.LLMProvider)
+	if provider == nil {
+		log.Printf("[initLLMClient] Provedor LLM não encontrado: %s", activeProfile.Chat.LLMProvider)
+		return
+	}
+
+	log.Printf("[initLLMClient] Provedor ativo: %s (api_format=%s)", provider.Name, provider.GetAPIFormat())
+}
+
+// ReloadLLMClient recarrega o cliente LLM (chamado quando config muda)
+func (a *App) ReloadLLMClient() {
+	a.initLLMClient()
+}
+
+// getChatProviderForProvider retorna um ChatProvider para o provedor especificado.
+func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, error) {
+	if a.llmRegistry == nil {
+		return nil, fmt.Errorf("registro de provedores não inicializado")
+	}
+
+	provider := a.llmRegistry.Get(providerID)
+	if provider == nil {
+		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
+	}
+
+	return llm.NewChatProvider(provider, a.credMgr), nil
+}
+
+// resolveProfileDefaults substitui sentinelas "$default" no profile pelo provedor/modelo
+// default do sistema. Retorna uma cópia modificada — não altera o profile em disco.
+func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
+	if p == nil {
+		return nil
+	}
+
+	needsResolve := p.Chat.LLMProvider == profiles.DefaultProviderSentinel ||
+		p.Chat.Model == profiles.DefaultProviderSentinel ||
+		p.Voice.LLMProviderID == profiles.DefaultProviderSentinel ||
+		p.Interaction.LLMProviderID == profiles.DefaultProviderSentinel
+	if !needsResolve {
+		return p
+	}
+
+	defaultProvider, err := database.GetDefaultProvider()
+	if err != nil || defaultProvider == nil {
+		log.Printf("[ResolveDefaults] Nenhum provedor default encontrado: %v", err)
+		return p
+	}
+
+	resolved := *p
+	resolved.Chat = p.Chat
+	resolved.Voice = p.Voice
+	resolved.Interaction = p.Interaction
+
+	if resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel {
+		resolved.Chat.LLMProvider = defaultProvider.ID
+	}
+	if resolved.Chat.Model == profiles.DefaultProviderSentinel {
+		resolved.Chat.Model = defaultProvider.DefaultModel
+	}
+	if resolved.Voice.LLMProviderID == profiles.DefaultProviderSentinel {
+		resolved.Voice.LLMProviderID = defaultProvider.ID
+	}
+	if resolved.Interaction.LLMProviderID == profiles.DefaultProviderSentinel {
+		resolved.Interaction.LLMProviderID = defaultProvider.ID
+	}
+
+	log.Printf("[ResolveDefaults] Resolvido $default → provider=%s, model=%s", defaultProvider.ID, defaultProvider.DefaultModel)
+	return &resolved
+}
+
+// initLLMProviders inicializa o registro de provedores LLM
+func (a *App) initLLMProviders() {
+	if err := a.loadLLMProviders(); err == nil {
+		return
+	}
+
+	count, err := database.CountLLMProviders()
+	if err != nil || count == 0 {
+		log.Printf("Nenhum provedor encontrado. Configure um provedor nas configurações ou crie um perfil.")
+	}
+}
+
+// CreateDefaultLLMProvider cria o primeiro provedor durante o wizard
+func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
+	var provider *llm.ProviderConfig
+
+	switch providerType {
+	case "openai":
+		provider = &llm.ProviderConfig{
+			ID:                "openai-default",
+			Name:              "OpenAI",
+			Type:              llm.ProviderOpenAI,
+			APIFormat:         llm.APIFormatOpenAIResponses,
+			BaseURL:           "https://api.openai.com/v1",
+			Model:             "gpt-4o-mini",
+			Timeout:           180,
+			CredentialPattern: "api.openai.com",
+		}
+	case "claude":
+		provider = &llm.ProviderConfig{
+			ID:                "anthropic-claude",
+			Name:              "Claude (Anthropic)",
+			Type:              llm.ProviderClaude,
+			BaseURL:           "https://api.anthropic.com/v1",
+			Model:             "claude-3-7-sonnet-20250219",
+			Timeout:           180,
+			CredentialPattern: "api.anthropic.com",
+		}
+	case "google":
+		provider = &llm.ProviderConfig{
+			ID:                "google-gemini",
+			Name:              "Google (Gemini)",
+			Type:              llm.ProviderOpenAI,
+			BaseURL:           "https://generativelanguage.googleapis.com/v1beta/openai/",
+			Model:             "gemini-2.0-flash",
+			Timeout:           180,
+			CredentialPattern: "generativelanguage.googleapis.com",
+		}
+	case "openrouter":
+		provider = &llm.ProviderConfig{
+			ID:                "openrouter-default",
+			Name:              "OpenRouter",
+			Type:              llm.ProviderOpenAI,
+			BaseURL:           "https://openrouter.ai/api/v1",
+			Model:             "openai/gpt-4o-mini",
+			Timeout:           180,
+			CredentialPattern: "openrouter.ai",
+		}
+	case "mistral":
+		provider = &llm.ProviderConfig{
+			ID:                "mistral-default",
+			Name:              "Mistral AI",
+			Type:              llm.ProviderMistral,
+			BaseURL:           "https://api.mistral.ai/v1",
+			Model:             "mistral-large-latest",
+			Timeout:           180,
+			CredentialPattern: "api.mistral.ai",
+		}
+	case "groq":
+		provider = &llm.ProviderConfig{
+			ID:                "groq-default",
+			Name:              "Groq",
+			Type:              llm.ProviderGroq,
+			BaseURL:           "https://api.groq.com/openai/v1",
+			Model:             "llama-3.3-70b-versatile",
+			Timeout:           180,
+			CredentialPattern: "api.groq.com",
+		}
+	case "together":
+		provider = &llm.ProviderConfig{
+			ID:                "together-default",
+			Name:              "Together AI",
+			Type:              llm.ProviderTogether,
+			BaseURL:           "https://api.together.xyz/v1",
+			Model:             "meta-llama/Llama-3.3-70B-Instruct-Turbo",
+			Timeout:           180,
+			CredentialPattern: "api.together.xyz",
+		}
+	case "fireworks":
+		provider = &llm.ProviderConfig{
+			ID:                "fireworks-default",
+			Name:              "Fireworks AI",
+			Type:              llm.ProviderFireworks,
+			BaseURL:           "https://api.fireworks.ai/inference/v1",
+			Model:             "accounts/fireworks/models/llama-v3p3-70b-instruct",
+			Timeout:           180,
+			CredentialPattern: "api.fireworks.ai",
+		}
+	case "perplexity":
+		provider = &llm.ProviderConfig{
+			ID:                "perplexity-default",
+			Name:              "Perplexity",
+			Type:              llm.ProviderPerplexity,
+			BaseURL:           "https://api.perplexity.ai",
+			Model:             "sonar",
+			Timeout:           180,
+			CredentialPattern: "api.perplexity.ai",
+		}
+	case "deepseek":
+		provider = &llm.ProviderConfig{
+			ID:                "deepseek-default",
+			Name:              "DeepSeek",
+			Type:              llm.ProviderDeepSeek,
+			BaseURL:           "https://api.deepseek.com/v1",
+			Model:             "deepseek-chat",
+			Timeout:           180,
+			CredentialPattern: "api.deepseek.com",
+		}
+	case "grok":
+		provider = &llm.ProviderConfig{
+			ID:                "xai-grok",
+			Name:              "xAI (Grok)",
+			Type:              llm.ProviderGrok,
+			BaseURL:           "https://api.x.ai/v1",
+			Model:             "grok-2",
+			Timeout:           180,
+			CredentialPattern: "api.x.ai",
+		}
+	case "ollama":
+		provider = &llm.ProviderConfig{
+			ID:                "ollama-local",
+			Name:              "Ollama (Local)",
+			Type:              llm.ProviderOllama,
+			BaseURL:           "http://localhost:11434/api",
+			Model:             "llama2",
+			Timeout:           300,
+			CredentialPattern: "",
+		}
+	default:
+		return fmt.Errorf("tipo de provedor inválido: %s", providerType)
+	}
+
+	if err := a.llmRegistry.Register(provider); err != nil {
+		return fmt.Errorf("erro ao registrar provedor: %w", err)
+	}
+
+	if apiKey != "" && provider.CredentialPattern != "" {
+		authCfg := &credentials.AuthConfig{
+			Type:  "bearer",
+			Token: apiKey,
+		}
+		if err := a.credMgr.RegisterPatternWithContext(a.ctx, provider.CredentialPattern, authCfg); err != nil {
+			return fmt.Errorf("erro ao salvar credencial: %w", err)
+		}
+	}
+
+	if err := a.saveLLMProviders(); err != nil {
+		return fmt.Errorf("erro ao salvar provedor: %w", err)
+	}
+
+	log.Printf("[Wizard] Provedor '%s' criado com sucesso", provider.ID)
+	return nil
 }

@@ -2,8 +2,11 @@ package main
 
 import (
 	"fmt"
+	"log"
 
 	mcpmgr "assistente/internal/mcp"
+
+	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -175,4 +178,35 @@ func (a *App) GetMCPServerAuthInfo(slug string) (map[string]any, error) {
 // para auto-discovery de configuração OAuth.
 func (a *App) DiscoverMCPServerAuth(serverURL string) mcpmgr.OAuthDiscoveryResult {
 	return mcpmgr.DiscoverOAuth(serverURL)
+}
+
+// initMCP inicializa o gerenciador de servidores MCP.
+// Deve ser chamado após initToolRegistry (precisa do registry para registrar tools MCP).
+func (a *App) initMCP() {
+	emitEvent := func(event string, data any) {
+		runtime.EventsEmit(a.ctx, event, data)
+
+		// Quando o set de tools MCP muda, regenera o catalogo de jobs
+		if event == "mcp:tools_changed" && a.jobMgr != nil {
+			go func() {
+				if err := a.jobMgr.RegenerateCatalog(); err != nil {
+					log.Printf("[Jobs] Catalog regeneration on MCP change failed: %v", err)
+				} else {
+					log.Printf("[Jobs] Catalog regenerated after MCP tools change")
+				}
+			}()
+		}
+	}
+
+	a.mcpMgr = mcpmgr.NewManager(a.toolRegistry, a.credMgr, emitEvent)
+
+	// Carrega configs e auto-conecta servidores habilitados
+	if err := a.mcpMgr.LoadConfigs(); err != nil {
+		log.Printf("[MCP] Erro ao carregar configurações: %v", err)
+	}
+
+	// Observa mudanças externas nos arquivos de config
+	go a.mcpMgr.WatchConfigs()
+
+	log.Printf("[MCP] Manager inicializado")
 }
