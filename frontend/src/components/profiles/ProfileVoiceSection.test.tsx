@@ -1,8 +1,9 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { VOICE_DISABLED } from '../pickers/VoicePicker';
+import { COMPOSITE_VOICE_SEPARATOR } from '../../config/providers';
 
 vi.mock('react-i18next', () => ({
   useTranslation: () => ({
@@ -22,7 +23,7 @@ vi.mock('../pickers/VoicePicker', () => ({
         {value || VOICE_DISABLED}
       </button>
       {voiceOverrides && voiceOverrides.length > 0 && (
-        <button onClick={() => onChange('nova::tts-1-hd')} data-testid="voice-picker-select-hd">
+        <button onClick={() => onChange(`nova${COMPOSITE_VOICE_SEPARATOR}tts-1-hd`)} data-testid="voice-picker-select-hd">
           HD
         </button>
       )}
@@ -91,30 +92,26 @@ describe('ProfileVoiceSection', () => {
     expect(label).toBeInTheDocument();
   });
 
-  it('chama onChange ao alterar rate', async () => {
+  it('chama onChange ao alterar rate', () => {
     const handleChange = vi.fn();
-    const user = userEvent.setup();
     
     render(<ProfileVoiceSection {...defaultProps} onChange={handleChange} />);
     
     const rateInput = screen.getByLabelText('profiles.voiceSection.rateLabel');
-    await user.click(rateInput);
+    fireEvent.change(rateInput, { target: { value: '1.5' } });
     
-    // RangeSlider chama onChange internamente
-    expect(rateInput).toBeInTheDocument();
+    expect(handleChange).toHaveBeenCalledWith('rate', 1.5);
   });
 
-  it('chama onChange ao alterar volume', async () => {
+  it('chama onChange ao alterar volume', () => {
     const handleChange = vi.fn();
-    const user = userEvent.setup();
     
     render(<ProfileVoiceSection {...defaultProps} onChange={handleChange} />);
     
     const volumeInput = screen.getByLabelText('profiles.voiceSection.volumeLabel');
-    await user.click(volumeInput);
+    fireEvent.change(volumeInput, { target: { value: '0.5' } });
     
-    // RangeSlider chama onChange internamente
-    expect(volumeInput).toBeInTheDocument();
+    expect(handleChange).toHaveBeenCalledWith('volume', 0.5);
   });
 
   it('renderiza com voz desativada quando voice é VOICE_DISABLED', () => {
@@ -171,15 +168,12 @@ describe('ProfileVoiceSection', () => {
   });
 
   it('NÃO mostra seletor de modelo TTS para OpenAI (modelo embutido na voz)', () => {
-    const handleModelChange = vi.fn();
     render(
       <ProfileVoiceSection
         {...defaultProps}
         providerId="openai-default"
         providerType="openai"
         ttsModel="tts-1"
-        ttsModels={[{ id: 'tts-1', name: 'tts-1' }, { id: 'tts-1-hd', name: 'tts-1-hd' }]}
-        onModelChange={handleModelChange}
       />
     );
 
@@ -194,7 +188,6 @@ describe('ProfileVoiceSection', () => {
         {...defaultProps}
         providerId="webspeech"
         ttsModel="tts-1"
-        onModelChange={vi.fn()}
       />
     );
 
@@ -207,7 +200,6 @@ describe('ProfileVoiceSection', () => {
         {...defaultProps}
         providerId="sapi5"
         ttsModel="tts-1"
-        onModelChange={vi.fn()}
       />
     );
 
@@ -223,8 +215,6 @@ describe('ProfileVoiceSection', () => {
         providerId="openai-default"
         providerType="openai"
         ttsModel="tts-1"
-        ttsModels={[{ id: 'tts-1', name: 'tts-1' }, { id: 'tts-1-hd', name: 'tts-1-hd' }]}
-        onModelChange={vi.fn()}
         onChange={handleChange}
       />
     );
@@ -234,21 +224,21 @@ describe('ProfileVoiceSection', () => {
     await user.click(hdButton);
 
     // Valor composto passado direto para o parent fazer o parse
-    expect(handleChange).toHaveBeenCalledWith('voice', 'nova::tts-1-hd');
+    expect(handleChange).toHaveBeenCalledWith('voice', `nova${COMPOSITE_VOICE_SEPARATOR}tts-1-hd`);
   });
 
-  it('NÃO mostra seletor de modelo quando onModelChange não é fornecido', () => {
+  it('NÃO mostra voiceOverrides quando providerType não é fornecido', () => {
     render(
       <ProfileVoiceSection
         {...defaultProps}
         providerId="openai-default"
-        providerType="openai"
         ttsModel="tts-1"
-        ttsModels={[{ id: 'tts-1', name: 'tts-1' }, { id: 'tts-1-hd', name: 'tts-1-hd' }]}
       />
     );
 
-    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+    // Sem providerType, getTTSCapabilities retorna DYNAMIC_TTS (sem staticVoices)
+    // Portanto o botão HD (voiceOverrides) NÃO deve existir
+    expect(screen.queryByTestId('voice-picker-select-hd')).not.toBeInTheDocument();
   });
 
   it('NÃO mostra seletor de modelo para provider com apenas vozes dinâmicas (LocalAI/Piper)', () => {
@@ -258,11 +248,6 @@ describe('ProfileVoiceSection', () => {
         providerId="localai-default"
         providerType="localai"
         ttsModel="voice-pt_BR-cadu-medium"
-        ttsModels={[
-          { id: 'voice-pt_BR-cadu-medium', name: 'voice-pt_BR-cadu-medium' },
-          { id: 'voice-en_US-amy-medium', name: 'voice-en_US-amy-medium' },
-        ]}
-        onModelChange={vi.fn()}
       />
     );
 

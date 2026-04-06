@@ -470,7 +470,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	if userContent == "" && userMedia != "" {
 		// Verifica se o perfil tem STT configurado como whisper_api (necessário para canais)
 		if source != "wails" && activeProfile != nil {
-			sttProvider := activeProfile.Interaction.STTProvider
+			sttProvider := activeProfile.Input.STTProvider
 			if sttProvider == "webspeech" || sttProvider == "" {
 				log.Printf("[SendMessage] Canal %s: STT '%s' não suporta transcrição server-side — ignorando áudio", source, sttProvider)
 				userContent = "[Mensagem de áudio recebida, mas transcrição automática não está configurada. Configure Whisper no perfil deste canal para processar mensagens de voz.]"

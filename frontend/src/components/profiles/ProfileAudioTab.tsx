@@ -1,12 +1,13 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { profiles, llm, speech } from '@wailsjs/go/models';
-import { GetSpeechProviders, GetTTSModels, GetSTTModels } from '@wailsjs/go/main/App';
+import { GetSpeechProviders, GetSTTModels } from '@wailsjs/go/main/App';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { ProfileInteractionSection } from './ProfileInteractionSection';
 import { VOICE_REF_ASSISTANT, VOICE_REF_USER, VOICE_REF_SYSTEM } from '../pickers/VoicePicker';
 import { VoiceProviderPicker, type VoiceProviderItem } from '../pickers/VoiceProviderPicker';
+import { parseCompositeVoiceId } from '../../config/providers';
 
 export interface ProfileAudioTabProps {
   editingProfile: profiles.Profile;
@@ -36,7 +37,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   const [speechProviders, setSpeechProviders] = useState<llm.ProviderConfig[]>([]);
   const [isWindows, setIsWindows] = useState(false);
   const [voiceExpanded, setVoiceExpanded] = useState(false);
-  const [ttsModelsCache, setTTSModelsCache] = useState<Record<string, speech.SpeechModelInfo[]>>({});
   const [sttModelsCache, setSTTModelsCache] = useState<Record<string, speech.SpeechModelInfo[]>>({});
 
   useEffect(() => {
@@ -45,15 +45,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
       .then((platform) => setIsWindows(platform === 'windows'))
       .catch(() => setIsWindows(false));
   }, []);
-
-  // Busca modelos TTS quando o provider muda (com cache por providerID)
-  const fetchTTSModels = useCallback((providerID: string) => {
-    if (!providerID || providerID === 'webspeech' || providerID === 'sapi5') return;
-    if (ttsModelsCache[providerID]) return;
-    GetTTSModels(providerID)
-      .then((models) => setTTSModelsCache((prev) => ({ ...prev, [providerID]: models })))
-      .catch(console.error);
-  }, [ttsModelsCache]);
 
   // Busca modelos STT quando o provider muda (com cache por providerID)
   const fetchSTTModels = useCallback((providerID: string) => {
@@ -175,12 +166,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
 
   // Busca modelos TTS/STT quando providers mudam
   useEffect(() => {
-    fetchTTSModels(currentAssistantProvider);
-    fetchTTSModels(currentUserProvider);
-    fetchTTSModels(currentSystemProvider);
-  }, [currentAssistantProvider, currentUserProvider, currentSystemProvider, fetchTTSModels]);
-
-  useEffect(() => {
     const sttProvider = editingProfile.input?.llm_provider_id;
     if (sttProvider) fetchSTTModels(sttProvider);
   }, [editingProfile.input?.llm_provider_id, fetchSTTModels]);
@@ -220,12 +205,11 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   const handleVoiceChange = (type: 'assistant' | 'user' | 'system', field: 'voice' | 'rate' | 'volume', value: string | number) => {
     if (field === 'voice') {
       const strValue = String(value);
-      // IDs compostos "voiceId::model" (ex: "nova::tts-1-hd") — atualiza ambos atomicamente
-      if (strValue.includes('::')) {
-        const [voiceId, model] = strValue.split('::');
+      const composite = parseCompositeVoiceId(strValue);
+      if (composite) {
         updateFields({
-          [`voice.${type}.voice_id`]: voiceId,
-          [`voice.${type}.model`]: model,
+          [`voice.${type}.voice_id`]: composite.voiceId,
+          [`voice.${type}.model`]: composite.model,
         });
       } else {
         updateField(`voice.${type}.voice_id`, strValue);
@@ -329,8 +313,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 providerType={providerTypeMap[resolveProviderId(currentAssistantProvider, 'assistant')] || ''}
                 profileId={profileId}
                 ttsModel={assistantVoice?.model}
-                ttsModels={ttsModelsCache[currentAssistantProvider]}
-                onModelChange={(m) => updateField('voice.assistant.model', m)}
                 label={t('profiles.voiceLabels.assistantPicker')}
                 onChange={(f, v) => handleVoiceChange('assistant', f, v)}
                 disabled={isVoiceDisabled}
@@ -364,8 +346,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 providerType={providerTypeMap[resolveProviderId(currentUserProvider, 'user')] || ''}
                 profileId={profileId}
                 ttsModel={userVoice?.model}
-                ttsModels={ttsModelsCache[currentUserProvider]}
-                onModelChange={(m) => updateField('voice.user.model', m)}
                 label={t('profiles.voiceLabels.userPicker')}
                 helpText={userFollowHelpText}
                 onChange={(f, v) => handleVoiceChange('user', f, v)}
@@ -400,8 +380,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 providerType={providerTypeMap[resolveProviderId(currentSystemProvider, 'system')] || ''}
                 profileId={profileId}
                 ttsModel={systemVoice?.model}
-                ttsModels={ttsModelsCache[currentSystemProvider]}
-                onModelChange={(m) => updateField('voice.system.model', m)}
                 label={t('profiles.voiceLabels.systemPicker')}
                 helpText={systemFollowHelpText}
                 onChange={(f, v) => handleVoiceChange('system', f, v)}

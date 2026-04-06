@@ -184,69 +184,94 @@ func (a *App) createSpeechManagerForProfile(p *profiles.Profile) *speech.SpeechM
 	// Resolve defaults ($default → provider ID real)
 	p = a.resolveProfileDefaults(p)
 
-	// Resolve credenciais para TTS
-	var ttsAPIKey, ttsBaseURL, ttsCredPattern string
-	if p.Voice.LLMProviderID != "" {
-		cfg := a.llmRegistry.Get(p.Voice.LLMProviderID)
-		if cfg != nil {
-			ttsBaseURL = cfg.BaseURL
-			ttsCredPattern = cfg.CredentialPattern
-			if cfg.CredentialPattern != "" {
-				if auth, err := a.credMgr.GetByPattern(cfg.CredentialPattern); err == nil && auth != nil {
-					ttsAPIKey = auth.Token
-				}
+	// Cache de credenciais por providerID para evitar resolver o mesmo provider múltiplas vezes
+	type resolvedCreds struct {
+		apiKey, baseURL, credPattern string
+	}
+	credsCache := map[string]*resolvedCreds{}
+
+	resolveAPICreds := func(llmProviderID string) (apiKey, baseURL, credPattern string) {
+		if llmProviderID == "" {
+			return "", "", ""
+		}
+		if cached, ok := credsCache[llmProviderID]; ok {
+			return cached.apiKey, cached.baseURL, cached.credPattern
+		}
+		cfg := a.llmRegistry.Get(llmProviderID)
+		if cfg == nil {
+			log.Printf("[Speech] Provider '%s' não encontrado no registry", llmProviderID)
+			credsCache[llmProviderID] = &resolvedCreds{}
+			return "", "", ""
+		}
+		baseURL = cfg.BaseURL
+		credPattern = cfg.CredentialPattern
+		if cfg.CredentialPattern != "" {
+			if auth, err := a.credMgr.GetByPattern(cfg.CredentialPattern); err == nil && auth != nil {
+				apiKey = auth.Token
+			} else {
+				log.Printf("[Speech] Credencial não encontrada para pattern '%s' (provider=%s): %v",
+					cfg.CredentialPattern, llmProviderID, err)
 			}
 		} else {
-			log.Printf("[Speech] TTS Provider '%s' não encontrado no registry", p.Voice.LLMProviderID)
+			log.Printf("[Speech] Provider '%s' não tem CredentialPattern configurado", llmProviderID)
+		}
+		credsCache[llmProviderID] = &resolvedCreds{apiKey, baseURL, credPattern}
+		return apiKey, baseURL, credPattern
+	}
+
+	// Helper: converte profile role para RoleVoiceConfig
+	buildRoleConfig := func(role profiles.VoiceRoleConfig) speech.RoleVoiceConfig {
+		apiKey, baseURL, credPattern := resolveAPICreds(role.LLMProviderID)
+		model := role.Model
+		if model == "" {
+			model = "tts-1"
+		}
+		return speech.RoleVoiceConfig{
+			Provider:          role.Provider,
+			APIKey:            apiKey,
+			BaseURL:           baseURL,
+			CredentialPattern: credPattern,
+			Voice:             role.VoiceID,
+			Model:             model,
+			Rate:              role.Rate,
+			Volume:            role.Volume,
 		}
 	}
 
-	// Build role config from flat VoiceConfig (same config for all roles)
-	assistantCfg := speech.RoleVoiceConfig{
-		Provider:          p.Voice.Provider,
-		APIKey:            ttsAPIKey,
-		BaseURL:           ttsBaseURL,
-		CredentialPattern: ttsCredPattern,
-		Voice:             p.Voice.VoiceID,
-		Model:             "tts-1",
-		Rate:              p.Voice.Rate,
-		Volume:            p.Voice.Volume,
-	}
+	assistantCfg := buildRoleConfig(p.Voice.Assistant)
 
 	// Log detalhado para diagnóstico de TTS
-	if p.Voice.Provider == "openai" && ttsAPIKey == "" {
-		log.Printf("[Speech] AVISO: Provider é 'openai' mas API key está vazia. "+
-			"LLMProviderID='%s'", p.Voice.LLMProviderID)
+	if p.Voice.Assistant.Provider == "openai" && assistantCfg.APIKey == "" {
+		log.Printf("[Speech] AVISO: Provider assistant é 'openai' mas API key está vazia. "+
+			"LLMProviderID='%s', Voice=%+v",
+			p.Voice.Assistant.LLMProviderID,
+			p.Voice.Assistant)
 	}
 
 	// Resolve credenciais STT
-	var sttURL, sttCredPattern string
-	if p.Interaction.LLMProviderID != "" {
-		cfg := a.llmRegistry.Get(p.Interaction.LLMProviderID)
-		if cfg != nil {
-			sttURL = cfg.BaseURL
-			sttCredPattern = cfg.CredentialPattern
-		}
-	}
+	_, sttURL, sttCredPattern := resolveAPICreds(p.Input.LLMProviderID)
 
 	speechCfg := speech.SpeechConfig{
 		// STT
-		STTProvider:          speech.STTProvider(p.Interaction.STTProvider),
+		STTProvider:          speech.STTProvider(p.Input.STTProvider),
 		STTAPIBaseURL:        sttURL,
 		STTCredentialPattern: sttCredPattern,
-		WhisperModel:         "whisper-1",
-		WhisperLanguage:      p.Interaction.Language,
+		WhisperModel:         p.Input.STTModel,
+		WhisperLanguage:      p.Input.Language,
 
-		// TTS — uses same config for all roles (flat profile VoiceConfig)
+		// TTS por role
 		Assistant: assistantCfg,
-		User:      assistantCfg,
-		System:    assistantCfg,
+		User:      buildRoleConfig(p.Voice.User),
+		System:    buildRoleConfig(p.Voice.System),
 	}
 
 	sm := speech.NewSpeechManager(speechCfg, a.credMgr)
 
-	log.Printf("[Speech] Manager inicializado | TTS: %s | STT: %s",
-		p.Voice.Provider, p.Interaction.STTProvider)
+	log.Printf("[Speech] Manager inicializado | Assistant: %s | User: %s | System: %s | STT: %s",
+		p.Voice.Assistant.Provider,
+		p.Voice.User.Provider,
+		p.Voice.System.Provider,
+		p.Input.STTProvider)
 	return sm
 }
 
@@ -663,7 +688,9 @@ func (a *App) getOrCreateAdHocTTSClient() *speech.TTSClient {
 	var model speech.TTSModel
 	if profile, err := a.profileManager.GetActive(); err == nil && profile != nil {
 		resolved := a.resolveProfileDefaults(profile)
-		_ = resolved // Voice config is flat — no per-role model override yet
+		if resolved.Voice.Assistant.Model != "" {
+			model = speech.TTSModel(resolved.Voice.Assistant.Model)
+		}
 	}
 
 	log.Printf("[TTS] Criando TTSClient ad-hoc com provider %s (baseURL=%s, model=%s)", provider.ID, provider.BaseURL, model)
@@ -709,8 +736,8 @@ func (a *App) findOpenAILikeProvider() *llm.ProviderConfig {
 	// Tenta o provider do perfil ativo primeiro (voice → chat → default)
 	if profile, err := a.profileManager.GetActive(); err == nil && profile != nil {
 		resolved := a.resolveProfileDefaults(profile)
-		if resolved.Voice.LLMProviderID != "" {
-			if cfg := a.llmRegistry.Get(resolved.Voice.LLMProviderID); isOpenAILike(cfg) {
+		if resolved.Voice.Assistant.LLMProviderID != "" {
+			if cfg := a.llmRegistry.Get(resolved.Voice.Assistant.LLMProviderID); isOpenAILike(cfg) {
 				return cfg
 			}
 		}

@@ -5,8 +5,8 @@ import { VoicePicker, VOICE_DISABLED } from '../pickers/VoicePicker';
 import { RangeSlider } from '../ui/RangeSlider';
 import { Button } from '../ui/Button';
 import { useTTS } from '../../hooks/useTTS';
-import { getTTSCapabilities } from '../../config/providers';
-import { TTSVoice, TTSProvider } from '../../services/tts/types';
+import { getTTSCapabilities, makeCompositeVoiceId } from '../../config/providers';
+import { TTSVoice } from '../../services/tts/types';
 import './ProfileVoiceSection.css';
 
 export interface ProfileVoiceSectionProps {
@@ -21,8 +21,6 @@ export interface ProfileVoiceSectionProps {
   references?: Array<{ id: string; label: string }>;
   resolvedVoiceId?: string;
   ttsModel?: string;
-  ttsModels?: Array<{ id: string; name: string }>;
-  onModelChange?: (model: string) => void;
   onChange: (field: 'voice' | 'rate' | 'volume', value: string | number) => void;
   disabled?: boolean;
 }
@@ -39,8 +37,6 @@ export function ProfileVoiceSection({
   providerType,
   profileId,
   ttsModel,
-  ttsModels: _ttsModels,
-  onModelChange: _onModelChange,
   label,
   helpText,
   references,
@@ -59,8 +55,8 @@ export function ProfileVoiceSection({
     return ttsCapabilities.staticVoices.map(sv => ({
       id: sv.id,
       name: sv.name,
-      language: 'multilingual',
-      provider: TTSProvider.OPENAI,
+      language: sv.language,
+      provider: sv.provider,
       gender: 'neutral' as const,
       premium: sv.model.includes('hd'),
       localService: false,
@@ -71,16 +67,10 @@ export function ProfileVoiceSection({
   // Valor composto para o picker: "voiceId::model" (ex: "nova::tts-1-hd")
   const effectiveVoiceValue = useMemo(() => {
     if (ttsCapabilities.staticVoices.length > 0 && voice) {
-      return `${voice}::${ttsModel || 'tts-1'}`;
+      return makeCompositeVoiceId(voice, ttsModel || 'tts-1');
     }
     return voice;
   }, [voice, ttsModel, ttsCapabilities]);
-
-  // Ao selecionar voz: passa valor composto direto para o parent
-  // O parent (ProfileAudioTab) faz o parse e usa updateFields para batch atômico
-  const handleVoiceChange = (value: string) => {
-    onChange('voice', value);
-  };
 
   const handlePreview = async () => {
     if (isSpeaking) {
@@ -108,7 +98,7 @@ export function ProfileVoiceSection({
       <div className="profile-voice-section__field">
         <VoicePicker
           value={effectiveVoiceValue || ''}
-          onChange={handleVoiceChange}
+          onChange={(value) => onChange('voice', value)}
           providerId={providerId}
           profileId={profileId}
           variant="form"

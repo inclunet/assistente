@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ProfileAudioTab } from './ProfileAudioTab';
+import { COMPOSITE_VOICE_SEPARATOR } from '../../config/providers';
 
 /* ── Mocks ─────────────────────────────────────────────── */
 
@@ -13,7 +14,6 @@ vi.mock('react-i18next', () => ({
 vi.mock('@wailsjs/go/main/App', () => ({
   GetLLMProviders: () => Promise.resolve([]),
   GetSpeechProviders: () => Promise.resolve([]),
-  GetTTSModels: () => Promise.resolve([]),
   GetSTTModels: () => Promise.resolve([]),
 }));
 
@@ -26,11 +26,10 @@ vi.mock('@wailsjs/go/models', () => ({
 }));
 
 vi.mock('./ProfileVoiceSection', () => ({
-  ProfileVoiceSection: ({ onChange, onModelChange, ttsModel, providerId }: { onChange: (f: string, v: unknown) => void; onModelChange?: (m: string) => void; ttsModel?: string; providerId?: string }) => (
-    <div data-testid="voice-section" data-provider={providerId} data-model={ttsModel}>
+  ProfileVoiceSection: ({ onChange, providerId }: { onChange: (f: string, v: unknown) => void; providerId?: string }) => (
+    <div data-testid="voice-section" data-provider={providerId}>
       <button onClick={() => onChange('rate', 1.5)}>change-rate</button>
-      <button onClick={() => onChange('voice', 'nova::tts-1-hd')}>change-voice-hd</button>
-      {onModelChange && <button onClick={() => onModelChange('tts-1-hd')}>change-model</button>}
+      <button onClick={() => onChange('voice', `nova${COMPOSITE_VOICE_SEPARATOR}tts-1-hd`)}>change-voice-hd</button>
     </div>
   ),
 }));
@@ -291,32 +290,6 @@ describe('ProfileAudioTab', () => {
   });
 
   describe('modelo TTS por role', () => {
-    it('ProfileVoiceSection recebe onModelChange para cada role', () => {
-      const updateField = vi.fn();
-      const profile = makeProfile({
-        voice: {
-          assistant: { enabled: true, provider: 'openai', llm_provider_id: 'openai-1', model: 'tts-1' },
-          user: { enabled: true, provider: 'openai', llm_provider_id: 'openai-1', model: 'tts-1' },
-          system: { enabled: true, provider: 'openai', llm_provider_id: 'openai-1', model: 'tts-1' },
-        },
-      });
-      render(<ProfileAudioTab editingProfile={profile} updateField={updateField} updateFields={vi.fn()} profileId="test" />);
-
-      // Each voice section should have a change-model button (provided by our mock for onModelChange)
-      const modelButtons = screen.getAllByText('change-model');
-      expect(modelButtons.length).toBe(3);
-
-      // Clicking each should call the right path
-      fireEvent.click(modelButtons[0]);
-      expect(updateField).toHaveBeenCalledWith('voice.assistant.model', 'tts-1-hd');
-
-      fireEvent.click(modelButtons[1]);
-      expect(updateField).toHaveBeenCalledWith('voice.user.model', 'tts-1-hd');
-
-      fireEvent.click(modelButtons[2]);
-      expect(updateField).toHaveBeenCalledWith('voice.system.model', 'tts-1-hd');
-    });
-
     it('atualiza voice_id e model atomicamente ao receber ID composto (voice::model)', () => {
       const updateField = vi.fn();
       const updateFields = vi.fn();
@@ -329,7 +302,7 @@ describe('ProfileAudioTab', () => {
       });
       render(<ProfileAudioTab editingProfile={profile} updateField={updateField} updateFields={updateFields} profileId="test" />);
 
-      // Clica no botão que emite onChange('voice', 'nova::tts-1-hd')
+      // Clica no botão que emite onChange('voice', 'nova' + COMPOSITE_VOICE_SEPARATOR + 'tts-1-hd')
       const hdButtons = screen.getAllByText('change-voice-hd');
       fireEvent.click(hdButtons[0]);
 

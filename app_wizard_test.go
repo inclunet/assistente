@@ -553,9 +553,7 @@ func TestResolveProfileDefaults_ConcreteIDsUnchanged(t *testing.T) {
 			Model:       "gpt-4o",
 		},
 		Voice: profiles.VoiceConfig{
-			Assistant: profiles.VoiceRoleConfig{
-				LLMProviderID: "my-voice-id",
-			},
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: "my-voice-id"},
 		},
 		Input: profiles.InputConfig{
 			LLMProviderID: "my-stt-id",
@@ -833,9 +831,7 @@ func TestResolveProfileDefaults_PartialSentinel_OnlyModel(t *testing.T) {
 			Model:       profiles.DefaultProviderSentinel,
 		},
 		Voice: profiles.VoiceConfig{
-			Assistant: profiles.VoiceRoleConfig{
-				LLMProviderID: "my-voice-provider",
-			},
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: "my-voice-provider"},
 		},
 		Input: profiles.InputConfig{
 			LLMProviderID: profiles.DefaultProviderSentinel,

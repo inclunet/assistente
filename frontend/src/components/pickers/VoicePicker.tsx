@@ -1,4 +1,4 @@
-import { useState, useEffect, forwardRef, useImperativeHandle, type ReactNode } from 'react';
+import { useState, useEffect, useRef, forwardRef, useImperativeHandle, type ReactNode } from 'react';
 import { SoundOutlined, WarningOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { ComboboxItem } from './Combobox';
@@ -61,6 +61,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
     const [voices, setVoices] = useState<TTSVoice[]>([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const reloadCancelRef = useRef<(() => void) | null>(null);
 
     const loadVoices = async (cancelled?: () => boolean) => {
       // Vozes pré-definidas (ex: OpenAI com variantes HD): pula backend
@@ -123,8 +124,16 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       return () => { isCancelled = true; };
     }, [providerId, profileId, voiceOverrides]);
 
+    /** Inicia fetch com cancellation (cancela qualquer fetch manual anterior) */
+    const reloadWithCancel = () => {
+      reloadCancelRef.current?.();
+      let cancelled = false;
+      reloadCancelRef.current = () => { cancelled = true; };
+      return loadVoices(() => cancelled);
+    };
+
     useImperativeHandle(ref, () => ({
-      reload: () => loadVoices(),
+      reload: reloadWithCancel,
     }));
 
     // Agrupa vozes por provider
@@ -207,7 +216,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
         onAnnounce={onAnnounce}
         loading={loading}
         error={error}
-        onRetry={loadVoices}
+        onRetry={reloadWithCancel}
         showFormLabel={variant === 'form'}
         formClassName="voice-picker-form"
         formLabelClassName="voice-picker-label"

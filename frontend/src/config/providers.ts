@@ -9,6 +9,21 @@
  * - Capacidades de TTS (suporte, vozes estáticas, modelos, listagem dinâmica)
  */
 
+/** Separador usado em IDs compostos "voiceId::model" */
+export const COMPOSITE_VOICE_SEPARATOR = '::';
+
+/** Cria um ID composto "voiceId::model" para o picker */
+export function makeCompositeVoiceId(voiceId: string, model: string): string {
+  return `${voiceId}${COMPOSITE_VOICE_SEPARATOR}${model}`;
+}
+
+/** Faz parse de um ID composto. Retorna null se não for composto. */
+export function parseCompositeVoiceId(compositeId: string): { voiceId: string; model: string } | null {
+  if (!compositeId.includes(COMPOSITE_VOICE_SEPARATOR)) return null;
+  const [voiceId, model] = compositeId.split(COMPOSITE_VOICE_SEPARATOR);
+  return { voiceId, model };
+}
+
 /** Voz estática com modelo TTS associado (ex: "Alloy HD" = voice alloy + model tts-1-hd) */
 export interface StaticVoice {
   /** ID composto para o picker (ex: "alloy::tts-1-hd") */
@@ -19,6 +34,10 @@ export interface StaticVoice {
   voiceId: string;
   /** Modelo TTS associado (ex: "tts-1", "tts-1-hd") */
   model: string;
+  /** Provedor TTS (ex: "openai") */
+  provider: string;
+  /** Idioma da voz (ex: "multilingual") */
+  language: string;
 }
 
 /** Capacidades TTS de um tipo de provedor */
@@ -61,8 +80,8 @@ const OPENAI_VOICE_NAMES = [
 
 /** Vozes OpenAI: cada voz gera uma entrada Standard (tts-1) e uma HD (tts-1-hd) */
 const OPENAI_VOICES: StaticVoice[] = OPENAI_VOICE_NAMES.flatMap(v => [
-  { id: `${v.id}::tts-1`, voiceId: v.id, name: v.name, model: 'tts-1' },
-  { id: `${v.id}::tts-1-hd`, voiceId: v.id, name: `${v.name} HD`, model: 'tts-1-hd' },
+  { id: makeCompositeVoiceId(v.id, 'tts-1'), voiceId: v.id, name: v.name, model: 'tts-1', provider: 'openai', language: 'multilingual' },
+  { id: makeCompositeVoiceId(v.id, 'tts-1-hd'), voiceId: v.id, name: `${v.name} HD`, model: 'tts-1-hd', provider: 'openai', language: 'multilingual' },
 ]);
 
 /** Capacidades TTS: sem suporte */

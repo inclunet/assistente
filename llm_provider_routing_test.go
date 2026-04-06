@@ -933,10 +933,10 @@ func TestDefaultSentinel_MixedProfilesRouteCorrectly(t *testing.T) {
 
 // testStreamHandler implements llm.StreamHandler for testing
 type testStreamHandler struct {
-	content  string
-	err      string
-	model    string
-	done     chan struct{}
+	content string
+	err     string
+	model   string
+	done    chan struct{}
 }
 
 func (h *testStreamHandler) OnChunk(content string)              { h.content += content }

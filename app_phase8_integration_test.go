@@ -94,9 +94,7 @@ func TestPhase8_ProfileSwitching(t *testing.T) {
 			LLMProvider: "openai-default",
 		},
 		Voice: profiles.VoiceConfig{
-			Assistant: profiles.VoiceRoleConfig{
-				LLMProviderID: "openai-default",
-			},
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: "openai-default"},
 		},
 		Input: profiles.InputConfig{
 			LLMProviderID: "openai-default",
@@ -110,9 +108,7 @@ func TestPhase8_ProfileSwitching(t *testing.T) {
 			LLMProvider: "anthropic-claude", // Claude para chat
 		},
 		Voice: profiles.VoiceConfig{
-			Assistant: profiles.VoiceRoleConfig{
-				LLMProviderID: "openai-default", // OpenAI para TTS
-			},
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: "openai-default"}, // OpenAI para TTS
 		},
 		Input: profiles.InputConfig{
 			LLMProviderID: "openai-default", // OpenAI para STT
@@ -268,9 +264,7 @@ func TestPhase8_RealWorldScenarios(t *testing.T) {
 					LLMProvider: scenario.chatProvider,
 				},
 				Voice: profiles.VoiceConfig{
-					Assistant: profiles.VoiceRoleConfig{
-						LLMProviderID: scenario.ttsProvider,
-					},
+					Assistant: profiles.VoiceRoleConfig{LLMProviderID: scenario.ttsProvider},
 				},
 				Input: profiles.InputConfig{
 					LLMProviderID: scenario.sttProvider,
