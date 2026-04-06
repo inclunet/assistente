@@ -1,7 +1,6 @@
 package main
 
 import (
-	"assistente/internal/database"
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -390,7 +389,7 @@ type AudioResult struct {
 
 // GetMessageAudio retorna o áudio base64 e MIME type de uma mensagem.
 func (a *App) GetMessageAudio(messageID uint) (*AudioResult, error) {
-	audio, mime, err := database.GetMessageAudio(messageID)
+	audio, mime, err := a.audioSvc.GetMessageAudio(messageID)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar áudio: %w", err)
 	}
@@ -403,7 +402,7 @@ func (a *App) GetMessageAudio(messageID uint) (*AudioResult, error) {
 // SaveMessageAudio salva áudio (base64) numa mensagem existente.
 // Usado pelo frontend para persistir áudio gerado via TTS OpenAI.
 func (a *App) SaveMessageAudio(messageID uint, audioBase64 string, mimeType string) error {
-	return database.SaveMessageAudio(messageID, audioBase64, mimeType)
+	return a.audioSvc.SaveMessageAudio(messageID, audioBase64, mimeType)
 }
 
 // GenerateAndSaveMessageAudio gera áudio TTS para uma mensagem e salva no DB.
@@ -420,7 +419,7 @@ func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioRe
 
 	mimeType := "audio/mpeg"
 	// Salva no DB
-	if err := database.SaveMessageAudio(messageID, result.AudioBase64, mimeType); err != nil {
+	if err := a.audioSvc.SaveMessageAudio(messageID, result.AudioBase64, mimeType); err != nil {
 		log.Printf("[TTS] Erro ao salvar áudio no DB: %v", err)
 		// Retorna o áudio mesmo se falhar ao salvar
 	}

@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"assistente/internal/allowlist"
+	"assistente/internal/chat"
 	"assistente/internal/credentials"
 	"assistente/internal/hotkey"
 	"assistente/internal/jobs"
@@ -18,6 +19,7 @@ import (
 	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
+	"assistente/internal/tasklist"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 	"assistente/internal/updater"
@@ -92,6 +94,18 @@ type App struct {
 
 	// Provider service (business logic para provedores LLM)
 	providerSvc *providers.Service
+
+	// Token service (estatísticas de tokens e janela de contexto)
+	tokenSvc *chat.TokenService
+
+	// TaskList service (business logic para listas de tarefas)
+	taskSvc *tasklist.Service
+
+	// Audio repository (persistência de áudio de mensagens)
+	audioSvc speech.AudioRepository
+
+	// Conversation repository (metadados de conversa)
+	convSvc chat.ConversationRepository
 
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
@@ -188,6 +202,16 @@ func (a *App) startup(ctx context.Context) {
 		CredMgr:  a.credMgr,
 		Store:    providers.NewDBStore(),
 	})
+
+	// Inicializa o Token Service (estatísticas de tokens)
+	a.tokenSvc = chat.NewTokenService(chat.NewDBMessageStore())
+
+	// Inicializa o TaskList Service (business logic de listas de tarefas)
+	a.taskSvc = newTaskListService(ctx)
+
+	// Inicializa repositórios de audio e conversa
+	a.audioSvc = speech.NewDBAudioStore()
+	a.convSvc = chat.NewDBConversationStore()
 
 	// Inicializa os provedores LLM (Provider Registry) ANTES do client
 	a.initLLMProviders()
