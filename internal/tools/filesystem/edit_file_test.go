@@ -9,7 +9,7 @@ import (
 )
 
 func TestEditFile_Name(t *testing.T) {
-	tool := NewEditFile("/tmp")
+	tool := NewEditFile("/tmp", nil)
 	if tool.Name() != "edit_file" {
 		t.Errorf("expected 'edit_file', got '%s'", tool.Name())
 	}
@@ -25,7 +25,7 @@ func main() {
 }
 `), 0644)
 
-	tool := NewEditFile(dir)
+	tool := NewEditFile(dir, nil)
 	args := `{"path": "test.go", "old_string": "fmt.Println(\"Hello\")", "new_string": "fmt.Println(\"World\")"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -56,7 +56,7 @@ func other() {
 }
 `), 0644)
 
-	tool := NewEditFile(dir)
+	tool := NewEditFile(dir, nil)
 	args := `{"path": "multi.go", "old_string": "func old() {\n\treturn 1\n}", "new_string": "func new() {\n\treturn 42\n}"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -77,7 +77,7 @@ func TestEditFile_AmbiguousMatch(t *testing.T) {
 	filePath := filepath.Join(dir, "dup.txt")
 	os.WriteFile(filePath, []byte("hello world\nhello again\nhello final"), 0644)
 
-	tool := NewEditFile(dir)
+	tool := NewEditFile(dir, nil)
 	args := `{"path": "dup.txt", "old_string": "hello", "new_string": "bye"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -96,7 +96,7 @@ func TestEditFile_ReplaceAll(t *testing.T) {
 	filePath := filepath.Join(dir, "all.txt")
 	os.WriteFile(filePath, []byte("foo bar foo baz foo"), 0644)
 
-	tool := NewEditFile(dir)
+	tool := NewEditFile(dir, nil)
 	args := `{"path": "all.txt", "old_string": "foo", "new_string": "qux", "replace_all": true}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -123,7 +123,7 @@ func TestEditFile_NotFound(t *testing.T) {
 	filePath := filepath.Join(dir, "test.txt")
 	os.WriteFile(filePath, []byte("some content"), 0644)
 
-	tool := NewEditFile(dir)
+	tool := NewEditFile(dir, nil)
 	args := `{"path": "test.txt", "old_string": "nonexistent text", "new_string": "replacement"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -140,7 +140,7 @@ func TestEditFile_WhitespaceHint(t *testing.T) {
 	// Arquivo com tabs — old_string com espaços (whitespace diferente)
 	os.WriteFile(filePath, []byte("\tindented text here"), 0644)
 
-	tool := NewEditFile(dir)
+	tool := NewEditFile(dir, nil)
 	// old_string com espaços em vez de tab — NÃO é substring exata
 	args := `{"path": "ws.txt", "old_string": "  indented text here", "new_string": "new text"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
@@ -156,7 +156,7 @@ func TestEditFile_WhitespaceHint(t *testing.T) {
 }
 
 func TestEditFile_FileNotExists(t *testing.T) {
-	tool := NewEditFile(t.TempDir())
+	tool := NewEditFile(t.TempDir(), nil)
 	args := `{"path": "ghost.txt", "old_string": "a", "new_string": "b"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -168,7 +168,7 @@ func TestEditFile_FileNotExists(t *testing.T) {
 }
 
 func TestEditFile_IdenticalStrings(t *testing.T) {
-	tool := NewEditFile(t.TempDir())
+	tool := NewEditFile(t.TempDir(), nil)
 	args := `{"path": "test.txt", "old_string": "same", "new_string": "same"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -180,7 +180,7 @@ func TestEditFile_IdenticalStrings(t *testing.T) {
 }
 
 func TestEditFile_EmptyOldString(t *testing.T) {
-	tool := NewEditFile(t.TempDir())
+	tool := NewEditFile(t.TempDir(), nil)
 	args := `{"path": "test.txt", "old_string": "", "new_string": "new"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -196,7 +196,7 @@ func TestEditFile_BlocksSensitive(t *testing.T) {
 	envPath := filepath.Join(dir, ".env")
 	os.WriteFile(envPath, []byte("SECRET=123"), 0644)
 
-	tool := NewEditFile(dir)
+	tool := NewEditFile(dir, nil)
 	args := `{"path": ".env", "old_string": "SECRET=123", "new_string": "SECRET=456"}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {

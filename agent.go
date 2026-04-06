@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"log"
-	"strings"
 	"sync"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
@@ -325,11 +325,13 @@ func (a *App) runAgenticLoop(
 		maxIterations = a.toolExecutor.Config().MaxIterations // Fallback ao default (25)
 	}
 
-	// Caso especial: perfil do editor (somente text_edit).
-	// Aqui queremos: 1) forçar que o modelo chame a tool na 1ª iteração, e
-	// 2) terminar o loop logo após a execução do text_edit (não precisamos de "resposta final" do LLM).
-	editorToolOnly := strings.TrimSpace(params.ProfileSlug) == "editor-texto" &&
-		len(toolDefs) == 1 && strings.TrimSpace(toolDefs[0].Function.Name) == "text_edit"
+	// Propaga contexto de invocação (tab type + arquivo ativo) para as tools via context.Context.
+	if params.TabType != "" {
+		ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
+			TabType:        params.TabType,
+			ActiveFilePath: params.ActiveFilePath,
+		})
+	}
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Verifica cancelamento
@@ -354,11 +356,7 @@ func (a *App) runAgenticLoop(
 		}
 
 		// 2. Chama o LLM (bloqueante — streaming emite eventos em tempo real)
-		iterCtx := ctx
-		if editorToolOnly && iteration == 0 {
-			iterCtx = llm.WithToolChoice(iterCtx, "required")
-		}
-		streamer.StreamChat(iterCtx, messages, params, handler, toolDefs...)
+		streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
 
 		result := handler.result
 
@@ -502,23 +500,6 @@ func (a *App) runAgenticLoop(
 		}
 
 		// 6f. Continua o loop → próxima iteração chama o LLM com os resultados
-		if editorToolOnly {
-			// Para o editor, o tool_result já é o resultado final do turno.
-			// Emite eventos de conclusão e encerra sem rodada extra do LLM.
-			runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
-				Content:        "",
-				Done:           true,
-				ConversationId: conversationID,
-			})
-			runtime.EventsEmit(a.ctx, "chat:done", map[string]interface{}{
-				"conversationId": conversationID,
-			})
-			go func() {
-				defer a.recoverFromPanic(conversationID, "checkAndTriggerSummarization")
-				a.checkAndTriggerSummarization(conversationID)
-			}()
-			return
-		}
 	}
 
 	// Atingiu limite de iterações
