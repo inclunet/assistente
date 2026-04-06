@@ -53,7 +53,7 @@ type ChatConfig struct {
 	DisableTools          bool     `json:"disable_tools,omitempty"`            // Desabilita completamente tool calling
 	DisableSkills         bool     `json:"disable_skills,omitempty"`           // Desabilita injeção de skills no prompt
 	DisableOnDemandSkills bool     `json:"disable_on_demand_skills,omitempty"` // Desabilita skills sob demanda (apenas autoload)
-	CommandAllowlist string `json:"command_allowlist,omitempty"` // Slug da allowlist de comandos
+	CommandAllowlist      string   `json:"command_allowlist,omitempty"`        // Slug da allowlist de comandos
 
 	// MaxAgenticIterations define o limite máximo de iterações do loop de agentes
 	// Cada tool call conta como uma iteração
@@ -89,7 +89,6 @@ const (
 	ChannelResponseAlwaysText  = "always_text"  // sempre texto
 	ChannelResponseAlwaysAudio = "always_audio" // sempre áudio (TTS)
 )
-
 
 // InteractionConfig define as configurações de interação por voz
 type InteractionConfig struct {
@@ -316,4 +315,3 @@ func containsStr(slice []string, item string) bool {
 	}
 	return false
 }
-

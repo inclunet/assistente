@@ -7,8 +7,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-	"sync"
-	"time"
 
 	"assistente/internal/config"
 	"assistente/internal/database"
@@ -37,25 +35,8 @@ type agenticResult struct {
 // Emite eventos de streaming para o frontend em tempo real (chat:stream, chat:thinking),
 // mas NÃO salva no banco e NÃO emite chat:done — o loop controla isso.
 type agenticStreamHandler struct {
-	app            *App
-	conversationID uint
-	iteration      int // Número da iteração atual do loop
-
-	// Acumuladores de conteúdo
-	accumulatedContent   string
-	accumulatedReasoning string
-	isThinking           bool
-
-	// Throttling para eventos de streaming
-	mu            sync.Mutex
-	lastEmitTime  time.Time
-	throttleTimer *time.Timer
-	pendingEmit   bool
-
-	// Throttling para eventos de thinking
-	lastThinkingEmitTime time.Time
-	thinkingTimer        *time.Timer
-	pendingThinkingEmit  bool
+	baseStreamHandler
+	iteration int // Número da iteração atual do loop
 
 	// Resultado da iteração (preenchido por OnDone/OnToolCalls/OnError)
 	result agenticResult
@@ -64,126 +45,9 @@ type agenticStreamHandler struct {
 	nativeMCPEvents []llm.MCPToolEvent
 }
 
-func (h *agenticStreamHandler) OnChunk(content string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	h.accumulatedContent += content
-
-	const throttleInterval = 50 * time.Millisecond
-	now := time.Now()
-
-	if now.Sub(h.lastEmitTime) >= throttleInterval {
-		h.emitStreamEvent()
-		h.lastEmitTime = now
-		h.pendingEmit = false
-		if h.throttleTimer != nil {
-			h.throttleTimer.Stop()
-			h.throttleTimer = nil
-		}
-		return
-	}
-
-	if !h.pendingEmit {
-		h.pendingEmit = true
-		remainingTime := throttleInterval - now.Sub(h.lastEmitTime)
-		h.throttleTimer = time.AfterFunc(remainingTime, func() {
-			h.mu.Lock()
-			defer h.mu.Unlock()
-			if h.pendingEmit {
-				h.emitStreamEvent()
-				h.lastEmitTime = time.Now()
-				h.pendingEmit = false
-			}
-		})
-	}
-}
-
-func (h *agenticStreamHandler) emitStreamEvent() {
-	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
-		Content:        h.accumulatedContent,
-		Done:           false,
-		ConversationId: h.conversationID,
-	})
-}
-
-func (h *agenticStreamHandler) OnThinking(content string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	if !h.isThinking {
-		h.isThinking = true
-		runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
-			"content":        content,
-			"done":           false,
-			"conversationId": h.conversationID,
-			"started":        true,
-		})
-	}
-
-	h.accumulatedReasoning += content
-
-	const throttleInterval = 50 * time.Millisecond
-	now := time.Now()
-
-	if now.Sub(h.lastThinkingEmitTime) >= throttleInterval {
-		h.emitThinkingEvent()
-		h.lastThinkingEmitTime = now
-		h.pendingThinkingEmit = false
-		if h.thinkingTimer != nil {
-			h.thinkingTimer.Stop()
-			h.thinkingTimer = nil
-		}
-		return
-	}
-
-	if !h.pendingThinkingEmit {
-		h.pendingThinkingEmit = true
-		remainingTime := throttleInterval - now.Sub(h.lastThinkingEmitTime)
-		h.thinkingTimer = time.AfterFunc(remainingTime, func() {
-			h.mu.Lock()
-			defer h.mu.Unlock()
-			if h.pendingThinkingEmit {
-				h.emitThinkingEvent()
-				h.lastThinkingEmitTime = time.Now()
-				h.pendingThinkingEmit = false
-			}
-		})
-	}
-}
-
-func (h *agenticStreamHandler) emitThinkingEvent() {
-	runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
-		"content":        h.accumulatedReasoning,
-		"done":           false,
-		"conversationId": h.conversationID,
-	})
-}
-
-func (h *agenticStreamHandler) OnThinkingDone(fullReasoning string) {
-	h.mu.Lock()
-	if h.thinkingTimer != nil {
-		h.thinkingTimer.Stop()
-		h.thinkingTimer = nil
-	}
-	h.pendingThinkingEmit = false
-	h.isThinking = false
-	h.mu.Unlock()
-
-	runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
-		"content":        fullReasoning,
-		"done":           true,
-		"conversationId": h.conversationID,
-	})
-}
-
 func (h *agenticStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
 	h.mu.Lock()
-	if h.throttleTimer != nil {
-		h.throttleTimer.Stop()
-		h.throttleTimer = nil
-	}
-	h.pendingEmit = false
+	h.cancelPendingChunkTimer()
 	content := h.accumulatedContent
 	reasoning := h.accumulatedReasoning
 	mcpEvents := h.nativeMCPEvents
@@ -250,11 +114,7 @@ func (h *agenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 
 func (h *agenticStreamHandler) OnError(err string) {
 	h.mu.Lock()
-	if h.throttleTimer != nil {
-		h.throttleTimer.Stop()
-		h.throttleTimer = nil
-	}
-	h.pendingEmit = false
+	h.cancelPendingChunkTimer()
 	h.mu.Unlock()
 
 	h.result = agenticResult{
@@ -264,11 +124,7 @@ func (h *agenticStreamHandler) OnError(err string) {
 
 func (h *agenticStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
 	h.mu.Lock()
-	if h.throttleTimer != nil {
-		h.throttleTimer.Stop()
-		h.throttleTimer = nil
-	}
-	h.pendingEmit = false
+	h.cancelPendingChunkTimer()
 	content := h.accumulatedContent
 	reasoning := h.accumulatedReasoning
 	mcpEvents := h.nativeMCPEvents
@@ -348,9 +204,11 @@ func (a *App) runAgenticLoop(
 
 		// 1. Cria handler para esta iteração
 		handler := &agenticStreamHandler{
-			app:            a,
-			conversationID: conversationID,
-			iteration:      iteration,
+			baseStreamHandler: baseStreamHandler{
+				app:            a,
+				conversationID: conversationID,
+			},
+			iteration: iteration,
 		}
 
 		// 2. Chama o LLM (bloqueante — streaming emite eventos em tempo real)

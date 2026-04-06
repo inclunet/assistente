@@ -1644,6 +1644,25 @@ const ptBR = {
         moveDown: 'Mover abaixo',
       },
     },
+    app: {
+      wizard: {
+        cancelled: 'Configuração cancelada. Configure nas Configurações.',
+        success: 'Configuração concluída com sucesso!',
+        error: 'Erro ao configurar. Verifique nas Configurações.',
+      },
+      config: {
+        loaded: 'Configuração carregada!',
+        loadError: 'Erro ao carregar configuração',
+      },
+      summary: {
+        started: 'Sumarizando conversa ({{count}} mensagens)...',
+        completed: 'Resumo da conversa atualizado ({{count}} mensagens resumidas)',
+        error: 'Erro ao sumarizar conversa: {{error}}',
+      },
+      questionnaire: {
+        submitError: 'Erro ao enviar questionário',
+      },
+    },
   },
 };
 
