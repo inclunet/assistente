@@ -10,6 +10,7 @@ import (
 
 	"assistente/internal/config"
 	"assistente/internal/credentials"
+	"assistente/internal/providers"
 )
 
 // ============================================================================
@@ -64,7 +65,7 @@ func (a *App) migrateLegacyConfig() {
 
 		// Determinar pattern baseado no baseURL
 		pattern := ""
-		if extractedHost, hostErr := extractHostname(baseURL); hostErr == nil && extractedHost != "" {
+		if extractedHost, hostErr := providers.ExtractHostname(baseURL); hostErr == nil && extractedHost != "" {
 			pattern = extractedHost
 		} else if strings.Contains(baseURL, "anthropic") {
 			pattern = "api.anthropic.com"

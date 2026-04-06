@@ -5,6 +5,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
 	"context"
 	"encoding/json"
@@ -562,7 +563,7 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 			}
 
 			// Registra credencial temporária para o createWizardProvider
-			wizardHostname, _ := extractHostname(baseURL)
+			wizardHostname, _ := providers.ExtractHostname(baseURL)
 			if apiKey != "" && wizardHostname != "" {
 				wizardAuth := &credentials.AuthConfig{
 					Type:  "bearer",
@@ -663,7 +664,7 @@ func getWizardProviderInfo(providerChoice string) wizardProviderInfo {
 func (a *App) createWizardProvider(providerChoice, baseURL, apiKey, model string) (string, error) {
 	info := getWizardProviderInfo(providerChoice)
 
-	hostname, err := extractHostname(baseURL)
+	hostname, err := providers.ExtractHostname(baseURL)
 	if err != nil {
 		return "", fmt.Errorf("erro ao extrair hostname de %s: %w", baseURL, err)
 	}

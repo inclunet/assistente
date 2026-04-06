@@ -13,6 +13,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/providers"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -603,6 +604,22 @@ func setupRoutingTestDB(t *testing.T) {
 	database.SetDB(db)
 }
 
+// newSentinelTestApp cria um App com providerSvc inicializado via DBStore.
+// Necessário nos testes que precisam que resolveProfileDefaults resolva $default.
+func newSentinelTestApp(registry *llm.ProviderRegistry, credMgr *credentials.Manager) *App {
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: registry,
+		CredMgr:  credMgr,
+		Store:    providers.NewDBStore(),
+	})
+	return &App{
+		ctx:         context.Background(),
+		llmRegistry: registry,
+		credMgr:     credMgr,
+		providerSvc: svc,
+	}
+}
+
 // TestDefaultSentinel_RoutesToCorrectProvider verifies the full integration:
 // profile with "$default" → resolveProfileDefaults → getClientForProvider → correct server.
 func TestDefaultSentinel_RoutesToCorrectProvider(t *testing.T) {
@@ -649,11 +666,7 @@ func TestDefaultSentinel_RoutesToCorrectProvider(t *testing.T) {
 	database.SetDefaultProvider("default-prov")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
-	app := &App{
-		ctx:         context.Background(),
-		llmRegistry: registry,
-		credMgr:     credMgr,
-	}
+	app := newSentinelTestApp(registry, credMgr)
 
 	// Profile with $default sentinel
 	profile := &profiles.Profile{
@@ -726,11 +739,7 @@ func TestDefaultSentinel_ModelSentInRequest(t *testing.T) {
 	database.SetDefaultProvider("my-provider")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
-	app := &App{
-		ctx:         context.Background(),
-		llmRegistry: registry,
-		credMgr:     credMgr,
-	}
+	app := newSentinelTestApp(registry, credMgr)
 
 	profile := profiles.DefaultProfile()
 	resolved := app.resolveProfileDefaults(profile)
@@ -799,11 +808,7 @@ func TestDefaultSentinel_SwitchDefaultReroutesTraffic(t *testing.T) {
 	database.SetDefaultProvider("prov-a")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
-	app := &App{
-		ctx:         context.Background(),
-		llmRegistry: registry,
-		credMgr:     credMgr,
-	}
+	app := newSentinelTestApp(registry, credMgr)
 
 	profile := profiles.DefaultProfile()
 
@@ -886,11 +891,7 @@ func TestDefaultSentinel_MixedProfilesRouteCorrectly(t *testing.T) {
 	database.SetDefaultProvider("default-prov")
 
 	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
-	app := &App{
-		ctx:         context.Background(),
-		llmRegistry: registry,
-		credMgr:     credMgr,
-	}
+	app := newSentinelTestApp(registry, credMgr)
 
 	// Profile A: uses $default
 	profileA := &profiles.Profile{
