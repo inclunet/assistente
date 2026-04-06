@@ -123,7 +123,7 @@ export default function ChatPage() {
       if (existingEditor) {
         void setActiveTab(existingEditor.id);
       } else {
-        const tabId = await addTab('editor', '', t('workspace.newEditor', 'Novo documento'));
+        const tabId = await addTab('editor', t('workspace.newEditor', 'Novo documento'));
         void setActiveTab(tabId);
       }
     },
