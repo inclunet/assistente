@@ -2,6 +2,10 @@ package chat
 
 import "assistente/internal/database"
 
+// MessageOptions é um alias para database.MessageOptions, exposto no domínio chat
+// para que os chamadores não precisem importar o pacote de infraestrutura diretamente.
+type MessageOptions = database.MessageOptions
+
 // MessageRepository abstrai operações de persistência de mensagens e stats de tokens.
 // Implementado por DBMessageStore; pode ser mockado em testes.
 type MessageRepository interface {

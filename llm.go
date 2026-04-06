@@ -7,14 +7,11 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
 	"assistente/internal/chat"
 	"assistente/internal/config"
 
-	"assistente/internal/database"
 	"assistente/internal/llm"
 	mcplib "assistente/internal/mcp"
 	"assistente/internal/profiles"
@@ -105,7 +102,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Salva resposta final do assistant no nível 0 (sem parentID)
 	// Inclui reasoning se houver
-	savedMsgID, err := chat.SaveAssistantMessage(h.app.msgRepo, database.MessageOptions{
+	savedMsgID, err := chat.SaveAssistantMessage(h.app.msgRepo, chat.MessageOptions{
 		ConversationID:   h.conversationID,
 		Role:             "assistant",
 		Content:          finalContent,
@@ -477,7 +474,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	}
 
 	// 1. Salva mensagem do usuário no banco (com source para badge visual e áudio persistido)
-	userMsg, err := a.msgRepo.CreateMessage(database.MessageOptions{
+	userMsg, err := a.msgRepo.CreateMessage(chat.MessageOptions{
 		ConversationID: conversationID,
 		Role:           "user",
 		Content:        userContent,
@@ -1500,60 +1497,6 @@ func (a *App) ResetConfig() error {
 			return fmt.Errorf("erro ao remover arquivo de configuração: %v", err)
 		}
 	}
-
-	return nil
-}
-
-// ResetDatabase apaga o banco de dados, resetando ao estado inicial
-func (a *App) ResetDatabase() error {
-	configPath, err := config.GetConfigPath()
-	if err != nil {
-		return fmt.Errorf("erro ao obter caminho do banco de dados: %v", err)
-	}
-
-	dbPath := filepath.Join(filepath.Dir(configPath), "conversations.db")
-
-	// Fecha a conexão com o banco de dados antes de deletar
-	if err := database.Close(); err != nil {
-		return fmt.Errorf("erro ao fechar banco de dados: %v", err)
-	}
-
-	// Aguarda um momento para garantir que o arquivo foi liberado
-	time.Sleep(100 * time.Millisecond)
-
-	// Verifica se o arquivo existe
-	if _, err := os.Stat(dbPath); err == nil {
-		// Remove o banco de dados
-		if err := os.Remove(dbPath); err != nil {
-			return fmt.Errorf("erro ao remover banco de dados: %v", err)
-		}
-
-		// Remove arquivos auxiliares do SQLite (WAL e SHM)
-		os.Remove(dbPath + "-wal")
-		os.Remove(dbPath + "-shm")
-	}
-
-	// Reinicializa o banco de dados
-	if err := database.Init(); err != nil {
-		return fmt.Errorf("erro ao reinicializar banco: %v", err)
-	}
-
-	log.Println("[ResetDatabase] Banco resetado com sucesso")
-
-	// Emite evento para o frontend limpar o estado
-	runtime.EventsEmit(a.ctx, "database:reset")
-
-	return nil
-}
-
-// ClearMessages apaga todas as mensagens e conversas, mantendo a estrutura do banco
-func (a *App) ClearMessages() error {
-	if err := database.ClearAllConversations(); err != nil {
-		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
-	}
-
-	log.Println("[ClearMessages] Mensagens e conversas apagadas")
-	runtime.EventsEmit(a.ctx, "messages:cleared")
 
 	return nil
 }

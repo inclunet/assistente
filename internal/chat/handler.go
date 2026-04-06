@@ -15,7 +15,7 @@ var ErrConversationGone = errors.New("conversa deletada ou pai ausente")
 // Retorna (0, nil) se content for vazio ou conversationID == 0 (noop).
 // Retorna (0, ErrConversationGone) se a conversa foi deletada — o chamador deve abortar.
 // Retorna (0, err) para outros erros de banco.
-func SaveAssistantMessage(msgRepo MessageRepository, opts database.MessageOptions) (uint, error) {
+func SaveAssistantMessage(msgRepo MessageRepository, opts MessageOptions) (uint, error) {
 	if opts.ConversationID == 0 || opts.Content == "" {
 		return 0, nil
 	}
