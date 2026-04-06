@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { profiles, llm, speech } from '@wailsjs/go/models';
 import { GetSpeechProviders, GetTTSModels, GetSTTModels } from '@wailsjs/go/main/App';
@@ -71,6 +71,15 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
 
   const isVoiceDisabled = !assistantVoice?.enabled;
   const isSTTDisabled = !editingProfile.input?.stt_provider;
+
+  // Mapa provider ID → provider type para consultar presets TTS
+  const providerTypeMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of speechProviders) {
+      map[p.id] = p.type;
+    }
+    return map;
+  }, [speechProviders]);
 
   const llmProviderItems: VoiceProviderItem[] = speechProviders.map((p) => {
     // Mostra o host da base_url para distinguir providers (ex: "api.openai.com", "litellm.local:4000")
@@ -210,7 +219,17 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
 
   const handleVoiceChange = (type: 'assistant' | 'user' | 'system', field: 'voice' | 'rate' | 'volume', value: string | number) => {
     if (field === 'voice') {
-      updateField(`voice.${type}.voice_id`, value);
+      const strValue = String(value);
+      // IDs compostos "voiceId::model" (ex: "nova::tts-1-hd") — atualiza ambos atomicamente
+      if (strValue.includes('::')) {
+        const [voiceId, model] = strValue.split('::');
+        updateFields({
+          [`voice.${type}.voice_id`]: voiceId,
+          [`voice.${type}.model`]: model,
+        });
+      } else {
+        updateField(`voice.${type}.voice_id`, strValue);
+      }
       return;
     }
     updateField(`voice.${type}.${field}`, value);
@@ -307,6 +326,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 rate={assistantVoice?.rate ?? 1.0}
                 volume={assistantVoice?.volume ?? 1.0}
                 providerId={resolveProviderId(currentAssistantProvider, 'assistant')}
+                providerType={providerTypeMap[resolveProviderId(currentAssistantProvider, 'assistant')] || ''}
                 profileId={profileId}
                 ttsModel={assistantVoice?.model}
                 ttsModels={ttsModelsCache[currentAssistantProvider]}
@@ -341,6 +361,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 rate={userVoice?.rate ?? 1.0}
                 volume={userVoice?.volume ?? 1.0}
                 providerId={resolveProviderId(currentUserProvider, 'user')}
+                providerType={providerTypeMap[resolveProviderId(currentUserProvider, 'user')] || ''}
                 profileId={profileId}
                 ttsModel={userVoice?.model}
                 ttsModels={ttsModelsCache[currentUserProvider]}
@@ -376,6 +397,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 rate={systemVoice?.rate ?? 1.0}
                 volume={systemVoice?.volume ?? 1.0}
                 providerId={resolveProviderId(currentSystemProvider, 'system')}
+                providerType={providerTypeMap[resolveProviderId(currentSystemProvider, 'system')] || ''}
                 profileId={profileId}
                 ttsModel={systemVoice?.model}
                 ttsModels={ttsModelsCache[currentSystemProvider]}

@@ -13,12 +13,19 @@ vi.mock('react-i18next', () => ({
 // Mock VoicePicker para evitar imports de @wailsjs
 vi.mock('../pickers/VoicePicker', () => ({
   VOICE_DISABLED: '__disabled__',
-  VoicePicker: ({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) => (
+  VoicePicker: ({ value, onChange, label, voiceOverrides }: {
+    value: string; onChange: (value: string) => void; label: string; voiceOverrides?: Array<{ id: string; name: string }>
+  }) => (
     <div data-testid="voice-picker-mock">
       <label>{label}</label>
-      <button onClick={() => onChange('test-voice')}>
+      <button onClick={() => onChange('test-voice')} data-testid="voice-picker-select">
         {value || VOICE_DISABLED}
       </button>
+      {voiceOverrides && voiceOverrides.length > 0 && (
+        <button onClick={() => onChange('nova::tts-1-hd')} data-testid="voice-picker-select-hd">
+          HD
+        </button>
+      )}
     </div>
   ),
 }));
@@ -163,20 +170,22 @@ describe('ProfileVoiceSection', () => {
     expect(volumeInput.step).toBe('0.05');
   });
 
-  it('mostra seletor de modelo TTS quando provider é OpenAI-like e onModelChange fornecido', () => {
+  it('NÃO mostra seletor de modelo TTS para OpenAI (modelo embutido na voz)', () => {
     const handleModelChange = vi.fn();
     render(
       <ProfileVoiceSection
         {...defaultProps}
         providerId="openai-default"
+        providerType="openai"
         ttsModel="tts-1"
+        ttsModels={[{ id: 'tts-1', name: 'tts-1' }, { id: 'tts-1-hd', name: 'tts-1-hd' }]}
         onModelChange={handleModelChange}
       />
     );
 
-    const modelSelect = screen.getByLabelText('profiles.fieldTTSModel') as HTMLSelectElement;
-    expect(modelSelect).toBeInTheDocument();
-    expect(modelSelect.value).toBe('tts-1');
+    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+    // Verifica que voiceOverrides foi passado (botão HD presente)
+    expect(screen.getByTestId('voice-picker-select-hd')).toBeInTheDocument();
   });
 
   it('NÃO mostra seletor de modelo TTS para webspeech', () => {
@@ -205,22 +214,27 @@ describe('ProfileVoiceSection', () => {
     expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
   });
 
-  it('chama onModelChange ao alterar modelo TTS', async () => {
-    const handleModelChange = vi.fn();
+  it('passa valor composto voice::model via onChange ao selecionar voz HD no picker', async () => {
+    const handleChange = vi.fn();
     const user = userEvent.setup();
     render(
       <ProfileVoiceSection
         {...defaultProps}
         providerId="openai-default"
+        providerType="openai"
         ttsModel="tts-1"
-        onModelChange={handleModelChange}
+        ttsModels={[{ id: 'tts-1', name: 'tts-1' }, { id: 'tts-1-hd', name: 'tts-1-hd' }]}
+        onModelChange={vi.fn()}
+        onChange={handleChange}
       />
     );
 
-    const modelSelect = screen.getByLabelText('profiles.fieldTTSModel');
-    await user.selectOptions(modelSelect, 'tts-1-hd');
+    // Clica no botão HD do mock — emite "nova::tts-1-hd"
+    const hdButton = screen.getByTestId('voice-picker-select-hd');
+    await user.click(hdButton);
 
-    expect(handleModelChange).toHaveBeenCalledWith('tts-1-hd');
+    // Valor composto passado direto para o parent fazer o parse
+    expect(handleChange).toHaveBeenCalledWith('voice', 'nova::tts-1-hd');
   });
 
   it('NÃO mostra seletor de modelo quando onModelChange não é fornecido', () => {
@@ -228,7 +242,27 @@ describe('ProfileVoiceSection', () => {
       <ProfileVoiceSection
         {...defaultProps}
         providerId="openai-default"
+        providerType="openai"
         ttsModel="tts-1"
+        ttsModels={[{ id: 'tts-1', name: 'tts-1' }, { id: 'tts-1-hd', name: 'tts-1-hd' }]}
+      />
+    );
+
+    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+  });
+
+  it('NÃO mostra seletor de modelo para provider com apenas vozes dinâmicas (LocalAI/Piper)', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="localai-default"
+        providerType="localai"
+        ttsModel="voice-pt_BR-cadu-medium"
+        ttsModels={[
+          { id: 'voice-pt_BR-cadu-medium', name: 'voice-pt_BR-cadu-medium' },
+          { id: 'voice-en_US-amy-medium', name: 'voice-en_US-amy-medium' },
+        ]}
+        onModelChange={vi.fn()}
       />
     );
 

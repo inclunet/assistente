@@ -29,6 +29,7 @@ vi.mock('./ProfileVoiceSection', () => ({
   ProfileVoiceSection: ({ onChange, onModelChange, ttsModel, providerId }: { onChange: (f: string, v: unknown) => void; onModelChange?: (m: string) => void; ttsModel?: string; providerId?: string }) => (
     <div data-testid="voice-section" data-provider={providerId} data-model={ttsModel}>
       <button onClick={() => onChange('rate', 1.5)}>change-rate</button>
+      <button onClick={() => onChange('voice', 'nova::tts-1-hd')}>change-voice-hd</button>
       {onModelChange && <button onClick={() => onModelChange('tts-1-hd')}>change-model</button>}
     </div>
   ),
@@ -314,6 +315,31 @@ describe('ProfileAudioTab', () => {
 
       fireEvent.click(modelButtons[2]);
       expect(updateField).toHaveBeenCalledWith('voice.system.model', 'tts-1-hd');
+    });
+
+    it('atualiza voice_id e model atomicamente ao receber ID composto (voice::model)', () => {
+      const updateField = vi.fn();
+      const updateFields = vi.fn();
+      const profile = makeProfile({
+        voice: {
+          assistant: { enabled: true, provider: 'openai', llm_provider_id: 'openai-1' },
+          user: { enabled: true, provider: 'openai', llm_provider_id: 'openai-1' },
+          system: { enabled: true, provider: 'openai', llm_provider_id: 'openai-1' },
+        },
+      });
+      render(<ProfileAudioTab editingProfile={profile} updateField={updateField} updateFields={updateFields} profileId="test" />);
+
+      // Clica no botão que emite onChange('voice', 'nova::tts-1-hd')
+      const hdButtons = screen.getAllByText('change-voice-hd');
+      fireEvent.click(hdButtons[0]);
+
+      // Deve chamar updateFields com ambos os campos de uma vez
+      expect(updateFields).toHaveBeenCalledWith({
+        'voice.assistant.voice_id': 'nova',
+        'voice.assistant.model': 'tts-1-hd',
+      });
+      // NÃO deve chamar updateField individualmente para voice_id
+      expect(updateField).not.toHaveBeenCalledWith('voice.assistant.voice_id', expect.anything());
     });
   });
 });

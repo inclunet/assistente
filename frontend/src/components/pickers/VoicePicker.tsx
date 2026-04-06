@@ -28,6 +28,8 @@ export interface VoicePickerProps {
   allowDisabled?: boolean;
   references?: Array<{ id: string; label: string }>;
   onAnnounce?: (message: string) => void;
+  /** Vozes pré-definidas (ex: OpenAI com variantes HD). Quando fornecido, pula busca no backend. */
+  voiceOverrides?: TTSVoice[];
 }
 
 export interface VoicePickerRef {
@@ -49,6 +51,7 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
       allowDisabled = true,
       references = [],
       onAnnounce,
+      voiceOverrides,
     },
     ref
   ) => {
@@ -59,7 +62,15 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    const loadVoices = async () => {
+    const loadVoices = async (cancelled?: () => boolean) => {
+      // Vozes pré-definidas (ex: OpenAI com variantes HD): pula backend
+      if (voiceOverrides && voiceOverrides.length > 0) {
+        setVoices(voiceOverrides);
+        setLoading(false);
+        setError(null);
+        return;
+      }
+
       // Provedores especiais não têm vozes próprias
       const isSpecialProvider = !providerId || providerId === 'disabled' || providerId.startsWith('ref_');
       
@@ -93,21 +104,27 @@ export const VoicePicker = forwardRef<VoicePickerRef, VoicePickerProps>(
           allVoices = await ttsService.getVoices();
         }
 
+        // Ignora resultado se o efeito já foi cancelado (nova deps chegaram)
+        if (cancelled?.()) return;
+
         setVoices(allVoices);
       } catch (err) {
+        if (cancelled?.()) return;
         setError(err instanceof Error ? err.message : t('pickers.voice.loadError'));
         console.error('[VoicePicker] Failed to load voices:', err);
       } finally {
-        setLoading(false);
+        if (!cancelled?.()) setLoading(false);
       }
     };
 
     useEffect(() => {
-      loadVoices();
-    }, [providerId, profileId]);
+      let isCancelled = false;
+      loadVoices(() => isCancelled);
+      return () => { isCancelled = true; };
+    }, [providerId, profileId, voiceOverrides]);
 
     useImperativeHandle(ref, () => ({
-      reload: loadVoices,
+      reload: () => loadVoices(),
     }));
 
     // Agrupa vozes por provider

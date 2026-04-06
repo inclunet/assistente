@@ -3168,7 +3168,7 @@ func (a *App) createTTSClientForProvider(providerID string, model string) *speec
 // Prefere providers com a API oficial do OpenAI (api.openai.com) sobre proxies.
 func (a *App) findOpenAILikeProvider() *llm.ProviderConfig {
 	isOpenAILike := func(cfg *llm.ProviderConfig) bool {
-		if cfg == nil || cfg.CredentialPattern == "" {
+		if cfg == nil {
 			return false
 		}
 		format := cfg.GetAPIFormat()
@@ -3470,10 +3470,6 @@ func (a *App) GetTTSVoices(profileId string, providerId string) ([]OpenAITTSVoic
 
 	if providerId != "" {
 		if cfg := a.llmRegistry.Get(providerId); cfg != nil {
-			if cfg.CredentialPattern == "" {
-				return []OpenAITTSVoiceInfo{}, nil
-			}
-
 			client := speech.NewTTSClient(speech.TTSConfig{
 				BaseURL:           cfg.BaseURL,
 				CredentialPattern: cfg.CredentialPattern,
@@ -4257,6 +4253,15 @@ func (a *App) SpeakPreview(providerId string, voiceId string, model string, rate
 			defer cancel()
 
 			voice := speech.TTSVoice(voiceId)
+
+			// Para provedores dinâmicos (LocalAI/Piper), a "voz" selecionada é na
+			// verdade um modelo TTS (ex: "voice-pt_BR-cadu-medium"). Nesse caso,
+			// precisamos usar como model (não como voice) na chamada à API.
+			if speech.IsDynamicTTSModel(voiceId) {
+				client.SetModel(speech.TTSModel(voiceId))
+				voice = speech.TTSVoice(voiceId)
+			}
+
 			if err := client.SynthesizeStreamWithVoice(ctx, text, voice, callbacks); err != nil {
 				wails_runtime.EventsEmit(a.ctx, "tts:stream:error", TTSStreamEvent{
 					SessionID: sessionId,

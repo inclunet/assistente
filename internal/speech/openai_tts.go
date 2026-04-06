@@ -285,20 +285,44 @@ func (c *TTSClient) SetFormat(format TTSFormat) {
 }
 
 // FetchVoices retorna vozes disponíveis para TTS.
-// Faz uma chamada de conectividade ao /v1/models para validar credenciais,
-// mas sempre retorna a lista estática de vozes (alloy, echo, fable, etc.)
-// porque a API não tem endpoint para listar vozes dinamicamente.
+// Para provedores com modelos TTS personalizados (ex: Piper/LocalAI com voice-*,
+// qwen3-tts-*), retorna esses modelos como vozes — pois em backends como
+// LocalAI cada modelo Piper corresponde a uma voz.
+// Para provedores padrão (OpenAI com tts-1), retorna a lista estática de vozes.
 func (c *TTSClient) FetchVoices() ([]TTSVoiceInfo, error) {
-	// Tenta listar modelos para validar credenciais e detectar modelos TTS disponíveis
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if _, err := c.client.Models.List(ctx); err != nil {
-		// Se falhar, retorna vozes estáticas mesmo assim (credenciais podem ainda funcionar para TTS)
+	page, err := c.client.Models.List(ctx)
+	if err != nil {
 		return GetAvailableVoices(), nil
 	}
 
-	// API acessível — retorna vozes estáticas (não há endpoint de listagem de vozes)
+	var dynamicVoices []TTSVoiceInfo
+	hasStandardTTS := false
+
+	for _, m := range page.Data {
+		if isTTSModel(m.ID) {
+			lower := strings.ToLower(m.ID)
+			if knownTTSModels[lower] {
+				hasStandardTTS = true
+			} else {
+				dynamicVoices = append(dynamicVoices, TTSVoiceInfo{
+					ID:       m.ID,
+					Name:     m.ID,
+					Provider: "localai",
+				})
+			}
+		}
+	}
+
+	if len(dynamicVoices) > 0 {
+		if hasStandardTTS {
+			return append(GetAvailableVoices(), dynamicVoices...), nil
+		}
+		return dynamicVoices, nil
+	}
+
 	return GetAvailableVoices(), nil
 }
 
@@ -374,6 +398,14 @@ func isTTSModel(id string) bool {
 		}
 	}
 	return false
+}
+
+// IsDynamicTTSModel retorna true se o ID é um modelo TTS dinâmico (não-padrão),
+// ou seja, é detectado como TTS mas NÃO é um dos modelos padrão (tts-1, tts-1-hd, etc.).
+// Usado para provedores como LocalAI/Piper onde a "voz" selecionada é na verdade um modelo.
+func IsDynamicTTSModel(id string) bool {
+	lower := strings.ToLower(id)
+	return isTTSModel(id) && !knownTTSModels[lower]
 }
 
 // isSTTModel retorna true se o ID é um modelo STT conhecido ou corresponde

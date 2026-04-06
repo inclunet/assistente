@@ -1,9 +1,12 @@
+import { useMemo } from 'react';
 import { SoundOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { VoicePicker, VOICE_DISABLED } from '../pickers/VoicePicker';
 import { RangeSlider } from '../ui/RangeSlider';
 import { Button } from '../ui/Button';
 import { useTTS } from '../../hooks/useTTS';
+import { getTTSCapabilities } from '../../config/providers';
+import { TTSVoice, TTSProvider } from '../../services/tts/types';
 import './ProfileVoiceSection.css';
 
 export interface ProfileVoiceSectionProps {
@@ -11,13 +14,14 @@ export interface ProfileVoiceSectionProps {
   rate: number;
   volume: number;
   providerId?: string;
+  providerType?: string;
   profileId?: string;
   label?: string;
   helpText?: string;
   references?: Array<{ id: string; label: string }>;
   resolvedVoiceId?: string;
   ttsModel?: string;
-  ttsModels?: Array<{ id: string; name: string }>; // Modelos disponíveis (dinâmico via backend)
+  ttsModels?: Array<{ id: string; name: string }>;
   onModelChange?: (model: string) => void;
   onChange: (field: 'voice' | 'rate' | 'volume', value: string | number) => void;
   disabled?: boolean;
@@ -32,10 +36,11 @@ export function ProfileVoiceSection({
   rate,
   volume,
   providerId,
+  providerType,
   profileId,
   ttsModel,
-  ttsModels,
-  onModelChange,
+  ttsModels: _ttsModels,
+  onModelChange: _onModelChange,
   label,
   helpText,
   references,
@@ -46,7 +51,36 @@ export function ProfileVoiceSection({
   const { t } = useTranslation();
   const { speakWithOverride, stop, isSpeaking } = useTTS();
 
-  const isOpenAILike = providerId && providerId !== 'webspeech' && providerId !== 'sapi5' && !providerId.startsWith('ref_');
+  const ttsCapabilities = getTTSCapabilities(providerType || '');
+
+  // Para provedores com vozes estáticas (OpenAI): converte para TTSVoice[] e passa como override
+  const overrideVoices: TTSVoice[] | undefined = useMemo(() => {
+    if (ttsCapabilities.staticVoices.length === 0) return undefined;
+    return ttsCapabilities.staticVoices.map(sv => ({
+      id: sv.id,
+      name: sv.name,
+      language: 'multilingual',
+      provider: TTSProvider.OPENAI,
+      gender: 'neutral' as const,
+      premium: sv.model.includes('hd'),
+      localService: false,
+      description: sv.name,
+    }));
+  }, [ttsCapabilities]);
+
+  // Valor composto para o picker: "voiceId::model" (ex: "nova::tts-1-hd")
+  const effectiveVoiceValue = useMemo(() => {
+    if (ttsCapabilities.staticVoices.length > 0 && voice) {
+      return `${voice}::${ttsModel || 'tts-1'}`;
+    }
+    return voice;
+  }, [voice, ttsModel, ttsCapabilities]);
+
+  // Ao selecionar voz: passa valor composto direto para o parent
+  // O parent (ProfileAudioTab) faz o parse e usa updateFields para batch atômico
+  const handleVoiceChange = (value: string) => {
+    onChange('voice', value);
+  };
 
   const handlePreview = async () => {
     if (isSpeaking) {
@@ -73,8 +107,8 @@ export function ProfileVoiceSection({
       {/* Voice picker */}
       <div className="profile-voice-section__field">
         <VoicePicker
-          value={voice || ''}
-          onChange={(value) => onChange('voice', value)}
+          value={effectiveVoiceValue || ''}
+          onChange={handleVoiceChange}
           providerId={providerId}
           profileId={profileId}
           variant="form"
@@ -83,6 +117,7 @@ export function ProfileVoiceSection({
           icon={<SoundOutlined />}
           allowDisabled={false}
           references={references ?? []}
+          voiceOverrides={overrideVoices}
         />
       </div>
 
@@ -115,29 +150,6 @@ export function ProfileVoiceSection({
           disabled={disabled}
         />
       </div>
-
-      {/* TTS Model selector (only for OpenAI-like providers) */}
-      {isOpenAILike && onModelChange && (
-        <div className="profile-voice-section__field">
-          <label htmlFor={`tts-model-${label?.replace(/\s+/g, '-').toLowerCase() || 'default'}`} className="profile-voice-section__label">
-            {t('profiles.fieldTTSModel', 'Modelo TTS')}
-          </label>
-          <select
-            id={`tts-model-${label?.replace(/\s+/g, '-').toLowerCase() || 'default'}`}
-            className="profiles-field__select"
-            value={ttsModel || 'tts-1'}
-            onChange={(e) => onModelChange(e.target.value)}
-            disabled={disabled}
-          >
-            {(ttsModels && ttsModels.length > 0 ? ttsModels : [
-              { id: 'tts-1', name: t('profiles.ttsModel.tts1', 'tts-1 (Rápido)') },
-              { id: 'tts-1-hd', name: t('profiles.ttsModel.tts1hd', 'tts-1-hd (Alta Definição)') },
-            ]).map((m) => (
-              <option key={m.id} value={m.id}>{m.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
 
       <div className="profile-voice-section__actions">
         <Button
