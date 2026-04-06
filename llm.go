@@ -106,7 +106,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	// Inclui reasoning se houver
 	var savedMsgID uint
 	if h.conversationID > 0 && finalContent != "" {
-		msg, err := database.CreateMessage(database.MessageOptions{
+		msg, err := h.app.msgRepo.CreateMessage(database.MessageOptions{
 			ConversationID:   h.conversationID,
 			Role:             "assistant",
 			Content:          finalContent,
@@ -363,7 +363,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// A APIKey no config.json é legada; provedores modernos usam o credential manager.
 	// Só bloqueia se não houver NENHUMA credencial configurada (nem config, nem provedores).
 	if cfg.APIKey == "" {
-		providerCount, _ := database.CountLLMProviders()
+		providerCount, _ := a.providerSvc.Count()
 		if providerCount == 0 {
 			runtime.EventsEmit(a.ctx, "chat:error", "Nenhum provedor LLM configurado. Configure um provedor nas configurações.")
 			return 0, fmt.Errorf("nenhum provedor LLM configurado")
@@ -378,13 +378,13 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 
 	// Auto-rename: se a conversa tem título genérico, atualiza com o conteúdo da primeira mensagem.
 	if conversationID > 0 && userContent != "" {
-		conv, convErr := database.GetConversationInfo(conversationID)
+		conv, convErr := a.convSvc.GetConversationInfo(conversationID)
 		if convErr == nil && conv != nil && conv.Title == "Nova Conversa" {
 			title := userContent
 			if len(title) > 50 {
 				title = title[:50]
 			}
-			if err := database.UpdateConversation(conversationID, title, ""); err == nil {
+			if err := a.convSvc.UpdateConversation(conversationID, title, ""); err == nil {
 				runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
 					"conversation_id": conversationID,
 					"new_title":       title,
@@ -482,7 +482,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	}
 
 	// 1. Salva mensagem do usuário no banco (com source para badge visual e áudio persistido)
-	userMsg, err := database.CreateMessage(database.MessageOptions{
+	userMsg, err := a.msgRepo.CreateMessage(database.MessageOptions{
 		ConversationID: conversationID,
 		Role:           "user",
 		Content:        userContent,
@@ -1085,7 +1085,7 @@ func (a *App) loadConversationHistory(conversationID uint, profile *profiles.Pro
 	}
 
 	// Busca resumo existente da conversa
-	existingSummary, summaryUpToID, err := database.GetConversationSummary(conversationID)
+	existingSummary, summaryUpToID, err := a.msgRepo.GetConversationSummary(conversationID)
 	if err != nil {
 		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %d: %v", conversationID, err)
 		existingSummary = ""
@@ -1093,7 +1093,7 @@ func (a *App) loadConversationHistory(conversationID uint, profile *profiles.Pro
 	}
 
 	// Busca todas as mensagens raiz para avaliação de sumarização
-	allRootMessages, err := database.GetMessages(conversationID, nil)
+	allRootMessages, err := a.msgRepo.GetMessages(conversationID, nil)
 	if err != nil {
 		return nil, "", err
 	}

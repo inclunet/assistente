@@ -107,6 +107,9 @@ type App struct {
 	// Conversation repository (metadados de conversa)
 	convSvc chat.ConversationRepository
 
+	// Message repository (criação e consulta de mensagens)
+	msgRepo chat.MessageRepository
+
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
 	streamingContexts map[uint]context.CancelFunc // conversationID → cancel
@@ -212,6 +215,7 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa repositórios de audio e conversa
 	a.audioSvc = speech.NewDBAudioStore()
 	a.convSvc = chat.NewDBConversationStore()
+	a.msgRepo = chat.NewDBMessageStore()
 
 	// Inicializa os provedores LLM (Provider Registry) ANTES do client
 	a.initLLMProviders()
