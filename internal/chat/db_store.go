@@ -36,6 +36,14 @@ func (s *DBMessageStore) GetTurnTokenStats(conversationID uint, turnID uint) (*d
 	return database.GetTurnTokenStats(conversationID, turnID)
 }
 
+func (s *DBMessageStore) AddAssistantToolMessage(conversationID, turnID uint, content, toolCalls, reasoning, model string) (*database.ChatMessage, error) {
+	return database.AddAssistantToolMessage(conversationID, turnID, content, toolCalls, reasoning, model)
+}
+
+func (s *DBMessageStore) AddToolResultMessage(conversationID, turnID uint, content, toolCallID string) (*database.ChatMessage, error) {
+	return database.AddToolResultMessage(conversationID, turnID, content, toolCallID)
+}
+
 // DBConversationStore implementa ConversationRepository usando o banco de dados SQLite via GORM.
 type DBConversationStore struct{}
 

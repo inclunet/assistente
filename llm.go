@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"assistente/internal/chat"
 	"assistente/internal/config"
 
 	"assistente/internal/database"
@@ -104,32 +105,26 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Salva resposta final do assistant no nível 0 (sem parentID)
 	// Inclui reasoning se houver
-	var savedMsgID uint
-	if h.conversationID > 0 && finalContent != "" {
-		msg, err := h.app.msgRepo.CreateMessage(database.MessageOptions{
-			ConversationID:   h.conversationID,
-			Role:             "assistant",
-			Content:          finalContent,
-			Reasoning:        accumulatedReasoning,
-			PromptTokens:     usage.PromptTokens,
-			CompletionTokens: usage.CompletionTokens,
-			TotalTokens:      usage.TotalTokens,
-			Model:            model,
-		})
-		if err != nil {
-			// Se a conversa foi deletada ou mensagem pai não existe, aborta silenciosamente
-			if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
-				fmt.Printf("🛑 Conversa %d foi deletada/limpa - abortando processamento\n", h.conversationID)
-				return
-			}
-			fmt.Printf("❌ Erro ao salvar resposta do assistant: %v\n", err)
+	savedMsgID, err := chat.SaveAssistantMessage(h.app.msgRepo, database.MessageOptions{
+		ConversationID:   h.conversationID,
+		Role:             "assistant",
+		Content:          finalContent,
+		Reasoning:        accumulatedReasoning,
+		PromptTokens:     usage.PromptTokens,
+		CompletionTokens: usage.CompletionTokens,
+		TotalTokens:      usage.TotalTokens,
+		Model:            model,
+	})
+	if errors.Is(err, chat.ErrConversationGone) {
+		return
+	}
+	if err != nil {
+		fmt.Printf("❌ Erro ao salvar resposta do assistant: %v\n", err)
+	} else if savedMsgID > 0 {
+		if accumulatedReasoning != "" {
+			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0) com %d chars de reasoning\n", savedMsgID, len(accumulatedReasoning))
 		} else {
-			if accumulatedReasoning != "" {
-				fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0) com %d chars de reasoning\n", msg.ID, len(accumulatedReasoning))
-			} else {
-				fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", msg.ID)
-			}
-			savedMsgID = msg.ID
+			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", savedMsgID)
 		}
 	}
 
@@ -750,28 +745,21 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	return conversationID, nil
 }
 
-// DefaultSystemPrompt is the base system prompt used when no custom prompt is provided
-const DefaultSystemPrompt = `You are a helpful, intelligent assistant. You provide accurate, thoughtful responses and assist users with various tasks.
-
-Key behaviors:
-- Be concise but thorough
-- When uncertain, acknowledge limitations
-- Use markdown formatting for better readability
-- Adapt your communication style to the user's needs`
+// DefaultSystemPrompt é re-exportado de internal/chat para compatibilidade.
+var DefaultSystemPrompt = chat.DefaultSystemPrompt
 
 // buildFullSystemPrompt composes the complete system prompt with DefaultSystemPrompt, skills injection, invoked skill, and conversation summary.
 // enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
 // slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
 // conversationSummary: resumo de mensagens antigas da conversa (rolling context).
 func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, disableOnDemand bool, skillTplData any, slashSkillContent string, conversationSummary string) []Message {
-	// Build the system prompt parts
 	var parts []string
 
 	// 1. Base prompt (DefaultSystemPrompt)
 	// Only add DefaultSystemPrompt if skills are present or slash skill is invoked
 	// (avoids "Developer instruction not enabled" on simple models)
 	if len(enabledSkills) > 0 || slashSkillContent != "" {
-		parts = append(parts, DefaultSystemPrompt)
+		parts = append(parts, chat.DefaultSystemPrompt)
 	}
 
 	// 2. Skills injection (auto + available)
@@ -790,55 +778,7 @@ func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, 
 		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
 	}
 
-	// Combine all parts
-	fullSystemPrompt := strings.Join(parts, "")
-
-	// If no system prompt was built, don't add a system message at all
-	if fullSystemPrompt == "" {
-		return messages
-	}
-
-	// Find existing system message or create new one
-	systemIndex := -1
-	for i, msg := range messages {
-		if msg.Role == "system" {
-			systemIndex = i
-			break
-		}
-	}
-
-	if systemIndex == -1 {
-		// No existing system message, add at the beginning
-		systemMsg := Message{
-			Role:    "system",
-			Content: fullSystemPrompt,
-		}
-		return append([]Message{systemMsg}, messages...)
-	}
-
-	// Existing system message found - combine based on position
-	existingContent := ""
-	switch content := messages[systemIndex].Content.(type) {
-	case string:
-		existingContent = content
-	default:
-		// If not a string, replace entirely
-		newMessages := make([]Message, len(messages))
-		copy(newMessages, messages)
-		newMessages[systemIndex].Content = fullSystemPrompt
-		return newMessages
-	}
-
-	var combinedContent string
-	// Always prepend system prompt before existing content
-	combinedContent = fullSystemPrompt + "\n\n" + existingContent
-
-	// Create new slice to avoid modifying the original
-	newMessages := make([]Message, len(messages))
-	copy(newMessages, messages)
-	newMessages[systemIndex].Content = combinedContent
-
-	return newMessages
+	return chat.InjectSystemPrompt(messages, strings.Join(parts, ""))
 }
 
 type skillTemplateData struct {
@@ -1084,123 +1024,10 @@ func (a *App) loadConversationHistory(conversationID uint, profile *profiles.Pro
 		maxCtxMsgs = profile.GetMaxContextMessages()
 	}
 
-	// Busca resumo existente da conversa
-	existingSummary, summaryUpToID, err := a.msgRepo.GetConversationSummary(conversationID)
-	if err != nil {
-		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %d: %v", conversationID, err)
-		existingSummary = ""
-		summaryUpToID = 0
-	}
-
-	// Busca todas as mensagens raiz para avaliação de sumarização
-	allRootMessages, err := a.msgRepo.GetMessages(conversationID, nil)
+	loader := chat.HistoryLoader{Repo: a.msgRepo, MaxMsgs: maxCtxMsgs}
+	dbMessages, existingSummary, err := loader.Load(conversationID)
 	if err != nil {
 		return nil, "", err
-	}
-
-	// Filtra mensagens para o contexto: apenas as que vêm depois do resumo
-	var dbMessages []database.ChatMessage
-	if summaryUpToID > 0 {
-		for _, m := range allRootMessages {
-			if m.ID > summaryUpToID {
-				dbMessages = append(dbMessages, m)
-			}
-		}
-		fmt.Printf("📋 [HISTORY] Conversa %d: %d msgs total, %d após resumo (upToID=%d)\n",
-			conversationID, len(allRootMessages), len(dbMessages), summaryUpToID)
-	} else {
-		dbMessages = allRootMessages
-	}
-
-	total := len(dbMessages)
-
-	// Truncação por limite de mensagens no contexto (MaxContextMessages).
-	// Corta no limite de uma mensagem role="user", preservando turns completos.
-	if total > maxCtxMsgs {
-		cutIndex := -1
-		for i := total - 1; i >= 2; i-- {
-			if dbMessages[i].Role == "user" {
-				msgCount := 2 + (total - i)
-				if msgCount > maxCtxMsgs {
-					break
-				}
-				cutIndex = i
-			}
-		}
-
-		if cutIndex > 2 {
-			dbMessages = append(dbMessages[:2], dbMessages[cutIndex:]...)
-			fmt.Printf("📋 [HISTORY] Conversa %d: truncado para %d msgs (corte em user msg idx %d)\n",
-				conversationID, len(dbMessages), cutIndex)
-		} else {
-			kept := maxCtxMsgs - 2
-			if kept > total {
-				kept = total
-			}
-			dbMessages = append(dbMessages[:2], dbMessages[total-kept:]...)
-			fmt.Printf("📋 [HISTORY] Conversa %d: truncado para %d msgs (fallback)\n",
-				conversationID, len(dbMessages))
-		}
-	} else {
-		fmt.Printf("📋 [HISTORY] Conversa %d: %d mensagens no contexto\n", conversationID, total)
-	}
-
-	// Safety net: ensure every tool_use has its tool_result and vice-versa.
-	offeredIDs := make(map[string]bool)
-	answeredIDs := make(map[string]bool)
-	for _, m := range dbMessages {
-		if m.ToolCalls != "" {
-			var tcs []struct {
-				ID string `json:"id"`
-			}
-			if json.Unmarshal([]byte(m.ToolCalls), &tcs) == nil {
-				for _, tc := range tcs {
-					offeredIDs[tc.ID] = true
-				}
-			}
-		}
-		if m.Role == "tool" && m.ToolCallID != "" {
-			answeredIDs[m.ToolCallID] = true
-		}
-	}
-
-	// Pass 2: remove orphaned tool_results and strip orphaned tool_calls from assistant messages.
-	cleaned := make([]database.ChatMessage, 0, len(dbMessages))
-	for _, m := range dbMessages {
-		if m.Role == "tool" && m.ToolCallID != "" && !offeredIDs[m.ToolCallID] {
-			fmt.Printf("📋 [HISTORY] Removendo tool_result órfão: %s\n", m.ToolCallID)
-			continue
-		}
-		if m.ToolCalls != "" {
-			var tcs []json.RawMessage
-			var tcsParsed []struct {
-				ID string `json:"id"`
-			}
-			if json.Unmarshal([]byte(m.ToolCalls), &tcs) == nil && json.Unmarshal([]byte(m.ToolCalls), &tcsParsed) == nil {
-				var kept []json.RawMessage
-				for i, tc := range tcsParsed {
-					if answeredIDs[tc.ID] {
-						kept = append(kept, tcs[i])
-					} else {
-						fmt.Printf("📋 [HISTORY] Removendo tool_use órfão: %s\n", tc.ID)
-					}
-				}
-				if len(kept) == 0 {
-					m.ToolCalls = ""
-				} else if len(kept) < len(tcs) {
-					if j, err := json.Marshal(kept); err == nil {
-						m.ToolCalls = string(j)
-					}
-				}
-			}
-		}
-		cleaned = append(cleaned, m)
-	}
-	dbMessages = cleaned
-
-	// Garante que a primeira mensagem no contexto é uma user message
-	for len(dbMessages) > 0 && dbMessages[0].Role != "user" {
-		dbMessages = dbMessages[1:]
 	}
 
 	messages := make([]Message, 0, len(dbMessages))

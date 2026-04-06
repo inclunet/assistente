@@ -25,6 +25,12 @@ type MessageRepository interface {
 
 	// GetTurnTokenStats retorna estatísticas de tokens de um turno específico.
 	GetTurnTokenStats(conversationID uint, turnID uint) (*database.TokenStats, error)
+
+	// AddAssistantToolMessage persiste mensagem de assistant com tool_calls JSON.
+	AddAssistantToolMessage(conversationID, turnID uint, content, toolCalls, reasoning, model string) (*database.ChatMessage, error)
+
+	// AddToolResultMessage persiste o resultado de uma tool call.
+	AddToolResultMessage(conversationID, turnID uint, content, toolCallID string) (*database.ChatMessage, error)
 }
 
 // ConversationRepository abstrai operações sobre conversas.

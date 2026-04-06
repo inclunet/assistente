@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 
+	"assistente/internal/chat"
 	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/llm"
@@ -259,7 +260,7 @@ func (a *App) runAgenticLoop(
 
 		// 6b. Salva mensagem do assistant com bridge tool_calls no banco
 		toolCallsJSON, _ := json.Marshal(result.ToolCalls)
-		assistantMsg, err := database.AddAssistantToolMessage(
+		assistantMsg, err := a.msgRepo.AddAssistantToolMessage(
 			conversationID,
 			turnID,
 			result.FullResponse,
@@ -307,7 +308,7 @@ func (a *App) runAgenticLoop(
 			})
 
 			// Salva resultado no banco
-			_, err := database.AddToolResultMessage(
+			_, err := a.msgRepo.AddToolResultMessage(
 				conversationID,
 				turnID,
 				execResult.Result.Content,
@@ -402,16 +403,15 @@ func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
 			opts.TurnID = &turnID
 		}
 
-		msg, err := database.CreateMessage(opts)
+		var err error
+		savedMsgID, err = chat.SaveAssistantMessage(a.msgRepo, opts)
+		if errors.Is(err, chat.ErrConversationGone) {
+			return
+		}
 		if err != nil {
-			if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
-				fmt.Printf("🛑 Conversa %d foi deletada/limpa — abortando\n", conversationID)
-				return
-			}
 			fmt.Printf("❌ Erro ao salvar resposta final do assistant: %v\n", err)
-		} else {
-			fmt.Printf("✅ [AGENT] Resposta final salva: ID=%d\n", msg.ID)
-			savedMsgID = msg.ID
+		} else if savedMsgID > 0 {
+			fmt.Printf("✅ [AGENT] Resposta final salva: ID=%d\n", savedMsgID)
 		}
 	}
 
@@ -501,7 +501,7 @@ func (a *App) persistNativeMCPCalls(conversationID, turnID uint, events []llm.MC
 		return
 	}
 
-	_, err = database.AddAssistantToolMessage(conversationID, turnID, "", string(toolCallsJSON), "", "")
+	_, err = a.msgRepo.AddAssistantToolMessage(conversationID, turnID, "", string(toolCallsJSON), "", "")
 	if err != nil {
 		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
 		return
@@ -515,7 +515,7 @@ func (a *App) persistNativeMCPCalls(conversationID, turnID uint, events []llm.MC
 		if ev.Error != "" {
 			content = "ERROR: " + ev.Error
 		}
-		_, err := database.AddToolResultMessage(conversationID, turnID, content, ev.ID)
+		_, err := a.msgRepo.AddToolResultMessage(conversationID, turnID, content, ev.ID)
 		if err != nil {
 			log.Printf("[MCP Native] Erro ao salvar tool result (id=%s): %v", ev.ID, err)
 		}
