@@ -501,3 +501,96 @@ func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume
 
 	return nil
 }
+
+// saveLLMProviders salva os provedores no SQLite
+func (a *App) saveLLMProviders() error {
+	providers := a.llmRegistry.List()
+
+	for _, p := range providers {
+		dbProvider := &database.LLMProvider{
+			ID:                p.ID,
+			Name:              p.Name,
+			Type:              string(p.Type),
+			APIFormat:         string(p.APIFormat),
+			BaseURL:           p.BaseURL,
+			Model:             p.Model,
+			DefaultModel:      p.DefaultModel,
+			IsDefault:         p.IsDefault,
+			Timeout:           p.Timeout,
+			CredentialPattern: p.CredentialPattern,
+		}
+		if err := database.SaveLLMProvider(dbProvider); err != nil {
+			log.Printf("Erro ao salvar provedor %s: %v", p.ID, err)
+			return err
+		}
+	}
+
+	return nil
+}
+
+// loadLLMProviders carrega provedores do SQLite
+func (a *App) loadLLMProviders() error {
+	providers, err := database.GetLLMProviders()
+	if err != nil {
+		return err
+	}
+
+	if len(providers) == 0 {
+		return fmt.Errorf("nenhum provedor encontrado")
+	}
+
+	for _, dbProvider := range providers {
+		p := &llm.ProviderConfig{
+			ID:                dbProvider.ID,
+			Name:              dbProvider.Name,
+			Type:              llm.ProviderType(dbProvider.Type),
+			APIFormat:         llm.APIFormat(dbProvider.APIFormat),
+			BaseURL:           dbProvider.BaseURL,
+			Model:             dbProvider.Model,
+			DefaultModel:      dbProvider.DefaultModel,
+			IsDefault:         dbProvider.IsDefault,
+			Timeout:           dbProvider.Timeout,
+			CredentialPattern: dbProvider.CredentialPattern,
+		}
+		if err := a.llmRegistry.Register(p); err != nil {
+			log.Printf("Erro ao registrar provedor %s: %v", p.ID, err)
+		}
+	}
+
+	log.Printf("Provedores LLM carregados do SQLite: %d", len(providers))
+
+	a.ensureDefaultProvider()
+
+	return nil
+}
+
+// ensureDefaultProvider marks the first provider as default when none is.
+// Handles migration for providers created before the IsDefault feature.
+func (a *App) ensureDefaultProvider() {
+	defaultProv, err := database.GetDefaultProvider()
+	if err == nil && defaultProv != nil {
+		return
+	}
+
+	allProviders := a.llmRegistry.List()
+	if len(allProviders) == 0 {
+		return
+	}
+
+	first := allProviders[0]
+	log.Printf("[ProviderManager] Nenhum provedor default — marcando '%s' como default", first.Name)
+
+	if err := database.SetDefaultProvider(first.ID); err != nil {
+		log.Printf("[ProviderManager] Erro ao definir default: %v", err)
+		return
+	}
+	first.IsDefault = true
+
+	if first.DefaultModel == "" && first.Model != "" {
+		first.DefaultModel = first.Model
+		if dbProv, err := database.GetLLMProvider(first.ID); err == nil {
+			dbProv.DefaultModel = first.Model
+			database.SaveLLMProvider(dbProv)
+		}
+	}
+}
