@@ -35,7 +35,10 @@ import { UpdateWorkspaceTab } from '@wailsjs/go/main/App';
 
 const mockedUpdateWorkspaceTab = vi.mocked(UpdateWorkspaceTab);
 
-function setStoreState(tabs: Array<{ id: string; type: string; contentId: string; title: string; position: number }>, activeTabId: string) {
+function setStoreState(
+  tabs: Array<{ id: string; type: string; conversationId?: number; state?: Record<string, unknown>; title: string; position: number }>,
+  activeTabId: string,
+) {
   useWorkspaceStore.setState({
     workspace: {
       id: 'ws-1',
@@ -43,7 +46,8 @@ function setStoreState(tabs: Array<{ id: string; type: string; contentId: string
       tabs: tabs.map(t => ({
         id: t.id,
         type: t.type as 'chat' | 'editor' | 'terminal' | 'tasklist',
-        contentId: t.contentId,
+        conversationId: t.conversationId,
+        state: t.state,
         title: t.title,
         position: t.position,
       })),
@@ -59,9 +63,9 @@ describe('handleContentRenamed', () => {
     useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
   });
 
-  it('atualiza titulo da aba quando conteudo é renomeado', async () => {
+  it('atualiza titulo da aba quando conversa é renomeada', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', contentId: '42', title: 'Nova conversa', position: 0 },
+      { id: 'tab-1', type: 'chat', conversationId: 42, title: 'Nova conversa', position: 0 },
     ], 'tab-1');
 
     useWorkspaceStore.getState().handleContentRenamed('chat', '42', 'Minha conversa');
@@ -75,7 +79,7 @@ describe('handleContentRenamed', () => {
 
   it('não atualiza quando titulo já é igual (previne loop)', () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', contentId: '42', title: 'Mesmo título', position: 0 },
+      { id: 'tab-1', type: 'chat', conversationId: 42, title: 'Mesmo título', position: 0 },
     ], 'tab-1');
 
     mockedUpdateWorkspaceTab.mockClear();
@@ -87,7 +91,7 @@ describe('handleContentRenamed', () => {
 
   it('não atualiza quando tipo não combina', () => {
     setStoreState([
-      { id: 'tab-1', type: 'editor', contentId: '42', title: 'Doc', position: 0 },
+      { id: 'tab-1', type: 'editor', title: 'Doc', position: 0 },
     ], 'tab-1');
 
     mockedUpdateWorkspaceTab.mockClear();
@@ -99,9 +103,9 @@ describe('handleContentRenamed', () => {
 
   it('atualiza aba correta quando há múltiplas abas', async () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', contentId: '10', title: 'Chat A', position: 0 },
-      { id: 'tab-2', type: 'chat', contentId: '20', title: 'Chat B', position: 1 },
-      { id: 'tab-3', type: 'editor', contentId: 'doc-1', title: 'Editor', position: 2 },
+      { id: 'tab-1', type: 'chat', conversationId: 10, title: 'Chat A', position: 0 },
+      { id: 'tab-2', type: 'chat', conversationId: 20, title: 'Chat B', position: 1 },
+      { id: 'tab-3', type: 'editor', title: 'Editor', position: 2 },
     ], 'tab-2');
 
     useWorkspaceStore.getState().handleContentRenamed('chat', '20', 'Chat Renomeado');
@@ -120,9 +124,9 @@ describe('renameTabContent + registerTabRenameHandler', () => {
     useWorkspaceStore.setState({ workspace: null, isInitialized: false, workspaces: [] });
   });
 
-  it('chama handler registrado ao renomear aba', () => {
+  it('chama handler registrado ao renomear aba de chat', () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', contentId: '42', title: 'Chat', position: 0 },
+      { id: 'tab-1', type: 'chat', conversationId: 42, title: 'Chat', position: 0 },
     ], 'tab-1');
 
     const handler = vi.fn();
@@ -135,9 +139,9 @@ describe('renameTabContent + registerTabRenameHandler', () => {
     unregister();
   });
 
-  it('não chama handler quando aba não tem contentId', () => {
+  it('não chama handler quando aba de chat não tem conversationId', () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', contentId: '', title: 'Chat', position: 0 },
+      { id: 'tab-1', type: 'chat', title: 'Chat', position: 0 },
     ], 'tab-1');
 
     const handler = vi.fn();
@@ -152,7 +156,7 @@ describe('renameTabContent + registerTabRenameHandler', () => {
 
   it('não chama handler quando tipo não tem handler registrado', () => {
     setStoreState([
-      { id: 'tab-1', type: 'terminal', contentId: 'sess-1', title: 'Terminal', position: 0 },
+      { id: 'tab-1', type: 'terminal', state: { sessionId: 'sess-1' }, title: 'Terminal', position: 0 },
     ], 'tab-1');
 
     const chatHandler = vi.fn();
@@ -167,7 +171,7 @@ describe('renameTabContent + registerTabRenameHandler', () => {
 
   it('unregister remove o handler', () => {
     setStoreState([
-      { id: 'tab-1', type: 'chat', contentId: '42', title: 'Chat', position: 0 },
+      { id: 'tab-1', type: 'chat', conversationId: 42, title: 'Chat', position: 0 },
     ], 'tab-1');
 
     const handler = vi.fn();

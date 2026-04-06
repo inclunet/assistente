@@ -7,9 +7,9 @@ import { useTaskListStore } from '../store/taskListStore';
  *
  * Fluxo:
  * 1. Workspace ativa uma aba do tipo tasklist
- * 2. Se contentId vazio → cria tasklist via taskListStore.createTaskList()
- *    e salva o taskListId como contentId da aba do workspace
- * 3. Se contentId existente → carrega no store via loadTaskList + setActiveTaskList
+ * 2. Se state.tasklistId vazio → cria tasklist via taskListStore.createTaskList()
+ *    e salva o taskListId em state.tasklistId da aba do workspace
+ * 3. Se state.tasklistId existente → carrega no store via loadTaskList + setActiveTaskList
  * 4. Título da tasklist no store é sincronizado de volta ao workspace
  */
 export function useWorkspaceTasklistBridge() {
@@ -20,28 +20,30 @@ export function useWorkspaceTasklistBridge() {
   const lastSyncedRef = useRef<string | null>(null);
   const creatingRef = useRef(false);
 
+  const tasklistId = (activeTab?.state?.tasklistId as string) || '';
+
   useEffect(() => {
     if (!isWsInitialized) return;
     if (!activeTab || activeTab.type !== 'tasklist') return;
 
-    const syncKey = `${activeTab.id}:${activeTab.contentId}`;
+    const syncKey = `${activeTab.id}:${tasklistId}`;
     if (lastSyncedRef.current === syncKey) return;
 
-    const taskListId = activeTab.contentId ? parseInt(activeTab.contentId, 10) : 0;
+    const taskListId = tasklistId ? parseInt(tasklistId, 10) : 0;
     if (taskListId > 0) {
       syncExistingTaskList(taskListId);
       lastSyncedRef.current = syncKey;
     } else if (!creatingRef.current) {
       createTaskListForTab(activeTab);
     }
-  }, [activeTab?.id, activeTab?.type, activeTab?.contentId, isWsInitialized]);
+  }, [activeTab?.id, activeTab?.type, tasklistId, isWsInitialized]);
 
-  async function syncExistingTaskList(taskListId: number) {
+  async function syncExistingTaskList(id: number) {
     const store = useTaskListStore.getState();
-    store.setActiveTaskList(taskListId);
+    store.setActiveTaskList(id);
 
-    if (!store.taskLists.has(taskListId)) {
-      await store.loadTaskList(taskListId);
+    if (!store.taskLists.has(id)) {
+      await store.loadTaskList(id);
     }
   }
 
@@ -50,7 +52,10 @@ export function useWorkspaceTasklistBridge() {
     try {
       const taskList = await useTaskListStore.getState().createTaskList('Nova lista');
       if (taskList) {
-        await updateWsTab(wsTab.id, { content_id: String(taskList.id), title: taskList.title });
+        await updateWsTab(wsTab.id, {
+          state: { tasklistId: String(taskList.id) },
+          title: taskList.title,
+        });
         lastSyncedRef.current = `${wsTab.id}:${taskList.id}`;
       }
     } catch (error) {
@@ -60,17 +65,19 @@ export function useWorkspaceTasklistBridge() {
     }
   }
 
-  // Sync título do taskListStore → workspace tab via handleContentRenamed
+  // Sync título do taskListStore → workspace tab
   useEffect(() => {
     const unsub = useTaskListStore.subscribe((state) => {
       const ws = useWorkspaceStore.getState();
       const wsTabs = ws.workspace?.tabs || [];
       for (const wsTab of wsTabs) {
-        if (wsTab.type !== 'tasklist' || !wsTab.contentId) continue;
-        const tlId = parseInt(wsTab.contentId, 10);
+        if (wsTab.type !== 'tasklist') continue;
+        const tlIdStr = wsTab.state?.tasklistId as string | undefined;
+        if (!tlIdStr) continue;
+        const tlId = parseInt(tlIdStr, 10);
         const tl = state.taskLists.get(tlId);
         if (tl && tl.title !== wsTab.title) {
-          ws.handleContentRenamed('tasklist', wsTab.contentId, tl.title);
+          void ws.updateTab(wsTab.id, { title: tl.title });
         }
       }
     });
@@ -79,8 +86,8 @@ export function useWorkspaceTasklistBridge() {
 
   // F2 tab rename → rename tasklist in backend
   useEffect(() => {
-    return registerTabRenameHandler('tasklist', (contentId, newTitle) => {
-      const tlId = parseInt(contentId, 10);
+    return registerTabRenameHandler('tasklist', (id, newTitle) => {
+      const tlId = parseInt(id, 10);
       if (tlId) void useTaskListStore.getState().updateTaskList(tlId, newTitle);
     });
   }, []);

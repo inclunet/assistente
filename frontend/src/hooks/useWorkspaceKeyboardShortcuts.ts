@@ -56,7 +56,7 @@ export function useWorkspaceKeyboardShortcuts() {
         if (match) {
           event.preventDefault();
           event.stopPropagation();
-          void addTab(match.type, '', match.title);
+          void addTab(match.type, match.title);
           announce(`Nova aba: ${match.title}`);
         }
         chordPendingRef.current = false;
@@ -93,7 +93,7 @@ export function useWorkspaceKeyboardShortcuts() {
         const isInput = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable;
         if (isInput) return;
         event.preventDefault();
-        addTab('chat', '', 'Nova conversa');
+        addTab('chat', 'Nova conversa');
         announce('Nova aba criada');
         return;
       }

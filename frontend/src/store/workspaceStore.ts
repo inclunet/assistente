@@ -23,11 +23,12 @@ import { announce } from '../hooks/useAnnouncer';
 export type TabType = 'chat' | 'editor' | 'terminal' | 'tasklist';
 
 // Registry: handlers called when user renames a tab via F2 (tab → content)
-const tabRenameHandlers = new Map<TabType, (contentId: string, newTitle: string) => void>();
+// The id passed to the handler is type-specific: conversationId (chat), tasklistId (tasklist), sessionId (terminal)
+const tabRenameHandlers = new Map<TabType, (id: string, newTitle: string) => void>();
 
 export function registerTabRenameHandler(
   type: TabType,
-  handler: (contentId: string, newTitle: string) => void,
+  handler: (id: string, newTitle: string) => void,
 ): () => void {
   tabRenameHandlers.set(type, handler);
   return () => { tabRenameHandlers.delete(type); };
@@ -36,7 +37,7 @@ export function registerTabRenameHandler(
 export interface WorkspaceTab {
   id: string;
   type: TabType;
-  contentId: string;
+  conversationId?: number;
   title: string;
   position: number;
   profileOverride?: Record<string, unknown>;
@@ -55,7 +56,7 @@ function backendTabToFrontend(bt: workspace.Tab): WorkspaceTab {
   return {
     id: bt.id,
     type: bt.type as TabType,
-    contentId: bt.content_id,
+    conversationId: bt.conversation_id || undefined,
     title: bt.title,
     position: bt.position,
     profileOverride: bt.profile_override,
@@ -78,7 +79,7 @@ function frontendTabToBackend(tab: WorkspaceTab): workspace.Tab {
   return new workspace.Tab({
     id: tab.id,
     type: tab.type,
-    content_id: tab.contentId,
+    conversation_id: tab.conversationId || 0,
     title: tab.title,
     position: tab.position,
     profile_override: tab.profileOverride,
@@ -104,7 +105,7 @@ interface WorkspaceStore {
   refreshWorkspaceList: () => Promise<void>;
 
   // Tab management
-  addTab: (type: TabType, contentId: string, title: string) => Promise<string>;
+  addTab: (type: TabType, title: string, initialState?: Record<string, unknown>) => Promise<string>;
   removeTab: (tabId: string) => Promise<void>;
   setActiveTab: (tabId: string) => Promise<void>;
   updateTab: (tabId: string, updates: Record<string, unknown>) => Promise<void>;
@@ -158,7 +159,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
             const tab: WorkspaceTab = {
               id: generateTabId(),
               type: 'chat',
-              contentId: '',
               title: 'Nova conversa',
               position: 0,
             };
@@ -292,7 +292,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     }
   },
 
-  addTab: async (type, contentId, title) => {
+  addTab: async (type, title, initialState?) => {
     const tabId = generateTabId();
     const ws = get().workspace;
     const position = ws ? ws.tabs.length : 0;
@@ -300,9 +300,9 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     const tab: WorkspaceTab = {
       id: tabId,
       type,
-      contentId,
       title,
       position,
+      state: initialState,
     };
 
     const backendTab = frontendTabToBackend(tab);
@@ -324,7 +324,6 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
       const newTab = frontendTabToBackend({
         id: newTabId,
         type: 'chat',
-        contentId: '',
         title: 'Nova conversa',
         position: 0,
       });
@@ -359,7 +358,7 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
               ? {
                   ...t,
                   ...(updates.title !== undefined ? { title: updates.title as string } : {}),
-                  ...(updates.content_id !== undefined ? { contentId: updates.content_id as string } : {}),
+                  ...(updates.conversation_id !== undefined ? { conversationId: updates.conversation_id as number } : {}),
                   ...(updates.state !== undefined ? { state: updates.state as Record<string, unknown> } : {}),
                   ...(updates.profile_override !== undefined ? { profileOverride: updates.profile_override as Record<string, unknown> } : {}),
                 }
@@ -411,7 +410,16 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     const ws = get().workspace;
     if (!ws) return;
     for (const tab of ws.tabs) {
-      if (tab.type === type && tab.contentId === contentId && tab.title !== newTitle) {
+      if (tab.type !== type || tab.title === newTitle) continue;
+      let matches = false;
+      if (type === 'chat') {
+        matches = tab.conversationId === Number(contentId);
+      } else if (type === 'tasklist') {
+        matches = tab.state?.tasklistId === contentId;
+      } else if (type === 'terminal') {
+        matches = tab.state?.sessionId === contentId;
+      }
+      if (matches) {
         void get().updateTab(tab.id, { title: newTitle });
       }
     }
@@ -419,9 +427,18 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
 
   renameTabContent: (tabId, newTitle) => {
     const tab = get().workspace?.tabs.find(t => t.id === tabId);
-    if (!tab || !tab.contentId) return;
+    if (!tab) return;
+    let ref: string | undefined;
+    if (tab.type === 'chat' && tab.conversationId) {
+      ref = String(tab.conversationId);
+    } else if (tab.type === 'tasklist') {
+      ref = tab.state?.tasklistId as string | undefined;
+    } else if (tab.type === 'terminal') {
+      ref = tab.state?.sessionId as string | undefined;
+    }
+    if (!ref) return;
     const handler = tabRenameHandlers.get(tab.type);
-    if (handler) handler(tab.contentId, newTitle);
+    if (handler) handler(ref, newTitle);
   },
 
   getActiveTab: () => {
@@ -436,3 +453,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     return ws.tabs.filter(t => t.type === type);
   },
 }));
+
+// HMR: reseta estado do módulo para que o workspace reinicialize após hot reload
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    initializingPromise = null;
+    useWorkspaceStore.setState({ isInitialized: false, workspace: null, workspaces: [] });
+  });
+}

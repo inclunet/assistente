@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"sync"
 	"time"
 
 	"assistente/internal/config"
@@ -51,182 +50,16 @@ var strPtr = llm.StrPtr
 // - n1: interações com agentes (parentID=userMessageID)
 // - n2: interações do agente com tools (parentID=agentMessageID)
 type appStreamHandler struct {
-	app                *App
-	conversationID     uint   // ID da conversa
-	userMessageID      uint   // ID da mensagem do usuário (raiz da thread)
-	accumulatedContent string // Conteúdo acumulado durante streaming
-
-	// Reasoning/Thinking - chain of thought de modelos como DeepSeek, Claude, o1
-	accumulatedReasoning string // Reasoning acumulado durante streaming
-	isThinking           bool   // Flag indicando se está recebendo reasoning
-
-	// Throttling para eventos de streaming
-	mu            sync.Mutex  // Protege accumulatedContent durante throttling
-	lastEmitTime  time.Time   // Última vez que um evento foi emitido
-	throttleTimer *time.Timer // Timer para throttling
-	pendingEmit   bool        // Flag indicando se há emissão pendente
-
-	// Throttling para eventos de thinking
-	lastThinkingEmitTime time.Time   // Última vez que um evento de thinking foi emitido
-	thinkingTimer        *time.Timer // Timer para throttling de thinking
-	pendingThinkingEmit  bool        // Flag indicando se há emissão de thinking pendente
-}
-
-func (h *appStreamHandler) OnChunk(content string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// Acumula o conteúdo
-	h.accumulatedContent += content
-
-	// Throttling: emite eventos apenas a cada 50ms
-	const throttleInterval = 50 * time.Millisecond
-	now := time.Now()
-
-	// Se já passou tempo suficiente desde última emissão, emite imediatamente
-	if now.Sub(h.lastEmitTime) >= throttleInterval {
-		h.emitStreamEvent()
-		h.lastEmitTime = now
-		h.pendingEmit = false
-
-		// Cancela timer pendente se houver
-		if h.throttleTimer != nil {
-			h.throttleTimer.Stop()
-			h.throttleTimer = nil
-		}
-		return
-	}
-
-	// Caso contrário, agenda emissão se ainda não há uma pendente
-	if !h.pendingEmit {
-		h.pendingEmit = true
-
-		// Calcula tempo restante até próxima emissão permitida
-		remainingTime := throttleInterval - now.Sub(h.lastEmitTime)
-
-		h.throttleTimer = time.AfterFunc(remainingTime, func() {
-			h.mu.Lock()
-			defer h.mu.Unlock()
-
-			if h.pendingEmit {
-				h.emitStreamEvent()
-				h.lastEmitTime = time.Now()
-				h.pendingEmit = false
-			}
-		})
-	}
-}
-
-// emitStreamEvent emite o evento de streaming (deve ser chamado com mutex locked)
-func (h *appStreamHandler) emitStreamEvent() {
-	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
-		Content:        h.accumulatedContent,
-		Done:           false,
-		ConversationId: h.conversationID,
-	})
-}
-
-// OnThinking é chamado quando um chunk de reasoning/thinking é recebido
-func (h *appStreamHandler) OnThinking(content string) {
-	h.mu.Lock()
-	defer h.mu.Unlock()
-
-	// Marca que está pensando
-	if !h.isThinking {
-		h.isThinking = true
-		// Emite evento de início de thinking imediatamente
-		runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
-			"content":        content,
-			"done":           false,
-			"conversationId": h.conversationID,
-			"started":        true,
-		})
-	}
-
-	// Acumula o reasoning
-	h.accumulatedReasoning += content
-
-	// Throttling: emite eventos apenas a cada 50ms
-	const throttleInterval = 50 * time.Millisecond
-	now := time.Now()
-
-	// Se já passou tempo suficiente desde última emissão, emite imediatamente
-	if now.Sub(h.lastThinkingEmitTime) >= throttleInterval {
-		h.emitThinkingEvent()
-		h.lastThinkingEmitTime = now
-		h.pendingThinkingEmit = false
-
-		// Cancela timer pendente se houver
-		if h.thinkingTimer != nil {
-			h.thinkingTimer.Stop()
-			h.thinkingTimer = nil
-		}
-		return
-	}
-
-	// Caso contrário, agenda emissão se ainda não há uma pendente
-	if !h.pendingThinkingEmit {
-		h.pendingThinkingEmit = true
-
-		// Calcula tempo restante até próxima emissão permitida
-		remainingTime := throttleInterval - now.Sub(h.lastThinkingEmitTime)
-
-		h.thinkingTimer = time.AfterFunc(remainingTime, func() {
-			h.mu.Lock()
-			defer h.mu.Unlock()
-
-			if h.pendingThinkingEmit {
-				h.emitThinkingEvent()
-				h.lastThinkingEmitTime = time.Now()
-				h.pendingThinkingEmit = false
-			}
-		})
-	}
-}
-
-// emitThinkingEvent emite o evento de thinking (deve ser chamado com mutex locked)
-func (h *appStreamHandler) emitThinkingEvent() {
-	runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
-		"content":        h.accumulatedReasoning,
-		"done":           false,
-		"conversationId": h.conversationID,
-	})
-}
-
-// OnThinkingDone é chamado quando o reasoning termina
-func (h *appStreamHandler) OnThinkingDone(fullReasoning string) {
-	h.mu.Lock()
-	// Cancela qualquer timer pendente
-	if h.thinkingTimer != nil {
-		h.thinkingTimer.Stop()
-		h.thinkingTimer = nil
-	}
-	h.pendingThinkingEmit = false
-	h.isThinking = false
-	h.mu.Unlock()
-
-	// Emite evento final de thinking
-	runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
-		"content":        fullReasoning,
-		"done":           true,
-		"conversationId": h.conversationID,
-	})
-
-	fmt.Printf("🧠 [THINKING] Reasoning completo: %d caracteres\n", len(fullReasoning))
+	baseStreamHandler
+	userMessageID uint // ID da mensagem do usuário (raiz da thread)
 }
 
 func (h *appStreamHandler) OnError(err string) {
 	h.mu.Lock()
-	// Cancela qualquer timer pendente
-	if h.throttleTimer != nil {
-		h.throttleTimer.Stop()
-		h.throttleTimer = nil
-	}
-	h.pendingEmit = false
+	h.cancelPendingChunkTimer()
 	content := h.accumulatedContent
 	h.mu.Unlock()
 
-	// Emite evento final de erro (sempre emite, sem throttling)
 	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
 		Content:        content,
 		Done:           true,
@@ -258,18 +91,12 @@ func (h *appStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 }
 
 func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
-	// Cancela qualquer timer pendente e obtém conteúdo acumulado
 	h.mu.Lock()
-	if h.throttleTimer != nil {
-		h.throttleTimer.Stop()
-		h.throttleTimer = nil
-	}
-	h.pendingEmit = false
+	h.cancelPendingChunkTimer()
 	accumulatedContent := h.accumulatedContent
 	accumulatedReasoning := h.accumulatedReasoning
 	h.mu.Unlock()
 
-	// Usa o conteúdo acumulado ou o fullResponse
 	finalContent := fullResponse
 	if finalContent == "" {
 		finalContent = accumulatedContent
@@ -643,7 +470,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	if userContent == "" && userMedia != "" {
 		// Verifica se o perfil tem STT configurado como whisper_api (necessário para canais)
 		if source != "wails" && activeProfile != nil {
-			sttProvider := activeProfile.Input.STTProvider
+			sttProvider := activeProfile.Interaction.STTProvider
 			if sttProvider == "webspeech" || sttProvider == "" {
 				log.Printf("[SendMessage] Canal %s: STT '%s' não suporta transcrição server-side — ignorando áudio", source, sttProvider)
 				userContent = "[Mensagem de áudio recebida, mas transcrição automática não está configurada. Configure Whisper no perfil deste canal para processar mensagens de voz.]"
@@ -908,9 +735,11 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	} else {
 		// Sem ferramentas: streaming simples
 		handler := &appStreamHandler{
-			app:            a,
-			conversationID: conversationID,
-			userMessageID:  userMsg.ID,
+			baseStreamHandler: baseStreamHandler{
+				app:            a,
+				conversationID: conversationID,
+			},
+			userMessageID: userMsg.ID,
 		}
 		go func() {
 			defer a.recoverFromPanic(conversationID, "StreamChat")

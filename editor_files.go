@@ -4,11 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"assistente/internal/configdir"
-	"assistente/internal/database"
 	"assistente/internal/tools/filesystem"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -16,22 +16,7 @@ import (
 
 const editorOrphanDraftGracePeriod = 24 * time.Hour
 
-type EditorSession struct {
-	Version         int                `json:"version"`
-	AutoSaveEnabled bool               `json:"autoSaveEnabled"`
-	ActiveTabId     string             `json:"activeTabId,omitempty"`
-	ProfileSlug     string             `json:"profileSlug,omitempty"`
-	Tabs            []EditorSessionTab `json:"tabs"`
-
-	// Preferência de modo por arquivo (para reabrir mantendo o tipo de editor)
-	FileModeByPath map[string]string `json:"fileModeByPath,omitempty"`
-
-	// Recuperação pós-crash: se um arquivo estava em conflito externo, mantemos o lock.
-	ExternalConflictLockedByTabId map[string]bool `json:"externalConflictLockedByTabId,omitempty"`
-	// Recuperação pós-crash: se um merge estilo Git estava em andamento, mantemos os drafts e o link por tab.
-	MergeSessionsByTabId map[string]EditorMergeSession `json:"mergeSessionsByTabId,omitempty"`
-}
-
+// EditorMergeSession descreve um merge de 3 vias em andamento para uma aba.
 type EditorMergeSession struct {
 	OriginalPath    string `json:"originalPath"`
 	MineDraftId     string `json:"mineDraftId"`
@@ -40,12 +25,11 @@ type EditorMergeSession struct {
 	CreatedAt       int64  `json:"createdAt"`
 }
 
-type EditorSessionTab struct {
-	Id       string `json:"id"`
-	Title    string `json:"title"`
-	Mode     string `json:"mode"`
-	FilePath string `json:"filePath,omitempty"`
-	DraftId  string `json:"draftId,omitempty"`
+// EditorState é o estado global do editor persistido em ~/.assistente/editor/state.json.
+// Não inclui lista de abas (fica no workspace YAML) nem conteúdo de documentos (fica em arquivos).
+type EditorState struct {
+	FileModeByPath       map[string]string              `json:"fileModeByPath,omitempty"`
+	MergeSessionsByTabId map[string]EditorMergeSession  `json:"mergeSessionsByTabId,omitempty"`
 }
 
 type EditorOpenResult struct {
@@ -61,92 +45,121 @@ type EditorFileInfo struct {
 	ModTimeMs int64  `json:"modTimeMs"`
 }
 
-func draftFilename(draftId string) (string, error) {
+// draftDir retorna o diretório onde os drafts são armazenados como arquivos.
+func draftDir() string {
+	return filepath.Join(configdir.GetHomeDir(), "editor", "drafts")
+}
+
+// editorStatePath retorna o caminho do arquivo de estado global do editor.
+func editorStatePath() string {
+	return filepath.Join(configdir.GetHomeDir(), "editor", "state.json")
+}
+
+// draftPath retorna o caminho completo do arquivo de draft para um draftId.
+func draftPath(draftId string) (string, error) {
 	id := strings.TrimSpace(draftId)
 	if err := configdir.ValidateFilename(id); err != nil {
 		return "", fmt.Errorf("draftId inválido: %w", err)
 	}
-	return id + ".md", nil
+	return filepath.Join(draftDir(), id+".md"), nil
 }
 
-// EditorLoadSession restaura a lista de guias abertas e preferências do editor.
-// Persistência: SQLite (tabela editor_session_states)
-func (a *App) EditorLoadSession() (*EditorSession, error) {
-	defaultSess := &EditorSession{
-		Version:                       2,
-		AutoSaveEnabled:               true,
-		ProfileSlug:                   "",
-		Tabs:                          []EditorSessionTab{},
-		FileModeByPath:                map[string]string{},
-		ExternalConflictLockedByTabId: map[string]bool{},
-		MergeSessionsByTabId:          map[string]EditorMergeSession{},
-	}
-
-	jsonPayload, found, err := database.GetEditorSessionJSON("default")
+// EditorGetDraftPath retorna o caminho em disco de um draft (sem criá-lo).
+// O frontend usa isso para saber qual filePath associar a um novo documento.
+func (a *App) EditorGetDraftPath(draftId string) (string, error) {
+	p, err := draftPath(draftId)
 	if err != nil {
-		return nil, fmt.Errorf("falha ao ler sessão do editor no banco: %w", err)
+		return "", err
 	}
-	if !found || strings.TrimSpace(jsonPayload) == "" {
-		return defaultSess, nil
-	}
+	return p, nil
+}
 
-	var sess EditorSession
-	if err := json.Unmarshal([]byte(jsonPayload), &sess); err != nil {
-		// DB-only, mas resiliente: se a sessão estiver corrompida, não impede uso do editor.
-		// Reseta o registro (best-effort) para evitar loop de erro em próximos loads.
-		if b, mErr := json.MarshalIndent(defaultSess, "", "  "); mErr == nil {
-			_ = database.UpsertEditorSessionJSON("default", string(b))
+// EditorWriteDraft persiste o conteúdo de um draft em disco.
+func (a *App) EditorWriteDraft(draftId string, content string) error {
+	p, err := draftPath(draftId)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		return fmt.Errorf("falha ao criar diretório de drafts: %w", err)
+	}
+	if err := filesystem.WriteFileBytes(p, []byte(content), 0644); err != nil {
+		return fmt.Errorf("falha ao salvar draft: %w", err)
+	}
+	return nil
+}
+
+// EditorReadDraft lê o conteúdo de um draft do disco.
+func (a *App) EditorReadDraft(draftId string) (string, error) {
+	p, err := draftPath(draftId)
+	if err != nil {
+		return "", err
+	}
+	data, err := filesystem.ReadFileBytes(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("draft não encontrado")
 		}
-		return defaultSess, nil
+		return "", fmt.Errorf("falha ao ler draft: %w", err)
 	}
-
-	if sess.Version == 0 {
-		sess.Version = 2
-	}
-	// AutoSave default: ligado
-	if !sess.AutoSaveEnabled {
-		// mantém o valor salvo; apenas evita zero-value quebrar versões antigas
-	}
-	if sess.Tabs == nil {
-		sess.Tabs = []EditorSessionTab{}
-	}
-	if sess.FileModeByPath == nil {
-		sess.FileModeByPath = map[string]string{}
-	}
-	if sess.ExternalConflictLockedByTabId == nil {
-		sess.ExternalConflictLockedByTabId = map[string]bool{}
-	}
-	if sess.MergeSessionsByTabId == nil {
-		sess.MergeSessionsByTabId = map[string]EditorMergeSession{}
-	}
-	// ProfileSlug: vazio = usar perfil ativo global no chat; o frontend pode escolher um default.
-	return &sess, nil
+	return string(data), nil
 }
 
-// EditorSaveSession persiste a sessão atual do editor.
-func (a *App) EditorSaveSession(sess EditorSession) error {
-	if sess.Version == 0 {
-		sess.Version = 2
+// EditorDeleteDraft remove o arquivo de draft do disco.
+func (a *App) EditorDeleteDraft(draftId string) error {
+	p, err := draftPath(draftId)
+	if err != nil {
+		return err
 	}
-	if sess.Tabs == nil {
-		sess.Tabs = []EditorSessionTab{}
+	if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("falha ao remover draft: %w", err)
 	}
-	if sess.FileModeByPath == nil {
-		sess.FileModeByPath = map[string]string{}
-	}
-	if sess.ExternalConflictLockedByTabId == nil {
-		sess.ExternalConflictLockedByTabId = map[string]bool{}
-	}
-	if sess.MergeSessionsByTabId == nil {
-		sess.MergeSessionsByTabId = map[string]EditorMergeSession{}
+	return nil
+}
+
+// EditorLoadState carrega o estado global do editor do arquivo state.json.
+func (a *App) EditorLoadState() (*EditorState, error) {
+	p := editorStatePath()
+	data, err := os.ReadFile(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return &EditorState{
+				FileModeByPath:       map[string]string{},
+				MergeSessionsByTabId: map[string]EditorMergeSession{},
+			}, nil
+		}
+		return nil, fmt.Errorf("falha ao ler editor/state.json: %w", err)
 	}
 
-	b, err := json.MarshalIndent(&sess, "", "  ")
-	if err != nil {
-		return fmt.Errorf("falha ao serializar sessão do editor: %w", err)
+	var state EditorState
+	if err := json.Unmarshal(data, &state); err != nil {
+		// Se corrompido, retorna estado limpo
+		return &EditorState{
+			FileModeByPath:       map[string]string{},
+			MergeSessionsByTabId: map[string]EditorMergeSession{},
+		}, nil
 	}
-	if err := database.UpsertEditorSessionJSON("default", string(b)); err != nil {
-		return fmt.Errorf("falha ao salvar sessão do editor no banco: %w", err)
+	if state.FileModeByPath == nil {
+		state.FileModeByPath = map[string]string{}
+	}
+	if state.MergeSessionsByTabId == nil {
+		state.MergeSessionsByTabId = map[string]EditorMergeSession{}
+	}
+	return &state, nil
+}
+
+// EditorSaveState persiste o estado global do editor no arquivo state.json.
+func (a *App) EditorSaveState(state EditorState) error {
+	p := editorStatePath()
+	if err := os.MkdirAll(filepath.Dir(p), 0755); err != nil {
+		return fmt.Errorf("falha ao criar diretório do editor: %w", err)
+	}
+	b, err := json.MarshalIndent(&state, "", "  ")
+	if err != nil {
+		return fmt.Errorf("falha ao serializar editor state: %w", err)
+	}
+	if err := os.WriteFile(p, b, 0644); err != nil {
+		return fmt.Errorf("falha ao salvar editor/state.json: %w", err)
 	}
 	return nil
 }
@@ -193,7 +206,6 @@ func (a *App) EditorReadFile(path string) (string, error) {
 }
 
 // EditorGetFileInfo retorna metadados simples do arquivo para detectar mudanças externas.
-// Não falha com erro quando o arquivo não existe.
 func (a *App) EditorGetFileInfo(path string) (*EditorFileInfo, error) {
 	p := strings.TrimSpace(path)
 	if p == "" {
@@ -230,8 +242,6 @@ func (a *App) EditorWriteFile(path string, content string) error {
 }
 
 // EditorRenameFile renomeia um arquivo existente no disco.
-// newBaseName deve ser apenas o nome do arquivo (sem diretórios).
-// Retorna o novo path completo.
 func (a *App) EditorRenameFile(oldPath string, newBaseName string) (string, error) {
 	return filesystem.RenameFileSameDirWithPolicy(oldPath, newBaseName, filesystem.EditorPolicy())
 }
@@ -259,92 +269,30 @@ func (a *App) EditorSaveFileDialog(suggestedFilename string) (string, error) {
 	return path, nil
 }
 
-// EditorWriteDraft persiste um conteúdo temporário (draft) no SQLite.
-func (a *App) EditorWriteDraft(draftId string, content string) error {
-	if _, err := draftFilename(draftId); err != nil {
-		return err
-	}
-
-	if err := database.UpsertEditorDocument(database.EditorDocument{
-		ID:       strings.TrimSpace(draftId),
-		Mode:     "markdown",
-		Markdown: content,
-	}); err != nil {
-		return fmt.Errorf("falha ao salvar draft no banco: %w", err)
-	}
-	return nil
-}
-
-func (a *App) EditorReadDraft(draftId string) (string, error) {
-	if _, err := draftFilename(draftId); err != nil {
-		return "", err
-	}
-
-	md, found, err := database.GetEditorDocumentMarkdown(draftId)
-	if err != nil {
-		return "", fmt.Errorf("falha ao ler draft no banco: %w", err)
-	}
-	if !found {
-		return "", fmt.Errorf("draft não encontrado")
-	}
-	return md, nil
-}
-
-func (a *App) EditorDeleteDraft(draftId string) error {
-	if _, err := draftFilename(draftId); err != nil {
-		return err
-	}
-
-	if err := database.DeleteEditorDocument(draftId); err != nil {
-		return fmt.Errorf("falha ao remover draft no banco: %w", err)
-	}
-	return nil
-}
-
-func collectEditorDraftIDsFromSession(sess *EditorSession) []string {
-	if sess == nil {
-		return nil
-	}
-
-	keep := map[string]struct{}{}
-	add := func(id string) {
-		id = strings.TrimSpace(id)
-		if id == "" {
-			return
-		}
-		keep[id] = struct{}{}
-	}
-
-	for _, tab := range sess.Tabs {
-		add(tab.DraftId)
-	}
-
-	for _, m := range sess.MergeSessionsByTabId {
-		add(m.MineDraftId)
-		add(m.DiskDraftId)
-		add(m.ConflictDraftId)
-	}
-
-	out := make([]string, 0, len(keep))
-	for id := range keep {
-		out = append(out, id)
-	}
-	return out
-}
-
-// cleanupEditorOrphanDraftsOnStartup remove drafts/documentos antigos não referenciados.
-// Objetivo: evitar acúmulo por crash durante autosave/merge.
+// cleanupEditorOrphanDraftsOnStartup remove arquivos de draft antigos não referenciados.
 func (a *App) cleanupEditorOrphanDraftsOnStartup() error {
-	sess, err := a.EditorLoadSession()
+	dir := draftDir()
+	entries, err := os.ReadDir(dir)
 	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // diretório ainda não existe
+		}
 		return err
 	}
 
-	keepIDs := collectEditorDraftIDsFromSession(sess)
 	cutoff := time.Now().Add(-editorOrphanDraftGracePeriod)
-	_, err = database.CleanupOrphanEditorDocuments(database.CleanupOrphanEditorDocumentsArgs{
-		KeepIDs:       keepIDs,
-		UpdatedBefore: cutoff,
-	})
-	return err
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		if info.ModTime().After(cutoff) {
+			continue // recente demais para remover
+		}
+		_ = os.Remove(filepath.Join(dir, entry.Name()))
+	}
+	return nil
 }

@@ -1749,6 +1749,25 @@ const en = {
         moveDown: 'Move down',
       },
     },
+    app: {
+      wizard: {
+        cancelled: 'Setup cancelled. Configure it in Settings.',
+        success: 'Setup completed successfully!',
+        error: 'Setup error. Check Settings.',
+      },
+      config: {
+        loaded: 'Configuration loaded!',
+        loadError: 'Error loading configuration',
+      },
+      summary: {
+        started: 'Summarizing conversation ({{count}} messages)...',
+        completed: 'Conversation summary updated ({{count}} messages summarized)',
+        error: 'Error summarizing conversation: {{error}}',
+      },
+      questionnaire: {
+        submitError: 'Error submitting questionnaire',
+      },
+    },
   },
 };
 
