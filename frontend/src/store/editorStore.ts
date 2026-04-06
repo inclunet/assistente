@@ -31,11 +31,7 @@ interface EditorState {
   documents: Record<string, EditorDocument>;
   activeDocumentId: string | null;
 
-  autoSaveEnabled: boolean;
-
-  editorProfileSlug: string;
-
-  createDocument: (initial?: Partial<Pick<EditorDocument, 'title' | 'markdown' | 'mode'>>) => string;
+  createDocument: (initial?: Partial<Pick<EditorDocument, 'id' | 'title' | 'markdown' | 'mode' | 'filePath' | 'draftId'>>) => string;
   removeDocument: (docId: string) => void;
   setActiveDocument: (docId: string) => void;
   renameDocument: (docId: string, title: string) => void;
@@ -54,12 +50,7 @@ interface EditorState {
   requestInsert: (req: Omit<EditorInsertRequest, 'id'>) => string;
   consumePendingInsert: () => EditorInsertRequest | null;
 
-  setAutoSaveEnabled: (enabled: boolean) => void;
-  toggleAutoSave: () => void;
-
-  setEditorProfileSlug: (slug: string) => void;
-
-  hydrate: (payload: { documents: Record<string, EditorDocument>; activeDocumentId: string | null; autoSaveEnabled?: boolean; editorProfileSlug?: string }) => void;
+  hydrate: (payload: { documents: Record<string, EditorDocument>; activeDocumentId: string | null }) => void;
 }
 
 function newId(): string {
@@ -70,7 +61,7 @@ function newId(): string {
   }
 }
 
-export const DEFAULT_MD = `# Novo documento\n\nComece a escrever em **Markdown**.\n\n- Ctrl+N (ou Ctrl+T): nova aba\n- Ctrl+W (ou Ctrl+F4): fechar aba\n- Ctrl+Tab: próxima aba\n- Ctrl+Shift+Tab: aba anterior\n- Ctrl+Shift+I: pedir alteração ao chat\n\n\n\n\n\n\n\n\n\n`; 
+export const DEFAULT_MD = `# Novo documento\n\nComece a escrever em **Markdown**.\n\n- Ctrl+N (ou Ctrl+T): nova aba\n- Ctrl+W (ou Ctrl+F4): fechar aba\n- Ctrl+Tab: próxima aba\n- Ctrl+Shift+Tab: aba anterior\n- Ctrl+Shift+I: pedir alteração ao chat\n\n\n\n\n\n\n\n\n\n`;
 
 function updateDoc(documents: Record<string, EditorDocument>, docId: string, patch: Partial<EditorDocument>): Record<string, EditorDocument> {
   const existing = documents[docId];
@@ -82,22 +73,19 @@ export const useEditorStore = create<EditorState>((set, get) => ({
   documents: {},
   activeDocumentId: null,
 
-  autoSaveEnabled: true,
-
-  editorProfileSlug: 'editor-texto',
-
   pendingInsert: null,
 
   createDocument: (initial) => {
-    const id = newId();
+    const id = initial?.id || newId();
+    const hasFilePath = !!initial?.filePath;
     const doc: EditorDocument = {
       id,
       title: initial?.title || 'Novo documento',
       markdown: initial?.markdown ?? DEFAULT_MD,
       mode: initial?.mode || 'markdown',
 
-      filePath: null,
-      draftId: id,
+      filePath: initial?.filePath || null,
+      draftId: initial?.draftId !== undefined ? initial.draftId : (hasFilePath ? null : id),
       isDirty: false,
     };
 
@@ -183,17 +171,10 @@ export const useEditorStore = create<EditorState>((set, get) => ({
     return activeDocumentId ? documents[activeDocumentId] ?? null : null;
   },
 
-  setAutoSaveEnabled: (enabled) => set({ autoSaveEnabled: !!enabled }),
-  toggleAutoSave: () => set((s) => ({ autoSaveEnabled: !s.autoSaveEnabled })),
-
-  setEditorProfileSlug: (slug) => set({ editorProfileSlug: (slug || '').trim() || 'editor-texto' }),
-
   hydrate: (payload) => {
     set({
       documents: payload.documents,
       activeDocumentId: payload.activeDocumentId,
-      autoSaveEnabled: typeof payload.autoSaveEnabled === 'boolean' ? payload.autoSaveEnabled : true,
-      editorProfileSlug: (payload.editorProfileSlug || '').trim() || 'editor-texto',
     });
   },
 }));

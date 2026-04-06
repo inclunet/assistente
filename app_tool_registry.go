@@ -11,7 +11,6 @@ import (
 	"assistente/internal/questionnaire"
 	"assistente/internal/tools"
 	deeplinktool "assistente/internal/tools/deeplink"
-	"assistente/internal/tools/editor"
 	"assistente/internal/tools/filesystem"
 	"assistente/internal/tools/history"
 	questiontool "assistente/internal/tools/questionnaire"
@@ -192,7 +191,7 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(filesystem.NewSearchFiles(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewGrepSearch(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewWriteFile(workDir))
-	a.toolRegistry.MustRegister(filesystem.NewEditFile(workDir))
+	a.toolRegistry.MustRegister(filesystem.NewEditFile(workDir, a.questionnaireMgr))
 	a.toolRegistry.MustRegister(filesystem.NewMoveFile(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewCopyFile(workDir))
 	a.toolRegistry.MustRegister(filesystem.NewDeleteFile(workDir))
@@ -305,9 +304,6 @@ func (a *App) initToolRegistry() {
 
 	// Registra ferramenta de questionário (collect_responses)
 	a.toolRegistry.MustRegister(questiontool.NewCollectResponses(a.questionnaireMgr))
-
-	// Registra ferramenta de edição de texto (opt-in: só disponível em perfis que a listam explicitamente)
-	a.toolRegistry.MustRegisterOptIn(editor.NewTextEdit(a.questionnaireMgr))
 
 	// Registra ferramenta de busca no histórico de conversas
 	a.toolRegistry.MustRegister(history.NewSearchConversations())

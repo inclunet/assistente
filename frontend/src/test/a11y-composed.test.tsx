@@ -22,14 +22,14 @@ const { workspaceState } = vi.hoisted(() => {
         {
           id: 't1',
           type: 'chat' as const,
-          contentId: 'c1',
+          conversationId: 1,
           title: 'Chat 1',
           position: 0,
         },
         {
           id: 't2',
           type: 'editor' as const,
-          contentId: 'c2',
+          state: { filePath: '/tmp/c2.md' },
           title: 'Editor',
           position: 1,
         },

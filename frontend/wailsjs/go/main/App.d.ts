@@ -130,9 +130,11 @@ export function DuplicateSkill(arg1:string):Promise<string>;
 
 export function EditorDeleteDraft(arg1:string):Promise<void>;
 
+export function EditorGetDraftPath(arg1:string):Promise<string>;
+
 export function EditorGetFileInfo(arg1:string):Promise<main.EditorFileInfo>;
 
-export function EditorLoadSession():Promise<main.EditorSession>;
+export function EditorLoadState():Promise<main.EditorState>;
 
 export function EditorOpenFile():Promise<main.EditorOpenResult>;
 
@@ -144,7 +146,7 @@ export function EditorRenameFile(arg1:string,arg2:string):Promise<string>;
 
 export function EditorSaveFileDialog(arg1:string):Promise<string>;
 
-export function EditorSaveSession(arg1:main.EditorSession):Promise<void>;
+export function EditorSaveState(arg1:main.EditorState):Promise<void>;
 
 export function EditorUnwatchFile(arg1:string):Promise<void>;
 

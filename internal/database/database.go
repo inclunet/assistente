@@ -80,8 +80,6 @@ func Init() error {
 	if err := db.AutoMigrate(
 		&Conversation{},
 		&ChatMessage{},
-		&EditorDocument{},
-		&EditorSessionState{},
 		&CredentialEntry{},
 		&CredentialKeyWrap{},
 		&LLMProvider{},
@@ -91,6 +89,13 @@ func Init() error {
 		&TaskNote{},
 	); err != nil {
 		return err
+	}
+
+	// Migração: remover tabelas do editor (conteúdo migrado para arquivos em disco)
+	sqlDBRaw, _ := db.DB()
+	if sqlDBRaw != nil {
+		sqlDBRaw.Exec(`DROP TABLE IF EXISTS editor_documents`)
+		sqlDBRaw.Exec(`DROP TABLE IF EXISTS editor_session_states`)
 	}
 
 	// Migração: mover refresh_url → refresh_token_enc (coluna renomeada)

@@ -68,15 +68,18 @@ export function buildEditorPatchPrompt(params: {
   format?: 'markdown' | 'plain';
   selectionIsEmpty?: boolean;
   cursorContext?: string;
+  filePath?: string;
 }): string {
-  const { instruction, selectedText, format = 'markdown', selectionIsEmpty, cursorContext } = params;
+  const { instruction, selectedText, format = 'markdown', selectionIsEmpty, cursorContext, filePath } = params;
 
   const selectedFence = format === 'markdown' ? 'markdown' : 'text';
+  const fileHeader = filePath ? [`Arquivo ativo: \`${filePath}\``, ''] : [];
 
   if (selectionIsEmpty) {
     return [
       instruction.trim(),
       '',
+      ...fileHeader,
       'IMPORTANTE: você NÃO recebeu um trecho selecionado.',
       'Faça uma INSERÇÃO no cursor atual (não peça para o usuário copiar/colar nada).',
       'Contexto ao redor do cursor (⟂ = cursor):',
@@ -89,6 +92,7 @@ export function buildEditorPatchPrompt(params: {
   return [
     instruction.trim(),
     '',
+    ...fileHeader,
     'Trecho selecionado:',
     '```' + selectedFence,
     selectedText.trimEnd(),

@@ -33,28 +33,19 @@ describe('useEditorInlineChatPatch', () => {
     eventHandler = null;
   });
 
-  it('encontra patch via tool calling', async () => {
+  it('retorna erro quando não há patch no corpo', async () => {
     messages = [
       {
         role: 'assistant',
-        toolCalls: JSON.stringify([{ function: { name: 'text_edit' }, id: 'call-1' }]),
-      },
-      {
-        role: 'tool',
-        toolCallId: 'call-1',
-        content: JSON.stringify({ patch: { v: 1, op: 'replace_selection', format: 'markdown', replacement: 'ok' } }),
+        content: 'Não vou alterar nada.',
       },
     ];
 
     const { result } = renderHook(() => useEditorInlineChatPatch());
 
-    const found = await result.current.waitForEditorPatch();
+    const found = await result.current.waitForEditorPatch({ timeoutMs: 200 });
 
-    expect(found.ok).toBe(true);
-    if (found.ok) {
-      expect(found.patch.replacement).toBe('ok');
-      expect(found.source).toBe('tool');
-    }
+    expect(found.ok).toBe(false);
   });
 
   it('usa fallback do corpo quando permitido', async () => {
@@ -67,7 +58,7 @@ describe('useEditorInlineChatPatch', () => {
 
     const { result } = renderHook(() => useEditorInlineChatPatch());
 
-    const found = await result.current.waitForEditorPatch({ preferToolCalling: false });
+    const found = await result.current.waitForEditorPatch({});
 
     expect(found.ok).toBe(true);
     if (found.ok) {

@@ -15,7 +15,7 @@ const mockWsSetActiveTab = vi.fn().mockResolvedValue(undefined);
 const mockWsAddTab = vi.fn().mockResolvedValue(undefined);
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
 
-let mockWsTabs: Array<{ id: string; type: string; contentId: string }> = [];
+let mockWsTabs: Array<{ id: string; type: string; conversationId?: number; state?: Record<string, unknown> }> = [];
 
 vi.mock('../store/workspaceStore', () => ({
   useWorkspaceStore: {
@@ -607,8 +607,8 @@ describe('executeDeepLink', () => {
   describe('conversation:open — dedup', () => {
     it('ativa aba existente se a conversa já está aberta', async () => {
       mockWsTabs = [
-        { id: 'tab-1', type: 'chat', contentId: '42' },
-        { id: 'tab-2', type: 'chat', contentId: '99' },
+        { id: 'tab-1', type: 'chat', conversationId: 42 },
+        { id: 'tab-2', type: 'chat', conversationId: 99 },
       ];
 
       await executeDeepLink(
@@ -622,14 +622,14 @@ describe('executeDeepLink', () => {
     });
 
     it('abre nova aba se a conversa não está aberta', async () => {
-      mockWsTabs = [{ id: 'tab-1', type: 'chat', contentId: '99' }];
+      mockWsTabs = [{ id: 'tab-1', type: 'chat', conversationId: 99 }];
 
       await executeDeepLink(
         { type: 'conversation:open', conversationId: 42 },
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '42', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
@@ -642,14 +642,14 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '7', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
     });
   });
 
   describe('conversation:send — dedup', () => {
     it('ativa aba existente se a conversa já está aberta', async () => {
-      mockWsTabs = [{ id: 'tab-5', type: 'chat', contentId: '10' }];
+      mockWsTabs = [{ id: 'tab-5', type: 'chat', conversationId: 10 }];
 
       await executeDeepLink(
         { type: 'conversation:send', conversationId: 10, message: 'oi' },
@@ -671,7 +671,7 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '10', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockLoadConversation).toHaveBeenCalledWith(10);
       expect(mockSendMessage).toHaveBeenCalledWith('oi');
@@ -679,11 +679,11 @@ describe('executeDeepLink', () => {
   });
 
   describe('conversation:new', () => {
-    it('cria conversa, abre aba com contentId e navega para chat', async () => {
+    it('cria conversa e abre aba', async () => {
       await executeDeepLink({ type: 'conversation:new' }, deps);
 
       expect(mockCreateConversation).toHaveBeenCalledWith('Nova Conversa');
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '100', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
       expect(mockNavigate).toHaveBeenCalledWith('/');
       expect(mockSendMessage).not.toHaveBeenCalled();
     });
@@ -695,7 +695,7 @@ describe('executeDeepLink', () => {
       );
 
       expect(mockCreateConversation).toHaveBeenCalled();
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '100', 'Nova Conversa');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Nova Conversa');
       expect(mockSendMessage).toHaveBeenCalledWith('analise isso');
     });
 
@@ -706,7 +706,7 @@ describe('executeDeepLink', () => {
       );
 
       expect(mockCreateConversation).toHaveBeenCalledWith('Minha Análise');
-      expect(mockWsAddTab).toHaveBeenCalledWith('chat', '100', 'Minha Análise');
+      expect(mockWsAddTab).toHaveBeenCalledWith('chat', 'Minha Análise');
     });
   });
 
@@ -749,9 +749,9 @@ describe('executeDeepLink', () => {
   });
 
   describe('tab:open — dedup', () => {
-    it('ativa aba existente se a tab já está aberta', async () => {
+    it('ativa aba existente se a tab já está aberta (tasklist)', async () => {
       mockWsTabs = [
-        { id: 'tab-10', type: 'tasklist', contentId: '5' },
+        { id: 'tab-10', type: 'tasklist', state: { tasklistId: '5' } },
       ];
 
       await executeDeepLink(
@@ -764,22 +764,22 @@ describe('executeDeepLink', () => {
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
-    it('cria nova aba se a tab não está aberta', async () => {
+    it('cria nova aba de tasklist se não está aberta', async () => {
       mockWsTabs = [];
 
       await executeDeepLink(
-        { type: 'tab:open', tabType: 'editor', contentId: 'doc-1' },
+        { type: 'tab:open', tabType: 'tasklist', contentId: '5' },
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('editor', 'doc-1', 'editor doc-1');
+      expect(mockWsAddTab).toHaveBeenCalledWith('tasklist', 'tasklist 5', { tasklistId: '5' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
-    it('diferencia tabs pelo tipo e contentId', async () => {
+    it('diferencia tabs pelo tipo', async () => {
       mockWsTabs = [
-        { id: 'tab-20', type: 'editor', contentId: '5' },
+        { id: 'tab-20', type: 'editor' },
       ];
 
       await executeDeepLink(
@@ -787,7 +787,7 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('tasklist', '5', 'tasklist 5');
+      expect(mockWsAddTab).toHaveBeenCalledWith('tasklist', 'tasklist 5', { tasklistId: '5' });
       expect(mockWsSetActiveTab).not.toHaveBeenCalled();
     });
   });
@@ -799,7 +799,7 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('tasklist', '', 'Sprint 23');
+      expect(mockWsAddTab).toHaveBeenCalledWith('tasklist', 'Sprint 23');
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
@@ -809,20 +809,25 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('editor', '', 'Novo Editor');
+      expect(mockWsAddTab).toHaveBeenCalledWith('editor', 'Novo Editor');
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
     it('cria aba de editor com arquivo', async () => {
+      mockWsAddTab.mockResolvedValueOnce('tab-new-editor');
       await executeDeepLink(
         { type: 'tab:new', tabType: 'editor', file: '/tmp/test.md' },
         deps,
       );
 
       expect(mockEditorReadFile).toHaveBeenCalledWith('/tmp/test.md');
-      expect(mockCreateDocument).toHaveBeenCalledWith({ title: 'test.md', markdown: 'file content' });
-      expect(mockSetDocFilePath).toHaveBeenCalledWith('doc-new-id', '/tmp/test.md');
-      expect(mockWsAddTab).toHaveBeenCalledWith('editor', 'doc-new-id', 'test.md');
+      expect(mockWsAddTab).toHaveBeenCalledWith('editor', 'test.md', { filePath: '/tmp/test.md' });
+      expect(mockCreateDocument).toHaveBeenCalledWith({
+        id: 'tab-new-editor',
+        title: 'test.md',
+        markdown: 'file content',
+        filePath: '/tmp/test.md',
+      });
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });
 
@@ -833,7 +838,7 @@ describe('executeDeepLink', () => {
         deps,
       );
 
-      expect(mockWsAddTab).toHaveBeenCalledWith('terminal', '', 'Terminal');
+      expect(mockWsAddTab).toHaveBeenCalledWith('terminal', 'Terminal');
       expect(mockRunTerminalCommand).not.toHaveBeenCalled();
       expect(mockNavigate).toHaveBeenCalledWith('/');
     });

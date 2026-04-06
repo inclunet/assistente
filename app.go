@@ -226,7 +226,6 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("[App] WindowShow chamado após startup")
 	}()
 }
-
 // shutdown é chamado quando o app fecha
 func (a *App) shutdown(_ context.Context) {
 	a.stopAllEditorWatches()

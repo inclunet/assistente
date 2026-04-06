@@ -301,6 +301,30 @@ func (m *Manager) SetProfile(profileSlug string) error {
 
 // === Tab operations ===
 
+// findDuplicateTab verifica se já existe uma aba equivalente no workspace ativo.
+// Dedup por conversationId (chat) ou por state key (editor/terminal/tasklist).
+func (m *Manager) findDuplicateTab(tab *Tab) *Tab {
+	switch tab.Type {
+	case TabTypeChat:
+		if tab.ConversationID > 0 {
+			return m.active.FindTabByConversation(tab.ConversationID)
+		}
+	case TabTypeEditor:
+		if fp, ok := tab.State["filePath"].(string); ok && fp != "" {
+			return m.active.FindTabByState(TabTypeEditor, "filePath", fp)
+		}
+	case TabTypeTerminal:
+		if sid, ok := tab.State["sessionId"].(string); ok && sid != "" {
+			return m.active.FindTabByState(TabTypeTerminal, "sessionId", sid)
+		}
+	case TabTypeTasklist:
+		if tid, ok := tab.State["tasklistId"].(string); ok && tid != "" {
+			return m.active.FindTabByState(TabTypeTasklist, "tasklistId", tid)
+		}
+	}
+	return nil
+}
+
 // AddTab adiciona uma aba ao workspace ativo.
 func (m *Manager) AddTab(tab Tab) error {
 	m.mu.Lock()
@@ -315,12 +339,10 @@ func (m *Manager) AddTab(tab Tab) error {
 	}
 
 	// Regra: no máximo 1 aba por conteúdo por workspace
-	if tab.ContentID != "" {
-		if existing := m.active.FindTabByContent(tab.Type, tab.ContentID); existing != nil {
-			// Já existe — ativa essa aba em vez de criar duplicata
-			m.active.Tabs.Active = existing.ID
-			return m.saveWorkspace(m.active, m.activePath)
-		}
+	if existing := m.findDuplicateTab(&tab); existing != nil {
+		// Já existe — ativa essa aba em vez de criar duplicata
+		m.active.Tabs.Active = existing.ID
+		return m.saveWorkspace(m.active, m.activePath)
 	}
 
 	// Posição no final se não especificada
@@ -413,8 +435,10 @@ func (m *Manager) UpdateTab(tabID string, updates map[string]any) error {
 	if title, ok := updates["title"].(string); ok {
 		tab.Title = title
 	}
-	if contentID, ok := updates["content_id"].(string); ok {
-		tab.ContentID = contentID
+	if convID, ok := updates["conversation_id"].(int64); ok {
+		tab.ConversationID = convID
+	} else if convIDFloat, ok := updates["conversation_id"].(float64); ok {
+		tab.ConversationID = int64(convIDFloat)
 	}
 	if state, ok := updates["state"].(map[string]any); ok {
 		tab.State = state
@@ -478,10 +502,9 @@ func (m *Manager) MoveTabToWorkspace(tabID, targetWorkspaceID string) error {
 	}
 
 	// Regra: no máximo 1 aba por conteúdo por workspace
-	if tabCopy.ContentID != "" {
-		if existing := targetWs.FindTabByContent(tabCopy.Type, tabCopy.ContentID); existing != nil {
-			return fmt.Errorf("content already open in target workspace")
-		}
+	targetMgr := &Manager{active: targetWs}
+	if existing := targetMgr.findDuplicateTab(&tabCopy); existing != nil {
+		return fmt.Errorf("content already open in target workspace")
 	}
 
 	// Remove do workspace ativo
@@ -637,12 +660,68 @@ func (m *Manager) loadWorkspaceFile(path string) (*Workspace, error) {
 		return nil, fmt.Errorf("failed to parse workspace file: %w", err)
 	}
 
+	// Migração de formato antigo: content_id → campos corretos
+	needsSave := false
+	for i := range ws.Tabs.Items {
+		t := &ws.Tabs.Items[i]
+		if t.ContentID == "" {
+			continue
+		}
+		needsSave = true
+		switch t.Type {
+		case TabTypeChat:
+			// content_id era o conversation ID (número como string)
+			if t.ConversationID == 0 {
+				if id := parseIntID(t.ContentID); id > 0 {
+					t.ConversationID = id
+				}
+			}
+		case TabTypeTerminal:
+			if t.State == nil {
+				t.State = map[string]any{}
+			}
+			if _, ok := t.State["sessionId"]; !ok {
+				t.State["sessionId"] = t.ContentID
+			}
+		case TabTypeTasklist:
+			if t.State == nil {
+				t.State = map[string]any{}
+			}
+			if _, ok := t.State["tasklistId"]; !ok {
+				t.State["tasklistId"] = t.ContentID
+			}
+		case TabTypeEditor:
+			// UUID interno do editor — descartado; filePath vem de state
+		}
+		t.ContentID = "" // limpa campo legado
+	}
+
 	// Ordena tabs por posição
 	sort.Slice(ws.Tabs.Items, func(i, j int) bool {
 		return ws.Tabs.Items[i].Position < ws.Tabs.Items[j].Position
 	})
 
+	// Persiste migração imediatamente para não repetir no próximo load
+	if needsSave {
+		_ = m.saveWorkspace(&ws, filepath.Dir(filepath.Dir(path))) // basePath = dir acima de .assistente/
+	}
+
 	return &ws, nil
+}
+
+// parseIntID converte string para int64; retorna 0 se inválido.
+func parseIntID(s string) int64 {
+	if s == "" {
+		return 0
+	}
+	var n int64
+	for _, c := range s {
+		if c < '0' || c > '9' {
+			return 0
+		}
+		n = n*10 + int64(c-'0')
+	}
+	return n
 }
 
 func (m *Manager) saveWorkspace(ws *Workspace, basePath string) error {
