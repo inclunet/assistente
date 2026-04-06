@@ -341,3 +341,50 @@ func contains(s, substr string) bool {
 	}
 	return false
 }
+
+// TestProviderConfig_SupportsTTS verifica SupportsTTS por APIFormat
+func TestProviderConfig_SupportsTTS(t *testing.T) {
+	tests := []struct {
+		name      string
+		apiFormat APIFormat
+		baseURL   string
+		want      bool
+	}{
+		{"openai explicit", APIFormatOpenAI, "https://litellm.example.com/v1", true},
+		{"openai_responses explicit", APIFormatOpenAIResponses, "https://api.openai.com/v1", true},
+		{"anthropic", APIFormatAnthropic, "https://api.anthropic.com/v1", false},
+		{"google", APIFormatGoogle, "https://generativelanguage.googleapis.com/v1", false},
+		{"empty inferred openai", "", "https://litellm.example.com/v1", true},
+		{"empty inferred openai_responses", "", "https://api.openai.com/v1", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &ProviderConfig{APIFormat: tt.apiFormat, BaseURL: tt.baseURL}
+			if got := p.SupportsTTS(); got != tt.want {
+				t.Errorf("SupportsTTS() = %v, want %v (apiFormat=%q, baseURL=%q)", got, tt.want, tt.apiFormat, tt.baseURL)
+			}
+		})
+	}
+}
+
+// TestProviderConfig_SupportsSTT verifica SupportsSTT por APIFormat
+func TestProviderConfig_SupportsSTT(t *testing.T) {
+	tests := []struct {
+		name      string
+		apiFormat APIFormat
+		want      bool
+	}{
+		{"openai", APIFormatOpenAI, true},
+		{"openai_responses", APIFormatOpenAIResponses, true},
+		{"anthropic", APIFormatAnthropic, false},
+		{"google", APIFormatGoogle, false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			p := &ProviderConfig{APIFormat: tt.apiFormat, BaseURL: "https://example.com"}
+			if got := p.SupportsSTT(); got != tt.want {
+				t.Errorf("SupportsSTT() = %v, want %v (apiFormat=%q)", got, tt.want, tt.apiFormat)
+			}
+		})
+	}
+}

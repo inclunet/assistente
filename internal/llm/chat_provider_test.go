@@ -316,9 +316,9 @@ func TestProviderTimeout(t *testing.T) {
 }
 
 func TestCredentialTransport_NilCredMgr(t *testing.T) {
-	tr := newCredentialTransport(nil, "test.com")
+	tr := credentials.NewCredentialTransport(nil, "test.com")
 	if tr == nil {
-		t.Fatal("newCredentialTransport returned nil")
+		t.Fatal("NewCredentialTransport returned nil")
 	}
 }
 

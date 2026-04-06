@@ -144,3 +144,47 @@ func TestNotifier_DifferentConversations(t *testing.T) {
 		t.Fatalf("expected 1 pending, got %d", n.PendingCount())
 	}
 }
+
+func TestNotifier_Cancel(t *testing.T) {
+	n := NewResponseNotifier()
+
+	called := false
+	n.Register(1, ResponseCallback{
+		Channel: "sip",
+		ChatID:  "caller@pbx",
+		TraceID: "trace-cancel-test",
+		Callback: func(response string, msgID uint) {
+			called = true
+		},
+	})
+
+	if n.PendingCount() != 1 {
+		t.Fatalf("expected 1 pending, got %d", n.PendingCount())
+	}
+
+	// Cancel remove sem chamar callback
+	n.Cancel(1)
+
+	if n.PendingCount() != 0 {
+		t.Fatalf("expected 0 pending after cancel, got %d", n.PendingCount())
+	}
+
+	// Notify após cancel não deve chamar callback
+	n.Notify(1, "late response", 42)
+	time.Sleep(50 * time.Millisecond)
+
+	if called {
+		t.Fatal("callback should not have been called after cancel")
+	}
+}
+
+func TestNotifier_CancelNonExistent(t *testing.T) {
+	n := NewResponseNotifier()
+
+	// Cancel de conversa inexistente não deve causar panic
+	n.Cancel(999)
+
+	if n.PendingCount() != 0 {
+		t.Fatalf("expected 0 pending, got %d", n.PendingCount())
+	}
+}

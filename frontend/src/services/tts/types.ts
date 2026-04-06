@@ -9,11 +9,14 @@ export enum TTSProvider {
   OPENAI = 'openai'
 }
 
+/**
+ * Representa uma voz disponível para síntese
+ */
 export interface TTSVoice {
   id: string;
   name: string;
   language: string;
-  provider: TTSProvider;
+  provider: TTSProvider | string; // Aceita strings para provedores dinâmicos (LLM)
   gender?: 'male' | 'female' | 'neutral';
   premium?: boolean;
   localService?: boolean;

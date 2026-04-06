@@ -15,3 +15,9 @@
   opacity: 0.6;
   pointer-events: none;
 }
+
+.profile-voice-section__actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: var(--spacing-xs, 0.5rem);
+}

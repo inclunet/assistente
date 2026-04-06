@@ -29,9 +29,7 @@ func TestIntegration_FirstMessageAgenticLoopDefaultLimit(t *testing.T) {
 			EnabledTools: []string{"web_search", "calculator", "file_read"},
 			// MaxAgenticIterations NOT SET → uses default 25
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	// 2. Validar que profile não tem MaxAgenticIterations configurado
@@ -114,9 +112,7 @@ func TestIntegration_FirstMessageAgenticLoopCustomLimit(t *testing.T) {
 				MaxAgenticIterations: l.limit, // Custom limit
 				ResponseTimeout:      90,      // 90s para múltiplas iterações
 			},
-			Voice: profiles.VoiceConfig{
-				Disabled: true,
-			},
+			Voice: profiles.VoiceConfig{},
 		}
 
 		if profile.Chat.MaxAgenticIterations != l.limit {
@@ -186,9 +182,7 @@ func TestIntegration_FirstMessageAgenticLoopHitLimit(t *testing.T) {
 			MaxAgenticIterations: 5, // Limite bem baixo para teste
 			ResponseTimeout:      30,
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	// 2. Criar conversa
@@ -265,9 +259,7 @@ func TestIntegration_FirstMessageAgenticLoopWithinLimit(t *testing.T) {
 			MaxAgenticIterations: 100, // Limite alto
 			ResponseTimeout:      60,
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	if profile.Chat.MaxAgenticIterations != 100 {
@@ -338,9 +330,7 @@ func TestIntegration_FirstMessageAgenticLoopExceedsLimit(t *testing.T) {
 			MaxAgenticIterations: 50, // Limite: 50
 			ResponseTimeout:      90,
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	if profile.Chat.MaxAgenticIterations != 50 {
@@ -411,9 +401,7 @@ func TestIntegration_FirstMessageAgenticLoopTokenCounting(t *testing.T) {
 			MaxAgenticIterations: 50,
 			ResponseTimeout:      60,
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	// 2. Criar conversa
@@ -502,9 +490,7 @@ func TestIntegration_FirstMessageAgenticLoopTimeoutProtection(t *testing.T) {
 			MaxAgenticIterations: 100, // Limite alto
 			ResponseTimeout:      10,  // Timeout curto (10s)
 		},
-		Voice: profiles.VoiceConfig{
-			Disabled: true,
-		},
+		Voice: profiles.VoiceConfig{},
 	}
 
 	// 2. Criar conversa

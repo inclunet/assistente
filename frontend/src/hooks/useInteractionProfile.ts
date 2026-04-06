@@ -43,13 +43,13 @@ import { GetActiveProfile, GetProfile } from '@wailsjs/go/main/App';
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { profiles } from '../../wailsjs/go/models';
 import { playSound, SOUND_TYPES } from '../services/audioFeedback';
-import { ttsService } from '../services/tts';
+import { ttsService, type RoleVoiceConfig } from '../services/tts';
 import { TTSProvider } from '../services/tts/types';
 
 // Tipos re-exportados do novo sistema de perfis
 type Profile = profiles.Profile;
 type TriggerConfig = profiles.TriggerConfig;
-type InteractionConfig = profiles.InteractionConfig;
+type InputConfig = profiles.InputConfig;
 
 // Singleton para evitar múltiplas instâncias processando o mesmo evento
 let hotkeyEventCleanup: (() => void) | null = null;
@@ -221,13 +221,13 @@ function getWakewordConfigFromTriggers(triggers?: TriggerConfig[]): {
   };
 }
 
-// Helpers para acessar interaction config do perfil unificado
-function getInteractionConfig(profile: Profile | null): InteractionConfig | null {
-  return profile?.interaction ?? null;
+// Helpers para acessar input config do perfil unificado
+function getInputConfig(profile: Profile | null): InputConfig | null {
+  return profile?.input ?? null;
 }
 
 function getTriggers(profile: Profile | null): TriggerConfig[] | undefined {
-  return profile?.interaction?.triggers;
+  return profile?.input?.triggers;
 }
 
 export function useInteractionProfile(options: UseInteractionProfileOptions = {}): UseInteractionProfileReturn {
@@ -293,8 +293,8 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     }
   }, [effectiveProfileSlug]);
 
-  // Interaction config do perfil ativo
-  const interactionConfig = getInteractionConfig(activeProfile);
+  // Input config do perfil ativo
+  const inputConfig = getInputConfig(activeProfile);
   const triggers = getTriggers(activeProfile);
 
   // Mapeia STT provider do perfil para o formato do useSTT
@@ -325,8 +325,8 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     updateConfig,
     init: initSTT,
   } = useSTT({
-    provider: mapSTTProvider(interactionConfig?.stt_provider),
-    language: interactionConfig?.language || 'pt-BR',
+    provider: mapSTTProvider(inputConfig?.stt_provider),
+    language: inputConfig?.language || 'pt-BR',
     mode: vadConfig.mode,
     silenceDuration: vadConfig.silenceDuration,
     silenceThreshold: vadConfig.silenceThreshold,
@@ -338,7 +338,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       setInterimText('');
       
       // Feedback sonoro
-      if (interactionConfig?.feedback_sounds) {
+      if (inputConfig?.feedback_sounds) {
         playSound(SOUND_TYPES.RECORD_END);
       }
       
@@ -375,7 +375,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     
     onNoSpeechDetected: () => {
       setIsActive(false);
-      if (interactionConfig?.feedback_sounds) {
+      if (inputConfig?.feedback_sounds) {
         playSound(SOUND_TYPES.ERROR);
       }
     },
@@ -397,7 +397,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     lastRecognizedText: wakewordLastText,
   } = useWakewordDetection({
     keyword: wakewordConfig?.keyword || 'assistente',
-    language: interactionConfig?.language || 'pt-BR',
+    language: inputConfig?.language || 'pt-BR',
     sensitivity: wakewordConfig?.sensitivity || 0.5,
     onDetected: async (keyword, _fullText) => {
       // Para a escuta de wakeword temporariamente
@@ -407,7 +407,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       callbacksRef.current.onWakeWordDetected?.(keyword);
       
       // Feedback sonoro
-      if (interactionConfig?.feedback_sounds) {
+      if (inputConfig?.feedback_sounds) {
         playSound(SOUND_TYPES.RECORD_START);
       }
       
@@ -435,10 +435,10 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
 
   // Atualiza config de STT quando perfil muda
   useEffect(() => {
-    if (interactionConfig) {
-      const config = getVADConfigFromTriggers(interactionConfig.triggers);
-      setProvider(mapSTTProvider(interactionConfig.stt_provider));
-      setLanguage(interactionConfig.language || 'pt-BR');
+    if (inputConfig) {
+      const config = getVADConfigFromTriggers(inputConfig.triggers);
+      setProvider(mapSTTProvider(inputConfig.stt_provider));
+      setLanguage(inputConfig.language || 'pt-BR');
       setMode(config.mode);
       updateConfig({
         silenceDuration: config.silenceDuration,
@@ -447,15 +447,15 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
         activityDuration: config.activityDuration,
       });
     }
-  }, [interactionConfig, setProvider, setLanguage, setMode, updateConfig]);
+  }, [inputConfig, setProvider, setLanguage, setMode, updateConfig]);
 
   // Sincroniza configurações de TTS quando o perfil ativo muda
   // O ttsService é a única fonte de verdade para TTS — sem intermediários
   useEffect(() => {
     if (!activeProfile) return;
 
-    const voiceConfig = activeProfile.voice;
-    const isDisabled = !voiceConfig || voiceConfig.provider === 'disabled';
+    const assistantVoice = activeProfile.voice?.assistant;
+    const isDisabled = !assistantVoice || !assistantVoice.enabled || assistantVoice.provider === 'disabled';
 
     const syncTTS = async () => {
       if (isDisabled) {
@@ -475,23 +475,52 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
         }
       };
 
-      // Ativa e configura TTS
-      ttsService.setEnabled(true);
-      ttsService.setAutoRead(voiceConfig.enabled_for_agent);
-      ttsService.setEnabledForUser(voiceConfig.enabled_for_user);
+      // Resolve o providerId efetivo para uso com speakAsRole
+      // "openai" + llm_provider_id → usa o llm_provider_id diretamente
+      // "webspeech" / "sapi5" → usa como está
+      const resolveProviderId = (voice: { provider?: string; llm_provider_id?: string } | undefined): string => {
+        if (!voice) return 'webspeech';
+        if (voice.provider === 'openai' && voice.llm_provider_id) return voice.llm_provider_id;
+        return voice.provider || 'webspeech';
+      };
 
-      // Configura provider e voz
-      const ttsProvider = mapTTSProvider(voiceConfig.provider);
+      // Ativa e configura flags globais
+      ttsService.setEnabled(true);
+      ttsService.setAutoRead(assistantVoice.enabled);
+      ttsService.setEnabledForUser(activeProfile.voice?.user?.enabled || false);
+
+      // Configura provider e voz padrão (assistant) para compatibilidade
+      const ttsProvider = mapTTSProvider(assistantVoice.provider);
       await ttsService.setProvider(ttsProvider);
 
-      if (voiceConfig.voice_id) {
-        await ttsService.setVoice(voiceConfig.voice_id);
+      if (assistantVoice.voice_id) {
+        await ttsService.setVoice(assistantVoice.voice_id);
       }
 
-      // Configura parâmetros
-      await ttsService.setRate(voiceConfig.rate || 1.0);
-      ttsService.setPitch(voiceConfig.pitch || 1.0);
-      await ttsService.setVolume(voiceConfig.volume || 1.0);
+      await ttsService.setRate(assistantVoice.rate || 1.0);
+      ttsService.setPitch(assistantVoice.pitch || 1.0);
+      await ttsService.setVolume(assistantVoice.volume || 1.0);
+
+      // Configura voice configs por role para speakAsRole()
+      const makeRoleConfig = (voice: { provider?: string; llm_provider_id?: string; voice_id?: string; model?: string; rate?: number; volume?: number } | undefined): RoleVoiceConfig => ({
+        providerId: resolveProviderId(voice),
+        voiceId: voice?.voice_id || '',
+        model: voice?.model || '',
+        rate: voice?.rate || 1.0,
+        volume: voice?.volume || 1.0,
+      });
+
+      ttsService.setRoleConfig('assistant', makeRoleConfig(assistantVoice));
+
+      const userVoice = activeProfile.voice?.user;
+      if (userVoice?.enabled) {
+        ttsService.setRoleConfig('user', makeRoleConfig(userVoice));
+      }
+
+      const systemVoice = activeProfile.voice?.system;
+      if (systemVoice?.enabled) {
+        ttsService.setRoleConfig('system', makeRoleConfig(systemVoice));
+      }
     };
 
     syncTTS().catch((err) => {
@@ -511,19 +540,19 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     shouldRestartWakewordRef.current = true;
     wakewordStartListening();
     
-    if (interactionConfig?.feedback_sounds) {
+    if (inputConfig?.feedback_sounds) {
       playSound(SOUND_TYPES.RECORD_START);
     }
-  }, [wakewordStartListening, interactionConfig]);
+  }, [wakewordStartListening, inputConfig]);
 
   const stopWakewordListening = useCallback(() => {
     shouldRestartWakewordRef.current = false;
     wakewordStopListening();
     
-    if (interactionConfig?.feedback_sounds) {
+    if (inputConfig?.feedback_sounds) {
       playSound(SOUND_TYPES.RECORD_END);
     }
-  }, [wakewordStopListening, interactionConfig]);
+  }, [wakewordStopListening, inputConfig]);
 
   const toggleWakewordListening = useCallback(() => {
     if (wakewordIsListening) {
@@ -555,12 +584,12 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     setIsActive(true);
     
     // Feedback sonoro
-    if (interactionConfig?.feedback_sounds) {
+    if (inputConfig?.feedback_sounds) {
       playSound(SOUND_TYPES.RECORD_START);
     }
     
     await startRecording();
-  }, [isActive, interactionConfig, startRecording, sttInitialized, initSTT]);
+  }, [isActive, inputConfig, startRecording, sttInitialized, initSTT]);
 
   // Para interação
   const stopInteraction = useCallback(() => {
@@ -574,10 +603,10 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     setIsActive(false);
     setInterimText('');
     
-    if (interactionConfig?.feedback_sounds) {
+    if (inputConfig?.feedback_sounds) {
       playSound(SOUND_TYPES.ERROR);
     }
-  }, [cancelRecording, interactionConfig]);
+  }, [cancelRecording, inputConfig]);
 
   // Toggle interação - usa sttRecording (estado real) em vez de isActive (estado local)
   // Para modo wakeword, faz toggle da escuta de wakeword (não da gravação)
@@ -639,13 +668,16 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     loadActiveProfile();
 
     // Escuta eventos de mudança de perfil
-    let cleanup: (() => void) | undefined;
+    const unsubs: Array<() => void> = [];
     
     const setupListener = async () => {
       try {
-        cleanup = EventsOn('profile:changed', () => {
+        unsubs.push(EventsOn('profile:changed', () => {
           loadActiveProfile();
-        });
+        }));
+        unsubs.push(EventsOn('profile:updated', () => {
+          loadActiveProfile();
+        }));
       } catch (err) {
         console.warn('[useInteractionProfile] Falha ao registrar listener profile:changed:', err);
       }
@@ -654,7 +686,7 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
     setupListener();
 
     return () => {
-      cleanup?.();
+      unsubs.forEach((unsub) => unsub());
     };
   }, [loadActiveProfile]);
 

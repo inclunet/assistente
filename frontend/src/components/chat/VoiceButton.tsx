@@ -84,13 +84,13 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   });
 
   // Acessa triggers do perfil unificado
-  const interactionTriggers = activeProfile?.interaction?.triggers;
+  const inputTriggers = activeProfile?.input?.triggers;
 
   // Determina o modo de interação baseado nos triggers do perfil
   const getInteractionMode = useCallback((): InteractionMode => {
-    if (!interactionTriggers) return 'ptt';
+    if (!inputTriggers) return 'ptt';
     
-    const enabledTriggers = interactionTriggers.filter((t: TriggerConfig) => t.enabled);
+    const enabledTriggers = inputTriggers.filter((t: TriggerConfig) => t.enabled);
     
     // Prioridade: wakeword > vad > button_ptt > button_toggle
     const hasWakeword = enabledTriggers.some((t: TriggerConfig) => t.type === 'wakeword');
@@ -107,7 +107,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
     
     // Default: PTT
     return 'ptt';
-  }, [interactionTriggers]);
+  }, [inputTriggers]);
 
   const mode = getInteractionMode();
   
@@ -221,7 +221,7 @@ export const VoiceButton: React.FC<VoiceButtonProps> = ({
   const isProcessingState = isProcessing;
 
   // Labels e descrições por modo
-  const wakewordKeyword = interactionTriggers?.find((tr: TriggerConfig) => tr.type === 'wakeword')?.wakeword_keyword || t('voice.wakeWord');
+  const wakewordKeyword = inputTriggers?.find((tr: TriggerConfig) => tr.type === 'wakeword')?.wakeword_keyword || t('voice.wakeWord');
   const modeLabels: Record<InteractionMode, { short: string; idle: string; active: string; hint: string }> = {
     ptt: {
       short: 'PTT',

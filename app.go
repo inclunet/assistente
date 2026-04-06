@@ -88,6 +88,10 @@ type App struct {
 
 	// Jobs manager (event-driven automation)
 	jobMgr *jobs.Manager
+
+	// Streaming context management (barge-in support)
+	streamingMu       sync.Mutex
+	streamingContexts map[uint]context.CancelFunc // conversationID → cancel
 }
 
 // ==================== Tipos para Threads ====================
@@ -143,10 +147,11 @@ type StreamEvent struct {
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		hotkeyLastFired:  make(map[uint]time.Time),
-		hotkeyThrottleMs: 1000,
-		profileManager:   profiles.NewManager(),
-		llmRegistry:      llm.NewProviderRegistry(),
+		hotkeyLastFired:   make(map[uint]time.Time),
+		hotkeyThrottleMs:  1000,
+		profileManager:    profiles.NewManager(),
+		llmRegistry:       llm.NewProviderRegistry(),
+		streamingContexts: make(map[uint]context.CancelFunc),
 	}
 }
 

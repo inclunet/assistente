@@ -646,8 +646,8 @@ func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 
 	needsResolve := p.Chat.LLMProvider == profiles.DefaultProviderSentinel ||
 		p.Chat.Model == profiles.DefaultProviderSentinel ||
-		p.Voice.LLMProviderID == profiles.DefaultProviderSentinel ||
-		p.Interaction.LLMProviderID == profiles.DefaultProviderSentinel
+		p.Voice.Assistant.LLMProviderID == profiles.DefaultProviderSentinel ||
+		p.Input.LLMProviderID == profiles.DefaultProviderSentinel
 	if !needsResolve {
 		return p
 	}
@@ -661,7 +661,7 @@ func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 	resolved := *p
 	resolved.Chat = p.Chat
 	resolved.Voice = p.Voice
-	resolved.Interaction = p.Interaction
+	resolved.Input = p.Input
 
 	if resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel {
 		resolved.Chat.LLMProvider = defaultProvider.ID
@@ -669,11 +669,11 @@ func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 	if resolved.Chat.Model == profiles.DefaultProviderSentinel {
 		resolved.Chat.Model = defaultProvider.DefaultModel
 	}
-	if resolved.Voice.LLMProviderID == profiles.DefaultProviderSentinel {
-		resolved.Voice.LLMProviderID = defaultProvider.ID
+	if resolved.Voice.Assistant.LLMProviderID == profiles.DefaultProviderSentinel {
+		resolved.Voice.Assistant.LLMProviderID = defaultProvider.ID
 	}
-	if resolved.Interaction.LLMProviderID == profiles.DefaultProviderSentinel {
-		resolved.Interaction.LLMProviderID = defaultProvider.ID
+	if resolved.Input.LLMProviderID == profiles.DefaultProviderSentinel {
+		resolved.Input.LLMProviderID = defaultProvider.ID
 	}
 
 	log.Printf("[ResolveDefaults] Resolvido $default → provider=%s, model=%s", defaultProvider.ID, defaultProvider.DefaultModel)

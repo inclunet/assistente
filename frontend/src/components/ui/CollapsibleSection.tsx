@@ -1,4 +1,4 @@
-import { ReactNode } from 'react';
+import { ReactNode, useId, useRef } from 'react';
 import { useTranslation } from 'react-i18next';
 import './CollapsibleSection.css';
 
@@ -45,13 +45,37 @@ export function CollapsibleSection({
   ariaLabel,
 }: CollapsibleSectionProps) {
   const { t } = useTranslation();
+  const baseId = useId();
+  const headerId = `collapsible-${baseId}-header`;
+  const regionId = `collapsible-${baseId}-region`;
+  const lastKeyToggleRef = useRef(false);
+
+  const handleKeyDown: React.KeyboardEventHandler<HTMLButtonElement> = (event) => {
+    if (event.key !== 'Enter' && event.key !== ' ') return;
+    event.preventDefault();
+    event.stopPropagation();
+    lastKeyToggleRef.current = true;
+    onToggle();
+  };
+
+  const handleClick: React.MouseEventHandler<HTMLButtonElement> = () => {
+    if (lastKeyToggleRef.current) {
+      lastKeyToggleRef.current = false;
+      return;
+    }
+    onToggle();
+  };
   return (
     <div className="collapsible-section" data-testid="collapsible-section">
       <button
         className="collapsible-section__header"
-        onClick={onToggle}
+        onClick={handleClick}
+        onKeyDown={handleKeyDown}
         aria-expanded={isOpen}
+        aria-controls={regionId}
         aria-label={ariaLabel || `${title} - ${isOpen ? t('ui.collapsible.close') : t('ui.collapsible.open')}`}
+        id={headerId}
+        type="button"
         disabled={disabled}
       >
         <span className="collapsible-section__icon">
@@ -67,11 +91,15 @@ export function CollapsibleSection({
           </span>
         )}
       </button>
-      {isOpen && (
-        <div className="collapsible-section__content" role="region">
-          {children}
-        </div>
-      )}
+      <div
+        className="collapsible-section__content"
+        role="region"
+        id={regionId}
+        aria-labelledby={headerId}
+        hidden={!isOpen}
+      >
+        {children}
+      </div>
     </div>
   );
 }

@@ -66,13 +66,13 @@ func (a *App) initMessaging() {
 
 		// Verifica se o provider de voz suporta canais externos
 		if profile != nil {
-			if profile.Voice.Provider == "disabled" || profile.Voice.Provider == "" {
+			if profile.Voice.Assistant.Provider == "disabled" || profile.Voice.Assistant.Provider == "" {
 				log.Printf("[TTS-Channel] Voz desabilitada no perfil para canal %s — respondendo com texto", channel)
 				return nil, nil
 			}
 			// WebSpeech e SAPI5 são providers locais do desktop — não funcionam para canais externos
-			if profile.Voice.Provider == "webspeech" || profile.Voice.Provider == "sapi5" {
-				log.Printf("[TTS-Channel] Provider '%s' é local e não suporta canais externos — respondendo com texto", profile.Voice.Provider)
+			if profile.Voice.Assistant.Provider == "webspeech" || profile.Voice.Assistant.Provider == "sapi5" {
+				log.Printf("[TTS-Channel] Provider '%s' é local e não suporta canais externos — respondendo com texto", profile.Voice.Assistant.Provider)
 				return nil, nil
 			}
 		}
@@ -84,8 +84,8 @@ func (a *App) initMessaging() {
 		// Usa a voz do perfil se especificada, senão usa Synthesize padrão
 		var result *speech.SynthesisResult
 		var err error
-		if profile != nil && profile.Voice.VoiceID != "" {
-			result, err = a.speechManager.SynthesizeWithVoice(text, profile.Voice.VoiceID)
+		if profile != nil && profile.Voice.Assistant.VoiceID != "" {
+			result, err = a.speechManager.SynthesizeWithVoice(text, profile.Voice.Assistant.VoiceID)
 		} else {
 			result, err = a.speechManager.Synthesize(text)
 		}

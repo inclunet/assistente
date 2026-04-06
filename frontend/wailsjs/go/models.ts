@@ -2474,23 +2474,25 @@ export namespace profiles {
 	        this.vad_activity_duration = source["vad_activity_duration"];
 	    }
 	}
-	export class InteractionConfig {
-	    disabled?: boolean;
+	export class InputConfig {
+	    enabled: boolean;
 	    stt_provider: string;
 	    llm_provider_id?: string;
+	    stt_model?: string;
 	    language: string;
 	    feedback_sounds: boolean;
 	    triggers?: TriggerConfig[];
 	
 	    static createFrom(source: any = {}) {
-	        return new InteractionConfig(source);
+	        return new InputConfig(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.disabled = source["disabled"];
+	        this.enabled = source["enabled"];
 	        this.stt_provider = source["stt_provider"];
 	        this.llm_provider_id = source["llm_provider_id"];
+	        this.stt_model = source["stt_model"];
 	        this.language = source["language"];
 	        this.feedback_sounds = source["feedback_sounds"];
 	        this.triggers = this.convertValues(source["triggers"], TriggerConfig);
@@ -2514,6 +2516,18 @@ export namespace profiles {
 		    return a;
 		}
 	}
+	export class ChannelsConfig {
+	    response_mode?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChannelsConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.response_mode = source["response_mode"];
+	    }
+	}
 	export class MediaSupport {
 	    audio?: boolean;
 	    image?: boolean;
@@ -2532,17 +2546,36 @@ export namespace profiles {
 	        this.video = source["video"];
 	    }
 	}
-	export class VoiceConfig {
-	    disabled?: boolean;
+	export class VoiceRoleConfig {
+	    enabled: boolean;
 	    provider: string;
 	    llm_provider_id?: string;
 	    voice_id?: string;
+	    model?: string;
 	    rate: number;
 	    pitch: number;
 	    volume: number;
-	    enabled_for_agent: boolean;
-	    enabled_for_user: boolean;
-	    channel_response_mode?: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new VoiceRoleConfig(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.enabled = source["enabled"];
+	        this.provider = source["provider"];
+	        this.llm_provider_id = source["llm_provider_id"];
+	        this.voice_id = source["voice_id"];
+	        this.model = source["model"];
+	        this.rate = source["rate"];
+	        this.pitch = source["pitch"];
+	        this.volume = source["volume"];
+	    }
+	}
+	export class VoiceConfig {
+	    assistant: VoiceRoleConfig;
+	    user: VoiceRoleConfig;
+	    system: VoiceRoleConfig;
 	
 	    static createFrom(source: any = {}) {
 	        return new VoiceConfig(source);
@@ -2550,17 +2583,28 @@ export namespace profiles {
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.disabled = source["disabled"];
-	        this.provider = source["provider"];
-	        this.llm_provider_id = source["llm_provider_id"];
-	        this.voice_id = source["voice_id"];
-	        this.rate = source["rate"];
-	        this.pitch = source["pitch"];
-	        this.volume = source["volume"];
-	        this.enabled_for_agent = source["enabled_for_agent"];
-	        this.enabled_for_user = source["enabled_for_user"];
-	        this.channel_response_mode = source["channel_response_mode"];
+	        this.assistant = this.convertValues(source["assistant"], VoiceRoleConfig);
+	        this.user = this.convertValues(source["user"], VoiceRoleConfig);
+	        this.system = this.convertValues(source["system"], VoiceRoleConfig);
 	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 	export class Profile {
 	    _builtin_version?: string;
@@ -2570,7 +2614,8 @@ export namespace profiles {
 	    active?: boolean;
 	    chat: ChatConfig;
 	    voice: VoiceConfig;
-	    interaction: InteractionConfig;
+	    input: InputConfig;
+	    channels?: ChannelsConfig;
 	    media_support?: MediaSupport;
 	
 	    static createFrom(source: any = {}) {
@@ -2586,7 +2631,8 @@ export namespace profiles {
 	        this.active = source["active"];
 	        this.chat = this.convertValues(source["chat"], ChatConfig);
 	        this.voice = this.convertValues(source["voice"], VoiceConfig);
-	        this.interaction = this.convertValues(source["interaction"], InteractionConfig);
+	        this.input = this.convertValues(source["input"], InputConfig);
+	        this.channels = this.convertValues(source["channels"], ChannelsConfig);
 	        this.media_support = this.convertValues(source["media_support"], MediaSupport);
 	    }
 	
@@ -3265,6 +3311,25 @@ export namespace skills {
 		    }
 		    return a;
 		}
+	}
+
+}
+
+export namespace speech {
+
+	export class SpeechModelInfo {
+	    id: string;
+	    name: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SpeechModelInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
 	}
 
 }

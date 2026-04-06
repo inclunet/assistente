@@ -19,7 +19,11 @@ vi.mock('@wailsjs/runtime/runtime', () => ({
 vi.mock('./BasePicker', () => ({
   BasePicker: (props: { items: Array<{ value: string }>; onSelect: (value: string) => void }) => (
     <div>
-      <button onClick={() => props.onSelect(props.items[0]?.value || '')}>Selecionar</button>
+      {props.items.map((item, i) => (
+        <button key={item.value} onClick={() => props.onSelect(item.value)}>
+          {i === 0 ? 'Selecionar' : `Selecionar-${item.value}`}
+        </button>
+      ))}
       <div data-testid="base-picker" data-items={props.items.length} />
     </div>
   ),
@@ -37,11 +41,33 @@ describe('ProfilePicker', () => {
     render(<ProfilePicker value="padrao" onChange={onChange} />);
 
     await waitFor(() => {
-      expect(screen.getByTestId('base-picker')).toHaveAttribute('data-items', '1');
+      // 2 items: "usar perfil ativo global" + "padrao"
+      expect(screen.getByTestId('base-picker')).toHaveAttribute('data-items', '2');
     });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Selecionar' }));
+    // Seleciona o perfil "padrao" (segundo item)
+    fireEvent.click(screen.getByRole('button', { name: 'Selecionar-padrao' }));
     expect(onChange).toHaveBeenCalledWith('padrao');
+    expect(setActiveSpy).not.toHaveBeenCalled();
+  });
+
+  it('dispara onChange com valor vazio ao selecionar perfil global', async () => {
+    getProfilesSpy.mockResolvedValueOnce([
+      { name: 'Padrao', slug: 'padrao', description: '', icon: '', source: 'local' },
+    ]);
+    getActiveSpy.mockResolvedValueOnce('padrao');
+
+    const onChange = vi.fn();
+
+    render(<ProfilePicker value="padrao" onChange={onChange} />);
+
+    await waitFor(() => {
+      expect(screen.getByTestId('base-picker')).toHaveAttribute('data-items', '2');
+    });
+
+    // Seleciona "usar perfil ativo global" (primeiro item, valor vazio)
+    fireEvent.click(screen.getByRole('button', { name: 'Selecionar' }));
+    expect(onChange).toHaveBeenCalledWith('');
     expect(setActiveSpy).not.toHaveBeenCalled();
   });
 });

@@ -663,9 +663,9 @@ func TestDefaultSentinel_RoutesToCorrectProvider(t *testing.T) {
 			Model:       profiles.DefaultProviderSentinel,
 		},
 		Voice: profiles.VoiceConfig{
-			LLMProviderID: profiles.DefaultProviderSentinel,
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: profiles.DefaultProviderSentinel},
 		},
-		Interaction: profiles.InteractionConfig{
+		Input: profiles.InputConfig{
 			LLMProviderID: profiles.DefaultProviderSentinel,
 		},
 	}
@@ -933,10 +933,10 @@ func TestDefaultSentinel_MixedProfilesRouteCorrectly(t *testing.T) {
 
 // testStreamHandler implements llm.StreamHandler for testing
 type testStreamHandler struct {
-	content  string
-	err      string
-	model    string
-	done     chan struct{}
+	content string
+	err     string
+	model   string
+	done    chan struct{}
 }
 
 func (h *testStreamHandler) OnChunk(content string)              { h.content += content }
