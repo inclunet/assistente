@@ -1,7 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useWorkspaceStore, WorkspaceTab, registerTabRenameHandler } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
-import { RenameConversation } from '@wailsjs/go/main/App';
+import { CreateConversation, RenameConversation } from '@wailsjs/go/main/App';
 
 /**
  * Sincroniza a aba ativa do workspace com o chatStore.
@@ -9,7 +9,7 @@ import { RenameConversation } from '@wailsjs/go/main/App';
  *
  * Fluxo:
  * 1. Workspace ativa qualquer aba
- * 2. Se conversationId vazio → cria conversa via chatStore.createConversation()
+ * 2. Se conversationId vazio → cria conversa NOVA (sempre fresh, sem reciclar)
  *    e salva o conversationId na aba do workspace
  * 3. Se conversationId existente → chatStore.loadConversation(id)
  * 4. Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
@@ -48,8 +48,11 @@ export function useWorkspaceChatBridge() {
   async function createConversationForTab(wsTab: WorkspaceTab) {
     creatingRef.current = true;
     try {
-      const conversationId = await useChatStore.getState().createConversation();
+      // Always create a fresh conversation — never recycle — so each tab gets its own unique conversation.
+      const conv = await CreateConversation('Nova Conversa', '');
+      const conversationId = conv.id;
       await updateWsTab(wsTab.id, { conversation_id: conversationId });
+      await useChatStore.getState().loadConversation(conversationId);
       lastSyncedRef.current = `${wsTab.id}:${conversationId}`;
     } catch (error) {
       console.error('[WorkspaceChatBridge] Erro ao criar conversa:', error);
