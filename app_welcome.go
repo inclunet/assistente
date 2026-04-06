@@ -3,7 +3,6 @@ package main
 import (
 	"assistente/internal/config"
 	"assistente/internal/credentials"
-	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
@@ -710,7 +709,7 @@ func (a *App) createWizardProvider(providerChoice, baseURL, apiKey, model string
 		return "", fmt.Errorf("erro ao persistir provedor: %w", err)
 	}
 
-	if err := database.SetDefaultProvider(info.ID); err != nil {
+	if err := a.providerSvc.SetDefault(info.ID); err != nil {
 		log.Printf("[Wizard] Aviso: erro ao marcar provedor como default: %v", err)
 	}
 
