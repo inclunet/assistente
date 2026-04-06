@@ -252,14 +252,14 @@ export default function HistoryPage() {
     handleDeleteConversation(item.id);
   }, [handleDeleteConversation]);
 
-  const handleSendToWorkspace = useCallback(async (conversationId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
+  const handleSendToWorkspace = useCallback(async (_conversationId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
       const tabTitle = title || t('chat.newConversation', 'Nova conversa');
       if (isActive) {
-        await addWorkspaceTab('chat', String(conversationId), tabTitle);
+        await addWorkspaceTab('chat', tabTitle);
         navigate('/');
       } else {
-        const tabId = await addWorkspaceTab('chat', String(conversationId), tabTitle);
+        const tabId = await addWorkspaceTab('chat', tabTitle);
         await moveTabToWorkspace(tabId, targetWorkspaceId);
       }
     } catch (error) {

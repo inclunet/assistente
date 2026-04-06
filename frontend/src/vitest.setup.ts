@@ -1,6 +1,11 @@
 import '@testing-library/jest-dom';
-import { vi } from 'vitest';
+import { vi, afterEach } from 'vitest';
+import { cleanup } from '@testing-library/react';
 import i18n from 'i18next';
+
+afterEach(() => {
+  cleanup();
+});
 import { initReactI18next } from 'react-i18next';
 import { TTSProvider } from './services/tts/types';
 

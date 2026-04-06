@@ -230,12 +230,16 @@ export function EditorDeleteDraft(arg1) {
   return window['go']['main']['App']['EditorDeleteDraft'](arg1);
 }
 
+export function EditorGetDraftPath(arg1) {
+  return window['go']['main']['App']['EditorGetDraftPath'](arg1);
+}
+
 export function EditorGetFileInfo(arg1) {
   return window['go']['main']['App']['EditorGetFileInfo'](arg1);
 }
 
-export function EditorLoadSession() {
-  return window['go']['main']['App']['EditorLoadSession']();
+export function EditorLoadState() {
+  return window['go']['main']['App']['EditorLoadState']();
 }
 
 export function EditorOpenFile() {
@@ -258,8 +262,8 @@ export function EditorSaveFileDialog(arg1) {
   return window['go']['main']['App']['EditorSaveFileDialog'](arg1);
 }
 
-export function EditorSaveSession(arg1) {
-  return window['go']['main']['App']['EditorSaveSession'](arg1);
+export function EditorSaveState(arg1) {
+  return window['go']['main']['App']['EditorSaveState'](arg1);
 }
 
 export function EditorUnwatchFile(arg1) {

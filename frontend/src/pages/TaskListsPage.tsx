@@ -256,10 +256,10 @@ export default function TaskListsPage() {
   const handleSendToWorkspace = useCallback(async (taskListId: number, title: string, targetWorkspaceId: string, isActive: boolean) => {
     try {
       if (isActive) {
-        await addTab('tasklist', String(taskListId), title);
+        await addTab('tasklist', title, { tasklistId: String(taskListId) });
         navigate('/');
       } else {
-        const tabId = await addTab('tasklist', String(taskListId), title);
+        const tabId = await addTab('tasklist', title, { tasklistId: String(taskListId) });
         await moveTabToWorkspace(tabId, targetWorkspaceId);
       }
       announce(t('tasklist.sentToWorkspace', 'Lista enviada ao workspace'));

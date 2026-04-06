@@ -16,15 +16,19 @@ const (
 )
 
 // Tab representa uma aba dentro de um workspace.
-// Aponta para um conteúdo persistente (conversa, arquivo, sessão de terminal, etc.).
+// Toda aba tem um ConversationID dedicado para seu chat inline.
+// Dados específicos do tipo (filePath, sessionId, tasklistId) ficam em State.
 type Tab struct {
-	ID              string            `json:"id" yaml:"id"`
-	Type            TabType           `json:"type" yaml:"type"`
-	ContentID       string            `json:"content_id" yaml:"content_id"`
-	Title           string            `json:"title" yaml:"title"`
-	Position        int               `json:"position" yaml:"position"`
-	ProfileOverride map[string]any    `json:"profile_override,omitempty" yaml:"profile_override,omitempty"`
-	State           map[string]any    `json:"state,omitempty" yaml:"state,omitempty"`
+	ID             string         `json:"id" yaml:"id"`
+	Type           TabType        `json:"type" yaml:"type"`
+	ConversationID int64          `json:"conversation_id,omitempty" yaml:"conversation_id,omitempty"`
+	Title          string         `json:"title" yaml:"title"`
+	Position       int            `json:"position" yaml:"position"`
+	ProfileOverride map[string]any `json:"profile_override,omitempty" yaml:"profile_override,omitempty"`
+	State          map[string]any `json:"state,omitempty" yaml:"state,omitempty"`
+
+	// ContentID: campo legado para migração de workspaces antigos. Ignorado após load.
+	ContentID string `json:"content_id,omitempty" yaml:"content_id,omitempty"`
 }
 
 // TabsState armazena qual aba está ativa e a lista de abas.
@@ -110,11 +114,28 @@ func (w *Workspace) FindTab(tabID string) *Tab {
 	return nil
 }
 
-// FindTabByContent encontra a primeira tab com o conteúdo e tipo especificados.
-func (w *Workspace) FindTabByContent(tabType TabType, contentID string) *Tab {
+// FindTabByConversation encontra a primeira tab com o conversationId especificado.
+func (w *Workspace) FindTabByConversation(conversationID int64) *Tab {
+	if conversationID == 0 {
+		return nil
+	}
 	for i := range w.Tabs.Items {
-		if w.Tabs.Items[i].Type == tabType && w.Tabs.Items[i].ContentID == contentID {
+		if w.Tabs.Items[i].ConversationID == conversationID {
 			return &w.Tabs.Items[i]
+		}
+	}
+	return nil
+}
+
+// FindTabByState encontra a primeira tab do tipo especificado com state[key] == value.
+func (w *Workspace) FindTabByState(tabType TabType, key, value string) *Tab {
+	for i := range w.Tabs.Items {
+		t := &w.Tabs.Items[i]
+		if t.Type != tabType {
+			continue
+		}
+		if v, ok := t.State[key].(string); ok && v == value {
+			return t
 		}
 	}
 	return nil

@@ -5,8 +5,8 @@ import { useTerminalStore } from '../store/terminalStore';
 /**
  * Sincroniza abas de terminal do workspace com o terminalStore.
  *
- * - contentId vazio → cria sessão via terminalStore.createSession()
- * - contentId existente → ativa sessão via terminalStore.setActiveSession()
+ * - state.sessionId vazio → cria sessão via terminalStore.createSession()
+ * - state.sessionId existente → ativa sessão via terminalStore.setActiveSession()
  * - Remoção de aba → fecha sessão via terminalStore.closeSession()
  */
 export function useWorkspaceTerminalBridge() {
@@ -17,14 +17,14 @@ export function useWorkspaceTerminalBridge() {
   const lastSyncedRef = useRef<string | null>(null);
   const creatingRef = useRef(false);
 
+  const sessionId = (activeTab?.state?.sessionId as string) || '';
+
   useEffect(() => {
     if (!isWsInitialized) return;
     if (!activeTab || activeTab.type !== 'terminal') return;
 
-    const syncKey = `${activeTab.id}:${activeTab.contentId}`;
+    const syncKey = `${activeTab.id}:${sessionId}`;
     if (lastSyncedRef.current === syncKey) return;
-
-    const sessionId = activeTab.contentId || '';
 
     if (sessionId) {
       const store = useTerminalStore.getState();
@@ -48,7 +48,7 @@ export function useWorkspaceTerminalBridge() {
     } else if (!creatingRef.current) {
       createSessionForTab(activeTab.id);
     }
-  }, [activeTab?.id, activeTab?.type, activeTab?.contentId, isWsInitialized]);
+  }, [activeTab?.id, activeTab?.type, sessionId, isWsInitialized]);
 
   async function recoverStaleSession(wsTabId: string) {
     creatingRef.current = true;
@@ -56,7 +56,7 @@ export function useWorkspaceTerminalBridge() {
       await useTerminalStore.getState().createSession();
       const newSessionId = useTerminalStore.getState().activeSessionId;
       if (newSessionId) {
-        await updateWsTab(wsTabId, { content_id: newSessionId });
+        await updateWsTab(wsTabId, { state: { sessionId: newSessionId } });
         lastSyncedRef.current = `${wsTabId}:${newSessionId}`;
       }
     } catch (error) {
@@ -72,7 +72,7 @@ export function useWorkspaceTerminalBridge() {
       await useTerminalStore.getState().createSession();
       const newSessionId = useTerminalStore.getState().activeSessionId;
       if (newSessionId) {
-        await updateWsTab(wsTabId, { content_id: newSessionId });
+        await updateWsTab(wsTabId, { state: { sessionId: newSessionId } });
         lastSyncedRef.current = `${wsTabId}:${newSessionId}`;
       }
     } catch (error) {
@@ -89,14 +89,15 @@ export function useWorkspaceTerminalBridge() {
       const wsTabs = state.workspace?.tabs || [];
       const currentTermTabs = new Map<string, string>();
       for (const t of wsTabs) {
-        if (t.type === 'terminal' && t.contentId) {
-          currentTermTabs.set(t.id, t.contentId);
+        const sid = t.state?.sessionId as string | undefined;
+        if (t.type === 'terminal' && sid) {
+          currentTermTabs.set(t.id, sid);
         }
       }
 
-      for (const [wsTabId, sessionId] of prevTermTabsRef.current) {
-        if (!currentTermTabs.has(wsTabId) && sessionId) {
-          void useTerminalStore.getState().closeSession(sessionId);
+      for (const [wsTabId, sid] of prevTermTabsRef.current) {
+        if (!currentTermTabs.has(wsTabId) && sid) {
+          void useTerminalStore.getState().closeSession(sid);
         }
       }
 
