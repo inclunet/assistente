@@ -34,7 +34,7 @@ function useAntdLocale(lang: string): Locale | undefined {
 
 function App() {
     const { theme } = useTheme();
-    const { i18n } = useTranslation();
+    const { t, i18n } = useTranslation();
     const navigate = useNavigate();
     const antLocale = useAntdLocale(i18n.language);
     const { setConfig, setLoading, setError } = useSettingsStore();
@@ -70,13 +70,13 @@ function App() {
                     try {
                         const completed = await RunWelcomeWizard();
                         if (!completed) {
-                            addToast('Configuração cancelada. Configure nas Configurações.', 'warning');
+                            addToast(t('app.wizard.cancelled'), 'warning');
                         } else {
-                            addToast('Configuração concluída com sucesso!', 'success', 5000);
+                            addToast(t('app.wizard.success'), 'success', 5000);
                         }
                     } catch (error) {
                         console.error('[App] Erro ao executar wizard:', error);
-                        addToast('Erro ao configurar. Verifique nas Configurações.', 'error');
+                        addToast(t('app.wizard.error'), 'error');
                     }
                 }
 
@@ -91,6 +91,7 @@ function App() {
                     };
                     default_model?: string;
                 };
+                const current = useSettingsStore.getState();
                 setConfig({
                     apiKey: config.api_key || '',
                     baseURL: config.api_base_url || 'https://api.openai.com/v1',
@@ -98,14 +99,14 @@ function App() {
                     temperature: config.chat_params?.temperature || 0.7,
                     maxTokens: config.chat_params?.max_tokens || 2000,
                     streamEnabled: config.chat_params?.stream ?? true,
-                    theme: 'assistente',
-                    language: 'pt-BR',
+                    theme: current.config?.theme || 'assistente',
+                    language: current.config?.language || 'pt-BR',
                 });
-                addToast('Configuração carregada!', 'success', 3000);
+                addToast(t('app.config.loaded'), 'success', 3000);
             } catch (error) {
                 console.error('Erro ao carregar configuração:', error);
-                setError('Erro ao carregar configuração');
-                addToast('Erro ao carregar configuração', 'error');
+                setError(t('app.config.loadError'));
+                addToast(t('app.config.loadError'), 'error');
             } finally {
                 setLoading(false);
             }
@@ -157,17 +158,17 @@ function App() {
 
         unsubs.push(EventsOn('chat:summary_started', (data: unknown) => {
             const eventData = data as { messageCount?: number };
-            addToast(`Sumarizando conversa (${eventData.messageCount ?? 0} mensagens)...`, 'info', 10000);
+            addToast(t('app.summary.started', { count: eventData.messageCount ?? 0 }), 'info', 10000);
         }));
 
         unsubs.push(EventsOn('chat:summary_completed', (data: unknown) => {
             const eventData = data as { messageCount?: number };
-            addToast(`Resumo da conversa atualizado (${eventData.messageCount ?? 0} mensagens resumidas)`, 'success', 5000);
+            addToast(t('app.summary.completed', { count: eventData.messageCount ?? 0 }), 'success', 5000);
         }));
 
         unsubs.push(EventsOn('chat:summary_error', (data: unknown) => {
             const eventData = data as { error?: string };
-            addToast(`Erro ao sumarizar conversa: ${eventData.error || ''}`, 'error');
+            addToast(t('app.summary.error', { error: eventData.error || '' }), 'error');
         }));
 
         return () => {
@@ -262,7 +263,7 @@ function App() {
                 await RespondQuestionnaire(questionnaireData.id, answers, false);
             } catch (err) {
                 console.error('[App] Erro ao enviar questionário:', err);
-                addToast('Erro ao enviar questionário', 'error');
+                addToast(t('app.questionnaire.submitError'), 'error');
             }
             setQuestionnaireOpen(false);
             setQuestionnaireData(null);

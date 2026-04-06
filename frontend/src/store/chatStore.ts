@@ -252,17 +252,6 @@ interface ChatStore {
 }
 
 export const useChatStore = create<ChatStore>()((set, get) => {
-  if (typeof window !== 'undefined') {
-    const keysToRemove: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const key = localStorage.key(i);
-      if (key && (key.includes('chat') || key.includes('tabs') || key.includes('zustand'))) {
-        keysToRemove.push(key);
-      }
-    }
-    keysToRemove.forEach(key => localStorage.removeItem(key));
-  }
-
   return {
     activeConversationId: null,
     activeConversation: null,
