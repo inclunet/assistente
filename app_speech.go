@@ -2,7 +2,6 @@ package main
 
 import (
 	"assistente/internal/config"
-	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/hotkey"
 	"assistente/internal/llm"
@@ -10,8 +9,6 @@ import (
 	"context"
 	"fmt"
 	"log"
-	"sort"
-	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -247,99 +244,6 @@ func (a *App) ensureSpeechManager() bool {
 	return a.speechManager != nil
 }
 
-func maskIdentifier(value string) string {
-	if value == "" {
-		return ""
-	}
-	if len(value) <= 4 {
-		return "****"
-	}
-	visible := value[len(value)-4:]
-	return strings.Repeat("*", len(value)-4) + visible
-}
-
-func maskCredentialValue(value string) string {
-	if value == "" {
-		return ""
-	}
-	if len(value) <= 4 {
-		return "••••"
-	}
-	return "••••" + value[len(value)-4:]
-}
-
-func summarizeAuth(auth *credentials.AuthConfig) string {
-	if auth == nil {
-		return ""
-	}
-	switch auth.Type {
-	case "bearer", "oauth2", "secret":
-		if credentials.IsExternalRef(auth.Token) {
-			return auth.Token
-		}
-		return maskCredentialValue(auth.Token)
-	case "basic":
-		if auth.Username == "" && auth.Password == "" {
-			return ""
-		}
-		pwd := maskCredentialValue(auth.Password)
-		if credentials.IsExternalRef(auth.Password) {
-			pwd = auth.Password
-		}
-		return fmt.Sprintf("%s:%s", auth.Username, pwd)
-	case "custom":
-		if len(auth.Headers) == 0 {
-			return ""
-		}
-		keys := make([]string, 0, len(auth.Headers))
-		for k := range auth.Headers {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		first := keys[0]
-		val := maskCredentialValue(auth.Headers[first])
-		if credentials.IsExternalRef(auth.Headers[first]) {
-			val = auth.Headers[first]
-		}
-		return fmt.Sprintf("%s: %s", first, val)
-	default:
-		return ""
-	}
-}
-
-func resolveSecretFromAuth(auth *credentials.AuthConfig) string {
-	if auth == nil {
-		return ""
-	}
-	if auth.Token != "" {
-		return auth.Token
-	}
-	if auth.Password != "" {
-		return auth.Password
-	}
-	if len(auth.Headers) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(auth.Headers))
-	for k := range auth.Headers {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return auth.Headers[keys[0]]
-}
-
-func (a *App) resolveCredentialRef(ref string) string {
-	if ref == "" || a.credMgr == nil {
-		return ""
-	}
-	auth, err := a.credMgr.GetByPattern(ref)
-	if err != nil {
-		log.Printf("[Credentials] Erro ao resolver referência %s: %v", ref, err)
-		return ""
-	}
-	return resolveSecretFromAuth(auth)
-}
-
 // TranscribeWhisper transcreve áudio usando OpenAI Whisper
 func (a *App) TranscribeWhisper(audioBase64 string, filename string) (*TranscriptionResultInfo, error) {
 	if !a.ensureSpeechManager() {
@@ -521,6 +425,12 @@ func (a *App) SetOpenAITTSSpeed(rate int) {
 // ============================================================================
 // Message Audio API (TTS storage)
 // ============================================================================
+
+// AudioResult é o resultado de busca/geração de áudio para o frontend.
+type AudioResult struct {
+	Audio    string `json:"audio"`
+	MimeType string `json:"mimeType"`
+}
 
 // GetMessageAudio retorna o áudio base64 e MIME type de uma mensagem.
 func (a *App) GetMessageAudio(messageID uint) (*AudioResult, error) {
