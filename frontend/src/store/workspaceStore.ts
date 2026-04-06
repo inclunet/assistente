@@ -436,3 +436,11 @@ export const useWorkspaceStore = create<WorkspaceStore>()((set, get) => ({
     return ws.tabs.filter(t => t.type === type);
   },
 }));
+
+// HMR: reseta estado do módulo para que o workspace reinicialize após hot reload
+if (import.meta.hot) {
+  import.meta.hot.dispose(() => {
+    initializingPromise = null;
+    useWorkspaceStore.setState({ isInitialized: false, workspace: null, workspaces: [] });
+  });
+}
