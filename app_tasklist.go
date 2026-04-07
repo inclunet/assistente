@@ -1,12 +1,8 @@
 package main
 
 import (
-	"context"
-
 	"assistente/internal/database"
 	"assistente/internal/tasklist"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Re-exporta tipos do database para compatibilidade com o frontend Wails
@@ -16,20 +12,11 @@ type TaskNote = database.TaskNote
 type TaskListWorkflow = database.TaskListWorkflow
 type TaskListWorkflowStatus = database.TaskListWorkflowStatus
 
-// wailsEmitter adapta runtime.EventsEmit para a interface tasklist.EventEmitter.
-type wailsEmitter struct {
-	ctx context.Context
-}
-
-func (e *wailsEmitter) Emit(event string, data ...interface{}) {
-	runtime.EventsEmit(e.ctx, event, data...)
-}
-
-// newTaskListService cria o TaskListService com o emitter Wails.
-func newTaskListService(ctx context.Context) *tasklist.Service {
+// newTaskListService cria o TaskListService com o emitter injetado.
+func (a *App) newTaskListService() *tasklist.Service {
 	return tasklist.NewService(tasklist.ServiceConfig{
 		Store:   tasklist.NewDBStore(),
-		Emitter: &wailsEmitter{ctx: ctx},
+		Emitter: a.emitter,
 	})
 }
 

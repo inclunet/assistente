@@ -10,7 +10,6 @@ import (
 	"assistente/internal/questionnaire"
 	"assistente/internal/updater"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -41,7 +40,7 @@ func (a *App) initUpdater() {
 			percentage = float64(bytesDownloaded) / float64(totalBytes) * 100
 		}
 
-		runtime.EventsEmit(a.ctx, "update:progress", map[string]interface{}{
+		a.emitter.Emit( "update:progress", map[string]interface{}{
 			"phase":           phase,
 			"bytesDownloaded": bytesDownloaded,
 			"totalBytes":      totalBytes,
@@ -184,7 +183,7 @@ func (a *App) promptForUpdate(info *updater.UpdateInfo) {
 	if confirm, ok := resp.Answers["confirm"].(bool); ok && confirm {
 		// Navega para página de atualização
 		if a.ctx != nil {
-			runtime.EventsEmit(a.ctx, "navigate:update", nil)
+			a.emitter.Emit( "navigate:update", nil)
 		}
 		go a.applyUpdateWithProgress()
 	}
@@ -220,7 +219,7 @@ func (a *App) StartUpdate() error {
 
 	// Emite evento para navegar para página de atualização
 	if a.ctx != nil {
-		runtime.EventsEmit(a.ctx, "navigate:update", nil)
+		a.emitter.Emit( "navigate:update", nil)
 	}
 
 	// Aguarda um pouco para garantir que a navegação ocorreu
@@ -233,7 +232,7 @@ func (a *App) StartUpdate() error {
 // applyUpdateWithProgress aplica a atualização com feedback de progresso
 func (a *App) applyUpdateWithProgress() {
 	// Emite evento de início
-	runtime.EventsEmit(a.ctx, "update:started", nil)
+	a.emitter.Emit( "update:started", nil)
 
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 	defer cancel()
@@ -243,14 +242,14 @@ func (a *App) applyUpdateWithProgress() {
 	err := a.updater.ApplyUpdate(ctx)
 	if err != nil {
 		log.Printf("[Updater] Erro ao aplicar atualização: %v", err)
-		runtime.EventsEmit(a.ctx, "update:error", map[string]interface{}{
+		a.emitter.Emit( "update:error", map[string]interface{}{
 			"error": err.Error(),
 		})
 		return
 	}
 
 	log.Printf("[Updater] Atualização aplicada com sucesso. Reinicie o aplicativo.")
-	runtime.EventsEmit(a.ctx, "update:completed", map[string]interface{}{
+	a.emitter.Emit( "update:completed", map[string]interface{}{
 		"message": "Atualização instalada com sucesso! Feche e reabra o aplicativo para aplicar as mudanças.",
 	})
 }

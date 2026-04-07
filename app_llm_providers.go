@@ -11,8 +11,6 @@ import (
 	"log"
 	"net/url"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -282,7 +280,7 @@ func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume
 		return fmt.Errorf("erro ao sintetizar: %w", err)
 	}
 
-	runtime.EventsEmit(a.ctx, "voice_profile:preview", map[string]interface{}{
+	a.emitter.Emit("voice_profile:preview", map[string]interface{}{
 		"audio_base64": result.AudioBase64,
 		"format":       result.Format,
 	})

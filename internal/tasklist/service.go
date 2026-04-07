@@ -8,7 +8,7 @@ import (
 // EventEmitter abstrai o envio de eventos para o frontend (Wails runtime).
 // Permite testar o Service sem dependência de Wails.
 type EventEmitter interface {
-	Emit(event string, data ...interface{})
+	Emit(event string, data any)
 }
 
 // ServiceConfig agrupa as dependências necessárias para criar um Service.

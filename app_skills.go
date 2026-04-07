@@ -7,7 +7,6 @@ import (
 	"log"
 	"os"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -100,7 +99,7 @@ func (a *App) CreateSkill(req SkillCreateRequest) (string, error) {
 		return "", err
 	}
 
-	runtime.EventsEmit(a.ctx, "skill:created", map[string]interface{}{
+	a.emitter.Emit( "skill:created", map[string]interface{}{
 		"slug": slug,
 		"name": req.Name,
 	})
@@ -124,7 +123,7 @@ func (a *App) DuplicateSkill(slug string) (string, error) {
 		name = copied.Name
 	}
 
-	runtime.EventsEmit(a.ctx, "skill:created", map[string]interface{}{
+	a.emitter.Emit( "skill:created", map[string]interface{}{
 		"slug": newSlug,
 		"name": name,
 	})
@@ -143,7 +142,7 @@ func (a *App) UpdateSkill(slug string, req SkillCreateRequest) error {
 		return err
 	}
 
-	runtime.EventsEmit(a.ctx, "skill:updated", map[string]interface{}{
+	a.emitter.Emit( "skill:updated", map[string]interface{}{
 		"slug": slug,
 		"name": req.Name,
 	})
@@ -161,7 +160,7 @@ func (a *App) DeleteSkill(slug string) error {
 		return err
 	}
 
-	runtime.EventsEmit(a.ctx, "skill:deleted", map[string]interface{}{
+	a.emitter.Emit( "skill:deleted", map[string]interface{}{
 		"slug": slug,
 	})
 

@@ -8,7 +8,6 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/workspace"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -56,7 +55,7 @@ func (a *App) CreateWorkspace(name string) (*workspace.Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:created", ws)
+	a.emitter.Emit( "workspace:created", ws)
 	return ws, nil
 }
 
@@ -69,7 +68,7 @@ func (a *App) SwitchWorkspace(workspaceID string) (*workspace.Workspace, error) 
 	if err != nil {
 		return nil, err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:switched", ws)
+	a.emitter.Emit( "workspace:switched", ws)
 	return ws, nil
 }
 
@@ -81,7 +80,7 @@ func (a *App) RenameWorkspace(newName string) error {
 	if err := a.workspaceMgr.Rename(newName); err != nil {
 		return err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:renamed", a.workspaceMgr.Active())
+	a.emitter.Emit( "workspace:renamed", a.workspaceMgr.Active())
 	return nil
 }
 
@@ -93,7 +92,7 @@ func (a *App) DeleteWorkspace(workspaceID string) error {
 	if err := a.workspaceMgr.Delete(workspaceID); err != nil {
 		return err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:deleted", workspaceID)
+	a.emitter.Emit( "workspace:deleted", workspaceID)
 	return nil
 }
 
@@ -124,7 +123,7 @@ func (a *App) AddWorkspaceTab(tab workspace.Tab) (*workspace.Workspace, error) {
 		return nil, err
 	}
 	ws := a.workspaceMgr.Active()
-	runtime.EventsEmit(a.ctx, "workspace:tab_added", ws)
+	a.emitter.Emit( "workspace:tab_added", ws)
 	return ws, nil
 }
 
@@ -137,7 +136,7 @@ func (a *App) RemoveWorkspaceTab(tabID string) (*workspace.Workspace, error) {
 		return nil, err
 	}
 	ws := a.workspaceMgr.Active()
-	runtime.EventsEmit(a.ctx, "workspace:tab_removed", ws)
+	a.emitter.Emit( "workspace:tab_removed", ws)
 	return ws, nil
 }
 
@@ -149,7 +148,7 @@ func (a *App) SetActiveWorkspaceTab(tabID string) error {
 	if err := a.workspaceMgr.SetActiveTab(tabID); err != nil {
 		return err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:tab_activated", tabID)
+	a.emitter.Emit( "workspace:tab_activated", tabID)
 	return nil
 }
 
@@ -178,7 +177,7 @@ func (a *App) MoveWorkspaceTabTo(tabID, targetWorkspaceID string) (*workspace.Wo
 		return nil, err
 	}
 	ws := a.workspaceMgr.Active()
-	runtime.EventsEmit(a.ctx, "workspace:tab_removed", ws)
+	a.emitter.Emit( "workspace:tab_removed", ws)
 	return ws, nil
 }
 
@@ -203,6 +202,6 @@ func (a *App) ImportWorkspace(yamlData string) (*workspace.Workspace, error) {
 	if err != nil {
 		return nil, err
 	}
-	runtime.EventsEmit(a.ctx, "workspace:created", ws)
+	a.emitter.Emit( "workspace:created", ws)
 	return ws, nil
 }

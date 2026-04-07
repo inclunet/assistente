@@ -6,7 +6,6 @@ import (
 
 	mcpmgr "assistente/internal/mcp"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -184,7 +183,7 @@ func (a *App) DiscoverMCPServerAuth(serverURL string) mcpmgr.OAuthDiscoveryResul
 // Deve ser chamado após initToolRegistry (precisa do registry para registrar tools MCP).
 func (a *App) initMCP() {
 	emitEvent := func(event string, data any) {
-		runtime.EventsEmit(a.ctx, event, data)
+		a.emitter.Emit( event, data)
 
 		// Quando o set de tools MCP muda, regenera o catalogo de jobs
 		if event == "mcp:tools_changed" && a.jobMgr != nil {

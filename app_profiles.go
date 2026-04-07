@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -50,7 +49,7 @@ func (a *App) SetActiveProfile(slug string) error {
 	a.registerActiveProfileHotkeys()
 
 	// Emite evento para frontend
-	runtime.EventsEmit(a.ctx, "profile:changed", map[string]interface{}{
+	a.emitter.Emit( "profile:changed", map[string]interface{}{
 		"slug": slug,
 	})
 
@@ -64,7 +63,7 @@ func (a *App) CreateProfile(profile profiles.Profile) (string, error) {
 		return "", err
 	}
 
-	runtime.EventsEmit(a.ctx, "profile:created", map[string]interface{}{
+	a.emitter.Emit( "profile:created", map[string]interface{}{
 		"slug": slug,
 		"name": profile.Name,
 	})
@@ -81,7 +80,7 @@ func (a *App) DuplicateProfile(slug string) (string, error) {
 
 	profile, err := a.profileManager.Get(newSlug)
 	if err == nil && profile != nil {
-		runtime.EventsEmit(a.ctx, "profile:created", map[string]interface{}{
+		a.emitter.Emit( "profile:created", map[string]interface{}{
 			"slug": newSlug,
 			"name": profile.Name,
 		})
@@ -101,7 +100,7 @@ func (a *App) UpdateProfile(slug string, profile profiles.Profile) error {
 		a.registerActiveProfileHotkeys()
 	}
 
-	runtime.EventsEmit(a.ctx, "profile:updated", map[string]interface{}{
+	a.emitter.Emit( "profile:updated", map[string]interface{}{
 		"slug": slug,
 		"name": profile.Name,
 	})
@@ -120,7 +119,7 @@ func (a *App) DeleteProfile(slug string) error {
 		return err
 	}
 
-	runtime.EventsEmit(a.ctx, "profile:deleted", map[string]interface{}{
+	a.emitter.Emit( "profile:deleted", map[string]interface{}{
 		"slug": slug,
 	})
 

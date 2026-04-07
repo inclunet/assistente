@@ -217,7 +217,7 @@ func (a *App) startup(ctx context.Context) {
 	a.tokenSvc = chat.NewTokenService(chat.NewDBMessageStore())
 
 	// Inicializa o TaskList Service (business logic de listas de tarefas)
-	a.taskSvc = newTaskListService(ctx)
+	a.taskSvc = a.newTaskListService()
 
 	// Inicializa repositórios de audio e conversa
 	a.audioSvc = speech.NewDBAudioStore()
