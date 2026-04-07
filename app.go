@@ -7,7 +7,9 @@ import (
 	"time"
 
 	"assistente/internal/allowlist"
+	"assistente/internal/chat"
 	"assistente/internal/credentials"
+	"assistente/internal/events"
 	"assistente/internal/hotkey"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
@@ -18,6 +20,7 @@ import (
 	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
+	"assistente/internal/tasklist"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
 	"assistente/internal/updater"
@@ -93,9 +96,27 @@ type App struct {
 	// Provider service (business logic para provedores LLM)
 	providerSvc *providers.Service
 
+	// Token service (estatísticas de tokens e janela de contexto)
+	tokenSvc *chat.TokenService
+
+	// TaskList service (business logic para listas de tarefas)
+	taskSvc *tasklist.Service
+
+	// Audio repository (persistência de áudio de mensagens)
+	audioSvc speech.AudioRepository
+
+	// Conversation repository (metadados de conversa)
+	convSvc chat.ConversationRepository
+
+	// Message repository (criação e consulta de mensagens)
+	msgRepo chat.MessageRepository
+
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
 	streamingContexts map[uint]context.CancelFunc // conversationID → cancel
+
+	// Emitter abstrai runtime.EventsEmit para desacoplar lógica de negócio do Wails
+	emitter events.Emitter
 }
 
 // ==================== Tipos para Threads ====================
@@ -162,6 +183,7 @@ func NewApp() *App {
 // startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.emitter = appEmitter{ctx: ctx}
 
 	// Inicializa o banco de dados
 	if err := InitDatabase(); err != nil {
@@ -188,6 +210,17 @@ func (a *App) startup(ctx context.Context) {
 		CredMgr:  a.credMgr,
 		Store:    providers.NewDBStore(),
 	})
+
+	// Inicializa o Token Service (estatísticas de tokens)
+	a.tokenSvc = chat.NewTokenService(chat.NewDBMessageStore())
+
+	// Inicializa o TaskList Service (business logic de listas de tarefas)
+	a.taskSvc = newTaskListService(ctx)
+
+	// Inicializa repositórios de audio e conversa
+	a.audioSvc = speech.NewDBAudioStore()
+	a.convSvc = chat.NewDBConversationStore()
+	a.msgRepo = chat.NewDBMessageStore()
 
 	// Inicializa os provedores LLM (Provider Registry) ANTES do client
 	a.initLLMProviders()

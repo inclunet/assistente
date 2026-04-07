@@ -8,8 +8,6 @@ import (
 	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Re-exporta tipos do pacote database para manter compatibilidade
@@ -211,7 +209,7 @@ func (a *App) UpdateConversation(id uint, title, model string) error {
 	}
 
 	if title != "" {
-		runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
+		a.emitter.Emit("conversation:renamed", map[string]interface{}{
 			"conversation_id": id,
 			"new_title":       title,
 		})
@@ -228,7 +226,7 @@ func (a *App) DeleteConversation(id uint) error {
 		return err
 	}
 
-	runtime.EventsEmit(a.ctx, "conversation:deleted", map[string]interface{}{
+	a.emitter.Emit("conversation:deleted", map[string]interface{}{
 		"conversation_id": id,
 	})
 
@@ -274,7 +272,7 @@ func (a *App) DeleteMessage(messageID uint) error {
 		return err
 	}
 
-	runtime.EventsEmit(a.ctx, "message:deleted", map[string]interface{}{
+	a.emitter.Emit("message:deleted", map[string]interface{}{
 		"message_id": messageID,
 	})
 
@@ -291,7 +289,7 @@ func (a *App) UpdateMessage(messageID uint, newContent string) error {
 		return err
 	}
 
-	runtime.EventsEmit(a.ctx, "message:updated", map[string]interface{}{
+	a.emitter.Emit("message:updated", map[string]interface{}{
 		"message_id": messageID,
 		"content":    newContent,
 	})
@@ -367,7 +365,7 @@ func (a *App) ClearConversation(conversationID uint) error {
 		return err
 	}
 
-	runtime.EventsEmit(a.ctx, "conversation:cleared", map[string]interface{}{
+	a.emitter.Emit("conversation:cleared", map[string]interface{}{
 		"conversation_id": conversationID,
 	})
 
