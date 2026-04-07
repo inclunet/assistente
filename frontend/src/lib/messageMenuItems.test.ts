@@ -11,6 +11,17 @@ vi.mock('../services/messageAudio', () => ({
   },
 }));
 
+vi.mock('../services/tts', () => ({
+  ttsService: {
+    getRoleConfig: vi.fn(() => ({
+      providerId: 'test-provider',
+      voiceId: 'test-voice',
+      model: 'tts-1',
+      rate: 1.0,
+    })),
+  },
+}));
+
 describe('messageMenuItems', () => {
   it('inclui itens basicos e markdown', () => {
     const assistantMessage = new main.EnrichedMessage({

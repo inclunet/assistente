@@ -12,6 +12,14 @@ const consumeSkipFocusRestoreMock = vi.hoisted(() => vi.fn());
 const ttsServiceMock = vi.hoisted(() => ({
   getVolume: vi.fn(() => 0.75),
   hasVoiceConfig: vi.fn(() => true),
+  getRoleConfig: vi.fn(() => ({
+    providerId: 'test-provider',
+    voiceId: 'test-voice',
+    model: 'tts-1',
+    rate: 1.0,
+    pitch: 1.0,
+    volume: 1.0,
+  })),
   speakAsRole: vi.fn(async () => {}),
   stop: vi.fn(),
 }));
@@ -136,6 +144,15 @@ describe('useContextMenu', () => {
 describe('useMessageActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    ttsServiceMock.getVolume.mockReturnValue(0.75);
+    ttsServiceMock.getRoleConfig.mockReturnValue({
+      providerId: 'test-provider',
+      voiceId: 'test-voice',
+      model: 'tts-1',
+      rate: 1.0,
+      pitch: 1.0,
+      volume: 1.0,
+    });
     Object.defineProperty(globalThis.navigator, 'clipboard', {
       value: {
         writeText: vi.fn().mockResolvedValue(undefined),
@@ -166,7 +183,12 @@ describe('useMessageActions', () => {
       await result.current.speakMessage({ id: 10, content: 'Ola', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(10, 0.75);
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(10, 0.75, {
+      providerId: 'test-provider',
+      voiceId: 'test-voice',
+      model: 'tts-1',
+      rate: 1.0,
+    });
     expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
 
@@ -184,7 +206,7 @@ describe('useMessageActions', () => {
   });
 
   it('não reproduz quando sem config de voz', async () => {
-    ttsServiceMock.hasVoiceConfig.mockReturnValue(false);
+    ttsServiceMock.getRoleConfig.mockReturnValue(undefined);
 
     const { result } = renderHook(() => useMessageActions());
 
@@ -219,7 +241,12 @@ describe('useMessageActions', () => {
       await result.current.speakMessage({ id: '42', content: 'Ola', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(42, 0.75);
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(42, 0.75, {
+      providerId: 'test-provider',
+      voiceId: 'test-voice',
+      model: 'tts-1',
+      rate: 1.0,
+    });
     expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
 });

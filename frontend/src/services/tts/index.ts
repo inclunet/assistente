@@ -201,6 +201,10 @@ class TTSService {
     return this.roleConfigs.size > 0;
   }
 
+  getRoleConfig(role: VoiceRole): RoleVoiceConfig | undefined {
+    return this.roleConfigs.get(role);
+  }
+
   /**
    * Ponto único de reprodução de TTS.
    *

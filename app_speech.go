@@ -427,9 +427,10 @@ func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioRe
 }
 
 // SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
-// Fluxo: DB cache → gerar TTS + salvar → retornar.
+// Fluxo: DB cache → gerar TTS com provider especificado → salvar → retornar.
 // O texto da mensagem é buscado do próprio banco, sem depender do frontend.
-func (a *App) SpeakMessage(messageID uint) (*AudioResult, error) {
+// O provider/voice/model são passados pelo frontend (vêm do perfil de voz ativo).
+func (a *App) SpeakMessage(messageID uint, providerID string, voiceID string, model string, rate float64) (*AudioResult, error) {
 	// 1. Checa cache no DB
 	audio, mime, err := a.audioSvc.GetMessageAudio(messageID)
 	if err == nil && audio != "" {
@@ -448,14 +449,45 @@ func (a *App) SpeakMessage(messageID uint) (*AudioResult, error) {
 		return nil, fmt.Errorf("mensagem %d sem conteúdo textual", messageID)
 	}
 
-	// 3. Gera TTS e salva
-	log.Printf("[TTS] SpeakMessage(%d): cache miss, gerando TTS (%d chars)", messageID, len(content))
-	result, genErr := a.GenerateAndSaveMessageAudio(messageID, content)
-	if genErr != nil {
-		log.Printf("[TTS] SpeakMessage(%d): erro ao gerar: %v", messageID, genErr)
-		return nil, genErr
+	// 3. Cria TTS client com os parâmetros do frontend
+	log.Printf("[TTS] SpeakMessage(%d): cache miss, gerando TTS (%d chars) provider=%s voice=%s", messageID, len(content), providerID, voiceID)
+
+	if model == "" {
+		model = "tts-1"
 	}
-	return result, nil
+	speed := rate
+	if speed < 0.25 {
+		speed = 1.0
+	}
+
+	cfg := a.llmRegistry.Get(providerID)
+	if cfg == nil {
+		log.Printf("[TTS] SpeakMessage(%d): provider %q não encontrado", messageID, providerID)
+		return nil, fmt.Errorf("provider TTS %q não encontrado", providerID)
+	}
+
+	client := speech.NewTTSClient(speech.TTSConfig{
+		BaseURL:           cfg.BaseURL,
+		CredentialPattern: cfg.CredentialPattern,
+		Model:             speech.TTSModel(model),
+		Voice:             speech.TTSVoice(voiceID),
+		Speed:             speed,
+	}, a.credMgr)
+
+	audioData, err := client.Synthesize(content)
+	if err != nil {
+		log.Printf("[TTS] SpeakMessage(%d): erro ao gerar: %v", messageID, err)
+		return nil, fmt.Errorf("generate audio for message %d: %w", messageID, err)
+	}
+
+	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
+	mimeType := "audio/mpeg"
+
+	if saveErr := a.audioSvc.SaveMessageAudio(messageID, audioBase64, mimeType); saveErr != nil {
+		log.Printf("[TTS] Erro ao salvar áudio no DB: %v", saveErr)
+	}
+
+	return &AudioResult{Audio: audioBase64, MimeType: mimeType}, nil
 }
 
 // ============================================================================

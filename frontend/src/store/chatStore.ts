@@ -32,7 +32,14 @@ function triggerAutoRead(text: string, role: VoiceRole, messageId?: number): voi
 
   if (messageId && messageId > 0) {
     const volume = ttsService.getVolume();
-    messageAudioService.speakMessage(messageId, volume).then((played) => {
+    const roleConfig = ttsService.getRoleConfig(role);
+    const provider = roleConfig ? {
+      providerId: roleConfig.providerId,
+      voiceId: roleConfig.voiceId,
+      model: roleConfig.model,
+      rate: roleConfig.rate,
+    } : undefined;
+    messageAudioService.speakMessage(messageId, volume, provider).then((played) => {
       if (!played) {
         const clean = stripMarkdown(text);
         return ttsService.speakAsRole(clean, role);

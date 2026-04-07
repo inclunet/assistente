@@ -102,6 +102,14 @@ async function playAudioBase64(audioBase64: string, mimeType: string, volume: nu
   return playAudioBlob(blob, volume);
 }
 
+/** Config do provider TTS passada pelo chamador */
+export interface TTSProviderParams {
+  providerId: string;
+  voiceId: string;
+  model: string;
+  rate: number;
+}
+
 /**
  * Reproduz o áudio de uma mensagem usando cache hierárquico:
  *   1. Memória (Blob) → replay instantâneo
@@ -109,7 +117,7 @@ async function playAudioBase64(audioBase64: string, mimeType: string, volume: nu
  *
  * @returns true se reproduziu, false se falhou (chamador deve usar speakAsRole)
  */
-async function speakMessage(messageId: number, volume: number = 1.0): Promise<boolean> {
+async function speakMessage(messageId: number, volume: number = 1.0, provider?: TTSProviderParams): Promise<boolean> {
   // 1. Cache em memória — instantâneo, sem IPC
   const cached = memoryCacheGet(messageId);
   if (cached) {
@@ -119,7 +127,13 @@ async function speakMessage(messageId: number, volume: number = 1.0): Promise<bo
 
   // 2. Backend (DB cache ou TTS) → armazena em memória
   try {
-    const result = await SpeakMessage(messageId);
+    const result = await SpeakMessage(
+      messageId,
+      provider?.providerId ?? '',
+      provider?.voiceId ?? '',
+      provider?.model ?? '',
+      provider?.rate ?? 1.0,
+    );
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);
       memoryCacheSet(messageId, blob);
@@ -136,13 +150,19 @@ async function speakMessage(messageId: number, volume: number = 1.0): Promise<bo
  * Obtém o áudio de uma mensagem como Blob (cache hierárquico).
  * Útil para download. Retorna null se falhar.
  */
-async function getMessageAudioBlob(messageId: number): Promise<Blob | null> {
+async function getMessageAudioBlob(messageId: number, provider?: TTSProviderParams): Promise<Blob | null> {
   // Checa memória primeiro
   const cached = memoryCacheGet(messageId);
   if (cached) return cached;
 
   try {
-    const result = await SpeakMessage(messageId);
+    const result = await SpeakMessage(
+      messageId,
+      provider?.providerId ?? '',
+      provider?.voiceId ?? '',
+      provider?.model ?? '',
+      provider?.rate ?? 1.0,
+    );
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);
       memoryCacheSet(messageId, blob);

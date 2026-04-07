@@ -114,7 +114,8 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
 
       const role: VoiceRole = message.role === 'user' ? 'user' : 'assistant';
 
-      if (!ttsService.hasVoiceConfig(role)) return;
+      const roleConfig = ttsService.getRoleConfig(role);
+      if (!roleConfig) return;
 
       messageAudioService.stopCurrentAudio();
       ttsService.stop();
@@ -128,7 +129,12 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
 
       if (numericId > 0) {
         const volume = ttsService.getVolume();
-        const played = await messageAudioService.speakMessage(numericId, volume);
+        const played = await messageAudioService.speakMessage(numericId, volume, {
+          providerId: roleConfig.providerId,
+          voiceId: roleConfig.voiceId,
+          model: roleConfig.model,
+          rate: roleConfig.rate,
+        });
         if (played) return;
       }
 

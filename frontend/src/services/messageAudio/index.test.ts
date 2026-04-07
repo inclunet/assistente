@@ -39,7 +39,7 @@ describe('messageAudioService', () => {
       const result = await messageAudioService.speakMessage(42, 0.8);
 
       expect(result).toBe(true);
-      expect(speakMessageMock).toHaveBeenCalledWith(42);
+      expect(speakMessageMock).toHaveBeenCalledWith(42, '', '', '', 1);
       expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
     });
 

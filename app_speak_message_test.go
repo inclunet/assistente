@@ -1,6 +1,7 @@
 package main
 
 import (
+	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"strings"
 	"testing"
@@ -38,14 +39,6 @@ func (m *mockAudioRepo) GetMessageContent(id uint) (string, error) {
 	return "", nil
 }
 
-// ---------- mockSpeechManager (não utilizado diretamente nos testes, mas demonstra o padrão) ----------
-
-type mockSpeechManager struct{}
-
-func (m *mockSpeechManager) Synthesize(_ string) (string, error) {
-	return "FAKE_AUDIO_BASE64", nil
-}
-
 // ---------- Testes ----------
 
 func TestSpeakMessage_ReturnsCachedAudio(t *testing.T) {
@@ -55,7 +48,8 @@ func TestSpeakMessage_ReturnsCachedAudio(t *testing.T) {
 
 	app := &App{audioSvc: repo}
 
-	result, err := app.SpeakMessage(1)
+	// Cache hit — provider params são ignorados
+	result, err := app.SpeakMessage(1, "any-provider", "any-voice", "", 1.0)
 	if err != nil {
 		t.Fatalf("SpeakMessage erro inesperado: %v", err)
 	}
@@ -67,20 +61,22 @@ func TestSpeakMessage_ReturnsCachedAudio(t *testing.T) {
 	}
 }
 
-func TestSpeakMessage_GeneratesAndCachesWhenNotCached(t *testing.T) {
+func TestSpeakMessage_ErrorWhenProviderNotFound(t *testing.T) {
 	repo := newMockAudioRepo()
 	repo.content[2] = "Hello world"
 
-	// Sem speechManager e sem cache → deve retornar erro
-	// (ensureSpeechManager precisa de profileManager para não dar nil pointer)
 	app := &App{
 		audioSvc:       repo,
+		llmRegistry:    llm.NewProviderRegistry(),
 		profileManager: profiles.NewManager(),
 	}
 
-	_, err := app.SpeakMessage(2)
+	_, err := app.SpeakMessage(2, "nonexistent-provider", "voice", "tts-1", 1.0)
 	if err == nil {
-		t.Fatal("esperava erro quando speechManager é nil e não há cache")
+		t.Fatal("esperava erro quando provider não existe no registry")
+	}
+	if !strings.Contains(err.Error(), "não encontrado") {
+		t.Errorf("erro inesperado: %v", err)
 	}
 }
 
@@ -90,7 +86,7 @@ func TestSpeakMessage_ErrorWhenMessageNotFound(t *testing.T) {
 
 	app := &App{audioSvc: repo}
 
-	_, err := app.SpeakMessage(999)
+	_, err := app.SpeakMessage(999, "provider", "voice", "", 1.0)
 	if err == nil {
 		t.Fatal("esperava erro para mensagem inexistente")
 	}
@@ -102,7 +98,7 @@ func TestSpeakMessage_ErrorWhenContentEmpty(t *testing.T) {
 
 	app := &App{audioSvc: repo}
 
-	_, err := app.SpeakMessage(3)
+	_, err := app.SpeakMessage(3, "provider", "voice", "", 1.0)
 	if err == nil {
 		t.Fatal("esperava erro para mensagem com conteúdo vazio")
 	}
@@ -115,11 +111,11 @@ func TestSpeakMessage_CacheHitSkipsGeneration(t *testing.T) {
 	repo := newMockAudioRepo()
 	repo.audio[5] = struct{ base64, mime string }{"audio_data", "audio/mpeg"}
 	// NÃO precisa de content — cache hit pula geração
-	// Nem speechManager — não deve ser chamado
+	// Nem provider — não deve ser chamado
 
 	app := &App{audioSvc: repo}
 
-	result, err := app.SpeakMessage(5)
+	result, err := app.SpeakMessage(5, "", "", "", 1.0)
 	if err != nil {
 		t.Fatalf("erro inesperado: %v", err)
 	}

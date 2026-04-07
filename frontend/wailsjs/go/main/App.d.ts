@@ -404,7 +404,7 @@ export function SaveSettings(arg1:llm.SettingsInput):Promise<void>;
 
 export function SaveWorkspace():Promise<void>;
 
-export function SpeakMessage(arg1:number):Promise<main.AudioResult>;
+export function SpeakMessage(arg1:number,arg2:string,arg3:string,arg4:string,arg5:number):Promise<main.AudioResult>;
 
 export function SearchConversationHistory(arg1:string,arg2:number):Promise<Array<database.MessageSearchResult>>;
 
