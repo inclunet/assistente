@@ -426,6 +426,29 @@ func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioRe
 	return &AudioResult{Audio: result.AudioBase64, MimeType: mimeType}, nil
 }
 
+// SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
+// Fluxo: DB cache → gerar TTS + salvar → retornar.
+// O texto da mensagem é buscado do próprio banco, sem depender do frontend.
+func (a *App) SpeakMessage(messageID uint) (*AudioResult, error) {
+	// 1. Checa cache no DB
+	audio, mime, err := a.audioSvc.GetMessageAudio(messageID)
+	if err == nil && audio != "" {
+		return &AudioResult{Audio: audio, MimeType: mime}, nil
+	}
+
+	// 2. Busca o conteúdo textual da mensagem
+	content, err := a.audioSvc.GetMessageContent(messageID)
+	if err != nil {
+		return nil, fmt.Errorf("mensagem %d não encontrada: %w", messageID, err)
+	}
+	if strings.TrimSpace(content) == "" {
+		return nil, fmt.Errorf("mensagem %d sem conteúdo textual", messageID)
+	}
+
+	// 3. Gera TTS e salva
+	return a.GenerateAndSaveMessageAudio(messageID, content)
+}
+
 // ============================================================================
 // Voice Profile TTS/STT API (feat/voice-profile-settings)
 // ============================================================================

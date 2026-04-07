@@ -5,10 +5,9 @@ import { main } from '../../wailsjs/go/models';
 
 vi.mock('../services/messageAudio', () => ({
   messageAudioService: {
-    getAudioFromDB: vi.fn(),
-    base64ToBlob: vi.fn(),
-    generateAndSaveAudio: vi.fn(),
+    getMessageAudioBlob: vi.fn(),
     downloadAudioBlob: vi.fn(),
+    base64ToBlob: vi.fn(),
   },
 }));
 

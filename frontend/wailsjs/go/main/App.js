@@ -778,6 +778,10 @@ export function SaveWorkspace() {
   return window['go']['main']['App']['SaveWorkspace']();
 }
 
+export function SpeakMessage(arg1) {
+  return window['go']['main']['App']['SpeakMessage'](arg1);
+}
+
 export function SearchConversationHistory(arg1, arg2) {
   return window['go']['main']['App']['SearchConversationHistory'](arg1, arg2);
 }

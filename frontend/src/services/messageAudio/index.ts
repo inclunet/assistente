@@ -1,25 +1,24 @@
 /**
- * Message Audio Service - Audio com persistencia no DB
+ * Message Audio Service - Reprodução de áudio de mensagens com cache no DB
  *
- * Audio persistido no banco de dados (campo audio da mensagem),
- * eliminando cache em memoria. Fonte de verdade e o DB.
+ * Toda a lógica de cache é backend-driven: o backend decide se retorna do cache
+ * ou gera TTS novo, salva e retorna. O frontend apenas toca o resultado.
  *
- * Hierarquia de reproducao:
- *   1. Audio no DB -> reproduz direto
- *   2. TTS OpenAI (gera arquivo) -> gera, salva no DB, reproduz
- *   3. TTS WebSpeech -> reproduz via browser (sem salvar)
- *   4. Sem TTS -> aviso ao usuario
+ * Hierarquia (implementada no backend SpeakMessage):
+ *   1. Áudio em cache no DB → retorna direto
+ *   2. TTS OpenAI (gera) → salva no DB → retorna
+ *   3. Falha → frontend usa speakAsRole (WebSpeech/SAPI5) como fallback
  */
 
-import { GetMessageAudio, GenerateAndSaveMessageAudio, SaveMessageAudio } from '@wailsjs/go/main/App';
+import { SpeakMessage } from '@wailsjs/go/main/App';
 import { base64ToBlob } from '../../lib/audioUtils';
 
-// Player global
+// Player global — apenas um áudio por vez
 let currentPlayer: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
 let currentAbort: AbortController | null = null;
 
-/** Para qualquer audio em reproducao e resolve Promises pendentes */
+/** Para qualquer áudio em reprodução e resolve Promises pendentes */
 function stopCurrentAudio(): void {
   if (currentAbort) {
     currentAbort.abort();
@@ -37,7 +36,7 @@ function stopCurrentAudio(): void {
   }
 }
 
-/** Reproduz um blob de audio */
+/** Reproduz um blob de áudio */
 async function playAudioBlob(audioBlob: Blob, volume: number = 1.0): Promise<void> {
   stopCurrentAudio();
 
@@ -49,9 +48,8 @@ async function playAudioBlob(audioBlob: Blob, volume: number = 1.0): Promise<voi
   currentPlayer.volume = Math.max(0, Math.min(1, volume));
 
   return new Promise<void>((resolve, reject) => {
-    if (!currentPlayer) { reject(new Error('Player nao criado')); return; }
+    if (!currentPlayer) { reject(new Error('Player não criado')); return; }
 
-    // Se stopCurrentAudio() for chamado externamente, resolve a Promise
     const onAbort = () => { resolve(); };
     abort.signal.addEventListener('abort', onAbort, { once: true });
 
@@ -63,7 +61,7 @@ async function playAudioBlob(audioBlob: Blob, volume: number = 1.0): Promise<voi
     currentPlayer.onerror = () => {
       abort.signal.removeEventListener('abort', onAbort);
       stopCurrentAudio();
-      reject(new Error('Erro ao reproduzir audio'));
+      reject(new Error('Erro ao reproduzir áudio'));
     };
     currentPlayer.play().catch((err) => {
       abort.signal.removeEventListener('abort', onAbort);
@@ -73,18 +71,44 @@ async function playAudioBlob(audioBlob: Blob, volume: number = 1.0): Promise<voi
   });
 }
 
-/** Reproduz audio a partir de base64 */
+/** Reproduz áudio a partir de base64 */
 async function playAudioBase64(audioBase64: string, mimeType: string, volume: number = 1.0): Promise<void> {
   const blob = base64ToBlob(audioBase64, mimeType);
   return playAudioBlob(blob, volume);
 }
 
-/** Busca audio do DB. Retorna { audio, mimeType } ou null. */
-async function getAudioFromDB(messageId: number): Promise<{ audio: string; mimeType: string } | null> {
+/**
+ * Reproduz o áudio de uma mensagem (backend-driven, cache-aware).
+ *
+ * O backend (SpeakMessage) faz tudo: checa cache no DB, gera TTS se necessário,
+ * salva no DB e retorna o áudio. O frontend apenas toca o resultado.
+ *
+ * @returns true se o áudio foi reproduzido com sucesso, false se falhou
+ *          (ex: provider TTS indisponível). Quando retorna false o chamador
+ *          deve usar ttsService.speakAsRole como fallback.
+ */
+async function speakMessage(messageId: number, volume: number = 1.0): Promise<boolean> {
   try {
-    const result = await GetMessageAudio(messageId);
+    const result = await SpeakMessage(messageId);
     if (result && result.audio && result.audio.length > 0) {
-      return { audio: result.audio, mimeType: result.mimeType };
+      await playAudioBase64(result.audio, result.mimeType, volume);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Obtém o áudio de uma mensagem como Blob (backend-driven, cache-aware).
+ * Útil para download. Retorna null se falhar.
+ */
+async function getMessageAudioBlob(messageId: number): Promise<Blob | null> {
+  try {
+    const result = await SpeakMessage(messageId);
+    if (result && result.audio && result.audio.length > 0) {
+      return base64ToBlob(result.audio, result.mimeType);
     }
     return null;
   } catch {
@@ -92,47 +116,12 @@ async function getAudioFromDB(messageId: number): Promise<{ audio: string; mimeT
   }
 }
 
-/** Gera TTS via backend, salva no DB e retorna. */
-async function generateAndSaveAudio(
-  messageId: number,
-  text: string,
-): Promise<{ audio: string; mimeType: string } | null> {
-  try {
-    const result = await GenerateAndSaveMessageAudio(messageId, text);
-    if (result && result.audio && result.audio.length > 0) {
-      return { audio: result.audio, mimeType: result.mimeType };
-    }
-    return null;
-  } catch {
-    return null;
-  }
-}
-
-/** Salva audio blob no DB de uma mensagem. */
-async function saveAudioToDB(messageId: number, audioBlob: Blob): Promise<void> {
-  try {
-    const reader = new FileReader();
-    const base64 = await new Promise<string>((resolve, reject) => {
-      reader.onload = () => {
-        const result = reader.result as string;
-        const base64Data = result.split(',')[1] || result;
-        resolve(base64Data);
-      };
-      reader.onerror = reject;
-      reader.readAsDataURL(audioBlob);
-    });
-    await SaveMessageAudio(messageId, base64, audioBlob.type || 'audio/mpeg');
-  } catch (err) {
-    console.warn('[messageAudio] Falha ao salvar áudio no DB:', err);
-  }
-}
-
-/** Verifica se esta tocando */
+/** Verifica se está tocando */
 function isCurrentlyPlaying(): boolean {
   return currentPlayer !== null && !currentPlayer.paused;
 }
 
-/** Baixa audio como arquivo */
+/** Baixa áudio como arquivo */
 function downloadAudioBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -142,19 +131,17 @@ function downloadAudioBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
-// Export
 export const messageAudioService = {
-  // Reproducao
+  // Reprodução
   playAudioBlob,
   playAudioBase64,
   stopCurrentAudio,
   isCurrentlyPlaying,
   downloadAudioBlob,
 
-  // DB persistence
-  getAudioFromDB,
-  generateAndSaveAudio,
-  saveAudioToDB,
+  // Backend-driven (cache-aware)
+  speakMessage,
+  getMessageAudioBlob,
   base64ToBlob,
 
   // Aliases

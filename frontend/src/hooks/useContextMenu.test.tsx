@@ -17,12 +17,10 @@ const ttsServiceMock = vi.hoisted(() => ({
 }));
 
 const messageAudioServiceMock = vi.hoisted(() => ({
-  getAudioFromDB: vi.fn(),
-  generateAndSaveAudio: vi.fn(),
+  speakMessage: vi.fn(),
   stopCurrentAudio: vi.fn(),
   playAudioBase64: vi.fn(),
   playAudioBlob: vi.fn(),
-  saveAudioToDB: vi.fn(),
 }));
 
 vi.mock('../lib/messageMenuItems', () => ({
@@ -159,10 +157,7 @@ describe('useMessageActions', () => {
   });
 
   it('reproduz audio do banco quando disponivel', async () => {
-    messageAudioServiceMock.getAudioFromDB.mockResolvedValue({
-      audio: 'base64',
-      mimeType: 'audio/mpeg',
-    });
+    messageAudioServiceMock.speakMessage.mockResolvedValue(true);
     ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
 
     const { result } = renderHook(() => useMessageActions());
@@ -171,12 +166,12 @@ describe('useMessageActions', () => {
       await result.current.speakMessage({ id: 10, content: 'Ola', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.playAudioBase64).toHaveBeenCalledWith('base64', 'audio/mpeg', 0.75);
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(10, 0.75);
+    expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
 
-  it('usa speakAsRole quando DB e backend falham', async () => {
-    messageAudioServiceMock.getAudioFromDB.mockResolvedValue(null);
-    messageAudioServiceMock.generateAndSaveAudio.mockResolvedValue(null);
+  it('usa speakAsRole quando backend falha', async () => {
+    messageAudioServiceMock.speakMessage.mockResolvedValue(false);
     ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
 
     const { result } = renderHook(() => useMessageActions());
@@ -197,7 +192,7 @@ describe('useMessageActions', () => {
       await result.current.speakMessage({ id: 12, content: 'Teste', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.getAudioFromDB).not.toHaveBeenCalled();
+    expect(messageAudioServiceMock.speakMessage).not.toHaveBeenCalled();
     expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
 });

@@ -23,32 +23,25 @@ import type { VoiceRole } from '../services/tts';
 
 /**
  * Ponto único de disparo do auto-read TTS.
- * Se messageId for informado, checa o DB por áudio em cache antes de gerar novo TTS.
- * Para áudio em andamento, limpa markdown e fala via speakAsRole (ou cache).
+ * Se messageId for informado, usa o backend (cache-aware via SpeakMessage).
+ * Sem messageId (streaming parcial) → TTS direto via speakAsRole.
  */
 function triggerAutoRead(text: string, role: VoiceRole, messageId?: number): void {
   messageAudioService.stopAll();
   ttsService.stop();
-  const clean = stripMarkdown(text);
-  const volume = ttsService.getVolume();
 
   if (messageId && messageId > 0) {
-    // Tenta cache do DB → gera+salva → fallback speakAsRole
-    messageAudioService.getAudioFromDB(messageId).then((cached) => {
-      if (cached) {
-        return messageAudioService.playAudioBase64(cached.audio, cached.mimeType, volume);
-      }
-      return messageAudioService.generateAndSaveAudio(messageId, clean).then((generated) => {
-        if (generated) {
-          return messageAudioService.playAudioBase64(generated.audio, generated.mimeType, volume);
-        }
+    const volume = ttsService.getVolume();
+    messageAudioService.speakMessage(messageId, volume).then((played) => {
+      if (!played) {
+        const clean = stripMarkdown(text);
         return ttsService.speakAsRole(clean, role);
-      });
+      }
     }).catch((err: unknown) => {
       console.error(`[Chat] TTS auto-read error (${role}):`, err);
     });
   } else {
-    // Sem messageId (streaming parcial, etc.) → TTS direto
+    const clean = stripMarkdown(text);
     ttsService.speakAsRole(clean, role).catch((err: unknown) => {
       console.error(`[Chat] TTS auto-read error (${role}):`, err);
     });

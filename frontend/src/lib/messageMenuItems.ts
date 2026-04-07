@@ -320,27 +320,14 @@ export function getMessageMenuItems(
         }
 
         try {
-          let audioBlob: Blob | null = null;
           const numericId = typeof message.id === 'string' ? parseInt(message.id, 10) : message.id;
-
-          // 1. Verifica DB primeiro
-          if (numericId && !isNaN(numericId)) {
-            const dbAudio = await messageAudioService.getAudioFromDB(numericId);
-            if (dbAudio) {
-              onAnnounce?.('Baixando do banco...');
-              audioBlob = messageAudioService.base64ToBlob(dbAudio.audio, dbAudio.mimeType);
-            }
+          if (!numericId || isNaN(numericId)) {
+            onAnnounce?.('Nao foi possivel identificar a mensagem');
+            return;
           }
 
-          // 2. Se nao tem no DB, gera via backend TTS e salva
-          if (!audioBlob && numericId && !isNaN(numericId)) {
-            onAnnounce?.('Sintetizando audio...');
-            const cleanText = stripMarkdown(message.content);
-            const generated = await messageAudioService.generateAndSaveAudio(numericId, cleanText);
-            if (generated) {
-              audioBlob = messageAudioService.base64ToBlob(generated.audio, generated.mimeType);
-            }
-          }
+          onAnnounce?.('Gerando audio...');
+          const audioBlob = await messageAudioService.getMessageAudioBlob(numericId);
 
           if (!audioBlob) {
             onAnnounce?.('Nao foi possivel gerar audio. Verifique a configuracao de voz no perfil ativo.');
