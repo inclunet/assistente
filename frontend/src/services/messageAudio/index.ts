@@ -12,6 +12,7 @@
  */
 
 import { GetMessageAudio, GenerateAndSaveMessageAudio, SaveMessageAudio } from '@wailsjs/go/main/App';
+import { base64ToBlob } from '../../lib/audioUtils';
 
 // Player global
 let currentPlayer: HTMLAudioElement | null = null;
@@ -121,7 +122,8 @@ async function saveAudioToDB(messageId: number, audioBlob: Blob): Promise<void> 
       reader.readAsDataURL(audioBlob);
     });
     await SaveMessageAudio(messageId, base64, audioBlob.type || 'audio/mpeg');
-  } catch {
+  } catch (err) {
+    console.warn('[messageAudio] Falha ao salvar áudio no DB:', err);
   }
 }
 
@@ -138,16 +140,6 @@ function downloadAudioBlob(blob: Blob, filename: string): void {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-/** Converte base64 para Blob */
-function base64ToBlob(base64: string, mimeType: string): Blob {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: mimeType });
 }
 
 // Export

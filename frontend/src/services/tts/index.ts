@@ -3,8 +3,9 @@
  * Suporta WebSpeech API, SAPI5 (Windows) e OpenAI TTS
  */
 
-import { TTSProvider, ITTSProvider, TTSVoice } from './types';
+import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig } from './types';
 import { ttsFactory } from './factory';
+import { calcTTSTimeoutMs } from '../../lib/audioUtils';
 
 type WailsApp = {
   go?: {
@@ -30,23 +31,13 @@ const getTTSVoices = async (profileId: string, providerId: string): Promise<Back
   return app.GetTTSVoices(profileId, providerId);
 };
 
-export interface TTSConfig {
-  enabled: boolean;
-  autoRead: boolean;           // Leitura automática de mensagens do assistente
-  enabledForUser: boolean;     // TTS para mensagens do usuário
-  provider: TTSProvider;
-  voiceName?: string;
-  rate: number;
-  pitch: number;
-  volume: number;
-}
-
 /** Configuração de voz por role (assistant, user, system) */
 export interface RoleVoiceConfig {
   providerId: string;   // "webspeech", "sapi5", ou LLM provider ID
   voiceId: string;      // ID da voz
   model: string;        // modelo TTS (ex: "tts-1")
   rate: number;
+  pitch: number;        // 0.5–2.0 (tom da voz)
   volume: number;
 }
 
@@ -69,6 +60,8 @@ class TTSService {
   private activeStreamPlayer: { stop: () => void } | null = null;
   private activeStreamAbort: AbortController | null = null;
   private providerListeners: { provider: ITTSProvider; start: () => void; end: () => void; error: (e: CustomEvent<{ error: Error }>) => void } | null = null;
+  /** Guard: previne chamadas simultâneas a speakWithOverride (webspeech/sapi5 path) */
+  private overrideLock: Promise<void> | null = null;
   
   constructor() {
     this.init();
@@ -224,6 +217,7 @@ class TTSService {
       providerId: roleConfig.providerId,
       voiceName: roleConfig.voiceId,
       rate: roleConfig.rate,
+      pitch: roleConfig.pitch,
       volume: roleConfig.volume,
       ttsModel: roleConfig.model,
     });
@@ -385,7 +379,7 @@ class TTSService {
    * Para providers LLM (ex: "openai-default-xxx"), delega ao backend via SpeakPreview.
    * Para "webspeech" e "sapi5", usa os providers frontend.
    */
-  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string }): Promise<void> {
+  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string }): Promise<void> {
     const voiceId = options.voiceName ? this.extractVoiceId(options.voiceName) : undefined;
 
     // Resolve o tipo de provider: webspeech, sapi5, ou LLM (OpenAI-like)
@@ -405,6 +399,14 @@ class TTSService {
     }
 
     // WebSpeech e SAPI5 → usar providers frontend (funcionam bem localmente)
+    // Guard contra chamadas simultâneas que corromperiam o config global
+    if (this.overrideLock) {
+      try { await this.overrideLock; } catch { /* ignorar */ }
+    }
+    
+    let unlockOverride: () => void;
+    this.overrideLock = new Promise<void>(resolve => { unlockOverride = resolve; });
+    
     const backupConfig = { ...this.config };
     const backupProvider = this.config.provider;
     let providerChanged = false;
@@ -419,6 +421,7 @@ class TTSService {
       if (this.currentProvider) {
         if (voiceId) await this.currentProvider.setVoice(voiceId);
         if (options.rate !== undefined) await this.currentProvider.setRate(options.rate);
+        if (options.pitch !== undefined && typeof this.currentProvider.setPitch === 'function') await this.currentProvider.setPitch(options.pitch);
         if (options.volume !== undefined) await this.currentProvider.setVolume(options.volume);
 
         const provider = this.currentProvider;
@@ -434,7 +437,7 @@ class TTSService {
             const onEnd = () => { cleanup(); resolve(); };
             const onErr = () => { cleanup(); resolve(); };
             // Timeout proporcional ao tamanho do texto (60s base + 30s por 4000 chars)
-            const timeoutMs = 60000 + Math.floor(text.length / 4000) * 30000;
+            const timeoutMs = calcTTSTimeoutMs(text.length);
             const timeout = setTimeout(() => { cleanup(); resolve(); }, timeoutMs);
             provider.addEventListener?.('end', onEnd);
             provider.addEventListener?.('error', onErr);
@@ -456,6 +459,8 @@ class TTSService {
         await this.currentProvider.setRate(this.config.rate);
         await this.currentProvider.setVolume(this.config.volume);
       }
+      unlockOverride!();
+      this.overrideLock = null;
     }
   }
 
@@ -528,8 +533,8 @@ class TTSService {
         const onAbort = () => { cleanup(); resolve(); };
         abort.signal.addEventListener('abort', onAbort, { once: true });
 
-        // Timeout proporcional ao tamanho do texto (60s base + 30s por 4000 chars)
-        const timeoutMs = 60000 + Math.floor(text.length / 4000) * 30000;
+        // Timeout proporcional ao tamanho do texto
+        const timeoutMs = calcTTSTimeoutMs(text.length);
         const timeout = setTimeout(() => { cleanup(); streamPlayer.stop(); resolve(); }, timeoutMs);
 
         streamPlayer.startListening(sessionId, {
@@ -740,3 +745,6 @@ class TTSService {
 
 // Singleton
 export const ttsService = new TTSService();
+
+// Re-export types para backward compatibility
+export type { TTSConfig } from './types';
