@@ -450,10 +450,13 @@ func (a *App) SpeakMessage(messageID uint, providerID string, voiceID string, mo
 	}
 
 	// 3. Cria TTS client com os parâmetros do frontend
-	log.Printf("[TTS] SpeakMessage(%d): cache miss, gerando TTS (%d chars) provider=%s voice=%s", messageID, len(content), providerID, voiceID)
+	log.Printf("[TTS] SpeakMessage(%d): cache miss, gerando TTS (%d chars) provider=%s voice=%s model=%s", messageID, len(content), providerID, voiceID, model)
 
+	// Para LocalAI/piper, o "model" é o nome da voz (ex: "voice-pt_BR-dii").
+	// Para OpenAI, model vem preenchido ("tts-1", "tts-1-hd").
+	// Se model está vazio, usa voiceID como fallback (LocalAI pattern).
 	if model == "" {
-		model = "tts-1"
+		model = voiceID
 	}
 	speed := rate
 	if speed < 0.25 {
