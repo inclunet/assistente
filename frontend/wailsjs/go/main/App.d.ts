@@ -234,6 +234,8 @@ export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
 
 export function GetSpeechProviders():Promise<Array<llm.ProviderConfig>>;
 
+export function GetTTSVoices(arg1:string,arg2:string):Promise<Array<main.TTSVoiceEntry>>;
+
 export function GetTTSModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
 
 export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;

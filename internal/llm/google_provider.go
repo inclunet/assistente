@@ -100,13 +100,19 @@ func (p *GoogleProvider) SendChat(ctx context.Context, messages []Message, param
 	return sb.String(), nil
 }
 
-func (p *GoogleProvider) GetModels(ctx context.Context) ([]string, error) {
+func (p *GoogleProvider) GetModels(ctx context.Context) (models []string, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[GoogleProvider] PANIC no SDK Models.List: %v", r)
+			retErr = fmt.Errorf("panic no SDK: %v", r)
+		}
+	}()
+
 	client, err := p.newClient(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao criar cliente Google: %w", err)
 	}
 
-	var models []string
 	page, err := client.Models.List(ctx, &genai.ListModelsConfig{})
 	if err != nil {
 		return nil, fmt.Errorf("erro ao listar modelos: %w", err)

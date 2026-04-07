@@ -438,6 +438,10 @@ export function GetSpeechProviders() {
   return window['go']['main']['App']['GetSpeechProviders']();
 }
 
+export function GetTTSVoices(arg1, arg2) {
+  return window['go']['main']['App']['GetTTSVoices'](arg1, arg2);
+}
+
 export function GetTTSModels(arg1) {
   return window['go']['main']['App']['GetTTSModels'](arg1);
 }

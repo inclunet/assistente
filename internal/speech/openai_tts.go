@@ -12,6 +12,7 @@ import (
 
 	"github.com/openai/openai-go"
 	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/pagination"
 	"github.com/openai/openai-go/packages/param"
 )
 
@@ -130,26 +131,28 @@ func (c *TTSClient) buildParams(text string, voice TTSVoice) openai.AudioSpeechN
 
 // Synthesize converte texto em áudio.
 // Retorna os bytes do áudio no formato configurado.
+// Textos maiores que 4000 chars são divididos em chunks e sintetizados sequencialmente.
 func (c *TTSClient) Synthesize(text string) ([]byte, error) {
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
-	if len(text) > 4096 {
-		text = text[:4096]
-	}
 
-	params := c.buildParams(text, c.config.Voice)
-	resp, err := c.client.Audio.Speech.New(context.Background(), params)
-	if err != nil {
-		return nil, fmt.Errorf("TTS synthesis failed: %w", err)
+	chunks := splitTextForTTS(text)
+	var allData []byte
+	for _, chunk := range chunks {
+		params := c.buildParams(chunk, c.config.Voice)
+		resp, err := c.client.Audio.Speech.New(context.Background(), params)
+		if err != nil {
+			return nil, fmt.Errorf("TTS synthesis failed: %w", err)
+		}
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read TTS response: %w", err)
+		}
+		allData = append(allData, data...)
 	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read TTS response: %w", err)
-	}
-	return data, nil
+	return allData, nil
 }
 
 // SynthesizeWithVoice converte texto em áudio usando uma voz específica
@@ -157,22 +160,23 @@ func (c *TTSClient) SynthesizeWithVoice(text string, voice TTSVoice) ([]byte, er
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
-	if len(text) > 4096 {
-		text = text[:4096]
-	}
 
-	params := c.buildParams(text, voice)
-	resp, err := c.client.Audio.Speech.New(context.Background(), params)
-	if err != nil {
-		return nil, fmt.Errorf("TTS synthesis failed: %w", err)
+	chunks := splitTextForTTS(text)
+	var allData []byte
+	for _, chunk := range chunks {
+		params := c.buildParams(chunk, voice)
+		resp, err := c.client.Audio.Speech.New(context.Background(), params)
+		if err != nil {
+			return nil, fmt.Errorf("TTS synthesis failed: %w", err)
+		}
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read TTS response: %w", err)
+		}
+		allData = append(allData, data...)
 	}
-	defer resp.Body.Close()
-
-	data, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read TTS response: %w", err)
-	}
-	return data, nil
+	return allData, nil
 }
 
 // TTSStreamCallbacks callbacks para streaming de áudio
@@ -188,18 +192,22 @@ func (c *TTSClient) SynthesizeStream(ctx context.Context, text string, callbacks
 	if text == "" {
 		return fmt.Errorf("text cannot be empty")
 	}
-	if len(text) > 4096 {
-		text = text[:4096]
+
+	chunks := splitTextForTTS(text)
+	for _, chunk := range chunks {
+		params := c.buildParams(chunk, c.config.Voice)
+		resp, err := c.client.Audio.Speech.New(ctx, params)
+		if err != nil {
+			return fmt.Errorf("TTS stream failed: %w", err)
+		}
+		if err := readStreamChunks(ctx, resp.Body, callbacks); err != nil {
+			resp.Body.Close()
+			return err
+		}
+		resp.Body.Close()
 	}
 
-	params := c.buildParams(text, c.config.Voice)
-	resp, err := c.client.Audio.Speech.New(ctx, params)
-	if err != nil {
-		return fmt.Errorf("TTS stream failed: %w", err)
-	}
-	defer resp.Body.Close()
-
-	return readStreamChunks(ctx, resp.Body, callbacks)
+	return nil
 }
 
 // SynthesizeStreamWithVoice converte texto em áudio com streaming usando uma voz específica
@@ -207,18 +215,87 @@ func (c *TTSClient) SynthesizeStreamWithVoice(ctx context.Context, text string, 
 	if text == "" {
 		return fmt.Errorf("text cannot be empty")
 	}
-	if len(text) > 4096 {
-		text = text[:4096]
+
+	chunks := splitTextForTTS(text)
+	for _, chunk := range chunks {
+		params := c.buildParams(chunk, voice)
+		resp, err := c.client.Audio.Speech.New(ctx, params)
+		if err != nil {
+			return fmt.Errorf("TTS stream failed: %w", err)
+		}
+		if err := readStreamChunks(ctx, resp.Body, callbacks); err != nil {
+			resp.Body.Close()
+			return err
+		}
+		resp.Body.Close()
 	}
 
-	params := c.buildParams(text, voice)
-	resp, err := c.client.Audio.Speech.New(ctx, params)
-	if err != nil {
-		return fmt.Errorf("TTS stream failed: %w", err)
-	}
-	defer resp.Body.Close()
+	return nil
+}
 
-	return readStreamChunks(ctx, resp.Body, callbacks)
+// splitTextForTTS divide texto longo em chunks de no máximo 4096 caracteres,
+// quebrando em limites de frase/parágrafo para manter naturalidade.
+func splitTextForTTS(text string) []string {
+	const maxChunkSize = 4000 // margem de segurança abaixo do limite de 4096
+
+	if len(text) <= maxChunkSize {
+		return []string{text}
+	}
+
+	var chunks []string
+	remaining := text
+
+	for len(remaining) > 0 {
+		if len(remaining) <= maxChunkSize {
+			chunks = append(chunks, remaining)
+			break
+		}
+
+		// Procura melhor ponto de quebra dentro do limite
+		cutPoint := findBreakPoint(remaining, maxChunkSize)
+		chunks = append(chunks, remaining[:cutPoint])
+		remaining = strings.TrimLeft(remaining[cutPoint:], " \n\r")
+	}
+
+	return chunks
+}
+
+// findBreakPoint encontra o melhor ponto de quebra no texto, priorizando:
+// 1. Quebra de parágrafo (\n\n)
+// 2. Quebra de linha (\n)
+// 3. Fim de frase (. ! ?)
+// 4. Vírgula ou ponto-e-vírgula
+// 5. Espaço
+// 6. Corte bruto no limite
+func findBreakPoint(text string, maxLen int) int {
+	segment := text[:maxLen]
+
+	// Parágrafo
+	if idx := strings.LastIndex(segment, "\n\n"); idx > maxLen/2 {
+		return idx + 2
+	}
+	// Linha
+	if idx := strings.LastIndex(segment, "\n"); idx > maxLen/2 {
+		return idx + 1
+	}
+	// Fim de frase
+	for _, sep := range []string{". ", "! ", "? "} {
+		if idx := strings.LastIndex(segment, sep); idx > maxLen/2 {
+			return idx + len(sep)
+		}
+	}
+	// Vírgula/ponto-e-vírgula
+	for _, sep := range []string{", ", "; "} {
+		if idx := strings.LastIndex(segment, sep); idx > maxLen/2 {
+			return idx + len(sep)
+		}
+	}
+	// Espaço
+	if idx := strings.LastIndex(segment, " "); idx > maxLen/2 {
+		return idx + 1
+	}
+	// Corte bruto
+	return maxLen
 }
 
 // readStreamChunks lê o body em chunks de 8KB e chama callbacks
@@ -284,6 +361,17 @@ func (c *TTSClient) SetFormat(format TTSFormat) {
 	c.config.Format = format
 }
 
+// listModelsSafe chama client.Models.List com proteção contra panic do SDK.
+func (c *TTSClient) listModelsSafe(ctx context.Context) (page *pagination.Page[openai.Model], retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[TTSClient] PANIC no SDK Models.List: %v", r)
+			retErr = fmt.Errorf("panic no SDK: %v", r)
+		}
+	}()
+	return c.client.Models.List(ctx)
+}
+
 // FetchVoices retorna vozes disponíveis para TTS.
 // Para provedores com modelos TTS personalizados (ex: Piper/LocalAI com voice-*,
 // qwen3-tts-*), retorna esses modelos como vozes — pois em backends como
@@ -293,8 +381,11 @@ func (c *TTSClient) FetchVoices() ([]TTSVoiceInfo, error) {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	page, err := c.client.Models.List(ctx)
+	page, err := c.listModelsSafe(ctx)
 	if err != nil {
+		return GetAvailableVoices(), nil
+	}
+	if page == nil {
 		return GetAvailableVoices(), nil
 	}
 
@@ -435,9 +526,12 @@ func (c *TTSClient) FetchTTSModels() []SpeechModelInfo {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	page, err := c.client.Models.List(ctx)
+	page, err := c.listModelsSafe(ctx)
 	if err != nil {
 		log.Printf("[FetchTTSModels] erro ao listar modelos: %v", err)
+		return staticTTSModels
+	}
+	if page == nil {
 		return staticTTSModels
 	}
 
@@ -460,9 +554,12 @@ func (c *TTSClient) FetchSTTModels() []SpeechModelInfo {
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	page, err := c.client.Models.List(ctx)
+	page, err := c.listModelsSafe(ctx)
 	if err != nil {
 		log.Printf("[FetchSTTModels] erro ao listar modelos: %v", err)
+		return staticSTTModels
+	}
+	if page == nil {
 		return staticSTTModels
 	}
 

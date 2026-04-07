@@ -2,7 +2,6 @@ package llm
 
 import (
 	"fmt"
-	"log"
 	"strings"
 )
 
@@ -102,9 +101,6 @@ func (p *ProviderConfig) GetAPIFormat() APIFormat {
 		return p.APIFormat
 	}
 	if isOpenAIRealURL(p.BaseURL) {
-		log.Printf("[ProviderConfig] api_format inferido como %q para provider %q (base_url=%s). "+
-			"Defina api_format explicitamente para evitar esta inferência.",
-			APIFormatOpenAIResponses, p.Name, p.BaseURL)
 		return APIFormatOpenAIResponses
 	}
 	return APIFormatOpenAI

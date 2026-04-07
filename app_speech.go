@@ -423,7 +423,9 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 			},
 		}
 
-		ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+		// Timeout proporcional ao texto: 60s base + 30s por chunk de 4000 chars
+		timeoutSecs := 60 + (len(text)/4000)*30
+		ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSecs)*time.Second)
 		defer cancel()
 
 		err := a.speechManager.SynthesizeStream(ctx, text, voice, callbacks)
@@ -536,6 +538,72 @@ func (a *App) GetSpeechProviders() []*llm.ProviderConfig {
 	return result
 }
 
+// TTSVoiceEntry é o formato de voz retornado para o frontend.
+type TTSVoiceEntry struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Gender      string `json:"gender"`
+	Description string `json:"description"`
+}
+
+// GetTTSVoices retorna vozes TTS disponíveis para um provedor.
+// Para SAPI5, retorna vozes do sistema Windows.
+// Para provedores LLM (OpenAI, LocalAI, LiteLLM, etc.), consulta /v1/models
+// e retorna modelos TTS como vozes.
+func (a *App) GetTTSVoices(profileID string, providerID string) []TTSVoiceEntry {
+	if providerID == "" {
+		return []TTSVoiceEntry{}
+	}
+
+	// SAPI5: vozes do Windows
+	if providerID == "sapi5" {
+		voices, err := a.GetSAPI5Voices()
+		if err != nil {
+			log.Printf("[GetTTSVoices] erro SAPI5: %v", err)
+			return []TTSVoiceEntry{}
+		}
+		result := make([]TTSVoiceEntry, len(voices))
+		for i, v := range voices {
+			result[i] = TTSVoiceEntry{
+				ID:          v.Name,
+				Name:        v.Name,
+				Gender:      v.Gender,
+				Description: v.Description,
+			}
+		}
+		return result
+	}
+
+	// WebSpeech: vozes gerenciadas pelo browser, não pelo backend
+	if providerID == "webspeech" {
+		return []TTSVoiceEntry{}
+	}
+
+	// Provedores LLM: consulta via TTSClient
+	client := a.createTTSClientForProvider(providerID, "")
+	if client == nil {
+		log.Printf("[GetTTSVoices] não foi possível criar client para provider %s", providerID)
+		return []TTSVoiceEntry{}
+	}
+
+	voices, err := client.FetchVoices()
+	if err != nil {
+		log.Printf("[GetTTSVoices] erro ao buscar vozes para %s: %v", providerID, err)
+		return []TTSVoiceEntry{}
+	}
+
+	result := make([]TTSVoiceEntry, len(voices))
+	for i, v := range voices {
+		result[i] = TTSVoiceEntry{
+			ID:          v.ID,
+			Name:        v.Name,
+			Gender:      v.Gender,
+			Description: v.Description,
+		}
+	}
+	return result
+}
+
 // GetTTSModels retorna modelos TTS disponíveis para um provedor.
 // Busca dinamicamente via /v1/models, com fallback para lista estática.
 func (a *App) GetTTSModels(providerID string) []speech.SpeechModelInfo {
@@ -567,6 +635,14 @@ func (a *App) GetSTTModels(providerID string) []speech.SpeechModelInfo {
 func (a *App) SpeakPreview(providerId string, voiceId string, model string, rate float64, volume float64, text string, sessionId string) error {
 	if text == "" {
 		text = "Este é um teste das configurações de voz"
+	}
+
+	// Normalizar rate/volume: 0 significa "não configurado" → usar defaults sensatos
+	if rate <= 0 {
+		rate = 1.0
+	}
+	if volume <= 0 {
+		volume = 1.0
 	}
 
 	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, rate=%.2f, volume=%.2f", providerId, voiceId, model, rate, volume)
@@ -604,6 +680,9 @@ func (a *App) SpeakPreview(providerId string, voiceId string, model string, rate
 			return fmt.Errorf("no TTS provider available for %s", providerId)
 		}
 
+		// Aplicar rate (speed) ao TTSClient
+		client.SetSpeed(rate)
+
 		go func() {
 			runtime.EventsEmit(a.ctx, "tts:stream:start", TTSStreamEvent{
 				SessionID: sessionId,
@@ -634,7 +713,9 @@ func (a *App) SpeakPreview(providerId string, voiceId string, model string, rate
 				},
 			}
 
-			ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+			// Timeout proporcional ao texto: 60s base + 30s por chunk de 4000 chars
+			timeoutSecs := 60 + (len(text)/4000)*30
+			ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeoutSecs)*time.Second)
 			defer cancel()
 
 			voice := speech.TTSVoice(voiceId)

@@ -41,8 +41,14 @@ export default function ChatPage() {
     isReasoningExpanded,
   } = useChatStore();
 
-  // TTS é controlado pelo perfil global via ttsService (fonte de verdade)
-  const isTTSDisabled = !ttsService.isEnabled();
+  // TTS disponível apenas quando há voz configurada no perfil ativo
+  const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
+  useEffect(() => {
+    const handler = () => setHasVoiceConfig(ttsService.hasVoiceConfig());
+    ttsService.on('voiceConfigChanged', handler);
+    return () => { ttsService.off('voiceConfigChanged', handler); };
+  }, []);
+  const isTTSDisabled = !hasVoiceConfig;
 
   // Estado do painel de ajuda de atalhos
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
@@ -316,7 +322,7 @@ export default function ChatPage() {
         isLoading={isLoading}
         ref={messagesContainerRef}
         onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
-        onSpeak={speakMessage}
+        onSpeak={hasVoiceConfig ? speakMessage : undefined}
         onDelete={handleDeleteMessage}
         onSendToEditor={(payload) => sendToEditor(payload)}
       />

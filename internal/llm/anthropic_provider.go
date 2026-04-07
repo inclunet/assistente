@@ -99,13 +99,22 @@ func (p *AnthropicProvider) SendChat(ctx context.Context, messages []Message, pa
 	return sb.String(), nil
 }
 
-func (p *AnthropicProvider) GetModels(ctx context.Context) ([]string, error) {
+func (p *AnthropicProvider) GetModels(ctx context.Context) (models []string, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[AnthropicProvider] PANIC no SDK Models.List: %v", r)
+			retErr = fmt.Errorf("panic no SDK: %v", r)
+		}
+	}()
+
 	page, err := p.client.Models.List(ctx, anthropic.ModelListParams{})
 	if err != nil {
 		return nil, fmt.Errorf("erro ao listar modelos: %w", err)
 	}
+	if page == nil {
+		return nil, fmt.Errorf("resposta vazia do servidor ao listar modelos")
+	}
 
-	var models []string
 	for _, m := range page.Data {
 		models = append(models, m.ID)
 	}

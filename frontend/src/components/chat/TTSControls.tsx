@@ -14,13 +14,14 @@ export const TTSControls: React.FC = () => {
     isEnabled,
     isAutoReadEnabled,
     isSpeaking,
+    hasVoiceConfig,
     setEnabled,
     setAutoRead,
     stop,
     isSupported,
   } = useTTS();
   
-  if (!isSupported) {
+  if (!isSupported || !hasVoiceConfig) {
     return null;
   }
   

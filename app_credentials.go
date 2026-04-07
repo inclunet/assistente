@@ -20,14 +20,26 @@ import (
 func (a *App) initCredentialManager() {
 	a.credStore = credentials.NewDBStore()
 	persist := true
-	dek, err := credentials.LoadDEKFromKeychain()
-	if err != nil {
-		if !credentials.IsKeychainNotFound(err) {
-			log.Printf("[Credentials] Erro ao acessar keychain: %v", err)
+
+	var dek []byte
+	func() {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Credentials] Panic ao acessar keychain (go-keyring): %v", r)
+				persist = false
+				dek = nil
+			}
+		}()
+		var err error
+		dek, err = credentials.LoadDEKFromKeychain()
+		if err != nil {
+			if !credentials.IsKeychainNotFound(err) {
+				log.Printf("[Credentials] Erro ao acessar keychain: %v", err)
+			}
+			persist = false
+			dek = nil
 		}
-		persist = false
-		dek = nil
-	}
+	}()
 
 	a.credMgr = credentials.NewManagerWithStore(dek, a.credStore, persist)
 	if err := a.credMgr.LoadFromStore(context.Background()); err != nil {

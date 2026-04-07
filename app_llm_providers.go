@@ -88,7 +88,17 @@ func extractHostname(baseURL string) (string, error) {
 // TestLLMProvider testa a conexão com um provider LLM.
 // Quando provider_id é informado e api_key está vazio, busca a credencial existente
 // no credential manager (resolve o problema de testes falharem durante edição).
-func (a *App) TestLLMProvider(req TestLLMProviderRequest) (bool, error) {
+func (a *App) TestLLMProvider(req TestLLMProviderRequest) (ok bool, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = fmt.Errorf("erro interno ao testar provider: %v", r)
+		}
+	}()
+
+	if a.ctx == nil {
+		return false, fmt.Errorf("aplicação ainda não está pronta, aguarde")
+	}
+
 	if req.BaseURL == "" {
 		return false, fmt.Errorf("base_url é obrigatório")
 	}
@@ -111,7 +121,7 @@ func (a *App) TestLLMProvider(req TestLLMProviderRequest) (bool, error) {
 	// Se não tem API key mas tem provider_id, busca credencial existente no credManager
 	if apiKey == "" && req.ProviderID != "" && a.llmRegistry != nil && a.credMgr != nil {
 		if provider := a.llmRegistry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth.Token != "" {
+			if auth, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
 				apiKey = auth.Token
 				log.Printf("[TestLLMProvider] Usando credencial existente para provider '%s' (pattern: %s)", req.ProviderID, provider.CredentialPattern)
 			}
@@ -156,7 +166,19 @@ func (a *App) TestLLMProvider(req TestLLMProviderRequest) (bool, error) {
 // ListModelsRaw lista modelos de um provedor usando credenciais ad-hoc (sem exigir provider salvo).
 // Usado pelo formulário de criação/edição de providers para validar e selecionar modelo.
 // Se provider_id é informado e api_key está vazio, busca credencial existente.
-func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
+func (a *App) ListModelsRaw(req TestLLMProviderRequest) (models []string, retErr error) {
+	// Protege contra panic
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[ListModelsRaw] PANIC: %v", r)
+			retErr = fmt.Errorf("erro interno ao listar modelos: %v", r)
+		}
+	}()
+
+	if a.ctx == nil {
+		return nil, fmt.Errorf("aplicação ainda não está pronta, aguarde")
+	}
+
 	if req.BaseURL == "" {
 		return nil, fmt.Errorf("base_url é obrigatório")
 	}
@@ -177,7 +199,7 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
 	// Se não tem API key mas tem provider_id, busca credencial existente
 	if apiKey == "" && req.ProviderID != "" && a.llmRegistry != nil && a.credMgr != nil {
 		if provider := a.llmRegistry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth.Token != "" {
+			if auth, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
 				apiKey = auth.Token
 			}
 		}
@@ -208,13 +230,12 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 
-	// Usa ChatProvider se o tipo tem api_format inferível
 	cp := llm.NewChatProvider(tempProvider, a.credMgr)
-	models, err := cp.GetModels(ctx)
+	result, err := cp.GetModels(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return models, nil
+	return result, nil
 }
 
 // CreateLLMProvider cria um novo provider com auto-salvamento de credenciais
@@ -540,6 +561,7 @@ func (a *App) loadLLMProviders() error {
 		return fmt.Errorf("nenhum provedor encontrado")
 	}
 
+	needsSave := false
 	for _, dbProvider := range providers {
 		p := &llm.ProviderConfig{
 			ID:                dbProvider.ID,
@@ -553,6 +575,14 @@ func (a *App) loadLLMProviders() error {
 			Timeout:           dbProvider.Timeout,
 			CredentialPattern: dbProvider.CredentialPattern,
 		}
+		// Materializa api_format inferido para providers existentes sem valor explícito.
+		// Evita log repetitivo de inferência a cada chamada de GetAPIFormat().
+		if p.APIFormat == "" {
+			inferred := p.GetAPIFormat()
+			p.APIFormat = inferred
+			needsSave = true
+			log.Printf("[ProviderManager] api_format de '%s' materializado como %q", p.Name, inferred)
+		}
 		if err := a.llmRegistry.Register(p); err != nil {
 			log.Printf("Erro ao registrar provedor %s: %v", p.ID, err)
 		}
@@ -561,6 +591,13 @@ func (a *App) loadLLMProviders() error {
 	log.Printf("Provedores LLM carregados do SQLite: %d", len(providers))
 
 	a.ensureDefaultProvider()
+
+	// Persistir api_format materializado para não repetir inferência no próximo boot
+	if needsSave {
+		if err := a.saveLLMProviders(); err != nil {
+			log.Printf("[ProviderManager] Erro ao persistir api_format materializado: %v", err)
+		}
+	}
 
 	return nil
 }

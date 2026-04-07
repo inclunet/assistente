@@ -150,44 +150,6 @@ export class OpenAIProvider extends BaseTTSProvider {
     }
   }
   
-  /**
-   * Sintetiza texto em áudio SEM reproduzir
-   * Retorna Blob para uso com sistema de audio por mensagem
-   */
-  async synthesize(text: string): Promise<Blob> {
-    if (!this._isAvailable || !text || text.trim().length === 0) {
-      throw new Error('OpenAI TTS not available or empty text');
-    }
-
-    // Configura voz e velocidade
-    if (this._currentVoice) {
-      await SetOpenAITTSVoice(this._currentVoice);
-    }
-    
-    await SetOpenAITTSSpeed(this.calculateBackendRate());
-
-    // Chama backend para sintetizar
-    const result: main.SynthesisResultInfo = await SynthesizeOpenAIWithVoice(
-      text,
-      this._currentVoice || 'nova'
-    );
-
-    if (!result.audioBase64) {
-      throw new Error('Backend retornou audio vazio');
-    }
-
-    // Decodifica base64 para blob
-    const audioBytes = atob(result.audioBase64);
-    const audioArray = new Uint8Array(audioBytes.length);
-    for (let i = 0; i < audioBytes.length; i++) {
-      audioArray[i] = audioBytes.charCodeAt(i);
-    }
-
-    const audioBlob = new Blob([audioArray], { type: 'audio/mpeg' });
-    
-    return audioBlob;
-  }
-
   private calculateBackendRate(): number {
     // OpenAI backend usa escala diferente
     if (this._rate < 1) {

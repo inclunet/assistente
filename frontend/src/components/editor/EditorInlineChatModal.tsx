@@ -9,6 +9,8 @@ import { Toolbar } from '../ui/Toolbar';
 import { useChatStore, type Message } from '../../store/chatStore';
 import type { MediaFile } from '../../services/mediaService';
 import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
+import { ttsService } from '../../services/tts';
+import { messageAudioService } from '../../services/messageAudio';
 import { ClearConversation, DeleteMessage } from '@wailsjs/go/main/App';
 import { announce } from '../../hooks/useAnnouncer';
 
@@ -51,6 +53,14 @@ export function EditorInlineChatModal({
   const { copyMessage, speakMessage } = useMessageActions({
     onAnnounce: (msg) => announce(msg),
   });
+
+  // Reativo: atualiza quando a config de voz muda
+  const [hasVoice, setHasVoice] = useState(() => ttsService.hasVoiceConfig());
+  useEffect(() => {
+    const handler = () => setHasVoice(ttsService.hasVoiceConfig());
+    ttsService.on('voiceConfigChanged', handler);
+    return () => { ttsService.off('voiceConfigChanged', handler); };
+  }, []);
 
   const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
   const handleDeleteMessage = useCallback(
@@ -187,7 +197,7 @@ export function EditorInlineChatModal({
     <Modal
       isOpen={isOpen}
       title={`${title ?? t('editor.inlineChat.title')} — ${conversationTitle}`}
-      onClose={onClose}
+      onClose={() => { ttsService.stop(); messageAudioService.stopAll(); onClose(); }}
       size="lg"
     >
       <div className="editor-inline-chat" onKeyDownCapture={handleKeyDownCapture}>
@@ -235,7 +245,7 @@ export function EditorInlineChatModal({
             isLoading={isLoading}
             ref={messagesContainerRef}
             onContextMenu={(event, message: Message) => showMenu(event, message, message.role === 'user')}
-            onSpeak={speakMessage}
+            onSpeak={hasVoice ? speakMessage : undefined}
             onDelete={(message) => { void handleDeleteMessage(message); }}
           />
         </div>

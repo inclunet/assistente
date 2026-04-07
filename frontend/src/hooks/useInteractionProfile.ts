@@ -452,16 +452,22 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   // Sincroniza configurações de TTS quando o perfil ativo muda
   // O ttsService é a única fonte de verdade para TTS — sem intermediários
   useEffect(() => {
-    if (!activeProfile) return;
+    if (!activeProfile) {
+      ttsService.stop();
+      ttsService.clearAllRoleConfigs();
+      return;
+    }
 
     const assistantVoice = activeProfile.voice?.assistant;
     const isDisabled = !assistantVoice || !assistantVoice.enabled || assistantVoice.provider === 'disabled';
 
     const syncTTS = async () => {
       if (isDisabled) {
+        ttsService.stop();
         ttsService.setEnabled(false);
         ttsService.setAutoRead(false);
         ttsService.setEnabledForUser(false);
+        ttsService.clearAllRoleConfigs();
         return;
       }
 
@@ -488,6 +494,9 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       ttsService.setEnabled(true);
       ttsService.setAutoRead(assistantVoice.enabled);
       ttsService.setEnabledForUser(activeProfile.voice?.user?.enabled || false);
+
+      // Limpa configs de role anteriores antes de aplicar o novo perfil
+      ttsService.clearAllRoleConfigs();
 
       // Configura provider e voz padrão (assistant) para compatibilidade
       const ttsProvider = mapTTSProvider(assistantVoice.provider);

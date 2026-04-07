@@ -301,6 +301,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     },
 
     loadConversation: async (id) => {
+      // Para TTS/áudio da conversa anterior ao trocar
+      messageAudioService.stopAll();
+      ttsService.stop();
+
       try {
         const [conv, backendNodes] = await Promise.all([
           GetConversationInfo(id),
@@ -359,6 +363,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (message.role === 'user') {
         playSendSound();
         if (ttsService.isEnabledForUser()) {
+          messageAudioService.stopAll();
+          ttsService.stop();
           const cleanContent = stripMarkdown(message.content);
           ttsService.speakAsRole(cleanContent, 'user').catch((err: unknown) => {
             console.error('[Chat] TTS speak error (user):', err);
@@ -735,6 +741,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (data.content) {
               newSegments.push({ type: 'text', content: data.content });
               if (ttsService.isAutoReadEnabled()) {
+                messageAudioService.stopAll();
+                ttsService.stop();
                 ttsService.speakAsRole(data.content, 'assistant').catch((err: unknown) => {
                   console.error('[Chat] TTS segment error:', err);
                 });
@@ -1221,6 +1229,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
         if (!activeListeners.has(conversationIdStr)) return;
         if (event.hasMore && event.content && ttsService.isAutoReadEnabled()) {
+          messageAudioService.stopAll();
+          ttsService.stop();
           ttsService.speakAsRole(event.content, 'assistant').catch((err: unknown) => {
             console.error('[Chat] TTS segment error (external):', err);
           });

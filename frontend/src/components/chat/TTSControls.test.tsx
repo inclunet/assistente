@@ -15,6 +15,7 @@ vi.mock('../../hooks/useTTS', () => ({
     isEnabled: true,
     isAutoReadEnabled: false,
     isSpeaking: true,
+    hasVoiceConfig: true,
     setEnabled: setEnabledSpy,
     setAutoRead: setAutoReadSpy,
     stop: stopSpy,

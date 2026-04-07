@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"sort"
 	"strings"
 	"time"
@@ -41,6 +43,7 @@ import (
 type OpenAIProvider struct {
 	client       *openai.Client
 	provider     *ProviderConfig
+	credMgr      *credentials.Manager
 	useResponses bool              // true = Responses API first; false = Chat Completions only
 	mcpServers   []MCPServerConfig // MCP servers HTTP (só efetivo quando useResponses=true)
 }
@@ -79,6 +82,7 @@ func newOpenAIProviderBase(provider *ProviderConfig, credMgr *credentials.Manage
 	return &OpenAIProvider{
 		client:       &client,
 		provider:     provider,
+		credMgr:      credMgr,
 		useResponses: useResponses,
 	}
 }
@@ -94,6 +98,7 @@ func (p *OpenAIProvider) WithMCPServers(servers []MCPServerConfig) ChatProvider 
 	return &OpenAIProvider{
 		client:       p.client,
 		provider:     p.provider,
+		credMgr:      p.credMgr,
 		useResponses: p.useResponses,
 		mcpServers:   servers,
 	}
@@ -157,6 +162,26 @@ func (p *OpenAIProvider) sendChatResponses(ctx context.Context, model string, me
 }
 
 func (p *OpenAIProvider) GetModels(ctx context.Context) ([]string, error) {
+	// Tenta via SDK primeiro
+	models, err := p.getModelsSDK(ctx)
+	if err == nil {
+		return models, nil
+	}
+
+	// Se o SDK falhou (inclusive por panic capturado), tenta fallback HTTP direto
+	log.Printf("[OpenAIProvider] SDK falhou ao listar modelos: %v — tentando fallback HTTP", err)
+	return p.getModelsHTTP(ctx)
+}
+
+// getModelsSDK lista modelos usando a SDK openai-go.
+func (p *OpenAIProvider) getModelsSDK(ctx context.Context) (models []string, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[OpenAIProvider] PANIC no SDK Models.List: %v", r)
+			retErr = fmt.Errorf("panic no SDK: %v", r)
+		}
+	}()
+
 	page, err := p.client.Models.List(ctx)
 	if err != nil {
 		if strings.Contains(err.Error(), "404") {
@@ -164,12 +189,76 @@ func (p *OpenAIProvider) GetModels(ctx context.Context) ([]string, error) {
 		}
 		return nil, fmt.Errorf("erro ao listar modelos: %w", err)
 	}
+	if page == nil {
+		return nil, fmt.Errorf("resposta vazia do servidor ao listar modelos")
+	}
 
-	var models []string
 	for _, m := range page.Data {
 		models = append(models, m.ID)
 	}
+	sort.Strings(models)
+	return models, nil
+}
 
+// getModelsHTTP lista modelos via HTTP direto (fallback quando o SDK falha).
+func (p *OpenAIProvider) getModelsHTTP(ctx context.Context) ([]string, error) {
+	baseURL := strings.TrimSuffix(p.provider.BaseURL, "/")
+	modelsURL := baseURL + "/models"
+	if !strings.Contains(baseURL, "/v1") {
+		modelsURL = baseURL + "/v1/models"
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, modelsURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao criar request: %w", err)
+	}
+
+	client := newHTTPClientForProvider(p.provider, p.credMgr)
+	client.Timeout = 15 * time.Second
+
+	resp, err := client.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao conectar ao provedor: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, fmt.Errorf("models_endpoint_not_supported")
+	}
+	if resp.StatusCode == http.StatusUnauthorized {
+		return nil, fmt.Errorf("API Key inválida ou não autorizada")
+	}
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("provedor retornou status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, 2*1024*1024))
+	if err != nil {
+		return nil, fmt.Errorf("erro ao ler resposta: %w", err)
+	}
+
+	type modelEntry struct {
+		ID string `json:"id"`
+	}
+	type modelsResponse struct {
+		Data []modelEntry `json:"data"`
+	}
+
+	var parsed modelsResponse
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		var arr []modelEntry
+		if err2 := json.Unmarshal(body, &arr); err2 != nil {
+			return nil, fmt.Errorf("resposta inválida do servidor")
+		}
+		parsed.Data = arr
+	}
+
+	var models []string
+	for _, m := range parsed.Data {
+		if m.ID != "" {
+			models = append(models, m.ID)
+		}
+	}
 	sort.Strings(models)
 	return models, nil
 }

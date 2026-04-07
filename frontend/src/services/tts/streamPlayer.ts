@@ -341,6 +341,7 @@ export class TTSStreamPlayer {
     this.audioElement.play().catch(e => {
       console.error('[TTSStream] Fallback play error:', e);
       this.callbacks.onError?.(e);
+      this.cleanup();
     });
   }
 
@@ -398,6 +399,8 @@ export class TTSStreamPlayer {
    * Limpa recursos
    */
   private cleanup(): void {
+    this.state = 'idle';
+
     this.unsubscribeStart?.();
     this.unsubscribeChunk?.();
     this.unsubscribeDone?.();
