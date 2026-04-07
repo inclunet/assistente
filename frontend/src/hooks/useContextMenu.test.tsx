@@ -12,13 +12,11 @@ const consumeSkipFocusRestoreMock = vi.hoisted(() => vi.fn());
 const ttsServiceMock = vi.hoisted(() => ({
   getVolume: vi.fn(() => 0.75),
   hasVoiceConfig: vi.fn(() => true),
-  getRoleConfig: vi.fn(() => ({
+  getVoiceContext: vi.fn(() => ({
     providerId: 'test-provider',
     voiceId: 'test-voice',
     model: 'tts-1',
     rate: 1.0,
-    pitch: 1.0,
-    volume: 1.0,
   })),
   speakAsRole: vi.fn(async () => {}),
   stop: vi.fn(),
@@ -145,13 +143,11 @@ describe('useMessageActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     ttsServiceMock.getVolume.mockReturnValue(0.75);
-    ttsServiceMock.getRoleConfig.mockReturnValue({
+    ttsServiceMock.getVoiceContext.mockReturnValue({
       providerId: 'test-provider',
       voiceId: 'test-voice',
       model: 'tts-1',
       rate: 1.0,
-      pitch: 1.0,
-      volume: 1.0,
     });
     Object.defineProperty(globalThis.navigator, 'clipboard', {
       value: {
@@ -206,7 +202,7 @@ describe('useMessageActions', () => {
   });
 
   it('não reproduz quando sem config de voz', async () => {
-    ttsServiceMock.getRoleConfig.mockReturnValue(undefined);
+    ttsServiceMock.getVoiceContext.mockReturnValue(undefined);
 
     const { result } = renderHook(() => useMessageActions());
 

@@ -125,6 +125,7 @@ const en = {
       enableAutoRead: 'Enable auto-read',
       disableAutoReadLabel: 'Disable auto-read of responses',
       enableAutoReadLabel: 'Enable auto-read of responses',
+      autoReadError: 'Error playing audio automatically',
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',
       loadingTokenStats: 'Loading token statistics',

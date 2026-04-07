@@ -13,7 +13,7 @@ vi.mock('../services/messageAudio', () => ({
 
 vi.mock('../services/tts', () => ({
   ttsService: {
-    getRoleConfig: vi.fn(() => ({
+    getVoiceContext: vi.fn(() => ({
       providerId: 'test-provider',
       voiceId: 'test-voice',
       model: 'tts-1',

@@ -15,7 +15,9 @@ import { base64ToBlob } from '../../lib/audioUtils';
 // Cache em memória (Blob) — evita re-transferência via IPC
 // ---------------------------------------------------------------------------
 const MEMORY_CACHE_MAX = 20;
+const MEMORY_CACHE_MAX_BYTES = 50 * 1024 * 1024; // 50 MB
 const memoryCache = new Map<number, Blob>();
+let memoryCacheTotalBytes = 0;
 
 function memoryCacheGet(messageId: number): Blob | undefined {
   const blob = memoryCache.get(messageId);
@@ -27,13 +29,30 @@ function memoryCacheGet(messageId: number): Blob | undefined {
   return blob;
 }
 
-function memoryCacheSet(messageId: number, blob: Blob): void {
-  if (memoryCache.size >= MEMORY_CACHE_MAX) {
-    // Remove a entrada mais antiga (primeira do Map)
+function memoryCacheEvict(): void {
+  // Remove entradas mais antigas até caber nos limites
+  while (
+    (memoryCache.size >= MEMORY_CACHE_MAX || memoryCacheTotalBytes >= MEMORY_CACHE_MAX_BYTES) &&
+    memoryCache.size > 0
+  ) {
     const oldest = memoryCache.keys().next().value;
-    if (oldest !== undefined) memoryCache.delete(oldest);
+    if (oldest === undefined) break;
+    const blob = memoryCache.get(oldest);
+    if (blob) memoryCacheTotalBytes -= blob.size;
+    memoryCache.delete(oldest);
   }
+}
+
+function memoryCacheSet(messageId: number, blob: Blob): void {
+  // Se já existe, remove antes (atualiza posição e contagem)
+  const existing = memoryCache.get(messageId);
+  if (existing) {
+    memoryCacheTotalBytes -= existing.size;
+    memoryCache.delete(messageId);
+  }
+  memoryCacheEvict();
   memoryCache.set(messageId, blob);
+  memoryCacheTotalBytes += blob.size;
 }
 
 // ---------------------------------------------------------------------------
@@ -141,7 +160,8 @@ async function speakMessage(messageId: number, volume: number = 1.0, provider?: 
       return true;
     }
     return false;
-  } catch {
+  } catch (err) {
+    console.warn('[messageAudio] speakMessage failed:', err);
     return false;
   }
 }
@@ -169,7 +189,8 @@ async function getMessageAudioBlob(messageId: number, provider?: TTSProviderPara
       return blob;
     }
     return null;
-  } catch {
+  } catch (err) {
+    console.warn('[messageAudio] getMessageAudioBlob failed:', err);
     return null;
   }
 }
@@ -192,6 +213,7 @@ function downloadAudioBlob(blob: Blob, filename: string): void {
 /** Limpa o cache em memória. Uso em testes. */
 function clearMemoryCache(): void {
   memoryCache.clear();
+  memoryCacheTotalBytes = 0;
 }
 
 export const messageAudioService = {
@@ -206,9 +228,4 @@ export const messageAudioService = {
   speakMessage,
   getMessageAudioBlob,
   clearMemoryCache,
-  base64ToBlob,
-
-  // Aliases
-  stopAll: stopCurrentAudio,
-  clearAll: stopCurrentAudio,
 };

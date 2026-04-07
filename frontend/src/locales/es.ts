@@ -124,6 +124,7 @@ const es = {
       enableAutoRead: 'Habilitar lectura automática',
       disableAutoReadLabel: 'Deshabilitar lectura automática de respuestas',
       enableAutoReadLabel: 'Habilitar lectura automática de respuestas',
+      autoReadError: 'Error al reproducir audio automáticamente',
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',
       loadingTokenStats: 'Cargando estadísticas de tokens',

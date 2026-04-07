@@ -58,17 +58,13 @@ func NewSpeechManagerFromProfile(p *profiles.Profile, registry *llm.ProviderRegi
 
 	buildRoleConfig := func(role profiles.VoiceRoleConfig) RoleVoiceConfig {
 		apiKey, baseURL, credPattern := resolveAPICreds(role.LLMProviderID)
-		model := role.Model
-		if model == "" {
-			model = "tts-1"
-		}
 		return RoleVoiceConfig{
 			Provider:          role.Provider,
 			APIKey:            apiKey,
 			BaseURL:           baseURL,
 			CredentialPattern: credPattern,
 			Voice:             role.VoiceID,
-			Model:             model,
+			Model:             role.Model,
 			Rate:              role.Rate,
 			Pitch:             role.Pitch,
 			Volume:            role.Volume,

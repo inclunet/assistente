@@ -206,6 +206,17 @@ class TTSService {
   }
 
   /**
+   * Retorna os parâmetros de provider TTS para uma role, prontos para
+   * passar ao messageAudioService. Retorna undefined se a role não tem config.
+   * Centraliza a montagem para evitar duplicação nos callers.
+   */
+  getVoiceContext(role: VoiceRole): { providerId: string; voiceId: string; model: string; rate: number } | undefined {
+    const rc = this.roleConfigs.get(role);
+    if (!rc) return undefined;
+    return { providerId: rc.providerId, voiceId: rc.voiceId, model: rc.model, rate: rc.rate };
+  }
+
+  /**
    * Ponto único de reprodução de TTS.
    *
    * Usa a configuração de voz da role do perfil ativo.
@@ -387,7 +398,7 @@ class TTSService {
     const voiceId = options.voiceName ? this.extractVoiceId(options.voiceName) : undefined;
 
     // Resolve o tipo de provider: webspeech, sapi5, ou LLM (OpenAI-like)
-    const resolvedProvider = this.resolveProviderType(options.providerId, options.voiceName);
+    const resolvedProvider = this.resolveProviderType(options.providerId);
 
     // LLM providers (OpenAI-like) → delega ao backend que sabe criar o TTSClient correto
     if (resolvedProvider === 'llm') {
@@ -472,22 +483,12 @@ class TTSService {
    * Resolve o tipo de provider para roteamento.
    * Retorna 'webspeech', 'sapi5' ou 'llm'.
    */
-  private resolveProviderType(providerId?: string, voiceName?: string): 'webspeech' | 'sapi5' | 'llm' {
-    // Se há providerId explícito, usa-o
+  private resolveProviderType(providerId?: string): 'webspeech' | 'sapi5' | 'llm' {
     if (providerId) {
       if (providerId === 'webspeech') return 'webspeech';
       if (providerId === 'sapi5') return 'sapi5';
-      // Qualquer outro ID é um LLM provider (ex: "openai-default-xxx", "litellm-123")
       return 'llm';
     }
-
-    // Fallback: detecta pelo nome da voz (compatibilidade com chamadas legadas)
-    if (voiceName) {
-      const detected = this.detectProviderFromVoice(voiceName);
-      if (detected === TTSProvider.SAPI5) return 'sapi5';
-      if (detected === TTSProvider.OPENAI) return 'llm';
-    }
-
     return 'webspeech';
   }
 

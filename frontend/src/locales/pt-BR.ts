@@ -125,6 +125,7 @@ const ptBR = {
       enableAutoRead: 'Habilitar leitura automática',
       disableAutoReadLabel: 'Desabilitar leitura automática de respostas',
       enableAutoReadLabel: 'Habilitar leitura automática de respostas',
+      autoReadError: 'Erro ao reproduzir áudio automaticamente',
       stopReading: 'Parar leitura',
       stopReadingLabel: 'Parar leitura de texto',
       loadingTokenStats: 'Carregando estatísticas de tokens',

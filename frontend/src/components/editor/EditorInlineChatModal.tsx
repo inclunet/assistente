@@ -197,7 +197,7 @@ export function EditorInlineChatModal({
     <Modal
       isOpen={isOpen}
       title={`${title ?? t('editor.inlineChat.title')} — ${conversationTitle}`}
-      onClose={() => { ttsService.stop(); messageAudioService.stopAll(); onClose(); }}
+      onClose={() => { ttsService.stop(); messageAudioService.stopCurrentAudio(); onClose(); }}
       size="lg"
     >
       <div className="editor-inline-chat" onKeyDownCapture={handleKeyDownCapture}>

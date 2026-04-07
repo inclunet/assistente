@@ -2,6 +2,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { messageAudioService } from './index';
+import { base64ToBlob } from '../../lib/audioUtils';
 
 const speakMessageMock = vi.fn();
 
@@ -65,6 +66,32 @@ describe('messageAudioService', () => {
       const result = await messageAudioService.speakMessage(1);
 
       expect(result).toBe(false);
+    });
+
+    it('loga warn quando backend lança erro', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      speakMessageMock.mockRejectedValue(new Error('TTS indisponível'));
+
+      await messageAudioService.speakMessage(1);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[messageAudio] speakMessage failed:',
+        expect.any(Error),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('passa provider params ao backend', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+
+      await messageAudioService.speakMessage(42, 1.0, {
+        providerId: 'openai',
+        voiceId: 'nova',
+        model: 'tts-1',
+        rate: 1.5,
+      });
+
+      expect(speakMessageMock).toHaveBeenCalledWith(42, 'openai', 'nova', 'tts-1', 1.5);
     });
   });
 
@@ -146,6 +173,19 @@ describe('messageAudioService', () => {
 
       expect(blob).toBeNull();
     });
+
+    it('loga warn quando backend falha', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      speakMessageMock.mockRejectedValue(new Error('falha'));
+
+      await messageAudioService.getMessageAudioBlob(1);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[messageAudio] getMessageAudioBlob failed:',
+        expect.any(Error),
+      );
+      warnSpy.mockRestore();
+    });
   });
 
   describe('playAudioBase64', () => {
@@ -156,9 +196,9 @@ describe('messageAudioService', () => {
     });
   });
 
-  describe('base64ToBlob', () => {
+  describe('base64ToBlob (audioUtils)', () => {
     it('converte base64 em blob com tipo correto', () => {
-      const blob = messageAudioService.base64ToBlob('QQ==', 'audio/mpeg');
+      const blob = base64ToBlob('QQ==', 'audio/mpeg');
 
       expect(blob.type).toBe('audio/mpeg');
     });

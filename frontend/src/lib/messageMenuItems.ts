@@ -332,14 +332,8 @@ export function getMessageMenuItems(
 
           onAnnounce?.('Gerando audio...');
           const role = message.role === 'user' ? 'user' : 'assistant';
-          const roleConfig = ttsService.getRoleConfig(role as 'user' | 'assistant');
-          const provider = roleConfig ? {
-            providerId: roleConfig.providerId,
-            voiceId: roleConfig.voiceId,
-            model: roleConfig.model,
-            rate: roleConfig.rate,
-          } : undefined;
-          const audioBlob = await messageAudioService.getMessageAudioBlob(numericId, provider);
+          const voiceCtx = ttsService.getVoiceContext(role);
+          const audioBlob = await messageAudioService.getMessageAudioBlob(numericId, voiceCtx);
 
           if (!audioBlob) {
             onAnnounce?.('Nao foi possivel gerar audio. Verifique a configuracao de voz no perfil ativo.');

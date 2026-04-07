@@ -13,6 +13,7 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
 import { llm, main } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';
+import i18next from 'i18next';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
@@ -27,30 +28,26 @@ import type { VoiceRole } from '../services/tts';
  * Sem messageId (streaming parcial) → TTS direto via speakAsRole.
  */
 function triggerAutoRead(text: string, role: VoiceRole, messageId?: number): void {
-  messageAudioService.stopAll();
+  messageAudioService.stopCurrentAudio();
   ttsService.stop();
 
   if (messageId && messageId > 0) {
     const volume = ttsService.getVolume();
-    const roleConfig = ttsService.getRoleConfig(role);
-    const provider = roleConfig ? {
-      providerId: roleConfig.providerId,
-      voiceId: roleConfig.voiceId,
-      model: roleConfig.model,
-      rate: roleConfig.rate,
-    } : undefined;
-    messageAudioService.speakMessage(messageId, volume, provider).then((played) => {
+    const voiceCtx = ttsService.getVoiceContext(role);
+    messageAudioService.speakMessage(messageId, volume, voiceCtx).then((played) => {
       if (!played) {
         const clean = stripMarkdown(text);
         return ttsService.speakAsRole(clean, role);
       }
     }).catch((err: unknown) => {
       console.error(`[Chat] TTS auto-read error (${role}):`, err);
+      announce(i18next.t('chat.autoReadError', 'Erro ao reproduzir áudio automaticamente'));
     });
   } else {
     const clean = stripMarkdown(text);
     ttsService.speakAsRole(clean, role).catch((err: unknown) => {
       console.error(`[Chat] TTS auto-read error (${role}):`, err);
+      announce(i18next.t('chat.autoReadError', 'Erro ao reproduzir áudio automaticamente'));
     });
   }
 }
@@ -339,7 +336,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     loadConversation: async (id) => {
       // Para TTS/áudio da conversa anterior ao trocar
-      messageAudioService.stopAll();
+      messageAudioService.stopCurrentAudio();
       ttsService.stop();
 
       try {
