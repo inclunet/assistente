@@ -42,9 +42,12 @@ func NewSpeechManagerFromProfile(p *profiles.Profile, registry *llm.ProviderRegi
 		if cfg.CredentialPattern != "" {
 			if auth, err := credMgr.GetByPattern(cfg.CredentialPattern); err == nil && auth != nil {
 				apiKey = auth.Token
-			} else {
-				log.Printf("[Speech] Credencial não encontrada para pattern '%s' (provider=%s): %v",
+			} else if err != nil {
+				log.Printf("[Speech] ERRO ao resolver credencial para pattern '%s' (provider=%s): %v",
 					cfg.CredentialPattern, llmProviderID, err)
+			} else {
+				log.Printf("[Speech] AVISO: credencial não encontrada para pattern '%s' (provider=%s) — TTS pode falhar",
+					cfg.CredentialPattern, llmProviderID)
 			}
 		} else {
 			log.Printf("[Speech] Provider '%s' não tem CredentialPattern configurado", llmProviderID)

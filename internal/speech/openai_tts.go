@@ -16,6 +16,31 @@ import (
 	"github.com/openai/openai-go/packages/param"
 )
 
+// ============================================================================
+// Constantes do subsistema TTS
+// ============================================================================
+
+const (
+	// TtsMaxChunkSize é o tamanho máximo (em caracteres) de cada chunk de texto
+	// enviado à API de síntese. Margem de segurança abaixo do limite de 4096.
+	TtsMaxChunkSize = 4000
+
+	// TtsStreamBufSize é o tamanho do buffer de leitura de streaming (8KB).
+	TtsStreamBufSize = 8192
+
+	// TtsTimeoutBase é o timeout base para operações de síntese.
+	TtsTimeoutBase = 60 * time.Second
+
+	// TtsTimeoutPerChunk é o timeout adicional por chunk de texto.
+	TtsTimeoutPerChunk = 30 * time.Second
+)
+
+// CalcTTSTimeout calcula o timeout para uma operação TTS baseado no tamanho do texto.
+func CalcTTSTimeout(textLen int) time.Duration {
+	chunks := textLen / TtsMaxChunkSize
+	return TtsTimeoutBase + time.Duration(chunks)*TtsTimeoutPerChunk
+}
+
 // TTSVoice representa uma voz disponível no OpenAI TTS
 type TTSVoice string
 
@@ -129,34 +154,9 @@ func (c *TTSClient) buildParams(text string, voice TTSVoice) openai.AudioSpeechN
 	return params
 }
 
-// Synthesize converte texto em áudio.
-// Retorna os bytes do áudio no formato configurado.
-// Textos maiores que 4000 chars são divididos em chunks e sintetizados sequencialmente.
-func (c *TTSClient) Synthesize(text string) ([]byte, error) {
-	if text == "" {
-		return nil, fmt.Errorf("text cannot be empty")
-	}
-
-	chunks := splitTextForTTS(text)
-	var allData []byte
-	for _, chunk := range chunks {
-		params := c.buildParams(chunk, c.config.Voice)
-		resp, err := c.client.Audio.Speech.New(context.Background(), params)
-		if err != nil {
-			return nil, fmt.Errorf("TTS synthesis failed: %w", err)
-		}
-		data, err := io.ReadAll(resp.Body)
-		resp.Body.Close()
-		if err != nil {
-			return nil, fmt.Errorf("failed to read TTS response: %w", err)
-		}
-		allData = append(allData, data...)
-	}
-	return allData, nil
-}
-
-// SynthesizeWithVoice converte texto em áudio usando uma voz específica
-func (c *TTSClient) SynthesizeWithVoice(text string, voice TTSVoice) ([]byte, error) {
+// synthesizeInternal é a implementação central de síntese de texto para áudio.
+// Divide textos longos em chunks e sintetiza sequencialmente.
+func (c *TTSClient) synthesizeInternal(text string, voice TTSVoice) ([]byte, error) {
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
@@ -177,6 +177,16 @@ func (c *TTSClient) SynthesizeWithVoice(text string, voice TTSVoice) ([]byte, er
 		allData = append(allData, data...)
 	}
 	return allData, nil
+}
+
+// Synthesize converte texto em áudio usando a voz configurada.
+func (c *TTSClient) Synthesize(text string) ([]byte, error) {
+	return c.synthesizeInternal(text, c.config.Voice)
+}
+
+// SynthesizeWithVoice converte texto em áudio usando uma voz específica.
+func (c *TTSClient) SynthesizeWithVoice(text string, voice TTSVoice) ([]byte, error) {
+	return c.synthesizeInternal(text, voice)
 }
 
 // TTSStreamCallbacks callbacks para streaming de áudio
@@ -186,32 +196,8 @@ type TTSStreamCallbacks struct {
 	OnError func(err error)    // Chamado em caso de erro
 }
 
-// SynthesizeStream converte texto em áudio com streaming.
-// O SDK retorna um *http.Response; lemos o body em chunks.
-func (c *TTSClient) SynthesizeStream(ctx context.Context, text string, callbacks TTSStreamCallbacks) error {
-	if text == "" {
-		return fmt.Errorf("text cannot be empty")
-	}
-
-	chunks := splitTextForTTS(text)
-	for _, chunk := range chunks {
-		params := c.buildParams(chunk, c.config.Voice)
-		resp, err := c.client.Audio.Speech.New(ctx, params)
-		if err != nil {
-			return fmt.Errorf("TTS stream failed: %w", err)
-		}
-		if err := readStreamChunks(ctx, resp.Body, callbacks); err != nil {
-			resp.Body.Close()
-			return err
-		}
-		resp.Body.Close()
-	}
-
-	return nil
-}
-
-// SynthesizeStreamWithVoice converte texto em áudio com streaming usando uma voz específica
-func (c *TTSClient) SynthesizeStreamWithVoice(ctx context.Context, text string, voice TTSVoice, callbacks TTSStreamCallbacks) error {
+// synthesizeStreamInternal é a implementação central de síntese com streaming.
+func (c *TTSClient) synthesizeStreamInternal(ctx context.Context, text string, voice TTSVoice, callbacks TTSStreamCallbacks) error {
 	if text == "" {
 		return fmt.Errorf("text cannot be empty")
 	}
@@ -233,12 +219,20 @@ func (c *TTSClient) SynthesizeStreamWithVoice(ctx context.Context, text string, 
 	return nil
 }
 
+// SynthesizeStream converte texto em áudio com streaming usando a voz configurada.
+func (c *TTSClient) SynthesizeStream(ctx context.Context, text string, callbacks TTSStreamCallbacks) error {
+	return c.synthesizeStreamInternal(ctx, text, c.config.Voice, callbacks)
+}
+
+// SynthesizeStreamWithVoice converte texto em áudio com streaming usando uma voz específica.
+func (c *TTSClient) SynthesizeStreamWithVoice(ctx context.Context, text string, voice TTSVoice, callbacks TTSStreamCallbacks) error {
+	return c.synthesizeStreamInternal(ctx, text, voice, callbacks)
+}
+
 // splitTextForTTS divide texto longo em chunks de no máximo 4096 caracteres,
 // quebrando em limites de frase/parágrafo para manter naturalidade.
 func splitTextForTTS(text string) []string {
-	const maxChunkSize = 4000 // margem de segurança abaixo do limite de 4096
-
-	if len(text) <= maxChunkSize {
+	if len(text) <= TtsMaxChunkSize {
 		return []string{text}
 	}
 
@@ -246,13 +240,13 @@ func splitTextForTTS(text string) []string {
 	remaining := text
 
 	for len(remaining) > 0 {
-		if len(remaining) <= maxChunkSize {
+		if len(remaining) <= TtsMaxChunkSize {
 			chunks = append(chunks, remaining)
 			break
 		}
 
 		// Procura melhor ponto de quebra dentro do limite
-		cutPoint := findBreakPoint(remaining, maxChunkSize)
+		cutPoint := findBreakPoint(remaining, TtsMaxChunkSize)
 		chunks = append(chunks, remaining[:cutPoint])
 		remaining = strings.TrimLeft(remaining[cutPoint:], " \n\r")
 	}
@@ -300,7 +294,7 @@ func findBreakPoint(text string, maxLen int) int {
 
 // readStreamChunks lê o body em chunks de 8KB e chama callbacks
 func readStreamChunks(ctx context.Context, body io.ReadCloser, callbacks TTSStreamCallbacks) error {
-	buffer := make([]byte, 8192)
+	buffer := make([]byte, TtsStreamBufSize)
 
 	for {
 		select {
@@ -575,85 +569,90 @@ func (c *TTSClient) FetchSTTModels() []SpeechModelInfo {
 	return models
 }
 
-// GetAvailableVoices retorna a lista de vozes disponíveis
+// staticVoices é a lista estática de vozes OpenAI padrão (evita reconstruir a cada chamada).
+var staticVoices = []TTSVoiceInfo{
+	{
+		ID:          "alloy",
+		Name:        "Alloy",
+		Description: "Voz neutra e balanceada",
+		Gender:      "neutral",
+		Provider:    "openai",
+	},
+	{
+		ID:          "ash",
+		Name:        "Ash",
+		Description: "Voz masculina conversacional",
+		Gender:      "male",
+		Provider:    "openai",
+	},
+	{
+		ID:          "ballad",
+		Name:        "Ballad",
+		Description: "Voz suave e melódica",
+		Gender:      "neutral",
+		Provider:    "openai",
+	},
+	{
+		ID:          "coral",
+		Name:        "Coral",
+		Description: "Voz feminina clara",
+		Gender:      "female",
+		Provider:    "openai",
+	},
+	{
+		ID:          "echo",
+		Name:        "Echo",
+		Description: "Voz masculina e profunda",
+		Gender:      "male",
+		Provider:    "openai",
+	},
+	{
+		ID:          "fable",
+		Name:        "Fable",
+		Description: "Voz expressiva, ideal para narrativas",
+		Gender:      "neutral",
+		Provider:    "openai",
+	},
+	{
+		ID:          "nova",
+		Name:        "Nova",
+		Description: "Voz feminina jovem e energética",
+		Gender:      "female",
+		Provider:    "openai",
+	},
+	{
+		ID:          "onyx",
+		Name:        "Onyx",
+		Description: "Voz masculina e autoritária",
+		Gender:      "male",
+		Provider:    "openai",
+	},
+	{
+		ID:          "sage",
+		Name:        "Sage",
+		Description: "Voz calma e sábia",
+		Gender:      "neutral",
+		Provider:    "openai",
+	},
+	{
+		ID:          "shimmer",
+		Name:        "Shimmer",
+		Description: "Voz feminina clara e expressiva",
+		Gender:      "female",
+		Provider:    "openai",
+	},
+	{
+		ID:          "verse",
+		Name:        "Verse",
+		Description: "Voz versátil e dinâmica",
+		Gender:      "neutral",
+		Provider:    "openai",
+	},
+}
+
+// GetAvailableVoices retorna a lista de vozes disponíveis (cópia da lista estática).
 func GetAvailableVoices() []TTSVoiceInfo {
-	return []TTSVoiceInfo{
-		{
-			ID:          "alloy",
-			Name:        "Alloy",
-			Description: "Voz neutra e balanceada",
-			Gender:      "neutral",
-			Provider:    "openai",
-		},
-		{
-			ID:          "ash",
-			Name:        "Ash",
-			Description: "Voz masculina conversacional",
-			Gender:      "male",
-			Provider:    "openai",
-		},
-		{
-			ID:          "ballad",
-			Name:        "Ballad",
-			Description: "Voz suave e melódica",
-			Gender:      "neutral",
-			Provider:    "openai",
-		},
-		{
-			ID:          "coral",
-			Name:        "Coral",
-			Description: "Voz feminina clara",
-			Gender:      "female",
-			Provider:    "openai",
-		},
-		{
-			ID:          "echo",
-			Name:        "Echo",
-			Description: "Voz masculina e profunda",
-			Gender:      "male",
-			Provider:    "openai",
-		},
-		{
-			ID:          "fable",
-			Name:        "Fable",
-			Description: "Voz expressiva, ideal para narrativas",
-			Gender:      "neutral",
-			Provider:    "openai",
-		},
-		{
-			ID:          "nova",
-			Name:        "Nova",
-			Description: "Voz feminina jovem e energética",
-			Gender:      "female",
-			Provider:    "openai",
-		},
-		{
-			ID:          "onyx",
-			Name:        "Onyx",
-			Description: "Voz masculina e autoritária",
-			Gender:      "male",
-			Provider:    "openai",
-		},
-		{
-			ID:          "sage",
-			Name:        "Sage",
-			Description: "Voz calma e sábia",
-			Gender:      "neutral",
-			Provider:    "openai",
-		},
-		{
-			ID:          "shimmer",
-			Name:        "Shimmer",
-			Description: "Voz feminina clara e expressiva",
-			Gender:      "female",
-			Provider:    "openai",
-		},
-		{
-			ID:          "verse",
-			Name:        "Verse",
-			Description: "Voz versátil e dinâmica",
-			Gender:      "neutral",
-			Provider:    "openai",
-		},
-	}
+	result := make([]TTSVoiceInfo, len(staticVoices))
+	copy(result, staticVoices)
+	return result
 }
