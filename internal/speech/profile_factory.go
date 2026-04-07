@@ -70,6 +70,7 @@ func NewSpeechManagerFromProfile(p *profiles.Profile, registry *llm.ProviderRegi
 			Voice:             role.VoiceID,
 			Model:             model,
 			Rate:              role.Rate,
+			Pitch:             role.Pitch,
 			Volume:            role.Volume,
 		}
 	}

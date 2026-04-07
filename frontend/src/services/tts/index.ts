@@ -37,6 +37,7 @@ export interface RoleVoiceConfig {
   voiceId: string;      // ID da voz
   model: string;        // modelo TTS (ex: "tts-1")
   rate: number;
+  pitch: number;        // 0.5–2.0 (tom da voz)
   volume: number;
 }
 
@@ -216,6 +217,7 @@ class TTSService {
       providerId: roleConfig.providerId,
       voiceName: roleConfig.voiceId,
       rate: roleConfig.rate,
+      pitch: roleConfig.pitch,
       volume: roleConfig.volume,
       ttsModel: roleConfig.model,
     });
@@ -377,7 +379,7 @@ class TTSService {
    * Para providers LLM (ex: "openai-default-xxx"), delega ao backend via SpeakPreview.
    * Para "webspeech" e "sapi5", usa os providers frontend.
    */
-  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string }): Promise<void> {
+  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string }): Promise<void> {
     const voiceId = options.voiceName ? this.extractVoiceId(options.voiceName) : undefined;
 
     // Resolve o tipo de provider: webspeech, sapi5, ou LLM (OpenAI-like)
@@ -419,6 +421,7 @@ class TTSService {
       if (this.currentProvider) {
         if (voiceId) await this.currentProvider.setVoice(voiceId);
         if (options.rate !== undefined) await this.currentProvider.setRate(options.rate);
+        if (options.pitch !== undefined && typeof this.currentProvider.setPitch === 'function') await this.currentProvider.setPitch(options.pitch);
         if (options.volume !== undefined) await this.currentProvider.setVolume(options.volume);
 
         const provider = this.currentProvider;

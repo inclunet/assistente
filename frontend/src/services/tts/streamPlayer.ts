@@ -8,6 +8,7 @@
 
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import { base64ToBytes } from '../../lib/audioUtils';
+import { TTS_STREAM_START, TTS_STREAM_CHUNK, TTS_STREAM_DONE, TTS_STREAM_ERROR } from '../../lib/speechEvents';
 
 // Evento de streaming do backend (formato padronizado)
 interface TTSStreamEvent {
@@ -82,25 +83,25 @@ export class TTSStreamPlayer {
     this.firstChunkLogged = false;
     
     // Registra listeners de eventos Wails
-    this.unsubscribeStart = EventsOn('tts:stream:start', (event: TTSStreamEvent) => {
+    this.unsubscribeStart = EventsOn(TTS_STREAM_START, (event: TTSStreamEvent) => {
       if (event.sessionId === this.sessionId) {
         this.handleStart();
       }
     });
     
-    this.unsubscribeChunk = EventsOn('tts:stream:chunk', (event: TTSStreamEvent) => {
+    this.unsubscribeChunk = EventsOn(TTS_STREAM_CHUNK, (event: TTSStreamEvent) => {
       if (event.sessionId === this.sessionId) {
         this.handleChunk(event);
       }
     });
     
-    this.unsubscribeDone = EventsOn('tts:stream:done', (event: TTSStreamEvent) => {
+    this.unsubscribeDone = EventsOn(TTS_STREAM_DONE, (event: TTSStreamEvent) => {
       if (event.sessionId === this.sessionId) {
         this.handleDone();
       }
     });
     
-    this.unsubscribeError = EventsOn('tts:stream:error', (event: TTSStreamEvent) => {
+    this.unsubscribeError = EventsOn(TTS_STREAM_ERROR, (event: TTSStreamEvent) => {
       if (event.sessionId === this.sessionId) {
         this.handleError(event);
       }

@@ -51,6 +51,7 @@ type RoleVoiceConfig struct {
 	Voice             string  `json:"voice"`
 	Model             string  `json:"model"`   // "tts-1", "tts-1-hd"
 	Rate              float64 `json:"rate"`     // 0.25–4.0 (speed para OpenAI)
+	Pitch             float64 `json:"pitch"`    // 0.5–2.0 (tom da voz)
 	Volume            float64 `json:"volume"`   // 0.0–1.0
 }
 
