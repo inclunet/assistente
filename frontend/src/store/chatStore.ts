@@ -23,15 +23,36 @@ import type { VoiceRole } from '../services/tts';
 
 /**
  * Ponto único de disparo do auto-read TTS.
- * Para áudio em andamento, limpa markdown e fala via speakAsRole.
+ * Se messageId for informado, checa o DB por áudio em cache antes de gerar novo TTS.
+ * Para áudio em andamento, limpa markdown e fala via speakAsRole (ou cache).
  */
-function triggerAutoRead(text: string, role: VoiceRole): void {
+function triggerAutoRead(text: string, role: VoiceRole, messageId?: number): void {
   messageAudioService.stopAll();
   ttsService.stop();
   const clean = stripMarkdown(text);
-  ttsService.speakAsRole(clean, role).catch((err: unknown) => {
-    console.error(`[Chat] TTS auto-read error (${role}):`, err);
-  });
+  const volume = ttsService.getVolume();
+
+  if (messageId && messageId > 0) {
+    // Tenta cache do DB → gera+salva → fallback speakAsRole
+    messageAudioService.getAudioFromDB(messageId).then((cached) => {
+      if (cached) {
+        return messageAudioService.playAudioBase64(cached.audio, cached.mimeType, volume);
+      }
+      return messageAudioService.generateAndSaveAudio(messageId, clean).then((generated) => {
+        if (generated) {
+          return messageAudioService.playAudioBase64(generated.audio, generated.mimeType, volume);
+        }
+        return ttsService.speakAsRole(clean, role);
+      });
+    }).catch((err: unknown) => {
+      console.error(`[Chat] TTS auto-read error (${role}):`, err);
+    });
+  } else {
+    // Sem messageId (streaming parcial, etc.) → TTS direto
+    ttsService.speakAsRole(clean, role).catch((err: unknown) => {
+      console.error(`[Chat] TTS auto-read error (${role}):`, err);
+    });
+  }
 }
 
 const MAX_MESSAGE_CONTENT_SIZE = 500 * 1024;
@@ -76,6 +97,7 @@ interface ChatStreamEvent {
   content?: string;
   done?: boolean;
   error?: string;
+  messageId?: number;
 }
 
 interface ChatThinkingEvent {
@@ -676,7 +698,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               const isActiveConv = currentState.activeConversationId === conversationId;
               if (isActiveConv) playReceiveSound();
               if (ttsService.isAutoReadEnabled() && isActiveConv && !cleanupExecuted) {
-                triggerAutoRead(finalMessage.content, 'assistant');
+                triggerAutoRead(finalMessage.content, 'assistant', event.messageId);
               }
               if (ttsService.shouldUseAriaLiveForAgent() && isActiveConv) {
                 const cleanContent = stripMarkdown(finalMessage.content);
@@ -1178,7 +1200,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             const isActive = currentState.activeConversationId === conversationId;
             if (isActive) playReceiveSound();
             if (ttsService.isAutoReadEnabled() && isActive && !cleanupExecuted) {
-              triggerAutoRead(finalMessage.content, 'assistant');
+              triggerAutoRead(finalMessage.content, 'assistant', event.messageId);
             }
             if (ttsService.shouldUseAriaLiveForAgent() && isActive) {
               announce(`Assistente: ${stripMarkdown(finalMessage.content)}`);

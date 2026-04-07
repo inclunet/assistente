@@ -131,6 +131,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Emite evento final de streaming
 	h.emitter.Emit("chat:stream", StreamEvent{
+		MessageID:      savedMsgID,
 		Content:        finalContent,
 		Done:           true,
 		ConversationId: h.conversationID,
