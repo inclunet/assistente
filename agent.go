@@ -83,7 +83,7 @@ func (h *agenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		}
 		outputSummary := truncateString(event.Output, 200)
 
-		h.app.emitter.Emit("chat:tool_end", map[string]interface{}{
+			h.emitter.Emit("chat:tool_end", map[string]interface{}{
 			"name":           event.Name,
 			"callId":         event.ID,
 			"status":         status,
@@ -97,7 +97,7 @@ func (h *agenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
 			event.Name, event.ServerLabel, event.ID, len(event.Output))
 	} else {
-		h.app.emitter.Emit("chat:tool_start", map[string]interface{}{
+			h.emitter.Emit("chat:tool_start", map[string]interface{}{
 			"name":           event.Name,
 			"callId":         event.ID,
 			"args":           event.Arguments,
@@ -206,7 +206,7 @@ func (a *App) runAgenticLoop(
 		// 1. Cria handler para esta iteração
 		handler := &agenticStreamHandler{
 			baseStreamHandler: baseStreamHandler{
-				app:            a,
+				emitter:        a.emitter,
 				conversationID: conversationID,
 			},
 			iteration: iteration,

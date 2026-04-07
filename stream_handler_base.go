@@ -3,13 +3,15 @@ package main
 import (
 	"sync"
 	"time"
+
+	"assistente/internal/events"
 )
 
 // baseStreamHandler contém os campos e métodos compartilhados entre
 // agenticStreamHandler (agent.go) e appStreamHandler (llm.go).
 // Lida com throttling de 50ms para os eventos chat:stream e chat:thinking.
 type baseStreamHandler struct {
-	app            *App
+	emitter        events.Emitter
 	conversationID uint
 
 	accumulatedContent   string
@@ -62,7 +64,7 @@ func (h *baseStreamHandler) OnChunk(content string) {
 }
 
 func (h *baseStreamHandler) emitStreamEvent() {
-	h.app.emitter.Emit("chat:stream", StreamEvent{
+	h.emitter.Emit("chat:stream", StreamEvent{
 		Content:        h.accumulatedContent,
 		Done:           false,
 		ConversationId: h.conversationID,
@@ -75,7 +77,7 @@ func (h *baseStreamHandler) OnThinking(content string) {
 
 	if !h.isThinking {
 		h.isThinking = true
-		h.app.emitter.Emit("chat:thinking", map[string]interface{}{
+		h.emitter.Emit("chat:thinking", map[string]interface{}{
 			"content":        content,
 			"done":           false,
 			"conversationId": h.conversationID,
@@ -115,7 +117,7 @@ func (h *baseStreamHandler) OnThinking(content string) {
 }
 
 func (h *baseStreamHandler) emitThinkingEvent() {
-	h.app.emitter.Emit("chat:thinking", map[string]interface{}{
+	h.emitter.Emit("chat:thinking", map[string]interface{}{
 		"content":        h.accumulatedReasoning,
 		"done":           false,
 		"conversationId": h.conversationID,
@@ -132,7 +134,7 @@ func (h *baseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.isThinking = false
 	h.mu.Unlock()
 
-	h.app.emitter.Emit("chat:thinking", map[string]interface{}{
+	h.emitter.Emit("chat:thinking", map[string]interface{}{
 		"content":        fullReasoning,
 		"done":           true,
 		"conversationId": h.conversationID,

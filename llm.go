@@ -47,6 +47,7 @@ var strPtr = llm.StrPtr
 // - n2: interações do agente com tools (parentID=agentMessageID)
 type appStreamHandler struct {
 	baseStreamHandler
+	app           *App
 	userMessageID uint // ID da mensagem do usuário (raiz da thread)
 }
 
@@ -56,7 +57,7 @@ func (h *appStreamHandler) OnError(err string) {
 	content := h.accumulatedContent
 	h.mu.Unlock()
 
-	h.app.emitter.Emit("chat:stream", StreamEvent{
+	h.emitter.Emit("chat:stream", StreamEvent{
 		Content:        content,
 		Done:           true,
 		Error:          err,
@@ -129,7 +130,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	}
 
 	// Emite evento final de streaming
-	h.app.emitter.Emit("chat:stream", StreamEvent{
+	h.emitter.Emit("chat:stream", StreamEvent{
 		Content:        finalContent,
 		Done:           true,
 		ConversationId: h.conversationID,
@@ -137,7 +138,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	})
 
 	// Emite evento para frontend recarregar a conversa
-	h.app.emitter.Emit("chat:done", map[string]interface{}{
+	h.emitter.Emit("chat:done", map[string]interface{}{
 		"conversationId": h.conversationID,
 	})
 
@@ -167,7 +168,7 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		return
 	}
 
-	h.app.emitter.Emit("chat:token_stats", map[string]interface{}{
+	h.emitter.Emit("chat:token_stats", map[string]interface{}{
 		"conversationId":   h.conversationID,
 		"totalTokens":      stats.TotalTokens,
 		"contextLimit":     stats.ContextLimit,
@@ -180,7 +181,7 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 	})
 
 	if stats.IsCritical {
-		h.app.emitter.Emit("chat:context_warning", map[string]interface{}{
+		h.emitter.Emit("chat:context_warning", map[string]interface{}{
 			"conversationId": h.conversationID,
 			"level":          "critical",
 			"message": fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
@@ -192,7 +193,7 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		fmt.Printf("⚠️  [CONTEXT] Conversa %d em nível CRÍTICO: %0.1f%% (%d/%d tokens)\n",
 			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 	} else if stats.IsNearLimit {
-		h.app.emitter.Emit("chat:context_warning", map[string]interface{}{
+		h.emitter.Emit("chat:context_warning", map[string]interface{}{
 			"conversationId": h.conversationID,
 			"level":          "warning",
 			"message": fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
@@ -725,9 +726,10 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		// Sem ferramentas: streaming simples
 		handler := &appStreamHandler{
 			baseStreamHandler: baseStreamHandler{
-				app:            a,
+				emitter:        a.emitter,
 				conversationID: conversationID,
 			},
+			app:           a,
 			userMessageID: userMsg.ID,
 		}
 		go func() {
