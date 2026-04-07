@@ -10,6 +10,7 @@ import (
 
 	"assistente/internal/config"
 	"assistente/internal/credentials"
+	"assistente/internal/providers"
 )
 
 // ============================================================================
@@ -76,7 +77,7 @@ func (a *App) migrateLegacyConfig() {
 
 		// Determinar pattern baseado no baseURL
 		pattern := ""
-		if extractedHost, hostErr := extractHostname(baseURL); hostErr == nil && extractedHost != "" {
+		if extractedHost, hostErr := providers.ExtractHostname(baseURL); hostErr == nil && extractedHost != "" {
 			pattern = extractedHost
 		} else if strings.Contains(baseURL, "anthropic") {
 			pattern = "api.anthropic.com"
@@ -189,91 +190,6 @@ func (a *App) configureCredentialManager(dek []byte, persist bool) {
 	a.registerEnvCredentials(a.credMgr)
 }
 
-// ============================================================================
-// Credential Display Helpers
-// ============================================================================
-
-func maskIdentifier(value string) string {
-	if value == "" {
-		return ""
-	}
-	if len(value) <= 4 {
-		return "****"
-	}
-	visible := value[len(value)-4:]
-	return strings.Repeat("*", len(value)-4) + visible
-}
-
-func maskCredentialValue(value string) string {
-	if value == "" {
-		return ""
-	}
-	if len(value) <= 4 {
-		return "••••"
-	}
-	return "••••" + value[len(value)-4:]
-}
-
-func summarizeAuth(auth *credentials.AuthConfig) string {
-	if auth == nil {
-		return ""
-	}
-	switch auth.Type {
-	case "bearer", "oauth2", "secret":
-		if credentials.IsExternalRef(auth.Token) {
-			return auth.Token
-		}
-		return maskCredentialValue(auth.Token)
-	case "basic":
-		if auth.Username == "" && auth.Password == "" {
-			return ""
-		}
-		pwd := maskCredentialValue(auth.Password)
-		if credentials.IsExternalRef(auth.Password) {
-			pwd = auth.Password
-		}
-		return fmt.Sprintf("%s:%s", auth.Username, pwd)
-	case "custom":
-		if len(auth.Headers) == 0 {
-			return ""
-		}
-		keys := make([]string, 0, len(auth.Headers))
-		for k := range auth.Headers {
-			keys = append(keys, k)
-		}
-		sort.Strings(keys)
-		first := keys[0]
-		val := maskCredentialValue(auth.Headers[first])
-		if credentials.IsExternalRef(auth.Headers[first]) {
-			val = auth.Headers[first]
-		}
-		return fmt.Sprintf("%s: %s", first, val)
-	default:
-		return ""
-	}
-}
-
-func resolveSecretFromAuth(auth *credentials.AuthConfig) string {
-	if auth == nil {
-		return ""
-	}
-	if auth.Token != "" {
-		return auth.Token
-	}
-	if auth.Password != "" {
-		return auth.Password
-	}
-	if len(auth.Headers) == 0 {
-		return ""
-	}
-	keys := make([]string, 0, len(auth.Headers))
-	for k := range auth.Headers {
-		keys = append(keys, k)
-	}
-	sort.Strings(keys)
-	return auth.Headers[keys[0]]
-}
-
 func (a *App) resolveCredentialRef(ref string) string {
 	if ref == "" || a.credMgr == nil {
 		return ""
@@ -283,7 +199,7 @@ func (a *App) resolveCredentialRef(ref string) string {
 		log.Printf("[Credentials] Erro ao resolver referência %s: %v", ref, err)
 		return ""
 	}
-	return resolveSecretFromAuth(auth)
+	return credentials.ResolveSecretFromAuth(auth)
 }
 
 // ============================================================================
@@ -334,7 +250,7 @@ func (a *App) ListCredentials() ([]CredentialSummary, error) {
 		result = append(result, CredentialSummary{
 			Pattern: entry.Pattern,
 			Type:    entry.Auth.Type,
-			Masked:  summarizeAuth(entry.Auth),
+			Masked:  credentials.SummarizeAuth(entry.Auth),
 			Managed: credentials.IsManagedPattern(entry.Pattern),
 		})
 	}

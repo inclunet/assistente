@@ -198,7 +198,7 @@ func (a *App) initMessaging() {
 				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
 			}
 		}()
-		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", cfg.APIURL, maskIdentifier(cfg.Account))
+		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", cfg.APIURL, credentials.MaskIdentifier(cfg.Account))
 	} else {
 		log.Printf("[Messaging] Signal não configurado ou desabilitado")
 	}
@@ -403,7 +403,7 @@ func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
 			}
 		}()
-		log.Printf("[Messaging] Signal reconectado (api=%s, account=%s)", cfg.APIURL, maskIdentifier(cfg.Account))
+		log.Printf("[Messaging] Signal reconectado (api=%s, account=%s)", cfg.APIURL, credentials.MaskIdentifier(cfg.Account))
 
 	case "slack":
 		botToken := cfg.BotToken

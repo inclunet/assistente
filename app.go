@@ -14,6 +14,7 @@ import (
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/profiles"
+	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
@@ -88,6 +89,9 @@ type App struct {
 
 	// Jobs manager (event-driven automation)
 	jobMgr *jobs.Manager
+
+	// Provider service (business logic para provedores LLM)
+	providerSvc *providers.Service
 
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
@@ -178,6 +182,13 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa Credential Manager PRIMEIRO (antes de qualquer uso)
 	a.initCredentialManager()
 
+	// Inicializa o Provider Service (camada de negócio para provedores LLM)
+	a.providerSvc = providers.NewService(providers.ServiceConfig{
+		Registry: a.llmRegistry,
+		CredMgr:  a.credMgr,
+		Store:    providers.NewDBStore(),
+	})
+
 	// Inicializa os provedores LLM (Provider Registry) ANTES do client
 	a.initLLMProviders()
 
@@ -231,6 +242,7 @@ func (a *App) startup(ctx context.Context) {
 		log.Printf("[App] WindowShow chamado após startup")
 	}()
 }
+
 // shutdown é chamado quando o app fecha
 func (a *App) shutdown(_ context.Context) {
 	a.stopAllEditorWatches()

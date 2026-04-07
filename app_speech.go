@@ -175,104 +175,13 @@ func (a *App) InitSpeechManagerFromProfile() error {
 }
 
 // createSpeechManagerForProfile cria um SpeechManager configurado a partir de um perfil.
-// Resolve defaults e credenciais. Retorna nil se o perfil for nil.
+// Resolve defaults ($default → ID real) e delega para speech.NewSpeechManagerFromProfile.
+// Retorna nil se o perfil for nil.
 func (a *App) createSpeechManagerForProfile(p *profiles.Profile) *speech.SpeechManager {
 	if p == nil {
 		return nil
 	}
-
-	// Resolve defaults ($default → provider ID real)
-	p = a.resolveProfileDefaults(p)
-
-	// Cache de credenciais por providerID para evitar resolver o mesmo provider múltiplas vezes
-	type resolvedCreds struct {
-		apiKey, baseURL, credPattern string
-	}
-	credsCache := map[string]*resolvedCreds{}
-
-	resolveAPICreds := func(llmProviderID string) (apiKey, baseURL, credPattern string) {
-		if llmProviderID == "" {
-			return "", "", ""
-		}
-		if cached, ok := credsCache[llmProviderID]; ok {
-			return cached.apiKey, cached.baseURL, cached.credPattern
-		}
-		cfg := a.llmRegistry.Get(llmProviderID)
-		if cfg == nil {
-			log.Printf("[Speech] Provider '%s' não encontrado no registry", llmProviderID)
-			credsCache[llmProviderID] = &resolvedCreds{}
-			return "", "", ""
-		}
-		baseURL = cfg.BaseURL
-		credPattern = cfg.CredentialPattern
-		if cfg.CredentialPattern != "" {
-			if auth, err := a.credMgr.GetByPattern(cfg.CredentialPattern); err == nil && auth != nil {
-				apiKey = auth.Token
-			} else {
-				log.Printf("[Speech] Credencial não encontrada para pattern '%s' (provider=%s): %v",
-					cfg.CredentialPattern, llmProviderID, err)
-			}
-		} else {
-			log.Printf("[Speech] Provider '%s' não tem CredentialPattern configurado", llmProviderID)
-		}
-		credsCache[llmProviderID] = &resolvedCreds{apiKey, baseURL, credPattern}
-		return apiKey, baseURL, credPattern
-	}
-
-	// Helper: converte profile role para RoleVoiceConfig
-	buildRoleConfig := func(role profiles.VoiceRoleConfig) speech.RoleVoiceConfig {
-		apiKey, baseURL, credPattern := resolveAPICreds(role.LLMProviderID)
-		model := role.Model
-		if model == "" {
-			model = "tts-1"
-		}
-		return speech.RoleVoiceConfig{
-			Provider:          role.Provider,
-			APIKey:            apiKey,
-			BaseURL:           baseURL,
-			CredentialPattern: credPattern,
-			Voice:             role.VoiceID,
-			Model:             model,
-			Rate:              role.Rate,
-			Volume:            role.Volume,
-		}
-	}
-
-	assistantCfg := buildRoleConfig(p.Voice.Assistant)
-
-	// Log detalhado para diagnóstico de TTS
-	if p.Voice.Assistant.Provider == "openai" && assistantCfg.APIKey == "" {
-		log.Printf("[Speech] AVISO: Provider assistant é 'openai' mas API key está vazia. "+
-			"LLMProviderID='%s', Voice=%+v",
-			p.Voice.Assistant.LLMProviderID,
-			p.Voice.Assistant)
-	}
-
-	// Resolve credenciais STT
-	_, sttURL, sttCredPattern := resolveAPICreds(p.Input.LLMProviderID)
-
-	speechCfg := speech.SpeechConfig{
-		// STT
-		STTProvider:          speech.STTProvider(p.Input.STTProvider),
-		STTAPIBaseURL:        sttURL,
-		STTCredentialPattern: sttCredPattern,
-		WhisperModel:         p.Input.STTModel,
-		WhisperLanguage:      p.Input.Language,
-
-		// TTS por role
-		Assistant: assistantCfg,
-		User:      buildRoleConfig(p.Voice.User),
-		System:    buildRoleConfig(p.Voice.System),
-	}
-
-	sm := speech.NewSpeechManager(speechCfg, a.credMgr)
-
-	log.Printf("[Speech] Manager inicializado | Assistant: %s | User: %s | System: %s | STT: %s",
-		p.Voice.Assistant.Provider,
-		p.Voice.User.Provider,
-		p.Voice.System.Provider,
-		p.Input.STTProvider)
-	return sm
+	return speech.NewSpeechManagerFromProfile(a.resolveProfileDefaults(p), a.llmRegistry, a.credMgr)
 }
 
 // ensureSpeechManager garante que o speechManager está inicializado.
@@ -830,8 +739,8 @@ func (a *App) findOpenAILikeProvider() *llm.ProviderConfig {
 	}
 
 	// Tenta o provider default do sistema
-	if dp, err := database.GetDefaultProvider(); err == nil && dp != nil {
-		if cfg := a.llmRegistry.Get(dp.ID); isOpenAILike(cfg) {
+	for _, cfg := range a.llmRegistry.List() {
+		if cfg.IsDefault && isOpenAILike(cfg) {
 			return cfg
 		}
 	}

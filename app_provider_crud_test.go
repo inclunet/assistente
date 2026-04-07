@@ -7,6 +7,7 @@ import (
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
+	"assistente/internal/providers"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -29,6 +30,21 @@ func setupTestDB(t *testing.T) *gorm.DB {
 	return db
 }
 
+// newAppForTest cria um App configurado para testes com providerSvc inicializado.
+func newAppForTest(credMgr *credentials.Manager, llmRegistry *llm.ProviderRegistry) *App {
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: llmRegistry,
+		CredMgr:  credMgr,
+		Store:    providers.NewDBStore(),
+	})
+	return &App{
+		ctx:         context.Background(),
+		credMgr:     credMgr,
+		llmRegistry: llmRegistry,
+		providerSvc: svc,
+	}
+}
+
 // TestCreateProviderWithAPIKey valida a criação de provider com API key
 func TestCreateProviderWithAPIKey(t *testing.T) {
 	// Setup database
@@ -39,11 +55,7 @@ func TestCreateProviderWithAPIKey(t *testing.T) {
 	llmRegistry := llm.NewProviderRegistry()
 
 	// Simular App com componentes necessários
-	app := &App{
-		ctx:         context.Background(),
-		credMgr:     credMgr,
-		llmRegistry: llmRegistry,
-	}
+	app := newAppForTest(credMgr, llmRegistry)
 
 	// Request
 	req := CreateLLMProviderRequest{
@@ -95,11 +107,7 @@ func TestUpdateProvider(t *testing.T) {
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	llmRegistry := llm.NewProviderRegistry()
 
-	app := &App{
-		ctx:         context.Background(),
-		credMgr:     credMgr,
-		llmRegistry: llmRegistry,
-	}
+	app := newAppForTest(credMgr, llmRegistry)
 
 	// Criar provider inicial
 	initialReq := CreateLLMProviderRequest{
@@ -147,11 +155,7 @@ func TestDeleteProvider(t *testing.T) {
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	llmRegistry := llm.NewProviderRegistry()
 
-	app := &App{
-		ctx:         context.Background(),
-		credMgr:     credMgr,
-		llmRegistry: llmRegistry,
-	}
+	app := newAppForTest(credMgr, llmRegistry)
 
 	ctx := context.Background()
 
@@ -186,10 +190,7 @@ func TestListProvidersWithStatus(t *testing.T) {
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	llmRegistry := llm.NewProviderRegistry()
 
-	app := &App{
-		credMgr:     credMgr,
-		llmRegistry: llmRegistry,
-	}
+	app := newAppForTest(credMgr, llmRegistry)
 
 	// Criar provider COM credencial
 	req1 := CreateLLMProviderRequest{

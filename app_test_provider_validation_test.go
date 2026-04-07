@@ -9,15 +9,22 @@ import (
 
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
+	"assistente/internal/providers"
 )
 
 func setupTestApp() *App {
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	llmRegistry := llm.NewProviderRegistry()
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: llmRegistry,
+		CredMgr:  credMgr,
+		Store:    providers.NewMemoryStore(),
+	})
 	return &App{
 		ctx:         context.Background(),
 		credMgr:     credMgr,
 		llmRegistry: llmRegistry,
+		providerSvc: svc,
 	}
 }
 
