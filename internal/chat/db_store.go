@@ -44,6 +44,10 @@ func (s *DBMessageStore) AddToolResultMessage(conversationID, turnID uint, conte
 	return database.AddToolResultMessage(conversationID, turnID, content, toolCallID)
 }
 
+func (s *DBMessageStore) SearchMessages(query string, limit int) ([]database.MessageSearchResult, error) {
+	return database.SearchMessageContent(query, limit)
+}
+
 // DBConversationStore implementa ConversationRepository usando o banco de dados SQLite via GORM.
 type DBConversationStore struct{}
 

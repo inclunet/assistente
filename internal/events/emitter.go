@@ -10,3 +10,14 @@ type Emitter interface {
 type NoopEmitter struct{}
 
 func (NoopEmitter) Emit(_ string, _ any) {}
+
+// StreamEvent é o payload do evento chat:stream emitido durante o streaming LLM.
+// Definido aqui para permitir uso tanto no package main quanto em internal/agent.
+type StreamEvent struct {
+	MessageID      uint   `json:"messageId"`
+	ConversationId uint   `json:"conversationId"`
+	Content        string `json:"content"`
+	Done           bool   `json:"done"`
+	FullResponse   string `json:"fullResponse,omitempty"`
+	Error          string `json:"error,omitempty"`
+}

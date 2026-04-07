@@ -233,7 +233,7 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(questiontool.NewCollectResponses(a.questionnaireMgr))
 
 	// Registra ferramenta de busca no histórico de conversas
-	a.toolRegistry.MustRegister(history.NewSearchConversations())
+	a.toolRegistry.MustRegister(history.NewSearchConversations(a.msgRepo))
 
 	// Registra ferramentas de gerenciamento de task lists
 	tlMgr := &serviceTaskListManager{ctx: a.ctx, svc: a.taskSvc}

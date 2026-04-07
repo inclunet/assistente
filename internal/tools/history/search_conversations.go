@@ -15,12 +15,19 @@ type searchConversationsArgs struct {
 	Limit int    `json:"limit,omitempty"`
 }
 
+// SearchRepo abstrai a busca full-text no histórico de mensagens.
+type SearchRepo interface {
+	SearchMessages(query string, limit int) ([]database.MessageSearchResult, error)
+}
+
 // SearchConversationsTool busca no histórico de mensagens de todas as conversas.
 // Usa FTS5 (full-text search) com ranking BM25 para encontrar discussões anteriores.
-type SearchConversationsTool struct{}
+type SearchConversationsTool struct {
+	repo SearchRepo
+}
 
-func NewSearchConversations() *SearchConversationsTool {
-	return &SearchConversationsTool{}
+func NewSearchConversations(repo SearchRepo) *SearchConversationsTool {
+	return &SearchConversationsTool{repo: repo}
 }
 
 func (t *SearchConversationsTool) Name() string {
@@ -66,7 +73,13 @@ func (t *SearchConversationsTool) Execute(ctx context.Context, args json.RawMess
 		limit = 20
 	}
 
-	results, err := database.SearchMessageContent(query, limit)
+	var results []database.MessageSearchResult
+	var err error
+	if t.repo != nil {
+		results, err = t.repo.SearchMessages(query, limit)
+	} else {
+		results, err = database.SearchMessageContent(query, limit)
+	}
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro na busca: %v", err), IsError: true}, nil
 	}
