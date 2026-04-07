@@ -15,3 +15,7 @@ func (s *DBAudioStore) GetMessageAudio(messageID uint) (string, string, error) {
 func (s *DBAudioStore) SaveMessageAudio(messageID uint, audioBase64, mimeType string) error {
 	return database.SaveMessageAudio(messageID, audioBase64, mimeType)
 }
+
+func (s *DBAudioStore) GetMessageContent(messageID uint) (string, error) {
+	return database.GetMessageContent(messageID)
+}

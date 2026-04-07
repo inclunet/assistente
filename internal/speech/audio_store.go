@@ -8,4 +8,7 @@ type AudioRepository interface {
 
 	// SaveMessageAudio persiste o áudio de uma mensagem.
 	SaveMessageAudio(messageID uint, audioBase64, mimeType string) error
+
+	// GetMessageContent retorna o conteúdo textual de uma mensagem.
+	GetMessageContent(messageID uint) (string, error)
 }

@@ -103,7 +103,13 @@ type TTSVoiceInfo struct {
 // usando a mesma estratégia do LLM provider.
 func NewTTSClient(config TTSConfig, credMgr *credentials.Manager) *TTSClient {
 	if config.Model == "" {
-		config.Model = ModelTTS1
+		if config.Voice != "" {
+			// Para LocalAI/piper: o nome da voz é o nome do modelo.
+			// Para OpenAI: model é sempre definido explicitamente no perfil.
+			config.Model = TTSModel(config.Voice)
+		} else {
+			config.Model = ModelTTS1
+		}
 	}
 	if config.Voice == "" {
 		config.Voice = VoiceNova

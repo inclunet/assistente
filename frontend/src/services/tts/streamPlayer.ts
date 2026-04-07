@@ -272,9 +272,7 @@ export class TTSStreamPlayer {
     this.isUpdating = true;
     
     try {
-      const buffer = new ArrayBuffer(chunk.byteLength);
-      new Uint8Array(buffer).set(chunk);
-      this.sourceBuffer.appendBuffer(buffer);
+      this.sourceBuffer.appendBuffer(chunk);
     } catch (e) {
       console.error('[TTSStream] Error appending chunk:', e);
       this.isUpdating = false;

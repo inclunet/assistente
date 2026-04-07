@@ -384,6 +384,7 @@ func (a *App) SetOpenAITTSSpeed(rate int) {
 type AudioResult struct {
 	Audio    string `json:"audio"`
 	MimeType string `json:"mimeType"`
+	Cached   bool   `json:"cached"` // true se veio do cache ou foi salvo com sucesso
 }
 
 // GetMessageAudio retorna o áudio base64 e MIME type de uma mensagem.
@@ -395,7 +396,7 @@ func (a *App) GetMessageAudio(messageID uint) (*AudioResult, error) {
 	if audio == "" {
 		return nil, nil
 	}
-	return &AudioResult{Audio: audio, MimeType: mime}, nil
+	return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
 }
 
 // SaveMessageAudio salva áudio (base64) numa mensagem existente.
@@ -417,13 +418,75 @@ func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioRe
 	}
 
 	mimeType := "audio/mpeg"
-	// Salva no DB
+	cached := true
 	if err := a.audioSvc.SaveMessageAudio(messageID, result.AudioBase64, mimeType); err != nil {
-		log.Printf("[TTS] Erro ao salvar áudio no DB: %v", err)
-		// Retorna o áudio mesmo se falhar ao salvar
+		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%d): %v — áudio será retornado mas não persistido", messageID, err)
+		cached = false
 	}
 
-	return &AudioResult{Audio: result.AudioBase64, MimeType: mimeType}, nil
+	return &AudioResult{Audio: result.AudioBase64, MimeType: mimeType, Cached: cached}, nil
+}
+
+// SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
+// Fluxo: DB cache → gerar TTS com provider especificado → salvar → retornar.
+// O texto da mensagem é buscado do próprio banco, sem depender do frontend.
+// O provider/voice/model são passados pelo frontend (vêm do perfil de voz ativo).
+func (a *App) SpeakMessage(messageID uint, providerID string, voiceID string, model string, rate float64) (*AudioResult, error) {
+	// 1. Checa cache no DB
+	audio, mime, err := a.audioSvc.GetMessageAudio(messageID)
+	if err == nil && audio != "" {
+		log.Printf("[TTS] SpeakMessage(%d): cache hit (%d bytes)", messageID, len(audio))
+		return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
+	}
+
+	// 2. Busca o conteúdo textual da mensagem
+	content, err := a.audioSvc.GetMessageContent(messageID)
+	if err != nil {
+		log.Printf("[TTS] SpeakMessage(%d): mensagem não encontrada: %v", messageID, err)
+		return nil, fmt.Errorf("mensagem %d não encontrada: %w", messageID, err)
+	}
+	if strings.TrimSpace(content) == "" {
+		log.Printf("[TTS] SpeakMessage(%d): conteúdo vazio", messageID)
+		return nil, fmt.Errorf("mensagem %d sem conteúdo textual", messageID)
+	}
+
+	// 3. Cria TTS client com os parâmetros do frontend
+	log.Printf("[TTS] SpeakMessage(%d): cache miss, gerando TTS (%d chars) provider=%s voice=%s model=%s", messageID, len(content), providerID, voiceID, model)
+
+	// Para LocalAI/piper, o "model" é o nome da voz (ex: "voice-pt_BR-dii").
+	// Para OpenAI, model vem preenchido ("tts-1", "tts-1-hd").
+	// Se model está vazio, usa voiceID como fallback (LocalAI pattern).
+	if model == "" {
+		model = voiceID
+	}
+	speed := rate
+	if speed < 0.25 {
+		speed = 1.0
+	}
+
+	client := a.createTTSClientForProvider(providerID, model)
+	if client == nil {
+		return nil, fmt.Errorf("provider TTS %q não encontrado", providerID)
+	}
+	client.SetVoice(speech.TTSVoice(voiceID))
+	client.SetSpeed(speed)
+
+	audioData, err := client.Synthesize(content)
+	if err != nil {
+		log.Printf("[TTS] SpeakMessage(%d): erro ao gerar: %v", messageID, err)
+		return nil, fmt.Errorf("generate audio for message %d: %w", messageID, err)
+	}
+
+	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
+	mimeType := "audio/mpeg"
+
+	cached := true
+	if saveErr := a.audioSvc.SaveMessageAudio(messageID, audioBase64, mimeType); saveErr != nil {
+		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%d): %v — áudio será retornado mas não persistido", messageID, saveErr)
+		cached = false
+	}
+
+	return &AudioResult{Audio: audioBase64, MimeType: mimeType, Cached: cached}, nil
 }
 
 // ============================================================================
@@ -579,7 +642,10 @@ func (a *App) previewSAPI5(text, voiceId string, rate, volume float64) error {
 func (a *App) previewLLM(providerId, text, voiceId, model string, rate float64, sessionId string) error {
 	client := a.createTTSClientForProvider(providerId, model)
 	if client == nil {
-		client = a.getOrCreateAdHocTTSClient()
+		// Fallback: tenta encontrar qualquer provider OpenAI-like
+		if fallback := a.findOpenAILikeProvider(); fallback != nil {
+			client = a.createTTSClientForProvider(fallback.ID, model)
+		}
 	}
 	if client == nil {
 		a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
@@ -644,44 +710,6 @@ func (a *App) previewLLM(providerId, text, voiceId, model string, rate float64, 
 // ============================================================================
 // TTS Client Helpers (feat/voice-profile-settings)
 // ============================================================================
-
-// getOrCreateAdHocTTSClient retorna um TTSClient funcional.
-// Primeiro verifica se o speechManager já tem um; se não, cria um ad-hoc
-// usando credenciais do LLM provider default.
-// Isso permite preview de voz mesmo quando o perfil ainda não salvou TTS como "openai".
-func (a *App) getOrCreateAdHocTTSClient() *speech.TTSClient {
-	// 1. Tenta o speech manager existente
-	if a.speechManager != nil && a.speechManager.HasTTSClient() {
-		return a.speechManager.GetTTSClient()
-	}
-
-	// 2. Tenta reinicializar do perfil
-	if err := a.InitSpeechManagerFromProfile(); err == nil && a.speechManager != nil && a.speechManager.HasTTSClient() {
-		return a.speechManager.GetTTSClient()
-	}
-
-	// 3. Fallback: cria ad-hoc com provider default ou primeiro provider disponível
-	provider := a.findOpenAILikeProvider()
-	if provider == nil {
-		return nil
-	}
-
-	// Lê o modelo TTS do perfil ativo (se existir)
-	var model speech.TTSModel
-	if profile, err := a.profileManager.GetActive(); err == nil && profile != nil {
-		resolved := a.resolveProfileDefaults(profile)
-		if resolved.Voice.Assistant.Model != "" {
-			model = speech.TTSModel(resolved.Voice.Assistant.Model)
-		}
-	}
-
-	log.Printf("[TTS] Criando TTSClient ad-hoc com provider %s (baseURL=%s, model=%s)", provider.ID, provider.BaseURL, model)
-	return speech.NewTTSClient(speech.TTSConfig{
-		BaseURL:           provider.BaseURL,
-		CredentialPattern: provider.CredentialPattern,
-		Model:             model,
-	}, a.credMgr)
-}
 
 // createTTSClientForProvider cria um TTSClient para um provider LLM específico.
 // Usado quando o frontend sabe exatamente qual provider quer usar (ex: preview de voz).

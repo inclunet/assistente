@@ -400,6 +400,15 @@ func HasMessageAudio(messageID uint) bool {
 	return count > 0
 }
 
+// GetMessageContent retorna o conteúdo textual de uma mensagem.
+func GetMessageContent(messageID uint) (string, error) {
+	var msg ChatMessage
+	if err := db.Select("content").First(&msg, messageID).Error; err != nil {
+		return "", err
+	}
+	return msg.Content, nil
+}
+
 // AddToolMessage adiciona uma mensagem de role="tool" (resposta de tool ao orquestrador)
 func AddToolMessage(conversationID uint, content string) (*ChatMessage, error) {
 	return CreateMessage(MessageOptions{

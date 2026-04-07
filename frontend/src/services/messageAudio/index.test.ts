@@ -2,15 +2,12 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 import { messageAudioService } from './index';
+import { base64ToBlob } from '../../lib/audioUtils';
 
-const getMessageAudioMock = vi.fn();
-const generateAndSaveMessageAudioMock = vi.fn();
-const saveMessageAudioMock = vi.fn();
+const speakMessageMock = vi.fn();
 
 vi.mock('@wailsjs/go/main/App', () => ({
-  GetMessageAudio: (...args: unknown[]) => getMessageAudioMock(...args),
-  GenerateAndSaveMessageAudio: (...args: unknown[]) => generateAndSaveMessageAudioMock(...args),
-  SaveMessageAudio: (...args: unknown[]) => saveMessageAudioMock(...args),
+  SpeakMessage: (...args: unknown[]) => speakMessageMock(...args),
 }));
 
 class MockAudio {
@@ -27,53 +24,189 @@ class MockAudio {
   constructor(public src?: string) {}
 }
 
-class MockFileReader {
-  onload: (() => void) | null = null;
-  onerror: (() => void) | null = null;
-  result: string | null = 'data:audio/mpeg;base64,AAA';
-
-  readAsDataURL() {
-    this.onload?.();
-  }
-}
-
 describe('messageAudioService', () => {
   beforeEach(() => {
-    getMessageAudioMock.mockReset();
-    generateAndSaveMessageAudioMock.mockReset();
-    saveMessageAudioMock.mockReset();
-
+    speakMessageMock.mockReset();
+    messageAudioService.clearMemoryCache();
     globalThis.URL.createObjectURL = vi.fn(() => 'blob:url');
     globalThis.URL.revokeObjectURL = vi.fn();
     (globalThis as unknown as { Audio?: unknown }).Audio = MockAudio as never;
-    (globalThis as unknown as { FileReader?: unknown }).FileReader = MockFileReader as never;
   });
 
-  it('retorna audio do DB quando existe', async () => {
-    getMessageAudioMock.mockResolvedValue({ audio: 'base64', mimeType: 'audio/mpeg' });
+  describe('speakMessage (backend-driven)', () => {
+    it('reproduz audio retornado pelo backend', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
 
-    const result = await messageAudioService.getAudioFromDB(1);
+      const result = await messageAudioService.speakMessage(42, 0.8);
 
-    expect(result).toEqual({ audio: 'base64', mimeType: 'audio/mpeg' });
+      expect(result).toBe(true);
+      expect(speakMessageMock).toHaveBeenCalledWith(42, '', '', '', 1);
+      expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
+    });
+
+    it('retorna false quando backend retorna vazio', async () => {
+      speakMessageMock.mockResolvedValue({ audio: '', mimeType: '' });
+
+      const result = await messageAudioService.speakMessage(1);
+
+      expect(result).toBe(false);
+    });
+
+    it('retorna false quando backend retorna null', async () => {
+      speakMessageMock.mockResolvedValue(null);
+
+      const result = await messageAudioService.speakMessage(1);
+
+      expect(result).toBe(false);
+    });
+
+    it('retorna false quando backend lança erro', async () => {
+      speakMessageMock.mockRejectedValue(new Error('TTS indisponível'));
+
+      const result = await messageAudioService.speakMessage(1);
+
+      expect(result).toBe(false);
+    });
+
+    it('loga warn quando backend lança erro', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      speakMessageMock.mockRejectedValue(new Error('TTS indisponível'));
+
+      await messageAudioService.speakMessage(1);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[messageAudio] speakMessage failed:',
+        expect.any(Error),
+      );
+      warnSpy.mockRestore();
+    });
+
+    it('passa provider params ao backend', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+
+      await messageAudioService.speakMessage(42, 1.0, {
+        providerId: 'openai',
+        voiceId: 'nova',
+        model: 'tts-1',
+        rate: 1.5,
+      });
+
+      expect(speakMessageMock).toHaveBeenCalledWith(42, 'openai', 'nova', 'tts-1', 1.5);
+    });
   });
 
-  it('reproduz audio base64', async () => {
-    await messageAudioService.playAudioBase64('base64', 'audio/mpeg', 0.5);
+  describe('cache em memória', () => {
+    it('segunda chamada usa cache sem chamar backend', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
 
-    expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
+      await messageAudioService.speakMessage(100, 1.0);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1);
+
+      await messageAudioService.speakMessage(100, 1.0);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1); // NÃO chamou de novo
+    });
+
+    it('mensagens diferentes usam caches separados', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+
+      await messageAudioService.speakMessage(100);
+      await messageAudioService.speakMessage(200);
+      expect(speakMessageMock).toHaveBeenCalledTimes(2);
+
+      // Ambas agora em cache
+      await messageAudioService.speakMessage(100);
+      await messageAudioService.speakMessage(200);
+      expect(speakMessageMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('clearMemoryCache limpa o cache', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+
+      await messageAudioService.speakMessage(100);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1);
+
+      messageAudioService.clearMemoryCache();
+
+      await messageAudioService.speakMessage(100);
+      expect(speakMessageMock).toHaveBeenCalledTimes(2); // Chamou de novo
+    });
+
+    it('getMessageAudioBlob também usa cache', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+
+      // Popula cache via speakMessage
+      await messageAudioService.speakMessage(100);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1);
+
+      // getMessageAudioBlob deve usar cache
+      const blob = await messageAudioService.getMessageAudioBlob(100);
+      expect(blob).toBeInstanceOf(Blob);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('não armazena resultado falho no cache', async () => {
+      speakMessageMock.mockResolvedValue(null);
+
+      await messageAudioService.speakMessage(100);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1);
+
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+      await messageAudioService.speakMessage(100);
+      expect(speakMessageMock).toHaveBeenCalledTimes(2); // Tentou de novo
+    });
   });
 
-  it('salva audio no DB', async () => {
-    const blob = new Blob(['data'], { type: 'audio/mpeg' });
+  describe('getMessageAudioBlob', () => {
+    it('retorna blob quando backend retorna audio', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
 
-    await messageAudioService.saveAudioToDB(10, blob);
+      const blob = await messageAudioService.getMessageAudioBlob(42);
 
-    expect(saveMessageAudioMock).toHaveBeenCalledWith(10, 'AAA', 'audio/mpeg');
+      expect(blob).toBeInstanceOf(Blob);
+      expect(blob!.type).toBe('audio/mpeg');
+    });
+
+    it('retorna null quando backend falha', async () => {
+      speakMessageMock.mockRejectedValue(new Error('falha'));
+
+      const blob = await messageAudioService.getMessageAudioBlob(1);
+
+      expect(blob).toBeNull();
+    });
+
+    it('loga warn quando backend falha', async () => {
+      const warnSpy = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      speakMessageMock.mockRejectedValue(new Error('falha'));
+
+      await messageAudioService.getMessageAudioBlob(1);
+
+      expect(warnSpy).toHaveBeenCalledWith(
+        '[messageAudio] getMessageAudioBlob failed:',
+        expect.any(Error),
+      );
+      warnSpy.mockRestore();
+    });
   });
 
-  it('converte base64 em blob', () => {
-    const blob = messageAudioService.base64ToBlob('QQ==', 'audio/mpeg');
+  describe('playAudioBase64', () => {
+    it('cria object URL e reproduz', async () => {
+      await messageAudioService.playAudioBase64('QUFB', 'audio/mpeg', 0.5);
 
-    expect(blob.type).toBe('audio/mpeg');
+      expect(globalThis.URL.createObjectURL).toHaveBeenCalled();
+    });
+  });
+
+  describe('base64ToBlob (audioUtils)', () => {
+    it('converte base64 em blob com tipo correto', () => {
+      const blob = base64ToBlob('QQ==', 'audio/mpeg');
+
+      expect(blob.type).toBe('audio/mpeg');
+    });
+  });
+
+  describe('stopCurrentAudio', () => {
+    it('pode ser chamado sem audio em reproducao', () => {
+      expect(() => messageAudioService.stopCurrentAudio()).not.toThrow();
+    });
   });
 });

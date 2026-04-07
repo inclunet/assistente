@@ -13,6 +13,7 @@ import { EventsOn } from '@wailsjs/runtime/runtime';
 import { MediaFile } from '../services/mediaService';
 import { llm, main } from '../../wailsjs/go/models';
 import { announce } from '../hooks/useAnnouncer';
+import i18next from 'i18next';
 import { playSendSound, playReceiveSound } from '../services/audioFeedback';
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
@@ -23,15 +24,32 @@ import type { VoiceRole } from '../services/tts';
 
 /**
  * Ponto único de disparo do auto-read TTS.
- * Para áudio em andamento, limpa markdown e fala via speakAsRole.
+ * Se messageId for informado, usa o backend (cache-aware via SpeakMessage).
+ * Sem messageId (streaming parcial) → TTS direto via speakAsRole.
  */
-function triggerAutoRead(text: string, role: VoiceRole): void {
-  messageAudioService.stopAll();
+function triggerAutoRead(text: string, role: VoiceRole, messageId?: number): void {
+  messageAudioService.stopCurrentAudio();
   ttsService.stop();
-  const clean = stripMarkdown(text);
-  ttsService.speakAsRole(clean, role).catch((err: unknown) => {
-    console.error(`[Chat] TTS auto-read error (${role}):`, err);
-  });
+
+  if (messageId && messageId > 0) {
+    const volume = ttsService.getVolume();
+    const voiceCtx = ttsService.getVoiceContext(role);
+    messageAudioService.speakMessage(messageId, volume, voiceCtx).then((played) => {
+      if (!played) {
+        const clean = stripMarkdown(text);
+        return ttsService.speakAsRole(clean, role);
+      }
+    }).catch((err: unknown) => {
+      console.error(`[Chat] TTS auto-read error (${role}):`, err);
+      announce(i18next.t('chat.autoReadError', 'Erro ao reproduzir áudio automaticamente'));
+    });
+  } else {
+    const clean = stripMarkdown(text);
+    ttsService.speakAsRole(clean, role).catch((err: unknown) => {
+      console.error(`[Chat] TTS auto-read error (${role}):`, err);
+      announce(i18next.t('chat.autoReadError', 'Erro ao reproduzir áudio automaticamente'));
+    });
+  }
 }
 
 const MAX_MESSAGE_CONTENT_SIZE = 500 * 1024;
@@ -76,6 +94,7 @@ interface ChatStreamEvent {
   content?: string;
   done?: boolean;
   error?: string;
+  messageId?: number;
 }
 
 interface ChatThinkingEvent {
@@ -317,7 +336,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
 
     loadConversation: async (id) => {
       // Para TTS/áudio da conversa anterior ao trocar
-      messageAudioService.stopAll();
+      messageAudioService.stopCurrentAudio();
       ttsService.stop();
 
       try {
@@ -655,6 +674,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             const flatMessages = flattenThreadedMessages(currentState.activeConversation?.threadedMessages);
             const finalMessage = flatMessages.find(m => m.id === assistantMessageId);
 
+            const backendAssistantId = event.messageId && event.messageId > 0
+              ? event.messageId.toString()
+              : null;
+
             set((state) => {
               if (!state.activeConversation) return state;
               return {
@@ -662,7 +685,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   ...state.activeConversation,
                   threadedMessages: state.activeConversation.threadedMessages.map((node) => {
                     const updateStreamingStatus = (n: MessageNode): MessageNode => {
-                      if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                      if (n.message.id === assistantMessageId) {
+                        n.message.isStreaming = false;
+                        if (backendAssistantId) n.message.id = backendAssistantId;
+                      }
                       if (n.children && n.children.length > 0) n.children = n.children.map(updateStreamingStatus);
                       return n;
                     };
@@ -676,7 +702,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               const isActiveConv = currentState.activeConversationId === conversationId;
               if (isActiveConv) playReceiveSound();
               if (ttsService.isAutoReadEnabled() && isActiveConv && !cleanupExecuted) {
-                triggerAutoRead(finalMessage.content, 'assistant');
+                triggerAutoRead(finalMessage.content, 'assistant', event.messageId);
               }
               if (ttsService.shouldUseAriaLiveForAgent() && isActiveConv) {
                 const cleanContent = stripMarkdown(finalMessage.content);
@@ -1158,6 +1184,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const currentState = get();
           const flatMessages = flattenThreadedMessages(currentState.activeConversation?.threadedMessages);
           const finalMessage = flatMessages.find(m => m.id === assistantMessageId);
+          const backendAssistantId = event.messageId && event.messageId > 0
+            ? event.messageId.toString()
+            : null;
+
           set((state) => {
             if (!state.activeConversation) return state;
             return {
@@ -1165,7 +1195,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 ...state.activeConversation,
                 threadedMessages: state.activeConversation.threadedMessages.map((node) => {
                   const markDone = (n: MessageNode): MessageNode => {
-                    if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                    if (n.message.id === assistantMessageId) {
+                      n.message.isStreaming = false;
+                      if (backendAssistantId) n.message.id = backendAssistantId;
+                    }
                     if (n.children?.length) n.children = n.children.map(markDone);
                     return n;
                   };
@@ -1178,7 +1211,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             const isActive = currentState.activeConversationId === conversationId;
             if (isActive) playReceiveSound();
             if (ttsService.isAutoReadEnabled() && isActive && !cleanupExecuted) {
-              triggerAutoRead(finalMessage.content, 'assistant');
+              triggerAutoRead(finalMessage.content, 'assistant', event.messageId);
             }
             if (ttsService.shouldUseAriaLiveForAgent() && isActive) {
               announce(`Assistente: ${stripMarkdown(finalMessage.content)}`);
