@@ -9,6 +9,7 @@ import (
 	"assistente/internal/allowlist"
 	"assistente/internal/chat"
 	"assistente/internal/credentials"
+	"assistente/internal/events"
 	"assistente/internal/hotkey"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
@@ -113,6 +114,9 @@ type App struct {
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
 	streamingContexts map[uint]context.CancelFunc // conversationID → cancel
+
+	// Emitter abstrai runtime.EventsEmit para desacoplar lógica de negócio do Wails
+	emitter events.Emitter
 }
 
 // ==================== Tipos para Threads ====================
@@ -179,6 +183,7 @@ func NewApp() *App {
 // startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
+	a.emitter = appEmitter{ctx: ctx}
 
 	// Inicializa o banco de dados
 	if err := InitDatabase(); err != nil {

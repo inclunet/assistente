@@ -3,8 +3,6 @@ package main
 import (
 	"sync"
 	"time"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // baseStreamHandler contém os campos e métodos compartilhados entre
@@ -64,7 +62,7 @@ func (h *baseStreamHandler) OnChunk(content string) {
 }
 
 func (h *baseStreamHandler) emitStreamEvent() {
-	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
+	h.app.emitter.Emit("chat:stream", StreamEvent{
 		Content:        h.accumulatedContent,
 		Done:           false,
 		ConversationId: h.conversationID,
@@ -77,7 +75,7 @@ func (h *baseStreamHandler) OnThinking(content string) {
 
 	if !h.isThinking {
 		h.isThinking = true
-		runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
+		h.app.emitter.Emit("chat:thinking", map[string]interface{}{
 			"content":        content,
 			"done":           false,
 			"conversationId": h.conversationID,
@@ -117,7 +115,7 @@ func (h *baseStreamHandler) OnThinking(content string) {
 }
 
 func (h *baseStreamHandler) emitThinkingEvent() {
-	runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
+	h.app.emitter.Emit("chat:thinking", map[string]interface{}{
 		"content":        h.accumulatedReasoning,
 		"done":           false,
 		"conversationId": h.conversationID,
@@ -134,7 +132,7 @@ func (h *baseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.isThinking = false
 	h.mu.Unlock()
 
-	runtime.EventsEmit(h.app.ctx, "chat:thinking", map[string]interface{}{
+	h.app.emitter.Emit("chat:thinking", map[string]interface{}{
 		"content":        fullReasoning,
 		"done":           true,
 		"conversationId": h.conversationID,

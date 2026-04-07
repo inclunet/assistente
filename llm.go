@@ -17,8 +17,6 @@ import (
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Re-exporta tipos do pacote llm para compatibilidade
@@ -58,7 +56,7 @@ func (h *appStreamHandler) OnError(err string) {
 	content := h.accumulatedContent
 	h.mu.Unlock()
 
-	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
+	h.app.emitter.Emit("chat:stream", StreamEvent{
 		Content:        content,
 		Done:           true,
 		Error:          err,
@@ -131,7 +129,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	}
 
 	// Emite evento final de streaming
-	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
+	h.app.emitter.Emit("chat:stream", StreamEvent{
 		Content:        finalContent,
 		Done:           true,
 		ConversationId: h.conversationID,
@@ -139,7 +137,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	})
 
 	// Emite evento para frontend recarregar a conversa
-	runtime.EventsEmit(h.app.ctx, "chat:done", map[string]interface{}{
+	h.app.emitter.Emit("chat:done", map[string]interface{}{
 		"conversationId": h.conversationID,
 	})
 
@@ -169,7 +167,7 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		return
 	}
 
-	runtime.EventsEmit(h.app.ctx, "chat:token_stats", map[string]interface{}{
+	h.app.emitter.Emit("chat:token_stats", map[string]interface{}{
 		"conversationId":   h.conversationID,
 		"totalTokens":      stats.TotalTokens,
 		"contextLimit":     stats.ContextLimit,
@@ -182,7 +180,7 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 	})
 
 	if stats.IsCritical {
-		runtime.EventsEmit(h.app.ctx, "chat:context_warning", map[string]interface{}{
+		h.app.emitter.Emit("chat:context_warning", map[string]interface{}{
 			"conversationId": h.conversationID,
 			"level":          "critical",
 			"message": fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
@@ -194,7 +192,7 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		fmt.Printf("⚠️  [CONTEXT] Conversa %d em nível CRÍTICO: %0.1f%% (%d/%d tokens)\n",
 			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 	} else if stats.IsNearLimit {
-		runtime.EventsEmit(h.app.ctx, "chat:context_warning", map[string]interface{}{
+		h.app.emitter.Emit("chat:context_warning", map[string]interface{}{
 			"conversationId": h.conversationID,
 			"level":          "warning",
 			"message": fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
@@ -254,12 +252,11 @@ func (a *App) recoverFromPanic(conversationID uint, source string) {
 		errMsg := fmt.Sprintf("Erro interno inesperado em %s: %v", source, r)
 		log.Printf("🔴 [PANIC RECOVERED] %s (conversa %d): %v", source, conversationID, r)
 
-		// EventsEmit requer contexto Wails válido; protege contra panic duplo
-		// (ex: em testes ou se o contexto foi invalidado)
+		// Emitter pode ser nil (ex: em testes); protege contra panic duplo
 		func() {
 			defer func() { recover() }()
-			if a != nil && a.ctx != nil {
-				runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
+			if a != nil && a.emitter != nil {
+				a.emitter.Emit("chat:stream", StreamEvent{
 					Content:        "",
 					Done:           true,
 					Error:          errMsg,
@@ -334,20 +331,20 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// Validação de tamanho do conteúdo
 	if len(userContent) > MaxMessageContentSize {
 		errMsg := fmt.Sprintf("Mensagem muito grande (%d bytes). Máximo permitido: %d bytes", len(userContent), MaxMessageContentSize)
-		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 
 	// Validação de tamanho da mídia
 	if len(userMedia) > MaxMediaSize {
 		errMsg := fmt.Sprintf("Mídia muito grande (%d bytes). Máximo permitido: %d bytes", len(userMedia), MaxMediaSize)
-		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao carregar configuração: "+err.Error())
+		a.emitter.Emit("chat:error", "Erro ao carregar configuração: "+err.Error())
 		return 0, err
 	}
 
@@ -357,14 +354,14 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	if cfg.APIKey == "" {
 		providerCount, _ := a.providerSvc.Count()
 		if providerCount == 0 {
-			runtime.EventsEmit(a.ctx, "chat:error", "Nenhum provedor LLM configurado. Configure um provedor nas configurações.")
+			a.emitter.Emit("chat:error", "Nenhum provedor LLM configurado. Configure um provedor nas configurações.")
 			return 0, fmt.Errorf("nenhum provedor LLM configurado")
 		}
 	}
 
 	if conversationID == 0 {
 		const errMsg = "conversationID é obrigatório — conversas devem ser criadas ao criar/resetar a tab"
-		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
 		return 0, errors.New(errMsg)
 	}
 
@@ -377,7 +374,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 				title = title[:50]
 			}
 			if err := a.convSvc.UpdateConversation(conversationID, title, ""); err == nil {
-				runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
+				a.emitter.Emit("conversation:renamed", map[string]interface{}{
 					"conversation_id": conversationID,
 					"new_title":       title,
 				})
@@ -484,14 +481,14 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		Source:         source,
 	})
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao salvar mensagem: "+err.Error())
+		a.emitter.Emit("chat:error", "Erro ao salvar mensagem: "+err.Error())
 		return 0, err
 	}
 	fmt.Printf("✅ Mensagem do usuário salva: ID=%d (source=%s)\n", userMsg.ID, source)
 
 	// 2. Emite evento informando que mensagem do usuário foi criada
 	//    Inclui o conteúdo para que o frontend atualize mensagens de canais (ex: transcrição de áudio)
-	runtime.EventsEmit(a.ctx, "chat:messages_ready", map[string]interface{}{
+	a.emitter.Emit("chat:messages_ready", map[string]interface{}{
 		"conversationId": conversationID,
 		"userMessageId":  userMsg.ID,
 		"userContent":    userMsg.Content,
@@ -500,7 +497,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// 3. Carrega histórico da conversa para contexto (com rolling context)
 	messages, conversationSummary, err := a.loadConversationHistory(conversationID, activeProfile)
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao carregar histórico: "+err.Error())
+		a.emitter.Emit("chat:error", "Erro ao carregar histórico: "+err.Error())
 		return 0, err
 	}
 
@@ -619,7 +616,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// Resolve o ChatProvider para o provedor do perfil ativo.
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
 		errMsg := "Nenhum provedor LLM configurado no perfil ativo."
-		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 
@@ -627,7 +624,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	if err != nil {
 		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
 		log.Printf("[SendMessage] ERRO: %s", errMsg)
-		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
@@ -1514,7 +1511,7 @@ func (a *App) ClearAllCredentials() error {
 	}
 
 	log.Println("[ClearAllCredentials] Credenciais apagadas")
-	runtime.EventsEmit(a.ctx, "credentials:cleared")
+	a.emitter.Emit("credentials:cleared", nil)
 
 	return nil
 }
@@ -1537,7 +1534,7 @@ func (a *App) ClearAllProfiles() error {
 	}
 
 	log.Println("[ClearAllProfiles] Perfis apagados")
-	runtime.EventsEmit(a.ctx, "profiles:cleared")
+	a.emitter.Emit("profiles:cleared", nil)
 
 	return nil
 }
@@ -1560,7 +1557,7 @@ func (a *App) ClearAllSkills() error {
 	}
 
 	log.Println("[ClearAllSkills] Skills apagados")
-	runtime.EventsEmit(a.ctx, "skills:cleared")
+	a.emitter.Emit("skills:cleared", nil)
 
 	return nil
 }
@@ -1579,7 +1576,7 @@ func (a *App) ClearAllChannels() error {
 	}
 
 	log.Println("[ClearAllChannels] Canais apagados")
-	runtime.EventsEmit(a.ctx, "channels:cleared")
+	a.emitter.Emit("channels:cleared", nil)
 
 	return nil
 }

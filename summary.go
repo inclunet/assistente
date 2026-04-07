@@ -10,8 +10,6 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const (
@@ -173,7 +171,7 @@ func (a *App) executeSummarization(
 	profile = a.resolveProfileDefaults(profile)
 
 	// Notifica frontend: sumarização iniciou
-	runtime.EventsEmit(a.ctx, "chat:summary_started", map[string]interface{}{
+	a.emitter.Emit("chat:summary_started", map[string]interface{}{
 		"conversationId": conversationID,
 		"messageCount":   len(newMessages),
 	})
@@ -187,7 +185,7 @@ func (a *App) executeSummarization(
 	cfg, err := config.Load()
 	if err != nil {
 		log.Printf("[Summary] Erro ao carregar config: %v", err)
-		runtime.EventsEmit(a.ctx, "chat:summary_error", map[string]interface{}{
+		a.emitter.Emit("chat:summary_error", map[string]interface{}{
 			"conversationId": conversationID,
 			"error":          "Erro ao carregar configuração",
 		})
@@ -208,7 +206,7 @@ func (a *App) executeSummarization(
 	provider := a.llmRegistry.Get(profile.Chat.LLMProvider)
 	if provider == nil {
 		log.Printf("[Summary] Provider não encontrado: %s", profile.Chat.LLMProvider)
-		runtime.EventsEmit(a.ctx, "chat:summary_error", map[string]interface{}{
+		a.emitter.Emit("chat:summary_error", map[string]interface{}{
 			"conversationId": conversationID,
 			"error":          "Provider não encontrado",
 		})
@@ -219,7 +217,7 @@ func (a *App) executeSummarization(
 	summary, err := cp.SimpleChat(context.Background(), model, SummaryPrompt, userPrompt)
 	if err != nil {
 		log.Printf("[Summary] Erro na chamada LLM: %v", err)
-		runtime.EventsEmit(a.ctx, "chat:summary_error", map[string]interface{}{
+		a.emitter.Emit("chat:summary_error", map[string]interface{}{
 			"conversationId": conversationID,
 			"error":          fmt.Sprintf("Erro ao gerar resumo: %v", err),
 		})
@@ -229,7 +227,7 @@ func (a *App) executeSummarization(
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
 		log.Printf("[Summary] LLM retornou resumo vazio — abortando")
-		runtime.EventsEmit(a.ctx, "chat:summary_error", map[string]interface{}{
+		a.emitter.Emit("chat:summary_error", map[string]interface{}{
 			"conversationId": conversationID,
 			"error":          "Resumo gerado está vazio",
 		})
@@ -238,7 +236,7 @@ func (a *App) executeSummarization(
 
 	if err := database.UpdateConversationSummary(conversationID, summary, upToMessageID); err != nil {
 		log.Printf("[Summary] Erro ao salvar resumo: %v", err)
-		runtime.EventsEmit(a.ctx, "chat:summary_error", map[string]interface{}{
+		a.emitter.Emit("chat:summary_error", map[string]interface{}{
 			"conversationId": conversationID,
 			"error":          "Erro ao salvar resumo",
 		})
@@ -249,7 +247,7 @@ func (a *App) executeSummarization(
 		conversationID, upToMessageID, len(summary))
 
 	// Notifica frontend: sumarização concluída
-	runtime.EventsEmit(a.ctx, "chat:summary_completed", map[string]interface{}{
+	a.emitter.Emit("chat:summary_completed", map[string]interface{}{
 		"conversationId":       conversationID,
 		"summaryUpToMessageId": upToMessageID,
 		"summaryLength":        len(summary),
