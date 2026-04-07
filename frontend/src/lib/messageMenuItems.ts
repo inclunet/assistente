@@ -320,8 +320,11 @@ export function getMessageMenuItems(
         }
 
         try {
-          const numericId = typeof message.id === 'string' ? parseInt(message.id, 10) : message.id;
-          if (!numericId || isNaN(numericId)) {
+          const isBackendId = typeof message.id === 'string'
+            ? /^\d+$/.test(message.id)
+            : typeof message.id === 'number';
+          const numericId = isBackendId ? Number(message.id) : 0;
+          if (numericId <= 0) {
             onAnnounce?.('Nao foi possivel identificar a mensagem');
             return;
           }

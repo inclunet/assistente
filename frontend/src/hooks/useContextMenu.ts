@@ -119,14 +119,20 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       messageAudioService.stopCurrentAudio();
       ttsService.stop();
 
-      const numericId = typeof message.id === 'string' ? parseInt(message.id, 10) : message.id;
-      if (numericId && !isNaN(numericId)) {
+      // Somente IDs numéricos puros são do backend (ex: "42").
+      // IDs locais contêm hífen/letras (ex: "1712345678901-abc3d5e9f").
+      const isBackendId = typeof message.id === 'string'
+        ? /^\d+$/.test(message.id)
+        : typeof message.id === 'number';
+      const numericId = isBackendId ? Number(message.id) : 0;
+
+      if (numericId > 0) {
         const volume = ttsService.getVolume();
         const played = await messageAudioService.speakMessage(numericId, volume);
         if (played) return;
       }
 
-      // Fallback: WebSpeech/SAPI5
+      // Fallback: speakAsRole (WebSpeech/SAPI5/SpeakPreview)
       const text = stripMarkdown(message.content);
       await ttsService.speakAsRole(text, role);
     },

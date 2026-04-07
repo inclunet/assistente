@@ -195,4 +195,31 @@ describe('useMessageActions', () => {
     expect(messageAudioServiceMock.speakMessage).not.toHaveBeenCalled();
     expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
+
+  it('usa fallback para IDs locais (não-numéricos)', async () => {
+    ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
+
+    const { result } = renderHook(() => useMessageActions());
+
+    await act(async () => {
+      await result.current.speakMessage({ id: '1712345678901-abc3d5e9f', content: 'Teste', role: 'assistant' } as never);
+    });
+
+    expect(messageAudioServiceMock.speakMessage).not.toHaveBeenCalled();
+    expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant');
+  });
+
+  it('usa SpeakMessage para IDs numéricos (string)', async () => {
+    messageAudioServiceMock.speakMessage.mockResolvedValue(true);
+    ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
+
+    const { result } = renderHook(() => useMessageActions());
+
+    await act(async () => {
+      await result.current.speakMessage({ id: '42', content: 'Ola', role: 'assistant' } as never);
+    });
+
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(42, 0.75);
+    expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
+  });
 });
