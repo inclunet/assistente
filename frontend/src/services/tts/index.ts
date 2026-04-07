@@ -59,6 +59,8 @@ class TTSService {
   private activeStreamPlayer: { stop: () => void } | null = null;
   private activeStreamAbort: AbortController | null = null;
   private providerListeners: { provider: ITTSProvider; start: () => void; end: () => void; error: (e: CustomEvent<{ error: Error }>) => void } | null = null;
+  /** Guard: previne chamadas simultâneas a speakWithOverride (webspeech/sapi5 path) */
+  private overrideLock: Promise<void> | null = null;
   
   constructor() {
     this.init();
@@ -395,6 +397,14 @@ class TTSService {
     }
 
     // WebSpeech e SAPI5 → usar providers frontend (funcionam bem localmente)
+    // Guard contra chamadas simultâneas que corromperiam o config global
+    if (this.overrideLock) {
+      try { await this.overrideLock; } catch { /* ignorar */ }
+    }
+    
+    let unlockOverride: () => void;
+    this.overrideLock = new Promise<void>(resolve => { unlockOverride = resolve; });
+    
     const backupConfig = { ...this.config };
     const backupProvider = this.config.provider;
     let providerChanged = false;
@@ -446,6 +456,8 @@ class TTSService {
         await this.currentProvider.setRate(this.config.rate);
         await this.currentProvider.setVolume(this.config.volume);
       }
+      unlockOverride!();
+      this.overrideLock = null;
     }
   }
 

@@ -31,6 +31,8 @@ let globalAudioUrl: string | null = null;
 
 // Promise de síntese pendente - previne chamadas simultâneas
 let pendingSynthesis: Promise<void> | null = null;
+// Reject da Promise pendente — permite que stop() resolva imediatamente
+let rejectPendingSynthesis: ((reason?: Error) => void) | null = null;
 
 export class OpenAIProvider extends BaseTTSProvider {
   readonly name = TTSProvider.OPENAI;
@@ -165,21 +167,36 @@ export class OpenAIProvider extends BaseTTSProvider {
       return;
     }
     
-    // CRÍTICO: Se já há uma síntese em andamento, aguarda ela terminar primeiro
+    // Se já há uma síntese em andamento, aguarda ela terminar primeiro.
+    // stop() chama rejectPendingSynthesis, então await não trava indefinidamente.
     if (pendingSynthesis) {
-      await pendingSynthesis;
+      try {
+        await pendingSynthesis;
+      } catch {
+        // Ignorar rejeição (ex: stop() chamou reject)
+      }
     }
     
-    // Usa streaming se habilitado
-    if (this._useStreaming) {
-      pendingSynthesis = this.speakWithStreaming(text);
-      await pendingSynthesis;
-      return;
-    }
+    // Cria wrapper cancelável para a síntese
+    const synthesisPromise = new Promise<void>((resolve, reject) => {
+      rejectPendingSynthesis = reject;
+      const impl = this._useStreaming
+        ? this.speakWithStreaming(text)
+        : this.speakWithoutStreaming(text);
+      impl.then(resolve, reject);
+    });
     
-    // Fallback: modo sem streaming (comportamento original)
-    pendingSynthesis = this.speakWithoutStreaming(text);
-    await pendingSynthesis;
+    pendingSynthesis = synthesisPromise;
+    try {
+      await synthesisPromise;
+    } catch {
+      // Ignorar rejeição causada por stop()
+    } finally {
+      if (pendingSynthesis === synthesisPromise) {
+        pendingSynthesis = null;
+        rejectPendingSynthesis = null;
+      }
+    }
   }
 
   /**
@@ -242,8 +259,6 @@ export class OpenAIProvider extends BaseTTSProvider {
       console.error('[OpenAI] Streaming error:', error);
       this._isSpeaking = false;
       this.dispatchEvent('error', { error: error as Error });
-    } finally {
-      pendingSynthesis = null;
     }
   }
 
@@ -327,13 +342,15 @@ export class OpenAIProvider extends BaseTTSProvider {
       console.error('[OpenAI] Error speaking:', error);
       this._isSpeaking = false;
       this.dispatchEvent('error', { error: error as Error });
-    } finally {
-      pendingSynthesis = null;
     }
   }
   
   stop(): void {
-    // Cancela síntese pendente
+    // Rejeita síntese pendente para destravar qualquer await pendingSynthesis
+    if (rejectPendingSynthesis) {
+      rejectPendingSynthesis(new Error('stopped'));
+      rejectPendingSynthesis = null;
+    }
     pendingSynthesis = null;
     
     // Para streaming se estiver ativo
