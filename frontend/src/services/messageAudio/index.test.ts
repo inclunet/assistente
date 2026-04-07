@@ -26,6 +26,7 @@ class MockAudio {
 describe('messageAudioService', () => {
   beforeEach(() => {
     speakMessageMock.mockReset();
+    messageAudioService.clearMemoryCache();
     globalThis.URL.createObjectURL = vi.fn(() => 'blob:url');
     globalThis.URL.revokeObjectURL = vi.fn();
     (globalThis as unknown as { Audio?: unknown }).Audio = MockAudio as never;
@@ -64,6 +65,67 @@ describe('messageAudioService', () => {
       const result = await messageAudioService.speakMessage(1);
 
       expect(result).toBe(false);
+    });
+  });
+
+  describe('cache em memória', () => {
+    it('segunda chamada usa cache sem chamar backend', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+
+      await messageAudioService.speakMessage(100, 1.0);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1);
+
+      await messageAudioService.speakMessage(100, 1.0);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1); // NÃO chamou de novo
+    });
+
+    it('mensagens diferentes usam caches separados', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+
+      await messageAudioService.speakMessage(100);
+      await messageAudioService.speakMessage(200);
+      expect(speakMessageMock).toHaveBeenCalledTimes(2);
+
+      // Ambas agora em cache
+      await messageAudioService.speakMessage(100);
+      await messageAudioService.speakMessage(200);
+      expect(speakMessageMock).toHaveBeenCalledTimes(2);
+    });
+
+    it('clearMemoryCache limpa o cache', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+
+      await messageAudioService.speakMessage(100);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1);
+
+      messageAudioService.clearMemoryCache();
+
+      await messageAudioService.speakMessage(100);
+      expect(speakMessageMock).toHaveBeenCalledTimes(2); // Chamou de novo
+    });
+
+    it('getMessageAudioBlob também usa cache', async () => {
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+
+      // Popula cache via speakMessage
+      await messageAudioService.speakMessage(100);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1);
+
+      // getMessageAudioBlob deve usar cache
+      const blob = await messageAudioService.getMessageAudioBlob(100);
+      expect(blob).toBeInstanceOf(Blob);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('não armazena resultado falho no cache', async () => {
+      speakMessageMock.mockResolvedValue(null);
+
+      await messageAudioService.speakMessage(100);
+      expect(speakMessageMock).toHaveBeenCalledTimes(1);
+
+      speakMessageMock.mockResolvedValue({ audio: 'QUFB', mimeType: 'audio/mpeg' });
+      await messageAudioService.speakMessage(100);
+      expect(speakMessageMock).toHaveBeenCalledTimes(2); // Tentou de novo
     });
   });
 

@@ -1,19 +1,44 @@
 /**
- * Message Audio Service - Reprodução de áudio de mensagens com cache no DB
+ * Message Audio Service - Reprodução de áudio de mensagens com cache hierárquico
  *
- * Toda a lógica de cache é backend-driven: o backend decide se retorna do cache
- * ou gera TTS novo, salva e retorna. O frontend apenas toca o resultado.
+ * Dois níveis de cache:
+ *   1. Memória (Blob) — replay instantâneo sem IPC, LRU com limite de entradas
+ *   2. DB (backend SpeakMessage) — persistente, cache-aware, gera TTS se necessário
  *
- * Hierarquia (implementada no backend SpeakMessage):
- *   1. Áudio em cache no DB → retorna direto
- *   2. TTS OpenAI (gera) → salva no DB → retorna
- *   3. Falha → frontend usa speakAsRole (WebSpeech/SAPI5) como fallback
+ * Fallback quando backend não tem TTS: frontend usa speakAsRole (WebSpeech/SAPI5)
  */
 
 import { SpeakMessage } from '@wailsjs/go/main/App';
 import { base64ToBlob } from '../../lib/audioUtils';
 
+// ---------------------------------------------------------------------------
+// Cache em memória (Blob) — evita re-transferência via IPC
+// ---------------------------------------------------------------------------
+const MEMORY_CACHE_MAX = 20;
+const memoryCache = new Map<number, Blob>();
+
+function memoryCacheGet(messageId: number): Blob | undefined {
+  const blob = memoryCache.get(messageId);
+  if (blob) {
+    // Move para o final (LRU refresh)
+    memoryCache.delete(messageId);
+    memoryCache.set(messageId, blob);
+  }
+  return blob;
+}
+
+function memoryCacheSet(messageId: number, blob: Blob): void {
+  if (memoryCache.size >= MEMORY_CACHE_MAX) {
+    // Remove a entrada mais antiga (primeira do Map)
+    const oldest = memoryCache.keys().next().value;
+    if (oldest !== undefined) memoryCache.delete(oldest);
+  }
+  memoryCache.set(messageId, blob);
+}
+
+// ---------------------------------------------------------------------------
 // Player global — apenas um áudio por vez
+// ---------------------------------------------------------------------------
 let currentPlayer: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
 let currentAbort: AbortController | null = null;
@@ -78,20 +103,27 @@ async function playAudioBase64(audioBase64: string, mimeType: string, volume: nu
 }
 
 /**
- * Reproduz o áudio de uma mensagem (backend-driven, cache-aware).
+ * Reproduz o áudio de uma mensagem usando cache hierárquico:
+ *   1. Memória (Blob) → replay instantâneo
+ *   2. Backend SpeakMessage (DB cache → gera TTS) → armazena em memória → toca
  *
- * O backend (SpeakMessage) faz tudo: checa cache no DB, gera TTS se necessário,
- * salva no DB e retorna o áudio. O frontend apenas toca o resultado.
- *
- * @returns true se o áudio foi reproduzido com sucesso, false se falhou
- *          (ex: provider TTS indisponível). Quando retorna false o chamador
- *          deve usar ttsService.speakAsRole como fallback.
+ * @returns true se reproduziu, false se falhou (chamador deve usar speakAsRole)
  */
 async function speakMessage(messageId: number, volume: number = 1.0): Promise<boolean> {
+  // 1. Cache em memória — instantâneo, sem IPC
+  const cached = memoryCacheGet(messageId);
+  if (cached) {
+    await playAudioBlob(cached, volume);
+    return true;
+  }
+
+  // 2. Backend (DB cache ou TTS) → armazena em memória
   try {
     const result = await SpeakMessage(messageId);
     if (result && result.audio && result.audio.length > 0) {
-      await playAudioBase64(result.audio, result.mimeType, volume);
+      const blob = base64ToBlob(result.audio, result.mimeType);
+      memoryCacheSet(messageId, blob);
+      await playAudioBlob(blob, volume);
       return true;
     }
     return false;
@@ -101,14 +133,20 @@ async function speakMessage(messageId: number, volume: number = 1.0): Promise<bo
 }
 
 /**
- * Obtém o áudio de uma mensagem como Blob (backend-driven, cache-aware).
+ * Obtém o áudio de uma mensagem como Blob (cache hierárquico).
  * Útil para download. Retorna null se falhar.
  */
 async function getMessageAudioBlob(messageId: number): Promise<Blob | null> {
+  // Checa memória primeiro
+  const cached = memoryCacheGet(messageId);
+  if (cached) return cached;
+
   try {
     const result = await SpeakMessage(messageId);
     if (result && result.audio && result.audio.length > 0) {
-      return base64ToBlob(result.audio, result.mimeType);
+      const blob = base64ToBlob(result.audio, result.mimeType);
+      memoryCacheSet(messageId, blob);
+      return blob;
     }
     return null;
   } catch {
@@ -131,6 +169,11 @@ function downloadAudioBlob(blob: Blob, filename: string): void {
   URL.revokeObjectURL(url);
 }
 
+/** Limpa o cache em memória. Uso em testes. */
+function clearMemoryCache(): void {
+  memoryCache.clear();
+}
+
 export const messageAudioService = {
   // Reprodução
   playAudioBlob,
@@ -139,9 +182,10 @@ export const messageAudioService = {
   isCurrentlyPlaying,
   downloadAudioBlob,
 
-  // Backend-driven (cache-aware)
+  // Backend-driven (cache hierárquico: memória → DB)
   speakMessage,
   getMessageAudioBlob,
+  clearMemoryCache,
   base64ToBlob,
 
   // Aliases

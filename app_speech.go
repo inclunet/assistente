@@ -433,6 +433,7 @@ func (a *App) SpeakMessage(messageID uint) (*AudioResult, error) {
 	// 1. Checa cache no DB
 	audio, mime, err := a.audioSvc.GetMessageAudio(messageID)
 	if err == nil && audio != "" {
+		log.Printf("[TTS] SpeakMessage(%d): cache hit (%d bytes)", messageID, len(audio))
 		return &AudioResult{Audio: audio, MimeType: mime}, nil
 	}
 
@@ -446,6 +447,7 @@ func (a *App) SpeakMessage(messageID uint) (*AudioResult, error) {
 	}
 
 	// 3. Gera TTS e salva
+	log.Printf("[TTS] SpeakMessage(%d): cache miss, gerando TTS (%d chars)", messageID, len(content))
 	return a.GenerateAndSaveMessageAudio(messageID, content)
 }
 
