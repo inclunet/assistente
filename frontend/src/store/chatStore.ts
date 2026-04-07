@@ -677,6 +677,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             const flatMessages = flattenThreadedMessages(currentState.activeConversation?.threadedMessages);
             const finalMessage = flatMessages.find(m => m.id === assistantMessageId);
 
+            const backendAssistantId = event.messageId && event.messageId > 0
+              ? event.messageId.toString()
+              : null;
+
             set((state) => {
               if (!state.activeConversation) return state;
               return {
@@ -684,7 +688,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                   ...state.activeConversation,
                   threadedMessages: state.activeConversation.threadedMessages.map((node) => {
                     const updateStreamingStatus = (n: MessageNode): MessageNode => {
-                      if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                      if (n.message.id === assistantMessageId) {
+                        n.message.isStreaming = false;
+                        if (backendAssistantId) n.message.id = backendAssistantId;
+                      }
                       if (n.children && n.children.length > 0) n.children = n.children.map(updateStreamingStatus);
                       return n;
                     };
@@ -1180,6 +1187,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           const currentState = get();
           const flatMessages = flattenThreadedMessages(currentState.activeConversation?.threadedMessages);
           const finalMessage = flatMessages.find(m => m.id === assistantMessageId);
+          const backendAssistantId = event.messageId && event.messageId > 0
+            ? event.messageId.toString()
+            : null;
+
           set((state) => {
             if (!state.activeConversation) return state;
             return {
@@ -1187,7 +1198,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
                 ...state.activeConversation,
                 threadedMessages: state.activeConversation.threadedMessages.map((node) => {
                   const markDone = (n: MessageNode): MessageNode => {
-                    if (n.message.id === assistantMessageId) n.message.isStreaming = false;
+                    if (n.message.id === assistantMessageId) {
+                      n.message.isStreaming = false;
+                      if (backendAssistantId) n.message.id = backendAssistantId;
+                    }
                     if (n.children?.length) n.children = n.children.map(markDone);
                     return n;
                   };
