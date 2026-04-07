@@ -6,6 +6,7 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/agent"
 	"assistente/internal/allowlist"
 	"assistente/internal/chat"
 	"assistente/internal/credentials"
@@ -20,6 +21,7 @@ import (
 	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
 	"assistente/internal/speech"
+	"assistente/internal/summarization"
 	"assistente/internal/tasklist"
 	"assistente/internal/terminal"
 	"assistente/internal/tools"
@@ -111,6 +113,12 @@ type App struct {
 	// Message repository (criação e consulta de mensagens)
 	msgRepo chat.MessageRepository
 
+	// Summary service (sumarização de conversas em background)
+	summarySvc *summarization.Service
+
+	// Agent service (agentic loop sem dependências do Wails)
+	agentSvc *agent.Service
+
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
 	streamingContexts map[uint]context.CancelFunc // conversationID → cancel
@@ -160,14 +168,8 @@ type ConversationWithThreads struct {
 }
 
 // StreamEvent representa um evento de streaming simplificado
-type StreamEvent struct {
-	MessageID      uint   `json:"messageId"`
-	ConversationId uint   `json:"conversationId"`
-	Content        string `json:"content"`
-	Done           bool   `json:"done"`
-	FullResponse   string `json:"fullResponse,omitempty"`
-	Error          string `json:"error,omitempty"`
-}
+// StreamEvent é alias de events.StreamEvent para compatibilidade com o frontend (Wails binding).
+type StreamEvent = events.StreamEvent
 
 // NewApp creates a new App application struct
 func NewApp() *App {
@@ -222,7 +224,14 @@ func (a *App) startup(ctx context.Context) {
 	a.convSvc = chat.NewDBConversationStore()
 	a.msgRepo = chat.NewDBMessageStore()
 
-	// Inicializa os provedores LLM (Provider Registry) ANTES do client
+	// Inicializa o Summary Service (sumarização de conversas)
+	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
+		Emitter:         a.emitter,
+		LLMRegistry:     a.llmRegistry,
+		CredMgr:         a.credMgr,
+		ProfileManager:  a.profileManager,
+		ProfileResolver: a.resolveProfileDefaults,
+	})
 	a.initLLMProviders()
 
 	// Inicializa o cliente LLM (usa credMgr + registry já populado)
@@ -248,6 +257,16 @@ func (a *App) startup(ctx context.Context) {
 
 	// Inicializa o gateway de mensageria (Telegram, etc.)
 	a.initMessaging()
+
+	// Inicializa o Agent Service (agentic loop desacoplado do Wails)
+	a.agentSvc = agent.NewService(agent.ServiceConfig{
+		Emitter:          a.emitter,
+		MsgRepo:          a.msgRepo,
+		ToolExecutor:     a.toolExecutor,
+		ResponseNotifier: a.responseNotifier,
+		GetTokenStats:    a.GetConversationTokenStats,
+		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
+	})
 
 	// Inicializa hotkeys globais
 	a.initGlobalHotkeys()

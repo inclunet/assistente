@@ -783,7 +783,7 @@ func TestCreateLLMProvider_OpenAICompatibleKeepsDefaultFormat(t *testing.T) {
 		ID:        "groq-test",
 		Name:      "Groq Test",
 		Type:      "groq",
-		BaseURL:   "https://api.groq.com/openai",
+		BaseURL:   "https://api.groq.com/openai/v1",
 		APIFormat: "openai",
 	})
 	if err != nil {

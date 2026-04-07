@@ -195,38 +195,12 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 
 			provider = providerResp.Answers["provider"].(string)
 
-			// Mapeia provedor para base URL padrão
-			switch provider {
-			case "OpenAI":
-				baseURL = "https://api.openai.com/v1"
-			case "Anthropic (Claude)":
-				baseURL = "https://api.anthropic.com/v1"
-			case "Google (Gemini)":
-				baseURL = "https://generativelanguage.googleapis.com/v1beta/openai/"
-			case "DeepSeek":
-				baseURL = "https://api.deepseek.com/v1"
-			case "xAI (Grok)":
-				baseURL = "https://api.x.ai/v1"
-			case "OpenRouter":
-				baseURL = "https://openrouter.ai/api/v1"
-			case "Mistral AI":
-				baseURL = "https://api.mistral.ai/v1"
-			case "Groq":
-				baseURL = "https://api.groq.com/openai/v1"
-			case "Together AI":
-				baseURL = "https://api.together.xyz/v1"
-			case "Fireworks AI":
-				baseURL = "https://api.fireworks.ai/inference/v1"
-			case "Perplexity":
-				baseURL = "https://api.perplexity.ai"
-			case "Azure OpenAI":
-				baseURL = "" // Usuário precisará fornecer
-			case "Ollama (Local)":
-				baseURL = "http://localhost:11434/v1"
-			case "LiteLLM":
-				baseURL = "" // Usuário precisará fornecer
-			case "Outro (URL personalizada)":
-				baseURL = "" // Usuário precisará fornecer
+			// Obtém baseURL do template canônico; provedores que precisam de URL
+			// personalizada (Azure, LiteLLM, Outro) deixam baseURL vazio.
+			if tmpl, err := providers.BuiltinTemplate(wizardLabelToProviderType(provider)); err == nil {
+				baseURL = tmpl.BaseURL
+			} else {
+				baseURL = "" // Azure OpenAI, LiteLLM, Outro (URL personalizada)
 			}
 
 			currentStep = 3
@@ -491,6 +465,40 @@ func (a *App) RunWelcomeWizard() (bool, error) {
 	}
 
 	return false, nil
+}
+
+// wizardLabelToProviderType mapeia o rótulo exibido no wizard para o type ID
+// usado por providers.BuiltinTemplate. Retorna "" para provedores sem template
+// (Azure OpenAI, LiteLLM, Outro), que exigem URL personalizada.
+func wizardLabelToProviderType(label string) string {
+	switch label {
+	case "OpenAI":
+		return "openai"
+	case "Anthropic (Claude)":
+		return "claude"
+	case "Google (Gemini)":
+		return "google"
+	case "DeepSeek":
+		return "deepseek"
+	case "xAI (Grok)":
+		return "grok"
+	case "OpenRouter":
+		return "openrouter"
+	case "Mistral AI":
+		return "mistral"
+	case "Groq":
+		return "groq"
+	case "Together AI":
+		return "together"
+	case "Fireworks AI":
+		return "fireworks"
+	case "Perplexity":
+		return "perplexity"
+	case "Ollama (Local)":
+		return "ollama"
+	default:
+		return ""
+	}
 }
 
 // wizardProviderInfo mapeia a escolha do wizard para configuração do provedor

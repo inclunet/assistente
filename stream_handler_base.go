@@ -64,7 +64,7 @@ func (h *baseStreamHandler) OnChunk(content string) {
 }
 
 func (h *baseStreamHandler) emitStreamEvent() {
-	h.emitter.Emit("chat:stream", StreamEvent{
+	h.emitter.Emit("chat:stream", events.StreamEvent{
 		Content:        h.accumulatedContent,
 		Done:           false,
 		ConversationId: h.conversationID,

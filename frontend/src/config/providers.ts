@@ -187,7 +187,7 @@ export const PROVIDER_CONFIG: Record<string, ProviderPreset> = {
   },
   groq: {
     label: 'Groq',
-    defaultUrl: 'https://api.groq.com/openai',
+    defaultUrl: 'https://api.groq.com/openai/v1',
     urlEditable: false,
     apiKeyRequired: true,
     testRequiresApiKey: true,

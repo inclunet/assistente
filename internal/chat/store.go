@@ -35,6 +35,9 @@ type MessageRepository interface {
 
 	// AddToolResultMessage persiste o resultado de uma tool call.
 	AddToolResultMessage(conversationID, turnID uint, content, toolCallID string) (*database.ChatMessage, error)
+
+	// SearchMessages busca mensagens usando full-text search (FTS5).
+	SearchMessages(query string, limit int) ([]database.MessageSearchResult, error)
 }
 
 // ConversationRepository abstrai operações sobre conversas.

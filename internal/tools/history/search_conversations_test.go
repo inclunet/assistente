@@ -7,14 +7,14 @@ import (
 )
 
 func TestSearchConversations_Name(t *testing.T) {
-	tool := NewSearchConversations()
+	tool := NewSearchConversations(nil)
 	if tool.Name() != "search_conversations" {
 		t.Errorf("expected 'search_conversations', got '%s'", tool.Name())
 	}
 }
 
 func TestSearchConversations_Description(t *testing.T) {
-	tool := NewSearchConversations()
+	tool := NewSearchConversations(nil)
 	desc := tool.Description()
 	if desc == "" {
 		t.Error("description should not be empty")
@@ -22,7 +22,7 @@ func TestSearchConversations_Description(t *testing.T) {
 }
 
 func TestSearchConversations_Parameters(t *testing.T) {
-	tool := NewSearchConversations()
+	tool := NewSearchConversations(nil)
 	var schema map[string]interface{}
 	if err := json.Unmarshal(tool.Parameters(), &schema); err != nil {
 		t.Fatalf("Parameters() must return valid JSON: %v", err)
@@ -47,7 +47,7 @@ func TestSearchConversations_Parameters(t *testing.T) {
 }
 
 func TestSearchConversations_EmptyQuery(t *testing.T) {
-	tool := NewSearchConversations()
+	tool := NewSearchConversations(nil)
 	args := `{"query": ""}`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
@@ -59,7 +59,7 @@ func TestSearchConversations_EmptyQuery(t *testing.T) {
 }
 
 func TestSearchConversations_InvalidArgs(t *testing.T) {
-	tool := NewSearchConversations()
+	tool := NewSearchConversations(nil)
 	args := `{invalid`
 	result, err := tool.Execute(context.Background(), json.RawMessage(args))
 	if err != nil {
