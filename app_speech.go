@@ -11,7 +11,6 @@ import (
 	"log"
 	"strings"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -266,7 +265,7 @@ type TTSStreamEvent struct {
 // SynthesizeOpenAIStream sintetiza texto usando OpenAI TTS com streaming
 func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string) error {
 	if !a.ensureSpeechManager() {
-		runtime.EventsEmit(a.ctx, speech.EventTTSStreamError, TTSStreamEvent{
+		a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
 			SessionID: sessionID,
 			Error:     "speech manager não disponível - configure um provedor no perfil",
 		})
@@ -277,23 +276,23 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 		go func() {
 			result, err := a.speechManager.SynthesizeWithVoice(text, voice)
 			if err != nil {
-				runtime.EventsEmit(a.ctx, speech.EventTTSStreamError, TTSStreamEvent{
+				a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
 					SessionID: sessionID,
 					Error:     err.Error(),
 				})
 				return
 			}
 
-			runtime.EventsEmit(a.ctx, speech.EventTTSStreamStart, TTSStreamEvent{
+			a.emitter.Emit( speech.EventTTSStreamStart, TTSStreamEvent{
 				SessionID: sessionID,
 				Format:    result.Format,
 			})
-			runtime.EventsEmit(a.ctx, speech.EventTTSStreamChunk, TTSStreamEvent{
+			a.emitter.Emit( speech.EventTTSStreamChunk, TTSStreamEvent{
 				SessionID:   sessionID,
 				ChunkBase64: result.AudioBase64,
 				Format:      result.Format,
 			})
-			runtime.EventsEmit(a.ctx, speech.EventTTSStreamDone, TTSStreamEvent{
+			a.emitter.Emit( speech.EventTTSStreamDone, TTSStreamEvent{
 				SessionID: sessionID,
 				Done:      true,
 			})
@@ -302,28 +301,28 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 	}
 
 	go func() {
-		runtime.EventsEmit(a.ctx, speech.EventTTSStreamStart, TTSStreamEvent{
+		a.emitter.Emit( speech.EventTTSStreamStart, TTSStreamEvent{
 			SessionID: sessionID,
 			Format:    "mp3",
 		})
 
 		callbacks := speech.StreamCallbacks{
 			OnChunk: func(chunkBase64 string) {
-				runtime.EventsEmit(a.ctx, speech.EventTTSStreamChunk, TTSStreamEvent{
+				a.emitter.Emit( speech.EventTTSStreamChunk, TTSStreamEvent{
 					SessionID:   sessionID,
 					ChunkBase64: chunkBase64,
 					Format:      "mp3",
 				})
 			},
 			OnDone: func() {
-				runtime.EventsEmit(a.ctx, speech.EventTTSStreamDone, TTSStreamEvent{
+				a.emitter.Emit( speech.EventTTSStreamDone, TTSStreamEvent{
 					SessionID: sessionID,
 					Done:      true,
 				})
 			},
 			OnError: func(err error) {
 				log.Printf("[TTS] Stream error: %v", err)
-				runtime.EventsEmit(a.ctx, speech.EventTTSStreamError, TTSStreamEvent{
+				a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
 					SessionID: sessionID,
 					Error:     err.Error(),
 				})
@@ -335,7 +334,7 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 
 		err := a.speechManager.SynthesizeStream(ctx, text, voice, callbacks)
 		if err != nil {
-			runtime.EventsEmit(a.ctx, speech.EventTTSStreamError, TTSStreamEvent{
+			a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
 				SessionID: sessionID,
 				Error:     err.Error(),
 			})
@@ -583,7 +582,7 @@ func (a *App) previewLLM(providerId, text, voiceId, model string, rate float64, 
 		client = a.getOrCreateAdHocTTSClient()
 	}
 	if client == nil {
-		runtime.EventsEmit(a.ctx, speech.EventTTSStreamError, TTSStreamEvent{
+		a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
 			SessionID: sessionId,
 			Error:     "nenhum provedor OpenAI com credenciais encontrado",
 		})
@@ -593,7 +592,7 @@ func (a *App) previewLLM(providerId, text, voiceId, model string, rate float64, 
 	client.SetSpeed(rate)
 
 	go func() {
-		runtime.EventsEmit(a.ctx, speech.EventTTSStreamStart, TTSStreamEvent{
+		a.emitter.Emit( speech.EventTTSStreamStart, TTSStreamEvent{
 			SessionID: sessionId,
 			Format:    "mp3",
 		})
@@ -601,21 +600,21 @@ func (a *App) previewLLM(providerId, text, voiceId, model string, rate float64, 
 		callbacks := speech.TTSStreamCallbacks{
 			OnChunk: func(chunk []byte) {
 				chunkBase64 := base64.StdEncoding.EncodeToString(chunk)
-				runtime.EventsEmit(a.ctx, speech.EventTTSStreamChunk, TTSStreamEvent{
+				a.emitter.Emit( speech.EventTTSStreamChunk, TTSStreamEvent{
 					SessionID:   sessionId,
 					ChunkBase64: chunkBase64,
 					Format:      "mp3",
 				})
 			},
 			OnDone: func() {
-				runtime.EventsEmit(a.ctx, speech.EventTTSStreamDone, TTSStreamEvent{
+				a.emitter.Emit( speech.EventTTSStreamDone, TTSStreamEvent{
 					SessionID: sessionId,
 					Done:      true,
 				})
 			},
 			OnError: func(err error) {
 				log.Printf("[SpeakPreview] Stream error: %v", err)
-				runtime.EventsEmit(a.ctx, speech.EventTTSStreamError, TTSStreamEvent{
+				a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
 					SessionID: sessionId,
 					Error:     err.Error(),
 				})
@@ -632,7 +631,7 @@ func (a *App) previewLLM(providerId, text, voiceId, model string, rate float64, 
 		}
 
 		if err := client.SynthesizeStreamWithVoice(ctx, text, voice, callbacks); err != nil {
-			runtime.EventsEmit(a.ctx, speech.EventTTSStreamError, TTSStreamEvent{
+			a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
 				SessionID: sessionId,
 				Error:     err.Error(),
 			})

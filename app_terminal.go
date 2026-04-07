@@ -11,7 +11,6 @@ import (
 	"assistente/internal/questionnaire"
 	"assistente/internal/terminal"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -116,7 +115,7 @@ func (a *App) GetTerminalStats() *terminal.ManagerStats {
 func (a *App) initTerminalAndAllowlists() {
 	// Callback para emitir eventos Wails a partir dos managers
 	emitEvent := func(event string, data any) {
-		runtime.EventsEmit(a.ctx, event, data)
+		a.emitter.Emit( event, data)
 	}
 
 	// Terminal Manager (pool compartilhado LLM + usuário)

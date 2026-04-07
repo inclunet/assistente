@@ -18,7 +18,6 @@ import (
 	"fmt"
 	"log"
 
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 func (a *App) initMessaging() {
@@ -26,7 +25,7 @@ func (a *App) initMessaging() {
 	a.responseNotifier = messaging.NewResponseNotifier()
 
 	emitEvent := func(event string, data any) {
-		runtime.EventsEmit(a.ctx, event, data)
+		a.emitter.Emit( event, data)
 	}
 
 	// Função TTS para sintetizar respostas em áudio para canais externos.
@@ -469,7 +468,7 @@ func (a *App) CreateChannelFromTemplate(templateType string, values map[string]i
 	}
 
 	// Emite evento para atualizar UI
-	runtime.EventsEmit(a.ctx, "channel:created", map[string]string{"type": templateType})
+	a.emitter.Emit( "channel:created", map[string]string{"type": templateType})
 
 	return nil
 }

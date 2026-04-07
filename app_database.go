@@ -9,8 +9,6 @@ import (
 
 	"assistente/internal/config"
 	"assistente/internal/database"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ResetDatabase apaga o banco de dados, resetando ao estado inicial
@@ -50,7 +48,7 @@ func (a *App) ResetDatabase() error {
 	log.Println("[ResetDatabase] Banco resetado com sucesso")
 
 	// Emite evento para o frontend limpar o estado
-	runtime.EventsEmit(a.ctx, "database:reset")
+	a.emitter.Emit("database:reset", nil)
 
 	return nil
 }
@@ -62,7 +60,7 @@ func (a *App) ClearMessages() error {
 	}
 
 	log.Println("[ClearMessages] Mensagens e conversas apagadas")
-	runtime.EventsEmit(a.ctx, "messages:cleared")
+	a.emitter.Emit("messages:cleared", nil)
 
 	return nil
 }

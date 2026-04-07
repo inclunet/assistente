@@ -72,7 +72,7 @@ func (a *App) registerActiveProfileHotkeys() {
 				a.hotkeyLastFired[triggerKey] = now
 
 				log.Printf("[Hotkey] HOTKEY ACIONADA! Trigger tipo %s", t.Type)
-				runtime.EventsEmit(a.ctx, "interaction:hotkey:triggered", map[string]interface{}{
+				a.emitter.Emit("interaction:hotkey:triggered", map[string]interface{}{
 					"triggerType":  t.Type,
 					"bringToFront": t.HotkeyBringToFront,
 				})

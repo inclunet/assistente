@@ -8,6 +8,7 @@ import (
 
 	"assistente/internal/allowlist"
 	"assistente/internal/database"
+	"assistente/internal/events"
 	"assistente/internal/questionnaire"
 	"assistente/internal/tasklist"
 	"assistente/internal/tools"
@@ -18,8 +19,6 @@ import (
 	"assistente/internal/tools/shell"
 	tasklisttool "assistente/internal/tools/tasklist"
 	"assistente/internal/tools/web"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // serviceTaskListManager adapta tasklist.Service para a interface tasklisttool.TaskListManager.
@@ -91,13 +90,13 @@ func (m *serviceTaskListManager) GetTaskNote(noteID uint) (*database.TaskNote, e
 	return m.svc.GetTaskNote(noteID)
 }
 
-// appDeepLinkEmitter emite deep links para o frontend via eventos Wails.
+// appDeepLinkEmitter emite deep links para o frontend via events.Emitter.
 type appDeepLinkEmitter struct {
-	ctx context.Context
+	emitter events.Emitter
 }
 
 func (e *appDeepLinkEmitter) EmitDeepLink(uri string) {
-	runtime.EventsEmit(e.ctx, "deeplink:execute", uri)
+	e.emitter.Emit("deeplink:execute", uri)
 }
 
 // initToolRegistry inicializa o registro de ferramentas disponíveis
@@ -242,7 +241,7 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskNote(tlMgr))
 
 	// Registra ferramenta de deep links
-	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{ctx: a.ctx}))
+	a.toolRegistry.MustRegister(deeplinktool.NewOpenDeepLink(&appDeepLinkEmitter{emitter: a.emitter}))
 
 	log.Printf("[Tools] Registry inicializado com %d ferramentas: %v", a.toolRegistry.Count(), a.toolRegistry.Names())
 }
