@@ -122,7 +122,8 @@ async function saveAudioToDB(messageId: number, audioBlob: Blob): Promise<void> 
       reader.readAsDataURL(audioBlob);
     });
     await SaveMessageAudio(messageId, base64, audioBlob.type || 'audio/mpeg');
-  } catch {
+  } catch (err) {
+    console.warn('[messageAudio] Falha ao salvar áudio no DB:', err);
   }
 }
 

@@ -53,6 +53,9 @@ export class TTSStreamPlayer {
   private useFallback = false;
   private fallbackChunks: Uint8Array[] = [];
   
+  // Timer de endStream (para cleanup)
+  private endStreamTimer: number | null = null;
+  
   // Event listeners do Wails
   private unsubscribeStart: (() => void) | null = null;
   private unsubscribeChunk: (() => void) | null = null;
@@ -283,9 +286,10 @@ export class TTSStreamPlayer {
   private endStream(): void {
     const checkAndEnd = () => {
       if (this.pendingChunks.length > 0 || this.isUpdating) {
-        setTimeout(checkAndEnd, 100);
+        this.endStreamTimer = window.setTimeout(checkAndEnd, 100);
         return;
       }
+      this.endStreamTimer = null;
       
       if (this.mediaSource && this.mediaSource.readyState === 'open') {
         try {
@@ -394,6 +398,12 @@ export class TTSStreamPlayer {
   private cleanup(): void {
     this.state = 'idle';
 
+    // Cancela timer de endStream pendente
+    if (this.endStreamTimer !== null) {
+      clearTimeout(this.endStreamTimer);
+      this.endStreamTimer = null;
+    }
+
     this.unsubscribeStart?.();
     this.unsubscribeChunk?.();
     this.unsubscribeDone?.();
@@ -438,6 +448,10 @@ export class TTSStreamPlayer {
   dispose(): void {
     this.stop();
     this.cleanup();
+    // Invalida o singleton para que getStreamPlayer() crie uma nova instância
+    if (globalStreamPlayer === this) {
+      globalStreamPlayer = null;
+    }
   }
 }
 
