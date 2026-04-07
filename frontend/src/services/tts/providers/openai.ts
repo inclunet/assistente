@@ -5,6 +5,7 @@
 
 import { BaseTTSProvider } from './base';
 import { TTSProvider, TTSVoice } from '../types';
+import { base64ToBlob } from '../../../lib/audioUtils';
 import { 
   GetOpenAITTSVoices,
   SynthesizeOpenAIWithVoice,
@@ -283,13 +284,7 @@ export class OpenAIProvider extends BaseTTSProvider {
       }
       
       // Decodifica base64 para blob de audio
-      const audioBytes = atob(result.audioBase64);
-      const audioArray = new Uint8Array(audioBytes.length);
-      for (let i = 0; i < audioBytes.length; i++) {
-        audioArray[i] = audioBytes.charCodeAt(i);
-      }
-      
-      const audioBlob = new Blob([audioArray], { type: 'audio/mpeg' });
+      const audioBlob = base64ToBlob(result.audioBase64, 'audio/mpeg');
       globalAudioUrl = URL.createObjectURL(audioBlob);
       
       globalAudioPlayer = new Audio(globalAudioUrl);

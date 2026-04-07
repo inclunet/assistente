@@ -7,6 +7,7 @@
  */
 
 import { EventsOn } from '@wailsjs/runtime/runtime';
+import { base64ToBytes } from '../../lib/audioUtils';
 
 // Evento de streaming do backend (formato padronizado)
 interface TTSStreamEvent {
@@ -59,7 +60,6 @@ export class TTSStreamPlayer {
   private unsubscribeError: (() => void) | null = null;
 
   // Timestamp para medir latência (apenas primeiro chunk)
-  private startTime: number = 0;
   private firstChunkLogged = false;
 
   constructor() {
@@ -76,7 +76,6 @@ export class TTSStreamPlayer {
     this.sessionId = sessionId;
     this.callbacks = callbacks;
     this.state = 'buffering';
-    this.startTime = Date.now();
     this.firstChunkLogged = false;
     
     // Registra listeners de eventos Wails
@@ -123,17 +122,11 @@ export class TTSStreamPlayer {
     if (!event.chunkBase64) return;
     
     // Decodifica base64 para Uint8Array
-    const binaryString = atob(event.chunkBase64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
+    const bytes = base64ToBytes(event.chunkBase64);
     
-    // Log do primeiro chunk com latência (uma vez só)
+    // Marca primeiro chunk recebido
     if (!this.firstChunkLogged) {
       this.firstChunkLogged = true;
-      const latency = Date.now() - this.startTime;
-      void latency;
     }
     
     if (this.useFallback) {

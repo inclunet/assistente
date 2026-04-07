@@ -3,8 +3,9 @@
  * Suporta WebSpeech API, SAPI5 (Windows) e OpenAI TTS
  */
 
-import { TTSProvider, ITTSProvider, TTSVoice } from './types';
+import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig } from './types';
 import { ttsFactory } from './factory';
+import { calcTTSTimeoutMs } from '../../lib/audioUtils';
 
 type WailsApp = {
   go?: {
@@ -29,17 +30,6 @@ const getTTSVoices = async (profileId: string, providerId: string): Promise<Back
   if (!app?.GetTTSVoices) return [];
   return app.GetTTSVoices(profileId, providerId);
 };
-
-export interface TTSConfig {
-  enabled: boolean;
-  autoRead: boolean;           // Leitura automática de mensagens do assistente
-  enabledForUser: boolean;     // TTS para mensagens do usuário
-  provider: TTSProvider;
-  voiceName?: string;
-  rate: number;
-  pitch: number;
-  volume: number;
-}
 
 /** Configuração de voz por role (assistant, user, system) */
 export interface RoleVoiceConfig {
@@ -434,7 +424,7 @@ class TTSService {
             const onEnd = () => { cleanup(); resolve(); };
             const onErr = () => { cleanup(); resolve(); };
             // Timeout proporcional ao tamanho do texto (60s base + 30s por 4000 chars)
-            const timeoutMs = 60000 + Math.floor(text.length / 4000) * 30000;
+            const timeoutMs = calcTTSTimeoutMs(text.length);
             const timeout = setTimeout(() => { cleanup(); resolve(); }, timeoutMs);
             provider.addEventListener?.('end', onEnd);
             provider.addEventListener?.('error', onErr);
@@ -528,8 +518,8 @@ class TTSService {
         const onAbort = () => { cleanup(); resolve(); };
         abort.signal.addEventListener('abort', onAbort, { once: true });
 
-        // Timeout proporcional ao tamanho do texto (60s base + 30s por 4000 chars)
-        const timeoutMs = 60000 + Math.floor(text.length / 4000) * 30000;
+        // Timeout proporcional ao tamanho do texto
+        const timeoutMs = calcTTSTimeoutMs(text.length);
         const timeout = setTimeout(() => { cleanup(); streamPlayer.stop(); resolve(); }, timeoutMs);
 
         streamPlayer.startListening(sessionId, {
@@ -740,3 +730,6 @@ class TTSService {
 
 // Singleton
 export const ttsService = new TTSService();
+
+// Re-export types para backward compatibility
+export type { TTSConfig } from './types';
