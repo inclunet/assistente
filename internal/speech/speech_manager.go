@@ -118,7 +118,7 @@ func (sm *SpeechManager) reinitClients() {
 		{"user", sm.config.User},
 		{"system", sm.config.System},
 	} {
-		if entry.role.Provider == string(TTSProviderOpenAI) && entry.role.CredentialPattern != "" {
+		if entry.role.Provider == string(TTSProviderOpenAI) && (entry.role.CredentialPattern != "" || entry.role.BaseURL != "") {
 			log.Printf("[Speech] reinitClients: criando TTSClient[%s] (baseURL=%q, credPattern=%q, voice=%q, model=%q)",
 				entry.name, entry.role.BaseURL, entry.role.CredentialPattern,
 				entry.role.Voice, entry.role.Model)
@@ -137,7 +137,7 @@ func (sm *SpeechManager) reinitClients() {
 	}
 
 	if len(sm.ttsClients) == 0 {
-		log.Printf("[Speech] reinitClients: nenhum TTSClient criado (nenhum role com provider OpenAI)")
+		log.Printf("[Speech] reinitClients: nenhum TTSClient criado (nenhum role com provider OpenAI e credenciais/baseURL)")
 	}
 }
 

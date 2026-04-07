@@ -440,15 +440,22 @@ func (a *App) SpeakMessage(messageID uint) (*AudioResult, error) {
 	// 2. Busca o conteúdo textual da mensagem
 	content, err := a.audioSvc.GetMessageContent(messageID)
 	if err != nil {
+		log.Printf("[TTS] SpeakMessage(%d): mensagem não encontrada: %v", messageID, err)
 		return nil, fmt.Errorf("mensagem %d não encontrada: %w", messageID, err)
 	}
 	if strings.TrimSpace(content) == "" {
+		log.Printf("[TTS] SpeakMessage(%d): conteúdo vazio", messageID)
 		return nil, fmt.Errorf("mensagem %d sem conteúdo textual", messageID)
 	}
 
 	// 3. Gera TTS e salva
 	log.Printf("[TTS] SpeakMessage(%d): cache miss, gerando TTS (%d chars)", messageID, len(content))
-	return a.GenerateAndSaveMessageAudio(messageID, content)
+	result, genErr := a.GenerateAndSaveMessageAudio(messageID, content)
+	if genErr != nil {
+		log.Printf("[TTS] SpeakMessage(%d): erro ao gerar: %v", messageID, genErr)
+		return nil, genErr
+	}
+	return result, nil
 }
 
 // ============================================================================
