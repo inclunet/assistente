@@ -7,20 +7,16 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"path/filepath"
 	"strings"
-	"time"
 
+	"assistente/internal/chat"
 	"assistente/internal/config"
 
-	"assistente/internal/database"
 	"assistente/internal/llm"
 	mcplib "assistente/internal/mcp"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
 	"assistente/internal/tools"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // Re-exporta tipos do pacote llm para compatibilidade
@@ -51,6 +47,7 @@ var strPtr = llm.StrPtr
 // - n2: interações do agente com tools (parentID=agentMessageID)
 type appStreamHandler struct {
 	baseStreamHandler
+	app           *App
 	userMessageID uint // ID da mensagem do usuário (raiz da thread)
 }
 
@@ -60,7 +57,7 @@ func (h *appStreamHandler) OnError(err string) {
 	content := h.accumulatedContent
 	h.mu.Unlock()
 
-	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
+	h.emitter.Emit("chat:stream", StreamEvent{
 		Content:        content,
 		Done:           true,
 		Error:          err,
@@ -104,32 +101,26 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Salva resposta final do assistant no nível 0 (sem parentID)
 	// Inclui reasoning se houver
-	var savedMsgID uint
-	if h.conversationID > 0 && finalContent != "" {
-		msg, err := database.CreateMessage(database.MessageOptions{
-			ConversationID:   h.conversationID,
-			Role:             "assistant",
-			Content:          finalContent,
-			Reasoning:        accumulatedReasoning,
-			PromptTokens:     usage.PromptTokens,
-			CompletionTokens: usage.CompletionTokens,
-			TotalTokens:      usage.TotalTokens,
-			Model:            model,
-		})
-		if err != nil {
-			// Se a conversa foi deletada ou mensagem pai não existe, aborta silenciosamente
-			if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
-				fmt.Printf("🛑 Conversa %d foi deletada/limpa - abortando processamento\n", h.conversationID)
-				return
-			}
-			fmt.Printf("❌ Erro ao salvar resposta do assistant: %v\n", err)
+	savedMsgID, err := chat.SaveAssistantMessage(h.app.msgRepo, chat.MessageOptions{
+		ConversationID:   h.conversationID,
+		Role:             "assistant",
+		Content:          finalContent,
+		Reasoning:        accumulatedReasoning,
+		PromptTokens:     usage.PromptTokens,
+		CompletionTokens: usage.CompletionTokens,
+		TotalTokens:      usage.TotalTokens,
+		Model:            model,
+	})
+	if errors.Is(err, chat.ErrConversationGone) {
+		return
+	}
+	if err != nil {
+		fmt.Printf("❌ Erro ao salvar resposta do assistant: %v\n", err)
+	} else if savedMsgID > 0 {
+		if accumulatedReasoning != "" {
+			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0) com %d chars de reasoning\n", savedMsgID, len(accumulatedReasoning))
 		} else {
-			if accumulatedReasoning != "" {
-				fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0) com %d chars de reasoning\n", msg.ID, len(accumulatedReasoning))
-			} else {
-				fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", msg.ID)
-			}
-			savedMsgID = msg.ID
+			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", savedMsgID)
 		}
 	}
 
@@ -139,7 +130,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	}
 
 	// Emite evento final de streaming
-	runtime.EventsEmit(h.app.ctx, "chat:stream", StreamEvent{
+	h.emitter.Emit("chat:stream", StreamEvent{
 		Content:        finalContent,
 		Done:           true,
 		ConversationId: h.conversationID,
@@ -147,7 +138,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	})
 
 	// Emite evento para frontend recarregar a conversa
-	runtime.EventsEmit(h.app.ctx, "chat:done", map[string]interface{}{
+	h.emitter.Emit("chat:done", map[string]interface{}{
 		"conversationId": h.conversationID,
 	})
 
@@ -177,7 +168,7 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		return
 	}
 
-	runtime.EventsEmit(h.app.ctx, "chat:token_stats", map[string]interface{}{
+	h.emitter.Emit("chat:token_stats", map[string]interface{}{
 		"conversationId":   h.conversationID,
 		"totalTokens":      stats.TotalTokens,
 		"contextLimit":     stats.ContextLimit,
@@ -190,7 +181,7 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 	})
 
 	if stats.IsCritical {
-		runtime.EventsEmit(h.app.ctx, "chat:context_warning", map[string]interface{}{
+		h.emitter.Emit("chat:context_warning", map[string]interface{}{
 			"conversationId": h.conversationID,
 			"level":          "critical",
 			"message": fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
@@ -202,7 +193,7 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		fmt.Printf("⚠️  [CONTEXT] Conversa %d em nível CRÍTICO: %0.1f%% (%d/%d tokens)\n",
 			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 	} else if stats.IsNearLimit {
-		runtime.EventsEmit(h.app.ctx, "chat:context_warning", map[string]interface{}{
+		h.emitter.Emit("chat:context_warning", map[string]interface{}{
 			"conversationId": h.conversationID,
 			"level":          "warning",
 			"message": fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
@@ -262,12 +253,11 @@ func (a *App) recoverFromPanic(conversationID uint, source string) {
 		errMsg := fmt.Sprintf("Erro interno inesperado em %s: %v", source, r)
 		log.Printf("🔴 [PANIC RECOVERED] %s (conversa %d): %v", source, conversationID, r)
 
-		// EventsEmit requer contexto Wails válido; protege contra panic duplo
-		// (ex: em testes ou se o contexto foi invalidado)
+		// Emitter pode ser nil (ex: em testes); protege contra panic duplo
 		func() {
 			defer func() { recover() }()
-			if a != nil && a.ctx != nil {
-				runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
+			if a != nil && a.emitter != nil {
+				a.emitter.Emit("chat:stream", StreamEvent{
 					Content:        "",
 					Done:           true,
 					Error:          errMsg,
@@ -275,6 +265,47 @@ func (a *App) recoverFromPanic(conversationID uint, source string) {
 				})
 			}
 		}()
+	}
+}
+
+// registerStreamingContext registra um context cancelável para uma conversa.
+// Permite que barge-in (SIP) ou outros mecanismos cancelem o streaming em andamento.
+func (a *App) registerStreamingContext(conversationID uint, cancel context.CancelFunc) {
+	a.streamingMu.Lock()
+	// Cancela contexto anterior se houver (nova mensagem sobrepõe a anterior)
+	if prev, ok := a.streamingContexts[conversationID]; ok {
+		prev()
+	}
+	a.streamingContexts[conversationID] = cancel
+	a.streamingMu.Unlock()
+}
+
+// unregisterStreamingContext remove o context de streaming de uma conversa.
+func (a *App) unregisterStreamingContext(conversationID uint) {
+	a.streamingMu.Lock()
+	delete(a.streamingContexts, conversationID)
+	a.streamingMu.Unlock()
+}
+
+// CancelStreamingForConversation cancela o streaming LLM em andamento para uma conversa.
+// Usado pelo pipeline SIP para barge-in: quando o usuário fala durante a resposta,
+// o LLM é cancelado imediatamente para processar a nova entrada.
+func (a *App) CancelStreamingForConversation(conversationID uint) {
+	a.streamingMu.Lock()
+	cancel, ok := a.streamingContexts[conversationID]
+	if ok {
+		cancel()
+		delete(a.streamingContexts, conversationID)
+	}
+	a.streamingMu.Unlock()
+
+	// Limpa callbacks pendentes no notifier (resposta não será gerada)
+	if ok && a.responseNotifier != nil {
+		a.responseNotifier.Cancel(conversationID)
+	}
+
+	if ok {
+		log.Printf("[LLM] Streaming cancelado para conversa %d (barge-in)", conversationID)
 	}
 }
 
@@ -301,20 +332,20 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// Validação de tamanho do conteúdo
 	if len(userContent) > MaxMessageContentSize {
 		errMsg := fmt.Sprintf("Mensagem muito grande (%d bytes). Máximo permitido: %d bytes", len(userContent), MaxMessageContentSize)
-		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 
 	// Validação de tamanho da mídia
 	if len(userMedia) > MaxMediaSize {
 		errMsg := fmt.Sprintf("Mídia muito grande (%d bytes). Máximo permitido: %d bytes", len(userMedia), MaxMediaSize)
-		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 
 	cfg, err := config.Load()
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao carregar configuração: "+err.Error())
+		a.emitter.Emit("chat:error", "Erro ao carregar configuração: "+err.Error())
 		return 0, err
 	}
 
@@ -322,29 +353,29 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// A APIKey no config.json é legada; provedores modernos usam o credential manager.
 	// Só bloqueia se não houver NENHUMA credencial configurada (nem config, nem provedores).
 	if cfg.APIKey == "" {
-		providerCount, _ := database.CountLLMProviders()
+		providerCount, _ := a.providerSvc.Count()
 		if providerCount == 0 {
-			runtime.EventsEmit(a.ctx, "chat:error", "Nenhum provedor LLM configurado. Configure um provedor nas configurações.")
+			a.emitter.Emit("chat:error", "Nenhum provedor LLM configurado. Configure um provedor nas configurações.")
 			return 0, fmt.Errorf("nenhum provedor LLM configurado")
 		}
 	}
 
 	if conversationID == 0 {
 		const errMsg = "conversationID é obrigatório — conversas devem ser criadas ao criar/resetar a tab"
-		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
 		return 0, errors.New(errMsg)
 	}
 
 	// Auto-rename: se a conversa tem título genérico, atualiza com o conteúdo da primeira mensagem.
 	if conversationID > 0 && userContent != "" {
-		conv, convErr := database.GetConversationInfo(conversationID)
+		conv, convErr := a.convSvc.GetConversationInfo(conversationID)
 		if convErr == nil && conv != nil && conv.Title == "Nova Conversa" {
 			title := userContent
 			if len(title) > 50 {
 				title = title[:50]
 			}
-			if err := database.UpdateConversation(conversationID, title, ""); err == nil {
-				runtime.EventsEmit(a.ctx, "conversation:renamed", map[string]interface{}{
+			if err := a.convSvc.UpdateConversation(conversationID, title, ""); err == nil {
+				a.emitter.Emit("conversation:renamed", map[string]interface{}{
 					"conversation_id": conversationID,
 					"new_title":       title,
 				})
@@ -429,7 +460,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	if userContent == "" && userMedia != "" {
 		// Verifica se o perfil tem STT configurado como whisper_api (necessário para canais)
 		if source != "wails" && activeProfile != nil {
-			sttProvider := activeProfile.Interaction.STTProvider
+			sttProvider := activeProfile.Input.STTProvider
 			if sttProvider == "webspeech" || sttProvider == "" {
 				log.Printf("[SendMessage] Canal %s: STT '%s' não suporta transcrição server-side — ignorando áudio", source, sttProvider)
 				userContent = "[Mensagem de áudio recebida, mas transcrição automática não está configurada. Configure Whisper no perfil deste canal para processar mensagens de voz.]"
@@ -441,7 +472,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	}
 
 	// 1. Salva mensagem do usuário no banco (com source para badge visual e áudio persistido)
-	userMsg, err := database.CreateMessage(database.MessageOptions{
+	userMsg, err := a.msgRepo.CreateMessage(chat.MessageOptions{
 		ConversationID: conversationID,
 		Role:           "user",
 		Content:        userContent,
@@ -451,14 +482,14 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		Source:         source,
 	})
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao salvar mensagem: "+err.Error())
+		a.emitter.Emit("chat:error", "Erro ao salvar mensagem: "+err.Error())
 		return 0, err
 	}
 	fmt.Printf("✅ Mensagem do usuário salva: ID=%d (source=%s)\n", userMsg.ID, source)
 
 	// 2. Emite evento informando que mensagem do usuário foi criada
 	//    Inclui o conteúdo para que o frontend atualize mensagens de canais (ex: transcrição de áudio)
-	runtime.EventsEmit(a.ctx, "chat:messages_ready", map[string]interface{}{
+	a.emitter.Emit("chat:messages_ready", map[string]interface{}{
 		"conversationId": conversationID,
 		"userMessageId":  userMsg.ID,
 		"userContent":    userMsg.Content,
@@ -467,7 +498,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// 3. Carrega histórico da conversa para contexto (com rolling context)
 	messages, conversationSummary, err := a.loadConversationHistory(conversationID, activeProfile)
 	if err != nil {
-		runtime.EventsEmit(a.ctx, "chat:error", "Erro ao carregar histórico: "+err.Error())
+		a.emitter.Emit("chat:error", "Erro ao carregar histórico: "+err.Error())
 		return 0, err
 	}
 
@@ -586,7 +617,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	// Resolve o ChatProvider para o provedor do perfil ativo.
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
 		errMsg := "Nenhum provedor LLM configurado no perfil ativo."
-		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 
@@ -594,7 +625,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	if err != nil {
 		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
 		log.Printf("[SendMessage] ERRO: %s", errMsg)
-		runtime.EventsEmit(a.ctx, "chat:error", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
@@ -674,8 +705,12 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	}
 
 	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
+	// Cria contexto cancelável por conversa — permite barge-in (SIP) cancelar LLM em andamento.
+	convCtx, convCancel := context.WithCancel(a.ctx)
+	a.registerStreamingContext(conversationID, convCancel)
+
 	if len(llmToolDefs) > 0 {
-		agentCtx := a.ctx
+		agentCtx := convCtx
 		if invokedSkillSlug != "" {
 			agentCtx = tools.WithExecutionContext(agentCtx, tools.ExecutionContext{
 				InvokedSkillSlug: invokedSkillSlug,
@@ -684,47 +719,43 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		}
 		go func() {
 			defer a.recoverFromPanic(conversationID, "runAgenticLoop")
+			defer a.unregisterStreamingContext(conversationID)
 			a.runAgenticLoop(agentCtx, cfg, messages, params, conversationID, userMsg.ID, llmToolDefs, requestStreamer)
 		}()
 	} else {
 		// Sem ferramentas: streaming simples
 		handler := &appStreamHandler{
 			baseStreamHandler: baseStreamHandler{
-				app:            a,
+				emitter:        a.emitter,
 				conversationID: conversationID,
 			},
+			app:           a,
 			userMessageID: userMsg.ID,
 		}
 		go func() {
 			defer a.recoverFromPanic(conversationID, "StreamChat")
-			requestStreamer.StreamChat(a.ctx, messages, params, handler)
+			defer a.unregisterStreamingContext(conversationID)
+			requestStreamer.StreamChat(convCtx, messages, params, handler)
 		}()
 	}
 	return conversationID, nil
 }
 
-// DefaultSystemPrompt is the base system prompt used when no custom prompt is provided
-const DefaultSystemPrompt = `You are a helpful, intelligent assistant. You provide accurate, thoughtful responses and assist users with various tasks.
-
-Key behaviors:
-- Be concise but thorough
-- When uncertain, acknowledge limitations
-- Use markdown formatting for better readability
-- Adapt your communication style to the user's needs`
+// DefaultSystemPrompt é re-exportado de internal/chat para compatibilidade.
+var DefaultSystemPrompt = chat.DefaultSystemPrompt
 
 // buildFullSystemPrompt composes the complete system prompt with DefaultSystemPrompt, skills injection, invoked skill, and conversation summary.
 // enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
 // slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
 // conversationSummary: resumo de mensagens antigas da conversa (rolling context).
 func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, disableOnDemand bool, skillTplData any, slashSkillContent string, conversationSummary string) []Message {
-	// Build the system prompt parts
 	var parts []string
 
 	// 1. Base prompt (DefaultSystemPrompt)
 	// Only add DefaultSystemPrompt if skills are present or slash skill is invoked
 	// (avoids "Developer instruction not enabled" on simple models)
 	if len(enabledSkills) > 0 || slashSkillContent != "" {
-		parts = append(parts, DefaultSystemPrompt)
+		parts = append(parts, chat.DefaultSystemPrompt)
 	}
 
 	// 2. Skills injection (auto + available)
@@ -743,55 +774,7 @@ func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, 
 		parts = append(parts, "\n\n<conversation_summary>\nSummary of earlier messages in this conversation (these messages are no longer in the context window but their content is captured below):\n\n"+conversationSummary+"\n</conversation_summary>")
 	}
 
-	// Combine all parts
-	fullSystemPrompt := strings.Join(parts, "")
-
-	// If no system prompt was built, don't add a system message at all
-	if fullSystemPrompt == "" {
-		return messages
-	}
-
-	// Find existing system message or create new one
-	systemIndex := -1
-	for i, msg := range messages {
-		if msg.Role == "system" {
-			systemIndex = i
-			break
-		}
-	}
-
-	if systemIndex == -1 {
-		// No existing system message, add at the beginning
-		systemMsg := Message{
-			Role:    "system",
-			Content: fullSystemPrompt,
-		}
-		return append([]Message{systemMsg}, messages...)
-	}
-
-	// Existing system message found - combine based on position
-	existingContent := ""
-	switch content := messages[systemIndex].Content.(type) {
-	case string:
-		existingContent = content
-	default:
-		// If not a string, replace entirely
-		newMessages := make([]Message, len(messages))
-		copy(newMessages, messages)
-		newMessages[systemIndex].Content = fullSystemPrompt
-		return newMessages
-	}
-
-	var combinedContent string
-	// Always prepend system prompt before existing content
-	combinedContent = fullSystemPrompt + "\n\n" + existingContent
-
-	// Create new slice to avoid modifying the original
-	newMessages := make([]Message, len(messages))
-	copy(newMessages, messages)
-	newMessages[systemIndex].Content = combinedContent
-
-	return newMessages
+	return chat.InjectSystemPrompt(messages, strings.Join(parts, ""))
 }
 
 type skillTemplateData struct {
@@ -1037,123 +1020,10 @@ func (a *App) loadConversationHistory(conversationID uint, profile *profiles.Pro
 		maxCtxMsgs = profile.GetMaxContextMessages()
 	}
 
-	// Busca resumo existente da conversa
-	existingSummary, summaryUpToID, err := database.GetConversationSummary(conversationID)
-	if err != nil {
-		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %d: %v", conversationID, err)
-		existingSummary = ""
-		summaryUpToID = 0
-	}
-
-	// Busca todas as mensagens raiz para avaliação de sumarização
-	allRootMessages, err := database.GetMessages(conversationID, nil)
+	loader := chat.HistoryLoader{Repo: a.msgRepo, MaxMsgs: maxCtxMsgs}
+	dbMessages, existingSummary, err := loader.Load(conversationID)
 	if err != nil {
 		return nil, "", err
-	}
-
-	// Filtra mensagens para o contexto: apenas as que vêm depois do resumo
-	var dbMessages []database.ChatMessage
-	if summaryUpToID > 0 {
-		for _, m := range allRootMessages {
-			if m.ID > summaryUpToID {
-				dbMessages = append(dbMessages, m)
-			}
-		}
-		fmt.Printf("📋 [HISTORY] Conversa %d: %d msgs total, %d após resumo (upToID=%d)\n",
-			conversationID, len(allRootMessages), len(dbMessages), summaryUpToID)
-	} else {
-		dbMessages = allRootMessages
-	}
-
-	total := len(dbMessages)
-
-	// Truncação por limite de mensagens no contexto (MaxContextMessages).
-	// Corta no limite de uma mensagem role="user", preservando turns completos.
-	if total > maxCtxMsgs {
-		cutIndex := -1
-		for i := total - 1; i >= 2; i-- {
-			if dbMessages[i].Role == "user" {
-				msgCount := 2 + (total - i)
-				if msgCount > maxCtxMsgs {
-					break
-				}
-				cutIndex = i
-			}
-		}
-
-		if cutIndex > 2 {
-			dbMessages = append(dbMessages[:2], dbMessages[cutIndex:]...)
-			fmt.Printf("📋 [HISTORY] Conversa %d: truncado para %d msgs (corte em user msg idx %d)\n",
-				conversationID, len(dbMessages), cutIndex)
-		} else {
-			kept := maxCtxMsgs - 2
-			if kept > total {
-				kept = total
-			}
-			dbMessages = append(dbMessages[:2], dbMessages[total-kept:]...)
-			fmt.Printf("📋 [HISTORY] Conversa %d: truncado para %d msgs (fallback)\n",
-				conversationID, len(dbMessages))
-		}
-	} else {
-		fmt.Printf("📋 [HISTORY] Conversa %d: %d mensagens no contexto\n", conversationID, total)
-	}
-
-	// Safety net: ensure every tool_use has its tool_result and vice-versa.
-	offeredIDs := make(map[string]bool)
-	answeredIDs := make(map[string]bool)
-	for _, m := range dbMessages {
-		if m.ToolCalls != "" {
-			var tcs []struct {
-				ID string `json:"id"`
-			}
-			if json.Unmarshal([]byte(m.ToolCalls), &tcs) == nil {
-				for _, tc := range tcs {
-					offeredIDs[tc.ID] = true
-				}
-			}
-		}
-		if m.Role == "tool" && m.ToolCallID != "" {
-			answeredIDs[m.ToolCallID] = true
-		}
-	}
-
-	// Pass 2: remove orphaned tool_results and strip orphaned tool_calls from assistant messages.
-	cleaned := make([]database.ChatMessage, 0, len(dbMessages))
-	for _, m := range dbMessages {
-		if m.Role == "tool" && m.ToolCallID != "" && !offeredIDs[m.ToolCallID] {
-			fmt.Printf("📋 [HISTORY] Removendo tool_result órfão: %s\n", m.ToolCallID)
-			continue
-		}
-		if m.ToolCalls != "" {
-			var tcs []json.RawMessage
-			var tcsParsed []struct {
-				ID string `json:"id"`
-			}
-			if json.Unmarshal([]byte(m.ToolCalls), &tcs) == nil && json.Unmarshal([]byte(m.ToolCalls), &tcsParsed) == nil {
-				var kept []json.RawMessage
-				for i, tc := range tcsParsed {
-					if answeredIDs[tc.ID] {
-						kept = append(kept, tcs[i])
-					} else {
-						fmt.Printf("📋 [HISTORY] Removendo tool_use órfão: %s\n", tc.ID)
-					}
-				}
-				if len(kept) == 0 {
-					m.ToolCalls = ""
-				} else if len(kept) < len(tcs) {
-					if j, err := json.Marshal(kept); err == nil {
-						m.ToolCalls = string(j)
-					}
-				}
-			}
-		}
-		cleaned = append(cleaned, m)
-	}
-	dbMessages = cleaned
-
-	// Garante que a primeira mensagem no contexto é uma user message
-	for len(dbMessages) > 0 && dbMessages[0].Role != "user" {
-		dbMessages = dbMessages[1:]
 	}
 
 	messages := make([]Message, 0, len(dbMessages))
@@ -1630,60 +1500,6 @@ func (a *App) ResetConfig() error {
 	return nil
 }
 
-// ResetDatabase apaga o banco de dados, resetando ao estado inicial
-func (a *App) ResetDatabase() error {
-	configPath, err := config.GetConfigPath()
-	if err != nil {
-		return fmt.Errorf("erro ao obter caminho do banco de dados: %v", err)
-	}
-
-	dbPath := filepath.Join(filepath.Dir(configPath), "conversations.db")
-
-	// Fecha a conexão com o banco de dados antes de deletar
-	if err := database.Close(); err != nil {
-		return fmt.Errorf("erro ao fechar banco de dados: %v", err)
-	}
-
-	// Aguarda um momento para garantir que o arquivo foi liberado
-	time.Sleep(100 * time.Millisecond)
-
-	// Verifica se o arquivo existe
-	if _, err := os.Stat(dbPath); err == nil {
-		// Remove o banco de dados
-		if err := os.Remove(dbPath); err != nil {
-			return fmt.Errorf("erro ao remover banco de dados: %v", err)
-		}
-
-		// Remove arquivos auxiliares do SQLite (WAL e SHM)
-		os.Remove(dbPath + "-wal")
-		os.Remove(dbPath + "-shm")
-	}
-
-	// Reinicializa o banco de dados
-	if err := database.Init(); err != nil {
-		return fmt.Errorf("erro ao reinicializar banco: %v", err)
-	}
-
-	log.Println("[ResetDatabase] Banco resetado com sucesso")
-
-	// Emite evento para o frontend limpar o estado
-	runtime.EventsEmit(a.ctx, "database:reset")
-
-	return nil
-}
-
-// ClearMessages apaga todas as mensagens e conversas, mantendo a estrutura do banco
-func (a *App) ClearMessages() error {
-	if err := database.ClearAllConversations(); err != nil {
-		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
-	}
-
-	log.Println("[ClearMessages] Mensagens e conversas apagadas")
-	runtime.EventsEmit(a.ctx, "messages:cleared")
-
-	return nil
-}
-
 // ClearAllCredentials apaga todas as credenciais armazenadas
 func (a *App) ClearAllCredentials() error {
 	if a.credMgr == nil {
@@ -1697,7 +1513,7 @@ func (a *App) ClearAllCredentials() error {
 	}
 
 	log.Println("[ClearAllCredentials] Credenciais apagadas")
-	runtime.EventsEmit(a.ctx, "credentials:cleared")
+	a.emitter.Emit("credentials:cleared", nil)
 
 	return nil
 }
@@ -1720,7 +1536,7 @@ func (a *App) ClearAllProfiles() error {
 	}
 
 	log.Println("[ClearAllProfiles] Perfis apagados")
-	runtime.EventsEmit(a.ctx, "profiles:cleared")
+	a.emitter.Emit("profiles:cleared", nil)
 
 	return nil
 }
@@ -1743,7 +1559,7 @@ func (a *App) ClearAllSkills() error {
 	}
 
 	log.Println("[ClearAllSkills] Skills apagados")
-	runtime.EventsEmit(a.ctx, "skills:cleared")
+	a.emitter.Emit("skills:cleared", nil)
 
 	return nil
 }
@@ -1762,7 +1578,7 @@ func (a *App) ClearAllChannels() error {
 	}
 
 	log.Println("[ClearAllChannels] Canais apagados")
-	runtime.EventsEmit(a.ctx, "channels:cleared")
+	a.emitter.Emit("channels:cleared", nil)
 
 	return nil
 }

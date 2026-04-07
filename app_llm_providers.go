@@ -3,15 +3,13 @@ package main
 import (
 	"assistente/internal/config"
 	"assistente/internal/credentials"
-	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/providers"
 	"context"
 	"fmt"
 	"log"
-	"net/http"
 	"net/url"
-	"strings"
 	"time"
 
 	"github.com/wailsapp/wails/v2/pkg/runtime"
@@ -66,97 +64,43 @@ func (a *App) GetActiveProviderInfo() map[string]interface{} {
 	}
 }
 
-// extractDomainPattern extrai o pattern de domínio de uma base URL
-func extractHostname(baseURL string) (string, error) {
-	if baseURL == "" {
-		return "", fmt.Errorf("base_url vazio")
-	}
-
-	parsedURL, err := url.Parse(baseURL)
-	if err != nil {
-		return "", fmt.Errorf("base_url inválido: %w", err)
-	}
-
-	host := parsedURL.Hostname()
-	if host == "" {
-		return "", fmt.Errorf("host não encontrado no base_url")
-	}
-
-	return host, nil
-}
-
 // TestLLMProvider testa a conexão com um provider LLM.
 // Quando provider_id é informado e api_key está vazio, busca a credencial existente
-// no credential manager (resolve o problema de testes falharem durante edição).
-func (a *App) TestLLMProvider(req TestLLMProviderRequest) (bool, error) {
-	if req.BaseURL == "" {
-		return false, fmt.Errorf("base_url é obrigatório")
-	}
-
-	parsedURL, err := url.Parse(req.BaseURL)
-	if err != nil {
-		return false, fmt.Errorf("URL inválida: %w", err)
-	}
-
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return false, fmt.Errorf("URL deve começar com http:// ou https://")
-	}
-
-	if parsedURL.Host == "" {
-		return false, fmt.Errorf("URL deve conter um endereço de servidor válido")
-	}
-
-	apiKey := req.APIKey
-
-	// Se não tem API key mas tem provider_id, busca credencial existente no credManager
-	if apiKey == "" && req.ProviderID != "" && a.llmRegistry != nil && a.credMgr != nil {
-		if provider := a.llmRegistry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth.Token != "" {
-				apiKey = auth.Token
-				log.Printf("[TestLLMProvider] Usando credencial existente para provider '%s' (pattern: %s)", req.ProviderID, provider.CredentialPattern)
-			}
+// no credential manager.
+func (a *App) TestLLMProvider(req TestLLMProviderRequest) (ok bool, retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			retErr = fmt.Errorf("erro interno ao testar provider: %v", r)
 		}
+	}()
+
+	if a.ctx == nil {
+		return false, fmt.Errorf("aplicação ainda não está pronta, aguarde")
 	}
 
-	modelsEndpoint := strings.TrimSuffix(req.BaseURL, "/") + "/models"
-
-	client := &http.Client{Timeout: 15 * time.Second}
-	defer client.CloseIdleConnections()
-
-	httpReq, err := http.NewRequestWithContext(a.ctx, http.MethodGet, modelsEndpoint, nil)
-	if err != nil {
-		return false, fmt.Errorf("erro ao criar requisição: %w", err)
-	}
-
-	if apiKey != "" {
-		httpReq.Header.Set("Authorization", fmt.Sprintf("Bearer %s", apiKey))
-	}
-
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return false, fmt.Errorf("erro ao conectar: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode >= 500 {
-		return false, fmt.Errorf("servidor retornou erro: %d", resp.StatusCode)
-	}
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		return false, fmt.Errorf("API Key inválida ou não autorizada")
-	}
-
-	if resp.StatusCode == http.StatusForbidden {
-		return false, fmt.Errorf("acesso negado (403). A API Key pode não ter permissões suficientes")
-	}
-
-	return true, nil
+	return a.providerSvc.TestConnection(a.ctx, providers.TestRequest{
+		BaseURL:    req.BaseURL,
+		APIKey:     req.APIKey,
+		ProviderID: req.ProviderID,
+	})
 }
 
 // ListModelsRaw lista modelos de um provedor usando credenciais ad-hoc (sem exigir provider salvo).
 // Usado pelo formulário de criação/edição de providers para validar e selecionar modelo.
 // Se provider_id é informado e api_key está vazio, busca credencial existente.
-func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
+func (a *App) ListModelsRaw(req TestLLMProviderRequest) (models []string, retErr error) {
+	// Protege contra panic
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[ListModelsRaw] PANIC: %v", r)
+			retErr = fmt.Errorf("erro interno ao listar modelos: %v", r)
+		}
+	}()
+
+	if a.ctx == nil {
+		return nil, fmt.Errorf("aplicação ainda não está pronta, aguarde")
+	}
+
 	if req.BaseURL == "" {
 		return nil, fmt.Errorf("base_url é obrigatório")
 	}
@@ -177,7 +121,7 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
 	// Se não tem API key mas tem provider_id, busca credencial existente
 	if apiKey == "" && req.ProviderID != "" && a.llmRegistry != nil && a.credMgr != nil {
 		if provider := a.llmRegistry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth.Token != "" {
+			if auth, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
 				apiKey = auth.Token
 			}
 		}
@@ -208,247 +152,91 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) ([]string, error) {
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 
-	// Usa ChatProvider se o tipo tem api_format inferível
 	cp := llm.NewChatProvider(tempProvider, a.credMgr)
-	models, err := cp.GetModels(ctx)
+	result, err := cp.GetModels(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return models, nil
+	return result, nil
 }
 
-// CreateLLMProvider cria um novo provider com auto-salvamento de credenciais
+// CreateLLMProvider cria um novo provider com auto-salvamento de credenciais.
 func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interface{}, error) {
-	// Validação
-	if req.ID == "" || req.Name == "" || req.BaseURL == "" {
-		return nil, fmt.Errorf("campos obrigatórios faltando (id, name, base_url)")
-	}
-
-	// Verificar se já existe
-	if a.llmRegistry.Get(req.ID) != nil {
-		return nil, fmt.Errorf("provider com ID '%s' já existe", req.ID)
-	}
-
-	// Extrair hostname exato do base_url
-	hostname, err := extractHostname(req.BaseURL)
+	res, err := a.providerSvc.Create(a.ctx, providers.CreateRequest{
+		ID:           req.ID,
+		Name:         req.Name,
+		Type:         req.Type,
+		APIFormat:    req.APIFormat,
+		BaseURL:      req.BaseURL,
+		APIKey:       req.APIKey,
+		DefaultModel: req.DefaultModel,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
+		return nil, err
 	}
-
-	// Salvar API key se fornecida
-	credConfigured := false
-	if req.APIKey != "" {
-		authCfg := &credentials.AuthConfig{
-			Type:  "bearer",
-			Token: req.APIKey,
-		}
-		err = a.credMgr.RegisterPatternWithContext(a.ctx, hostname, authCfg)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao salvar credencial: %w", err)
-		}
-		credConfigured = true
-	}
-
-	// Timeout default
-	timeout := 180
-
-	// Se é o primeiro provedor, será marcado como default automaticamente
-	isFirstProvider := len(a.llmRegistry.List()) == 0
-
-	// Criar provider config
-	provider := &llm.ProviderConfig{
-		ID:                req.ID,
-		Name:              req.Name,
-		Type:              llm.ProviderType(req.Type),
-		APIFormat:         llm.APIFormat(req.APIFormat),
-		BaseURL:           req.BaseURL,
-		Model:             "",
-		DefaultModel:      req.DefaultModel,
-		IsDefault:         isFirstProvider,
-		Timeout:           timeout,
-		CredentialPattern: hostname,
-	}
-
-	// Registrar no registry
-	err = a.llmRegistry.Register(provider)
-	if err != nil {
-		return nil, fmt.Errorf("erro ao registrar provider: %w", err)
-	}
-
-	// Salvar provedores em disco
-	if err := a.saveLLMProviders(); err != nil {
-		log.Printf("[ProviderManager] Erro ao salvar provedores: %v", err)
-	}
-
-	if isFirstProvider {
-		if err := database.SetDefaultProvider(req.ID); err != nil {
-			log.Printf("[ProviderManager] Aviso: erro ao marcar como default: %v", err)
-		}
-	}
-
-	log.Printf("[ProviderManager] Provider '%s' criado com hostname '%s', default=%v", req.ID, hostname, isFirstProvider)
-
+	p := res.Provider
 	return map[string]interface{}{
-		"id":                    provider.ID,
-		"name":                  provider.Name,
-		"type":                  string(provider.Type),
-		"base_url":              provider.BaseURL,
-		"model":                 provider.Model,
-		"default_model":         provider.DefaultModel,
-		"is_default":            provider.IsDefault,
-		"timeout":               provider.Timeout,
-		"credential_pattern":    hostname,
-		"credential_configured": credConfigured,
+		"id":                    p.ID,
+		"name":                  p.Name,
+		"type":                  string(p.Type),
+		"base_url":              p.BaseURL,
+		"model":                 p.Model,
+		"default_model":         p.DefaultModel,
+		"is_default":            p.IsDefault,
+		"timeout":               p.Timeout,
+		"credential_pattern":    res.CredentialPattern,
+		"credential_configured": res.CredentialConfigured,
 	}, nil
 }
 
-// UpdateLLMProvider atualiza um provider existente
+// UpdateLLMProvider atualiza um provider existente.
 func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[string]interface{}, error) {
-	// Buscar provider existente
-	existing := a.llmRegistry.Get(id)
-	if existing == nil {
-		return nil, fmt.Errorf("provider '%s' não encontrado", id)
-	}
-
-	// Atualizar campos fornecidos
-	updated := &llm.ProviderConfig{
-		ID:                existing.ID,
-		Name:              existing.Name,
-		Type:              existing.Type,
-		APIFormat:         existing.APIFormat,
-		BaseURL:           existing.BaseURL,
-		Model:             existing.Model,
-		DefaultModel:      existing.DefaultModel,
-		IsDefault:         existing.IsDefault,
-		Timeout:           existing.Timeout,
-		CredentialPattern: existing.CredentialPattern,
-	}
-
-	if req.Name != "" {
-		updated.Name = req.Name
-	}
-	if req.Type != "" {
-		updated.Type = llm.ProviderType(req.Type)
-	}
-	if req.APIFormat != "" {
-		updated.APIFormat = llm.APIFormat(req.APIFormat)
-	}
-	if req.DefaultModel != "" {
-		updated.DefaultModel = req.DefaultModel
-	}
-	if req.BaseURL != "" {
-		updated.BaseURL = req.BaseURL
-		// Re-extrair hostname se base_url mudou
-		hostname, err := extractHostname(req.BaseURL)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao extrair hostname: %w", err)
-		}
-		updated.CredentialPattern = hostname
-		log.Printf("[UpdateLLMProvider] Base URL mudou, novo hostname: '%s'", hostname)
-	}
-
-	// Atualizar credencial se fornecida
-	credConfigured := false
-	if req.APIKey != "" {
-		authCfg := &credentials.AuthConfig{
-			Type:  "bearer",
-			Token: req.APIKey,
-		}
-		err := a.credMgr.RegisterPatternWithContext(a.ctx, updated.CredentialPattern, authCfg)
-		if err != nil {
-			return nil, fmt.Errorf("erro ao atualizar credencial: %w", err)
-		}
-		credConfigured = true
-	} else {
-		// Verificar se credencial já existe (GetByPattern retorna nil,nil se não encontrada)
-		auth, err := a.credMgr.GetByPattern(updated.CredentialPattern)
-		credConfigured = (err == nil && auth != nil)
-	}
-
-	// Remover provider antigo e registrar atualizado
-	a.llmRegistry.Remove(id)
-	err := a.llmRegistry.Register(updated)
+	res, err := a.providerSvc.Update(a.ctx, id, providers.UpdateRequest{
+		Name:         req.Name,
+		Type:         req.Type,
+		APIFormat:    req.APIFormat,
+		BaseURL:      req.BaseURL,
+		APIKey:       req.APIKey,
+		DefaultModel: req.DefaultModel,
+	})
 	if err != nil {
-		return nil, fmt.Errorf("erro ao atualizar provider: %w", err)
+		return nil, err
 	}
-
-	// Salvar provedores em disco
-	if err := a.saveLLMProviders(); err != nil {
-		log.Printf("[ProviderManager] Erro ao salvar provedores: %v", err)
-	}
-
-	log.Printf("[ProviderManager] Provider '%s' atualizado", id)
-
+	p := res.Provider
 	return map[string]interface{}{
-		"id":                    updated.ID,
-		"name":                  updated.Name,
-		"type":                  string(updated.Type),
-		"base_url":              updated.BaseURL,
-		"model":                 updated.Model,
-		"default_model":         updated.DefaultModel,
-		"is_default":            updated.IsDefault,
-		"timeout":               updated.Timeout,
-		"credential_pattern":    updated.CredentialPattern,
-		"credential_configured": credConfigured,
+		"id":                    p.ID,
+		"name":                  p.Name,
+		"type":                  string(p.Type),
+		"base_url":              p.BaseURL,
+		"model":                 p.Model,
+		"default_model":         p.DefaultModel,
+		"is_default":            p.IsDefault,
+		"timeout":               p.Timeout,
+		"credential_pattern":    p.CredentialPattern,
+		"credential_configured": res.CredentialConfigured,
 	}, nil
 }
 
 // SetDefaultProvider marca um provedor como o default do sistema.
 func (a *App) SetDefaultProvider(id string) error {
-	provider := a.llmRegistry.Get(id)
-	if provider == nil {
-		return fmt.Errorf("provider '%s' não encontrado", id)
+	if err := a.providerSvc.SetDefault(id); err != nil {
+		return err
 	}
-
-	if err := database.SetDefaultProvider(id); err != nil {
-		return fmt.Errorf("erro ao definir provider default: %w", err)
-	}
-
-	// Atualizar flag no registry
-	for _, p := range a.llmRegistry.List() {
-		p.IsDefault = (p.ID == id)
-	}
-
-	// Reinicializar client LLM (perfil ativo pode usar $default)
 	a.initLLMClient()
-
-	log.Printf("[ProviderManager] Provider '%s' definido como default", id)
 	return nil
 }
 
-// DeleteLLMProvider remove um provider do registry
+// DeleteLLMProvider remove um provider do registry.
 func (a *App) DeleteLLMProvider(ctx context.Context, id string) error {
-	provider := a.llmRegistry.Get(id)
-	if provider == nil {
-		return fmt.Errorf("provider '%s' não encontrado", id)
-	}
-
-	// Remover do registry
-	err := a.llmRegistry.Remove(id)
-	if err != nil {
-		return fmt.Errorf("erro ao remover provider: %w", err)
-	}
-
-	// Nota: Não removemos a credencial do credentials.Manager pois pode ser usada por outros providers
-	// Se quiser remover, adicionar: a.credMgr.DeletePattern(provider.CredentialPattern)
-
-	log.Printf("[ProviderManager] Provider '%s' removido", id)
-	return nil
+	return a.providerSvc.Delete(id)
 }
 
-// GetLLMProvidersWithStatus retorna todos os providers com status de credencial
+// GetLLMProvidersWithStatus retorna todos os providers com status de credencial.
 func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
-	providers := a.GetLLMProviders()
-	result := make([]map[string]interface{}, 0, len(providers))
-
-	for _, p := range providers {
-		// Verificar se credencial está configurada (GetByPattern retorna nil,nil se não encontrada)
-		credConfigured := false
-		if p.CredentialPattern != "" {
-			auth, err := a.credMgr.GetByPattern(p.CredentialPattern)
-			credConfigured = (err == nil && auth != nil)
-		}
-
+	statuses := a.providerSvc.ListWithStatus()
+	result := make([]map[string]interface{}, 0, len(statuses))
+	for _, s := range statuses {
+		p := s.Provider
 		result = append(result, map[string]interface{}{
 			"id":                    p.ID,
 			"name":                  p.Name,
@@ -460,10 +248,9 @@ func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 			"is_default":            p.IsDefault,
 			"timeout":               p.Timeout,
 			"credential_pattern":    p.CredentialPattern,
-			"credential_configured": credConfigured,
+			"credential_configured": s.CredentialConfigured,
 		})
 	}
-
 	return result
 }
 
@@ -503,97 +290,19 @@ func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume
 	return nil
 }
 
-// saveLLMProviders salva os provedores no SQLite
+// saveLLMProviders persiste todos os provedores do registry no store.
 func (a *App) saveLLMProviders() error {
-	providers := a.llmRegistry.List()
-
-	for _, p := range providers {
-		dbProvider := &database.LLMProvider{
-			ID:                p.ID,
-			Name:              p.Name,
-			Type:              string(p.Type),
-			APIFormat:         string(p.APIFormat),
-			BaseURL:           p.BaseURL,
-			Model:             p.Model,
-			DefaultModel:      p.DefaultModel,
-			IsDefault:         p.IsDefault,
-			Timeout:           p.Timeout,
-			CredentialPattern: p.CredentialPattern,
-		}
-		if err := database.SaveLLMProvider(dbProvider); err != nil {
-			log.Printf("Erro ao salvar provedor %s: %v", p.ID, err)
-			return err
-		}
-	}
-
-	return nil
+	return a.providerSvc.Save()
 }
 
-// loadLLMProviders carrega provedores do SQLite
+// loadLLMProviders carrega provedores do store para o registry.
 func (a *App) loadLLMProviders() error {
-	providers, err := database.GetLLMProviders()
-	if err != nil {
-		return err
-	}
-
-	if len(providers) == 0 {
-		return fmt.Errorf("nenhum provedor encontrado")
-	}
-
-	for _, dbProvider := range providers {
-		p := &llm.ProviderConfig{
-			ID:                dbProvider.ID,
-			Name:              dbProvider.Name,
-			Type:              llm.ProviderType(dbProvider.Type),
-			APIFormat:         llm.APIFormat(dbProvider.APIFormat),
-			BaseURL:           dbProvider.BaseURL,
-			Model:             dbProvider.Model,
-			DefaultModel:      dbProvider.DefaultModel,
-			IsDefault:         dbProvider.IsDefault,
-			Timeout:           dbProvider.Timeout,
-			CredentialPattern: dbProvider.CredentialPattern,
-		}
-		if err := a.llmRegistry.Register(p); err != nil {
-			log.Printf("Erro ao registrar provedor %s: %v", p.ID, err)
-		}
-	}
-
-	log.Printf("Provedores LLM carregados do SQLite: %d", len(providers))
-
-	a.ensureDefaultProvider()
-
-	return nil
+	return a.providerSvc.Load()
 }
 
-// ensureDefaultProvider marks the first provider as default when none is.
-// Handles migration for providers created before the IsDefault feature.
+// ensureDefaultProvider delega ao service para garantir que há um provedor default.
 func (a *App) ensureDefaultProvider() {
-	defaultProv, err := database.GetDefaultProvider()
-	if err == nil && defaultProv != nil {
-		return
-	}
-
-	allProviders := a.llmRegistry.List()
-	if len(allProviders) == 0 {
-		return
-	}
-
-	first := allProviders[0]
-	log.Printf("[ProviderManager] Nenhum provedor default — marcando '%s' como default", first.Name)
-
-	if err := database.SetDefaultProvider(first.ID); err != nil {
-		log.Printf("[ProviderManager] Erro ao definir default: %v", err)
-		return
-	}
-	first.IsDefault = true
-
-	if first.DefaultModel == "" && first.Model != "" {
-		first.DefaultModel = first.Model
-		if dbProv, err := database.GetLLMProvider(first.ID); err == nil {
-			dbProv.DefaultModel = first.Model
-			database.SaveLLMProvider(dbProv)
-		}
-	}
+	a.providerSvc.EnsureDefault()
 }
 
 // ============================================================================
@@ -637,209 +346,25 @@ func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, e
 	return llm.NewChatProvider(provider, a.credMgr), nil
 }
 
-// resolveProfileDefaults substitui sentinelas "$default" no profile pelo provedor/modelo
-// default do sistema. Retorna uma cópia modificada — não altera o profile em disco.
+// resolveProfileDefaults substitui sentinelas "$default" no profile pelo provedor/modelo padrão.
 func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
-	if p == nil {
-		return nil
-	}
-
-	needsResolve := p.Chat.LLMProvider == profiles.DefaultProviderSentinel ||
-		p.Chat.Model == profiles.DefaultProviderSentinel ||
-		p.Voice.LLMProviderID == profiles.DefaultProviderSentinel ||
-		p.Interaction.LLMProviderID == profiles.DefaultProviderSentinel
-	if !needsResolve {
+	if a.providerSvc == nil {
 		return p
 	}
-
-	defaultProvider, err := database.GetDefaultProvider()
-	if err != nil || defaultProvider == nil {
-		log.Printf("[ResolveDefaults] Nenhum provedor default encontrado: %v", err)
-		return p
-	}
-
-	resolved := *p
-	resolved.Chat = p.Chat
-	resolved.Voice = p.Voice
-	resolved.Interaction = p.Interaction
-
-	if resolved.Chat.LLMProvider == profiles.DefaultProviderSentinel {
-		resolved.Chat.LLMProvider = defaultProvider.ID
-	}
-	if resolved.Chat.Model == profiles.DefaultProviderSentinel {
-		resolved.Chat.Model = defaultProvider.DefaultModel
-	}
-	if resolved.Voice.LLMProviderID == profiles.DefaultProviderSentinel {
-		resolved.Voice.LLMProviderID = defaultProvider.ID
-	}
-	if resolved.Interaction.LLMProviderID == profiles.DefaultProviderSentinel {
-		resolved.Interaction.LLMProviderID = defaultProvider.ID
-	}
-
-	log.Printf("[ResolveDefaults] Resolvido $default → provider=%s, model=%s", defaultProvider.ID, defaultProvider.DefaultModel)
-	return &resolved
+	return a.providerSvc.ResolveProfileDefaults(p)
 }
 
-// initLLMProviders inicializa o registro de provedores LLM
+// initLLMProviders inicializa o registro de provedores LLM a partir do store.
 func (a *App) initLLMProviders() {
-	if err := a.loadLLMProviders(); err == nil {
-		return
-	}
-
-	count, err := database.CountLLMProviders()
-	if err != nil || count == 0 {
-		log.Printf("Nenhum provedor encontrado. Configure um provedor nas configurações ou crie um perfil.")
+	if err := a.loadLLMProviders(); err != nil {
+		count, countErr := a.providerSvc.Count()
+		if countErr != nil || count == 0 {
+			log.Printf("Nenhum provedor encontrado. Configure um provedor nas configurações ou crie um perfil.")
+		}
 	}
 }
 
-// CreateDefaultLLMProvider cria o primeiro provedor durante o wizard
+// CreateDefaultLLMProvider cria o primeiro provedor durante o wizard.
 func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
-	var provider *llm.ProviderConfig
-
-	switch providerType {
-	case "openai":
-		provider = &llm.ProviderConfig{
-			ID:                "openai-default",
-			Name:              "OpenAI",
-			Type:              llm.ProviderOpenAI,
-			APIFormat:         llm.APIFormatOpenAIResponses,
-			BaseURL:           "https://api.openai.com/v1",
-			Model:             "gpt-4o-mini",
-			Timeout:           180,
-			CredentialPattern: "api.openai.com",
-		}
-	case "claude":
-		provider = &llm.ProviderConfig{
-			ID:                "anthropic-claude",
-			Name:              "Claude (Anthropic)",
-			Type:              llm.ProviderClaude,
-			BaseURL:           "https://api.anthropic.com/v1",
-			Model:             "claude-3-7-sonnet-20250219",
-			Timeout:           180,
-			CredentialPattern: "api.anthropic.com",
-		}
-	case "google":
-		provider = &llm.ProviderConfig{
-			ID:                "google-gemini",
-			Name:              "Google (Gemini)",
-			Type:              llm.ProviderOpenAI,
-			BaseURL:           "https://generativelanguage.googleapis.com/v1beta/openai/",
-			Model:             "gemini-2.0-flash",
-			Timeout:           180,
-			CredentialPattern: "generativelanguage.googleapis.com",
-		}
-	case "openrouter":
-		provider = &llm.ProviderConfig{
-			ID:                "openrouter-default",
-			Name:              "OpenRouter",
-			Type:              llm.ProviderOpenAI,
-			BaseURL:           "https://openrouter.ai/api/v1",
-			Model:             "openai/gpt-4o-mini",
-			Timeout:           180,
-			CredentialPattern: "openrouter.ai",
-		}
-	case "mistral":
-		provider = &llm.ProviderConfig{
-			ID:                "mistral-default",
-			Name:              "Mistral AI",
-			Type:              llm.ProviderMistral,
-			BaseURL:           "https://api.mistral.ai/v1",
-			Model:             "mistral-large-latest",
-			Timeout:           180,
-			CredentialPattern: "api.mistral.ai",
-		}
-	case "groq":
-		provider = &llm.ProviderConfig{
-			ID:                "groq-default",
-			Name:              "Groq",
-			Type:              llm.ProviderGroq,
-			BaseURL:           "https://api.groq.com/openai/v1",
-			Model:             "llama-3.3-70b-versatile",
-			Timeout:           180,
-			CredentialPattern: "api.groq.com",
-		}
-	case "together":
-		provider = &llm.ProviderConfig{
-			ID:                "together-default",
-			Name:              "Together AI",
-			Type:              llm.ProviderTogether,
-			BaseURL:           "https://api.together.xyz/v1",
-			Model:             "meta-llama/Llama-3.3-70B-Instruct-Turbo",
-			Timeout:           180,
-			CredentialPattern: "api.together.xyz",
-		}
-	case "fireworks":
-		provider = &llm.ProviderConfig{
-			ID:                "fireworks-default",
-			Name:              "Fireworks AI",
-			Type:              llm.ProviderFireworks,
-			BaseURL:           "https://api.fireworks.ai/inference/v1",
-			Model:             "accounts/fireworks/models/llama-v3p3-70b-instruct",
-			Timeout:           180,
-			CredentialPattern: "api.fireworks.ai",
-		}
-	case "perplexity":
-		provider = &llm.ProviderConfig{
-			ID:                "perplexity-default",
-			Name:              "Perplexity",
-			Type:              llm.ProviderPerplexity,
-			BaseURL:           "https://api.perplexity.ai",
-			Model:             "sonar",
-			Timeout:           180,
-			CredentialPattern: "api.perplexity.ai",
-		}
-	case "deepseek":
-		provider = &llm.ProviderConfig{
-			ID:                "deepseek-default",
-			Name:              "DeepSeek",
-			Type:              llm.ProviderDeepSeek,
-			BaseURL:           "https://api.deepseek.com/v1",
-			Model:             "deepseek-chat",
-			Timeout:           180,
-			CredentialPattern: "api.deepseek.com",
-		}
-	case "grok":
-		provider = &llm.ProviderConfig{
-			ID:                "xai-grok",
-			Name:              "xAI (Grok)",
-			Type:              llm.ProviderGrok,
-			BaseURL:           "https://api.x.ai/v1",
-			Model:             "grok-2",
-			Timeout:           180,
-			CredentialPattern: "api.x.ai",
-		}
-	case "ollama":
-		provider = &llm.ProviderConfig{
-			ID:                "ollama-local",
-			Name:              "Ollama (Local)",
-			Type:              llm.ProviderOllama,
-			BaseURL:           "http://localhost:11434/api",
-			Model:             "llama2",
-			Timeout:           300,
-			CredentialPattern: "",
-		}
-	default:
-		return fmt.Errorf("tipo de provedor inválido: %s", providerType)
-	}
-
-	if err := a.llmRegistry.Register(provider); err != nil {
-		return fmt.Errorf("erro ao registrar provedor: %w", err)
-	}
-
-	if apiKey != "" && provider.CredentialPattern != "" {
-		authCfg := &credentials.AuthConfig{
-			Type:  "bearer",
-			Token: apiKey,
-		}
-		if err := a.credMgr.RegisterPatternWithContext(a.ctx, provider.CredentialPattern, authCfg); err != nil {
-			return fmt.Errorf("erro ao salvar credencial: %w", err)
-		}
-	}
-
-	if err := a.saveLLMProviders(); err != nil {
-		return fmt.Errorf("erro ao salvar provedor: %w", err)
-	}
-
-	log.Printf("[Wizard] Provedor '%s' criado com sucesso", provider.ID)
-	return nil
+	return a.providerSvc.CreateFromTemplate(a.ctx, providerType, apiKey)
 }

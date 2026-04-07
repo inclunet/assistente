@@ -34,6 +34,7 @@ export const Menu: React.FC<MenuProps> = ({
   const [focusStack, setFocusStack] = useState<number[]>([0]);
   const [announcement, setAnnouncement] = useState('');
   const [searchFocused, setSearchFocused] = useState(false);
+  const announceTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filteredItems = searchable && searchQuery.trim()
     ? items.filter(item => item.separator || item.label?.toLowerCase().includes(searchQuery.toLowerCase()))
@@ -42,8 +43,17 @@ export const Menu: React.FC<MenuProps> = ({
   // Anuncia mudanças para leitores de tela
   const announce = (message: string) => {
     setAnnouncement(message);
-    setTimeout(() => setAnnouncement(''), 100);
+    if (announceTimeoutRef.current) {
+      clearTimeout(announceTimeoutRef.current);
+    }
+    announceTimeoutRef.current = setTimeout(() => setAnnouncement(''), 100);
   };
+
+  useEffect(() => () => {
+    if (announceTimeoutRef.current) {
+      clearTimeout(announceTimeoutRef.current);
+    }
+  }, []);
 
   // Helpers para navegação multinível
   const getCurrentFocusIndex = () => focusStack[focusStack.length - 1] || 0;

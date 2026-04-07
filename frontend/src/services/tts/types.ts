@@ -9,11 +9,14 @@ export enum TTSProvider {
   OPENAI = 'openai'
 }
 
+/**
+ * Representa uma voz disponível para síntese
+ */
 export interface TTSVoice {
   id: string;
   name: string;
   language: string;
-  provider: TTSProvider;
+  provider: TTSProvider | string; // Aceita strings para provedores dinâmicos (LLM)
   gender?: 'male' | 'female' | 'neutral';
   premium?: boolean;
   localService?: boolean;
@@ -23,9 +26,10 @@ export interface TTSVoice {
 export interface TTSConfig {
   enabled: boolean;
   autoRead: boolean;
+  enabledForUser: boolean; // TTS para mensagens do usuário
   provider: TTSProvider;
-  voiceName: string;
-  rate: number;    // -10 a 10 (SAPI5/OpenAI) ou 0.1 a 10 (WebSpeech)
+  voiceName?: string;
+  rate: number;    // -10 a 10 (SAPI5) ou 0.25 a 4.0 (OpenAI) ou 0.1 a 10 (WebSpeech)
   pitch: number;   // 0 a 2 (WebSpeech only)
   volume: number;  // 0-100 (SAPI5) ou 0-1 (WebSpeech/OpenAI)
 }

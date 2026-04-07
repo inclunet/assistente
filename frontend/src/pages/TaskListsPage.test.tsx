@@ -32,6 +32,10 @@ vi.mock('../lib/deepLinks', () => ({
   executeDeepLink: (...args: unknown[]) => mockExecuteDeepLink(...args),
 }));
 
+vi.mock('@wailsjs/go/main/App', () => ({
+  GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
+}));
+
 let storeTaskLists: Map<number, unknown> = new Map();
 
 vi.mock('../store/taskListStore', () => ({

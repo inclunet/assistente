@@ -24,6 +24,9 @@ vi.mock('react-i18next', () => ({
 vi.mock('../services/tts', () => ({
   ttsService: {
     isEnabled: () => false,
+    hasVoiceConfig: () => false,
+    on: vi.fn(),
+    off: vi.fn(),
   },
 }));
 

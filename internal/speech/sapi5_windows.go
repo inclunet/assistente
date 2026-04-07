@@ -283,7 +283,7 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 	}
 	count := int(countResult.Val)
 
-	// Procura a voz pelo nome
+	// Procura a voz pelo nome ou ID
 	for i := 0; i < count; i++ {
 		itemResult, err := oleutil.CallMethod(voicesCollection, "Item", i)
 		if err != nil {
@@ -291,17 +291,22 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 		}
 		voiceToken := itemResult.ToIDispatch()
 
-		nameResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Name")
-		if err != nil {
-			voiceToken.Release()
-			continue
+		// Tenta match por Name
+		if nameResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Name"); err == nil {
+			if nameResult.ToString() == voiceName {
+				_, err := oleutil.PutPropertyRef(m.spVoice, "Voice", voiceToken)
+				voiceToken.Release()
+				return err
+			}
 		}
 
-		if nameResult.ToString() == voiceName {
-			// Encontrou! Define como voz ativa
-			_, err := oleutil.PutPropertyRef(m.spVoice, "Voice", voiceToken)
-			voiceToken.Release()
-			return err
+		// Fallback: tenta match por ID (registry path)
+		if idResult, err := oleutil.GetProperty(voiceToken, "Id"); err == nil {
+			if idResult.ToString() == voiceName {
+				_, err := oleutil.PutPropertyRef(m.spVoice, "Voice", voiceToken)
+				voiceToken.Release()
+				return err
+			}
 		}
 
 		voiceToken.Release()

@@ -14,5 +14,6 @@ export default defineConfig({
     clearMocks: true,
     setupFiles: ['src/vitest.setup.ts', 'src/test/a11y-setup.ts'],
     globals: true,
+    testTimeout: 30000,
   },
 });

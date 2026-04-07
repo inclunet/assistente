@@ -1,18 +1,32 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
+import { render, screen, fireEvent } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { VOICE_DISABLED } from '../pickers/VoicePicker';
+import { COMPOSITE_VOICE_SEPARATOR } from '../../config/providers';
+
+vi.mock('react-i18next', () => ({
+  useTranslation: () => ({
+    t: (key: string) => key,
+  }),
+}));
 
 // Mock VoicePicker para evitar imports de @wailsjs
 vi.mock('../pickers/VoicePicker', () => ({
   VOICE_DISABLED: '__disabled__',
-  VoicePicker: ({ value, onChange, label }: { value: string; onChange: (value: string) => void; label: string }) => (
+  VoicePicker: ({ value, onChange, label, voiceOverrides }: {
+    value: string; onChange: (value: string) => void; label: string; voiceOverrides?: Array<{ id: string; name: string }>
+  }) => (
     <div data-testid="voice-picker-mock">
       <label>{label}</label>
-      <button onClick={() => onChange('test-voice')}>
+      <button onClick={() => onChange('test-voice')} data-testid="voice-picker-select">
         {value || VOICE_DISABLED}
       </button>
+      {voiceOverrides && voiceOverrides.length > 0 && (
+        <button onClick={() => onChange(`nova${COMPOSITE_VOICE_SEPARATOR}tts-1-hd`)} data-testid="voice-picker-select-hd">
+          HD
+        </button>
+      )}
     </div>
   ),
 }));
@@ -34,27 +48,26 @@ describe('ProfileVoiceSection', () => {
   it('renderiza o VoicePicker com o valor correto', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    // VoicePicker renderiza um combobox com label "Voz (TTS)"
-    expect(screen.getByText('Voz (TTS)')).toBeInTheDocument();
+    expect(screen.getByText('profiles.voiceSection.voiceLabel')).toBeInTheDocument();
   });
 
   it('renderiza o slider de rate com valor correto', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    const rateLabel = screen.getByText('Taxa de Fala (Rate)');
+    const rateLabel = screen.getByText('profiles.voiceSection.rateLabel');
     expect(rateLabel).toBeInTheDocument();
     
-    const rateInput = screen.getByLabelText('Taxa de Fala (Rate)');
+    const rateInput = screen.getByLabelText('profiles.voiceSection.rateLabel');
     expect(rateInput).toHaveValue('1');
   });
 
   it('renderiza o slider de volume com valor correto', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    const volumeLabel = screen.getByText('Volume');
+    const volumeLabel = screen.getByText('profiles.voiceSection.volumeLabel');
     expect(volumeLabel).toBeInTheDocument();
     
-    const volumeInput = screen.getByLabelText('Volume');
+    const volumeInput = screen.getByLabelText('profiles.voiceSection.volumeLabel');
     expect(volumeInput).toHaveValue('0.8');
   });
 
@@ -75,36 +88,30 @@ describe('ProfileVoiceSection', () => {
   it('VoicePicker está presente e pode receber interações', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    // VoicePicker renderiza um picker com label "Voz (TTS)"
-    // (teste simplificado pois VoicePicker tem seus próprios testes)
-    const label = screen.getByText('Voz (TTS)');
+    const label = screen.getByText('profiles.voiceSection.voiceLabel');
     expect(label).toBeInTheDocument();
   });
 
-  it('chama onChange ao alterar rate', async () => {
+  it('chama onChange ao alterar rate', () => {
     const handleChange = vi.fn();
-    const user = userEvent.setup();
     
     render(<ProfileVoiceSection {...defaultProps} onChange={handleChange} />);
     
-    const rateInput = screen.getByLabelText('Taxa de Fala (Rate)');
-    await user.click(rateInput);
+    const rateInput = screen.getByLabelText('profiles.voiceSection.rateLabel');
+    fireEvent.change(rateInput, { target: { value: '1.5' } });
     
-    // RangeSlider chama onChange internamente
-    expect(rateInput).toBeInTheDocument();
+    expect(handleChange).toHaveBeenCalledWith('rate', 1.5);
   });
 
-  it('chama onChange ao alterar volume', async () => {
+  it('chama onChange ao alterar volume', () => {
     const handleChange = vi.fn();
-    const user = userEvent.setup();
     
     render(<ProfileVoiceSection {...defaultProps} onChange={handleChange} />);
     
-    const volumeInput = screen.getByLabelText('Volume');
-    await user.click(volumeInput);
+    const volumeInput = screen.getByLabelText('profiles.voiceSection.volumeLabel');
+    fireEvent.change(volumeInput, { target: { value: '0.5' } });
     
-    // RangeSlider chama onChange internamente
-    expect(volumeInput).toBeInTheDocument();
+    expect(handleChange).toHaveBeenCalledWith('volume', 0.5);
   });
 
   it('renderiza com voz desativada quando voice é VOICE_DISABLED', () => {
@@ -133,8 +140,8 @@ describe('ProfileVoiceSection', () => {
   it('desabilita os sliders quando disabled é true', () => {
     render(<ProfileVoiceSection {...defaultProps} disabled={true} />);
     
-    const rateInput = screen.getByLabelText('Taxa de Fala (Rate)');
-    const volumeInput = screen.getByLabelText('Volume');
+    const rateInput = screen.getByLabelText('profiles.voiceSection.rateLabel');
+    const volumeInput = screen.getByLabelText('profiles.voiceSection.volumeLabel');
     
     expect(rateInput).toBeDisabled();
     expect(volumeInput).toBeDisabled();
@@ -143,7 +150,7 @@ describe('ProfileVoiceSection', () => {
   it('permite valores mínimos e máximos corretos no rate', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    const rateInput = screen.getByLabelText('Taxa de Fala (Rate)') as HTMLInputElement;
+    const rateInput = screen.getByLabelText('profiles.voiceSection.rateLabel') as HTMLInputElement;
     
     expect(rateInput.min).toBe('0.5');
     expect(rateInput.max).toBe('2');
@@ -153,10 +160,97 @@ describe('ProfileVoiceSection', () => {
   it('permite valores mínimos e máximos corretos no volume', () => {
     render(<ProfileVoiceSection {...defaultProps} />);
     
-    const volumeInput = screen.getByLabelText('Volume') as HTMLInputElement;
+    const volumeInput = screen.getByLabelText('profiles.voiceSection.volumeLabel') as HTMLInputElement;
     
     expect(volumeInput.min).toBe('0');
     expect(volumeInput.max).toBe('1');
     expect(volumeInput.step).toBe('0.05');
+  });
+
+  it('NÃO mostra seletor de modelo TTS para OpenAI (modelo embutido na voz)', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="openai-default"
+        providerType="openai"
+        ttsModel="tts-1"
+      />
+    );
+
+    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+    // Verifica que voiceOverrides foi passado (botão HD presente)
+    expect(screen.getByTestId('voice-picker-select-hd')).toBeInTheDocument();
+  });
+
+  it('NÃO mostra seletor de modelo TTS para webspeech', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="webspeech"
+        ttsModel="tts-1"
+      />
+    );
+
+    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+  });
+
+  it('NÃO mostra seletor de modelo TTS para sapi5', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="sapi5"
+        ttsModel="tts-1"
+      />
+    );
+
+    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
+  });
+
+  it('passa valor composto voice::model via onChange ao selecionar voz HD no picker', async () => {
+    const handleChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="openai-default"
+        providerType="openai"
+        ttsModel="tts-1"
+        onChange={handleChange}
+      />
+    );
+
+    // Clica no botão HD do mock — emite "nova::tts-1-hd"
+    const hdButton = screen.getByTestId('voice-picker-select-hd');
+    await user.click(hdButton);
+
+    // Valor composto passado direto para o parent fazer o parse
+    expect(handleChange).toHaveBeenCalledWith('voice', `nova${COMPOSITE_VOICE_SEPARATOR}tts-1-hd`);
+  });
+
+  it('NÃO mostra voiceOverrides quando providerType não é fornecido', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="openai-default"
+        ttsModel="tts-1"
+      />
+    );
+
+    // Sem providerType, getTTSCapabilities retorna DYNAMIC_TTS (sem staticVoices)
+    // Portanto o botão HD (voiceOverrides) NÃO deve existir
+    expect(screen.queryByTestId('voice-picker-select-hd')).not.toBeInTheDocument();
+  });
+
+  it('NÃO mostra seletor de modelo para provider com apenas vozes dinâmicas (LocalAI/Piper)', () => {
+    render(
+      <ProfileVoiceSection
+        {...defaultProps}
+        providerId="localai-default"
+        providerType="localai"
+        ttsModel="voice-pt_BR-cadu-medium"
+      />
+    );
+
+    expect(screen.queryByLabelText('profiles.fieldTTSModel')).not.toBeInTheDocument();
   });
 });

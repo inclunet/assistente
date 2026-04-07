@@ -1,7 +1,6 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest';
 import type { ReactNode } from 'react';
-import { render, screen, waitFor } from '@testing-library/react';
-import userEvent from '@testing-library/user-event';
+import { render, screen, waitFor, within, fireEvent } from '@testing-library/react';
 
 const mockGetSkills = vi.fn();
 const mockGetSkill = vi.fn();
@@ -25,6 +24,7 @@ vi.mock('@wailsjs/go/main/App', () => ({
   UpdateSkill: vi.fn(),
   DeleteSkill: vi.fn(),
   DuplicateSkill: (slug: string) => mockDuplicateSkill(slug),
+  GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@wailsjs/go/models', () => ({
@@ -174,17 +174,15 @@ describe('SkillsPage', () => {
   });
 
   it('duplica um skill via menu de acoes', async () => {
-    const user = userEvent.setup();
     const { default: SkillsPage } = await import('./SkillsPage');
 
     render(<SkillsPage />);
 
-    await waitFor(() => {
-      expect(screen.getByText('skill-base')).toBeInTheDocument();
-    });
+    await screen.findByText('skill-base');
 
-    const duplicateButtons = screen.getAllByRole('button', { name: 'Duplicar' });
-    await user.click(duplicateButtons[duplicateButtons.length - 1]);
+    const row = screen.getByText('skill-base').closest('div');
+    const duplicateButton = within(row as HTMLElement).getByRole('button', { name: 'Duplicar' });
+    fireEvent.click(duplicateButton);
 
     await waitFor(() => {
       expect(mockDuplicateSkill).toHaveBeenCalledWith('skill-base');

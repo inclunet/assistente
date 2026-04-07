@@ -6,7 +6,6 @@ import (
 	"assistente/internal/channels"
 	"assistente/internal/contacts"
 	"assistente/internal/credentials"
-	"assistente/internal/database"
 	"assistente/internal/messaging"
 	"assistente/internal/messaging/signal"
 	"assistente/internal/messaging/slack"
@@ -66,13 +65,13 @@ func (a *App) initMessaging() {
 
 		// Verifica se o provider de voz suporta canais externos
 		if profile != nil {
-			if profile.Voice.Provider == "disabled" || profile.Voice.Provider == "" {
+			if profile.Voice.Assistant.Provider == "disabled" || profile.Voice.Assistant.Provider == "" {
 				log.Printf("[TTS-Channel] Voz desabilitada no perfil para canal %s — respondendo com texto", channel)
 				return nil, nil
 			}
 			// WebSpeech e SAPI5 são providers locais do desktop — não funcionam para canais externos
-			if profile.Voice.Provider == "webspeech" || profile.Voice.Provider == "sapi5" {
-				log.Printf("[TTS-Channel] Provider '%s' é local e não suporta canais externos — respondendo com texto", profile.Voice.Provider)
+			if profile.Voice.Assistant.Provider == "webspeech" || profile.Voice.Assistant.Provider == "sapi5" {
+				log.Printf("[TTS-Channel] Provider '%s' é local e não suporta canais externos — respondendo com texto", profile.Voice.Assistant.Provider)
 				return nil, nil
 			}
 		}
@@ -84,8 +83,8 @@ func (a *App) initMessaging() {
 		// Usa a voz do perfil se especificada, senão usa Synthesize padrão
 		var result *speech.SynthesisResult
 		var err error
-		if profile != nil && profile.Voice.VoiceID != "" {
-			result, err = a.speechManager.SynthesizeWithVoice(text, profile.Voice.VoiceID)
+		if profile != nil && profile.Voice.Assistant.VoiceID != "" {
+			result, err = a.speechManager.SynthesizeWithVoice(text, profile.Voice.Assistant.VoiceID)
 		} else {
 			result, err = a.speechManager.Synthesize(text)
 		}
@@ -160,7 +159,7 @@ func (a *App) initMessaging() {
 		emitEvent,
 		approveContactFn,
 		synthesizeTTS,
-		database.SaveMessageAudio,
+		a.audioSvc.SaveMessageAudio,
 	)
 
 	// Carrega canais habilitados de .assistente/channels/
@@ -198,7 +197,7 @@ func (a *App) initMessaging() {
 				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
 			}
 		}()
-		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", cfg.APIURL, maskIdentifier(cfg.Account))
+		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", cfg.APIURL, credentials.MaskIdentifier(cfg.Account))
 	} else {
 		log.Printf("[Messaging] Signal não configurado ou desabilitado")
 	}
@@ -403,7 +402,7 @@ func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
 			}
 		}()
-		log.Printf("[Messaging] Signal reconectado (api=%s, account=%s)", cfg.APIURL, maskIdentifier(cfg.Account))
+		log.Printf("[Messaging] Signal reconectado (api=%s, account=%s)", cfg.APIURL, credentials.MaskIdentifier(cfg.Account))
 
 	case "slack":
 		botToken := cfg.BotToken
@@ -521,7 +520,7 @@ func (a *App) GetAuthorizedContacts() (contacts.ContactsFile, error) {
 // Se sim, registra um callback no ResponseNotifier para que a resposta do assistente seja
 // reenviada ao mensageiro de origem — permitindo bridge bidirecional (Wails ↔ Messenger).
 func (a *App) registerChannelBridge(conversationID uint) {
-	conv, err := database.GetConversationInfo(conversationID)
+	conv, err := a.convSvc.GetConversationInfo(conversationID)
 	if err != nil || conv == nil || conv.Channel == "" || conv.ContactID == "" {
 		return // Conversa local do Wails, não precisa de bridge
 	}
@@ -597,7 +596,7 @@ func (a *App) AssignConversationToChannel(conversationID uint, channel, contactI
 		return fmt.Errorf("canal e contato são obrigatórios")
 	}
 
-	conv, err := database.GetConversationInfo(conversationID)
+	conv, err := a.convSvc.GetConversationInfo(conversationID)
 	if err != nil {
 		return fmt.Errorf("conversa %d não encontrada: %w", conversationID, err)
 	}
@@ -605,7 +604,7 @@ func (a *App) AssignConversationToChannel(conversationID uint, channel, contactI
 	// Atualiza os campos de canal na conversa
 	conv.Channel = channel
 	conv.ContactID = contactID
-	if err := database.UpdateConversationChannel(conversationID, channel, contactID); err != nil {
+	if err := a.convSvc.UpdateConversationChannel(conversationID, channel, contactID); err != nil {
 		return fmt.Errorf("erro ao atualizar conversa: %w", err)
 	}
 
@@ -615,7 +614,7 @@ func (a *App) AssignConversationToChannel(conversationID uint, channel, contactI
 
 // UnassignConversationFromChannel remove a vinculação de uma conversa com um canal externo.
 func (a *App) UnassignConversationFromChannel(conversationID uint) error {
-	if err := database.UpdateConversationChannel(conversationID, "", ""); err != nil {
+	if err := a.convSvc.UpdateConversationChannel(conversationID, "", ""); err != nil {
 		return fmt.Errorf("erro ao remover canal da conversa: %w", err)
 	}
 
@@ -625,7 +624,7 @@ func (a *App) UnassignConversationFromChannel(conversationID uint) error {
 
 // GetConversationChannel retorna o canal e contato vinculados a uma conversa.
 func (a *App) GetConversationChannel(conversationID uint) (string, string, error) {
-	conv, err := database.GetConversationInfo(conversationID)
+	conv, err := a.convSvc.GetConversationInfo(conversationID)
 	if err != nil {
 		return "", "", err
 	}

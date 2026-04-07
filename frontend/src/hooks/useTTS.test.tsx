@@ -17,10 +17,10 @@ const ttsServiceMock = vi.hoisted(() => ({
     volume: 1,
   })),
   getVoices: vi.fn(async () => [{ id: 'v1', name: 'Voice 1', language: 'pt-BR', provider: 'webspeech' }]),
-  speak: vi.fn(async () => {}),
   stop: vi.fn(),
   pause: vi.fn(),
   resume: vi.fn(),
+  speakWithOverride: vi.fn(async () => {}),
   setEnabled: vi.fn(),
   setAutoRead: vi.fn(),
   setRate: vi.fn(async () => {}),
@@ -28,6 +28,7 @@ const ttsServiceMock = vi.hoisted(() => ({
   setVolume: vi.fn(async () => {}),
   setVoice: vi.fn(async () => {}),
   isSupported: vi.fn(() => true),
+  hasVoiceConfig: vi.fn(() => true),
   on: vi.fn((event: string, handler: (payload?: unknown) => void) => {
     if (!listeners.has(event)) listeners.set(event, new Set());
     listeners.get(event)!.add(handler);
@@ -55,10 +56,10 @@ describe('useTTS', () => {
     });
 
     await act(async () => {
-      await result.current.speak('Oi');
+      await result.current.speakWithOverride('Oi', { voiceName: 'test' });
     });
 
-    expect(ttsServiceMock.speak).toHaveBeenCalledWith('Oi');
+    expect(ttsServiceMock.speakWithOverride).toHaveBeenCalledWith('Oi', { voiceName: 'test' });
   });
 
   it('atualiza config quando recebe evento', async () => {

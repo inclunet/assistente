@@ -12,13 +12,19 @@
  */
 
 import { GetMessageAudio, GenerateAndSaveMessageAudio, SaveMessageAudio } from '@wailsjs/go/main/App';
+import { base64ToBlob } from '../../lib/audioUtils';
 
 // Player global
 let currentPlayer: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
+let currentAbort: AbortController | null = null;
 
-/** Para qualquer audio em reproducao */
+/** Para qualquer audio em reproducao e resolve Promises pendentes */
 function stopCurrentAudio(): void {
+  if (currentAbort) {
+    currentAbort.abort();
+    currentAbort = null;
+  }
   if (currentPlayer) {
     currentPlayer.pause();
     currentPlayer.onended = null;
@@ -34,15 +40,36 @@ function stopCurrentAudio(): void {
 /** Reproduz um blob de audio */
 async function playAudioBlob(audioBlob: Blob, volume: number = 1.0): Promise<void> {
   stopCurrentAudio();
+
+  const abort = new AbortController();
+  currentAbort = abort;
+
   currentUrl = URL.createObjectURL(audioBlob);
   currentPlayer = new Audio(currentUrl);
   currentPlayer.volume = Math.max(0, Math.min(1, volume));
 
-  return new Promise((resolve, reject) => {
+  return new Promise<void>((resolve, reject) => {
     if (!currentPlayer) { reject(new Error('Player nao criado')); return; }
-    currentPlayer.onended = () => { stopCurrentAudio(); resolve(); };
-    currentPlayer.onerror = () => { stopCurrentAudio(); reject(new Error('Erro ao reproduzir audio')); };
-    currentPlayer.play().catch(reject);
+
+    // Se stopCurrentAudio() for chamado externamente, resolve a Promise
+    const onAbort = () => { resolve(); };
+    abort.signal.addEventListener('abort', onAbort, { once: true });
+
+    currentPlayer.onended = () => {
+      abort.signal.removeEventListener('abort', onAbort);
+      stopCurrentAudio();
+      resolve();
+    };
+    currentPlayer.onerror = () => {
+      abort.signal.removeEventListener('abort', onAbort);
+      stopCurrentAudio();
+      reject(new Error('Erro ao reproduzir audio'));
+    };
+    currentPlayer.play().catch((err) => {
+      abort.signal.removeEventListener('abort', onAbort);
+      stopCurrentAudio();
+      reject(err);
+    });
   });
 }
 
@@ -95,7 +122,8 @@ async function saveAudioToDB(messageId: number, audioBlob: Blob): Promise<void> 
       reader.readAsDataURL(audioBlob);
     });
     await SaveMessageAudio(messageId, base64, audioBlob.type || 'audio/mpeg');
-  } catch {
+  } catch (err) {
+    console.warn('[messageAudio] Falha ao salvar áudio no DB:', err);
   }
 }
 
@@ -112,16 +140,6 @@ function downloadAudioBlob(blob: Blob, filename: string): void {
   a.download = filename;
   a.click();
   URL.revokeObjectURL(url);
-}
-
-/** Converte base64 para Blob */
-function base64ToBlob(base64: string, mimeType: string): Blob {
-  const binaryString = atob(base64);
-  const bytes = new Uint8Array(binaryString.length);
-  for (let i = 0; i < binaryString.length; i++) {
-    bytes[i] = binaryString.charCodeAt(i);
-  }
-  return new Blob([bytes], { type: mimeType });
 }
 
 // Export

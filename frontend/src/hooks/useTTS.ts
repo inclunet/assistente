@@ -8,13 +8,14 @@ import { ttsService, TTSConfig } from '../services/tts';
 import { TTSVoice } from '../services/tts/types';
 
 interface UseTTSReturn {
-  speak: (text: string) => Promise<void>;
   stop: () => void;
   pause: () => void;
   resume: () => void;
+  speakWithOverride: (text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string }) => Promise<void>;
   isSpeaking: boolean;
   isEnabled: boolean;
   isAutoReadEnabled: boolean;
+  hasVoiceConfig: boolean;
   config: TTSConfig;
   voices: TTSVoice[];
   setEnabled: (enabled: boolean) => void;
@@ -31,6 +32,7 @@ export function useTTS(): UseTTSReturn {
   const [isSpeaking, setIsSpeaking] = useState(false);
   const [config, setConfig] = useState<TTSConfig>(ttsService.getConfig());
   const [voices, setVoices] = useState<TTSVoice[]>([]);
+  const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
   
   useEffect(() => {
     // Carrega vozes de todos os provedores
@@ -53,20 +55,19 @@ export function useTTS(): UseTTSReturn {
         setConfig(payload as TTSConfig);
       }
     };
+    const handleVoiceConfigChanged = () => setHasVoiceConfig(ttsService.hasVoiceConfig());
     
     ttsService.on('speakStart', handleSpeakStart);
     ttsService.on('speakEnd', handleSpeakEnd);
     ttsService.on('configChanged', handleConfigChanged);
+    ttsService.on('voiceConfigChanged', handleVoiceConfigChanged);
     
     return () => {
       ttsService.off('speakStart', handleSpeakStart);
       ttsService.off('speakEnd', handleSpeakEnd);
       ttsService.off('configChanged', handleConfigChanged);
+      ttsService.off('voiceConfigChanged', handleVoiceConfigChanged);
     };
-  }, []);
-  
-  const speak = useCallback(async (text: string) => {
-    await ttsService.speak(text);
   }, []);
   
   const stop = useCallback(() => {
@@ -79,6 +80,10 @@ export function useTTS(): UseTTSReturn {
   
   const resume = useCallback(() => {
     ttsService.resume();
+  }, []);
+
+  const speakWithOverride = useCallback(async (text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string }) => {
+    await ttsService.speakWithOverride(text, options);
   }, []);
   
   const setEnabled = useCallback((enabled: boolean) => {
@@ -115,13 +120,14 @@ export function useTTS(): UseTTSReturn {
   }, []);
   
   return {
-    speak,
     stop,
     pause,
     resume,
+    speakWithOverride,
     isSpeaking,
     isEnabled: config.enabled,
     isAutoReadEnabled: config.autoRead,
+    hasVoiceConfig,
     config,
     voices,
     setEnabled,

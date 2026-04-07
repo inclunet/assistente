@@ -9,6 +9,7 @@ import (
 	"assistente/internal/allowlist"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
+	"assistente/internal/tasklist"
 	"assistente/internal/tools"
 	deeplinktool "assistente/internal/tools/deeplink"
 	"assistente/internal/tools/filesystem"
@@ -21,9 +22,73 @@ import (
 	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// appTaskListManager adapta o App para a interface tasklisttool.TaskListManager
-type appTaskListManager struct {
+// serviceTaskListManager adapta tasklist.Service para a interface tasklisttool.TaskListManager.
+type serviceTaskListManager struct {
 	ctx context.Context
+	svc *tasklist.Service
+}
+
+func (m *serviceTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
+	return m.svc.CreateTaskList(m.ctx, title, description, templateWorkflow)
+}
+func (m *serviceTaskListManager) GetTaskList(id uint) (*database.TaskList, error) {
+	return m.svc.GetTaskList(id)
+}
+func (m *serviceTaskListManager) GetAllTaskLists() ([]database.TaskList, error) {
+	return m.svc.GetAllTaskLists()
+}
+func (m *serviceTaskListManager) GetTaskListStats(taskListID uint) (map[string]interface{}, error) {
+	return m.svc.GetTaskListStats(taskListID)
+}
+func (m *serviceTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
+	return m.svc.UpdateTaskListFull(id, title, description, preferredViewMode)
+}
+func (m *serviceTaskListManager) UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
+	return m.svc.UpdateWorkflowFull(taskListID, statuses, transitions, initialStatusID, statusMigration)
+}
+func (m *serviceTaskListManager) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
+	return m.svc.GetTaskCountsByStatus(taskListID)
+}
+func (m *serviceTaskListManager) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error) {
+	return m.svc.CreateTask(taskListID, title, description, code, link, parentID)
+}
+func (m *serviceTaskListManager) CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*database.Task, error) {
+	return m.svc.CreateTaskFull(taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
+}
+func (m *serviceTaskListManager) GetTask(id uint) (*database.Task, error) { return m.svc.GetTask(id) }
+func (m *serviceTaskListManager) FindTaskByCode(taskListID uint, code string) (*database.Task, error) {
+	return m.svc.FindTaskByCode(taskListID, code)
+}
+func (m *serviceTaskListManager) UpdateTask(id uint, title, description, code, link string) error {
+	return m.svc.UpdateTask(id, title, description, code, link)
+}
+func (m *serviceTaskListManager) UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	return m.svc.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
+}
+func (m *serviceTaskListManager) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
+	return m.svc.UpdateTaskAssignee(id, assigneeName, assigneeID)
+}
+func (m *serviceTaskListManager) UpdateTaskStatus(id uint, newStatusID int) error {
+	return m.svc.UpdateTaskStatus(id, newStatusID)
+}
+func (m *serviceTaskListManager) MoveTaskToList(taskID uint, targetTaskListID uint) (*database.Task, error) {
+	return m.svc.MoveTaskToList(taskID, targetTaskListID)
+}
+func (m *serviceTaskListManager) DeleteTask(id uint) error { return m.svc.DeleteTask(id) }
+func (m *serviceTaskListManager) GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error) {
+	return m.svc.GetWorkflow(taskListID)
+}
+func (m *serviceTaskListManager) CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
+	return m.svc.CreateTaskNote(taskID, int(noteType), content, authorName, authorID)
+}
+func (m *serviceTaskListManager) UpdateTaskNote(noteID uint, content string) error {
+	return m.svc.UpdateTaskNote(noteID, content)
+}
+func (m *serviceTaskListManager) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
+	return m.svc.GetTaskNotes(taskID)
+}
+func (m *serviceTaskListManager) GetTaskNote(noteID uint) (*database.TaskNote, error) {
+	return m.svc.GetTaskNote(noteID)
 }
 
 // appDeepLinkEmitter emite deep links para o frontend via eventos Wails.
@@ -33,144 +98,6 @@ type appDeepLinkEmitter struct {
 
 func (e *appDeepLinkEmitter) EmitDeepLink(uri string) {
 	runtime.EventsEmit(e.ctx, "deeplink:execute", uri)
-}
-
-func (m *appTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
-	return database.CreateTaskList(title, description, templateWorkflow)
-}
-
-func (m *appTaskListManager) GetTaskList(id uint) (*database.TaskList, error) {
-	return database.GetTaskList(id)
-}
-
-func (m *appTaskListManager) GetAllTaskLists() ([]database.TaskList, error) {
-	return database.GetAllTaskLists()
-}
-
-func (m *appTaskListManager) GetTaskListStats(taskListID uint) (map[string]interface{}, error) {
-	return database.GetTaskListStats(taskListID)
-}
-
-func (m *appTaskListManager) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error) {
-	task, err := database.CreateTask(taskListID, title, description, code, link, parentID)
-	if err == nil && task != nil && m.ctx != nil {
-		runtime.EventsEmit(m.ctx, "task:created", task)
-	}
-	return task, err
-}
-
-func (m *appTaskListManager) CreateTaskFull(taskListID uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string, parentID *uint) (*database.Task, error) {
-	task, err := database.CreateTaskFull(taskListID, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID, parentID)
-	if err == nil && task != nil && m.ctx != nil {
-		runtime.EventsEmit(m.ctx, "task:created", task)
-	}
-	return task, err
-}
-
-func (m *appTaskListManager) GetTask(id uint) (*database.Task, error) {
-	return database.GetTask(id)
-}
-
-func (m *appTaskListManager) FindTaskByCode(taskListID uint, code string) (*database.Task, error) {
-	return database.FindTaskByCode(taskListID, code)
-}
-
-func (m *appTaskListManager) UpdateTask(id uint, title, description, code, link string) error {
-	if err := database.UpdateTask(id, title, description, code, link); err != nil {
-		return err
-	}
-	m.emitTaskUpdated(id)
-	return nil
-}
-
-func (m *appTaskListManager) UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
-	if err := database.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID); err != nil {
-		return err
-	}
-	m.emitTaskUpdated(id)
-	return nil
-}
-
-func (m *appTaskListManager) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
-	if err := database.UpdateTaskAssignee(id, assigneeName, assigneeID); err != nil {
-		return err
-	}
-	m.emitTaskUpdated(id)
-	return nil
-}
-
-func (m *appTaskListManager) UpdateTaskStatus(id uint, newStatusID int) error {
-	if err := database.UpdateTaskStatus(id, newStatusID); err != nil {
-		return err
-	}
-	m.emitTaskUpdated(id)
-	return nil
-}
-
-func (m *appTaskListManager) MoveTaskToList(taskID uint, targetTaskListID uint) (*database.Task, error) {
-	oldTask, err := database.GetTask(taskID)
-	if err != nil {
-		return nil, err
-	}
-	oldListID := oldTask.TaskListID
-
-	task, err := database.MoveTaskToList(taskID, targetTaskListID)
-	if err != nil {
-		return nil, err
-	}
-
-	if m.ctx != nil && oldListID != targetTaskListID {
-		runtime.EventsEmit(m.ctx, "task:updated", task)
-		runtime.EventsEmit(m.ctx, "taskList:updated", oldListID)
-		runtime.EventsEmit(m.ctx, "taskList:updated", targetTaskListID)
-	}
-	return task, err
-}
-
-func (m *appTaskListManager) emitTaskUpdated(id uint) {
-	if m.ctx == nil {
-		return
-	}
-	task, err := database.GetTask(id)
-	if err == nil && task != nil {
-		runtime.EventsEmit(m.ctx, "task:updated", task)
-	}
-}
-
-func (m *appTaskListManager) DeleteTask(id uint) error {
-	return database.DeleteTask(id)
-}
-
-func (m *appTaskListManager) GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error) {
-	return database.GetWorkflow(taskListID)
-}
-
-func (m *appTaskListManager) CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
-	return database.CreateTaskNote(taskID, noteType, content, authorName, authorID)
-}
-
-func (m *appTaskListManager) UpdateTaskNote(noteID uint, content string) error {
-	return database.UpdateTaskNote(noteID, content)
-}
-
-func (m *appTaskListManager) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
-	return database.GetTaskNotes(taskID)
-}
-
-func (m *appTaskListManager) GetTaskNote(noteID uint) (*database.TaskNote, error) {
-	return database.GetTaskNote(noteID)
-}
-
-func (m *appTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
-	return database.UpdateTaskListFull(id, title, description, preferredViewMode)
-}
-
-func (m *appTaskListManager) UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
-	return database.UpdateWorkflowFull(taskListID, statuses, transitions, initialStatusID, statusMigration)
-}
-
-func (m *appTaskListManager) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
-	return database.GetTaskCountsByStatus(taskListID)
 }
 
 // initToolRegistry inicializa o registro de ferramentas disponíveis
@@ -309,7 +236,7 @@ func (a *App) initToolRegistry() {
 	a.toolRegistry.MustRegister(history.NewSearchConversations())
 
 	// Registra ferramentas de gerenciamento de task lists
-	tlMgr := &appTaskListManager{ctx: a.ctx}
+	tlMgr := &serviceTaskListManager{ctx: a.ctx, svc: a.taskSvc}
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskList(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTask(tlMgr))
 	a.toolRegistry.MustRegister(tasklisttool.NewTaskNote(tlMgr))

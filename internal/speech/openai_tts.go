@@ -1,17 +1,45 @@
 package speech
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"net/http"
+	"log"
+	"strings"
 	"time"
 
 	"assistente/internal/credentials"
-	httpclient "assistente/internal/tools/http"
+
+	"github.com/openai/openai-go"
+	"github.com/openai/openai-go/option"
+	"github.com/openai/openai-go/packages/pagination"
+	"github.com/openai/openai-go/packages/param"
 )
+
+// ============================================================================
+// Constantes do subsistema TTS
+// ============================================================================
+
+const (
+	// TtsMaxChunkSize é o tamanho máximo (em caracteres) de cada chunk de texto
+	// enviado à API de síntese. Margem de segurança abaixo do limite de 4096.
+	TtsMaxChunkSize = 4000
+
+	// TtsStreamBufSize é o tamanho do buffer de leitura de streaming (8KB).
+	TtsStreamBufSize = 8192
+
+	// TtsTimeoutBase é o timeout base para operações de síntese.
+	TtsTimeoutBase = 60 * time.Second
+
+	// TtsTimeoutPerChunk é o timeout adicional por chunk de texto.
+	TtsTimeoutPerChunk = 30 * time.Second
+)
+
+// CalcTTSTimeout calcula o timeout para uma operação TTS baseado no tamanho do texto.
+func CalcTTSTimeout(textLen int) time.Duration {
+	chunks := textLen / TtsMaxChunkSize
+	return TtsTimeoutBase + time.Duration(chunks)*TtsTimeoutPerChunk
+}
 
 // TTSVoice representa uma voz disponível no OpenAI TTS
 type TTSVoice string
@@ -47,27 +75,18 @@ const (
 
 // TTSConfig configuração para o OpenAI TTS
 type TTSConfig struct {
-	APIKey     string
-	APIBaseURL string
-	Model      TTSModel  // "tts-1" ou "tts-1-hd"
-	Voice      TTSVoice  // alloy, echo, fable, onyx, nova, shimmer
-	Format     TTSFormat // mp3, opus, aac, flac, wav, pcm
-	Speed      float64   // 0.25 a 4.0 (1.0 = normal)
+	BaseURL           string    // URL base (vazio = default OpenAI)
+	CredentialPattern string    // padrão para credential transport (ex: "api.openai.com")
+	Model             TTSModel  // "tts-1" ou "tts-1-hd"
+	Voice             TTSVoice  // alloy, echo, fable, onyx, nova, shimmer
+	Format            TTSFormat // mp3, opus, aac, flac, wav, pcm
+	Speed             float64   // 0.25 a 4.0 (1.0 = normal)
 }
 
-// TTSClient cliente para síntese de voz via OpenAI TTS
+// TTSClient cliente para síntese de voz via OpenAI SDK
 type TTSClient struct {
-	config     TTSConfig
-	httpClient *httpclient.Client
-}
-
-// TTSRequest requisição para a API de TTS
-type TTSRequest struct {
-	Model          string  `json:"model"`
-	Input          string  `json:"input"`
-	Voice          string  `json:"voice"`
-	ResponseFormat string  `json:"response_format,omitempty"`
-	Speed          float64 `json:"speed,omitempty"`
+	client *openai.Client
+	config TTSConfig
 }
 
 // TTSVoiceInfo informações sobre uma voz
@@ -79,11 +98,10 @@ type TTSVoiceInfo struct {
 	Provider    string `json:"provider"`
 }
 
-// NewTTSClient cria um novo cliente TTS
+// NewTTSClient cria um novo cliente TTS usando o SDK openai-go.
+// Credenciais são injetadas automaticamente via CredentialTransport,
+// usando a mesma estratégia do LLM provider.
 func NewTTSClient(config TTSConfig, credMgr *credentials.Manager) *TTSClient {
-	if config.APIBaseURL == "" {
-		config.APIBaseURL = "https://api.openai.com/v1"
-	}
 	if config.Model == "" {
 		config.Model = ModelTTS1
 	}
@@ -97,84 +115,78 @@ func NewTTSClient(config TTSConfig, credMgr *credentials.Manager) *TTSClient {
 		config.Speed = 1.0
 	}
 
-	client := httpclient.New(&httpclient.Config{
-		CredentialManager: credMgr,
-		Timeout:           60 * time.Second,
-	}, map[string]string{})
+	httpClient := credentials.NewHTTPClient(credMgr, config.CredentialPattern, 60*time.Second)
+
+	opts := []option.RequestOption{
+		option.WithHTTPClient(httpClient),
+		option.WithAPIKey("managed-by-credential-transport"),
+	}
+
+	if config.BaseURL != "" {
+		baseURL := strings.TrimSuffix(config.BaseURL, "/")
+		if !strings.HasSuffix(baseURL, "/v1") {
+			baseURL += "/v1"
+		}
+		opts = append(opts, option.WithBaseURL(baseURL+"/"))
+	}
+
+	client := openai.NewClient(opts...)
 
 	return &TTSClient{
-		config:     config,
-		httpClient: client,
+		client: &client,
+		config: config,
 	}
 }
 
-// Synthesize converte texto em áudio
-// Retorna os bytes do áudio no formato configurado
-func (c *TTSClient) Synthesize(text string) ([]byte, error) {
-	if c.config.APIKey == "" {
-		return nil, fmt.Errorf("API key not configured")
+// buildParams constrói os parâmetros para Audio.Speech.New
+func (c *TTSClient) buildParams(text string, voice TTSVoice) openai.AudioSpeechNewParams {
+	params := openai.AudioSpeechNewParams{
+		Input: text,
+		Model: openai.SpeechModel(c.config.Model),
+		Voice: openai.AudioSpeechNewParamsVoice(voice),
 	}
+	if c.config.Speed != 1.0 {
+		params.Speed = param.NewOpt(c.config.Speed)
+	}
+	if c.config.Format != "" {
+		params.ResponseFormat = openai.AudioSpeechNewParamsResponseFormat(c.config.Format)
+	}
+	return params
+}
 
+// synthesizeInternal é a implementação central de síntese de texto para áudio.
+// Divide textos longos em chunks e sintetiza sequencialmente.
+func (c *TTSClient) synthesizeInternal(text string, voice TTSVoice) ([]byte, error) {
 	if text == "" {
 		return nil, fmt.Errorf("text cannot be empty")
 	}
 
-	// Limita o texto a 4096 caracteres (limite da API)
-	if len(text) > 4096 {
-		text = text[:4096]
+	chunks := splitTextForTTS(text)
+	var allData []byte
+	for _, chunk := range chunks {
+		params := c.buildParams(chunk, voice)
+		resp, err := c.client.Audio.Speech.New(context.Background(), params)
+		if err != nil {
+			return nil, fmt.Errorf("TTS synthesis failed: %w", err)
+		}
+		data, err := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read TTS response: %w", err)
+		}
+		allData = append(allData, data...)
 	}
-
-	// Cria a requisição
-	reqBody := TTSRequest{
-		Model:          string(c.config.Model),
-		Input:          text,
-		Voice:          string(c.config.Voice),
-		ResponseFormat: string(c.config.Format),
-		Speed:          c.config.Speed,
-	}
-
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return nil, fmt.Errorf("failed to marshal request: %w", err)
-	}
-
-	// Cria a requisição HTTP
-	url := fmt.Sprintf("%s/audio/speech", c.config.APIBaseURL)
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return nil, fmt.Errorf("failed to create request: %w", err)
-	}
-
-	req.Header.Set("Authorization", "Bearer "+c.config.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	// Envia a requisição
-	resp, err := c.httpClient.Do(context.Background(), req)
-	if err != nil {
-		return nil, fmt.Errorf("failed to send request: %w", err)
-	}
-	defer resp.Body.Close()
-
-	// Lê a resposta
-	respBody, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return nil, fmt.Errorf("failed to read response: %w", err)
-	}
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
-	}
-
-	return respBody, nil
+	return allData, nil
 }
 
-// SynthesizeWithVoice converte texto em áudio usando uma voz específica
-func (c *TTSClient) SynthesizeWithVoice(text string, voice TTSVoice) ([]byte, error) {
-	originalVoice := c.config.Voice
-	c.config.Voice = voice
-	defer func() { c.config.Voice = originalVoice }()
+// Synthesize converte texto em áudio usando a voz configurada.
+func (c *TTSClient) Synthesize(text string) ([]byte, error) {
+	return c.synthesizeInternal(text, c.config.Voice)
+}
 
-	return c.Synthesize(text)
+// SynthesizeWithVoice converte texto em áudio usando uma voz específica.
+func (c *TTSClient) SynthesizeWithVoice(text string, voice TTSVoice) ([]byte, error) {
+	return c.synthesizeInternal(text, voice)
 }
 
 // TTSStreamCallbacks callbacks para streaming de áudio
@@ -184,64 +196,105 @@ type TTSStreamCallbacks struct {
 	OnError func(err error)    // Chamado em caso de erro
 }
 
-// SynthesizeStream converte texto em áudio com streaming
-// Lê chunks da resposta HTTP e chama callbacks conforme recebe
-func (c *TTSClient) SynthesizeStream(ctx context.Context, text string, callbacks TTSStreamCallbacks) error {
-	if c.config.APIKey == "" {
-		return fmt.Errorf("API key not configured")
-	}
-
+// synthesizeStreamInternal é a implementação central de síntese com streaming.
+func (c *TTSClient) synthesizeStreamInternal(ctx context.Context, text string, voice TTSVoice, callbacks TTSStreamCallbacks) error {
 	if text == "" {
 		return fmt.Errorf("text cannot be empty")
 	}
 
-	// Limita o texto a 4096 caracteres (limite da API)
-	if len(text) > 4096 {
-		text = text[:4096]
+	chunks := splitTextForTTS(text)
+	for _, chunk := range chunks {
+		params := c.buildParams(chunk, voice)
+		resp, err := c.client.Audio.Speech.New(ctx, params)
+		if err != nil {
+			return fmt.Errorf("TTS stream failed: %w", err)
+		}
+		if err := readStreamChunks(ctx, resp.Body, callbacks); err != nil {
+			resp.Body.Close()
+			return err
+		}
+		resp.Body.Close()
 	}
 
-	// Cria a requisição
-	reqBody := TTSRequest{
-		Model:          string(c.config.Model),
-		Input:          text,
-		Voice:          string(c.config.Voice),
-		ResponseFormat: string(c.config.Format),
-		Speed:          c.config.Speed,
+	return nil
+}
+
+// SynthesizeStream converte texto em áudio com streaming usando a voz configurada.
+func (c *TTSClient) SynthesizeStream(ctx context.Context, text string, callbacks TTSStreamCallbacks) error {
+	return c.synthesizeStreamInternal(ctx, text, c.config.Voice, callbacks)
+}
+
+// SynthesizeStreamWithVoice converte texto em áudio com streaming usando uma voz específica.
+func (c *TTSClient) SynthesizeStreamWithVoice(ctx context.Context, text string, voice TTSVoice, callbacks TTSStreamCallbacks) error {
+	return c.synthesizeStreamInternal(ctx, text, voice, callbacks)
+}
+
+// splitTextForTTS divide texto longo em chunks de no máximo 4096 caracteres,
+// quebrando em limites de frase/parágrafo para manter naturalidade.
+func splitTextForTTS(text string) []string {
+	if len(text) <= TtsMaxChunkSize {
+		return []string{text}
 	}
 
-	jsonBody, err := json.Marshal(reqBody)
-	if err != nil {
-		return fmt.Errorf("failed to marshal request: %w", err)
+	var chunks []string
+	remaining := text
+
+	for len(remaining) > 0 {
+		if len(remaining) <= TtsMaxChunkSize {
+			chunks = append(chunks, remaining)
+			break
+		}
+
+		// Procura melhor ponto de quebra dentro do limite
+		cutPoint := findBreakPoint(remaining, TtsMaxChunkSize)
+		chunks = append(chunks, remaining[:cutPoint])
+		remaining = strings.TrimLeft(remaining[cutPoint:], " \n\r")
 	}
 
-	// Cria a requisição HTTP com contexto
-	url := fmt.Sprintf("%s/audio/speech", c.config.APIBaseURL)
-	req, err := http.NewRequestWithContext(ctx, "POST", url, bytes.NewBuffer(jsonBody))
-	if err != nil {
-		return fmt.Errorf("failed to create request: %w", err)
+	return chunks
+}
+
+// findBreakPoint encontra o melhor ponto de quebra no texto, priorizando:
+// 1. Quebra de parágrafo (\n\n)
+// 2. Quebra de linha (\n)
+// 3. Fim de frase (. ! ?)
+// 4. Vírgula ou ponto-e-vírgula
+// 5. Espaço
+// 6. Corte bruto no limite
+func findBreakPoint(text string, maxLen int) int {
+	segment := text[:maxLen]
+
+	// Parágrafo
+	if idx := strings.LastIndex(segment, "\n\n"); idx > maxLen/2 {
+		return idx + 2
 	}
-
-	req.Header.Set("Authorization", "Bearer "+c.config.APIKey)
-	req.Header.Set("Content-Type", "application/json")
-
-	// Envia a requisição
-	resp, err := c.httpClient.Do(ctx, req)
-	if err != nil {
-		return fmt.Errorf("failed to send request: %w", err)
+	// Linha
+	if idx := strings.LastIndex(segment, "\n"); idx > maxLen/2 {
+		return idx + 1
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("API error (status %d): %s", resp.StatusCode, string(respBody))
+	// Fim de frase
+	for _, sep := range []string{". ", "! ", "? "} {
+		if idx := strings.LastIndex(segment, sep); idx > maxLen/2 {
+			return idx + len(sep)
+		}
 	}
+	// Vírgula/ponto-e-vírgula
+	for _, sep := range []string{", ", "; "} {
+		if idx := strings.LastIndex(segment, sep); idx > maxLen/2 {
+			return idx + len(sep)
+		}
+	}
+	// Espaço
+	if idx := strings.LastIndex(segment, " "); idx > maxLen/2 {
+		return idx + 1
+	}
+	// Corte bruto
+	return maxLen
+}
 
-	// Lê a resposta em chunks
-	// OpenAI retorna o áudio como um stream contínuo
-	// Usamos um buffer pequeno para enviar chunks frequentemente
-	chunkSize := 8192 // 8KB por chunk - bom balanço entre latência e overhead
-	buffer := make([]byte, chunkSize)
-	totalBytes := 0
+// readStreamChunks lê o body em chunks de 8KB e chama callbacks
+func readStreamChunks(ctx context.Context, body io.ReadCloser, callbacks TTSStreamCallbacks) error {
+	buffer := make([]byte, TtsStreamBufSize)
 
 	for {
 		select {
@@ -250,13 +303,10 @@ func (c *TTSClient) SynthesizeStream(ctx context.Context, text string, callbacks
 		default:
 		}
 
-		n, err := resp.Body.Read(buffer)
+		n, err := body.Read(buffer)
 		if n > 0 {
-			totalBytes += n
-			// Envia cópia do chunk (o buffer será reutilizado)
 			chunk := make([]byte, n)
 			copy(chunk, buffer[:n])
-
 			if callbacks.OnChunk != nil {
 				callbacks.OnChunk(chunk)
 			}
@@ -269,24 +319,14 @@ func (c *TTSClient) SynthesizeStream(ctx context.Context, text string, callbacks
 			if callbacks.OnError != nil {
 				callbacks.OnError(err)
 			}
-			return fmt.Errorf("failed to read response: %w", err)
+			return fmt.Errorf("failed to read stream: %w", err)
 		}
 	}
 
 	if callbacks.OnDone != nil {
 		callbacks.OnDone()
 	}
-
 	return nil
-}
-
-// SynthesizeStreamWithVoice converte texto em áudio com streaming usando uma voz específica
-func (c *TTSClient) SynthesizeStreamWithVoice(ctx context.Context, text string, voice TTSVoice, callbacks TTSStreamCallbacks) error {
-	originalVoice := c.config.Voice
-	c.config.Voice = voice
-	defer func() { c.config.Voice = originalVoice }()
-
-	return c.SynthesizeStream(ctx, text, callbacks)
 }
 
 // SetVoice altera a voz padrão
@@ -315,50 +355,304 @@ func (c *TTSClient) SetFormat(format TTSFormat) {
 	c.config.Format = format
 }
 
-// GetAvailableVoices retorna a lista de vozes disponíveis
-func GetAvailableVoices() []TTSVoiceInfo {
-	return []TTSVoiceInfo{
-		{
-			ID:          "alloy",
-			Name:        "Alloy",
-			Description: "Voz neutra e balanceada",
-			Gender:      "neutral",
-			Provider:    "openai",
-		},
-		{
-			ID:          "echo",
-			Name:        "Echo",
-			Description: "Voz masculina e profunda",
-			Gender:      "male",
-			Provider:    "openai",
-		},
-		{
-			ID:          "fable",
-			Name:        "Fable",
-			Description: "Voz expressiva, ideal para narrativas",
-			Gender:      "neutral",
-			Provider:    "openai",
-		},
-		{
-			ID:          "onyx",
-			Name:        "Onyx",
-			Description: "Voz masculina e autoritária",
-			Gender:      "male",
-			Provider:    "openai",
-		},
-		{
-			ID:          "nova",
-			Name:        "Nova",
-			Description: "Voz feminina jovem e energética",
-			Gender:      "female",
-			Provider:    "openai",
-		},
-		{
-			ID:          "shimmer",
-			Name:        "Shimmer",
-			Description: "Voz feminina clara e expressiva",
-			Gender:      "female",
-			Provider:    "openai",
-		},
+// listModelsSafe chama client.Models.List com proteção contra panic do SDK.
+func (c *TTSClient) listModelsSafe(ctx context.Context) (page *pagination.Page[openai.Model], retErr error) {
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[TTSClient] PANIC no SDK Models.List: %v", r)
+			retErr = fmt.Errorf("panic no SDK: %v", r)
+		}
+	}()
+	return c.client.Models.List(ctx)
+}
+
+// FetchVoices retorna vozes disponíveis para TTS.
+// Para provedores com modelos TTS personalizados (ex: Piper/LocalAI com voice-*,
+// qwen3-tts-*), retorna esses modelos como vozes — pois em backends como
+// LocalAI cada modelo Piper corresponde a uma voz.
+// Para provedores padrão (OpenAI com tts-1), retorna a lista estática de vozes.
+func (c *TTSClient) FetchVoices() ([]TTSVoiceInfo, error) {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	page, err := c.listModelsSafe(ctx)
+	if err != nil {
+		return GetAvailableVoices(), nil
 	}
+	if page == nil {
+		return GetAvailableVoices(), nil
+	}
+
+	var dynamicVoices []TTSVoiceInfo
+	hasStandardTTS := false
+
+	for _, m := range page.Data {
+		if isTTSModel(m.ID) {
+			lower := strings.ToLower(m.ID)
+			if knownTTSModels[lower] {
+				hasStandardTTS = true
+			} else {
+				dynamicVoices = append(dynamicVoices, TTSVoiceInfo{
+					ID:       m.ID,
+					Name:     m.ID,
+					Provider: "localai",
+				})
+			}
+		}
+	}
+
+	if len(dynamicVoices) > 0 {
+		if hasStandardTTS {
+			return append(GetAvailableVoices(), dynamicVoices...), nil
+		}
+		return dynamicVoices, nil
+	}
+
+	return GetAvailableVoices(), nil
+}
+
+// SpeechModelInfo informações sobre um modelo de speech (TTS ou STT).
+type SpeechModelInfo struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+// staticTTSModels é o fallback quando /v1/models não está disponível.
+var staticTTSModels = []SpeechModelInfo{
+	{ID: "tts-1", Name: "tts-1"},
+	{ID: "tts-1-hd", Name: "tts-1-hd"},
+}
+
+// staticSTTModels é o fallback quando /v1/models não está disponível.
+var staticSTTModels = []SpeechModelInfo{
+	{ID: "whisper-1", Name: "whisper-1"},
+	{ID: "gpt-4o-transcribe", Name: "gpt-4o-transcribe"},
+	{ID: "gpt-4o-mini-transcribe", Name: "gpt-4o-mini-transcribe"},
+}
+
+// StaticTTSModels retorna a lista estática de modelos TTS (para uso quando não há client).
+func StaticTTSModels() []SpeechModelInfo { return staticTTSModels }
+
+// StaticSTTModels retorna a lista estática de modelos STT (para uso quando não há client).
+func StaticSTTModels() []SpeechModelInfo { return staticSTTModels }
+
+// knownTTSModels são IDs exatos de modelos TTS reconhecidos.
+var knownTTSModels = map[string]bool{
+	"tts-1": true, "tts-1-hd": true,
+	"tts-1-1106": true, "tts-1-hd-1106": true,
+}
+
+// knownSTTModels são IDs exatos de modelos STT reconhecidos.
+var knownSTTModels = map[string]bool{
+	"whisper-1": true, "whisper-large-v3": true,
+	"gpt-4o-transcribe": true, "gpt-4o-mini-transcribe": true,
+}
+
+// ttsPrefixes são prefixos heurísticos para modelos TTS não catalogados.
+// - "tts-": OpenAI (tts-1, tts-1-hd)
+// - "voice-": Piper/LocalAI (voice-pt_BR-cadu-medium, voice-en_US-amy-medium)
+var ttsPrefixes = []string{"tts-", "voice-"}
+
+// ttsInfixes são substrings que indicam modelo TTS quando aparecem no meio do ID.
+// Ex: qwen3-tts-0.6b-custom-voice, vllm-omni-qwen3-tts-custom-voice
+var ttsInfixes = []string{"-tts-", "-tts"}
+
+// sttPrefixes são prefixos heurísticos para modelos STT não catalogados.
+var sttPrefixes = []string{"whisper"}
+
+// sttSuffixes são sufixos heurísticos para modelos STT não catalogados.
+var sttSuffixes = []string{"-transcribe", "-asr"}
+
+// isTTSModel retorna true se o ID é um modelo TTS conhecido ou corresponde
+// a padrões heurísticos:
+//   - prefixo "tts-" (OpenAI), "voice-" (Piper/LocalAI)
+//   - infixo "-tts-" ou sufixo "-tts" (qwen3-tts-*, vllm-omni-*-tts-*)
+func isTTSModel(id string) bool {
+	lower := strings.ToLower(id)
+	if knownTTSModels[lower] {
+		return true
+	}
+	for _, p := range ttsPrefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	for _, infix := range ttsInfixes {
+		if strings.Contains(lower, infix) {
+			return true
+		}
+	}
+	return false
+}
+
+// IsDynamicTTSModel retorna true se o ID é um modelo TTS dinâmico (não-padrão),
+// ou seja, é detectado como TTS mas NÃO é um dos modelos padrão (tts-1, tts-1-hd, etc.).
+// Usado para provedores como LocalAI/Piper onde a "voz" selecionada é na verdade um modelo.
+func IsDynamicTTSModel(id string) bool {
+	lower := strings.ToLower(id)
+	return isTTSModel(id) && !knownTTSModels[lower]
+}
+
+// isSTTModel retorna true se o ID é um modelo STT conhecido ou corresponde
+// a padrões heurísticos (prefixo "whisper", sufixo "-transcribe"/"-asr").
+func isSTTModel(id string) bool {
+	lower := strings.ToLower(id)
+	if knownSTTModels[lower] {
+		return true
+	}
+	for _, p := range sttPrefixes {
+		if strings.HasPrefix(lower, p) {
+			return true
+		}
+	}
+	for _, s := range sttSuffixes {
+		if strings.HasSuffix(lower, s) {
+			return true
+		}
+	}
+	return false
+}
+
+// FetchTTSModels retorna modelos TTS disponíveis no provider.
+// Busca via /v1/models e filtra por prefixo "tts-".
+// Em caso de falha, retorna a lista estática (tts-1, tts-1-hd).
+func (c *TTSClient) FetchTTSModels() []SpeechModelInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	page, err := c.listModelsSafe(ctx)
+	if err != nil {
+		log.Printf("[FetchTTSModels] erro ao listar modelos: %v", err)
+		return staticTTSModels
+	}
+	if page == nil {
+		return staticTTSModels
+	}
+
+	var models []SpeechModelInfo
+	for _, m := range page.Data {
+		if isTTSModel(m.ID) {
+			models = append(models, SpeechModelInfo{ID: m.ID, Name: m.ID})
+		}
+	}
+	if len(models) == 0 {
+		return staticTTSModels
+	}
+	return models
+}
+
+// FetchSTTModels retorna modelos STT disponíveis no provider.
+// Busca via /v1/models e filtra por prefixo "whisper" ou sufixo "-transcribe".
+// Em caso de falha, retorna a lista estática.
+func (c *TTSClient) FetchSTTModels() []SpeechModelInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	page, err := c.listModelsSafe(ctx)
+	if err != nil {
+		log.Printf("[FetchSTTModels] erro ao listar modelos: %v", err)
+		return staticSTTModels
+	}
+	if page == nil {
+		return staticSTTModels
+	}
+
+	var models []SpeechModelInfo
+	for _, m := range page.Data {
+		if isSTTModel(m.ID) {
+			models = append(models, SpeechModelInfo{ID: m.ID, Name: m.ID})
+		}
+	}
+	if len(models) == 0 {
+		return staticSTTModels
+	}
+	return models
+}
+
+// staticVoices é a lista estática de vozes OpenAI padrão (evita reconstruir a cada chamada).
+var staticVoices = []TTSVoiceInfo{
+	{
+		ID:          "alloy",
+		Name:        "Alloy",
+		Description: "Voz neutra e balanceada",
+		Gender:      "neutral",
+		Provider:    "openai",
+	},
+	{
+		ID:          "ash",
+		Name:        "Ash",
+		Description: "Voz masculina conversacional",
+		Gender:      "male",
+		Provider:    "openai",
+	},
+	{
+		ID:          "ballad",
+		Name:        "Ballad",
+		Description: "Voz suave e melódica",
+		Gender:      "neutral",
+		Provider:    "openai",
+	},
+	{
+		ID:          "coral",
+		Name:        "Coral",
+		Description: "Voz feminina clara",
+		Gender:      "female",
+		Provider:    "openai",
+	},
+	{
+		ID:          "echo",
+		Name:        "Echo",
+		Description: "Voz masculina e profunda",
+		Gender:      "male",
+		Provider:    "openai",
+	},
+	{
+		ID:          "fable",
+		Name:        "Fable",
+		Description: "Voz expressiva, ideal para narrativas",
+		Gender:      "neutral",
+		Provider:    "openai",
+	},
+	{
+		ID:          "nova",
+		Name:        "Nova",
+		Description: "Voz feminina jovem e energética",
+		Gender:      "female",
+		Provider:    "openai",
+	},
+	{
+		ID:          "onyx",
+		Name:        "Onyx",
+		Description: "Voz masculina e autoritária",
+		Gender:      "male",
+		Provider:    "openai",
+	},
+	{
+		ID:          "sage",
+		Name:        "Sage",
+		Description: "Voz calma e sábia",
+		Gender:      "neutral",
+		Provider:    "openai",
+	},
+	{
+		ID:          "shimmer",
+		Name:        "Shimmer",
+		Description: "Voz feminina clara e expressiva",
+		Gender:      "female",
+		Provider:    "openai",
+	},
+	{
+		ID:          "verse",
+		Name:        "Verse",
+		Description: "Voz versátil e dinâmica",
+		Gender:      "neutral",
+		Provider:    "openai",
+	},
+}
+
+// GetAvailableVoices retorna a lista de vozes disponíveis (cópia da lista estática).
+func GetAvailableVoices() []TTSVoiceInfo {
+	result := make([]TTSVoiceInfo, len(staticVoices))
+	copy(result, staticVoices)
+	return result
 }

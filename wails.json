@@ -16,5 +16,6 @@
     "productVersion": "1.0.0",
     "copyright": "© 2026 Inclunet. Todos os direitos reservados.",
     "comments": "Assistente com IA"
-  }
+  },
+  "wailsjsdir": "./frontend/wailsjs"
 }

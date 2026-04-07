@@ -1,5 +1,5 @@
 {
-  "_builtin_version": "1.0.0",
+  "_builtin_version": "4.0.0",
   "name": "Canais de comunicação",
   "description": "Perfil enxuto e seguro para mensagens em canais externos (Signal/Telegram/etc.).",
   "icon": "chatbox-ellipses",
@@ -13,17 +13,35 @@
     "enabled_skills": []
   },
   "voice": {
-    "provider": "disabled",
-    "rate": 1.0,
-    "pitch": 1.0,
-    "volume": 1.0,
-    "enabled_for_agent": false,
-    "enabled_for_user": false,
-    "channel_response_mode": "always_text"
+    "assistant": {
+      "enabled": false,
+      "provider": "disabled",
+      "rate": 1.0,
+      "pitch": 1.0,
+      "volume": 1.0
+    },
+    "user": {
+      "enabled": false,
+      "provider": "disabled",
+      "rate": 1.0,
+      "pitch": 1.0,
+      "volume": 1.0
+    },
+    "system": {
+      "enabled": false,
+      "provider": "disabled",
+      "rate": 1.0,
+      "pitch": 1.0,
+      "volume": 1.0
+    }
   },
-  "interaction": {
+  "input": {
+    "enabled": true,
     "stt_provider": "webspeech",
     "language": "pt-BR",
     "feedback_sounds": true
+  },
+  "channels": {
+    "response_mode": "always_text"
   }
 }

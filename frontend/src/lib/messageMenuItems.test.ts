@@ -12,10 +12,6 @@ vi.mock('../services/messageAudio', () => ({
   },
 }));
 
-vi.mock('../services/tts', () => ({
-  ttsService: { synthesizeOnDemand: vi.fn() },
-}));
-
 describe('messageMenuItems', () => {
   it('inclui itens basicos e markdown', () => {
     const assistantMessage = new main.EnrichedMessage({

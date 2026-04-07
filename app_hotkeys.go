@@ -40,12 +40,12 @@ func (a *App) registerActiveProfileHotkeys() {
 	// Remove todos os hotkeys anteriores
 	a.hotkeyManager.UnregisterAllProfileHotkeys()
 
-	if activeProfile == nil || len(activeProfile.Interaction.Triggers) == 0 {
+	if activeProfile == nil || len(activeProfile.Input.Triggers) == 0 {
 		return
 	}
 
 	hotkeyCount := 0
-	for _, trigger := range activeProfile.Interaction.Triggers {
+	for _, trigger := range activeProfile.Input.Triggers {
 		if !trigger.Enabled || trigger.Hotkey == "" {
 			continue
 		}

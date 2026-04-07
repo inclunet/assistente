@@ -6,7 +6,6 @@ import remarkGfm from 'remark-gfm';
 import { visit } from 'unist-util-visit';
 import type { Code, Link, Table } from 'mdast';
 import { messageAudioService } from '../services/messageAudio';
-import { ttsService } from '../services/tts';
 import { stripMarkdown } from './stripMarkdown';
 
 export interface MenuItemsOptions {
@@ -343,15 +342,8 @@ export function getMessageMenuItems(
             }
           }
 
-          // 3. Fallback: sintetiza localmente
           if (!audioBlob) {
-            onAnnounce?.('Sintetizando audio...');
-            const cleanText = stripMarkdown(message.content);
-            audioBlob = await ttsService.synthesizeOnDemand(cleanText);
-          }
-
-          if (!audioBlob) {
-            onAnnounce?.('Nao foi possivel gerar audio. Configure um perfil de voz com provider OpenAI ou SAPI5.');
+            onAnnounce?.('Nao foi possivel gerar audio. Verifique a configuracao de voz no perfil ativo.');
             return;
           }
 

@@ -7,13 +7,12 @@ import (
 	"fmt"
 	"log"
 
+	"assistente/internal/chat"
 	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/tools"
 	"assistente/internal/tools/invocationctx"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ==================== Agentic Stream Handler ====================
@@ -84,7 +83,7 @@ func (h *agenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		}
 		outputSummary := truncateString(event.Output, 200)
 
-		runtime.EventsEmit(h.app.ctx, "chat:tool_end", map[string]interface{}{
+			h.emitter.Emit("chat:tool_end", map[string]interface{}{
 			"name":           event.Name,
 			"callId":         event.ID,
 			"status":         status,
@@ -98,7 +97,7 @@ func (h *agenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
 			event.Name, event.ServerLabel, event.ID, len(event.Output))
 	} else {
-		runtime.EventsEmit(h.app.ctx, "chat:tool_start", map[string]interface{}{
+			h.emitter.Emit("chat:tool_start", map[string]interface{}{
 			"name":           event.Name,
 			"callId":         event.ID,
 			"args":           event.Arguments,
@@ -166,7 +165,7 @@ func (a *App) runAgenticLoop(
 	if streamer == nil {
 		errMsg := "Cliente LLM não disponível para o agentic loop. Verifique a configuração do provedor."
 		log.Printf("🔴 [AGENT] streamer nil na conversa %d", conversationID)
-		runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
+		a.emitter.Emit("chat:stream", StreamEvent{
 			Content:        "",
 			Done:           true,
 			Error:          errMsg,
@@ -193,7 +192,7 @@ func (a *App) runAgenticLoop(
 		// Verifica cancelamento
 		if ctx.Err() != nil {
 			fmt.Printf("🛑 [AGENT] Loop cancelado na iteração %d\n", iteration)
-			runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
+			a.emitter.Emit("chat:stream", StreamEvent{
 				Content:        "",
 				Done:           true,
 				Error:          "Operação cancelada",
@@ -207,7 +206,7 @@ func (a *App) runAgenticLoop(
 		// 1. Cria handler para esta iteração
 		handler := &agenticStreamHandler{
 			baseStreamHandler: baseStreamHandler{
-				app:            a,
+				emitter:        a.emitter,
 				conversationID: conversationID,
 			},
 			iteration: iteration,
@@ -221,7 +220,7 @@ func (a *App) runAgenticLoop(
 		// 3. Erro?
 		if result.Error != "" {
 			fmt.Printf("❌ [AGENT] Erro na iteração %d: %s\n", iteration, result.Error)
-			runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
+			a.emitter.Emit("chat:stream", StreamEvent{
 				Content:        result.FullResponse,
 				Done:           true,
 				Error:          result.Error,
@@ -235,7 +234,7 @@ func (a *App) runAgenticLoop(
 		// capture as tool calls completadas como segmentos — mesmo quando o LLM
 		// chama ferramentas sem produzir texto intermediário.
 		if result.FullResponse != "" || !result.IsDone {
-			runtime.EventsEmit(a.ctx, "chat:segment_done", map[string]interface{}{
+			a.emitter.Emit("chat:segment_done", map[string]interface{}{
 				"content":        result.FullResponse,
 				"iteration":      iteration,
 				"hasMore":        !result.IsDone,
@@ -259,7 +258,7 @@ func (a *App) runAgenticLoop(
 
 		// 6b. Salva mensagem do assistant com bridge tool_calls no banco
 		toolCallsJSON, _ := json.Marshal(result.ToolCalls)
-		assistantMsg, err := database.AddAssistantToolMessage(
+		assistantMsg, err := a.msgRepo.AddAssistantToolMessage(
 			conversationID,
 			turnID,
 			result.FullResponse,
@@ -298,7 +297,7 @@ func (a *App) runAgenticLoop(
 			if execResult.Result.IsError {
 				status = "error"
 			}
-			runtime.EventsEmit(a.ctx, "chat:tool_end", map[string]interface{}{
+			a.emitter.Emit("chat:tool_end", map[string]interface{}{
 				"name":           execResult.ToolName,
 				"callId":         execResult.CallID,
 				"status":         status,
@@ -307,7 +306,7 @@ func (a *App) runAgenticLoop(
 			})
 
 			// Salva resultado no banco
-			_, err := database.AddToolResultMessage(
+			_, err := a.msgRepo.AddToolResultMessage(
 				conversationID,
 				turnID,
 				execResult.Result.Content,
@@ -354,7 +353,7 @@ func (a *App) runAgenticLoop(
 				"toolsUsedCount":              stats.ToolsUsedCount,
 				"toolBreakdown":               stats.ToolBreakdown,
 			}
-			runtime.EventsEmit(a.ctx, "chat:token_stats_update", statsData)
+			a.emitter.Emit("chat:token_stats_update", statsData)
 		}
 
 		// 6f. Continua o loop → próxima iteração chama o LLM com os resultados
@@ -362,12 +361,12 @@ func (a *App) runAgenticLoop(
 
 	// Atingiu limite de iterações
 	fmt.Printf("⚠️ [AGENT] Limite de %d iterações atingido para conversa %d\n", maxIterations, conversationID)
-	runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
+	a.emitter.Emit("chat:stream", StreamEvent{
 		Content:        "Limite de iterações do agente atingido. A resposta pode estar incompleta.",
 		Done:           true,
 		ConversationId: conversationID,
 	})
-	runtime.EventsEmit(a.ctx, "chat:done", map[string]interface{}{
+	a.emitter.Emit("chat:done", map[string]interface{}{
 		"conversationId": conversationID,
 	})
 
@@ -402,16 +401,15 @@ func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
 			opts.TurnID = &turnID
 		}
 
-		msg, err := database.CreateMessage(opts)
+		var err error
+		savedMsgID, err = chat.SaveAssistantMessage(a.msgRepo, opts)
+		if errors.Is(err, chat.ErrConversationGone) {
+			return
+		}
 		if err != nil {
-			if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
-				fmt.Printf("🛑 Conversa %d foi deletada/limpa — abortando\n", conversationID)
-				return
-			}
 			fmt.Printf("❌ Erro ao salvar resposta final do assistant: %v\n", err)
-		} else {
-			fmt.Printf("✅ [AGENT] Resposta final salva: ID=%d\n", msg.ID)
-			savedMsgID = msg.ID
+		} else if savedMsgID > 0 {
+			fmt.Printf("✅ [AGENT] Resposta final salva: ID=%d\n", savedMsgID)
 		}
 	}
 
@@ -421,7 +419,7 @@ func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
 	}
 
 	// Emite evento final de streaming
-	runtime.EventsEmit(a.ctx, "chat:stream", StreamEvent{
+	a.emitter.Emit("chat:stream", StreamEvent{
 		Content:        result.FullResponse,
 		Done:           true,
 		ConversationId: conversationID,
@@ -429,7 +427,7 @@ func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
 	})
 
 	// Emite evento para frontend recarregar a conversa
-	runtime.EventsEmit(a.ctx, "chat:done", map[string]interface{}{
+	a.emitter.Emit("chat:done", map[string]interface{}{
 		"conversationId": conversationID,
 	})
 
@@ -443,7 +441,7 @@ func (a *App) saveAndFinish(conversationID, turnID uint, result agenticResult) {
 // emitToolStarts emite eventos chat:tool_start para cada tool call.
 func (a *App) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
 	for _, call := range calls {
-		runtime.EventsEmit(a.ctx, "chat:tool_start", map[string]interface{}{
+		a.emitter.Emit("chat:tool_start", map[string]interface{}{
 			"name":           call.Function.Name,
 			"callId":         call.ID,
 			"args":           call.Function.Arguments,
@@ -501,7 +499,7 @@ func (a *App) persistNativeMCPCalls(conversationID, turnID uint, events []llm.MC
 		return
 	}
 
-	_, err = database.AddAssistantToolMessage(conversationID, turnID, "", string(toolCallsJSON), "", "")
+	_, err = a.msgRepo.AddAssistantToolMessage(conversationID, turnID, "", string(toolCallsJSON), "", "")
 	if err != nil {
 		log.Printf("[MCP Native] Erro ao salvar assistant tool_calls: %v", err)
 		return
@@ -515,7 +513,7 @@ func (a *App) persistNativeMCPCalls(conversationID, turnID uint, events []llm.MC
 		if ev.Error != "" {
 			content = "ERROR: " + ev.Error
 		}
-		_, err := database.AddToolResultMessage(conversationID, turnID, content, ev.ID)
+		_, err := a.msgRepo.AddToolResultMessage(conversationID, turnID, content, ev.ID)
 		if err != nil {
 			log.Printf("[MCP Native] Erro ao salvar tool result (id=%s): %v", ev.ID, err)
 		}

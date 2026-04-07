@@ -7,10 +7,10 @@ import (
 // TestValidateLLMProvider testa se a validação de LLMProvider funciona corretamente
 func TestValidateLLMProvider(t *testing.T) {
 	tests := []struct {
-		name              string
-		llmProvider       string
-		shouldError       bool
-		expectedErrorMsg  string
+		name             string
+		llmProvider      string
+		shouldError      bool
+		expectedErrorMsg string
 	}{
 		{
 			name:        "valid: openai-default provider",
@@ -57,12 +57,11 @@ func TestValidateLLMProvider(t *testing.T) {
 					ResponseTimeout: 30,
 				},
 				Voice: VoiceConfig{
-					Provider: "disabled",
-					Rate:     1.0,
-					Pitch:    1.0,
-					Volume:   1.0,
+					Assistant: VoiceRoleConfig{Provider: "disabled", Rate: 1.0, Pitch: 1.0, Volume: 1.0},
+					User:      VoiceRoleConfig{Provider: "disabled", Rate: 1.0, Pitch: 1.0, Volume: 1.0},
+					System:    VoiceRoleConfig{Provider: "disabled", Rate: 1.0, Pitch: 1.0, Volume: 1.0},
 				},
-				Interaction: InteractionConfig{
+				Input: InputConfig{
 					STTProvider: "webspeech",
 					Language:    "pt-BR",
 				},

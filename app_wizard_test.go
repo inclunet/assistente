@@ -15,6 +15,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/providers"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -38,11 +39,18 @@ func setupWizardTestApp(t *testing.T) *App {
 	_ = setupWizardTestDB(t)
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	llmRegistry := llm.NewProviderRegistry()
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: llmRegistry,
+		CredMgr:  credMgr,
+		Store:    providers.NewDBStore(),
+	})
 
 	return &App{
 		ctx:         context.Background(),
 		credMgr:     credMgr,
-		llmRegistry: llm.NewProviderRegistry(),
+		llmRegistry: llmRegistry,
+		providerSvc: svc,
 	}
 }
 
@@ -75,12 +83,19 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	pm := profiles.NewManager()
+	llmRegistry := llm.NewProviderRegistry()
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: llmRegistry,
+		CredMgr:  credMgr,
+		Store:    providers.NewDBStore(),
+	})
 
 	return &App{
 		ctx:            context.Background(),
 		credMgr:        credMgr,
-		llmRegistry:    llm.NewProviderRegistry(),
+		llmRegistry:    llmRegistry,
 		profileManager: pm,
+		providerSvc:    svc,
 	}, pm
 }
 
@@ -88,10 +103,10 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 
 func TestGetWizardProviderInfo_AllProviders(t *testing.T) {
 	tests := []struct {
-		choice     string
-		wantID     string
-		wantName   string
-		wantType   llm.ProviderType
+		choice   string
+		wantID   string
+		wantName string
+		wantType llm.ProviderType
 	}{
 		{"OpenAI", "openai-default", "OpenAI", llm.ProviderOpenAI},
 		{"Anthropic (Claude)", "anthropic-claude", "Claude (Anthropic)", llm.ProviderClaude},
@@ -134,7 +149,7 @@ func TestGetWizardProviderInfo_IDsMatchCreateDefaultLLMProvider(t *testing.T) {
 		"Anthropic (Claude)": "anthropic-claude",
 		"Google (Gemini)":    "google-gemini",
 		"DeepSeek":           "deepseek-default",
-		"xAI (Grok)":        "xai-grok",
+		"xAI (Grok)":         "xai-grok",
 		"OpenRouter":         "openrouter-default",
 		"Mistral AI":         "mistral-default",
 		"Groq":               "groq-default",
@@ -153,8 +168,8 @@ func TestGetWizardProviderInfo_IDsMatchCreateDefaultLLMProvider(t *testing.T) {
 
 func TestGetWizardProviderInfo_APIFormats(t *testing.T) {
 	tests := []struct {
-		choice    string
-		wantFmt   llm.APIFormat
+		choice  string
+		wantFmt llm.APIFormat
 	}{
 		{"OpenAI", llm.APIFormatOpenAIResponses},
 		{"Anthropic (Claude)", llm.APIFormatAnthropic},
@@ -405,11 +420,11 @@ func TestDefaultProfileUsesSentinel(t *testing.T) {
 	if p.Chat.Model != profiles.DefaultProviderSentinel {
 		t.Errorf("DefaultProfile Model: got %s, want %s", p.Chat.Model, profiles.DefaultProviderSentinel)
 	}
-	if p.Voice.LLMProviderID != profiles.DefaultProviderSentinel {
-		t.Errorf("DefaultProfile Voice.LLMProviderID: got %s, want %s", p.Voice.LLMProviderID, profiles.DefaultProviderSentinel)
+	if p.Voice.Assistant.LLMProviderID != profiles.DefaultProviderSentinel {
+		t.Errorf("DefaultProfile Voice.Assistant.LLMProviderID: got %s, want %s", p.Voice.Assistant.LLMProviderID, profiles.DefaultProviderSentinel)
 	}
-	if p.Interaction.LLMProviderID != profiles.DefaultProviderSentinel {
-		t.Errorf("DefaultProfile Interaction.LLMProviderID: got %s, want %s", p.Interaction.LLMProviderID, profiles.DefaultProviderSentinel)
+	if p.Input.LLMProviderID != profiles.DefaultProviderSentinel {
+		t.Errorf("DefaultProfile Input.LLMProviderID: got %s, want %s", p.Input.LLMProviderID, profiles.DefaultProviderSentinel)
 	}
 }
 
@@ -512,11 +527,11 @@ func TestResolveProfileDefaults_ResolvesSentinels(t *testing.T) {
 	if resolved.Chat.Model != "test-model-v1" {
 		t.Errorf("Chat.Model: got %s, want test-model-v1", resolved.Chat.Model)
 	}
-	if resolved.Voice.LLMProviderID != "test-provider" {
-		t.Errorf("Voice.LLMProviderID: got %s, want test-provider", resolved.Voice.LLMProviderID)
+	if resolved.Voice.Assistant.LLMProviderID != "test-provider" {
+		t.Errorf("Voice.Assistant.LLMProviderID: got %s, want test-provider", resolved.Voice.Assistant.LLMProviderID)
 	}
-	if resolved.Interaction.LLMProviderID != "test-provider" {
-		t.Errorf("Interaction.LLMProviderID: got %s, want test-provider", resolved.Interaction.LLMProviderID)
+	if resolved.Input.LLMProviderID != "test-provider" {
+		t.Errorf("Input.LLMProviderID: got %s, want test-provider", resolved.Input.LLMProviderID)
 	}
 }
 
@@ -553,9 +568,9 @@ func TestResolveProfileDefaults_ConcreteIDsUnchanged(t *testing.T) {
 			Model:       "gpt-4o",
 		},
 		Voice: profiles.VoiceConfig{
-			LLMProviderID: "my-voice-id",
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: "my-voice-id"},
 		},
-		Interaction: profiles.InteractionConfig{
+		Input: profiles.InputConfig{
 			LLMProviderID: "my-stt-id",
 		},
 	}
@@ -568,11 +583,11 @@ func TestResolveProfileDefaults_ConcreteIDsUnchanged(t *testing.T) {
 	if resolved.Chat.Model != "gpt-4o" {
 		t.Errorf("Chat.Model: got %s, want gpt-4o", resolved.Chat.Model)
 	}
-	if resolved.Voice.LLMProviderID != "my-voice-id" {
-		t.Errorf("Voice.LLMProviderID: got %s, want my-voice-id", resolved.Voice.LLMProviderID)
+	if resolved.Voice.Assistant.LLMProviderID != "my-voice-id" {
+		t.Errorf("Voice.Assistant.LLMProviderID: got %s, want my-voice-id", resolved.Voice.Assistant.LLMProviderID)
 	}
-	if resolved.Interaction.LLMProviderID != "my-stt-id" {
-		t.Errorf("Interaction.LLMProviderID: got %s, want my-stt-id", resolved.Interaction.LLMProviderID)
+	if resolved.Input.LLMProviderID != "my-stt-id" {
+		t.Errorf("Input.LLMProviderID: got %s, want my-stt-id", resolved.Input.LLMProviderID)
 	}
 }
 
@@ -668,6 +683,11 @@ func TestSaveLoadRoundtrip_DefaultFieldsSurvive(t *testing.T) {
 
 	// Clear registry and reload from DB
 	app.llmRegistry = llm.NewProviderRegistry()
+	app.providerSvc = providers.NewService(providers.ServiceConfig{
+		Registry: app.llmRegistry,
+		CredMgr:  app.credMgr,
+		Store:    providers.NewDBStore(),
+	})
 	if err := app.loadLLMProviders(); err != nil {
 		t.Fatalf("loadLLMProviders: %v", err)
 	}
@@ -831,9 +851,9 @@ func TestResolveProfileDefaults_PartialSentinel_OnlyModel(t *testing.T) {
 			Model:       profiles.DefaultProviderSentinel,
 		},
 		Voice: profiles.VoiceConfig{
-			LLMProviderID: "my-voice-provider",
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: "my-voice-provider"},
 		},
-		Interaction: profiles.InteractionConfig{
+		Input: profiles.InputConfig{
 			LLMProviderID: profiles.DefaultProviderSentinel,
 		},
 	}
@@ -846,11 +866,11 @@ func TestResolveProfileDefaults_PartialSentinel_OnlyModel(t *testing.T) {
 	if resolved.Chat.Model != "fallback-model" {
 		t.Errorf("Chat.Model should resolve to fallback-model, got %s", resolved.Chat.Model)
 	}
-	if resolved.Voice.LLMProviderID != "my-voice-provider" {
-		t.Errorf("Voice.LLMProviderID should stay concrete, got %s", resolved.Voice.LLMProviderID)
+	if resolved.Voice.Assistant.LLMProviderID != "my-voice-provider" {
+		t.Errorf("Voice.Assistant.LLMProviderID should stay concrete, got %s", resolved.Voice.Assistant.LLMProviderID)
 	}
-	if resolved.Interaction.LLMProviderID != "default-prov" {
-		t.Errorf("Interaction.LLMProviderID should resolve, got %s", resolved.Interaction.LLMProviderID)
+	if resolved.Input.LLMProviderID != "default-prov" {
+		t.Errorf("Input.LLMProviderID should resolve, got %s", resolved.Input.LLMProviderID)
 	}
 }
 
@@ -1089,17 +1109,19 @@ func TestBuiltinProfileJSONs_ContainDefaultSentinel(t *testing.T) {
 			t.Errorf("%s: chat.model = %q, want %q", entry.Name(), model, profiles.DefaultProviderSentinel)
 		}
 
-		// voice.llm_provider_id must be $default (if voice section exists)
+		// voice.assistant.llm_provider_id must be $default (if voice section exists)
 		if voice, ok := raw["voice"].(map[string]interface{}); ok {
-			if vid, ok := voice["llm_provider_id"].(string); ok && vid != profiles.DefaultProviderSentinel {
-				t.Errorf("%s: voice.llm_provider_id = %q, want %q", entry.Name(), vid, profiles.DefaultProviderSentinel)
+			if assistant, ok := voice["assistant"].(map[string]interface{}); ok {
+				if vid, ok := assistant["llm_provider_id"].(string); ok && vid != profiles.DefaultProviderSentinel {
+					t.Errorf("%s: voice.assistant.llm_provider_id = %q, want %q", entry.Name(), vid, profiles.DefaultProviderSentinel)
+				}
 			}
 		}
 
-		// interaction.llm_provider_id must be $default (if interaction section exists)
-		if interaction, ok := raw["interaction"].(map[string]interface{}); ok {
-			if iid, ok := interaction["llm_provider_id"].(string); ok && iid != profiles.DefaultProviderSentinel {
-				t.Errorf("%s: interaction.llm_provider_id = %q, want %q", entry.Name(), iid, profiles.DefaultProviderSentinel)
+		// input.llm_provider_id must be $default (if input section exists)
+		if input, ok := raw["input"].(map[string]interface{}); ok {
+			if iid, ok := input["llm_provider_id"].(string); ok && iid != profiles.DefaultProviderSentinel {
+				t.Errorf("%s: input.llm_provider_id = %q, want %q", entry.Name(), iid, profiles.DefaultProviderSentinel)
 			}
 		}
 	}

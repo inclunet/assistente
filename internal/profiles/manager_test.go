@@ -170,11 +170,11 @@ func TestManagerGetActive_NoProfilesReturnsDefaultWithSentinel(t *testing.T) {
 	if active.Chat.Model != DefaultProviderSentinel {
 		t.Errorf("Model: got %q, want %q", active.Chat.Model, DefaultProviderSentinel)
 	}
-	if active.Voice.LLMProviderID != DefaultProviderSentinel {
-		t.Errorf("Voice.LLMProviderID: got %q, want %q", active.Voice.LLMProviderID, DefaultProviderSentinel)
+	if active.Voice.Assistant.LLMProviderID != DefaultProviderSentinel {
+		t.Errorf("Voice.Assistant.LLMProviderID: got %q, want %q", active.Voice.Assistant.LLMProviderID, DefaultProviderSentinel)
 	}
-	if active.Interaction.LLMProviderID != DefaultProviderSentinel {
-		t.Errorf("Interaction.LLMProviderID: got %q, want %q", active.Interaction.LLMProviderID, DefaultProviderSentinel)
+	if active.Input.LLMProviderID != DefaultProviderSentinel {
+		t.Errorf("Input.LLMProviderID: got %q, want %q", active.Input.LLMProviderID, DefaultProviderSentinel)
 	}
 }
 
@@ -280,11 +280,11 @@ func TestManagerGetActive_PadraoFallbackHasSentinelValues(t *testing.T) {
 	if active.Chat.Model != DefaultProviderSentinel {
 		t.Errorf("Model: got %q, want %q", active.Chat.Model, DefaultProviderSentinel)
 	}
-	if active.Voice.LLMProviderID != DefaultProviderSentinel {
-		t.Errorf("Voice.LLMProviderID: got %q, want %q", active.Voice.LLMProviderID, DefaultProviderSentinel)
+	if active.Voice.Assistant.LLMProviderID != DefaultProviderSentinel {
+		t.Errorf("Voice.Assistant.LLMProviderID: got %q, want %q", active.Voice.Assistant.LLMProviderID, DefaultProviderSentinel)
 	}
-	if active.Interaction.LLMProviderID != DefaultProviderSentinel {
-		t.Errorf("Interaction.LLMProviderID: got %q, want %q", active.Interaction.LLMProviderID, DefaultProviderSentinel)
+	if active.Input.LLMProviderID != DefaultProviderSentinel {
+		t.Errorf("Input.LLMProviderID: got %q, want %q", active.Input.LLMProviderID, DefaultProviderSentinel)
 	}
 }
 

@@ -94,9 +94,9 @@ func TestPhase8_ProfileSwitching(t *testing.T) {
 			LLMProvider: "openai-default",
 		},
 		Voice: profiles.VoiceConfig{
-			LLMProviderID: "openai-default",
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: "openai-default"},
 		},
-		Interaction: profiles.InteractionConfig{
+		Input: profiles.InputConfig{
 			LLMProviderID: "openai-default",
 		},
 	}
@@ -108,9 +108,9 @@ func TestPhase8_ProfileSwitching(t *testing.T) {
 			LLMProvider: "anthropic-claude", // Claude para chat
 		},
 		Voice: profiles.VoiceConfig{
-			LLMProviderID: "openai-default", // OpenAI para TTS
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: "openai-default"}, // OpenAI para TTS
 		},
-		Interaction: profiles.InteractionConfig{
+		Input: profiles.InputConfig{
 			LLMProviderID: "openai-default", // OpenAI para STT
 		},
 	}
@@ -120,7 +120,7 @@ func TestPhase8_ProfileSwitching(t *testing.T) {
 	if chatProvider1 == nil || chatProvider1.ID != "openai-default" {
 		t.Error("Profile 1: Chat provider incorreto")
 	}
-	voiceProvider1 := llmRegistry.Get(profile1.Voice.LLMProviderID)
+	voiceProvider1 := llmRegistry.Get(profile1.Voice.Assistant.LLMProviderID)
 	if voiceProvider1 == nil || voiceProvider1.ID != "openai-default" {
 		t.Error("Profile 1: Voice provider incorreto")
 	}
@@ -130,13 +130,13 @@ func TestPhase8_ProfileSwitching(t *testing.T) {
 	if chatProvider2 == nil || chatProvider2.ID != "anthropic-claude" {
 		t.Error("Profile 2: Chat provider deveria ser Claude")
 	}
-	voiceProvider2 := llmRegistry.Get(profile2.Voice.LLMProviderID)
+	voiceProvider2 := llmRegistry.Get(profile2.Voice.Assistant.LLMProviderID)
 	if voiceProvider2 == nil || voiceProvider2.ID != "openai-default" {
 		t.Error("Profile 2: Voice provider deveria ser OpenAI")
 	}
 
 	// VERIFICAÇÃO CRÍTICA: Chat e Voice são DIFERENTES
-	if profile2.Chat.LLMProvider == profile2.Voice.LLMProviderID {
+	if profile2.Chat.LLMProvider == profile2.Voice.Assistant.LLMProviderID {
 		t.Error("FALHOU: Chat e Voice deveriam usar providers DIFERENTES no Profile 2")
 	}
 
@@ -264,9 +264,9 @@ func TestPhase8_RealWorldScenarios(t *testing.T) {
 					LLMProvider: scenario.chatProvider,
 				},
 				Voice: profiles.VoiceConfig{
-					LLMProviderID: scenario.ttsProvider,
+					Assistant: profiles.VoiceRoleConfig{LLMProviderID: scenario.ttsProvider},
 				},
-				Interaction: profiles.InteractionConfig{
+				Input: profiles.InputConfig{
 					LLMProviderID: scenario.sttProvider,
 				},
 			}
@@ -277,14 +277,14 @@ func TestPhase8_RealWorldScenarios(t *testing.T) {
 				t.Errorf("Chat provider '%s' não encontrado", profile.Chat.LLMProvider)
 			}
 
-			ttsProv := llmRegistry.Get(profile.Voice.LLMProviderID)
+			ttsProv := llmRegistry.Get(profile.Voice.Assistant.LLMProviderID)
 			if ttsProv == nil {
-				t.Errorf("TTS provider '%s' não encontrado", profile.Voice.LLMProviderID)
+				t.Errorf("TTS provider '%s' não encontrado", profile.Voice.Assistant.LLMProviderID)
 			}
 
-			sttProv := llmRegistry.Get(profile.Interaction.LLMProviderID)
+			sttProv := llmRegistry.Get(profile.Input.LLMProviderID)
 			if sttProv == nil {
-				t.Errorf("STT provider '%s' não encontrado", profile.Interaction.LLMProviderID)
+				t.Errorf("STT provider '%s' não encontrado", profile.Input.LLMProviderID)
 			}
 
 			t.Logf("✓ %s: %s", scenario.name, scenario.description)
