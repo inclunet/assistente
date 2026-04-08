@@ -6,6 +6,11 @@ import "assistente/internal/database"
 // para que os chamadores não precisem importar o pacote de infraestrutura diretamente.
 type MessageOptions = database.MessageOptions
 
+// ErrConversationDeleted e ErrParentMessageDeleted são re-exportados aqui como erros de
+// domínio do pacote chat, para que os chamadores não precisem importar internal/database.
+var ErrConversationDeleted = database.ErrConversationDeleted
+var ErrParentMessageDeleted = database.ErrParentMessageDeleted
+
 // MessageRepository abstrai operações de persistência de mensagens e stats de tokens.
 // Implementado por DBMessageStore; pode ser mockado em testes.
 type MessageRepository interface {

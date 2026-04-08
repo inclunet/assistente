@@ -34,15 +34,10 @@ func (h *appStreamHandler) OnError(err string) {
 	})
 }
 
-// OnToolCalls é chamado quando o LLM solicita execução de ferramentas.
-// Por enquanto (antes do agentic loop), loga e emite como done.
-// Será substituído pelo agentic loop na Fase 5.
+// OnToolCalls é o fallback de segurança para quando o streaming simples (sem agentic loop)
+// recebe tool calls inesperadamente. Delega para OnDone preservando a resposta textual.
 func (h *appStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
-	fmt.Printf("🔧 [TOOL_CALLS] LLM solicitou %d ferramentas (ainda não implementado)\n", len(calls))
-	for _, call := range calls {
-		fmt.Printf("   - %s(%s)\n", call.Function.Name, call.Function.Arguments)
-	}
-	// Delega para OnDone até o agentic loop ser implementado
+	log.Printf("[TOOL_CALLS] recebido %d tool calls no streaming simples — delegando para OnDone", len(calls))
 	h.OnDone(fullResponse, usage, model)
 }
 
@@ -84,13 +79,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 		return
 	}
 	if err != nil {
-		fmt.Printf("❌ Erro ao salvar resposta do assistant: %v\n", err)
-	} else if savedMsgID > 0 {
-		if accumulatedReasoning != "" {
-			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0) com %d chars de reasoning\n", savedMsgID, len(accumulatedReasoning))
-		} else {
-			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", savedMsgID)
-		}
+		log.Printf("[Stream] erro ao salvar resposta do assistant: %v", err)
 	}
 
 	// Notifica o gateway de mensageria (se há callbacks pendentes para esta conversa)
@@ -150,6 +139,8 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 	})
 
 	if stats.IsCritical {
+		log.Printf("[Context] conversa %d em CRÍTICO: %0.1f%% (%d/%d tokens)",
+			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 		h.emitter.Emit("chat:context_warning", map[string]interface{}{
 			"conversationId": h.conversationID,
 			"level":          "critical",
@@ -159,9 +150,9 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 			"totalTokens":  stats.TotalTokens,
 			"contextLimit": stats.ContextLimit,
 		})
-		fmt.Printf("⚠️  [CONTEXT] Conversa %d em nível CRÍTICO: %0.1f%% (%d/%d tokens)\n",
-			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 	} else if stats.IsNearLimit {
+		log.Printf("[Context] conversa %d próxima do limite: %0.1f%% (%d/%d tokens)",
+			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 		h.emitter.Emit("chat:context_warning", map[string]interface{}{
 			"conversationId": h.conversationID,
 			"level":          "warning",
@@ -171,7 +162,5 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 			"totalTokens":  stats.TotalTokens,
 			"contextLimit": stats.ContextLimit,
 		})
-		fmt.Printf("⚠️  [CONTEXT] Conversa %d próxima do limite: %0.1f%% (%d/%d tokens)\n",
-			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 	}
 }

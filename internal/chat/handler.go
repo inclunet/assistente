@@ -2,9 +2,7 @@ package chat
 
 import (
 	"errors"
-	"fmt"
-
-	"assistente/internal/database"
+	"log"
 )
 
 // ErrConversationGone é retornado por SaveAssistantMessage quando a conversa ou
@@ -22,8 +20,8 @@ func SaveAssistantMessage(msgRepo MessageRepository, opts MessageOptions) (uint,
 
 	msg, err := msgRepo.CreateMessage(opts)
 	if err != nil {
-		if errors.Is(err, database.ErrConversationDeleted) || errors.Is(err, database.ErrParentMessageDeleted) {
-			fmt.Printf("🛑 Conversa %d foi deletada/limpa — abortando processamento\n", opts.ConversationID)
+		if errors.Is(err, ErrConversationDeleted) || errors.Is(err, ErrParentMessageDeleted) {
+			log.Printf("[Chat] conversa %d deletada — abortando processamento", opts.ConversationID)
 			return 0, ErrConversationGone
 		}
 		return 0, err

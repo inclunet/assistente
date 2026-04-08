@@ -172,7 +172,7 @@ func validateQuestions(questions []questionnaire.Question) error {
 	for _, q := range questions {
 		id := strings.TrimSpace(q.ID)
 		if id == "" {
-			return fmt.Errorf("Pergunta sem id: todo item em 'questions' precisa de id")
+			return fmt.Errorf("pergunta sem id: todo item em 'questions' precisa de id")
 		}
 		if _, ok := seen[id]; ok {
 			duplicates = append(duplicates, id)
@@ -182,14 +182,14 @@ func validateQuestions(questions []questionnaire.Question) error {
 
 		qType := strings.TrimSpace(q.Type)
 		if !allowedTypes[qType] {
-			return fmt.Errorf("Tipo de pergunta inválido '%s' (id: %s)", q.Type, id)
+			return fmt.Errorf("tipo de pergunta inválido '%s' (id: %s)", q.Type, id)
 		}
 		if strings.TrimSpace(q.Prompt) == "" {
-			return fmt.Errorf("Pergunta sem prompt (id: %s)", id)
+			return fmt.Errorf("pergunta sem prompt (id: %s)", id)
 		}
 		if qType == "single_choice" || qType == "multiple_choice" {
 			if len(q.Options) == 0 {
-				return fmt.Errorf("Pergunta '%s' precisa de opções em 'options'", id)
+				return fmt.Errorf("pergunta '%s' precisa de opções em 'options'", id)
 			}
 		}
 		if qType == "readonly_code" {
@@ -197,13 +197,13 @@ func validateQuestions(questions []questionnaire.Question) error {
 			continue
 		}
 		if qType == "number" && q.Min != nil && q.Max != nil && *q.Min > *q.Max {
-			return fmt.Errorf("Pergunta '%s' tem min maior que max", id)
+			return fmt.Errorf("pergunta '%s' tem min maior que max", id)
 		}
 	}
 
 	if len(duplicates) > 0 {
 		sort.Strings(duplicates)
-		return fmt.Errorf("Ids de perguntas duplicados: %s", strings.Join(duplicates, ", "))
+		return fmt.Errorf("ids de perguntas duplicados: %s", strings.Join(duplicates, ", "))
 	}
 
 	return nil

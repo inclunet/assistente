@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"assistente/internal/chat"
 	"assistente/internal/config"
@@ -58,30 +57,12 @@ func (a *App) GetMessages(conversationID uint, parentID *uint) ([]chat.MessageNo
 	for i, msg := range messages {
 		msgIDs[i] = msg.ID
 	}
-
 	childCounts, err := database.CountChildren(msgIDs)
 	if err != nil {
 		childCounts = make(map[uint]int)
 	}
 
-	level := 0
-	if parentID != nil {
-		level = 1
-	}
-
-	result := make([]chat.MessageNode, 0, len(messages))
-	for _, msg := range messages {
-		childCount := childCounts[msg.ID]
-		node := chat.MessageNode{
-			Message:    chat.EnrichMessage(msg),
-			Children:   nil,
-			Level:      level,
-			ChildCount: childCount,
-		}
-		result = append(result, node)
-	}
-
-	return result, nil
+	return chat.BuildMessageNodes(messages, childCounts, parentID), nil
 }
 
 // GetConversationInfo retorna apenas metadados da conversa (sem mensagens)
@@ -327,7 +308,4 @@ func (a *App) GetEffectiveModel() (string, error) {
 	return cfg.DefaultModel, nil
 }
 
-// ==================== Unused but kept for build compat ====================
 
-// Funcao auxiliar que nao referencia mais nada - usada apenas para evitar import nao usado
-var _ = log.Printf
