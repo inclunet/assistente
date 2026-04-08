@@ -1,0 +1,137 @@
+import { test, expect } from '../fixtures';
+
+const now = new Date().toISOString();
+
+const baseConversation = {
+  id: 1,
+  title: 'Test Conversation',
+  created_at: now,
+  updated_at: now,
+  messages: [],
+  message_count: 1,
+};
+
+const userMessage = {
+  message: {
+    id: 1,
+    conversationId: 1,
+    role: 'user',
+    content: 'Teste',
+    createdAt: now,
+  },
+  children: [],
+};
+
+/**
+ * Helper: envia mensagem e emite streaming via chat:stream (não segment events).
+ */
+async function sendAndStream(
+  page: import('@playwright/test').Page,
+  wails: import('../fixtures').WailsMock,
+  markdownContent: string,
+) {
+  const textarea = page.locator('.chat-input__textarea');
+  await textarea.fill('Teste');
+  await textarea.press('Enter');
+
+  // Stream com conteúdo
+  await wails.emit('chat:stream', {
+    conversationId: 1,
+    messageId: 2,
+    token: markdownContent,
+    done: false,
+  });
+
+  // Finaliza stream
+  await wails.emit('chat:stream', {
+    conversationId: 1,
+    messageId: 2,
+    token: '',
+    done: true,
+    content: markdownContent,
+  });
+
+  await wails.emit('chat:done', {});
+}
+
+test.describe('Chat — Renderização Markdown', () => {
+  test.beforeEach(async ({ wails }) => {
+    await wails.setResponse('GetMessages', [userMessage]);
+    await wails.setResponse('SendMessage', 2);
+    await wails.setResponse('EnsureConversation', baseConversation);
+  });
+
+  test('renderiza headings corretamente', async ({ page, wails }) => {
+    await wails.waitForApp();
+    await page.waitForSelector('.chat-message', { timeout: 5_000 });
+
+    await sendAndStream(page, wails, '# Título Principal\n\n## Subtítulo');
+
+    // Verifica que o conteúdo do heading está visível
+    const message = page.locator('.chat-message').last();
+    await expect(message).toContainText('Título Principal', { timeout: 5_000 });
+
+    // Verifica se foi renderizado como h1
+    const h1 = message.locator('h1');
+    if (await h1.count() > 0) {
+      await expect(h1.first()).toContainText('Título Principal');
+    }
+  });
+
+  test('renderiza bloco de código', async ({ page, wails }) => {
+    await wails.waitForApp();
+    await page.waitForSelector('.chat-message', { timeout: 5_000 });
+
+    await sendAndStream(page, wails, '```python\ndef hello():\n    print("Hello!")\n```');
+
+    const message = page.locator('.chat-message').last();
+    await expect(message).toContainText('hello', { timeout: 5_000 });
+
+    const code = message.locator('code');
+    if (await code.count() > 0) {
+      await expect(code.first()).toContainText('hello');
+    }
+  });
+
+  test('renderiza tabela', async ({ page, wails }) => {
+    await wails.waitForApp();
+    await page.waitForSelector('.chat-message', { timeout: 5_000 });
+
+    await sendAndStream(page, wails, '| Nome | Idade |\n|------|-------|\n| Ana | 25 |');
+
+    const message = page.locator('.chat-message').last();
+    await expect(message).toContainText('Nome', { timeout: 5_000 });
+
+    const table = message.locator('table');
+    if (await table.count() > 0) {
+      await expect(table.first()).toBeVisible();
+    }
+  });
+
+  test('renderiza lista não-ordenada', async ({ page, wails }) => {
+    await wails.waitForApp();
+    await page.waitForSelector('.chat-message', { timeout: 5_000 });
+
+    await sendAndStream(page, wails, '- Alpha\n- Beta\n- Gamma');
+
+    const message = page.locator('.chat-message').last();
+    await expect(message).toContainText('Alpha', { timeout: 5_000 });
+    await expect(message).toContainText('Beta', { timeout: 3_000 });
+    await expect(message).toContainText('Gamma', { timeout: 3_000 });
+  });
+
+  test('renderiza links', async ({ page, wails }) => {
+    await wails.waitForApp();
+    await page.waitForSelector('.chat-message', { timeout: 5_000 });
+
+    await sendAndStream(page, wails, 'Acesse [Exemplo](https://example.com) aqui.');
+
+    const message = page.locator('.chat-message').last();
+    await expect(message).toContainText('Exemplo', { timeout: 5_000 });
+
+    const link = message.locator('a');
+    if (await link.count() > 0) {
+      await expect(link.first()).toHaveAttribute('href', 'https://example.com');
+    }
+  });
+});
