@@ -39,6 +39,11 @@ Thumbs.db
 # Runtime config directory (criado na inicialização, não versionar)
 .assistente/
 
+# Playwright
+frontend/e2e-results/
+frontend/test-results/
+frontend/playwright-report/
+
 # Tilde directory (criado por engano quando ~ não é expandido no Windows)
 ~/
 
