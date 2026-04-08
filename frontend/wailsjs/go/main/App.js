@@ -894,6 +894,18 @@ export function StopSAPI5() {
   return window['go']['main']['App']['StopSAPI5']();
 }
 
+export function SIPActiveCalls() {
+  return window['go']['main']['App']['SIPActiveCalls']();
+}
+
+export function SIPCall(arg1) {
+  return window['go']['main']['App']['SIPCall'](arg1);
+}
+
+export function SIPHangup(arg1) {
+  return window['go']['main']['App']['SIPHangup'](arg1);
+}
+
 export function SubscribeToMCPResource(arg1, arg2) {
   return window['go']['main']['App']['SubscribeToMCPResource'](arg1, arg2);
 }

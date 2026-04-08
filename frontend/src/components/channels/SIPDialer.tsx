@@ -1,1 +1,139 @@
-    import { useState, useCallback, useEffect, useRef } from 'react';import { useTranslation } from 'react-i18next';import { SIPCall, SIPHangup, SIPActiveCalls } from '../../../wailsjs/go/main/App';import { sip } from '../../../wailsjs/go/models';import { Input, Button } from '../index';import { useAnnouncer } from '../../hooks/useAnnouncer';import './SIPDialer.css';interface SIPDialerProps {  /** Se o canal SIP est├í conectado */  connected: boolean;}export function SIPDialer({ connected }: SIPDialerProps) {  const { t } = useTranslation();  const { announce } = useAnnouncer();  const [number, setNumber] = useState('');  const [calling, setCalling] = useState(false);  const [calls, setCalls] = useState<sip.CallInfo[]>([]);  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);  const refreshCalls = useCallback(async () => {    try {      const active = await SIPActiveCalls();      setCalls(active || []);    } catch {      setCalls([]);    }  }, []);  // Poll chamadas ativas enquanto o dialer est├í montado e conectado  useEffect(() => {    if (!connected) {      setCalls([]);      return;    }    refreshCalls();    pollRef.current = setInterval(refreshCalls, 3000);    return () => {      if (pollRef.current) clearInterval(pollRef.current);    };  }, [connected, refreshCalls]);  const handleCall = useCallback(async () => {    if (!number.trim() || calling) return;    setCalling(true);    try {      await SIPCall(number.trim());      announce(t('channels.sip.callStarted', { number: number.trim() }));      setNumber('');      refreshCalls();    } catch (err) {      announce(t('channels.sip.callFailed', { error: String(err) }));    } finally {      setCalling(false);    }  }, [number, calling, announce, t, refreshCalls]);  const handleHangup = useCallback(async (callId: string) => {    try {      await SIPHangup(callId);      announce(t('channels.sip.callEnded'));      refreshCalls();    } catch (err) {      announce(t('channels.sip.hangupFailed', { error: String(err) }));    }  }, [announce, t, refreshCalls]);  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {    if (e.key === 'Enter' && !calling && number.trim()) {      handleCall();    }  }, [handleCall, calling, number]);  if (!connected) {    return (      <div className="sip-dialer sip-dialer--disabled" role="region" aria-label={t('channels.sip.dialer')}>        <h4 className="sip-dialer__title">{t('channels.sip.dialer')}</h4>        <p className="sip-dialer__hint">{t('channels.sip.notConnected')}</p>      </div>    );  }  return (    <div className="sip-dialer" role="region" aria-label={t('channels.sip.dialer')}>      <h4 className="sip-dialer__title">{t('channels.sip.dialer')}</h4>      <div className="sip-dialer__form">        <Input          label={t('channels.sip.dialNumber')}          value={number}          onChange={(e) => setNumber(e.target.value)}          onKeyDown={handleKeyDown}          placeholder={t('channels.sip.dialNumberPlaceholder')}          disabled={calling}          aria-label={t('channels.sip.dialNumber')}        />        <Button          variant="primary"          onClick={handleCall}          disabled={calling || !number.trim()}          aria-label={calling ? t('channels.sip.calling') : t('channels.sip.call')}        >          {calling ? t('channels.sip.calling') : t('channels.sip.call')}        </Button>      </div>      {calls.length > 0 && (        <div className="sip-dialer__calls">          <h5 className="sip-dialer__subtitle">{t('channels.sip.activeCalls')}</h5>          <ul className="sip-dialer__list" role="list">            {calls.map((call) => (              <li key={call.id} className="sip-dialer__call" role="listitem">                <span className="sip-dialer__call-info">                  <span className="sip-dialer__call-number">{call.callerId}</span>                  <span className="sip-dialer__call-state">{call.state}</span>                  <span className="sip-dialer__call-duration">{call.duration}</span>                </span>                <Button                  variant="danger"                  onClick={() => handleHangup(call.id)}                  aria-label={`${t('channels.sip.hangup')} ${call.callerId}`}                >                  {t('channels.sip.hangup')}                </Button>              </li>            ))}          </ul>        </div>      )}    </div>  );}
+import { useState, useCallback, useEffect, useRef } from 'react';
+import { useTranslation } from 'react-i18next';
+import { SIPCall, SIPHangup, SIPActiveCalls } from '../../../wailsjs/go/main/App';
+import { sip } from '../../../wailsjs/go/models';
+import { Input, Button } from '../index';
+import { useAnnouncer } from '../../hooks/useAnnouncer';
+import './SIPDialer.css';
+
+interface SIPDialerProps {
+  /** Se o canal SIP está conectado */
+  connected: boolean;
+}
+
+export function SIPDialer({ connected }: SIPDialerProps) {
+  const { t } = useTranslation();
+  const { announce } = useAnnouncer();
+  const [number, setNumber] = useState('');
+  const [calling, setCalling] = useState(false);
+  const [calls, setCalls] = useState<sip.CallInfo[]>([]);
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  const refreshCalls = useCallback(async () => {
+    try {
+      const active = await SIPActiveCalls();
+      setCalls(active || []);
+    } catch {
+      setCalls([]);
+    }
+  }, []);
+
+  // Poll chamadas ativas enquanto o dialer está montado e conectado
+  useEffect(() => {
+    if (!connected) {
+      setCalls([]);
+      return;
+    }
+    refreshCalls();
+    pollRef.current = setInterval(refreshCalls, 3000);
+    return () => {
+      if (pollRef.current) clearInterval(pollRef.current);
+    };
+  }, [connected, refreshCalls]);
+
+  const handleCall = useCallback(async () => {
+    if (!number.trim() || calling) return;
+    setCalling(true);
+    try {
+      await SIPCall(number.trim());
+      announce(t('channels.sip.callStarted', { number: number.trim() }));
+      setNumber('');
+      refreshCalls();
+    } catch (err) {
+      announce(t('channels.sip.callFailed', { error: String(err) }));
+    } finally {
+      setCalling(false);
+    }
+  }, [number, calling, announce, t, refreshCalls]);
+
+  const handleHangup = useCallback(async (callId: string) => {
+    try {
+      await SIPHangup(callId);
+      announce(t('channels.sip.callEnded'));
+      refreshCalls();
+    } catch (err) {
+      announce(t('channels.sip.hangupFailed', { error: String(err) }));
+    }
+  }, [announce, t, refreshCalls]);
+
+  const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !calling && number.trim()) {
+      handleCall();
+    }
+  }, [handleCall, calling, number]);
+
+  if (!connected) {
+    return (
+      <div
+        className="sip-dialer sip-dialer--disabled"
+        role="region"
+        aria-label={t('channels.sip.dialer')}
+      >
+        <h4 className="sip-dialer__title">{t('channels.sip.dialer')}</h4>
+        <p className="sip-dialer__hint">{t('channels.sip.notConnected')}</p>
+      </div>
+    );
+  }
+
+  return (
+    <div
+      className="sip-dialer"
+      role="region"
+      aria-label={t('channels.sip.dialer')}
+    >
+      <h4 className="sip-dialer__title">{t('channels.sip.dialer')}</h4>
+      <div className="sip-dialer__form">
+        <Input
+          label={t('channels.sip.dialNumber')}
+          value={number}
+          onChange={(e) => setNumber(e.target.value)}
+          onKeyDown={handleKeyDown}
+          placeholder={t('channels.sip.dialNumberPlaceholder')}
+          disabled={calling}
+          aria-label={t('channels.sip.dialNumber')}
+        />
+        <Button
+          variant="primary"
+          onClick={handleCall}
+          disabled={calling || !number.trim()}
+          aria-label={calling ? t('channels.sip.calling') : t('channels.sip.call')}
+        >
+          {calling ? t('channels.sip.calling') : t('channels.sip.call')}
+        </Button>
+      </div>
+      {calls.length > 0 && (
+        <div className="sip-dialer__calls">
+          <h5 className="sip-dialer__subtitle">{t('channels.sip.activeCalls')}</h5>
+          <ul className="sip-dialer__list" role="list">
+            {calls.map((call) => (
+              <li key={call.id} className="sip-dialer__call" role="listitem">
+                <span className="sip-dialer__call-info">
+                  <span className="sip-dialer__call-number">{call.callerId}</span>
+                  <span className="sip-dialer__call-state">{call.state}</span>
+                  <span className="sip-dialer__call-duration">{call.duration}</span>
+                </span>
+                <Button
+                  variant="danger"
+                  onClick={() => handleHangup(call.id)}
+                  aria-label={`${t('channels.sip.hangup')} ${call.callerId}`}
+                >
+                  {t('channels.sip.hangup')}
+                </Button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
