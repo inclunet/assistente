@@ -43,6 +43,11 @@ export interface TaskNote {
   content: string;
   authorName?: string;
   authorId?: string;
+  /** Sistema externo de origem (ex.: jira), quando a nota veio de sync */
+  source?: string;
+  externalId?: string;
+  externalParentId?: string;
+  externalUpdatedAt?: string;
   createdAt: string;
   updatedAt: string;
 }
@@ -75,13 +80,25 @@ export interface Task {
 
 export type ViewMode = 'list' | 'kanban';
 
+/** Regras opcionais por lista (espelha TaskListValidationPolicy no backend). */
+export interface TaskListValidationPolicy {
+  task_code_regex?: string;
+  allowed_note_sources?: string[];
+  note_external_id_regex?: string;
+  note_external_parent_id_regex?: string;
+}
+
 export interface TaskList {
   id: number;
   title: string;
+  /** Slug estável (minúsculas), opcional */
+  slug?: string;
   description: string;
   preferredViewMode: ViewMode;
   createdAt: string;
   updatedAt: string;
+  /** Política opcional de validação (JSON); ausente = sem restrições extras */
+  validationPolicy?: TaskListValidationPolicy;
   
   // Relações
   workflow?: TaskListWorkflow;

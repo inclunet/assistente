@@ -420,6 +420,11 @@ export namespace database {
 	    content: string;
 	    author_name?: string;
 	    author_id?: string;
+	    source?: string;
+	    external_id?: string;
+	    external_parent_id?: string;
+	    // Go type: time
+	    external_updated_at?: any;
 	    // Go type: time
 	    created_at: any;
 	    // Go type: time
@@ -437,6 +442,10 @@ export namespace database {
 	        this.content = source["content"];
 	        this.author_name = source["author_name"];
 	        this.author_id = source["author_id"];
+	        this.source = source["source"];
+	        this.external_id = source["external_id"];
+	        this.external_parent_id = source["external_parent_id"];
+	        this.external_updated_at = this.convertValues(source["external_updated_at"], null);
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	    }
@@ -508,25 +517,29 @@ export namespace database {
 	export class TaskList {
 	    id: number;
 	    title: string;
+	    slug?: string;
 	    description: string;
 	    preferred_view_mode: string;
+	    validation_policy?: string;
 	    // Go type: time
 	    created_at: any;
 	    // Go type: time
 	    updated_at: any;
 	    workflow?: TaskListWorkflow;
 	    tasks?: Task[];
-	
+
 	    static createFrom(source: any = {}) {
 	        return new TaskList(source);
 	    }
-	
+
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
+	        this.slug = source["slug"];
 	        this.description = source["description"];
 	        this.preferred_view_mode = source["preferred_view_mode"];
+	        this.validation_policy = source["validation_policy"];
 	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.workflow = this.convertValues(source["workflow"], TaskListWorkflow);

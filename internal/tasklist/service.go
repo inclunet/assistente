@@ -32,8 +32,8 @@ func NewService(cfg ServiceConfig) *Service {
 // ── Task List ──────────────────────────────────────────────────────────────────
 
 // CreateTaskList cria uma nova lista e recarrega o registro completo.
-func (s *Service) CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
-	tl, err := s.store.CreateTaskList(title, description, templateWorkflow)
+func (s *Service) CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
+	tl, err := s.store.CreateTaskList(title, description, templateWorkflow, slug)
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +65,16 @@ func (s *Service) UpdateTaskList(id uint, title, description string) error {
 	return nil
 }
 
-func (s *Service) UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
-	return s.store.UpdateTaskListFull(id, title, description, preferredViewMode)
+func (s *Service) UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error {
+	return s.store.UpdateTaskListFull(id, title, description, preferredViewMode, slug)
+}
+
+func (s *Service) ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error) {
+	return s.store.ResolveTaskListRef(taskListID, taskListSlug)
+}
+
+func (s *Service) SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
+	return s.store.SetTaskListValidationPolicy(taskListID, policyJSON)
 }
 
 func (s *Service) SetTaskListViewMode(id uint, viewMode string) error {
@@ -199,6 +207,10 @@ func (s *Service) FindTaskByCode(taskListID uint, code string) (*database.Task, 
 	return s.store.FindTaskByCode(taskListID, code)
 }
 
+func (s *Service) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error) {
+	return s.store.ResolveTaskRef(taskListID, taskListSlug, taskID, code)
+}
+
 func (s *Service) UpdateTask(id uint, title, description, code, link string) error {
 	if err := s.store.UpdateTask(id, title, description, code, link); err != nil {
 		return err
@@ -321,6 +333,19 @@ func (s *Service) CreateTaskNote(taskID uint, noteType int, content, authorName,
 	}
 	s.emitter.Emit("taskNote:created", note)
 	return note, nil
+}
+
+func (s *Service) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
+	note, created, err := s.store.UpsertTaskNoteByExternal(p)
+	if err != nil {
+		return nil, false, err
+	}
+	if created {
+		s.emitter.Emit("taskNote:created", note)
+	} else {
+		s.emitter.Emit("taskNote:updated", note.ID)
+	}
+	return note, created, nil
 }
 
 func (s *Service) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {
