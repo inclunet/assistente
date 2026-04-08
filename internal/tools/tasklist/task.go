@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"assistente/internal/database"
 	"assistente/internal/tools"
@@ -256,6 +257,18 @@ func (t *TaskTool) readTask(taskID uint) (tools.ToolResult, error) {
 			}
 			if note.AuthorName != "" {
 				n["author"] = note.AuthorName
+			}
+			if note.ExternalSource != "" {
+				n["source"] = note.ExternalSource
+			}
+			if note.ExternalID != "" {
+				n["external_id"] = note.ExternalID
+			}
+			if note.ExternalParentID != "" {
+				n["external_parent_id"] = note.ExternalParentID
+			}
+			if note.ExternalUpdatedAt != nil {
+				n["external_updated_at"] = note.ExternalUpdatedAt.Format(time.RFC3339)
 			}
 			notesList[i] = n
 		}

@@ -139,8 +139,10 @@ type TaskList struct {
 	Title             string    `json:"title" gorm:"not null;index"`
 	Description       string    `json:"description" gorm:"type:text"`
 	PreferredViewMode string    `json:"preferred_view_mode" gorm:"default:'list'"` // 'list' ou 'kanban'
-	CreatedAt         time.Time `json:"created_at"`
-	UpdatedAt         time.Time `json:"updated_at"`
+	// ValidationPolicy: JSON opcional (TaskListValidationPolicy) — padrões para code de tasks e notas externas.
+	ValidationPolicy string `json:"validation_policy,omitempty" gorm:"type:text"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
 
 	// Relacionamentos
 	Workflow *TaskListWorkflow `json:"workflow,omitempty" gorm:"foreignKey:TaskListID"`
@@ -193,9 +195,27 @@ type TaskNote struct {
 	Content    string       `json:"content" gorm:"type:text;not null"`
 	AuthorName string       `json:"author_name,omitempty" gorm:"size:200"` // Nome de exibição do autor da nota
 	AuthorID   string       `json:"author_id,omitempty" gorm:"size:200"`   // Identificador estável do autor (email, UUID, account ID externo)
-	CreatedAt  time.Time    `json:"created_at"`
-	UpdatedAt  time.Time    `json:"updated_at"`
+	// Origem externa (sync Jira/FSD/etc.): JSON usa "source"; coluna external_source evita ambiguidade com SQL reserved.
+	ExternalSource     string     `json:"source,omitempty" gorm:"column:external_source;size:64"`
+	ExternalID         string     `json:"external_id,omitempty" gorm:"size:256"`
+	ExternalParentID   string     `json:"external_parent_id,omitempty" gorm:"size:256"`
+	ExternalUpdatedAt  *time.Time `json:"external_updated_at,omitempty"`
+	CreatedAt          time.Time  `json:"created_at"`
+	UpdatedAt          time.Time  `json:"updated_at"`
 
 	Task *Task `json:"-" gorm:"foreignKey:TaskID"`
+}
+
+// UpsertTaskNoteByExternalParams descreve criação/atualização idempotente por (external_source, external_id).
+type UpsertTaskNoteByExternalParams struct {
+	TaskID              uint
+	Type                *TaskNoteType // obrigatório apenas na criação da nota
+	Content             string
+	AuthorName          string
+	AuthorID            string
+	ExternalSource      string
+	ExternalID          string
+	ExternalParentID    string
+	ExternalUpdatedAt   *time.Time
 }
 

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+	"time"
 
 	"assistente/internal/database"
 )
@@ -17,6 +18,7 @@ type fakeTaskListManager struct {
 	tasks          map[uint]*database.Task
 	workflows      map[uint]*database.TaskListWorkflow
 	notes          map[uint][]database.TaskNote
+	extNoteIndex   map[string]uint
 	nextListID     uint
 	nextTaskID     uint
 	nextNoteID     uint
@@ -36,13 +38,14 @@ type fakeTaskListManager struct {
 
 func newFakeManager() *fakeTaskListManager {
 	return &fakeTaskListManager{
-		taskLists:  make(map[uint]*database.TaskList),
-		tasks:      make(map[uint]*database.Task),
-		workflows:  make(map[uint]*database.TaskListWorkflow),
-		notes:      make(map[uint][]database.TaskNote),
-		nextListID: 1,
-		nextTaskID: 1,
-		nextNoteID: 1,
+		taskLists:    make(map[uint]*database.TaskList),
+		tasks:        make(map[uint]*database.Task),
+		workflows:    make(map[uint]*database.TaskListWorkflow),
+		notes:        make(map[uint][]database.TaskNote),
+		extNoteIndex: make(map[string]uint),
+		nextListID:   1,
+		nextTaskID:   1,
+		nextNoteID:   1,
 	}
 }
 
@@ -178,6 +181,10 @@ func (f *fakeTaskListManager) CreateTask(taskListID uint, title, description, co
 	if _, ok := f.taskLists[taskListID]; !ok {
 		return nil, fmt.Errorf("task list not found: %d", taskListID)
 	}
+	pol, _ := fakeListPolicy(f, taskListID)
+	if err := database.ValidateTaskCodeAgainstPolicy(code, pol); err != nil {
+		return nil, err
+	}
 	wf := f.workflows[taskListID]
 	task := f.addTask(taskListID, title, wf.InitialStatusID)
 	task.Description = description
@@ -226,6 +233,10 @@ func (f *fakeTaskListManager) UpdateTask(id uint, title, description, code, link
 	task, ok := f.tasks[id]
 	if !ok {
 		return fmt.Errorf("task not found: %d", id)
+	}
+	pol, _ := fakeListPolicy(f, task.TaskListID)
+	if err := database.ValidateTaskCodeAgainstPolicy(code, pol); err != nil {
+		return err
 	}
 	task.Title = title
 	task.Description = description
@@ -332,6 +343,12 @@ func (f *fakeTaskListManager) MoveTaskToList(taskID uint, targetTaskListID uint)
 	if !ok {
 		return nil, fmt.Errorf("task not found: %d", taskID)
 	}
+	if task.TaskListID != targetTaskListID {
+		pol, _ := fakeListPolicy(f, targetTaskListID)
+		if err := database.ValidateTaskCodeAgainstPolicy(task.Code, pol); err != nil {
+			return nil, err
+		}
+	}
 	wf, ok := f.workflows[targetTaskListID]
 	if !ok {
 		return nil, fmt.Errorf("workflow not found for task list: %d", targetTaskListID)
@@ -371,7 +388,76 @@ func (f *fakeTaskListManager) CreateTaskNote(taskID uint, noteType database.Task
 		AuthorID:   authorID,
 	}
 	f.notes[taskID] = append(f.notes[taskID], note)
-	return &note, nil
+	sl := f.notes[taskID]
+	return &sl[len(sl)-1], nil
+}
+
+func (f *fakeTaskListManager) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
+	if f.createNoteErr != nil {
+		return nil, false, f.createNoteErr
+	}
+	task, ok := f.tasks[p.TaskID]
+	if !ok {
+		return nil, false, fmt.Errorf("task not found: %d", p.TaskID)
+	}
+	src := strings.TrimSpace(p.ExternalSource)
+	ext := strings.TrimSpace(p.ExternalID)
+	if src == "" || ext == "" {
+		return nil, false, fmt.Errorf("external_source e external_id são obrigatórios")
+	}
+	pol, _ := fakeListPolicy(f, task.TaskListID)
+	if err := database.ValidateExternalNoteAgainstPolicy(src, ext, strings.TrimSpace(p.ExternalParentID), pol); err != nil {
+		return nil, false, err
+	}
+	key := src + "\x00" + ext
+
+	if noteID, ok := f.extNoteIndex[key]; ok {
+		for tid, notes := range f.notes {
+			for i := range notes {
+				if notes[i].ID != noteID {
+					continue
+				}
+				if tid != p.TaskID {
+					return nil, false, fmt.Errorf("nota com source=%q external_id=%q já existe na task %d; recusado vincular à task %d", src, ext, tid, p.TaskID)
+				}
+				n := &f.notes[tid][i]
+				n.Content = p.Content
+				n.AuthorName = strings.TrimSpace(p.AuthorName)
+				n.AuthorID = strings.TrimSpace(p.AuthorID)
+				n.ExternalSource = src
+				n.ExternalID = ext
+				n.ExternalParentID = strings.TrimSpace(p.ExternalParentID)
+				n.ExternalUpdatedAt = p.ExternalUpdatedAt
+				if p.Type != nil {
+					n.Type = *p.Type
+				}
+				return n, false, nil
+			}
+		}
+	}
+
+	if p.Type == nil {
+		return nil, false, fmt.Errorf("type é obrigatório ao criar nota externa nova")
+	}
+
+	id := f.nextNoteID
+	f.nextNoteID++
+	note := database.TaskNote{
+		ID:                  id,
+		TaskID:              p.TaskID,
+		Type:                *p.Type,
+		Content:             p.Content,
+		AuthorName:          strings.TrimSpace(p.AuthorName),
+		AuthorID:            strings.TrimSpace(p.AuthorID),
+		ExternalSource:      src,
+		ExternalID:          ext,
+		ExternalParentID:    strings.TrimSpace(p.ExternalParentID),
+		ExternalUpdatedAt:   p.ExternalUpdatedAt,
+	}
+	f.notes[p.TaskID] = append(f.notes[p.TaskID], note)
+	f.extNoteIndex[key] = id
+	sl := f.notes[p.TaskID]
+	return &sl[len(sl)-1], true, nil
 }
 
 func (f *fakeTaskListManager) UpdateTaskNote(noteID uint, content string) error {
@@ -415,6 +501,29 @@ func (f *fakeTaskListManager) UpdateTaskListFull(id uint, title, description, pr
 		tl.PreferredViewMode = preferredViewMode
 	}
 	return nil
+}
+
+func (f *fakeTaskListManager) SetTaskListValidationPolicy(id uint, policyJSON string) error {
+	tl, ok := f.taskLists[id]
+	if !ok {
+		return fmt.Errorf("task list not found: %d", id)
+	}
+	s := strings.TrimSpace(policyJSON)
+	if s != "" {
+		if _, err := database.ParseTaskListValidationPolicyJSON(s); err != nil {
+			return err
+		}
+	}
+	tl.ValidationPolicy = s
+	return nil
+}
+
+func fakeListPolicy(f *fakeTaskListManager, taskListID uint) (*database.TaskListValidationPolicy, error) {
+	tl, ok := f.taskLists[taskListID]
+	if !ok {
+		return nil, fmt.Errorf("task list not found: %d", taskListID)
+	}
+	return database.ParseTaskListValidationPolicyJSON(tl.ValidationPolicy)
 }
 
 func (f *fakeTaskListManager) UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
@@ -1170,7 +1279,7 @@ func TestUpsertTask_DeleteAndDuplicate_Error(t *testing.T) {
 func TestUpsertTaskNote_Name(t *testing.T) {
 	tool := NewTaskNote(nil)
 	if tool.Name() != "task_note" {
-		t.Fatalf("expected 'upsert_task_note', got '%s'", tool.Name())
+		t.Fatalf("expected 'task_note', got '%s'", tool.Name())
 	}
 }
 
@@ -1384,6 +1493,201 @@ func TestUpsertTaskNote_CreateWithoutType_Error(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "type is required") {
 		t.Errorf("expected 'type is required', got: %s", result.Content)
+	}
+}
+
+func TestUpsertTaskNote_ExternalIdempotentTwice(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task", 1)
+	tool := NewTaskNote(mgr)
+
+	base := map[string]any{
+		"task_id":              task.ID,
+		"type":                 2,
+		"source":               "jira",
+		"external_id":          "comment-98765",
+		"external_parent_id":   "FSD-123",
+		"author_name":          "Fulano",
+		"author_id":            "abc",
+		"content":              "Comentário vindo do Jira",
+		"external_updated_at":  "2026-04-08T12:00:00Z",
+	}
+	r1, err := tool.Execute(context.Background(), mustMarshal(t, base))
+	if err != nil || r1.IsError {
+		t.Fatalf("first upsert: %v %s", err, r1.Content)
+	}
+	id1 := metadataNoteID(t, r1.Metadata)
+	if id1 == 0 {
+		t.Fatalf("expected note_id in metadata: %#v", r1.Metadata)
+	}
+	if r1.Metadata["action"] != "created" {
+		t.Fatalf("expected created, got %#v", r1.Metadata)
+	}
+
+	base["content"] = "Comentário vindo do Jira (editado)"
+	r2, err := tool.Execute(context.Background(), mustMarshal(t, base))
+	if err != nil || r2.IsError {
+		t.Fatalf("second upsert: %v %s", err, r2.Content)
+	}
+	id2 := metadataNoteID(t, r2.Metadata)
+	if id1 != id2 {
+		t.Fatalf("expected same note id, got %v then %v", id1, id2)
+	}
+	if r2.Metadata["action"] != "updated" {
+		t.Fatalf("expected updated, got %#v", r2.Metadata)
+	}
+	notes, _ := mgr.GetTaskNotes(task.ID)
+	if len(notes) != 1 {
+		t.Fatalf("expected 1 note, got %d", len(notes))
+	}
+	if notes[0].Content != "Comentário vindo do Jira (editado)" {
+		t.Fatalf("content: %q", notes[0].Content)
+	}
+}
+
+func TestUpsertTaskNote_ExternalUpdateWithoutType(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task", 1)
+	tool := NewTaskNote(mgr)
+
+	_, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task.ID, "type": 1, "content": "v1",
+		"source": "jira", "external_id": "c1",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task.ID, "content": "v2",
+		"source": "jira", "external_id": "c1",
+	}))
+	if err != nil || r2.IsError {
+		t.Fatalf("update without type: %v %s", err, r2.Content)
+	}
+	notes, _ := mgr.GetTaskNotes(task.ID)
+	if len(notes) != 1 || notes[0].Content != "v2" {
+		t.Fatalf("notes: %+v", notes)
+	}
+	if notes[0].Type != database.TaskNoteInternal {
+		t.Fatalf("type should stay internal, got %d", notes[0].Type)
+	}
+}
+
+func TestUpsertTaskNote_ExternalRequiresBothKeys(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task", 1)
+	tool := NewTaskNote(mgr)
+
+	r, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task.ID, "type": 1, "content": "x",
+		"source": "jira",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.IsError || !strings.Contains(r.Content, "both source and external_id") {
+		t.Fatalf("expected both keys error, got: %s", r.Content)
+	}
+}
+
+func TestUpsertTaskNote_ExternalConflictDifferentTask(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task1 := mgr.addTask(tl.ID, "T1", 1)
+	task2 := mgr.addTask(tl.ID, "T2", 1)
+	tool := NewTaskNote(mgr)
+
+	_, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task1.ID, "type": 1, "content": "on t1",
+		"source": "jira", "external_id": "same",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	r2, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id": task2.ID, "type": 1, "content": "on t2",
+		"source": "jira", "external_id": "same",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r2.IsError || !strings.Contains(r2.Content, "já existe") {
+		t.Fatalf("expected conflict error, got: %s", r2.Content)
+	}
+}
+
+func TestTask_ReadNotesIncludeExternalFields(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task := mgr.addTask(tl.ID, "Task", 1)
+	ts := time.Date(2026, 4, 8, 15, 30, 0, 0, time.UTC)
+	_, _, _ = mgr.UpsertTaskNoteByExternal(database.UpsertTaskNoteByExternalParams{
+		TaskID:            task.ID,
+		Type:              ptrTaskNoteType(database.TaskNoteCustomer),
+		Content:           "synced",
+		ExternalSource:    "jira",
+		ExternalID:        "c-1",
+		ExternalParentID:  "FSD-9",
+		ExternalUpdatedAt: &ts,
+	})
+
+	tool := NewTask(mgr)
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{"task_id": task.ID}))
+	if err != nil || result.IsError {
+		t.Fatalf("read: %v %s", err, result.Content)
+	}
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(result.Content), &payload); err != nil {
+		t.Fatal(err)
+	}
+	rawNotes, ok := payload["notes"].([]any)
+	if !ok || len(rawNotes) != 1 {
+		t.Fatalf("notes: %#v", payload["notes"])
+	}
+	n := rawNotes[0].(map[string]any)
+	if n["source"] != "jira" || n["external_id"] != "c-1" || n["external_parent_id"] != "FSD-9" {
+		t.Fatalf("unexpected note fields: %#v", n)
+	}
+	if n["external_updated_at"] != ts.Format(time.RFC3339) {
+		t.Fatalf("external_updated_at: %#v", n["external_updated_at"])
+	}
+}
+
+func ptrTaskNoteType(t database.TaskNoteType) *database.TaskNoteType {
+	return &t
+}
+
+func metadataNoteID(t *testing.T, md map[string]any) uint {
+	t.Helper()
+	v, ok := md["note_id"]
+	if !ok {
+		return 0
+	}
+	switch x := v.(type) {
+	case uint:
+		return x
+	case uint32:
+		return uint(x)
+	case uint64:
+		return uint(x)
+	case int:
+		if x < 0 {
+			return 0
+		}
+		return uint(x)
+	case int64:
+		if x < 0 {
+			return 0
+		}
+		return uint(x)
+	case float64:
+		return uint(x)
+	default:
+		t.Fatalf("unexpected note_id type %T in metadata", v)
+		return 0
 	}
 }
 

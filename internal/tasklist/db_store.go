@@ -30,6 +30,10 @@ func (s *DBStore) UpdateTaskListFull(id uint, title, description, preferredViewM
 	return database.UpdateTaskListFull(id, title, description, preferredViewMode)
 }
 
+func (s *DBStore) SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
+	return database.SetTaskListValidationPolicy(taskListID, policyJSON)
+}
+
 func (s *DBStore) SetTaskListViewMode(id uint, viewMode string) error {
 	return database.SetTaskListViewMode(id, viewMode)
 }
@@ -150,6 +154,10 @@ func (s *DBStore) GetSubtasks(parentID uint) ([]database.Task, error) {
 
 func (s *DBStore) CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
 	return database.CreateTaskNote(taskID, noteType, content, authorName, authorID)
+}
+
+func (s *DBStore) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
+	return database.UpsertTaskNoteByExternal(p)
 }
 
 func (s *DBStore) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {

@@ -36,6 +36,7 @@ import type {
   TaskNote,
   TaskNoteType,
   TaskListWithWorkflow,
+  TaskListValidationPolicy,
   ViewMode,
   TaskListWorkflow,
   TaskListWorkflowStatus,
@@ -74,6 +75,7 @@ function normalizeTask(raw: unknown): Task {
 
 function normalizeTaskNote(raw: unknown): TaskNote {
   const r = raw as Record<string, unknown>;
+  const extUpd = r.externalUpdatedAt ?? r.external_updated_at;
   return {
     id: r.id as number,
     taskId: (r.taskId ?? r.task_id) as number,
@@ -81,6 +83,10 @@ function normalizeTaskNote(raw: unknown): TaskNote {
     content: (r.content ?? '') as string,
     authorName: (r.authorName ?? r.author_name ?? '') as string || undefined,
     authorId: (r.authorId ?? r.author_id ?? '') as string || undefined,
+    source: (r.source ?? r.external_source ?? '') as string || undefined,
+    externalId: (r.externalId ?? r.external_id ?? '') as string || undefined,
+    externalParentId: (r.externalParentId ?? r.external_parent_id ?? '') as string || undefined,
+    externalUpdatedAt: typeof extUpd === 'string' ? extUpd : extUpd != null ? String(extUpd) : undefined,
     createdAt: (r.createdAt ?? r.created_at ?? '') as string,
     updatedAt: (r.updatedAt ?? r.updated_at ?? '') as string,
   };
@@ -123,6 +129,18 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
   const rawTasks = r.tasks;
   const normalizedTasks = Array.isArray(rawTasks) ? rawTasks.map(normalizeTask) : [];
 
+  let validationPolicy: TaskListValidationPolicy | undefined;
+  const vpRaw = r.validationPolicy ?? r.validation_policy;
+  if (typeof vpRaw === 'string' && vpRaw.trim()) {
+    try {
+      validationPolicy = JSON.parse(vpRaw) as TaskListValidationPolicy;
+    } catch {
+      validationPolicy = undefined;
+    }
+  } else if (vpRaw && typeof vpRaw === 'object') {
+    validationPolicy = vpRaw as TaskListValidationPolicy;
+  }
+
   return {
     id: r.id as number,
     title: (r.title ?? '') as string,
@@ -130,6 +148,7 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
     preferredViewMode: ((r.preferredViewMode ?? r.preferred_view_mode) || 'list') as ViewMode,
     createdAt: (r.createdAt ?? r.created_at ?? '') as string,
     updatedAt: (r.updatedAt ?? r.updated_at ?? '') as string,
+    validationPolicy,
     workflow: normalizedWorkflow,
     tasks: normalizedTasks,
   };

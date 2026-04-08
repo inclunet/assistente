@@ -69,6 +69,10 @@ func (s *Service) UpdateTaskListFull(id uint, title, description, preferredViewM
 	return s.store.UpdateTaskListFull(id, title, description, preferredViewMode)
 }
 
+func (s *Service) SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
+	return s.store.SetTaskListValidationPolicy(taskListID, policyJSON)
+}
+
 func (s *Service) SetTaskListViewMode(id uint, viewMode string) error {
 	if err := s.store.SetTaskListViewMode(id, viewMode); err != nil {
 		return err
@@ -321,6 +325,19 @@ func (s *Service) CreateTaskNote(taskID uint, noteType int, content, authorName,
 	}
 	s.emitter.Emit("taskNote:created", note)
 	return note, nil
+}
+
+func (s *Service) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
+	note, created, err := s.store.UpsertTaskNoteByExternal(p)
+	if err != nil {
+		return nil, false, err
+	}
+	if created {
+		s.emitter.Emit("taskNote:created", note)
+	} else {
+		s.emitter.Emit("taskNote:updated", note.ID)
+	}
+	return note, created, nil
 }
 
 func (s *Service) GetTaskNotes(taskID uint) ([]database.TaskNote, error) {

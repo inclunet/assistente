@@ -42,6 +42,9 @@ func (m *serviceTaskListManager) GetTaskListStats(taskListID uint) (map[string]i
 func (m *serviceTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
 	return m.svc.UpdateTaskListFull(id, title, description, preferredViewMode)
 }
+func (m *serviceTaskListManager) SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
+	return m.svc.SetTaskListValidationPolicy(taskListID, policyJSON)
+}
 func (m *serviceTaskListManager) UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error {
 	return m.svc.UpdateWorkflowFull(taskListID, statuses, transitions, initialStatusID, statusMigration)
 }
@@ -79,6 +82,9 @@ func (m *serviceTaskListManager) GetWorkflow(taskListID uint) (*database.TaskLis
 }
 func (m *serviceTaskListManager) CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error) {
 	return m.svc.CreateTaskNote(taskID, int(noteType), content, authorName, authorID)
+}
+func (m *serviceTaskListManager) UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error) {
+	return m.svc.UpsertTaskNoteByExternal(p)
 }
 func (m *serviceTaskListManager) UpdateTaskNote(noteID uint, content string) error {
 	return m.svc.UpdateTaskNote(noteID, content)

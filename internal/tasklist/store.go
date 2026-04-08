@@ -11,6 +11,7 @@ type TaskListRepository interface {
 	GetAllTaskLists() ([]database.TaskList, error)
 	UpdateTaskList(id uint, title, description string) error
 	UpdateTaskListFull(id uint, title, description, preferredViewMode string) error
+	SetTaskListValidationPolicy(taskListID uint, policyJSON string) error
 	SetTaskListViewMode(id uint, viewMode string) error
 	CloneTaskList(id uint, newTitle string) (*database.TaskList, error)
 	ClearTaskList(id uint) error
@@ -46,6 +47,7 @@ type TaskListRepository interface {
 
 	// ── Task Note ─────────────────────────────────────────────────────────────
 	CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error)
+	UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error)
 	GetTaskNotes(taskID uint) ([]database.TaskNote, error)
 	GetTaskNote(noteID uint) (*database.TaskNote, error)
 	UpdateTaskNote(noteID uint, content string) error

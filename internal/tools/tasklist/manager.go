@@ -10,6 +10,7 @@ type TaskListManager interface {
 	GetAllTaskLists() ([]database.TaskList, error)
 	GetTaskListStats(taskListID uint) (map[string]interface{}, error)
 	UpdateTaskListFull(id uint, title, description, preferredViewMode string) error
+	SetTaskListValidationPolicy(taskListID uint, policyJSON string) error
 	UpdateWorkflowFull(taskListID uint, statuses []database.TaskListWorkflowStatus, transitions database.TaskListWorkflowTransitions, initialStatusID int, statusMigration map[int]int) error
 	GetTaskCountsByStatus(taskListID uint) (map[int]int64, error)
 	CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*database.Task, error)
@@ -24,6 +25,7 @@ type TaskListManager interface {
 	DeleteTask(id uint) error
 	GetWorkflow(taskListID uint) (*database.TaskListWorkflow, error)
 	CreateTaskNote(taskID uint, noteType database.TaskNoteType, content, authorName, authorID string) (*database.TaskNote, error)
+	UpsertTaskNoteByExternal(p database.UpsertTaskNoteByExternalParams) (*database.TaskNote, bool, error)
 	UpdateTaskNote(noteID uint, content string) error
 	GetTaskNotes(taskID uint) ([]database.TaskNote, error)
 	GetTaskNote(noteID uint) (*database.TaskNote, error)

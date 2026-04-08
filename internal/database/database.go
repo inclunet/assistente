@@ -91,6 +91,8 @@ func Init() error {
 		return err
 	}
 
+	ensureTaskNoteExternalUniqueIndex()
+
 	// Migração: remover tabelas do editor (conteúdo migrado para arquivos em disco)
 	sqlDBRaw, _ := db.DB()
 	if sqlDBRaw != nil {
@@ -1163,4 +1165,20 @@ func GetDefaultProvider() (*LLMProvider, error) {
 		return nil, err
 	}
 	return &provider, nil
+}
+
+// ensureTaskNoteExternalUniqueIndex aplica índice único parcial em (external_source, external_id).
+//
+// Escolha de modelagem: chave única global por origem (sem task_id na unicidade), alinhada à
+// preferência de produto e ao padrão “ID estável no sistema remoto”. O mesmo comentário Jira
+// (por exemplo) deve mapear a no máximo uma TaskNote no app, impedindo duplicatas em re-syncs.
+// Notas manuais permanecem fora do índice (WHERE ambos os campos não vazios).
+//
+// Se a mesma referência externa for associada a outra task local, UpsertTaskNoteByExternal
+// retorna erro explícito em vez de duplicar linhas.
+func ensureTaskNoteExternalUniqueIndex() {
+	if db == nil {
+		return
+	}
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_notes_external_source_id ON task_notes (external_source, external_id) WHERE external_source <> '' AND external_id <> ''`)
 }

@@ -25,13 +25,14 @@ type workflowArg struct {
 }
 
 type taskListArgs struct {
-	TaskListID        *uint        `json:"task_list_id,omitempty"`
-	Duplicate         bool         `json:"duplicate,omitempty"`
-	SummaryOnly       bool         `json:"summary_only,omitempty"`
-	Title             string       `json:"title,omitempty"`
-	Description       string       `json:"description,omitempty"`
-	PreferredViewMode string       `json:"preferred_view_mode,omitempty"`
-	Workflow          *workflowArg `json:"workflow,omitempty"`
+	TaskListID         *uint           `json:"task_list_id,omitempty"`
+	Duplicate          bool            `json:"duplicate,omitempty"`
+	SummaryOnly        bool            `json:"summary_only,omitempty"`
+	Title              string          `json:"title,omitempty"`
+	Description        string          `json:"description,omitempty"`
+	PreferredViewMode  string          `json:"preferred_view_mode,omitempty"`
+	Workflow           *workflowArg    `json:"workflow,omitempty"`
+	ValidationPolicy   json.RawMessage `json:"validation_policy,omitempty"`
 }
 
 type TaskListTool struct {
@@ -45,7 +46,7 @@ func NewTaskList(mgr TaskListManager) *TaskListTool {
 func (t *TaskListTool) Name() string { return "task_list" }
 
 func (t *TaskListTool) Description() string {
-	return `Full CRUD for task lists. Without params → lists all. With task_list_id only → full details (tasks, workflow, status counts). With task_list_id + summary_only → lightweight status counts. With title (no task_list_id) → create. With task_list_id + title → update. With task_list_id + duplicate + title → copy (inherits description, view mode, workflow; tasks NOT copied). When updating a workflow with tasks on removed statuses, provide status_migration.`
+	return `Full CRUD for task lists. Without params → lists all. With task_list_id only → full details (tasks, workflow, status counts, optional validation_policy). With task_list_id + summary_only → lightweight status counts. With title (no task_list_id) → create. With task_list_id → update (title may be omitted to keep current title when changing only other fields). With task_list_id + duplicate + title → copy (inherits description, view mode, workflow, validation_policy; tasks NOT copied). Optional validation_policy object: task_code_regex, allowed_note_sources, note_external_id_regex, note_external_parent_id_regex — all optional; empty object clears rules. When updating a workflow with tasks on removed statuses, provide status_migration.`
 }
 
 func (t *TaskListTool) Parameters() json.RawMessage {
@@ -76,6 +77,20 @@ func (t *TaskListTool) Parameters() json.RawMessage {
 				"type": "string",
 				"enum": ["list", "kanban"],
 				"description": "View mode: 'list' or 'kanban'. Defaults to 'list' for new lists"
+			},
+			"validation_policy": {
+				"type": "object",
+				"description": "Optional per-list validation rules (JSON). Omit to leave unchanged on update. Use {} to clear. task_code_regex: Go regexp for task code when non-empty. allowed_note_sources: non-empty array restricts external note source (case-insensitive). note_external_id_regex / note_external_parent_id_regex: optional Go regexes for synced notes",
+				"properties": {
+					"task_code_regex": {"type": "string"},
+					"allowed_note_sources": {
+						"type": "array",
+						"items": {"type": "string"}
+					},
+					"note_external_id_regex": {"type": "string"},
+					"note_external_parent_id_regex": {"type": "string"}
+				},
+				"additionalProperties": false
 			},
 			"workflow": {
 				"type": "object",
@@ -138,7 +153,8 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
 	}
 
-	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || params.Description != "" || params.PreferredViewMode != ""
+	hasValPolicy := len(params.ValidationPolicy) > 0 && strings.TrimSpace(string(params.ValidationPolicy)) != "" && strings.TrimSpace(string(params.ValidationPolicy)) != "null"
+	isWrite := strings.TrimSpace(params.Title) != "" || params.Workflow != nil || params.Duplicate || strings.TrimSpace(params.Description) != "" || params.PreferredViewMode != "" || hasValPolicy
 
 	if params.SummaryOnly && params.TaskListID == nil {
 		return tools.ToolResult{Content: "summary_only requires task_list_id", IsError: true}, nil
@@ -163,21 +179,36 @@ func (t *TaskListTool) Execute(ctx context.Context, args json.RawMessage) (tools
 	}
 
 	// WRITE modes
-	title := strings.TrimSpace(params.Title)
-	if title == "" {
-		return tools.ToolResult{Content: "title is required for create, update, and duplicate operations", IsError: true}, nil
-	}
-
 	if params.TaskListID != nil {
 		if *params.TaskListID == 0 {
 			return tools.ToolResult{Content: "task_list_id must be > 0", IsError: true}, nil
 		}
 		if params.Duplicate {
-			return t.duplicateTaskList(*params.TaskListID, title, params.Description, params.PreferredViewMode, params.Workflow)
+			title := strings.TrimSpace(params.Title)
+			if title == "" {
+				return tools.ToolResult{Content: "duplicate requires a non-empty title for the new list", IsError: true}, nil
+			}
+			return t.duplicateTaskList(*params.TaskListID, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy)
 		}
-		return t.updateTaskList(*params.TaskListID, title, params.Description, params.PreferredViewMode, params.Workflow)
+		title := strings.TrimSpace(params.Title)
+		if title == "" {
+			ex, err := t.mgr.GetTaskList(*params.TaskListID)
+			if err != nil {
+				return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%d): %v", *params.TaskListID, err), IsError: true}, nil
+			}
+			title = ex.Title
+		}
+		if title == "" {
+			return tools.ToolResult{Content: "title is required for create; for update the list must have a stored title", IsError: true}, nil
+		}
+		return t.updateTaskList(*params.TaskListID, title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy)
 	}
-	return t.createTaskList(title, params.Description, params.PreferredViewMode, params.Workflow)
+
+	title := strings.TrimSpace(params.Title)
+	if title == "" {
+		return tools.ToolResult{Content: "title is required to create a new task list", IsError: true}, nil
+	}
+	return t.createTaskList(title, params.Description, params.PreferredViewMode, params.Workflow, params.ValidationPolicy)
 }
 
 // ==================== Read Operations ====================
@@ -300,6 +331,9 @@ func (t *TaskListTool) fullDetails(taskListID uint) (tools.ToolResult, error) {
 		"title": taskList.Title,
 		"tasks": convertTasks(taskList.Tasks),
 	}
+	if vp := validationPolicyToMap(taskList.ValidationPolicy); vp != nil {
+		response["validation_policy"] = vp
+	}
 
 	if taskList.Workflow != nil {
 		statuses, err := parseWorkflowStatuses(taskList.Workflow)
@@ -343,7 +377,7 @@ func (t *TaskListTool) fullDetails(taskListID uint) (tools.ToolResult, error) {
 
 // ==================== Write Operations ====================
 
-func (t *TaskListTool) createTaskList(title, description, viewMode string, wf *workflowArg) (tools.ToolResult, error) {
+func (t *TaskListTool) createTaskList(title, description, viewMode string, wf *workflowArg, policyRaw json.RawMessage) (tools.ToolResult, error) {
 	var template *database.TaskListWorkflow
 	if wf != nil {
 		tpl, err := t.buildWorkflowTemplate(wf)
@@ -362,7 +396,15 @@ func (t *TaskListTool) createTaskList(title, description, viewMode string, wf *w
 		_ = t.mgr.UpdateTaskListFull(taskList.ID, title, description, viewMode)
 	}
 
-	result := t.buildResult(taskList, "created")
+	if msg, err := t.applyValidationPolicy(taskList.ID, policyRaw); err != nil {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
+	}
+
+	updated, err := t.mgr.GetTaskList(taskList.ID)
+	if err != nil {
+		updated = taskList
+	}
+	result := t.buildResult(updated, "created")
 	resultJSON, _ := json.Marshal(result)
 	return tools.ToolResult{
 		Content:  fmt.Sprintf("Task list created:\n%s", string(resultJSON)),
@@ -370,7 +412,7 @@ func (t *TaskListTool) createTaskList(title, description, viewMode string, wf *w
 	}, nil
 }
 
-func (t *TaskListTool) duplicateTaskList(sourceID uint, title, description, viewMode string, wfOverride *workflowArg) (tools.ToolResult, error) {
+func (t *TaskListTool) duplicateTaskList(sourceID uint, title, description, viewMode string, wfOverride *workflowArg, policyRaw json.RawMessage) (tools.ToolResult, error) {
 	source, err := t.mgr.GetTaskList(sourceID)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Source task list not found (id=%d): %v", sourceID, err), IsError: true}, nil
@@ -408,6 +450,16 @@ func (t *TaskListTool) duplicateTaskList(sourceID uint, title, description, view
 		_ = t.mgr.UpdateTaskListFull(newList.ID, title, description, effectiveViewMode)
 	}
 
+	if len(policyRaw) > 0 && strings.TrimSpace(string(policyRaw)) != "" && strings.TrimSpace(string(policyRaw)) != "null" {
+		if msg, err := t.applyValidationPolicy(newList.ID, policyRaw); err != nil {
+			return tools.ToolResult{Content: msg, IsError: true}, nil
+		}
+	} else if strings.TrimSpace(source.ValidationPolicy) != "" {
+		if err := t.mgr.SetTaskListValidationPolicy(newList.ID, source.ValidationPolicy); err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("Error copying validation policy: %v", err), IsError: true}, nil
+		}
+	}
+
 	updated, err := t.mgr.GetTaskList(newList.ID)
 	if err != nil {
 		updated = newList
@@ -422,7 +474,7 @@ func (t *TaskListTool) duplicateTaskList(sourceID uint, title, description, view
 	}, nil
 }
 
-func (t *TaskListTool) updateTaskList(id uint, title, description, viewMode string, wf *workflowArg) (tools.ToolResult, error) {
+func (t *TaskListTool) updateTaskList(id uint, title, description, viewMode string, wf *workflowArg, policyRaw json.RawMessage) (tools.ToolResult, error) {
 	existing, err := t.mgr.GetTaskList(id)
 	if err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Task list not found (id=%d): %v", id, err), IsError: true}, nil
@@ -430,6 +482,10 @@ func (t *TaskListTool) updateTaskList(id uint, title, description, viewMode stri
 
 	if err := t.mgr.UpdateTaskListFull(id, title, description, viewMode); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Error updating task list: %v", err), IsError: true}, nil
+	}
+
+	if msg, err := t.applyValidationPolicy(id, policyRaw); err != nil {
+		return tools.ToolResult{Content: msg, IsError: true}, nil
 	}
 
 	if wf != nil {
@@ -526,6 +582,9 @@ func (t *TaskListTool) buildResult(tl *database.TaskList, action string) map[str
 		"title":  tl.Title,
 		"action": action,
 	}
+	if vp := validationPolicyToMap(tl.ValidationPolicy); vp != nil {
+		result["validation_policy"] = vp
+	}
 	if tl.Workflow != nil {
 		statuses, err := parseWorkflowStatuses(tl.Workflow)
 		if err == nil {
@@ -545,4 +604,43 @@ func withDefault(val, def string) string {
 		return def
 	}
 	return val
+}
+
+func validationPolicyToMap(raw string) map[string]any {
+	s := strings.TrimSpace(raw)
+	if s == "" {
+		return nil
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(s), &m); err != nil {
+		return map[string]any{"_parse_error": true, "raw": s}
+	}
+	if m == nil {
+		return map[string]any{}
+	}
+	return m
+}
+
+// applyValidationPolicy aplica validation_policy quando o JSON foi enviado (inclui {} para limpar).
+func (t *TaskListTool) applyValidationPolicy(taskListID uint, policyRaw json.RawMessage) (errMsg string, err error) {
+	if len(policyRaw) == 0 {
+		return "", nil
+	}
+	s := strings.TrimSpace(string(policyRaw))
+	if s == "" || s == "null" {
+		return "", nil
+	}
+	if s == "{}" {
+		if e := t.mgr.SetTaskListValidationPolicy(taskListID, ""); e != nil {
+			return fmt.Sprintf("Error clearing validation_policy: %v", e), e
+		}
+		return "", nil
+	}
+	if _, e := database.ParseTaskListValidationPolicyJSON(s); e != nil {
+		return e.Error(), e
+	}
+	if e := t.mgr.SetTaskListValidationPolicy(taskListID, s); e != nil {
+		return fmt.Sprintf("Error saving validation_policy: %v", e), e
+	}
+	return "", nil
 }
