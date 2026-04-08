@@ -245,7 +245,9 @@ func (s *SIPAdapter) Disconnect() error {
 	// Cancela o contexto (para o registerLoop e listener)
 	if s.cancel != nil {
 		s.cancel()
+		s.cancel = nil
 	}
+	s.ctx = nil
 
 	// Fecha o UA
 	if s.ua != nil {
@@ -446,8 +448,20 @@ func resampleGenericTo8k(pcm []byte, srcRate int) []byte {
 	}
 
 	numSamples := len(pcm) / 2
+	if numSamples == 0 {
+		return nil
+	}
+
 	ratio := float64(srcRate) / 8000.0
+	if ratio <= 0 {
+		return nil
+	}
+
 	outSamples := int(float64(numSamples) / ratio)
+	// Sanity check: evita alocação gigante com srcRate inválido
+	if outSamples <= 0 || outSamples > 10_000_000 {
+		return nil
+	}
 	out := make([]byte, outSamples*2)
 
 	// Tamanho da janela de m├®dia (metade do ratio, m├¡n 1)
@@ -505,7 +519,8 @@ func (s *SIPAdapter) registerLoop() {
 	ctx := s.ctx
 	s.mu.RUnlock()
 
-	if dg == nil {
+	// Verifica se o adapter foi desconectado antes da goroutine iniciar
+	if dg == nil || ctx == nil {
 		return
 	}
 
@@ -753,15 +768,25 @@ func (s *SIPAdapter) handleIncomingCall(inDialog *diago.DialogServerSession) {
 	}
 }
 
-// findCallByCallerID busca uma chamada ativa pelo CallerID.
+// findCallByCallerID busca a chamada ativa mais recente pelo CallerID.
 // Deve ser chamado com s.mu travado para leitura.
+// Se houver múltiplas chamadas ativas do mesmo número, retorna a mais recente.
 func (s *SIPAdapter) findCallByCallerID(callerID string) *CallSession {
+	var best *CallSession
+	count := 0
 	for _, call := range s.calls {
 		if call.CallerID == callerID && call.GetState() == CallStateActive {
-			return call
+			count++
+			if best == nil || call.StartedAt.After(best.StartedAt) {
+				best = call
+			}
 		}
 	}
-	return nil
+	if count > 1 {
+		log.Printf("[SIP] Aviso: %d chamadas ativas para %s, usando a mais recente (%s)",
+			count, callerID, best.ID)
+	}
+	return best
 }
 
 // setStatus atualiza o status da conex├úo de forma thread-safe.

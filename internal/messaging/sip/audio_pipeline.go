@@ -40,6 +40,14 @@ type AudioPipelineConfig struct {
 	// "pcm" retorna raw PCM 24kHz 16-bit mono (OpenAI).
 	// Padr├úo: "pcm"
 	TTSOutputFormat string
+
+	// EchoCooldownDuration é o tempo de supressão de eco após fim do playback.
+	// Padrão: 300ms
+	EchoCooldownDuration time.Duration
+
+	// STTMaxRetries é o número máximo de tentativas para STT em erros transitórios.
+	// Padrão: 2
+	STTMaxRetries int
 }
 
 // DefaultAudioPipelineConfig retorna configura├º├úo padr├úo para pipeline SIP.
@@ -49,7 +57,9 @@ func DefaultAudioPipelineConfig() AudioPipelineConfig {
 		ReadFrameSize:   320, // 20ms @ 8kHz mono 16-bit
 		InputSampleRate: 8000,
 		STTSampleRate:   16000,
-		TTSOutputFormat: "pcm",
+		TTSOutputFormat:      "pcm",
+		EchoCooldownDuration: 300 * time.Millisecond,
+		STTMaxRetries:        2,
 	}
 }
 
@@ -100,6 +110,9 @@ type AudioPipeline struct {
 
 	ctx    context.Context
 	cancel context.CancelFunc
+
+	// processingWg rastreia goroutines de processamento ativas.
+	processingWg sync.WaitGroup
 }
 
 // NewAudioPipeline cria um novo pipeline de ├íudio para uma chamada SIP.
@@ -189,9 +202,20 @@ func (p *AudioPipeline) Run() error {
 	}
 }
 
-// Stop encerra o pipeline.
+// Stop encerra o pipeline e aguarda goroutines de processamento pendentes.
 func (p *AudioPipeline) Stop() {
 	p.cancel()
+	done := make(chan struct{})
+	go func() {
+		p.processingWg.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		// OK
+	case <-time.After(5 * time.Second):
+		log.Printf("[SIP Pipeline] Timeout aguardando processamento de segmentos (chamada %s)", p.call.ID)
+	}
 }
 
 // PlayAudio reproduz ├íudio PCM na chamada ativa.
@@ -362,6 +386,13 @@ func (r *mp3StreamToMono8kReader) Read(p []byte) (int, error) {
 
 // onSpeechStart ├® chamado quando o VAD detecta in├¡cio de fala.
 func (p *AudioPipeline) onSpeechStart() {
+	// Verifica se o pipeline já foi encerrado antes de agir
+	select {
+	case <-p.ctx.Done():
+		return
+	default:
+	}
+
 	log.Printf("[SIP Pipeline] Fala detectada na chamada %s", p.call.ID)
 
 	// Se estiver tocando, interrompe (barge-in)
@@ -369,6 +400,11 @@ func (p *AudioPipeline) onSpeechStart() {
 
 	// Cancela streaming LLM em andamento (se houver)
 	if p.OnBargeIn != nil {
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[SIP Pipeline] Panic em OnBargeIn (chamada %s): %v", p.call.ID, r)
+			}
+		}()
 		p.OnBargeIn()
 	}
 }
@@ -380,11 +416,23 @@ func (p *AudioPipeline) onSpeechEnd(segment []byte) {
 		return
 	}
 
+	// Verifica se o pipeline já foi encerrado
+	select {
+	case <-p.ctx.Done():
+		return
+	default:
+	}
+
 	// Copia o segmento pois o VAD pode reutilizar o buffer
 	seg := make([]byte, len(segment))
 	copy(seg, segment)
 
-	go p.processSegment(seg)
+	// Rastreia goroutine via WaitGroup para Stop() poder aguardá-la e evitar leak
+	p.processingWg.Add(1)
+	go func() {
+		defer p.processingWg.Done()
+		p.processSegment(seg)
+	}()
 }
 
 // processSegment processa um segmento de fala: trim, resample, WAV, STT, envia ao gateway.
@@ -429,16 +477,50 @@ func (p *AudioPipeline) processSegment(segment []byte) {
 		return
 	}
 
-	sttCtx, sttCancel := context.WithTimeout(p.ctx, 30*time.Second)
-	defer sttCancel()
+	maxRetries := p.config.STTMaxRetries
+	if maxRetries < 0 {
+		maxRetries = 0
+	}
 
-	result, err := p.speechManager.TranscribeWithContext(sttCtx, audioBase64, "audio.wav")
-	if err != nil {
+	var result *speech.TranscriptionResult
+	var err error
+	retryDelay := 500 * time.Millisecond
+	for attempt := 0; attempt <= maxRetries; attempt++ {
 		if p.ctx.Err() != nil {
 			log.Printf("[SIP Pipeline] STT cancelado (chamada encerrada): %s", p.call.ID)
-		} else {
-			log.Printf("[SIP Pipeline] Erro STT: %v", err)
+			return
 		}
+		if attempt > 0 {
+			log.Printf("[SIP Pipeline] STT retry %d/%d para chamada %s (aguardando %s)",
+				attempt, maxRetries, p.call.ID, retryDelay)
+			select {
+			case <-p.ctx.Done():
+				log.Printf("[SIP Pipeline] STT cancelado durante retry: %s", p.call.ID)
+				return
+			case <-time.After(retryDelay):
+			}
+			retryDelay *= 2
+			if retryDelay > 5*time.Second {
+				retryDelay = 5 * time.Second
+			}
+		}
+
+		sttCtx, sttCancel := context.WithTimeout(p.ctx, 30*time.Second)
+		result, err = p.speechManager.TranscribeWithContext(sttCtx, audioBase64, "audio.wav")
+		sttCancel()
+
+		if err == nil {
+			break
+		}
+		if p.ctx.Err() != nil {
+			log.Printf("[SIP Pipeline] STT cancelado (chamada encerrada): %s", p.call.ID)
+			return
+		}
+		log.Printf("[SIP Pipeline] Erro STT (tentativa %d/%d): %v", attempt+1, maxRetries+1, err)
+	}
+	if err != nil {
+		log.Printf("[SIP Pipeline] STT falhou após %d tentativas, segmento perdido (chamada %s)",
+			maxRetries+1, p.call.ID)
 		return
 	}
 

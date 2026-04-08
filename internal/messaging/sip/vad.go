@@ -292,7 +292,7 @@ func (v *EnergyVAD) processInSpeech(pcm []byte, score float64, silenceThreshold 
 	if v.maxSegmentBytes > 0 && len(v.speechBuf) >= v.maxSegmentBytes {
 		log.Printf("[VAD] MaxSegment atingido (%.1fs) ÔÇö force-emit",
 			v.config.MaxSegmentDuration.Seconds())
-		if v.onSpeechEnd != nil {
+		if v.onSpeechEnd != nil && len(v.speechBuf) > 0 {
 			v.onSpeechEnd(v.speechBuf)
 		}
 		v.speechBuf = nil
@@ -308,7 +308,7 @@ func (v *EnergyVAD) processInSpeech(pcm []byte, score float64, silenceThreshold 
 
 		if v.silenceSamples >= v.silenceSamplesThreshold {
 			// Sil├¬ncio confirmado: emite segmento
-			if v.onSpeechEnd != nil {
+			if v.onSpeechEnd != nil && len(v.speechBuf) > 0 {
 				v.onSpeechEnd(v.speechBuf)
 			}
 			v.speechBuf = nil
