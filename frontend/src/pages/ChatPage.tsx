@@ -1,9 +1,9 @@
 import { useRef, useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { useTranslation } from 'react-i18next';
 import { Alert, Button } from 'antd';
 import { useChatStore } from '../store/chatStore';
 import { useEditorStore } from '../store/editorStore';
+import { useWorkspaceStore } from '../store/workspaceStore';
 import { ttsService } from '../services/tts';
 import { MessageList } from '../components/chat/MessageList';
 import { ChatInput } from '../components/chat/ChatInput';
@@ -22,7 +22,6 @@ import './ChatPage.css';
 
 export default function ChatPage() {
   const { t } = useTranslation();
-  const navigate = useNavigate();
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const messagesContainerRef = useRef<HTMLDivElement>(null);
   useTabScrollState(messagesContainerRef);
@@ -42,8 +41,14 @@ export default function ChatPage() {
     isReasoningExpanded,
   } = useChatStore();
 
-  // TTS é controlado pelo perfil global via ttsService (fonte de verdade)
-  const isTTSDisabled = !ttsService.isEnabled();
+  // TTS disponível apenas quando há voz configurada no perfil ativo
+  const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
+  useEffect(() => {
+    const handler = () => setHasVoiceConfig(ttsService.hasVoiceConfig());
+    ttsService.on('voiceConfigChanged', handler);
+    return () => { ttsService.off('voiceConfigChanged', handler); };
+  }, []);
+  const isTTSDisabled = !hasVoiceConfig;
 
   // Estado do painel de ajuda de atalhos
   const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
@@ -102,7 +107,7 @@ export default function ChatPage() {
 
   // Menu de contexto
   const sendToEditor = useCallback(
-    (payload: {
+    async (payload: {
       target: 'current' | 'new_document';
       format: 'markdown' | 'html' | 'plain';
       title?: string;
@@ -119,9 +124,16 @@ export default function ChatPage() {
         focus: true,
       });
 
-      navigate('/editor');
+      const { workspace, addTab, setActiveTab } = useWorkspaceStore.getState();
+      const existingEditor = workspace?.tabs.find(tab => tab.type === 'editor');
+      if (existingEditor) {
+        void setActiveTab(existingEditor.id);
+      } else {
+        const tabId = await addTab('editor', t('workspace.newEditor', 'Novo documento'));
+        void setActiveTab(tabId);
+      }
     },
-    [navigate, t]
+    [t]
   );
 
   const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
@@ -310,7 +322,7 @@ export default function ChatPage() {
         isLoading={isLoading}
         ref={messagesContainerRef}
         onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
-        onSpeak={speakMessage}
+        onSpeak={hasVoiceConfig ? speakMessage : undefined}
         onDelete={handleDeleteMessage}
         onSendToEditor={(payload) => sendToEditor(payload)}
       />

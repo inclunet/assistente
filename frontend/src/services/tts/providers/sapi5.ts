@@ -28,6 +28,7 @@ interface SAPI5VoiceInfo {
 export class SAPI5Provider extends BaseTTSProvider {
   readonly name = TTSProvider.SAPI5;
   private checkInterval: number | null = null;
+  private _isSpeaking: boolean = false;
   
   constructor() {
     super();
@@ -133,12 +134,15 @@ export class SAPI5Provider extends BaseTTSProvider {
     // Para monitor anterior se existir
     this.stopSpeakingMonitor();
     
+    this._isSpeaking = true;
+    
     // Monitora estado de fala
     this.checkInterval = window.setInterval(async () => {
       try {
         const speaking = await IsSAPI5Speaking();
         if (!speaking) {
           // Fala terminou
+          this._isSpeaking = false;
           this.stopSpeakingMonitor();
           this.dispatchEvent('end', undefined);
         }
@@ -157,6 +161,7 @@ export class SAPI5Provider extends BaseTTSProvider {
   
   stop(): void {
     if (this._isAvailable) {
+      this._isSpeaking = false;
       this.stopSpeakingMonitor();
       
       StopSAPI5()
@@ -176,9 +181,7 @@ export class SAPI5Provider extends BaseTTSProvider {
   }
   
   isSpeaking(): boolean {
-    // Nota: Esta é uma verificação síncrona, mas SAPI5 é assíncrono
-    // Use o evento 'end' para saber quando terminou
-    return this.checkInterval !== null;
+    return this._isSpeaking;
   }
   
   dispose(): void {

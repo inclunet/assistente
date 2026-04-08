@@ -7,6 +7,8 @@
  */
 
 import { EventsOn } from '@wailsjs/runtime/runtime';
+import { base64ToBytes } from '../../lib/audioUtils';
+import { TTS_STREAM_START, TTS_STREAM_CHUNK, TTS_STREAM_DONE, TTS_STREAM_ERROR } from '../../lib/speechEvents';
 
 // Evento de streaming do backend (formato padronizado)
 interface TTSStreamEvent {
@@ -52,6 +54,9 @@ export class TTSStreamPlayer {
   private useFallback = false;
   private fallbackChunks: Uint8Array[] = [];
   
+  // Timer de endStream (para cleanup)
+  private endStreamTimer: number | null = null;
+  
   // Event listeners do Wails
   private unsubscribeStart: (() => void) | null = null;
   private unsubscribeChunk: (() => void) | null = null;
@@ -59,7 +64,6 @@ export class TTSStreamPlayer {
   private unsubscribeError: (() => void) | null = null;
 
   // Timestamp para medir latência (apenas primeiro chunk)
-  private startTime: number = 0;
   private firstChunkLogged = false;
 
   constructor() {
@@ -76,29 +80,28 @@ export class TTSStreamPlayer {
     this.sessionId = sessionId;
     this.callbacks = callbacks;
     this.state = 'buffering';
-    this.startTime = Date.now();
     this.firstChunkLogged = false;
     
     // Registra listeners de eventos Wails
-    this.unsubscribeStart = EventsOn('tts:stream:start', (event: TTSStreamEvent) => {
+    this.unsubscribeStart = EventsOn(TTS_STREAM_START, (event: TTSStreamEvent) => {
       if (event.sessionId === this.sessionId) {
         this.handleStart();
       }
     });
     
-    this.unsubscribeChunk = EventsOn('tts:stream:chunk', (event: TTSStreamEvent) => {
+    this.unsubscribeChunk = EventsOn(TTS_STREAM_CHUNK, (event: TTSStreamEvent) => {
       if (event.sessionId === this.sessionId) {
         this.handleChunk(event);
       }
     });
     
-    this.unsubscribeDone = EventsOn('tts:stream:done', (event: TTSStreamEvent) => {
+    this.unsubscribeDone = EventsOn(TTS_STREAM_DONE, (event: TTSStreamEvent) => {
       if (event.sessionId === this.sessionId) {
         this.handleDone();
       }
     });
     
-    this.unsubscribeError = EventsOn('tts:stream:error', (event: TTSStreamEvent) => {
+    this.unsubscribeError = EventsOn(TTS_STREAM_ERROR, (event: TTSStreamEvent) => {
       if (event.sessionId === this.sessionId) {
         this.handleError(event);
       }
@@ -123,17 +126,11 @@ export class TTSStreamPlayer {
     if (!event.chunkBase64) return;
     
     // Decodifica base64 para Uint8Array
-    const binaryString = atob(event.chunkBase64);
-    const bytes = new Uint8Array(binaryString.length);
-    for (let i = 0; i < binaryString.length; i++) {
-      bytes[i] = binaryString.charCodeAt(i);
-    }
+    const bytes = base64ToBytes(event.chunkBase64);
     
-    // Log do primeiro chunk com latência (uma vez só)
+    // Marca primeiro chunk recebido
     if (!this.firstChunkLogged) {
       this.firstChunkLogged = true;
-      const latency = Date.now() - this.startTime;
-      void latency;
     }
     
     if (this.useFallback) {
@@ -275,9 +272,7 @@ export class TTSStreamPlayer {
     this.isUpdating = true;
     
     try {
-      const buffer = new ArrayBuffer(chunk.byteLength);
-      new Uint8Array(buffer).set(chunk);
-      this.sourceBuffer.appendBuffer(buffer);
+      this.sourceBuffer.appendBuffer(chunk.buffer as ArrayBuffer);
     } catch (e) {
       console.error('[TTSStream] Error appending chunk:', e);
       this.isUpdating = false;
@@ -290,9 +285,10 @@ export class TTSStreamPlayer {
   private endStream(): void {
     const checkAndEnd = () => {
       if (this.pendingChunks.length > 0 || this.isUpdating) {
-        setTimeout(checkAndEnd, 100);
+        this.endStreamTimer = window.setTimeout(checkAndEnd, 100);
         return;
       }
+      this.endStreamTimer = null;
       
       if (this.mediaSource && this.mediaSource.readyState === 'open') {
         try {
@@ -341,6 +337,7 @@ export class TTSStreamPlayer {
     this.audioElement.play().catch(e => {
       console.error('[TTSStream] Fallback play error:', e);
       this.callbacks.onError?.(e);
+      this.cleanup();
     });
   }
 
@@ -398,6 +395,14 @@ export class TTSStreamPlayer {
    * Limpa recursos
    */
   private cleanup(): void {
+    this.state = 'idle';
+
+    // Cancela timer de endStream pendente
+    if (this.endStreamTimer !== null) {
+      clearTimeout(this.endStreamTimer);
+      this.endStreamTimer = null;
+    }
+
     this.unsubscribeStart?.();
     this.unsubscribeChunk?.();
     this.unsubscribeDone?.();
@@ -442,6 +447,10 @@ export class TTSStreamPlayer {
   dispose(): void {
     this.stop();
     this.cleanup();
+    // Invalida o singleton para que getStreamPlayer() crie uma nova instância
+    if (globalStreamPlayer === this) {
+      globalStreamPlayer = null;
+    }
   }
 }
 

@@ -873,8 +873,6 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 			},
 			Voice: profiles.VoiceConfig{
 				Assistant: profiles.VoiceRoleConfig{Provider: "disabled"},
-				User:      profiles.VoiceRoleConfig{Provider: "disabled"},
-				System:    profiles.VoiceRoleConfig{Provider: "disabled"},
 			},
 		},
 	}
@@ -889,7 +887,7 @@ func TestIntegration_FirstMessageProfileWithVoiceSettings(t *testing.T) {
 				t.Errorf("VoiceID esperado 'alloy', obteve %s", profile.Voice.Assistant.VoiceID)
 			}
 			if !profile.Voice.Assistant.Enabled {
-				t.Errorf("Assistant.Enabled deveria ser true para %s", profileName)
+				t.Errorf("Enabled deveria ser true para %s", profileName)
 			}
 		}
 

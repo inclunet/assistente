@@ -9,7 +9,6 @@ import (
 	"assistente/internal/configdir"
 	"assistente/internal/jobs"
 
-	wailsRuntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // credentialSecretStore adapta credentials.Manager para a interface jobs.SecretStore.
@@ -47,7 +46,7 @@ func (a *App) initJobs() {
 		MsgGateway:    a.msgGateway,
 		SecretStore:   &credentialSecretStore{app: a},
 		EmitEvent: func(event string, data any) {
-			wailsRuntime.EventsEmit(a.ctx, event, data)
+			a.emitter.Emit( event, data)
 		},
 	})
 

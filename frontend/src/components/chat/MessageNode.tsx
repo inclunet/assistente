@@ -271,7 +271,7 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
       e.preventDefault();
       e.stopPropagation();
       if (onSpeak) {
-        onSpeak(node.message);
+        void handleSpeak(node.message);
       }
       return;
     }

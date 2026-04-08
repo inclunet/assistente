@@ -1,17 +1,18 @@
 import { useEffect, useRef } from 'react';
 import { useWorkspaceStore, WorkspaceTab, registerTabRenameHandler } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
-import { RenameConversation } from '@wailsjs/go/main/App';
+import { CreateConversation, RenameConversation } from '@wailsjs/go/main/App';
 
 /**
- * Sincroniza a aba de chat ativa do workspace com o chatStore.
+ * Sincroniza a aba ativa do workspace com o chatStore.
+ * Funciona para TODAS as abas — cada aba tem seu próprio conversationId dedicado.
  *
  * Fluxo:
- * 1. Workspace ativa uma aba do tipo chat
- * 2. Se contentId vazio → cria conversa via chatStore.createConversation()
- *    e salva o conversationId como contentId da aba do workspace
- * 3. Se contentId existente → chatStore.loadConversation(id)
- * 4. Título da conversa no chatStore é sincronizado de volta ao workspace
+ * 1. Workspace ativa qualquer aba
+ * 2. Se conversationId vazio → cria conversa NOVA (sempre fresh, sem reciclar)
+ *    e salva o conversationId na aba do workspace
+ * 3. Se conversationId existente → chatStore.loadConversation(id)
+ * 4. Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
  */
 export function useWorkspaceChatBridge() {
   const activeTab = useWorkspaceStore((s) => s.getActiveTab());
@@ -23,12 +24,12 @@ export function useWorkspaceChatBridge() {
 
   useEffect(() => {
     if (!isWsInitialized) return;
-    if (!activeTab || activeTab.type !== 'chat') return;
+    if (!activeTab) return;
 
-    const syncKey = `${activeTab.id}:${activeTab.contentId}`;
+    const syncKey = `${activeTab.id}:${activeTab.conversationId || 0}`;
     if (lastSyncedRef.current === syncKey) return;
 
-    const conversationId = activeTab.contentId ? parseInt(activeTab.contentId, 10) : 0;
+    const conversationId = activeTab.conversationId || 0;
 
     if (conversationId > 0) {
       syncExistingConversation(conversationId);
@@ -36,7 +37,7 @@ export function useWorkspaceChatBridge() {
     } else if (!creatingRef.current) {
       createConversationForTab(activeTab);
     }
-  }, [activeTab?.id, activeTab?.type, activeTab?.contentId, isWsInitialized]);
+  }, [activeTab?.id, activeTab?.type, activeTab?.conversationId, isWsInitialized]);
 
   async function syncExistingConversation(conversationId: number) {
     const chatState = useChatStore.getState();
@@ -47,8 +48,11 @@ export function useWorkspaceChatBridge() {
   async function createConversationForTab(wsTab: WorkspaceTab) {
     creatingRef.current = true;
     try {
-      const conversationId = await useChatStore.getState().createConversation();
-      await updateWsTab(wsTab.id, { content_id: String(conversationId) });
+      // Always create a fresh conversation — never recycle — so each tab gets its own unique conversation.
+      const conv = await CreateConversation('Nova Conversa', '');
+      const conversationId = conv.id;
+      await updateWsTab(wsTab.id, { conversation_id: conversationId });
+      await useChatStore.getState().loadConversation(conversationId);
       lastSyncedRef.current = `${wsTab.id}:${conversationId}`;
     } catch (error) {
       console.error('[WorkspaceChatBridge] Erro ao criar conversa:', error);
@@ -59,9 +63,7 @@ export function useWorkspaceChatBridge() {
 
   // Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const tabProfileSlug = activeTab?.type === 'chat'
-    ? (activeTab.profileOverride?.slug as string | undefined)
-    : undefined;
+  const tabProfileSlug = activeTab?.profileOverride?.slug as string | undefined;
 
   useEffect(() => {
     const effectiveSlug = tabProfileSlug || wsProfile || null;
@@ -76,8 +78,8 @@ export function useWorkspaceChatBridge() {
 
   // F2 tab rename → rename conversation in backend
   useEffect(() => {
-    return registerTabRenameHandler('chat', (contentId, newTitle) => {
-      const convId = parseInt(contentId, 10);
+    return registerTabRenameHandler('chat', (id, newTitle) => {
+      const convId = parseInt(id, 10);
       if (convId) void RenameConversation(convId, newTitle);
     });
   }, []);

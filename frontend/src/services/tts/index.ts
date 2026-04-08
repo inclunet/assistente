@@ -3,8 +3,9 @@
  * Suporta WebSpeech API, SAPI5 (Windows) e OpenAI TTS
  */
 
-import { TTSProvider, ITTSProvider, TTSVoice } from './types';
+import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig } from './types';
 import { ttsFactory } from './factory';
+import { calcTTSTimeoutMs } from '../../lib/audioUtils';
 
 type WailsApp = {
   go?: {
@@ -30,23 +31,13 @@ const getTTSVoices = async (profileId: string, providerId: string): Promise<Back
   return app.GetTTSVoices(profileId, providerId);
 };
 
-export interface TTSConfig {
-  enabled: boolean;
-  autoRead: boolean;           // Leitura automática de mensagens do assistente
-  enabledForUser: boolean;     // TTS para mensagens do usuário
-  provider: TTSProvider;
-  voiceName?: string;
-  rate: number;
-  pitch: number;
-  volume: number;
-}
-
 /** Configuração de voz por role (assistant, user, system) */
 export interface RoleVoiceConfig {
   providerId: string;   // "webspeech", "sapi5", ou LLM provider ID
   voiceId: string;      // ID da voz
   model: string;        // modelo TTS (ex: "tts-1")
   rate: number;
+  pitch: number;        // 0.5–2.0 (tom da voz)
   volume: number;
 }
 
@@ -66,6 +57,11 @@ class TTSService {
   private roleConfigs: Map<VoiceRole, RoleVoiceConfig> = new Map();
   private listeners: Map<string, Set<Function>> = new Map();
   private initialized: boolean = false;
+  private activeStreamPlayer: { stop: () => void } | null = null;
+  private activeStreamAbort: AbortController | null = null;
+  private providerListeners: { provider: ITTSProvider; start: () => void; end: () => void; error: (e: CustomEvent<{ error: Error }>) => void } | null = null;
+  /** Guard: previne chamadas simultâneas a speakWithOverride (webspeech/sapi5 path) */
+  private overrideLock: Promise<void> | null = null;
   
   constructor() {
     this.init();
@@ -109,19 +105,33 @@ class TTSService {
   }
   
   private setupProviderEvents(): void {
+    // Remove listeners do provider anterior (evita acúmulo em singletons)
+    if (this.providerListeners) {
+      const { provider: old, start, end, error } = this.providerListeners;
+      old.removeEventListener?.('start', start);
+      old.removeEventListener?.('end', end);
+      old.removeEventListener?.('error', error);
+      this.providerListeners = null;
+    }
+
     if (!this.currentProvider) return;
 
-    this.currentProvider.addEventListener?.('start', () => {
-      this.emit('speakStart');
-    });
-
-    this.currentProvider.addEventListener?.('end', () => {
-      this.emit('speakEnd');
-    });
-
-    this.currentProvider.addEventListener?.('error', (event: CustomEvent<{ error: Error }>) => {
+    const onStart = () => { this.emit('speakStart'); };
+    const onEnd = () => { this.emit('speakEnd'); };
+    const onError = (event: CustomEvent<{ error: Error }>) => {
       this.emit('speakError', event.detail.error);
-    });
+    };
+
+    this.currentProvider.addEventListener?.('start', onStart);
+    this.currentProvider.addEventListener?.('end', onEnd);
+    this.currentProvider.addEventListener?.('error', onError);
+
+    this.providerListeners = {
+      provider: this.currentProvider,
+      start: onStart,
+      end: onEnd,
+      error: onError,
+    };
   }
   
   /**
@@ -163,101 +173,85 @@ class TTSService {
    */
   setRoleConfig(role: VoiceRole, config: RoleVoiceConfig): void {
     this.roleConfigs.set(role, config);
+    this.emit('voiceConfigChanged');
   }
 
   /**
-   * Fala texto usando a voz configurada para uma role específica.
-   * Delega para speakWithOverride com as configs da role.
+   * Remove a configuração de voz de uma role.
+   */
+  clearRoleConfig(role: VoiceRole): void {
+    this.roleConfigs.delete(role);
+    this.emit('voiceConfigChanged');
+  }
+
+  /**
+   * Remove todas as configurações de role.
+   */
+  clearAllRoleConfigs(): void {
+    this.roleConfigs.clear();
+    this.emit('voiceConfigChanged');
+  }
+
+  /**
+   * Verifica se há configuração de voz para uma role (ou qualquer role se omitida).
+   * Usado pela UI para decidir se mostra botões de reprodução.
+   */
+  hasVoiceConfig(role?: VoiceRole): boolean {
+    if (role) return this.roleConfigs.has(role);
+    return this.roleConfigs.size > 0;
+  }
+
+  getRoleConfig(role: VoiceRole): RoleVoiceConfig | undefined {
+    return this.roleConfigs.get(role);
+  }
+
+  /**
+   * Retorna os parâmetros de provider TTS para uma role, prontos para
+   * passar ao messageAudioService. Retorna undefined se a role não tem config.
+   * Centraliza a montagem para evitar duplicação nos callers.
+   */
+  getVoiceContext(role: VoiceRole): { providerId: string; voiceId: string; model: string; rate: number } | undefined {
+    const rc = this.roleConfigs.get(role);
+    if (!rc) return undefined;
+    return { providerId: rc.providerId, voiceId: rc.voiceId, model: rc.model, rate: rc.rate };
+  }
+
+  /**
+   * Ponto único de reprodução de TTS.
+   *
+   * Usa a configuração de voz da role do perfil ativo.
+   * Se não houver config para a role → retorna silenciosamente (no-op).
+   * NÃO checa config.enabled — quem chama decide se deve reproduzir
+   * (auto-read checa isAutoReadEnabled(), on-demand não checa nada).
    */
   async speakAsRole(text: string, role: VoiceRole): Promise<void> {
-    if (!this.config.enabled) return;
-
     const roleConfig = this.roleConfigs.get(role);
-    if (!roleConfig) {
-      // Fallback: usa o provider padrão (assistant config)
-      if (this.currentProvider) {
-        await this.currentProvider.speak(text);
-      }
-      return;
-    }
+    if (!roleConfig) return;
 
     await this.speakWithOverride(text, {
       providerId: roleConfig.providerId,
       voiceName: roleConfig.voiceId,
       rate: roleConfig.rate,
+      pitch: roleConfig.pitch,
       volume: roleConfig.volume,
       ttsModel: roleConfig.model,
     });
   }
   
   /**
-   * Fala um texto (somente se TTS estiver habilitado para leitura automática)
-   */
-  async speak(text: string): Promise<void> {
-    if (!this.config.enabled || !this.currentProvider) return;
-    await this.currentProvider.speak(text);
-  }
-
-  /**
-   * Fala um texto sob demanda (ignora config.enabled)
-   * Usado para ações explícitas do usuário como "Ouvir mensagem" ou tecla Espaço
-   */
-  async speakOnDemand(text: string): Promise<void> {
-    if (!this.currentProvider) {
-      console.warn('[TTSService] Nenhum provider configurado para fala sob demanda');
-      return;
-    }
-    await this.currentProvider.speak(text);
-  }
-
-  /**
-   * Sintetiza texto em áudio SEM tocar (somente se TTS estiver habilitado)
-   * Retorna Blob para uso com sistema de audio por mensagem
-   */
-  async synthesizeForMessage(text: string): Promise<Blob | null> {
-    if (!this.config.enabled || !this.currentProvider) return null;
-
-    // Verifica se provider suporta synthesize
-    if (!this.currentProvider.synthesize) return null;
-
-    try {
-      return await this.currentProvider.synthesize(text);
-    } catch (error) {
-      console.error('[TTSService] Erro ao sintetizar:', error);
-      return null;
-    }
-  }
-
-  /**
-   * Sintetiza texto em áudio sob demanda (ignora config.enabled)
-   * Usado para ações explícitas do usuário como "Baixar áudio"
-   */
-  async synthesizeOnDemand(text: string): Promise<Blob | null> {
-    if (!this.currentProvider) {
-      console.warn('[TTSService] Nenhum provider configurado para síntese sob demanda');
-      return null;
-    }
-
-    // Verifica se provider suporta synthesize
-    if (!this.currentProvider.synthesize) {
-      console.warn('[TTSService] Provider não suporta síntese:', this.config.provider);
-      return null;
-    }
-
-    try {
-      return await this.currentProvider.synthesize(text);
-    } catch (error) {
-      console.error('[TTSService] Erro ao sintetizar sob demanda:', error);
-      return null;
-    }
-  }
-  
-  /**
-   * Para a fala
+   * Para toda reprodução de áudio (providers locais e stream player do backend)
    */
   stop(): void {
     if (this.currentProvider) {
       this.currentProvider.stop();
+    }
+    if (this.activeStreamPlayer) {
+      this.activeStreamPlayer.stop();
+      this.activeStreamPlayer = null;
+    }
+    if (this.activeStreamAbort) {
+      this.activeStreamAbort.abort();
+      this.activeStreamAbort = null;
     }
   }
   
@@ -294,10 +288,10 @@ class TTSService {
   }
   
   /**
-   * Verifica se auto-read está habilitado
+   * Verifica se auto-read está habilitado e há voz configurada
    */
   isAutoReadEnabled(): boolean {
-    return this.config.enabled && this.config.autoRead;
+    return this.config.enabled && this.config.autoRead && this.roleConfigs.size > 0;
   }
   
   /**
@@ -321,10 +315,10 @@ class TTSService {
   }
   
   /**
-   * Verifica se TTS está habilitado para mensagens do usuário
+   * Verifica se TTS está habilitado para mensagens do usuário e há voz configurada
    */
   isEnabledForUser(): boolean {
-    return this.config.enabled && this.config.enabledForUser;
+    return this.config.enabled && this.config.enabledForUser && this.roleConfigs.has('user');
   }
   
   /**
@@ -400,11 +394,11 @@ class TTSService {
    * Para providers LLM (ex: "openai-default-xxx"), delega ao backend via SpeakPreview.
    * Para "webspeech" e "sapi5", usa os providers frontend.
    */
-  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; volume?: number; ttsModel?: string }): Promise<void> {
+  async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string }): Promise<void> {
     const voiceId = options.voiceName ? this.extractVoiceId(options.voiceName) : undefined;
 
     // Resolve o tipo de provider: webspeech, sapi5, ou LLM (OpenAI-like)
-    const resolvedProvider = this.resolveProviderType(options.providerId, options.voiceName);
+    const resolvedProvider = this.resolveProviderType(options.providerId);
 
     // LLM providers (OpenAI-like) → delega ao backend que sabe criar o TTSClient correto
     if (resolvedProvider === 'llm') {
@@ -420,6 +414,14 @@ class TTSService {
     }
 
     // WebSpeech e SAPI5 → usar providers frontend (funcionam bem localmente)
+    // Guard contra chamadas simultâneas que corromperiam o config global
+    if (this.overrideLock) {
+      try { await this.overrideLock; } catch { /* ignorar */ }
+    }
+    
+    let unlockOverride: () => void;
+    this.overrideLock = new Promise<void>(resolve => { unlockOverride = resolve; });
+    
     const backupConfig = { ...this.config };
     const backupProvider = this.config.provider;
     let providerChanged = false;
@@ -434,6 +436,7 @@ class TTSService {
       if (this.currentProvider) {
         if (voiceId) await this.currentProvider.setVoice(voiceId);
         if (options.rate !== undefined) await this.currentProvider.setRate(options.rate);
+        if (options.pitch !== undefined && typeof this.currentProvider.setPitch === 'function') await this.currentProvider.setPitch(options.pitch);
         if (options.volume !== undefined) await this.currentProvider.setVolume(options.volume);
 
         const provider = this.currentProvider;
@@ -448,7 +451,9 @@ class TTSService {
             };
             const onEnd = () => { cleanup(); resolve(); };
             const onErr = () => { cleanup(); resolve(); };
-            const timeout = setTimeout(() => { cleanup(); resolve(); }, 30000);
+            // Timeout proporcional ao tamanho do texto (60s base + 30s por 4000 chars)
+            const timeoutMs = calcTTSTimeoutMs(text.length);
+            const timeout = setTimeout(() => { cleanup(); resolve(); }, timeoutMs);
             provider.addEventListener?.('end', onEnd);
             provider.addEventListener?.('error', onErr);
             provider.speak(text);
@@ -469,6 +474,8 @@ class TTSService {
         await this.currentProvider.setRate(this.config.rate);
         await this.currentProvider.setVolume(this.config.volume);
       }
+      unlockOverride!();
+      this.overrideLock = null;
     }
   }
 
@@ -476,22 +483,12 @@ class TTSService {
    * Resolve o tipo de provider para roteamento.
    * Retorna 'webspeech', 'sapi5' ou 'llm'.
    */
-  private resolveProviderType(providerId?: string, voiceName?: string): 'webspeech' | 'sapi5' | 'llm' {
-    // Se há providerId explícito, usa-o
+  private resolveProviderType(providerId?: string): 'webspeech' | 'sapi5' | 'llm' {
     if (providerId) {
       if (providerId === 'webspeech') return 'webspeech';
       if (providerId === 'sapi5') return 'sapi5';
-      // Qualquer outro ID é um LLM provider (ex: "openai-default-xxx", "litellm-123")
       return 'llm';
     }
-
-    // Fallback: detecta pelo nome da voz (compatibilidade com chamadas legadas)
-    if (voiceName) {
-      const detected = this.detectProviderFromVoice(voiceName);
-      if (detected === TTSProvider.SAPI5) return 'sapi5';
-      if (detected === TTSProvider.OPENAI) return 'llm';
-    }
-
     return 'webspeech';
   }
 
@@ -525,10 +522,25 @@ class TTSService {
       // Reutiliza a infraestrutura de streaming do OpenAI provider
       const { getStreamPlayer } = await import('./streamPlayer');
       const streamPlayer = getStreamPlayer();
+      this.activeStreamPlayer = streamPlayer;
+
+      const abort = new AbortController();
+      this.activeStreamAbort = abort;
 
       const streamPromise = new Promise<void>((resolve) => {
-        const cleanup = () => clearTimeout(timeout);
-        const timeout = setTimeout(() => { cleanup(); streamPlayer.stop(); resolve(); }, 30000);
+        const cleanup = () => {
+          clearTimeout(timeout);
+          abort.signal.removeEventListener('abort', onAbort);
+          this.activeStreamPlayer = null;
+          this.activeStreamAbort = null;
+        };
+        // Resolve imediatamente se stop() for chamado externamente
+        const onAbort = () => { cleanup(); resolve(); };
+        abort.signal.addEventListener('abort', onAbort, { once: true });
+
+        // Timeout proporcional ao tamanho do texto
+        const timeoutMs = calcTTSTimeoutMs(text.length);
+        const timeout = setTimeout(() => { cleanup(); streamPlayer.stop(); resolve(); }, timeoutMs);
 
         streamPlayer.startListening(sessionId, {
           onStart: () => {
@@ -547,8 +559,20 @@ class TTSService {
         });
       });
 
-      await speakPreview(providerId, voiceId, model, rate, volume, text, sessionId);
-      await streamPromise;
+      try {
+        await speakPreview(providerId, voiceId, model, rate, volume, text, sessionId);
+        await streamPromise;
+      } catch (error) {
+        streamPlayer.stop();
+        if (this.activeStreamAbort === abort) {
+          this.activeStreamAbort = null;
+        }
+        if (this.activeStreamPlayer === streamPlayer) {
+          this.activeStreamPlayer = null;
+        }
+        this.emit('speakEnd');
+        throw error;
+      }
     } else {
       // Fallback simples: só chama o backend (sem aguardar)
       await speakPreview(providerId, voiceId, model, rate, volume, text, sessionId);
@@ -726,3 +750,6 @@ class TTSService {
 
 // Singleton
 export const ttsService = new TTSService();
+
+// Re-export types para backward compatibility
+export type { TTSConfig } from './types';

@@ -81,6 +81,8 @@ vi.mock('@wailsjs/go/main/App', () => ({
   GetSAPI5Voices: vi.fn().mockResolvedValue([]),
   GetOpenAITTSVoices: vi.fn().mockResolvedValue([]),
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
+  GetSpeechProviders: vi.fn().mockResolvedValue([]),
+  GetSTTModels: vi.fn().mockResolvedValue([]),
 }));
 
 vi.mock('@wailsjs/go/models', () => ({
@@ -250,7 +252,7 @@ describe('ProfilesPage', () => {
       expect(screen.getByText('Voz (TTS)')).toBeInTheDocument();
       expect(screen.getByText('Entrada de Voz (STT)')).toBeInTheDocument();
     });
-  }, 10000);
+  });
 
   it('duplica um perfil via menu de acoes', async () => {
     const user = userEvent.setup();

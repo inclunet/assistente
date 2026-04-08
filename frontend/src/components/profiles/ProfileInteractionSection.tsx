@@ -1,5 +1,6 @@
 import { AudioOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
+import { llm } from '@wailsjs/go/models';
 import { STTProviderPicker, STT_WEBSPEECH } from '../pickers/STTProviderPicker';
 import './ProfileInteractionSection.css';
 
@@ -10,6 +11,10 @@ export interface ProfileInteractionSectionProps {
   sttLanguage: string;
   enableFeedbackSounds: boolean;
   onChange: (field: 'sttProvider' | 'sttLLMProviderId' | 'sttModel' | 'sttLanguage' | 'enableFeedbackSounds', value: string | boolean) => void;
+  /** Provedores com suporte a speech (TTS/STT). Evita fetch duplicado no STTProviderPicker. */
+  speechProviders?: llm.ProviderConfig[];
+  /** Modelos STT disponíveis para o provider selecionado (dinâmico via backend). */
+  sttModels?: Array<{ id: string; name: string }>;
   disabled?: boolean;
 }
 
@@ -24,6 +29,8 @@ export function ProfileInteractionSection({
   sttLanguage,
   enableFeedbackSounds,
   onChange,
+  speechProviders,
+  sttModels,
   disabled = false,
 }: ProfileInteractionSectionProps) {
   const { t } = useTranslation();
@@ -36,6 +43,7 @@ export function ProfileInteractionSection({
       <div className="profile-interaction-section__field">
         <STTProviderPicker
           value={isWhisper ? sttLLMProviderId : STT_WEBSPEECH}
+          providers={speechProviders}
           onChange={(provider, llmProviderId) => {
             if (provider === STT_WEBSPEECH) {
               onChange('sttProvider', 'webspeech');
@@ -66,10 +74,13 @@ export function ProfileInteractionSection({
             disabled={disabled}
             data-testid="stt-model-select"
           >
-            <option value="whisper-1">{t('profiles.interactionSection.sttModelWhisper1')}</option>
-            <option value="whisper-large-v3">{t('profiles.interactionSection.sttModelWhisperLargeV3')}</option>
-            <option value="gpt-4o-transcribe">{t('profiles.interactionSection.sttModelGpt4oTranscribe')}</option>
-            <option value="gpt-4o-mini-transcribe">{t('profiles.interactionSection.sttModelGpt4oMiniTranscribe')}</option>
+            {(sttModels && sttModels.length > 0 ? sttModels : [
+              { id: 'whisper-1', name: t('profiles.interactionSection.sttModelWhisper1') },
+              { id: 'gpt-4o-transcribe', name: t('profiles.interactionSection.sttModelGpt4oTranscribe') },
+              { id: 'gpt-4o-mini-transcribe', name: t('profiles.interactionSection.sttModelGpt4oMiniTranscribe') },
+            ]).map((m) => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
           </select>
           <span className="profile-interaction-section__hint">
             {t('profiles.interactionSection.sttModelHint')}

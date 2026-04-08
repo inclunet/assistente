@@ -1170,6 +1170,8 @@ export namespace llm {
 	    profileSlug?: string;
 	    maxAgenticIterations?: number;
 	    responseTimeout?: number;
+	    tabType?: string;
+	    activeFilePath?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new ChatParams(source);
@@ -1186,6 +1188,8 @@ export namespace llm {
 	        this.profileSlug = source["profileSlug"];
 	        this.maxAgenticIterations = source["maxAgenticIterations"];
 	        this.responseTimeout = source["responseTimeout"];
+	        this.tabType = source["tabType"];
+	        this.activeFilePath = source["activeFilePath"];
 	    }
 	}
 	export class FunctionCall {
@@ -1704,49 +1708,17 @@ export namespace main {
 	        this.content = source["content"];
 	    }
 	}
-	export class EditorSessionTab {
-	    id: string;
-	    title: string;
-	    mode: string;
-	    filePath?: string;
-	    draftId?: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new EditorSessionTab(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.title = source["title"];
-	        this.mode = source["mode"];
-	        this.filePath = source["filePath"];
-	        this.draftId = source["draftId"];
-	    }
-	}
-	export class EditorSession {
-	    version: number;
-	    autoSaveEnabled: boolean;
-	    activeTabId?: string;
-	    profileSlug?: string;
-	    tabs: EditorSessionTab[];
+	export class EditorState {
 	    fileModeByPath?: Record<string, string>;
-	    externalConflictLockedByTabId?: Record<string, boolean>;
 	    mergeSessionsByTabId?: Record<string, EditorMergeSession>;
 	
 	    static createFrom(source: any = {}) {
-	        return new EditorSession(source);
+	        return new EditorState(source);
 	    }
 	
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.version = source["version"];
-	        this.autoSaveEnabled = source["autoSaveEnabled"];
-	        this.activeTabId = source["activeTabId"];
-	        this.profileSlug = source["profileSlug"];
-	        this.tabs = this.convertValues(source["tabs"], EditorSessionTab);
 	        this.fileModeByPath = source["fileModeByPath"];
-	        this.externalConflictLockedByTabId = source["externalConflictLockedByTabId"];
 	        this.mergeSessionsByTabId = this.convertValues(source["mergeSessionsByTabId"], EditorMergeSession, true);
 	    }
 	
@@ -1768,7 +1740,6 @@ export namespace main {
 		    return a;
 		}
 	}
-	
 	
 	export class ExternalSourceSuggestion {
 	    value: string;
@@ -1863,6 +1834,24 @@ export namespace main {
 	        this.vendor = source["vendor"];
 	        this.description = source["description"];
 	        this.source = source["source"];
+	    }
+	}
+	export class TTSVoiceEntry {
+	    id: string;
+	    name: string;
+	    gender: string;
+	    description: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new TTSVoiceEntry(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.gender = source["gender"];
+	        this.description = source["description"];
 	    }
 	}
 	export class SkillCreateRequest {
@@ -3344,6 +3333,25 @@ export namespace skills {
 
 }
 
+export namespace speech {
+
+	export class SpeechModelInfo {
+	    id: string;
+	    name: string;
+
+	    static createFrom(source: any = {}) {
+	        return new SpeechModelInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	    }
+	}
+
+}
+
 export namespace terminal {
 	
 	export class HistoryEntry {
@@ -3467,11 +3475,12 @@ export namespace workspace {
 	export class Tab {
 	    id: string;
 	    type: string;
-	    content_id: string;
+	    conversation_id?: number;
 	    title: string;
 	    position: number;
 	    profile_override?: Record<string, any>;
 	    state?: Record<string, any>;
+	    content_id?: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new Tab(source);
@@ -3481,11 +3490,12 @@ export namespace workspace {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.type = source["type"];
-	        this.content_id = source["content_id"];
+	        this.conversation_id = source["conversation_id"];
 	        this.title = source["title"];
 	        this.position = source["position"];
 	        this.profile_override = source["profile_override"];
 	        this.state = source["state"];
+	        this.content_id = source["content_id"];
 	    }
 	}
 	export class TabsState {

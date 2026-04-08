@@ -1,12 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
-import { profiles, llm } from '@wailsjs/go/models';
-import { GetLLMProviders } from '@wailsjs/go/main/App';
+import { profiles, llm, speech } from '@wailsjs/go/models';
+import { GetSpeechProviders, GetSTTModels } from '@wailsjs/go/main/App';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { ProfileInteractionSection } from './ProfileInteractionSection';
 import { VOICE_REF_ASSISTANT, VOICE_REF_USER, VOICE_REF_SYSTEM } from '../pickers/VoicePicker';
 import { VoiceProviderPicker, type VoiceProviderItem } from '../pickers/VoiceProviderPicker';
+import { parseCompositeVoiceId } from '../../config/providers';
 
 export interface ProfileAudioTabProps {
   editingProfile: profiles.Profile;
@@ -33,30 +34,58 @@ const fetchPlatform = async (): Promise<string | null> => {
 
 export function ProfileAudioTab({ editingProfile, updateField, updateFields, profileId }: ProfileAudioTabProps) {
   const { t } = useTranslation();
-  const [llmProviders, setLLMProviders] = useState<llm.ProviderConfig[]>([]);
+  const [speechProviders, setSpeechProviders] = useState<llm.ProviderConfig[]>([]);
   const [isWindows, setIsWindows] = useState(false);
   const [voiceExpanded, setVoiceExpanded] = useState(false);
+  const [sttModelsCache, setSTTModelsCache] = useState<Record<string, speech.SpeechModelInfo[]>>({});
 
   useEffect(() => {
-    GetLLMProviders().then(setLLMProviders).catch(console.error);
+    GetSpeechProviders().then(setSpeechProviders).catch(console.error);
     fetchPlatform()
       .then((platform) => setIsWindows(platform === 'windows'))
       .catch(() => setIsWindows(false));
   }, []);
+
+  // Busca modelos STT quando o provider muda (com cache por providerID)
+  const fetchSTTModels = useCallback((providerID: string) => {
+    if (!providerID) return;
+    if (sttModelsCache[providerID]) return;
+    GetSTTModels(providerID)
+      .then((models) => setSTTModelsCache((prev) => ({ ...prev, [providerID]: models })))
+      .catch(console.error);
+  }, [sttModelsCache]);
 
   const voice = editingProfile.voice;
   const assistantVoice = voice?.assistant;
   const userVoice = voice?.user;
   const systemVoice = voice?.system;
 
-  const isVoiceDisabled = !assistantVoice?.enabled || assistantVoice?.provider === 'disabled';
+  const isVoiceDisabled = !assistantVoice?.enabled;
   const isSTTDisabled = !editingProfile.input?.stt_provider;
 
-  const llmProviderItems: VoiceProviderItem[] = llmProviders.map((p) => ({
-    id: p.id,
-    label: p.name,
-    description: t('pickers.voiceProvider.llmProvider'),
-  }));
+  // Mapa provider ID → provider type para consultar presets TTS
+  const providerTypeMap = useMemo(() => {
+    const map: Record<string, string> = {};
+    for (const p of speechProviders) {
+      map[p.id] = p.type;
+    }
+    return map;
+  }, [speechProviders]);
+
+  const llmProviderItems: VoiceProviderItem[] = speechProviders.map((p) => {
+    // Mostra o host da base_url para distinguir providers (ex: "api.openai.com", "litellm.local:4000")
+    let hostHint = '';
+    try {
+      hostHint = new URL(p.base_url).host;
+    } catch { /* URL inválida */ }
+    return {
+      id: p.id,
+      label: p.name,
+      description: hostHint
+        ? t('pickers.voiceProvider.llmProviderWithHost', { host: hostHint })
+        : t('pickers.voiceProvider.llmProvider'),
+    };
+  });
 
   const baseProviderItems: VoiceProviderItem[] = [
     {
@@ -75,12 +104,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
       : []),
     ...llmProviderItems,
   ];
-
-  const screenReaderProvider: VoiceProviderItem = {
-    id: 'disabled',
-    label: t('pickers.voiceProvider.screenReader'),
-    description: t('pickers.voiceProvider.screenReaderDesc'),
-  };
 
   const defaultProvider: VoiceProviderItem = {
     id: '',
@@ -107,15 +130,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   };
 
   const handleProviderChange = (type: 'assistant' | 'user' | 'system', pId: string) => {
-    if (pId === 'disabled') {
-      updateFields({
-        [`voice.${type}.provider`]: 'disabled',
-        [`voice.${type}.enabled`]: false,
-      });
-      if (type === 'assistant') setVoiceExpanded(false);
-      return;
-    }
-
     const followVoiceMap: Record<string, string> = {
       ref_assistant: VOICE_REF_ASSISTANT,
       ref_user: VOICE_REF_USER,
@@ -150,8 +164,31 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
   const currentUserProvider = userVoice?.llm_provider_id || userVoice?.provider || '';
   const currentSystemProvider = systemVoice?.llm_provider_id || systemVoice?.provider || '';
 
+  // Busca modelos TTS/STT quando providers mudam
+  useEffect(() => {
+    const sttProvider = editingProfile.input?.llm_provider_id;
+    if (sttProvider) fetchSTTModels(sttProvider);
+  }, [editingProfile.input?.llm_provider_id, fetchSTTModels]);
+
   const isUserVoiceFollowing = userVoice?.voice_id === VOICE_REF_ASSISTANT || userVoice?.voice_id === VOICE_REF_SYSTEM;
   const isSystemVoiceFollowing = systemVoice?.voice_id === VOICE_REF_ASSISTANT || systemVoice?.voice_id === VOICE_REF_USER;
+
+  // Previne referência circular na UI:
+  // Se User segue System, System NÃO pode seguir User (e vice-versa)
+  const userProviderItems: VoiceProviderItem[] = [
+    defaultProvider,
+    followAssistantProvider,
+    // Só oferece "seguir system" se system NÃO segue user
+    ...(isSystemVoiceFollowing && systemVoice?.voice_id === VOICE_REF_USER ? [] : [followSystemProvider]),
+    ...baseProviderItems,
+  ];
+  const systemProviderItems: VoiceProviderItem[] = [
+    defaultProvider,
+    followAssistantProvider,
+    // Só oferece "seguir user" se user NÃO segue system
+    ...(isUserVoiceFollowing && userVoice?.voice_id === VOICE_REF_SYSTEM ? [] : [followUserProvider]),
+    ...baseProviderItems,
+  ];
 
   const userFollowHelpText = userVoice?.voice_id === VOICE_REF_ASSISTANT
     ? t('profiles.voiceFollow.assistantHelp')
@@ -167,22 +204,34 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
 
   const handleVoiceChange = (type: 'assistant' | 'user' | 'system', field: 'voice' | 'rate' | 'volume', value: string | number) => {
     if (field === 'voice') {
-      updateField(`voice.${type}.voice_id`, value);
+      const strValue = String(value);
+      const composite = parseCompositeVoiceId(strValue);
+      if (composite) {
+        updateFields({
+          [`voice.${type}.voice_id`]: composite.voiceId,
+          [`voice.${type}.model`]: composite.model,
+        });
+      } else {
+        updateField(`voice.${type}.voice_id`, strValue);
+      }
       return;
     }
     updateField(`voice.${type}.${field}`, value);
   };
 
   /**
-   * Resolve referências de provedor (ex: ref_assistant)
-   * Nunca retorna 'disabled' ou IDs de referência — esses são tratados como "sem provedor"
+   * Resolve referências de provedor (ex: ref_assistant).
+   * Usa set de visitados para detectar ciclos e retornar '' se houver referência circular.
    */
-  const resolveProviderId = (pId: string | undefined, type: 'assistant' | 'user' | 'system'): string => {
+  const resolveProviderId = (pId: string | undefined, type: 'assistant' | 'user' | 'system', visited?: Set<string>): string => {
     if (!pId || pId === 'disabled') return '';
     if (pId.startsWith('ref_')) {
-      if (pId === 'ref_assistant' && type !== 'assistant') return resolveProviderId(assistantVoice?.llm_provider_id || assistantVoice?.provider || 'webspeech', 'assistant');
-      if (pId === 'ref_user' && type !== 'user') return resolveProviderId(userVoice?.llm_provider_id || userVoice?.provider, 'user');
-      if (pId === 'ref_system' && type !== 'system') return resolveProviderId(systemVoice?.llm_provider_id || systemVoice?.provider, 'system');
+      const v = visited ?? new Set<string>();
+      if (v.has(type)) return ''; // ciclo detectado
+      v.add(type);
+      if (pId === 'ref_assistant' && type !== 'assistant') return resolveProviderId(assistantVoice?.llm_provider_id || assistantVoice?.provider || 'webspeech', 'assistant', v);
+      if (pId === 'ref_user' && type !== 'user') return resolveProviderId(userVoice?.llm_provider_id || userVoice?.provider, 'user', v);
+      if (pId === 'ref_system' && type !== 'system') return resolveProviderId(systemVoice?.llm_provider_id || systemVoice?.provider, 'system', v);
       return '';
     }
     return pId;
@@ -190,12 +239,26 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
 
   /**
    * Resolve referências de voz (ex: VOICE_REF_ASSISTANT) para o ID real da voz.
+   * Usa set de visitados para detectar ciclos e retornar undefined se houver referência circular.
    */
-  const resolveVoiceId = (voiceId: string | undefined): string | undefined => {
+  const resolveVoiceId = (voiceId: string | undefined, visited?: Set<string>): string | undefined => {
     if (!voiceId) return undefined;
-    if (voiceId === VOICE_REF_ASSISTANT) return assistantVoice?.voice_id;
-    if (voiceId === VOICE_REF_USER) return userVoice?.voice_id;
-    if (voiceId === VOICE_REF_SYSTEM) return systemVoice?.voice_id;
+    const v = visited ?? new Set<string>();
+    if (voiceId === VOICE_REF_ASSISTANT) {
+      if (v.has('assistant')) return undefined;
+      v.add('assistant');
+      return resolveVoiceId(assistantVoice?.voice_id, v);
+    }
+    if (voiceId === VOICE_REF_USER) {
+      if (v.has('user')) return undefined;
+      v.add('user');
+      return resolveVoiceId(userVoice?.voice_id, v);
+    }
+    if (voiceId === VOICE_REF_SYSTEM) {
+      if (v.has('system')) return undefined;
+      v.add('system');
+      return resolveVoiceId(systemVoice?.voice_id, v);
+    }
     return voiceId;
   };
 
@@ -210,15 +273,14 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
             if (isVoiceDisabled) {
               setVoiceExpanded(true);
               updateFields({
-                'voice.assistant.provider': 'webspeech',
                 'voice.assistant.enabled': true,
+                ...(!assistantVoice?.provider || assistantVoice.provider === 'disabled'
+                  ? { 'voice.assistant.provider': 'webspeech' }
+                  : {}),
               });
             } else {
               setVoiceExpanded(false);
-              updateFields({
-                'voice.assistant.provider': 'disabled',
-                'voice.assistant.enabled': false,
-              });
+              updateField('voice.assistant.enabled', false);
             }
           }}
           badge={isVoiceDisabled ? 'off' : 'on'}
@@ -236,7 +298,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 <VoiceProviderPicker
                   value={currentAssistantProvider}
                   onChange={(value) => handleProviderChange('assistant', value)}
-                  items={[screenReaderProvider, ...baseProviderItems]}
+                  items={baseProviderItems}
                   label={t('pickers.voiceProvider.label')}
                   helpText={t('pickers.voiceProvider.description')}
                   variant="form"
@@ -248,6 +310,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 rate={assistantVoice?.rate ?? 1.0}
                 volume={assistantVoice?.volume ?? 1.0}
                 providerId={resolveProviderId(currentAssistantProvider, 'assistant')}
+                providerType={providerTypeMap[resolveProviderId(currentAssistantProvider, 'assistant')] || ''}
                 profileId={profileId}
                 ttsModel={assistantVoice?.model}
                 label={t('profiles.voiceLabels.assistantPicker')}
@@ -268,7 +331,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 <VoiceProviderPicker
                   value={currentUserProvider}
                   onChange={(value) => handleProviderChange('user', value)}
-                  items={[defaultProvider, followAssistantProvider, followSystemProvider, ...baseProviderItems]}
+                  items={userProviderItems}
                   label={t('pickers.voiceProvider.label')}
                   helpText={t('pickers.voiceProvider.description')}
                   variant="form"
@@ -280,6 +343,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 rate={userVoice?.rate ?? 1.0}
                 volume={userVoice?.volume ?? 1.0}
                 providerId={resolveProviderId(currentUserProvider, 'user')}
+                providerType={providerTypeMap[resolveProviderId(currentUserProvider, 'user')] || ''}
                 profileId={profileId}
                 ttsModel={userVoice?.model}
                 label={t('profiles.voiceLabels.userPicker')}
@@ -301,7 +365,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 <VoiceProviderPicker
                   value={currentSystemProvider}
                   onChange={(value) => handleProviderChange('system', value)}
-                  items={[defaultProvider, followAssistantProvider, followUserProvider, ...baseProviderItems]}
+                  items={systemProviderItems}
                   label={t('pickers.voiceProvider.label')}
                   helpText={t('pickers.voiceProvider.description')}
                   variant="form"
@@ -313,6 +377,7 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
                 rate={systemVoice?.rate ?? 1.0}
                 volume={systemVoice?.volume ?? 1.0}
                 providerId={resolveProviderId(currentSystemProvider, 'system')}
+                providerType={providerTypeMap[resolveProviderId(currentSystemProvider, 'system')] || ''}
                 profileId={profileId}
                 ttsModel={systemVoice?.model}
                 label={t('profiles.voiceLabels.systemPicker')}
@@ -323,24 +388,6 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
             </CollapsibleSection>
 
             <div style={{ marginTop: '1rem', borderTop: '1px solid var(--border-subtle)', paddingTop: '1rem', display: 'flex', flexDirection: 'column', gap: '1rem' }}>
-              {currentAssistantProvider !== 'webspeech' && currentAssistantProvider !== 'sapi5' && (
-                <div className="profiles-field">
-                  <label htmlFor="pf-tts-model" className="profiles-field__label">
-                    {t('profiles.fieldTTSModel', 'Modelo de voz (OpenAI)')}
-                  </label>
-                  <select
-                    id="pf-tts-model"
-                    className="profiles-field__select"
-                    value={assistantVoice?.model || 'tts-1'}
-                    onChange={(e) => updateField('voice.assistant.model', e.target.value)}
-                  >
-                    <option value="tts-1">tts-1 (Rápido)</option>
-                    <option value="tts-1-hd">tts-1-hd (Alta Definição)</option>
-                  </select>
-                </div>
-              )}
-
-
               <div className="profiles-field">
                 <label htmlFor="pf-channel-response" className="profiles-field__label">
                   {t('profiles.fieldChannelResponse', 'Resposta em canais externos')}
@@ -388,6 +435,8 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
             sttModel={editingProfile.input?.stt_model || ''}
             sttLanguage={editingProfile.input?.language || 'pt-BR'}
             enableFeedbackSounds={editingProfile.input?.feedback_sounds ?? true}
+            speechProviders={speechProviders}
+            sttModels={sttModelsCache[editingProfile.input?.llm_provider_id || '']}
             onChange={(field, value) => {
               if (field === 'sttProvider') {
                 updateField('input.stt_provider', value);

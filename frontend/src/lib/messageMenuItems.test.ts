@@ -5,15 +5,21 @@ import { main } from '../../wailsjs/go/models';
 
 vi.mock('../services/messageAudio', () => ({
   messageAudioService: {
-    getAudioFromDB: vi.fn(),
-    base64ToBlob: vi.fn(),
-    generateAndSaveAudio: vi.fn(),
+    getMessageAudioBlob: vi.fn(),
     downloadAudioBlob: vi.fn(),
+    base64ToBlob: vi.fn(),
   },
 }));
 
 vi.mock('../services/tts', () => ({
-  ttsService: { synthesizeOnDemand: vi.fn() },
+  ttsService: {
+    getVoiceContext: vi.fn(() => ({
+      providerId: 'test-provider',
+      voiceId: 'test-voice',
+      model: 'tts-1',
+      rate: 1.0,
+    })),
+  },
 }));
 
 describe('messageMenuItems', () => {

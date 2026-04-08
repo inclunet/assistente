@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 type editorDirWatch struct {
@@ -230,7 +229,7 @@ func (a *App) runEditorDirWatch(dw *editorDirWatch) {
 			}
 
 			if a.ctx != nil {
-				wailsruntime.EventsEmit(a.ctx, "editor:fileChanged", map[string]any{
+				a.emitter.Emit( "editor:fileChanged", map[string]any{
 					"path": ev.Name,
 					"op":   ev.Op.String(),
 					"ts":   time.Now().UnixMilli(),

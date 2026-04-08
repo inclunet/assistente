@@ -100,9 +100,7 @@ func TestBuiltinProfilesHaveSpeechProviders(t *testing.T) {
 					LLMProvider: tc.chatProv,
 				},
 				Voice: profiles.VoiceConfig{
-					Assistant: profiles.VoiceRoleConfig{
-						LLMProviderID: tc.voiceProv,
-					},
+					Assistant: profiles.VoiceRoleConfig{LLMProviderID: tc.voiceProv},
 				},
 				Input: profiles.InputConfig{
 					LLMProviderID: tc.sttProv,

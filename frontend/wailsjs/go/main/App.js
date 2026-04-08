@@ -230,12 +230,16 @@ export function EditorDeleteDraft(arg1) {
   return window['go']['main']['App']['EditorDeleteDraft'](arg1);
 }
 
+export function EditorGetDraftPath(arg1) {
+  return window['go']['main']['App']['EditorGetDraftPath'](arg1);
+}
+
 export function EditorGetFileInfo(arg1) {
   return window['go']['main']['App']['EditorGetFileInfo'](arg1);
 }
 
-export function EditorLoadSession() {
-  return window['go']['main']['App']['EditorLoadSession']();
+export function EditorLoadState() {
+  return window['go']['main']['App']['EditorLoadState']();
 }
 
 export function EditorOpenFile() {
@@ -258,8 +262,8 @@ export function EditorSaveFileDialog(arg1) {
   return window['go']['main']['App']['EditorSaveFileDialog'](arg1);
 }
 
-export function EditorSaveSession(arg1) {
-  return window['go']['main']['App']['EditorSaveSession'](arg1);
+export function EditorSaveState(arg1) {
+  return window['go']['main']['App']['EditorSaveState'](arg1);
 }
 
 export function EditorUnwatchFile(arg1) {
@@ -428,6 +432,22 @@ export function GetLLMProviders() {
 
 export function GetLLMProvidersWithStatus() {
   return window['go']['main']['App']['GetLLMProvidersWithStatus']();
+}
+
+export function GetSpeechProviders() {
+  return window['go']['main']['App']['GetSpeechProviders']();
+}
+
+export function GetTTSVoices(arg1, arg2) {
+  return window['go']['main']['App']['GetTTSVoices'](arg1, arg2);
+}
+
+export function GetTTSModels(arg1) {
+  return window['go']['main']['App']['GetTTSModels'](arg1);
+}
+
+export function GetSTTModels(arg1) {
+  return window['go']['main']['App']['GetSTTModels'](arg1);
 }
 
 export function GetLLMSettings() {
@@ -756,6 +776,10 @@ export function SaveSettings(arg1) {
 
 export function SaveWorkspace() {
   return window['go']['main']['App']['SaveWorkspace']();
+}
+
+export function SpeakMessage(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['SpeakMessage'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function SearchConversationHistory(arg1, arg2) {

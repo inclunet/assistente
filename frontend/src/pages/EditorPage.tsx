@@ -28,7 +28,6 @@ import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValid
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
-import { toEditorSessionPayload } from '../lib/editorSessionPayload';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
 import { isModalOpen } from '../components/ui/Modal';
@@ -43,14 +42,15 @@ import {
 import { EventsOn } from '@wailsjs/runtime/runtime';
 import {
   EditorDeleteDraft,
+  EditorGetDraftPath,
   EditorGetFileInfo,
+  EditorLoadState,
+  EditorSaveState,
   GetProfile,
-  EditorLoadSession,
   EditorOpenFile,
   EditorReadDraft,
   EditorReadFile,
   EditorSaveFileDialog,
-  EditorSaveSession,
   EditorUnwatchFile,
   EditorWatchFile,
   EditorWriteDraft,
@@ -74,10 +74,6 @@ export default function EditorPage() {
   const setDocFilePath = useEditorStore((s) => s.setDocFilePath);
   const setDocDraftId = useEditorStore((s) => s.setDocDraftId);
   const setDocDirty = useEditorStore((s) => s.setDocDirty);
-  const autoSaveEnabled = useEditorStore((s) => s.autoSaveEnabled);
-  const toggleAutoSave = useEditorStore((s) => s.toggleAutoSave);
-  const editorProfileSlug = useEditorStore((s) => s.editorProfileSlug);
-  const setEditorProfileSlug = useEditorStore((s) => s.setEditorProfileSlug);
   const hydrate = useEditorStore((s) => s.hydrate);
   const addWorkspaceTab = useWorkspaceStore((s) => s.addTab);
   const setActiveWsTab = useWorkspaceStore((s) => s.setActiveTab);
@@ -86,16 +82,10 @@ export default function EditorPage() {
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const updateWsTab = useWorkspaceStore((s) => s.updateTab);
 
-  const tabProfileSlug = wsActiveTab?.type === 'editor'
-    ? (wsActiveTab.profileOverride?.slug as string | undefined)
-    : undefined;
-  const effectiveProfileSlug = tabProfileSlug || wsProfile || editorProfileSlug;
+  const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 
-  useEffect(() => {
-    if (tabProfileSlug && tabProfileSlug !== editorProfileSlug) {
-      setEditorProfileSlug(tabProfileSlug);
-    }
-  }, [tabProfileSlug]);
+  const tabProfileSlug = wsActiveTab?.profileOverride?.slug as string | undefined;
+  const effectiveProfileSlug = tabProfileSlug || wsProfile || 'editor-texto';
 
   const activeTab = useMemo(() => activeDocumentId ? documents[activeDocumentId] ?? null : null, [documents, activeDocumentId]);
 
@@ -570,7 +560,7 @@ export default function EditorPage() {
 
   const persistTabContentNow = async (tabId: string) => {
     if (!sessionLoaded) return;
-    const { documents: currentDocs, autoSaveEnabled: currentAutoSaveEnabled } = useEditorStore.getState();
+    const { documents: currentDocs } = useEditorStore.getState();
     const tab = currentDocs[tabId] || null;
     if (!tab) return;
 
@@ -631,11 +621,6 @@ export default function EditorPage() {
         // best-effort
       }
 
-      if (!currentAutoSaveEnabled) {
-        // Sem autosave: não persiste no disco automaticamente.
-        return;
-      }
-
       markSelfWrite(filePath);
       await EditorWriteFile(filePath, markdown);
       setDiskBaselineForTab(tab.id, markdown);
@@ -660,81 +645,95 @@ export default function EditorPage() {
     }, Math.max(0, delayMs));
   };
 
-  // Restaura sessão (guias abertas + autosave) via backend (persistido no SQLite)
+  // Salva o estado do editor (fileModeByPath + mergeSessionsByTabId) em disco
+  const saveEditorState = () => {
+    try {
+      for (const t of useEditorStore.getState().documents ? Object.values(useEditorStore.getState().documents) : []) {
+        if (t.filePath && (t.mode === 'markdown' || t.mode === 'rich')) {
+          fileModeByPathRef.current[normalizePathKey(String(t.filePath))] = t.mode;
+        }
+      }
+    } catch {
+      // best-effort
+    }
+    EditorSaveState({
+      fileModeByPath: fileModeByPathRef.current,
+      mergeSessionsByTabId: mergeSessionByTabRef.current as any,
+    } as any).catch((e: unknown) => {
+      console.warn('[EditorPage] falha ao salvar estado:', e);
+    });
+  };
+
+  // Restaura sessão (abas abertas) via workspace YAML + EditorLoadState (arquivo JSON)
   useEffect(() => {
+    if (!isWsInitialized) return;
     let cancelled = false;
 
     (async () => {
       try {
-        const sess = toEditorSessionPayload(await EditorLoadSession());
+        const wsState = useWorkspaceStore.getState();
+        const wsEditorTabs = (wsState.workspace?.tabs || []).filter((t) => t.type === 'editor');
+        const wsActiveTabId = wsState.workspace?.activeTabId || null;
+
+        const editorState = await EditorLoadState();
         if (cancelled) return;
 
-        // Preferências por arquivo (se existir)
+        // Preferências por arquivo
         try {
-          const fromSess = sess.fileModeByPath;
-          if (fromSess && typeof fromSess === 'object') {
-            const next: Record<string, 'markdown' | 'rich'> = {};
-            for (const [k, v] of Object.entries(fromSess)) {
-              const key = normalizePathKey(String(k || ''));
-              if (!key) continue;
-              next[key] = v === 'rich' ? 'rich' : 'markdown';
-            }
-            fileModeByPathRef.current = next;
+          const fromState = editorState?.fileModeByPath || {};
+          const next: Record<string, 'markdown' | 'rich'> = {};
+          for (const [k, v] of Object.entries(fromState)) {
+            const key = normalizePathKey(String(k || ''));
+            if (!key) continue;
+            next[key] = v === 'rich' ? 'rich' : 'markdown';
           }
+          fileModeByPathRef.current = next;
         } catch {
           // best-effort
         }
 
-        const autoSaveEnabledFromSess = typeof sess.autoSaveEnabled === 'boolean' ? !!sess.autoSaveEnabled : true;
-        const editorProfileSlugFromSess = String(sess.profileSlug || '').trim();
+        const mergeFromState = ((editorState?.mergeSessionsByTabId as Record<string, any>) || {});
 
-        const lockedFromSess = (sess.externalConflictLockedByDocId || {}) as Record<string, any>;
-        const mergeFromSess = (sess.mergeSessionsByDocId || {}) as Record<string, any>;
-
-        const rawTabs = Array.isArray(sess.documents) ? sess.documents : [];
         const loadedTabs: EditorDocument[] = [];
 
-        for (const t of rawTabs) {
-          const tabId = String(t?.id || '').trim();
-          const filePath = String(t?.filePath || '').trim();
-          const savedDraftId = String(t?.draftId || '').trim();
-          const draftId = filePath ? '' : (savedDraftId || tabId);
+        for (const tab of wsEditorTabs) {
+          const tabId = tab.id;
+          const filePath = String(tab.state?.filePath || '').trim();
+          const draftId = String(tab.state?.draftId || '').trim();
 
-          const mergeSessRaw = tabId ? (mergeFromSess[tabId] as any) : null;
+          const mergeSessRaw = mergeFromState[tabId] as any;
           const hasMergeSess = !!mergeSessRaw && typeof mergeSessRaw === 'object' && String(mergeSessRaw?.conflictDraftId || '').trim();
-          const isLocked = !!(tabId && lockedFromSess && (lockedFromSess as any)[tabId]);
 
           let markdown = '';
           try {
             if (filePath) {
-              // Se havia merge em andamento, reabre do draft de conflito em vez do arquivo real.
               if (hasMergeSess) {
                 const conflictDraftId = String(mergeSessRaw?.conflictDraftId || '').trim();
                 const resDraft = await EditorReadDraft(conflictDraftId);
-                markdown = String((resDraft as any)?.content ?? (resDraft as any) ?? '');
+                markdown = getMaybeContent(resDraft);
               } else {
                 const res = await EditorReadFile(filePath);
-                markdown = String((res as any)?.content ?? (res as any) ?? '');
+                markdown = getMaybeContent(res);
               }
-            } else if (draftId) {
-              const res = await EditorReadDraft(draftId);
-              markdown = String((res as any)?.content ?? (res as any) ?? '');
             }
           } catch {
             markdown = '';
           }
 
-          const mode: EditorMode = t?.mode === 'rich' ? 'rich' : t?.mode === 'view' ? 'view' : 'markdown';
-          const title = String(t?.title || (filePath ? basenameFromPath(filePath) : 'Novo documento')) || 'Novo documento';
+          const pathKey = filePath ? normalizePathKey(filePath) : '';
+          const mode: EditorMode = pathKey
+            ? (fileModeByPathRef.current[pathKey] || 'markdown')
+            : 'markdown';
+          const title = filePath ? basenameFromPath(filePath) : (tab.title || 'Novo documento');
 
           loadedTabs.push({
             id: tabId,
             title,
-            markdown,
+            markdown: markdown || DEFAULT_MD,
             mode,
             filePath: filePath || null,
             draftId: filePath ? null : (draftId || null),
-            isDirty: !!isLocked || !!hasMergeSess,
+            isDirty: !!hasMergeSess,
           });
         }
 
@@ -747,7 +746,7 @@ export default function EditorPage() {
           // best-effort
         }
 
-        // Baseline do disco para arquivos reais (best-effort; não bloqueia a UI)
+        // Baseline do disco para arquivos reais (best-effort)
         try {
           for (const t of loadedTabs) {
             if (t.filePath) {
@@ -764,24 +763,21 @@ export default function EditorPage() {
           loadedDocs[t.id] = t;
         }
 
-        const nextActiveDocId = String(sess.activeDocumentId || '').trim();
-        const activeExists = !!loadedDocs[nextActiveDocId];
+        // Aba ativa: preferir a aba ativa do workspace se for editor, senão a primeira
+        const activeEditorId = loadedDocs[wsActiveTabId || '']
+          ? wsActiveTabId!
+          : (loadedTabs[0]?.id ?? null);
 
         hydrate({
           documents: loadedDocs,
-          activeDocumentId: activeExists ? nextActiveDocId : (loadedTabs[0]?.id ?? null),
-          autoSaveEnabled: autoSaveEnabledFromSess,
-          editorProfileSlug: editorProfileSlugFromSess || 'editor-texto',
+          activeDocumentId: activeEditorId,
         });
 
-        // Restaura locks e merge sessions em refs antes de liberar autosave.
+        // Restaura merge sessions em refs antes de liberar autosave.
         try {
           for (const t of loadedTabs) {
             if (!t?.id) continue;
-            if (t.filePath && lockedFromSess && (lockedFromSess as any)[t.id]) {
-              setExternalConflictLocked(t.id, true);
-            }
-            const raw = mergeFromSess && t.id ? (mergeFromSess as any)[t.id] : null;
+            const raw = mergeFromState[t.id] as any;
             if (raw && typeof raw === 'object') {
               const conflictDraftId = String(raw?.conflictDraftId || '').trim();
               const mineDraftId = String(raw?.mineDraftId || '').trim();
@@ -812,7 +808,7 @@ export default function EditorPage() {
     return () => {
       cancelled = true;
     };
-  }, [hydrate]);
+  }, [isWsInitialized]);
 
   const debouncedMarkdownForPreview = useDebouncedValue(activeTab?.markdown || '', 120);
 
@@ -825,61 +821,18 @@ export default function EditorPage() {
 
   const allDocs = useMemo(() => Object.values(documents), [documents]);
 
-  // Persiste a sessão (abas abertas) via backend (persistido no SQLite)
+  // Persiste o estado do editor (fileModeByPath + mergeSessionsByTabId)
   useEffect(() => {
     if (!sessionLoaded) return;
 
     const timer = window.setTimeout(() => {
-      try {
-        for (const t of allDocs) {
-          if (t.filePath) {
-            if (t.mode === 'markdown' || t.mode === 'rich') {
-              fileModeByPathRef.current[normalizePathKey(String(t.filePath))] = t.mode;
-            }
-          }
-        }
-      } catch {
-        // best-effort
-      }
-
-      const externalConflictLockedByDocId: Record<string, boolean> = {};
-      const mergeSessionsByDocId: Record<string, any> = {};
-      try {
-        for (const t of allDocs) {
-          if (!t?.id) continue;
-          if (isExternalConflictLocked(t.id)) externalConflictLockedByDocId[t.id] = true;
-          const ms = getMergeSession(t.id);
-          if (ms) mergeSessionsByDocId[t.id] = ms;
-        }
-      } catch {
-        // best-effort
-      }
-
-      const payload = {
-        version: 3,
-        autoSaveEnabled: !!autoSaveEnabled,
-        activeDocumentId: activeDocumentId || '',
-        profileSlug: editorProfileSlug,
-        fileModeByPath: fileModeByPathRef.current,
-        externalConflictLockedByDocId,
-        mergeSessionsByDocId,
-        documents: allDocs.map((t) => ({
-          id: t.id,
-          title: t.title,
-          mode: t.mode,
-          filePath: t.filePath || '',
-          draftId: t.filePath ? '' : (t.draftId || t.id),
-        })),
-      };
-      EditorSaveSession(payload as any).catch((e) => {
-        console.warn('[EditorPage] falha ao salvar sessão:', e);
-      });
+      saveEditorState();
     }, 500);
 
     return () => window.clearTimeout(timer);
-  }, [sessionLoaded, allDocs, activeDocumentId, autoSaveEnabled, editorProfileSlug]);
+  }, [sessionLoaded, allDocs, activeDocumentId]);
 
-  // Flush imediato ao fechar/minimizar para reduzir chance de perder a sessão
+  // Flush imediato ao fechar/minimizar para reduzir chance de perder o estado
   useEffect(() => {
     if (!sessionLoaded) return;
 
@@ -892,49 +845,7 @@ export default function EditorPage() {
       } catch {
         // best-effort
       }
-
-      try {
-        for (const t of allDocs) {
-          if (t.filePath) {
-            if (t.mode === 'markdown' || t.mode === 'rich') {
-              fileModeByPathRef.current[normalizePathKey(String(t.filePath))] = t.mode;
-            }
-          }
-        }
-      } catch {
-        // best-effort
-      }
-
-      const externalConflictLockedByDocId: Record<string, boolean> = {};
-      const mergeSessionsByDocId: Record<string, any> = {};
-      try {
-        for (const t of allDocs) {
-          if (!t?.id) continue;
-          if (isExternalConflictLocked(t.id)) externalConflictLockedByDocId[t.id] = true;
-          const ms = getMergeSession(t.id);
-          if (ms) mergeSessionsByDocId[t.id] = ms;
-        }
-      } catch {
-        // best-effort
-      }
-
-      const payload = {
-        version: 3,
-        autoSaveEnabled: !!autoSaveEnabled,
-        activeDocumentId: activeDocumentId || '',
-        profileSlug: editorProfileSlug,
-        fileModeByPath: fileModeByPathRef.current,
-        externalConflictLockedByDocId,
-        mergeSessionsByDocId,
-        documents: allDocs.map((t) => ({
-          id: t.id,
-          title: t.title,
-          mode: t.mode,
-          filePath: t.filePath || '',
-          draftId: t.filePath ? '' : (t.draftId || t.id),
-        })),
-      };
-      EditorSaveSession(payload as any).catch(() => null);
+      saveEditorState();
     };
 
     const onBeforeUnload = () => persistNow();
@@ -982,7 +893,7 @@ export default function EditorPage() {
       document.removeEventListener('visibilitychange', onVisibilityChange);
       window.removeEventListener('focus', onFocus);
     };
-  }, [sessionLoaded, allDocs, activeDocumentId, autoSaveEnabled]);
+  }, [sessionLoaded, allDocs, activeDocumentId]);
 
   // Watcher de mudanças externas (backend emite editor:fileChanged)
   const watchedFilesRef = useRef<Record<string, { path: string; count: number }>>({});
@@ -1357,11 +1268,11 @@ export default function EditorPage() {
 
     if (r.target === 'new_document' || !targetTab) {
       const title = String(r.title || 'Do chat');
-      const createdId = useEditorStore.getState().createDocument({ title, markdown: '', mode: 'markdown' });
-      targetTab = useEditorStore.getState().documents[createdId] ?? null;
-      if (createdId) {
-        addWorkspaceTab('editor', createdId, title);
-      }
+      const draftId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `editor-${Date.now()}`;
+      const draftPath = String(await EditorGetDraftPath(draftId) ?? '');
+      const tabId = await addWorkspaceTab('editor', title, { filePath: draftPath, draftId });
+      useEditorStore.getState().createDocument({ id: tabId, title, markdown: '', mode: 'markdown', filePath: draftPath, draftId });
+      targetTab = useEditorStore.getState().documents[tabId] ?? null;
       await new Promise((res) => setTimeout(res, 0));
     }
 
@@ -1643,6 +1554,7 @@ export default function EditorPage() {
       format: 'markdown',
       selectionIsEmpty: !!inlineChatSelection.selectionIsEmpty,
       cursorContext: inlineChatSelection.cursorContext,
+      filePath: activeTab?.filePath ?? undefined,
     });
 
     const runId = (inlineChatRunIdRef.current += 1);
@@ -1873,50 +1785,59 @@ export default function EditorPage() {
       setIsAsking(true);
 
       // Regra importante:
-      // - tools ON  => tool-only (NUNCA extrai patch do texto)
-      // - tools OFF => body-only (extrai ```editor_patch``` do texto)
-      const toolCallingEnabled = await isToolCallingEnabledForProfileSlug(editorProfileSlug);
+      // - tools ON  => edit_file com confirmação contextual (Go-side); frontend fecha o mini-chat
+      // - tools OFF => body-only (extrai ```editor_patch``` do texto e confirma aqui)
+      const toolCallingEnabled = await isToolCallingEnabledForProfileSlug(effectiveProfileSlug);
+
+      // Com tools ativas, edit_file precisa do caminho do arquivo. Drafts sem filePath não são suportados.
+      if (toolCallingEnabled && !activeTab?.filePath) {
+        addToast('Salve o arquivo antes de usar o assistente inline', 'warning');
+        setIsAsking(false);
+        return;
+      }
 
       const donePromise = waitForChatDone(expectedConversationId);
-      await useChatStore.getState().sendMessageWithParams(prompt, mediaFiles, { profileSlug: editorProfileSlug });
+
+      if (toolCallingEnabled) {
+        await useChatStore.getState().sendMessageWithParams(prompt, mediaFiles, {
+          profileSlug: effectiveProfileSlug,
+          tabType: 'editor',
+          activeFilePath: activeTab?.filePath ?? undefined,
+        });
+      } else {
+        await useChatStore.getState().sendMessageWithParams(prompt, mediaFiles, { profileSlug: effectiveProfileSlug });
+      }
+
       await donePromise;
 
       if (runId !== inlineChatRunIdRef.current) return;
 
+      // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
+      // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
+      if (toolCallingEnabled) {
+        setInlineChatError(null);
+        setInlineChatSelection(null);
+        setInlineChatOpen(false);
+        setIsAsking(false);
+        focusEditorSoon();
+        return;
+      }
+
+      // Fallback (sem tool calling): extrai patch do corpo da resposta e confirma.
       const extracted = await waitForEditorPatch({
         afterMessageId,
-        preferToolCalling: toolCallingEnabled,
-        allowBodyFallback: !toolCallingEnabled,
         timeoutMs: 8000,
       });
       if (!extracted.ok) {
         const errText = String(extracted.error || '').trim();
-
         if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
           addToast('Resposta não contém patch aplicável', 'error');
         }
-
-        // Se a própria tool foi rejeitada/cancelada pelo usuário, não trata como erro.
-        if (/rejeitad|cancelad/i.test(errText)) {
-          addToast('Alteração rejeitada', 'info');
-          setIsAsking(false);
-          setInlineChatFocusNonce((n) => n + 1);
-          return;
-        }
-
         setInlineChatError(errText || 'Nenhum patch encontrado');
         setIsAsking(false);
         return;
       }
 
-      // Se veio de tool calling (text_edit), o usuário já confirmou na tool.
-      // Evita dupla confirmação e evita aplicar algo vindo do corpo da resposta.
-      if (extracted.source === 'tool') {
-        applyInlinePatchNow(inlineChatSelection, extracted.patch as EditorPatch);
-        return;
-      }
-
-      // Fallback (sem tool calling): confirma antes de aplicar.
       await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
     } catch (e: unknown) {
       console.error('[EditorPage] inline chat error:', e);
@@ -1940,7 +1861,7 @@ export default function EditorPage() {
       );
       if (existingDoc) {
         const wsTab = (wsTabs || []).find(
-          (t) => t.type === 'editor' && t.contentId === existingDoc.id,
+          (t) => t.type === 'editor' && t.id === existingDoc.id,
         );
         if (wsTab) {
           await setActiveWsTab(wsTab.id);
@@ -1967,8 +1888,9 @@ export default function EditorPage() {
           void updateWsTab(wsActiveTab.id, { title });
         }
       } else {
-        id = createDocument({ title, markdown: content, mode: preferredMode });
-        addWorkspaceTab('editor', id, title);
+        const tabId = await addWorkspaceTab('editor', title, { filePath: path });
+        id = tabId;
+        createDocument({ id: tabId, title, markdown: content, mode: preferredMode, filePath: path });
       }
 
       setDocFilePath(id, path);
@@ -2243,7 +2165,7 @@ export default function EditorPage() {
   }, [isAsking, activeTab?.mode, addToast]);
 
   const fileMenuItems = useMemo(() => {
-    const canSave = !!activeTab && (!activeTab.filePath || !autoSaveEnabled || isExternalConflictLocked(activeTab.id));
+    const canSave = !!activeTab && (!activeTab.filePath || isExternalConflictLocked(activeTab.id));
     const canSaveAs = !!activeTab?.filePath;
     const hasMergeSession = !!activeTab && !!getMergeSession(activeTab.id);
 
@@ -2255,16 +2177,10 @@ export default function EditorPage() {
         ? [{ value: 'abort-merge', label: 'Abortar merge (Git)', sublabel: 'Descarta marcadores de conflito' }]
         : []),
       { value: 'saveas', label: 'Salvar como...', sublabel: 'Ctrl+Shift+S', disabled: !canSaveAs },
-      {
-        value: 'autosave',
-        label: 'Auto-salvar',
-        sublabel: autoSaveEnabled ? 'Ligado' : 'Desligado',
-        disabled: !activeTab,
-      },
     ];
 
     return items;
-  }, [activeTab, autoSaveEnabled]);
+  }, [activeTab]);
 
   const onFileMenuSelect = useCallback(
     async (value: string) => {
@@ -2273,8 +2189,10 @@ export default function EditorPage() {
 
       switch (v) {
         case 'new': {
-          const newId = createDocument();
-          addWorkspaceTab('editor', newId, 'Novo documento');
+          const draftId = (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `editor-${Date.now()}`;
+          const draftPath = String(await EditorGetDraftPath(draftId) ?? '');
+          const tabId = await addWorkspaceTab('editor', 'Novo documento', { filePath: draftPath, draftId });
+          createDocument({ id: tabId, draftId, filePath: draftPath });
           focusEditorSoon();
           return;
         }
@@ -2290,23 +2208,11 @@ export default function EditorPage() {
         case 'saveas':
           await saveFileAsCopy();
           return;
-        case 'autosave': {
-          toggleAutoSave();
-
-          // Se acabou de ligar e já tem destino, tenta persistir imediatamente.
-          const nextEnabled = !autoSaveEnabled;
-          if (nextEnabled && activeTab?.filePath) {
-            void persistTabContentNow(activeTab.id);
-          }
-
-          focusEditorSoon();
-          return;
-        }
         default:
           return;
       }
     },
-    [createDocument, addWorkspaceTab, openFile, saveFile, abortMerge, saveFileAsCopy, toggleAutoSave, autoSaveEnabled, activeTab]
+    [createDocument, addWorkspaceTab, openFile, saveFile, abortMerge, saveFileAsCopy, activeTab]
   );
 
   const {
@@ -2428,7 +2334,7 @@ export default function EditorPage() {
 
     window.addEventListener('keydown', onKeyDown, true);
     return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [activeTab, autoSaveEnabled]);
+  }, [activeTab]);
 
   return (
     <div className="editor-page" ref={pageRootRef}>
@@ -2475,7 +2381,6 @@ export default function EditorPage() {
           <ProfilePicker
             value={effectiveProfileSlug}
             onChange={(slug) => {
-              setEditorProfileSlug(slug);
               if (wsActiveTab) {
                 void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
               }
@@ -2507,12 +2412,7 @@ export default function EditorPage() {
                   onChange={(v) => {
                     setDocMarkdown(activeTab.id, v);
                     updateLatestMarkdownForTab(activeTab.id, v);
-                    if (!activeTab.filePath || autoSaveEnabled) {
-                      schedulePersistForTab(activeTab.id);
-                    }
-                    if (activeTab.filePath && !autoSaveEnabled) {
-                      setDocDirty(activeTab.id, true);
-                    }
+                    schedulePersistForTab(activeTab.id);
                   }}
                   placeholder={t('editor.placeholders.markdown')}
                   readOnly={isAsking}
@@ -2599,12 +2499,7 @@ export default function EditorPage() {
                   onMarkdownChange={(md) => {
                     setDocMarkdown(activeTab.id, md);
                     updateLatestMarkdownForTab(activeTab.id, md);
-                    if (!activeTab.filePath || autoSaveEnabled) {
-                      schedulePersistForTab(activeTab.id);
-                    }
-                    if (activeTab.filePath && !autoSaveEnabled) {
-                      setDocDirty(activeTab.id, true);
-                    }
+                    schedulePersistForTab(activeTab.id);
                   }}
                   readOnly={isAsking}
                   placeholder={t('editor.placeholders.rich')}

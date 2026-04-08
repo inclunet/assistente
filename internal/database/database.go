@@ -80,8 +80,6 @@ func Init() error {
 	if err := db.AutoMigrate(
 		&Conversation{},
 		&ChatMessage{},
-		&EditorDocument{},
-		&EditorSessionState{},
 		&CredentialEntry{},
 		&CredentialKeyWrap{},
 		&LLMProvider{},
@@ -91,6 +89,13 @@ func Init() error {
 		&TaskNote{},
 	); err != nil {
 		return err
+	}
+
+	// Migração: remover tabelas do editor (conteúdo migrado para arquivos em disco)
+	sqlDBRaw, _ := db.DB()
+	if sqlDBRaw != nil {
+		sqlDBRaw.Exec(`DROP TABLE IF EXISTS editor_documents`)
+		sqlDBRaw.Exec(`DROP TABLE IF EXISTS editor_session_states`)
 	}
 
 	// Migração: mover refresh_url → refresh_token_enc (coluna renomeada)
@@ -393,6 +398,15 @@ func HasMessageAudio(messageID uint) bool {
 	var count int64
 	db.Model(&ChatMessage{}).Where("id = ? AND audio != '' AND audio IS NOT NULL", messageID).Count(&count)
 	return count > 0
+}
+
+// GetMessageContent retorna o conteúdo textual de uma mensagem.
+func GetMessageContent(messageID uint) (string, error) {
+	var msg ChatMessage
+	if err := db.Select("content").First(&msg, messageID).Error; err != nil {
+		return "", err
+	}
+	return msg.Content, nil
 }
 
 // AddToolMessage adiciona uma mensagem de role="tool" (resposta de tool ao orquestrador)

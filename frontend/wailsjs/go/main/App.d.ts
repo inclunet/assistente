@@ -130,9 +130,11 @@ export function DuplicateSkill(arg1:string):Promise<string>;
 
 export function EditorDeleteDraft(arg1:string):Promise<void>;
 
+export function EditorGetDraftPath(arg1:string):Promise<string>;
+
 export function EditorGetFileInfo(arg1:string):Promise<main.EditorFileInfo>;
 
-export function EditorLoadSession():Promise<main.EditorSession>;
+export function EditorLoadState():Promise<main.EditorState>;
 
 export function EditorOpenFile():Promise<main.EditorOpenResult>;
 
@@ -144,7 +146,7 @@ export function EditorRenameFile(arg1:string,arg2:string):Promise<string>;
 
 export function EditorSaveFileDialog(arg1:string):Promise<string>;
 
-export function EditorSaveSession(arg1:main.EditorSession):Promise<void>;
+export function EditorSaveState(arg1:main.EditorState):Promise<void>;
 
 export function EditorUnwatchFile(arg1:string):Promise<void>;
 
@@ -229,6 +231,14 @@ export function GetLLMProvider(arg1:string):Promise<llm.ProviderConfig>;
 export function GetLLMProviders():Promise<Array<llm.ProviderConfig>>;
 
 export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
+
+export function GetSpeechProviders():Promise<Array<llm.ProviderConfig>>;
+
+export function GetTTSVoices(arg1:string,arg2:string):Promise<Array<main.TTSVoiceEntry>>;
+
+export function GetTTSModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
+
+export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
 
 export function GetLLMSettings():Promise<main.LLMSettings>;
 
@@ -393,6 +403,8 @@ export function SaveMessageAudio(arg1:number,arg2:string,arg3:string):Promise<vo
 export function SaveSettings(arg1:llm.SettingsInput):Promise<void>;
 
 export function SaveWorkspace():Promise<void>;
+
+export function SpeakMessage(arg1:number,arg2:string,arg3:string,arg4:string,arg5:number):Promise<main.AudioResult>;
 
 export function SearchConversationHistory(arg1:string,arg2:number):Promise<Array<database.MessageSearchResult>>;
 

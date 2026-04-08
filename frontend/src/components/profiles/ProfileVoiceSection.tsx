@@ -1,22 +1,26 @@
+import { useMemo } from 'react';
 import { SoundOutlined, PlayCircleOutlined, StopOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { VoicePicker, VOICE_DISABLED } from '../pickers/VoicePicker';
 import { RangeSlider } from '../ui/RangeSlider';
 import { Button } from '../ui/Button';
 import { useTTS } from '../../hooks/useTTS';
+import { getTTSCapabilities, makeCompositeVoiceId } from '../../config/providers';
+import { TTSVoice } from '../../services/tts/types';
 import './ProfileVoiceSection.css';
 
 export interface ProfileVoiceSectionProps {
   voice: string;
   rate: number;
   volume: number;
-  providerId?: string; // NOVO
-  profileId?: string;  // NOVO
+  providerId?: string;
+  providerType?: string;
+  profileId?: string;
   label?: string;
   helpText?: string;
   references?: Array<{ id: string; label: string }>;
-  resolvedVoiceId?: string; // ID final resolvido se for uma referência
-  ttsModel?: string; // Modelo do TTS (pode ser tts-1, tts-1-hd)
+  resolvedVoiceId?: string;
+  ttsModel?: string;
   onChange: (field: 'voice' | 'rate' | 'volume', value: string | number) => void;
   disabled?: boolean;
 }
@@ -30,6 +34,7 @@ export function ProfileVoiceSection({
   rate,
   volume,
   providerId,
+  providerType,
   profileId,
   ttsModel,
   label,
@@ -41,6 +46,31 @@ export function ProfileVoiceSection({
 }: ProfileVoiceSectionProps) {
   const { t } = useTranslation();
   const { speakWithOverride, stop, isSpeaking } = useTTS();
+
+  const ttsCapabilities = getTTSCapabilities(providerType || '');
+
+  // Para provedores com vozes estáticas (OpenAI): converte para TTSVoice[] e passa como override
+  const overrideVoices: TTSVoice[] | undefined = useMemo(() => {
+    if (ttsCapabilities.staticVoices.length === 0) return undefined;
+    return ttsCapabilities.staticVoices.map(sv => ({
+      id: sv.id,
+      name: sv.name,
+      language: sv.language,
+      provider: sv.provider,
+      gender: 'neutral' as const,
+      premium: sv.model.includes('hd'),
+      localService: false,
+      description: sv.name,
+    }));
+  }, [ttsCapabilities]);
+
+  // Valor composto para o picker: "voiceId::model" (ex: "nova::tts-1-hd")
+  const effectiveVoiceValue = useMemo(() => {
+    if (ttsCapabilities.staticVoices.length > 0 && voice) {
+      return makeCompositeVoiceId(voice, ttsModel || 'tts-1');
+    }
+    return voice;
+  }, [voice, ttsModel, ttsCapabilities]);
 
   const handlePreview = async () => {
     if (isSpeaking) {
@@ -67,7 +97,7 @@ export function ProfileVoiceSection({
       {/* Voice picker */}
       <div className="profile-voice-section__field">
         <VoicePicker
-          value={voice || ''}
+          value={effectiveVoiceValue || ''}
           onChange={(value) => onChange('voice', value)}
           providerId={providerId}
           profileId={profileId}
@@ -77,6 +107,7 @@ export function ProfileVoiceSection({
           icon={<SoundOutlined />}
           allowDisabled={false}
           references={references ?? []}
+          voiceOverrides={overrideVoices}
         />
       </div>
 

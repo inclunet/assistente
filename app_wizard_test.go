@@ -15,6 +15,7 @@ import (
 	"assistente/internal/database"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/providers"
 
 	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
@@ -38,11 +39,18 @@ func setupWizardTestApp(t *testing.T) *App {
 	_ = setupWizardTestDB(t)
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
+	llmRegistry := llm.NewProviderRegistry()
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: llmRegistry,
+		CredMgr:  credMgr,
+		Store:    providers.NewDBStore(),
+	})
 
 	return &App{
 		ctx:         context.Background(),
 		credMgr:     credMgr,
-		llmRegistry: llm.NewProviderRegistry(),
+		llmRegistry: llmRegistry,
+		providerSvc: svc,
 	}
 }
 
@@ -75,12 +83,19 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 
 	credMgr := credentials.NewManager([]byte("test-key-exactly-32-bytes-long!!"))
 	pm := profiles.NewManager()
+	llmRegistry := llm.NewProviderRegistry()
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: llmRegistry,
+		CredMgr:  credMgr,
+		Store:    providers.NewDBStore(),
+	})
 
 	return &App{
 		ctx:            context.Background(),
 		credMgr:        credMgr,
-		llmRegistry:    llm.NewProviderRegistry(),
+		llmRegistry:    llmRegistry,
 		profileManager: pm,
+		providerSvc:    svc,
 	}, pm
 }
 
@@ -88,10 +103,10 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 
 func TestGetWizardProviderInfo_AllProviders(t *testing.T) {
 	tests := []struct {
-		choice     string
-		wantID     string
-		wantName   string
-		wantType   llm.ProviderType
+		choice   string
+		wantID   string
+		wantName string
+		wantType llm.ProviderType
 	}{
 		{"OpenAI", "openai-default", "OpenAI", llm.ProviderOpenAI},
 		{"Anthropic (Claude)", "anthropic-claude", "Claude (Anthropic)", llm.ProviderClaude},
@@ -134,7 +149,7 @@ func TestGetWizardProviderInfo_IDsMatchCreateDefaultLLMProvider(t *testing.T) {
 		"Anthropic (Claude)": "anthropic-claude",
 		"Google (Gemini)":    "google-gemini",
 		"DeepSeek":           "deepseek-default",
-		"xAI (Grok)":        "xai-grok",
+		"xAI (Grok)":         "xai-grok",
 		"OpenRouter":         "openrouter-default",
 		"Mistral AI":         "mistral-default",
 		"Groq":               "groq-default",
@@ -153,8 +168,8 @@ func TestGetWizardProviderInfo_IDsMatchCreateDefaultLLMProvider(t *testing.T) {
 
 func TestGetWizardProviderInfo_APIFormats(t *testing.T) {
 	tests := []struct {
-		choice    string
-		wantFmt   llm.APIFormat
+		choice  string
+		wantFmt llm.APIFormat
 	}{
 		{"OpenAI", llm.APIFormatOpenAIResponses},
 		{"Anthropic (Claude)", llm.APIFormatAnthropic},
@@ -553,9 +568,7 @@ func TestResolveProfileDefaults_ConcreteIDsUnchanged(t *testing.T) {
 			Model:       "gpt-4o",
 		},
 		Voice: profiles.VoiceConfig{
-			Assistant: profiles.VoiceRoleConfig{
-				LLMProviderID: "my-voice-id",
-			},
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: "my-voice-id"},
 		},
 		Input: profiles.InputConfig{
 			LLMProviderID: "my-stt-id",
@@ -670,6 +683,11 @@ func TestSaveLoadRoundtrip_DefaultFieldsSurvive(t *testing.T) {
 
 	// Clear registry and reload from DB
 	app.llmRegistry = llm.NewProviderRegistry()
+	app.providerSvc = providers.NewService(providers.ServiceConfig{
+		Registry: app.llmRegistry,
+		CredMgr:  app.credMgr,
+		Store:    providers.NewDBStore(),
+	})
 	if err := app.loadLLMProviders(); err != nil {
 		t.Fatalf("loadLLMProviders: %v", err)
 	}
@@ -765,7 +783,7 @@ func TestCreateLLMProvider_OpenAICompatibleKeepsDefaultFormat(t *testing.T) {
 		ID:        "groq-test",
 		Name:      "Groq Test",
 		Type:      "groq",
-		BaseURL:   "https://api.groq.com/openai",
+		BaseURL:   "https://api.groq.com/openai/v1",
 		APIFormat: "openai",
 	})
 	if err != nil {
@@ -833,9 +851,7 @@ func TestResolveProfileDefaults_PartialSentinel_OnlyModel(t *testing.T) {
 			Model:       profiles.DefaultProviderSentinel,
 		},
 		Voice: profiles.VoiceConfig{
-			Assistant: profiles.VoiceRoleConfig{
-				LLMProviderID: "my-voice-provider",
-			},
+			Assistant: profiles.VoiceRoleConfig{LLMProviderID: "my-voice-provider"},
 		},
 		Input: profiles.InputConfig{
 			LLMProviderID: profiles.DefaultProviderSentinel,

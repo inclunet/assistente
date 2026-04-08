@@ -271,12 +271,12 @@ export async function executeDeepLink(
 
   const openOrCreateChatTab = async (conversationId: number, title?: string) => {
     const existing = (wsStore.workspace?.tabs || []).find(
-      (tab) => tab.type === 'chat' && tab.contentId === String(conversationId),
+      (tab) => tab.type === 'chat' && tab.conversationId === conversationId,
     );
     if (existing) {
       await wsStore.setActiveTab(existing.id);
     } else {
-      await wsStore.addTab('chat', String(conversationId), title || t('chat.newConversation'));
+      await wsStore.addTab('chat', title || t('chat.newConversation'));
     }
   };
 
@@ -290,8 +290,8 @@ export async function executeDeepLink(
 
     case 'conversation:new': {
       const title = action.title || t('chat.newConversation');
-      const convId = await useChatStore.getState().createConversation(title);
-      await wsStore.addTab('chat', String(convId), title);
+      await useChatStore.getState().createConversation(title);
+      await wsStore.addTab('chat', title);
       deps.navigate('/');
       if (action.message) {
         await useChatStore.getState().sendMessage(action.message);
@@ -340,13 +340,24 @@ export async function executeDeepLink(
 
     case 'tab:open': {
       const tabs = wsStore.workspace?.tabs || [];
-      const existing = tabs.find(
-        (tab) => tab.type === action.tabType && tab.contentId === action.contentId,
-      );
+      // Find existing tab by type-specific content identifier
+      const existing = tabs.find((tab) => {
+        if (tab.type !== action.tabType) return false;
+        if (action.tabType === 'tasklist') return tab.state?.tasklistId === action.contentId;
+        if (action.tabType === 'terminal') return tab.state?.sessionId === action.contentId;
+        return false;
+      });
       if (existing) {
         await wsStore.setActiveTab(existing.id);
       } else {
-        await wsStore.addTab(action.tabType, action.contentId, action.title || `${action.tabType} ${action.contentId}`);
+        const title = action.title || `${action.tabType} ${action.contentId}`;
+        if (action.tabType === 'tasklist') {
+          await wsStore.addTab(action.tabType, title, { tasklistId: action.contentId });
+        } else if (action.tabType === 'terminal') {
+          await wsStore.addTab(action.tabType, title, { sessionId: action.contentId });
+        } else {
+          await wsStore.addTab(action.tabType, title);
+        }
       }
       deps.navigate('/');
       announce(t('deepLink.announcedOpenTab', { type: action.tabType, id: action.contentId }));
@@ -358,28 +369,27 @@ export async function executeDeepLink(
         const content = String(await EditorReadFile(action.file) || '');
         const fileName = action.file.split(/[/\\]/).pop() || i18n.t('editor.prompts.file');
         const title = action.title || fileName;
-        const editorStore = useEditorStore.getState();
-        const docId = editorStore.createDocument({ title, markdown: content });
-        editorStore.setDocFilePath(docId, action.file);
-        await wsStore.addTab('editor', docId, title);
+        const tabId = await wsStore.addTab('editor', title, { filePath: action.file });
+        useEditorStore.getState().createDocument({ id: tabId, title, markdown: content, filePath: action.file });
       } else if (action.tabType === 'terminal') {
-        const tabId = await wsStore.addTab('terminal', '', action.title || i18n.t('terminal.pageTitle'));
+        const tabId = await wsStore.addTab('terminal', action.title || i18n.t('terminal.pageTitle'));
         if (action.cmd) {
-          const waitForContentId = (): Promise<string> => new Promise((resolve) => {
+          const waitForSessionId = (): Promise<string> => new Promise((resolve) => {
             const check = () => {
               const tab = (useWorkspaceStore.getState().workspace?.tabs || []).find(
                 (t) => t.id === tabId,
               );
-              if (tab?.contentId) { resolve(tab.contentId); return; }
+              const sid = tab?.state?.sessionId as string | undefined;
+              if (sid) { resolve(sid); return; }
               setTimeout(check, 50);
             };
             check();
           });
-          const sessionId = await waitForContentId();
+          const sessionId = await waitForSessionId();
           await RunTerminalCommand(sessionId, action.cmd);
         }
       } else {
-        await wsStore.addTab(action.tabType, '', action.title || defaultTitleForNewTab(action.tabType));
+        await wsStore.addTab(action.tabType, action.title || defaultTitleForNewTab(action.tabType));
       }
       deps.navigate('/');
       announce(t('deepLink.announcedNewTab', { type: action.tabType }));

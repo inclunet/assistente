@@ -452,16 +452,22 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
   // Sincroniza configurações de TTS quando o perfil ativo muda
   // O ttsService é a única fonte de verdade para TTS — sem intermediários
   useEffect(() => {
-    if (!activeProfile) return;
+    if (!activeProfile) {
+      ttsService.stop();
+      ttsService.clearAllRoleConfigs();
+      return;
+    }
 
     const assistantVoice = activeProfile.voice?.assistant;
     const isDisabled = !assistantVoice || !assistantVoice.enabled || assistantVoice.provider === 'disabled';
 
     const syncTTS = async () => {
       if (isDisabled) {
+        ttsService.stop();
         ttsService.setEnabled(false);
         ttsService.setAutoRead(false);
         ttsService.setEnabledForUser(false);
+        ttsService.clearAllRoleConfigs();
         return;
       }
 
@@ -489,6 +495,9 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       ttsService.setAutoRead(assistantVoice.enabled);
       ttsService.setEnabledForUser(activeProfile.voice?.user?.enabled || false);
 
+      // Limpa configs de role anteriores antes de aplicar o novo perfil
+      ttsService.clearAllRoleConfigs();
+
       // Configura provider e voz padrão (assistant) para compatibilidade
       const ttsProvider = mapTTSProvider(assistantVoice.provider);
       await ttsService.setProvider(ttsProvider);
@@ -502,11 +511,12 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       await ttsService.setVolume(assistantVoice.volume || 1.0);
 
       // Configura voice configs por role para speakAsRole()
-      const makeRoleConfig = (voice: { provider?: string; llm_provider_id?: string; voice_id?: string; model?: string; rate?: number; volume?: number } | undefined): RoleVoiceConfig => ({
+      const makeRoleConfig = (voice: { provider?: string; llm_provider_id?: string; voice_id?: string; model?: string; rate?: number; pitch?: number; volume?: number } | undefined): RoleVoiceConfig => ({
         providerId: resolveProviderId(voice),
         voiceId: voice?.voice_id || '',
         model: voice?.model || '',
         rate: voice?.rate || 1.0,
+        pitch: voice?.pitch || 1.0,
         volume: voice?.volume || 1.0,
       });
 

@@ -321,37 +321,22 @@ export function getMessageMenuItems(
         }
 
         try {
-          let audioBlob: Blob | null = null;
-          const numericId = typeof message.id === 'string' ? parseInt(message.id, 10) : message.id;
-
-          // 1. Verifica DB primeiro
-          if (numericId && !isNaN(numericId)) {
-            const dbAudio = await messageAudioService.getAudioFromDB(numericId);
-            if (dbAudio) {
-              onAnnounce?.('Baixando do banco...');
-              audioBlob = messageAudioService.base64ToBlob(dbAudio.audio, dbAudio.mimeType);
-            }
+          const isBackendId = typeof message.id === 'string'
+            ? /^\d+$/.test(message.id)
+            : typeof message.id === 'number';
+          const numericId = isBackendId ? Number(message.id) : 0;
+          if (numericId <= 0) {
+            onAnnounce?.('Nao foi possivel identificar a mensagem');
+            return;
           }
 
-          // 2. Se nao tem no DB, gera via backend TTS e salva
-          if (!audioBlob && numericId && !isNaN(numericId)) {
-            onAnnounce?.('Sintetizando audio...');
-            const cleanText = stripMarkdown(message.content);
-            const generated = await messageAudioService.generateAndSaveAudio(numericId, cleanText);
-            if (generated) {
-              audioBlob = messageAudioService.base64ToBlob(generated.audio, generated.mimeType);
-            }
-          }
-
-          // 3. Fallback: sintetiza localmente
-          if (!audioBlob) {
-            onAnnounce?.('Sintetizando audio...');
-            const cleanText = stripMarkdown(message.content);
-            audioBlob = await ttsService.synthesizeOnDemand(cleanText);
-          }
+          onAnnounce?.('Gerando audio...');
+          const role = message.role === 'user' ? 'user' : 'assistant';
+          const voiceCtx = ttsService.getVoiceContext(role);
+          const audioBlob = await messageAudioService.getMessageAudioBlob(numericId, voiceCtx);
 
           if (!audioBlob) {
-            onAnnounce?.('Nao foi possivel gerar audio. Configure um perfil de voz com provider OpenAI ou SAPI5.');
+            onAnnounce?.('Nao foi possivel gerar audio. Verifique a configuracao de voz no perfil ativo.');
             return;
           }
 

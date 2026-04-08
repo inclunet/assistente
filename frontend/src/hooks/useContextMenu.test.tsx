@@ -11,16 +11,22 @@ const consumeSkipFocusRestoreMock = vi.hoisted(() => vi.fn());
 
 const ttsServiceMock = vi.hoisted(() => ({
   getVolume: vi.fn(() => 0.75),
-  synthesizeOnDemand: vi.fn(),
-  speakOnDemand: vi.fn(),
+  hasVoiceConfig: vi.fn(() => true),
+  getVoiceContext: vi.fn(() => ({
+    providerId: 'test-provider',
+    voiceId: 'test-voice',
+    model: 'tts-1',
+    rate: 1.0,
+  })),
+  speakAsRole: vi.fn(async () => {}),
+  stop: vi.fn(),
 }));
 
 const messageAudioServiceMock = vi.hoisted(() => ({
-  getAudioFromDB: vi.fn(),
-  generateAndSaveAudio: vi.fn(),
+  speakMessage: vi.fn(),
+  stopCurrentAudio: vi.fn(),
   playAudioBase64: vi.fn(),
   playAudioBlob: vi.fn(),
-  saveAudioToDB: vi.fn(),
 }));
 
 vi.mock('../lib/messageMenuItems', () => ({
@@ -136,6 +142,13 @@ describe('useContextMenu', () => {
 describe('useMessageActions', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    ttsServiceMock.getVolume.mockReturnValue(0.75);
+    ttsServiceMock.getVoiceContext.mockReturnValue({
+      providerId: 'test-provider',
+      voiceId: 'test-voice',
+      model: 'tts-1',
+      rate: 1.0,
+    });
     Object.defineProperty(globalThis.navigator, 'clipboard', {
       value: {
         writeText: vi.fn().mockResolvedValue(undefined),
@@ -157,33 +170,79 @@ describe('useMessageActions', () => {
   });
 
   it('reproduz audio do banco quando disponivel', async () => {
-    messageAudioServiceMock.getAudioFromDB.mockResolvedValue({
-      audio: 'base64',
-      mimeType: 'audio/mpeg',
-    });
+    messageAudioServiceMock.speakMessage.mockResolvedValue(true);
+    ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
 
     const { result } = renderHook(() => useMessageActions());
 
     await act(async () => {
-      await result.current.speakMessage({ id: 10, content: 'Ola' } as never);
+      await result.current.speakMessage({ id: 10, content: 'Ola', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.playAudioBase64).toHaveBeenCalledWith('base64', 'audio/mpeg', 0.75);
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(10, 0.75, {
+      providerId: 'test-provider',
+      voiceId: 'test-voice',
+      model: 'tts-1',
+      rate: 1.0,
+    });
+    expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
 
-  it('gera audio sob demanda quando necessario', async () => {
-    const audioBlob = new Blob(['data'], { type: 'audio/mpeg' });
-    messageAudioServiceMock.getAudioFromDB.mockResolvedValue(null);
-    messageAudioServiceMock.generateAndSaveAudio.mockResolvedValue(null);
-    ttsServiceMock.synthesizeOnDemand.mockResolvedValue(audioBlob);
+  it('usa speakAsRole quando backend falha', async () => {
+    messageAudioServiceMock.speakMessage.mockResolvedValue(false);
+    ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
 
     const { result } = renderHook(() => useMessageActions());
 
     await act(async () => {
-      await result.current.speakMessage({ id: 11, content: 'Teste' } as never);
+      await result.current.speakMessage({ id: 11, content: 'Teste', role: 'assistant' } as never);
     });
 
-    expect(messageAudioServiceMock.playAudioBlob).toHaveBeenCalledWith(audioBlob, 0.75);
-    expect(messageAudioServiceMock.saveAudioToDB).toHaveBeenCalled();
+    expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant');
+  });
+
+  it('não reproduz quando sem config de voz', async () => {
+    ttsServiceMock.getVoiceContext.mockReturnValue(undefined as never);
+
+    const { result } = renderHook(() => useMessageActions());
+
+    await act(async () => {
+      await result.current.speakMessage({ id: 12, content: 'Teste', role: 'assistant' } as never);
+    });
+
+    expect(messageAudioServiceMock.speakMessage).not.toHaveBeenCalled();
+    expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
+  });
+
+  it('usa fallback para IDs locais (não-numéricos)', async () => {
+    ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
+
+    const { result } = renderHook(() => useMessageActions());
+
+    await act(async () => {
+      await result.current.speakMessage({ id: '1712345678901-abc3d5e9f', content: 'Teste', role: 'assistant' } as never);
+    });
+
+    expect(messageAudioServiceMock.speakMessage).not.toHaveBeenCalled();
+    expect(ttsServiceMock.speakAsRole).toHaveBeenCalledWith('Teste', 'assistant');
+  });
+
+  it('usa SpeakMessage para IDs numéricos (string)', async () => {
+    messageAudioServiceMock.speakMessage.mockResolvedValue(true);
+    ttsServiceMock.hasVoiceConfig.mockReturnValue(true);
+
+    const { result } = renderHook(() => useMessageActions());
+
+    await act(async () => {
+      await result.current.speakMessage({ id: '42', content: 'Ola', role: 'assistant' } as never);
+    });
+
+    expect(messageAudioServiceMock.speakMessage).toHaveBeenCalledWith(42, 0.75, {
+      providerId: 'test-provider',
+      voiceId: 'test-voice',
+      model: 'tts-1',
+      rate: 1.0,
+    });
+    expect(ttsServiceMock.speakAsRole).not.toHaveBeenCalled();
   });
 });

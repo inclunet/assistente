@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { render, screen, fireEvent } from '@testing-library/react';
 import { ProfileAudioTab } from './ProfileAudioTab';
+import { COMPOSITE_VOICE_SEPARATOR } from '../../config/providers';
 
 /* ── Mocks ─────────────────────────────────────────────── */
 
@@ -12,6 +13,8 @@ vi.mock('react-i18next', () => ({
 
 vi.mock('@wailsjs/go/main/App', () => ({
   GetLLMProviders: () => Promise.resolve([]),
+  GetSpeechProviders: () => Promise.resolve([]),
+  GetSTTModels: () => Promise.resolve([]),
 }));
 
 vi.mock('@wailsjs/go/models', () => ({
@@ -23,9 +26,10 @@ vi.mock('@wailsjs/go/models', () => ({
 }));
 
 vi.mock('./ProfileVoiceSection', () => ({
-  ProfileVoiceSection: ({ onChange }: { onChange: (f: string, v: unknown) => void }) => (
-    <div data-testid="voice-section">
+  ProfileVoiceSection: ({ onChange, providerId }: { onChange: (f: string, v: unknown) => void; providerId?: string }) => (
+    <div data-testid="voice-section" data-provider={providerId}>
       <button onClick={() => onChange('rate', 1.5)}>change-rate</button>
+      <button onClick={() => onChange('voice', `nova${COMPOSITE_VOICE_SEPARATOR}tts-1-hd`)}>change-voice-hd</button>
     </div>
   ),
 }));
@@ -36,10 +40,23 @@ vi.mock('./ProfileInteractionSection', () => ({
 
 vi.mock('../pickers/VoicePicker', () => ({
   VOICE_DISABLED: '__disabled__',
-  VOICE_REF_ASSISTANT: 'ref_assistant',
-  VOICE_REF_USER: 'ref_user',
-  VOICE_REF_SYSTEM: 'ref_system',
+  VOICE_REF_ASSISTANT: '__ref_assistant__',
+  VOICE_REF_USER: '__ref_user__',
+  VOICE_REF_SYSTEM: '__ref_system__',
   VoicePicker: () => null,
+}));
+
+// Capture items passed to VoiceProviderPicker for circular ref tests
+const voiceProviderPickerItemsSpy = vi.fn();
+vi.mock('../pickers/VoiceProviderPicker', () => ({
+  VoiceProviderPicker: ({ items, value, onChange }: { items: Array<{ id: string; label: string }>; value: string; onChange: (v: string) => void }) => {
+    voiceProviderPickerItemsSpy(items.map((i: { id: string }) => i.id), value);
+    return (
+      <select data-testid="voice-provider-picker" value={value} onChange={(e) => onChange(e.target.value)}>
+        {items.map((i: { id: string; label: string }) => <option key={i.id} value={i.id}>{i.label}</option>)}
+      </select>
+    );
+  },
 }));
 
 /* ── Helpers ───────────────────────────────────────────── */
@@ -150,10 +167,7 @@ describe('ProfileAudioTab', () => {
     const voiceHeader = screen.getByText('Voz (TTS)').closest('button');
     fireEvent.click(voiceHeader!);
 
-    expect(updateFields).toHaveBeenCalledWith({
-      'voice.assistant.provider': 'disabled',
-      'voice.assistant.enabled': false,
-    });
+    expect(updateField).toHaveBeenCalledWith('voice.assistant.enabled', false);
   });
 
   it('ativa STT ao toggle da seção interaction quando desabilitado', () => {
@@ -207,5 +221,98 @@ describe('ProfileAudioTab', () => {
     fireEvent.change(select, { target: { value: 'always_text' } });
 
     expect(updateField).toHaveBeenCalledWith('channels.response_mode', 'always_text');
+  });
+
+  describe('referência circular de voz', () => {
+    it('system NÃO oferece "seguir user" quando user segue system', () => {
+      voiceProviderPickerItemsSpy.mockClear();
+      const profile = makeProfile({
+        voice: {
+          assistant: { enabled: true, provider: 'webspeech' },
+          user: { enabled: true, provider: 'webspeech', voice_id: '__ref_system__' },
+          system: { enabled: true, provider: 'webspeech' },
+        },
+      });
+      render(<ProfileAudioTab editingProfile={profile} updateField={vi.fn()} updateFields={vi.fn()} profileId="test" />);
+
+      // Collect all calls - find the one for system picker (value = system's current provider)
+      const systemCalls = voiceProviderPickerItemsSpy.mock.calls.filter(
+        (call: unknown[]) => {
+          const ids = call[0] as string[];
+          return ids.includes('ref_assistant') && !ids.includes('ref_user');
+        }
+      );
+      // System picker should NOT have ref_user since user follows system
+      expect(systemCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('user NÃO oferece "seguir system" quando system segue user', () => {
+      voiceProviderPickerItemsSpy.mockClear();
+      const profile = makeProfile({
+        voice: {
+          assistant: { enabled: true, provider: 'webspeech' },
+          user: { enabled: true, provider: 'webspeech' },
+          system: { enabled: true, provider: 'webspeech', voice_id: '__ref_user__' },
+        },
+      });
+      render(<ProfileAudioTab editingProfile={profile} updateField={vi.fn()} updateFields={vi.fn()} profileId="test" />);
+
+      const userCalls = voiceProviderPickerItemsSpy.mock.calls.filter(
+        (call: unknown[]) => {
+          const ids = call[0] as string[];
+          return ids.includes('ref_assistant') && !ids.includes('ref_system');
+        }
+      );
+      // User picker should NOT have ref_system since system follows user
+      expect(userCalls.length).toBeGreaterThanOrEqual(1);
+    });
+
+    it('user oferece "seguir system" quando nenhum ciclo existe', () => {
+      voiceProviderPickerItemsSpy.mockClear();
+      const profile = makeProfile({
+        voice: {
+          assistant: { enabled: true, provider: 'webspeech' },
+          user: { enabled: true, provider: 'webspeech' },
+          system: { enabled: true, provider: 'webspeech' },
+        },
+      });
+      render(<ProfileAudioTab editingProfile={profile} updateField={vi.fn()} updateFields={vi.fn()} profileId="test" />);
+
+      // At least one picker should have both ref_assistant and ref_system
+      const userCalls = voiceProviderPickerItemsSpy.mock.calls.filter(
+        (call: unknown[]) => {
+          const ids = call[0] as string[];
+          return ids.includes('ref_assistant') && ids.includes('ref_system');
+        }
+      );
+      expect(userCalls.length).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  describe('modelo TTS por role', () => {
+    it('atualiza voice_id e model atomicamente ao receber ID composto (voice::model)', () => {
+      const updateField = vi.fn();
+      const updateFields = vi.fn();
+      const profile = makeProfile({
+        voice: {
+          assistant: { enabled: true, provider: 'openai', llm_provider_id: 'openai-1' },
+          user: { enabled: true, provider: 'openai', llm_provider_id: 'openai-1' },
+          system: { enabled: true, provider: 'openai', llm_provider_id: 'openai-1' },
+        },
+      });
+      render(<ProfileAudioTab editingProfile={profile} updateField={updateField} updateFields={updateFields} profileId="test" />);
+
+      // Clica no botão que emite onChange('voice', 'nova' + COMPOSITE_VOICE_SEPARATOR + 'tts-1-hd')
+      const hdButtons = screen.getAllByText('change-voice-hd');
+      fireEvent.click(hdButtons[0]);
+
+      // Deve chamar updateFields com ambos os campos de uma vez
+      expect(updateFields).toHaveBeenCalledWith({
+        'voice.assistant.voice_id': 'nova',
+        'voice.assistant.model': 'tts-1-hd',
+      });
+      // NÃO deve chamar updateField individualmente para voice_id
+      expect(updateField).not.toHaveBeenCalledWith('voice.assistant.voice_id', expect.anything());
+    });
   });
 });

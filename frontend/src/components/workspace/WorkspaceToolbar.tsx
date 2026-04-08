@@ -191,7 +191,7 @@ export function WorkspaceToolbar() {
       icon,
       shortcut: chordKey,
       action: () => {
-        void addTab(type, '', TAB_TYPE_DEFAULTS[type]);
+        void addTab(type, TAB_TYPE_DEFAULTS[type]);
         announce(`${t('workspace.tabCreated', 'Aba criada')}: ${t(labelKey)}`);
       },
     })),

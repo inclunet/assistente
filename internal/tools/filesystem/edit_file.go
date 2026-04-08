@@ -7,19 +7,35 @@ import (
 	"os"
 	"strings"
 
+	"assistente/internal/questionnaire"
 	"assistente/internal/tools"
+	"assistente/internal/tools/invocationctx"
+)
+
+// QuestionnaireRequester abstrai o gerenciador de questionários para injeção de dependência.
+type QuestionnaireRequester interface {
+	RequestQuestionnaire(ctx context.Context, payload questionnaire.RequestPayload) (questionnaire.Response, error)
+}
+
+// editPolicy descreve o comportamento de confirmação da tool.
+type editPolicy int
+
+const (
+	policyDirect          editPolicy = iota // edita direto, sem confirmação
+	policyConfirmWithDiff                   // mostra diff e pede confirmação antes de editar
 )
 
 // EditFile realiza edições cirúrgicas em arquivos existentes usando substituição de texto.
 // Similar ao str_replace: encontra uma string exata e substitui por outra.
-// Isso é mais preciso que reescrever o arquivo inteiro com write_file.
+// Quando invocada de uma aba de editor com o arquivo ativo, exibe confirmação com diff antes de editar.
 type EditFile struct {
-	workDir string
+	workDir  string
+	questMgr QuestionnaireRequester
 }
 
 // NewEditFile cria uma nova instância de EditFile.
-func NewEditFile(workDir string) *EditFile {
-	return &EditFile{workDir: workDir}
+func NewEditFile(workDir string, questMgr QuestionnaireRequester) *EditFile {
+	return &EditFile{workDir: workDir, questMgr: questMgr}
 }
 
 func (t *EditFile) Name() string { return "edit_file" }
@@ -116,9 +132,7 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	count := strings.Count(content, a.OldString)
 
 	if count == 0 {
-		// Tenta fornecer diagnóstico útil
 		hint := ""
-		// Verifica se é problema de whitespace/indentação
 		trimmedOld := strings.TrimSpace(a.OldString)
 		if trimmedOld != a.OldString && strings.Contains(content, trimmedOld) {
 			hint = " Dica: o texto foi encontrado com indentação diferente. Verifique espaços/tabs."
@@ -130,21 +144,7 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}
 
 	if count > 1 && !replaceAll {
-		// Encontra as linhas onde old_string aparece para ajudar o LLM
-		lines := strings.Split(content, "\n")
-		var occurrenceLines []int
-		searchIdx := 0
-		for i, line := range lines {
-			if strings.Contains(line, a.OldString) || (searchIdx < len(content) && strings.Contains(content[searchIdx:], a.OldString)) {
-				// Verifica se esta linha faz parte de alguma ocorrência
-				if strings.Contains(strings.Join(lines[max(0, i-2):min(len(lines), i+3)], "\n"), a.OldString) {
-					occurrenceLines = append(occurrenceLines, i+1)
-				}
-			}
-		}
-		// Método mais preciso: busca as posições no conteúdo
-		occurrenceLines = findOccurrenceLines(content, a.OldString)
-
+		occurrenceLines := findOccurrenceLines(content, a.OldString)
 		return tools.ToolResult{
 			Content: fmt.Sprintf(
 				"old_string encontrada %d vezes no arquivo '%s' (linhas: %v). "+
@@ -154,6 +154,15 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 			),
 			IsError: true,
 		}, nil
+	}
+
+	// Resolve política de confirmação baseada no contexto de invocação
+	policy := t.resolvePolicy(ctx, fullPath)
+
+	if policy == policyConfirmWithDiff {
+		if confirmed, toolResult := t.confirmWithDiff(ctx, a.Path, a.OldString, a.NewString); !confirmed {
+			return toolResult, nil
+		}
 	}
 
 	// Realiza a substituição
@@ -171,6 +180,7 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	if err := WriteFileBytes(fullPath, []byte(newContent), info.Mode()); err != nil {
 		return tools.ToolResult{Content: fmt.Sprintf("Erro ao escrever arquivo: %v", err), IsError: true}, nil
 	}
+
 	// Calcula diff resumido
 	oldLines := strings.Count(a.OldString, "\n") + 1
 	newLines := strings.Count(a.NewString, "\n") + 1
@@ -197,6 +207,46 @@ func (t *EditFile) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 	}, nil
 }
 
+// resolvePolicy determina o comportamento de confirmação com base no contexto de invocação.
+func (t *EditFile) resolvePolicy(ctx context.Context, fullPath string) editPolicy {
+	inv, ok := invocationctx.Get(ctx)
+	if !ok {
+		return policyDirect
+	}
+	if inv.TabType == "editor" && inv.ActiveFilePath == fullPath {
+		return policyConfirmWithDiff
+	}
+	return policyDirect
+}
+
+// confirmWithDiff exibe um questionário com o diff antes/depois e aguarda confirmação do usuário.
+// Retorna (true, zero) se aprovado, ou (false, errorResult) se rejeitado ou gerenciador indisponível.
+func (t *EditFile) confirmWithDiff(ctx context.Context, displayPath, oldString, newString string) (bool, tools.ToolResult) {
+	if t.questMgr == nil {
+		// Sem gerenciador de questionários: edita direto (seguro para contextos não-UI)
+		return true, tools.ToolResult{}
+	}
+
+	resp, err := t.questMgr.RequestQuestionnaire(ctx, questionnaire.RequestPayload{
+		Title:       "Confirmar edição",
+		Description: fmt.Sprintf("Revise a alteração em **%s** e clique em Aplicar para confirmar.", displayPath),
+		Questions: []questionnaire.Question{
+			{ID: "before", Type: "readonly_code", Prompt: "Antes", Content: oldString},
+			{ID: "after", Type: "readonly_code", Prompt: "Depois", Content: newString},
+		},
+		AllowCancel: true,
+		SubmitLabel: "Aplicar",
+		CancelLabel: "Rejeitar",
+	})
+	if err != nil {
+		return false, tools.ToolResult{Content: fmt.Sprintf("Erro ao solicitar confirmação: %v", err), IsError: true}
+	}
+	if resp.Cancelled {
+		return false, tools.ToolResult{Content: "Alteração rejeitada pelo usuário", IsError: true}
+	}
+	return true, tools.ToolResult{}
+}
+
 func (t *EditFile) resolvePath(path string) (string, error) {
 	return resolveFilePath(path, t.workDir)
 }
@@ -211,7 +261,6 @@ func findOccurrenceLines(content, oldString string) []int {
 			break
 		}
 		absIdx := searchFrom + idx
-		// Conta newlines até esta posição para determinar a linha
 		lineNum := strings.Count(content[:absIdx], "\n") + 1
 		lines = append(lines, lineNum)
 		searchFrom = absIdx + 1

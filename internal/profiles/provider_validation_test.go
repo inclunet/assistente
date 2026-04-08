@@ -7,10 +7,10 @@ import (
 // TestValidateLLMProvider testa se a validação de LLMProvider funciona corretamente
 func TestValidateLLMProvider(t *testing.T) {
 	tests := []struct {
-		name              string
-		llmProvider       string
-		shouldError       bool
-		expectedErrorMsg  string
+		name             string
+		llmProvider      string
+		shouldError      bool
+		expectedErrorMsg string
 	}{
 		{
 			name:        "valid: openai-default provider",

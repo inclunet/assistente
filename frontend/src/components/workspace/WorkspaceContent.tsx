@@ -31,8 +31,8 @@ export function WorkspaceContent() {
         {activeTab.type === 'editor' && <EditorPage />}
         {activeTab.type === 'terminal' && <TerminalPage />}
         {activeTab.type === 'tasklist' && (
-          activeTab.contentId
-            ? <TaskListView taskListId={parseInt(activeTab.contentId, 10)} />
+          activeTab.state?.tasklistId
+            ? <TaskListView taskListId={parseInt(activeTab.state.tasklistId as string, 10)} />
             : <Loading />
         )}
       </Suspense>
