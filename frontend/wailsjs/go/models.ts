@@ -517,6 +517,7 @@ export namespace database {
 	export class TaskList {
 	    id: number;
 	    title: string;
+	    slug?: string;
 	    description: string;
 	    preferred_view_mode: string;
 	    validation_policy?: string;
@@ -535,6 +536,7 @@ export namespace database {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.title = source["title"];
+	        this.slug = source["slug"];
 	        this.description = source["description"];
 	        this.preferred_view_mode = source["preferred_view_mode"];
 	        this.validation_policy = source["validation_policy"];

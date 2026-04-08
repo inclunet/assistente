@@ -36,7 +36,7 @@ func setupTaskNoteExternalTestDB(t *testing.T) {
 func TestUpsertTaskNoteByExternal_CreateAndUpdate(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
 
-	tl, err := CreateTaskList("L", "", nil)
+	tl, err := CreateTaskList("L", "", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -79,7 +79,7 @@ func TestUpsertTaskNoteByExternal_CreateAndUpdate(t *testing.T) {
 func TestUpsertTaskNoteByExternal_UniqueIndexRaceRetry(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
 
-	tl, err := CreateTaskList("L", "", nil)
+	tl, err := CreateTaskList("L", "", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -116,7 +116,7 @@ func TestUpsertTaskNoteByExternal_UniqueIndexRaceRetry(t *testing.T) {
 func TestUpsertTaskNoteByExternal_WrongTaskError(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
 
-	tl, err := CreateTaskList("L", "", nil)
+	tl, err := CreateTaskList("L", "", nil, "")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,7 +149,7 @@ func TestUpsertTaskNoteByExternal_WrongTaskError(t *testing.T) {
 func TestFindTaskNoteByExternalRef(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
 
-	tl, _ := CreateTaskList("L", "", nil)
+	tl, _ := CreateTaskList("L", "", nil, "")
 	task, _ := CreateTask(tl.ID, "T", "", "", "", nil)
 	typ := TaskNoteInternal
 	_, _, _ = UpsertTaskNoteByExternal(UpsertTaskNoteByExternalParams{
@@ -173,7 +173,7 @@ func TestFindTaskNoteByExternalRef(t *testing.T) {
 func TestCreateTaskNote_ManualStillWorks(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
 
-	tl, _ := CreateTaskList("L", "", nil)
+	tl, _ := CreateTaskList("L", "", nil, "")
 	task, _ := CreateTask(tl.ID, "T", "", "", "", nil)
 
 	n, err := CreateTaskNote(task.ID, TaskNoteAgent, "hello", "", "")
@@ -185,7 +185,7 @@ func TestCreateTaskNote_ManualStillWorks(t *testing.T) {
 func TestUpdateTaskNote_ByIDStillWorks(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
 
-	tl, _ := CreateTaskList("L", "", nil)
+	tl, _ := CreateTaskList("L", "", nil, "")
 	task, _ := CreateTask(tl.ID, "T", "", "", "", nil)
 	n, err := CreateTaskNote(task.ID, TaskNoteInternal, "a", "", "")
 	if err != nil {
@@ -203,7 +203,7 @@ func TestUpdateTaskNote_ByIDStillWorks(t *testing.T) {
 func TestUpsertTaskNoteByExternal_ExternalUpdatedAtOptional(t *testing.T) {
 	setupTaskNoteExternalTestDB(t)
 
-	tl, _ := CreateTaskList("L", "", nil)
+	tl, _ := CreateTaskList("L", "", nil, "")
 	task, _ := CreateTask(tl.ID, "T", "", "", "", nil)
 	typ := TaskNoteInternal
 	ts := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)

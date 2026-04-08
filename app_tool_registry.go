@@ -27,8 +27,8 @@ type serviceTaskListManager struct {
 	svc *tasklist.Service
 }
 
-func (m *serviceTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
-	return m.svc.CreateTaskList(m.ctx, title, description, templateWorkflow)
+func (m *serviceTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
+	return m.svc.CreateTaskList(m.ctx, title, description, templateWorkflow, slug)
 }
 func (m *serviceTaskListManager) GetTaskList(id uint) (*database.TaskList, error) {
 	return m.svc.GetTaskList(id)
@@ -39,8 +39,11 @@ func (m *serviceTaskListManager) GetAllTaskLists() ([]database.TaskList, error) 
 func (m *serviceTaskListManager) GetTaskListStats(taskListID uint) (map[string]interface{}, error) {
 	return m.svc.GetTaskListStats(taskListID)
 }
-func (m *serviceTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
-	return m.svc.UpdateTaskListFull(id, title, description, preferredViewMode)
+func (m *serviceTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error {
+	return m.svc.UpdateTaskListFull(id, title, description, preferredViewMode, slug)
+}
+func (m *serviceTaskListManager) ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error) {
+	return m.svc.ResolveTaskListRef(taskListID, taskListSlug)
 }
 func (m *serviceTaskListManager) SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
 	return m.svc.SetTaskListValidationPolicy(taskListID, policyJSON)
@@ -60,6 +63,9 @@ func (m *serviceTaskListManager) CreateTaskFull(taskListID uint, title, descript
 func (m *serviceTaskListManager) GetTask(id uint) (*database.Task, error) { return m.svc.GetTask(id) }
 func (m *serviceTaskListManager) FindTaskByCode(taskListID uint, code string) (*database.Task, error) {
 	return m.svc.FindTaskByCode(taskListID, code)
+}
+func (m *serviceTaskListManager) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error) {
+	return m.svc.ResolveTaskRef(taskListID, taskListSlug, taskID, code)
 }
 func (m *serviceTaskListManager) UpdateTask(id uint, title, description, code, link string) error {
 	return m.svc.UpdateTask(id, title, description, code, link)

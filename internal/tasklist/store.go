@@ -6,11 +6,12 @@ import "assistente/internal/database"
 // Implementado por DBStore; pode ser mockado em testes.
 type TaskListRepository interface {
 	// ── Task List ──────────────────────────────────────────────────────────────
-	CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error)
+	CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error)
 	GetTaskList(id uint) (*database.TaskList, error)
 	GetAllTaskLists() ([]database.TaskList, error)
 	UpdateTaskList(id uint, title, description string) error
-	UpdateTaskListFull(id uint, title, description, preferredViewMode string) error
+	UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error
+	ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error)
 	SetTaskListValidationPolicy(taskListID uint, policyJSON string) error
 	SetTaskListViewMode(id uint, viewMode string) error
 	CloneTaskList(id uint, newTitle string) (*database.TaskList, error)
@@ -34,6 +35,7 @@ type TaskListRepository interface {
 	GetTasksByTaskListID(taskListID uint) ([]database.Task, error)
 	GetTasksByStatus(taskListID uint, statusID int) ([]database.Task, error)
 	FindTaskByCode(taskListID uint, code string) (*database.Task, error)
+	ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error)
 	UpdateTask(id uint, title, description, code, link string) error
 	UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error
 	UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error

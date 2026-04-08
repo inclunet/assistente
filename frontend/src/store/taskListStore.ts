@@ -144,6 +144,11 @@ function normalizeTaskList(raw: TaskListWithWorkflow): TaskListWithWorkflow {
   return {
     id: r.id as number,
     title: (r.title ?? '') as string,
+    slug: (() => {
+      const s = r.slug ?? r.Slug;
+      if (s == null || s === '') return undefined;
+      return String(s);
+    })(),
     description: (r.description ?? '') as string,
     preferredViewMode: ((r.preferredViewMode ?? r.preferred_view_mode) || 'list') as ViewMode,
     createdAt: (r.createdAt ?? r.created_at ?? '') as string,
@@ -358,7 +363,7 @@ export const useTaskListStore = create<TaskListStoreState>((set, get) => {
     createTaskList: async (title: string, description?: string) => {
       set({ isLoading: true });
       try {
-        const taskList = await CreateTaskList(title, description || '');
+        const taskList = await CreateTaskList(title, description || '', '');
         
         if (taskList) {
           get().cacheTaskList(taskList as unknown as TaskListWithWorkflow);

@@ -92,6 +92,7 @@ func Init() error {
 	}
 
 	ensureTaskNoteExternalUniqueIndex()
+	ensureTaskListSlugUniqueIndex()
 
 	// Migração: remover tabelas do editor (conteúdo migrado para arquivos em disco)
 	sqlDBRaw, _ := db.DB()

@@ -16,7 +16,8 @@ const MaxTaskLists = 100
 
 // CreateTaskList cria uma nova tasklist com workflow padrão
 // templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em Progresso, Concluído)
-func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflow) (*TaskList, error) {
+// slug: opcional; normalizado e único quando não vazio.
+func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflow, slug string) (*TaskList, error) {
 	// Valida limite
 	var count int64
 	if err := db.Model(&TaskList{}).Count(&count).Error; err != nil {
@@ -43,6 +44,14 @@ func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflo
 	}
 
 	taskList.Workflow = workflow
+
+	if s := NormalizeTaskListSlug(slug); s != "" {
+		if err := SetTaskListSlug(taskList.ID, s); err != nil {
+			return nil, err
+		}
+		taskList.Slug = s
+	}
+
 	return taskList, nil
 }
 
@@ -100,7 +109,7 @@ func CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	}
 
 	// Cria nova tasklist
-	cloned, err := CreateTaskList(newTitle, original.Description, original.Workflow)
+	cloned, err := CreateTaskList(newTitle, original.Description, original.Workflow, "")
 	if err != nil {
 		return nil, err
 	}
@@ -338,14 +347,31 @@ func GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
 	return result, nil
 }
 
-// UpdateTaskListFull atualiza title, description e preferred_view_mode de uma tasklist
-func UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
+// UpdateTaskListFull atualiza title, description e preferred_view_mode de uma tasklist.
+// slug: nil = não altera slug; ponteiro para string vazia = limpa slug; valor = define slug normalizado.
+func UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error {
 	updates := map[string]interface{}{
 		"title":       title,
 		"description": description,
 	}
 	if preferredViewMode == "list" || preferredViewMode == "kanban" {
 		updates["preferred_view_mode"] = preferredViewMode
+	}
+	if slug != nil {
+		s := NormalizeTaskListSlug(*slug)
+		if err := ValidateTaskListSlugFormat(s); err != nil {
+			return err
+		}
+		if s != "" {
+			taken, err := slugTakenByOtherThan(s, id)
+			if err != nil {
+				return err
+			}
+			if taken {
+				return fmt.Errorf("slug %q já está em uso por outra lista", s)
+			}
+		}
+		updates["slug"] = s
 	}
 	return db.Model(&TaskList{}).Where("id = ?", id).Updates(updates).Error
 }

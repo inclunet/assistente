@@ -29,7 +29,7 @@ func setupValidationPolicyTestDB(t *testing.T) {
 
 func TestValidateTaskCodeForTaskList_Regex(t *testing.T) {
 	setupValidationPolicyTestDB(t)
-	tl, _ := CreateTaskList("L", "", nil)
+	tl, _ := CreateTaskList("L", "", nil, "")
 	_ = SetTaskListValidationPolicy(tl.ID, `{"task_code_regex":"^FSD-\\d+$"}`)
 
 	_, err := CreateTask(tl.ID, "x", "", "FSD-99", "", nil)
@@ -44,7 +44,7 @@ func TestValidateTaskCodeForTaskList_Regex(t *testing.T) {
 
 func TestValidateExternalNoteForTaskList_AllowedSources(t *testing.T) {
 	setupValidationPolicyTestDB(t)
-	tl, _ := CreateTaskList("L", "", nil)
+	tl, _ := CreateTaskList("L", "", nil, "")
 	_ = SetTaskListValidationPolicy(tl.ID, `{"allowed_note_sources":["jira","linear"]}`)
 	task, _ := CreateTask(tl.ID, "T", "", "", "", nil)
 	typ := TaskNoteInternal
@@ -73,8 +73,8 @@ func TestValidateExternalNoteForTaskList_AllowedSources(t *testing.T) {
 
 func TestMoveTaskToList_RespectsTargetCodePolicy(t *testing.T) {
 	setupValidationPolicyTestDB(t)
-	tl1, _ := CreateTaskList("A", "", nil)
-	tl2, _ := CreateTaskList("B", "", nil)
+	tl1, _ := CreateTaskList("A", "", nil, "")
+	tl2, _ := CreateTaskList("B", "", nil, "")
 	_ = SetTaskListValidationPolicy(tl2.ID, `{"task_code_regex":"^X-\\d+$"}`)
 
 	task, _ := CreateTask(tl1.ID, "t", "", "FSD-1", "", nil)
@@ -86,7 +86,7 @@ func TestMoveTaskToList_RespectsTargetCodePolicy(t *testing.T) {
 
 func TestSetTaskListValidationPolicy_InvalidJSON(t *testing.T) {
 	setupValidationPolicyTestDB(t)
-	tl, _ := CreateTaskList("L", "", nil)
+	tl, _ := CreateTaskList("L", "", nil, "")
 	err := SetTaskListValidationPolicy(tl.ID, `{not json`)
 	if err == nil {
 		t.Fatal("expected error")

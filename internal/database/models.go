@@ -137,6 +137,7 @@ type TaskListWorkflow struct {
 type TaskList struct {
 	ID                uint      `json:"id" gorm:"primaryKey"`
 	Title             string    `json:"title" gorm:"not null;index"`
+	Slug              string    `json:"slug,omitempty" gorm:"size:64"` // identificador estável portável (minúsculas); único quando não vazio
 	Description       string    `json:"description" gorm:"type:text"`
 	PreferredViewMode string    `json:"preferred_view_mode" gorm:"default:'list'"` // 'list' ou 'kanban'
 	// ValidationPolicy: JSON opcional (TaskListValidationPolicy) — padrões para code de tasks e notas externas.

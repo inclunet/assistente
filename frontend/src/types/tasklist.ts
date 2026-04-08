@@ -91,6 +91,8 @@ export interface TaskListValidationPolicy {
 export interface TaskList {
   id: number;
   title: string;
+  /** Slug estável (minúsculas), opcional */
+  slug?: string;
   description: string;
   preferredViewMode: ViewMode;
   createdAt: string;

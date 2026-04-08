@@ -22,8 +22,8 @@ func (a *App) newTaskListService() *tasklist.Service {
 
 // ==================== TaskList Operations ====================
 
-func (a *App) CreateTaskList(title, description string) (*TaskList, error) {
-	return a.taskSvc.CreateTaskList(a.ctx, title, description, nil)
+func (a *App) CreateTaskList(title, description, slug string) (*TaskList, error) {
+	return a.taskSvc.CreateTaskList(a.ctx, title, description, nil, slug)
 }
 
 func (a *App) GetTaskList(id uint) (*TaskList, error) {

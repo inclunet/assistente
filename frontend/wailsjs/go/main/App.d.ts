@@ -76,7 +76,7 @@ export function CreateSkill(arg1:main.SkillCreateRequest):Promise<string>;
 
 export function CreateTask(arg1:number,arg2:string,arg3:string,arg4:string,arg5:string,arg6:any):Promise<database.Task>;
 
-export function CreateTaskList(arg1:string,arg2:string):Promise<database.TaskList>;
+export function CreateTaskList(arg1:string,arg2:string,arg3:string):Promise<database.TaskList>;
 
 export function CreateTaskNote(arg1:number,arg2:number,arg3:string,arg4:string,arg5:string):Promise<database.TaskNote>;
 

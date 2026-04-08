@@ -13,6 +13,7 @@ import (
 
 type taskArgs struct {
 	TaskListID   uint    `json:"task_list_id,omitempty"`
+	TaskListSlug string  `json:"task_list_slug,omitempty"`
 	TaskID       *uint   `json:"task_id,omitempty"`
 	Delete       bool    `json:"delete,omitempty"`
 	Duplicate    bool    `json:"duplicate,omitempty"`
@@ -39,7 +40,7 @@ func NewTask(mgr TaskListManager) *TaskTool {
 func (t *TaskTool) Name() string { return "task" }
 
 func (t *TaskTool) Description() string {
-	return `Full CRUD for tasks. With task_id only → read (returns details, subtasks, and notes). Without task_id + task_list_id + title → create (dedup by code). With task_id + title → update. With task_id + different task_list_id → move. With task_id + duplicate → copy (inherits description/link/assignee/creator; code NOT copied). With task_id + delete → permanently removes task and subtasks. Use task_list tool to see available status IDs.`
+	return `Full CRUD for tasks. Read/delete/duplicate source: task_id and/or (task_list_id/task_list_slug + code). With task_id and code only (no new title semantics): code must match that task. With list+code only: finds the task in that list. With task_id only, list ref is not used to locate the task — on update/duplicate, task_list_id/slug is the destination list for move/copy. Create: task_list_id and/or task_list_slug + title; optional code (dedup updates existing task with that code). Update by task_id + title: code field is the new task code, not for resolution. Duplicate by task_id: optional code sets the new copy's code. Use task_list for status IDs.`
 }
 
 func (t *TaskTool) Parameters() json.RawMessage {
@@ -48,19 +49,23 @@ func (t *TaskTool) Parameters() json.RawMessage {
 		"properties": {
 			"task_list_id": {
 				"type": "integer",
-				"description": "ID of the task list. Required for create. When updating, a different value moves the task to that list"
+				"description": "ID of the task list. For create, use with task_list_slug or alone. When updating, with task_list_slug must match the same list; a different resolved list moves the task"
+			},
+			"task_list_slug": {
+				"type": "string",
+				"description": "Stable slug of the task list (lowercase). For create, use with task_list_id or alone. If both id and slug are sent, they must refer to the same list"
 			},
 			"task_id": {
 				"type": "integer",
-				"description": "ID of existing task. Alone → read details+notes. With title → update. With duplicate → copy. With delete → remove"
+				"description": "Numeric task id. For read/delete/duplicate/update, use alone or with code and/or list ref for consistency checks, or omit when using task_list_id/slug + code to identify the task"
 			},
 			"delete": {
 				"type": "boolean",
-				"description": "When true, permanently deletes the task referenced by task_id and all its subtasks. Requires task_id. Cannot be combined with duplicate"
+				"description": "Permanently deletes the task and subtasks. Identify the task with task_id and/or (task_list_id or task_list_slug + code). Cannot be combined with duplicate"
 			},
 			"duplicate": {
 				"type": "boolean",
-				"description": "When true, creates a copy of the task referenced by task_id. Inherits description, link, assignee, and creator. Code is NOT copied. Requires task_id"
+				"description": "Copies the task (code not copied). Identify source with task_id and/or list+code. Optional task_list_id/slug when source was identified by task_id — destination list for the copy"
 			},
 			"title": {
 				"type": "string",
@@ -80,7 +85,7 @@ func (t *TaskTool) Parameters() json.RawMessage {
 			},
 			"code": {
 				"type": "string",
-				"description": "External identifier or ticket code (e.g. FSD-12345, JIRA-999). Optional"
+				"description": "Task code within the list (ticket id). Optional on create; with task_list_id/slug can identify the task for read/update/delete/duplicate without task_id; with task_id must match that task"
 			},
 			"link": {
 				"type": "string",
@@ -117,79 +122,124 @@ func (t *TaskTool) Execute(ctx context.Context, args json.RawMessage) (tools.Too
 		return tools.ToolResult{Content: "delete and duplicate cannot be used together", IsError: true}, nil
 	}
 
-	if params.Delete {
-		if params.TaskID == nil {
-			return tools.ToolResult{Content: "delete requires task_id to reference the task to remove", IsError: true}, nil
-		}
-		return t.deleteTask(*params.TaskID)
-	}
+	listIP := uintPtrIfPositive(params.TaskListID)
+	tidPtr := taskIDPtrForResolve(params.TaskID)
+	codeTrim := strings.TrimSpace(params.Code)
 
 	isWrite := strings.TrimSpace(params.Title) != "" || params.Duplicate || params.StatusID != nil ||
-		params.Description != "" || params.Code != "" || params.Link != "" ||
+		params.Description != "" || params.Link != "" ||
 		params.AssigneeName != nil || params.AssigneeID != nil ||
 		params.CreatorName != nil || params.CreatorID != nil || params.ParentID != nil
 
-	// READ mode: task_id only, no write params
-	if params.TaskID != nil && !isWrite {
-		if *params.TaskID == 0 {
-			return tools.ToolResult{Content: "task_id must be > 0", IsError: true}, nil
+	if params.Delete {
+		resolvedID, err := t.mgr.ResolveTaskRef(listIP, params.TaskListSlug, tidPtr, params.Code)
+		if err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 		}
-		return t.readTask(*params.TaskID)
+		return t.deleteTask(resolvedID)
 	}
 
-	// WRITE modes below
+	if !isWrite {
+		resolvedID, err := t.mgr.ResolveTaskRef(listIP, params.TaskListSlug, tidPtr, params.Code)
+		if err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+		}
+		return t.readTask(resolvedID)
+	}
+
 	title := strings.TrimSpace(params.Title)
 	if title == "" {
 		return tools.ToolResult{Content: "title is required for create, update, and duplicate operations", IsError: true}, nil
 	}
 
-	if params.Duplicate && params.TaskID == nil {
-		return tools.ToolResult{Content: "duplicate requires task_id to reference the source task", IsError: true}, nil
-	}
-
-	if params.TaskListID == 0 && params.TaskID == nil {
-		return tools.ToolResult{Content: "task_list_id is required when creating a new task", IsError: true}, nil
-	}
-
-	if params.StatusID != nil {
-		listID := params.TaskListID
-		if listID == 0 && params.TaskID != nil {
-			task, err := t.mgr.GetTask(*params.TaskID)
-			if err == nil {
-				listID = task.TaskListID
-			}
+	if params.Duplicate {
+		resolveCode := strings.TrimSpace(params.Code)
+		if tidPtr != nil {
+			resolveCode = ""
 		}
-		if listID != 0 {
-			if err := t.validateStatusID(listID, *params.StatusID); err != nil {
+		srcID, err := t.mgr.ResolveTaskRef(listIP, params.TaskListSlug, tidPtr, resolveCode)
+		if err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+		}
+		tgt := uint(0)
+		if tidPtr != nil && (params.TaskListID > 0 || strings.TrimSpace(params.TaskListSlug) != "") {
+			ip := uintPtrIfPositive(params.TaskListID)
+			targetListID, err := t.mgr.ResolveTaskListRef(ip, params.TaskListSlug)
+			if err != nil {
+				return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+			}
+			tgt = targetListID
+		}
+		newTaskCode := ""
+		if tidPtr != nil {
+			newTaskCode = strings.TrimSpace(params.Code)
+		}
+		return t.duplicateTask(tgt, srcID, title, params.Description, newTaskCode, params.Link, params.ParentID, params.StatusID, params.AssigneeName, params.AssigneeID, params.CreatorName, params.CreatorID)
+	}
+
+	if tidPtr != nil {
+		// code no corpo é o novo valor do campo; não usar para resolver identidade quando já há task_id
+		resolvedID, err := t.mgr.ResolveTaskRef(listIP, params.TaskListSlug, tidPtr, "")
+		if err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+		}
+
+		if params.StatusID != nil {
+			listForStatus, err := t.listIDForStatusValidation(resolvedID, params, tidPtr)
+			if err != nil {
+				return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+			}
+			if err := t.validateStatusID(listForStatus, *params.StatusID); err != nil {
 				return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 			}
 		}
-	}
-
-	if params.TaskID != nil {
-		if params.Duplicate {
-			return t.duplicateTask(params.TaskListID, *params.TaskID, title, params.Description, params.Code, params.Link, params.ParentID, params.StatusID, params.AssigneeName, params.AssigneeID, params.CreatorName, params.CreatorID)
-		}
 
 		moved := false
-		if params.TaskListID != 0 {
-			var err error
-			moved, err = t.moveIfNeeded(*params.TaskID, params.TaskListID)
+		if params.TaskListID > 0 || strings.TrimSpace(params.TaskListSlug) != "" {
+			ip := uintPtrIfPositive(params.TaskListID)
+			targetListID, err := t.mgr.ResolveTaskListRef(ip, params.TaskListSlug)
 			if err != nil {
-				return tools.ToolResult{Content: fmt.Sprintf("Error moving task %d to list %d: %v", *params.TaskID, params.TaskListID, err), IsError: true}, nil
+				return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+			}
+			moved, err = t.moveIfNeeded(resolvedID, targetListID)
+			if err != nil {
+				return tools.ToolResult{Content: fmt.Sprintf("Error moving task %d to list %d: %v", resolvedID, targetListID, err), IsError: true}, nil
 			}
 		}
-		return t.updateTask(*params.TaskID, title, params.Description, params.Code, params.Link, params.StatusID, params.AssigneeName, params.AssigneeID, params.CreatorName, params.CreatorID, moved)
+		return t.updateTask(resolvedID, title, params.Description, params.Code, params.Link, params.StatusID, params.AssigneeName, params.AssigneeID, params.CreatorName, params.CreatorID, moved)
 	}
 
-	if code := strings.TrimSpace(params.Code); code != "" {
-		existing, err := t.mgr.FindTaskByCode(params.TaskListID, code)
+	createListID, err := t.mgr.ResolveTaskListRef(listIP, params.TaskListSlug)
+	if err != nil {
+		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+	}
+
+	if params.StatusID != nil {
+		if err := t.validateStatusID(createListID, *params.StatusID); err != nil {
+			return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+		}
+	}
+
+	if codeTrim != "" {
+		existing, err := t.mgr.FindTaskByCode(createListID, codeTrim)
 		if err == nil && existing != nil {
 			return t.updateTask(existing.ID, title, params.Description, params.Code, params.Link, params.StatusID, params.AssigneeName, params.AssigneeID, params.CreatorName, params.CreatorID, false)
 		}
 	}
 
-	return t.createTask(params.TaskListID, title, params.Description, params.Code, params.Link, params.ParentID, params.StatusID, params.AssigneeName, params.AssigneeID, params.CreatorName, params.CreatorID)
+	return t.createTask(createListID, title, params.Description, params.Code, params.Link, params.ParentID, params.StatusID, params.AssigneeName, params.AssigneeID, params.CreatorName, params.CreatorID)
+}
+
+func (t *TaskTool) listIDForStatusValidation(resolvedTaskID uint, p taskArgs, tidPtr *uint) (uint, error) {
+	if tidPtr != nil && (p.TaskListID > 0 || strings.TrimSpace(p.TaskListSlug) != "") {
+		ip := uintPtrIfPositive(p.TaskListID)
+		return t.mgr.ResolveTaskListRef(ip, p.TaskListSlug)
+	}
+	task, err := t.mgr.GetTask(resolvedTaskID)
+	if err != nil {
+		return 0, err
+	}
+	return task.TaskListID, nil
 }
 
 // ==================== Read ====================
@@ -493,6 +543,21 @@ func (t *TaskTool) taskResultMap(task *database.Task, action string) map[string]
 		result["creator_id"] = task.CreatorID
 	}
 	return result
+}
+
+func uintPtrIfPositive(id uint) *uint {
+	if id == 0 {
+		return nil
+	}
+	return &id
+}
+
+func taskIDPtrForResolve(p *uint) *uint {
+	if p == nil || *p == 0 {
+		return nil
+	}
+	v := *p
+	return &v
 }
 
 func derefOr(p *string, fallback string) string {

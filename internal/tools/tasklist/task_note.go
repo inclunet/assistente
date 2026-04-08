@@ -12,16 +12,19 @@ import (
 )
 
 type taskNoteArgs struct {
-	TaskID             uint   `json:"task_id"`
-	NoteID             *uint  `json:"note_id,omitempty"`
-	Type               *int   `json:"type,omitempty"`
-	Content            string `json:"content"`
-	AuthorName         string `json:"author_name,omitempty"`
-	AuthorID           string `json:"author_id,omitempty"`
-	Source             string `json:"source,omitempty"`
-	ExternalID         string `json:"external_id,omitempty"`
-	ExternalParentID   string `json:"external_parent_id,omitempty"`
-	ExternalUpdatedAt  string `json:"external_updated_at,omitempty"`
+	TaskListID        uint   `json:"task_list_id,omitempty"`
+	TaskListSlug      string `json:"task_list_slug,omitempty"`
+	TaskID            *uint  `json:"task_id,omitempty"`
+	Code              string `json:"code,omitempty"`
+	NoteID            *uint  `json:"note_id,omitempty"`
+	Type              *int   `json:"type,omitempty"`
+	Content           string `json:"content"`
+	AuthorName        string `json:"author_name,omitempty"`
+	AuthorID          string `json:"author_id,omitempty"`
+	Source            string `json:"source,omitempty"`
+	ExternalID        string `json:"external_id,omitempty"`
+	ExternalParentID  string `json:"external_parent_id,omitempty"`
+	ExternalUpdatedAt string `json:"external_updated_at,omitempty"`
 }
 
 type TaskNoteTool struct {
@@ -35,16 +38,28 @@ func NewTaskNote(mgr TaskListManager) *TaskNoteTool {
 func (t *TaskNoteTool) Name() string { return "task_note" }
 
 func (t *TaskNoteTool) Description() string {
-	return "Creates or updates a note on a task. Modes: (1) note_id → update content for that note. (2) source + external_id + task_id → idempotent upsert for synced comments (Jira, etc.): creates once, then updates on repeat. (3) otherwise create manual note (requires type). Use task tool with task_id to read notes. Types: 1=internal, 2=customer, 3=agent, 4=system."
+	return "Creates or updates a note on a task. Identify the task with task_id and/or (task_list_id or task_list_slug + code), same rules as the task tool. (1) note_id → update content; optional task ref must match the note's task. (2) source + external_id → idempotent upsert for synced comments. (3) else manual create (requires type). Types: 1=internal, 2=customer, 3=agent, 4=system."
 }
 
 func (t *TaskNoteTool) Parameters() json.RawMessage {
 	return json.RawMessage(`{
 		"type": "object",
 		"properties": {
+			"task_list_id": {
+				"type": "integer",
+				"description": "Task list id; use with task_list_slug and/or code to identify the task without task_id"
+			},
+			"task_list_slug": {
+				"type": "string",
+				"description": "Task list slug; with code identifies the task when task_id is omitted"
+			},
 			"task_id": {
 				"type": "integer",
-				"description": "ID of the task this note belongs to"
+				"description": "Numeric task id. Optional if task_list_id/slug + code identify the task"
+			},
+			"code": {
+				"type": "string",
+				"description": "Task code within the list when resolving the task without task_id"
 			},
 			"note_id": {
 				"type": "integer",
@@ -84,7 +99,7 @@ func (t *TaskNoteTool) Parameters() json.RawMessage {
 				"description": "Optional RFC3339 timestamp of last remote update"
 			}
 		},
-		"required": ["task_id", "content"],
+		"required": ["content"],
 		"additionalProperties": false
 	}`)
 }
@@ -95,17 +110,42 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		return tools.ToolResult{Content: "Error parsing arguments: " + err.Error(), IsError: true}, nil
 	}
 
-	if params.TaskID == 0 {
-		return tools.ToolResult{Content: "task_id is required and must be > 0", IsError: true}, nil
-	}
-
 	content := strings.TrimSpace(params.Content)
 	if content == "" {
 		return tools.ToolResult{Content: "content cannot be empty", IsError: true}, nil
 	}
 
+	listIP := uintPtrIfPositive(params.TaskListID)
+	tidPtr := taskIDPtrForResolve(params.TaskID)
+
 	if params.NoteID != nil {
-		return t.updateNote(*params.NoteID, params.TaskID, content)
+		note, err := t.mgr.GetTaskNote(*params.NoteID)
+		if err != nil {
+			return tools.ToolResult{Content: fmt.Sprintf("Note not found (id=%d): %v", *params.NoteID, err), IsError: true}, nil
+		}
+		var taskID uint
+		if tidPtr != nil || strings.TrimSpace(params.Code) != "" || listIP != nil || strings.TrimSpace(params.TaskListSlug) != "" {
+			resolved, err := t.mgr.ResolveTaskRef(listIP, params.TaskListSlug, tidPtr, params.Code)
+			if err != nil {
+				return tools.ToolResult{Content: err.Error(), IsError: true}, nil
+			}
+			if resolved != note.TaskID {
+				return tools.ToolResult{Content: fmt.Sprintf("note_id %d belongs to task %d, which does not match the resolved task %d", *params.NoteID, note.TaskID, resolved), IsError: true}, nil
+			}
+			taskID = resolved
+		} else {
+			taskID = note.TaskID
+		}
+		return t.updateNote(*params.NoteID, taskID, content)
+	}
+
+	resolveCode := strings.TrimSpace(params.Code)
+	if tidPtr != nil {
+		resolveCode = ""
+	}
+	resolvedTaskID, err := t.mgr.ResolveTaskRef(listIP, params.TaskListSlug, tidPtr, resolveCode)
+	if err != nil {
+		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}
 
 	src := strings.TrimSpace(params.Source)
@@ -114,13 +154,13 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		if src == "" || extID == "" {
 			return tools.ToolResult{Content: "for external idempotent upsert, both source and external_id are required", IsError: true}, nil
 		}
-		return t.upsertExternalNote(params.TaskID, content, params.AuthorName, params.AuthorID, src, extID, strings.TrimSpace(params.ExternalParentID), params.ExternalUpdatedAt, params.Type)
+		return t.upsertExternalNote(resolvedTaskID, content, params.AuthorName, params.AuthorID, src, extID, strings.TrimSpace(params.ExternalParentID), params.ExternalUpdatedAt, params.Type)
 	}
 
 	if params.Type == nil {
 		return tools.ToolResult{Content: "type is required when creating a new note without external source + external_id", IsError: true}, nil
 	}
-	return t.createNote(params.TaskID, *params.Type, content, params.AuthorName, params.AuthorID)
+	return t.createNote(resolvedTaskID, *params.Type, content, params.AuthorName, params.AuthorID)
 }
 
 func (t *TaskNoteTool) upsertExternalNote(taskID uint, content, authorName, authorID, source, externalID, externalParentID, externalUpdatedAtRaw string, typeArg *int) (tools.ToolResult, error) {

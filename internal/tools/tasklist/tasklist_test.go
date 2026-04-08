@@ -125,12 +125,34 @@ func (f *fakeTaskListManager) addTask(taskListID uint, title string, statusID in
 	return task
 }
 
-func (f *fakeTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
+func (f *fakeTaskListManager) findTaskListIDBySlug(norm string) uint {
+	if norm == "" {
+		return 0
+	}
+	for id, tl := range f.taskLists {
+		if database.NormalizeTaskListSlug(tl.Slug) == norm {
+			return id
+		}
+	}
+	return 0
+}
+
+func (f *fakeTaskListManager) CreateTaskList(title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
 	if f.createListErr != nil {
 		return nil, f.createListErr
 	}
+	s := database.NormalizeTaskListSlug(slug)
+	if err := database.ValidateTaskListSlugFormat(s); err != nil {
+		return nil, err
+	}
+	if s != "" {
+		if oid := f.findTaskListIDBySlug(s); oid != 0 {
+			return nil, fmt.Errorf("slug %q já está em uso por outra lista", s)
+		}
+	}
 	tl := f.addTaskList(title, defaultStatuses())
 	tl.Description = description
+	tl.Slug = s
 	return tl, nil
 }
 
@@ -490,7 +512,7 @@ func (f *fakeTaskListManager) GetTaskNote(noteID uint) (*database.TaskNote, erro
 	return nil, fmt.Errorf("note not found: %d", noteID)
 }
 
-func (f *fakeTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
+func (f *fakeTaskListManager) UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error {
 	tl, ok := f.taskLists[id]
 	if !ok {
 		return fmt.Errorf("task list not found: %d", id)
@@ -500,7 +522,117 @@ func (f *fakeTaskListManager) UpdateTaskListFull(id uint, title, description, pr
 	if preferredViewMode == "list" || preferredViewMode == "kanban" {
 		tl.PreferredViewMode = preferredViewMode
 	}
+	if slug != nil {
+		s := database.NormalizeTaskListSlug(*slug)
+		if err := database.ValidateTaskListSlugFormat(s); err != nil {
+			return err
+		}
+		if s != "" {
+			if oid := f.findTaskListIDBySlug(s); oid != 0 && oid != id {
+				return fmt.Errorf("slug %q já está em uso por outra lista", s)
+			}
+		}
+		tl.Slug = s
+	}
 	return nil
+}
+
+func (f *fakeTaskListManager) ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error) {
+	var idVal uint
+	if taskListID != nil {
+		idVal = *taskListID
+	}
+	s := database.NormalizeTaskListSlug(taskListSlug)
+	hasID := idVal > 0
+	hasSlug := s != ""
+	if !hasID && !hasSlug {
+		return 0, fmt.Errorf("informe task_list_id ou task_list_slug")
+	}
+	if hasID && !hasSlug {
+		if _, ok := f.taskLists[idVal]; !ok {
+			return 0, fmt.Errorf("task_list_id %d não encontrado", idVal)
+		}
+		return idVal, nil
+	}
+	if !hasID && hasSlug {
+		id := f.findTaskListIDBySlug(s)
+		if id == 0 {
+			return 0, fmt.Errorf("task_list_slug %q não encontrado", strings.TrimSpace(taskListSlug))
+		}
+		return id, nil
+	}
+	if _, ok := f.taskLists[idVal]; !ok {
+		return 0, fmt.Errorf("task_list_id %d não encontrado", idVal)
+	}
+	sid := f.findTaskListIDBySlug(s)
+	if sid == 0 {
+		return 0, fmt.Errorf("task_list_slug %q não encontrado", strings.TrimSpace(taskListSlug))
+	}
+	if idVal != sid {
+		return 0, fmt.Errorf("task_list_id %d e task_list_slug %q referem listas diferentes", idVal, strings.TrimSpace(taskListSlug))
+	}
+	return idVal, nil
+}
+
+func (f *fakeTaskListManager) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error) {
+	codeTrim := strings.TrimSpace(code)
+	var idVal uint
+	if taskID != nil {
+		idVal = *taskID
+	}
+	hasID := idVal > 0
+	hasCode := codeTrim != ""
+	listPtr := taskListID
+	if listPtr != nil && *listPtr == 0 {
+		listPtr = nil
+	}
+	hasListRef := listPtr != nil || strings.TrimSpace(taskListSlug) != ""
+
+	if !hasID && !hasCode {
+		return 0, fmt.Errorf("informe task_id ou code")
+	}
+	if hasCode && !hasID && !hasListRef {
+		return 0, fmt.Errorf("com code é necessário task_list_id ou task_list_slug")
+	}
+
+	if hasID && !hasCode {
+		task, ok := f.tasks[idVal]
+		if !ok {
+			return 0, fmt.Errorf("task_id %d não encontrado", idVal)
+		}
+		return task.ID, nil
+	}
+
+	if !hasID && hasCode {
+		listID, err := f.ResolveTaskListRef(listPtr, taskListSlug)
+		if err != nil {
+			return 0, err
+		}
+		for _, task := range f.tasks {
+			if task.TaskListID == listID && task.Code == codeTrim {
+				return task.ID, nil
+			}
+		}
+		return 0, fmt.Errorf("nenhuma task com code %q na lista", codeTrim)
+	}
+
+	task, ok := f.tasks[idVal]
+	if !ok {
+		return 0, fmt.Errorf("task_id %d não encontrado", idVal)
+	}
+	if task.Code != codeTrim {
+		return 0, fmt.Errorf("task_id %d e code %q não correspondem à mesma task", idVal, codeTrim)
+	}
+	if hasListRef {
+		listID, err := f.ResolveTaskListRef(listPtr, taskListSlug)
+		if err != nil {
+			return 0, err
+		}
+		if task.TaskListID != listID {
+			return 0, fmt.Errorf("task_id %d e lista referenciada não correspondem à mesma task", idVal)
+		}
+	}
+	return task.ID, nil
 }
 
 func (f *fakeTaskListManager) SetTaskListValidationPolicy(id uint, policyJSON string) error {
@@ -750,8 +882,8 @@ func TestGetTaskList_SummaryOnly_WithoutID_Error(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected error when summary_only without task_list_id")
 	}
-	if !strings.Contains(result.Content, "summary_only requires task_list_id") {
-		t.Errorf("expected 'summary_only requires task_list_id', got: %s", result.Content)
+	if !strings.Contains(result.Content, "summary_only requires task_list_id or task_list_slug") {
+		t.Errorf("expected summary_only ref error, got: %s", result.Content)
 	}
 }
 
@@ -850,6 +982,32 @@ func TestTask_ReadZeroID(t *testing.T) {
 	}
 	if !result.IsError {
 		t.Fatal("expected error for zero task ID")
+	}
+	if !strings.Contains(result.Content, "informe task_id ou code") {
+		t.Errorf("expected task ref error, got: %s", result.Content)
+	}
+}
+
+func TestTask_ReadByListSlugAndCode(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Bugs", defaultStatuses())
+	tl.Slug = "bugs"
+	task := mgr.addTask(tl.ID, "Fix it", 1)
+	task.Code = "FSD-99"
+	tool := NewTask(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_slug": "bugs",
+		"code":           "FSD-99",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	if !strings.Contains(result.Content, "Fix it") {
+		t.Errorf("expected title in response, got: %s", result.Content)
 	}
 }
 
@@ -1246,8 +1404,8 @@ func TestUpsertTask_DeleteWithoutTaskID_Error(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected error when delete without task_id")
 	}
-	if !strings.Contains(result.Content, "delete requires task_id") {
-		t.Errorf("expected 'delete requires task_id', got: %s", result.Content)
+	if !strings.Contains(result.Content, "informe task_id ou code") {
+		t.Errorf("expected task ref error, got: %s", result.Content)
 	}
 }
 
@@ -1306,6 +1464,32 @@ func TestUpsertTaskNote_CreateSuccess(t *testing.T) {
 	}
 	if !strings.Contains(result.Content, "created") {
 		t.Fatalf("expected 'created' in content, got: %s", result.Content)
+	}
+}
+
+func TestUpsertTaskNote_CreateWithListSlugAndCode(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Bugs", defaultStatuses())
+	tl.Slug = "bugs"
+	task := mgr.addTask(tl.ID, "Task", 1)
+	task.Code = "J-1"
+	tool := NewTaskNote(mgr)
+
+	result, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_slug": "bugs",
+		"code":           "J-1",
+		"type":           1,
+		"content":        "via slug+code",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.IsError {
+		t.Fatalf("unexpected error: %s", result.Content)
+	}
+	notes, _ := mgr.GetTaskNotes(task.ID)
+	if len(notes) != 1 || notes[0].Content != "via slug+code" {
+		t.Fatalf("expected one note on task, got %+v", notes)
 	}
 }
 
@@ -1398,8 +1582,8 @@ func TestUpsertTaskNote_UpdateWrongTask(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected error when note does not belong to task")
 	}
-	if !strings.Contains(result.Content, "does not belong to task") {
-		t.Errorf("expected 'does not belong to task', got: %s", result.Content)
+	if !strings.Contains(result.Content, "does not match") {
+		t.Errorf("expected mismatch error, got: %s", result.Content)
 	}
 }
 
@@ -1455,6 +1639,9 @@ func TestUpsertTaskNote_ZeroTaskID(t *testing.T) {
 	}
 	if !result.IsError {
 		t.Fatal("expected error for zero task ID")
+	}
+	if !strings.Contains(result.Content, "informe task_id ou code") {
+		t.Errorf("expected task ref error, got: %s", result.Content)
 	}
 }
 
@@ -2137,8 +2324,8 @@ func TestUpsertTaskList_DuplicateSourceNotFound(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected error for non-existent source")
 	}
-	if !strings.Contains(result.Content, "Source task list not found") {
-		t.Errorf("expected 'Source task list not found', got: %s", result.Content)
+	if !strings.Contains(result.Content, "não encontrado") {
+		t.Errorf("expected not-found error, got: %s", result.Content)
 	}
 }
 
@@ -2156,8 +2343,8 @@ func TestUpsertTaskList_DuplicateWithoutTaskListID_Error(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected error when duplicate is true without task_list_id")
 	}
-	if !strings.Contains(result.Content, "duplicate requires task_list_id") {
-		t.Errorf("expected 'duplicate requires task_list_id', got: %s", result.Content)
+	if !strings.Contains(result.Content, "duplicate requires task_list_id or task_list_slug") {
+		t.Errorf("expected duplicate ref error, got: %s", result.Content)
 	}
 }
 
@@ -3295,8 +3482,8 @@ func TestUpsertTask_DuplicateSourceNotFound(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected error for non-existent source task")
 	}
-	if !strings.Contains(result.Content, "Source task not found") {
-		t.Errorf("expected 'Source task not found', got: %s", result.Content)
+	if !strings.Contains(result.Content, "não encontrado") {
+		t.Errorf("expected not-found error, got: %s", result.Content)
 	}
 }
 
@@ -3316,7 +3503,7 @@ func TestUpsertTask_DuplicateWithoutTaskID_Error(t *testing.T) {
 	if !result.IsError {
 		t.Fatal("expected error when duplicate is true without task_id")
 	}
-	if !strings.Contains(result.Content, "duplicate requires task_id") {
-		t.Errorf("expected 'duplicate requires task_id', got: %s", result.Content)
+	if !strings.Contains(result.Content, "informe task_id ou code") {
+		t.Errorf("expected task ref error, got: %s", result.Content)
 	}
 }

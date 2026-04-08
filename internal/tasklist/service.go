@@ -32,8 +32,8 @@ func NewService(cfg ServiceConfig) *Service {
 // ── Task List ──────────────────────────────────────────────────────────────────
 
 // CreateTaskList cria uma nova lista e recarrega o registro completo.
-func (s *Service) CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow) (*database.TaskList, error) {
-	tl, err := s.store.CreateTaskList(title, description, templateWorkflow)
+func (s *Service) CreateTaskList(ctx context.Context, title, description string, templateWorkflow *database.TaskListWorkflow, slug string) (*database.TaskList, error) {
+	tl, err := s.store.CreateTaskList(title, description, templateWorkflow, slug)
 	if err != nil {
 		return nil, err
 	}
@@ -65,8 +65,12 @@ func (s *Service) UpdateTaskList(id uint, title, description string) error {
 	return nil
 }
 
-func (s *Service) UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
-	return s.store.UpdateTaskListFull(id, title, description, preferredViewMode)
+func (s *Service) UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error {
+	return s.store.UpdateTaskListFull(id, title, description, preferredViewMode, slug)
+}
+
+func (s *Service) ResolveTaskListRef(taskListID *uint, taskListSlug string) (uint, error) {
+	return s.store.ResolveTaskListRef(taskListID, taskListSlug)
 }
 
 func (s *Service) SetTaskListValidationPolicy(taskListID uint, policyJSON string) error {
@@ -201,6 +205,10 @@ func (s *Service) GetTasksByStatus(taskListID uint, statusID int) ([]database.Ta
 
 func (s *Service) FindTaskByCode(taskListID uint, code string) (*database.Task, error) {
 	return s.store.FindTaskByCode(taskListID, code)
+}
+
+func (s *Service) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error) {
+	return s.store.ResolveTaskRef(taskListID, taskListSlug, taskID, code)
 }
 
 func (s *Service) UpdateTask(id uint, title, description, code, link string) error {
