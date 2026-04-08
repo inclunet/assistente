@@ -5,9 +5,9 @@ import (
 	"fmt"
 	"log"
 	"os"
-	"strings"
 
 	"assistente/internal/config"
+	"assistente/internal/skills"
 )
 
 // SendMessageSync envia uma mensagem sem streaming (para acessibilidade)
@@ -215,42 +215,7 @@ func (a *App) ClearAllChannels() error {
 	return nil
 }
 
-// parseSlashCommand detecta se uma mensagem é um slash command para invocar um skill.
-// Formato: /skill-slug [argumentos...]
-// Retorna (slug, args, true) se for um slash command válido, ("", "", false) caso contrário.
+// parseSlashCommand é um shim para manter compatibilidade com testes e código existente.
 func parseSlashCommand(content string) (slug string, args string, ok bool) {
-	content = strings.TrimSpace(content)
-
-	// Deve começar com /
-	if !strings.HasPrefix(content, "/") {
-		return "", "", false
-	}
-
-	// Remove o /
-	rest := content[1:]
-	if rest == "" {
-		return "", "", false
-	}
-
-	// Não deve começar com espaço (evita confusão com paths como "/ something")
-	if rest[0] == ' ' {
-		return "", "", false
-	}
-
-	// Separa slug dos argumentos (pelo primeiro espaço)
-	parts := strings.SplitN(rest, " ", 2)
-	slug = strings.ToLower(parts[0])
-
-	// Valida que o slug parece um nome de skill (letras, números, hifens)
-	for _, ch := range slug {
-		if !((ch >= 'a' && ch <= 'z') || (ch >= '0' && ch <= '9') || ch == '-') {
-			return "", "", false
-		}
-	}
-
-	if len(parts) > 1 {
-		args = strings.TrimSpace(parts[1])
-	}
-
-	return slug, args, true
+	return skills.ParseSlashCommand(content)
 }
