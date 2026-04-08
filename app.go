@@ -17,6 +17,7 @@ import (
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/profiles"
+	"assistente/internal/prompt"
 	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
@@ -113,11 +114,17 @@ type App struct {
 	// Message repository (criação e consulta de mensagens)
 	msgRepo chat.MessageRepository
 
+	// ChatInteractor (orquestra validações, perfil, renaming — livre de Wails)
+	chatInteractor *chat.Interactor
+
 	// Summary service (sumarização de conversas em background)
 	summarySvc *summarization.Service
 
 	// Agent service (agentic loop sem dependências do Wails)
 	agentSvc *agent.Service
+
+	// Prompt builder (monta system prompt — puro, sem Wails)
+	promptBuilder *prompt.Builder
 
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
@@ -130,45 +137,6 @@ type App struct {
 // ==================== Tipos para Threads ====================
 
 // EnrichedMessage é ChatMessage + campos derivados calculados no backend
-type EnrichedMessage struct {
-	ID               string    `json:"id"`
-	ConversationID   uint      `json:"conversationId"`
-	ParentID         *string   `json:"parentId,omitempty"`
-	TurnID           *uint     `json:"turnId,omitempty"`
-	Role             string    `json:"role"`
-	Content          string    `json:"content"`
-	Reasoning        string    `json:"reasoning,omitempty"`
-	Media            string    `json:"media,omitempty"`
-	ToolCalls        string    `json:"toolCalls,omitempty"`
-	ToolCallID       string    `json:"toolCallId,omitempty"`
-	PromptTokens     int       `json:"promptTokens,omitempty"`
-	CompletionTokens int       `json:"completionTokens,omitempty"`
-	TotalTokens      int       `json:"totalTokens,omitempty"`
-	Model            string    `json:"model,omitempty"`
-	Source           string    `json:"source,omitempty"`
-	CreatedAt        time.Time `json:"createdAt"`
-	Timestamp        int64     `json:"timestamp"`
-	IsStreaming      bool      `json:"isStreaming"`
-	Internal         bool      `json:"internal"`
-}
-
-// MessageNode representa uma mensagem com seus filhos na hierarquia
-type MessageNode struct {
-	Message    EnrichedMessage `json:"message"`
-	Children   []MessageNode   `json:"children,omitempty"`
-	Level      int             `json:"level"`
-	ChildCount int             `json:"childCount"`
-}
-
-// ConversationWithThreads representa uma conversa com mensagens organizadas em árvore
-type ConversationWithThreads struct {
-	ID      uint          `json:"id"`
-	Title   string        `json:"title"`
-	Threads []MessageNode `json:"threads"`
-}
-
-// StreamEvent representa um evento de streaming simplificado
-// StreamEvent é alias de events.StreamEvent para compatibilidade com o frontend (Wails binding).
 type StreamEvent = events.StreamEvent
 
 // NewApp creates a new App application struct
@@ -224,6 +192,9 @@ func (a *App) startup(ctx context.Context) {
 	a.convSvc = chat.NewDBConversationStore()
 	a.msgRepo = chat.NewDBMessageStore()
 
+	// Inicializa o ChatInteractor
+	a.chatInteractor = chat.NewInteractor(a.emitter, a.msgRepo, a.convSvc, a.providerSvc, a.profileManager)
+
 	// Inicializa o Summary Service (sumarização de conversas)
 	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
 		Emitter:         a.emitter,
@@ -267,6 +238,13 @@ func (a *App) startup(ctx context.Context) {
 		GetTokenStats:    a.GetConversationTokenStats,
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
 	})
+
+	// Inicializa o Prompt Builder (montagem de system prompt, sem Wails)
+	a.promptBuilder = &prompt.Builder{
+		Skills:    a.skillMgr,
+		Workspace: a.workspaceMgr,
+		Tools:     a.toolRegistry,
+	}
 
 	// Inicializa hotkeys globais
 	a.initGlobalHotkeys()
