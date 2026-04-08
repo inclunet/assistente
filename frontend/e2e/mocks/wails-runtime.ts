@@ -19,6 +19,8 @@ declare global {
   interface Window {
     __wailsMock: {
       setResponse: (fn: string, value: unknown) => void;
+      setError: (fn: string, message: string) => void;
+      clearError: (fn: string) => void;
       emit: (event: string, data?: unknown) => void;
       getCallLog: () => Array<{ fn: string; args: unknown[] }>;
       reset: () => void;
@@ -33,6 +35,7 @@ export function buildWailsMockScript(): string {
 (function() {
   const _config = {
     responses: {},
+    errors: {},
     eventListeners: new Map(),
     callLog: [],
   };
@@ -220,6 +223,9 @@ export function buildWailsMockScript(): string {
         const fnName = String(prop);
         return function(...args) {
           _config.callLog.push({ fn: fnName, args });
+          if (fnName in _config.errors) {
+            return Promise.reject(new Error(_config.errors[fnName]));
+          }
           if (fnName in _config.responses) {
             const val = _config.responses[fnName];
             return Promise.resolve(typeof val === 'function' ? val(...args) : val);
@@ -324,6 +330,16 @@ export function buildWailsMockScript(): string {
   window.__wailsMock = {
     setResponse(fn, value) {
       _config.responses[fn] = value;
+      delete _config.errors[fn];
+    },
+
+    setError(fn, message) {
+      _config.errors[fn] = message;
+      delete _config.responses[fn];
+    },
+
+    clearError(fn) {
+      delete _config.errors[fn];
     },
 
     emit(event, data) {
