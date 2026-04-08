@@ -12,6 +12,10 @@ import { buildWailsMockScript } from './mocks/wails-runtime';
 export interface WailsMock {
   /** Sobrescreve a resposta de uma função Wails. Pode ser chamado antes ou depois de waitForApp. */
   setResponse: (fn: string, value: unknown) => Promise<void>;
+  /** Configura uma função Wails para rejeitar com erro. Só funciona após waitForApp. */
+  setError: (fn: string, message: string) => Promise<void>;
+  /** Remove erro configurado para uma função Wails. Só funciona após waitForApp. */
+  clearError: (fn: string) => Promise<void>;
   /** Emite um evento Wails (simula backend → frontend). Só funciona após waitForApp. */
   emit: (event: string, data?: unknown) => Promise<void>;
   /** Retorna o log de chamadas feitas ao backend. Só funciona após waitForApp. */
@@ -39,6 +43,20 @@ export const test = base.extend<{ wails: WailsMock }>({
             { fn, value },
           );
         }
+      },
+
+      async setError(fn: string, message: string) {
+        await page.evaluate(
+          ({ fn, message }) => window.__wailsMock.setError(fn, message),
+          { fn, message },
+        );
+      },
+
+      async clearError(fn: string) {
+        await page.evaluate(
+          (fn) => window.__wailsMock.clearError(fn),
+          fn,
+        );
       },
 
       async emit(event: string, data?: unknown) {
