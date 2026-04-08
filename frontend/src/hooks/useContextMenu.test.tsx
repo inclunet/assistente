@@ -202,7 +202,7 @@ describe('useMessageActions', () => {
   });
 
   it('não reproduz quando sem config de voz', async () => {
-    ttsServiceMock.getVoiceContext.mockReturnValue(undefined);
+    ttsServiceMock.getVoiceContext.mockReturnValue(undefined as never);
 
     const { result } = renderHook(() => useMessageActions());
 
