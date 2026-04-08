@@ -85,7 +85,7 @@ test.describe('Abas — fechar aba', () => {
     await secondTab.click({ button: 'right' });
 
     // Menu de contexto aparece
-    const menu = page.locator('[role="menu"]');
+    const menu = page.locator('[role="menu"]').first();
     await expect(menu).toBeVisible({ timeout: 3_000 });
 
     // Clica em "Fechar"
@@ -237,10 +237,8 @@ test.describe('Abas — renomear', () => {
     const firstTab = page.locator('button[role="tab"]').first();
     await firstTab.click({ button: 'right' });
 
-    const menu = page.locator('[role="menu"]');
+    const menu = page.locator('[role="menu"]').first();
     await expect(menu).toBeVisible({ timeout: 3_000 });
-
-    // Clica em "Renomear"
     const renameItem = menu.locator('[role="menuitem"]', { hasText: /renomear|rename/i });
     if (await renameItem.count() > 0) {
       await renameItem.first().click();
@@ -307,7 +305,7 @@ test.describe('Abas — close others via context menu', () => {
     const firstTab = page.locator('button[role="tab"]').first();
     await firstTab.click({ button: 'right' });
 
-    const menu = page.locator('[role="menu"]');
+    const menu = page.locator('[role="menu"]').first();
     await expect(menu).toBeVisible({ timeout: 3_000 });
 
     // Clica em "Fechar outras"
