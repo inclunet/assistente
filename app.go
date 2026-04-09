@@ -6,10 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"assistente/adapters/wails"
+	"assistente/controllers"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
 	"assistente/internal/chat"
 	"assistente/internal/config"
+	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/events"
 	"assistente/internal/hotkey"
@@ -29,54 +32,33 @@ import (
 	"assistente/internal/tools"
 	"assistente/internal/updater"
 	"assistente/internal/workspace"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// Request structs for LLM Provider Management
-type CreateLLMProviderRequest struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	BaseURL      string `json:"base_url"`
-	APIKey       string `json:"api_key,omitempty"`
-	DefaultModel string `json:"default_model,omitempty"`
-	APIFormat    string `json:"api_format,omitempty"`
-}
+// Request structs for LLM Provider Management — type aliases para controllers.
+// Mantém compatibilidade com código e testes existentes durante a migração.
+type CreateLLMProviderRequest = controllers.CreateLLMProviderRequest
+type TestLLMProviderRequest = controllers.TestLLMProviderRequest
+type UpdateLLMProviderRequest = controllers.UpdateLLMProviderRequest
 
-type TestLLMProviderRequest struct {
-	Type       string `json:"type"`
-	BaseURL    string `json:"base_url"`
-	APIKey     string `json:"api_key,omitempty"`
-	ProviderID string `json:"provider_id,omitempty"`
-}
-
-type UpdateLLMProviderRequest struct {
-	Name         string `json:"name,omitempty"`
-	Type         string `json:"type,omitempty"`
-	BaseURL      string `json:"base_url,omitempty"`
-	APIKey       string `json:"api_key,omitempty"`
-	DefaultModel string `json:"default_model,omitempty"`
-	APIFormat    string `json:"api_format,omitempty"`
-}
+// SkillCreateRequest — type alias para controllers.
+type SkillCreateRequest = controllers.SkillCreateRequest
 
 // App struct
 type App struct {
-	ctx                   context.Context
-	llmRegistry           *llm.ProviderRegistry // Registro de provedores LLM
-	speechManager         *speech.SpeechManager
-	hotkeyManager         *hotkey.Manager
-	profileManager        *profiles.Manager
-	toolRegistry          *tools.Registry             // Registro de ferramentas disponíveis
-	toolExecutor          *tools.Executor             // Executor de ferramentas com paralelismo e timeout
-	terminalMgr           *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
-	questionnaireMgr      *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
-	allowlistMgr          *allowlist.Manager          // Gerenciador de allowlists de comandos
-	mcpMgr                *mcpmgr.Manager             // Gerenciador de servidores MCP
-	skillMgr              *skills.Manager             // Gerenciador de skills
-	responseNotifier      *messaging.ResponseNotifier // Notificador de respostas para mensageiros
-	msgGateway            *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
-	updater               *updater.Updater            // Gerenciador de atualizações automáticas
+	ctx              context.Context
+	llmRegistry      *llm.ProviderRegistry // Registro de provedores LLM
+	hotkeyManager    *hotkey.Manager
+	profileManager   *profiles.Manager
+	toolRegistry     *tools.Registry             // Registro de ferramentas disponíveis
+	toolExecutor     *tools.Executor             // Executor de ferramentas com paralelismo e timeout
+	terminalMgr      *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
+	questionnaireMgr *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
+	allowlistMgr     *allowlist.Manager          // Gerenciador de allowlists de comandos
+	mcpMgr           *mcpmgr.Manager             // Gerenciador de servidores MCP
+	skillMgr         *skills.Manager             // Gerenciador de skills
+	responseNotifier *messaging.ResponseNotifier // Notificador de respostas para mensageiros
+	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
+	updater          *updater.Updater            // Gerenciador de atualizações automáticas
 
 	credMgr   *credentials.Manager
 	credStore credentials.Store
@@ -128,12 +110,25 @@ type App struct {
 	// Settings service (config CRUD e reset de dados — sem Wails)
 	settingsSvc *config.SettingsService
 
-	// Streaming context management (barge-in support)
-	streamingMu       sync.Mutex
-	streamingContexts map[uint]context.CancelFunc // conversationID → cancel
+	// Speech service (TTS/STT business logic — sem Wails)
+	speechSvc *speech.Service
+
+	// StreamingManager gerencia contextos canceláveis por conversa (barge-in)
+	streamMgr *chat.StreamingManager
 
 	// Emitter abstrai runtime.EventsEmit para desacoplar lógica de negócio do Wails
 	emitter events.Emitter
+
+	// Ports de infraestrutura (Wails em produção, noop em testes/CLI)
+	windowPort ports.WindowPort
+	dialogPort ports.SystemDialogPort
+
+	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
+	mcpCtrl      *controllers.MCPController
+	profilesCtrl *controllers.ProfilesController
+	llmCtrl      *controllers.LLMController
+	skillsCtrl   *controllers.SkillsController
+	settingsCtrl *controllers.SettingsController
 }
 
 // ==================== Tipos para Threads ====================
@@ -143,11 +138,10 @@ type StreamEvent = events.StreamEvent
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		hotkeyLastFired:   make(map[uint]time.Time),
-		hotkeyThrottleMs:  1000,
-		profileManager:    profiles.NewManager(),
-		llmRegistry:       llm.NewProviderRegistry(),
-		streamingContexts: make(map[uint]context.CancelFunc),
+		hotkeyLastFired:  make(map[uint]time.Time),
+		hotkeyThrottleMs: 1000,
+		profileManager:   profiles.NewManager(),
+		llmRegistry:      llm.NewProviderRegistry(),
 	}
 }
 
@@ -155,6 +149,8 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.emitter = appEmitter{ctx: ctx}
+	a.windowPort = wails.NewWindowAdapter(ctx)
+	a.dialogPort = wails.NewDialogAdapter(ctx)
 
 	// Inicializa o banco de dados
 	if err := InitDatabase(); err != nil {
@@ -193,11 +189,9 @@ func (a *App) startup(ctx context.Context) {
 	a.convSvc = chat.NewDBConversationStore()
 	a.msgRepo = chat.NewDBMessageStore()
 
-	// Inicializa o ChatInteractor
-	a.chatInteractor = chat.NewInteractor(a.emitter, a.msgRepo, a.convSvc, a.providerSvc, a.profileManager)
-
 	// Inicializa o Summary Service (sumarização de conversas)
 	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
+		Repo:            summarization.NewDBStore(),
 		Emitter:         a.emitter,
 		LLMRegistry:     a.llmRegistry,
 		CredMgr:         a.credMgr,
@@ -244,6 +238,9 @@ func (a *App) startup(ctx context.Context) {
 	// e BuildTemplateData chama Active() → panic.
 	a.initWorkspace()
 
+	// StreamingManager: controla contextos canceláveis por conversa (barge-in)
+	a.streamMgr = chat.NewStreamingManager(a.responseNotifier)
+
 	// Inicializa o Prompt Builder (montagem de system prompt, sem Wails)
 	a.promptBuilder = &prompt.Builder{
 		Skills:    a.skillMgr,
@@ -260,6 +257,26 @@ func (a *App) startup(ctx context.Context) {
 		ReloadLLM:      a.initLLMClient,
 	})
 
+	// Inicializa o Speech Service (TTS/STT business logic)
+	a.speechSvc = speech.NewService(speech.ServiceConfig{
+		Emitter:         a.emitter,
+		Registry:        a.llmRegistry,
+		ProfileProvider: profileProviderAdapter{app: a},
+		CredMgr:         a.credMgr,
+		AudioRepo:       a.audioSvc,
+	})
+
+	// Inicializa o ChatInteractor (após skillMgr e promptBuilder estarem prontos)
+	a.chatInteractor = chat.NewInteractor(chat.InteractorConfig{
+		Emitter:       a.emitter,
+		Repo:          a.msgRepo,
+		ConvRepo:      a.convSvc,
+		ProviderSvc:   a.providerSvc,
+		ProfileMgr:    a.profileManager,
+		SkillMgr:      a.skillMgr,
+		PromptBuilder: a.promptBuilder,
+	})
+
 	// Inicializa hotkeys globais
 	a.initGlobalHotkeys()
 
@@ -272,6 +289,43 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa o updater
 	a.initUpdater()
 
+	// Instancia os Controllers (Fase 2 — Inbound Adapters por domínio)
+	a.mcpCtrl = controllers.NewMCPController(a.mcpMgr, a.jobMgr, a.emitter)
+	a.profilesCtrl = controllers.NewProfilesController(controllers.ProfilesControllerConfig{
+		ProfileMgr: a.profileManager,
+		Emitter:    a.emitter,
+		OnProfileChanged: func(slug string) {
+			a.initLLMClient()
+			if err := a.InitSpeechManagerFromProfile(); err != nil {
+				log.Printf("[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
+			}
+			a.registerActiveProfileHotkeys()
+		},
+	})
+	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
+		LLMRegistry:      a.llmRegistry,
+		ProfileMgr:       a.profileManager,
+		ProviderSvc:      a.providerSvc,
+		Emitter:          a.emitter,
+		OnProviderChange: a.initLLMClient,
+	})
+	a.skillsCtrl = controllers.NewSkillsController(controllers.SkillsControllerConfig{
+		SkillMgr: a.skillMgr,
+		Emitter:  a.emitter,
+	})
+	a.settingsCtrl = controllers.NewSettingsController(controllers.SettingsControllerConfig{
+		CredMgr:    a.credMgr,
+		ProfileMgr: a.profileManager,
+		SkillMgr:   a.skillMgr,
+		Emitter:    a.emitter,
+		RestartChannel: func(channelName string) error {
+			return a.RestartChannel(channelName)
+		},
+		GetModels: func() ([]string, error) {
+			return a.GetModels()
+		},
+	})
+
 	// Verifica atualizações no startup (não bloqueante)
 	go a.checkForUpdatesOnStartup()
 
@@ -279,7 +333,7 @@ func (a *App) startup(ctx context.Context) {
 	// Deixa 400ms para garantir que a janela está completamente pronta
 	go func() {
 		time.Sleep(400 * time.Millisecond)
-		runtime.WindowShow(a.ctx)
+		a.windowPort.Show()
 		log.Printf("[App] WindowShow chamado após startup")
 	}()
 }

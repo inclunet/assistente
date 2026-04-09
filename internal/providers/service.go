@@ -21,6 +21,7 @@ import (
 type CredentialManager interface {
 	RegisterPatternWithContext(ctx context.Context, pattern string, auth *credentials.AuthConfig) error
 	GetByPattern(pattern string) (*credentials.AuthConfig, error)
+	DeletePattern(ctx context.Context, pattern string) error
 }
 
 // ServiceConfig contém as dependências externas do Service.
@@ -546,4 +547,141 @@ func (s *Service) ListModels(ctx context.Context, req TestRequest) ([]string, er
 		}
 	}
 	return models, nil
+}
+
+// GetChatProvider returns a ready-to-use ChatProvider for the given provider ID.
+// Looks up the provider config in the registry and wraps it with the credential manager.
+func (s *Service) GetChatProvider(providerID string) (llm.ChatProvider, error) {
+	if s.registry == nil {
+		return nil, fmt.Errorf("registro de provedores não inicializado")
+	}
+	provider := s.registry.Get(providerID)
+	if provider == nil {
+		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
+	}
+	cm, _ := s.credMgr.(*credentials.Manager)
+	return llm.NewChatProvider(provider, cm), nil
+}
+
+// ListModelsRawRequest contém os parâmetros para listagem de modelos via credenciais ad-hoc.
+type ListModelsRawRequest struct {
+	Type       string
+	BaseURL    string
+	APIKey     string // se vazio e ProviderID preenchido, busca credencial existente
+	ProviderID string // opcional; usado para recuperar credencial existente
+}
+
+// ListModelsRaw lista modelos de um provedor usando credenciais ad-hoc ou existentes.
+// Não requer que o provedor já esteja persistido — usado pelo formulário de criação/edição.
+func (s *Service) ListModelsRaw(ctx context.Context, req ListModelsRawRequest) ([]string, error) {
+	if req.BaseURL == "" {
+		return nil, fmt.Errorf("base_url é obrigatório")
+	}
+	parsedURL, err := url.Parse(req.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("URL inválida: %w", err)
+	}
+	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
+		return nil, fmt.Errorf("URL deve começar com http:// ou https://")
+	}
+	if parsedURL.Host == "" {
+		return nil, fmt.Errorf("URL deve conter um endereço de servidor válido")
+	}
+
+	apiKey := req.APIKey
+	// Fallback: busca credencial existente quando provider_id informado e api_key ausente
+	if apiKey == "" && req.ProviderID != "" && s.registry != nil && s.credMgr != nil {
+		if provider := s.registry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
+			if auth, err := s.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
+				apiKey = auth.Token
+			}
+		}
+	}
+
+	hostname := parsedURL.Hostname()
+	tempProvider := &llm.ProviderConfig{
+		ID:                "temp-form",
+		Name:              "temp",
+		Type:              llm.ProviderType(req.Type),
+		BaseURL:           req.BaseURL,
+		CredentialPattern: hostname,
+		Timeout:           15,
+	}
+
+	cm, _ := s.credMgr.(*credentials.Manager)
+
+	// Registra credencial ad-hoc temporariamente para o provider encontrá-la
+	if apiKey != "" && s.credMgr != nil {
+		_ = s.credMgr.RegisterPatternWithContext(ctx, hostname, &credentials.AuthConfig{
+			Type: "bearer", Token: apiKey,
+		})
+		// Remove credencial temporária ao término (somente se não é um provider existente)
+		if req.ProviderID == "" {
+			defer s.credMgr.DeletePattern(ctx, hostname) //nolint:errcheck
+		}
+	}
+
+	cp := llm.NewChatProvider(tempProvider, cm)
+	return cp.GetModels(ctx)
+}
+
+// GetModels retorna os modelos disponíveis para o provedor do perfil ativo.
+// Resolve sentinelas $default antes de consultar o provider.
+func (s *Service) GetModels(ctx context.Context, activeProfile *profiles.Profile) ([]string, error) {
+	activeProfile = s.ResolveProfileDefaults(activeProfile)
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		return nil, fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
+	}
+	cp, err := s.GetChatProvider(activeProfile.Chat.LLMProvider)
+	if err != nil {
+		return nil, err
+	}
+	return cp.GetModels(ctx)
+}
+
+// GetModelsByProvider retorna os modelos disponíveis para um provider específico pelo ID.
+func (s *Service) GetModelsByProvider(ctx context.Context, providerID string) ([]string, error) {
+	if providerID == "" {
+		return []string{}, nil
+	}
+	cp, err := s.GetChatProvider(providerID)
+	if err != nil {
+		return nil, err
+	}
+	return cp.GetModels(ctx)
+}
+
+// ActiveProviderInfo contém campos informativos sobre o provedor ativo.
+type ActiveProviderInfo struct {
+	ID      string           `json:"id"`
+	Name    string           `json:"name"`
+	Type    llm.ProviderType `json:"type"`
+	BaseURL string           `json:"base_url"`
+	Model   string           `json:"model"`
+	Error   string           `json:"error,omitempty"`
+}
+
+// GetActiveProviderInfo retorna informações sobre o provedor do perfil ativo.
+func (s *Service) GetActiveProviderInfo(activeProfile *profiles.Profile) ActiveProviderInfo {
+	if activeProfile == nil {
+		return ActiveProviderInfo{Error: "perfil ativo não encontrado"}
+	}
+	activeProfile = s.ResolveProfileDefaults(activeProfile)
+
+	if s.registry == nil {
+		return ActiveProviderInfo{Error: "registro de provedores não inicializado"}
+	}
+	provider := s.registry.Get(activeProfile.Chat.LLMProvider)
+	if provider == nil {
+		return ActiveProviderInfo{
+			Error: fmt.Sprintf("provedor não encontrado: %s", activeProfile.Chat.LLMProvider),
+		}
+	}
+	return ActiveProviderInfo{
+		ID:      provider.ID,
+		Name:    provider.Name,
+		Type:    provider.Type,
+		BaseURL: provider.BaseURL,
+		Model:   provider.Model,
+	}
 }

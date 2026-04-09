@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 
+	"assistente/controllers"
 	"assistente/internal/config"
 	"assistente/internal/skills"
 )
@@ -66,88 +67,39 @@ func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, er
 	return cp.SendChat(a.ctx, messages, params)
 }
 
-// GetConfig retorna a configuração atual
-func (a *App) GetConfig() (*config.Config, error) {
-	return config.Load()
-}
-
 // SetChatModel atualiza apenas o modelo de chat na configuração
 func (a *App) SetChatModel(model string) error {
-	return a.settingsSvc.SetChatModel(model)
-}
-
-// SaveSettings salva as configurações
-func (a *App) SaveSettings(input config.SettingsInput) error {
-	return a.settingsSvc.SaveSettings(input)
-}
-
-// SetDefaultModel salva o modelo padrão
-func (a *App) SetDefaultModel(model string) error {
-	return a.settingsSvc.SetDefaultModel(model)
-}
-
-// TestConnection testa a conexão com a API
-func (a *App) TestConnection() (bool, error) {
-	models, err := a.GetModels()
+	err := config.Update(func(existing *config.Config) *config.Config {
+		existing.DefaultModel = model
+		existing.ChatParams.Model = model
+		return existing
+	})
 	if err != nil {
-		return false, err
+		return err
 	}
-	if len(models) > 0 {
-		return true, nil
-	}
-	return false, fmt.Errorf("nenhum modelo encontrado")
-}
-
-// TestConnectionWithModels testa a conexão e retorna os modelos disponíveis
-func (a *App) TestConnectionWithModels() ([]string, error) {
-	models, err := a.GetModels()
-	if err != nil {
-		return nil, fmt.Errorf("erro ao conectar com a API: %v", err)
-	}
-	if len(models) == 0 {
-		return nil, fmt.Errorf("nenhum modelo encontrado na API")
-	}
-	return models, nil
-}
-
-// ResetConfig apaga o arquivo de configuração, resetando ao estado padrão
-func (a *App) ResetConfig() error {
-	return a.settingsSvc.ResetConfig()
-}
-
-// ClearAllCredentials apaga todas as credenciais armazenadas
-func (a *App) ClearAllCredentials() error {
-	return a.settingsSvc.ClearAllCredentials(a.ctx)
-}
-
-// ClearAllProfiles apaga todos os perfis, mantendo apenas o ativo padrão
-func (a *App) ClearAllProfiles() error {
-	return a.settingsSvc.ClearAllProfiles()
-}
-
-// ClearAllSkills apaga todos os skills
-func (a *App) ClearAllSkills() error {
-	return a.settingsSvc.ClearAllSkills()
-}
-
-// ClearAllChannels apaga todos os canais de comunicação
-func (a *App) ClearAllChannels() error {
-	if a.msgGateway == nil {
-		return fmt.Errorf("gateway de mensageria não disponível")
-	}
-
-	status := a.msgGateway.GetStatus()
-	for channelType := range status {
-		if err := a.RestartChannel(channelType); err != nil {
-			log.Printf("[ClearAllChannels] Erro ao resetar canal %s: %v", channelType, err)
-		}
-	}
-
-	log.Println("[ClearAllChannels] Canais apagados")
-	a.emitter.Emit("channels:cleared", nil)
-
+	a.initLLMClient()
+	log.Printf("[SetChatModel] Modelo atualizado para: %s", model)
 	return nil
 }
+
+// ============================================================================
+// Settings API — delegação para SettingsController
+// ============================================================================
+
+func (a *App) GetConfig() (*config.Config, error) { return a.settingsCtrl.GetConfig() }
+func (a *App) SaveSettings(input controllers.SettingsInput) error {
+	return a.settingsCtrl.SaveSettings(input)
+}
+func (a *App) SetDefaultModel(model string) error { return a.settingsCtrl.SetDefaultModel(model) }
+func (a *App) TestConnection() (bool, error)      { return a.settingsCtrl.TestConnection() }
+func (a *App) TestConnectionWithModels() ([]string, error) {
+	return a.settingsCtrl.TestConnectionWithModels()
+}
+func (a *App) ResetConfig() error         { return a.settingsCtrl.ResetConfig() }
+func (a *App) ClearAllCredentials() error { return a.settingsCtrl.ClearAllCredentials() }
+func (a *App) ClearAllProfiles() error    { return a.settingsCtrl.ClearAllProfiles() }
+func (a *App) ClearAllSkills() error      { return a.settingsCtrl.ClearAllSkills() }
+func (a *App) ClearAllChannels() error    { return a.settingsCtrl.ClearAllChannels() }
 
 // parseSlashCommand é um shim para manter compatibilidade com testes e código existente.
 func parseSlashCommand(content string) (slug string, args string, ok bool) {
