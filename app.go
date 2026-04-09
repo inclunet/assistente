@@ -62,20 +62,20 @@ type UpdateLLMProviderRequest struct {
 
 // App struct
 type App struct {
-	ctx                   context.Context
-	llmRegistry           *llm.ProviderRegistry // Registro de provedores LLM
-	hotkeyManager         *hotkey.Manager
-	profileManager        *profiles.Manager
-	toolRegistry          *tools.Registry             // Registro de ferramentas disponíveis
-	toolExecutor          *tools.Executor             // Executor de ferramentas com paralelismo e timeout
-	terminalMgr           *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
-	questionnaireMgr      *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
-	allowlistMgr          *allowlist.Manager          // Gerenciador de allowlists de comandos
-	mcpMgr                *mcpmgr.Manager             // Gerenciador de servidores MCP
-	skillMgr              *skills.Manager             // Gerenciador de skills
-	responseNotifier      *messaging.ResponseNotifier // Notificador de respostas para mensageiros
-	msgGateway            *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
-	updater               *updater.Updater            // Gerenciador de atualizações automáticas
+	ctx              context.Context
+	llmRegistry      *llm.ProviderRegistry // Registro de provedores LLM
+	hotkeyManager    *hotkey.Manager
+	profileManager   *profiles.Manager
+	toolRegistry     *tools.Registry             // Registro de ferramentas disponíveis
+	toolExecutor     *tools.Executor             // Executor de ferramentas com paralelismo e timeout
+	terminalMgr      *terminal.Manager           // Gerenciador de sessões PTY (pool compartilhado LLM + usuário)
+	questionnaireMgr *questionnaire.Manager      // Gerenciador de questionários (coleta estruturada)
+	allowlistMgr     *allowlist.Manager          // Gerenciador de allowlists de comandos
+	mcpMgr           *mcpmgr.Manager             // Gerenciador de servidores MCP
+	skillMgr         *skills.Manager             // Gerenciador de skills
+	responseNotifier *messaging.ResponseNotifier // Notificador de respostas para mensageiros
+	msgGateway       *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
+	updater          *updater.Updater            // Gerenciador de atualizações automáticas
 
 	credMgr   *credentials.Manager
 	credStore credentials.Store
@@ -130,9 +130,8 @@ type App struct {
 	// Speech service (TTS/STT business logic — sem Wails)
 	speechSvc *speech.Service
 
-	// Streaming context management (barge-in support)
-	streamingMu       sync.Mutex
-	streamingContexts map[uint]context.CancelFunc // conversationID → cancel
+	// StreamingManager gerencia contextos canceláveis por conversa (barge-in)
+	streamMgr *chat.StreamingManager
 
 	// Emitter abstrai runtime.EventsEmit para desacoplar lógica de negócio do Wails
 	emitter events.Emitter
@@ -145,11 +144,10 @@ type StreamEvent = events.StreamEvent
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		hotkeyLastFired:   make(map[uint]time.Time),
-		hotkeyThrottleMs:  1000,
-		profileManager:    profiles.NewManager(),
-		llmRegistry:       llm.NewProviderRegistry(),
-		streamingContexts: make(map[uint]context.CancelFunc),
+		hotkeyLastFired:  make(map[uint]time.Time),
+		hotkeyThrottleMs: 1000,
+		profileManager:   profiles.NewManager(),
+		llmRegistry:      llm.NewProviderRegistry(),
 	}
 }
 
@@ -195,11 +193,9 @@ func (a *App) startup(ctx context.Context) {
 	a.convSvc = chat.NewDBConversationStore()
 	a.msgRepo = chat.NewDBMessageStore()
 
-	// Inicializa o ChatInteractor
-	a.chatInteractor = chat.NewInteractor(a.emitter, a.msgRepo, a.convSvc, a.providerSvc, a.profileManager)
-
 	// Inicializa o Summary Service (sumarização de conversas)
 	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
+		Repo:            summarization.NewDBStore(),
 		Emitter:         a.emitter,
 		LLMRegistry:     a.llmRegistry,
 		CredMgr:         a.credMgr,
@@ -242,6 +238,9 @@ func (a *App) startup(ctx context.Context) {
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
 	})
 
+	// StreamingManager: controla contextos canceláveis por conversa (barge-in)
+	a.streamMgr = chat.NewStreamingManager(a.responseNotifier)
+
 	// Inicializa o Prompt Builder (montagem de system prompt, sem Wails)
 	a.promptBuilder = &prompt.Builder{
 		Skills:    a.skillMgr,
@@ -265,6 +264,17 @@ func (a *App) startup(ctx context.Context) {
 		ProfileProvider: profileProviderAdapter{app: a},
 		CredMgr:         a.credMgr,
 		AudioRepo:       a.audioSvc,
+	})
+
+	// Inicializa o ChatInteractor (após skillMgr e promptBuilder estarem prontos)
+	a.chatInteractor = chat.NewInteractor(chat.InteractorConfig{
+		Emitter:       a.emitter,
+		Repo:          a.msgRepo,
+		ConvRepo:      a.convSvc,
+		ProviderSvc:   a.providerSvc,
+		ProfileMgr:    a.profileManager,
+		SkillMgr:      a.skillMgr,
+		PromptBuilder: a.promptBuilder,
 	})
 
 	// Inicializa hotkeys globais

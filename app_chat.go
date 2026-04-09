@@ -6,10 +6,8 @@ import (
 	"log"
 
 	"assistente/internal/chat"
-	"assistente/internal/events"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
-	"assistente/internal/skills"
 	"assistente/internal/toolprep"
 	"assistente/internal/tools"
 )
@@ -89,9 +87,18 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	conversationSummary := rmsg.ConversationSummary
 
 	// 3.5–5. Detecta slash skill, compõe system prompt e pré-processa mídia.
-	messages, invokedSkillSlug, invokedFilesystemScope := a.prepareMessages(
-		messages, userContent, conversationSummary, conversationID, params, activeProfile,
-	)
+	prepResult := a.chatInteractor.PrepareMessages(chat.PrepareMessagesRequest{
+		Messages:            messages,
+		UserContent:         userContent,
+		ConversationSummary: conversationSummary,
+		ConversationID:      conversationID,
+		Params:              params,
+		ActiveProfile:       activeProfile,
+		Transcribe:          a.whisperTranscribeFunc(),
+	})
+	messages = prepResult.Messages
+	invokedSkillSlug := prepResult.InvokedSkillSlug
+	invokedFilesystemScope := prepResult.InvokedScope
 
 	// 6. Processa com LLM
 	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
@@ -108,7 +115,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 
-	requestStreamer, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider)
+	requestStreamer, err := a.providerSvc.GetChatProvider(activeProfile.Chat.LLMProvider)
 	if err != nil {
 		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
 		log.Printf("[SendMessage] ERRO: %s", errMsg)
@@ -139,15 +146,8 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 			a.runAgenticLoop(agentCtx, nil, messages, params, conversationID, userMsg.ID, llmToolDefs, requestStreamer)
 		}()
 	} else {
-		// Sem ferramentas: streaming simples
-		handler := &appStreamHandler{
-			BaseStreamHandler: events.BaseStreamHandler{
-				Emitter:        a.emitter,
-				ConversationID: conversationID,
-			},
-			app:           a,
-			userMessageID: userMsg.ID,
-		}
+		// Sem ferramentas: streaming simples via SimpleStreamHandler (sem referência a *App)
+		handler := a.agentSvc.NewSimpleStreamHandler(conversationID, userMsg.ID)
 		go func() {
 			defer a.recoverFromPanic(conversationID, "StreamChat")
 			defer a.unregisterStreamingContext(conversationID)
@@ -177,50 +177,10 @@ func (a *App) effectivePromptBuilder() *prompt.Builder {
 	return b
 }
 
-// buildFullSystemPrompt composes the complete system prompt with DefaultSystemPrompt, skills injection, invoked skill, and conversation summary.
-// enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
-// slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
-// conversationSummary: resumo de mensagens antigas da conversa (rolling context).
+// buildFullSystemPrompt composes the complete system prompt with DefaultSystemPrompt, skills injection,
+// invoked skill, and conversation summary. Used directly in unit tests via &App{}.
 func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, disableOnDemand bool, skillTplData any, slashSkillContent string, conversationSummary string) []Message {
 	return a.effectivePromptBuilder().Build(messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, conversationSummary)
-}
-
-// prepareMessages detecta invocação de skill via /slash, injeta o system prompt completo
-// e pré-processa mídias. Retorna as mensagens prontas + contexto de skill para o agentic loop.
-func (a *App) prepareMessages(
-	messages []Message,
-	userContent, conversationSummary string,
-	conversationID uint,
-	params ChatParams,
-	activeProfile *profiles.Profile,
-) (out []Message, invokedSkillSlug string, invokedScope *tools.FilesystemScope) {
-	skillTplData := a.effectivePromptBuilder().BuildTemplateData(activeProfile, params.ProfileSlug, conversationID)
-
-	var slashSkillContent string
-	if inv, found, _ := skills.Invoke(userContent, a.skillMgr, skillTplData, conversationID); found {
-		slashSkillContent = inv.Content
-		invokedSkillSlug = inv.SkillSlug
-		if inv.Filesystem != nil {
-			invokedScope = &tools.FilesystemScope{
-				Read:  append([]string{}, inv.Filesystem.Read...),
-				Write: append([]string{}, inv.Filesystem.Write...),
-				Deny:  append([]string{}, inv.Filesystem.Deny...),
-			}
-		}
-	}
-
-	var enabledSkills []string
-	var disableOnDemand bool
-	if activeProfile != nil {
-		enabledSkills = activeProfile.Chat.EnabledSkills
-		disableOnDemand = activeProfile.Chat.DisableOnDemandSkills
-		if activeProfile.Chat.DisableSkills {
-			enabledSkills = []string{}
-		}
-	}
-	messages = a.buildFullSystemPrompt(messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, conversationSummary)
-	messages = a.preprocessMediaMessages(messages, activeProfile)
-	return messages, invokedSkillSlug, invokedScope
 }
 
 // loadConversationHistory carrega o histórico de mensagens de uma conversa.

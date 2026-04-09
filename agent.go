@@ -8,8 +8,6 @@ import (
 	"assistente/internal/llm"
 )
 
-// ==================== Agentic Loop (thin adapter) ====================
-
 // runAgenticLoop delega para a.agentSvc.RunAgenticLoop.
 func (a *App) runAgenticLoop(
 	ctx context.Context,
@@ -23,7 +21,7 @@ func (a *App) runAgenticLoop(
 ) {
 	a.agentSvc.RunAgenticLoop(ctx, messages, params, conversationID, turnID, toolDefs, streamer,
 		func(convID uint, iter int) agent.IterationHandler {
-			return agent.NewIterationHandler(a.emitter, convID, iter)
+			return agent.NewAgenticStreamHandler(a.emitter, convID, iter)
 		},
 	)
 }

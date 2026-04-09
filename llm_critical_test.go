@@ -107,11 +107,12 @@ func (r *mockMessageRepo) SearchMessages(query string, limit int) ([]database.Me
 
 // newMinimalApp cria um *App com apenas os campos necessários para os testes deste arquivo.
 func newMinimalApp() *App {
+	notifier := messaging.NewResponseNotifier()
 	return &App{
-		ctx:               context.Background(),
-		emitter:           &testEmitter{},
-		responseNotifier:  messaging.NewResponseNotifier(),
-		streamingContexts: make(map[uint]context.CancelFunc),
+		ctx:              context.Background(),
+		emitter:          &testEmitter{},
+		responseNotifier: notifier,
+		streamMgr:        chat.NewStreamingManager(notifier),
 	}
 }
 
@@ -259,8 +260,8 @@ func TestRecoverFromPanic_NoPanic_EmitsNothing(t *testing.T) {
 
 func TestRecoverFromPanic_NilEmitter_DoesNotDoublePanic(t *testing.T) {
 	app := &App{
-		emitter:           nil,
-		streamingContexts: make(map[uint]context.CancelFunc),
+		emitter:   nil,
+		streamMgr: chat.NewStreamingManager(nil),
 	}
 	// Não deve causar segundo panic
 	func() {
@@ -276,13 +277,11 @@ func TestRegisterStreamingContext_StoresEntry(t *testing.T) {
 	_, cancel := context.WithCancel(context.Background())
 	app.registerStreamingContext(10, cancel)
 
-	app.streamingMu.Lock()
-	_, ok := app.streamingContexts[10]
-	app.streamingMu.Unlock()
-
-	if !ok {
-		t.Error("esperava entry no map após register")
-	}
+	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) {
+		if _, ok := m[10]; !ok {
+			t.Error("esperava entry no map após register")
+		}
+	})
 }
 
 func TestRegisterStreamingContext_OverwriteCancelsPrevious(t *testing.T) {
@@ -309,9 +308,8 @@ func TestRegisterStreamingContext_MultipleConversations_AllStored(t *testing.T) 
 		app.registerStreamingContext(i, cancel)
 	}
 
-	app.streamingMu.Lock()
-	n := len(app.streamingContexts)
-	app.streamingMu.Unlock()
+	var n int
+	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) { n = len(m) })
 
 	if n != 5 {
 		t.Errorf("esperava 5 entries, obteve %d", n)
@@ -326,13 +324,11 @@ func TestUnregisterStreamingContext_RemovesEntry(t *testing.T) {
 	app.registerStreamingContext(20, cancel)
 	app.unregisterStreamingContext(20)
 
-	app.streamingMu.Lock()
-	_, ok := app.streamingContexts[20]
-	app.streamingMu.Unlock()
-
-	if ok {
-		t.Error("entry deveria ter sido removida")
-	}
+	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) {
+		if _, ok := m[20]; ok {
+			t.Error("entry deveria ter sido removida")
+		}
+	})
 }
 
 func TestUnregisterStreamingContext_NonExistent_NoError(t *testing.T) {
@@ -348,10 +344,11 @@ func TestUnregisterStreamingContext_OnlyTargetRemoved(t *testing.T) {
 	app.registerStreamingContext(2, c2)
 	app.unregisterStreamingContext(1)
 
-	app.streamingMu.Lock()
-	_, has1 := app.streamingContexts[1]
-	_, has2 := app.streamingContexts[2]
-	app.streamingMu.Unlock()
+	var has1, has2 bool
+	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) {
+		_, has1 = m[1]
+		_, has2 = m[2]
+	})
 
 	if has1 {
 		t.Error("conversa 1 deveria ter sido removida")
@@ -375,9 +372,8 @@ func TestCancelStreaming_CancelsContextAndRemovesEntry(t *testing.T) {
 		t.Error("context deveria estar cancelado")
 	}
 
-	app.streamingMu.Lock()
-	_, ok := app.streamingContexts[30]
-	app.streamingMu.Unlock()
+	var ok bool
+	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) { _, ok = m[30] })
 	if ok {
 		t.Error("entry deveria ter sido removida do map")
 	}
@@ -715,10 +711,8 @@ func TestStreamingContext_ConcurrentRegisterUnregister(t *testing.T) {
 
 	wg.Wait()
 
-	app.streamingMu.Lock()
-	n := len(app.streamingContexts)
-	app.streamingMu.Unlock()
-
+	var n int
+	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) { n = len(m) })
 	if n != 0 {
 		t.Errorf("esperava map vazio após todos os unregisters, obteve %d entries", n)
 	}
@@ -742,11 +736,9 @@ func TestCancelStreaming_ConcurrentCancels_DoNotPanic(t *testing.T) {
 	}
 	wg.Wait()
 
-	app.streamingMu.Lock()
-	n := len(app.streamingContexts)
-	app.streamingMu.Unlock()
-
-	if n != 0 {
-		t.Errorf("esperava map vazio após cancelamentos, obteve %d entries", n)
+	var n2 int
+	app.streamMgr.Mu(func(m map[uint]context.CancelFunc) { n2 = len(m) })
+	if n2 != 0 {
+		t.Errorf("esperava map vazio após cancelamentos, obteve %d entries", n2)
 	}
 }

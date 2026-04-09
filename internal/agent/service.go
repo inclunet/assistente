@@ -322,6 +322,56 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 			s.triggerSummarize(conversationID)
 		}()
 	}
+
+	s.emitTokenStats(conversationID)
+}
+
+// emitTokenStats queries token usage for a conversation and emits chat:token_stats
+// plus a chat:context_warning if the context window is near or at capacity.
+func (s *Service) emitTokenStats(conversationID uint) {
+	if conversationID == 0 || s.getTokenStats == nil {
+		return
+	}
+	stats, err := s.getTokenStats(conversationID)
+	if err != nil || stats == nil || stats.ContextLimit == 0 {
+		return
+	}
+	s.emitter.Emit("chat:token_stats", map[string]interface{}{
+		"conversationId":   conversationID,
+		"totalTokens":      stats.TotalTokens,
+		"contextLimit":     stats.ContextLimit,
+		"contextUsage":     stats.ContextUsage,
+		"isNearLimit":      stats.IsNearLimit,
+		"isCritical":       stats.IsCritical,
+		"promptTokens":     stats.PromptTokens,
+		"completionTokens": stats.CompletionTokens,
+		"messageCount":     stats.MessageCount,
+	})
+	if stats.IsCritical {
+		log.Printf("[Context] conversa %d em CRÍTICO: %0.1f%% (%d/%d tokens)",
+			conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
+		s.emitter.Emit("chat:context_warning", map[string]interface{}{
+			"conversationId": conversationID,
+			"level":          "critical",
+			"message": fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
+				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
+			"percentage":   stats.ContextUsage,
+			"totalTokens":  stats.TotalTokens,
+			"contextLimit": stats.ContextLimit,
+		})
+	} else if stats.IsNearLimit {
+		log.Printf("[Context] conversa %d próxima do limite: %0.1f%% (%d/%d tokens)",
+			conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
+		s.emitter.Emit("chat:context_warning", map[string]interface{}{
+			"conversationId": conversationID,
+			"level":          "warning",
+			"message": fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
+				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
+			"percentage":   stats.ContextUsage,
+			"totalTokens":  stats.TotalTokens,
+			"contextLimit": stats.ContextLimit,
+		})
+	}
 }
 
 func (s *Service) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
@@ -387,22 +437,11 @@ func (s *Service) persistNativeMCPCalls(conversationID, turnID uint, mcpEvents [
 	}
 }
 
+// recoverFromPanic captura panic e delega o tratamento para events.HandlePanic.
+// recover() deve ser chamado diretamente no corpo da função adiada — não pode ser delegado.
 func (s *Service) recoverFromPanic(conversationID uint, source string) {
-	if r := recover(); r != nil {
-		errMsg := fmt.Sprintf("Erro interno inesperado em %s: %v", source, r)
-		log.Printf("🔴 [PANIC RECOVERED] %s (conversa %d): %v", source, conversationID, r)
-		func() {
-			defer func() { recover() }()
-			if s != nil && s.emitter != nil {
-				s.emitter.Emit("chat:stream", events.StreamEvent{
-					Content:        "",
-					Done:           true,
-					Error:          errMsg,
-					ConversationId: conversationID,
-				})
-			}
-		}()
-	}
+	r := recover()
+	events.HandlePanic(s.emitter, conversationID, source, r)
 }
 
 func convertToolCalls(llmCalls []llm.ToolCall) []tools.ToolCall {
