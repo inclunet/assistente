@@ -78,21 +78,7 @@ func (a *App) SetChatModel(model string) error {
 
 // SaveSettings salva as configurações
 func (a *App) SaveSettings(input SettingsInput) error {
-	return a.settingsSvc.SaveSettings(config.SettingsInput{
-		APIKey:          input.APIKey,
-		APIBaseURL:      input.APIBaseURL,
-		ResponseTimeout: input.ResponseTimeout,
-		ChatParams: config.ModelParams{
-			Model:       input.ChatParams.Model,
-			Temperature: input.ChatParams.Temperature,
-			MaxTokens:   input.ChatParams.MaxTokens,
-			TopP:        input.ChatParams.TopP,
-		},
-		STTParams: config.STTParams{
-			Provider:      input.STTParams.Provider,
-			RecordingMode: input.STTParams.RecordingMode,
-		},
-	})
+	return a.settingsSvc.SaveSettings(input)
 }
 
 // SetDefaultModel salva o modelo padrão

@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"assistente/internal/chat"
+	"assistente/internal/config"
 	"assistente/internal/llm"
 )
 
@@ -23,7 +24,7 @@ type StreamChunk = llm.StreamChunk
 type Model = llm.Model
 type ModelsResponse = llm.ModelsResponse
 type ChatParams = llm.ChatParams
-type SettingsInput = llm.SettingsInput
+type SettingsInput = config.SettingsInput
 
 // Re-exporta funções utilitárias
 // ==================== StreamHandler Implementation ====================
