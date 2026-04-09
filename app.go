@@ -124,12 +124,16 @@ type App struct {
 	dialogPort ports.SystemDialogPort
 
 	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
-	mcpCtrl      *controllers.MCPController
-	profilesCtrl *controllers.ProfilesController
-	llmCtrl      *controllers.LLMController
-	skillsCtrl   *controllers.SkillsController
-	settingsCtrl *controllers.SettingsController
-	chatCtrl     *controllers.ChatController
+	mcpCtrl       *controllers.MCPController
+	profilesCtrl  *controllers.ProfilesController
+	llmCtrl       *controllers.LLMController
+	skillsCtrl    *controllers.SkillsController
+	settingsCtrl  *controllers.SettingsController
+	chatCtrl      *controllers.ChatController
+	taskListCtrl  *controllers.TaskListController
+	speechCtrl    *controllers.SpeechController
+	jobsCtrl      *controllers.JobsController
+	workspaceCtrl *controllers.WorkspaceController
 }
 
 // ==================== Tipos para Threads ====================
@@ -340,6 +344,19 @@ func (a *App) startup(ctx context.Context) {
 		ConvRepo:         a.convSvc,
 		MsgGateway:       a.msgGateway,
 		ResponseNotifier: a.responseNotifier,
+	})
+	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
+		TaskSvc: a.taskSvc,
+	})
+	a.speechCtrl = controllers.NewSpeechController(controllers.SpeechControllerConfig{
+		SpeechSvc: a.speechSvc,
+	})
+	a.jobsCtrl = controllers.NewJobsController(controllers.JobsControllerConfig{
+		JobMgr: a.jobMgr,
+	})
+	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{
+		WorkspaceMgr: a.workspaceMgr,
+		Emitter:      a.emitter,
 	})
 
 	// Verifica atualizações no startup (não bloqueante)
