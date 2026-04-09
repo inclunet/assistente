@@ -1,14 +1,54 @@
 package main
 
 import (
-	"context"
 	"fmt"
 	"log"
-	"os"
 
 	"assistente/internal/config"
 	"assistente/internal/skills"
 )
+
+// ==================== Adapters para interfaces do SettingsService ====================
+
+// profileCleanerAdapter adapta profiles.Manager para config.ProfileCleaner.
+type profileCleanerAdapter struct{ app *App }
+
+func (a profileCleanerAdapter) ListSlugs() ([]string, error) {
+	profiles, err := a.app.profileManager.List()
+	if err != nil {
+		return nil, err
+	}
+	slugs := make([]string, len(profiles))
+	for i, p := range profiles {
+		slugs[i] = p.Slug
+	}
+	return slugs, nil
+}
+
+func (a profileCleanerAdapter) DeleteSlug(slug string) error {
+	return a.app.profileManager.Delete(slug)
+}
+
+// skillCleanerAdapter adapta skills.Manager para config.SkillCleaner.
+type skillCleanerAdapter struct{ app *App }
+
+func (a skillCleanerAdapter) ListSlugs() ([]string, error) {
+	skills, err := a.app.skillMgr.List()
+	if err != nil {
+		return nil, err
+	}
+	slugs := make([]string, len(skills))
+	for i, s := range skills {
+		slugs[i] = s.Slug
+	}
+	return slugs, nil
+}
+
+func (a skillCleanerAdapter) DeleteSlug(slug string) error {
+	return a.app.skillMgr.Delete(slug)
+}
+
+// ==================== Thin Wrappers (Wails bindings) ====================
 
 // SendMessageSync envia uma mensagem sem streaming (para acessibilidade)
 func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, error) {
@@ -33,61 +73,31 @@ func (a *App) GetConfig() (*config.Config, error) {
 
 // SetChatModel atualiza apenas o modelo de chat na configuração
 func (a *App) SetChatModel(model string) error {
-	err := config.Update(func(existing *config.Config) *config.Config {
-		existing.DefaultModel = model
-		existing.ChatParams.Model = model
-		return existing
-	})
-	if err != nil {
-		return err
-	}
-
-	// Recarrega o cliente LLM para usar o novo modelo
-	a.initLLMClient()
-
-	log.Printf("[SetChatModel] Modelo atualizado para: %s", model)
-	return nil
+	return a.settingsSvc.SetChatModel(model)
 }
 
 // SaveSettings salva as configurações
 func (a *App) SaveSettings(input SettingsInput) error {
-	// Aplica timeout padrão se não especificado
-	responseTimeout := input.ResponseTimeout
-	if responseTimeout <= 0 {
-		responseTimeout = 180
-	}
-
-	err := config.Update(func(existing *config.Config) *config.Config {
-		return &config.Config{
-			APIKey:          input.APIKey,
-			APIBaseURL:      input.APIBaseURL,
-			DefaultModel:    input.ChatParams.Model,
-			ResponseTimeout: responseTimeout,
-			ChatParams: config.ModelParams{
-				Model:       input.ChatParams.Model,
-				Temperature: input.ChatParams.Temperature,
-				MaxTokens:   input.ChatParams.MaxTokens,
-				TopP:        input.ChatParams.TopP,
-			},
-			STTParams: config.STTParams{
-				Provider:      input.STTParams.Provider,
-				RecordingMode: input.STTParams.RecordingMode,
-			},
-		}
+	return a.settingsSvc.SaveSettings(config.SettingsInput{
+		APIKey:          input.APIKey,
+		APIBaseURL:      input.APIBaseURL,
+		ResponseTimeout: input.ResponseTimeout,
+		ChatParams: config.ModelParams{
+			Model:       input.ChatParams.Model,
+			Temperature: input.ChatParams.Temperature,
+			MaxTokens:   input.ChatParams.MaxTokens,
+			TopP:        input.ChatParams.TopP,
+		},
+		STTParams: config.STTParams{
+			Provider:      input.STTParams.Provider,
+			RecordingMode: input.STTParams.RecordingMode,
+		},
 	})
-	if err != nil {
-		return err
-	}
-
-	return nil
 }
 
 // SetDefaultModel salva o modelo padrão
 func (a *App) SetDefaultModel(model string) error {
-	return config.Update(func(cfg *config.Config) *config.Config {
-		cfg.DefaultModel = model
-		return cfg
-	})
+	return a.settingsSvc.SetDefaultModel(model)
 }
 
 // TestConnection testa a conexão com a API
@@ -116,84 +126,22 @@ func (a *App) TestConnectionWithModels() ([]string, error) {
 
 // ResetConfig apaga o arquivo de configuração, resetando ao estado padrão
 func (a *App) ResetConfig() error {
-	configPath, err := config.GetConfigPath()
-	if err != nil {
-		return fmt.Errorf("erro ao obter caminho da configuração: %v", err)
-	}
-
-	// Verifica se o arquivo existe
-	if _, err := os.Stat(configPath); err == nil {
-		// Remove o arquivo
-		if err := os.Remove(configPath); err != nil {
-			return fmt.Errorf("erro ao remover arquivo de configuração: %v", err)
-		}
-	}
-
-	return nil
+	return a.settingsSvc.ResetConfig()
 }
 
 // ClearAllCredentials apaga todas as credenciais armazenadas
 func (a *App) ClearAllCredentials() error {
-	if a.credMgr == nil {
-		return fmt.Errorf("gerenciador de credenciais não disponível")
-	}
-
-	// Limpa todas as credenciais usando DeletePattern com um padrão que pega tudo
-	// (isso é uma abordagem simples - em produção seria melhor ter um método Clear específico)
-	if err := a.credMgr.DeletePattern(context.Background(), ""); err != nil {
-		return fmt.Errorf("erro ao limpar credenciais: %v", err)
-	}
-
-	log.Println("[ClearAllCredentials] Credenciais apagadas")
-	a.emitter.Emit("credentials:cleared", nil)
-
-	return nil
+	return a.settingsSvc.ClearAllCredentials(a.ctx)
 }
 
 // ClearAllProfiles apaga todos os perfis, mantendo apenas o ativo padrão
 func (a *App) ClearAllProfiles() error {
-	if a.profileManager == nil {
-		return fmt.Errorf("gerenciador de perfis não disponível")
-	}
-
-	profiles, err := a.profileManager.List()
-	if err != nil {
-		return fmt.Errorf("erro ao listar perfis: %v", err)
-	}
-
-	for _, profile := range profiles {
-		if err := a.profileManager.Delete(profile.Slug); err != nil {
-			log.Printf("[ClearAllProfiles] Erro ao deletar perfil %s: %v", profile.Slug, err)
-		}
-	}
-
-	log.Println("[ClearAllProfiles] Perfis apagados")
-	a.emitter.Emit("profiles:cleared", nil)
-
-	return nil
+	return a.settingsSvc.ClearAllProfiles()
 }
 
 // ClearAllSkills apaga todos os skills
 func (a *App) ClearAllSkills() error {
-	if a.skillMgr == nil {
-		return fmt.Errorf("gerenciador de skills não disponível")
-	}
-
-	skills, err := a.skillMgr.List()
-	if err != nil {
-		return fmt.Errorf("erro ao listar skills: %v", err)
-	}
-
-	for _, skill := range skills {
-		if err := a.skillMgr.Delete(skill.Slug); err != nil {
-			log.Printf("[ClearAllSkills] Erro ao deletar skill %s: %v", skill.Slug, err)
-		}
-	}
-
-	log.Println("[ClearAllSkills] Skills apagados")
-	a.emitter.Emit("skills:cleared", nil)
-
-	return nil
+	return a.settingsSvc.ClearAllSkills()
 }
 
 // ClearAllChannels apaga todos os canais de comunicação
