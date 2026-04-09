@@ -64,7 +64,6 @@ type UpdateLLMProviderRequest struct {
 type App struct {
 	ctx                   context.Context
 	llmRegistry           *llm.ProviderRegistry // Registro de provedores LLM
-	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
 	profileManager        *profiles.Manager
 	toolRegistry          *tools.Registry             // Registro de ferramentas disponíveis
@@ -127,6 +126,9 @@ type App struct {
 
 	// Settings service (config CRUD e reset de dados — sem Wails)
 	settingsSvc *config.SettingsService
+
+	// Speech service (TTS/STT business logic — sem Wails)
+	speechSvc *speech.Service
 
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
@@ -254,6 +256,15 @@ func (a *App) startup(ctx context.Context) {
 		ProfileCleaner: profileCleanerAdapter{app: a},
 		SkillCleaner:   skillCleanerAdapter{app: a},
 		ReloadLLM:      a.initLLMClient,
+	})
+
+	// Inicializa o Speech Service (TTS/STT business logic)
+	a.speechSvc = speech.NewService(speech.ServiceConfig{
+		Emitter:         a.emitter,
+		Registry:        a.llmRegistry,
+		ProfileProvider: profileProviderAdapter{app: a},
+		CredMgr:         a.credMgr,
+		AudioRepo:       a.audioSvc,
 	})
 
 	// Inicializa hotkeys globais

@@ -14,6 +14,20 @@ import (
 // Global Hotkeys
 // ============================================================================
 
+// HotkeyInfo informações sobre um hotkey
+type HotkeyInfo struct {
+	ID          int    `json:"id"`
+	Modifiers   string `json:"modifiers"`
+	Key         string `json:"key"`
+	Description string `json:"description"`
+	Enabled     bool   `json:"enabled"`
+}
+
+// IsGlobalHotkeySupported verifica se hotkeys globais são suportados
+func (a *App) IsGlobalHotkeySupported() bool {
+	return hotkey.IsSupported()
+}
+
 // initGlobalHotkeys inicializa o gerenciador de hotkeys
 func (a *App) initGlobalHotkeys() {
 	if !hotkey.IsSupported() {
