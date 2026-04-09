@@ -7,35 +7,21 @@ import (
 )
 
 func TestRequestConfirmation_Approved(t *testing.T) {
-	var emittedEvent string
-	var emittedData any
-
-	mgr := NewManager(func(event string, data any) {
-		emittedEvent = event
-		emittedData = data
-	})
-
-	// Simula resposta do usuário em goroutine
-	go func() {
-		// Espera um pouco para o request ser registrado
-		time.Sleep(50 * time.Millisecond)
-
-		// Verifica que o evento foi emitido
-		if emittedEvent != "tool:confirm_command" {
-			t.Errorf("expected event 'tool:confirm_command', got %q", emittedEvent)
+	var mgr *Manager
+	mgr = NewManager(func(event string, data any) {
+		// Callback roda na goroutine do teste, antes do select — sem race com sleep/goroutine extra.
+		if event != "tool:confirm_command" {
+			t.Errorf("expected event 'tool:confirm_command', got %q", event)
 		}
-
-		dataMap, ok := emittedData.(map[string]string)
+		dataMap, ok := data.(map[string]string)
 		if !ok {
 			t.Error("expected data to be map[string]string")
 			return
 		}
-
-		// Responde aprovando
 		if err := mgr.Respond(dataMap["id"], true); err != nil {
 			t.Errorf("Respond error: %v", err)
 		}
-	}()
+	})
 
 	approved, err := mgr.RequestConfirmation(context.Background(), "ls -la", "/home")
 	if err != nil {
