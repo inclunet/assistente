@@ -64,7 +64,6 @@ type UpdateLLMProviderRequest struct {
 type App struct {
 	ctx                   context.Context
 	llmRegistry           *llm.ProviderRegistry // Registro de provedores LLM
-	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
 	profileManager        *profiles.Manager
 	toolRegistry          *tools.Registry             // Registro de ferramentas disponíveis

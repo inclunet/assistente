@@ -234,10 +234,7 @@ func (a *App) loadConversationHistory(conversationID uint, profile *profiles.Pro
 // whisperTranscribeFunc cria o callback de transcrição para o MediaHistoryLoader e PreprocessMessages.
 func (a *App) whisperTranscribeFunc() chat.TranscribeFunc {
 	return func(audioBase64, filename string) (string, error) {
-		if !a.ensureSpeechManager() {
-			return "", nil
-		}
-		result, err := a.speechManager.Transcribe(audioBase64, filename)
+		result, err := a.speechSvc.Transcribe(audioBase64, filename)
 		if err != nil {
 			return "", err
 		}

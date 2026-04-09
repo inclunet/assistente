@@ -1,12 +1,10 @@
 package main
 
 import (
-	"assistente/internal/hotkey"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/speech"
 	"fmt"
-	"log"
 )
 
 // ==================== Adapter para speech.ProfileProvider ====================
@@ -20,24 +18,6 @@ func (a profileProviderAdapter) GetActive() (*profiles.Profile, error) {
 
 func (a profileProviderAdapter) ResolveDefaults(p *profiles.Profile) *profiles.Profile {
 	return a.app.resolveProfileDefaults(p)
-}
-
-// ============================================================================
-// Global Hotkey API
-// ============================================================================
-
-// HotkeyInfo informações sobre um hotkey
-type HotkeyInfo struct {
-	ID          int    `json:"id"`
-	Modifiers   string `json:"modifiers"`
-	Key         string `json:"key"`
-	Description string `json:"description"`
-	Enabled     bool   `json:"enabled"`
-}
-
-// IsGlobalHotkeySupported verifica se hotkeys globais são suportados
-func (a *App) IsGlobalHotkeySupported() bool {
-	return hotkey.IsSupported()
 }
 
 // ============================================================================
@@ -58,60 +38,41 @@ type SAPI5VoiceInfo struct {
 
 // GetSAPI5Voices retorna a lista de vozes SAPI5 instaladas
 func (a *App) GetSAPI5Voices() ([]SAPI5VoiceInfo, error) {
-	manager := speech.GetSAPI5Manager()
-
-	if err := manager.Initialize(); err != nil {
-		log.Printf("SAPI5 Initialize error (may be expected on non-Windows): %v", err)
-		return []SAPI5VoiceInfo{}, nil
-	}
-
-	voices := manager.GetVoices()
+	voices := a.speechSvc.GetSAPI5Voices()
 	result := make([]SAPI5VoiceInfo, len(voices))
-
 	for i, v := range voices {
 		result[i] = SAPI5VoiceInfo{
-			ID:          v.ID,
-			Name:        v.Name,
-			Language:    v.Language,
-			Gender:      v.Gender,
-			Age:         v.Age,
-			Vendor:      v.Vendor,
-			Description: v.Description,
-			Source:      v.Source,
+			ID: v.ID, Name: v.Name, Language: v.Language,
+			Gender: v.Gender, Age: v.Age, Vendor: v.Vendor,
+			Description: v.Description, Source: v.Source,
 		}
 	}
-
 	return result, nil
 }
 
 // SpeakSAPI5 sintetiza texto usando uma voz SAPI5
 func (a *App) SpeakSAPI5(text string, voiceName string) error {
-	manager := speech.GetSAPI5Manager()
-	return manager.Speak(text, voiceName)
+	return a.speechSvc.SpeakSAPI5(text, voiceName)
 }
 
 // StopSAPI5 para a síntese SAPI5 atual
 func (a *App) StopSAPI5() error {
-	manager := speech.GetSAPI5Manager()
-	return manager.Stop()
+	return a.speechSvc.StopSAPI5()
 }
 
 // SetSAPI5Volume define o volume (0-100)
 func (a *App) SetSAPI5Volume(volume int) error {
-	manager := speech.GetSAPI5Manager()
-	return manager.SetVolume(volume)
+	return a.speechSvc.SetSAPI5Volume(volume)
 }
 
 // SetSAPI5Rate define a velocidade (-10 a 10, 0 é normal)
 func (a *App) SetSAPI5Rate(rate int) error {
-	manager := speech.GetSAPI5Manager()
-	return manager.SetRate(rate)
+	return a.speechSvc.SetSAPI5Rate(rate)
 }
 
 // IsSAPI5Speaking verifica se está falando
 func (a *App) IsSAPI5Speaking() bool {
-	manager := speech.GetSAPI5Manager()
-	return manager.IsSpeaking()
+	return a.speechSvc.IsSAPI5Speaking()
 }
 
 // ============================================================================
@@ -142,62 +103,17 @@ type SynthesisResultInfo struct {
 	Provider    string `json:"provider"`
 }
 
-// InitSpeechManager inicializa o gerenciador de speech com as configurações
-// DEPRECATED: Use InitSpeechManagerFromProfile() que usa providers do perfil
-func (a *App) InitSpeechManager(apiKey, apiBaseURL, whisperLanguage, ttsVoice, ttsModel string) error {
-	cfg := speech.SpeechConfig{
-		STTProvider:     speech.STTProviderWhisper,
-		WhisperModel:    "whisper-1",
-		WhisperLanguage: whisperLanguage,
-		Assistant: speech.RoleVoiceConfig{
-			Provider: string(speech.TTSProviderOpenAI),
-			APIKey:   apiKey,
-			BaseURL:  apiBaseURL,
-			Voice:    ttsVoice,
-			Model:    ttsModel,
-			Rate:     1.0,
-			Volume:   1.0,
-		},
-	}
-
-	a.speechManager = speech.NewSpeechManager(cfg, a.credMgr)
-	a.speechSvc.SetSpeechManager(a.speechManager)
-	log.Printf("Speech Manager inicializado (STT: whisper, TTS: openai)")
-	return nil
-}
-
 // InitSpeechManagerFromProfile inicializa o gerenciador de speech usando providers do perfil ativo
 func (a *App) InitSpeechManagerFromProfile() error {
-	if err := a.speechSvc.InitFromProfile(); err != nil {
-		return err
-	}
-	a.speechManager = a.speechSvc.GetSpeechManager()
-	return nil
-}
-
-// ensureSpeechManager garante que o speechManager está inicializado.
-func (a *App) ensureSpeechManager() bool {
-	if a.speechManager != nil {
-		return true
-	}
-	if !a.speechSvc.EnsureSpeechManager() {
-		return false
-	}
-	a.speechManager = a.speechSvc.GetSpeechManager()
-	return a.speechManager != nil
+	return a.speechSvc.InitFromProfile()
 }
 
 // TranscribeWhisper transcreve áudio usando OpenAI Whisper
 func (a *App) TranscribeWhisper(audioBase64 string, filename string) (*TranscriptionResultInfo, error) {
-	if !a.ensureSpeechManager() {
-		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
-	}
-
-	result, err := a.speechManager.Transcribe(audioBase64, filename)
+	result, err := a.speechSvc.Transcribe(audioBase64, filename)
 	if err != nil {
 		return nil, err
 	}
-
 	return &TranscriptionResultInfo{
 		Text:     result.Text,
 		Language: result.Language,
@@ -208,15 +124,10 @@ func (a *App) TranscribeWhisper(audioBase64 string, filename string) (*Transcrip
 
 // SynthesizeOpenAI sintetiza texto usando OpenAI TTS
 func (a *App) SynthesizeOpenAI(text string) (*SynthesisResultInfo, error) {
-	if !a.ensureSpeechManager() {
-		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
-	}
-
-	result, err := a.speechManager.Synthesize(text)
+	result, err := a.speechSvc.Synthesize(text)
 	if err != nil {
 		return nil, fmt.Errorf("synthesize: %w", err)
 	}
-
 	return &SynthesisResultInfo{
 		AudioBase64: result.AudioBase64,
 		Format:      result.Format,
@@ -226,15 +137,10 @@ func (a *App) SynthesizeOpenAI(text string) (*SynthesisResultInfo, error) {
 
 // SynthesizeOpenAIWithVoice sintetiza texto usando OpenAI TTS com uma voz específica
 func (a *App) SynthesizeOpenAIWithVoice(text string, voice string) (*SynthesisResultInfo, error) {
-	if !a.ensureSpeechManager() {
-		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
-	}
-
-	result, err := a.speechManager.SynthesizeWithVoice(text, voice)
+	result, err := a.speechSvc.SynthesizeWithVoice(text, voice)
 	if err != nil {
 		return nil, fmt.Errorf("synthesize with voice %q: %w", voice, err)
 	}
-
 	return &SynthesisResultInfo{
 		AudioBase64: result.AudioBase64,
 		Format:      result.Format,
@@ -249,34 +155,25 @@ func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string
 
 // GetOpenAITTSVoices retorna as vozes disponíveis do OpenAI TTS
 func (a *App) GetOpenAITTSVoices() []OpenAITTSVoiceInfo {
-	voices := speech.GetAvailableVoices()
+	voices := a.speechSvc.GetAvailableVoices()
 	result := make([]OpenAITTSVoiceInfo, len(voices))
-
 	for i, v := range voices {
 		result[i] = OpenAITTSVoiceInfo{
-			ID:          v.ID,
-			Name:        v.Name,
-			Description: v.Description,
-			Gender:      v.Gender,
-			Provider:    v.Provider,
+			ID: v.ID, Name: v.Name, Description: v.Description,
+			Gender: v.Gender, Provider: v.Provider,
 		}
 	}
-
 	return result
 }
 
 // SetOpenAITTSVoice altera a voz do OpenAI TTS
 func (a *App) SetOpenAITTSVoice(voice string) {
-	if a.speechManager != nil {
-		a.speechManager.SetTTSVoice(voice)
-	}
+	a.speechSvc.SetTTSVoice(voice)
 }
 
 // SetOpenAITTSSpeed altera a velocidade do OpenAI TTS
 func (a *App) SetOpenAITTSSpeed(rate int) {
-	if a.speechManager != nil {
-		a.speechManager.SetTTSSpeed(float64(rate))
-	}
+	a.speechSvc.SetTTSSpeed(float64(rate))
 }
 
 // ============================================================================

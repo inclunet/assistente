@@ -502,6 +502,111 @@ func (s *Service) previewLLM(providerID, text, voiceID, model string, rate float
 	return nil
 }
 
+// Transcribe transcreve áudio via speech manager (Whisper STT).
+func (s *Service) Transcribe(audioBase64, filename string) (*TranscriptionResult, error) {
+	if !s.EnsureSpeechManager() {
+		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
+	}
+	return s.speechManager.Transcribe(audioBase64, filename)
+}
+
+// Synthesize sintetiza texto via speech manager (TTS padrão).
+func (s *Service) Synthesize(text string) (*SynthesisResult, error) {
+	if !s.EnsureSpeechManager() {
+		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
+	}
+	return s.speechManager.Synthesize(text)
+}
+
+// SynthesizeWithVoice sintetiza texto com voz específica via speech manager.
+func (s *Service) SynthesizeWithVoice(text, voice string) (*SynthesisResult, error) {
+	if !s.EnsureSpeechManager() {
+		return nil, fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
+	}
+	return s.speechManager.SynthesizeWithVoice(text, voice)
+}
+
+// SetTTSVoice altera a voz do TTS no speech manager.
+func (s *Service) SetTTSVoice(voice string) {
+	if s.speechManager != nil {
+		s.speechManager.SetTTSVoice(voice)
+	}
+}
+
+// SetTTSSpeed altera a velocidade do TTS no speech manager.
+func (s *Service) SetTTSSpeed(speed float64) {
+	if s.speechManager != nil {
+		s.speechManager.SetTTSSpeed(speed)
+	}
+}
+
+// InitFromConfig cria um speech manager a partir de config explícita.
+func (s *Service) InitFromConfig(cfg SpeechConfig) {
+	s.speechManager = NewSpeechManager(cfg, s.credMgr)
+}
+
+// GetSAPI5Voices retorna as vozes SAPI5 instaladas.
+func (s *Service) GetSAPI5Voices() []Voice {
+	manager := GetSAPI5Manager()
+	if err := manager.Initialize(); err != nil {
+		log.Printf("SAPI5 Initialize error (may be expected on non-Windows): %v", err)
+		return nil
+	}
+	return manager.GetVoices()
+}
+
+// SpeakSAPI5 sintetiza texto usando SAPI5.
+func (s *Service) SpeakSAPI5(text, voiceName string) error {
+	return GetSAPI5Manager().Speak(text, voiceName)
+}
+
+// StopSAPI5 para a síntese SAPI5 atual.
+func (s *Service) StopSAPI5() error {
+	return GetSAPI5Manager().Stop()
+}
+
+// SetSAPI5Volume define volume SAPI5 (0-100).
+func (s *Service) SetSAPI5Volume(volume int) error {
+	return GetSAPI5Manager().SetVolume(volume)
+}
+
+// SetSAPI5Rate define velocidade SAPI5 (-10 a 10).
+func (s *Service) SetSAPI5Rate(rate int) error {
+	return GetSAPI5Manager().SetRate(rate)
+}
+
+// IsSAPI5Speaking verifica se SAPI5 está falando.
+func (s *Service) IsSAPI5Speaking() bool {
+	return GetSAPI5Manager().IsSpeaking()
+}
+
+// GetAvailableVoices retorna vozes OpenAI disponíveis.
+func (s *Service) GetAvailableVoices() []TTSVoiceInfo {
+	return GetAvailableVoices()
+}
+
+// PreviewVoiceSettings reproduz texto de teste com configurações ad-hoc (legacy).
+func (s *Service) PreviewVoiceSettings(provider, voiceID string, rate, volume float64, sampleText string) error {
+	if sampleText == "" {
+		sampleText = "Este é um teste das configurações de voz"
+	}
+	if !s.EnsureSpeechManager() {
+		return fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
+	}
+	if provider == "openai" {
+		s.speechManager.SetTTSVoice(voiceID)
+	}
+	result, err := s.speechManager.SynthesizeWithVoice(sampleText, voiceID)
+	if err != nil {
+		return fmt.Errorf("erro ao sintetizar: %w", err)
+	}
+	s.emitter.Emit("voice_profile:preview", map[string]interface{}{
+		"audio_base64": result.AudioBase64,
+		"format":       result.Format,
+	})
+	return nil
+}
+
 // AudioResult é o resultado de busca/geração de áudio.
 type AudioResult struct {
 	Audio    string `json:"audio"`
