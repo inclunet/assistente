@@ -59,6 +59,12 @@ func setupWizardTestApp(t *testing.T) *App {
 		ProviderSvc: svc,
 		Emitter:     &noop.EmitterAdapter{},
 	})
+	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
+		CredMgr:          credMgr,
+		ProviderSvc:      svc,
+		LLMRegistry:      llmRegistry,
+		SaveLLMProviders: func() error { return svc.Save() },
+	})
 	return a
 }
 
@@ -109,6 +115,12 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 		LLMRegistry: llmRegistry,
 		ProviderSvc: svc,
 		Emitter:     &noop.EmitterAdapter{},
+	})
+	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
+		CredMgr:          credMgr,
+		ProviderSvc:      svc,
+		LLMRegistry:      llmRegistry,
+		SaveLLMProviders: func() error { return svc.Save() },
 	})
 	return a, pm
 }

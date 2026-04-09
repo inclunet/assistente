@@ -124,20 +124,21 @@ type App struct {
 	dialogPort ports.SystemDialogPort
 
 	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
-	mcpCtrl       *controllers.MCPController
-	profilesCtrl  *controllers.ProfilesController
-	llmCtrl       *controllers.LLMController
-	skillsCtrl    *controllers.SkillsController
-	settingsCtrl  *controllers.SettingsController
-	chatCtrl      *controllers.ChatController
-	taskListCtrl     *controllers.TaskListController
-	speechCtrl       *controllers.SpeechController
-	jobsCtrl         *controllers.JobsController
-	workspaceCtrl    *controllers.WorkspaceController
-	tokensCtrl       *controllers.TokensController
-	toolsCtrl        *controllers.ToolsController
-	updaterCtrl      *controllers.UpdaterController
-	credentialsCtrl  *controllers.CredentialsController
+	mcpCtrl         *controllers.MCPController
+	profilesCtrl    *controllers.ProfilesController
+	llmCtrl         *controllers.LLMController
+	skillsCtrl      *controllers.SkillsController
+	settingsCtrl    *controllers.SettingsController
+	chatCtrl        *controllers.ChatController
+	taskListCtrl    *controllers.TaskListController
+	speechCtrl      *controllers.SpeechController
+	jobsCtrl        *controllers.JobsController
+	workspaceCtrl   *controllers.WorkspaceController
+	tokensCtrl      *controllers.TokensController
+	toolsCtrl       *controllers.ToolsController
+	updaterCtrl     *controllers.UpdaterController
+	credentialsCtrl *controllers.CredentialsController
+	welcomeCtrl     *controllers.WelcomeController
 }
 
 // ==================== Tipos para Threads ====================
@@ -380,6 +381,18 @@ func (a *App) startup(ctx context.Context) {
 	})
 	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{
 		CredMgr: a.credMgr,
+	})
+	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
+		QuestionnaireMgr:           a.questionnaireMgr,
+		CredMgr:                    a.credMgr,
+		ProviderSvc:                a.providerSvc,
+		LLMRegistry:                a.llmRegistry,
+		SettingsSvc:                a.settingsSvc,
+		Updater:                    a.updater,
+		UpdaterCtrl:                a.updaterCtrl,
+		ConfigureCredentialManager: a.configureCredentialManager,
+		InitLLMClient:              a.initLLMClient,
+		SaveLLMProviders:           a.saveLLMProviders,
 	})
 
 	// Verifica atualizações no startup (não bloqueante)
