@@ -195,6 +195,21 @@ func TestApplyNativeMCP_NilMgr(t *testing.T) {
 	}
 }
 
+// Regression: typed-nil ChatProvider must not reach SupportsNativeMCP() (method on nil receiver panics).
+func TestApplyNativeMCP_TypedNilProviderDoesNotPanic(t *testing.T) {
+	var p *mockProvider
+	var streamer llm.ChatProvider = p
+	mgr := &mockMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
+	defs := makeToolDefs("toolA")
+	outP, outDefs := ApplyNativeMCP(streamer, defs, mgr, nil, false)
+	if outP != streamer {
+		t.Error("deveria retornar o mesmo typed-nil streamer sem chamar métodos")
+	}
+	if len(outDefs) != 1 {
+		t.Errorf("deveria preservar toolDefs, obteve %d", len(outDefs))
+	}
+}
+
 func TestApplyNativeMCP_ProviderNotNative(t *testing.T) {
 	p := &mockProvider{supportsNative: false}
 	mgr := &mockMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}

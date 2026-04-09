@@ -34,6 +34,13 @@ func (a *App) SendMessageFromChannel(conversationID uint, content, media string,
 // sendMessageInternal contém a lógica de processamento de mensagens.
 // Usado por SendMessage (Wails) e SendMessageFromChannel (mensageiros).
 func (a *App) sendMessageInternal(conversationID uint, userContent string, userMedia string, params ChatParams, source string) (uint, error) {
+	if a.chatInteractor == nil {
+		return 0, fmt.Errorf("chat não inicializado")
+	}
+	if a.ctx == nil {
+		return 0, fmt.Errorf("aplicação não inicializada")
+	}
+
 	// Delega validação, renaming e resolução de perfil para o ChatInteractor
 	pctx, err := a.chatInteractor.PrepareContext(context.Background(), chat.PrepareContextRequest{
 		ConversationID: conversationID,

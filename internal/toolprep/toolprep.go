@@ -2,11 +2,27 @@ package toolprep
 
 import (
 	"log"
+	"reflect"
 
 	"assistente/internal/llm"
 	mcplib "assistente/internal/mcp"
 	"assistente/internal/tools"
 )
+
+// chatProviderIsNil reports whether c is nil or holds a nil concrete pointer (typed nil).
+// Calling methods on a typed-nil ChatProvider panics (e.g. (*OpenAIProvider)(nil).SupportsNativeMCP()).
+func chatProviderIsNil(c llm.ChatProvider) bool {
+	if c == nil {
+		return true
+	}
+	v := reflect.ValueOf(c)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface, reflect.Map, reflect.Slice, reflect.Chan, reflect.Func:
+		return v.IsNil()
+	default:
+		return false
+	}
+}
 
 // NativeMCPManager abstrai a consulta de servidores MCP elegíveis para passthrough nativo.
 // Implementado por *mcp.Manager; pode ser mockado em testes.
@@ -51,7 +67,10 @@ func ApplyNativeMCP(
 	enabledTools []string,
 	disableTools bool,
 ) (llm.ChatProvider, []llm.ToolDefinition) {
-	if disableTools || mcpMgr == nil || !streamer.SupportsNativeMCP() {
+	if disableTools || mcpMgr == nil || chatProviderIsNil(streamer) {
+		return streamer, toolDefs
+	}
+	if !streamer.SupportsNativeMCP() {
 		return streamer, toolDefs
 	}
 
