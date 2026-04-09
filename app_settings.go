@@ -68,7 +68,7 @@ func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, er
 
 // GetConfig retorna a configuração atual
 func (a *App) GetConfig() (*config.Config, error) {
-	return config.Load()
+	return a.settingsSvc.GetConfig()
 }
 
 // SetChatModel atualiza apenas o modelo de chat na configuração

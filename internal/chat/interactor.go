@@ -7,7 +7,6 @@ import (
 	"log"
 	"strings"
 
-	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
@@ -59,6 +58,7 @@ type PrepareContextRequest struct {
 	UserMedia      string
 	Params         ChatParams
 	Source         string
+	DefaultModel   string // fallback model when profile doesn't specify one
 }
 
 // PrepareContextResponse holds the resolved profile and hydrated params for the chat pipeline.
@@ -84,13 +84,8 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		return nil, errors.New(errMsg)
 	}
 
-	// 2. Verify credentials
-	cfg, err := config.Load()
-	if err != nil {
-		i.emitter.Emit("chat:error", "Erro ao carregar configuração: "+err.Error())
-		return nil, err
-	}
-	if cfg.APIKey == "" && i.providerSvc != nil {
+	// 2. Verify that at least one LLM provider is configured
+	if i.providerSvc != nil {
 		providerCount, _ := i.providerSvc.Count()
 		if providerCount == 0 {
 			msg := "Nenhum provedor LLM configurado. Configure um provedor nas configurações."
@@ -124,6 +119,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	}
 
 	// 5. Resolve active profile
+	var err error
 	var activeProfile *profiles.Profile
 	if i.profileMgr == nil {
 		log.Printf("[PrepareContext] profileManager não inicializado — continuando sem perfil")
@@ -174,8 +170,8 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	}
 
 	// 8. Fall back to config default model if still empty
-	if params.Model == "" {
-		params.Model = cfg.DefaultModel
+	if params.Model == "" && req.DefaultModel != "" {
+		params.Model = req.DefaultModel
 		log.Printf("[PrepareContext] Usando modelo padrão: %s", params.Model)
 	}
 

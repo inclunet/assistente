@@ -5,7 +5,6 @@ import (
 	"log"
 
 	"assistente/internal/chat"
-	"assistente/internal/config"
 )
 
 // ============================================================================
@@ -64,7 +63,7 @@ func (a *App) CheckContextWindowThreshold(conversationID uint, threshold float64
 
 // GetLLMSettings retorna as configurações atuais da API LLM
 func (a *App) GetLLMSettings() (*LLMSettings, error) {
-	cfg, err := config.Load()
+	cfg, err := a.settingsSvc.GetConfig()
 	if err != nil {
 		return nil, fmt.Errorf("erro ao carregar config: %w", err)
 	}

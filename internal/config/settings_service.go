@@ -56,6 +56,11 @@ func NewSettingsService(cfg SettingsServiceConfig) *SettingsService {
 	}
 }
 
+// GetConfig retorna a configuração atual.
+func (s *SettingsService) GetConfig() (*Config, error) {
+	return Load()
+}
+
 // SetChatModel atualiza o modelo de chat na configuração e recarrega o cliente LLM.
 func (s *SettingsService) SetChatModel(model string) error {
 	err := Update(func(existing *Config) *Config {

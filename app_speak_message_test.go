@@ -1,8 +1,10 @@
 package main
 
 import (
+	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/speech"
 	"strings"
 	"testing"
 )
@@ -39,14 +41,31 @@ func (m *mockAudioRepo) GetMessageContent(id uint) (string, error) {
 	return "", nil
 }
 
+// testProfileProvider implementa speech.ProfileProvider para testes.
+type testProfileProvider struct{}
+
+func (testProfileProvider) GetActive() (*profiles.Profile, error) { return nil, nil }
+func (testProfileProvider) ResolveDefaults(p *profiles.Profile) *profiles.Profile { return p }
+
+// newTestSpeechSvc cria um speech.Service para testes.
+func newTestSpeechSvc(repo speech.AudioRepository, reg speech.ProviderRegistry) *speech.Service {
+	return speech.NewService(speech.ServiceConfig{
+		Emitter:         events.NoopEmitter{},
+		Registry:        reg,
+		ProfileProvider: testProfileProvider{},
+		AudioRepo:       repo,
+	})
+}
+
 // ---------- Testes ----------
 
 func TestSpeakMessage_ReturnsCachedAudio(t *testing.T) {
 	repo := newMockAudioRepo()
 	repo.audio[1] = struct{ base64, mime string }{"cached_audio", "audio/mpeg"}
 	repo.content[1] = "Hello world"
+	reg := llm.NewProviderRegistry()
 
-	app := &App{audioSvc: repo}
+	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
 
 	// Cache hit — provider params são ignorados
 	result, err := app.SpeakMessage(1, "any-provider", "any-voice", "", 1.0)
@@ -64,11 +83,13 @@ func TestSpeakMessage_ReturnsCachedAudio(t *testing.T) {
 func TestSpeakMessage_ErrorWhenProviderNotFound(t *testing.T) {
 	repo := newMockAudioRepo()
 	repo.content[2] = "Hello world"
+	reg := llm.NewProviderRegistry()
 
 	app := &App{
 		audioSvc:       repo,
-		llmRegistry:    llm.NewProviderRegistry(),
+		llmRegistry:    reg,
 		profileManager: profiles.NewManager(),
+		speechSvc:      newTestSpeechSvc(repo, reg),
 	}
 
 	_, err := app.SpeakMessage(2, "nonexistent-provider", "voice", "tts-1", 1.0)
@@ -83,8 +104,9 @@ func TestSpeakMessage_ErrorWhenProviderNotFound(t *testing.T) {
 func TestSpeakMessage_ErrorWhenMessageNotFound(t *testing.T) {
 	repo := newMockAudioRepo()
 	// Mensagem 999 não existe no mock
+	reg := llm.NewProviderRegistry()
 
-	app := &App{audioSvc: repo}
+	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
 
 	_, err := app.SpeakMessage(999, "provider", "voice", "", 1.0)
 	if err == nil {
@@ -95,8 +117,9 @@ func TestSpeakMessage_ErrorWhenMessageNotFound(t *testing.T) {
 func TestSpeakMessage_ErrorWhenContentEmpty(t *testing.T) {
 	repo := newMockAudioRepo()
 	repo.content[3] = "   " // só espaços
+	reg := llm.NewProviderRegistry()
 
-	app := &App{audioSvc: repo}
+	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
 
 	_, err := app.SpeakMessage(3, "provider", "voice", "", 1.0)
 	if err == nil {
@@ -112,8 +135,9 @@ func TestSpeakMessage_CacheHitSkipsGeneration(t *testing.T) {
 	repo.audio[5] = struct{ base64, mime string }{"audio_data", "audio/mpeg"}
 	// NÃO precisa de content — cache hit pula geração
 	// Nem provider — não deve ser chamado
+	reg := llm.NewProviderRegistry()
 
-	app := &App{audioSvc: repo}
+	app := &App{audioSvc: repo, speechSvc: newTestSpeechSvc(repo, reg)}
 
 	result, err := app.SpeakMessage(5, "", "", "", 1.0)
 	if err != nil {
@@ -142,6 +166,7 @@ func TestSpeakMessage_ModelFallbackToVoiceID(t *testing.T) {
 		audioSvc:       repo,
 		llmRegistry:    reg,
 		profileManager: profiles.NewManager(),
+		speechSvc:      newTestSpeechSvc(repo, reg),
 	}
 
 	// model vazio → usa voiceID "pt_BR-dii" como model
@@ -171,6 +196,7 @@ func TestSpeakMessage_SpeedNormalization(t *testing.T) {
 		audioSvc:       repo,
 		llmRegistry:    reg,
 		profileManager: profiles.NewManager(),
+		speechSvc:      newTestSpeechSvc(repo, reg),
 	}
 
 	// Rate 0 deve ser normalizada para 1.0 — o provider será criado mas síntese falhará

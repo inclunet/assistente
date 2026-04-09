@@ -1,7 +1,6 @@
 package main
 
 import (
-	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -236,38 +235,7 @@ func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 
 // PreviewVoiceSettings reproduz um texto de teste com configurações ad-hoc
 func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume float64, sampleText string) error {
-	if sampleText == "" {
-		sampleText = "Este é um teste das configurações de voz"
-	}
-
-	log.Printf("[PreviewVoiceSettings] provider=%s, voiceID=%s, rate=%.2f", provider, voiceID, rate)
-
-	if a.speechManager == nil {
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("erro ao carregar config: %w", err)
-		}
-		if cfg.APIKey == "" {
-			return fmt.Errorf("API key não configurada")
-		}
-		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voiceID, "tts-1")
-	}
-
-	if provider == "openai" {
-		a.speechManager.SetTTSVoice(voiceID)
-	}
-
-	result, err := a.speechManager.SynthesizeWithVoice(sampleText, voiceID)
-	if err != nil {
-		return fmt.Errorf("erro ao sintetizar: %w", err)
-	}
-
-	a.emitter.Emit("voice_profile:preview", map[string]interface{}{
-		"audio_base64": result.AudioBase64,
-		"format":       result.Format,
-	})
-
-	return nil
+	return a.speechSvc.PreviewVoiceSettings(provider, voiceID, rate, volume, sampleText)
 }
 
 // saveLLMProviders persiste todos os provedores do registry no store.

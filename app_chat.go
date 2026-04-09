@@ -34,6 +34,12 @@ func (a *App) SendMessageFromChannel(conversationID uint, content, media string,
 // sendMessageInternal contém a lógica de processamento de mensagens.
 // Usado por SendMessage (Wails) e SendMessageFromChannel (mensageiros).
 func (a *App) sendMessageInternal(conversationID uint, userContent string, userMedia string, params ChatParams, source string) (uint, error) {
+	// Resolve default model from config for fallback
+	var defaultModel string
+	if cfg, cfgErr := a.settingsSvc.GetConfig(); cfgErr == nil {
+		defaultModel = cfg.DefaultModel
+	}
+
 	// Delega validação, renaming e resolução de perfil para o ChatInteractor
 	pctx, err := a.chatInteractor.PrepareContext(context.Background(), chat.PrepareContextRequest{
 		ConversationID: conversationID,
@@ -41,6 +47,7 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		UserMedia:      userMedia,
 		Params:         params,
 		Source:         source,
+		DefaultModel:   defaultModel,
 	})
 	if err != nil {
 		return 0, err
@@ -234,10 +241,7 @@ func (a *App) loadConversationHistory(conversationID uint, profile *profiles.Pro
 // whisperTranscribeFunc cria o callback de transcrição para o MediaHistoryLoader e PreprocessMessages.
 func (a *App) whisperTranscribeFunc() chat.TranscribeFunc {
 	return func(audioBase64, filename string) (string, error) {
-		if !a.ensureSpeechManager() {
-			return "", nil
-		}
-		result, err := a.speechManager.Transcribe(audioBase64, filename)
+		result, err := a.speechSvc.Transcribe(audioBase64, filename)
 		if err != nil {
 			return "", err
 		}
