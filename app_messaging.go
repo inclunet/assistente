@@ -488,39 +488,6 @@ func (a *App) GetAuthorizedContacts() (contacts.ContactsFile, error) {
 	return contacts.GetAll()
 }
 
-// registerChannelBridge verifica se uma conversa pertence a um canal externo (Signal, Telegram).
-// Se sim, registra um callback no ResponseNotifier para que a resposta do assistente seja
-// reenviada ao mensageiro de origem — permitindo bridge bidirecional (Wails ↔ Messenger).
-func (a *App) registerChannelBridge(conversationID uint) {
-	conv, err := a.convSvc.GetConversationInfo(conversationID)
-	if err != nil || conv == nil || conv.Channel == "" || conv.ContactID == "" {
-		return // Conversa local do Wails, não precisa de bridge
-	}
-
-	messenger, ok := a.msgGateway.GetMessenger(conv.Channel)
-	if !ok {
-		return // Messenger não registrado
-	}
-
-	log.Printf("[Bridge] Registrando bridge Wails→%s para conversa %d (contato: %s)", conv.Channel, conversationID, conv.ContactID)
-
-	a.responseNotifier.Register(conversationID, messaging.ResponseCallback{
-		Channel: conv.Channel,
-		ChatID:  conv.ContactID,
-		Callback: func(response string, assistantMsgID uint) {
-			err := messenger.Send(context.Background(), messaging.OutgoingMessage{
-				ChatID: conv.ContactID,
-				Text:   response,
-			})
-			if err != nil {
-				log.Printf("[Bridge] Erro ao reenviar resposta para %s/%s: %v", conv.Channel, conv.ContactID, err)
-			} else {
-				log.Printf("[Bridge] Resposta reenviada para %s/%s", conv.Channel, conv.ContactID)
-			}
-		},
-	})
-}
-
 // ChannelInfo descreve um canal de mensageria disponível para atribuição.
 type ChannelInfo struct {
 	Name        string                        `json:"name"`        // "signal", "telegram"
