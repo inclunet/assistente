@@ -77,7 +77,7 @@ func (a *App) SetChatModel(model string) error {
 }
 
 // SaveSettings salva as configurações
-func (a *App) SaveSettings(input SettingsInput) error {
+func (a *App) SaveSettings(input config.SettingsInput) error {
 	return a.settingsSvc.SaveSettings(input)
 }
 
