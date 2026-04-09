@@ -1,8 +1,6 @@
 package main
 
 import (
-	"log"
-
 	"assistente/internal/chat"
 	"assistente/internal/profiles"
 )
@@ -23,41 +21,7 @@ func (a *App) preprocessMediaMessages(messages []Message, profile *profiles.Prof
 }
 
 // UpdateProfileMediaSupport atualiza o MediaSupport de um perfil e salva.
-// Chamado quando detectamos que um modelo não suporta determinado tipo de mídia.
 func (a *App) UpdateProfileMediaSupport(mediaType string, supported bool) {
-	if a.profileManager == nil {
-		return
-	}
-
-	profile, err := a.profileManager.GetActive()
-	if err != nil || profile == nil {
-		return
-	}
-
-	if profile.MediaSupport == nil {
-		profile.MediaSupport = &profiles.MediaSupport{}
-	}
-
-	switch mediaType {
-	case "audio":
-		profile.MediaSupport.Audio = &supported
-	case "image":
-		profile.MediaSupport.Image = &supported
-	case "document":
-		profile.MediaSupport.Document = &supported
-	case "video":
-		profile.MediaSupport.Video = &supported
-	}
-
-	slug := a.profileManager.GetActiveSlug()
-	if slug == "" {
-		return
-	}
-	if err := a.profileManager.Update(slug, profile); err != nil {
-		log.Printf("[MediaSupport] Erro ao salvar perfil: %v", err)
-	} else {
-		log.Printf("[MediaSupport] Perfil atualizado: %s=%v", mediaType, supported)
-	}
+	a.profilesCtrl.UpdateProfileMediaSupport(mediaType, supported)
 }
-
 

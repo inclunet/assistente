@@ -5,10 +5,13 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
+	"time"
 
 	"assistente/internal/config"
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
+	"assistente/internal/database"
 	"assistente/internal/profiles"
 	"assistente/internal/skills"
 )
@@ -187,5 +190,44 @@ func (c *SettingsController) ClearAllChannels() error {
 	// sem acesso direto ao gateway — usa callback injetado
 	c.emitter.Emit("channels:cleared", nil)
 	log.Println("[ClearAllChannels] Evento channels:cleared emitido")
+	return nil
+}
+
+// ResetDatabase apaga o banco de dados, resetando ao estado inicial.
+func (c *SettingsController) ResetDatabase() error {
+	configPath, err := config.GetConfigPath()
+	if err != nil {
+		return fmt.Errorf("erro ao obter caminho do banco de dados: %v", err)
+	}
+	dbPath := filepath.Join(filepath.Dir(configPath), "conversations.db")
+
+	if err := database.Close(); err != nil {
+		return fmt.Errorf("erro ao fechar banco de dados: %v", err)
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	if _, err := os.Stat(dbPath); err == nil {
+		if err := os.Remove(dbPath); err != nil {
+			return fmt.Errorf("erro ao remover banco de dados: %v", err)
+		}
+		os.Remove(dbPath + "-wal")
+		os.Remove(dbPath + "-shm")
+	}
+
+	if err := database.Init(); err != nil {
+		return fmt.Errorf("erro ao reinicializar banco: %v", err)
+	}
+	log.Println("[ResetDatabase] Banco resetado com sucesso")
+	c.emitter.Emit("database:reset", nil)
+	return nil
+}
+
+// ClearMessages apaga todas as mensagens e conversas, mantendo a estrutura do banco.
+func (c *SettingsController) ClearMessages() error {
+	if err := database.ClearAllConversations(); err != nil {
+		return fmt.Errorf("erro ao limpar mensagens e conversas: %v", err)
+	}
+	log.Println("[ClearMessages] Mensagens e conversas apagadas")
+	c.emitter.Emit("messages:cleared", nil)
 	return nil
 }

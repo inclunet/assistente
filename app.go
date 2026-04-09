@@ -143,6 +143,9 @@ type App struct {
 	updaterCtrl     *controllers.UpdaterController
 	credentialsCtrl *controllers.CredentialsController
 	welcomeCtrl     *controllers.WelcomeController
+	terminalCtrl    *controllers.TerminalController
+	allowlistCtrl   *controllers.AllowlistController
+	signalCtrl      *controllers.SignalController
 }
 
 // ==================== Tipos para Threads ====================
@@ -398,6 +401,14 @@ func (a *App) startup(ctx context.Context) {
 		InitLLMClient:              a.initLLMClient,
 		SaveLLMProviders:           a.saveLLMProviders,
 	})
+	a.terminalCtrl = controllers.NewTerminalController(controllers.TerminalControllerConfig{
+		TerminalMgr: a.terminalMgr,
+	})
+	a.allowlistCtrl = controllers.NewAllowlistController(controllers.AllowlistControllerConfig{
+		AllowlistMgr:     a.allowlistMgr,
+		QuestionnaireMgr: a.questionnaireMgr,
+	})
+	a.signalCtrl = controllers.NewSignalController()
 
 	// Verifica atualizações no startup (não bloqueante)
 	go a.checkForUpdatesOnStartup()
