@@ -8,7 +8,6 @@ import (
 	"log"
 
 	"assistente/internal/chat"
-	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/messaging"
@@ -111,7 +110,7 @@ func (s *Service) RunAgenticLoop(
 	for iteration := 0; iteration < maxIterations; iteration++ {
 		// Verifica cancelamento
 		if ctx.Err() != nil {
-			fmt.Printf("🛑 [AGENT] Loop cancelado na iteração %d\n", iteration)
+			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
 			s.emitter.Emit("chat:stream", events.StreamEvent{
 				Content:        "",
 				Done:           true,
@@ -121,8 +120,6 @@ func (s *Service) RunAgenticLoop(
 			return
 		}
 
-		fmt.Printf("🔄 [AGENT] Iteração %d (conversa %d, turno %d)\n", iteration, conversationID, turnID)
-
 		// 1. Cria handler para esta iteração e chama o LLM (bloqueante)
 		handler := newHandler(conversationID, iteration)
 		streamer.StreamChat(ctx, messages, params, handler, toolDefs...)
@@ -131,7 +128,7 @@ func (s *Service) RunAgenticLoop(
 
 		// 2. Erro?
 		if result.Error != "" {
-			fmt.Printf("❌ [AGENT] Erro na iteração %d: %s\n", iteration, result.Error)
+			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
 			s.emitter.Emit("chat:stream", events.StreamEvent{
 				Content:        result.FullResponse,
 				Done:           true,
@@ -158,8 +155,6 @@ func (s *Service) RunAgenticLoop(
 		}
 
 		// 5. finish_reason="tool_calls" → executar ferramentas
-		fmt.Printf("🔧 [AGENT] LLM pediu %d ferramentas na iteração %d\n", len(result.ToolCalls), iteration)
-
 		// 5a. Persiste MCP calls nativas desta iteração antes das bridge calls
 		if len(result.NativeMCPEvents) > 0 {
 			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
@@ -167,7 +162,7 @@ func (s *Service) RunAgenticLoop(
 
 		// 5b. Salva mensagem do assistant com bridge tool_calls no banco
 		toolCallsJSON, _ := json.Marshal(result.ToolCalls)
-		assistantMsg, err := s.msgRepo.AddAssistantToolMessage(
+		_, err := s.msgRepo.AddAssistantToolMessage(
 			conversationID,
 			turnID,
 			result.FullResponse,
@@ -176,13 +171,11 @@ func (s *Service) RunAgenticLoop(
 			result.Model,
 		)
 		if err != nil {
-			if errors.Is(err, database.ErrConversationDeleted) {
-				fmt.Printf("🛑 [AGENT] Conversa %d deletada — abortando\n", conversationID)
+			if errors.Is(err, chat.ErrConversationDeleted) {
+				log.Printf("[Agent] conversa %d deletada — abortando", conversationID)
 				return
 			}
-			fmt.Printf("❌ [AGENT] Erro ao salvar assistant com tool_calls: %v\n", err)
-		} else {
-			fmt.Printf("✅ [AGENT] Assistant com tool_calls salvo: ID=%d\n", assistantMsg.ID)
+			log.Printf("[Agent] erro ao salvar assistant com tool_calls: %v", err)
 		}
 
 		// 5c. Adiciona mensagem do assistant ao histórico para próxima iteração
@@ -218,11 +211,11 @@ func (s *Service) RunAgenticLoop(
 				execResult.CallID,
 			)
 			if err != nil {
-				if errors.Is(err, database.ErrConversationDeleted) {
-					fmt.Printf("🛑 [AGENT] Conversa %d deletada — abortando\n", conversationID)
+				if errors.Is(err, chat.ErrConversationDeleted) {
+					log.Printf("[Agent] conversa %d deletada — abortando", conversationID)
 					return
 				}
-				fmt.Printf("❌ [AGENT] Erro ao salvar resultado de tool %s: %v\n", execResult.ToolName, err)
+				log.Printf("[Agent] erro ao salvar resultado de tool %s: %v", execResult.ToolName, err)
 			}
 
 			messages = append(messages, llm.Message{
@@ -230,9 +223,6 @@ func (s *Service) RunAgenticLoop(
 				Content:    execResult.Result.Content,
 				ToolCallID: execResult.CallID,
 			})
-
-			fmt.Printf("   ✅ %s (call_id=%s): %d bytes\n",
-				execResult.ToolName, execResult.CallID, len(execResult.Result.Content))
 		}
 
 		// 5f. Emite token stats atualizadas em tempo real
@@ -260,7 +250,7 @@ func (s *Service) RunAgenticLoop(
 	}
 
 	// Atingiu limite de iterações
-	fmt.Printf("⚠️ [AGENT] Limite de %d iterações atingido para conversa %d\n", maxIterations, conversationID)
+	log.Printf("[Agent] limite de %d iterações atingido para conversa %d", maxIterations, conversationID)
 	s.emitter.Emit("chat:stream", events.StreamEvent{
 		Content:        "Limite de iterações do agente atingido. A resposta pode estar incompleta.",
 		Done:           true,
@@ -287,7 +277,7 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 			s.persistNativeMCPCalls(conversationID, turnID, result.NativeMCPEvents)
 		}
 
-		opts := database.MessageOptions{
+		opts := chat.MessageOptions{
 			ConversationID:   conversationID,
 			Role:             "assistant",
 			Content:          result.FullResponse,
@@ -307,9 +297,7 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 			return
 		}
 		if err != nil {
-			fmt.Printf("❌ Erro ao salvar resposta final do assistant: %v\n", err)
-		} else if savedMsgID > 0 {
-			fmt.Printf("✅ [AGENT] Resposta final salva: ID=%d\n", savedMsgID)
+			log.Printf("[Agent] erro ao salvar resposta final: %v", err)
 		}
 	}
 

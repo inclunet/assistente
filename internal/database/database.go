@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -119,11 +120,11 @@ func Init() error {
 		sqlDB.QueryRow(`SELECT count(*) FROM chat_messages_fts`).Scan(&ftsCount)
 		sqlDB.QueryRow(`SELECT count(*) FROM chat_messages WHERE role IN ('user','assistant') AND content != ''`).Scan(&msgCount)
 		if msgCount > 0 && ftsCount < msgCount {
-			fmt.Printf("[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...\n", ftsCount, msgCount)
+			log.Printf("[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...", ftsCount, msgCount)
 			if err := RebuildFTSIndex(); err != nil {
-				fmt.Printf("[Database] Aviso: erro ao reconstruir FTS5: %v\n", err)
+				log.Printf("[Database] Aviso: erro ao reconstruir FTS5: %v", err)
 			} else {
-				fmt.Printf("[Database] Índice FTS5 reconstruído (%d mensagens)\n", msgCount)
+				log.Printf("[Database] Índice FTS5 reconstruído (%d mensagens)", msgCount)
 			}
 		}
 	}

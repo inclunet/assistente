@@ -76,8 +76,6 @@ type App struct {
 	responseNotifier      *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway            *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater               *updater.Updater            // Gerenciador de atualizações automáticas
-	voiceHotkeyID         int
-	currentConversationID uint // ID da conversa atual
 
 	credMgr   *credentials.Manager
 	credStore credentials.Store
@@ -136,7 +134,6 @@ type App struct {
 
 // ==================== Tipos para Threads ====================
 
-// EnrichedMessage é ChatMessage + campos derivados calculados no backend
 type StreamEvent = events.StreamEvent
 
 // NewApp creates a new App application struct

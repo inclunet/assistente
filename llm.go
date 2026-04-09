@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 
+	"assistente/internal/chat"
 	"assistente/internal/llm"
 )
 
@@ -25,8 +26,6 @@ type ChatParams = llm.ChatParams
 type SettingsInput = llm.SettingsInput
 
 // Re-exporta funções utilitárias
-var strPtr = llm.StrPtr
-
 // ==================== StreamHandler Implementation ====================
 
 // appStreamHandler implementa llm.StreamHandler usando *App
@@ -66,12 +65,10 @@ func (a *App) GetModelsByProvider(providerID string) ([]string, error) {
 	return cp.GetModels(a.ctx)
 }
 
-// Constantes de validação de input
+// Constantes de validação de input — re-exportadas de internal/chat para uso no pacote main.
 const (
-	// MaxMessageContentSize é o tamanho máximo permitido para o conteúdo de uma mensagem (500KB)
-	MaxMessageContentSize = 500 * 1024
-	// MaxMediaSize é o tamanho máximo permitido para mídia em base64 (10MB)
-	MaxMediaSize = 10 * 1024 * 1024
+	MaxMessageContentSize = chat.MaxMessageContentSize
+	MaxMediaSize          = chat.MaxMediaSize
 )
 
 // recoverFromPanic captura panics em goroutines de processamento de mensagens,

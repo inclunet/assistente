@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"strings"
@@ -14,8 +15,8 @@ import (
 	"time"
 
 	"assistente/internal/credentials"
-	httpclient "assistente/internal/tools/http"
 	"assistente/internal/messaging"
+	httpclient "assistente/internal/tools/http"
 
 	"github.com/gorilla/websocket"
 )
@@ -102,12 +103,12 @@ func (s *SignalAdapter) Connect(ctx context.Context) error {
 			return fmt.Errorf("erro ao conectar WebSocket Signal: %w", err)
 		}
 		s.setStatus(messaging.StatusConnected)
-		fmt.Printf("[Signal] Conectado via WebSocket à API %s (account=%s, mode=%s)\n", s.baseURL, maskIdentifier(s.account), mode)
+		log.Printf("[Signal] Conectado via WebSocket à API %s (account=%s, mode=%s)", s.baseURL, maskIdentifier(s.account), mode)
 		go s.wsReadLoop()
 	} else {
 		// Modo native: usa HTTP polling
 		s.setStatus(messaging.StatusConnected)
-		fmt.Printf("[Signal] Conectado via HTTP polling à API %s (account=%s, mode=%s)\n", s.baseURL, maskIdentifier(s.account), mode)
+		log.Printf("[Signal] Conectado via HTTP polling à API %s (account=%s, mode=%s)", s.baseURL, maskIdentifier(s.account), mode)
 		go s.httpPollLoop()
 	}
 
@@ -129,7 +130,7 @@ func (s *SignalAdapter) Disconnect() error {
 		s.wsConn = nil
 	}
 	s.status = messaging.StatusDisconnected
-	fmt.Println("[Signal] Desconectado")
+	log.Println("[Signal] Desconectado")
 	return nil
 }
 
@@ -244,7 +245,7 @@ func (s *SignalAdapter) healthCheckAndDetectMode() (string, error) {
 		}
 	}
 
-	fmt.Printf("[Signal] Health check OK (%s, mode=%s)\n", reqURL, mode)
+	log.Printf("[Signal] Health check OK (%s, mode=%s)", reqURL, mode)
 	return mode, nil
 }
 
@@ -268,7 +269,7 @@ func (s *SignalAdapter) connectWebSocket() error {
 	s.wsConn = conn
 	s.mu.Unlock()
 
-	fmt.Printf("[Signal] WebSocket conectado: %s\n", wsURL)
+	log.Printf("[Signal] WebSocket conectado: %s", wsURL)
 	return nil
 }
 
@@ -286,7 +287,6 @@ func (s *SignalAdapter) wsReadLoop() {
 	for {
 		select {
 		case <-s.ctx.Done():
-			fmt.Println("[Signal] WebSocket read loop encerrado (contexto cancelado)")
 			return
 		default:
 		}
@@ -296,7 +296,7 @@ func (s *SignalAdapter) wsReadLoop() {
 		s.mu.RUnlock()
 
 		if conn == nil {
-			fmt.Println("[Signal] WebSocket desconectado, tentando reconectar...")
+			log.Println("[Signal] WebSocket desconectado, tentando reconectar...")
 			s.reconnectWebSocket()
 			continue
 		}
@@ -304,13 +304,12 @@ func (s *SignalAdapter) wsReadLoop() {
 		_, message, err := conn.ReadMessage()
 		if err != nil {
 			if websocket.IsCloseError(err, websocket.CloseNormalClosure, websocket.CloseGoingAway) {
-				fmt.Println("[Signal] WebSocket fechado normalmente")
 				return
 			}
 			if s.ctx.Err() != nil {
 				return // Contexto cancelado
 			}
-			fmt.Printf("[Signal] Erro ao ler WebSocket: %v\n", err)
+			log.Printf("[Signal] Erro ao ler WebSocket: %v", err)
 			s.reconnectWebSocket()
 			continue
 		}
@@ -323,7 +322,7 @@ func (s *SignalAdapter) wsReadLoop() {
 func (s *SignalAdapter) handleWSMessage(data []byte) {
 	var envelope wsEnvelope
 	if err := json.Unmarshal(data, &envelope); err != nil {
-		fmt.Printf("[Signal] Erro ao parsear mensagem: %v (dados: %s)\n", err, truncate(string(data), 200))
+		log.Printf("[Signal] Erro ao parsear mensagem: %v (dados: %s)", err, truncate(string(data), 200))
 		return
 	}
 
@@ -332,10 +331,6 @@ func (s *SignalAdapter) handleWSMessage(data []byte) {
 	}
 
 	env := envelope.Envelope
-
-	// Log dos campos do remetente para debug de allowlist
-	fmt.Printf("[Signal] Envelope: source=%q, sourceNumber=%q, sourceUuid=%q, sourceName=%q\n",
-		maskIdentifier(env.Source), maskIdentifier(env.SourceNumber), maskIdentifier(env.SourceUUID), env.SourceName)
 
 	// Extrai texto e attachments da mensagem (dataMessage)
 	var text string
@@ -348,7 +343,7 @@ func (s *SignalAdapter) handleWSMessage(data []byte) {
 		for _, att := range env.DataMessage.Attachments {
 			data, err := s.downloadAttachment(att.ID)
 			if err != nil {
-				fmt.Printf("[Signal] Erro ao baixar attachment %s (%s): %v\n", att.ID, att.ContentType, err)
+				log.Printf("[Signal] Erro ao baixar attachment %s (%s): %v", att.ID, att.ContentType, err)
 				continue
 			}
 
@@ -363,7 +358,6 @@ func (s *SignalAdapter) handleWSMessage(data []byte) {
 				Data:     data,
 				Size:     att.Size,
 			})
-			fmt.Printf("[Signal] Attachment baixado: %s (%s, %d bytes)\n", filename, att.ContentType, len(data))
 		}
 	} else if env.SyncMessage != nil && env.SyncMessage.SentMessage != nil {
 		// Mensagens de sync são enviadas por nós de outro dispositivo — ignoramos
@@ -416,8 +410,6 @@ func (s *SignalAdapter) handleWSMessage(data []byte) {
 		Channel:     "signal",
 	}
 
-	fmt.Printf("[Signal] Mensagem de %s (%s): %s\n", msg.From.DisplayName, maskIdentifier(msg.From.ID), truncate(msg.Text, 100))
-
 	// Processa em goroutine para não bloquear o reader loop
 	go handler(ctx, msg)
 }
@@ -426,12 +418,11 @@ func (s *SignalAdapter) handleWSMessage(data []byte) {
 func (s *SignalAdapter) httpPollLoop() {
 	pollInterval := 3 * time.Second
 
-	fmt.Printf("[Signal] Iniciando HTTP polling a cada %s\n", pollInterval)
+	log.Printf("[Signal] Iniciando HTTP polling a cada %s", pollInterval)
 
 	for {
 		select {
 		case <-s.ctx.Done():
-			fmt.Println("[Signal] HTTP poll loop encerrado (contexto cancelado)")
 			return
 		case <-time.After(pollInterval):
 		}
@@ -451,7 +442,7 @@ func (s *SignalAdapter) pollMessages() {
 	resp, err := s.client.Do(s.ctx, req)
 	if err != nil {
 		if s.ctx.Err() == nil {
-			fmt.Printf("[Signal] Erro no polling: %v\n", err)
+			log.Printf("[Signal] Erro no polling: %v", err)
 		}
 		return
 	}
@@ -459,7 +450,7 @@ func (s *SignalAdapter) pollMessages() {
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		fmt.Printf("[Signal] Polling retornou %d: %s\n", resp.StatusCode, truncate(string(body), 200))
+		log.Printf("[Signal] Polling retornou %d: %s", resp.StatusCode, truncate(string(body), 200))
 		return
 	}
 
@@ -505,10 +496,10 @@ func (s *SignalAdapter) reconnectWebSocket() {
 		case <-time.After(backoff):
 		}
 
-		fmt.Printf("[Signal] Tentando reconectar WebSocket (backoff=%s)...\n", backoff)
+		log.Printf("[Signal] Tentando reconectar WebSocket (backoff=%s)...", backoff)
 
 		if err := s.connectWebSocket(); err != nil {
-			fmt.Printf("[Signal] Reconexão falhou: %v\n", err)
+			log.Printf("[Signal] Reconexão falhou: %v", err)
 			backoff *= 2
 			if backoff > maxBackoff {
 				backoff = maxBackoff
@@ -516,7 +507,7 @@ func (s *SignalAdapter) reconnectWebSocket() {
 			continue
 		}
 
-		fmt.Println("[Signal] WebSocket reconectado com sucesso")
+		log.Println("[Signal] WebSocket reconectado com sucesso")
 		s.setStatus(messaging.StatusConnected)
 		return
 	}

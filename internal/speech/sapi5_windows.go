@@ -5,6 +5,7 @@ package speech
 
 import (
 	"fmt"
+	"log"
 	"sync"
 	"unicode/utf16"
 
@@ -249,7 +250,7 @@ func (m *SAPI5Manager) Speak(text string, voiceName string) error {
 	if voiceName != "" {
 		if err := m.selectVoice(voiceName); err != nil {
 			// Se falhar ao selecionar, continua com a voz padrão
-			fmt.Printf("Warning: failed to select voice '%s': %v\n", voiceName, err)
+			log.Printf("Warning: failed to select voice '%s': %v", voiceName, err)
 		}
 	}
 
