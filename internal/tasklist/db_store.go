@@ -118,6 +118,10 @@ func (s *DBStore) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *
 	return database.ResolveTaskID(taskListID, taskListSlug, taskID, code)
 }
 
+func (s *DBStore) ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error) {
+	return database.ResolveTaskIDByTaskCode(taskListID, taskCode)
+}
+
 func (s *DBStore) UpdateTask(id uint, title, description, code, link string) error {
 	return database.UpdateTask(id, title, description, code, link)
 }

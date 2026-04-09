@@ -1,132 +1,30 @@
 package main
 
-import (
-	"assistente/internal/profiles"
-	"fmt"
-	"log"
-
-)
+import "assistente/internal/profiles"
 
 // ============================================================================
-// Unified Profile API (arquivo JSON via configdir)
+// Unified Profile API — delegação para ProfilesController
+// Os métodos abaixo existem apenas para manter compatibilidade com o Wails Bind
+// enquanto a migração para controllers/ está em andamento (Strangler Fig).
 // ============================================================================
 
-// GetProfiles retorna todos os perfis disponíveis
-func (a *App) GetProfiles() ([]profiles.ProfileInfo, error) {
-	return a.profileManager.List()
-}
-
-// GetProfile retorna um perfil pelo slug
+func (a *App) GetProfiles() ([]profiles.ProfileInfo, error) { return a.profilesCtrl.GetProfiles() }
 func (a *App) GetProfile(slug string) (*profiles.Profile, error) {
-	return a.profileManager.Get(slug)
+	return a.profilesCtrl.GetProfile(slug)
 }
-
-// GetActiveProfile retorna o perfil ativo global
 func (a *App) GetActiveProfile() (*profiles.Profile, error) {
-	return a.profileManager.GetActive()
+	return a.profilesCtrl.GetActiveProfile()
 }
-
-// GetActiveProfileSlug retorna o slug do perfil ativo
-func (a *App) GetActiveProfileSlug() string {
-	return a.profileManager.GetActiveSlug()
+func (a *App) GetActiveProfileSlug() string       { return a.profilesCtrl.GetActiveProfileSlug() }
+func (a *App) SetActiveProfile(slug string) error { return a.profilesCtrl.SetActiveProfile(slug) }
+func (a *App) CreateProfile(p profiles.Profile) (string, error) {
+	return a.profilesCtrl.CreateProfile(p)
 }
-
-// SetActiveProfile define o perfil ativo e re-registra hotkeys
-func (a *App) SetActiveProfile(slug string) error {
-	if err := a.profileManager.SetActive(slug); err != nil {
-		return err
-	}
-
-	// Recarrega o cliente LLM para usar o provedor do novo perfil ativo
-	a.initLLMClient()
-
-	// Recarrega o speech manager com os providers do novo perfil (TTS/STT podem ser independentes do LLM)
-	if err := a.InitSpeechManagerFromProfile(); err != nil {
-		log.Printf("[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
-	}
-
-	// Re-registra hotkeys do novo perfil
-	a.registerActiveProfileHotkeys()
-
-	// Emite evento para frontend
-	a.emitter.Emit( "profile:changed", map[string]interface{}{
-		"slug": slug,
-	})
-
-	return nil
-}
-
-// CreateProfile cria um novo perfil
-func (a *App) CreateProfile(profile profiles.Profile) (string, error) {
-	slug, err := a.profileManager.Create(&profile)
-	if err != nil {
-		return "", err
-	}
-
-	a.emitter.Emit( "profile:created", map[string]interface{}{
-		"slug": slug,
-		"name": profile.Name,
-	})
-
-	return slug, nil
-}
-
-// DuplicateProfile cria uma copia de um perfil existente.
 func (a *App) DuplicateProfile(slug string) (string, error) {
-	newSlug, err := a.profileManager.Duplicate(slug)
-	if err != nil {
-		return "", err
-	}
-
-	profile, err := a.profileManager.Get(newSlug)
-	if err == nil && profile != nil {
-		a.emitter.Emit( "profile:created", map[string]interface{}{
-			"slug": newSlug,
-			"name": profile.Name,
-		})
-	}
-
-	return newSlug, nil
+	return a.profilesCtrl.DuplicateProfile(slug)
 }
-
-// UpdateProfile atualiza um perfil existente
-func (a *App) UpdateProfile(slug string, profile profiles.Profile) error {
-	if err := a.profileManager.Update(slug, &profile); err != nil {
-		return err
-	}
-
-	// Se for o perfil ativo, re-registra hotkeys
-	if slug == a.profileManager.GetActiveSlug() {
-		a.registerActiveProfileHotkeys()
-	}
-
-	a.emitter.Emit( "profile:updated", map[string]interface{}{
-		"slug": slug,
-		"name": profile.Name,
-	})
-
-	return nil
+func (a *App) UpdateProfile(slug string, p profiles.Profile) error {
+	return a.profilesCtrl.UpdateProfile(slug, p)
 }
-
-// DeleteProfile deleta um perfil
-func (a *App) DeleteProfile(slug string) error {
-	// Não permite deletar o perfil ativo
-	if slug == a.profileManager.GetActiveSlug() {
-		return fmt.Errorf("não é possível deletar o perfil ativo")
-	}
-
-	if err := a.profileManager.Delete(slug); err != nil {
-		return err
-	}
-
-	a.emitter.Emit( "profile:deleted", map[string]interface{}{
-		"slug": slug,
-	})
-
-	return nil
-}
-
-// GetProfileSearchPaths retorna os caminhos de busca dos perfis
-func (a *App) GetProfileSearchPaths() []string {
-	return a.profileManager.GetSearchPaths()
-}
+func (a *App) DeleteProfile(slug string) error { return a.profilesCtrl.DeleteProfile(slug) }
+func (a *App) GetProfileSearchPaths() []string { return a.profilesCtrl.GetProfileSearchPaths() }

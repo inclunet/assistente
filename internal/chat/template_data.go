@@ -1,0 +1,31 @@
+package chat
+
+import "assistente/internal/profiles"
+
+// TemplateData contém as variáveis disponíveis para templates de skills.
+// Definido aqui (não em internal/prompt) para que ambos os pacotes possam referenciá-lo
+// sem criar um import circular: prompt já importa chat.
+type TemplateData struct {
+	Profile            *profiles.Profile
+	ProfileSlug        string
+	ToolCallingEnabled bool
+	EnabledTools       []string
+	EnabledToolCount   int
+	ConversationID     uint
+
+	// Workspace context
+	WorkspaceName    string
+	WorkspaceProfile string
+	ActiveTabTitle   string
+	ActiveTabType    string
+	Tabs             []TabInfo
+	TabCount         int
+}
+
+// TabInfo é uma visão simplificada de uma aba do workspace para templates de skills.
+type TabInfo struct {
+	Title     string
+	Type      string
+	ContentID string
+	IsActive  bool
+}

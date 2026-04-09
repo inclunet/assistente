@@ -36,6 +36,7 @@ type TaskListRepository interface {
 	GetTasksByStatus(taskListID uint, statusID int) ([]database.Task, error)
 	FindTaskByCode(taskListID uint, code string) (*database.Task, error)
 	ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error)
+	ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error)
 	UpdateTask(id uint, title, description, code, link string) error
 	UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error
 	UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error
