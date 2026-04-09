@@ -130,10 +130,14 @@ type App struct {
 	skillsCtrl    *controllers.SkillsController
 	settingsCtrl  *controllers.SettingsController
 	chatCtrl      *controllers.ChatController
-	taskListCtrl  *controllers.TaskListController
-	speechCtrl    *controllers.SpeechController
-	jobsCtrl      *controllers.JobsController
-	workspaceCtrl *controllers.WorkspaceController
+	taskListCtrl     *controllers.TaskListController
+	speechCtrl       *controllers.SpeechController
+	jobsCtrl         *controllers.JobsController
+	workspaceCtrl    *controllers.WorkspaceController
+	tokensCtrl       *controllers.TokensController
+	toolsCtrl        *controllers.ToolsController
+	updaterCtrl      *controllers.UpdaterController
+	credentialsCtrl  *controllers.CredentialsController
 }
 
 // ==================== Tipos para Threads ====================
@@ -357,6 +361,25 @@ func (a *App) startup(ctx context.Context) {
 	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{
 		WorkspaceMgr: a.workspaceMgr,
 		Emitter:      a.emitter,
+	})
+	a.tokensCtrl = controllers.NewTokensController(controllers.TokensControllerConfig{
+		ProfileMgr:  a.profileManager,
+		TokenSvc:    a.tokenSvc,
+		SettingsSvc: a.settingsSvc,
+	})
+	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
+		ToolRegistry: a.toolRegistry,
+		MCPMgr:       a.mcpMgr,
+	})
+	a.updaterCtrl = controllers.NewUpdaterController(controllers.UpdaterControllerConfig{
+		Updater:          a.updater,
+		Emitter:          a.emitter,
+		QuestionnaireMgr: a.questionnaireMgr,
+		ProviderSvc:      a.providerSvc,
+		AppVersion:       AppVersion,
+	})
+	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{
+		CredMgr: a.credMgr,
 	})
 
 	// Verifica atualizações no startup (não bloqueante)
