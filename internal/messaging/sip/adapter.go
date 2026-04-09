@@ -3,7 +3,6 @@ package sip
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -11,6 +10,7 @@ import (
 	"log"
 	"log/slog"
 	"net"
+	"runtime/debug"
 	"strings"
 	"sync"
 	"time"
@@ -23,6 +23,7 @@ import (
 	"github.com/emiago/sipgo"
 	siplib "github.com/emiago/sipgo/sip"
 	mp3 "github.com/hajimehoshi/go-mp3"
+	resampling "github.com/tphakala/go-audio-resampling"
 )
 
 // sipScannerUserAgents cont├®m fragmentos de User-Agent de scanners SIP conhecidos.
@@ -341,26 +342,21 @@ func (s *SIPAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) er
 	return nil
 }
 
-// sendBatchTTS sintetiza ├íudio batch (fallback quando streaming n├úo funciona)
-// e reproduz na chamada ativa.
+// sendBatchTTS sintetiza áudio batch (fallback quando streaming não funciona)
+// e reproduz na chamada ativa. Pede WAV (PCM lossless) ao invés de MP3.
 func (s *SIPAdapter) sendBatchTTS(ctx context.Context, call *CallSession, text, voiceID string, sm *speech.SpeechManager) error {
-	var result *speech.SynthesisResult
-	var err error
-	if voiceID != "" {
-		result, err = sm.SynthesizeWithVoice(text, voiceID)
-	} else {
-		result, err = sm.Synthesize(text)
-	}
+	// Coleta WAV via streaming raw (mesmo mecanismo do SpeakText, sem chunk boundary)
+	var wavBuf bytes.Buffer
+	err := sm.SynthesizeStreamRaw(ctx, text, voiceID, "wav", speech.TTSStreamCallbacks{
+		OnChunk: func(chunk []byte) { wavBuf.Write(chunk) },
+		OnDone:  func() {},
+		OnError: func(err error) {},
+	})
 	if err != nil {
 		return fmt.Errorf("sip batch TTS: %w", err)
 	}
 
-	audioBytes, err := base64.StdEncoding.DecodeString(result.AudioBase64)
-	if err != nil {
-		return fmt.Errorf("sip batch TTS decode: %w", err)
-	}
-
-	pcm8k, err := decodeMp3ToPCM8k(audioBytes)
+	pcm8k, err := wavToPCM8kMono(wavBuf.Bytes())
 	if err != nil {
 		return fmt.Errorf("sip batch TTS resample: %w", err)
 	}
@@ -369,47 +365,31 @@ func (s *SIPAdapter) sendBatchTTS(ctx context.Context, call *CallSession, text, 
 	return err
 }
 
-// convertToPCM8k converte dados de ├íudio para PCM 16-bit signed LE 8kHz mono.
-// Suporta MP3 (formato padr├úo do TTS), PCM raw (24kHz do OpenAI), e WAV.
+// convertToPCM8k converte dados de áudio para PCM 16-bit signed LE 8kHz mono.
+// Suporta MP3 (formato padrão do TTS), PCM raw (24kHz do OpenAI), e WAV.
 func convertToPCM8k(data []byte, mimeType string) ([]byte, error) {
 	switch mimeType {
 	case "audio/mpeg", "audio/mp3":
-		// MP3 ÔåÆ decode para PCM (go-mp3 decodifica para stereo interleaved 16-bit signed LE, 44.1kHz)
-		// e depois downsample para 8kHz mono
 		return decodeMp3ToPCM8k(data)
 	case "audio/pcm", "audio/l16":
-		// PCM raw ÔÇö assumimos 24kHz (OpenAI TTS format "pcm" output)
 		return Resample24to8(data), nil
 	case "audio/wav", "audio/x-wav":
-		// WAV ÔÇö extrai PCM e resampla
-		pcm, sampleRate := extractPCMFromWAV(data)
-		if pcm == nil {
-			return nil, fmt.Errorf("WAV inv├ílido")
-		}
-		switch sampleRate {
-		case 8000:
-			return pcm, nil
-		case 16000:
-			return Resample16to8(pcm), nil
-		case 24000:
-			return Resample24to8(pcm), nil
-		default:
-			return nil, fmt.Errorf("sample rate %d n├úo suportado", sampleRate)
-		}
+		return wavToPCM8kMono(data)
 	default:
-		return nil, fmt.Errorf("tipo de ├íudio %q n├úo suportado para playback SIP", mimeType)
+		return nil, fmt.Errorf("tipo de áudio %q não suportado para playback SIP", mimeType)
 	}
 }
 
 // decodeMp3ToPCM8k decodifica MP3 para PCM 16-bit signed LE 8kHz mono.
 // go-mp3 decodifica para PCM stereo interleaved 16-bit signed LE @ sample rate original.
+// Usa go-audio-resampling (polyphase FIR + Kaiser window) para qualidade profissional.
 func decodeMp3ToPCM8k(data []byte) ([]byte, error) {
 	decoder, err := mp3.NewDecoder(bytes.NewReader(data))
 	if err != nil {
 		return nil, fmt.Errorf("erro ao decodificar MP3: %w", err)
 	}
 
-	// L├¬ todos os samples decodificados (stereo interleaved 16-bit)
+	// Lê todos os samples decodificados (stereo interleaved 16-bit)
 	pcmData, err := io.ReadAll(decoder)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao ler PCM do MP3: %w", err)
@@ -417,11 +397,36 @@ func decodeMp3ToPCM8k(data []byte) ([]byte, error) {
 
 	sampleRate := decoder.SampleRate()
 
-	// Converte stereo ÔåÆ mono (m├®dia dos 2 canais)
+	// Converte stereo → mono (média dos 2 canais)
 	monoData := stereoToMono(pcmData)
 
-	// Downsample para 8kHz
-	return resampleGenericTo8k(monoData, sampleRate), nil
+	// Converte PCM int16 → float64 normalizado [-1,1]
+	numSamples := len(monoData) / 2
+	floatSamples := make([]float64, numSamples)
+	for i := 0; i < numSamples; i++ {
+		s := int16(binary.LittleEndian.Uint16(monoData[i*2:]))
+		floatSamples[i] = float64(s) / 32768.0
+	}
+
+	// Resample profissional para 8kHz
+	resampled, err := resampling.ResampleMono(floatSamples, float64(sampleRate), 8000, resampling.QualityHigh)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao resamplar para 8kHz: %w", err)
+	}
+
+	// Converte float64 → PCM int16 LE
+	pcmOut := make([]byte, len(resampled)*2)
+	for i, f := range resampled {
+		if f > 1.0 {
+			f = 1.0
+		} else if f < -1.0 {
+			f = -1.0
+		}
+		s := int16(f * 32767.0)
+		binary.LittleEndian.PutUint16(pcmOut[i*2:], uint16(s))
+	}
+
+	return pcmOut, nil
 }
 
 // stereoToMono converte PCM 16-bit signed LE stereo interleaved para mono.
@@ -441,7 +446,8 @@ func stereoToMono(stereo []byte) []byte {
 }
 
 // resampleGenericTo8k faz downsample de PCM mono 16-bit de qualquer rate para 8kHz.
-// Usa m├®dia dos samples vizinhos como filtro anti-aliasing simples.
+// Usa média dos samples vizinhos como filtro anti-aliasing. A janela de média é
+// proporcional ao ratio de downsample para atenuar frequências acima de Nyquist (4kHz).
 func resampleGenericTo8k(pcm []byte, srcRate int) []byte {
 	if srcRate <= 0 || srcRate == 8000 {
 		return pcm
@@ -464,8 +470,9 @@ func resampleGenericTo8k(pcm []byte, srcRate int) []byte {
 	}
 	out := make([]byte, outSamples*2)
 
-	// Tamanho da janela de m├®dia (metade do ratio, m├¡n 1)
-	window := int(ratio/2 + 0.5)
+	// Janela de média proporcional ao ratio: cobre ~1 período de Nyquist do destino.
+	// Quanto maior o ratio, mais samples devem ser mediados para anti-aliasing.
+	window := int(ratio + 0.5)
 	if window < 1 {
 		window = 1
 	}
@@ -694,11 +701,20 @@ func (s *SIPAdapter) handleIncomingCall(inDialog *diago.DialogServerSession) {
 
 	defer func() {
 		if r := recover(); r != nil {
-			log.Printf("[SIP] PANIC recuperado na chamada %s: %v", dialogID, r)
+			log.Printf("[SIP] PANIC recuperado na chamada %s: %v\n%s", dialogID, r, debug.Stack())
 		}
 		call.SetState(CallStateEnded)
 		if call.Pipeline != nil {
 			call.Pipeline.Stop()
+		}
+		// Cancela streaming LLM pendente para esta chamada.
+		// Sem isso, o LLM continua gerando resposta para uma chamada já encerrada,
+		// desperdiçando compute e gerando erro "chamada não encontrada" no Send().
+		s.mu.RLock()
+		cancelFn := s.CancelStreamingForContact
+		s.mu.RUnlock()
+		if cancelFn != nil {
+			cancelFn("sip", callerID)
 		}
 		s.mu.Lock()
 		delete(s.calls, dialogID)
@@ -733,7 +749,7 @@ func (s *SIPAdapter) handleIncomingCall(inDialog *diago.DialogServerSession) {
 				DisplayName: callerName,
 				Username:    callerID,
 			},
-			Text:      "Ol├í",
+			Text:      "Olá",
 			Channel:   "sip",
 			Timestamp: call.StartedAt,
 		}
@@ -880,7 +896,7 @@ func (s *SIPAdapter) Dial(ctx context.Context, number string) (*CallSession, err
 					DisplayName: number,
 					Username:    number,
 				},
-				Text:      "Ol├í",
+				Text:      "Olá",
 				Channel:   "sip",
 				Timestamp: call.StartedAt,
 			}

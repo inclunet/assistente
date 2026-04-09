@@ -229,6 +229,16 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa o gerenciador de servidores MCP (após tool registry)
 	a.initMCP()
 
+	// Inicializa o Speech Service (TTS/STT business logic) — antes de initMessaging
+	// porque o canal SIP precisa do speechSvc para criar SpeechManagers
+	a.speechSvc = speech.NewService(speech.ServiceConfig{
+		Emitter:         a.emitter,
+		Registry:        a.llmRegistry,
+		ProfileProvider: profileProviderAdapter{app: a},
+		CredMgr:         a.credMgr,
+		AudioRepo:       a.audioSvc,
+	})
+
 	// Inicializa o gateway de mensageria (Telegram, SIP, etc.)
 	a.initMessaging()
 
@@ -245,13 +255,6 @@ func (a *App) startup(ctx context.Context) {
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
 	})
 
-	// Inicializa o Prompt Builder (montagem de system prompt, sem Wails)
-	a.promptBuilder = &prompt.Builder{
-		Skills:    a.skillMgr,
-		Workspace: a.workspaceMgr,
-		Tools:     a.toolRegistry,
-	}
-
 	// Inicializa o Settings Service (config CRUD e reset de dados)
 	a.settingsSvc = config.NewSettingsService(config.SettingsServiceConfig{
 		Emitter:        a.emitter,
@@ -261,14 +264,15 @@ func (a *App) startup(ctx context.Context) {
 		ReloadLLM:      a.initLLMClient,
 	})
 
-	// Inicializa o Speech Service (TTS/STT business logic)
-	a.speechSvc = speech.NewService(speech.ServiceConfig{
-		Emitter:         a.emitter,
-		Registry:        a.llmRegistry,
-		ProfileProvider: profileProviderAdapter{app: a},
-		CredMgr:         a.credMgr,
-		AudioRepo:       a.audioSvc,
-	})
+	// Inicializa o workspace manager (antes do promptBuilder que depende dele)
+	a.initWorkspace()
+
+	// Inicializa o Prompt Builder (montagem de system prompt, sem Wails)
+	a.promptBuilder = &prompt.Builder{
+		Skills:    a.skillMgr,
+		Workspace: a.workspaceMgr,
+		Tools:     a.toolRegistry,
+	}
 
 	// Inicializa hotkeys globais
 	a.initGlobalHotkeys()
@@ -278,9 +282,6 @@ func (a *App) startup(ctx context.Context) {
 
 	// Inicializa o sistema de jobs (event-driven automation)
 	a.initJobs()
-
-	// Inicializa o workspace manager
-	a.initWorkspace()
 
 	// Inicializa o updater
 	a.initUpdater()

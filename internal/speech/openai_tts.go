@@ -235,6 +235,31 @@ func (c *TTSClient) SynthesizeStreamWithVoice(ctx context.Context, text string, 
 	return c.synthesizeStreamInternal(ctx, text, voice, callbacks)
 }
 
+// SynthesizeStreamWithFormat converte texto em áudio com streaming, permitindo
+// sobrescrever o formato de saída (ex: "wav" para obter PCM lossless ao invés de MP3).
+func (c *TTSClient) SynthesizeStreamWithFormat(ctx context.Context, text string, voice TTSVoice, format TTSFormat, callbacks TTSStreamCallbacks) error {
+	if text == "" {
+		return fmt.Errorf("text cannot be empty")
+	}
+	chunks := splitTextForTTS(text)
+	for _, chunk := range chunks {
+		params := c.buildParams(chunk, voice)
+		if format != "" {
+			params.ResponseFormat = openai.AudioSpeechNewParamsResponseFormat(format)
+		}
+		resp, err := c.client.Audio.Speech.New(ctx, params)
+		if err != nil {
+			return fmt.Errorf("TTS stream failed: %w", err)
+		}
+		if err := readStreamChunks(ctx, resp.Body, callbacks); err != nil {
+			resp.Body.Close()
+			return err
+		}
+		resp.Body.Close()
+	}
+	return nil
+}
+
 // splitTextForTTS divide texto longo em chunks de no máximo 4096 caracteres,
 // quebrando em limites de frase/parágrafo para manter naturalidade.
 func splitTextForTTS(text string) []string {

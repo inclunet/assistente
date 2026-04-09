@@ -16,7 +16,8 @@ import (
 	"assistente/internal/speech"
 
 	"github.com/emiago/diago"
-	mp3 "github.com/hajimehoshi/go-mp3"
+	diagoaudio "github.com/emiago/diago/audio"
+	resampling "github.com/tphakala/go-audio-resampling"
 )
 
 // AudioPipelineConfig configura o pipeline de ├íudio bidirecional.
@@ -48,26 +49,33 @@ type AudioPipelineConfig struct {
 	// STTMaxRetries é o número máximo de tentativas para STT em erros transitórios.
 	// Padrão: 2
 	STTMaxRetries int
+
+	// InputGain é o fator de amplificação aplicado ao áudio de entrada após
+	// decodificação G.711. Compensa sinais fracos de SBCs/gateways telefônicos.
+	// 1.0 = sem ganho, 10.0 = 10x amplificação. Clipping é prevenido.
+	// Padrão: 10.0
+	InputGain float64
 }
 
-// DefaultAudioPipelineConfig retorna configura├º├úo padr├úo para pipeline SIP.
+// DefaultAudioPipelineConfig retorna configuração padrão para pipeline SIP.
 func DefaultAudioPipelineConfig() AudioPipelineConfig {
 	return AudioPipelineConfig{
-		VAD:             DefaultVADConfig(),
-		ReadFrameSize:   320, // 20ms @ 8kHz mono 16-bit
-		InputSampleRate: 8000,
-		STTSampleRate:   16000,
+		VAD:                  DefaultVADConfig(),
+		ReadFrameSize:        320,
+		InputSampleRate:      8000,
+		STTSampleRate:        16000,
 		TTSOutputFormat:      "pcm",
 		EchoCooldownDuration: 300 * time.Millisecond,
 		STTMaxRetries:        2,
+		InputGain:            30.0,
 	}
 }
 
 // AudioPipeline gerencia o fluxo de ├íudio bidirecional de uma chamada SIP.
 //
-// Fluxo de entrada (call ÔåÆ LLM):
+// Fluxo de entrada (call → LLM):
 //
-//	RTP ÔåÆ AudioReader ÔåÆ PCM 8kHz ÔåÆ VAD ÔåÆ Speech Segment ÔåÆ Resample 16kHz ÔåÆ WAV ÔåÆ Whisper STT ÔåÆ texto ÔåÆ Gateway
+//	RTP → AudioReader (G.711 µ-law/A-law) → Decode → PCM 8kHz → VAD → Speech Segment → Resample 16kHz → WAV → Whisper STT → texto → Gateway
 //
 // DialogSession abstrai os m├®todos comuns entre DialogServerSession (inbound)
 // e DialogClientSession (outbound) do diago, permitindo o pipeline funcionar
@@ -138,14 +146,35 @@ func NewAudioPipeline(
 	return p
 }
 
-// Run inicia o loop de captura de ├íudio ÔåÆ VAD ÔåÆ STT.
-// Bloqueia at├® a chamada terminar (contexto cancelado ou BYE).
+// Run inicia o loop de captura de áudio → VAD → STT.
+// Bloqueia até a chamada terminar (contexto cancelado ou BYE).
 func (p *AudioPipeline) Run() error {
-	// Obt├®m reader de ├íudio (PCM decodificado do RTP/G.711)
-	reader, err := p.dialog.AudioReader()
+	// Obtém reader de áudio e detecta codec negociado (µ-law / A-law).
+	// AudioReader retorna áudio CODIFICADO (G.711), não PCM.
+	var mediaProps diago.MediaProps
+	reader, err := p.dialog.AudioReader(diago.WithAudioReaderMediaProps(&mediaProps))
 	if err != nil {
 		return fmt.Errorf("sip pipeline: erro ao obter audio reader: %w", err)
 	}
+
+	// Seleciona decoder G.711 baseado no codec negociado via SDP.
+	// G.711 µ-law (PCMU, PT=0) e A-law (PCMA, PT=8) usam 1 byte/sample.
+	// Decodificação produz PCM 16-bit signed LE (2 bytes/sample).
+	codecName := mediaProps.Codec.Name
+	var decodeG711 func(lpcm []byte, encoded []byte) (int, error)
+	switch codecName {
+	case "PCMA":
+		decodeG711 = diagoaudio.DecodeAlawTo
+	default:
+		// PCMU é o padrão para SIP
+		decodeG711 = diagoaudio.DecodeUlawTo
+		if codecName != "PCMU" && codecName != "" {
+			log.Printf("[SIP Pipeline] Codec %q desconhecido, assumindo PCMU", codecName)
+		}
+	}
+	log.Printf("[SIP Pipeline] Codec negociado: %s (PT=%d, rate=%d), media local=%s remote=%s",
+		codecName, mediaProps.Codec.PayloadType, mediaProps.Codec.SampleRate,
+		mediaProps.Laddr, mediaProps.Raddr)
 
 	// Configura VAD com callbacks
 	p.vad = NewEnergyVAD(
@@ -154,41 +183,55 @@ func (p *AudioPipeline) Run() error {
 		p.onSpeechEnd,
 	)
 
-	// Frame buffer para leitura
+	// Frame buffer para leitura de dados codificados G.711.
+	// G.711: 1 byte/sample, 160 bytes = 20ms @ 8kHz.
+	// Usamos buffer maior para acomodar pacotes RTP variáveis.
 	frameSize := p.config.ReadFrameSize
 	if frameSize == 0 {
 		frameSize = 320
 	}
-	buf := make([]byte, frameSize)
+	encodedBuf := make([]byte, frameSize)
+	// PCM 16-bit: 2 bytes por sample G.711, então buffer = 2x o tamanho
+	pcmBuf := make([]byte, frameSize*2)
 
-	// Cooldown ap├│s playback: tempo para eco do softphone remoto dissipar.
+	// Cooldown após playback: tempo para eco do softphone remoto dissipar.
 	const echoCooldown = 600 * time.Millisecond
 
-	log.Printf("[SIP Pipeline] Iniciado para chamada %s", p.call.ID)
+	// Ganho de entrada para compensar sinais fracos de SBCs telefônicos.
+	inputGain := p.config.InputGain
+	if inputGain <= 0 {
+		inputGain = 1.0
+	}
+
+	// Diagnóstico: loga RMS a cada ~5 segundos para verificar se áudio real chega.
+	var diagFrames int
+	var diagMaxRMS float64
+
+	log.Printf("[SIP Pipeline] Iniciado para chamada %s (gain=%.1fx)", p.call.ID, inputGain)
 
 	for {
 		select {
 		case <-p.ctx.Done():
-			// Chamada encerrada ÔÇö flush VAD para emitir segmento final
+			// Chamada encerrada — flush VAD para emitir segmento final
 			p.vad.Flush()
 			log.Printf("[SIP Pipeline] Encerrado para chamada %s", p.call.ID)
 			return nil
 		default:
 		}
 
-		n, err := reader.Read(buf)
+		n, err := reader.Read(encodedBuf)
 		if err != nil {
 			if err == io.EOF || p.ctx.Err() != nil {
 				p.vad.Flush()
 				return nil
 			}
-			return fmt.Errorf("sip pipeline: erro ao ler ├íudio: %w", err)
+			return fmt.Errorf("sip pipeline: erro ao ler áudio: %w", err)
 		}
 
 		if n > 0 {
-			// Supress├úo de eco: ignora frames do VAD durante playback e cooldown.
-			// O RTP continua sendo lido (drenado) para n├úo acumular no buffer,
-			// mas o VAD n├úo processa ÔåÆ evita false onset do eco do TTS.
+			// Supressão de eco: ignora frames do VAD durante playback e cooldown.
+			// O RTP continua sendo lido (drenado) para não acumular no buffer,
+			// mas o VAD não processa → evita false onset do eco do TTS.
 			if p.playbackActive.Load() {
 				continue
 			}
@@ -197,7 +240,32 @@ func (p *AudioPipeline) Run() error {
 					continue
 				}
 			}
-			p.vad.ProcessFrame(buf[:n])
+
+			// Decodifica G.711 (µ-law/A-law) → PCM 16-bit signed LE.
+			pcmN, decErr := decodeG711(pcmBuf, encodedBuf[:n])
+			if decErr != nil {
+				log.Printf("[SIP Pipeline] Erro ao decodificar G.711: %v", decErr)
+				continue
+			}
+
+			// Aplica ganho de entrada para compensar sinais fracos do SBC.
+			if inputGain != 1.0 {
+				applyGain(pcmBuf[:pcmN], inputGain)
+			}
+
+			// Diagnóstico: calcula RMS do frame (pós-ganho) e loga a cada ~5s.
+			rms := computeRMS(pcmBuf[:pcmN])
+			if rms > diagMaxRMS {
+				diagMaxRMS = rms
+			}
+			diagFrames++
+			if diagFrames%250 == 0 {
+				log.Printf("[SIP Diag] frames=%d, maxRMS=%.4f, gain=%.0fx",
+					diagFrames, diagMaxRMS, inputGain)
+				diagMaxRMS = 0
+			}
+
+			p.vad.ProcessFrame(pcmBuf[:pcmN])
 		}
 	}
 }
@@ -284,107 +352,135 @@ func (p *AudioPipeline) PlayStreamingAudio(reader io.Reader) (bool, error) {
 	return completed, err
 }
 
-// SpeakText sintetiza texto via streaming TTS e reproduz progressivamente.
-// Usa SpeechManager.SynthesizeStream para receber chunks de MP3 ├á medida que
-// s├úo gerados, decodifica e reproduz em tempo real (menor lat├¬ncia que batch).
-// Suporta barge-in: quando StopPlayback() ├® chamado (pelo VAD onSpeechStart),
-// a playback para, o stream TTS HTTP ├® cancelado via contexto, e a goroutine
-// de streaming ├® finalizada pela closure do pipe.
+// SpeakText sintetiza texto via TTS e reproduz na chamada SIP.
+// Pede WAV (PCM lossless) ao TTS, coleta o áudio inteiro, resampla de uma vez
+// para 8kHz (evitando artefatos de chunk boundary), e envia ao diago.
+// Cadeia: TTS → WAV lossless → one-shot resample 8kHz → diago codifica G.711.
 func (p *AudioPipeline) SpeakText(ctx context.Context, text, voiceID string) (bool, error) {
 	if p.speechManager == nil {
-		return false, fmt.Errorf("sip pipeline: speech manager indispon├¡vel")
+		return false, fmt.Errorf("sip pipeline: speech manager indisponível")
 	}
 
-	// Context cancel├ível ÔÇö cancelado quando playback termina ou ├® interrompido (barge-in).
-	// Isso cancela a requisi├º├úo HTTP do TTS stream, liberando recursos.
 	streamCtx, streamCancel := context.WithCancel(ctx)
 	defer streamCancel()
 
-	// Pipe: goroutine TTS envia MP3 bytes ÔåÆ lado leitor decodifica
-	pr, pw := io.Pipe()
-
-	// Goroutine: streaming TTS ÔåÆ base64 decode ÔåÆ escrita no pipe
-	go func() {
-		defer pw.Close()
-		err := p.speechManager.SynthesizeStream(streamCtx, text, voiceID, speech.StreamCallbacks{
-			OnChunk: func(chunkBase64 string) {
-				data, decErr := base64.StdEncoding.DecodeString(chunkBase64)
-				if decErr == nil && len(data) > 0 {
-					if _, writeErr := pw.Write(data); writeErr != nil {
-						return // pipe fechado (barge-in ou EOF)
-					}
-				}
-			},
-			OnDone:  func() {},
-			OnError: func(err error) { pw.CloseWithError(err) },
-		})
-		if err != nil {
-			pw.CloseWithError(err)
-		}
-	}()
-
-	// Decodifica MP3 streaming ÔåÆ PCM stereo
-	decoder, err := mp3.NewDecoder(pr)
+	// Coleta todo o WAV em memória. Para TTS de voz (frases curtas),
+	// o áudio inteiro ocupa poucos KB — streaming não compensa a complexidade.
+	var wavBuf bytes.Buffer
+	err := p.speechManager.SynthesizeStreamRaw(streamCtx, text, voiceID, "wav", speech.TTSStreamCallbacks{
+		OnChunk: func(chunk []byte) { wavBuf.Write(chunk) },
+		OnDone:  func() {},
+		OnError: func(err error) {},
+	})
 	if err != nil {
-		pr.Close()
-		return false, fmt.Errorf("sip pipeline: erro ao iniciar decoder MP3 stream: %w", err)
+		return false, fmt.Errorf("sip pipeline: TTS falhou: %w", err)
 	}
 
-	srcRate := decoder.SampleRate()
-	log.Printf("[SIP Pipeline] MP3 stream: srcRate=%d Hz", srcRate)
-
-	// Reader adapter: stereo MP3 PCM ÔåÆ mono 8kHz
-	resampler := &mp3StreamToMono8kReader{
-		dec:     decoder,
-		srcRate: srcRate,
-		tmp:     make([]byte, 8192),
+	// Converte WAV → PCM 8kHz mono (one-shot, sem artefatos de chunk)
+	pcm8k, convErr := wavToPCM8kMono(wavBuf.Bytes())
+	if convErr != nil {
+		return false, fmt.Errorf("sip pipeline: conversão WAV→8kHz: %w", convErr)
 	}
 
-	completed, playErr := p.PlayStreamingAudio(resampler)
+	log.Printf("[SIP Pipeline] TTS pronto: %d bytes PCM 8kHz (%dms)",
+		len(pcm8k), len(pcm8k)/16) // 8000 samples/s * 2 bytes = 16 bytes/ms
 
-	// Fecha pipe reader para desbloquear a goroutine de streaming
-	pr.Close()
-
-	return completed, playErr
+	return p.PlayAudio(pcm8k)
 }
 
-// mp3StreamToMono8kReader adapta a sa├¡da do decoder MP3 (stereo PCM, sample rate
-// original) para mono PCM 8kHz ÔÇö formato esperado pelo codec G.711 do RTP.
-// Implementa io.Reader para encadear com o playback do diago.
-type mp3StreamToMono8kReader struct {
-	dec     *mp3.Decoder
-	srcRate int
-	buf     bytes.Buffer
-	tmp     []byte // buffer tempor├írio para leitura do decoder
-}
-
-func (r *mp3StreamToMono8kReader) Read(p []byte) (int, error) {
-	// Serve dados j├í processados
-	if r.buf.Len() >= len(p) {
-		return r.buf.Read(p)
+// wavToPCM8kMono converte WAV (qualquer rate/canais) para PCM 16-bit 8kHz mono.
+// Faz resample one-shot para evitar artefatos de chunk boundary.
+func wavToPCM8kMono(wavData []byte) ([]byte, error) {
+	r := bytes.NewReader(wavData)
+	srcRate, channels, err := parseWAVHeader(r)
+	if err != nil {
+		return nil, err
 	}
 
-	// L├¬ chunk do decoder MP3 (stereo interleaved 16-bit signed LE)
-	n, readErr := r.dec.Read(r.tmp)
-	if n > 0 {
-		// Converte stereo ÔåÆ mono, depois resampla para 8kHz
-		mono := stereoToMono(r.tmp[:n])
-		resampled := resampleGenericTo8k(mono, r.srcRate)
-		r.buf.Write(resampled)
+	// Lê todos os dados PCM de uma vez
+	pcmData, err := io.ReadAll(r)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao ler PCM do WAV: %w", err)
 	}
 
-	if r.buf.Len() > 0 {
-		nn, _ := r.buf.Read(p)
-		if readErr == io.EOF && r.buf.Len() == 0 {
-			return nn, io.EOF
+	// Stereo → mono se necessário
+	if channels == 2 {
+		pcmData = stereoToMono(pcmData)
+	}
+
+	// Se já está a 8kHz, não precisa resample
+	if srcRate == 8000 {
+		return pcmData, nil
+	}
+
+	// Converte int16 → float64 normalizado [-1,1]
+	numSamples := len(pcmData) / 2
+	floats := make([]float64, numSamples)
+	for i := 0; i < numSamples; i++ {
+		s := int16(binary.LittleEndian.Uint16(pcmData[i*2:]))
+		floats[i] = float64(s) / 32768.0
+	}
+
+	// Resample one-shot (polyphase FIR + Kaiser window, sem chunk boundary)
+	resampled, err := resampling.ResampleMono(floats, float64(srcRate), 8000, resampling.QualityHigh)
+	if err != nil {
+		return nil, fmt.Errorf("resample %d→8000: %w", srcRate, err)
+	}
+
+	// Converte float64 → int16 LE
+	out := make([]byte, len(resampled)*2)
+	for i, f := range resampled {
+		if f > 1.0 {
+			f = 1.0
+		} else if f < -1.0 {
+			f = -1.0
 		}
-		return nn, nil
+		binary.LittleEndian.PutUint16(out[i*2:], uint16(int16(f*32767.0)))
 	}
-
-	return 0, readErr
+	return out, nil
 }
 
-// onSpeechStart ├® chamado quando o VAD detecta in├¡cio de fala.
+// parseWAVHeader lê o header WAV de um reader e retorna sample rate e
+// número de canais. Após retornar, o reader está posicionado no início dos dados PCM.
+func parseWAVHeader(r io.Reader) (sampleRate, channels int, err error) {
+	header := make([]byte, 12)
+	if _, err = io.ReadFull(r, header); err != nil {
+		return 0, 0, fmt.Errorf("erro ao ler RIFF header: %w", err)
+	}
+	if string(header[0:4]) != "RIFF" || string(header[8:12]) != "WAVE" {
+		return 0, 0, fmt.Errorf("não é um arquivo WAV válido")
+	}
+
+	chunkHeader := make([]byte, 8)
+	for {
+		if _, err = io.ReadFull(r, chunkHeader); err != nil {
+			return 0, 0, fmt.Errorf("erro ao ler chunk header: %w", err)
+		}
+		chunkID := string(chunkHeader[0:4])
+		chunkSize := int64(binary.LittleEndian.Uint32(chunkHeader[4:8]))
+
+		switch chunkID {
+		case "fmt ":
+			if chunkSize < 16 {
+				return 0, 0, fmt.Errorf("fmt chunk muito pequeno: %d", chunkSize)
+			}
+			fmtData := make([]byte, chunkSize)
+			if _, err = io.ReadFull(r, fmtData); err != nil {
+				return 0, 0, fmt.Errorf("erro ao ler fmt chunk: %w", err)
+			}
+			channels = int(binary.LittleEndian.Uint16(fmtData[2:4]))
+			sampleRate = int(binary.LittleEndian.Uint32(fmtData[4:8]))
+		case "data":
+			return sampleRate, channels, nil
+		default:
+			if _, err = io.CopyN(io.Discard, r, chunkSize); err != nil {
+				return 0, 0, fmt.Errorf("erro ao pular chunk %q: %w", chunkID, err)
+			}
+		}
+	}
+}
+
+// onSpeechStart é chamado quando o VAD detecta início de fala.
 func (p *AudioPipeline) onSpeechStart() {
 	// Verifica se o pipeline já foi encerrado antes de agir
 	select {

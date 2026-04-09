@@ -64,10 +64,16 @@ type VADConfig struct {
 	// Padr├úo: 0.3
 	ZCRWeight float64
 
-	// MaxSegmentDuration ├® a dura├º├úo m├íxima de um segmento de fala antes de for├ºar
-	// emiss├úo para o STT. Previne mega-segmentos causados por eco ou ru├¡do cont├¡nuo.
-	// Padr├úo: 15s
+	// MaxSegmentDuration é a duração máxima de um segmento de fala antes de forçar
+	// emissão para o STT. Previne mega-segmentos causados por eco ou ruído contínuo.
+	// Padrão: 15s
 	MaxSegmentDuration time.Duration
+
+	// WarmupDuration é o período inicial onde o VAD calibra o noise floor mas não
+	// dispara onsets de fala. Permite estabilizar thresholds adaptativos antes de
+	// reagir, evitando falsos positivos de ruído do SBC/codec no início da chamada.
+	// Padrão: 1s
+	WarmupDuration time.Duration
 }
 
 // DefaultVADConfig retorna configura├º├úo padr├úo para canal telef├┤nico G.711.
@@ -76,7 +82,7 @@ func DefaultVADConfig() VADConfig {
 		SilenceThreshold:      0.02,
 		SpeechThreshold:       0.03,
 		SilenceDuration:       800 * time.Millisecond,
-		SpeechDuration:        250 * time.Millisecond,
+		SpeechDuration:        100 * time.Millisecond,
 		LeadingBufferDuration: 200 * time.Millisecond,
 		SampleRate:            8000,
 		AdaptiveNoise:         true,
@@ -84,6 +90,7 @@ func DefaultVADConfig() VADConfig {
 		AdaptiveMargin:        2.5,
 		ZCRWeight:             0.3,
 		MaxSegmentDuration:    15 * time.Second,
+		WarmupDuration:        1 * time.Second,
 	}
 }
 
@@ -116,8 +123,13 @@ type EnergyVAD struct {
 	leadingBufSize int // tamanho m├íximo em bytes
 	leadingBufPos  int // posi├º├úo de escrita no buffer circular
 
-	// Acumula ├íudio do segmento de fala atual
+	// Acumula áudio do segmento de fala atual
 	speechBuf []byte
+
+	// Warm-up: samples processados até agora (suprime onsets durante warmup)
+	warmupSamples    int
+	warmupThreshold  int // samples necessários para completar warm-up
+	warmupComplete   bool
 
 	// Callbacks
 	onSpeechStart func()
@@ -153,8 +165,10 @@ func NewEnergyVAD(cfg VADConfig, onSpeechStart func(), onSpeechEnd func(segment 
 	if cfg.MaxSegmentDuration == 0 {
 		cfg.MaxSegmentDuration = 15 * time.Second
 	}
+	// WarmupDuration: 0 = sem warm-up (desabilitado em testes).
+	// Valor padrão definido em DefaultVADConfig().
 
-	// Converte dura├º├Áes em n├║mero de samples
+	// Converte durações em número de samples
 	speechSamplesThreshold := int(cfg.SpeechDuration.Seconds() * float64(cfg.SampleRate))
 	silenceSamplesThreshold := int(cfg.SilenceDuration.Seconds() * float64(cfg.SampleRate))
 
@@ -166,8 +180,11 @@ func NewEnergyVAD(cfg VADConfig, onSpeechStart func(), onSpeechEnd func(segment 
 	// Cada ProcessFrame tipicamente recebe 20ms de ├íudio, ent├úo 500ms Ôëê 25 frames.
 	noiseInitSize := 25
 
-	// Max segment: dura├º├úo em bytes (samples * 2 bytes por sample)
+	// Max segment: duração em bytes (samples * 2 bytes por sample)
 	maxSegmentBytes := int(cfg.MaxSegmentDuration.Seconds() * float64(cfg.SampleRate)) * 2
+
+	// Warm-up: conversão de duração para samples
+	warmupThreshold := int(cfg.WarmupDuration.Seconds() * float64(cfg.SampleRate))
 
 	return &EnergyVAD{
 		config:                  cfg,
@@ -179,20 +196,38 @@ func NewEnergyVAD(cfg VADConfig, onSpeechStart func(), onSpeechEnd func(segment 
 		noiseInitSize:           noiseInitSize,
 		leadingBuf:              make([]byte, leadingBufSize),
 		leadingBufSize:          leadingBufSize,
+		warmupThreshold:         warmupThreshold,
 		onSpeechStart:           onSpeechStart,
 		onSpeechEnd:             onSpeechEnd,
 	}
 }
 
-// ProcessFrame processa um frame de ├íudio PCM 16-bit signed LE mono.
-// Combina RMS energy com ZCR para decis├úo mais robusta. Usa threshold
-// adaptativo ao ru├¡do de fundo quando AdaptiveNoise est├í habilitado.
+// ProcessFrame processa um frame de áudio PCM 16-bit signed LE mono.
+// Combina RMS energy com ZCR para decisão mais robusta. Usa threshold
+// adaptativo ao ruído de fundo quando AdaptiveNoise está habilitado.
 func (v *EnergyVAD) ProcessFrame(pcm []byte) VADState {
 	rms := computeRMS(pcm)
 	frameSamples := len(pcm) / 2
 
 	// Atualiza noise floor adaptativo
 	v.updateNoiseFloor(rms)
+
+	// Warm-up: processa frames para calibrar noise floor mas não dispara onsets.
+	// Evita falsos positivos de ruído do SBC/codec no início da chamada.
+	if !v.warmupComplete {
+		if v.warmupThreshold <= 0 {
+			v.warmupComplete = true
+		} else {
+			v.warmupSamples += frameSamples
+			v.appendLeadingBuffer(pcm)
+			if v.warmupSamples >= v.warmupThreshold {
+				v.warmupComplete = true
+				log.Printf("[VAD] Warm-up completo (%dms, noiseFloor=%.4f)",
+					v.warmupSamples*1000/v.config.SampleRate, v.noiseFloor)
+			}
+			return v.state
+		}
+	}
 
 	// Calcula score combinado RMS + ZCR
 	score := v.computeScore(pcm, rms)
@@ -370,12 +405,15 @@ func (v *EnergyVAD) resolveThresholds() (speechTh, silenceTh float64) {
 	// Silence threshold = metade do speech threshold
 	silenceTh = speechTh * 0.6
 
-	// Clamp: nunca abaixo dos m├¡nimos configurados
-	if speechTh < v.config.SpeechThreshold {
-		speechTh = v.config.SpeechThreshold
+	// Clamp inferior: garante thresholds mínimos sensíveis para áudio
+	// telefônico com ganho (sinais ampliados via InputGain).
+	const minSpeechTh = 0.003
+	const minSilenceTh = 0.002
+	if speechTh < minSpeechTh {
+		speechTh = minSpeechTh
 	}
-	if silenceTh < v.config.SilenceThreshold {
-		silenceTh = v.config.SilenceThreshold
+	if silenceTh < minSilenceTh {
+		silenceTh = minSilenceTh
 	}
 
 	// Upper bound: thresholds absurdamente altos tornam detec├º├úo imposs├¡vel
@@ -421,7 +459,7 @@ func (v *EnergyVAD) computeScore(pcm []byte, rms float64) float64 {
 	return rms * (1.0 + v.config.ZCRWeight*zcrBonus)
 }
 
-// NoiseFloor retorna o n├¡vel estimado de ru├¡do de fundo atual.
+// NoiseFloor retorna o nível estimado de ruído de fundo atual.
 func (v *EnergyVAD) NoiseFloor() float64 {
 	return v.noiseFloor
 }
@@ -514,4 +552,21 @@ func computeRMS(pcm []byte) float64 {
 	}
 
 	return math.Sqrt(sumSquares / float64(numSamples))
+}
+
+// applyGain multiplica as amostras PCM 16-bit por um fator de ganho.
+// Faz clipping em [-32768, 32767] para prevenir overflow.
+func applyGain(pcm []byte, gain float64) {
+	numSamples := len(pcm) / 2
+	for i := 0; i < numSamples; i++ {
+		sample := int16(binary.LittleEndian.Uint16(pcm[i*2 : i*2+2]))
+		amplified := float64(sample) * gain
+		// Clipping
+		if amplified > 32767 {
+			amplified = 32767
+		} else if amplified < -32768 {
+			amplified = -32768
+		}
+		binary.LittleEndian.PutUint16(pcm[i*2:], uint16(int16(amplified)))
+	}
 }

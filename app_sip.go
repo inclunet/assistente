@@ -41,14 +41,31 @@ func (a *App) injectSIPSpeechManager() {
 // SIP é server-side, então webspeech não funciona — força whisper quando necessário.
 // Retorna (speechManager, voiceID). Se não conseguir criar, retorna (nil, "").
 func (a *App) createSIPSpeechManager() (*speech.SpeechManager, string) {
+	log.Printf("[SIP-Speech] Criando SpeechManager para canal SIP...")
+
 	// Tenta carregar o perfil do canal SIP
-	if chCfg, _ := channels.Load("sip"); chCfg != nil && chCfg.Profile != "" {
+	chCfg, chErr := channels.Load("sip")
+	if chErr != nil {
+		log.Printf("[SIP-Speech] Erro ao carregar config do canal SIP: %v", chErr)
+	}
+
+	if chCfg != nil && chCfg.Profile != "" {
+		log.Printf("[SIP-Speech] Canal SIP tem perfil configurado: '%s'", chCfg.Profile)
 		if p, err := a.profileManager.Get(chCfg.Profile); err == nil {
 			pCopy := *p
+			log.Printf("[SIP-Speech] Perfil carregado: STTProvider='%s', Input.LLMProviderID='%s', Voice.Assistant.LLMProviderID='%s'",
+				pCopy.Input.STTProvider, pCopy.Input.LLMProviderID, pCopy.Voice.Assistant.LLMProviderID)
 
 			// SIP é server-side: webspeech não funciona, força whisper
 			if pCopy.Input.STTProvider == "webspeech" || pCopy.Input.STTProvider == "" {
 				pCopy.Input.STTProvider = "whisper"
+				log.Printf("[SIP-Speech] STTProvider forçado para 'whisper' (server-side)")
+			}
+
+			// Whisper sem idioma → força "pt" para evitar alucinações ("[Music]" etc.)
+			if pCopy.Input.Language == "" {
+				pCopy.Input.Language = "pt"
+				log.Printf("[SIP-Speech] Language forçado para 'pt' (idioma padrão SIP)")
 			}
 
 			// Whisper é API OpenAI — sempre usar o LLMProviderID do assistant voice
@@ -56,28 +73,31 @@ func (a *App) createSIPSpeechManager() (*speech.SpeechManager, string) {
 			isWhisper := pCopy.Input.STTProvider == "whisper" || pCopy.Input.STTProvider == "whisper_api"
 			if isWhisper && pCopy.Voice.Assistant.LLMProviderID != "" {
 				pCopy.Input.LLMProviderID = pCopy.Voice.Assistant.LLMProviderID
-				log.Printf("[Speech] SIP override: STT=%s, LLMProviderID=%s (do assistant voice)",
+				log.Printf("[SIP-Speech] SIP override: STT=%s, LLMProviderID=%s (do assistant voice)",
 					pCopy.Input.STTProvider, pCopy.Input.LLMProviderID)
 			}
 
 			sm := a.speechSvc.CreateManagerForProfile(&pCopy)
 			if sm != nil {
-				log.Printf("[Speech] SpeechManager do perfil '%s' criado para SIP", chCfg.Profile)
+				log.Printf("[SIP-Speech] SpeechManager do perfil '%s' criado com sucesso", chCfg.Profile)
 				return sm, pCopy.Voice.Assistant.VoiceID
 			}
+			log.Printf("[SIP-Speech] FALHA ao criar SpeechManager do perfil '%s'", chCfg.Profile)
 		} else {
-			log.Printf("[Speech] Perfil '%s' do canal SIP não encontrado: %v", chCfg.Profile, err)
+			log.Printf("[SIP-Speech] Perfil '%s' do canal SIP não encontrado: %v", chCfg.Profile, err)
 		}
+	} else {
+		log.Printf("[SIP-Speech] Canal SIP sem perfil configurado (chCfg=%v), tentando fallback global...", chCfg != nil)
 	}
 
 	// Fallback: tenta inicializar o speechManager global (pode ser nil na startup)
 	a.speechSvc.EnsureSpeechManager()
 	if sm := a.speechSvc.GetSpeechManager(); sm != nil {
-		log.Printf("[Speech] SpeechManager global usado para SIP (fallback)")
+		log.Printf("[SIP-Speech] SpeechManager global usado para SIP (fallback)")
 		return sm, ""
 	}
 
-	log.Printf("[Speech] Nenhum SpeechManager disponível para SIP")
+	log.Printf("[SIP-Speech] ERRO: Nenhum SpeechManager disponível para SIP — STT não funcionará!")
 	return nil, ""
 }
 

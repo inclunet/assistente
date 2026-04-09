@@ -1,8 +1,10 @@
 package sip
 
-// Resample8to16 converte ├íudio PCM 16-bit signed LE de 8kHz para 16kHz
-// usando interpola├º├úo linear. Cada sample ├® duplicado com valor interpolado
-// entre amostras vizinhas para suavizar a sa├¡da.
+import "encoding/binary"
+
+// Resample8to16 converte áudio PCM 16-bit signed LE de 8kHz para 16kHz
+// usando interpolação linear. Cada sample é duplicado com valor interpolado
+// entre amostras vizinhas para suavizar a saída.
 //
 // O ├íudio de entrada ├® PCM 16-bit signed little-endian mono (padr├úo G.711 decodificado).
 // A sa├¡da ├® PCM 16-bit signed little-endian mono em 16kHz (formato esperado pelo Whisper).
@@ -135,4 +137,119 @@ func writeSample(buf []byte, idx int, val int16) {
 	off := idx * 2
 	buf[off] = byte(val)
 	buf[off+1] = byte(val >> 8)
+}
+
+// streamingResampler converte mono PCM 16-bit de qualquer taxa para 8kHz
+// mantendo estado entre chamadas para evitar clicks nas bordas de chunks.
+// Usa filtro triangular (Bartlett) com tracking de fase fracionário para
+// produzir áudio limpo durante streaming progressivo (TTS → RTP).
+type streamingResampler struct {
+	srcRate int
+	ratio   float64 // srcRate / 8000
+	window  int     // half-window para filtro anti-aliasing
+	phase   float64 // posição fracionária no input (persiste entre chunks)
+	overlap []int16 // samples do final do chunk anterior para lookback
+}
+
+// newStreamingResampler cria um resampler stateful para downsampling para 8kHz.
+func newStreamingResampler(srcRate int) *streamingResampler {
+	ratio := float64(srcRate) / 8000.0
+	window := int(ratio + 0.5)
+	if window < 1 {
+		window = 1
+	}
+	return &streamingResampler{
+		srcRate: srcRate,
+		ratio:   ratio,
+		window:  window,
+	}
+}
+
+// Process converte um chunk de mono PCM 16-bit para 8kHz mono PCM.
+// Mantém estado entre chamadas (overlap + phase) para transição suave.
+func (r *streamingResampler) Process(mono []byte) []byte {
+	numIn := len(mono) / 2
+	if numIn == 0 {
+		return nil
+	}
+
+	// Lê samples do chunk novo
+	newSamples := make([]int16, numIn)
+	for i := 0; i < numIn; i++ {
+		newSamples[i] = int16(binary.LittleEndian.Uint16(mono[i*2:]))
+	}
+
+	// Buffer combinado: overlap do chunk anterior + novo chunk
+	overlapLen := len(r.overlap)
+	combined := make([]int16, overlapLen+numIn)
+	copy(combined, r.overlap)
+	copy(combined[overlapLen:], newSamples)
+	combinedLen := len(combined)
+
+	// Gera samples de saída com phase tracking contínuo
+	// phase é relativa ao início de newSamples (pode ser negativa → referência overlap)
+	var out []byte
+	for {
+		// Posição absoluta no buffer combinado
+		absPos := r.phase + float64(overlapLen)
+		center := int(absPos + 0.5)
+
+		// Para se não temos lookahead suficiente
+		if center+r.window >= combinedLen {
+			break
+		}
+
+		// Janela de filtragem
+		start := center - r.window
+		if start < 0 {
+			start = 0
+		}
+		end := center + r.window + 1
+		if end > combinedLen {
+			end = combinedLen
+		}
+
+		if start >= end {
+			r.phase += r.ratio
+			continue
+		}
+
+		// Filtro triangular (Bartlett): peso decresce com distância do centro.
+		// Melhor resposta em frequência que box filter: -26dB sidelobes (vs -13dB).
+		var sum float64
+		var weightSum float64
+		halfW := float64(r.window) + 1.0
+		for j := start; j < end; j++ {
+			dist := absPos - float64(j)
+			if dist < 0 {
+				dist = -dist
+			}
+			weight := 1.0 - dist/halfW
+			if weight < 0 {
+				weight = 0
+			}
+			sum += float64(combined[j]) * weight
+			weightSum += weight
+		}
+
+		if weightSum > 0 {
+			val := int16(sum / weightSum)
+			out = binary.LittleEndian.AppendUint16(out, uint16(val))
+		}
+
+		r.phase += r.ratio
+	}
+
+	// Ajusta phase: subtrai input consumido
+	r.phase -= float64(numIn)
+
+	// Salva overlap: últimos (2*window) samples para lookback do próximo chunk
+	keepSamples := 2 * r.window
+	if keepSamples > combinedLen {
+		keepSamples = combinedLen
+	}
+	r.overlap = make([]int16, keepSamples)
+	copy(r.overlap, combined[combinedLen-keepSamples:])
+
+	return out
 }

@@ -57,6 +57,48 @@ func TestEnergyVAD_SilenceDetection(t *testing.T) {
 	}
 }
 
+func TestEnergyVAD_WarmupSuppressesOnset(t *testing.T) {
+	var speechStarted bool
+
+	cfg := DefaultVADConfig()
+	cfg.SampleRate = 8000
+	cfg.SpeechDuration = 100 * time.Millisecond
+	cfg.WarmupDuration = 500 * time.Millisecond // 500ms warm-up
+
+	vad := NewEnergyVAD(cfg,
+		func() { speechStarted = true },
+		func(segment []byte) {},
+	)
+
+	// Alimenta tom alto durante o warm-up (250ms < 500ms warm-up)
+	tone := generateTone(20, 8000, 440.0, 0.5)
+	for i := 0; i < 12; i++ { // 12 * 20ms = 240ms
+		vad.ProcessFrame(tone)
+	}
+
+	if speechStarted {
+		t.Error("VAD detectou fala durante warm-up")
+	}
+	if vad.State() != VADSilence {
+		t.Errorf("Estado esperado VADSilence durante warm-up, obteve %v", vad.State())
+	}
+
+	// Continua até completar o warm-up (mais 260ms para totalizar 500ms)
+	silence := generateSilence(20, 8000)
+	for i := 0; i < 13; i++ { // 13 * 20ms = 260ms
+		vad.ProcessFrame(silence)
+	}
+
+	// Agora alimenta tom alto após warm-up — deve detectar fala
+	for i := 0; i < 10; i++ { // 10 * 20ms = 200ms > SpeechDuration 100ms
+		vad.ProcessFrame(tone)
+	}
+
+	if !speechStarted {
+		t.Error("VAD não detectou fala após warm-up completo")
+	}
+}
+
 func TestEnergyVAD_SpeechDetection(t *testing.T) {
 	var speechStarted bool
 	var speechSegment []byte
@@ -65,6 +107,7 @@ func TestEnergyVAD_SpeechDetection(t *testing.T) {
 	cfg.SampleRate = 8000
 	cfg.SpeechDuration = 100 * time.Millisecond
 	cfg.SilenceDuration = 200 * time.Millisecond
+	cfg.WarmupDuration = 0 // desabilitar warm-up para teste direto
 
 	vad := NewEnergyVAD(cfg,
 		func() { speechStarted = true },
@@ -104,6 +147,7 @@ func TestEnergyVAD_Flush(t *testing.T) {
 	cfg := DefaultVADConfig()
 	cfg.SampleRate = 8000
 	cfg.SpeechDuration = 50 * time.Millisecond
+	cfg.WarmupDuration = 0
 
 	vad := NewEnergyVAD(cfg,
 		func() {},
@@ -198,6 +242,7 @@ func TestEnergyVAD_LeadingBuffer(t *testing.T) {
 	cfg.LeadingBufferDuration = 100 * time.Millisecond
 	cfg.SpeechDuration = 50 * time.Millisecond
 	cfg.SilenceDuration = 200 * time.Millisecond
+	cfg.WarmupDuration = 0
 
 	vad := NewEnergyVAD(cfg,
 		func() {},
@@ -397,10 +442,10 @@ func TestEnergyVAD_ResolveThresholds_Adaptive(t *testing.T) {
 
 	speechTh, silenceTh := vad.resolveThresholds()
 
-	// SpeechTh = max(noiseFloor * margin, config.SpeechThreshold)
+	// SpeechTh = max(noiseFloor * margin, minSpeechTh=0.003)
 	expectedSpeechTh := vad.NoiseFloor() * cfg.AdaptiveMargin
-	if expectedSpeechTh < cfg.SpeechThreshold {
-		expectedSpeechTh = cfg.SpeechThreshold
+	if expectedSpeechTh < 0.003 {
+		expectedSpeechTh = 0.003
 	}
 
 	if math.Abs(speechTh-expectedSpeechTh) > 0.001 {
@@ -412,12 +457,40 @@ func TestEnergyVAD_ResolveThresholds_Adaptive(t *testing.T) {
 		t.Errorf("SilenceTh=%f deveria ser < SpeechTh=%f", silenceTh, speechTh)
 	}
 }
+func TestApplyGain(t *testing.T) {
+	// Cria buffer com samples ±100
+	pcm := make([]byte, 4) // 2 samples
+	binary.LittleEndian.PutUint16(pcm[0:], uint16(int16(100)))
+	neg := int16(-100)
+	binary.LittleEndian.PutUint16(pcm[2:], uint16(neg))
+
+	applyGain(pcm, 10.0)
+
+	s0 := int16(binary.LittleEndian.Uint16(pcm[0:]))
+	s1 := int16(binary.LittleEndian.Uint16(pcm[2:]))
+	if s0 != 1000 {
+		t.Errorf("sample[0] = %d, want 1000", s0)
+	}
+	if s1 != -1000 {
+		t.Errorf("sample[1] = %d, want -1000", s1)
+	}
+
+	// Testa clipping
+	binary.LittleEndian.PutUint16(pcm[0:], uint16(int16(10000)))
+	applyGain(pcm[:2], 10.0)
+	s0 = int16(binary.LittleEndian.Uint16(pcm[0:]))
+	if s0 != 32767 {
+		t.Errorf("clip: sample = %d, want 32767", s0)
+	}
+}
+
 func TestEnergyVAD_MaxSegmentDuration(t *testing.T) {
 	var emitted [][]byte
 
 	cfg := DefaultVADConfig()
 	cfg.MaxSegmentDuration = 500 * time.Millisecond // 500ms para teste r├ípido
 	cfg.SpeechDuration = 60 * time.Millisecond      // onset r├ípido
+	cfg.WarmupDuration = 0
 
 	vad := NewEnergyVAD(cfg, nil, func(seg []byte) {
 		cp := make([]byte, len(seg))

@@ -1,9 +1,77 @@
 package sip
 
 import (
+	"bytes"
+	"encoding/binary"
 	"testing"
 	"time"
 )
+
+// buildTestWAV cria um WAV válido com rate e canais especificados.
+func buildTestWAV(sampleRate uint32, channels uint16, pcmBytes int) []byte {
+	var buf bytes.Buffer
+	dataSize := uint32(pcmBytes)
+	fileSize := 36 + dataSize
+
+	// RIFF header
+	buf.WriteString("RIFF")
+	binary.Write(&buf, binary.LittleEndian, fileSize)
+	buf.WriteString("WAVE")
+
+	// fmt chunk
+	buf.WriteString("fmt ")
+	binary.Write(&buf, binary.LittleEndian, uint32(16))        // chunk size
+	binary.Write(&buf, binary.LittleEndian, uint16(1))         // PCM format
+	binary.Write(&buf, binary.LittleEndian, channels)          // channels
+	binary.Write(&buf, binary.LittleEndian, sampleRate)        // sample rate
+	byteRate := sampleRate * uint32(channels) * 2
+	binary.Write(&buf, binary.LittleEndian, byteRate)          // byte rate
+	binary.Write(&buf, binary.LittleEndian, channels*2)        // block align
+	binary.Write(&buf, binary.LittleEndian, uint16(16))        // bits per sample
+
+	// data chunk
+	buf.WriteString("data")
+	binary.Write(&buf, binary.LittleEndian, dataSize)
+	buf.Write(make([]byte, pcmBytes))
+
+	return buf.Bytes()
+}
+
+func TestParseWAVHeader(t *testing.T) {
+	tests := []struct {
+		name       string
+		rate       uint32
+		channels   uint16
+	}{
+		{"22050Hz mono", 22050, 1},
+		{"44100Hz stereo", 44100, 2},
+		{"8000Hz mono", 8000, 1},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			wav := buildTestWAV(tt.rate, tt.channels, 100)
+			r := bytes.NewReader(wav)
+			rate, ch, err := parseWAVHeader(r)
+			if err != nil {
+				t.Fatalf("parseWAVHeader error: %v", err)
+			}
+			if rate != int(tt.rate) {
+				t.Errorf("sampleRate = %d, want %d", rate, tt.rate)
+			}
+			if ch != int(tt.channels) {
+				t.Errorf("channels = %d, want %d", ch, tt.channels)
+			}
+		})
+	}
+}
+
+func TestParseWAVHeader_Invalid(t *testing.T) {
+	_, _, err := parseWAVHeader(bytes.NewReader([]byte("not a wav")))
+	if err == nil {
+		t.Error("expected error for invalid WAV")
+	}
+}
 
 func TestNewCallSession(t *testing.T) {
 	cs := NewCallSession("dialog-1", "100@pbx", "Alice")
@@ -136,15 +204,17 @@ func TestAdapter_SetVoiceID(t *testing.T) {
 	}
 }
 
-func TestMp3StreamToMono8kReader_EmptyInput(t *testing.T) {
-	// Testa que reader com buffer vazio retorna corretamente
-	r := &mp3StreamToMono8kReader{
-		srcRate: 44100,
-		tmp:     make([]byte, 1024),
+func TestWavToPCM8kMono_22050Hz(t *testing.T) {
+	// WAV 22050Hz mono → deve resamplar para 8kHz
+	wav := buildTestWAV(22050, 1, 4410) // 100ms de áudio
+	pcm8k, err := wavToPCM8kMono(wav)
+	if err != nil {
+		t.Fatalf("wavToPCM8kMono error: %v", err)
 	}
-	// Sem decoder, n├úo pode ler ÔÇö mas verifica que a struct ├® cri├ível
-	if r.srcRate != 44100 {
-		t.Errorf("srcRate = %d, want 44100", r.srcRate)
+	// 100ms @ 8kHz = 800 samples * 2 bytes = 1600 bytes (aproximado)
+	expectedLen := 1600
+	if len(pcm8k) < expectedLen-200 || len(pcm8k) > expectedLen+200 {
+		t.Errorf("len(pcm8k) = %d, expected ~%d", len(pcm8k), expectedLen)
 	}
 }
 

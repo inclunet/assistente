@@ -211,6 +211,102 @@ func TestResampleGenericTo8k_SameRate(t *testing.T) {
 	}
 }
 
+func TestStreamingResampler_Continuity(t *testing.T) {
+	// Gera 1 segundo de tom 440Hz a 22050Hz (rate do Piper TTS)
+	srcRate := 22050
+	totalSamples := srcRate // 1s
+	fullInput := make([]byte, totalSamples*2)
+	for i := 0; i < totalSamples; i++ {
+		val := int16(16000 * math.Sin(2*math.Pi*440*float64(i)/float64(srcRate)))
+		binary.LittleEndian.PutUint16(fullInput[i*2:], uint16(val))
+	}
+
+	// Processa em chunks de ~93ms (como o mp3StreamToMono8kReader)
+	chunkSize := 2048 * 2 // 2048 samples = 4096 bytes
+	resampler := newStreamingResampler(srcRate)
+
+	var streamOut []byte
+	for off := 0; off < len(fullInput); off += chunkSize {
+		end := off + chunkSize
+		if end > len(fullInput) {
+			end = len(fullInput)
+		}
+		chunk := fullInput[off:end]
+		streamOut = append(streamOut, resampler.Process(chunk)...)
+	}
+
+	// Processa tudo de uma vez com resampleGenericTo8k para comparar
+	batchOut := resampleGenericTo8k(fullInput, srcRate)
+
+	// Ambos devem produzir ~8000 samples para 1s de áudio
+	streamSamples := len(streamOut) / 2
+	batchSamples := len(batchOut) / 2
+
+	if streamSamples < 7800 || streamSamples > 8200 {
+		t.Errorf("streaming: esperado ~8000 samples, obteve %d", streamSamples)
+	}
+	if batchSamples < 7800 || batchSamples > 8200 {
+		t.Errorf("batch: esperado ~8000 samples, obteve %d", batchSamples)
+	}
+
+	// Verifica que NÃO há clicks nas bordas de chunks.
+	// Clicks se manifestam como diferenças grandes entre samples consecutivos.
+	// Para tom 440Hz a 8kHz, a diferença max entre samples consecutivos é
+	// ~440/8000 * 2π * 16000 ≈ 5500. Um click seria >> 10000.
+	maxDiff := int16(0)
+	outSamples := len(streamOut) / 2
+	for i := 1; i < outSamples; i++ {
+		s0 := int16(binary.LittleEndian.Uint16(streamOut[(i-1)*2:]))
+		s1 := int16(binary.LittleEndian.Uint16(streamOut[i*2:]))
+		diff := s1 - s0
+		if diff < 0 {
+			diff = -diff
+		}
+		if diff > maxDiff {
+			maxDiff = diff
+		}
+	}
+	// Tom 440Hz a 8kHz: max delta entre samples ~5500. Clique seria >10000.
+	if maxDiff > 8000 {
+		t.Errorf("possível click detectado: maxDiff=%d (esperado <8000 para 440Hz)", maxDiff)
+	}
+}
+
+func TestStreamingResampler_PhaseStability(t *testing.T) {
+	// Processa o mesmo sinal em chunks de tamanhos variados
+	srcRate := 22050
+	samples := 4000
+	input := make([]byte, samples*2)
+	for i := 0; i < samples; i++ {
+		val := int16(10000 * math.Sin(2*math.Pi*300*float64(i)/float64(srcRate)))
+		binary.LittleEndian.PutUint16(input[i*2:], uint16(val))
+	}
+
+	// Chunk sizes variados para testar estabilidade
+	chunkSizes := []int{512, 1024, 2048, 768, 1536}
+	resampler := newStreamingResampler(srcRate)
+
+	var out []byte
+	off := 0
+	chunkIdx := 0
+	for off < len(input) {
+		cs := chunkSizes[chunkIdx%len(chunkSizes)] * 2
+		chunkIdx++
+		end := off + cs
+		if end > len(input) {
+			end = len(input)
+		}
+		out = append(out, resampler.Process(input[off:end])...)
+		off = end
+	}
+
+	outSamples := len(out) / 2
+	expected := int(float64(samples) / (float64(srcRate) / 8000.0))
+	if outSamples < expected-10 || outSamples > expected+10 {
+		t.Errorf("output samples %d, esperado ~%d", outSamples, expected)
+	}
+}
+
 func TestEncodePCMToWAV(t *testing.T) {
 	pcm := make([]byte, 3200) // 100ms @ 16kHz
 	wav := encodePCMToWAV(pcm, 16000, 16, 1)
@@ -257,7 +353,7 @@ func TestExtractPCMFromWAV_Invalid(t *testing.T) {
 }
 
 func TestConvertToPCM8k_WAV(t *testing.T) {
-	// WAV 16kHz ÔåÆ 8kHz
+	// WAV 16kHz → 8kHz
 	pcm16k := make([]byte, 320) // 10ms @ 16kHz
 	wav := encodePCMToWAV(pcm16k, 16000, 16, 1)
 
@@ -268,10 +364,11 @@ func TestConvertToPCM8k_WAV(t *testing.T) {
 	if result == nil {
 		t.Fatal("resultado nil")
 	}
-	// 16kHz ÔåÆ 8kHz: metade dos samples
+	// 16kHz → 8kHz: ~metade dos samples (polyphase FIR pode variar ±10%)
 	expectedLen := len(pcm16k) / 2
-	if len(result) != expectedLen {
-		t.Errorf("resultado: %d bytes, esperado %d", len(result), expectedLen)
+	tolerance := expectedLen / 5 // 20% de tolerância
+	if len(result) < expectedLen-tolerance || len(result) > expectedLen+tolerance {
+		t.Errorf("resultado: %d bytes, esperado ~%d (±%d)", len(result), expectedLen, tolerance)
 	}
 }
 

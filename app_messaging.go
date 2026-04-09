@@ -35,6 +35,12 @@ func (a *App) initMessaging() {
 	//   - "always_audio":    sempre gera TTS
 	// Retorna (nil, nil) se não deve gerar áudio (gateway enviará texto).
 	synthesizeTTS := messaging.SynthesizeTTSFunc(func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
+		// SIP tem seu próprio pipeline de streaming TTS no adapter (SpeakText).
+		// Não precisa de TTS do gateway — menor latência com streaming direto.
+		if channel == "sip" {
+			return nil, nil
+		}
+
 		// Resolve o perfil do canal
 		var profile *profiles.Profile
 		if chCfg, _ := channels.Load(channel); chCfg != nil && chCfg.Profile != "" {
