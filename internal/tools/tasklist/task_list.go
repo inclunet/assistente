@@ -535,7 +535,7 @@ func (t *TaskListTool) updateTaskList(id uint, title, description, viewMode stri
 		transitions := database.TaskListWorkflowTransitions(wf.AllowedTransitions)
 
 		var migration map[int]int
-		if wf.StatusMigration != nil && len(wf.StatusMigration) > 0 {
+		if len(wf.StatusMigration) > 0 {
 			migration = wf.StatusMigration
 		}
 

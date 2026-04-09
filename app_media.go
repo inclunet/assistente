@@ -60,10 +60,4 @@ func (a *App) UpdateProfileMediaSupport(mediaType string, supported bool) {
 	}
 }
 
-// truncateStr encurta uma string para exibição em logs.
-func truncateStr(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
-}
+

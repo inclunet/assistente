@@ -267,8 +267,7 @@ func UpdateWorkflowFull(
 		}
 	}
 
-	if statusMigration != nil {
-		for oldID, newID := range statusMigration {
+	for oldID, newID := range statusMigration {
 			if statusIDs[oldID] {
 				return fmt.Errorf("status_migration mapeia ID %d que ainda existe nos novos statuses", oldID)
 			}
@@ -276,7 +275,6 @@ func UpdateWorkflowFull(
 				return fmt.Errorf("status_migration mapeia para ID %d inexistente nos novos statuses", newID)
 			}
 		}
-	}
 
 	counts, err := GetTaskCountsByStatus(taskListID)
 	if err != nil {
@@ -302,13 +300,11 @@ func UpdateWorkflowFull(
 	}
 
 	return db.Transaction(func(tx *gorm.DB) error {
-		if statusMigration != nil {
-			for oldID, newID := range statusMigration {
-				if err := tx.Model(&Task{}).
-					Where("task_list_id = ? AND status_id = ?", taskListID, oldID).
-					Update("status_id", newID).Error; err != nil {
-					return fmt.Errorf("erro ao migrar tasks de status %d para %d: %w", oldID, newID, err)
-				}
+		for oldID, newID := range statusMigration {
+			if err := tx.Model(&Task{}).
+				Where("task_list_id = ? AND status_id = ?", taskListID, oldID).
+				Update("status_id", newID).Error; err != nil {
+				return fmt.Errorf("erro ao migrar tasks de status %d para %d: %w", oldID, newID, err)
 			}
 		}
 

@@ -6,8 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"sync"
 	"strings"
+	"sync"
 
 	"github.com/google/uuid"
 
@@ -86,7 +86,7 @@ func (g *Gateway) Register(name string, m Messenger) {
 	g.mu.Unlock()
 
 	m.SetHandler(g.handleIncoming)
-	fmt.Printf("[Gateway] Messenger '%s' registrado\n", name)
+	log.Printf("[Gateway] Messenger '%s' registrado", name)
 }
 
 // Unregister desconecta e remove um messenger pelo nome.
@@ -95,12 +95,11 @@ func (g *Gateway) Unregister(name string) {
 	defer g.mu.Unlock()
 
 	if m, ok := g.messengers[name]; ok {
-		fmt.Printf("[Gateway] Desconectando '%s'...\n", name)
+		log.Printf("[Gateway] Desconectando '%s'...", name)
 		if err := m.Disconnect(); err != nil {
-			fmt.Printf("[Gateway] Erro ao desconectar '%s': %v\n", name, err)
+			log.Printf("[Gateway] Erro ao desconectar '%s': %v", name, err)
 		}
 		delete(g.messengers, name)
-		fmt.Printf("[Gateway] Messenger '%s' removido\n", name)
 	}
 }
 
@@ -110,9 +109,9 @@ func (g *Gateway) Shutdown() {
 	defer g.mu.Unlock()
 
 	for name, m := range g.messengers {
-		fmt.Printf("[Gateway] Desconectando '%s'...\n", name)
+		log.Printf("[Gateway] Desconectando '%s'...", name)
 		if err := m.Disconnect(); err != nil {
-			fmt.Printf("[Gateway] Erro ao desconectar '%s': %v\n", name, err)
+			log.Printf("[Gateway] Erro ao desconectar '%s': %v", name, err)
 		}
 	}
 	g.messengers = make(map[string]Messenger)

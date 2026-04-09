@@ -17,7 +17,6 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
-
 )
 
 func (a *App) initMessaging() {
@@ -169,60 +168,19 @@ func (a *App) initMessaging() {
 
 	// Telegram
 	if cfg, ok := enabledChannels["telegram"]; ok {
-		botToken := cfg.BotToken
-		if botToken == "" && cfg.BotTokenRef != "" {
-			botToken = a.resolveCredentialRef(cfg.BotTokenRef)
-		}
-		if botToken == "" {
-			log.Printf("[Messaging] Telegram não configurado ou desabilitado")
-		} else {
-			adapter := telegram.NewAdapter(botToken)
-			a.msgGateway.Register("telegram", adapter)
-			go func() {
-				if err := adapter.Connect(a.ctx); err != nil {
-					log.Printf("[Messaging] Erro ao conectar Telegram: %v", err)
-				}
-			}()
-			log.Printf("[Messaging] Telegram habilitado")
-		}
+		a.connectTelegram(cfg)
 	}
 
 	// Signal (via signal-cli-rest-api HTTP + WebSocket)
-	if cfg, ok := enabledChannels["signal"]; ok && cfg.Account != "" && cfg.APIURL != "" {
-		adapter := signal.NewAdapter(cfg.APIURL, cfg.Account, a.credMgr)
-		a.msgGateway.Register("signal", adapter)
-		go func() {
-			if err := adapter.Connect(a.ctx); err != nil {
-				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
-			}
-		}()
-		log.Printf("[Messaging] Signal habilitado (api=%s, account=%s)", cfg.APIURL, credentials.MaskIdentifier(cfg.Account))
+	if cfg, ok := enabledChannels["signal"]; ok {
+		a.connectSignal(cfg)
 	} else {
 		log.Printf("[Messaging] Signal não configurado ou desabilitado")
 	}
 
 	// Slack (Socket Mode)
 	if cfg, ok := enabledChannels["slack"]; ok {
-		botToken := cfg.BotToken
-		appToken := cfg.AppToken
-		if botToken == "" && cfg.BotTokenRef != "" {
-			botToken = a.resolveCredentialRef(cfg.BotTokenRef)
-		}
-		if appToken == "" && cfg.AppTokenRef != "" {
-			appToken = a.resolveCredentialRef(cfg.AppTokenRef)
-		}
-		if botToken == "" || appToken == "" {
-			log.Printf("[Messaging] Slack não configurado ou desabilitado")
-		} else {
-			adapter := slack.NewAdapter(botToken, appToken)
-			a.msgGateway.Register("slack", adapter)
-			go func() {
-				if err := adapter.Connect(a.ctx); err != nil {
-					log.Printf("[Messaging] Erro ao conectar Slack: %v", err)
-				}
-			}()
-			log.Printf("[Messaging] Slack habilitado")
-		}
+		a.connectSlack(cfg)
 	}
 
 	// Registra a tool send_message no registry de ferramentas
@@ -372,59 +330,11 @@ func (a *App) restartChannel(channelName string, cfg *channels.ChannelConfig) {
 
 	switch channelName {
 	case "telegram":
-		botToken := cfg.BotToken
-		if botToken == "" && cfg.BotTokenRef != "" {
-			botToken = a.resolveCredentialRef(cfg.BotTokenRef)
-		}
-		if botToken == "" {
-			log.Printf("[Messaging] Telegram: bot token vazio, não conectando")
-			return
-		}
-		adapter := telegram.NewAdapter(botToken)
-		a.msgGateway.Register("telegram", adapter)
-		go func() {
-			if err := adapter.Connect(a.ctx); err != nil {
-				log.Printf("[Messaging] Erro ao conectar Telegram: %v", err)
-			}
-		}()
-		log.Printf("[Messaging] Telegram reconectado")
-
+		a.connectTelegram(cfg)
 	case "signal":
-		if cfg.Account == "" || cfg.APIURL == "" {
-			log.Printf("[Messaging] Signal: conta ou URL da API vazios, não conectando")
-			return
-		}
-		adapter := signal.NewAdapter(cfg.APIURL, cfg.Account, a.credMgr)
-		a.msgGateway.Register("signal", adapter)
-		go func() {
-			if err := adapter.Connect(a.ctx); err != nil {
-				log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
-			}
-		}()
-		log.Printf("[Messaging] Signal reconectado (api=%s, account=%s)", cfg.APIURL, credentials.MaskIdentifier(cfg.Account))
-
+		a.connectSignal(cfg)
 	case "slack":
-		botToken := cfg.BotToken
-		appToken := cfg.AppToken
-		if botToken == "" && cfg.BotTokenRef != "" {
-			botToken = a.resolveCredentialRef(cfg.BotTokenRef)
-		}
-		if appToken == "" && cfg.AppTokenRef != "" {
-			appToken = a.resolveCredentialRef(cfg.AppTokenRef)
-		}
-		if botToken == "" || appToken == "" {
-			log.Printf("[Messaging] Slack: bot/app token vazios, não conectando")
-			return
-		}
-		adapter := slack.NewAdapter(botToken, appToken)
-		a.msgGateway.Register("slack", adapter)
-		go func() {
-			if err := adapter.Connect(a.ctx); err != nil {
-				log.Printf("[Messaging] Erro ao conectar Slack: %v", err)
-			}
-		}()
-		log.Printf("[Messaging] Slack reconectado")
-
+		a.connectSlack(cfg)
 	default:
 		log.Printf("[Messaging] Canal desconhecido: %s", channelName)
 	}
@@ -447,6 +357,69 @@ func (a *App) GetChannelTemplates() []channels.ChannelTemplate {
 		}
 	}
 	return filtered
+}
+
+// connectTelegram cria e registra o adapter do Telegram, resolvendo o bot token de
+// referências de credenciais se necessário. Inicia a conexão em goroutine.
+func (a *App) connectTelegram(cfg *channels.ChannelConfig) {
+	botToken := cfg.BotToken
+	if botToken == "" && cfg.BotTokenRef != "" {
+		botToken = a.resolveCredentialRef(cfg.BotTokenRef)
+	}
+	if botToken == "" {
+		log.Printf("[Messaging] Telegram não configurado (bot token ausente)")
+		return
+	}
+	adapter := telegram.NewAdapter(botToken)
+	a.msgGateway.Register("telegram", adapter)
+	go func() {
+		if err := adapter.Connect(a.ctx); err != nil {
+			log.Printf("[Messaging] Erro ao conectar Telegram: %v", err)
+		}
+	}()
+	log.Printf("[Messaging] Telegram conectado")
+}
+
+// connectSignal cria e registra o adapter do Signal (via signal-cli-rest-api).
+// Exige Account e APIURL preenchidos; loga e retorna se ausentes.
+func (a *App) connectSignal(cfg *channels.ChannelConfig) {
+	if cfg.Account == "" || cfg.APIURL == "" {
+		log.Printf("[Messaging] Signal não configurado (conta ou URL da API ausente)")
+		return
+	}
+	adapter := signal.NewAdapter(cfg.APIURL, cfg.Account, a.credMgr)
+	a.msgGateway.Register("signal", adapter)
+	go func() {
+		if err := adapter.Connect(a.ctx); err != nil {
+			log.Printf("[Messaging] Erro ao conectar Signal: %v", err)
+		}
+	}()
+	log.Printf("[Messaging] Signal conectado (api=%s, account=%s)", cfg.APIURL, credentials.MaskIdentifier(cfg.Account))
+}
+
+// connectSlack cria e registra o adapter do Slack (Socket Mode), resolvendo bot/app
+// tokens de referências de credenciais se necessário. Exige ambos os tokens.
+func (a *App) connectSlack(cfg *channels.ChannelConfig) {
+	botToken := cfg.BotToken
+	appToken := cfg.AppToken
+	if botToken == "" && cfg.BotTokenRef != "" {
+		botToken = a.resolveCredentialRef(cfg.BotTokenRef)
+	}
+	if appToken == "" && cfg.AppTokenRef != "" {
+		appToken = a.resolveCredentialRef(cfg.AppTokenRef)
+	}
+	if botToken == "" || appToken == "" {
+		log.Printf("[Messaging] Slack não configurado (bot/app token ausente)")
+		return
+	}
+	adapter := slack.NewAdapter(botToken, appToken)
+	a.msgGateway.Register("slack", adapter)
+	go func() {
+		if err := adapter.Connect(a.ctx); err != nil {
+			log.Printf("[Messaging] Erro ao conectar Slack: %v", err)
+		}
+	}()
+	log.Printf("[Messaging] Slack conectado")
 }
 
 // getSupportedChannelTypes retorna os tipos de canais suportados pelo backend.

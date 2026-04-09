@@ -12,11 +12,6 @@ type sendMessageV2 struct {
 	Base64Attachments []string `json:"base64_attachments,omitempty"` // Anexos em base64 (data URI: "data:mime;base64,...")
 }
 
-// sendMessageResponse é a resposta do POST /v2/send.
-type sendMessageResponse struct {
-	Timestamp string `json:"timestamp,omitempty"`
-}
-
 // apiError é um erro retornado pela REST API.
 type apiError struct {
 	Error string `json:"error"`
