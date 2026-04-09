@@ -122,8 +122,8 @@ export function CreateTask(arg1, arg2, arg3, arg4, arg5, arg6) {
   return window['go']['main']['App']['CreateTask'](arg1, arg2, arg3, arg4, arg5, arg6);
 }
 
-export function CreateTaskList(arg1, arg2) {
-  return window['go']['main']['App']['CreateTaskList'](arg1, arg2);
+export function CreateTaskList(arg1, arg2, arg3) {
+  return window['go']['main']['App']['CreateTaskList'](arg1, arg2, arg3);
 }
 
 export function CreateTaskNote(arg1, arg2, arg3, arg4, arg5) {

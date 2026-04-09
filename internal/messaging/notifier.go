@@ -1,7 +1,7 @@
 package messaging
 
 import (
-	"fmt"
+	"log"
 	"sync"
 )
 
@@ -55,8 +55,6 @@ func (n *ResponseNotifier) Register(conversationID uint, cb ResponseCallback) {
 	n.mu.Lock()
 	defer n.mu.Unlock()
 	n.callbacks[conversationID] = append(n.callbacks[conversationID], cb)
-	fmt.Printf("[Messaging] Callback registrado trace=%s conv=%d channel=%s chat=%s\n",
-		cb.TraceID, conversationID, cb.Channel, cb.ChatID)
 }
 
 // Notify chama todos os callbacks registrados para uma conversa e os remove.
@@ -74,11 +72,6 @@ func (n *ResponseNotifier) Notify(conversationID uint, response string, assistan
 		return
 	}
 
-	traceID := ""
-	if len(cbs) > 0 {
-		traceID = cbs[0].TraceID
-	}
-	fmt.Printf("[Messaging] Notificando %d callback(s) trace=%s conv=%d msgID=%d\n", len(cbs), traceID, conversationID, assistantMessageID)
 	for _, cb := range cbs {
 		// Chama em goroutine para não bloquear o saveAndFinish
 		go func(c ResponseCallback) {
@@ -99,7 +92,7 @@ func (n *ResponseNotifier) Cancel(conversationID uint) {
 	n.mu.Unlock()
 	if ok && len(cbs) > 0 {
 		traceID := cbs[0].TraceID
-		fmt.Printf("[Messaging] Callbacks cancelados trace=%s conv=%d count=%d (barge-in)\n",
+		log.Printf("[Messaging] Callbacks cancelados trace=%s conv=%d count=%d (barge-in)",
 			traceID, conversationID, len(cbs))
 	}
 }

@@ -173,11 +173,6 @@ func (sm *SpeechManager) TranscribeWithContext(ctx context.Context, audioBase64 
 	}
 }
 
-// transcribeWhisper transcreve usando Whisper
-func (sm *SpeechManager) transcribeWhisper(audioBase64 string, filename string) (*TranscriptionResult, error) {
-	return sm.transcribeWhisperCtx(context.Background(), audioBase64, filename)
-}
-
 // transcribeWhisperCtx transcreve usando Whisper com context cancelável.
 func (sm *SpeechManager) transcribeWhisperCtx(ctx context.Context, audioBase64 string, filename string) (*TranscriptionResult, error) {
 	sm.mu.RLock()
@@ -185,7 +180,7 @@ func (sm *SpeechManager) transcribeWhisperCtx(ctx context.Context, audioBase64 s
 	sm.mu.RUnlock()
 
 	if client == nil {
-		return nil, fmt.Errorf("Whisper client not configured")
+		return nil, fmt.Errorf("whisper client not configured")
 	}
 
 	// Decodifica o base64

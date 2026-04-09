@@ -8,7 +8,6 @@ import (
 	"sort"
 	"strings"
 
-	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/providers"
 )
@@ -55,7 +54,7 @@ func (a *App) initCredentialManager() {
 // 2. Se APIKey existir → garante que provider default está usando as credenciais
 // 3. Limpa campos legados do config.json
 func (a *App) migrateLegacyConfig() {
-	cfg, err := config.Load()
+	cfg, err := a.settingsSvc.GetConfig()
 	if err != nil {
 		// Sem config, sem migração necessária
 		return

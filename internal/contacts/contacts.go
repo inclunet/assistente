@@ -21,6 +21,7 @@ import (
 	"assistente/internal/configdir"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -61,13 +62,13 @@ func loadUnsafe() (ContactsFile, error) {
 
 	var contacts ContactsFile
 	if err := json.Unmarshal(data, &contacts); err != nil {
-		fmt.Printf("[Contacts] arquivo %s corrompido: %v\n", contactsFilename, err)
+		log.Printf("[Contacts] arquivo %s corrompido: %v", contactsFilename, err)
 		if resolved != nil {
 			backupCorruptedContactsFile(resolved.Path)
 		}
 		empty := make(ContactsFile)
 		if saveErr := saveUnsafe(empty); saveErr != nil {
-			fmt.Printf("[Contacts] falha ao recriar %s: %v\n", contactsFilename, saveErr)
+			log.Printf("[Contacts] falha ao recriar %s: %v", contactsFilename, saveErr)
 		}
 		return empty, nil
 	}

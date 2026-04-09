@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"assistente/internal/chat"
+	"assistente/internal/events"
 	"assistente/internal/llm"
 )
 
@@ -15,34 +16,29 @@ import (
 // - n1: interações com agentes (parentID=userMessageID)
 // - n2: interações do agente com tools (parentID=agentMessageID)
 type appStreamHandler struct {
-	baseStreamHandler
+	events.BaseStreamHandler
 	app           *App
 	userMessageID uint // ID da mensagem do usuário (raiz da thread)
 }
 
 func (h *appStreamHandler) OnError(err string) {
-	h.mu.Lock()
-	h.cancelPendingChunkTimer()
-	content := h.accumulatedContent
-	h.mu.Unlock()
+	h.Mu.Lock()
+	h.CancelPendingChunkTimer()
+	content := h.AccumulatedContent
+	h.Mu.Unlock()
 
-	h.emitter.Emit("chat:stream", StreamEvent{
+	h.Emitter.Emit("chat:stream", events.StreamEvent{
 		Content:        content,
 		Done:           true,
 		Error:          err,
-		ConversationId: h.conversationID,
+		ConversationId: h.ConversationID,
 	})
 }
 
-// OnToolCalls é chamado quando o LLM solicita execução de ferramentas.
-// Por enquanto (antes do agentic loop), loga e emite como done.
-// Será substituído pelo agentic loop na Fase 5.
+// OnToolCalls é o fallback de segurança para quando o streaming simples (sem agentic loop)
+// recebe tool calls inesperadamente. Delega para OnDone preservando a resposta textual.
 func (h *appStreamHandler) OnToolCalls(calls []llm.ToolCall, fullResponse string, usage llm.Usage, model string) {
-	fmt.Printf("🔧 [TOOL_CALLS] LLM solicitou %d ferramentas (ainda não implementado)\n", len(calls))
-	for _, call := range calls {
-		fmt.Printf("   - %s(%s)\n", call.Function.Name, call.Function.Arguments)
-	}
-	// Delega para OnDone até o agentic loop ser implementado
+	log.Printf("[TOOL_CALLS] recebido %d tool calls no streaming simples — delegando para OnDone", len(calls))
 	h.OnDone(fullResponse, usage, model)
 }
 
@@ -57,11 +53,11 @@ func (h *appStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 }
 
 func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model string) {
-	h.mu.Lock()
-	h.cancelPendingChunkTimer()
-	accumulatedContent := h.accumulatedContent
-	accumulatedReasoning := h.accumulatedReasoning
-	h.mu.Unlock()
+	h.Mu.Lock()
+	h.CancelPendingChunkTimer()
+	accumulatedContent := h.AccumulatedContent
+	accumulatedReasoning := h.AccumulatedReasoning
+	h.Mu.Unlock()
 
 	finalContent := fullResponse
 	if finalContent == "" {
@@ -71,7 +67,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	// Salva resposta final do assistant no nível 0 (sem parentID)
 	// Inclui reasoning se houver
 	savedMsgID, err := chat.SaveAssistantMessage(h.app.msgRepo, chat.MessageOptions{
-		ConversationID:   h.conversationID,
+		ConversationID:   h.ConversationID,
 		Role:             "assistant",
 		Content:          finalContent,
 		Reasoning:        accumulatedReasoning,
@@ -84,31 +80,25 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 		return
 	}
 	if err != nil {
-		fmt.Printf("❌ Erro ao salvar resposta do assistant: %v\n", err)
-	} else if savedMsgID > 0 {
-		if accumulatedReasoning != "" {
-			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0) com %d chars de reasoning\n", savedMsgID, len(accumulatedReasoning))
-		} else {
-			fmt.Printf("✅ Resposta do assistant salva: ID=%d (nível 0)\n", savedMsgID)
-		}
+		log.Printf("[Stream] erro ao salvar resposta do assistant: %v", err)
 	}
 
 	// Notifica o gateway de mensageria (se há callbacks pendentes para esta conversa)
 	if h.app.responseNotifier != nil {
-		h.app.responseNotifier.Notify(h.conversationID, finalContent, savedMsgID)
+		h.app.responseNotifier.Notify(h.ConversationID, finalContent, savedMsgID)
 	}
 
 	// Emite evento final de streaming
-	h.emitter.Emit("chat:stream", StreamEvent{
+	h.Emitter.Emit("chat:stream", events.StreamEvent{
 		Content:        finalContent,
 		Done:           true,
-		ConversationId: h.conversationID,
+		ConversationId: h.ConversationID,
 		FullResponse:   finalContent,
 	})
 
 	// Emite evento para frontend recarregar a conversa
-	h.emitter.Emit("chat:done", map[string]interface{}{
-		"conversationId": h.conversationID,
+	h.Emitter.Emit("chat:done", map[string]interface{}{
+		"conversationId": h.ConversationID,
 	})
 
 	// Verifica uso do contexto e emite aviso se necessário
@@ -116,19 +106,19 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Verifica se precisa sumarizar (após resposta concluída, não bloqueia nada)
 	go func() {
-		defer h.app.recoverFromPanic(h.conversationID, "checkAndTriggerSummarization")
-		h.app.checkAndTriggerSummarization(h.conversationID)
+		defer h.app.recoverFromPanic(h.ConversationID, "checkAndTriggerSummarization")
+		h.app.checkAndTriggerSummarization(h.ConversationID)
 	}()
 }
 
 // checkAndEmitContextWarning verifica se a conversa está próxima do limite de contexto
 // e emite um evento de aviso para o frontend
 func (h *appStreamHandler) checkAndEmitContextWarning() {
-	if h.conversationID == 0 {
+	if h.ConversationID == 0 {
 		return
 	}
 
-	stats, err := h.app.GetConversationTokenStats(h.conversationID)
+	stats, err := h.app.GetConversationTokenStats(h.ConversationID)
 	if err != nil {
 		return
 	}
@@ -137,8 +127,8 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		return
 	}
 
-	h.emitter.Emit("chat:token_stats", map[string]interface{}{
-		"conversationId":   h.conversationID,
+	h.Emitter.Emit("chat:token_stats", map[string]interface{}{
+		"conversationId":   h.ConversationID,
 		"totalTokens":      stats.TotalTokens,
 		"contextLimit":     stats.ContextLimit,
 		"contextUsage":     stats.ContextUsage,
@@ -150,8 +140,10 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 	})
 
 	if stats.IsCritical {
-		h.emitter.Emit("chat:context_warning", map[string]interface{}{
-			"conversationId": h.conversationID,
+		log.Printf("[Context] conversa %d em CRÍTICO: %0.1f%% (%d/%d tokens)",
+			h.ConversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
+		h.Emitter.Emit("chat:context_warning", map[string]interface{}{
+			"conversationId": h.ConversationID,
 			"level":          "critical",
 			"message": fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
 				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
@@ -159,11 +151,11 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 			"totalTokens":  stats.TotalTokens,
 			"contextLimit": stats.ContextLimit,
 		})
-		fmt.Printf("⚠️  [CONTEXT] Conversa %d em nível CRÍTICO: %0.1f%% (%d/%d tokens)\n",
-			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 	} else if stats.IsNearLimit {
-		h.emitter.Emit("chat:context_warning", map[string]interface{}{
-			"conversationId": h.conversationID,
+		log.Printf("[Context] conversa %d próxima do limite: %0.1f%% (%d/%d tokens)",
+			h.ConversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
+		h.Emitter.Emit("chat:context_warning", map[string]interface{}{
+			"conversationId": h.ConversationID,
 			"level":          "warning",
 			"message": fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
 				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
@@ -171,7 +163,5 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 			"totalTokens":  stats.TotalTokens,
 			"contextLimit": stats.ContextLimit,
 		})
-		fmt.Printf("⚠️  [CONTEXT] Conversa %d próxima do limite: %0.1f%% (%d/%d tokens)\n",
-			h.conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
 	}
 }

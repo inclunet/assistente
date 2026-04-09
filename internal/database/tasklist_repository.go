@@ -16,7 +16,8 @@ const MaxTaskLists = 100
 
 // CreateTaskList cria uma nova tasklist com workflow padrão
 // templateWorkflow pode ser nil para usar workflow padrão (A Fazer, Em Progresso, Concluído)
-func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflow) (*TaskList, error) {
+// slug: opcional; normalizado e único quando não vazio.
+func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflow, slug string) (*TaskList, error) {
 	// Valida limite
 	var count int64
 	if err := db.Model(&TaskList{}).Count(&count).Error; err != nil {
@@ -43,6 +44,14 @@ func CreateTaskList(title, description string, templateWorkflow *TaskListWorkflo
 	}
 
 	taskList.Workflow = workflow
+
+	if s := NormalizeTaskListSlug(slug); s != "" {
+		if err := SetTaskListSlug(taskList.ID, s); err != nil {
+			return nil, err
+		}
+		taskList.Slug = s
+	}
+
 	return taskList, nil
 }
 
@@ -100,9 +109,16 @@ func CloneTaskList(id uint, newTitle string) (*TaskList, error) {
 	}
 
 	// Cria nova tasklist
-	cloned, err := CreateTaskList(newTitle, original.Description, original.Workflow)
+	cloned, err := CreateTaskList(newTitle, original.Description, original.Workflow, "")
 	if err != nil {
 		return nil, err
+	}
+
+	if strings.TrimSpace(original.ValidationPolicy) != "" {
+		if err := SetTaskListValidationPolicy(cloned.ID, original.ValidationPolicy); err != nil {
+			return nil, err
+		}
+		cloned.ValidationPolicy = original.ValidationPolicy
 	}
 
 	return cloned, nil
@@ -251,8 +267,7 @@ func UpdateWorkflowFull(
 		}
 	}
 
-	if statusMigration != nil {
-		for oldID, newID := range statusMigration {
+	for oldID, newID := range statusMigration {
 			if statusIDs[oldID] {
 				return fmt.Errorf("status_migration mapeia ID %d que ainda existe nos novos statuses", oldID)
 			}
@@ -260,7 +275,6 @@ func UpdateWorkflowFull(
 				return fmt.Errorf("status_migration mapeia para ID %d inexistente nos novos statuses", newID)
 			}
 		}
-	}
 
 	counts, err := GetTaskCountsByStatus(taskListID)
 	if err != nil {
@@ -286,13 +300,11 @@ func UpdateWorkflowFull(
 	}
 
 	return db.Transaction(func(tx *gorm.DB) error {
-		if statusMigration != nil {
-			for oldID, newID := range statusMigration {
-				if err := tx.Model(&Task{}).
-					Where("task_list_id = ? AND status_id = ?", taskListID, oldID).
-					Update("status_id", newID).Error; err != nil {
-					return fmt.Errorf("erro ao migrar tasks de status %d para %d: %w", oldID, newID, err)
-				}
+		for oldID, newID := range statusMigration {
+			if err := tx.Model(&Task{}).
+				Where("task_list_id = ? AND status_id = ?", taskListID, oldID).
+				Update("status_id", newID).Error; err != nil {
+				return fmt.Errorf("erro ao migrar tasks de status %d para %d: %w", oldID, newID, err)
 			}
 		}
 
@@ -331,14 +343,31 @@ func GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
 	return result, nil
 }
 
-// UpdateTaskListFull atualiza title, description e preferred_view_mode de uma tasklist
-func UpdateTaskListFull(id uint, title, description, preferredViewMode string) error {
+// UpdateTaskListFull atualiza title, description e preferred_view_mode de uma tasklist.
+// slug: nil = não altera slug; ponteiro para string vazia = limpa slug; valor = define slug normalizado.
+func UpdateTaskListFull(id uint, title, description, preferredViewMode string, slug *string) error {
 	updates := map[string]interface{}{
 		"title":       title,
 		"description": description,
 	}
 	if preferredViewMode == "list" || preferredViewMode == "kanban" {
 		updates["preferred_view_mode"] = preferredViewMode
+	}
+	if slug != nil {
+		s := NormalizeTaskListSlug(*slug)
+		if err := ValidateTaskListSlugFormat(s); err != nil {
+			return err
+		}
+		if s != "" {
+			taken, err := slugTakenByOtherThan(s, id)
+			if err != nil {
+				return err
+			}
+			if taken {
+				return fmt.Errorf("slug %q já está em uso por outra lista", s)
+			}
+		}
+		updates["slug"] = s
 	}
 	return db.Model(&TaskList{}).Where("id = ?", id).Updates(updates).Error
 }
@@ -467,6 +496,10 @@ func CreateTask(taskListID uint, title, description, code, link string, parentID
 		Order:       maxOrder + 1,
 	}
 
+	if err := ValidateTaskCodeForTaskList(taskListID, code); err != nil {
+		return nil, err
+	}
+
 	if err := db.Create(task).Error; err != nil {
 		return nil, err
 	}
@@ -503,6 +536,10 @@ func CreateTaskFull(taskListID uint, title, description, code, link, assigneeNam
 		StatusID:     workflow.InitialStatusID,
 		ParentID:     parentID,
 		Order:        maxOrder + 1,
+	}
+
+	if err := ValidateTaskCodeForTaskList(taskListID, code); err != nil {
+		return nil, err
 	}
 
 	if err := db.Create(task).Error; err != nil {
@@ -556,6 +593,13 @@ func GetTasksByStatus(taskListID uint, statusID int) ([]Task, error) {
 
 // UpdateTask atualiza title, description, code e link de uma task
 func UpdateTask(id uint, title, description, code, link string) error {
+	var task Task
+	if err := db.First(&task, id).Error; err != nil {
+		return err
+	}
+	if err := ValidateTaskCodeForTaskList(task.TaskListID, code); err != nil {
+		return err
+	}
 	return db.Model(&Task{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
@@ -568,6 +612,13 @@ func UpdateTask(id uint, title, description, code, link string) error {
 
 // UpdateTaskFull atualiza todos os campos editáveis de uma task, incluindo assignee e creator
 func UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
+	var task Task
+	if err := db.First(&task, id).Error; err != nil {
+		return err
+	}
+	if err := ValidateTaskCodeForTaskList(task.TaskListID, code); err != nil {
+		return err
+	}
 	return db.Model(&Task{}).
 		Where("id = ?", id).
 		Updates(map[string]interface{}{
@@ -670,6 +721,10 @@ func MoveTaskToList(taskID uint, targetTaskListID uint) (*Task, error) {
 		return &task, nil
 	}
 
+	if err := ValidateTaskCodeForTaskList(targetTaskListID, task.Code); err != nil {
+		return nil, err
+	}
+
 	workflow, err := GetWorkflow(targetTaskListID)
 	if err != nil {
 		return nil, fmt.Errorf("workflow da lista destino %d não encontrado: %w", targetTaskListID, err)
@@ -757,6 +812,149 @@ func CreateTaskNote(taskID uint, noteType TaskNoteType, content, authorName, aut
 	}
 
 	return note, nil
+}
+
+func isSQLiteUniqueConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	s := err.Error()
+	return strings.Contains(s, "UNIQUE constraint failed") ||
+		strings.Contains(s, "constraint failed: UNIQUE") ||
+		strings.Contains(s, "SQLITE_CONSTRAINT_UNIQUE")
+}
+
+// FindTaskNoteByExternalRef retorna a nota com a origem e ID externos informados, ou nil se não existir.
+func FindTaskNoteByExternalRef(externalSource, externalID string) (*TaskNote, error) {
+	src := strings.TrimSpace(externalSource)
+	ext := strings.TrimSpace(externalID)
+	if src == "" || ext == "" {
+		return nil, nil
+	}
+	var note TaskNote
+	err := db.Where("external_source = ? AND external_id = ?", src, ext).First(&note).Error
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return &note, nil
+}
+
+func applyTaskNoteExternalUpsertUpdates(noteID uint, p UpsertTaskNoteByExternalParams) error {
+	updates := map[string]interface{}{
+		"content":            p.Content,
+		"author_name":        strings.TrimSpace(p.AuthorName),
+		"author_id":          strings.TrimSpace(p.AuthorID),
+		"external_parent_id": strings.TrimSpace(p.ExternalParentID),
+		"external_source":    strings.TrimSpace(p.ExternalSource),
+		"external_id":        strings.TrimSpace(p.ExternalID),
+	}
+	if p.ExternalUpdatedAt != nil {
+		updates["external_updated_at"] = p.ExternalUpdatedAt
+	}
+	if p.Type != nil {
+		updates["type"] = *p.Type
+	}
+	return db.Model(&TaskNote{}).Where("id = ?", noteID).Updates(updates).Error
+}
+
+// UpsertTaskNoteByExternal cria ou atualiza uma nota de forma idempotente usando external_source + external_id.
+// O segundo retorno indica se a nota foi criada (true) ou apenas atualizada (false).
+func UpsertTaskNoteByExternal(p UpsertTaskNoteByExternalParams) (*TaskNote, bool, error) {
+	src := strings.TrimSpace(p.ExternalSource)
+	ext := strings.TrimSpace(p.ExternalID)
+	if src == "" || ext == "" {
+		return nil, false, fmt.Errorf("external_source e external_id são obrigatórios para upsert externo")
+	}
+
+	var task Task
+	if err := db.First(&task, p.TaskID).Error; err != nil {
+		return nil, false, fmt.Errorf("task %d não encontrada: %w", p.TaskID, err)
+	}
+
+	if err := ValidateExternalNoteForTaskList(task.TaskListID, src, ext, strings.TrimSpace(p.ExternalParentID)); err != nil {
+		return nil, false, err
+	}
+
+	existing, err := FindTaskNoteByExternalRef(src, ext)
+	if err != nil {
+		return nil, false, err
+	}
+	if existing != nil {
+		if existing.TaskID != p.TaskID {
+			return nil, false, fmt.Errorf(
+				"nota com source=%q external_id=%q já existe na task %d; recusado vincular à task %d",
+				src, ext, existing.TaskID, p.TaskID,
+			)
+		}
+		if p.Type == nil {
+			updates := map[string]interface{}{
+				"content":            p.Content,
+				"author_name":        strings.TrimSpace(p.AuthorName),
+				"author_id":          strings.TrimSpace(p.AuthorID),
+				"external_parent_id": strings.TrimSpace(p.ExternalParentID),
+			}
+			if p.ExternalUpdatedAt != nil {
+				updates["external_updated_at"] = p.ExternalUpdatedAt
+			}
+			return finishNoteUpdate(existing.ID, updates)
+		}
+		if err := applyTaskNoteExternalUpsertUpdates(existing.ID, p); err != nil {
+			return nil, false, err
+		}
+		out, err := GetTaskNote(existing.ID)
+		return out, false, err
+	}
+
+	if p.Type == nil {
+		return nil, false, fmt.Errorf("type é obrigatório ao criar nota externa nova")
+	}
+
+	note := &TaskNote{
+		TaskID:             p.TaskID,
+		Type:               *p.Type,
+		Content:            p.Content,
+		AuthorName:         strings.TrimSpace(p.AuthorName),
+		AuthorID:           strings.TrimSpace(p.AuthorID),
+		ExternalSource:     src,
+		ExternalID:         ext,
+		ExternalParentID:   strings.TrimSpace(p.ExternalParentID),
+		ExternalUpdatedAt:  p.ExternalUpdatedAt,
+	}
+
+	if err := db.Create(note).Error; err != nil {
+		if !isSQLiteUniqueConstraintError(err) {
+			return nil, false, err
+		}
+		// Corrida: outra goroutine criou a mesma referência — reconsultar e atualizar.
+		again, e2 := FindTaskNoteByExternalRef(src, ext)
+		if e2 != nil || again == nil {
+			return nil, false, fmt.Errorf("criação conflitante e reconsulta falhou: %w", err)
+		}
+		if again.TaskID != p.TaskID {
+			return nil, false, fmt.Errorf(
+				"nota com source=%q external_id=%q já existe na task %d; recusado vincular à task %d",
+				src, ext, again.TaskID, p.TaskID,
+			)
+		}
+		if err := applyTaskNoteExternalUpsertUpdates(again.ID, p); err != nil {
+			return nil, false, err
+		}
+		out, err := GetTaskNote(again.ID)
+		return out, false, err
+	}
+
+	return note, true, nil
+}
+
+func finishNoteUpdate(noteID uint, updates map[string]interface{}) (*TaskNote, bool, error) {
+	if err := db.Model(&TaskNote{}).Where("id = ?", noteID).Updates(updates).Error; err != nil {
+		return nil, false, err
+	}
+	out, err := GetTaskNote(noteID)
+	return out, false, err
 }
 
 // GetTaskNote retorna uma nota pelo ID

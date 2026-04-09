@@ -32,21 +32,20 @@ func (a *App) validateWizardURL(baseURL string) error {
 // NeedsWelcomeWizard verifica se o assistente precisa do wizard de boas-vindas
 // Retorna true se não houver chave mestra ou provedor configurado
 func (a *App) NeedsWelcomeWizard() bool {
-	cfg, err := config.Load()
-	if err != nil {
-		return true
-	}
-
-	// Verifica se tem API key e base URL configurados
-	hasConfig := cfg.APIKey != "" && cfg.APIBaseURL != ""
-
 	store := credentials.NewDBStore()
 	hasMasterKey, err := store.HasKeyWrap(context.Background(), credentials.KeyWrapKindMaster)
 	if err != nil {
 		return true
 	}
 
-	return !hasConfig || !hasMasterKey
+	// Verifica se há pelo menos um provedor LLM configurado
+	hasProviders := false
+	if a.providerSvc != nil {
+		count, _ := a.providerSvc.Count()
+		hasProviders = count > 0
+	}
+
+	return !hasProviders || !hasMasterKey
 }
 
 // RunWelcomeWizard executa o wizard de boas-vindas
@@ -605,19 +604,15 @@ func (a *App) createWizardProvider(providerChoice, baseURL, apiKey, model string
 	return info.ID, nil
 }
 
-// saveWelcomeConfig salva a configuração legada do wizard (config.json)
+// saveWelcomeConfig salva a configuração do wizard via settingsSvc
 func (a *App) saveWelcomeConfig(baseURL, apiKey, defaultModel string) error {
-	cfg, err := config.Load()
-	if err != nil {
-		cfg = config.DefaultConfig()
-	}
-
-	cfg.APIBaseURL = baseURL
-	cfg.APIKey = apiKey
-	cfg.DefaultModel = defaultModel
-	cfg.ChatParams.Model = defaultModel
-
-	return config.Save(cfg)
+	return a.settingsSvc.SaveSettings(config.SettingsInput{
+		APIKey:     apiKey,
+		APIBaseURL: baseURL,
+		ChatParams: config.SettingsModelParams{
+			Model: defaultModel,
+		},
+	})
 }
 
 // REMOVED: updateAllProfilesProviderAndModel — substituída pelo sistema de $default.

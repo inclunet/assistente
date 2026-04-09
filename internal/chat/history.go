@@ -2,7 +2,6 @@ package chat
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 
 	"assistente/internal/database"
@@ -40,8 +39,6 @@ func (h *HistoryLoader) Load(conversationID uint) ([]database.ChatMessage, strin
 				dbMessages = append(dbMessages, m)
 			}
 		}
-		fmt.Printf("📋 [HISTORY] Conversa %d: %d msgs total, %d após resumo (upToID=%d)\n",
-			conversationID, len(allRootMessages), len(dbMessages), summaryUpToID)
 	} else {
 		dbMessages = allRootMessages
 	}
@@ -64,19 +61,15 @@ func (h *HistoryLoader) Load(conversationID uint) ([]database.ChatMessage, strin
 
 		if cutIndex > 2 {
 			dbMessages = append(dbMessages[:2], dbMessages[cutIndex:]...)
-			fmt.Printf("📋 [HISTORY] Conversa %d: truncado para %d msgs (corte em user msg idx %d)\n",
-				conversationID, len(dbMessages), cutIndex)
 		} else {
 			kept := h.MaxMsgs - 2
 			if kept > total {
 				kept = total
 			}
 			dbMessages = append(dbMessages[:2], dbMessages[total-kept:]...)
-			fmt.Printf("📋 [HISTORY] Conversa %d: truncado para %d msgs (fallback)\n",
-				conversationID, len(dbMessages))
 		}
 	} else {
-		fmt.Printf("📋 [HISTORY] Conversa %d: %d mensagens no contexto\n", conversationID, total)
+		// total <= MaxMsgs — use all in context
 	}
 
 	// Garante que a primeira mensagem no contexto é uma user message
@@ -107,7 +100,7 @@ func (h *HistoryLoader) Load(conversationID uint) ([]database.ChatMessage, strin
 	cleaned := make([]database.ChatMessage, 0, len(dbMessages))
 	for _, m := range dbMessages {
 		if m.Role == "tool" && m.ToolCallID != "" && !offeredIDs[m.ToolCallID] {
-			fmt.Printf("📋 [HISTORY] Removendo tool_result órfão: %s\n", m.ToolCallID)
+			log.Printf("[History] removendo tool_result órfão: %s (conversa %d)", m.ToolCallID, conversationID)
 			continue
 		}
 		if m.ToolCalls != "" {
@@ -121,7 +114,7 @@ func (h *HistoryLoader) Load(conversationID uint) ([]database.ChatMessage, strin
 					if answeredIDs[tc.ID] {
 						kept = append(kept, tcs[i])
 					} else {
-						fmt.Printf("📋 [HISTORY] Removendo tool_use órfão: %s\n", tc.ID)
+						log.Printf("[History] removendo tool_use órfão: %s (conversa %d)", tc.ID, conversationID)
 					}
 				}
 				if len(kept) == 0 {

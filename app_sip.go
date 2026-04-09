@@ -7,6 +7,7 @@ import (
 	"assistente/internal/channels"
 	"assistente/internal/database"
 	"assistente/internal/messaging/sip"
+	"assistente/internal/speech"
 )
 
 // cancelStreamingForContact cancela o streaming LLM em andamento para uma conversa
@@ -19,14 +20,27 @@ func (a *App) cancelStreamingForContact(channel, contactID string) {
 	a.CancelStreamingForConversation(conv.ID)
 }
 
-// injectSIPSpeechManager cria e injeta um SpeechManager no SIP adapter.
-// Usa o perfil do canal SIP quando configurado; caso contrário, usa o speechManager global.
+// injectSIPSpeechManager cria e injeta um SpeechManager no SIP adapter existente.
+// Chamado após initMessaging na startup.
 func (a *App) injectSIPSpeechManager() {
 	sipAdapter, err := a.getSIPAdapter()
 	if err != nil {
 		return // SIP não configurado — nada a fazer
 	}
 
+	sm, voiceID := a.createSIPSpeechManager()
+	if sm != nil {
+		sipAdapter.SetSpeechManager(sm)
+		if voiceID != "" {
+			sipAdapter.SetVoiceID(voiceID)
+		}
+	}
+}
+
+// createSIPSpeechManager cria um SpeechManager adequado para o canal SIP.
+// SIP é server-side, então webspeech não funciona — força whisper quando necessário.
+// Retorna (speechManager, voiceID). Se não conseguir criar, retorna (nil, "").
+func (a *App) createSIPSpeechManager() (*speech.SpeechManager, string) {
 	// Tenta carregar o perfil do canal SIP
 	if chCfg, _ := channels.Load("sip"); chCfg != nil && chCfg.Profile != "" {
 		if p, err := a.profileManager.Get(chCfg.Profile); err == nil {
@@ -46,26 +60,25 @@ func (a *App) injectSIPSpeechManager() {
 					pCopy.Input.STTProvider, pCopy.Input.LLMProviderID)
 			}
 
-			p = &pCopy
-			sm := a.createSpeechManagerForProfile(p)
+			sm := a.speechSvc.CreateManagerForProfile(&pCopy)
 			if sm != nil {
-				sipAdapter.SetSpeechManager(sm)
-				if p.Voice.Assistant.VoiceID != "" {
-					sipAdapter.SetVoiceID(p.Voice.Assistant.VoiceID)
-				}
-				log.Printf("[Speech] SpeechManager do perfil '%s' injetado no SIP adapter", chCfg.Profile)
-				return
+				log.Printf("[Speech] SpeechManager do perfil '%s' criado para SIP", chCfg.Profile)
+				return sm, pCopy.Voice.Assistant.VoiceID
 			}
 		} else {
 			log.Printf("[Speech] Perfil '%s' do canal SIP não encontrado: %v", chCfg.Profile, err)
 		}
 	}
 
-	// Fallback: usa o speechManager global
-	if a.speechManager != nil {
-		sipAdapter.SetSpeechManager(a.speechManager)
-		log.Printf("[Speech] SpeechManager global injetado no SIP adapter (fallback)")
+	// Fallback: tenta inicializar o speechManager global (pode ser nil na startup)
+	a.speechSvc.EnsureSpeechManager()
+	if sm := a.speechSvc.GetSpeechManager(); sm != nil {
+		log.Printf("[Speech] SpeechManager global usado para SIP (fallback)")
+		return sm, ""
 	}
+
+	log.Printf("[Speech] Nenhum SpeechManager disponível para SIP")
+	return nil, ""
 }
 
 // SIPCall inicia uma chamada SIP de saída para o número/ramal especificado.

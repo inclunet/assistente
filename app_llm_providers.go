@@ -1,7 +1,6 @@
 package main
 
 import (
-	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -158,6 +157,24 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) (models []string, retErr
 	return result, nil
 }
 
+// providerToMap serializa um ProviderConfig para o formato map[string]interface{}
+// esperado pelo frontend, incluindo status de credencial.
+func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialConfigured bool) map[string]interface{} {
+	return map[string]interface{}{
+		"id":                    p.ID,
+		"name":                  p.Name,
+		"type":                  string(p.Type),
+		"api_format":            string(p.APIFormat),
+		"base_url":              p.BaseURL,
+		"model":                 p.Model,
+		"default_model":         p.DefaultModel,
+		"is_default":            p.IsDefault,
+		"timeout":               p.Timeout,
+		"credential_pattern":    credentialPattern,
+		"credential_configured": credentialConfigured,
+	}
+}
+
 // CreateLLMProvider cria um novo provider com auto-salvamento de credenciais.
 func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interface{}, error) {
 	res, err := a.providerSvc.Create(a.ctx, providers.CreateRequest{
@@ -172,19 +189,7 @@ func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interf
 	if err != nil {
 		return nil, err
 	}
-	p := res.Provider
-	return map[string]interface{}{
-		"id":                    p.ID,
-		"name":                  p.Name,
-		"type":                  string(p.Type),
-		"base_url":              p.BaseURL,
-		"model":                 p.Model,
-		"default_model":         p.DefaultModel,
-		"is_default":            p.IsDefault,
-		"timeout":               p.Timeout,
-		"credential_pattern":    res.CredentialPattern,
-		"credential_configured": res.CredentialConfigured,
-	}, nil
+	return providerToMap(res.Provider, res.CredentialPattern, res.CredentialConfigured), nil
 }
 
 // UpdateLLMProvider atualiza um provider existente.
@@ -201,18 +206,7 @@ func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[st
 		return nil, err
 	}
 	p := res.Provider
-	return map[string]interface{}{
-		"id":                    p.ID,
-		"name":                  p.Name,
-		"type":                  string(p.Type),
-		"base_url":              p.BaseURL,
-		"model":                 p.Model,
-		"default_model":         p.DefaultModel,
-		"is_default":            p.IsDefault,
-		"timeout":               p.Timeout,
-		"credential_pattern":    p.CredentialPattern,
-		"credential_configured": res.CredentialConfigured,
-	}, nil
+	return providerToMap(p, p.CredentialPattern, res.CredentialConfigured), nil
 }
 
 // SetDefaultProvider marca um provedor como o default do sistema.
@@ -234,58 +228,14 @@ func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 	statuses := a.providerSvc.ListWithStatus()
 	result := make([]map[string]interface{}, 0, len(statuses))
 	for _, s := range statuses {
-		p := s.Provider
-		result = append(result, map[string]interface{}{
-			"id":                    p.ID,
-			"name":                  p.Name,
-			"type":                  string(p.Type),
-			"api_format":            string(p.APIFormat),
-			"base_url":              p.BaseURL,
-			"model":                 p.Model,
-			"default_model":         p.DefaultModel,
-			"is_default":            p.IsDefault,
-			"timeout":               p.Timeout,
-			"credential_pattern":    p.CredentialPattern,
-			"credential_configured": s.CredentialConfigured,
-		})
+		result = append(result, providerToMap(s.Provider, s.Provider.CredentialPattern, s.CredentialConfigured))
 	}
 	return result
 }
 
 // PreviewVoiceSettings reproduz um texto de teste com configurações ad-hoc
 func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume float64, sampleText string) error {
-	if sampleText == "" {
-		sampleText = "Este é um teste das configurações de voz"
-	}
-
-	log.Printf("[PreviewVoiceSettings] provider=%s, voiceID=%s, rate=%.2f", provider, voiceID, rate)
-
-	if a.speechManager == nil {
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("erro ao carregar config: %w", err)
-		}
-		if cfg.APIKey == "" {
-			return fmt.Errorf("API key não configurada")
-		}
-		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voiceID, "tts-1")
-	}
-
-	if provider == "openai" {
-		a.speechManager.SetTTSVoice(voiceID)
-	}
-
-	result, err := a.speechManager.SynthesizeWithVoice(sampleText, voiceID)
-	if err != nil {
-		return fmt.Errorf("erro ao sintetizar: %w", err)
-	}
-
-	a.emitter.Emit("voice_profile:preview", map[string]interface{}{
-		"audio_base64": result.AudioBase64,
-		"format":       result.Format,
-	})
-
-	return nil
+	return a.speechSvc.PreviewVoiceSettings(provider, voiceID, rate, volume, sampleText)
 }
 
 // saveLLMProviders persiste todos os provedores do registry no store.

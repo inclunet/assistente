@@ -6,7 +6,6 @@ import (
 	"log"
 	"time"
 
-	"assistente/internal/config"
 	"assistente/internal/questionnaire"
 	"assistente/internal/updater"
 
@@ -107,10 +106,10 @@ func (a *App) checkForUpdatesOnStartup() {
 	// Aguarda 5 segundos após startup para não interferir com inicialização
 	time.Sleep(5 * time.Second)
 
-	// Só verifica atualizações se LLM estiver configurado
-	cfg, err := config.Load()
-	if err != nil || cfg.APIKey == "" || cfg.APIBaseURL == "" {
-		log.Printf("[Updater] Pulando verificação de atualizações: LLM não configurado")
+	// Só verifica atualizações se há providers configurados
+	provCount, countErr := a.providerSvc.Count()
+	if countErr != nil || provCount == 0 {
+		log.Printf("[Updater] Pulando verificação de atualizações: nenhum provider configurado")
 		return
 	}
 

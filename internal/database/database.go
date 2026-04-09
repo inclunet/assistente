@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"path/filepath"
 	"strings"
 	"time"
@@ -91,6 +92,9 @@ func Init() error {
 		return err
 	}
 
+	ensureTaskNoteExternalUniqueIndex()
+	ensureTaskListSlugUniqueIndex()
+
 	// Migração: remover tabelas do editor (conteúdo migrado para arquivos em disco)
 	sqlDBRaw, _ := db.DB()
 	if sqlDBRaw != nil {
@@ -116,11 +120,11 @@ func Init() error {
 		sqlDB.QueryRow(`SELECT count(*) FROM chat_messages_fts`).Scan(&ftsCount)
 		sqlDB.QueryRow(`SELECT count(*) FROM chat_messages WHERE role IN ('user','assistant') AND content != ''`).Scan(&msgCount)
 		if msgCount > 0 && ftsCount < msgCount {
-			fmt.Printf("[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...\n", ftsCount, msgCount)
+			log.Printf("[Database] Índice FTS5 desatualizado (%d/%d), reconstruindo...", ftsCount, msgCount)
 			if err := RebuildFTSIndex(); err != nil {
-				fmt.Printf("[Database] Aviso: erro ao reconstruir FTS5: %v\n", err)
+				log.Printf("[Database] Aviso: erro ao reconstruir FTS5: %v", err)
 			} else {
-				fmt.Printf("[Database] Índice FTS5 reconstruído (%d mensagens)\n", msgCount)
+				log.Printf("[Database] Índice FTS5 reconstruído (%d mensagens)", msgCount)
 			}
 		}
 	}
@@ -1163,4 +1167,20 @@ func GetDefaultProvider() (*LLMProvider, error) {
 		return nil, err
 	}
 	return &provider, nil
+}
+
+// ensureTaskNoteExternalUniqueIndex aplica índice único parcial em (external_source, external_id).
+//
+// Escolha de modelagem: chave única global por origem (sem task_id na unicidade), alinhada à
+// preferência de produto e ao padrão “ID estável no sistema remoto”. O mesmo comentário Jira
+// (por exemplo) deve mapear a no máximo uma TaskNote no app, impedindo duplicatas em re-syncs.
+// Notas manuais permanecem fora do índice (WHERE ambos os campos não vazios).
+//
+// Se a mesma referência externa for associada a outra task local, UpsertTaskNoteByExternal
+// retorna erro explícito em vez de duplicar linhas.
+func ensureTaskNoteExternalUniqueIndex() {
+	if db == nil {
+		return
+	}
+	db.Exec(`CREATE UNIQUE INDEX IF NOT EXISTS ux_task_notes_external_source_id ON task_notes (external_source, external_id) WHERE external_source <> '' AND external_id <> ''`)
 }

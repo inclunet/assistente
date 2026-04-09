@@ -9,6 +9,7 @@ import (
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
 	"assistente/internal/chat"
+	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/events"
 	"assistente/internal/hotkey"
@@ -17,6 +18,7 @@ import (
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
 	"assistente/internal/profiles"
+	"assistente/internal/prompt"
 	"assistente/internal/providers"
 	"assistente/internal/questionnaire"
 	"assistente/internal/skills"
@@ -62,7 +64,6 @@ type UpdateLLMProviderRequest struct {
 type App struct {
 	ctx                   context.Context
 	llmRegistry           *llm.ProviderRegistry // Registro de provedores LLM
-	speechManager         *speech.SpeechManager
 	hotkeyManager         *hotkey.Manager
 	profileManager        *profiles.Manager
 	toolRegistry          *tools.Registry             // Registro de ferramentas disponíveis
@@ -75,8 +76,6 @@ type App struct {
 	responseNotifier      *messaging.ResponseNotifier // Notificador de respostas para mensageiros
 	msgGateway            *messaging.Gateway          // Gateway de mensageria (Telegram, etc.)
 	updater               *updater.Updater            // Gerenciador de atualizações automáticas
-	voiceHotkeyID         int
-	currentConversationID uint // ID da conversa atual
 
 	credMgr   *credentials.Manager
 	credStore credentials.Store
@@ -113,11 +112,23 @@ type App struct {
 	// Message repository (criação e consulta de mensagens)
 	msgRepo chat.MessageRepository
 
+	// ChatInteractor (orquestra validações, perfil, renaming — livre de Wails)
+	chatInteractor *chat.Interactor
+
 	// Summary service (sumarização de conversas em background)
 	summarySvc *summarization.Service
 
 	// Agent service (agentic loop sem dependências do Wails)
 	agentSvc *agent.Service
+
+	// Prompt builder (monta system prompt — puro, sem Wails)
+	promptBuilder *prompt.Builder
+
+	// Settings service (config CRUD e reset de dados — sem Wails)
+	settingsSvc *config.SettingsService
+
+	// Speech service (TTS/STT business logic — sem Wails)
+	speechSvc *speech.Service
 
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
@@ -129,46 +140,6 @@ type App struct {
 
 // ==================== Tipos para Threads ====================
 
-// EnrichedMessage é ChatMessage + campos derivados calculados no backend
-type EnrichedMessage struct {
-	ID               string    `json:"id"`
-	ConversationID   uint      `json:"conversationId"`
-	ParentID         *string   `json:"parentId,omitempty"`
-	TurnID           *uint     `json:"turnId,omitempty"`
-	Role             string    `json:"role"`
-	Content          string    `json:"content"`
-	Reasoning        string    `json:"reasoning,omitempty"`
-	Media            string    `json:"media,omitempty"`
-	ToolCalls        string    `json:"toolCalls,omitempty"`
-	ToolCallID       string    `json:"toolCallId,omitempty"`
-	PromptTokens     int       `json:"promptTokens,omitempty"`
-	CompletionTokens int       `json:"completionTokens,omitempty"`
-	TotalTokens      int       `json:"totalTokens,omitempty"`
-	Model            string    `json:"model,omitempty"`
-	Source           string    `json:"source,omitempty"`
-	CreatedAt        time.Time `json:"createdAt"`
-	Timestamp        int64     `json:"timestamp"`
-	IsStreaming      bool      `json:"isStreaming"`
-	Internal         bool      `json:"internal"`
-}
-
-// MessageNode representa uma mensagem com seus filhos na hierarquia
-type MessageNode struct {
-	Message    EnrichedMessage `json:"message"`
-	Children   []MessageNode   `json:"children,omitempty"`
-	Level      int             `json:"level"`
-	ChildCount int             `json:"childCount"`
-}
-
-// ConversationWithThreads representa uma conversa com mensagens organizadas em árvore
-type ConversationWithThreads struct {
-	ID      uint          `json:"id"`
-	Title   string        `json:"title"`
-	Threads []MessageNode `json:"threads"`
-}
-
-// StreamEvent representa um evento de streaming simplificado
-// StreamEvent é alias de events.StreamEvent para compatibilidade com o frontend (Wails binding).
 type StreamEvent = events.StreamEvent
 
 // NewApp creates a new App application struct
@@ -224,6 +195,9 @@ func (a *App) startup(ctx context.Context) {
 	a.convSvc = chat.NewDBConversationStore()
 	a.msgRepo = chat.NewDBMessageStore()
 
+	// Inicializa o ChatInteractor
+	a.chatInteractor = chat.NewInteractor(a.emitter, a.msgRepo, a.convSvc, a.providerSvc, a.profileManager)
+
 	// Inicializa o Summary Service (sumarização de conversas)
 	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
 		Emitter:         a.emitter,
@@ -269,6 +243,31 @@ func (a *App) startup(ctx context.Context) {
 		ResponseNotifier: a.responseNotifier,
 		GetTokenStats:    a.GetConversationTokenStats,
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
+	})
+
+	// Inicializa o Prompt Builder (montagem de system prompt, sem Wails)
+	a.promptBuilder = &prompt.Builder{
+		Skills:    a.skillMgr,
+		Workspace: a.workspaceMgr,
+		Tools:     a.toolRegistry,
+	}
+
+	// Inicializa o Settings Service (config CRUD e reset de dados)
+	a.settingsSvc = config.NewSettingsService(config.SettingsServiceConfig{
+		Emitter:        a.emitter,
+		CredCleaner:    a.credMgr,
+		ProfileCleaner: profileCleanerAdapter{app: a},
+		SkillCleaner:   skillCleanerAdapter{app: a},
+		ReloadLLM:      a.initLLMClient,
+	})
+
+	// Inicializa o Speech Service (TTS/STT business logic)
+	a.speechSvc = speech.NewService(speech.ServiceConfig{
+		Emitter:         a.emitter,
+		Registry:        a.llmRegistry,
+		ProfileProvider: profileProviderAdapter{app: a},
+		CredMgr:         a.credMgr,
+		AudioRepo:       a.audioSvc,
 	})
 
 	// Inicializa hotkeys globais

@@ -2,10 +2,8 @@ package main
 
 import (
 	"fmt"
-	"log"
-	"sort"
 
-	"assistente/internal/config"
+	"assistente/internal/chat"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
 )
@@ -21,42 +19,6 @@ var (
 )
 
 // ==================== Conversation ====================
-
-// enrichMessage converte ChatMessage para EnrichedMessage com campos calculados
-func (a *App) enrichMessage(msg database.ChatMessage) EnrichedMessage {
-	// Converte ParentID *uint para *string
-	var parentIDStr *string
-	if msg.ParentID != nil {
-		pidStr := fmt.Sprintf("%d", *msg.ParentID)
-		parentIDStr = &pidStr
-	}
-
-	enriched := EnrichedMessage{
-		// Campos do ChatMessage
-		ID:               fmt.Sprintf("%d", msg.ID),
-		ConversationID:   msg.ConversationID,
-		ParentID:         parentIDStr,
-		TurnID:           msg.TurnID,
-		Role:             msg.Role,
-		Content:          msg.Content,
-		Reasoning:        msg.Reasoning,
-		Media:            msg.Media,
-		ToolCalls:        msg.ToolCalls,
-		ToolCallID:       msg.ToolCallID,
-		PromptTokens:     msg.PromptTokens,
-		CompletionTokens: msg.CompletionTokens,
-		TotalTokens:      msg.TotalTokens,
-		Model:            msg.Model,
-		Source:           msg.Source,
-		CreatedAt:        msg.CreatedAt,
-		// Campos derivados
-		Timestamp:   msg.CreatedAt.UnixMilli(),
-		IsStreaming: false,
-		Internal:    msg.ParentID != nil || msg.Role == "tool",
-	}
-
-	return enriched
-}
 
 func (a *App) CreateConversation(title, model string) (*Conversation, error) {
 	return database.CreateConversation(title, model)
@@ -84,7 +46,7 @@ func (a *App) EnsureConversation(title string) (*Conversation, error) {
 }
 
 // GetMessages retorna mensagens com filtro por parent (API unificada com LAZY LOADING)
-func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, error) {
+func (a *App) GetMessages(conversationID uint, parentID *uint) ([]chat.MessageNode, error) {
 	messages, err := database.GetMessages(conversationID, parentID)
 	if err != nil {
 		return nil, err
@@ -94,30 +56,12 @@ func (a *App) GetMessages(conversationID uint, parentID *uint) ([]MessageNode, e
 	for i, msg := range messages {
 		msgIDs[i] = msg.ID
 	}
-
 	childCounts, err := database.CountChildren(msgIDs)
 	if err != nil {
 		childCounts = make(map[uint]int)
 	}
 
-	level := 0
-	if parentID != nil {
-		level = 1
-	}
-
-	result := make([]MessageNode, 0, len(messages))
-	for _, msg := range messages {
-		childCount := childCounts[msg.ID]
-		node := MessageNode{
-			Message:    a.enrichMessage(msg),
-			Children:   nil,
-			Level:      level,
-			ChildCount: childCount,
-		}
-		result = append(result, node)
-	}
-
-	return result, nil
+	return chat.BuildMessageNodes(messages, childCounts, parentID), nil
 }
 
 // GetConversationInfo retorna apenas metadados da conversa (sem mensagens)
@@ -126,7 +70,7 @@ func (a *App) GetConversationInfo(id uint) (*Conversation, error) {
 }
 
 // GetConversationWithThreads retorna conversa com mensagens raiz (lazy loading)
-func (a *App) GetConversationWithThreads(id uint) (*ConversationWithThreads, error) {
+func (a *App) GetConversationWithThreads(id uint) (*chat.ConversationWithThreads, error) {
 	conv, err := database.GetConversationInfo(id)
 	if err != nil {
 		return nil, err
@@ -137,7 +81,7 @@ func (a *App) GetConversationWithThreads(id uint) (*ConversationWithThreads, err
 		return nil, err
 	}
 
-	return &ConversationWithThreads{
+	return &chat.ConversationWithThreads{
 		ID:      conv.ID,
 		Title:   conv.Title,
 		Threads: threads,
@@ -145,62 +89,8 @@ func (a *App) GetConversationWithThreads(id uint) (*ConversationWithThreads, err
 }
 
 // GetMessageChildren retorna os filhos de uma mensagem (lazy loading)
-func (a *App) GetMessageChildren(messageID uint) ([]MessageNode, error) {
+func (a *App) GetMessageChildren(messageID uint) ([]chat.MessageNode, error) {
 	return a.GetMessages(0, &messageID)
-}
-
-// buildMessageTree organiza mensagens planas em uma árvore hierárquica
-func (a *App) buildMessageTree(messages []database.ChatMessage) []MessageNode {
-	fmt.Printf("[TREE] Construindo árvore com %d mensagens\n", len(messages))
-
-	childrenMap := make(map[uint][]database.ChatMessage)
-	var rootMessages []database.ChatMessage
-
-	for _, msg := range messages {
-		if msg.ParentID == nil {
-			rootMessages = append(rootMessages, msg)
-		} else {
-			childrenMap[*msg.ParentID] = append(childrenMap[*msg.ParentID], msg)
-		}
-	}
-
-	sort.Slice(rootMessages, func(i, j int) bool {
-		return rootMessages[i].ID < rootMessages[j].ID
-	})
-	for parentID := range childrenMap {
-		sort.Slice(childrenMap[parentID], func(i, j int) bool {
-			return childrenMap[parentID][i].ID < childrenMap[parentID][j].ID
-		})
-	}
-
-	var buildNode func(msg database.ChatMessage, level int) MessageNode
-	buildNode = func(msg database.ChatMessage, level int) MessageNode {
-		node := MessageNode{
-			Message:  a.enrichMessage(msg),
-			Children: []MessageNode{},
-			Level:    level,
-		}
-
-		children := childrenMap[msg.ID]
-		node.ChildCount = len(children)
-
-		for _, child := range children {
-			childNode := buildNode(child, level+1)
-			node.Children = append(node.Children, childNode)
-		}
-
-		return node
-	}
-
-	result := make([]MessageNode, 0, len(rootMessages))
-	for _, rootMsg := range rootMessages {
-		node := buildNode(rootMsg, 0)
-		result = append(result, node)
-	}
-
-	fmt.Printf("[TREE] Resultado: %d raízes\n", len(result))
-
-	return result
 }
 
 func (a *App) UpdateConversation(id uint, title, model string) error {
@@ -219,10 +109,7 @@ func (a *App) UpdateConversation(id uint, title, model string) error {
 }
 
 func (a *App) DeleteConversation(id uint) error {
-	fmt.Printf("[DeleteConversation] Iniciando deleção da conversa %d...\n", id)
-
 	if err := database.DeleteConversation(id); err != nil {
-		fmt.Printf("[DeleteConversation] ERRO ao deletar: %v\n", err)
 		return err
 	}
 
@@ -413,14 +300,11 @@ func (a *App) GetEffectiveModel() (string, error) {
 	}
 
 	// Fallback para config
-	cfg, err := config.Load()
+	cfg, err := a.settingsSvc.GetConfig()
 	if err != nil {
 		return "", err
 	}
 	return cfg.DefaultModel, nil
 }
 
-// ==================== Unused but kept for build compat ====================
 
-// Funcao auxiliar que nao referencia mais nada - usada apenas para evitar import nao usado
-var _ = log.Printf

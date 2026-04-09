@@ -180,7 +180,7 @@ func (t *GrepSearch) Execute(ctx context.Context, args json.RawMessage) (tools.T
 		includePattern = a.Include
 	}
 
-	err = filepath.WalkDir(fullBase, func(path string, d os.DirEntry, walkErr error) error {
+	_ = filepath.WalkDir(fullBase, func(path string, d os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return nil // Ignora erros de permissão
 		}
