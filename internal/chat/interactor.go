@@ -7,11 +7,12 @@ import (
 	"log"
 	"strings"
 
-	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
+	"assistente/internal/skills"
+	"assistente/internal/tools"
 )
 
 // DefaultMaxContextMessages é o limite padrão de mensagens carregadas no contexto.
@@ -25,29 +26,46 @@ const (
 // ChatParams is an alias for llm.ChatParams — single source of truth.
 type ChatParams = llm.ChatParams
 
+// SystemPromptBuilder builds the full system prompt for the chat pipeline.
+// Implemented by *prompt.Builder. Defined as an interface here so that internal/chat
+// does not need to import internal/prompt (which already imports internal/chat).
+type SystemPromptBuilder interface {
+	Build(messages []llm.Message, enabledSkills []string, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string) []llm.Message
+	BuildTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) TemplateData
+}
+
+// InteractorConfig groups all dependencies for Interactor.
+type InteractorConfig struct {
+	Emitter       events.Emitter
+	Repo          MessageRepository
+	ConvRepo      ConversationRepository
+	ProviderSvc   *providers.Service
+	ProfileMgr    *profiles.Manager
+	SkillMgr      skills.InvokerManager // optional during startup; safe to be nil
+	PromptBuilder SystemPromptBuilder   // optional during startup; safe to be nil
+}
+
 // Interactor orchestrates the core chat use cases, free of Wails dependencies.
 type Interactor struct {
-	emitter     events.Emitter
-	repo        MessageRepository
-	convRepo    ConversationRepository
-	providerSvc *providers.Service
-	profileMgr  *profiles.Manager
+	emitter       events.Emitter
+	repo          MessageRepository
+	convRepo      ConversationRepository
+	providerSvc   *providers.Service
+	profileMgr    *profiles.Manager
+	skillMgr      skills.InvokerManager
+	promptBuilder SystemPromptBuilder
 }
 
 // NewInteractor creates an Interactor with its required dependencies.
-func NewInteractor(
-	em events.Emitter,
-	repo MessageRepository,
-	convRepo ConversationRepository,
-	providerSvc *providers.Service,
-	profileMgr *profiles.Manager,
-) *Interactor {
+func NewInteractor(cfg InteractorConfig) *Interactor {
 	return &Interactor{
-		emitter:     em,
-		repo:        repo,
-		convRepo:    convRepo,
-		providerSvc: providerSvc,
-		profileMgr:  profileMgr,
+		emitter:       cfg.Emitter,
+		repo:          cfg.Repo,
+		convRepo:      cfg.ConvRepo,
+		providerSvc:   cfg.ProviderSvc,
+		profileMgr:    cfg.ProfileMgr,
+		skillMgr:      cfg.SkillMgr,
+		promptBuilder: cfg.PromptBuilder,
 	}
 }
 
@@ -196,7 +214,7 @@ type RecordUserMessageRequest struct {
 
 // RecordUserMessageResponse contém a mensagem salva e o histórico da conversa carregado.
 type RecordUserMessageResponse struct {
-	UserMsg             *database.ChatMessage
+	UserMsg             *Message
 	Messages            []llm.Message
 	ConversationSummary string
 }
@@ -247,11 +265,11 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 
 // ResolveUserContentRequest contém os dados brutos para resolução de conteúdo do usuário.
 type ResolveUserContentRequest struct {
-	Content    string
-	Media      string
-	Source     string
-	STTProvider string   // activeProfile.Input.STTProvider (pode ser "")
-	Transcribe TranscribeFunc
+	Content     string
+	Media       string
+	Source      string
+	STTProvider string // activeProfile.Input.STTProvider (pode ser "")
+	Transcribe  TranscribeFunc
 }
 
 // ResolveUserContentResponse contém o conteúdo resolvido e os dados de áudio extraídos.
@@ -287,5 +305,72 @@ func (i *Interactor) ResolveUserContent(_ context.Context, req ResolveUserConten
 		Content:       content,
 		AudioBase64:   audioBase64,
 		AudioMimeType: audioMime,
+	}
+}
+
+// PrepareMessagesRequest carries inputs for the PrepareMessages pipeline.
+type PrepareMessagesRequest struct {
+	Messages            []llm.Message
+	UserContent         string
+	ConversationSummary string
+	ConversationID      uint
+	Params              ChatParams
+	ActiveProfile       *profiles.Profile
+	Transcribe          TranscribeFunc
+}
+
+// PrepareMessagesResponse carries the outputs of PrepareMessages.
+type PrepareMessagesResponse struct {
+	Messages         []llm.Message
+	InvokedSkillSlug string
+	InvokedScope     *tools.FilesystemScope
+}
+
+// PrepareMessages detects slash skill invocation, injects the full system prompt,
+// and preprocesses media messages (audio transcription, unsupported format fallbacks).
+// It replaces the app-layer helpers prepareMessages, buildFullSystemPrompt,
+// and effectivePromptBuilder.
+func (i *Interactor) PrepareMessages(req PrepareMessagesRequest) PrepareMessagesResponse {
+	skillTplData := i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params.ProfileSlug, req.ConversationID)
+
+	var slashSkillContent string
+	var invokedSkillSlug string
+	var invokedScope *tools.FilesystemScope
+
+	if inv, found, _ := skills.Invoke(req.UserContent, i.skillMgr, skillTplData, req.ConversationID); found {
+		slashSkillContent = inv.Content
+		invokedSkillSlug = inv.SkillSlug
+		if inv.Filesystem != nil {
+			invokedScope = &tools.FilesystemScope{
+				Read:  append([]string{}, inv.Filesystem.Read...),
+				Write: append([]string{}, inv.Filesystem.Write...),
+				Deny:  append([]string{}, inv.Filesystem.Deny...),
+			}
+		}
+	}
+
+	var enabledSkills []string
+	var disableOnDemand bool
+	if req.ActiveProfile != nil {
+		enabledSkills = req.ActiveProfile.Chat.EnabledSkills
+		disableOnDemand = req.ActiveProfile.Chat.DisableOnDemandSkills
+		if req.ActiveProfile.Chat.DisableSkills {
+			enabledSkills = []string{}
+		}
+	}
+
+	messages := i.promptBuilder.Build(req.Messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary)
+
+	var audioSupported, docSupported *bool
+	if req.ActiveProfile != nil && req.ActiveProfile.MediaSupport != nil {
+		audioSupported = req.ActiveProfile.MediaSupport.Audio
+		docSupported = req.ActiveProfile.MediaSupport.Document
+	}
+	messages = PreprocessMessages(messages, req.Transcribe, audioSupported, docSupported)
+
+	return PrepareMessagesResponse{
+		Messages:         messages,
+		InvokedSkillSlug: invokedSkillSlug,
+		InvokedScope:     invokedScope,
 	}
 }

@@ -20,7 +20,7 @@ import (
 )
 
 // TestGetChatProviderForProvider_ReturnsProviderForRegistered verifica que
-// getChatProviderForProvider cria um ChatProvider quando o provedor existe no registry.
+// providerSvc.GetChatProvider cria um ChatProvider quando o provedor existe no registry.
 func TestGetChatProviderForProvider_ReturnsProviderForRegistered(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	provider := &llm.ProviderConfig{
@@ -35,34 +35,26 @@ func TestGetChatProviderForProvider_ReturnsProviderForRegistered(t *testing.T) {
 
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
+	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
-	app := &App{
-		llmRegistry: registry,
-		credMgr:     credMgr,
-	}
-
-	cp, err := app.getChatProviderForProvider("litellm-test")
+	cp, err := svc.GetChatProvider("litellm-test")
 	if err != nil {
-		t.Fatalf("getChatProviderForProvider returned error: %v", err)
+		t.Fatalf("GetChatProvider returned error: %v", err)
 	}
 	if cp == nil {
-		t.Fatal("getChatProviderForProvider returned nil")
+		t.Fatal("GetChatProvider returned nil")
 	}
 }
 
 // TestGetChatProviderForProvider_ErrorForUnknownProvider verifica que
-// getChatProviderForProvider retorna erro quando o provedor não existe.
+// providerSvc.GetChatProvider retorna erro quando o provedor não existe.
 func TestGetChatProviderForProvider_ErrorForUnknownProvider(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
+	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
-	app := &App{
-		llmRegistry: registry,
-		credMgr:     credMgr,
-	}
-
-	cp, err := app.getChatProviderForProvider("nonexistent-provider")
+	cp, err := svc.GetChatProvider("nonexistent-provider")
 	if err == nil {
 		t.Fatal("Expected error for unknown provider, got nil")
 	}
@@ -98,19 +90,15 @@ func TestGetChatProviderForProvider_DifferentProvidersReturnDifferentInstances(t
 
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
+	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
-	app := &App{
-		llmRegistry: registry,
-		credMgr:     credMgr,
-	}
-
-	cp1, err := app.getChatProviderForProvider("google-test")
+	cp1, err := svc.GetChatProvider("google-test")
 	if err != nil {
-		t.Fatalf("getChatProviderForProvider google: %v", err)
+		t.Fatalf("GetChatProvider google: %v", err)
 	}
-	cp2, err := app.getChatProviderForProvider("litellm-test")
+	cp2, err := svc.GetChatProvider("litellm-test")
 	if err != nil {
-		t.Fatalf("getChatProviderForProvider litellm: %v", err)
+		t.Fatalf("GetChatProvider litellm: %v", err)
 	}
 
 	if cp1 == nil || cp2 == nil {
@@ -310,11 +298,7 @@ func TestProviderRouting_ChannelProfileUsesOwnProvider(t *testing.T) {
 
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
-
-	app := &App{
-		llmRegistry: registry,
-		credMgr:     credMgr,
-	}
+	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
 	// Perfil ativo global aponta para Google
 	globalProfile := &profiles.Profile{
@@ -329,9 +313,9 @@ func TestProviderRouting_ChannelProfileUsesOwnProvider(t *testing.T) {
 		},
 	}
 
-	globalCP, err := app.getChatProviderForProvider(globalProfile.Chat.LLMProvider)
+	globalCP, err := svc.GetChatProvider(globalProfile.Chat.LLMProvider)
 	if err != nil {
-		t.Fatalf("getChatProviderForProvider (global): %v", err)
+		t.Fatalf("GetChatProvider (global): %v", err)
 	}
 	_, err = globalCP.GetModels(t.Context())
 	if err != nil {
@@ -342,9 +326,9 @@ func TestProviderRouting_ChannelProfileUsesOwnProvider(t *testing.T) {
 			googleHits.Load(), litellmHits.Load())
 	}
 
-	channelCP, err := app.getChatProviderForProvider(channelProfile.Chat.LLMProvider)
+	channelCP, err := svc.GetChatProvider(channelProfile.Chat.LLMProvider)
 	if err != nil {
-		t.Fatalf("getChatProviderForProvider (channel): %v", err)
+		t.Fatalf("GetChatProvider (channel): %v", err)
 	}
 	_, err = channelCP.GetModels(t.Context())
 	if err != nil {
@@ -396,7 +380,7 @@ func TestProviderRouting_RequestContainsCorrectModel(t *testing.T) {
 }
 
 // TestProviderRouting_ErrorWhenProfileProviderMissing verifica que
-// quando o provedor do perfil não é encontrado, getChatProviderForProvider retorna erro.
+// quando o provedor do perfil não é encontrado, GetChatProvider retorna erro.
 func TestProviderRouting_ErrorWhenProfileProviderMissing(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	registry.Register(&llm.ProviderConfig{
@@ -405,38 +389,33 @@ func TestProviderRouting_ErrorWhenProfileProviderMissing(t *testing.T) {
 
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
-
-	app := &App{llmRegistry: registry, credMgr: credMgr}
+	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
 	// Provedor do perfil não existe no registry
-	_, err := app.getChatProviderForProvider("deleted-provider")
+	_, err := svc.GetChatProvider("deleted-provider")
 	if err == nil {
 		t.Fatal("Expected error for missing provider, got nil")
 	}
 
 	// Provedor válido funciona
-	cp, err := app.getChatProviderForProvider("google")
+	cp, err := svc.GetChatProvider("google")
 	if err != nil {
-		t.Fatalf("getChatProviderForProvider (google): %v", err)
+		t.Fatalf("GetChatProvider (google): %v", err)
 	}
 	if cp == nil {
 		t.Fatal("Expected non-nil ChatProvider for valid provider")
 	}
 }
 
-// TestNonexistentProviderReturnsError verifica que getChatProviderForProvider
+// TestNonexistentProviderReturnsError verifica que GetChatProvider
 // retorna erro quando o provedor não existe no registry.
 func TestNonexistentProviderReturnsError(t *testing.T) {
 	registry := llm.NewProviderRegistry()
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
+	svc := providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
 
-	app := &App{
-		llmRegistry: registry,
-		credMgr:     credMgr,
-	}
-
-	_, err := app.getChatProviderForProvider("nonexistent-provider")
+	_, err := svc.GetChatProvider("nonexistent-provider")
 	if err == nil {
 		t.Fatal("Expected error for nonexistent provider")
 	}
@@ -516,23 +495,22 @@ func TestRecoverFromPanic_InGoroutine(t *testing.T) {
 	}
 }
 
-// TestGetChatProviderForProvider_NilRegistryReturnsError verifica que getChatProviderForProvider
-// retorna erro quando o llmRegistry é nil (inicialização parcial do app).
+// TestGetChatProviderForProvider_NilRegistryReturnsError verifica que GetChatProvider
+// retorna erro quando o provedor não existe (registry vazio).
 func TestGetChatProviderForProvider_NilRegistryReturnsError(t *testing.T) {
 	testKey := []byte("test-key-32-bytes-long-key!!")
 	credMgr := credentials.NewManager(testKey)
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: llm.NewProviderRegistry(),
+		CredMgr:  credMgr,
+	})
 
-	app := &App{
-		llmRegistry: nil,
-		credMgr:     credMgr,
-	}
-
-	cp, err := app.getChatProviderForProvider("any-provider")
+	cp, err := svc.GetChatProvider("any-provider")
 	if err == nil {
-		t.Fatal("Expected error for nil registry, got nil")
+		t.Fatal("Expected error for unknown provider, got nil")
 	}
 	if cp != nil {
-		t.Fatal("Expected nil ChatProvider for nil registry")
+		t.Fatal("Expected nil ChatProvider")
 	}
 }
 
@@ -958,117 +936,96 @@ func (h *testStreamHandler) OnDone(fullResponse string, usage llm.Usage, model s
 	close(h.done)
 }
 
-// --- getChatProviderForProvider format routing tests ---
+// --- providers.Service.GetChatProvider format routing tests ---
 
-// TestGetChatProviderForProvider_NoAPIFormat verifica que provedores sem api_format
-// recebem fallback para OpenAI SDK (via GetAPIFormat default).
-func TestGetChatProviderForProvider_NoAPIFormat(t *testing.T) {
+func newFormatTestSvc(cfg *llm.ProviderConfig) *providers.Service {
 	registry := llm.NewProviderRegistry()
-	provider := &llm.ProviderConfig{
-		ID:      "legacy-test",
-		Name:    "Legacy Provider",
-		Type:    llm.ProviderCustom,
+	registry.Register(cfg)
+	credMgr := credentials.NewManager([]byte("test-key-32-bytes-long-key!!"))
+	return providers.NewService(providers.ServiceConfig{Registry: registry, CredMgr: credMgr})
+}
+
+// TestGetChatProvider_NoAPIFormat verifica que provedores sem api_format
+// recebem fallback para OpenAI SDK (via GetAPIFormat default).
+func TestGetChatProvider_NoAPIFormat(t *testing.T) {
+	svc := newFormatTestSvc(&llm.ProviderConfig{
+		ID: "legacy-test", Name: "Legacy Provider", Type: llm.ProviderCustom,
 		BaseURL: "https://api.example.com/v1",
-	}
-	if err := registry.Register(provider); err != nil {
-		t.Fatalf("Register: %v", err)
-	}
-
-	testKey := []byte("test-key-32-bytes-long-key!!")
-	credMgr := credentials.NewManager(testKey)
-	app := &App{llmRegistry: registry, credMgr: credMgr}
-
-	cp, err := app.getChatProviderForProvider("legacy-test")
+	})
+	cp, err := svc.GetChatProvider("legacy-test")
 	if err != nil {
-		t.Fatalf("getChatProviderForProvider error: %v", err)
+		t.Fatalf("GetChatProvider error: %v", err)
 	}
 	if cp == nil {
 		t.Fatal("Expected non-nil ChatProvider (OpenAI SDK fallback)")
 	}
 }
 
-// TestGetChatProviderForProvider_OpenAIFormat verifica que api_format=openai retorna ChatProvider.
-func TestGetChatProviderForProvider_OpenAIFormat(t *testing.T) {
-	registry := llm.NewProviderRegistry()
-	registry.Register(&llm.ProviderConfig{
+// TestGetChatProvider_OpenAIFormat verifica que api_format=openai retorna ChatProvider.
+func TestGetChatProvider_OpenAIFormat(t *testing.T) {
+	svc := newFormatTestSvc(&llm.ProviderConfig{
 		ID: "sdk-openai", Name: "SDK OpenAI", Type: llm.ProviderOpenAI,
 		BaseURL: "https://api.openai.com/v1", APIFormat: llm.APIFormatOpenAI,
 	})
-
-	testKey := []byte("test-key-32-bytes-long-key!!")
-	credMgr := credentials.NewManager(testKey)
-	app := &App{llmRegistry: registry, credMgr: credMgr}
-
-	cp, err := app.getChatProviderForProvider("sdk-openai")
+	cp, err := svc.GetChatProvider("sdk-openai")
 	if err != nil {
-		t.Fatalf("getChatProviderForProvider error: %v", err)
+		t.Fatalf("GetChatProvider error: %v", err)
 	}
 	if cp == nil {
 		t.Fatal("Expected non-nil ChatProvider")
 	}
 }
 
-// TestGetChatProviderForProvider_AnthropicFormat verifica que api_format=anthropic retorna ChatProvider.
-func TestGetChatProviderForProvider_AnthropicFormat(t *testing.T) {
-	registry := llm.NewProviderRegistry()
-	registry.Register(&llm.ProviderConfig{
+// TestGetChatProvider_AnthropicFormat verifica que api_format=anthropic retorna ChatProvider.
+func TestGetChatProvider_AnthropicFormat(t *testing.T) {
+	svc := newFormatTestSvc(&llm.ProviderConfig{
 		ID: "sdk-anthropic", Name: "SDK Anthropic", Type: llm.ProviderClaude,
 		BaseURL: "https://api.anthropic.com/v1", APIFormat: llm.APIFormatAnthropic,
 	})
-
-	testKey := []byte("test-key-32-bytes-long-key!!")
-	credMgr := credentials.NewManager(testKey)
-	app := &App{llmRegistry: registry, credMgr: credMgr}
-
-	cp, err := app.getChatProviderForProvider("sdk-anthropic")
+	cp, err := svc.GetChatProvider("sdk-anthropic")
 	if err != nil {
-		t.Fatalf("getChatProviderForProvider error: %v", err)
+		t.Fatalf("GetChatProvider error: %v", err)
 	}
 	if cp == nil {
 		t.Fatal("Expected non-nil ChatProvider")
 	}
 }
 
-// TestGetChatProviderForProvider_GoogleFormat verifica que api_format=google retorna ChatProvider.
-func TestGetChatProviderForProvider_GoogleFormat(t *testing.T) {
-	registry := llm.NewProviderRegistry()
-	registry.Register(&llm.ProviderConfig{
+// TestGetChatProvider_GoogleFormat verifica que api_format=google retorna ChatProvider.
+func TestGetChatProvider_GoogleFormat(t *testing.T) {
+	svc := newFormatTestSvc(&llm.ProviderConfig{
 		ID: "sdk-google", Name: "SDK Google", Type: llm.ProviderType("gemini"),
 		BaseURL: "https://generativelanguage.googleapis.com", APIFormat: llm.APIFormatGoogle,
 	})
-
-	testKey := []byte("test-key-32-bytes-long-key!!")
-	credMgr := credentials.NewManager(testKey)
-	app := &App{llmRegistry: registry, credMgr: credMgr}
-
-	cp, err := app.getChatProviderForProvider("sdk-google")
+	cp, err := svc.GetChatProvider("sdk-google")
 	if err != nil {
-		t.Fatalf("getChatProviderForProvider error: %v", err)
+		t.Fatalf("GetChatProvider error: %v", err)
 	}
 	if cp == nil {
 		t.Fatal("Expected non-nil ChatProvider")
 	}
 }
 
-// TestGetChatProviderForProvider_NilRegistry verifica comportamento com registry nil.
-func TestGetChatProviderForProvider_NilRegistry_Streamer(t *testing.T) {
-	app := &App{llmRegistry: nil}
-
+// TestGetChatProvider_NilProviderSvc verifica que getChatProviderForProvider do App
+// retorna erro quando providerSvc não foi inicializado.
+func TestGetChatProvider_NilProviderSvc(t *testing.T) {
+	app := &App{}
 	cp, err := app.getChatProviderForProvider("any")
 	if err == nil {
-		t.Fatal("Expected error for nil registry")
+		t.Fatal("Expected error for nil providerSvc")
 	}
 	if cp != nil {
 		t.Fatal("Expected nil ChatProvider")
 	}
 }
 
-// TestGetChatProviderForProvider_UnknownProvider verifica comportamento com provedor inexistente.
-func TestGetChatProviderForProvider_UnknownProvider_Streamer(t *testing.T) {
-	registry := llm.NewProviderRegistry()
-	app := &App{llmRegistry: registry}
-
-	cp, err := app.getChatProviderForProvider("nonexistent")
+// TestGetChatProvider_UnknownProvider verifica comportamento com provedor inexistente.
+func TestGetChatProvider_UnknownProvider(t *testing.T) {
+	svc := providers.NewService(providers.ServiceConfig{
+		Registry: llm.NewProviderRegistry(),
+		CredMgr:  credentials.NewManager([]byte("test-key-32-bytes-long-key!!")),
+	})
+	cp, err := svc.GetChatProvider("nonexistent")
 	if err == nil {
 		t.Fatal("Expected error for unknown provider")
 	}

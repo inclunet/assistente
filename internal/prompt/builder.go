@@ -5,6 +5,7 @@ package prompt
 
 import (
 	"log"
+	"reflect"
 	"strings"
 
 	"assistente/internal/chat"
@@ -29,6 +30,21 @@ type WorkspaceReader interface {
 	Active() *workspace.Workspace
 }
 
+// workspaceReaderIsUsable evita typed nil: var m *Manager = nil; WorkspaceReader = m →
+// r != nil mas chamar Active() panica. Ref: https://go.dev/doc/faq#nil_error
+func workspaceReaderIsUsable(r WorkspaceReader) bool {
+	if r == nil {
+		return false
+	}
+	v := reflect.ValueOf(r)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface:
+		return !v.IsNil()
+	default:
+		return true
+	}
+}
+
 // Builder monta o system prompt final a partir de skills, resumo e contexto de workspace.
 type Builder struct {
 	Skills    SkillReader
@@ -36,30 +52,12 @@ type Builder struct {
 	Tools     *tools.Registry
 }
 
-// TemplateData contém as variáveis disponíveis para templates de skills.
-type TemplateData struct {
-	Profile            *profiles.Profile
-	ProfileSlug        string
-	ToolCallingEnabled bool
-	EnabledTools       []string
-	EnabledToolCount   int
-	ConversationID     uint
-	// Workspace context
-	WorkspaceName    string
-	WorkspaceProfile string
-	ActiveTabTitle   string
-	ActiveTabType    string
-	Tabs             []TabInfo
-	TabCount         int
-}
+// TemplateData é um alias para chat.TemplateData — a definição canônica vive em internal/chat
+// para evitar import circular (prompt importa chat).
+type TemplateData = chat.TemplateData
 
-// TabInfo é uma visão simplificada de uma aba do workspace para templates.
-type TabInfo struct {
-	Title     string
-	Type      string
-	ContentID string
-	IsActive  bool
-}
+// TabInfo é um alias para chat.TabInfo.
+type TabInfo = chat.TabInfo
 
 // BuildTemplateData monta o TemplateData a partir do perfil ativo e do workspace.
 func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) TemplateData {
@@ -73,7 +71,7 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, profileSlug
 		ConversationID:     conversationID,
 	}
 
-	if b.Workspace != nil {
+	if workspaceReaderIsUsable(b.Workspace) {
 		if ws := b.Workspace.Active(); ws != nil {
 			data.WorkspaceName = ws.Name
 			data.WorkspaceProfile = ws.Profile

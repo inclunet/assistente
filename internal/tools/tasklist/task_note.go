@@ -15,6 +15,7 @@ type taskNoteArgs struct {
 	TaskListID        uint   `json:"task_list_id,omitempty"`
 	TaskListSlug      string `json:"task_list_slug,omitempty"`
 	TaskID            *uint  `json:"task_id,omitempty"`
+	TaskCode          string `json:"task_code,omitempty"`
 	Code              string `json:"code,omitempty"`
 	NoteID            *uint  `json:"note_id,omitempty"`
 	Type              *int   `json:"type,omitempty"`
@@ -38,7 +39,7 @@ func NewTaskNote(mgr TaskListManager) *TaskNoteTool {
 func (t *TaskNoteTool) Name() string { return "task_note" }
 
 func (t *TaskNoteTool) Description() string {
-	return "Creates or updates a note on a task. Identify the task with task_id and/or (task_list_id or task_list_slug + code), same rules as the task tool. (1) note_id → update content; optional task ref must match the note's task. (2) source + external_id → idempotent upsert for synced comments. (3) else manual create (requires type). Types: 1=internal, 2=customer, 3=agent, 4=system."
+	return "Creates or updates a note on a task. Identify the task with task_id, or task_code (Task.Code across lists; optional task_list_id/slug to disambiguate), or (task_list_id or task_list_slug + code), same rules as the task tool for list+code. If task_id and task_code are both sent, task_id wins; task_code must match that task's code. (1) note_id → update content; optional task ref must match the note's task. (2) source + external_id → idempotent upsert for synced comments (works with task_id or task_code). (3) else manual create (requires type). Types: 1=internal, 2=customer, 3=agent, 4=system."
 }
 
 func (t *TaskNoteTool) Parameters() json.RawMessage {
@@ -55,11 +56,15 @@ func (t *TaskNoteTool) Parameters() json.RawMessage {
 			},
 			"task_id": {
 				"type": "integer",
-				"description": "Numeric task id. Optional if task_list_id/slug + code identify the task"
+				"description": "Numeric task id. Optional if task_code or task_list_id/slug + code identify the task. Takes precedence over task_code when both are set"
+			},
+			"task_code": {
+				"type": "string",
+				"description": "Task.Code (e.g. FSD-12345) to find the task without numeric task_id. Optional task_list_id or task_list_slug disambiguates if the same code exists in multiple lists"
 			},
 			"code": {
 				"type": "string",
-				"description": "Task code within the list when resolving the task without task_id"
+				"description": "Task code within a specific list when resolving with task_list_id/slug (not the same field as task_code)"
 			},
 			"note_id": {
 				"type": "integer",
@@ -104,6 +109,52 @@ func (t *TaskNoteTool) Parameters() json.RawMessage {
 	}`)
 }
 
+// resolveTaskID resolves which task the note targets. Priority: task_id (with optional consistency checks) > task_code > task_list + code.
+func (t *TaskNoteTool) resolveTaskID(params taskNoteArgs) (uint, error) {
+	listIP := uintPtrIfPositive(params.TaskListID)
+	tidPtr := taskIDPtrForResolve(params.TaskID)
+	taskCodeTrim := strings.TrimSpace(params.TaskCode)
+	codeTrim := strings.TrimSpace(params.Code)
+
+	if tidPtr != nil {
+		task, err := t.mgr.GetTask(*tidPtr)
+		if err != nil {
+			return 0, fmt.Errorf("task_id %d não encontrado: %w", *tidPtr, err)
+		}
+		if taskCodeTrim != "" && strings.TrimSpace(task.Code) != taskCodeTrim {
+			return 0, fmt.Errorf("task_id %d tem task_code %q, que não coincide com %q", task.ID, task.Code, taskCodeTrim)
+		}
+		if codeTrim != "" && task.Code != codeTrim {
+			return 0, fmt.Errorf("task_id %d e code %q não correspondem à mesma task", *tidPtr, codeTrim)
+		}
+		hasListRef := listIP != nil || strings.TrimSpace(params.TaskListSlug) != ""
+		if hasListRef {
+			listID, err := t.mgr.ResolveTaskListRef(listIP, params.TaskListSlug)
+			if err != nil {
+				return 0, err
+			}
+			if task.TaskListID != listID {
+				return 0, fmt.Errorf("task_id %d e lista referenciada não correspondem à mesma task", *tidPtr)
+			}
+		}
+		return task.ID, nil
+	}
+
+	if taskCodeTrim != "" {
+		var scope *uint
+		if listIP != nil || strings.TrimSpace(params.TaskListSlug) != "" {
+			lid, err := t.mgr.ResolveTaskListRef(listIP, params.TaskListSlug)
+			if err != nil {
+				return 0, err
+			}
+			scope = &lid
+		}
+		return t.mgr.ResolveTaskIDByTaskCode(scope, taskCodeTrim)
+	}
+
+	return t.mgr.ResolveTaskRef(listIP, params.TaskListSlug, nil, codeTrim)
+}
+
 func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools.ToolResult, error) {
 	var params taskNoteArgs
 	if err := json.Unmarshal(args, &params); err != nil {
@@ -117,6 +168,8 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 
 	listIP := uintPtrIfPositive(params.TaskListID)
 	tidPtr := taskIDPtrForResolve(params.TaskID)
+	taskCodeTrim := strings.TrimSpace(params.TaskCode)
+	codeTrim := strings.TrimSpace(params.Code)
 
 	if params.NoteID != nil {
 		note, err := t.mgr.GetTaskNote(*params.NoteID)
@@ -124,8 +177,8 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 			return tools.ToolResult{Content: fmt.Sprintf("Note not found (id=%d): %v", *params.NoteID, err), IsError: true}, nil
 		}
 		var taskID uint
-		if tidPtr != nil || strings.TrimSpace(params.Code) != "" || listIP != nil || strings.TrimSpace(params.TaskListSlug) != "" {
-			resolved, err := t.mgr.ResolveTaskRef(listIP, params.TaskListSlug, tidPtr, params.Code)
+		if tidPtr != nil || taskCodeTrim != "" || codeTrim != "" || listIP != nil || strings.TrimSpace(params.TaskListSlug) != "" {
+			resolved, err := t.resolveTaskID(params)
 			if err != nil {
 				return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 			}
@@ -139,11 +192,7 @@ func (t *TaskNoteTool) Execute(ctx context.Context, args json.RawMessage) (tools
 		return t.updateNote(*params.NoteID, taskID, content)
 	}
 
-	resolveCode := strings.TrimSpace(params.Code)
-	if tidPtr != nil {
-		resolveCode = ""
-	}
-	resolvedTaskID, err := t.mgr.ResolveTaskRef(listIP, params.TaskListSlug, tidPtr, resolveCode)
+	resolvedTaskID, err := t.resolveTaskID(params)
 	if err != nil {
 		return tools.ToolResult{Content: err.Error(), IsError: true}, nil
 	}

@@ -4,7 +4,6 @@ import (
 	"sort"
 	"strconv"
 
-	"assistente/internal/database"
 	"assistente/internal/events"
 )
 
@@ -20,8 +19,8 @@ func NewConversationService(cr ConversationRepository, mr MessageRepository, em 
 	return &ConversationService{cr: cr, mr: mr, emitter: em}
 }
 
-// EnrichMessage converte database.ChatMessage para o DTO do frontend EnrichedMessage
-func EnrichMessage(msg database.ChatMessage) EnrichedMessage {
+// EnrichMessage converte Message para o DTO do frontend EnrichedMessage
+func EnrichMessage(msg Message) EnrichedMessage {
 	var parentIDStr *string
 	if msg.ParentID != nil {
 		s := strconv.FormatUint(uint64(*msg.ParentID), 10)
@@ -30,7 +29,7 @@ func EnrichMessage(msg database.ChatMessage) EnrichedMessage {
 
 	var turnID *uint
 	if msg.TurnID != nil {
-		v := uint(*msg.TurnID) // assumindo que database.ChatMessage.TurnID é inteiro
+		v := uint(*msg.TurnID) // TurnID é sempre uint (nunca negativo)
 		turnID = &v
 	}
 
@@ -58,10 +57,10 @@ func EnrichMessage(msg database.ChatMessage) EnrichedMessage {
 }
 
 // BuildMessageTree organiza mensagens planas em uma árvore hierárquica
-func BuildMessageTree(messages []database.ChatMessage) []MessageNode {
+func BuildMessageTree(messages []Message) []MessageNode {
 
-	childrenMap := make(map[uint][]database.ChatMessage)
-	var rootMessages []database.ChatMessage
+	childrenMap := make(map[uint][]Message)
+	var rootMessages []Message
 
 	for _, msg := range messages {
 		if msg.ParentID == nil {
@@ -80,8 +79,8 @@ func BuildMessageTree(messages []database.ChatMessage) []MessageNode {
 		})
 	}
 
-	var buildNode func(msg database.ChatMessage, level int) MessageNode
-	buildNode = func(msg database.ChatMessage, level int) MessageNode {
+	var buildNode func(msg Message, level int) MessageNode
+	buildNode = func(msg Message, level int) MessageNode {
 		node := MessageNode{
 			Message:  EnrichMessage(msg),
 			Children: []MessageNode{},
@@ -111,7 +110,7 @@ func BuildMessageTree(messages []database.ChatMessage) []MessageNode {
 // BuildMessageNodes constrói uma lista plana de MessageNode a partir de mensagens brutas,
 // calculando childCount para lazy loading (sem carregá-los na memória).
 // parentID nil = busca raízes (level 0); non-nil = filhos diretos (level 1).
-func BuildMessageNodes(messages []database.ChatMessage, childCounts map[uint]int, parentID *uint) []MessageNode {
+func BuildMessageNodes(messages []Message, childCounts map[uint]int, parentID *uint) []MessageNode {
 	level := 0
 	if parentID != nil {
 		level = 1

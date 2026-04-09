@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"assistente/adapters/noop"
+	"assistente/controllers"
 	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/providers"
@@ -20,12 +22,18 @@ func setupTestApp() *App {
 		CredMgr:  credMgr,
 		Store:    providers.NewMemoryStore(),
 	})
-	return &App{
+	a := &App{
 		ctx:         context.Background(),
 		credMgr:     credMgr,
 		llmRegistry: llmRegistry,
 		providerSvc: svc,
 	}
+	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
+		LLMRegistry: llmRegistry,
+		ProviderSvc: svc,
+		Emitter:     &noop.EmitterAdapter{},
+	})
+	return a
 }
 
 // TestTestLLMProviderValidatesEmptyUrl testa erro quando URL está vazia

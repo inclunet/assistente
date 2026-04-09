@@ -23,141 +23,97 @@ func (a *App) newTaskListService() *tasklist.Service {
 // ==================== TaskList Operations ====================
 
 func (a *App) CreateTaskList(title, description, slug string) (*TaskList, error) {
-	return a.taskSvc.CreateTaskList(a.ctx, title, description, nil, slug)
+	return a.taskListCtrl.CreateTaskList(a.ctx, title, description, slug)
 }
-
-func (a *App) GetTaskList(id uint) (*TaskList, error) {
-	return a.taskSvc.GetTaskList(id)
-}
-
-func (a *App) GetAllTaskLists() ([]TaskList, error) {
-	return a.taskSvc.GetAllTaskLists()
-}
-
+func (a *App) GetTaskList(id uint) (*TaskList, error) { return a.taskListCtrl.GetTaskList(id) }
+func (a *App) GetAllTaskLists() ([]TaskList, error)   { return a.taskListCtrl.GetAllTaskLists() }
 func (a *App) UpdateTaskList(id uint, title, description string) error {
-	return a.taskSvc.UpdateTaskList(id, title, description)
+	return a.taskListCtrl.UpdateTaskList(id, title, description)
 }
-
 func (a *App) SetTaskListViewMode(id uint, viewMode string) error {
-	return a.taskSvc.SetTaskListViewMode(id, viewMode)
+	return a.taskListCtrl.SetTaskListViewMode(id, viewMode)
 }
-
 func (a *App) CloneTaskList(id uint, newTitle string) (*TaskList, error) {
-	return a.taskSvc.CloneTaskList(id, newTitle)
+	return a.taskListCtrl.CloneTaskList(id, newTitle)
 }
-
-func (a *App) ClearTaskList(id uint) error {
-	return a.taskSvc.ClearTaskList(id)
-}
-
-func (a *App) DeleteTaskList(id uint) error {
-	return a.taskSvc.DeleteTaskList(id)
-}
+func (a *App) ClearTaskList(id uint) error  { return a.taskListCtrl.ClearTaskList(id) }
+func (a *App) DeleteTaskList(id uint) error { return a.taskListCtrl.DeleteTaskList(id) }
 
 // ==================== Workflow Operations ====================
 
 func (a *App) GetWorkflow(taskListID uint) (*TaskListWorkflow, error) {
-	return a.taskSvc.GetWorkflow(taskListID)
+	return a.taskListCtrl.GetWorkflow(taskListID)
 }
-
 func (a *App) UpdateWorkflow(taskListID uint, statuses []TaskListWorkflowStatus, transitions map[int][]int) error {
-	return a.taskSvc.UpdateWorkflow(taskListID, statuses, transitions)
+	return a.taskListCtrl.UpdateWorkflow(taskListID, statuses, transitions)
 }
-
 func (a *App) UpdateWorkflowFull(taskListID uint, statuses []TaskListWorkflowStatus, transitions map[int][]int, initialStatusID int, statusMigration map[int]int) error {
-	return a.taskSvc.UpdateWorkflowFull(taskListID, statuses, database.TaskListWorkflowTransitions(transitions), initialStatusID, statusMigration)
+	return a.taskListCtrl.UpdateWorkflowFull(taskListID, statuses, transitions, initialStatusID, statusMigration)
 }
-
 func (a *App) GetTaskCountsByStatus(taskListID uint) (map[int]int64, error) {
-	return a.taskSvc.GetTaskCountsByStatus(taskListID)
+	return a.taskListCtrl.GetTaskCountsByStatus(taskListID)
 }
-
 func (a *App) ReorderWorkflowStatuses(taskListID uint, statusOrder []int) error {
-	return a.taskSvc.ReorderWorkflowStatuses(taskListID, statusOrder)
+	return a.taskListCtrl.ReorderWorkflowStatuses(taskListID, statusOrder)
 }
-
 func (a *App) ValidateStatusTransition(taskListID uint, fromStatusID, toStatusID int) error {
-	return a.taskSvc.ValidateStatusTransition(taskListID, fromStatusID, toStatusID)
+	return a.taskListCtrl.ValidateStatusTransition(taskListID, fromStatusID, toStatusID)
 }
 
 // ==================== Task Operations ====================
 
 func (a *App) CreateTask(taskListID uint, title, description, code, link string, parentID *uint) (*Task, error) {
-	return a.taskSvc.CreateTask(taskListID, title, description, code, link, parentID)
+	return a.taskListCtrl.CreateTask(taskListID, title, description, code, link, parentID)
 }
-
-func (a *App) GetTask(id uint) (*Task, error) {
-	return a.taskSvc.GetTask(id)
-}
-
+func (a *App) GetTask(id uint) (*Task, error) { return a.taskListCtrl.GetTask(id) }
 func (a *App) GetTasksByTaskListID(taskListID uint) ([]Task, error) {
-	return a.taskSvc.GetTasksByTaskListID(taskListID)
+	return a.taskListCtrl.GetTasksByTaskListID(taskListID)
 }
-
 func (a *App) GetTasksByStatus(taskListID uint, statusID int) ([]Task, error) {
-	return a.taskSvc.GetTasksByStatus(taskListID, statusID)
+	return a.taskListCtrl.GetTasksByStatus(taskListID, statusID)
 }
-
 func (a *App) UpdateTask(id uint, title, description, code, link string) error {
-	return a.taskSvc.UpdateTask(id, title, description, code, link)
+	return a.taskListCtrl.UpdateTask(id, title, description, code, link)
 }
-
 func (a *App) UpdateTaskFull(id uint, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID string) error {
-	return a.taskSvc.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
+	return a.taskListCtrl.UpdateTaskFull(id, title, description, code, link, assigneeName, assigneeID, creatorName, creatorID)
 }
-
 func (a *App) UpdateTaskAssignee(id uint, assigneeName, assigneeID string) error {
-	return a.taskSvc.UpdateTaskAssignee(id, assigneeName, assigneeID)
+	return a.taskListCtrl.UpdateTaskAssignee(id, assigneeName, assigneeID)
 }
-
 func (a *App) UpdateTaskStatus(id uint, statusID int) error {
-	return a.taskSvc.UpdateTaskStatus(id, statusID)
+	return a.taskListCtrl.UpdateTaskStatus(id, statusID)
 }
-
 func (a *App) ReorderTasks(taskListID uint, statusID int, orderedIDs []uint) error {
-	return a.taskSvc.ReorderTasks(taskListID, statusID, orderedIDs)
+	return a.taskListCtrl.ReorderTasks(taskListID, statusID, orderedIDs)
 }
-
-func (a *App) PromoteTask(id uint) error {
-	return a.taskSvc.PromoteTask(id)
-}
-
+func (a *App) PromoteTask(id uint) error { return a.taskListCtrl.PromoteTask(id) }
 func (a *App) DemoteTask(id uint, parentID uint) error {
-	return a.taskSvc.DemoteTask(id, parentID)
+	return a.taskListCtrl.DemoteTask(id, parentID)
 }
-
-func (a *App) DeleteTask(id uint) error {
-	return a.taskSvc.DeleteTask(id)
-}
-
+func (a *App) DeleteTask(id uint) error { return a.taskListCtrl.DeleteTask(id) }
 func (a *App) GetSubtasks(parentID uint) ([]Task, error) {
-	return a.taskSvc.GetSubtasks(parentID)
+	return a.taskListCtrl.GetSubtasks(parentID)
 }
 
 // ==================== TaskNote Operations ====================
 
 func (a *App) CreateTaskNote(taskID uint, noteType int, content, authorName, authorID string) (*TaskNote, error) {
-	return a.taskSvc.CreateTaskNote(taskID, noteType, content, authorName, authorID)
+	return a.taskListCtrl.CreateTaskNote(taskID, noteType, content, authorName, authorID)
 }
-
 func (a *App) GetTaskNotes(taskID uint) ([]TaskNote, error) {
-	return a.taskSvc.GetTaskNotes(taskID)
+	return a.taskListCtrl.GetTaskNotes(taskID)
 }
-
 func (a *App) UpdateTaskNote(noteID uint, content string) error {
-	return a.taskSvc.UpdateTaskNote(noteID, content)
+	return a.taskListCtrl.UpdateTaskNote(noteID, content)
 }
-
-func (a *App) DeleteTaskNote(noteID uint) error {
-	return a.taskSvc.DeleteTaskNote(noteID)
-}
+func (a *App) DeleteTaskNote(noteID uint) error { return a.taskListCtrl.DeleteTaskNote(noteID) }
 
 // ==================== Utility Operations ====================
 
 func (a *App) GetTaskListStats(taskListID uint) (map[string]interface{}, error) {
-	return a.taskSvc.GetTaskListStats(taskListID)
+	return a.taskListCtrl.GetTaskListStats(taskListID)
 }
-
 func (a *App) GetTaskListWithHierarchy(id uint) (*TaskList, error) {
-	return a.taskSvc.GetTaskListWithHierarchy(id)
+	return a.taskListCtrl.GetTaskListWithHierarchy(id)
 }
