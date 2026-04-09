@@ -15,7 +15,6 @@ import (
 	"assistente/internal/messaging"
 	"assistente/internal/providers"
 	"assistente/internal/speech"
-	"assistente/internal/toolprep"
 	"assistente/internal/tools"
 )
 
@@ -165,7 +164,7 @@ func (c *ChatController) sendMessage(ctx context.Context, conversationID uint, u
 	if activeProfile != nil {
 		enabledTools = activeProfile.Chat.EnabledTools
 	}
-	llmToolDefs := toolprep.BuildLLMToolDefs(c.toolRegistry, enabledTools, disableTools)
+	llmToolDefs := chat.BuildLLMToolDefs(c.toolRegistry, enabledTools, disableTools)
 
 	// Resolve o ChatProvider para o provedor do perfil ativo.
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
@@ -184,7 +183,7 @@ func (c *ChatController) sendMessage(ctx context.Context, conversationID uint, u
 	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
 	// MCP nativo: configura servidores MCP HTTP no provider e remove suas tools da lista padrão.
-	requestStreamer, llmToolDefs = toolprep.ApplyNativeMCP(requestStreamer, llmToolDefs, c.mcpMgr, enabledTools, disableTools)
+	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, c.mcpMgr, enabledTools, disableTools)
 
 	// Cria contexto cancelável por conversa — permite barge-in cancelar o LLM em andamento.
 	convCtx, convCancel := context.WithCancel(ctx)
