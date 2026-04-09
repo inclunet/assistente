@@ -19,14 +19,7 @@ func (a profileProviderAdapter) ResolveDefaults(p *profiles.Profile) *profiles.P
 	return a.app.resolveProfileDefaults(p)
 }
 
-// ==================== Type aliases para Wails bindings ====================
-
-type SAPI5VoiceInfo = speech.Voice
-type OpenAITTSVoiceInfo = speech.TTSVoiceInfo
-type TranscriptionResultInfo = speech.TranscriptionResult
-type AudioResult = speech.AudioResult
-type TTSVoiceEntry = speech.TTSVoiceEntry
-type TTSStreamEvent = speech.TTSStreamEvent
+// ==================== Projeção para Wails bindings ====================
 
 // SynthesisResultInfo projeta SynthesisResult sem AudioData (bytes) para o frontend.
 type SynthesisResultInfo struct {
@@ -47,7 +40,7 @@ func synthesisResultInfo(r *speech.SynthesisResult) *SynthesisResultInfo {
 // SAPI5 Voice Methods (Windows only)
 // ============================================================================
 
-func (a *App) GetSAPI5Voices() ([]SAPI5VoiceInfo, error) {
+func (a *App) GetSAPI5Voices() ([]speech.Voice, error) {
 	return a.speechSvc.GetSAPI5Voices(), nil
 }
 func (a *App) SpeakSAPI5(text, voiceName string) error   { return a.speechSvc.SpeakSAPI5(text, voiceName) }
@@ -62,7 +55,7 @@ func (a *App) IsSAPI5Speaking() bool                     { return a.speechSvc.Is
 
 func (a *App) InitSpeechManagerFromProfile() error { return a.speechSvc.InitFromProfile() }
 
-func (a *App) TranscribeWhisper(audioBase64, filename string) (*TranscriptionResultInfo, error) {
+func (a *App) TranscribeWhisper(audioBase64, filename string) (*speech.TranscriptionResult, error) {
 	return a.speechSvc.Transcribe(audioBase64, filename)
 }
 
@@ -86,7 +79,7 @@ func (a *App) SynthesizeOpenAIStream(text, voice, sessionID string) error {
 	return a.speechSvc.SynthesizeStream(text, voice, sessionID)
 }
 
-func (a *App) GetOpenAITTSVoices() []OpenAITTSVoiceInfo {
+func (a *App) GetOpenAITTSVoices() []speech.TTSVoiceInfo {
 	return a.speechSvc.GetAvailableVoices()
 }
 
@@ -97,7 +90,7 @@ func (a *App) SetOpenAITTSSpeed(rate int)       { a.speechSvc.SetTTSSpeed(float6
 // Message Audio API (TTS storage)
 // ============================================================================
 
-func (a *App) GetMessageAudio(messageID uint) (*AudioResult, error) {
+func (a *App) GetMessageAudio(messageID uint) (*speech.AudioResult, error) {
 	return a.speechSvc.GetMessageAudio(messageID)
 }
 
@@ -105,11 +98,11 @@ func (a *App) SaveMessageAudio(messageID uint, audioBase64, mimeType string) err
 	return a.speechSvc.SaveMessageAudio(messageID, audioBase64, mimeType)
 }
 
-func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioResult, error) {
+func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*speech.AudioResult, error) {
 	return a.speechSvc.GenerateAndSaveMessageAudio(messageID, text)
 }
 
-func (a *App) SpeakMessage(messageID uint, providerID, voiceID, model string, rate float64) (*AudioResult, error) {
+func (a *App) SpeakMessage(messageID uint, providerID, voiceID, model string, rate float64) (*speech.AudioResult, error) {
 	return a.speechSvc.SpeakMessage(messageID, providerID, voiceID, model, rate)
 }
 
@@ -121,7 +114,7 @@ func (a *App) GetSpeechProviders() []*llm.ProviderConfig {
 	return a.speechSvc.GetSpeechProviders()
 }
 
-func (a *App) GetTTSVoices(profileID, providerID string) []TTSVoiceEntry {
+func (a *App) GetTTSVoices(profileID, providerID string) []speech.TTSVoiceEntry {
 	return a.speechSvc.GetTTSVoices(providerID)
 }
 
