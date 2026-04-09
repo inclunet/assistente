@@ -1,4 +1,4 @@
-package toolprep
+package chat
 
 import (
 	"context"
@@ -14,21 +14,21 @@ import (
 // Helpers / mocks
 // ---------------------------------------------------------------------------
 
-type mockTool struct {
+type mockToolDef struct {
 	name   string
 	descr  string
 	params json.RawMessage
 }
 
-func (m *mockTool) Name() string                { return m.name }
-func (m *mockTool) Description() string         { return m.descr }
-func (m *mockTool) Parameters() json.RawMessage { return m.params }
-func (m *mockTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
+func (m *mockToolDef) Name() string                { return m.name }
+func (m *mockToolDef) Description() string         { return m.descr }
+func (m *mockToolDef) Parameters() json.RawMessage { return m.params }
+func (m *mockToolDef) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: "ok"}, nil
 }
 
-func newTool(name string) *mockTool {
-	return &mockTool{
+func newToolDef(name string) *mockToolDef {
+	return &mockToolDef{
 		name:   name,
 		descr:  "descr:" + name,
 		params: json.RawMessage(`{}`),
@@ -38,38 +38,38 @@ func newTool(name string) *mockTool {
 func registryWith(names ...string) *tools.Registry {
 	r := tools.NewRegistry()
 	for _, n := range names {
-		r.MustRegister(newTool(n))
+		r.MustRegister(newToolDef(n))
 	}
 	return r
 }
 
-// mockProvider implements llm.ChatProvider for tests.
-type mockProvider struct {
+// mockChatProvider implements llm.ChatProvider for tests.
+type mockChatProvider struct {
 	supportsNative bool
 	calledWith     []llm.MCPServerConfig
 }
 
-func (m *mockProvider) StreamChat(_ context.Context, _ []llm.Message, _ llm.ChatParams, _ llm.StreamHandler, _ ...llm.ToolDefinition) {
+func (m *mockChatProvider) StreamChat(_ context.Context, _ []llm.Message, _ llm.ChatParams, _ llm.StreamHandler, _ ...llm.ToolDefinition) {
 }
-func (m *mockProvider) SendChat(_ context.Context, _ []llm.Message, _ llm.ChatParams) (string, error) {
+func (m *mockChatProvider) SendChat(_ context.Context, _ []llm.Message, _ llm.ChatParams) (string, error) {
 	return "", nil
 }
-func (m *mockProvider) GetModels(_ context.Context) ([]string, error) { return nil, nil }
-func (m *mockProvider) SimpleChat(_ context.Context, _, _, _ string) (string, error) {
+func (m *mockChatProvider) GetModels(_ context.Context) ([]string, error) { return nil, nil }
+func (m *mockChatProvider) SimpleChat(_ context.Context, _, _, _ string) (string, error) {
 	return "", nil
 }
-func (m *mockProvider) SupportsNativeMCP() bool { return m.supportsNative }
-func (m *mockProvider) WithMCPServers(servers []llm.MCPServerConfig) llm.ChatProvider {
-	clone := &mockProvider{supportsNative: m.supportsNative, calledWith: servers}
+func (m *mockChatProvider) SupportsNativeMCP() bool { return m.supportsNative }
+func (m *mockChatProvider) WithMCPServers(servers []llm.MCPServerConfig) llm.ChatProvider {
+	clone := &mockChatProvider{supportsNative: m.supportsNative, calledWith: servers}
 	return clone
 }
 
-// mockMCPMgr implements NativeMCPManager.
-type mockMCPMgr struct {
+// mockNativeMCPMgr implements NativeMCPManager.
+type mockNativeMCPMgr struct {
 	servers []mcplib.NativeMCPServer
 }
 
-func (m *mockMCPMgr) GetEligibleNativeMCPServers() []mcplib.NativeMCPServer {
+func (m *mockNativeMCPMgr) GetEligibleNativeMCPServers() []mcplib.NativeMCPServer {
 	return m.servers
 }
 
@@ -156,7 +156,7 @@ func TestBuildLLMToolDefs_EnabledToolsEmptySlice(t *testing.T) {
 func TestBuildLLMToolDefs_ParametersPreserved(t *testing.T) {
 	r := tools.NewRegistry()
 	params := json.RawMessage(`{"type":"object","properties":{"path":{"type":"string"}}}`)
-	r.MustRegister(&mockTool{name: "read_file", descr: "reads", params: params})
+	r.MustRegister(&mockToolDef{name: "read_file", descr: "reads", params: params})
 	got := BuildLLMToolDefs(r, nil, false)
 	if len(got) != 1 {
 		t.Fatalf("esperava 1 def, obteve %d", len(got))
@@ -171,8 +171,8 @@ func TestBuildLLMToolDefs_ParametersPreserved(t *testing.T) {
 // ---------------------------------------------------------------------------
 
 func TestApplyNativeMCP_DisableTools(t *testing.T) {
-	p := &mockProvider{supportsNative: true}
-	mgr := &mockMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
+	p := &mockChatProvider{supportsNative: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
 	defs := makeToolDefs("mcp_s1__tool1")
 	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, true)
 	if outP != p {
@@ -184,7 +184,7 @@ func TestApplyNativeMCP_DisableTools(t *testing.T) {
 }
 
 func TestApplyNativeMCP_NilMgr(t *testing.T) {
-	p := &mockProvider{supportsNative: true}
+	p := &mockChatProvider{supportsNative: true}
 	defs := makeToolDefs("toolA")
 	outP, outDefs := ApplyNativeMCP(p, defs, nil, nil, false)
 	if outP != p {
@@ -197,9 +197,9 @@ func TestApplyNativeMCP_NilMgr(t *testing.T) {
 
 // Regression: typed-nil ChatProvider must not reach SupportsNativeMCP() (method on nil receiver panics).
 func TestApplyNativeMCP_TypedNilProviderDoesNotPanic(t *testing.T) {
-	var p *mockProvider
+	var p *mockChatProvider
 	var streamer llm.ChatProvider = p
-	mgr := &mockMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
 	defs := makeToolDefs("toolA")
 	outP, outDefs := ApplyNativeMCP(streamer, defs, mgr, nil, false)
 	if outP != streamer {
@@ -211,8 +211,8 @@ func TestApplyNativeMCP_TypedNilProviderDoesNotPanic(t *testing.T) {
 }
 
 func TestApplyNativeMCP_ProviderNotNative(t *testing.T) {
-	p := &mockProvider{supportsNative: false}
-	mgr := &mockMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
+	p := &mockChatProvider{supportsNative: false}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{{Name: "s", URL: "https://x.io"}}}
 	defs := makeToolDefs("toolA")
 	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false)
 	if outP != p {
@@ -224,8 +224,8 @@ func TestApplyNativeMCP_ProviderNotNative(t *testing.T) {
 }
 
 func TestApplyNativeMCP_NoServers(t *testing.T) {
-	p := &mockProvider{supportsNative: true}
-	mgr := &mockMCPMgr{servers: nil}
+	p := &mockChatProvider{supportsNative: true}
+	mgr := &mockNativeMCPMgr{servers: nil}
 	defs := makeToolDefs("toolA")
 	outP, outDefs := ApplyNativeMCP(p, defs, mgr, nil, false)
 	if outP != p {
@@ -237,8 +237,8 @@ func TestApplyNativeMCP_NoServers(t *testing.T) {
 }
 
 func TestApplyNativeMCP_RemovesBridgeTools(t *testing.T) {
-	p := &mockProvider{supportsNative: true}
-	mgr := &mockMCPMgr{servers: []mcplib.NativeMCPServer{
+	p := &mockChatProvider{supportsNative: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Name: "MyServer", URL: "https://mcp.example.io", ToolNames: []string{"mcp_myserver__list", "mcp_myserver__create"}},
 	}}
 	defs := makeToolDefs("mcp_myserver__list", "mcp_myserver__create", "local_tool")
@@ -252,15 +252,15 @@ func TestApplyNativeMCP_RemovesBridgeTools(t *testing.T) {
 }
 
 func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
-	p := &mockProvider{supportsNative: true}
-	mgr := &mockMCPMgr{servers: []mcplib.NativeMCPServer{
+	p := &mockChatProvider{supportsNative: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Name: "Srv", URL: "https://srv.io", AuthToken: "tok", ToolNames: []string{"mcp_srv__do"}},
 	}}
 	defs := makeToolDefs("mcp_srv__do")
 	outP, _ := ApplyNativeMCP(p, defs, mgr, nil, false)
-	result, ok := outP.(*mockProvider)
+	result, ok := outP.(*mockChatProvider)
 	if !ok {
-		t.Fatal("esperava *mockProvider de retorno")
+		t.Fatal("esperava *mockChatProvider de retorno")
 	}
 	if len(result.calledWith) != 1 {
 		t.Fatalf("esperava 1 MCPServerConfig, obteve %d", len(result.calledWith))
@@ -272,8 +272,8 @@ func TestApplyNativeMCP_CallsWithMCPServers(t *testing.T) {
 }
 
 func TestApplyNativeMCP_EnabledSetFiltersServer(t *testing.T) {
-	p := &mockProvider{supportsNative: true}
-	mgr := &mockMCPMgr{servers: []mcplib.NativeMCPServer{
+	p := &mockChatProvider{supportsNative: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Name: "S", URL: "https://s.io", ToolNames: []string{"mcp_s__alpha", "mcp_s__beta"}},
 	}}
 	defs := makeToolDefs("mcp_s__alpha", "mcp_s__beta", "local")
@@ -294,8 +294,8 @@ func TestApplyNativeMCP_EnabledSetFiltersServer(t *testing.T) {
 }
 
 func TestApplyNativeMCP_ServerExcludedWhenNoEnabledTools(t *testing.T) {
-	p := &mockProvider{supportsNative: true}
-	mgr := &mockMCPMgr{servers: []mcplib.NativeMCPServer{
+	p := &mockChatProvider{supportsNative: true}
+	mgr := &mockNativeMCPMgr{servers: []mcplib.NativeMCPServer{
 		{Name: "S", URL: "https://s.io", ToolNames: []string{"mcp_s__tool1"}},
 	}}
 	defs := makeToolDefs("mcp_s__tool1", "local")
