@@ -15,7 +15,6 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/events"
-	"assistente/internal/hotkey"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
@@ -50,7 +49,6 @@ type ChannelInfo = controllers.ChannelInfo
 type App struct {
 	ctx              context.Context
 	llmRegistry      *llm.ProviderRegistry // Registro de provedores LLM
-	hotkeyManager    *hotkey.Manager
 	profileManager   *profiles.Manager
 	toolRegistry     *tools.Registry             // Registro de ferramentas disponíveis
 	toolExecutor     *tools.Executor             // Executor de ferramentas com paralelismo e timeout
@@ -65,10 +63,6 @@ type App struct {
 
 	credMgr   *credentials.Manager
 	credStore credentials.Store
-
-	// Throttle para hotkeys - evita disparo repetido quando segura a tecla
-	hotkeyLastFired  map[uint]time.Time
-	hotkeyThrottleMs int64 // tempo mínimo entre disparos (em ms)
 
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu    sync.Mutex
@@ -146,6 +140,7 @@ type App struct {
 	terminalCtrl    *controllers.TerminalController
 	allowlistCtrl   *controllers.AllowlistController
 	signalCtrl      *controllers.SignalController
+	hotkeyCtrl      *controllers.HotkeysController
 }
 
 // ==================== Tipos para Threads ====================
@@ -155,10 +150,8 @@ type StreamEvent = events.StreamEvent
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		hotkeyLastFired:  make(map[uint]time.Time),
-		hotkeyThrottleMs: 1000,
-		profileManager:   profiles.NewManager(),
-		llmRegistry:      llm.NewProviderRegistry(),
+		profileManager: profiles.NewManager(),
+		llmRegistry:    llm.NewProviderRegistry(),
 	}
 }
 
@@ -295,6 +288,11 @@ func (a *App) startup(ctx context.Context) {
 	})
 
 	// Inicializa hotkeys globais
+	a.hotkeyCtrl = controllers.NewHotkeysController(controllers.HotkeysControllerConfig{
+		ProfileMgr: a.profileManager,
+		Emitter:    a.emitter,
+		WindowPort: a.windowPort,
+	})
 	a.initGlobalHotkeys()
 
 	// Registra hotkeys do perfil ativo
@@ -426,8 +424,8 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(_ context.Context) {
 	a.stopAllEditorWatches()
 
-	if a.hotkeyManager != nil {
-		a.hotkeyManager.Stop()
+	if a.hotkeyCtrl != nil {
+		a.hotkeyCtrl.Stop()
 	}
 
 	// Encerra todos os servidores MCP
