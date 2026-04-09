@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"runtime/debug"
 
 	"assistente/internal/chat"
 	"assistente/internal/events"
@@ -33,13 +34,21 @@ func (a *App) SendMessageFromChannel(conversationID uint, content, media string,
 
 // sendMessageInternal contém a lógica de processamento de mensagens.
 // Usado por SendMessage (Wails) e SendMessageFromChannel (mensageiros).
-func (a *App) sendMessageInternal(conversationID uint, userContent string, userMedia string, params ChatParams, source string) (uint, error) {
+func (a *App) sendMessageInternal(conversationID uint, userContent string, userMedia string, params ChatParams, source string) (retConv uint, retErr error) {
 	if a.chatInteractor == nil {
 		return 0, fmt.Errorf("chat não inicializado")
 	}
 	if a.ctx == nil {
 		return 0, fmt.Errorf("aplicação não inicializada")
 	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			log.Printf("[SendMessage] PANIC recover: %v\n%s", r, debug.Stack())
+			retErr = fmt.Errorf("erro interno ao enviar mensagem: %v", r)
+			retConv = 0
+		}
+	}()
 
 	// Delega validação, renaming e resolução de perfil para o ChatInteractor
 	pctx, err := a.chatInteractor.PrepareContext(context.Background(), chat.PrepareContextRequest{
@@ -84,6 +93,9 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	if err != nil {
 		return 0, err
 	}
+	if rmsg == nil || rmsg.UserMsg == nil {
+		return 0, fmt.Errorf("mensagem do usuário não foi persistida")
+	}
 	userMsg := rmsg.UserMsg
 	messages := rmsg.Messages
 	conversationSummary := rmsg.ConversationSummary
@@ -115,10 +127,22 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 		a.emitter.Emit("chat:error", errMsg)
 		return 0, fmt.Errorf("%s", errMsg)
 	}
+	if toolprep.ChatProviderIsNil(requestStreamer) {
+		errMsg := "Provedor LLM inválido (instância nil)."
+		log.Printf("[SendMessage] ERRO: %s", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
+		return 0, fmt.Errorf("%s", errMsg)
+	}
 	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
 
 	// MCP nativo: se provider suporta e há servidores HTTP elegíveis, configura native path.
 	requestStreamer, llmToolDefs = toolprep.ApplyNativeMCP(requestStreamer, llmToolDefs, a.mcpMgr, enabledTools, disableTools)
+	if toolprep.ChatProviderIsNil(requestStreamer) {
+		errMsg := "Provedor LLM inválido após MCP nativo."
+		log.Printf("[SendMessage] ERRO: %s", errMsg)
+		a.emitter.Emit("chat:error", errMsg)
+		return 0, fmt.Errorf("%s", errMsg)
+	}
 
 	// Se há ferramentas disponíveis, usa o agentic loop; caso contrário, streaming simples
 	// Cria contexto cancelável por conversa — permite barge-in (SIP) cancelar LLM em andamento.

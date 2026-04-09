@@ -9,9 +9,9 @@ import (
 	"assistente/internal/tools"
 )
 
-// chatProviderIsNil reports whether c is nil or holds a nil concrete pointer (typed nil).
+// ChatProviderIsNil reports whether c is nil or holds a nil concrete pointer (typed nil).
 // Calling methods on a typed-nil ChatProvider panics (e.g. (*OpenAIProvider)(nil).SupportsNativeMCP()).
-func chatProviderIsNil(c llm.ChatProvider) bool {
+func ChatProviderIsNil(c llm.ChatProvider) bool {
 	if c == nil {
 		return true
 	}
@@ -67,7 +67,7 @@ func ApplyNativeMCP(
 	enabledTools []string,
 	disableTools bool,
 ) (llm.ChatProvider, []llm.ToolDefinition) {
-	if disableTools || mcpMgr == nil || chatProviderIsNil(streamer) {
+	if disableTools || mcpMgr == nil || ChatProviderIsNil(streamer) {
 		return streamer, toolDefs
 	}
 	if !streamer.SupportsNativeMCP() {
