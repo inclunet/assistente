@@ -23,7 +23,6 @@ type StreamChunk = llm.StreamChunk
 type Model = llm.Model
 type ModelsResponse = llm.ModelsResponse
 type ChatParams = llm.ChatParams
-type SettingsInput = llm.SettingsInput
 
 // Re-exporta funções utilitárias
 // ==================== StreamHandler Implementation ====================
