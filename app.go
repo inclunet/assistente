@@ -129,6 +129,7 @@ type App struct {
 	llmCtrl      *controllers.LLMController
 	skillsCtrl   *controllers.SkillsController
 	settingsCtrl *controllers.SettingsController
+	chatCtrl     *controllers.ChatController
 }
 
 // ==================== Tipos para Threads ====================
@@ -324,6 +325,21 @@ func (a *App) startup(ctx context.Context) {
 		GetModels: func() ([]string, error) {
 			return a.GetModels()
 		},
+	})
+
+	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{
+		Emitter:          a.emitter,
+		ChatInteractor:   a.chatInteractor,
+		ToolRegistry:     a.toolRegistry,
+		ProviderSvc:      a.providerSvc,
+		MCPMgr:           a.mcpMgr,
+		AgentSvc:         a.agentSvc,
+		StreamMgr:        a.streamMgr,
+		SpeechSvc:        a.speechSvc,
+		SettingsSvc:      a.settingsSvc,
+		ConvRepo:         a.convSvc,
+		MsgGateway:       a.msgGateway,
+		ResponseNotifier: a.responseNotifier,
 	})
 
 	// Verifica atualizações no startup (não bloqueante)
