@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"assistente/internal/chat"
+	"assistente/internal/events"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 	"assistente/internal/skills"
@@ -133,9 +134,9 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	} else {
 		// Sem ferramentas: streaming simples
 		handler := &appStreamHandler{
-			baseStreamHandler: baseStreamHandler{
-				emitter:        a.emitter,
-				conversationID: conversationID,
+			BaseStreamHandler: events.BaseStreamHandler{
+				Emitter:        a.emitter,
+				ConversationID: conversationID,
 			},
 			app:           a,
 			userMessageID: userMsg.ID,
