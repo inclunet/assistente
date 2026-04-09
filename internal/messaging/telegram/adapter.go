@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"path"
 	"strconv"
@@ -60,7 +61,7 @@ func (t *TelegramAdapter) Connect(ctx context.Context) error {
 	t.status = messaging.StatusConnected
 	t.mu.Unlock()
 
-	fmt.Printf("[Telegram] Conectado como @%s\n", bot.Self.UserName)
+	log.Printf("[Telegram] Conectado como @%s", bot.Self.UserName)
 
 	// Inicia o loop de long polling em goroutine
 	go t.pollLoop()
@@ -80,7 +81,7 @@ func (t *TelegramAdapter) Disconnect() error {
 		t.bot.StopReceivingUpdates()
 	}
 	t.status = messaging.StatusDisconnected
-	fmt.Println("[Telegram] Desconectado")
+	log.Println("[Telegram] Desconectado")
 	return nil
 }
 
@@ -103,7 +104,7 @@ func (t *TelegramAdapter) Send(ctx context.Context, msg messaging.OutgoingMessag
 	// Envia attachments primeiro (se houver)
 	for _, att := range msg.Attachments {
 		if err := t.sendAttachment(chatID, att, msg.ReplyToMessageID); err != nil {
-			fmt.Printf("[Telegram] Erro ao enviar attachment %s: %v\n", att.Filename, err)
+			log.Printf("[Telegram] Erro ao enviar attachment %s: %v", att.Filename, err)
 		}
 	}
 
@@ -285,11 +286,10 @@ func (t *TelegramAdapter) pollLoop() {
 	for {
 		select {
 		case <-ctx.Done():
-			fmt.Println("[Telegram] Poll loop encerrado")
 			return
 		case update, ok := <-updates:
 			if !ok {
-				fmt.Println("[Telegram] Canal de updates fechado")
+				log.Println("[Telegram] Canal de updates fechado")
 				return
 			}
 			t.handleUpdate(update)
@@ -324,7 +324,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(m.Voice.FileSize),
 			})
 		} else {
-			fmt.Printf("[Telegram] Erro ao baixar voice: %v\n", err)
+			log.Printf("[Telegram] Erro ao baixar voice: %v", err)
 		}
 	}
 
@@ -342,12 +342,12 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(m.Audio.FileSize),
 			})
 		} else {
-			fmt.Printf("[Telegram] Erro ao baixar audio: %v\n", err)
+			log.Printf("[Telegram] Erro ao baixar audio: %v", err)
 		}
 	}
 
 	// Foto (pega a maior resolução — último item do array)
-	if m.Photo != nil && len(m.Photo) > 0 {
+	if len(m.Photo) > 0 {
 		photo := m.Photo[len(m.Photo)-1] // Maior resolução
 		if data, _, err := t.downloadFile(photo.FileID); err == nil {
 			attachments = append(attachments, messaging.Attachment{
@@ -357,7 +357,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(photo.FileSize),
 			})
 		} else {
-			fmt.Printf("[Telegram] Erro ao baixar foto: %v\n", err)
+			log.Printf("[Telegram] Erro ao baixar foto: %v", err)
 		}
 	}
 
@@ -375,7 +375,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(m.Document.FileSize),
 			})
 		} else {
-			fmt.Printf("[Telegram] Erro ao baixar documento: %v\n", err)
+			log.Printf("[Telegram] Erro ao baixar documento: %v", err)
 		}
 	}
 
@@ -393,7 +393,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(m.Video.FileSize),
 			})
 		} else {
-			fmt.Printf("[Telegram] Erro ao baixar vídeo: %v\n", err)
+			log.Printf("[Telegram] Erro ao baixar vídeo: %v", err)
 		}
 	}
 
@@ -407,7 +407,7 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 				Size:     int64(m.VideoNote.FileSize),
 			})
 		} else {
-			fmt.Printf("[Telegram] Erro ao baixar video note: %v\n", err)
+			log.Printf("[Telegram] Erro ao baixar video note: %v", err)
 		}
 	}
 
@@ -446,12 +446,6 @@ func (t *TelegramAdapter) handleUpdate(update tgbotapi.Update) {
 		Channel:     "telegram",
 	}
 
-	desc := truncate(msg.Text, 100)
-	if len(attachments) > 0 {
-		desc = fmt.Sprintf("[%d anexo(s)] %s", len(attachments), desc)
-	}
-	fmt.Printf("[Telegram] Mensagem de %s: %s\n", msg.From.DisplayName, desc)
-
 	// Envia typing indicator
 	t.SendTypingAction(m.Chat.ID)
 
@@ -471,12 +465,4 @@ func contactFromTelegram(msg *tgbotapi.Message) messaging.Contact {
 		DisplayName: displayName,
 		Username:    msg.From.UserName,
 	}
-}
-
-// truncate encurta uma string para exibição em logs.
-func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
-		return s
-	}
-	return s[:maxLen] + "..."
 }

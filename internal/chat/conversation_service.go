@@ -1,7 +1,6 @@
 package chat
 
 import (
-	"fmt"
 	"sort"
 	"strconv"
 
@@ -60,7 +59,6 @@ func EnrichMessage(msg database.ChatMessage) EnrichedMessage {
 
 // BuildMessageTree organiza mensagens planas em uma árvore hierárquica
 func BuildMessageTree(messages []database.ChatMessage) []MessageNode {
-	fmt.Printf("[TREE] Construindo árvore com %d mensagens\n", len(messages))
 
 	childrenMap := make(map[uint][]database.ChatMessage)
 	var rootMessages []database.ChatMessage
@@ -107,6 +105,24 @@ func BuildMessageTree(messages []database.ChatMessage) []MessageNode {
 		result = append(result, node)
 	}
 
-	fmt.Printf("[TREE] Resultado: %d raízes\n", len(result))
+	return result
+}
+
+// BuildMessageNodes constrói uma lista plana de MessageNode a partir de mensagens brutas,
+// calculando childCount para lazy loading (sem carregá-los na memória).
+// parentID nil = busca raízes (level 0); non-nil = filhos diretos (level 1).
+func BuildMessageNodes(messages []database.ChatMessage, childCounts map[uint]int, parentID *uint) []MessageNode {
+	level := 0
+	if parentID != nil {
+		level = 1
+	}
+	result := make([]MessageNode, 0, len(messages))
+	for _, msg := range messages {
+		result = append(result, MessageNode{
+			Message:    EnrichMessage(msg),
+			Level:      level,
+			ChildCount: childCounts[msg.ID],
+		})
+	}
 	return result
 }

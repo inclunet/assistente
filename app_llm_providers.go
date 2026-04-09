@@ -158,6 +158,24 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) (models []string, retErr
 	return result, nil
 }
 
+// providerToMap serializa um ProviderConfig para o formato map[string]interface{}
+// esperado pelo frontend, incluindo status de credencial.
+func providerToMap(p *llm.ProviderConfig, credentialPattern string, credentialConfigured bool) map[string]interface{} {
+	return map[string]interface{}{
+		"id":                    p.ID,
+		"name":                  p.Name,
+		"type":                  string(p.Type),
+		"api_format":            string(p.APIFormat),
+		"base_url":              p.BaseURL,
+		"model":                 p.Model,
+		"default_model":         p.DefaultModel,
+		"is_default":            p.IsDefault,
+		"timeout":               p.Timeout,
+		"credential_pattern":    credentialPattern,
+		"credential_configured": credentialConfigured,
+	}
+}
+
 // CreateLLMProvider cria um novo provider com auto-salvamento de credenciais.
 func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interface{}, error) {
 	res, err := a.providerSvc.Create(a.ctx, providers.CreateRequest{
@@ -172,19 +190,7 @@ func (a *App) CreateLLMProvider(req CreateLLMProviderRequest) (map[string]interf
 	if err != nil {
 		return nil, err
 	}
-	p := res.Provider
-	return map[string]interface{}{
-		"id":                    p.ID,
-		"name":                  p.Name,
-		"type":                  string(p.Type),
-		"base_url":              p.BaseURL,
-		"model":                 p.Model,
-		"default_model":         p.DefaultModel,
-		"is_default":            p.IsDefault,
-		"timeout":               p.Timeout,
-		"credential_pattern":    res.CredentialPattern,
-		"credential_configured": res.CredentialConfigured,
-	}, nil
+	return providerToMap(res.Provider, res.CredentialPattern, res.CredentialConfigured), nil
 }
 
 // UpdateLLMProvider atualiza um provider existente.
@@ -201,18 +207,7 @@ func (a *App) UpdateLLMProvider(id string, req UpdateLLMProviderRequest) (map[st
 		return nil, err
 	}
 	p := res.Provider
-	return map[string]interface{}{
-		"id":                    p.ID,
-		"name":                  p.Name,
-		"type":                  string(p.Type),
-		"base_url":              p.BaseURL,
-		"model":                 p.Model,
-		"default_model":         p.DefaultModel,
-		"is_default":            p.IsDefault,
-		"timeout":               p.Timeout,
-		"credential_pattern":    p.CredentialPattern,
-		"credential_configured": res.CredentialConfigured,
-	}, nil
+	return providerToMap(p, p.CredentialPattern, res.CredentialConfigured), nil
 }
 
 // SetDefaultProvider marca um provedor como o default do sistema.
@@ -234,20 +229,7 @@ func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 	statuses := a.providerSvc.ListWithStatus()
 	result := make([]map[string]interface{}, 0, len(statuses))
 	for _, s := range statuses {
-		p := s.Provider
-		result = append(result, map[string]interface{}{
-			"id":                    p.ID,
-			"name":                  p.Name,
-			"type":                  string(p.Type),
-			"api_format":            string(p.APIFormat),
-			"base_url":              p.BaseURL,
-			"model":                 p.Model,
-			"default_model":         p.DefaultModel,
-			"is_default":            p.IsDefault,
-			"timeout":               p.Timeout,
-			"credential_pattern":    p.CredentialPattern,
-			"credential_configured": s.CredentialConfigured,
-		})
+		result = append(result, providerToMap(s.Provider, s.Provider.CredentialPattern, s.CredentialConfigured))
 	}
 	return result
 }

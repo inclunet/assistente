@@ -3,6 +3,7 @@ package slack
 import (
 	"context"
 	"fmt"
+	"log"
 	"math"
 	"strconv"
 	"sync"
@@ -76,7 +77,7 @@ func (s *SlackAdapter) Connect(ctx context.Context) error {
 	go s.eventLoop()
 	go socketClient.RunContext(s.ctx)
 
-	fmt.Println("[Slack] Conectado via Socket Mode")
+	log.Println("[Slack] Conectado via Socket Mode")
 	return nil
 }
 
@@ -89,7 +90,7 @@ func (s *SlackAdapter) Disconnect() error {
 		s.cancel()
 	}
 	s.status = messaging.StatusDisconnected
-	fmt.Println("[Slack] Desconectado")
+	log.Println("[Slack] Desconectado")
 	return nil
 }
 

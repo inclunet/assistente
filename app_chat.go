@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"assistente/internal/chat"
+	"assistente/internal/events"
 	"assistente/internal/profiles"
 	"assistente/internal/prompt"
 	"assistente/internal/skills"
@@ -133,9 +134,9 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 	} else {
 		// Sem ferramentas: streaming simples
 		handler := &appStreamHandler{
-			baseStreamHandler: baseStreamHandler{
-				emitter:        a.emitter,
-				conversationID: conversationID,
+			BaseStreamHandler: events.BaseStreamHandler{
+				Emitter:        a.emitter,
+				ConversationID: conversationID,
 			},
 			app:           a,
 			userMessageID: userMsg.ID,
@@ -152,21 +153,13 @@ func (a *App) sendMessageInternal(conversationID uint, userContent string, userM
 // DefaultSystemPrompt é re-exportado de internal/chat para compatibilidade.
 var DefaultSystemPrompt = chat.DefaultSystemPrompt
 
-// buildFullSystemPrompt composes the complete system prompt with DefaultSystemPrompt, skills injection, invoked skill, and conversation summary.
-// enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
-// slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
-// conversationSummary: resumo de mensagens antigas da conversa (rolling context).
-func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, disableOnDemand bool, skillTplData any, slashSkillContent string, conversationSummary string) []Message {
-	b := a.promptBuilder
-	if b == nil {
-		b = a.newPromptBuilder()
-	}
-	return b.Build(messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, conversationSummary)
-}
-
-// newPromptBuilder cria um Builder avulso com os deps atuais da App.
+// effectivePromptBuilder retorna a.promptBuilder se inicializado, ou constrói um Builder avulso.
 // Protege contra o trap de interface nil em Go (nil *Manager ≠ nil interface).
-func (a *App) newPromptBuilder() *prompt.Builder {
+// Em produção, a.promptBuilder é sempre não-nil após startup(). Usado por testes que criam &App{}.
+func (a *App) effectivePromptBuilder() *prompt.Builder {
+	if a.promptBuilder != nil {
+		return a.promptBuilder
+	}
 	b := &prompt.Builder{Tools: a.toolRegistry}
 	if a.skillMgr != nil {
 		b.Skills = a.skillMgr
@@ -175,6 +168,14 @@ func (a *App) newPromptBuilder() *prompt.Builder {
 		b.Workspace = a.workspaceMgr
 	}
 	return b
+}
+
+// buildFullSystemPrompt composes the complete system prompt with DefaultSystemPrompt, skills injection, invoked skill, and conversation summary.
+// enabledSkills: nil = todos os skills, [] = nenhum, ["slug1","slug2"] = apenas esses.
+// slashSkillContent: conteúdo processado de um skill invocado via /slash (pode ser vazio).
+// conversationSummary: resumo de mensagens antigas da conversa (rolling context).
+func (a *App) buildFullSystemPrompt(messages []Message, enabledSkills []string, disableOnDemand bool, skillTplData any, slashSkillContent string, conversationSummary string) []Message {
+	return a.effectivePromptBuilder().Build(messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, conversationSummary)
 }
 
 // prepareMessages detecta invocação de skill via /slash, injeta o system prompt completo
@@ -186,7 +187,7 @@ func (a *App) prepareMessages(
 	params ChatParams,
 	activeProfile *profiles.Profile,
 ) (out []Message, invokedSkillSlug string, invokedScope *tools.FilesystemScope) {
-	skillTplData := a.promptBuilder.BuildTemplateData(activeProfile, params.ProfileSlug, conversationID)
+	skillTplData := a.effectivePromptBuilder().BuildTemplateData(activeProfile, params.ProfileSlug, conversationID)
 
 	var slashSkillContent string
 	if inv, found, _ := skills.Invoke(userContent, a.skillMgr, skillTplData, conversationID); found {

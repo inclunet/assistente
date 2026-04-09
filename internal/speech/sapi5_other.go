@@ -18,9 +18,7 @@ type Voice struct {
 }
 
 // SAPI5Manager é um stub para sistemas não-Windows
-type SAPI5Manager struct {
-	mu sync.Mutex
-}
+type SAPI5Manager struct{}
 
 var (
 	manager     *SAPI5Manager

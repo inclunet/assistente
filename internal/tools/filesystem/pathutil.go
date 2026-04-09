@@ -156,7 +156,7 @@ func validateSkillFilesystemAllowlist(ctx context.Context, fullPath, workDir, op
 		return fmt.Errorf("acesso ao filesystem bloqueado pela denylist do skill")
 	}
 
-	allowed := []string{}
+	var allowed []string
 	switch operation {
 	case "read", "list", "search", "grep":
 		allowed = ec.Filesystem.Read
