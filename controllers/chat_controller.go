@@ -21,17 +21,17 @@ import (
 
 // ChatControllerConfig agrupa todas as dependências do ChatController.
 type ChatControllerConfig struct {
-	Emitter         ports.Emitter
-	ChatInteractor  *chat.Interactor
-	ToolRegistry    *tools.Registry
-	ProviderSvc     *providers.Service
-	MCPMgr          *mcpmgr.Manager
-	AgentSvc        *agent.Service
-	StreamMgr       *chat.StreamingManager
-	SpeechSvc       *speech.Service
-	SettingsSvc     *config.SettingsService
-	ConvRepo        chat.ConversationRepository
-	MsgGateway      *messaging.Gateway
+	Emitter          ports.Emitter
+	ChatInteractor   *chat.Interactor
+	ToolRegistry     *tools.Registry
+	ProviderSvc      *providers.Service
+	MCPMgr           *mcpmgr.Manager
+	AgentSvc         *agent.Service
+	StreamMgr        *chat.StreamingManager
+	SpeechSvc        *speech.Service
+	SettingsSvc      *config.SettingsService
+	ConvRepo         chat.ConversationRepository
+	MsgGateway       *messaging.Gateway
 	ResponseNotifier *messaging.ResponseNotifier
 }
 

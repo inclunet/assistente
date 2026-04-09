@@ -24,7 +24,7 @@ func (a *App) initMessaging() {
 	a.responseNotifier = messaging.NewResponseNotifier()
 
 	emitEvent := func(event string, data any) {
-		a.emitter.Emit( event, data)
+		a.emitter.Emit(event, data)
 	}
 
 	// Função TTS para sintetizar respostas em áudio para canais externos.
@@ -441,7 +441,7 @@ func (a *App) CreateChannelFromTemplate(templateType string, values map[string]i
 	}
 
 	// Emite evento para atualizar UI
-	a.emitter.Emit( "channel:created", map[string]string{"type": templateType})
+	a.emitter.Emit("channel:created", map[string]string{"type": templateType})
 
 	return nil
 }
