@@ -2,7 +2,6 @@ package controllers
 
 import (
 	"context"
-	"fmt"
 	"log"
 
 	"assistente/internal/agent"
@@ -10,7 +9,6 @@ import (
 	"assistente/internal/config"
 	"assistente/internal/core/ports"
 	"assistente/internal/core/usecases"
-	"assistente/internal/events"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
 	"assistente/internal/messaging"
@@ -99,141 +97,6 @@ func (c *ChatController) SendMessageFromChannel(ctx context.Context, conversatio
 // CancelStreamingForConversation cancela um streaming LLM em andamento (barge-in).
 func (c *ChatController) CancelStreamingForConversation(conversationID uint) {
 	c.streamMgr.Cancel(conversationID)
-}
-
-// sendMessage contém toda a lógica do pipeline de mensagens, desacoplada do *App.
-func (c *ChatController) sendMessage(ctx context.Context, conversationID uint, userContent, userMedia string, params llm.ChatParams, source string) (uint, error) {
-	// Resolve modelo padrão do config como fallback.
-	var defaultModel string
-	if cfg, cfgErr := c.settingsSvc.GetConfig(); cfgErr == nil {
-		defaultModel = cfg.DefaultModel
-	}
-
-	// Delega validação, renaming e resolução de perfil para o ChatInteractor.
-	pctx, err := c.chatInteractor.PrepareContext(context.Background(), chat.PrepareContextRequest{
-		ConversationID: conversationID,
-		UserContent:    userContent,
-		UserMedia:      userMedia,
-		Params:         params,
-		Source:         source,
-		DefaultModel:   defaultModel,
-	})
-	if err != nil {
-		return 0, err
-	}
-	activeProfile := pctx.ActiveProfile
-	params = pctx.Params
-	userContent = pctx.UserContent
-
-	// Resolve conteúdo: extrai áudio do media e aplica STT fallback para canais.
-	var sttProvider string
-	if activeProfile != nil {
-		sttProvider = activeProfile.Input.STTProvider
-	}
-	resolved := c.chatInteractor.ResolveUserContent(context.Background(), chat.ResolveUserContentRequest{
-		Content:     userContent,
-		Media:       userMedia,
-		Source:      source,
-		STTProvider: sttProvider,
-		Transcribe:  c.whisperTranscribeFunc(),
-	})
-	userContent = resolved.Content
-
-	// Persiste mensagem do usuário, emite ready e carrega histórico.
-	rmsg, err := c.chatInteractor.RecordUserMessage(context.Background(), chat.RecordUserMessageRequest{
-		ConversationID: conversationID,
-		Content:        userContent,
-		Media:          userMedia,
-		AudioBase64:    resolved.AudioBase64,
-		AudioMimeType:  resolved.AudioMimeType,
-		Source:         source,
-		ActiveProfile:  activeProfile,
-		Transcribe:     c.whisperTranscribeFunc(),
-	})
-	if err != nil {
-		return 0, err
-	}
-	userMsg := rmsg.UserMsg
-	messages := rmsg.Messages
-	conversationSummary := rmsg.ConversationSummary
-
-	// Detecta slash skill, compõe system prompt e pré-processa mídia.
-	prepResult := c.chatInteractor.PrepareMessages(chat.PrepareMessagesRequest{
-		Messages:            messages,
-		UserContent:         userContent,
-		ConversationSummary: conversationSummary,
-		ConversationID:      conversationID,
-		Params:              params,
-		ActiveProfile:       activeProfile,
-		Transcribe:          c.whisperTranscribeFunc(),
-	})
-	messages = prepResult.Messages
-	invokedSkillSlug := prepResult.InvokedSkillSlug
-	invokedFilesystemScope := prepResult.InvokedScope
-
-	// Constrói tool definitions para o LLM.
-	disableTools := activeProfile != nil && activeProfile.Chat.DisableTools
-	var enabledTools []string
-	if activeProfile != nil {
-		enabledTools = activeProfile.Chat.EnabledTools
-	}
-	llmToolDefs := chat.BuildLLMToolDefs(c.toolRegistry, enabledTools, disableTools)
-
-	// Resolve o ChatProvider para o provedor do perfil ativo.
-	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
-		errMsg := "Nenhum provedor LLM configurado no perfil ativo."
-		c.emitter.Emit("chat:error", errMsg)
-		return 0, fmt.Errorf("%s", errMsg)
-	}
-
-	requestStreamer, err := c.providerSvc.GetChatProvider(activeProfile.Chat.LLMProvider)
-	if err != nil {
-		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
-		log.Printf("[SendMessage] ERRO: %s", errMsg)
-		c.emitter.Emit("chat:error", errMsg)
-		return 0, fmt.Errorf("%s", errMsg)
-	}
-	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)
-
-	// MCP nativo: configura servidores MCP HTTP no provider e remove suas tools da lista padrão.
-	requestStreamer, llmToolDefs = chat.ApplyNativeMCP(requestStreamer, llmToolDefs, c.mcpMgr, enabledTools, disableTools)
-
-	// Cria contexto cancelável por conversa — permite barge-in cancelar o LLM em andamento.
-	convCtx, convCancel := context.WithCancel(ctx)
-	c.streamMgr.Register(conversationID, convCancel)
-
-	if len(llmToolDefs) > 0 {
-		agentCtx := convCtx
-		if invokedSkillSlug != "" {
-			agentCtx = tools.WithExecutionContext(agentCtx, tools.ExecutionContext{
-				InvokedSkillSlug: invokedSkillSlug,
-				Filesystem:       invokedFilesystemScope,
-			})
-		}
-		go func() {
-			defer func() {
-				r := recover()
-				events.HandlePanic(c.emitter, conversationID, "runAgenticLoop", r)
-			}()
-			defer c.streamMgr.Unregister(conversationID)
-			c.agentSvc.RunAgenticLoop(agentCtx, messages, params, conversationID, userMsg.ID, llmToolDefs, requestStreamer,
-				func(convID uint, iter int) agent.IterationHandler {
-					return agent.NewAgenticStreamHandler(c.emitter, convID, iter)
-				},
-			)
-		}()
-	} else {
-		handler := c.agentSvc.NewSimpleStreamHandler(conversationID, userMsg.ID)
-		go func() {
-			defer func() {
-				r := recover()
-				events.HandlePanic(c.emitter, conversationID, "StreamChat", r)
-			}()
-			defer c.streamMgr.Unregister(conversationID)
-			requestStreamer.StreamChat(convCtx, messages, params, handler)
-		}()
-	}
-	return conversationID, nil
 }
 
 // registerChannelBridge registra um callback para reenviar a resposta do assistente
