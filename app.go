@@ -43,6 +43,9 @@ type UpdateLLMProviderRequest = controllers.UpdateLLMProviderRequest
 // SkillCreateRequest — type alias para controllers.
 type SkillCreateRequest = controllers.SkillCreateRequest
 
+// ChannelInfo — type alias para controllers.
+type ChannelInfo = controllers.ChannelInfo
+
 // App struct
 type App struct {
 	ctx              context.Context
@@ -124,6 +127,7 @@ type App struct {
 	dialogPort ports.SystemDialogPort
 
 	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
+	msgCtrl         *controllers.MessagingController
 	mcpCtrl         *controllers.MCPController
 	profilesCtrl    *controllers.ProfilesController
 	llmCtrl         *controllers.LLMController
@@ -199,6 +203,15 @@ func (a *App) startup(ctx context.Context) {
 	a.convSvc = chat.NewDBConversationStore()
 	a.msgRepo = chat.NewDBMessageStore()
 
+	// Inicializa o Speech Service aqui (antes de initMessaging, que depende dele)
+	a.speechSvc = speech.NewService(speech.ServiceConfig{
+		Emitter:         a.emitter,
+		Registry:        a.llmRegistry,
+		ProfileProvider: profileProviderAdapter{app: a},
+		CredMgr:         a.credMgr,
+		AudioRepo:       a.audioSvc,
+	})
+
 	// Inicializa o Summary Service (sumarização de conversas)
 	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
 		Repo:            summarization.NewDBStore(),
@@ -265,15 +278,6 @@ func (a *App) startup(ctx context.Context) {
 		ProfileCleaner: profileCleanerAdapter{app: a},
 		SkillCleaner:   skillCleanerAdapter{app: a},
 		ReloadLLM:      a.initLLMClient,
-	})
-
-	// Inicializa o Speech Service (TTS/STT business logic)
-	a.speechSvc = speech.NewService(speech.ServiceConfig{
-		Emitter:         a.emitter,
-		Registry:        a.llmRegistry,
-		ProfileProvider: profileProviderAdapter{app: a},
-		CredMgr:         a.credMgr,
-		AudioRepo:       a.audioSvc,
 	})
 
 	// Inicializa o ChatInteractor (após skillMgr e promptBuilder estarem prontos)
