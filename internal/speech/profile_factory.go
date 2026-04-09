@@ -2,7 +2,6 @@ package speech
 
 import (
 	"assistente/internal/credentials"
-	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"log"
 )
@@ -13,7 +12,7 @@ import (
 // providers.Service.ResolveProfileDefaults antes de chamar esta função).
 //
 // Retorna nil se p for nil.
-func NewSpeechManagerFromProfile(p *profiles.Profile, registry *llm.ProviderRegistry, credMgr *credentials.Manager) *SpeechManager {
+func NewSpeechManagerFromProfile(p *profiles.Profile, registry ProviderRegistry, credMgr *credentials.Manager) *SpeechManager {
 	if p == nil {
 		return nil
 	}

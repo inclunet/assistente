@@ -128,6 +128,9 @@ type App struct {
 	// Settings service (config CRUD e reset de dados — sem Wails)
 	settingsSvc *config.SettingsService
 
+	// Speech service (TTS/STT business logic — sem Wails)
+	speechSvc *speech.Service
+
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
 	streamingContexts map[uint]context.CancelFunc // conversationID → cancel
@@ -254,6 +257,15 @@ func (a *App) startup(ctx context.Context) {
 		ProfileCleaner: profileCleanerAdapter{app: a},
 		SkillCleaner:   skillCleanerAdapter{app: a},
 		ReloadLLM:      a.initLLMClient,
+	})
+
+	// Inicializa o Speech Service (TTS/STT business logic)
+	a.speechSvc = speech.NewService(speech.ServiceConfig{
+		Emitter:         a.emitter,
+		Registry:        a.llmRegistry,
+		ProfileProvider: profileProviderAdapter{app: a},
+		CredMgr:         a.credMgr,
+		AudioRepo:       a.audioSvc,
 	})
 
 	// Inicializa hotkeys globais

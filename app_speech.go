@@ -5,13 +5,22 @@ import (
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/speech"
-	"context"
-	"encoding/base64"
 	"fmt"
 	"log"
-	"strings"
-
 )
+
+// ==================== Adapter para speech.ProfileProvider ====================
+
+// profileProviderAdapter adapta profileManager + providerSvc para speech.ProfileProvider.
+type profileProviderAdapter struct{ app *App }
+
+func (a profileProviderAdapter) GetActive() (*profiles.Profile, error) {
+	return a.app.profileManager.GetActive()
+}
+
+func (a profileProviderAdapter) ResolveDefaults(p *profiles.Profile) *profiles.Profile {
+	return a.app.resolveProfileDefaults(p)
+}
 
 // ============================================================================
 // Global Hotkey API
@@ -152,49 +161,29 @@ func (a *App) InitSpeechManager(apiKey, apiBaseURL, whisperLanguage, ttsVoice, t
 	}
 
 	a.speechManager = speech.NewSpeechManager(cfg, a.credMgr)
+	a.speechSvc.SetSpeechManager(a.speechManager)
 	log.Printf("Speech Manager inicializado (STT: whisper, TTS: openai)")
 	return nil
 }
 
 // InitSpeechManagerFromProfile inicializa o gerenciador de speech usando providers do perfil ativo
 func (a *App) InitSpeechManagerFromProfile() error {
-	activeProfile, err := a.profileManager.GetActive()
-	if err != nil || activeProfile == nil {
-		return fmt.Errorf("perfil ativo não encontrado: %w", err)
+	if err := a.speechSvc.InitFromProfile(); err != nil {
+		return err
 	}
-
-	sm := a.createSpeechManagerForProfile(activeProfile)
-	if sm == nil {
-		return fmt.Errorf("falha ao criar speech manager para perfil ativo")
-	}
-	a.speechManager = sm
+	a.speechManager = a.speechSvc.GetSpeechManager()
 	return nil
 }
 
-// createSpeechManagerForProfile cria um SpeechManager configurado a partir de um perfil.
-// Resolve defaults ($default → ID real) e delega para speech.NewSpeechManagerFromProfile.
-// Retorna nil se o perfil for nil.
-func (a *App) createSpeechManagerForProfile(p *profiles.Profile) *speech.SpeechManager {
-	if p == nil {
-		return nil
-	}
-	return speech.NewSpeechManagerFromProfile(a.resolveProfileDefaults(p), a.llmRegistry, a.credMgr)
-}
-
 // ensureSpeechManager garante que o speechManager está inicializado.
-// Tenta inicializar a partir do perfil ativo.
-// Retorna true se disponível, false caso contrário.
 func (a *App) ensureSpeechManager() bool {
 	if a.speechManager != nil {
 		return true
 	}
-
-	// Tentar inicializar do perfil ativo
-	if err := a.InitSpeechManagerFromProfile(); err != nil {
-		log.Printf("[Speech] Erro ao inicializar speechManager do perfil: %v", err)
+	if !a.speechSvc.EnsureSpeechManager() {
 		return false
 	}
-
+	a.speechManager = a.speechSvc.GetSpeechManager()
 	return a.speechManager != nil
 }
 
@@ -253,95 +242,9 @@ func (a *App) SynthesizeOpenAIWithVoice(text string, voice string) (*SynthesisRe
 	}, nil
 }
 
-// TTSStreamEvent evento de streaming de TTS
-type TTSStreamEvent struct {
-	SessionID   string `json:"sessionId"`
-	ChunkBase64 string `json:"chunkBase64"`
-	Format      string `json:"format"`
-	Done        bool   `json:"done"`
-	Error       string `json:"error"`
-}
-
 // SynthesizeOpenAIStream sintetiza texto usando OpenAI TTS com streaming
 func (a *App) SynthesizeOpenAIStream(text string, voice string, sessionID string) error {
-	if !a.ensureSpeechManager() {
-		a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
-			SessionID: sessionID,
-			Error:     "speech manager não disponível - configure um provedor no perfil",
-		})
-		return fmt.Errorf("speech manager não disponível")
-	}
-
-	if !a.speechManager.SupportsStreaming() {
-		go func() {
-			result, err := a.speechManager.SynthesizeWithVoice(text, voice)
-			if err != nil {
-				a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
-					SessionID: sessionID,
-					Error:     err.Error(),
-				})
-				return
-			}
-
-			a.emitter.Emit( speech.EventTTSStreamStart, TTSStreamEvent{
-				SessionID: sessionID,
-				Format:    result.Format,
-			})
-			a.emitter.Emit( speech.EventTTSStreamChunk, TTSStreamEvent{
-				SessionID:   sessionID,
-				ChunkBase64: result.AudioBase64,
-				Format:      result.Format,
-			})
-			a.emitter.Emit( speech.EventTTSStreamDone, TTSStreamEvent{
-				SessionID: sessionID,
-				Done:      true,
-			})
-		}()
-		return nil
-	}
-
-	go func() {
-		a.emitter.Emit( speech.EventTTSStreamStart, TTSStreamEvent{
-			SessionID: sessionID,
-			Format:    "mp3",
-		})
-
-		callbacks := speech.StreamCallbacks{
-			OnChunk: func(chunkBase64 string) {
-				a.emitter.Emit( speech.EventTTSStreamChunk, TTSStreamEvent{
-					SessionID:   sessionID,
-					ChunkBase64: chunkBase64,
-					Format:      "mp3",
-				})
-			},
-			OnDone: func() {
-				a.emitter.Emit( speech.EventTTSStreamDone, TTSStreamEvent{
-					SessionID: sessionID,
-					Done:      true,
-				})
-			},
-			OnError: func(err error) {
-				log.Printf("[TTS] Stream error: %v", err)
-				a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
-					SessionID: sessionID,
-					Error:     err.Error(),
-				})
-			},
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), speech.CalcTTSTimeout(len(text)))
-		defer cancel()
-
-		err := a.speechManager.SynthesizeStream(ctx, text, voice, callbacks)
-		if err != nil {
-			a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
-				SessionID: sessionID,
-				Error:     err.Error(),
-			})
-		}
-	}()
-
-	return nil
+	return a.speechSvc.SynthesizeStream(text, voice, sessionID)
 }
 
 // GetOpenAITTSVoices retorna as vozes disponíveis do OpenAI TTS
@@ -380,15 +283,11 @@ func (a *App) SetOpenAITTSSpeed(rate int) {
 // Message Audio API (TTS storage)
 // ============================================================================
 
-// AudioResult é o resultado de busca/geração de áudio para o frontend.
-type AudioResult struct {
-	Audio    string `json:"audio"`
-	MimeType string `json:"mimeType"`
-	Cached   bool   `json:"cached"` // true se veio do cache ou foi salvo com sucesso
-}
+// AudioResult é alias para Wails bindings.
+type AudioResult = speech.AudioResult
 
 // GetMessageAudio retorna o áudio base64 e MIME type de uma mensagem.
-func (a *App) GetMessageAudio(messageID uint) (*AudioResult, error) {
+func (a *App) GetMessageAudio(messageID uint) (*speech.AudioResult, error) {
 	audio, mime, err := a.audioSvc.GetMessageAudio(messageID)
 	if err != nil {
 		return nil, fmt.Errorf("erro ao buscar áudio: %w", err)
@@ -396,101 +295,26 @@ func (a *App) GetMessageAudio(messageID uint) (*AudioResult, error) {
 	if audio == "" {
 		return nil, nil
 	}
-	return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
+	return &speech.AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
 }
 
 // SaveMessageAudio salva áudio (base64) numa mensagem existente.
-// Usado pelo frontend para persistir áudio gerado via TTS OpenAI.
 func (a *App) SaveMessageAudio(messageID uint, audioBase64 string, mimeType string) error {
 	return a.audioSvc.SaveMessageAudio(messageID, audioBase64, mimeType)
 }
 
 // GenerateAndSaveMessageAudio gera áudio TTS para uma mensagem e salva no DB.
-// Retorna o áudio base64 e MIME type. Usado pelo frontend para gerar+salvar+tocar.
-func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*AudioResult, error) {
-	if !a.ensureSpeechManager() {
-		return nil, fmt.Errorf("speech manager indisponível")
-	}
-
-	result, err := a.speechManager.Synthesize(text)
-	if err != nil {
-		return nil, fmt.Errorf("generate audio for message %d: %w", messageID, err)
-	}
-
-	mimeType := "audio/mpeg"
-	cached := true
-	if err := a.audioSvc.SaveMessageAudio(messageID, result.AudioBase64, mimeType); err != nil {
-		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%d): %v — áudio será retornado mas não persistido", messageID, err)
-		cached = false
-	}
-
-	return &AudioResult{Audio: result.AudioBase64, MimeType: mimeType, Cached: cached}, nil
+func (a *App) GenerateAndSaveMessageAudio(messageID uint, text string) (*speech.AudioResult, error) {
+	return a.speechSvc.GenerateAndSaveMessageAudio(messageID, text)
 }
 
 // SpeakMessage retorna o áudio de uma mensagem, usando cache do DB se disponível.
-// Fluxo: DB cache → gerar TTS com provider especificado → salvar → retornar.
-// O texto da mensagem é buscado do próprio banco, sem depender do frontend.
-// O provider/voice/model são passados pelo frontend (vêm do perfil de voz ativo).
-func (a *App) SpeakMessage(messageID uint, providerID string, voiceID string, model string, rate float64) (*AudioResult, error) {
-	// 1. Checa cache no DB
-	audio, mime, err := a.audioSvc.GetMessageAudio(messageID)
-	if err == nil && audio != "" {
-		log.Printf("[TTS] SpeakMessage(%d): cache hit (%d bytes)", messageID, len(audio))
-		return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
-	}
-
-	// 2. Busca o conteúdo textual da mensagem
-	content, err := a.audioSvc.GetMessageContent(messageID)
-	if err != nil {
-		log.Printf("[TTS] SpeakMessage(%d): mensagem não encontrada: %v", messageID, err)
-		return nil, fmt.Errorf("mensagem %d não encontrada: %w", messageID, err)
-	}
-	if strings.TrimSpace(content) == "" {
-		log.Printf("[TTS] SpeakMessage(%d): conteúdo vazio", messageID)
-		return nil, fmt.Errorf("mensagem %d sem conteúdo textual", messageID)
-	}
-
-	// 3. Cria TTS client com os parâmetros do frontend
-	log.Printf("[TTS] SpeakMessage(%d): cache miss, gerando TTS (%d chars) provider=%s voice=%s model=%s", messageID, len(content), providerID, voiceID, model)
-
-	// Para LocalAI/piper, o "model" é o nome da voz (ex: "voice-pt_BR-dii").
-	// Para OpenAI, model vem preenchido ("tts-1", "tts-1-hd").
-	// Se model está vazio, usa voiceID como fallback (LocalAI pattern).
-	if model == "" {
-		model = voiceID
-	}
-	speed := rate
-	if speed < 0.25 {
-		speed = 1.0
-	}
-
-	client := a.createTTSClientForProvider(providerID, model)
-	if client == nil {
-		return nil, fmt.Errorf("provider TTS %q não encontrado", providerID)
-	}
-	client.SetVoice(speech.TTSVoice(voiceID))
-	client.SetSpeed(speed)
-
-	audioData, err := client.Synthesize(content)
-	if err != nil {
-		log.Printf("[TTS] SpeakMessage(%d): erro ao gerar: %v", messageID, err)
-		return nil, fmt.Errorf("generate audio for message %d: %w", messageID, err)
-	}
-
-	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
-	mimeType := "audio/mpeg"
-
-	cached := true
-	if saveErr := a.audioSvc.SaveMessageAudio(messageID, audioBase64, mimeType); saveErr != nil {
-		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%d): %v — áudio será retornado mas não persistido", messageID, saveErr)
-		cached = false
-	}
-
-	return &AudioResult{Audio: audioBase64, MimeType: mimeType, Cached: cached}, nil
+func (a *App) SpeakMessage(messageID uint, providerID string, voiceID string, model string, rate float64) (*speech.AudioResult, error) {
+	return a.speechSvc.SpeakMessage(messageID, providerID, voiceID, model, rate)
 }
 
 // ============================================================================
-// Voice Profile TTS/STT API (feat/voice-profile-settings)
+// Voice Profile TTS/STT API
 // ============================================================================
 
 // GetSpeechProviders retorna todos os provedores LLM que suportam TTS ou STT.
@@ -505,278 +329,42 @@ func (a *App) GetSpeechProviders() []*llm.ProviderConfig {
 	return result
 }
 
-// TTSVoiceEntry é o formato de voz retornado para o frontend.
-type TTSVoiceEntry struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Gender      string `json:"gender"`
-	Description string `json:"description"`
-}
+// TTSVoiceEntry é alias para Wails bindings.
+type TTSVoiceEntry = speech.TTSVoiceEntry
 
 // GetTTSVoices retorna vozes TTS disponíveis para um provedor.
-// Para SAPI5, retorna vozes do sistema Windows.
-// Para provedores LLM (OpenAI, LocalAI, LiteLLM, etc.), consulta /v1/models
-// e retorna modelos TTS como vozes.
-func (a *App) GetTTSVoices(profileID string, providerID string) []TTSVoiceEntry {
-	if providerID == "" {
-		return []TTSVoiceEntry{}
-	}
-
-	// SAPI5: vozes do Windows
-	if providerID == "sapi5" {
-		voices, err := a.GetSAPI5Voices()
-		if err != nil {
-			log.Printf("[GetTTSVoices] erro SAPI5: %v", err)
-			return []TTSVoiceEntry{}
-		}
-		result := make([]TTSVoiceEntry, len(voices))
-		for i, v := range voices {
-			result[i] = TTSVoiceEntry{
-				ID:          v.Name,
-				Name:        v.Name,
-				Gender:      v.Gender,
-				Description: v.Description,
-			}
-		}
-		return result
-	}
-
-	// WebSpeech: vozes gerenciadas pelo browser, não pelo backend
-	if providerID == "webspeech" {
-		return []TTSVoiceEntry{}
-	}
-
-	// Provedores LLM: consulta via TTSClient
-	client := a.createTTSClientForProvider(providerID, "")
-	if client == nil {
-		log.Printf("[GetTTSVoices] não foi possível criar client para provider %s", providerID)
-		return []TTSVoiceEntry{}
-	}
-
-	voices, err := client.FetchVoices()
-	if err != nil {
-		log.Printf("[GetTTSVoices] erro ao buscar vozes para %s: %v", providerID, err)
-		return []TTSVoiceEntry{}
-	}
-
-	result := make([]TTSVoiceEntry, len(voices))
-	for i, v := range voices {
-		result[i] = TTSVoiceEntry{
-			ID:          v.ID,
-			Name:        v.Name,
-			Gender:      v.Gender,
-			Description: v.Description,
-		}
-	}
-	return result
+func (a *App) GetTTSVoices(profileID string, providerID string) []speech.TTSVoiceEntry {
+	return a.speechSvc.GetTTSVoices(providerID)
 }
 
 // GetTTSModels retorna modelos TTS disponíveis para um provedor.
-// Busca dinamicamente via /v1/models, com fallback para lista estática.
 func (a *App) GetTTSModels(providerID string) []speech.SpeechModelInfo {
-	if providerID == "" {
-		return []speech.SpeechModelInfo{}
-	}
-	client := a.createTTSClientForProvider(providerID, "")
-	if client == nil {
-		return speech.StaticTTSModels()
-	}
-	return client.FetchTTSModels()
+	return a.speechSvc.GetTTSModels(providerID)
 }
 
 // GetSTTModels retorna modelos STT disponíveis para um provedor.
-// Busca dinamicamente via /v1/models, com fallback para lista estática.
 func (a *App) GetSTTModels(providerID string) []speech.SpeechModelInfo {
-	if providerID == "" {
-		return []speech.SpeechModelInfo{}
-	}
-	client := a.createTTSClientForProvider(providerID, "")
-	if client == nil {
-		return speech.StaticSTTModels()
-	}
-	return client.FetchSTTModels()
+	return a.speechSvc.GetSTTModels(providerID)
 }
 
 // SpeakPreview faz preview de voz para configurações de perfil.
-// Suporta webspeech, sapi5 e provedores OpenAI-like (com streaming).
 func (a *App) SpeakPreview(providerId string, voiceId string, model string, rate float64, volume float64, text string, sessionId string) error {
-	if text == "" {
-		text = "Este é um teste das configurações de voz"
-	}
-
-	// Normalizar rate/volume: 0 significa "não configurado" → usar defaults sensatos
-	if rate <= 0 {
-		rate = 1.0
-	}
-	if volume <= 0 {
-		volume = 1.0
-	}
-
-	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, rate=%.2f, volume=%.2f", providerId, voiceId, model, rate, volume)
-
-	switch providerId {
-	case "webspeech":
-		return fmt.Errorf("webspeech preview deve ser feito no frontend")
-	case "sapi5":
-		return a.previewSAPI5(text, voiceId, rate, volume)
-	default:
-		return a.previewLLM(providerId, text, voiceId, model, rate, sessionId)
-	}
+	return a.speechSvc.SpeakPreview(providerId, voiceId, model, rate, volume, text, sessionId)
 }
 
-// previewSAPI5 executa preview de voz via SAPI5 (Windows COM).
-func (a *App) previewSAPI5(text, voiceId string, rate, volume float64) error {
-	manager := speech.GetSAPI5Manager()
-	sapiRate := int((rate - 1.0) * 10) // 0.5→-5, 1.0→0, 2.0→10
-	sapiVolume := int(volume * 100)
-	if err := manager.SetRate(sapiRate); err != nil {
-		log.Printf("[SpeakPreview] SetRate error: %v", err)
-	}
-	if err := manager.SetVolume(sapiVolume); err != nil {
-		log.Printf("[SpeakPreview] SetVolume error: %v", err)
-	}
-	return manager.Speak(text, voiceId)
-}
-
-// previewLLM executa preview de voz via provider LLM/OpenAI-like com streaming.
-func (a *App) previewLLM(providerId, text, voiceId, model string, rate float64, sessionId string) error {
-	client := a.createTTSClientForProvider(providerId, model)
-	if client == nil {
-		// Fallback: tenta encontrar qualquer provider OpenAI-like
-		if fallback := a.findOpenAILikeProvider(); fallback != nil {
-			client = a.createTTSClientForProvider(fallback.ID, model)
-		}
-	}
-	if client == nil {
-		a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
-			SessionID: sessionId,
-			Error:     "nenhum provedor OpenAI com credenciais encontrado",
-		})
-		return fmt.Errorf("no TTS provider available for %s", providerId)
-	}
-
-	client.SetSpeed(rate)
-
-	go func() {
-		a.emitter.Emit( speech.EventTTSStreamStart, TTSStreamEvent{
-			SessionID: sessionId,
-			Format:    "mp3",
-		})
-
-		callbacks := speech.TTSStreamCallbacks{
-			OnChunk: func(chunk []byte) {
-				chunkBase64 := base64.StdEncoding.EncodeToString(chunk)
-				a.emitter.Emit( speech.EventTTSStreamChunk, TTSStreamEvent{
-					SessionID:   sessionId,
-					ChunkBase64: chunkBase64,
-					Format:      "mp3",
-				})
-			},
-			OnDone: func() {
-				a.emitter.Emit( speech.EventTTSStreamDone, TTSStreamEvent{
-					SessionID: sessionId,
-					Done:      true,
-				})
-			},
-			OnError: func(err error) {
-				log.Printf("[SpeakPreview] Stream error: %v", err)
-				a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
-					SessionID: sessionId,
-					Error:     err.Error(),
-				})
-			},
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), speech.CalcTTSTimeout(len(text)))
-		defer cancel()
-
-		voice := speech.TTSVoice(voiceId)
-		if speech.IsDynamicTTSModel(voiceId) {
-			client.SetModel(speech.TTSModel(voiceId))
-			voice = speech.TTSVoice(voiceId)
-		}
-
-		if err := client.SynthesizeStreamWithVoice(ctx, text, voice, callbacks); err != nil {
-			a.emitter.Emit( speech.EventTTSStreamError, TTSStreamEvent{
-				SessionID: sessionId,
-				Error:     err.Error(),
-			})
-		}
-	}()
-
-	return nil
-}
+// TTSStreamEvent é alias para Wails bindings.
+type TTSStreamEvent = speech.TTSStreamEvent
 
 // ============================================================================
-// TTS Client Helpers (feat/voice-profile-settings)
+// TTS Client Helpers (usados por outros arquivos root)
 // ============================================================================
 
-// createTTSClientForProvider cria um TTSClient para um provider LLM específico.
-// Usado quando o frontend sabe exatamente qual provider quer usar (ex: preview de voz).
+// createTTSClientForProvider delega para speechSvc.
 func (a *App) createTTSClientForProvider(providerID string, model string) *speech.TTSClient {
-	cfg := a.llmRegistry.Get(providerID)
-	if cfg == nil {
-		log.Printf("[TTS] Provider %s não encontrado", providerID)
-		return nil
-	}
-
-	return speech.NewTTSClient(speech.TTSConfig{
-		BaseURL:           cfg.BaseURL,
-		CredentialPattern: cfg.CredentialPattern,
-		Model:             speech.TTSModel(model),
-	}, a.credMgr)
+	return a.speechSvc.CreateTTSClient(providerID, model)
 }
 
-// findOpenAILikeProvider procura um provider LLM com API OpenAI-compatible que suporte TTS.
-// Provedores Google e Anthropic não suportam a API /audio/speech.
-// Prefere providers com a API oficial do OpenAI (api.openai.com) sobre proxies.
+// findOpenAILikeProvider delega para speechSvc.
 func (a *App) findOpenAILikeProvider() *llm.ProviderConfig {
-	isOpenAILike := func(cfg *llm.ProviderConfig) bool {
-		if cfg == nil {
-			return false
-		}
-		format := cfg.GetAPIFormat()
-		return format == llm.APIFormatOpenAI || format == llm.APIFormatOpenAIResponses
-	}
-
-	isOfficialOpenAI := func(cfg *llm.ProviderConfig) bool {
-		return cfg.BaseURL == "" || strings.Contains(cfg.BaseURL, "api.openai.com")
-	}
-
-	// Tenta o provider do perfil ativo primeiro (voice → chat → default)
-	if profile, err := a.profileManager.GetActive(); err == nil && profile != nil {
-		resolved := a.resolveProfileDefaults(profile)
-		if resolved.Voice.Assistant.LLMProviderID != "" {
-			if cfg := a.llmRegistry.Get(resolved.Voice.Assistant.LLMProviderID); isOpenAILike(cfg) {
-				return cfg
-			}
-		}
-		if resolved.Chat.LLMProvider != "" {
-			if cfg := a.llmRegistry.Get(resolved.Chat.LLMProvider); isOpenAILike(cfg) {
-				return cfg
-			}
-		}
-	}
-
-	// Tenta o provider default do sistema
-	for _, cfg := range a.llmRegistry.List() {
-		if cfg.IsDefault && isOpenAILike(cfg) {
-			return cfg
-		}
-	}
-
-	// Último recurso: prefere providers com URL oficial do OpenAI
-	var fallbackProxy *llm.ProviderConfig
-	for _, cfg := range a.llmRegistry.List() {
-		if isOpenAILike(cfg) {
-			if isOfficialOpenAI(cfg) {
-				return cfg
-			}
-			if fallbackProxy == nil {
-				fallbackProxy = cfg
-			}
-		}
-	}
-
-	return fallbackProxy
+	return a.speechSvc.FindOpenAILikeProvider()
 }
