@@ -4,6 +4,8 @@ import (
 	"context"
 	"testing"
 
+	"assistente/adapters/noop"
+	"assistente/controllers"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
 	"assistente/internal/llm"
@@ -37,12 +39,18 @@ func newAppForTest(credMgr *credentials.Manager, llmRegistry *llm.ProviderRegist
 		CredMgr:  credMgr,
 		Store:    providers.NewDBStore(),
 	})
-	return &App{
+	a := &App{
 		ctx:         context.Background(),
 		credMgr:     credMgr,
 		llmRegistry: llmRegistry,
 		providerSvc: svc,
 	}
+	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
+		LLMRegistry: llmRegistry,
+		ProviderSvc: svc,
+		Emitter:     &noop.EmitterAdapter{},
+	})
+	return a
 }
 
 // TestCreateProviderWithAPIKey valida a criação de provider com API key

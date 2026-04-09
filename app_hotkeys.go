@@ -6,8 +6,6 @@ import (
 
 	"assistente/internal/hotkey"
 	"assistente/internal/profiles"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 // ============================================================================
@@ -92,7 +90,7 @@ func (a *App) registerActiveProfileHotkeys() {
 				})
 
 				if t.HotkeyGlobal && t.HotkeyBringToFront {
-					runtime.WindowShow(a.ctx)
+					a.windowPort.Show()
 				}
 			},
 		)

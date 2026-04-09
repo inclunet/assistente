@@ -3,29 +3,22 @@ package events
 import (
 	"fmt"
 	"log"
+
+	"assistente/internal/core/ports"
 )
 
-// Emitter abstrai a emissão de eventos para diferentes interfaces (Wails, CLI, REST, etc.).
-// Implementações concretas: WailsEmitter (main package), NoopEmitter (testes).
-type Emitter interface {
-	Emit(event string, data any)
-}
+// Emitter é um alias de compatibilidade para ports.Emitter.
+// Novos pacotes devem importar diretamente "assistente/internal/core/ports".
+type Emitter = ports.Emitter
+
+// StreamEvent é um alias de compatibilidade para ports.StreamEvent.
+// Novos pacotes devem importar diretamente "assistente/internal/core/ports".
+type StreamEvent = ports.StreamEvent
 
 // NoopEmitter descarta todos os eventos. Útil em testes e contextos sem UI.
 type NoopEmitter struct{}
 
 func (NoopEmitter) Emit(_ string, _ any) {}
-
-// StreamEvent é o payload do evento chat:stream emitido durante o streaming LLM.
-// Definido aqui para permitir uso tanto no package main quanto em internal/agent.
-type StreamEvent struct {
-	MessageID      uint   `json:"messageId"`
-	ConversationId uint   `json:"conversationId"`
-	Content        string `json:"content"`
-	Done           bool   `json:"done"`
-	FullResponse   string `json:"fullResponse,omitempty"`
-	Error          string `json:"error,omitempty"`
-}
 
 // RecoverFromPanic captura um panic em andamento (deve ser chamado via defer) e emite
 // chat:stream com Done=true e a mensagem de erro para o frontend.

@@ -9,9 +9,8 @@ import (
 	"time"
 
 	"assistente/internal/configdir"
+	"assistente/internal/core/ports"
 	"assistente/internal/tools/filesystem"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
 const editorOrphanDraftGracePeriod = 24 * time.Hour
@@ -28,8 +27,8 @@ type EditorMergeSession struct {
 // EditorState é o estado global do editor persistido em ~/.assistente/editor/state.json.
 // Não inclui lista de abas (fica no workspace YAML) nem conteúdo de documentos (fica em arquivos).
 type EditorState struct {
-	FileModeByPath       map[string]string              `json:"fileModeByPath,omitempty"`
-	MergeSessionsByTabId map[string]EditorMergeSession  `json:"mergeSessionsByTabId,omitempty"`
+	FileModeByPath       map[string]string             `json:"fileModeByPath,omitempty"`
+	MergeSessionsByTabId map[string]EditorMergeSession `json:"mergeSessionsByTabId,omitempty"`
 }
 
 type EditorOpenResult struct {
@@ -170,9 +169,9 @@ func (a *App) EditorOpenFile() (*EditorOpenResult, error) {
 		return nil, fmt.Errorf("app não inicializado")
 	}
 
-	path, err := runtime.OpenFileDialog(a.ctx, runtime.OpenDialogOptions{
+	path, err := a.dialogPort.OpenFileDialog(ports.OpenFileOptions{
 		Title: "Abrir arquivo",
-		Filters: []runtime.FileFilter{
+		Filters: []ports.FileFilter{
 			{DisplayName: "Markdown", Pattern: "*.md;*.markdown;*.txt"},
 			{DisplayName: "Todos os arquivos", Pattern: "*.*"},
 		},
@@ -255,10 +254,10 @@ func (a *App) EditorSaveFileDialog(suggestedFilename string) (string, error) {
 	if def == "" {
 		def = "documento.md"
 	}
-	path, err := runtime.SaveFileDialog(a.ctx, runtime.SaveDialogOptions{
+	path, err := a.dialogPort.SaveFileDialog(ports.SaveFileOptions{
 		Title:           "Salvar arquivo",
 		DefaultFilename: def,
-		Filters: []runtime.FileFilter{
+		Filters: []ports.FileFilter{
 			{DisplayName: "Markdown", Pattern: "*.md;*.markdown;*.txt"},
 			{DisplayName: "Todos os arquivos", Pattern: "*.*"},
 		},
