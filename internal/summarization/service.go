@@ -6,12 +6,22 @@ import (
 	"log"
 	"strings"
 
+	"assistente/internal/chat"
 	"assistente/internal/credentials"
-	"assistente/internal/database"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 )
+
+// SummarizationRepository abstrai as operações de persistência necessárias para sumarização.
+// Implementado por DBSummarizationStore; pode ser mockado em testes.
+type SummarizationRepository interface {
+	GetMessages(conversationID uint) ([]chat.Message, error)
+	GetConversationSummary(conversationID uint) (summary string, upToMessageID uint, err error)
+	IsSummarizingInProgress(conversationID uint) (bool, error)
+	SetSummarizingInProgress(conversationID uint, inProgress bool) error
+	UpdateConversationSummary(conversationID uint, summary string, upToMessageID uint) error
+}
 
 const (
 	// charsPerToken é a heurística: ~4 caracteres por token.
@@ -42,7 +52,7 @@ func EstimateTokens(text string) int {
 }
 
 // EstimateMessagesTokens estima o total de tokens para um slice de mensagens.
-func EstimateMessagesTokens(messages []database.ChatMessage) int {
+func EstimateMessagesTokens(messages []chat.Message) int {
 	total := 0
 	for _, m := range messages {
 		total += EstimateTokens(m.Content)
@@ -56,7 +66,7 @@ func EstimateMessagesTokens(messages []database.ChatMessage) int {
 // ShouldTriggerSummarization retorna true se o uso estimado do contexto exceder o budget seguro.
 func ShouldTriggerSummarization(
 	profile *profiles.Profile,
-	contextMessages []database.ChatMessage,
+	contextMessages []chat.Message,
 	existingSummary string,
 ) bool {
 	if profile == nil || profile.Chat.ContextWindow <= 0 {
@@ -89,7 +99,7 @@ func ShouldTriggerSummarization(
 }
 
 // BuildSummarizationUserPrompt monta o user message para a chamada LLM de sumarização.
-func BuildSummarizationUserPrompt(existingSummary string, messages []database.ChatMessage) string {
+func BuildSummarizationUserPrompt(existingSummary string, messages []chat.Message) string {
 	var sb strings.Builder
 
 	if existingSummary != "" {
@@ -122,6 +132,7 @@ func BuildSummarizationUserPrompt(existingSummary string, messages []database.Ch
 
 // ServiceConfig agrupa as dependências do Service.
 type ServiceConfig struct {
+	Repo            SummarizationRepository
 	Emitter         events.Emitter
 	LLMRegistry     *llm.ProviderRegistry
 	CredMgr         *credentials.Manager
@@ -154,15 +165,15 @@ func (s *Service) CheckAndTriggerSummarization(conversationID uint) {
 		return
 	}
 
-	allRootMessages, err := database.GetMessages(conversationID, nil)
+	allRootMessages, err := s.cfg.Repo.GetMessages(conversationID)
 	if err != nil {
 		log.Printf("[Summary] Erro ao carregar mensagens para check: %v", err)
 		return
 	}
 
-	existingSummary, summaryUpToID, _ := database.GetConversationSummary(conversationID)
+	existingSummary, summaryUpToID, _ := s.cfg.Repo.GetConversationSummary(conversationID)
 
-	var contextMessages []database.ChatMessage
+	var contextMessages []chat.Message
 	for _, m := range allRootMessages {
 		if m.ID > summaryUpToID {
 			contextMessages = append(contextMessages, m)
@@ -179,9 +190,9 @@ func (s *Service) CheckAndTriggerSummarization(conversationID uint) {
 func (s *Service) TriggerSummarizationInBackground(
 	conversationID uint,
 	profile *profiles.Profile,
-	allRootMessages []database.ChatMessage,
+	allRootMessages []chat.Message,
 ) {
-	inProgress, err := database.IsSummarizingInProgress(conversationID)
+	inProgress, err := s.cfg.Repo.IsSummarizingInProgress(conversationID)
 	if err != nil {
 		log.Printf("[Summary] Erro ao verificar status: %v", err)
 		return
@@ -211,13 +222,13 @@ func (s *Service) TriggerSummarizationInBackground(
 	messagesToSummarize := allRootMessages[:cutIndex]
 	lastSummarizedMsgID := messagesToSummarize[len(messagesToSummarize)-1].ID
 
-	existingSummary, currentUpToID, err := database.GetConversationSummary(conversationID)
+	existingSummary, currentUpToID, err := s.cfg.Repo.GetConversationSummary(conversationID)
 	if err != nil {
 		log.Printf("[Summary] Erro ao buscar resumo existente: %v", err)
 		return
 	}
 
-	var newMessages []database.ChatMessage
+	var newMessages []chat.Message
 	for _, m := range messagesToSummarize {
 		if m.ID > currentUpToID {
 			newMessages = append(newMessages, m)
@@ -228,7 +239,7 @@ func (s *Service) TriggerSummarizationInBackground(
 		return
 	}
 
-	if err := database.SetSummarizingInProgress(conversationID, true); err != nil {
+	if err := s.cfg.Repo.SetSummarizingInProgress(conversationID, true); err != nil {
 		log.Printf("[Summary] Erro ao marcar summarizing_in_progress: %v", err)
 		return
 	}
@@ -237,7 +248,7 @@ func (s *Service) TriggerSummarizationInBackground(
 		defer func() {
 			if r := recover(); r != nil {
 				log.Printf("🔴 [PANIC RECOVERED] executeSummarization (conversa %d): %v", conversationID, r)
-				_ = database.SetSummarizingInProgress(conversationID, false)
+				_ = s.cfg.Repo.SetSummarizingInProgress(conversationID, false)
 			}
 		}()
 		s.executeSummarization(conversationID, profile, existingSummary, newMessages, lastSummarizedMsgID)
@@ -249,7 +260,7 @@ func (s *Service) executeSummarization(
 	conversationID uint,
 	profile *profiles.Profile,
 	existingSummary string,
-	newMessages []database.ChatMessage,
+	newMessages []chat.Message,
 	upToMessageID uint,
 ) {
 	if s.cfg.ProfileResolver != nil {
@@ -262,7 +273,7 @@ func (s *Service) executeSummarization(
 	})
 
 	defer func() {
-		if err := database.SetSummarizingInProgress(conversationID, false); err != nil {
+		if err := s.cfg.Repo.SetSummarizingInProgress(conversationID, false); err != nil {
 			log.Printf("[Summary] Erro ao desmarcar summarizing_in_progress: %v", err)
 		}
 	}()
@@ -305,7 +316,7 @@ func (s *Service) executeSummarization(
 		return
 	}
 
-	if err := database.UpdateConversationSummary(conversationID, summary, upToMessageID); err != nil {
+	if err := s.cfg.Repo.UpdateConversationSummary(conversationID, summary, upToMessageID); err != nil {
 		log.Printf("[Summary] Erro ao salvar resumo: %v", err)
 		s.cfg.Emitter.Emit("chat:summary_error", map[string]interface{}{
 			"conversationId": conversationID,

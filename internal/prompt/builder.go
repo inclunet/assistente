@@ -36,30 +36,12 @@ type Builder struct {
 	Tools     *tools.Registry
 }
 
-// TemplateData contém as variáveis disponíveis para templates de skills.
-type TemplateData struct {
-	Profile            *profiles.Profile
-	ProfileSlug        string
-	ToolCallingEnabled bool
-	EnabledTools       []string
-	EnabledToolCount   int
-	ConversationID     uint
-	// Workspace context
-	WorkspaceName    string
-	WorkspaceProfile string
-	ActiveTabTitle   string
-	ActiveTabType    string
-	Tabs             []TabInfo
-	TabCount         int
-}
+// TemplateData é um alias para chat.TemplateData — a definição canônica vive em internal/chat
+// para evitar import circular (prompt importa chat).
+type TemplateData = chat.TemplateData
 
-// TabInfo é uma visão simplificada de uma aba do workspace para templates.
-type TabInfo struct {
-	Title     string
-	Type      string
-	ContentID string
-	IsActive  bool
-}
+// TabInfo é um alias para chat.TabInfo.
+type TabInfo = chat.TabInfo
 
 // BuildTemplateData monta o TemplateData a partir do perfil ativo e do workspace.
 func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) TemplateData {

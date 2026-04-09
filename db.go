@@ -4,7 +4,6 @@ import (
 	"fmt"
 
 	"assistente/internal/chat"
-	"assistente/internal/config"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
 )
@@ -301,7 +300,7 @@ func (a *App) GetEffectiveModel() (string, error) {
 	}
 
 	// Fallback para config
-	cfg, err := config.Load()
+	cfg, err := a.settingsSvc.GetConfig()
 	if err != nil {
 		return "", err
 	}

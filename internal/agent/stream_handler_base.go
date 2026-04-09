@@ -1,4 +1,4 @@
-package main
+package agent
 
 import (
 	"sync"
@@ -7,12 +7,13 @@ import (
 	"assistente/internal/events"
 )
 
-// baseStreamHandler contém os campos e métodos compartilhados entre
-// agenticStreamHandler (agent.go) e appStreamHandler (llm.go).
-// Lida com throttling de 50ms para os eventos chat:stream e chat:thinking.
-type baseStreamHandler struct {
-	emitter        events.Emitter
-	conversationID uint
+// BaseStreamHandler contém os campos e métodos compartilhados entre
+// AgenticStreamHandler (este pacote) e appStreamHandler (package main).
+// Lida com throttling de 50 ms para os eventos chat:stream e chat:thinking.
+// Emitter e ConversationID são exportados para permitir construção fora do pacote.
+type BaseStreamHandler struct {
+	Emitter        events.Emitter
+	ConversationID uint
 
 	accumulatedContent   string
 	accumulatedReasoning string
@@ -28,7 +29,7 @@ type baseStreamHandler struct {
 	pendingThinkingEmit  bool
 }
 
-func (h *baseStreamHandler) OnChunk(content string) {
+func (h *BaseStreamHandler) OnChunk(content string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
@@ -63,24 +64,24 @@ func (h *baseStreamHandler) OnChunk(content string) {
 	}
 }
 
-func (h *baseStreamHandler) emitStreamEvent() {
-	h.emitter.Emit("chat:stream", events.StreamEvent{
+func (h *BaseStreamHandler) emitStreamEvent() {
+	h.Emitter.Emit("chat:stream", events.StreamEvent{
 		Content:        h.accumulatedContent,
 		Done:           false,
-		ConversationId: h.conversationID,
+		ConversationId: h.ConversationID,
 	})
 }
 
-func (h *baseStreamHandler) OnThinking(content string) {
+func (h *BaseStreamHandler) OnThinking(content string) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 
 	if !h.isThinking {
 		h.isThinking = true
-		h.emitter.Emit("chat:thinking", map[string]interface{}{
+		h.Emitter.Emit("chat:thinking", map[string]interface{}{
 			"content":        content,
 			"done":           false,
-			"conversationId": h.conversationID,
+			"conversationId": h.ConversationID,
 			"started":        true,
 		})
 	}
@@ -116,15 +117,15 @@ func (h *baseStreamHandler) OnThinking(content string) {
 	}
 }
 
-func (h *baseStreamHandler) emitThinkingEvent() {
-	h.emitter.Emit("chat:thinking", map[string]interface{}{
+func (h *BaseStreamHandler) emitThinkingEvent() {
+	h.Emitter.Emit("chat:thinking", map[string]interface{}{
 		"content":        h.accumulatedReasoning,
 		"done":           false,
-		"conversationId": h.conversationID,
+		"conversationId": h.ConversationID,
 	})
 }
 
-func (h *baseStreamHandler) OnThinkingDone(fullReasoning string) {
+func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.mu.Lock()
 	if h.thinkingTimer != nil {
 		h.thinkingTimer.Stop()
@@ -134,19 +135,28 @@ func (h *baseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.isThinking = false
 	h.mu.Unlock()
 
-	h.emitter.Emit("chat:thinking", map[string]interface{}{
+	h.Emitter.Emit("chat:thinking", map[string]interface{}{
 		"content":        fullReasoning,
 		"done":           true,
-		"conversationId": h.conversationID,
+		"conversationId": h.ConversationID,
 	})
 }
 
 // cancelPendingChunkTimer cancela o timer de throttle de chunk, se houver.
 // Deve ser chamado com h.mu locked.
-func (h *baseStreamHandler) cancelPendingChunkTimer() {
+func (h *BaseStreamHandler) cancelPendingChunkTimer() {
 	if h.throttleTimer != nil {
 		h.throttleTimer.Stop()
 		h.throttleTimer = nil
 	}
 	h.pendingEmit = false
+}
+
+// Finalize cancela timers pendentes e retorna o conteúdo acumulado (texto + reasoning).
+// Thread-safe. Chamado por OnDone, OnError e OnToolCalls dos handlers concretos.
+func (h *BaseStreamHandler) Finalize() (content, reasoning string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.cancelPendingChunkTimer()
+	return h.accumulatedContent, h.accumulatedReasoning
 }

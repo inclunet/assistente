@@ -74,7 +74,7 @@ func (a *App) initMessaging() {
 			}
 		}
 
-		if !a.ensureSpeechManager() {
+		if !a.speechSvc.EnsureSpeechManager() {
 			return nil, fmt.Errorf("speech manager indisponível para TTS")
 		}
 
@@ -82,9 +82,9 @@ func (a *App) initMessaging() {
 		var result *speech.SynthesisResult
 		var err error
 		if profile != nil && profile.Voice.Assistant.VoiceID != "" {
-			result, err = a.speechManager.SynthesizeWithVoice(text, profile.Voice.Assistant.VoiceID)
+			result, err = a.speechSvc.SynthesizeWithVoice(text, profile.Voice.Assistant.VoiceID)
 		} else {
-			result, err = a.speechManager.Synthesize(text)
+			result, err = a.speechSvc.Synthesize(text)
 		}
 		if err != nil {
 			return nil, err

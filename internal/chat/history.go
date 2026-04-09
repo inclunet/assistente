@@ -3,8 +3,6 @@ package chat
 import (
 	"encoding/json"
 	"log"
-
-	"assistente/internal/database"
 )
 
 // HistoryLoader carrega e filtra o histórico de mensagens de uma conversa.
@@ -18,7 +16,7 @@ type HistoryLoader struct {
 
 // Load retorna as mensagens filtradas e o resumo da conversa.
 // Os mensagens retornadas estão prontas para conversão ao formato LLM.
-func (h *HistoryLoader) Load(conversationID uint) ([]database.ChatMessage, string, error) {
+func (h *HistoryLoader) Load(conversationID uint) ([]Message, string, error) {
 	existingSummary, summaryUpToID, err := h.Repo.GetConversationSummary(conversationID)
 	if err != nil {
 		log.Printf("[HISTORY] Erro ao buscar resumo da conversa %d: %v", conversationID, err)
@@ -32,7 +30,7 @@ func (h *HistoryLoader) Load(conversationID uint) ([]database.ChatMessage, strin
 	}
 
 	// Filtra mensagens para o contexto: apenas as que vêm depois do resumo
-	var dbMessages []database.ChatMessage
+	var dbMessages []Message
 	if summaryUpToID > 0 {
 		for _, m := range allRootMessages {
 			if m.ID > summaryUpToID {
@@ -97,7 +95,7 @@ func (h *HistoryLoader) Load(conversationID uint) ([]database.ChatMessage, strin
 	}
 
 	// Pass 2: remove tool_results e tool_calls órfãos.
-	cleaned := make([]database.ChatMessage, 0, len(dbMessages))
+	cleaned := make([]Message, 0, len(dbMessages))
 	for _, m := range dbMessages {
 		if m.Role == "tool" && m.ToolCallID != "" && !offeredIDs[m.ToolCallID] {
 			log.Printf("[History] removendo tool_result órfão: %s (conversa %d)", m.ToolCallID, conversationID)

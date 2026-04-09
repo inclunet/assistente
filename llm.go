@@ -2,10 +2,9 @@ package main
 
 import (
 	"context"
-	"fmt"
-	"log"
 
 	"assistente/internal/chat"
+	"assistente/internal/events"
 	"assistente/internal/llm"
 )
 
@@ -23,7 +22,6 @@ type StreamChunk = llm.StreamChunk
 type Model = llm.Model
 type ModelsResponse = llm.ModelsResponse
 type ChatParams = llm.ChatParams
-type SettingsInput = llm.SettingsInput
 
 // Re-exporta funções utilitárias
 // ==================== StreamHandler Implementation ====================
@@ -39,30 +37,12 @@ type SettingsInput = llm.SettingsInput
 // GetModels retorna a lista de modelos disponíveis na API do provedor ativo.
 func (a *App) GetModels() ([]string, error) {
 	activeProfile, _ := a.profileManager.GetActive()
-	activeProfile = a.resolveProfileDefaults(activeProfile)
-
-	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
-		return nil, fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
-	}
-
-	cp, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider)
-	if err != nil {
-		return nil, err
-	}
-	return cp.GetModels(a.ctx)
+	return a.providerSvc.GetModels(a.ctx, activeProfile)
 }
 
 // GetModelsByProvider retorna a lista de modelos de um provedor específico.
 func (a *App) GetModelsByProvider(providerID string) ([]string, error) {
-	if providerID == "" {
-		return []string{}, nil
-	}
-
-	cp, err := a.getChatProviderForProvider(providerID)
-	if err != nil {
-		return nil, err
-	}
-	return cp.GetModels(a.ctx)
+	return a.providerSvc.GetModelsByProvider(a.ctx, providerID)
 }
 
 // Constantes de validação de input — re-exportadas de internal/chat para uso no pacote main.
@@ -71,65 +51,25 @@ const (
 	MaxMediaSize          = chat.MaxMediaSize
 )
 
-// recoverFromPanic captura panics em goroutines de processamento de mensagens,
-// evitando que o app inteiro morra silenciosamente. Emite o erro para o frontend.
+// recoverFromPanic captura panic e delega o tratamento para events.HandlePanic.
+// recover() deve ser chamado diretamente no corpo da função adiada — não pode ser delegado.
 func (a *App) recoverFromPanic(conversationID uint, source string) {
-	if r := recover(); r != nil {
-		errMsg := fmt.Sprintf("Erro interno inesperado em %s: %v", source, r)
-		log.Printf("🔴 [PANIC RECOVERED] %s (conversa %d): %v", source, conversationID, r)
-
-		// Emitter pode ser nil (ex: em testes); protege contra panic duplo
-		func() {
-			defer func() { recover() }()
-			if a != nil && a.emitter != nil {
-				a.emitter.Emit("chat:stream", StreamEvent{
-					Content:        "",
-					Done:           true,
-					Error:          errMsg,
-					ConversationId: conversationID,
-				})
-			}
-		}()
-	}
+	r := recover()
+	events.HandlePanic(a.emitter, conversationID, source, r)
 }
 
 // registerStreamingContext registra um context cancelável para uma conversa.
-// Permite que barge-in (SIP) ou outros mecanismos cancelem o streaming em andamento.
 func (a *App) registerStreamingContext(conversationID uint, cancel context.CancelFunc) {
-	a.streamingMu.Lock()
-	// Cancela contexto anterior se houver (nova mensagem sobrepõe a anterior)
-	if prev, ok := a.streamingContexts[conversationID]; ok {
-		prev()
-	}
-	a.streamingContexts[conversationID] = cancel
-	a.streamingMu.Unlock()
+	a.streamMgr.Register(conversationID, cancel)
 }
 
 // unregisterStreamingContext remove o context de streaming de uma conversa.
 func (a *App) unregisterStreamingContext(conversationID uint) {
-	a.streamingMu.Lock()
-	delete(a.streamingContexts, conversationID)
-	a.streamingMu.Unlock()
+	a.streamMgr.Unregister(conversationID)
 }
 
 // CancelStreamingForConversation cancela o streaming LLM em andamento para uma conversa.
-// Usado pelo pipeline SIP para barge-in: quando o usuário fala durante a resposta,
-// o LLM é cancelado imediatamente para processar a nova entrada.
+// Usado pelo pipeline SIP para barge-in.
 func (a *App) CancelStreamingForConversation(conversationID uint) {
-	a.streamingMu.Lock()
-	cancel, ok := a.streamingContexts[conversationID]
-	if ok {
-		cancel()
-		delete(a.streamingContexts, conversationID)
-	}
-	a.streamingMu.Unlock()
-
-	// Limpa callbacks pendentes no notifier (resposta não será gerada)
-	if ok && a.responseNotifier != nil {
-		a.responseNotifier.Cancel(conversationID)
-	}
-
-	if ok {
-		log.Printf("[LLM] Streaming cancelado para conversa %d (barge-in)", conversationID)
-	}
+	a.streamMgr.Cancel(conversationID)
 }

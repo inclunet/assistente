@@ -1,15 +1,12 @@
 package main
 
 import (
-	"assistente/internal/config"
-	"assistente/internal/credentials"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
 	"assistente/internal/providers"
 	"context"
 	"fmt"
 	"log"
-	"net/url"
 	"time"
 )
 
@@ -38,27 +35,21 @@ func (a *App) GetLLMProvider(id string) *llm.ProviderConfig {
 func (a *App) GetActiveProviderInfo() map[string]interface{} {
 	activeProfile, err := a.profileManager.GetActive()
 	if err != nil || activeProfile == nil {
-		return map[string]interface{}{
-			"error": "perfil ativo não encontrado",
-		}
+		return map[string]interface{}{"error": "perfil ativo não encontrado"}
 	}
-
-	activeProfile = a.resolveProfileDefaults(activeProfile)
-
-	provider := a.llmRegistry.Get(activeProfile.Chat.LLMProvider)
-	if provider == nil {
+	info := a.providerSvc.GetActiveProviderInfo(activeProfile)
+	if info.Error != "" {
 		return map[string]interface{}{
-			"error":      "provedor não encontrado",
+			"error":      info.Error,
 			"providerID": activeProfile.Chat.LLMProvider,
 		}
 	}
-
 	return map[string]interface{}{
-		"id":       provider.ID,
-		"name":     provider.Name,
-		"type":     provider.Type,
-		"base_url": provider.BaseURL,
-		"model":    provider.Model,
+		"id":       info.ID,
+		"name":     info.Name,
+		"type":     info.Type,
+		"base_url": info.BaseURL,
+		"model":    info.Model,
 	}
 }
 
@@ -87,7 +78,7 @@ func (a *App) TestLLMProvider(req TestLLMProviderRequest) (ok bool, retErr error
 // Usado pelo formulário de criação/edição de providers para validar e selecionar modelo.
 // Se provider_id é informado e api_key está vazio, busca credencial existente.
 func (a *App) ListModelsRaw(req TestLLMProviderRequest) (models []string, retErr error) {
-	// Protege contra panic
+	// Protege contra panic inesperado em camadas inferiores
 	defer func() {
 		if r := recover(); r != nil {
 			log.Printf("[ListModelsRaw] PANIC: %v", r)
@@ -99,63 +90,15 @@ func (a *App) ListModelsRaw(req TestLLMProviderRequest) (models []string, retErr
 		return nil, fmt.Errorf("aplicação ainda não está pronta, aguarde")
 	}
 
-	if req.BaseURL == "" {
-		return nil, fmt.Errorf("base_url é obrigatório")
-	}
-
-	parsedURL, err := url.Parse(req.BaseURL)
-	if err != nil {
-		return nil, fmt.Errorf("URL inválida: %w", err)
-	}
-	if parsedURL.Scheme != "http" && parsedURL.Scheme != "https" {
-		return nil, fmt.Errorf("URL deve começar com http:// ou https://")
-	}
-	if parsedURL.Host == "" {
-		return nil, fmt.Errorf("URL deve conter um endereço de servidor válido")
-	}
-
-	apiKey := req.APIKey
-
-	// Se não tem API key mas tem provider_id, busca credencial existente
-	if apiKey == "" && req.ProviderID != "" && a.llmRegistry != nil && a.credMgr != nil {
-		if provider := a.llmRegistry.Get(req.ProviderID); provider != nil && provider.CredentialPattern != "" {
-			if auth, err := a.credMgr.GetByPattern(provider.CredentialPattern); err == nil && auth != nil && auth.Token != "" {
-				apiKey = auth.Token
-			}
-		}
-	}
-
-	hostname := parsedURL.Hostname()
-	tempProvider := &llm.ProviderConfig{
-		ID:                "temp-form",
-		Name:              "temp",
-		Type:              llm.ProviderType(req.Type),
-		BaseURL:           req.BaseURL,
-		CredentialPattern: hostname,
-		Timeout:           15,
-	}
-
-	// Se tem API key ad-hoc, registra temporariamente para o credential manager achar
-	if apiKey != "" && a.credMgr != nil {
-		_ = a.credMgr.RegisterPatternWithContext(a.ctx, hostname, &credentials.AuthConfig{
-			Type: "bearer", Token: apiKey,
-		})
-		defer func() {
-			if req.ProviderID == "" {
-				_ = a.credMgr.DeletePattern(a.ctx, hostname)
-			}
-		}()
-	}
-
 	ctx, cancel := context.WithTimeout(a.ctx, 15*time.Second)
 	defer cancel()
 
-	cp := llm.NewChatProvider(tempProvider, a.credMgr)
-	result, err := cp.GetModels(ctx)
-	if err != nil {
-		return nil, err
-	}
-	return result, nil
+	return a.providerSvc.ListModelsRaw(ctx, providers.ListModelsRawRequest{
+		Type:       req.Type,
+		BaseURL:    req.BaseURL,
+		APIKey:     req.APIKey,
+		ProviderID: req.ProviderID,
+	})
 }
 
 // providerToMap serializa um ProviderConfig para o formato map[string]interface{}
@@ -236,38 +179,7 @@ func (a *App) GetLLMProvidersWithStatus() []map[string]interface{} {
 
 // PreviewVoiceSettings reproduz um texto de teste com configurações ad-hoc
 func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume float64, sampleText string) error {
-	if sampleText == "" {
-		sampleText = "Este é um teste das configurações de voz"
-	}
-
-	log.Printf("[PreviewVoiceSettings] provider=%s, voiceID=%s, rate=%.2f", provider, voiceID, rate)
-
-	if a.speechManager == nil {
-		cfg, err := config.Load()
-		if err != nil {
-			return fmt.Errorf("erro ao carregar config: %w", err)
-		}
-		if cfg.APIKey == "" {
-			return fmt.Errorf("API key não configurada")
-		}
-		a.InitSpeechManager(cfg.APIKey, cfg.APIBaseURL, "pt", voiceID, "tts-1")
-	}
-
-	if provider == "openai" {
-		a.speechManager.SetTTSVoice(voiceID)
-	}
-
-	result, err := a.speechManager.SynthesizeWithVoice(sampleText, voiceID)
-	if err != nil {
-		return fmt.Errorf("erro ao sintetizar: %w", err)
-	}
-
-	a.emitter.Emit("voice_profile:preview", map[string]interface{}{
-		"audio_base64": result.AudioBase64,
-		"format":       result.Format,
-	})
-
-	return nil
+	return a.speechSvc.PreviewVoiceSettings(provider, voiceID, rate, volume, sampleText)
 }
 
 // saveLLMProviders persiste todos os provedores do registry no store.
@@ -312,20 +224,6 @@ func (a *App) ReloadLLMClient() {
 	a.initLLMClient()
 }
 
-// getChatProviderForProvider retorna um ChatProvider para o provedor especificado.
-func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, error) {
-	if a.llmRegistry == nil {
-		return nil, fmt.Errorf("registro de provedores não inicializado")
-	}
-
-	provider := a.llmRegistry.Get(providerID)
-	if provider == nil {
-		return nil, fmt.Errorf("provedor LLM não encontrado: %s", providerID)
-	}
-
-	return llm.NewChatProvider(provider, a.credMgr), nil
-}
-
 // resolveProfileDefaults substitui sentinelas "$default" no profile pelo provedor/modelo padrão.
 func (a *App) resolveProfileDefaults(p *profiles.Profile) *profiles.Profile {
 	if a.providerSvc == nil {
@@ -347,4 +245,13 @@ func (a *App) initLLMProviders() {
 // CreateDefaultLLMProvider cria o primeiro provedor durante o wizard.
 func (a *App) CreateDefaultLLMProvider(providerType, apiKey string) error {
 	return a.providerSvc.CreateFromTemplate(a.ctx, providerType, apiKey)
+}
+
+// getChatProviderForProvider é uma fina camada de delegação para providerSvc.GetChatProvider.
+// Mantida para uso em testes de integração que combinam resolveProfileDefaults com routing.
+func (a *App) getChatProviderForProvider(providerID string) (llm.ChatProvider, error) {
+	if a.providerSvc == nil {
+		return nil, fmt.Errorf("provider service not initialized")
+	}
+	return a.providerSvc.GetChatProvider(providerID)
 }
