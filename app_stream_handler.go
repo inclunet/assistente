@@ -106,7 +106,10 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Verifica se precisa sumarizar (após resposta concluída, não bloqueia nada)
 	go func() {
-		defer h.app.recoverFromPanic(h.ConversationID, "checkAndTriggerSummarization")
+		defer func() {
+			r := recover()
+			events.HandlePanic(h.app.emitter, h.ConversationID, "checkAndTriggerSummarization", r)
+		}()
 		h.app.checkAndTriggerSummarization(h.ConversationID)
 	}()
 }

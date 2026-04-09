@@ -124,11 +124,21 @@ type App struct {
 	dialogPort ports.SystemDialogPort
 
 	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
-	mcpCtrl      *controllers.MCPController
-	profilesCtrl *controllers.ProfilesController
-	llmCtrl      *controllers.LLMController
-	skillsCtrl   *controllers.SkillsController
-	settingsCtrl *controllers.SettingsController
+	mcpCtrl         *controllers.MCPController
+	profilesCtrl    *controllers.ProfilesController
+	llmCtrl         *controllers.LLMController
+	skillsCtrl      *controllers.SkillsController
+	settingsCtrl    *controllers.SettingsController
+	chatCtrl        *controllers.ChatController
+	taskListCtrl    *controllers.TaskListController
+	speechCtrl      *controllers.SpeechController
+	jobsCtrl        *controllers.JobsController
+	workspaceCtrl   *controllers.WorkspaceController
+	tokensCtrl      *controllers.TokensController
+	toolsCtrl       *controllers.ToolsController
+	updaterCtrl     *controllers.UpdaterController
+	credentialsCtrl *controllers.CredentialsController
+	welcomeCtrl     *controllers.WelcomeController
 }
 
 // ==================== Tipos para Threads ====================
@@ -324,6 +334,65 @@ func (a *App) startup(ctx context.Context) {
 		GetModels: func() ([]string, error) {
 			return a.GetModels()
 		},
+	})
+
+	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{
+		Emitter:          a.emitter,
+		ChatInteractor:   a.chatInteractor,
+		ToolRegistry:     a.toolRegistry,
+		ProviderSvc:      a.providerSvc,
+		MCPMgr:           a.mcpMgr,
+		AgentSvc:         a.agentSvc,
+		StreamMgr:        a.streamMgr,
+		SpeechSvc:        a.speechSvc,
+		SettingsSvc:      a.settingsSvc,
+		ConvRepo:         a.convSvc,
+		MsgGateway:       a.msgGateway,
+		ResponseNotifier: a.responseNotifier,
+	})
+	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
+		TaskSvc: a.taskSvc,
+	})
+	a.speechCtrl = controllers.NewSpeechController(controllers.SpeechControllerConfig{
+		SpeechSvc: a.speechSvc,
+	})
+	a.jobsCtrl = controllers.NewJobsController(controllers.JobsControllerConfig{
+		JobMgr: a.jobMgr,
+	})
+	a.workspaceCtrl = controllers.NewWorkspaceController(controllers.WorkspaceControllerConfig{
+		WorkspaceMgr: a.workspaceMgr,
+		Emitter:      a.emitter,
+	})
+	a.tokensCtrl = controllers.NewTokensController(controllers.TokensControllerConfig{
+		ProfileMgr:  a.profileManager,
+		TokenSvc:    a.tokenSvc,
+		SettingsSvc: a.settingsSvc,
+	})
+	a.toolsCtrl = controllers.NewToolsController(controllers.ToolsControllerConfig{
+		ToolRegistry: a.toolRegistry,
+		MCPMgr:       a.mcpMgr,
+	})
+	a.updaterCtrl = controllers.NewUpdaterController(controllers.UpdaterControllerConfig{
+		Updater:          a.updater,
+		Emitter:          a.emitter,
+		QuestionnaireMgr: a.questionnaireMgr,
+		ProviderSvc:      a.providerSvc,
+		AppVersion:       AppVersion,
+	})
+	a.credentialsCtrl = controllers.NewCredentialsController(controllers.CredentialsControllerConfig{
+		CredMgr: a.credMgr,
+	})
+	a.welcomeCtrl = controllers.NewWelcomeController(controllers.WelcomeControllerConfig{
+		QuestionnaireMgr:           a.questionnaireMgr,
+		CredMgr:                    a.credMgr,
+		ProviderSvc:                a.providerSvc,
+		LLMRegistry:                a.llmRegistry,
+		SettingsSvc:                a.settingsSvc,
+		Updater:                    a.updater,
+		UpdaterCtrl:                a.updaterCtrl,
+		ConfigureCredentialManager: a.configureCredentialManager,
+		InitLLMClient:              a.initLLMClient,
+		SaveLLMProviders:           a.saveLLMProviders,
 	})
 
 	// Verifica atualizações no startup (não bloqueante)

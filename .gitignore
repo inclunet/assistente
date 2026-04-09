@@ -87,3 +87,4 @@ public/
 # Wails
 wails.json.bak
 frontend/wailsjs/wailsjs/
+__debug_bin*

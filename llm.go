@@ -51,6 +51,12 @@ const (
 	MaxMediaSize          = chat.MaxMediaSize
 )
 
+// CancelStreamingForConversation cancela o streaming LLM em andamento para uma conversa.
+// Usado pelo pipeline SIP para barge-in.
+func (a *App) CancelStreamingForConversation(conversationID uint) {
+	a.streamMgr.Cancel(conversationID)
+}
+
 // recoverFromPanic captura panic e delega o tratamento para events.HandlePanic.
 // recover() deve ser chamado diretamente no corpo da função adiada — não pode ser delegado.
 func (a *App) recoverFromPanic(conversationID uint, source string) {
@@ -66,10 +72,4 @@ func (a *App) registerStreamingContext(conversationID uint, cancel context.Cance
 // unregisterStreamingContext remove o context de streaming de uma conversa.
 func (a *App) unregisterStreamingContext(conversationID uint) {
 	a.streamMgr.Unregister(conversationID)
-}
-
-// CancelStreamingForConversation cancela o streaming LLM em andamento para uma conversa.
-// Usado pelo pipeline SIP para barge-in.
-func (a *App) CancelStreamingForConversation(conversationID uint) {
-	a.streamMgr.Cancel(conversationID)
 }
