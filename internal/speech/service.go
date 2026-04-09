@@ -607,6 +607,35 @@ func (s *Service) PreviewVoiceSettings(provider, voiceID string, rate, volume fl
 	return nil
 }
 
+// GetMessageAudio retorna o áudio cached de uma mensagem.
+func (s *Service) GetMessageAudio(messageID uint) (*AudioResult, error) {
+	audio, mime, err := s.audioRepo.GetMessageAudio(messageID)
+	if err != nil {
+		return nil, fmt.Errorf("erro ao buscar áudio: %w", err)
+	}
+	if audio == "" {
+		return nil, nil
+	}
+	return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
+}
+
+// SaveMessageAudio salva áudio (base64) numa mensagem existente.
+func (s *Service) SaveMessageAudio(messageID uint, audioBase64, mimeType string) error {
+	return s.audioRepo.SaveMessageAudio(messageID, audioBase64, mimeType)
+}
+
+// GetSpeechProviders retorna provedores LLM que suportam TTS ou STT.
+func (s *Service) GetSpeechProviders() []*llm.ProviderConfig {
+	all := s.registry.List()
+	result := make([]*llm.ProviderConfig, 0, len(all))
+	for _, p := range all {
+		if p.SupportsTTS() || p.SupportsSTT() {
+			result = append(result, p)
+		}
+	}
+	return result
+}
+
 // AudioResult é o resultado de busca/geração de áudio.
 type AudioResult struct {
 	Audio    string `json:"audio"`
