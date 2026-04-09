@@ -293,3 +293,13 @@ func (f *fakeTool) Parameters() json.RawMessage { return json.RawMessage(`{}`) }
 func (f *fakeTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResult, error) {
 	return tools.ToolResult{Content: "ok"}, nil
 }
+
+// Regression: (*workspace.Manager)(nil) em WorkspaceReader não deve fazer BuildTemplateData panir.
+func TestBuildTemplateData_TypedNilWorkspaceManager(t *testing.T) {
+	var mgr *workspace.Manager
+	b := &prompt.Builder{Workspace: mgr}
+	data := b.BuildTemplateData(nil, "", 1)
+	if data.WorkspaceName != "" || data.TabCount != 0 {
+		t.Fatalf("esperava dados de workspace vazios com manager typed-nil, obteve %+v", data)
+	}
+}

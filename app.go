@@ -234,6 +234,10 @@ func (a *App) startup(ctx context.Context) {
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
 	})
 
+	// Workspace antes do Prompt Builder: senão Workspace fica (*Manager)(nil) numa interface (typed nil)
+	// e BuildTemplateData chama Active() → panic.
+	a.initWorkspace()
+
 	// StreamingManager: controla contextos canceláveis por conversa (barge-in)
 	a.streamMgr = chat.NewStreamingManager(a.responseNotifier)
 
@@ -281,9 +285,6 @@ func (a *App) startup(ctx context.Context) {
 
 	// Inicializa o sistema de jobs (event-driven automation)
 	a.initJobs()
-
-	// Inicializa o workspace manager
-	a.initWorkspace()
 
 	// Inicializa o updater
 	a.initUpdater()
