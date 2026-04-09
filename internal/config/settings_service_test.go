@@ -78,7 +78,7 @@ func TestSettingsService_SaveSettings(t *testing.T) {
 	err := svc.SaveSettings(SettingsInput{
 		APIKey:     "test-key",
 		APIBaseURL: "https://example.com/v1",
-		ChatParams: ModelParams{
+		ChatParams: SettingsModelParams{
 			Model:       "claude-3",
 			Temperature: 0.5,
 			MaxTokens:   2048,

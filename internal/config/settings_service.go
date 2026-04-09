@@ -5,21 +5,18 @@ import (
 	"fmt"
 	"log"
 	"os"
+
+	"assistente/internal/events"
 )
 
 // SettingsService encapsula operações de configuração e reset de dados,
 // desacoplado do framework Wails.
 type SettingsService struct {
-	emitter        Emitter
+	emitter        events.Emitter
 	credCleaner    CredentialCleaner
 	profileCleaner ProfileCleaner
 	skillCleaner   SkillCleaner
 	reloadLLM      func() // callback para recarregar cliente LLM após mudança de modelo
-}
-
-// Emitter abstrai emissão de eventos (usa events.Emitter na prática).
-type Emitter interface {
-	Emit(event string, data any)
 }
 
 // CredentialCleaner limpa credenciais armazenadas.
@@ -41,7 +38,7 @@ type SkillCleaner interface {
 
 // SettingsServiceConfig contém dependências injetadas.
 type SettingsServiceConfig struct {
-	Emitter        Emitter
+	Emitter        events.Emitter
 	CredCleaner    CredentialCleaner
 	ProfileCleaner ProfileCleaner
 	SkillCleaner   SkillCleaner
@@ -193,9 +190,19 @@ func (s *SettingsService) ClearAllSkills() error {
 
 // SettingsInput representa os parâmetros de entrada para salvar configurações.
 type SettingsInput struct {
-	APIKey          string      `json:"api_key"`
-	APIBaseURL      string      `json:"api_base_url"`
-	ResponseTimeout int         `json:"response_timeout,omitempty"`
-	ChatParams      ModelParams `json:"chat_params"`
-	STTParams       STTParams   `json:"stt_params,omitempty"`
+	APIKey          string            `json:"api_key"`
+	APIBaseURL      string            `json:"api_base_url"`
+	ResponseTimeout int               `json:"response_timeout,omitempty"`
+	ChatParams      SettingsModelParams `json:"chat_params"`
+	STTParams       STTParams         `json:"stt_params,omitempty"`
+}
+
+// SettingsModelParams são os parâmetros de modelo vindos do frontend.
+// Diferente de ModelParams (config.go): sem omitempty nos campos obrigatórios,
+// pois temperature=0 e max_tokens=0 são valores válidos que não devem ser omitidos.
+type SettingsModelParams struct {
+	Model       string  `json:"model"`
+	MaxTokens   int     `json:"max_tokens"`
+	Temperature float64 `json:"temperature"`
+	TopP        float64 `json:"top_p,omitempty"`
 }
