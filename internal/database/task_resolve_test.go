@@ -84,3 +84,58 @@ func TestResolveTaskIDListMismatchWithCode(t *testing.T) {
 		t.Fatal("expected list mismatch when id+code+wrong list")
 	}
 }
+
+func TestResolveTaskIDByTaskCode_GlobalUnique(t *testing.T) {
+	setupTaskResolveTestDB(t)
+	list, err := CreateTaskList("L", "", nil, "my-list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	task, err := CreateTask(list.ID, "T", "", "FSD-99", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := ResolveTaskIDByTaskCode(nil, "FSD-99")
+	if err != nil || got != task.ID {
+		t.Fatalf("got %d err %v", got, err)
+	}
+}
+
+func TestResolveTaskIDByTaskCode_NotFound(t *testing.T) {
+	setupTaskResolveTestDB(t)
+	list, _ := CreateTaskList("L", "", nil, "my-list")
+	_, _ = CreateTask(list.ID, "T", "", "ONLY", "", nil)
+	_, err := ResolveTaskIDByTaskCode(nil, "MISSING")
+	if err == nil {
+		t.Fatal("expected error")
+	}
+}
+
+func TestResolveTaskIDByTaskCode_Ambiguous(t *testing.T) {
+	setupTaskResolveTestDB(t)
+	a, _ := CreateTaskList("A", "", nil, "la")
+	b, _ := CreateTaskList("B", "", nil, "lb")
+	ta, _ := CreateTask(a.ID, "T", "", "DUP", "", nil)
+	_, _ = CreateTask(b.ID, "T", "", "DUP", "", nil)
+	_, err := ResolveTaskIDByTaskCode(nil, "DUP")
+	if err == nil {
+		t.Fatal("expected ambiguous error")
+	}
+	lid := a.ID
+	got, err := ResolveTaskIDByTaskCode(&lid, "DUP")
+	if err != nil || got != ta.ID {
+		t.Fatalf("got %d err %v want %d", got, err, ta.ID)
+	}
+}
+
+func TestResolveTaskIDByTaskCode_ScopedNotFound(t *testing.T) {
+	setupTaskResolveTestDB(t)
+	a, _ := CreateTaskList("A", "", nil, "la")
+	b, _ := CreateTaskList("B", "", nil, "lb")
+	_, _ = CreateTask(a.ID, "T", "", "X1", "", nil)
+	lid := b.ID
+	_, err := ResolveTaskIDByTaskCode(&lid, "X1")
+	if err == nil {
+		t.Fatal("expected not found in list B")
+	}
+}
