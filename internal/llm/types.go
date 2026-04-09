@@ -200,30 +200,6 @@ type ChatParams struct {
 	ActiveFilePath       string  `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
 }
 
-// SettingsInput representa os parâmetros de entrada para salvar configurações
-// Nota: Configurações de voz TTS foram movidas para VoiceProfiles no banco de dados
-type SettingsInput struct {
-	APIKey          string      `json:"api_key"`
-	APIBaseURL      string      `json:"api_base_url"`
-	ResponseTimeout int         `json:"response_timeout,omitempty"` // Timeout em segundos (padrão: 180)
-	ChatParams      ModelParams `json:"chat_params"`
-	STTParams       STTParams   `json:"stt_params,omitempty"`
-}
-
-// ModelParams representa parâmetros do modelo de chat
-type ModelParams struct {
-	Model       string  `json:"model"`
-	MaxTokens   int     `json:"max_tokens"`
-	Temperature float64 `json:"temperature"`
-	TopP        float64 `json:"top_p,omitempty"`
-}
-
-// STTParams representa parâmetros de transcrição
-type STTParams struct {
-	Provider      string `json:"provider,omitempty"`
-	RecordingMode string `json:"recording_mode,omitempty"`
-}
-
 // ==================== Helper Functions ====================
 
 // StrPtr retorna um ponteiro para uma string

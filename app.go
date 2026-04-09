@@ -9,6 +9,7 @@ import (
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
 	"assistente/internal/chat"
+	"assistente/internal/config"
 	"assistente/internal/credentials"
 	"assistente/internal/events"
 	"assistente/internal/hotkey"
@@ -123,6 +124,9 @@ type App struct {
 
 	// Prompt builder (monta system prompt — puro, sem Wails)
 	promptBuilder *prompt.Builder
+
+	// Settings service (config CRUD e reset de dados — sem Wails)
+	settingsSvc *config.SettingsService
 
 	// Streaming context management (barge-in support)
 	streamingMu       sync.Mutex
@@ -242,6 +246,15 @@ func (a *App) startup(ctx context.Context) {
 		Workspace: a.workspaceMgr,
 		Tools:     a.toolRegistry,
 	}
+
+	// Inicializa o Settings Service (config CRUD e reset de dados)
+	a.settingsSvc = config.NewSettingsService(config.SettingsServiceConfig{
+		Emitter:        a.emitter,
+		CredCleaner:    a.credMgr,
+		ProfileCleaner: profileCleanerAdapter{app: a},
+		SkillCleaner:   skillCleanerAdapter{app: a},
+		ReloadLLM:      a.initLLMClient,
+	})
 
 	// Inicializa hotkeys globais
 	a.initGlobalHotkeys()
