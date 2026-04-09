@@ -31,4 +31,3 @@ func (a *App) SignalCheckAPI(apiURL, apiToken string) (map[string]interface{}, e
 func (a *App) SignalListAccounts(apiURL, apiToken string) ([]string, error) {
 	return a.signalCtrl.SignalListAccounts(apiURL, apiToken)
 }
-

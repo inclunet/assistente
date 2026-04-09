@@ -24,4 +24,3 @@ func (a *App) preprocessMediaMessages(messages []Message, profile *profiles.Prof
 func (a *App) UpdateProfileMediaSupport(mediaType string, supported bool) {
 	a.profilesCtrl.UpdateProfileMediaSupport(mediaType, supported)
 }
-

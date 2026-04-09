@@ -59,4 +59,3 @@ func (a *App) initTerminalAndAllowlists() {
 
 	log.Printf("[Terminal] Managers de terminal, questionário e allowlist inicializados")
 }
-

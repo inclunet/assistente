@@ -9,6 +9,7 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/config"
 	"assistente/internal/core/ports"
+	"assistente/internal/core/usecases"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
@@ -35,52 +36,64 @@ type ChatControllerConfig struct {
 }
 
 // ChatController é o adapter primário (Inbound) para o pipeline de envio de mensagens.
-// Contém toda a orquestração de sendMessageInternal, desacoplada do *App e do Wails.
+// Orquestra o bridge canal↔Wails e delega o pipeline de mensagem ao SendMessageUseCase.
 type ChatController struct {
 	emitter          ports.Emitter
-	chatInteractor   *chat.Interactor
-	toolRegistry     *tools.Registry
-	providerSvc      *providers.Service
-	mcpMgr           *mcpmgr.Manager
-	agentSvc         *agent.Service
 	streamMgr        *chat.StreamingManager
-	speechSvc        *speech.Service
-	settingsSvc      *config.SettingsService
 	convRepo         chat.ConversationRepository
 	msgGateway       *messaging.Gateway
 	responseNotifier *messaging.ResponseNotifier
+	sendMsgUC        *usecases.SendMessageUseCase
 }
 
 // NewChatController cria um ChatController com todas as suas dependências.
 func NewChatController(cfg ChatControllerConfig) *ChatController {
 	return &ChatController{
 		emitter:          cfg.Emitter,
-		chatInteractor:   cfg.ChatInteractor,
-		toolRegistry:     cfg.ToolRegistry,
-		providerSvc:      cfg.ProviderSvc,
-		mcpMgr:           cfg.MCPMgr,
-		agentSvc:         cfg.AgentSvc,
 		streamMgr:        cfg.StreamMgr,
-		speechSvc:        cfg.SpeechSvc,
-		settingsSvc:      cfg.SettingsSvc,
 		convRepo:         cfg.ConvRepo,
 		msgGateway:       cfg.MsgGateway,
 		responseNotifier: cfg.ResponseNotifier,
+		sendMsgUC: usecases.NewSendMessageUseCase(usecases.SendMessageConfig{
+			ChatInteractor: cfg.ChatInteractor,
+			ToolRegistry:   cfg.ToolRegistry,
+			ProviderSvc:    cfg.ProviderSvc,
+			MCPMgr:         cfg.MCPMgr,
+			AgentSvc:       cfg.AgentSvc,
+			StreamMgr:      cfg.StreamMgr,
+			SpeechSvc:      cfg.SpeechSvc,
+			SettingsSvc:    cfg.SettingsSvc,
+			Emitter:        cfg.Emitter,
+		}),
 	}
 }
 
 // SendMessage é o ponto de entrada para mensagens originadas pelo frontend Wails.
-// Registra o bridge canal↔Wails antes de delegar para o pipeline interno.
+// Registra o bridge canal↔Wails antes de delegar para o Use Case.
 func (c *ChatController) SendMessage(ctx context.Context, conversationID uint, userContent, userMedia string, params llm.ChatParams) (uint, error) {
 	if conversationID > 0 && c.msgGateway != nil && c.responseNotifier != nil {
 		c.registerChannelBridge(conversationID)
 	}
-	return c.sendMessage(ctx, conversationID, userContent, userMedia, params, "wails")
+	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conversationID,
+		UserContent:    userContent,
+		UserMedia:      userMedia,
+		Params:         params,
+		Source:         "wails",
+	})
 }
 
 // SendMessageFromChannel é chamado pelo Gateway de mensageria (Telegram, Signal, etc.).
 func (c *ChatController) SendMessageFromChannel(ctx context.Context, conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
-	return c.sendMessage(ctx, conversationID, content, media, params, source)
+	return c.sendMsgUC.Execute(usecases.SendMessageRequest{
+		Ctx:            ctx,
+		ConversationID: conversationID,
+		UserContent:    content,
+		UserMedia:      media,
+		Params:         params,
+		Source:         source,
+	})
 }
 
 // CancelStreamingForConversation cancela um streaming LLM em andamento (barge-in).
@@ -253,18 +266,4 @@ func (c *ChatController) registerChannelBridge(conversationID uint) {
 			}
 		},
 	})
-}
-
-// whisperTranscribeFunc cria o callback de transcrição STT para o pipeline de mensagens.
-func (c *ChatController) whisperTranscribeFunc() chat.TranscribeFunc {
-	return func(audioBase64, filename string) (string, error) {
-		result, err := c.speechSvc.Transcribe(audioBase64, filename)
-		if err != nil {
-			return "", err
-		}
-		if result == nil {
-			return "", nil
-		}
-		return result.Text, nil
-	}
 }

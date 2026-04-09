@@ -11,4 +11,3 @@ func (a *App) ResetDatabase() error {
 func (a *App) ClearMessages() error {
 	return a.settingsCtrl.ClearMessages()
 }
-

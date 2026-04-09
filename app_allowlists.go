@@ -35,4 +35,3 @@ func (a *App) DeleteAllowlist(slug string) error {
 func (a *App) GetAllowlistSearchPaths() []string {
 	return a.allowlistCtrl.GetAllowlistSearchPaths()
 }
-
