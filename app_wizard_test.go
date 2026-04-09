@@ -10,6 +10,8 @@ import (
 	"os"
 	"testing"
 
+	"assistente/adapters/noop"
+	"assistente/controllers"
 	"assistente/internal/configdir"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
@@ -46,12 +48,18 @@ func setupWizardTestApp(t *testing.T) *App {
 		Store:    providers.NewDBStore(),
 	})
 
-	return &App{
+	a := &App{
 		ctx:         context.Background(),
 		credMgr:     credMgr,
 		llmRegistry: llmRegistry,
 		providerSvc: svc,
 	}
+	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
+		LLMRegistry: llmRegistry,
+		ProviderSvc: svc,
+		Emitter:     &noop.EmitterAdapter{},
+	})
+	return a
 }
 
 func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
@@ -90,13 +98,19 @@ func setupWizardTestAppWithProfiles(t *testing.T) (*App, *profiles.Manager) {
 		Store:    providers.NewDBStore(),
 	})
 
-	return &App{
+	a := &App{
 		ctx:            context.Background(),
 		credMgr:        credMgr,
 		llmRegistry:    llmRegistry,
 		profileManager: pm,
 		providerSvc:    svc,
-	}, pm
+	}
+	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
+		LLMRegistry: llmRegistry,
+		ProviderSvc: svc,
+		Emitter:     &noop.EmitterAdapter{},
+	})
+	return a, pm
 }
 
 // --- getWizardProviderInfo ---

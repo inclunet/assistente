@@ -6,10 +6,13 @@ import (
 	"sync"
 	"time"
 
+	"assistente/adapters/wails"
+	"assistente/controllers"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
 	"assistente/internal/chat"
 	"assistente/internal/config"
+	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/events"
 	"assistente/internal/hotkey"
@@ -29,36 +32,16 @@ import (
 	"assistente/internal/tools"
 	"assistente/internal/updater"
 	"assistente/internal/workspace"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
 )
 
-// Request structs for LLM Provider Management
-type CreateLLMProviderRequest struct {
-	ID           string `json:"id"`
-	Name         string `json:"name"`
-	Type         string `json:"type"`
-	BaseURL      string `json:"base_url"`
-	APIKey       string `json:"api_key,omitempty"`
-	DefaultModel string `json:"default_model,omitempty"`
-	APIFormat    string `json:"api_format,omitempty"`
-}
+// Request structs for LLM Provider Management — type aliases para controllers.
+// Mantém compatibilidade com código e testes existentes durante a migração.
+type CreateLLMProviderRequest = controllers.CreateLLMProviderRequest
+type TestLLMProviderRequest = controllers.TestLLMProviderRequest
+type UpdateLLMProviderRequest = controllers.UpdateLLMProviderRequest
 
-type TestLLMProviderRequest struct {
-	Type       string `json:"type"`
-	BaseURL    string `json:"base_url"`
-	APIKey     string `json:"api_key,omitempty"`
-	ProviderID string `json:"provider_id,omitempty"`
-}
-
-type UpdateLLMProviderRequest struct {
-	Name         string `json:"name,omitempty"`
-	Type         string `json:"type,omitempty"`
-	BaseURL      string `json:"base_url,omitempty"`
-	APIKey       string `json:"api_key,omitempty"`
-	DefaultModel string `json:"default_model,omitempty"`
-	APIFormat    string `json:"api_format,omitempty"`
-}
+// SkillCreateRequest — type alias para controllers.
+type SkillCreateRequest = controllers.SkillCreateRequest
 
 // App struct
 type App struct {
@@ -135,6 +118,17 @@ type App struct {
 
 	// Emitter abstrai runtime.EventsEmit para desacoplar lógica de negócio do Wails
 	emitter events.Emitter
+
+	// Ports de infraestrutura (Wails em produção, noop em testes/CLI)
+	windowPort ports.WindowPort
+	dialogPort ports.SystemDialogPort
+
+	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
+	mcpCtrl      *controllers.MCPController
+	profilesCtrl *controllers.ProfilesController
+	llmCtrl      *controllers.LLMController
+	skillsCtrl   *controllers.SkillsController
+	settingsCtrl *controllers.SettingsController
 }
 
 // ==================== Tipos para Threads ====================
@@ -155,6 +149,8 @@ func NewApp() *App {
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 	a.emitter = appEmitter{ctx: ctx}
+	a.windowPort = wails.NewWindowAdapter(ctx)
+	a.dialogPort = wails.NewDialogAdapter(ctx)
 
 	// Inicializa o banco de dados
 	if err := InitDatabase(); err != nil {
@@ -292,6 +288,43 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa o updater
 	a.initUpdater()
 
+	// Instancia os Controllers (Fase 2 — Inbound Adapters por domínio)
+	a.mcpCtrl = controllers.NewMCPController(a.mcpMgr, a.jobMgr, a.emitter)
+	a.profilesCtrl = controllers.NewProfilesController(controllers.ProfilesControllerConfig{
+		ProfileMgr: a.profileManager,
+		Emitter:    a.emitter,
+		OnProfileChanged: func(slug string) {
+			a.initLLMClient()
+			if err := a.InitSpeechManagerFromProfile(); err != nil {
+				log.Printf("[Profile] Erro ao inicializar speech manager para perfil %s: %v", slug, err)
+			}
+			a.registerActiveProfileHotkeys()
+		},
+	})
+	a.llmCtrl = controllers.NewLLMController(controllers.LLMControllerConfig{
+		LLMRegistry:      a.llmRegistry,
+		ProfileMgr:       a.profileManager,
+		ProviderSvc:      a.providerSvc,
+		Emitter:          a.emitter,
+		OnProviderChange: a.initLLMClient,
+	})
+	a.skillsCtrl = controllers.NewSkillsController(controllers.SkillsControllerConfig{
+		SkillMgr: a.skillMgr,
+		Emitter:  a.emitter,
+	})
+	a.settingsCtrl = controllers.NewSettingsController(controllers.SettingsControllerConfig{
+		CredMgr:    a.credMgr,
+		ProfileMgr: a.profileManager,
+		SkillMgr:   a.skillMgr,
+		Emitter:    a.emitter,
+		RestartChannel: func(channelName string) error {
+			return a.RestartChannel(channelName)
+		},
+		GetModels: func() ([]string, error) {
+			return a.GetModels()
+		},
+	})
+
 	// Verifica atualizações no startup (não bloqueante)
 	go a.checkForUpdatesOnStartup()
 
@@ -299,7 +332,7 @@ func (a *App) startup(ctx context.Context) {
 	// Deixa 400ms para garantir que a janela está completamente pronta
 	go func() {
 		time.Sleep(400 * time.Millisecond)
-		runtime.WindowShow(a.ctx)
+		a.windowPort.Show()
 		log.Printf("[App] WindowShow chamado após startup")
 	}()
 }
