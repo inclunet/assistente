@@ -5,6 +5,7 @@ package prompt
 
 import (
 	"log"
+	"reflect"
 	"strings"
 
 	"assistente/internal/chat"
@@ -27,6 +28,21 @@ type SkillReader interface {
 // WorkspaceReader é o subconjunto de workspace.Manager que o Builder precisa.
 type WorkspaceReader interface {
 	Active() *workspace.Workspace
+}
+
+// workspaceReaderIsUsable evita typed nil: var m *Manager = nil; WorkspaceReader = m →
+// r != nil mas chamar Active() panica. Ref: https://go.dev/doc/faq#nil_error
+func workspaceReaderIsUsable(r WorkspaceReader) bool {
+	if r == nil {
+		return false
+	}
+	v := reflect.ValueOf(r)
+	switch v.Kind() {
+	case reflect.Ptr, reflect.Interface:
+		return !v.IsNil()
+	default:
+		return true
+	}
 }
 
 // Builder monta o system prompt final a partir de skills, resumo e contexto de workspace.
@@ -73,7 +89,7 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, profileSlug
 		ConversationID:     conversationID,
 	}
 
-	if b.Workspace != nil {
+	if workspaceReaderIsUsable(b.Workspace) {
 		if ws := b.Workspace.Active(); ws != nil {
 			data.WorkspaceName = ws.Name
 			data.WorkspaceProfile = ws.Profile
