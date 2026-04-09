@@ -635,6 +635,37 @@ func (f *fakeTaskListManager) ResolveTaskRef(taskListID *uint, taskListSlug stri
 	return task.ID, nil
 }
 
+func (f *fakeTaskListManager) ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error) {
+	codeTrim := strings.TrimSpace(taskCode)
+	if codeTrim == "" {
+		return 0, fmt.Errorf("task_code não pode ser vazio")
+	}
+	var matches []uint
+	for _, task := range f.tasks {
+		if task.Code != codeTrim {
+			continue
+		}
+		if taskListID != nil && *taskListID > 0 && task.TaskListID != *taskListID {
+			continue
+		}
+		matches = append(matches, task.ID)
+	}
+	switch len(matches) {
+	case 0:
+		if taskListID != nil && *taskListID > 0 {
+			return 0, fmt.Errorf("nenhuma task com task_code %q na lista %d", codeTrim, *taskListID)
+		}
+		return 0, fmt.Errorf("nenhuma task com task_code %q", codeTrim)
+	case 1:
+		return matches[0], nil
+	default:
+		if taskListID != nil && *taskListID > 0 {
+			return 0, fmt.Errorf("múltiplas tasks com task_code %q na lista %d", codeTrim, *taskListID)
+		}
+		return 0, fmt.Errorf("várias tasks com task_code %q; informe task_list_id ou task_list_slug para restringir à lista", codeTrim)
+	}
+}
+
 func (f *fakeTaskListManager) SetTaskListValidationPolicy(id uint, policyJSON string) error {
 	tl, ok := f.taskLists[id]
 	if !ok {
@@ -1803,6 +1834,153 @@ func TestUpsertTaskNote_ExternalConflictDifferentTask(t *testing.T) {
 	}
 	if !r2.IsError || !strings.Contains(r2.Content, "já existe") {
 		t.Fatalf("expected conflict error, got: %s", r2.Content)
+	}
+}
+
+func TestUpsertTaskNote_ByTaskCode_ManualCreate(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task, err := mgr.CreateTask(tl.ID, "Issue", "", "FSD-12345", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := NewTaskNote(mgr)
+
+	r, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_code": "FSD-12345",
+		"type":      2,
+		"content":   "nota via code",
+	}))
+	if err != nil || r.IsError {
+		t.Fatalf("execute: %v %s", err, r.Content)
+	}
+	notes, _ := mgr.GetTaskNotes(task.ID)
+	if len(notes) != 1 || notes[0].Content != "nota via code" {
+		t.Fatalf("notes: %+v", notes)
+	}
+}
+
+func TestUpsertTaskNote_ExternalByTaskCode_Idempotent(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task, err := mgr.CreateTask(tl.ID, "Issue", "", "FSD-12345", "", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	tool := NewTaskNote(mgr)
+
+	base := map[string]any{
+		"task_code":           "FSD-12345",
+		"type":                2,
+		"source":              "jira",
+		"external_id":         "10001",
+		"external_parent_id":  "FSD-12345",
+		"external_updated_at": "2026-04-08T19:00:00Z",
+		"author_name":         "Jane Doe",
+		"content":             "Comentário sincronizado",
+	}
+	r1, err := tool.Execute(context.Background(), mustMarshal(t, base))
+	if err != nil || r1.IsError {
+		t.Fatalf("first: %v %s", err, r1.Content)
+	}
+	id1 := metadataNoteID(t, r1.Metadata)
+	base["content"] = "Comentário sincronizado (v2)"
+	r2, err := tool.Execute(context.Background(), mustMarshal(t, base))
+	if err != nil || r2.IsError {
+		t.Fatalf("second: %v %s", err, r2.Content)
+	}
+	id2 := metadataNoteID(t, r2.Metadata)
+	if id1 != id2 {
+		t.Fatalf("expected same note id")
+	}
+	notes, _ := mgr.GetTaskNotes(task.ID)
+	if len(notes) != 1 || notes[0].Content != "Comentário sincronizado (v2)" {
+		t.Fatalf("notes: %+v", notes)
+	}
+}
+
+func TestUpsertTaskNote_TaskCodeNotFound(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	_, _ = mgr.CreateTask(tl.ID, "Issue", "", "OTHER", "", nil)
+	tool := NewTaskNote(mgr)
+
+	r, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_code": "NOPE-1",
+		"type":      1,
+		"content":   "x",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.IsError || !strings.Contains(r.Content, "nenhuma task com task_code") {
+		t.Fatalf("expected not found: %s", r.Content)
+	}
+}
+
+func TestUpsertTaskNote_TaskCodeAmbiguous(t *testing.T) {
+	mgr := newFakeManager()
+	tl1 := mgr.addTaskList("A", defaultStatuses())
+	tl2 := mgr.addTaskList("B", defaultStatuses())
+	_, _ = mgr.CreateTask(tl1.ID, "t", "", "SAME", "", nil)
+	_, _ = mgr.CreateTask(tl2.ID, "t", "", "SAME", "", nil)
+	tool := NewTaskNote(mgr)
+
+	r, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_code": "SAME",
+		"type":      1,
+		"content":   "x",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.IsError || !strings.Contains(r.Content, "várias tasks com task_code") {
+		t.Fatalf("expected ambiguous: %s", r.Content)
+	}
+}
+
+func TestUpsertTaskNote_TaskCodeWithListSlug_Disambiguates(t *testing.T) {
+	mgr := newFakeManager()
+	tl1 := mgr.addTaskList("A", defaultStatuses())
+	tl1.Slug = "lista-a"
+	tl2 := mgr.addTaskList("B", defaultStatuses())
+	tl2.Slug = "lista-b"
+	taskB, _ := mgr.CreateTask(tl2.ID, "t", "", "KEY", "", nil)
+	_, _ = mgr.CreateTask(tl1.ID, "t", "", "KEY", "", nil)
+	tool := NewTaskNote(mgr)
+
+	r, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_list_slug": "lista-b",
+		"task_code":      "KEY",
+		"type":           1,
+		"content":        "scoped",
+	}))
+	if err != nil || r.IsError {
+		t.Fatalf("execute: %v %s", err, r.Content)
+	}
+	notes, _ := mgr.GetTaskNotes(taskB.ID)
+	if len(notes) != 1 || notes[0].Content != "scoped" {
+		t.Fatalf("expected note on task B, notes=%+v", notes)
+	}
+}
+
+func TestUpsertTaskNote_TaskIDWithMismatchedTaskCode(t *testing.T) {
+	mgr := newFakeManager()
+	tl := mgr.addTaskList("Test", defaultStatuses())
+	task, _ := mgr.CreateTask(tl.ID, "Issue", "", "FSD-1", "", nil)
+	tool := NewTaskNote(mgr)
+
+	r, err := tool.Execute(context.Background(), mustMarshal(t, map[string]any{
+		"task_id":   task.ID,
+		"task_code": "OTHER",
+		"type":      1,
+		"content":   "x",
+	}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !r.IsError || !strings.Contains(r.Content, "não coincide") {
+		t.Fatalf("expected mismatch: %s", r.Content)
 	}
 }
 

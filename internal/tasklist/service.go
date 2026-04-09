@@ -211,6 +211,10 @@ func (s *Service) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *
 	return s.store.ResolveTaskRef(taskListID, taskListSlug, taskID, code)
 }
 
+func (s *Service) ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error) {
+	return s.store.ResolveTaskIDByTaskCode(taskListID, taskCode)
+}
+
 func (s *Service) UpdateTask(id uint, title, description, code, link string) error {
 	if err := s.store.UpdateTask(id, title, description, code, link); err != nil {
 		return err

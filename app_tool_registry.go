@@ -67,6 +67,9 @@ func (m *serviceTaskListManager) FindTaskByCode(taskListID uint, code string) (*
 func (m *serviceTaskListManager) ResolveTaskRef(taskListID *uint, taskListSlug string, taskID *uint, code string) (uint, error) {
 	return m.svc.ResolveTaskRef(taskListID, taskListSlug, taskID, code)
 }
+func (m *serviceTaskListManager) ResolveTaskIDByTaskCode(taskListID *uint, taskCode string) (uint, error) {
+	return m.svc.ResolveTaskIDByTaskCode(taskListID, taskCode)
+}
 func (m *serviceTaskListManager) UpdateTask(id uint, title, description, code, link string) error {
 	return m.svc.UpdateTask(id, title, description, code, link)
 }
