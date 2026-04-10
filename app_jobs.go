@@ -38,7 +38,7 @@ func (a *App) initJobs() {
 	a.jobMgr = jobs.NewManager(jobs.ManagerConfig{
 		BaseDir:       baseDir,
 		ToolRegistry:  a.toolRegistry,
-		HotkeyManager: a.hotkeyManager,
+		HotkeyManager: a.hotkeyCtrl.Manager(),
 		MsgGateway:    a.msgGateway,
 		SecretStore:   &credentialSecretStore{app: a},
 		EmitEvent: func(event string, data any) {

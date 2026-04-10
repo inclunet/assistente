@@ -331,7 +331,10 @@ type PrepareMessagesResponse struct {
 // It replaces the app-layer helpers prepareMessages, buildFullSystemPrompt,
 // and effectivePromptBuilder.
 func (i *Interactor) PrepareMessages(req PrepareMessagesRequest) PrepareMessagesResponse {
-	skillTplData := i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params.ProfileSlug, req.ConversationID)
+	var skillTplData TemplateData
+	if i.promptBuilder != nil {
+		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params.ProfileSlug, req.ConversationID)
+	}
 
 	var slashSkillContent string
 	var invokedSkillSlug string
@@ -359,7 +362,12 @@ func (i *Interactor) PrepareMessages(req PrepareMessagesRequest) PrepareMessages
 		}
 	}
 
-	messages := i.promptBuilder.Build(req.Messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary)
+	var messages []llm.Message
+	if i.promptBuilder != nil {
+		messages = i.promptBuilder.Build(req.Messages, enabledSkills, disableOnDemand, skillTplData, slashSkillContent, req.ConversationSummary)
+	} else {
+		messages = req.Messages
+	}
 
 	var audioSupported, docSupported *bool
 	if req.ActiveProfile != nil && req.ActiveProfile.MediaSupport != nil {

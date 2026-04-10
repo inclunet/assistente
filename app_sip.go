@@ -20,23 +20,6 @@ func (a *App) cancelStreamingForContact(channel, contactID string) {
 	a.CancelStreamingForConversation(conv.ID)
 }
 
-// injectSIPSpeechManager cria e injeta um SpeechManager no SIP adapter existente.
-// Chamado após initMessaging na startup.
-func (a *App) injectSIPSpeechManager() {
-	sipAdapter, err := a.getSIPAdapter()
-	if err != nil {
-		return // SIP não configurado — nada a fazer
-	}
-
-	sm, voiceID := a.createSIPSpeechManager()
-	if sm != nil {
-		sipAdapter.SetSpeechManager(sm)
-		if voiceID != "" {
-			sipAdapter.SetVoiceID(voiceID)
-		}
-	}
-}
-
 // createSIPSpeechManager cria um SpeechManager adequado para o canal SIP.
 // SIP é server-side, então webspeech não funciona — força whisper quando necessário.
 // Retorna (speechManager, voiceID). Se não conseguir criar, retorna (nil, "").

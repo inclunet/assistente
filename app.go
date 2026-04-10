@@ -15,7 +15,6 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/events"
-	"assistente/internal/hotkey"
 	"assistente/internal/jobs"
 	"assistente/internal/llm"
 	mcpmgr "assistente/internal/mcp"
@@ -43,11 +42,13 @@ type UpdateLLMProviderRequest = controllers.UpdateLLMProviderRequest
 // SkillCreateRequest — type alias para controllers.
 type SkillCreateRequest = controllers.SkillCreateRequest
 
+// ChannelInfo — type alias para controllers.
+type ChannelInfo = controllers.ChannelInfo
+
 // App struct
 type App struct {
 	ctx              context.Context
 	llmRegistry      *llm.ProviderRegistry // Registro de provedores LLM
-	hotkeyManager    *hotkey.Manager
 	profileManager   *profiles.Manager
 	toolRegistry     *tools.Registry             // Registro de ferramentas disponíveis
 	toolExecutor     *tools.Executor             // Executor de ferramentas com paralelismo e timeout
@@ -62,10 +63,6 @@ type App struct {
 
 	credMgr   *credentials.Manager
 	credStore credentials.Store
-
-	// Throttle para hotkeys - evita disparo repetido quando segura a tecla
-	hotkeyLastFired  map[uint]time.Time
-	hotkeyThrottleMs int64 // tempo mínimo entre disparos (em ms)
 
 	// Watcher de arquivos do editor (mudanças externas)
 	editorWatchMu    sync.Mutex
@@ -124,6 +121,7 @@ type App struct {
 	dialogPort ports.SystemDialogPort
 
 	// Controllers (Inbound Adapters — camada Fase 2 da migração para Clean Arch)
+	msgCtrl         *controllers.MessagingController
 	mcpCtrl         *controllers.MCPController
 	profilesCtrl    *controllers.ProfilesController
 	llmCtrl         *controllers.LLMController
@@ -139,6 +137,10 @@ type App struct {
 	updaterCtrl     *controllers.UpdaterController
 	credentialsCtrl *controllers.CredentialsController
 	welcomeCtrl     *controllers.WelcomeController
+	terminalCtrl    *controllers.TerminalController
+	allowlistCtrl   *controllers.AllowlistController
+	signalCtrl      *controllers.SignalController
+	hotkeyCtrl      *controllers.HotkeysController
 }
 
 // ==================== Tipos para Threads ====================
@@ -148,10 +150,8 @@ type StreamEvent = events.StreamEvent
 // NewApp creates a new App application struct
 func NewApp() *App {
 	return &App{
-		hotkeyLastFired:  make(map[uint]time.Time),
-		hotkeyThrottleMs: 1000,
-		profileManager:   profiles.NewManager(),
-		llmRegistry:      llm.NewProviderRegistry(),
+		profileManager: profiles.NewManager(),
+		llmRegistry:    llm.NewProviderRegistry(),
 	}
 }
 
@@ -199,6 +199,15 @@ func (a *App) startup(ctx context.Context) {
 	a.convSvc = chat.NewDBConversationStore()
 	a.msgRepo = chat.NewDBMessageStore()
 
+	// Inicializa o Speech Service aqui (antes de initMessaging, que depende dele)
+	a.speechSvc = speech.NewService(speech.ServiceConfig{
+		Emitter:         a.emitter,
+		Registry:        a.llmRegistry,
+		ProfileProvider: profileProviderAdapter{app: a},
+		CredMgr:         a.credMgr,
+		AudioRepo:       a.audioSvc,
+	})
+
 	// Inicializa o Summary Service (sumarização de conversas)
 	a.summarySvc = summarization.NewService(summarization.ServiceConfig{
 		Repo:            summarization.NewDBStore(),
@@ -243,9 +252,6 @@ func (a *App) startup(ctx context.Context) {
 
 	// Inicializa o gateway de mensageria (Telegram, SIP, etc.)
 	a.initMessaging()
-
-	// Injeta speechManager no SIP adapter baseado no perfil DO CANAL (não do global)
-	a.injectSIPSpeechManager()
 
 	// Inicializa o Agent Service (agentic loop desacoplado do Wails)
 	a.agentSvc = agent.NewService(agent.ServiceConfig{
@@ -292,6 +298,11 @@ func (a *App) startup(ctx context.Context) {
 	})
 
 	// Inicializa hotkeys globais
+	a.hotkeyCtrl = controllers.NewHotkeysController(controllers.HotkeysControllerConfig{
+		ProfileMgr: a.profileManager,
+		Emitter:    a.emitter,
+		WindowPort: a.windowPort,
+	})
 	a.initGlobalHotkeys()
 
 	// Registra hotkeys do perfil ativo
@@ -398,6 +409,14 @@ func (a *App) startup(ctx context.Context) {
 		InitLLMClient:              a.initLLMClient,
 		SaveLLMProviders:           a.saveLLMProviders,
 	})
+	a.terminalCtrl = controllers.NewTerminalController(controllers.TerminalControllerConfig{
+		TerminalMgr: a.terminalMgr,
+	})
+	a.allowlistCtrl = controllers.NewAllowlistController(controllers.AllowlistControllerConfig{
+		AllowlistMgr:     a.allowlistMgr,
+		QuestionnaireMgr: a.questionnaireMgr,
+	})
+	a.signalCtrl = controllers.NewSignalController()
 
 	// Verifica atualizações no startup (não bloqueante)
 	go a.checkForUpdatesOnStartup()
@@ -415,8 +434,8 @@ func (a *App) startup(ctx context.Context) {
 func (a *App) shutdown(_ context.Context) {
 	a.stopAllEditorWatches()
 
-	if a.hotkeyManager != nil {
-		a.hotkeyManager.Stop()
+	if a.hotkeyCtrl != nil {
+		a.hotkeyCtrl.Stop()
 	}
 
 	// Encerra todos os servidores MCP
