@@ -12,7 +12,9 @@ import (
 	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/database"
+	"assistente/internal/llm"
 	"assistente/internal/profiles"
+	"assistente/internal/providers"
 	"assistente/internal/skills"
 )
 
@@ -27,13 +29,15 @@ type SettingsInput struct {
 
 // SettingsControllerConfig agrupa as dependências do SettingsController.
 type SettingsControllerConfig struct {
-	CredMgr    *credentials.Manager
-	ProfileMgr *profiles.Manager
-	SkillMgr   *skills.Manager
-	Emitter    ports.Emitter
+	CredMgr     *credentials.Manager
+	ProfileMgr  *profiles.Manager
+	SkillMgr    *skills.Manager
+	Emitter     ports.Emitter
+	ProviderSvc *providers.Service
 	// Callbacks cross-domain
 	RestartChannel func(channelName string) error
 	GetModels      func() ([]string, error)
+	InitLLMClient  func()
 }
 
 // SettingsController é o adapter primário (Inbound) para operações de configurações globais e reset.
@@ -42,8 +46,10 @@ type SettingsController struct {
 	profileMgr     *profiles.Manager
 	skillMgr       *skills.Manager
 	emitter        ports.Emitter
+	providerSvc    *providers.Service
 	restartChannel func(string) error
 	getModels      func() ([]string, error)
+	initLLMClient  func()
 }
 
 // NewSettingsController cria um SettingsController com suas dependências.
@@ -53,13 +59,54 @@ func NewSettingsController(cfg SettingsControllerConfig) *SettingsController {
 		profileMgr:     cfg.ProfileMgr,
 		skillMgr:       cfg.SkillMgr,
 		emitter:        cfg.Emitter,
+		providerSvc:    cfg.ProviderSvc,
 		restartChannel: cfg.RestartChannel,
 		getModels:      cfg.GetModels,
+		initLLMClient:  cfg.InitLLMClient,
 	}
 }
 
 func (c *SettingsController) GetConfig() (*config.Config, error) {
 	return config.Load()
+}
+
+// SendMessageSync envia uma mensagem sem streaming (para acessibilidade e testes).
+func (c *SettingsController) SendMessageSync(ctx context.Context, messages []llm.Message, params llm.ChatParams) (string, error) {
+	if c.profileMgr == nil {
+		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
+	}
+	activeProfile, _ := c.profileMgr.GetActive()
+	if c.providerSvc != nil {
+		activeProfile = c.providerSvc.ResolveProfileDefaults(activeProfile)
+	}
+	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
+		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
+	}
+	if c.providerSvc == nil {
+		return "", fmt.Errorf("provider service not initialized")
+	}
+	cp, err := c.providerSvc.GetChatProvider(activeProfile.Chat.LLMProvider)
+	if err != nil {
+		return "", err
+	}
+	return cp.SendChat(ctx, messages, params)
+}
+
+// SetChatModel atualiza apenas o modelo de chat na configuração e recarrega o cliente LLM.
+func (c *SettingsController) SetChatModel(model string) error {
+	err := config.Update(func(existing *config.Config) *config.Config {
+		existing.DefaultModel = model
+		existing.ChatParams.Model = model
+		return existing
+	})
+	if err != nil {
+		return err
+	}
+	if c.initLLMClient != nil {
+		c.initLLMClient()
+	}
+	log.Printf("[SetChatModel] Modelo atualizado para: %s", model)
+	return nil
 }
 
 func (c *SettingsController) SaveSettings(input SettingsInput) error {

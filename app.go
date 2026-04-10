@@ -158,7 +158,7 @@ func NewApp() *App {
 // startup is called when the app starts
 func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
-	a.emitter = appEmitter{ctx: ctx}
+	a.emitter = wails.NewEmitterAdapter(ctx)
 	a.windowPort = wails.NewWindowAdapter(ctx)
 	a.dialogPort = wails.NewDialogAdapter(ctx)
 
@@ -340,16 +340,18 @@ func (a *App) startup(ctx context.Context) {
 		Emitter:  a.emitter,
 	})
 	a.settingsCtrl = controllers.NewSettingsController(controllers.SettingsControllerConfig{
-		CredMgr:    a.credMgr,
-		ProfileMgr: a.profileManager,
-		SkillMgr:   a.skillMgr,
-		Emitter:    a.emitter,
+		CredMgr:     a.credMgr,
+		ProfileMgr:  a.profileManager,
+		SkillMgr:    a.skillMgr,
+		Emitter:     a.emitter,
+		ProviderSvc: a.providerSvc,
 		RestartChannel: func(channelName string) error {
 			return a.RestartChannel(channelName)
 		},
 		GetModels: func() ([]string, error) {
 			return a.GetModels()
 		},
+		InitLLMClient: a.initLLMClient,
 	})
 
 	a.chatCtrl = controllers.NewChatController(controllers.ChatControllerConfig{
