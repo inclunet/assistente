@@ -3,7 +3,6 @@ package sip
 import (
 	"bytes"
 	"context"
-	"encoding/base64"
 	"encoding/binary"
 	"errors"
 	"fmt"
@@ -105,10 +104,7 @@ type SIPAdapter struct {
 	// CancelStreamingForContact cancela o streaming LLM em andamento para um contato SIP.
 	// Configurado pelo App. Recebe channel ("sip") e contactID (callerID).
 	CancelStreamingForContact func(channel, contactID string)
-	// getCachedAudio busca áudio TTS pré-gerado (cache proativo) no DB.
-	// Second-chance lookup: se o Gateway não anexou áudio, o SIP tenta
-	// buscar direto antes de sintetizar via SpeakText.
-	getCachedAudio messaging.GetCachedAudioFunc
+
 	ctx    context.Context
 	cancel context.CancelFunc
 	mu     sync.RWMutex
@@ -138,12 +134,7 @@ func (s *SIPAdapter) SetVoiceID(id string) {
 	defer s.mu.Unlock()
 	s.voiceID = id
 }
-// SetGetCachedAudio configura a função de cache lookup de áudio TTS proativo.
-func (s *SIPAdapter) SetGetCachedAudio(fn messaging.GetCachedAudioFunc) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.getCachedAudio = fn
-}
+
 // Name retorna o identificador da plataforma.
 func (s *SIPAdapter) Name() string {
 	return "sip"
@@ -326,34 +317,13 @@ func (s *SIPAdapter) Send(ctx context.Context, msg messaging.OutgoingMessage) er
 	}
 
 	// Streaming TTS: texto sem áudio → sintetiza via streaming com menor latência.
-	// Second-chance: tenta cache TTS proativo antes de sintetizar.
-	// Primeiro tenta cache, depois streaming (chunks progressivos), fallback batch.
+	// Se o Gateway já anexou áudio do cache (MP3), não chega aqui (audioPlayed=true).
+	// Se cache miss, sintetiza WAV streaming direto no pipeline (menor latência).
 	if !audioPlayed && msg.Text != "" && call.Pipeline != nil {
 		s.mu.RLock()
 		voiceID := s.voiceID
 		sm := s.speechManager
-		cachedAudioFn := s.getCachedAudio
 		s.mu.RUnlock()
-
-		// Second-chance cache lookup: busca áudio pré-gerado pelo TTS proativo.
-		if msg.AssistantMessageID > 0 && cachedAudioFn != nil {
-			if audioB64, mime, err := cachedAudioFn(msg.AssistantMessageID); err == nil && audioB64 != "" {
-				if raw, decErr := base64.StdEncoding.DecodeString(audioB64); decErr == nil && len(raw) > 0 {
-					if pcm8k, convErr := convertToPCM8k(raw, mime); convErr == nil {
-						completed, playErr := call.Pipeline.PlayAudio(pcm8k)
-						if playErr != nil {
-							log.Printf("[SIP] Erro no playback cache para %s: %v", msg.ChatID, playErr)
-						} else {
-							if !completed {
-								log.Printf("[SIP] Cache playback interrompido (barge-in) para %s", msg.ChatID)
-							}
-							log.Printf("[SIP] Cache hit TTS proativo msgID=%d bytes=%d mime=%s", msg.AssistantMessageID, len(raw), mime)
-							return nil
-						}
-					}
-				}
-			}
-		}
 
 		if sm != nil {
 			completed, err := call.Pipeline.SpeakText(ctx, msg.Text, voiceID)

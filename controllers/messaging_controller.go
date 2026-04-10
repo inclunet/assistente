@@ -695,13 +695,6 @@ func (c *MessagingController) connectSIP(cfg *channels.ChannelConfig) {
 		}
 	}
 
-	// Second-chance cache: SIP busca áudio TTS proativo do DB se Gateway não anexou
-	if c.audioRepo != nil {
-		adapter.SetGetCachedAudio(func(messageID uint) (string, string, error) {
-			return c.audioRepo.GetMessageAudio(messageID)
-		})
-	}
-
 	c.msgGateway.Register("sip", adapter)
 	go func() {
 		if err := adapter.Connect(c.ctx); err != nil {
