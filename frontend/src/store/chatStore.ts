@@ -52,6 +52,47 @@ function triggerAutoRead(text: string, role: VoiceRole, messageId?: number): voi
   }
 }
 
+/**
+ * Despacha reprodução TTS baseado na estratégia decidida pelo backend.
+ * Chamado pelo listener do evento tts:ready.
+ */
+function handleTTSReady(event: TTSReadyEvent): void {
+  if (!event.strategy || event.strategy === 'none') return;
+
+  messageAudioService.stopCurrentAudio();
+  ttsService.stop();
+
+  switch (event.strategy) {
+    case 'backend': {
+      // Áudio já gerado e salvo no DB — SpeakMessage fará cache hit
+      if (event.messageId && event.messageId > 0) {
+        const volume = ttsService.getVolume();
+        const voiceCtx = ttsService.getVoiceContext('assistant');
+        messageAudioService.speakMessage(event.messageId, volume, voiceCtx).catch((err: unknown) => {
+          console.error('[TTS Ready] backend playback error:', err);
+        });
+      }
+      break;
+    }
+    case 'webspeech': {
+      if (event.text) {
+        ttsService.speakAsRole(event.text, 'assistant').catch((err: unknown) => {
+          console.error('[TTS Ready] webspeech error:', err);
+        });
+      }
+      break;
+    }
+    case 'sapi5': {
+      if (event.text) {
+        ttsService.speakAsRole(event.text, 'assistant').catch((err: unknown) => {
+          console.error('[TTS Ready] sapi5 error:', err);
+        });
+      }
+      break;
+    }
+  }
+}
+
 const MAX_MESSAGE_CONTENT_SIZE = 500 * 1024;
 const MAX_MEDIA_SIZE = 10 * 1024 * 1024;
 const STREAM_UPDATE_DEBOUNCE_MS = 16;
@@ -119,6 +160,16 @@ interface ChatToolEndEvent {
 interface ChatSegmentDoneEvent {
   hasMore?: boolean;
   content?: string;
+}
+
+/** Evento polimórfico emitido pelo backend após gerar (ou decidir não gerar) TTS. */
+interface TTSReadyEvent {
+  messageId?: number;
+  conversationId?: number;
+  text?: string;
+  strategy?: 'backend' | 'webspeech' | 'sapi5' | 'none';
+  webspeech?: { voice?: string; rate?: number; pitch?: number; volume?: number };
+  sapi5?: { voice?: string; rate?: number; volume?: number };
 }
 
 export interface NewMessageData {
@@ -701,15 +752,23 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             if (finalMessage?.content) {
               const isActiveConv = currentState.activeConversationId === conversationId;
               if (isActiveConv) playReceiveSound();
-              if (ttsService.isAutoReadEnabled() && isActiveConv && !cleanupExecuted) {
-                triggerAutoRead(finalMessage.content, 'assistant', event.messageId);
-              }
+              // TTS: agora tratado pelo listener tts:ready (Phase 2)
               if (ttsService.shouldUseAriaLiveForAgent() && isActiveConv) {
                 const cleanContent = stripMarkdown(finalMessage.content);
                 announce(`Assistente: ${cleanContent}`);
               }
             }
           }
+        });
+
+        let unsubscribeTTSReady: (() => void) | null = null;
+        unsubscribeTTSReady = EventsOn('tts:ready', (event: TTSReadyEvent) => {
+          if (!activeListeners.has(conversationIdStr)) return;
+          if (event.conversationId !== conversationId) return;
+          if (!ttsService.isAutoReadEnabled()) return;
+          const isActiveConv = get().activeConversationId === conversationId;
+          if (!isActiveConv || cleanupExecuted) return;
+          handleTTSReady(event);
         });
 
         let unsubscribeThinking: (() => void) | null = null;
@@ -846,6 +905,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         const originalCleanup = cleanup;
         const enhancedCleanup = () => {
           originalCleanup();
+          if (unsubscribeTTSReady) unsubscribeTTSReady();
           if (unsubscribeThinking) unsubscribeThinking();
           if (unsubscribeToolStart) unsubscribeToolStart();
           if (unsubscribeToolEnd) unsubscribeToolEnd();
@@ -1120,6 +1180,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         unsubSegmentDone();
         unsubDone();
         unsubReady();
+        unsubTTSReady();
         activeListeners.delete(conversationIdStr);
         set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
       };
@@ -1210,14 +1271,21 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           if (finalMessage?.content) {
             const isActive = currentState.activeConversationId === conversationId;
             if (isActive) playReceiveSound();
-            if (ttsService.isAutoReadEnabled() && isActive && !cleanupExecuted) {
-              triggerAutoRead(finalMessage.content, 'assistant', event.messageId);
-            }
+            // TTS: agora tratado pelo listener tts:ready (Phase 2)
             if (ttsService.shouldUseAriaLiveForAgent() && isActive) {
               announce(`Assistente: ${stripMarkdown(finalMessage.content)}`);
             }
           }
         }
+      });
+
+      const unsubTTSReady = EventsOn('tts:ready', (event: TTSReadyEvent) => {
+        if (!activeListeners.has(conversationIdStr)) return;
+        if (event.conversationId !== conversationId) return;
+        if (!ttsService.isAutoReadEnabled()) return;
+        const isActive = get().activeConversationId === conversationId;
+        if (!isActive || cleanupExecuted) return;
+        handleTTSReady(event);
       });
 
       const unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
