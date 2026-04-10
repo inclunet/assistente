@@ -105,7 +105,7 @@ func TestGateway_UnauthorizedContactDoesNotEmitEvent(t *testing.T) {
 	gateway := NewGateway(notifier, func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
 		t.Fatalf("sendMessage não deveria ser chamado para contato não autorizado")
 		return 0, nil
-	}, emitEvent, nil, nil, nil)
+	}, emitEvent, nil, nil, nil, nil)
 
 	incoming := IncomingMessage{
 		ID:      "msg-1",
@@ -156,6 +156,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 		func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			return nil, fmt.Errorf("tts indisponível")
 		},
+		nil,
 		nil,
 	)
 	gateway.Register("telegram", fake)
@@ -237,6 +238,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 			savedAudio.mime = mimeType
 			return nil
 		},
+		nil,
 	)
 	gateway.Register("telegram", fake)
 
@@ -297,7 +299,7 @@ func TestGateway_ContactLimitRejectsSilently(t *testing.T) {
 	gateway := NewGateway(NewResponseNotifier(), func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
 		called++
 		return conversationID, nil
-	}, emitEvent, nil, nil, nil)
+	}, emitEvent, nil, nil, nil, nil)
 
 	incoming := IncomingMessage{
 		ID:      "msg-limit",
@@ -334,7 +336,7 @@ func TestGateway_AttachmentsConvertedToMediaJSON(t *testing.T) {
 	gateway := NewGateway(NewResponseNotifier(), func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
 		capturedMedia = media
 		return conversationID, nil
-	}, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil)
 
 	incoming := IncomingMessage{
 		ID:      "msg-media",
@@ -388,7 +390,7 @@ func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 
 	gateway := NewGateway(NewResponseNotifier(), func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
 		return conversationID, fmt.Errorf("falha de envio")
-	}, nil, nil, nil, nil)
+	}, nil, nil, nil, nil, nil)
 	gateway.Register("telegram", fake)
 
 	incoming := IncomingMessage{

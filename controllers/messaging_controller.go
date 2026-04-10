@@ -236,6 +236,9 @@ func (c *MessagingController) Init() {
 		approveContactFn,
 		synthesizeTTS,
 		saveAudio,
+		func(messageID uint) (string, string, error) {
+			return c.audioRepo.GetMessageAudio(messageID)
+		},
 	)
 
 	enabledChannels, err := channels.LoadEnabled()
