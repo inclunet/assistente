@@ -261,6 +261,7 @@ func (a *App) startup(ctx context.Context) {
 		ResponseNotifier: a.responseNotifier,
 		GetTokenStats:    a.GetConversationTokenStats,
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
+		OnResponseSaved:  a.onResponseSaved,
 	})
 
 	// Workspace antes do Prompt Builder: senão Workspace fica (*Manager)(nil) numa interface (typed nil)

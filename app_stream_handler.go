@@ -90,6 +90,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Emite evento final de streaming
 	h.Emitter.Emit("chat:stream", events.StreamEvent{
+		MessageID:      savedMsgID,
 		Content:        finalContent,
 		Done:           true,
 		ConversationId: h.ConversationID,
@@ -100,6 +101,15 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	h.Emitter.Emit("chat:done", map[string]interface{}{
 		"conversationId": h.ConversationID,
 	})
+
+	// TTS proativo: gera áudio e emite tts:ready (não bloqueia)
+	go func() {
+		defer func() {
+			r := recover()
+			events.HandlePanic(h.app.emitter, h.ConversationID, "onResponseSaved(stream)", r)
+		}()
+		h.app.onResponseSaved(h.ConversationID, savedMsgID, finalContent)
+	}()
 
 	// Verifica uso do contexto e emite aviso se necessário
 	h.checkAndEmitContextWarning()

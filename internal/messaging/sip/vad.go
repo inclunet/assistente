@@ -81,8 +81,8 @@ func DefaultVADConfig() VADConfig {
 	return VADConfig{
 		SilenceThreshold:      0.02,
 		SpeechThreshold:       0.03,
-		SilenceDuration:       800 * time.Millisecond,
-		SpeechDuration:        100 * time.Millisecond,
+		SilenceDuration:       1500 * time.Millisecond,
+		SpeechDuration:        200 * time.Millisecond,
 		LeadingBufferDuration: 200 * time.Millisecond,
 		SampleRate:            8000,
 		AdaptiveNoise:         true,
@@ -90,7 +90,7 @@ func DefaultVADConfig() VADConfig {
 		AdaptiveMargin:        2.5,
 		ZCRWeight:             0.3,
 		MaxSegmentDuration:    15 * time.Second,
-		WarmupDuration:        1 * time.Second,
+		WarmupDuration:        2 * time.Second,
 	}
 }
 

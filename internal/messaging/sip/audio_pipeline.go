@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"log"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -55,6 +56,16 @@ type AudioPipelineConfig struct {
 	// 1.0 = sem ganho, 10.0 = 10x amplificação. Clipping é prevenido.
 	// Padrão: 10.0
 	InputGain float64
+
+	// BargeInRMSThreshold é o nível RMS mínimo para detectar barge-in durante
+	// reprodução de TTS. Deve ser acima do nível de eco típico do softphone.
+	// Padrão: 0.15
+	BargeInRMSThreshold float64
+
+	// BargeInMinFrames é o número mínimo de frames consecutivos acima do threshold
+	// para confirmar barge-in. Cada frame = 20ms.
+	// Padrão: 5 (100ms)
+	BargeInMinFrames int
 }
 
 // DefaultAudioPipelineConfig retorna configuração padrão para pipeline SIP.
@@ -67,7 +78,9 @@ func DefaultAudioPipelineConfig() AudioPipelineConfig {
 		TTSOutputFormat:      "pcm",
 		EchoCooldownDuration: 300 * time.Millisecond,
 		STTMaxRetries:        2,
-		InputGain:            30.0,
+		InputGain:            15.0,
+		BargeInRMSThreshold:  0.15,
+		BargeInMinFrames:     5,
 	}
 }
 
@@ -207,6 +220,17 @@ func (p *AudioPipeline) Run() error {
 	var diagFrames int
 	var diagMaxRMS float64
 
+	// Barge-in durante playback: detecta fala do usuário por energia alta.
+	bargeInThreshold := p.config.BargeInRMSThreshold
+	if bargeInThreshold <= 0 {
+		bargeInThreshold = 0.15
+	}
+	bargeInMinFrames := p.config.BargeInMinFrames
+	if bargeInMinFrames <= 0 {
+		bargeInMinFrames = 5
+	}
+	var bargeInFrames int
+
 	log.Printf("[SIP Pipeline] Iniciado para chamada %s (gain=%.1fx)", p.call.ID, inputGain)
 
 	for {
@@ -229,19 +253,8 @@ func (p *AudioPipeline) Run() error {
 		}
 
 		if n > 0 {
-			// Supressão de eco: ignora frames do VAD durante playback e cooldown.
-			// O RTP continua sendo lido (drenado) para não acumular no buffer,
-			// mas o VAD não processa → evita false onset do eco do TTS.
-			if p.playbackActive.Load() {
-				continue
-			}
-			if endNano := p.playbackEndedAt.Load(); endNano > 0 {
-				if time.Since(time.Unix(0, endNano)) < echoCooldown {
-					continue
-				}
-			}
-
 			// Decodifica G.711 (µ-law/A-law) → PCM 16-bit signed LE.
+			// Decodifica SEMPRE — mesmo durante playback — para barge-in.
 			pcmN, decErr := decodeG711(pcmBuf, encodedBuf[:n])
 			if decErr != nil {
 				log.Printf("[SIP Pipeline] Erro ao decodificar G.711: %v", decErr)
@@ -263,6 +276,41 @@ func (p *AudioPipeline) Run() error {
 				log.Printf("[SIP Diag] frames=%d, maxRMS=%.4f, gain=%.0fx",
 					diagFrames, diagMaxRMS, inputGain)
 				diagMaxRMS = 0
+			}
+
+			// Durante playback: detecta barge-in por energia, mas NÃO alimenta VAD.
+			// O eco do TTS pelo speaker remoto tem RMS moderado; fala real do
+			// usuário sobre o eco produz RMS muito mais alto.
+			if p.playbackActive.Load() {
+				if rms > bargeInThreshold {
+					bargeInFrames++
+					if bargeInFrames >= bargeInMinFrames {
+						log.Printf("[SIP Pipeline] Barge-in durante playback (RMS=%.4f, frames=%d)", rms, bargeInFrames)
+						p.StopPlayback()
+						if p.OnBargeIn != nil {
+							func() {
+								defer func() {
+									if r := recover(); r != nil {
+										log.Printf("[SIP Pipeline] Panic em OnBargeIn (barge-in playback): %v", r)
+									}
+								}()
+								p.OnBargeIn()
+							}()
+						}
+						bargeInFrames = 0
+					}
+				} else {
+					bargeInFrames = 0
+				}
+				continue
+			}
+
+			// Supressão de eco pós-playback: ignora frames por um curto período
+			// após o playback terminar naturalmente (não por barge-in).
+			if endNano := p.playbackEndedAt.Load(); endNano > 0 {
+				if time.Since(time.Unix(0, endNano)) < echoCooldown {
+					continue
+				}
 			}
 
 			p.vad.ProcessFrame(pcmBuf[:pcmN])
@@ -313,7 +361,13 @@ func (p *AudioPipeline) PlayAudio(pcmData []byte) (bool, error) {
 	p.playback = nil
 	p.playbackMu.Unlock()
 	p.playbackActive.Store(false)
-	p.playbackEndedAt.Store(time.Now().UnixNano())
+	if completed {
+		// Playback natural: aplica cooldown de eco
+		p.playbackEndedAt.Store(time.Now().UnixNano())
+	} else {
+		// Barge-in: sem cooldown — VAD deve captar fala imediatamente
+		p.playbackEndedAt.Store(0)
+	}
 	return completed, err
 }
 
@@ -348,7 +402,11 @@ func (p *AudioPipeline) PlayStreamingAudio(reader io.Reader) (bool, error) {
 	p.playback = nil
 	p.playbackMu.Unlock()
 	p.playbackActive.Store(false)
-	p.playbackEndedAt.Store(time.Now().UnixNano())
+	if completed {
+		p.playbackEndedAt.Store(time.Now().UnixNano())
+	} else {
+		p.playbackEndedAt.Store(0)
+	}
 	return completed, err
 }
 
@@ -531,6 +589,38 @@ func (p *AudioPipeline) onSpeechEnd(segment []byte) {
 	}()
 }
 
+// isWhisperHallucination detecta saídas conhecidas do Whisper quando recebe
+// ruído, silêncio ou áudio ininteligível. Esses artefatos não devem ser enviados
+// ao LLM como transcrição do usuário.
+func isWhisperHallucination(text string) bool {
+	t := strings.TrimSpace(strings.ToLower(text))
+	// Marcadores comuns de silêncio/ruído
+	hallucinations := []string{
+		"[blank_audio]",
+		"[silence]",
+		"[music]",
+		"[applause]",
+		"[laughter]",
+		"[inaudible]",
+		"[no speech]",
+		"(silence)",
+		"(music)",
+		"you",           // Whisper "you" hallucination on silence
+		"thank you.",     // Common hallucination on short noise
+		"thanks.",
+		"bye.",
+		"thank you for watching.",
+		"thanks for watching.",
+		"subscribe.",
+	}
+	for _, h := range hallucinations {
+		if t == h {
+			return true
+		}
+	}
+	return false
+}
+
 // processSegment processa um segmento de fala: trim, resample, WAV, STT, envia ao gateway.
 // Executado em goroutine separada com prote├º├úo contra panic para n├úo derrubar a chamada.
 func (p *AudioPipeline) processSegment(segment []byte) {
@@ -622,6 +712,12 @@ func (p *AudioPipeline) processSegment(segment []byte) {
 
 	if result == nil || result.Text == "" {
 		log.Printf("[SIP Pipeline] STT retornou texto vazio, ignorando")
+		return
+	}
+
+	// Filtra marcadores de alucinação do Whisper (segmentos de ruído/silêncio)
+	if isWhisperHallucination(result.Text) {
+		log.Printf("[SIP Pipeline] STT descartado (hallucination): %q", result.Text)
 		return
 	}
 

@@ -42,6 +42,7 @@ type ServiceConfig struct {
 	ResponseNotifier *messaging.ResponseNotifier
 	GetTokenStats    func(uint) (*chat.TokenStats, error)
 	TriggerSummarize func(uint)
+	OnResponseSaved  func(conversationID, messageID uint, text string)
 }
 
 // Service encapsula a lógica do agentic loop sem dependências do Wails.
@@ -52,6 +53,7 @@ type Service struct {
 	responseNotifier *messaging.ResponseNotifier
 	getTokenStats    func(uint) (*chat.TokenStats, error)
 	triggerSummarize func(uint)
+	onResponseSaved  func(conversationID, messageID uint, text string)
 }
 
 // NewService cria um novo Service com as dependências injetadas.
@@ -63,6 +65,7 @@ func NewService(cfg ServiceConfig) *Service {
 		responseNotifier: cfg.ResponseNotifier,
 		getTokenStats:    cfg.GetTokenStats,
 		triggerSummarize: cfg.TriggerSummarize,
+		onResponseSaved:  cfg.OnResponseSaved,
 	}
 }
 
@@ -306,6 +309,7 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 	}
 
 	s.emitter.Emit("chat:stream", events.StreamEvent{
+		MessageID:      savedMsgID,
 		Content:        result.FullResponse,
 		Done:           true,
 		ConversationId: conversationID,
@@ -315,6 +319,14 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 	s.emitter.Emit("chat:done", map[string]interface{}{
 		"conversationId": conversationID,
 	})
+
+	// Hook para TTS proativo: gera áudio no backend imediatamente após salvar
+	if s.onResponseSaved != nil && savedMsgID > 0 {
+		go func() {
+			defer s.recoverFromPanic(conversationID, "onResponseSaved")
+			s.onResponseSaved(conversationID, savedMsgID, result.FullResponse)
+		}()
+	}
 
 	if s.triggerSummarize != nil {
 		go func() {
