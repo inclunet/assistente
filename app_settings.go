@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 
 	"assistente/controllers"
 	"assistente/internal/config"
@@ -49,42 +48,20 @@ func (a skillCleanerAdapter) DeleteSlug(slug string) error {
 	return a.app.skillMgr.Delete(slug)
 }
 
-// ==================== Thin Wrappers (Wails bindings) ====================
-
-// SendMessageSync envia uma mensagem sem streaming (para acessibilidade)
-func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, error) {
-	activeProfile, _ := a.profileManager.GetActive()
-	activeProfile = a.resolveProfileDefaults(activeProfile)
-
-	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
-		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
-	}
-
-	cp, err := a.getChatProviderForProvider(activeProfile.Chat.LLMProvider)
-	if err != nil {
-		return "", err
-	}
-	return cp.SendChat(a.ctx, messages, params)
-}
-
-// SetChatModel atualiza apenas o modelo de chat na configuração
-func (a *App) SetChatModel(model string) error {
-	err := config.Update(func(existing *config.Config) *config.Config {
-		existing.DefaultModel = model
-		existing.ChatParams.Model = model
-		return existing
-	})
-	if err != nil {
-		return err
-	}
-	a.initLLMClient()
-	log.Printf("[SetChatModel] Modelo atualizado para: %s", model)
-	return nil
-}
-
 // ============================================================================
 // Settings API — delegação para SettingsController
 // ============================================================================
+
+func (a *App) SendMessageSync(messages []Message, params ChatParams) (string, error) {
+	if a.settingsCtrl == nil {
+		return "", fmt.Errorf("nenhum provedor LLM configurado no perfil ativo")
+	}
+	return a.settingsCtrl.SendMessageSync(a.ctx, messages, params)
+}
+
+func (a *App) SetChatModel(model string) error {
+	return a.settingsCtrl.SetChatModel(model)
+}
 
 func (a *App) GetConfig() (*config.Config, error) { return a.settingsCtrl.GetConfig() }
 func (a *App) SaveSettings(input controllers.SettingsInput) error {
