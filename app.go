@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"assistente/adapters/wails"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"assistente/controllers"
 	"assistente/internal/agent"
 	"assistente/internal/allowlist"
@@ -155,12 +156,12 @@ func NewApp() *App {
 	}
 }
 
-// startup is called when the app starts
-func (a *App) startup(ctx context.Context) {
+// ServiceStartup implementa application.ServiceStartup — chamado pelo Wails v3 no startup.
+func (a *App) ServiceStartup(ctx context.Context, _ application.ServiceOptions) error {
 	a.ctx = ctx
-	a.emitter = wails.NewEmitterAdapter(ctx)
-	a.windowPort = wails.NewWindowAdapter(ctx)
-	a.dialogPort = wails.NewDialogAdapter(ctx)
+	a.emitter = wails.NewEmitterAdapter()
+	a.windowPort = wails.NewWindowAdapter()
+	a.dialogPort = wails.NewDialogAdapter()
 
 	// Inicializa o banco de dados
 	if err := InitDatabase(); err != nil {
@@ -413,17 +414,19 @@ func (a *App) startup(ctx context.Context) {
 	// Verifica atualizações no startup (não bloqueante)
 	go a.checkForUpdatesOnStartup()
 
-	// Restaura foco da janela no startup (resolve bug do Wails no Windows)
+	// Restaura foco da janela no startup (resolve bug de foco no arranque)
 	// Deixa 400ms para garantir que a janela está completamente pronta
 	go func() {
 		time.Sleep(400 * time.Millisecond)
 		a.windowPort.Show()
 		log.Printf("[App] WindowShow chamado após startup")
 	}()
+
+	return nil
 }
 
-// shutdown é chamado quando o app fecha
-func (a *App) shutdown(_ context.Context) {
+// ServiceShutdown implementa application.ServiceShutdown — chamado pelo Wails v3 no encerramento.
+func (a *App) ServiceShutdown() error {
 	a.stopAllEditorWatches()
 
 	if a.hotkeyCtrl != nil {
@@ -449,4 +452,6 @@ func (a *App) shutdown(_ context.Context) {
 	if a.jobMgr != nil {
 		a.jobMgr.Stop()
 	}
+
+	return nil
 }

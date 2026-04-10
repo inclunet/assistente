@@ -27,6 +27,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
+      // Wails v3: Redireciona bindings gerados para novo caminho
+      '@wailsjs/go/main/App': path.resolve(__dirname, './bindings/assistente/app.js'),
+      // Modelos tipados: mantém path legado (mesmo shape, compatível com TypeScript)
       '@wailsjs': path.resolve(__dirname, './wailsjs'),
     },
     dedupe: ['react', 'react-dom'],

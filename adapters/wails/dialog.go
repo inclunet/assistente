@@ -1,55 +1,46 @@
 package wails
 
 import (
-	"context"
-
 	"assistente/internal/core/ports"
 
-	wailsruntime "github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// DialogAdapter implementa ports.SystemDialogPort usando o runtime do Wails.
-type DialogAdapter struct {
-	ctx context.Context
-}
+// DialogAdapter implementa ports.SystemDialogPort usando o runtime do Wails v3.
+type DialogAdapter struct{}
 
-// NewDialogAdapter cria um DialogAdapter a partir do contexto Wails.
-func NewDialogAdapter(ctx context.Context) *DialogAdapter {
-	return &DialogAdapter{ctx: ctx}
-}
-
-// SetContext atualiza o contexto Wails (chamado em OnDomReady/OnStartup).
-func (a *DialogAdapter) SetContext(ctx context.Context) {
-	a.ctx = ctx
+// NewDialogAdapter cria um DialogAdapter.
+func NewDialogAdapter() *DialogAdapter {
+	return &DialogAdapter{}
 }
 
 // OpenFileDialog exibe o diálogo nativo de seleção de arquivo.
 func (a *DialogAdapter) OpenFileDialog(opts ports.OpenFileOptions) (string, error) {
-	filters := make([]wailsruntime.FileFilter, len(opts.Filters))
-	for i, f := range opts.Filters {
-		filters[i] = wailsruntime.FileFilter{
-			DisplayName: f.DisplayName,
-			Pattern:     f.Pattern,
-		}
+	d := application.Get().Dialog.OpenFile()
+	if opts.Title != "" {
+		d.SetTitle(opts.Title)
 	}
-	return wailsruntime.OpenFileDialog(a.ctx, wailsruntime.OpenDialogOptions{
-		Title:   opts.Title,
-		Filters: filters,
-	})
+	for _, f := range opts.Filters {
+		d.AddFilter(f.DisplayName, f.Pattern)
+	}
+	d.CanChooseFiles(true)
+	return d.PromptForSingleSelection()
 }
 
 // SaveFileDialog exibe o diálogo nativo de salvar arquivo.
 func (a *DialogAdapter) SaveFileDialog(opts ports.SaveFileOptions) (string, error) {
-	filters := make([]wailsruntime.FileFilter, len(opts.Filters))
+	filters := make([]application.FileFilter, len(opts.Filters))
 	for i, f := range opts.Filters {
-		filters[i] = wailsruntime.FileFilter{
+		filters[i] = application.FileFilter{
 			DisplayName: f.DisplayName,
 			Pattern:     f.Pattern,
 		}
 	}
-	return wailsruntime.SaveFileDialog(a.ctx, wailsruntime.SaveDialogOptions{
-		Title:           opts.Title,
-		DefaultFilename: opts.DefaultFilename,
-		Filters:         filters,
+	d := application.Get().Dialog.SaveFile()
+	d.SetOptions(&application.SaveFileDialogOptions{
+		Title:    opts.Title,
+		Filename: opts.DefaultFilename,
+		Filters:  filters,
 	})
+	return d.PromptForSingleSelection()
 }

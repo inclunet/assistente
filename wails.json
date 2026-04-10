@@ -1,5 +1,5 @@
 {
-  "$schema": "https://wails.io/schemas/config.v2.json",
+  "$schema": "https://wails.io/schemas/config.v3.json",
   "name": "assistente",
   "outputfilename": "assistente",
   "frontend:install": "npm install",
@@ -17,5 +17,5 @@
     "copyright": "© 2026 Inclunet. Todos os direitos reservados.",
     "comments": "Assistente com IA"
   },
-  "wailsjsdir": "./frontend/wailsjs"
+  "wailsjsdir": "./frontend/bindings"
 }

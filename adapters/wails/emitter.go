@@ -1,27 +1,21 @@
+// Package wails contém os Outbound Adapters concretos para o runtime do Wails v3.
+// Este pacote é o único lugar onde "github.com/wailsapp/wails/v3/pkg/application"
+// deve ser importado fora do pacote main.
 package wails
 
 import (
-	"context"
-
-	"github.com/wailsapp/wails/v2/pkg/runtime"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
-// EmitterAdapter implementa ports.Emitter delegando para runtime.EventsEmit.
-type EmitterAdapter struct {
-	ctx context.Context
+// EmitterAdapter implementa ports.Emitter delegando para application.Get().Event.Emit.
+type EmitterAdapter struct{}
+
+// NewEmitterAdapter cria um EmitterAdapter.
+func NewEmitterAdapter() *EmitterAdapter {
+	return &EmitterAdapter{}
 }
 
-// NewEmitterAdapter cria um EmitterAdapter a partir do contexto Wails.
-func NewEmitterAdapter(ctx context.Context) *EmitterAdapter {
-	return &EmitterAdapter{ctx: ctx}
-}
-
-// SetContext atualiza o contexto Wails (chamado em OnDomReady/OnStartup).
-func (e *EmitterAdapter) SetContext(ctx context.Context) {
-	e.ctx = ctx
-}
-
-// Emit emite um evento para o frontend via Wails runtime.
+// Emit emite um evento para o frontend via Wails v3 runtime.
 func (e *EmitterAdapter) Emit(event string, data any) {
-	runtime.EventsEmit(e.ctx, event, data)
+	application.Get().Event.Emit(event, data)
 }

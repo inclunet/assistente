@@ -2,10 +2,9 @@ package main
 
 import (
 	"embed"
+	"log"
 
-	"github.com/wailsapp/wails/v2"
-	"github.com/wailsapp/wails/v2/pkg/options"
-	"github.com/wailsapp/wails/v2/pkg/options/assetserver"
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 //go:embed all:frontend/dist
@@ -16,25 +15,26 @@ func main() {
 	app := NewApp()
 
 	// Create application with options
-	err := wails.Run(&options.App{
-		Title:  "assistente",
-		Width:  1024,
-		Height: 768,
-		AssetServer: &assetserver.Options{
-			Assets: assets,
+	wailsApp := application.New(application.Options{
+		Name:        "assistente",
+		Description: "Assistente com IA",
+		Assets: application.AssetOptions{
+			Handler: application.BundledAssetFileServer(assets),
 		},
-		BackgroundColour: &options.RGBA{R: 27, G: 38, B: 54, A: 1},
-		OnStartup:        app.startup,
-		OnShutdown:       app.shutdown,
-		Bind: []interface{}{
-			app,
-		},
-		Debug: options.Debug{
-			OpenInspectorOnStartup: false, // Não abre automaticamente
+		Services: []application.Service{
+			application.NewService(app),
 		},
 	})
 
-	if err != nil {
-		println("Error:", err.Error())
+	wailsApp.Window.NewWithOptions(application.WebviewWindowOptions{
+		Title:            "assistente",
+		Width:            1024,
+		Height:           768,
+		BackgroundColour: application.NewRGBA(27, 38, 54, 255),
+		URL:              "/",
+	})
+
+	if err := wailsApp.Run(); err != nil {
+		log.Fatal("Erro ao iniciar aplicação:", err)
 	}
 }

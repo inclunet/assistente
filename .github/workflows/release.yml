@@ -88,12 +88,12 @@ jobs:
           node-version: '24'
 
       - name: Install Wails
-        run: go install github.com/wailsapp/wails/v2/cmd/wails@latest
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
 
       - name: Verify Wails Installation
         run: |
-          wails version
-          wails doctor
+          wails3 version
+          wails3 doctor
 
       - name: Install NSIS (Windows)
         if: matrix.os == 'windows-latest'
@@ -150,9 +150,9 @@ jobs:
           
           if [ "${{ matrix.goos }}" = "linux" ]; then
             # Usa xvfb-run para criar display virtual no Linux
-            xvfb-run wails build -platform ${{ matrix.platform }} -ldflags "$LDFLAGS" -clean
+            xvfb-run wails3 build -platform ${{ matrix.platform }} -ldflags "$LDFLAGS" -clean
           else
-            wails build -platform ${{ matrix.platform }} -ldflags "$LDFLAGS" -clean
+            wails3 build -platform ${{ matrix.platform }} -ldflags "$LDFLAGS" -clean
           fi
           echo "✅ Build completed"
           echo "📂 Build output:"
@@ -176,7 +176,7 @@ jobs:
           LDFLAGS="-X main.AppVersion=$VERSION"
           
           # Não usa -clean para não apagar o executável já gerado
-          wails build -platform ${{ matrix.platform }} -ldflags "$LDFLAGS" -nsis
+          wails3 build -platform ${{ matrix.platform }} -ldflags "$LDFLAGS" -nsis
           echo "✅ Installer build completed"
           echo "📂 Installer output:"
           if [ -d "build/bin" ]; then
