@@ -304,15 +304,6 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		}
 	}
 
-	// TTS proativo: gera áudio ANTES de notificar canais externos,
-	// para que o cache esteja populado quando o Gateway enviar a resposta.
-	if s.onResponseSaved != nil && savedMsgID > 0 {
-		func() {
-			defer s.recoverFromPanic(conversationID, "onResponseSaved")
-			s.onResponseSaved(conversationID, savedMsgID, result.FullResponse)
-		}()
-	}
-
 	if s.responseNotifier != nil {
 		s.responseNotifier.Notify(conversationID, result.FullResponse, savedMsgID)
 	}
@@ -328,6 +319,16 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 	s.emitter.Emit("chat:done", map[string]interface{}{
 		"conversationId": conversationID,
 	})
+
+	// TTS proativo: gera áudio em background. NÃO bloqueia o Notify/Gateway
+	// porque o TTS provider pode demorar ou falhar. O SIP adapter já tem
+	// SpeakText como fallback; o cache é otimização, não requisito.
+	if s.onResponseSaved != nil && savedMsgID > 0 {
+		go func() {
+			defer s.recoverFromPanic(conversationID, "onResponseSaved")
+			s.onResponseSaved(conversationID, savedMsgID, result.FullResponse)
+		}()
+	}
 
 	if s.triggerSummarize != nil {
 		go func() {
