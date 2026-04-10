@@ -61,6 +61,11 @@ func (s *Service) GetSpeechManager() *SpeechManager {
 	return s.speechManager
 }
 
+// GetAudioRepo retorna o repositório de áudio do serviço.
+func (s *Service) GetAudioRepo() AudioRepository {
+	return s.audioRepo
+}
+
 // SetSpeechManager permite que a camada Wails injete um speech manager.
 func (s *Service) SetSpeechManager(sm *SpeechManager) {
 	s.speechManager = sm
