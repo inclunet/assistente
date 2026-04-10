@@ -1,14 +1,12 @@
 package main
 
 import (
-	"encoding/base64"
 	"log"
 	"strings"
 
 	"assistente/internal/channels"
 	"assistente/internal/database"
 	"assistente/internal/profiles"
-	"assistente/internal/speech"
 )
 
 // onResponseSaved é o callback invocado pelo agentSvc e appStreamHandler após
@@ -61,35 +59,35 @@ func (a *App) onResponseSaved(conversationID, messageID uint, text string) {
 		})
 
 	default:
-		// Backend TTS (OpenAI, LocalAI, etc.): gera áudio WAV (lossless) e salva
-		// no DB. WAV preserva qualidade máxima para SIP (PCM 8kHz direto) e para
-		// canais que precisam de MP3, a conversão é feita no ponto de envio.
-		cleanText := stripMarkdownForTTS(text)
-		client := a.speechSvc.CreateTTSClient(voiceCfg.LLMProviderID, voiceCfg.Model)
-		if client == nil {
-			log.Printf("[TTS Proactive] Provider TTS %q não encontrado para msg %d", voiceCfg.LLMProviderID, messageID)
-			return
-		}
-		client.SetVoice(speech.TTSVoice(voiceCfg.VoiceID))
-		if voiceCfg.Rate >= 0.25 {
-			client.SetSpeed(voiceCfg.Rate)
-		}
-		client.SetFormat(speech.FormatWAV)
-
-		audioData, err := client.Synthesize(cleanText)
+		// Backend TTS (OpenAI, LocalAI, etc.): gera áudio MP3 via SpeakMessage
+		// (service layer com cache DB). MP3 é compacto (~10x menor que WAV).
+		// SIP NÃO depende deste cache — usa SpeakText direto (streaming WAV lossless).
+		result, err := a.speechSvc.SpeakMessage(
+			messageID,
+			voiceCfg.LLMProviderID,
+			voiceCfg.VoiceID,
+			voiceCfg.Model,
+			voiceCfg.Rate,
+		)
 		if err != nil {
-			log.Printf("[TTS Proactive] Erro ao gerar WAV para msg %d: %v", messageID, err)
+			log.Printf("[TTS Proactive] Erro TTS para msg %d: %v", messageID, err)
+			// Ainda emite tts:ready com texto para fallback no frontend
+			a.emitter.Emit("tts:ready", map[string]interface{}{
+				"messageId":      messageID,
+				"conversationId": conversationID,
+				"text":           stripMarkdownForTTS(text),
+				"strategy":       "webspeech",
+				"webspeech": map[string]interface{}{
+					"voice": voiceCfg.VoiceID,
+					"rate":  voiceCfg.Rate,
+					"pitch": voiceCfg.Pitch,
+				},
+			})
 			return
 		}
 
-		audioBase64 := base64.StdEncoding.EncodeToString(audioData)
-		if saveErr := a.speechSvc.GetAudioRepo().SaveMessageAudio(messageID, audioBase64, "audio/wav"); saveErr != nil {
-			log.Printf("[TTS Proactive] Erro ao salvar WAV no DB para msg %d: %v", messageID, saveErr)
-			return
-		}
-
-		log.Printf("[TTS Proactive] WAV gerado e salvo para msg %d (%d bytes, provider=%s, voice=%s)",
-			messageID, len(audioData), voiceCfg.LLMProviderID, voiceCfg.VoiceID)
+		log.Printf("[TTS Proactive] Áudio gerado para msg %d (%d bytes, cached=%v, provider=%s)",
+			messageID, len(result.Audio), result.Cached, voiceCfg.LLMProviderID)
 
 		a.emitter.Emit("tts:ready", map[string]interface{}{
 			"messageId":      messageID,

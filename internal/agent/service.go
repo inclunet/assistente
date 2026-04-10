@@ -111,15 +111,9 @@ func (s *Service) RunAgenticLoop(
 	}
 
 	for iteration := 0; iteration < maxIterations; iteration++ {
-		// Verifica cancelamento
+		// Verifica cancelamento (barge-in, troca de conversa)
 		if ctx.Err() != nil {
 			log.Printf("[Agent] loop cancelado na iteração %d", iteration)
-			s.emitter.Emit("chat:stream", events.StreamEvent{
-				Content:        "",
-				Done:           true,
-				Error:          "Operação cancelada",
-				ConversationId: conversationID,
-			})
 			return
 		}
 
@@ -131,6 +125,11 @@ func (s *Service) RunAgenticLoop(
 
 		// 2. Erro?
 		if result.Error != "" {
+			// Context canceled (barge-in) não é erro — apenas interrompe silenciosamente
+			if ctx.Err() != nil {
+				log.Printf("[Agent] iteração %d cancelada (barge-in): %s", iteration, result.Error)
+				return
+			}
 			log.Printf("[Agent] erro na iteração %d: %s", iteration, result.Error)
 			s.emitter.Emit("chat:stream", events.StreamEvent{
 				Content:        result.FullResponse,

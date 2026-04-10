@@ -230,6 +230,9 @@ func (p *AudioPipeline) Run() error {
 		bargeInMinFrames = 5
 	}
 	var bargeInFrames int
+	// Pre-buffer de barge-in: acumula frames de fala durante o playback
+	// para injetá-los no VAD após confirmar barge-in, evitando perda de ~100ms.
+	var bargeInPreBuf [][]byte
 
 	log.Printf("[SIP Pipeline] Iniciado para chamada %s (gain=%.1fx)", p.call.ID, inputGain)
 
@@ -284,6 +287,11 @@ func (p *AudioPipeline) Run() error {
 			if p.playbackActive.Load() {
 				if rms > bargeInThreshold {
 					bargeInFrames++
+					// Guarda cópia do frame para não perder fala do usuário
+					frameCopy := make([]byte, pcmN)
+					copy(frameCopy, pcmBuf[:pcmN])
+					bargeInPreBuf = append(bargeInPreBuf, frameCopy)
+
 					if bargeInFrames >= bargeInMinFrames {
 						log.Printf("[SIP Pipeline] Barge-in durante playback (RMS=%.4f, frames=%d)", rms, bargeInFrames)
 						p.StopPlayback()
@@ -297,10 +305,18 @@ func (p *AudioPipeline) Run() error {
 								p.OnBargeIn()
 							}()
 						}
+
+						// Injeta frames acumulados no VAD para não perder
+						// o início da fala do usuário (~100ms)
+						for _, frame := range bargeInPreBuf {
+							p.vad.ProcessFrame(frame)
+						}
+						bargeInPreBuf = bargeInPreBuf[:0]
 						bargeInFrames = 0
 					}
 				} else {
 					bargeInFrames = 0
+					bargeInPreBuf = bargeInPreBuf[:0]
 				}
 				continue
 			}
