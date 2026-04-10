@@ -175,7 +175,6 @@ const { announce } = useAnnouncer();
 
 const handleAction = () => {
   const message = 'Ação concluída';
-  console.log('[Announcer]', message); // Debug
   announce(message);
 };
 ```
