@@ -105,3 +105,37 @@ func (c *ProfilesController) DeleteProfile(slug string) error {
 func (c *ProfilesController) GetProfileSearchPaths() []string {
 	return c.profileMgr.GetSearchPaths()
 }
+
+// UpdateProfileMediaSupport atualiza o MediaSupport de um perfil e salva.
+// Chamado quando detectamos que um modelo não suporta determinado tipo de mídia.
+func (c *ProfilesController) UpdateProfileMediaSupport(mediaType string, supported bool) {
+	profile, err := c.profileMgr.GetActive()
+	if err != nil || profile == nil {
+		return
+	}
+
+	if profile.MediaSupport == nil {
+		profile.MediaSupport = &profiles.MediaSupport{}
+	}
+
+	switch mediaType {
+	case "audio":
+		profile.MediaSupport.Audio = &supported
+	case "image":
+		profile.MediaSupport.Image = &supported
+	case "document":
+		profile.MediaSupport.Document = &supported
+	case "video":
+		profile.MediaSupport.Video = &supported
+	}
+
+	slug := c.profileMgr.GetActiveSlug()
+	if slug == "" {
+		return
+	}
+	if err := c.profileMgr.Update(slug, profile); err != nil {
+		log.Printf("[MediaSupport] Erro ao salvar perfil: %v", err)
+	} else {
+		log.Printf("[MediaSupport] Perfil atualizado: %s=%v", mediaType, supported)
+	}
+}
