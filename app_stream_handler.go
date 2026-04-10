@@ -83,6 +83,16 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 		log.Printf("[Stream] erro ao salvar resposta do assistant: %v", err)
 	}
 
+	// TTS proativo: gera áudio ANTES de notificar canais externos,
+	// para que o cache esteja populado quando o Gateway enviar a resposta.
+	func() {
+		defer func() {
+			r := recover()
+			events.HandlePanic(h.app.emitter, h.ConversationID, "onResponseSaved(stream)", r)
+		}()
+		h.app.onResponseSaved(h.ConversationID, savedMsgID, finalContent)
+	}()
+
 	// Notifica o gateway de mensageria (se há callbacks pendentes para esta conversa)
 	if h.app.responseNotifier != nil {
 		h.app.responseNotifier.Notify(h.ConversationID, finalContent, savedMsgID)
@@ -101,15 +111,6 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	h.Emitter.Emit("chat:done", map[string]interface{}{
 		"conversationId": h.ConversationID,
 	})
-
-	// TTS proativo: gera áudio e emite tts:ready (não bloqueia)
-	go func() {
-		defer func() {
-			r := recover()
-			events.HandlePanic(h.app.emitter, h.ConversationID, "onResponseSaved(stream)", r)
-		}()
-		h.app.onResponseSaved(h.ConversationID, savedMsgID, finalContent)
-	}()
 
 	// Verifica uso do contexto e emite aviso se necessário
 	h.checkAndEmitContextWarning()

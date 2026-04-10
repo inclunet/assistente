@@ -280,9 +280,10 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			}
 
 			outMsg := OutgoingMessage{
-				ChatID:           msg.From.ID,
-				Text:             response,
-				ReplyToMessageID: msg.ID,
+				ChatID:             msg.From.ID,
+				Text:               response,
+				ReplyToMessageID:   msg.ID,
+				AssistantMessageID: assistantMsgID,
 			}
 
 			// Consulta cache TTS proativo (Phase 1 gera áudio ao salvar resposta).
