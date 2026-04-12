@@ -70,6 +70,7 @@ const es = {
       you: 'Tú',
       result: 'Resultado',
       assistant: 'Asistente',
+      system: 'Sistema',
       reading: 'Leyendo',
       via: 'Vía',
       stopAudio: 'Detener audio',

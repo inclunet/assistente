@@ -71,6 +71,7 @@ const ptBR = {
       you: 'Você',
       result: 'Resultado',
       assistant: 'Assistente',
+      system: 'Sistema',
       reading: 'Lendo',
       via: 'Via',
       stopAudio: 'Parar áudio',

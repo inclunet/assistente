@@ -71,7 +71,7 @@ describe('chatSpeak service', () => {
       autoRead: false,
     });
 
-    expect(announceMock).toHaveBeenCalledWith('Sistema: Processando');
+    expect(announceMock).toHaveBeenCalledWith('chat.system: Processando');
     expect(speakWithOverrideMock).not.toHaveBeenCalled();
     expect(speakMessageMock).not.toHaveBeenCalled();
   });
@@ -163,7 +163,7 @@ describe('chatSpeak service', () => {
       autoRead: true,
     });
 
-    expect(announceMock).toHaveBeenCalledWith('Assistente: Fallback');
+    expect(announceMock).toHaveBeenCalledWith('chat.assistant: Fallback');
   });
 
   it('interrupt=false preserva o áudio atual', async () => {

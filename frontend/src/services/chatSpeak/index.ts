@@ -1,4 +1,5 @@
 import { DispatchSpeech } from '@wailsjs/go/main/App';
+import i18next from 'i18next';
 
 import { announce } from '../../hooks/useAnnouncer';
 import { messageAudioService } from '../messageAudio';
@@ -46,11 +47,11 @@ export interface ChatSpeakEvent {
 function getRolePrefix(role: VoiceRole): string {
   switch (role) {
     case 'user':
-      return 'Você';
+      return i18next.t('chat.you');
     case 'system':
-      return 'Sistema';
+      return i18next.t('chat.system');
     default:
-      return 'Assistente';
+      return i18next.t('chat.assistant');
   }
 }
 

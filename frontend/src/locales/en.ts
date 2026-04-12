@@ -71,6 +71,7 @@ const en = {
       you: 'You',
       result: 'Result',
       assistant: 'Assistant',
+      system: 'System',
       reading: 'Reading',
       via: 'Via',
       stopAudio: 'Stop audio',
