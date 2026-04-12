@@ -58,6 +58,11 @@ vi.mock('../services/messageAudio', () => ({
   },
 }));
 
+const mockHandleChatSpeak = vi.fn();
+vi.mock('../services/chatSpeak', () => ({
+  handleChatSpeak: (...args: unknown[]) => mockHandleChatSpeak(...args),
+}));
+
 vi.mock('i18next', () => ({
   default: {
     t: (key: string, opts?: Record<string, unknown>) => {
@@ -80,6 +85,7 @@ describe('chatStore validation', () => {
     eventListeners.clear();
     mockAnnounce.mockClear();
     mockSendMessage.mockClear();
+    mockHandleChatSpeak.mockClear();
     const mod = await import('./chatStore');
     useChatStore = mod.useChatStore;
     useChatStore.setState({ activeConversationId: 1 });
@@ -147,5 +153,45 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessage('hello');
 
     expect(mockSendMessage).not.toHaveBeenCalled();
+  });
+
+  it('chat:speak event invokes handleChatSpeak for matching conversation', async () => {
+    mockSendMessage.mockImplementation(() => {
+      // Simula backend: emite chat:messages_ready, depois chat:speak do user
+      emitEvent('chat:messages_ready', { conversationId: 1, userMessageId: 10, userContent: 'oi' });
+      emitEvent('chat:speak', { conversationId: 1, role: 'user', text: 'oi', strategy: 'announce', origin: 'user_message' });
+      // Simula chat:speak do assistant (antes do done)
+      emitEvent('chat:speak', { conversationId: 1, role: 'assistant', text: 'Resposta', strategy: 'webspeech', origin: 'assistant_message' });
+      emitEvent('chat:done', { conversationId: 1, assistantMessageId: 11, hadToolCalls: false });
+      return Promise.resolve();
+    });
+
+    await useChatStore.getState().sendMessage('oi');
+
+    expect(mockHandleChatSpeak).toHaveBeenCalledTimes(2);
+    expect(mockHandleChatSpeak.mock.calls[0][0]).toMatchObject({
+      conversationId: 1,
+      role: 'user',
+      strategy: 'announce',
+    });
+    expect(mockHandleChatSpeak.mock.calls[1][0]).toMatchObject({
+      conversationId: 1,
+      role: 'assistant',
+      strategy: 'webspeech',
+    });
+  });
+
+  it('chat:speak event is ignored for different conversation', async () => {
+    mockSendMessage.mockImplementation(() => {
+      emitEvent('chat:messages_ready', { conversationId: 1, userMessageId: 10, userContent: 'oi' });
+      // Evento de outra conversa
+      emitEvent('chat:speak', { conversationId: 999, role: 'assistant', text: 'Outro', strategy: 'announce' });
+      emitEvent('chat:done', { conversationId: 1, assistantMessageId: 11, hadToolCalls: false });
+      return Promise.resolve();
+    });
+
+    await useChatStore.getState().sendMessage('oi');
+
+    expect(mockHandleChatSpeak).not.toHaveBeenCalled();
   });
 });
