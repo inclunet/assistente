@@ -126,6 +126,10 @@ const en = {
       disableAutoReadLabel: 'Disable auto-read of responses',
       enableAutoReadLabel: 'Enable auto-read of responses',
       autoReadError: 'Error playing audio automatically',
+      validation: {
+        messageTooLarge: 'Message too large ({{size}} bytes). Maximum allowed: {{max}} bytes',
+        mediaTooLarge: 'Media files too large (~{{size}}MB). Maximum allowed: {{max}}MB',
+      },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',
       loadingTokenStats: 'Loading token statistics',

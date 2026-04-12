@@ -157,7 +157,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 	// Resolve o ChatProvider para o provedor do perfil ativo.
 	if activeProfile == nil || activeProfile.Chat.LLMProvider == "" {
 		errMsg := "Nenhum provedor LLM configurado no perfil ativo."
-		uc.emitter.Emit("chat:error", errMsg)
+		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 
@@ -165,7 +165,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 	if err != nil {
 		errMsg := fmt.Sprintf("Provedor LLM não disponível: %v", err)
 		log.Printf("[SendMessage] ERRO: %s", errMsg)
-		uc.emitter.Emit("chat:error", errMsg)
+		uc.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 		return 0, fmt.Errorf("%s", errMsg)
 	}
 	log.Printf("[SendMessage] ChatProvider resolvido para provedor: %s", activeProfile.Chat.LLMProvider)

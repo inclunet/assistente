@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"assistente/internal/chat"
+	"assistente/internal/core/ports"
 	"assistente/internal/credentials"
 	"assistente/internal/events"
 	"assistente/internal/llm"
@@ -267,9 +268,9 @@ func (s *Service) executeSummarization(
 		profile = s.cfg.ProfileResolver(profile)
 	}
 
-	s.cfg.Emitter.Emit("chat:summary_started", map[string]interface{}{
-		"conversationId": conversationID,
-		"messageCount":   len(newMessages),
+	s.cfg.Emitter.Emit("chat:summary_started", ports.SummaryStartedEvent{
+		ConversationID: conversationID,
+		MessageCount:   len(newMessages),
 	})
 
 	defer func() {
@@ -288,9 +289,9 @@ func (s *Service) executeSummarization(
 	provider := s.cfg.LLMRegistry.Get(profile.Chat.LLMProvider)
 	if provider == nil {
 		log.Printf("[Summary] Provider não encontrado: %s", profile.Chat.LLMProvider)
-		s.cfg.Emitter.Emit("chat:summary_error", map[string]interface{}{
-			"conversationId": conversationID,
-			"error":          "Provider não encontrado",
+		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
+			ConversationID: conversationID,
+			Error:          "Provider não encontrado",
 		})
 		return
 	}
@@ -299,9 +300,9 @@ func (s *Service) executeSummarization(
 	summary, err := cp.SimpleChat(context.Background(), model, SummaryPrompt, userPrompt)
 	if err != nil {
 		log.Printf("[Summary] Erro na chamada LLM: %v", err)
-		s.cfg.Emitter.Emit("chat:summary_error", map[string]interface{}{
-			"conversationId": conversationID,
-			"error":          fmt.Sprintf("Erro ao gerar resumo: %v", err),
+		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
+			ConversationID: conversationID,
+			Error:          fmt.Sprintf("Erro ao gerar resumo: %v", err),
 		})
 		return
 	}
@@ -309,18 +310,18 @@ func (s *Service) executeSummarization(
 	summary = strings.TrimSpace(summary)
 	if summary == "" {
 		log.Printf("[Summary] LLM retornou resumo vazio — abortando")
-		s.cfg.Emitter.Emit("chat:summary_error", map[string]interface{}{
-			"conversationId": conversationID,
-			"error":          "Resumo gerado está vazio",
+		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
+			ConversationID: conversationID,
+			Error:          "Resumo gerado está vazio",
 		})
 		return
 	}
 
 	if err := s.cfg.Repo.UpdateConversationSummary(conversationID, summary, upToMessageID); err != nil {
 		log.Printf("[Summary] Erro ao salvar resumo: %v", err)
-		s.cfg.Emitter.Emit("chat:summary_error", map[string]interface{}{
-			"conversationId": conversationID,
-			"error":          "Erro ao salvar resumo",
+		s.cfg.Emitter.Emit("chat:summary_error", ports.SummaryErrorEvent{
+			ConversationID: conversationID,
+			Error:          "Erro ao salvar resumo",
 		})
 		return
 	}
@@ -328,10 +329,10 @@ func (s *Service) executeSummarization(
 	log.Printf("[Summary] Resumo salvo: conversa=%d, até msgID=%d, %d chars",
 		conversationID, upToMessageID, len(summary))
 
-	s.cfg.Emitter.Emit("chat:summary_completed", map[string]interface{}{
-		"conversationId":       conversationID,
-		"summaryUpToMessageId": upToMessageID,
-		"summaryLength":        len(summary),
-		"messageCount":         len(newMessages),
+	s.cfg.Emitter.Emit("chat:summary_completed", ports.SummaryCompletedEvent{
+		ConversationID:       conversationID,
+		SummaryUpToMessageID: upToMessageID,
+		SummaryLength:        len(summary),
+		MessageCount:         len(newMessages),
 	})
 }

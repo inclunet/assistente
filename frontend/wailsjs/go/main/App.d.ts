@@ -120,6 +120,8 @@ export function DisconnectMCPServer(arg1:string):Promise<void>;
 
 export function DiscoverMCPServerAuth(arg1:string):Promise<mcp.OAuthDiscoveryResult>;
 
+export function DispatchSpeech(arg1:main.ChatSpeakRequest):Promise<void>;
+
 export function DryRunJob(arg1:string):Promise<jobs.DryRunResult>;
 
 export function DuplicateMCPServer(arg1:string):Promise<string>;

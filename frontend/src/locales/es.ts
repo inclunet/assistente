@@ -125,6 +125,10 @@ const es = {
       disableAutoReadLabel: 'Deshabilitar lectura automática de respuestas',
       enableAutoReadLabel: 'Habilitar lectura automática de respuestas',
       autoReadError: 'Error al reproducir audio automáticamente',
+      validation: {
+        messageTooLarge: 'Mensaje demasiado grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
+        mediaTooLarge: 'Archivos de medios demasiado grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
+      },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',
       loadingTokenStats: 'Cargando estadísticas de tokens',

@@ -210,6 +210,10 @@ export function DiscoverMCPServerAuth(arg1) {
   return window['go']['main']['App']['DiscoverMCPServerAuth'](arg1);
 }
 
+export function DispatchSpeech(arg1) {
+  return window['go']['main']['App']['DispatchSpeech'](arg1);
+}
+
 export function DryRunJob(arg1) {
   return window['go']['main']['App']['DryRunJob'](arg1);
 }
