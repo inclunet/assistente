@@ -92,6 +92,7 @@ describe('chatSpeak service', () => {
 
     expect(stopCurrentAudioMock).toHaveBeenCalled();
     expect(stopTTSMock).toHaveBeenCalled();
+    expect(announceMock).toHaveBeenCalledWith('Assistente: Resposta');
     expect(speakWithOverrideMock).toHaveBeenCalledWith('Resposta', {
       providerId: 'webspeech',
       voiceName: 'pt-BR',
@@ -114,6 +115,7 @@ describe('chatSpeak service', () => {
       volume: 0.6,
     });
 
+    expect(announceMock).toHaveBeenCalledWith('Assistente: Resposta');
     expect(speakWithOverrideMock).toHaveBeenCalledWith('Resposta', {
       providerId: 'sapi5',
       voiceName: 'Microsoft Maria',
@@ -130,6 +132,7 @@ describe('chatSpeak service', () => {
     await handleChatSpeak({
       messageId: 99,
       role: 'assistant',
+      text: 'Resposta backend',
       strategy: 'backend_audio',
       autoRead: true,
       providerId: 'openai-default',
@@ -139,6 +142,7 @@ describe('chatSpeak service', () => {
       volume: 0.5,
     });
 
+    expect(announceMock).toHaveBeenCalledWith('Assistente: Resposta backend');
     expect(speakMessageMock).toHaveBeenCalledWith(99, 0.5, {
       providerId: 'openai-default',
       voiceId: 'nova',

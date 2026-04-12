@@ -9,7 +9,7 @@ import (
 )
 
 // BaseStreamHandler contém os campos e métodos compartilhados entre
-// AgenticStreamHandler (este pacote) e appStreamHandler (package main).
+// os stream handlers do pacote agent (SimpleStreamHandler e AgenticStreamHandler).
 // Lida com throttling de 50 ms para os eventos chat:stream e chat:thinking.
 // Emitter e ConversationID são exportados para permitir construção fora do pacote.
 type BaseStreamHandler struct {

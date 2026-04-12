@@ -24,13 +24,6 @@ type ModelsResponse = llm.ModelsResponse
 type ChatParams = llm.ChatParams
 
 // Re-exporta funções utilitárias
-// ==================== StreamHandler Implementation ====================
-
-// appStreamHandler implementa llm.StreamHandler usando *App
-// NOVA ARQUITETURA v2: Hierarquia baseada na mensagem do usuário
-// - n0: user/assistant (parentID=null)
-// - n1: interações com agentes (parentID=userMessageID)
-// - n2: interações do agente com tools (parentID=agentMessageID)
 
 // ==================== Wails Bindings ====================
 
