@@ -499,10 +499,12 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       ttsService.clearAllRoleConfigs();
 
       // Configura provider e voz padrão (assistant) para compatibilidade
+      // Apenas webspeech/sapi5 usam o ttsService do frontend; openai (backend_audio)
+      // sintetiza no backend — não setar voz no ttsService para evitar warnings.
       const ttsProvider = mapTTSProvider(assistantVoice.provider);
       await ttsService.setProvider(ttsProvider);
 
-      if (assistantVoice.voice_id) {
+      if (assistantVoice.voice_id && assistantVoice.provider !== 'openai') {
         await ttsService.setVoice(assistantVoice.voice_id);
       }
 
