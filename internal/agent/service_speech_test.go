@@ -73,15 +73,15 @@ func TestSaveAndFinish_CallsOnSpeechRequestBeforeChatDone(t *testing.T) {
 	svc := NewService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
-		OnSpeechRequest: func(convID, msgID uint, role, text, origin string, interrupt bool) {
-			speechCalls = append(speechCalls, speechCall{convID, msgID, role, text, origin, interrupt})
+		OnSpeechRequest: func(convID, msgID uint, role, text, origin, profileSlug string, interrupt bool) {
+			speechCalls = append(speechCalls, speechCall{convID, msgID, role, text, origin, profileSlug, interrupt})
 		},
 	})
 
 	svc.SaveAndFinish(1, 0, AgenticResult{
 		FullResponse: "Olá, mundo!",
 		Model:        "test-model",
-	})
+	}, "")
 
 	// Verificar que speech foi chamado
 	if len(speechCalls) != 1 {
@@ -154,7 +154,7 @@ func TestSaveAndFinish_NilOnSpeechRequest_NoPanic(t *testing.T) {
 	svc.SaveAndFinish(1, 0, AgenticResult{
 		FullResponse: "Sem TTS",
 		Model:        "test-model",
-	})
+	}, "")
 
 	evts := emitter.getEvents()
 	hasDone := false
@@ -176,7 +176,7 @@ func TestSaveAndFinish_EmptyResponse_NoSpeechCall(t *testing.T) {
 	svc := NewService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
-		OnSpeechRequest: func(uint, uint, string, string, string, bool) {
+		OnSpeechRequest: func(uint, uint, string, string, string, string, bool) {
 			called = true
 		},
 	})
@@ -184,7 +184,7 @@ func TestSaveAndFinish_EmptyResponse_NoSpeechCall(t *testing.T) {
 	svc.SaveAndFinish(1, 0, AgenticResult{
 		FullResponse: "",
 		Model:        "test-model",
-	})
+	}, "")
 
 	if called {
 		t.Error("OnSpeechRequest não deveria ser chamado com resposta vazia")
@@ -200,7 +200,7 @@ func TestSaveAndFinish_SpeechCallOrder_BeforeChatDone(t *testing.T) {
 	svc := NewService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
-		OnSpeechRequest: func(uint, uint, string, string, string, bool) {
+		OnSpeechRequest: func(uint, uint, string, string, string, string, bool) {
 			// Conta quantos eventos existem no momento do callback
 			speechCalledAtEventCount = len(emitter.getEvents())
 		},
@@ -209,7 +209,7 @@ func TestSaveAndFinish_SpeechCallOrder_BeforeChatDone(t *testing.T) {
 	svc.SaveAndFinish(1, 0, AgenticResult{
 		FullResponse: "Teste de ordem",
 		Model:        "test-model",
-	})
+	}, "")
 
 	evts := emitter.getEvents()
 	var doneIdx int = -1
@@ -239,7 +239,7 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 	svc := NewService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
-		OnSpeechRequest: func(convID, msgID uint, role, text, origin string, interrupt bool) {
+		OnSpeechRequest: func(convID, msgID uint, role, text, origin, profileSlug string, interrupt bool) {
 			gotMsgID = msgID
 		},
 	})
@@ -247,7 +247,7 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 	svc.SaveAndFinish(42, 0, AgenticResult{
 		FullResponse: "Resposta com ID",
 		Model:        "test-model",
-	})
+	}, "")
 
 	// msgRepo.CreateMessage retorna nextID=1
 	if gotMsgID != 1 {
@@ -269,10 +269,11 @@ func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 
 // speechCall captura os parâmetros de uma invocação do OnSpeechRequest.
 type speechCall struct {
-	convID    uint
-	msgID     uint
-	role      string
-	text      string
-	origin    string
-	interrupt bool
+	convID      uint
+	msgID       uint
+	role        string
+	text        string
+	origin      string
+	profileSlug string
+	interrupt   bool
 }

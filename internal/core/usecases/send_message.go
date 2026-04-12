@@ -29,7 +29,7 @@ type SendMessageConfig struct {
 	SettingsSvc    *config.SettingsService
 	Emitter        ports.Emitter
 	// OnSpeechRequest é chamado após salvar a mensagem do usuário para disparar TTS proativo.
-	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin string, interrupt bool)
+	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // SendMessageUseCase orquestra o pipeline completo de envio de mensagem ao LLM.
@@ -44,7 +44,7 @@ type SendMessageUseCase struct {
 	speechSvc      *speech.Service
 	settingsSvc    *config.SettingsService
 	emitter         ports.Emitter
-	onSpeechRequest func(conversationID uint, messageID uint, role, text, origin string, interrupt bool)
+	onSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // NewSendMessageUseCase cria um SendMessageUseCase com todas as dependências.
@@ -136,7 +136,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 
 	// TTS proativo: verbaliza a mensagem do usuário (síncrono para garantir ordem dos eventos)
 	if uc.onSpeechRequest != nil && userContent != "" {
-		uc.onSpeechRequest(req.ConversationID, userMsg.ID, "user", userContent, "user_message", true)
+		uc.onSpeechRequest(req.ConversationID, userMsg.ID, "user", userContent, "user_message", req.Params.ProfileSlug, true)
 	}
 
 	// Detecta slash skill, compõe system prompt e pré-processa mídia.
@@ -205,7 +205,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 			)
 		}()
 	} else {
-		handler := uc.agentSvc.NewSimpleStreamHandler(req.ConversationID, userMsg.ID)
+		handler := uc.agentSvc.NewSimpleStreamHandler(req.ConversationID, userMsg.ID, params.ProfileSlug)
 		go func() {
 			defer func() {
 				r := recover()

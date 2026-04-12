@@ -251,10 +251,11 @@ func (a *App) startup(ctx context.Context) {
 		ResponseNotifier: a.responseNotifier,
 		GetTokenStats:    a.GetConversationTokenStats,
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
-		OnSpeechRequest: func(conversationID uint, messageID uint, role, text, origin string, interrupt bool) {
+		OnSpeechRequest: func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool) {
 			a.dispatchSpeechEvent(ChatSpeakRequest{
 				ConversationID: conversationID,
 				MessageID:      messageID,
+				ProfileSlug:    profileSlug,
 				Role:           role,
 				Text:           text,
 				Origin:         ChatSpeakOrigin(origin),
@@ -366,10 +367,11 @@ func (a *App) startup(ctx context.Context) {
 		ConvRepo:         a.convSvc,
 		MsgGateway:       a.msgGateway,
 		ResponseNotifier: a.responseNotifier,
-		OnSpeechRequest: func(conversationID uint, messageID uint, role, text, origin string, interrupt bool) {
+		OnSpeechRequest: func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool) {
 			a.dispatchSpeechEvent(ChatSpeakRequest{
 				ConversationID: conversationID,
 				MessageID:      messageID,
+				ProfileSlug:    profileSlug,
 				Role:           role,
 				Text:           text,
 				Origin:         ChatSpeakOrigin(origin),

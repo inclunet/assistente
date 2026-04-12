@@ -44,8 +44,8 @@ type ServiceConfig struct {
 	GetTokenStats    func(uint) (*chat.TokenStats, error)
 	TriggerSummarize func(uint)
 	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
-	// Parâmetros: conversationID, messageID, role, text, origin, interrupt.
-	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin string, interrupt bool)
+	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
+	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // Service encapsula a lógica do agentic loop sem dependências do Wails.
@@ -56,7 +56,7 @@ type Service struct {
 	responseNotifier *messaging.ResponseNotifier
 	getTokenStats    func(uint) (*chat.TokenStats, error)
 	triggerSummarize func(uint)
-	onSpeechRequest  func(conversationID uint, messageID uint, role, text, origin string, interrupt bool)
+	onSpeechRequest  func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // NewService cria um novo Service com as dependências injetadas.
@@ -155,13 +155,13 @@ func (s *Service) RunAgenticLoop(
 
 			// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior)
 			if s.onSpeechRequest != nil && result.FullResponse != "" {
-				s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", false)
+				s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
 			}
 		}
 
 		// 4. finish_reason="stop" → resposta final
 		if result.IsDone {
-			s.SaveAndFinish(conversationID, turnID, result)
+			s.SaveAndFinish(conversationID, turnID, result, params.ProfileSlug)
 			return
 		}
 
@@ -281,7 +281,7 @@ func (s *Service) RunAgenticLoop(
 
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
 // Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
-func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResult) {
+func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResult, profileSlug string) {
 	var savedMsgID uint
 	if conversationID > 0 && result.FullResponse != "" {
 		if len(result.NativeMCPEvents) > 0 && turnID > 0 {
@@ -326,7 +326,7 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 
 	// TTS proativo: dispara ANTES de chat:done pois chat:done causa cleanup dos listeners no frontend
 	if s.onSpeechRequest != nil && result.FullResponse != "" {
-		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", true)
+		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
 	}
 
 	s.emitter.Emit("chat:done", ports.DoneEvent{
