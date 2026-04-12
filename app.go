@@ -251,6 +251,16 @@ func (a *App) startup(ctx context.Context) {
 		ResponseNotifier: a.responseNotifier,
 		GetTokenStats:    a.GetConversationTokenStats,
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
+		OnSpeechRequest: func(conversationID uint, messageID uint, role, text, origin string, interrupt bool) {
+			a.dispatchSpeechEvent(ChatSpeakRequest{
+				ConversationID: conversationID,
+				MessageID:      messageID,
+				Role:           role,
+				Text:           text,
+				Origin:         ChatSpeakOrigin(origin),
+				Interrupt:      &interrupt,
+			})
+		},
 	})
 
 	// Workspace antes do Prompt Builder: senão Workspace fica (*Manager)(nil) numa interface (typed nil)
@@ -356,6 +366,16 @@ func (a *App) startup(ctx context.Context) {
 		ConvRepo:         a.convSvc,
 		MsgGateway:       a.msgGateway,
 		ResponseNotifier: a.responseNotifier,
+		OnSpeechRequest: func(conversationID uint, messageID uint, role, text, origin string, interrupt bool) {
+			a.dispatchSpeechEvent(ChatSpeakRequest{
+				ConversationID: conversationID,
+				MessageID:      messageID,
+				Role:           role,
+				Text:           text,
+				Origin:         ChatSpeakOrigin(origin),
+				Interrupt:      &interrupt,
+			})
+		},
 	})
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,

@@ -18,38 +18,8 @@ import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
 import { stripMarkdown } from '../lib/stripMarkdown';
 import type { ToolCallStatus } from '../components/chat/ToolCallsSection';
-
-import type { VoiceRole } from '../services/tts';
-
-/**
- * Ponto único de disparo do auto-read TTS.
- * Se messageId for informado, usa o backend (cache-aware via SpeakMessage).
- * Sem messageId (streaming parcial) → TTS direto via speakAsRole.
- */
-function triggerAutoRead(text: string, role: VoiceRole, messageId?: number): void {
-  messageAudioService.stopCurrentAudio();
-  ttsService.stop();
-
-  if (messageId && messageId > 0) {
-    const volume = ttsService.getVolume();
-    const voiceCtx = ttsService.getVoiceContext(role);
-    messageAudioService.speakMessage(messageId, volume, voiceCtx).then((played) => {
-      if (!played) {
-        const clean = stripMarkdown(text);
-        return ttsService.speakAsRole(clean, role);
-      }
-    }).catch((err: unknown) => {
-      console.error(`[Chat] TTS auto-read error (${role}):`, err);
-      announce(i18next.t('chat.autoReadError', 'Erro ao reproduzir áudio automaticamente'));
-    });
-  } else {
-    const clean = stripMarkdown(text);
-    ttsService.speakAsRole(clean, role).catch((err: unknown) => {
-      console.error(`[Chat] TTS auto-read error (${role}):`, err);
-      announce(i18next.t('chat.autoReadError', 'Erro ao reproduzir áudio automaticamente'));
-    });
-  }
-}
+import { handleChatSpeak } from '../services/chatSpeak';
+import type { ChatSpeakEvent } from '../services/chatSpeak';
 
 const MAX_MESSAGE_CONTENT_SIZE = 512 * 1024;       // must match backend MaxMessageContentSize
 const MAX_MEDIA_SIZE = 20 * 1024 * 1024;            // must match backend MaxMediaSize
@@ -549,11 +519,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       // Backend-driven: sem addMessage local — user msg vem do chat:messages_ready, assistant do chat:stream
       set({ isLoading: true, completedSegments: [], activeToolCalls: [] });
       playSendSound();
-      if (ttsService.isEnabledForUser()) {
-        triggerAutoRead(content, 'user');
-      } else if (ttsService.shouldUseAriaLiveForUser()) {
-        announce(`Você: ${stripMarkdown(content)}`);
-      }
 
       // ID determinístico para placeholder de streaming (substituído pelo ID real do backend em chat:done)
       const streamingMsgId = `streaming-${conversationId}`;
@@ -594,6 +559,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         unsubSegmentDone();
         unsubDone();
         unsubError();
+        unsubSpeak();
         activeListeners.delete(conversationIdStr);
         set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
       };
@@ -610,6 +576,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (!activeListeners.has(conversationIdStr)) return;
         announce(event.error);
         cleanup();
+      });
+
+      // chat:speak → TTS proativo disparado pelo backend após chat:done/segment_done
+      const unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
+        if (event.conversationId !== conversationId) return;
+        if (!activeListeners.has(conversationIdStr)) return;
+        handleChatSpeak(event);
       });
 
       // chat:messages_ready → insere mensagem do usuário com ID REAL do backend (sem temp ID)
@@ -690,12 +663,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           if (finalMessage?.content) {
             const isActiveConv = currentState.activeConversationId === conversationId;
             if (isActiveConv) playReceiveSound();
-            if (ttsService.isAutoReadEnabled() && isActiveConv && !cleanupExecuted) {
-              triggerAutoRead(finalMessage.content, 'assistant', event.messageId);
-            }
-            if (ttsService.shouldUseAriaLiveForAgent() && isActiveConv) {
-              announce(`Assistente: ${stripMarkdown(finalMessage.content)}`);
-            }
           }
         }
       });
@@ -761,11 +728,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           }
           if (data.content) {
             newSegments.push({ type: 'text', content: data.content });
-            if (ttsService.isAutoReadEnabled()) {
-              triggerAutoRead(data.content, 'assistant');
-            } else {
-              announce(stripMarkdown(data.content), 'assertive');
-            }
           }
           set({ completedSegments: newSegments, activeToolCalls: [] });
           flushPendingUpdate(streamingMsgId, get().updateMessage);
@@ -1089,6 +1051,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         unsubDone();
         unsubReady();
         unsubError();
+        unsubSpeak();
         activeListeners.delete(conversationIdStr);
         set({ isLoading: false, streamingMessageId: null, streamingReasoning: null, isThinking: false, activeToolCalls: [], completedSegments: [] });
       };
@@ -1102,6 +1065,13 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (!activeListeners.has(conversationIdStr)) return;
         announce(event.error);
         cleanup();
+      });
+
+      // chat:speak → TTS proativo disparado pelo backend
+      const unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
+        if (event.conversationId !== conversationId) return;
+        if (!activeListeners.has(conversationIdStr)) return;
+        handleChatSpeak(event);
       });
 
       // chat:messages_ready → insere mensagem do usuário com ID real do backend
@@ -1180,12 +1150,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           if (finalMessage?.content) {
             const isActive = currentState.activeConversationId === conversationId;
             if (isActive) playReceiveSound();
-            if (ttsService.isAutoReadEnabled() && isActive && !cleanupExecuted) {
-              triggerAutoRead(finalMessage.content, 'assistant', event.messageId);
-            }
-            if (ttsService.shouldUseAriaLiveForAgent() && isActive) {
-              announce(`Assistente: ${stripMarkdown(finalMessage.content)}`);
-            }
           }
         }
       });
@@ -1235,9 +1199,6 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         if (event.hasMore) {
-          if (event.content && ttsService.isAutoReadEnabled()) {
-            triggerAutoRead(event.content, 'assistant');
-          }
           const state = get();
           const newSegments: TurnSegment[] = [...state.completedSegments];
           if (state.activeToolCalls.length > 0) {

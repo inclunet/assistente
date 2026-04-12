@@ -43,6 +43,9 @@ type ServiceConfig struct {
 	ResponseNotifier *messaging.ResponseNotifier
 	GetTokenStats    func(uint) (*chat.TokenStats, error)
 	TriggerSummarize func(uint)
+	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
+	// Parâmetros: conversationID, messageID, role, text, origin, interrupt.
+	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin string, interrupt bool)
 }
 
 // Service encapsula a lógica do agentic loop sem dependências do Wails.
@@ -53,6 +56,7 @@ type Service struct {
 	responseNotifier *messaging.ResponseNotifier
 	getTokenStats    func(uint) (*chat.TokenStats, error)
 	triggerSummarize func(uint)
+	onSpeechRequest  func(conversationID uint, messageID uint, role, text, origin string, interrupt bool)
 }
 
 // NewService cria um novo Service com as dependências injetadas.
@@ -64,6 +68,7 @@ func NewService(cfg ServiceConfig) *Service {
 		responseNotifier: cfg.ResponseNotifier,
 		getTokenStats:    cfg.GetTokenStats,
 		triggerSummarize: cfg.TriggerSummarize,
+		onSpeechRequest:  cfg.OnSpeechRequest,
 	}
 }
 
@@ -147,6 +152,11 @@ func (s *Service) RunAgenticLoop(
 				Iteration:      iteration,
 				HasMore:        !result.IsDone,
 			})
+
+			// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior)
+			if s.onSpeechRequest != nil && result.FullResponse != "" {
+				go s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", false)
+			}
 		}
 
 		// 4. finish_reason="stop" → resposta final
@@ -319,6 +329,11 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		AssistantMessageID: savedMsgID,
 		HadToolCalls:       turnID > 0,
 	})
+
+	// TTS proativo: dispara fala da resposta do assistente (não bloqueia)
+	if s.onSpeechRequest != nil && result.FullResponse != "" {
+		go s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", true)
+	}
 
 	if s.triggerSummarize != nil {
 		go func() {

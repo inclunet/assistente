@@ -31,6 +31,7 @@ type ChatControllerConfig struct {
 	ConvRepo         chat.ConversationRepository
 	MsgGateway       *messaging.Gateway
 	ResponseNotifier *messaging.ResponseNotifier
+	OnSpeechRequest  func(conversationID uint, messageID uint, role, text, origin string, interrupt bool)
 }
 
 // ChatController é o adapter primário (Inbound) para o pipeline de envio de mensagens.
@@ -53,15 +54,16 @@ func NewChatController(cfg ChatControllerConfig) *ChatController {
 		msgGateway:       cfg.MsgGateway,
 		responseNotifier: cfg.ResponseNotifier,
 		sendMsgUC: usecases.NewSendMessageUseCase(usecases.SendMessageConfig{
-			ChatInteractor: cfg.ChatInteractor,
-			ToolRegistry:   cfg.ToolRegistry,
-			ProviderSvc:    cfg.ProviderSvc,
-			MCPMgr:         cfg.MCPMgr,
-			AgentSvc:       cfg.AgentSvc,
-			StreamMgr:      cfg.StreamMgr,
-			SpeechSvc:      cfg.SpeechSvc,
-			SettingsSvc:    cfg.SettingsSvc,
-			Emitter:        cfg.Emitter,
+			ChatInteractor:  cfg.ChatInteractor,
+			ToolRegistry:    cfg.ToolRegistry,
+			ProviderSvc:     cfg.ProviderSvc,
+			MCPMgr:          cfg.MCPMgr,
+			AgentSvc:        cfg.AgentSvc,
+			StreamMgr:       cfg.StreamMgr,
+			SpeechSvc:       cfg.SpeechSvc,
+			SettingsSvc:     cfg.SettingsSvc,
+			Emitter:         cfg.Emitter,
+			OnSpeechRequest: cfg.OnSpeechRequest,
 		}),
 	}
 }
