@@ -4,6 +4,7 @@ import (
 	"sync"
 	"time"
 
+	"assistente/internal/core/ports"
 	"assistente/internal/events"
 )
 
@@ -78,11 +79,11 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 
 	if !h.isThinking {
 		h.isThinking = true
-		h.Emitter.Emit("chat:thinking", map[string]interface{}{
-			"content":        content,
-			"done":           false,
-			"conversationId": h.ConversationID,
-			"started":        true,
+		h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
+			ConversationID: h.ConversationID,
+			Content:        content,
+			Done:           false,
+			Started:        true,
 		})
 	}
 
@@ -118,10 +119,10 @@ func (h *BaseStreamHandler) OnThinking(content string) {
 }
 
 func (h *BaseStreamHandler) emitThinkingEvent() {
-	h.Emitter.Emit("chat:thinking", map[string]interface{}{
-		"content":        h.accumulatedReasoning,
-		"done":           false,
-		"conversationId": h.ConversationID,
+	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
+		ConversationID: h.ConversationID,
+		Content:        h.accumulatedReasoning,
+		Done:           false,
 	})
 }
 
@@ -135,10 +136,10 @@ func (h *BaseStreamHandler) OnThinkingDone(fullReasoning string) {
 	h.isThinking = false
 	h.mu.Unlock()
 
-	h.Emitter.Emit("chat:thinking", map[string]interface{}{
-		"content":        fullReasoning,
-		"done":           true,
-		"conversationId": h.ConversationID,
+	h.Emitter.Emit("chat:thinking", ports.ThinkingEvent{
+		ConversationID: h.ConversationID,
+		Content:        fullReasoning,
+		Done:           true,
 	})
 }
 

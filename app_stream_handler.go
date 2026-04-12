@@ -6,6 +6,7 @@ import (
 	"log"
 
 	"assistente/internal/chat"
+	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 )
@@ -90,6 +91,7 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 
 	// Emite evento final de streaming
 	h.Emitter.Emit("chat:stream", events.StreamEvent{
+		MessageID:      savedMsgID,
 		Content:        finalContent,
 		Done:           true,
 		ConversationId: h.ConversationID,
@@ -97,8 +99,9 @@ func (h *appStreamHandler) OnDone(fullResponse string, usage llm.Usage, model st
 	})
 
 	// Emite evento para frontend recarregar a conversa
-	h.Emitter.Emit("chat:done", map[string]interface{}{
-		"conversationId": h.ConversationID,
+	h.Emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     h.ConversationID,
+		AssistantMessageID: savedMsgID,
 	})
 
 	// Verifica uso do contexto e emite aviso se necessário
@@ -130,41 +133,41 @@ func (h *appStreamHandler) checkAndEmitContextWarning() {
 		return
 	}
 
-	h.Emitter.Emit("chat:token_stats", map[string]interface{}{
-		"conversationId":   h.ConversationID,
-		"totalTokens":      stats.TotalTokens,
-		"contextLimit":     stats.ContextLimit,
-		"contextUsage":     stats.ContextUsage,
-		"isNearLimit":      stats.IsNearLimit,
-		"isCritical":       stats.IsCritical,
-		"promptTokens":     stats.PromptTokens,
-		"completionTokens": stats.CompletionTokens,
-		"messageCount":     stats.MessageCount,
+	h.Emitter.Emit("chat:token_stats", ports.TokenStatsEvent{
+		ConversationID:   h.ConversationID,
+		TotalTokens:      stats.TotalTokens,
+		ContextLimit:     stats.ContextLimit,
+		ContextUsage:     stats.ContextUsage,
+		IsNearLimit:      stats.IsNearLimit,
+		IsCritical:       stats.IsCritical,
+		PromptTokens:     stats.PromptTokens,
+		CompletionTokens: stats.CompletionTokens,
+		MessageCount:     stats.MessageCount,
 	})
 
 	if stats.IsCritical {
 		log.Printf("[Context] conversa %d em CRÍTICO: %0.1f%% (%d/%d tokens)",
 			h.ConversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
-		h.Emitter.Emit("chat:context_warning", map[string]interface{}{
-			"conversationId": h.ConversationID,
-			"level":          "critical",
-			"message": fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
+		h.Emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
+			ConversationID: h.ConversationID,
+			Level:          "critical",
+			Message: fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
 				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
-			"percentage":   stats.ContextUsage,
-			"totalTokens":  stats.TotalTokens,
-			"contextLimit": stats.ContextLimit,
+			Percentage:   stats.ContextUsage,
+			TotalTokens:  stats.TotalTokens,
+			ContextLimit: stats.ContextLimit,
 		})
 	} else if stats.IsNearLimit {
 		log.Printf("[Context] conversa %d próxima do limite: %0.1f%% (%d/%d tokens)",
 			h.ConversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
-		h.Emitter.Emit("chat:context_warning", map[string]interface{}{
-			"conversationId": h.ConversationID,
-			"level":          "warning",
-			"message": fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
+		h.Emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
+			ConversationID: h.ConversationID,
+			Level:          "warning",
+			Message: fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
 				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
-			"percentage":   stats.ContextUsage,
-			"totalTokens":  stats.TotalTokens,
-			"contextLimit": stats.ContextLimit,
+			Percentage:   stats.ContextUsage,
+			TotalTokens:  stats.TotalTokens,
+			ContextLimit: stats.ContextLimit,
 		})
 	}
 }

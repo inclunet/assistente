@@ -52,6 +52,7 @@ func setupProfileDir(t *testing.T) *profiles.Manager {
 	tmp := t.TempDir()
 	configdir.ResetForTests()
 	t.Setenv("HOME", tmp)
+	t.Setenv("USERPROFILE", tmp) // Windows: os.UserHomeDir() usa USERPROFILE
 	t.Cleanup(configdir.ResetForTests)
 	mgr := profiles.NewManager()
 	_ = mgr.EnsureDefaults() // apenas cria o diretório base

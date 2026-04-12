@@ -1398,6 +1398,30 @@ export namespace llm {
 
 export namespace main {
 	
+	export class ChatSpeakRequest {
+	    conversationId: number;
+	    messageId?: number;
+	    profileSlug?: string;
+	    role: string;
+	    text: string;
+	    origin: string;
+	    interrupt?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatSpeakRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.messageId = source["messageId"];
+	        this.profileSlug = source["profileSlug"];
+	        this.role = source["role"];
+	        this.text = source["text"];
+	        this.origin = source["origin"];
+	        this.interrupt = source["interrupt"];
+	    }
+	}
 	export class AudioResult {
 	    audio: string;
 	    mimeType: string;

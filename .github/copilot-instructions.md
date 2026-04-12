@@ -49,6 +49,20 @@
 - Nunca deletar testes para “resolver” falhas.
 - Nunca simplificar testes para facilitar aprovação; corrigir o código é sempre o caminho.
 
+## Messaging — Arquitetura backend-driven (PROIBIÇÕES)
+
+O sistema de envio/recebimento de mensagens segue uma arquitetura backend-driven definida na AEP-0040.
+
+### Regras absolutas
+- **NUNCA crie uma nova função de envio de mensagens.** Existe UMA única `SendMessage` no backend (`app_chat.go`) e UMA única `sendMessage` no frontend (`chatStore`). Toda mensagem — vinda do frontend, de canais, de deep links, de qualquer lugar — DEVE passar por essas funções. Se precisar customizar comportamento, use parâmetros.
+- **NUNCA crie mensagens locais no frontend.** O frontend não gera IDs, não insere mensagens otimistas, não cria placeholders. Só renderiza o que o backend emite via eventos.
+- **Mensagens só podem ser enviadas para conversas que já existem.** `SendMessage` com `conversationID=0` ou inexistente é erro. Nunca crie conversa implicitamente dentro do fluxo de envio.
+- **Todo evento de chat DEVE carregar `conversationId`.** Sem exceções.
+- **Conversas são independentes de abas.** Conversas existem no banco sem vínculo com UI. Canais (Telegram, Signal) criam conversas sem abas.
+
+### Referência
+- Detalhes completos: `aep/0040-backend-driven-messaging.md`
+
 ## i18n (Internacionalização — OBRIGATÓRIO)
 - TODAS as strings visíveis ao usuário DEVEM usar `t('namespace.key')` via `react-i18next`
 - NUNCA hardcode strings em qualquer idioma diretamente no JSX

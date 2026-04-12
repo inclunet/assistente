@@ -7,6 +7,7 @@ import (
 	"log"
 	"strings"
 
+	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/profiles"
@@ -93,12 +94,12 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 1. Validate content / media size
 	if len(req.UserContent) > MaxMessageContentSize {
 		errMsg := fmt.Sprintf("Mensagem muito grande (%d bytes). Máximo permitido: %d bytes", len(req.UserContent), MaxMessageContentSize)
-		i.emitter.Emit("chat:error", errMsg)
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 		return nil, errors.New(errMsg)
 	}
 	if len(req.UserMedia) > MaxMediaSize {
 		errMsg := fmt.Sprintf("Mídia muito grande (%d bytes). Máximo permitido: %d bytes", len(req.UserMedia), MaxMediaSize)
-		i.emitter.Emit("chat:error", errMsg)
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: errMsg})
 		return nil, errors.New(errMsg)
 	}
 
@@ -107,7 +108,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 		providerCount, _ := i.providerSvc.Count()
 		if providerCount == 0 {
 			msg := "Nenhum provedor LLM configurado. Configure um provedor nas configurações."
-			i.emitter.Emit("chat:error", msg)
+			i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: msg})
 			return nil, fmt.Errorf("nenhum provedor LLM configurado")
 		}
 	}
@@ -115,7 +116,7 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 	// 3. Validate conversation ID
 	if req.ConversationID == 0 {
 		const errMsg = "conversationID é obrigatório — conversas devem ser criadas ao criar/resetar a tab"
-		i.emitter.Emit("chat:error", errMsg)
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: 0, Error: errMsg})
 		return nil, errors.New(errMsg)
 	}
 
@@ -128,9 +129,9 @@ func (i *Interactor) PrepareContext(ctx context.Context, req PrepareContextReque
 				title = title[:50]
 			}
 			if err := i.convRepo.UpdateConversation(req.ConversationID, title, ""); err == nil {
-				i.emitter.Emit("conversation:renamed", map[string]interface{}{
-					"conversation_id": req.ConversationID,
-					"new_title":       title,
+				i.emitter.Emit("conversation:renamed", ports.ConversationRenamedEvent{
+					ConversationID: req.ConversationID,
+					NewTitle:       title,
 				})
 			}
 		}
@@ -231,14 +232,14 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 		Source:         req.Source,
 	})
 	if err != nil {
-		i.emitter.Emit("chat:error", "Erro ao salvar mensagem: "+err.Error())
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao salvar mensagem: " + err.Error()})
 		return nil, err
 	}
 
-	i.emitter.Emit("chat:messages_ready", map[string]interface{}{
-		"conversationId": req.ConversationID,
-		"userMessageId":  userMsg.ID,
-		"userContent":    userMsg.Content,
+	i.emitter.Emit("chat:messages_ready", ports.MessagesReadyEvent{
+		ConversationID: req.ConversationID,
+		UserMessageID:  userMsg.ID,
+		UserContent:    userMsg.Content,
 	})
 
 	maxCtxMsgs := DefaultMaxContextMessages
@@ -252,7 +253,7 @@ func (i *Interactor) RecordUserMessage(ctx context.Context, req RecordUserMessag
 	}
 	messages, summary, err := loader.Load(req.ConversationID)
 	if err != nil {
-		i.emitter.Emit("chat:error", "Erro ao carregar histórico: "+err.Error())
+		i.emitter.Emit("chat:error", ports.ErrorEvent{ConversationID: req.ConversationID, Error: "Erro ao carregar histórico: " + err.Error()})
 		return nil, err
 	}
 
