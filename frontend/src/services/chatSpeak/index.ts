@@ -95,9 +95,6 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
   }
 
   if (event.strategy === 'backend_audio') {
-    if (text) {
-      announce(`${getRolePrefix(role)}: ${text}`);
-    }
     if (event.messageId && event.messageId > 0) {
       const played = await messageAudioService.speakMessage(
         event.messageId,
@@ -113,6 +110,10 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
       );
 
       if (!played) {
+        // TTS falhou — anuncia como fallback de acessibilidade
+        if (text) {
+          announce(`${getRolePrefix(role)}: ${text}`);
+        }
         await executeFallback(event);
       }
       return;
@@ -127,7 +128,6 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
   }
 
   if (event.strategy === 'webspeech' || event.strategy === 'sapi5') {
-    announce(`${getRolePrefix(role)}: ${text}`);
     await ttsService.speakWithOverride(text, {
       providerId: event.providerId ?? event.strategy,
       voiceName: event.voiceId,
