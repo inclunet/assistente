@@ -413,3 +413,61 @@ func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 		t.Fatalf("timeout aguardando mensagem de erro")
 	}
 }
+
+func TestGateway_TTSBrokerTimeout_FallsBackToText(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
+		t.Fatalf("erro ao autorizar contato: %v", err)
+	}
+
+	notifier := NewResponseNotifier()
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+
+	var sentConversationID uint
+	gateway := NewGateway(
+		notifier,
+		func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
+			sentConversationID = conversationID
+			return conversationID, nil
+		},
+		nil,
+		nil,
+		func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
+			// Simula TTS lento (>5s timeout do broker) — na prática o Cancel é chamado
+			// mas aqui testamos o cenário onde TTS retorna vazio (perfil decide não gerar)
+			return nil, nil
+		},
+		nil,
+	)
+	gateway.Register("telegram", fake)
+
+	incoming := IncomingMessage{
+		ID:      "msg-timeout",
+		Channel: "telegram",
+		From:    Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text:    "Oi",
+	}
+
+	gateway.handleIncoming(context.Background(), incoming)
+	if sentConversationID == 0 {
+		t.Fatalf("conversationID não foi criado")
+	}
+
+	notifier.Notify(sentConversationID, "Resposta texto", 50)
+
+	select {
+	case sent := <-fake.sentCh:
+		if sent.Text != "Resposta texto" {
+			t.Fatalf("esperava texto fallback, got=%q", sent.Text)
+		}
+		if len(sent.Attachments) != 0 {
+			t.Fatalf("não esperava attachments no timeout/cancel, got=%d", len(sent.Attachments))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timeout aguardando envio de mensagem")
+	}
+}

@@ -165,18 +165,26 @@ Opção: Injetar callback `OnSpeechRequest` no `Interactor` ou emitir o evento d
 
 Já coberto pela Fase 1.5 (remoção da chamada L553).
 
-### Fase 3 — TTSBroker para canais externos (futuro)
+### Fase 3 — TTSBroker para canais externos
 
-#### 3.1 — Instanciar TTSBroker no App
+#### 3.1 — TTSBroker integrado ao Gateway
 
-Adicionar campo `ttsBroker *messaging.TTSBroker` ao `App` struct e instanciar no `startup()`.
+O `TTSBroker` é criado internamente pelo `Gateway` (via `NewGateway`). Coordena a síntese de áudio
+com timeout para evitar bloqueio indefinido se a API TTS estiver lenta.
 
-#### 3.2 — Integrar no flow de notificação de canais
+**Arquivo:** `internal/messaging/gateway.go`
 
-No `responseNotifier.Notify()`:
-1. `ttsBroker.Prepare(savedMsgID)` antes de salvar
-2. Goroutine: gerar TTS → `ttsBroker.Publish(savedMsgID, audio, mimeType)`
-3. Gateway callback: `ttsBroker.Wait(savedMsgID, 5s)` para obter o áudio
+- `TTSBroker` é campo privado do Gateway, criado automaticamente
+- No callback de resposta, o fluxo usa `Prepare → goroutine(synthesizeTTS → Publish/Cancel) → Wait(5s)`
+- Se Wait retorna áudio: envia áudio + salva no DB
+- Se timeout ou Cancel: envia texto (fallback)
+
+#### 3.2 — Fix de leak no Wait
+
+**Arquivo:** `internal/messaging/tts_broker.go`
+
+`Wait()` agora limpa o slot do mapa ao dar timeout, prevenindo leak de memória.
+Se a goroutine de TTS chamar `Publish` após o timeout, é no-op (slot já removido).
 
 ### Fase 4 — Configurabilidade e acessibilidade
 
