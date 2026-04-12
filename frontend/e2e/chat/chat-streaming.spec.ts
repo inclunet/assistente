@@ -35,16 +35,17 @@ test.describe('Chat — streaming multi-segmento', () => {
     await textarea.fill('Pesquise sobre IA');
     await textarea.press('Enter');
 
-    // Inicia streaming (token vazio para criar o container do assistente)
+    // Inicia streaming (conteúdo vazio para criar o container do assistente)
     await wails.emit('chat:stream', {
       conversationId: 1,
       messageId: 2,
-      token: '',
+      content: '',
       done: false,
     });
 
-    // Tool call dentro do stream
+    // Tool call dentro do stream (conversationId obrigatório para filtro backend-driven)
     await wails.emit('chat:tool_start', {
+      conversationId: 1,
       name: 'search_web',
       callId: 'tc-seg-1',
       args: '{"query":"inteligência artificial"}',
@@ -54,6 +55,7 @@ test.describe('Chat — streaming multi-segmento', () => {
     await expect(toolSection).toBeVisible({ timeout: 5_000 });
 
     await wails.emit('chat:tool_end', {
+      conversationId: 1,
       callId: 'tc-seg-1',
       name: 'search_web',
       status: 'success',
@@ -67,9 +69,8 @@ test.describe('Chat — streaming multi-segmento', () => {
     await wails.emit('chat:stream', {
       conversationId: 1,
       messageId: 2,
-      token: '',
-      done: true,
       content: 'Baseado na pesquisa, a IA é uma tecnologia que...',
+      done: true,
     });
 
     await wails.emit('chat:done', {});
@@ -93,13 +94,12 @@ test.describe('Chat — streaming multi-segmento', () => {
     await textarea.fill('Teste');
     await textarea.press('Enter');
 
-    // Simula streaming completo
+    // Simula stream do backend: resposta do assistente
     await wails.emit('chat:stream', {
       conversationId: 1,
       messageId: 2,
-      token: 'Resposta completa.',
-      done: true,
       content: 'Resposta completa.',
+      done: true,
     });
     await wails.emit('chat:done', {});
 
@@ -185,8 +185,9 @@ test.describe('Chat — thinking/reasoning', () => {
     await textarea.fill('Pense sobre isso');
     await textarea.press('Enter');
 
-    // Simula início de thinking
+    // Simula início de thinking (conversationId obrigatório)
     await wails.emit('chat:thinking', {
+      conversationId: 1,
       started: true,
       content: 'Analisando a pergunta...',
     });
@@ -197,6 +198,7 @@ test.describe('Chat — thinking/reasoning', () => {
 
     // Finaliza thinking e inicia resposta
     await wails.emit('chat:thinking', {
+      conversationId: 1,
       done: true,
       content: 'Analisando a pergunta... Considerando diferentes perspectivas.',
     });
@@ -204,9 +206,8 @@ test.describe('Chat — thinking/reasoning', () => {
     await wails.emit('chat:stream', {
       conversationId: 1,
       messageId: 2,
-      token: 'Após analisar, a resposta é...',
-      done: true,
       content: 'Após analisar, a resposta é...',
+      done: true,
     });
 
     await wails.emit('chat:done', {});

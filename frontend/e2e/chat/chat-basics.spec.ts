@@ -52,6 +52,13 @@ test.describe('Chat — envio de mensagem', () => {
     // Envia com Enter
     await textarea.press('Enter');
 
+    // Backend-driven: emite chat:messages_ready como o backend real faria
+    await wails.emit('chat:messages_ready', {
+      conversationId: 1,
+      userMessageId: 100,
+      userContent: 'Olá, assistente!',
+    });
+
     // A mensagem do usuário deve aparecer na lista
     const userMessage = page.locator('.message-node').first();
     await expect(userMessage).toBeVisible({ timeout: 5_000 });
@@ -116,20 +123,19 @@ test.describe('Chat — streaming de resposta', () => {
     // Aguarda as mensagens renderizarem
     await page.waitForSelector('.message-node', { timeout: 5_000 });
 
-    // Simula stream do backend: envia token por token
+    // Simula stream do backend: envia conteúdo
     await wails.emit('chat:stream', {
       conversationId: 1,
       messageId: 2,
-      token: 'Olá! Como posso ajudar?',
+      content: 'Olá! Como posso ajudar?',
       done: false,
     });
 
     await wails.emit('chat:stream', {
       conversationId: 1,
       messageId: 2,
-      token: '',
-      done: true,
       content: 'Olá! Como posso ajudar?',
+      done: true,
     });
 
     // O conteúdo do streaming deve aparecer eventualmente

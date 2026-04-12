@@ -703,6 +703,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
+        ensureAssistantNode();
         if (event.started) {
           set({ isThinking: true, streamingReasoning: event.content || '' });
           announce('O modelo está pensando...', 'polite');
@@ -717,6 +718,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const unsubToolStart = EventsOn('chat:tool_start', (data: ChatToolStartEvent) => {
         if (data.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
+        ensureAssistantNode();
         set((state) => ({
           activeToolCalls: [
             ...state.activeToolCalls,
@@ -846,25 +848,24 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         console.error('[Chat] Error sending message:', error);
         cleanup();
         const errorMsg = getErrorMessage(error);
-        if (assistantNodeCreated) {
-          get().updateMessage(streamingMsgId, `Erro ao enviar mensagem: ${errorMsg}`);
-          set((state) => {
-            if (!state.activeConversation) return state;
-            return {
-              activeConversation: {
-                ...state.activeConversation,
-                threadedMessages: state.activeConversation.threadedMessages.map((node) => {
-                  const markDone = (n: MessageNode): MessageNode => {
-                    if (n.message.id === streamingMsgId) n.message.isStreaming = false;
-                    if (n.children?.length) n.children = n.children.map(markDone);
-                    return n;
-                  };
-                  return markDone(node);
-                }),
-              },
-            };
-          });
-        }
+        ensureAssistantNode();
+        get().updateMessage(streamingMsgId, `Erro ao enviar mensagem: ${errorMsg}`);
+        set((state) => {
+          if (!state.activeConversation) return state;
+          return {
+            activeConversation: {
+              ...state.activeConversation,
+              threadedMessages: state.activeConversation.threadedMessages.map((node) => {
+                const markDone = (n: MessageNode): MessageNode => {
+                  if (n.message.id === streamingMsgId) n.message.isStreaming = false;
+                  if (n.children?.length) n.children = n.children.map(markDone);
+                  return n;
+                };
+                return markDone(node);
+              }),
+            },
+          };
+        });
         set({ isLoading: false, streamingMessageId: null });
       }
     },
@@ -1192,6 +1193,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
+        ensureAssistantNode();
         if (event.started) {
           set({ isThinking: true, streamingReasoning: event.content || '' });
           announce('O modelo está pensando...', 'polite');
@@ -1206,6 +1208,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const unsubToolStart = EventsOn('chat:tool_start', (event: ChatToolStartEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
+        ensureAssistantNode();
         set((state) => ({
           activeToolCalls: [...state.activeToolCalls, {
             name: event.name, callId: event.callId, args: event.args, status: 'running' as const,
