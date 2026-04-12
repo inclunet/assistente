@@ -155,7 +155,7 @@ func (s *Service) RunAgenticLoop(
 
 			// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior)
 			if s.onSpeechRequest != nil && result.FullResponse != "" {
-				go s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", false)
+				s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", false)
 			}
 		}
 
@@ -324,16 +324,16 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		FullResponse:   result.FullResponse,
 	})
 
+	// TTS proativo: dispara ANTES de chat:done pois chat:done causa cleanup dos listeners no frontend
+	if s.onSpeechRequest != nil && result.FullResponse != "" {
+		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", true)
+	}
+
 	s.emitter.Emit("chat:done", ports.DoneEvent{
 		ConversationID:     conversationID,
 		AssistantMessageID: savedMsgID,
 		HadToolCalls:       turnID > 0,
 	})
-
-	// TTS proativo: dispara fala da resposta do assistente (não bloqueia)
-	if s.onSpeechRequest != nil && result.FullResponse != "" {
-		go s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", true)
-	}
 
 	if s.triggerSummarize != nil {
 		go func() {
