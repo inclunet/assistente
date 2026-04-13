@@ -227,6 +227,7 @@ func (m *SAPI5Manager) GetVoices() []Voice {
 
 	if !m.initialized {
 		if err := m.initialize(); err != nil {
+			log.Printf("[SAPI5] falha ao inicializar COM: %v", err)
 			return []Voice{}
 		}
 	}
