@@ -313,18 +313,6 @@ func (s *Service) GetTTSVoices(providerID string) []TTSVoiceEntry {
 	return result
 }
 
-// GetTTSModels retorna modelos TTS disponíveis para um provedor.
-func (s *Service) GetTTSModels(providerID string) []SpeechModelInfo {
-	if providerID == "" {
-		return []SpeechModelInfo{}
-	}
-	client := s.CreateTTSClient(providerID, "")
-	if client == nil {
-		return StaticTTSModels()
-	}
-	return client.FetchTTSModels()
-}
-
 // GetSTTModels retorna modelos STT disponíveis para um provedor.
 func (s *Service) GetSTTModels(providerID string) []SpeechModelInfo {
 	if providerID == "" {

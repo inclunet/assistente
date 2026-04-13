@@ -88,10 +88,6 @@ func (c *SpeechController) GetTTSVoices(profileID, providerID string) []speech.T
 	return c.speechSvc.GetTTSVoices(providerID)
 }
 
-func (c *SpeechController) GetTTSModels(providerID string) []speech.SpeechModelInfo {
-	return c.speechSvc.GetTTSModels(providerID)
-}
-
 func (c *SpeechController) GetSTTModels(providerID string) []speech.SpeechModelInfo {
 	return c.speechSvc.GetSTTModels(providerID)
 }
