@@ -194,13 +194,13 @@ Se a goroutine de TTS chamar `Publish` após o timeout, é no-op (slot já remov
 `buildChatSpeakEvent` já resolve:
 - TTS desabilitado → strategy `none`
 - TTS habilitado, auto-read desabilitado → strategy `announce`
-- TTS habilitado, auto-read habilitado → `webspeech`/`sapi5`/`backend_audio`
+- TTS habilitado, auto-read habilitado → `webspeech`/`backend_audio` (incluindo SAPI5 via `providerId="sapi5"`)
 
 Validar cada cenário com testes.
 
-#### 4.2 — Garantir `announce()` para acessibilidade
+#### 4.2 — Comportamento de `announce()` para acessibilidade
 
-`handleChatSpeak` atualmente **NÃO** chama `announce()` para as strategies `backend_audio`, `webspeech` e `sapi5`. Quando TTS funciona, o screen reader não é notificado. Corrigir para chamar `announce()` em **todas** as strategies (não só na strategy `announce`).
+Decisão de design: `handleChatSpeak` **não** chama `announce()` para `backend_audio` e `webspeech` quando o TTS é executado com sucesso, para evitar dupla reprodução (TTS + leitor de tela). `announce()` ocorre apenas quando a strategy resolvida é `announce` e como fallback de acessibilidade quando `backend_audio` falha (`played=false`). Qualquer ampliação desse comportamento para outras strategies deve ser tratada como discussão futura fora do escopo desta AEP.
 
 ### Fase 5 — Limpar código legado
 
