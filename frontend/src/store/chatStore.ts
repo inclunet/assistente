@@ -590,7 +590,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         cleanup();
       });
 
-      // chat:speak → TTS proativo disparado pelo backend após chat:done/segment_done
+      // chat:speak → TTS proativo disparado pelo backend antes de chat:done, para evitar cleanup prematuro dos listeners
       unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
