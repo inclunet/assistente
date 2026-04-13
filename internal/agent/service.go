@@ -153,8 +153,10 @@ func (s *Service) RunAgenticLoop(
 				HasMore:        !result.IsDone,
 			})
 
-			// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior)
-			if s.onSpeechRequest != nil && result.FullResponse != "" {
+			// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior).
+			// Apenas para iterações intermediárias (!IsDone); na última iteração,
+			// SaveAndFinish emite chat:speak com origin=assistant_message e messageId real.
+			if s.onSpeechRequest != nil && result.FullResponse != "" && !result.IsDone {
 				s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
 			}
 		}
