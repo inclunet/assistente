@@ -232,6 +232,75 @@ O `appStreamHandler` em `app_stream_handler.go` é legado — todo o streaming p
 | Race: `chat:speak` chega depois do cleanup | `dispatchSpeechEvent` é chamado **antes** de `chat:done`, de forma síncrona |
 | Regressão no play button (on-demand) | Path separado do `chat:speak`; `triggerAutoRead` mantida para on-demand |
 | SAPI5 `isSpeaking` stale data | Fix do isSpeaking (AEP-0028 Fase 2B) já aplicado |
+| Latência SAPI5 via WAV (Fase 7) | ~50-200ms para escrita WAV + leitura + base64 — imperceptível na prática |
+
+### Fase 7 — Unificação SAPI5 → backend_audio
+
+#### Motivação
+
+SAPI5 usa uma pipeline completamente separada: o frontend orquestra fala direta nos
+alto-falantes via COM, com polling de `IsSpeaking()`. Isso impede cache, controle completo
+de playback (pause/resume), e mantém uma strategy e provider frontend dedicados.
+
+A API COM SAPI5 suporta redirecionar output para `SpFileStream`, gerando WAV em arquivo.
+Com isso, SAPI5 pode usar a mesma pipeline que provedores API (backend_audio):
+  backend gera bytes → base64 → frontend reproduz via `HTMLAudioElement`.
+
+#### 7.1 — Backend: `SAPI5Manager.SynthesizeToBytes`
+
+**Arquivo:** `internal/speech/sapi5_windows.go`
+
+Novo método que redireciona `SpVoice.AudioOutputStream` para um `SpFileStream` temporário:
+
+```go
+func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume int) ([]byte, error)
+```
+
+Passos:
+1. Seleciona voz (se especificada)
+2. Configura rate e volume
+3. Cria `SAPI.SpFileStream` → abre temp WAV (SSFMCreateForWrite=3)
+4. Redireciona `SpVoice.AudioOutputStream` para o SpFileStream
+5. `SpVoice.Speak(text, 0)` — síncrono, escreve no arquivo
+6. Fecha SpFileStream, restaura output padrão
+7. Lê bytes do WAV, remove temp file, retorna `[]byte`
+
+**Arquivo:** `internal/speech/sapi5_other.go` — stub retorna `nil, nil`.
+
+#### 7.2 — Backend: rotear SAPI5 em `SpeakMessage`
+
+**Arquivo:** `internal/speech/service.go`
+
+Em `SpeakMessage()`, quando `providerID == "sapi5"`:
+- Chama `GetSAPI5Manager().SynthesizeToBytes(content, voiceID, rate, volume)`
+- Encoda em base64, salva no DB, retorna `AudioResult{audio, "audio/wav"}`
+- **Mesmo path de cache** que provedores API (DB hit → skip síntese)
+
+#### 7.3 — Backend: strategy SAPI5 → backend_audio
+
+**Arquivo:** `app_speech_events.go`
+
+Em `buildChatSpeakEvent`, quando `cfg.Provider == "sapi5"`:
+- Emite `strategy: "backend_audio"` (com `fallbackStrategy: "announce"`)
+- `ProviderID` = `"sapi5"` (identificador usado em SpeakMessage para rotear)
+
+#### 7.4 — Frontend: sem mudanças
+
+O frontend não precisa de alterações:
+- `handleChatSpeak` com `strategy=backend_audio` já chama `messageAudioService.speakMessage()`
+- `SpeakMessage` Wails RPC passa `providerId="sapi5"` ao backend, que roteia internamente
+- Cache LRU + DB funciona automaticamente
+- Playback via `HTMLAudioElement` com controle completo
+
+#### Benefícios
+
+| Aspecto | Antes (strategy=sapi5) | Depois (backend_audio) |
+|---|---|---|
+| Pipeline | Separada (COM → speakers) | Unificada (COM → WAV → base64 → HTMLAudio) |
+| Cache | Nenhum | DB + memória LRU (replay instantâneo) |
+| Playback control | Limitado (stop, volume, rate) | Completo (pause, resume, seek, volume) |
+| Frontend code | SAPI5Provider + polling | Nenhum código SAPI5 no frontend |
+| Latência | ~10ms (COM direto) | ~50-200ms (WAV + IPC) |
 
 ## Referências
 

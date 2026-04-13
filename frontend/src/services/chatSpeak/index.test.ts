@@ -103,29 +103,6 @@ describe('chatSpeak service', () => {
     });
   });
 
-  it('sapi5 respeita os parâmetros do evento', async () => {
-    await handleChatSpeak({
-      role: 'assistant',
-      text: 'Resposta',
-      strategy: 'sapi5',
-      autoRead: true,
-      providerId: 'sapi5',
-      voiceId: 'Microsoft Maria',
-      rate: 1.1,
-      volume: 0.6,
-    });
-
-    expect(announceMock).not.toHaveBeenCalled();
-    expect(speakWithOverrideMock).toHaveBeenCalledWith('Resposta', {
-      providerId: 'sapi5',
-      voiceName: 'Microsoft Maria',
-      ttsModel: undefined,
-      rate: 1.1,
-      pitch: undefined,
-      volume: 0.6,
-    });
-  });
-
   it('backend_audio usa SpeakMessage com o contexto do evento', async () => {
     speakMessageMock.mockResolvedValue(true);
 

@@ -41,10 +41,9 @@ func stripMarkdownForTTS(text string) string {
 type ChatSpeakStrategy string
 
 const (
-	ChatSpeakStrategyNone        ChatSpeakStrategy = "none"
-	ChatSpeakStrategyAnnounce    ChatSpeakStrategy = "announce"
-	ChatSpeakStrategyWebSpeech   ChatSpeakStrategy = "webspeech"
-	ChatSpeakStrategySAPI5       ChatSpeakStrategy = "sapi5"
+	ChatSpeakStrategyNone         ChatSpeakStrategy = "none"
+	ChatSpeakStrategyAnnounce     ChatSpeakStrategy = "announce"
+	ChatSpeakStrategyWebSpeech    ChatSpeakStrategy = "webspeech"
 	ChatSpeakStrategyBackendAudio ChatSpeakStrategy = "backend_audio"
 )
 
@@ -186,7 +185,10 @@ func (a *App) buildChatSpeakEvent(req ChatSpeakRequest, role, text string, cfg p
 	case cfg.Provider == "webspeech":
 		event.Strategy = ChatSpeakStrategyWebSpeech
 	case cfg.Provider == "sapi5":
-		event.Strategy = ChatSpeakStrategySAPI5
+		// SAPI5 unificado: backend gera WAV via COM, frontend reproduz como backend_audio
+		event.Strategy = ChatSpeakStrategyBackendAudio
+		event.ProviderID = "sapi5"
+		event.FallbackStrategy = ChatSpeakStrategyAnnounce
 	case effectiveVoiceProviderID(cfg) == "":
 		event.Strategy = ChatSpeakStrategyAnnounce
 	default:

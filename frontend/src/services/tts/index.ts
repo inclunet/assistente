@@ -1,6 +1,6 @@
 /**
  * TTS Service - Serviço de Text-to-Speech com múltiplos provedores
- * Suporta WebSpeech API, SAPI5 (Windows) e OpenAI TTS
+ * Suporta WebSpeech API e OpenAI TTS (SAPI5 foi unificado via backend_audio)
  */
 
 import { TTSProvider, ITTSProvider, TTSVoice, TTSConfig } from './types';
@@ -33,7 +33,7 @@ const getTTSVoices = async (profileId: string, providerId: string): Promise<Back
 
 /** Configuração de voz por role (assistant, user, system) */
 export interface RoleVoiceConfig {
-  providerId: string;   // "webspeech", "sapi5", ou LLM provider ID
+  providerId: string;   // "webspeech" ou LLM provider ID ("sapi5" delega ao backend)
   voiceId: string;      // ID da voz
   model: string;        // modelo TTS (ex: "tts-1")
   rate: number;
@@ -60,7 +60,7 @@ class TTSService {
   private activeStreamPlayer: { stop: () => void } | null = null;
   private activeStreamAbort: AbortController | null = null;
   private providerListeners: { provider: ITTSProvider; start: () => void; end: () => void; error: (e: CustomEvent<{ error: Error }>) => void } | null = null;
-  /** Guard: previne chamadas simultâneas a speakWithOverride (webspeech/sapi5 path) */
+  /** Guard: previne chamadas simultâneas a speakWithOverride (webspeech path) */
   private overrideLock: Promise<void> | null = null;
   
   constructor() {
@@ -139,17 +139,11 @@ class TTSService {
    * Suporta formato "provider:voiceId" ou nome de voz direto
    */
   private detectProviderFromVoice(voiceName: string): TTSProvider {
-    // Formato provider:voiceId (ex: "openai:alloy", "sapi5:Microsoft David")
+    // Formato provider:voiceId (ex: "openai:alloy")
     if (voiceName.includes(':')) {
       const [provider] = voiceName.split(':');
       if (provider === 'openai') return TTSProvider.OPENAI;
-      if (provider === 'sapi5') return TTSProvider.SAPI5;
       if (provider === 'webspeech') return TTSProvider.WEBSPEECH;
-    }
-    
-    // Formato legado - detecta pelo nome da voz
-    if (voiceName.includes('Microsoft') || voiceName.includes('SAPI')) {
-      return TTSProvider.SAPI5;
     }
     if (voiceName.match(/^(alloy|ash|ballad|coral|echo|fable|nova|onyx|sage|shimmer|verse)$/)) {
       return TTSProvider.OPENAI;
@@ -392,12 +386,13 @@ class TTSService {
    *
    * Se `providerId` é fornecido, usa-o diretamente em vez de adivinhar pelo nome da voz.
    * Para providers LLM (ex: "openai-default-xxx"), delega ao backend via SpeakPreview.
-   * Para "webspeech" e "sapi5", usa os providers frontend.
+   * Para "webspeech", usa o provider frontend.
+   * Para "sapi5" e providers LLM, delega ao backend via SpeakPreview.
    */
   async speakWithOverride(text: string, options: { voiceName?: string; providerId?: string; rate?: number; pitch?: number; volume?: number; ttsModel?: string }): Promise<void> {
     const voiceId = options.voiceName ? this.extractVoiceId(options.voiceName) : undefined;
 
-    // Resolve o tipo de provider: webspeech, sapi5, ou LLM (OpenAI-like)
+    // Resolve o tipo de provider: webspeech ou LLM/sapi5 (backend)
     const resolvedProvider = this.resolveProviderType(options.providerId);
 
     // LLM providers (OpenAI-like) → delega ao backend que sabe criar o TTSClient correto
@@ -413,7 +408,7 @@ class TTSService {
       return;
     }
 
-    // WebSpeech e SAPI5 → usar providers frontend (funcionam bem localmente)
+    // WebSpeech → usar provider frontend (funciona bem localmente)
     // Guard contra chamadas simultâneas que corromperiam o config global
     if (this.overrideLock) {
       try { await this.overrideLock; } catch { /* ignorar */ }
@@ -427,7 +422,7 @@ class TTSService {
     let providerChanged = false;
 
     try {
-      const targetProvider = resolvedProvider === 'sapi5' ? TTSProvider.SAPI5 : TTSProvider.WEBSPEECH;
+      const targetProvider = TTSProvider.WEBSPEECH;
       if (targetProvider !== this.config.provider) {
         await this.selectProvider(targetProvider);
         providerChanged = true;
@@ -481,12 +476,12 @@ class TTSService {
 
   /**
    * Resolve o tipo de provider para roteamento.
-   * Retorna 'webspeech', 'sapi5' ou 'llm'.
+   * Retorna 'webspeech' ou 'llm'.
+   * SAPI5 é tratado como 'llm' — preview via backend SpeakPreview.
    */
-  private resolveProviderType(providerId?: string): 'webspeech' | 'sapi5' | 'llm' {
+  private resolveProviderType(providerId?: string): 'webspeech' | 'llm' {
     if (providerId) {
       if (providerId === 'webspeech') return 'webspeech';
-      if (providerId === 'sapi5') return 'sapi5';
       return 'llm';
     }
     return 'webspeech';
@@ -625,24 +620,20 @@ class TTSService {
     if (providerId === 'sapi5') {
       try {
         const voices = await getTTSVoices(profileId, providerId);
-        if (voices && voices.length > 0) {
-          return voices.map((v) => ({
-            id: v.name,
-            name: v.name,
-            language: 'multilingual',
-            provider: providerId,
-            gender: (v.gender || 'neutral').toLowerCase() as 'neutral' | 'male' | 'female',
-            premium: false,
-            localService: true,
-            description: v.description || v.name
-          }));
-        }
+        return (voices || []).map((v) => ({
+          id: v.name,
+          name: v.name,
+          language: 'multilingual',
+          provider: providerId,
+          gender: (v.gender || 'neutral').toLowerCase() as 'neutral' | 'male' | 'female',
+          premium: false,
+          localService: true,
+          description: v.description || v.name
+        }));
       } catch (error) {
         console.error('[TTSService] Erro ao buscar vozes SAPI5:', error);
+        return [];
       }
-
-      const p = ttsFactory.getProvider(TTSProvider.SAPI5);
-      return p ? await p.getVoices() : [];
     }
 
     // Se for um provedor LLM registrado, busca via backend

@@ -48,6 +48,11 @@ func (m *SAPI5Manager) Speak(text string, voiceID string) error {
 	return nil
 }
 
+// SynthesizeToBytes retorna nil em sistemas não-Windows (SAPI5 indisponível)
+func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume int) ([]byte, error) {
+	return nil, nil
+}
+
 // Stop não faz nada em sistemas não-Windows
 func (m *SAPI5Manager) Stop() error {
 	return nil

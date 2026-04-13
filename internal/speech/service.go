@@ -179,32 +179,53 @@ func (s *Service) SpeakMessage(messageID uint, providerID string, voiceID string
 		return nil, fmt.Errorf("mensagem %d sem conteúdo textual", messageID)
 	}
 
-	// 3. Cria TTS client com os parâmetros
+	// 3. Gera TTS: roteia entre SAPI5 (local) e provedores API (HTTP)
 	log.Printf("[TTS] SpeakMessage(%d): cache miss, gerando TTS (%d chars) provider=%s voice=%s model=%s", messageID, len(content), providerID, voiceID, model)
 
-	if model == "" {
-		model = voiceID
-	}
-	speed := rate
-	if speed < 0.25 {
-		speed = 1.0
-	}
+	var audioData []byte
+	var mimeType string
 
-	client := s.CreateTTSClient(providerID, model)
-	if client == nil {
-		return nil, fmt.Errorf("provider TTS %q não encontrado", providerID)
-	}
-	client.SetVoice(TTSVoice(voiceID))
-	client.SetSpeed(speed)
+	if providerID == "sapi5" {
+		// SAPI5: síntese local via COM → WAV
+		sapi5Rate := int(rate)
+		if sapi5Rate == 0 {
+			sapi5Rate = 0 // rate 0 = velocidade normal para SAPI5 (-10 a 10)
+		}
+		audioData, err = GetSAPI5Manager().SynthesizeToBytes(content, voiceID, sapi5Rate, 100)
+		if err != nil {
+			log.Printf("[TTS] SpeakMessage(%d): erro SAPI5: %v", messageID, err)
+			return nil, fmt.Errorf("SAPI5 synthesis for message %d: %w", messageID, err)
+		}
+		if len(audioData) == 0 {
+			return nil, fmt.Errorf("SAPI5 returned empty audio for message %d", messageID)
+		}
+		mimeType = "audio/wav"
+	} else {
+		// Provedores API (OpenAI-compatible): síntese via HTTP
+		if model == "" {
+			model = voiceID
+		}
+		speed := rate
+		if speed < 0.25 {
+			speed = 1.0
+		}
 
-	audioData, err := client.Synthesize(content)
-	if err != nil {
-		log.Printf("[TTS] SpeakMessage(%d): erro ao gerar: %v", messageID, err)
-		return nil, fmt.Errorf("generate audio for message %d: %w", messageID, err)
+		client := s.CreateTTSClient(providerID, model)
+		if client == nil {
+			return nil, fmt.Errorf("provider TTS %q não encontrado", providerID)
+		}
+		client.SetVoice(TTSVoice(voiceID))
+		client.SetSpeed(speed)
+
+		audioData, err = client.Synthesize(content)
+		if err != nil {
+			log.Printf("[TTS] SpeakMessage(%d): erro ao gerar: %v", messageID, err)
+			return nil, fmt.Errorf("generate audio for message %d: %w", messageID, err)
+		}
+		mimeType = "audio/mpeg"
 	}
 
 	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
-	mimeType := "audio/mpeg"
 
 	cached := true
 	if saveErr := s.audioRepo.SaveMessageAudio(messageID, audioBase64, mimeType); saveErr != nil {
@@ -543,41 +564,6 @@ func (s *Service) SetTTSSpeed(speed float64) {
 // InitFromConfig cria um speech manager a partir de config explícita.
 func (s *Service) InitFromConfig(cfg SpeechConfig) {
 	s.speechManager = NewSpeechManager(cfg, s.credMgr)
-}
-
-// GetSAPI5Voices retorna as vozes SAPI5 instaladas.
-func (s *Service) GetSAPI5Voices() []Voice {
-	manager := GetSAPI5Manager()
-	if err := manager.Initialize(); err != nil {
-		log.Printf("SAPI5 Initialize error (may be expected on non-Windows): %v", err)
-		return nil
-	}
-	return manager.GetVoices()
-}
-
-// SpeakSAPI5 sintetiza texto usando SAPI5.
-func (s *Service) SpeakSAPI5(text, voiceName string) error {
-	return GetSAPI5Manager().Speak(text, voiceName)
-}
-
-// StopSAPI5 para a síntese SAPI5 atual.
-func (s *Service) StopSAPI5() error {
-	return GetSAPI5Manager().Stop()
-}
-
-// SetSAPI5Volume define volume SAPI5 (0-100).
-func (s *Service) SetSAPI5Volume(volume int) error {
-	return GetSAPI5Manager().SetVolume(volume)
-}
-
-// SetSAPI5Rate define velocidade SAPI5 (-10 a 10).
-func (s *Service) SetSAPI5Rate(rate int) error {
-	return GetSAPI5Manager().SetRate(rate)
-}
-
-// IsSAPI5Speaking verifica se SAPI5 está falando.
-func (s *Service) IsSAPI5Speaking() bool {
-	return GetSAPI5Manager().IsSpeaking()
 }
 
 // GetAvailableVoices retorna vozes OpenAI disponíveis.

@@ -21,34 +21,6 @@ func NewSpeechController(cfg SpeechControllerConfig) *SpeechController {
 }
 
 // ============================================================================
-// SAPI5 Voice Methods (Windows only)
-// ============================================================================
-
-func (c *SpeechController) GetSAPI5Voices() []speech.Voice {
-	return c.speechSvc.GetSAPI5Voices()
-}
-
-func (c *SpeechController) SpeakSAPI5(text, voiceName string) error {
-	return c.speechSvc.SpeakSAPI5(text, voiceName)
-}
-
-func (c *SpeechController) StopSAPI5() error {
-	return c.speechSvc.StopSAPI5()
-}
-
-func (c *SpeechController) SetSAPI5Volume(volume int) error {
-	return c.speechSvc.SetSAPI5Volume(volume)
-}
-
-func (c *SpeechController) SetSAPI5Rate(rate int) error {
-	return c.speechSvc.SetSAPI5Rate(rate)
-}
-
-func (c *SpeechController) IsSAPI5Speaking() bool {
-	return c.speechSvc.IsSAPI5Speaking()
-}
-
-// ============================================================================
 // OpenAI Speech API Methods (Whisper STT + OpenAI TTS)
 // ============================================================================
 

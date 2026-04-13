@@ -6,7 +6,7 @@ import { messageAudioService } from '../messageAudio';
 import { ttsService } from '../tts';
 import type { VoiceRole } from '../tts';
 
-export type ChatSpeakStrategy = 'announce' | 'webspeech' | 'sapi5' | 'backend_audio' | 'none';
+export type ChatSpeakStrategy = 'announce' | 'webspeech' | 'backend_audio' | 'none';
 
 export type ChatSpeakOrigin =
   | 'assistant_message'
@@ -129,9 +129,9 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
     return;
   }
 
-  if (event.strategy === 'webspeech' || event.strategy === 'sapi5') {
+  if (event.strategy === 'webspeech') {
     await ttsService.speakWithOverride(text, {
-      providerId: event.providerId ?? event.strategy,
+      providerId: event.providerId ?? 'webspeech',
       voiceName: event.voiceId,
       ttsModel: event.model,
       rate: event.rate,

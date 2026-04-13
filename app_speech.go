@@ -37,21 +37,6 @@ func synthesisResultInfo(r *speech.SynthesisResult) *SynthesisResultInfo {
 }
 
 // ============================================================================
-// SAPI5 Voice Methods (Windows only)
-// ============================================================================
-
-func (a *App) GetSAPI5Voices() ([]speech.Voice, error) {
-	return a.speechSvc.GetSAPI5Voices(), nil
-}
-func (a *App) SpeakSAPI5(text, voiceName string) error {
-	return a.speechSvc.SpeakSAPI5(text, voiceName)
-}
-func (a *App) StopSAPI5() error                { return a.speechSvc.StopSAPI5() }
-func (a *App) SetSAPI5Volume(volume int) error { return a.speechSvc.SetSAPI5Volume(volume) }
-func (a *App) SetSAPI5Rate(rate int) error     { return a.speechSvc.SetSAPI5Rate(rate) }
-func (a *App) IsSAPI5Speaking() bool           { return a.speechSvc.IsSAPI5Speaking() }
-
-// ============================================================================
 // OpenAI Speech API Methods (Whisper STT + OpenAI TTS)
 // ============================================================================
 

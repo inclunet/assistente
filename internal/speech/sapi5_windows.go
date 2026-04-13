@@ -6,6 +6,8 @@ package speech
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
 	"unicode/utf16"
 
@@ -265,6 +267,122 @@ func (m *SAPI5Manager) Speak(text string, voiceName string) error {
 	}
 
 	return nil
+}
+
+// SynthesizeToBytes sintetiza texto via SAPI5 e retorna bytes WAV.
+// Redireciona o output do SpVoice para um SpFileStream temporário,
+// gerando um arquivo WAV que é lido e retornado como []byte.
+func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume int) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.initialized {
+		if err := m.Initialize(); err != nil {
+			return nil, err
+		}
+	}
+
+	if voiceName != "" {
+		if err := m.selectVoice(voiceName); err != nil {
+			log.Printf("[SAPI5] Warning: failed to select voice '%s': %v", voiceName, err)
+		}
+	}
+
+	// Configura rate e volume
+	if rate >= -10 && rate <= 10 {
+		oleutil.PutProperty(m.spVoice, "Rate", rate)
+	}
+	if volume >= 0 && volume <= 100 {
+		oleutil.PutProperty(m.spVoice, "Volume", volume)
+	}
+
+	// Cria arquivo temporário para saída WAV
+	tmpFile, err := os.CreateTemp("", "sapi5-*.wav")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpPath := tmpFile.Name()
+	tmpFile.Close()
+	defer os.Remove(tmpPath)
+
+	// Converte path para absoluto (COM precisa de path completo)
+	absPath, err := filepath.Abs(tmpPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+	}
+
+	// Salva referência ao output padrão antes de redirecionar
+	defaultOutputResult, err := oleutil.GetProperty(m.spVoice, "AudioOutputStream")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default AudioOutputStream: %w", err)
+	}
+	var defaultOutput *ole.IDispatch
+	if defaultOutputResult.VT != ole.VT_EMPTY && defaultOutputResult.VT != ole.VT_NULL {
+		defaultOutput = defaultOutputResult.ToIDispatch()
+	}
+
+	// Cria SpFileStream COM object
+	fileStreamUnknown, err := oleutil.CreateObject("SAPI.SpFileStream")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SpFileStream: %w", err)
+	}
+	fileStream, err := fileStreamUnknown.QueryInterface(ole.IID_IDispatch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query SpFileStream IDispatch: %w", err)
+	}
+	defer fileStream.Release()
+
+	// Abre o arquivo para escrita (SSFMCreateForWrite = 3)
+	const SSFMCreateForWrite = 3
+	_, err = oleutil.CallMethod(fileStream, "Open", absPath, SSFMCreateForWrite, false)
+	if err != nil {
+		return nil, fmt.Errorf("SpFileStream.Open failed: %w", err)
+	}
+
+	// Redireciona SpVoice para escrever no arquivo
+	_, err = oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", fileStream)
+	if err != nil {
+		oleutil.CallMethod(fileStream, "Close")
+		return nil, fmt.Errorf("failed to redirect AudioOutputStream: %w", err)
+	}
+
+	// Fala síncrona — escreve WAV no arquivo
+	_, err = oleutil.CallMethod(m.spVoice, "Speak", text, 0) // 0 = síncrono
+	speakErr := err
+
+	// Fecha o stream de arquivo
+	oleutil.CallMethod(fileStream, "Close")
+
+	// Restaura output padrão
+	if defaultOutput != nil {
+		oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", defaultOutput)
+	} else {
+		// Sem output padrão salvo — recria SpVoice para restaurar speakers
+		m.restoreDefaultOutput()
+	}
+
+	if speakErr != nil {
+		return nil, fmt.Errorf("SAPI5 Speak (to file) failed: %w", speakErr)
+	}
+
+	// Lê o arquivo WAV gerado
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read WAV file: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil, fmt.Errorf("SAPI5 generated empty WAV")
+	}
+
+	return data, nil
+}
+
+// restoreDefaultOutput recria a conexão com o output de áudio padrão.
+func (m *SAPI5Manager) restoreDefaultOutput() {
+	// Criar um novo SpVoice é a forma mais segura de restaurar o output padrão.
+	// Reutilizamos o spVoice existente e setamos AudioOutputStream para Nothing (nil/VT_EMPTY).
+	oleutil.PutProperty(m.spVoice, "AudioOutputStream", nil)
 }
 
 // selectVoice seleciona uma voz pelo nome
