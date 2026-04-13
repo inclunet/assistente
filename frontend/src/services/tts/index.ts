@@ -621,7 +621,7 @@ class TTSService {
       try {
         const voices = await getTTSVoices(profileId, providerId);
         return (voices || []).map((v) => ({
-          id: v.name,
+          id: v.id,
           name: v.name,
           language: 'multilingual',
           provider: providerId,
