@@ -60,7 +60,7 @@ vi.mock('../services/messageAudio', () => ({
 
 const mockHandleChatSpeak = vi.fn();
 vi.mock('../services/chatSpeak', () => ({
-  handleChatSpeak: (...args: unknown[]) => mockHandleChatSpeak(...args),
+  handleChatSpeak: (...args: unknown[]) => Promise.resolve(mockHandleChatSpeak(...args)),
 }));
 
 vi.mock('i18next', () => ({
