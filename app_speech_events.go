@@ -114,8 +114,6 @@ func (a *App) DispatchSpeech(req ChatSpeakRequest) error {
 func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error) {
 	text := stripMarkdownForTTS(req.Text)
 	if strings.TrimSpace(text) == "" {
-		log.Printf("[Speech] dispatchSpeechEvent: texto vazio após strip, ignorando (conv=%d role=%s origin=%s)",
-			req.ConversationID, req.Role, req.Origin)
 		return nil, nil
 	}
 
