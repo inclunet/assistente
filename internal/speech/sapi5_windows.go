@@ -298,15 +298,15 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	if err != nil {
 		return nil, fmt.Errorf("failed to create temp file: %w", err)
 	}
-	tmpPath := tmpFile.Name()
 	tmpFile.Close()
-	defer os.Remove(tmpPath)
 
 	// Converte path para absoluto (COM precisa de path completo)
-	absPath, err := filepath.Abs(tmpPath)
+	absPath, err := filepath.Abs(tmpFile.Name())
 	if err != nil {
+		os.Remove(tmpFile.Name())
 		return nil, fmt.Errorf("failed to get absolute path: %w", err)
 	}
+	defer os.Remove(absPath)
 
 	// Salva referência ao output padrão antes de redirecionar
 	defaultOutputResult, err := oleutil.GetProperty(m.spVoice, "AudioOutputStream")
