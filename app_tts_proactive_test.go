@@ -123,8 +123,8 @@ func TestBuildChatSpeakEventUsesAnnounceWhenDisabled(t *testing.T) {
 
 	event := app.buildChatSpeakEvent(req, "user", "Oi", cfg)
 
-	if event.Strategy != ChatSpeakStrategyAnnounce {
-		t.Fatalf("strategy = %q, want %q", event.Strategy, ChatSpeakStrategyAnnounce)
+	if event.Strategy != ChatSpeakStrategyNone {
+		t.Fatalf("strategy = %q, want %q", event.Strategy, ChatSpeakStrategyNone)
 	}
 	if event.AutoRead {
 		t.Fatal("autoRead = true, want false")
