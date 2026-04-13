@@ -595,6 +595,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         void handleChatSpeak(event).catch((err) => {
+          announce(i18next.t('chat.autoReadError'));
           console.error('[chat:speak] falha ao processar evento TTS', err);
         });
       });
@@ -1098,6 +1099,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         void handleChatSpeak(event).catch((err) => {
+          announce(i18next.t('chat.autoReadError'));
           console.error('[chat:speak] falha ao processar evento TTS', err);
         });
       });
