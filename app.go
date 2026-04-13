@@ -245,7 +245,7 @@ func (a *App) startup(ctx context.Context) {
 
 	// Callback reutilizado pelo agent.Service e ChatController
 	speechDispatcher := func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool) {
-		a.dispatchSpeechEvent(ChatSpeakRequest{
+		if _, err := a.dispatchSpeechEvent(ChatSpeakRequest{
 			ConversationID: conversationID,
 			MessageID:      messageID,
 			ProfileSlug:    profileSlug,
@@ -253,7 +253,9 @@ func (a *App) startup(ctx context.Context) {
 			Text:           text,
 			Origin:         ChatSpeakOrigin(origin),
 			Interrupt:      &interrupt,
-		})
+		}); err != nil {
+			log.Printf("[Speech] WARN: dispatchSpeechEvent falhou (conv=%d msg=%d): %v", conversationID, messageID, err)
+		}
 	}
 
 	// Inicializa o Agent Service (agentic loop desacoplado do Wails)
