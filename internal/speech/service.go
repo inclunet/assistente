@@ -293,10 +293,6 @@ func (s *Service) GetTTSVoices(providerID string) []TTSVoiceInfo {
 	// SAPI5: vozes do Windows
 	if providerID == "sapi5" {
 		manager := GetSAPI5Manager()
-		if err := manager.Initialize(); err != nil {
-			log.Printf("[GetTTSVoices] erro SAPI5: %v", err)
-			return []TTSVoiceInfo{}
-		}
 		voices := manager.GetVoices()
 		result := make([]TTSVoiceInfo, len(voices))
 		for i, v := range voices {

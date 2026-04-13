@@ -47,11 +47,9 @@ func GetSAPI5Manager() *SAPI5Manager {
 	return manager
 }
 
-// Initialize inicializa o COM e carrega as vozes disponíveis
-func (m *SAPI5Manager) Initialize() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+// initialize inicializa o COM e carrega as vozes disponíveis.
+// Deve ser chamado com m.mu já adquirido.
+func (m *SAPI5Manager) initialize() error {
 	if m.initialized {
 		return nil
 	}
@@ -228,7 +226,7 @@ func (m *SAPI5Manager) GetVoices() []Voice {
 	defer m.mu.Unlock()
 
 	if !m.initialized {
-		if err := m.Initialize(); err != nil {
+		if err := m.initialize(); err != nil {
 			return []Voice{}
 		}
 	}
@@ -242,7 +240,7 @@ func (m *SAPI5Manager) Speak(text string, voiceName string) error {
 	defer m.mu.Unlock()
 
 	if !m.initialized {
-		if err := m.Initialize(); err != nil {
+		if err := m.initialize(); err != nil {
 			return err
 		}
 	}
@@ -276,7 +274,7 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	defer m.mu.Unlock()
 
 	if !m.initialized {
-		if err := m.Initialize(); err != nil {
+		if err := m.initialize(); err != nil {
 			return nil, err
 		}
 	}
