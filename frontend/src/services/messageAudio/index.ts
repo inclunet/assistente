@@ -65,7 +65,6 @@ let currentMessageId: number | null = null;
 
 /** Para qualquer áudio em reprodução e resolve Promises pendentes */
 function stopCurrentAudio(): void {
-  currentMessageId = null;
   if (currentAbort) {
     currentAbort.abort();
     currentAbort = null;
