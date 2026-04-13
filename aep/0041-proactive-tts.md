@@ -1,6 +1,6 @@
 # AEP-0041: TTS Proativo (Backend-Driven)
 
-## Status: Em implementação
+## Status: Implementado (Fases 1–8)
 
 ## Motivação
 
