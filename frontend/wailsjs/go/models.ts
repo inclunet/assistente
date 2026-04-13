@@ -1847,32 +1847,6 @@ export namespace main {
 	        this.provider = source["provider"];
 	    }
 	}
-	export class SAPI5VoiceInfo {
-	    id: string;
-	    name: string;
-	    language: string;
-	    gender: string;
-	    age: string;
-	    vendor: string;
-	    description: string;
-	    source: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new SAPI5VoiceInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.language = source["language"];
-	        this.gender = source["gender"];
-	        this.age = source["age"];
-	        this.vendor = source["vendor"];
-	        this.description = source["description"];
-	        this.source = source["source"];
-	    }
-	}
 	export class SkillCreateRequest {
 	    name: string;
 	    version: string;

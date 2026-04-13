@@ -518,10 +518,6 @@ export function GetRecentMessagesTokenCount(arg1, arg2) {
   return window['go']['main']['App']['GetRecentMessagesTokenCount'](arg1, arg2);
 }
 
-export function GetSAPI5Voices() {
-  return window['go']['main']['App']['GetSAPI5Voices']();
-}
-
 export function GetSkill(arg1) {
   return window['go']['main']['App']['GetSkill'](arg1);
 }

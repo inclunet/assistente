@@ -180,7 +180,11 @@ func (a *App) buildChatSpeakEvent(req ChatSpeakRequest, role, text string, cfg p
 	}
 
 	switch {
-	case !cfg.Enabled || cfg.Provider == "" || cfg.Provider == "disabled":
+	case !cfg.Enabled || cfg.Provider == "disabled":
+		// TTS explicitamente desabilitado → silêncio completo
+		event.Strategy = ChatSpeakStrategyNone
+	case cfg.Provider == "":
+		// Nenhum provider configurado → anuncia via screen reader como fallback acessível
 		event.Strategy = ChatSpeakStrategyAnnounce
 	case cfg.Provider == "webspeech":
 		event.Strategy = ChatSpeakStrategyWebSpeech

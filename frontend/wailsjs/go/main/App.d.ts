@@ -275,8 +275,6 @@ export function GetProfiles():Promise<Array<profiles.ProfileInfo>>;
 
 export function GetRecentMessagesTokenCount(arg1:number,arg2:number):Promise<number>;
 
-export function GetSAPI5Voices():Promise<Array<main.SAPI5VoiceInfo>>;
-
 export function GetSkill(arg1:string):Promise<skills.Skill>;
 
 export function GetSkillSearchPaths():Promise<Array<string>>;
