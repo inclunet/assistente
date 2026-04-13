@@ -28,6 +28,8 @@ var (
 	managerOnce sync.Once
 )
 
+var errSAPI5Unavailable = errors.New("SAPI5 indisponível nesta plataforma")
+
 // GetSAPI5Manager retorna a instância singleton do manager
 func GetSAPI5Manager() *SAPI5Manager {
 	managerOnce.Do(func() {
@@ -41,29 +43,29 @@ func (m *SAPI5Manager) GetVoices() []Voice {
 	return []Voice{}
 }
 
-// Speak não faz nada em sistemas não-Windows
+// Speak retorna erro em sistemas não-Windows
 func (m *SAPI5Manager) Speak(text string, voiceID string) error {
-	return nil
+	return errSAPI5Unavailable
 }
 
 // SynthesizeToBytes retorna erro em sistemas não-Windows (SAPI5 indisponível)
 func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume int) ([]byte, error) {
-	return nil, errors.New("SAPI5 indisponível nesta plataforma")
+	return nil, errSAPI5Unavailable
 }
 
-// Stop não faz nada em sistemas não-Windows
+// Stop retorna erro em sistemas não-Windows
 func (m *SAPI5Manager) Stop() error {
-	return nil
+	return errSAPI5Unavailable
 }
 
-// SetVolume não faz nada em sistemas não-Windows
+// SetVolume retorna erro em sistemas não-Windows
 func (m *SAPI5Manager) SetVolume(volume int) error {
-	return nil
+	return errSAPI5Unavailable
 }
 
-// SetRate não faz nada em sistemas não-Windows
+// SetRate retorna erro em sistemas não-Windows
 func (m *SAPI5Manager) SetRate(rate int) error {
-	return nil
+	return errSAPI5Unavailable
 }
 
 // IsSpeaking retorna false em sistemas não-Windows
