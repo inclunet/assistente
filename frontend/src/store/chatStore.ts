@@ -719,7 +719,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               : tc
           ),
         }));
-        if (data.status === 'error') announce(`Ferramenta ${data.name} falhou`, 'assertive');
+        if (data.status === 'error') announce(i18next.t('chat.toolFailed', { name: data.name }), 'assertive');
       });
 
       unsubSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
