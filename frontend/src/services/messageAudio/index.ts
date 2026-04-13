@@ -61,9 +61,11 @@ function memoryCacheSet(messageId: number, blob: Blob): void {
 let currentPlayer: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
 let currentAbort: AbortController | null = null;
+let currentMessageId: number | null = null;
 
 /** Para qualquer áudio em reprodução e resolve Promises pendentes */
 function stopCurrentAudio(): void {
+  currentMessageId = null;
   if (currentAbort) {
     currentAbort.abort();
     currentAbort = null;
@@ -137,6 +139,8 @@ export interface TTSProviderParams {
  * @returns true se reproduziu, false se falhou (chamador deve usar speakAsRole)
  */
 async function speakMessage(messageId: number, volume: number = 1.0, provider?: TTSProviderParams): Promise<boolean> {
+  currentMessageId = messageId;
+
   // 1. Cache em memória — instantâneo, sem IPC
   const cached = memoryCacheGet(messageId);
   if (cached) {
@@ -200,6 +204,12 @@ function isCurrentlyPlaying(): boolean {
   return currentPlayer !== null && !currentPlayer.paused;
 }
 
+/** Retorna o messageId sendo reproduzido, ou null */
+function getCurrentPlayingMessageId(): number | null {
+  if (!isCurrentlyPlaying()) return null;
+  return currentMessageId;
+}
+
 /** Baixa áudio como arquivo */
 function downloadAudioBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -222,6 +232,7 @@ export const messageAudioService = {
   playAudioBase64,
   stopCurrentAudio,
   isCurrentlyPlaying,
+  getCurrentPlayingMessageId,
   downloadAudioBlob,
 
   // Backend-driven (cache hierárquico: memória → DB)

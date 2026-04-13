@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"testing"
 
 	"assistente/internal/profiles"
@@ -150,13 +151,20 @@ func TestBuildChatSpeakEventUsesLocalStrategies(t *testing.T) {
 		"pensando",
 		profiles.VoiceRoleConfig{Enabled: true, Provider: "sapi5", VoiceID: "Microsoft Maria"},
 	)
-	if sapiEvent.Strategy != ChatSpeakStrategyBackendAudio {
-		t.Fatalf("sapi5 strategy = %q, want %q (unified via backend_audio)", sapiEvent.Strategy, ChatSpeakStrategyBackendAudio)
-	}
-	if sapiEvent.ProviderID != "sapi5" {
-		t.Fatalf("sapi5 providerID = %q, want %q", sapiEvent.ProviderID, "sapi5")
-	}
-	if sapiEvent.FallbackStrategy != ChatSpeakStrategyAnnounce {
-		t.Fatalf("sapi5 fallbackStrategy = %q, want %q", sapiEvent.FallbackStrategy, ChatSpeakStrategyAnnounce)
+	if runtime.GOOS == "windows" {
+		if sapiEvent.Strategy != ChatSpeakStrategyBackendAudio {
+			t.Fatalf("sapi5 strategy = %q, want %q (unified via backend_audio)", sapiEvent.Strategy, ChatSpeakStrategyBackendAudio)
+		}
+		if sapiEvent.ProviderID != "sapi5" {
+			t.Fatalf("sapi5 providerID = %q, want %q", sapiEvent.ProviderID, "sapi5")
+		}
+		if sapiEvent.FallbackStrategy != ChatSpeakStrategyAnnounce {
+			t.Fatalf("sapi5 fallbackStrategy = %q, want %q", sapiEvent.FallbackStrategy, ChatSpeakStrategyAnnounce)
+		}
+	} else {
+		// SAPI5 indisponível fora do Windows — fallback para announce
+		if sapiEvent.Strategy != ChatSpeakStrategyAnnounce {
+			t.Fatalf("sapi5 (non-windows) strategy = %q, want %q", sapiEvent.Strategy, ChatSpeakStrategyAnnounce)
+		}
 	}
 }

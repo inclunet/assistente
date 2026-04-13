@@ -114,8 +114,11 @@ export const MessageNode: React.FC<MessageNodeProps> = React.memo(({
 
   // Handler de speak que controla o estado de playback
   const handleSpeak = useCallback(async (message: Message) => {
-    if (isPlayingAudio) {
-      // Se ja esta tocando, para
+    // Verifica se ESTA mensagem já está tocando (local OU global/autoplay)
+    const numId = typeof message.id === 'number' ? message.id : Number(message.id) || 0;
+    const globallyPlaying = numId > 0 && messageAudioService.getCurrentPlayingMessageId() === numId;
+
+    if (isPlayingAudio || globallyPlaying) {
       messageAudioService.stopCurrentAudio();
       setIsPlayingAudio(false);
       return;
