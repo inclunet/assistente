@@ -196,9 +196,35 @@ func (s *Service) SpeakMessage(messageID uint, providerID string, voiceID string
 // synthesizeForProvider roteia a síntese TTS para o provider correto.
 func (s *Service) synthesizeForProvider(text, providerID, voiceID, model string, rate float64) ([]byte, string, error) {
 	if providerID == "sapi5" {
-		return s.synthesizeSAPI5(text, voiceID, int(rate))
+		return s.synthesizeSAPI5(text, voiceID, mapRateToSAPI5(rate))
 	}
 	return s.synthesizeAPI(text, providerID, voiceID, model, rate)
+}
+
+// mapRateToSAPI5 converte a escala de rate do perfil (0.25–4.0, padrão 1.0)
+// para a escala SAPI5 (-10..10, padrão 0). Valores fora do range são clamped.
+func mapRateToSAPI5(rate float64) int {
+	if rate <= 0 || rate == 1.0 {
+		return 0 // padrão
+	}
+	// rate < 1.0 → negativo (mais lento), rate > 1.0 → positivo (mais rápido)
+	// Escala: 0.25 → -10, 1.0 → 0, 4.0 → +10
+	var sapi5Rate float64
+	if rate < 1.0 {
+		// 0.25..1.0 → -10..0
+		sapi5Rate = (rate - 1.0) / 0.075 // (1.0-0.25)/10 = 0.075
+	} else {
+		// 1.0..4.0 → 0..10
+		sapi5Rate = (rate - 1.0) / 0.3 // (4.0-1.0)/10 = 0.3
+	}
+	// Clamp
+	if sapi5Rate < -10 {
+		sapi5Rate = -10
+	}
+	if sapi5Rate > 10 {
+		sapi5Rate = 10
+	}
+	return int(sapi5Rate)
 }
 
 // synthesizeSAPI5 gera áudio WAV via SAPI5 COM local.

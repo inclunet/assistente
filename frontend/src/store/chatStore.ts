@@ -526,6 +526,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       let streamingAnnounced = false;
       let assistantNodeCreated = false;
 
+      // Declarar unsubs antes de cleanup para evitar TDZ (temporal dead zone)
+      const noop = () => { /* no-op */ };
+      let unsubMessagesReady = noop;
+      let unsubStream = noop;
+      let unsubThinking = noop;
+      let unsubToolStart = noop;
+      let unsubToolEnd = noop;
+      let unsubSegmentDone = noop;
+      let unsubDone = noop;
+      let unsubError = noop;
+      let unsubSpeak = noop;
+
       const ensureAssistantNode = () => {
         if (assistantNodeCreated) return;
         assistantNodeCreated = true;
@@ -571,7 +583,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       }
 
       // chat:error → erro de validação do backend (tamanho, provider, etc.)
-      const unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
+      unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
         if (event.conversationId !== conversationId && event.conversationId !== 0) return;
         if (!activeListeners.has(conversationIdStr)) return;
         announce(event.error);
@@ -579,7 +591,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:speak → TTS proativo disparado pelo backend após chat:done/segment_done
-      const unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
+      unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         void handleChatSpeak(event).catch((err) => {
@@ -588,7 +600,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:messages_ready → insere mensagem do usuário com ID REAL do backend (sem temp ID)
-      const unsubMessagesReady = EventsOn('chat:messages_ready', (data: ChatMessagesReadyEvent) => {
+      unsubMessagesReady = EventsOn('chat:messages_ready', (data: ChatMessagesReadyEvent) => {
         if (data.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         if (!data.userMessageId) return;
@@ -611,7 +623,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:stream → cria placeholder de assistant na primeira chunk, atualiza conteúdo
-      const unsubStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
+      unsubStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
 
@@ -669,7 +681,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
       });
 
-      const unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
+      unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         ensureAssistantNode();
@@ -684,7 +696,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
       });
 
-      const unsubToolStart = EventsOn('chat:tool_start', (data: ChatToolStartEvent) => {
+      unsubToolStart = EventsOn('chat:tool_start', (data: ChatToolStartEvent) => {
         if (data.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         ensureAssistantNode();
@@ -696,7 +708,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }));
       });
 
-      const unsubToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
+      unsubToolEnd = EventsOn('chat:tool_end', (data: ChatToolEndEvent) => {
         if (data.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         set((state) => ({
@@ -709,7 +721,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         if (data.status === 'error') announce(`Ferramenta ${data.name} falhou`, 'assertive');
       });
 
-      const unsubSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
+      unsubSegmentDone = EventsOn('chat:segment_done', (data: ChatSegmentDoneEvent) => {
         if (data.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         if (data.hasMore) {
@@ -737,7 +749,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
       });
 
-      const unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
+      unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
 
@@ -1020,6 +1032,18 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       // Backend-driven: sem addMessage local
       set({ isLoading: true, completedSegments: [], activeToolCalls: [] });
 
+      // Declarar unsubs antes de cleanup para evitar TDZ (temporal dead zone)
+      const noopExt = () => { /* no-op */ };
+      let unsubStream = noopExt;
+      let unsubThinking = noopExt;
+      let unsubToolStart = noopExt;
+      let unsubToolEnd = noopExt;
+      let unsubSegmentDone = noopExt;
+      let unsubDone = noopExt;
+      let unsubReady = noopExt;
+      let unsubError = noopExt;
+      let unsubSpeak = noopExt;
+
       const ensureAssistantNode = () => {
         if (assistantNodeCreated) return;
         assistantNodeCreated = true;
@@ -1062,7 +1086,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       if (existingCleanup) existingCleanup();
 
       // chat:error → erro de validação do backend
-      const unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
+      unsubError = EventsOn('chat:error', (event: ChatErrorEvent) => {
         if (event.conversationId !== conversationId && event.conversationId !== 0) return;
         if (!activeListeners.has(conversationIdStr)) return;
         announce(event.error);
@@ -1070,7 +1094,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:speak → TTS proativo disparado pelo backend
-      const unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
+      unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         void handleChatSpeak(event).catch((err) => {
@@ -1079,7 +1103,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       });
 
       // chat:messages_ready → insere mensagem do usuário com ID real do backend
-      const unsubReady = EventsOn('chat:messages_ready', (event: ChatMessagesReadyEvent) => {
+      unsubReady = EventsOn('chat:messages_ready', (event: ChatMessagesReadyEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         if (!event.userMessageId) return;
@@ -1105,7 +1129,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
       });
 
-      const unsubStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
+      unsubStream = EventsOn('chat:stream', (event: ChatStreamEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         if (event.content && !event.done && !event.error) {
@@ -1158,7 +1182,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
       });
 
-      const unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
+      unsubThinking = EventsOn('chat:thinking', (event: ChatThinkingEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         ensureAssistantNode();
@@ -1173,7 +1197,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
       });
 
-      const unsubToolStart = EventsOn('chat:tool_start', (event: ChatToolStartEvent) => {
+      unsubToolStart = EventsOn('chat:tool_start', (event: ChatToolStartEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         ensureAssistantNode();
@@ -1185,7 +1209,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         announce(`Executando ferramenta: ${event.name}`, 'polite');
       });
 
-      const unsubToolEnd = EventsOn('chat:tool_end', (event: ChatToolEndEvent) => {
+      unsubToolEnd = EventsOn('chat:tool_end', (event: ChatToolEndEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         set((state) => ({
@@ -1199,7 +1223,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         announce(`Ferramenta ${event.name} ${statusLabel}`, 'polite');
       });
 
-      const unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
+      unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
         if (event.hasMore) {
@@ -1225,7 +1249,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
       });
 
-      const unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
+      unsubDone = EventsOn('chat:done', (event: ChatDoneEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
 
