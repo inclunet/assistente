@@ -221,6 +221,34 @@ O `appStreamHandler` em `app_stream_handler.go` é legado — todo o streaming p
 
 #### 6.3 — E2E (Playwright)
 - `chat:speak` emitido após stream completion
+
+### Fase 8 — Cleanup do pacote `internal/speech/`
+
+Auditoria e remoção de dead code, código legacy e práticas questionáveis no pacote speech.
+
+#### 8.1 — Dead code confirmado (já removido)
+
+- `GetTTSModels` binding + controller + service + `FetchTTSModels` + `staticTTSModels` + `StaticTTSModels()`
+
+#### 8.2 — Dead code SpeechManager (remoção nesta fase)
+
+| Função | Motivo |
+|---|---|
+| `SpeechManager.GetAvailableSTTProviders()` | 0 callers — lógica substituída pelo Service |
+| `SpeechManager.GetAvailableTTSProviders()` | 0 callers — lógica substituída pelo Service |
+| `SpeechManager.GetAvailableTTSVoices()` | 0 callers — `GetTTSVoices` no Service faz isso diretamente |
+| `SpeechManager.GetOpenAIVoices()` | 0 callers — wrapper puro de `GetAvailableVoices()` |
+| `stringToUTF16()` em `sapi5_windows.go` | 0 callers — comentário diz "not used" |
+
+#### 8.3 — Observações para futuro (fora do escopo deste PR)
+
+- **God methods**: `SpeakMessage()` (~75 linhas) e `SynthesizeToBytes()` (~70 linhas) misturam múltiplas responsabilidades
+- **Tipos duplicados**: `TTSVoiceInfo` vs `TTSVoiceEntry` — campos quase idênticos, conversão manual no Service
+- **Erros silenciados**: SAPI5 rate/volume `PutProperty` ignorados; `FetchVoices` mascara HTTP error como nil
+- **Naming inconsistente**: `providerId` vs `providerID` (Go convention é ID)
+- **Parâmetros excessivos**: `SpeakPreview` com 7 params (candidato a struct)
+- **Dead code provável**: `OpenAIProvider` frontend + 5 bindings legacys (`SynthesizeOpenAIWithVoice`, `SetOpenAITTSVoice`, etc.) — possível remoção quando `SpeakMessage` cobrir todos os cenários
+- **Dead code provável**: `PreviewVoiceSettings` nunca chamado pelo frontend (usa `SpeakPreview`)
 - Áudio executado no frontend após `handleChatSpeak`
 
 ## Riscos e mitigações
