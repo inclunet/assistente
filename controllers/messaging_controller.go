@@ -97,7 +97,7 @@ func (c *MessagingController) Init() {
 	//   "always_text":     nunca gera TTS
 	//   "always_audio":    sempre gera TTS
 	// Retorna (nil, nil) se não deve gerar áudio (gateway enviará texto).
-	synthesizeTTS := messaging.SynthesizeTTSFunc(func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
+	synthesizeTTS := messaging.SynthesizeTTSFunc(func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
 		var profile *profiles.Profile
 		if chCfg, _ := channels.Load(channel); chCfg != nil && chCfg.Profile != "" {
 			if p, err := c.profileMgr.Get(chCfg.Profile); err == nil {

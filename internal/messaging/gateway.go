@@ -30,7 +30,7 @@ type emitFunc func(event string, data any)
 // Recebe o texto, o canal e se a mensagem original era áudio.
 // Resolve o perfil do canal e o ChannelResponseMode para decidir se gera TTS.
 // Retorna (nil, nil) se não deve gerar áudio (o gateway enviará texto).
-type SynthesizeTTSFunc func(text string, channel string, incomingIsAudio bool) ([]byte, error)
+type SynthesizeTTSFunc func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error)
 
 // SaveAudioFunc é a assinatura da função que salva áudio no DB.
 type SaveAudioFunc func(messageID uint, audioBase64 string, mimeType string) error
@@ -286,7 +286,9 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 			if g.synthesizeTTS != nil && assistantMsgID > 0 {
 				g.ttsBroker.Prepare(assistantMsgID)
 				go func() {
-					audioData, ttsErr := g.synthesizeTTS(response, msg.Channel, incomingIsAudio)
+					ttsCtx, ttsCancel := context.WithTimeout(ctx, 5*time.Second)
+					defer ttsCancel()
+					audioData, ttsErr := g.synthesizeTTS(ttsCtx, response, msg.Channel, incomingIsAudio)
 					if ttsErr != nil {
 						log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao gerar TTS: %v",
 							traceID, conversationID, msg.Channel, ttsErr)

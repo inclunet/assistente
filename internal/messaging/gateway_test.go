@@ -153,7 +153,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 		sendMessage,
 		nil,
 		nil,
-		func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
+		func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			return nil, fmt.Errorf("tts indisponível")
 		},
 		nil,
@@ -228,7 +228,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 		},
 		nil,
 		nil,
-		func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
+		func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			return []byte("audio-bytes"), nil
 		},
 		func(messageID uint, audioBase64 string, mimeType string) error {
@@ -436,7 +436,7 @@ func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 		},
 		nil,
 		nil,
-		func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
+		func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			// Simula perfil que decide não gerar TTS (retorna nil) — Cancel é chamado,
 			// desbloqueando Wait imediatamente com fallback para texto
 			return nil, nil

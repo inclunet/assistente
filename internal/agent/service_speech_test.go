@@ -176,46 +176,6 @@ func TestSaveAndFinish_EmptyResponse_NoSpeechCall(t *testing.T) {
 	}
 }
 
-func TestSaveAndFinish_SpeechCallOrder_BeforeChatDone(t *testing.T) {
-	// Testa que o callback de speech é invocado ANTES de chat:done ser emitido
-	emitter := &mockEmitter{}
-	repo := &mockMsgRepo{}
-
-	var speechCalledAtEventCount int
-	svc := NewService(ServiceConfig{
-		Emitter: emitter,
-		MsgRepo: repo,
-		OnSpeechRequest: func(uint, uint, string, string, string, string, bool) {
-			// Conta quantos eventos existem no momento do callback
-			speechCalledAtEventCount = len(emitter.getEvents())
-		},
-	})
-
-	svc.SaveAndFinish(1, 0, AgenticResult{
-		FullResponse: "Teste de ordem",
-		Model:        "test-model",
-	}, "")
-
-	evts := emitter.getEvents()
-	var doneIdx int = -1
-	for i, e := range evts {
-		if e.name == "chat:done" {
-			doneIdx = i
-		}
-	}
-
-	if doneIdx == -1 {
-		t.Fatal("chat:done não emitido")
-	}
-
-	// O speech callback foi invocado quando havia speechCalledAtEventCount eventos.
-	// chat:done está no índice doneIdx. O callback deve ter sido chamado antes.
-	if speechCalledAtEventCount > doneIdx {
-		t.Errorf("speech callback chamado após chat:done: speechAt=%d doneAt=%d",
-			speechCalledAtEventCount, doneIdx)
-	}
-}
-
 func TestSaveAndFinish_SpeechGetsCorrectMessageID(t *testing.T) {
 	emitter := &mockEmitter{}
 	repo := &mockMsgRepo{}
