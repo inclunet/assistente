@@ -36,11 +36,6 @@ func GetSAPI5Manager() *SAPI5Manager {
 	return manager
 }
 
-// Initialize não faz nada em sistemas não-Windows
-func (m *SAPI5Manager) Initialize() error {
-	return nil
-}
-
 // GetVoices retorna lista vazia em sistemas não-Windows
 func (m *SAPI5Manager) GetVoices() []Voice {
 	return []Voice{}
