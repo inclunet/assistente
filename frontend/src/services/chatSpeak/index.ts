@@ -117,8 +117,11 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
       return;
     }
 
-    // Sem messageId (segmentos intermediários) — ignorar silenciosamente.
-    // O assistant_message final virá com messageId e reproduzirá o áudio completo.
+    // Sem messageId — degrada para fallback em mensagens finais do assistente.
+    // Segmentos intermediários são ignorados (o assistant_message final virá com messageId).
+    if (event.origin === 'assistant_message') {
+      await executeFallback(event);
+    }
     return;
   }
 

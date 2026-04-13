@@ -465,7 +465,7 @@ func (s *Service) SpeakPreview(p SpeakPreviewParams) error {
 
 func (s *Service) previewSAPI5(text, voiceID string, rate, volume float64) error {
 	manager := GetSAPI5Manager()
-	sapiRate := int((rate - 1.0) * 10)
+	sapiRate := mapRateToSAPI5(rate)
 	sapiVolume := int(volume * 100)
 	if err := manager.SetRate(sapiRate); err != nil {
 		log.Printf("[SpeakPreview] SetRate error: %v", err)

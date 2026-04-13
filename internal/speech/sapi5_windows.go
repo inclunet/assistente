@@ -315,12 +315,17 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	if err != nil {
 		return nil, fmt.Errorf("failed to get default AudioOutputStream: %w", err)
 	}
+	// Garante limpeza do VARIANT em todos os caminhos de retorno.
+	// Nota: se VT contém IDispatch, Clear() chama Release no pointer.
+	// Portanto, ao restaurar defaultOutput, fazemos Clear() explicitamente
+	// APÓS PutPropertyRef (que adiciona ref própria).
 	var defaultOutput *ole.IDispatch
 	if defaultOutputResult.VT != ole.VT_EMPTY && defaultOutputResult.VT != ole.VT_NULL {
 		defaultOutput = defaultOutputResult.ToIDispatch()
-	} else {
-		defaultOutputResult.Clear()
+		// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+		defaultOutput.AddRef()
 	}
+	defaultOutputResult.Clear()
 
 	// Cria SpFileStream COM object
 	fileStreamUnknown, err := oleutil.CreateObject("SAPI.SpFileStream")
@@ -358,8 +363,8 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	// Restaura output padrão
 	if defaultOutput != nil {
 		oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", defaultOutput)
-		// Libera a referência COM do VARIANT após restaurar o output
-		defaultOutputResult.Clear()
+		// Libera a referência extra do AddRef() feito acima
+		defaultOutput.Release()
 	} else {
 		m.restoreDefaultOutput()
 	}

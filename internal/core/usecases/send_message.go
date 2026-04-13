@@ -138,7 +138,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 
 	// TTS proativo: verbaliza a mensagem do usuário (síncrono para garantir ordem dos eventos)
 	if uc.onSpeechRequest != nil && userContent != "" {
-		uc.onSpeechRequest(req.ConversationID, userMsg.ID, "user", userContent, "user_message", req.Params.ProfileSlug, true)
+		uc.onSpeechRequest(req.ConversationID, userMsg.ID, "user", userContent, "user_message", params.ProfileSlug, true)
 	}
 
 	// Detecta slash skill, compõe system prompt e pré-processa mídia.
