@@ -51,7 +51,7 @@ chat:done → (backend continua)
          → emitter.Emit("chat:speak", event)
          → frontend listener "chat:speak"
          → handleChatSpeak(event)
-         → strategy routing (none/announce/webspeech/sapi5/backend_audio)
+         → strategy routing (none/announce/webspeech/backend_audio)
 ```
 
 ### Sequência temporal de eventos
@@ -83,7 +83,7 @@ O `agent.Service` (que controla tanto streaming simples via `SimpleStreamHandler
 
 ```go
 // ServiceConfig
-OnSpeechRequest func(conversationID uint, msgID uint, role, text, origin string, interrupt bool)
+OnSpeechRequest func(conversationID uint, msgID uint, role, text, origin, profileSlug string, interrupt bool)
 ```
 
 **Arquivo:** `app.go` — na criação do service:
@@ -91,14 +91,15 @@ OnSpeechRequest func(conversationID uint, msgID uint, role, text, origin string,
 ```go
 a.agentSvc = agent.NewService(agent.ServiceConfig{
     // ... deps existentes
-    OnSpeechRequest: func(convID uint, msgID uint, role, text, origin string, interrupt bool) {
+    OnSpeechRequest: func(convID uint, msgID uint, role, text, origin, profileSlug string, interrupt bool) {
         a.dispatchSpeechEvent(ChatSpeakRequest{
-            ConversationID: int(convID),
-            MessageID:      int(msgID),
+            ConversationID: convID,
+            MessageID:      msgID,
+            ProfileSlug:    profileSlug,
             Role:           role,
             Text:           text,
             Origin:         ChatSpeakOrigin(origin),
-            Interrupt:       interrupt,
+            Interrupt:       &interrupt,
         })
     },
 })
@@ -106,11 +107,11 @@ a.agentSvc = agent.NewService(agent.ServiceConfig{
 
 #### 1.2 — Backend: chamar `OnSpeechRequest` no `SaveAndFinish`
 
-**Arquivo:** `internal/agent/service.go` — em `SaveAndFinish()`, após emitir `chat:done`:
+**Arquivo:** `internal/agent/service.go` — em `SaveAndFinish()`, de forma síncrona e **antes** de emitir `chat:done` (para garantir que o frontend ainda tenha listeners ativos quando receber `chat:speak`):
 
 ```go
 if s.onSpeechRequest != nil {
-    go s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", true)
+    s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
 }
 ```
 
@@ -120,7 +121,7 @@ if s.onSpeechRequest != nil {
 
 ```go
 if s.onSpeechRequest != nil && result.FullResponse != "" {
-    go s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", false)
+    s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
 }
 ```
 
@@ -298,7 +299,7 @@ Passos:
 6. Fecha SpFileStream, restaura output padrão
 7. Lê bytes do WAV, remove temp file, retorna `[]byte`
 
-**Arquivo:** `internal/speech/sapi5_other.go` — stub retorna `nil, nil`.
+**Arquivo:** `internal/speech/sapi5_other.go` — stub retorna erro (`"SAPI5 indisponível nesta plataforma"`).
 
 #### 7.2 — Backend: rotear SAPI5 em `SpeakMessage`
 
