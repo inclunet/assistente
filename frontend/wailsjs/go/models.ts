@@ -1873,24 +1873,6 @@ export namespace main {
 	        this.source = source["source"];
 	    }
 	}
-	export class TTSVoiceEntry {
-	    id: string;
-	    name: string;
-	    gender: string;
-	    description: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new TTSVoiceEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.gender = source["gender"];
-	        this.description = source["description"];
-	    }
-	}
 	export class SkillCreateRequest {
 	    name: string;
 	    version: string;
@@ -3384,6 +3366,27 @@ export namespace speech {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	    }
+	}
+
+	export class TTSVoiceInfo {
+	    id: string;
+	    name: string;
+	    description: string;
+	    gender: string;
+	    provider: string;
+
+	    static createFrom(source: any = {}) {
+	        return new TTSVoiceInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.gender = source["gender"];
+	        this.provider = source["provider"];
 	    }
 	}
 

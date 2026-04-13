@@ -244,6 +244,9 @@ func (s *Service) synthesizeAPI(text, providerID, voiceID, model string, rate fl
 	if model == "" {
 		model = voiceID
 	}
+	if rate <= 0 {
+		rate = 1.0
+	}
 	speed := clampSpeed(rate)
 
 	client := s.CreateTTSClient(providerID, model)

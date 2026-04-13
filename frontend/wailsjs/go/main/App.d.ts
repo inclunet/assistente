@@ -14,6 +14,7 @@ import {channels} from '../models';
 import {contacts} from '../models';
 import {config} from '../models';
 import {llm} from '../models';
+import {speech} from '../models';
 import {skills} from '../models';
 
 export function AddChildMessage(arg1:number,arg2:number,arg3:string,arg4:string,arg5:string):Promise<database.ChatMessage>;
@@ -236,9 +237,7 @@ export function GetLLMProvidersWithStatus():Promise<Array<Record<string, any>>>;
 
 export function GetSpeechProviders():Promise<Array<llm.ProviderConfig>>;
 
-export function GetTTSVoices(arg1:string,arg2:string):Promise<Array<main.TTSVoiceEntry>>;
-
-export function GetTTSModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
+export function GetTTSVoices(arg1:string,arg2:string):Promise<Array<speech.TTSVoiceInfo>>;
 
 export function GetSTTModels(arg1:string):Promise<Array<speech.SpeechModelInfo>>;
 

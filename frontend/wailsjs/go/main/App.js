@@ -446,10 +446,6 @@ export function GetTTSVoices(arg1, arg2) {
   return window['go']['main']['App']['GetTTSVoices'](arg1, arg2);
 }
 
-export function GetTTSModels(arg1) {
-  return window['go']['main']['App']['GetTTSModels'](arg1);
-}
-
 export function GetSTTModels(arg1) {
   return window['go']['main']['App']['GetSTTModels'](arg1);
 }
