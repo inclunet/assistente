@@ -101,7 +101,7 @@ func (a *App) GetSpeechProviders() []*llm.ProviderConfig {
 	return a.speechSvc.GetSpeechProviders()
 }
 
-func (a *App) GetTTSVoices(profileID, providerID string) []speech.TTSVoiceEntry {
+func (a *App) GetTTSVoices(profileID, providerID string) []speech.TTSVoiceInfo {
 	return a.speechSvc.GetTTSVoices(providerID)
 }
 
@@ -109,8 +109,16 @@ func (a *App) GetSTTModels(providerID string) []speech.SpeechModelInfo {
 	return a.speechSvc.GetSTTModels(providerID)
 }
 
-func (a *App) SpeakPreview(providerId, voiceId, model string, rate, volume float64, text, sessionId string) error {
-	return a.speechSvc.SpeakPreview(providerId, voiceId, model, rate, volume, text, sessionId)
+func (a *App) SpeakPreview(providerID, voiceID, model string, rate, volume float64, text, sessionID string) error {
+	return a.speechSvc.SpeakPreview(speech.SpeakPreviewParams{
+		ProviderID: providerID,
+		VoiceID:    voiceID,
+		Model:      model,
+		Rate:       rate,
+		Volume:     volume,
+		Text:       text,
+		SessionID:  sessionID,
+	})
 }
 
 // ============================================================================

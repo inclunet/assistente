@@ -84,7 +84,7 @@ func (c *SpeechController) GetSpeechProviders() []*llm.ProviderConfig {
 	return c.speechSvc.GetSpeechProviders()
 }
 
-func (c *SpeechController) GetTTSVoices(profileID, providerID string) []speech.TTSVoiceEntry {
+func (c *SpeechController) GetTTSVoices(profileID, providerID string) []speech.TTSVoiceInfo {
 	return c.speechSvc.GetTTSVoices(providerID)
 }
 
@@ -93,5 +93,13 @@ func (c *SpeechController) GetSTTModels(providerID string) []speech.SpeechModelI
 }
 
 func (c *SpeechController) SpeakPreview(providerID, voiceID, model string, rate, volume float64, text, sessionID string) error {
-	return c.speechSvc.SpeakPreview(providerID, voiceID, model, rate, volume, text, sessionID)
+	return c.speechSvc.SpeakPreview(speech.SpeakPreviewParams{
+		ProviderID: providerID,
+		VoiceID:    voiceID,
+		Model:      model,
+		Rate:       rate,
+		Volume:     volume,
+		Text:       text,
+		SessionID:  sessionID,
+	})
 }

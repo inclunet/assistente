@@ -240,15 +240,20 @@ Auditoria e remoção de dead code, código legacy e práticas questionáveis no
 | `SpeechManager.GetOpenAIVoices()` | 0 callers — wrapper puro de `GetAvailableVoices()` |
 | `stringToUTF16()` em `sapi5_windows.go` | 0 callers — comentário diz "not used" |
 
-#### 8.3 — Observações para futuro (fora do escopo deste PR)
+#### 8.3 — Refactor de manutenibilidade (executado)
 
-- **God methods**: `SpeakMessage()` (~75 linhas) e `SynthesizeToBytes()` (~70 linhas) misturam múltiplas responsabilidades
-- **Tipos duplicados**: `TTSVoiceInfo` vs `TTSVoiceEntry` — campos quase idênticos, conversão manual no Service
+- **Tipo duplicado eliminado**: `TTSVoiceEntry` removido — `GetTTSVoices` agora retorna `[]TTSVoiceInfo` diretamente, sem conversão manual
+- **God method split**: `SpeakMessage` (~75 linhas) decomposto em `synthesizeForProvider` → `synthesizeSAPI5` / `synthesizeAPI`
+- **Parâmetros excessivos**: `SpeakPreview` 7 params → `SpeakPreviewParams` struct
+- **Dead code legacy**: `PreviewVoiceSettings` removido (frontend usa `SpeakPreview`)
+- **Naming fix**: `providerId` → `providerID` no binding `SpeakPreview`
+- **Logs verbosos hot path**: 6× `log.Printf` removidos de `SpeakMessage` (chamado a cada mensagem)
+
+#### 8.4 — Observações para futuro (fora do escopo deste PR)
+
+- **God method**: `SynthesizeToBytes()` (~70 linhas) em sapi5_windows.go — COM init + voice select + temp file — difícil de testar fora do Windows
 - **Erros silenciados**: SAPI5 rate/volume `PutProperty` ignorados; `FetchVoices` mascara HTTP error como nil
-- **Naming inconsistente**: `providerId` vs `providerID` (Go convention é ID)
-- **Parâmetros excessivos**: `SpeakPreview` com 7 params (candidato a struct)
-- **Dead code provável**: `OpenAIProvider` frontend + 5 bindings legacys (`SynthesizeOpenAIWithVoice`, `SetOpenAITTSVoice`, etc.) — possível remoção quando `SpeakMessage` cobrir todos os cenários
-- **Dead code provável**: `PreviewVoiceSettings` nunca chamado pelo frontend (usa `SpeakPreview`)
+- **Dead code provável**: `OpenAIProvider` frontend + 5 bindings legacys (`SynthesizeOpenAIWithVoice`, `SetOpenAITTSVoice`, etc.) — dependem de migração completa para `SpeakMessage`
 - Áudio executado no frontend após `handleChatSpeak`
 
 ## Riscos e mitigações
