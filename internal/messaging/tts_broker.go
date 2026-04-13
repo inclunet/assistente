@@ -96,7 +96,8 @@ func (b *TTSBroker) Publish(messageID uint, data []byte, mimeType string) {
 }
 
 // Cancel remove a expectativa pendente sem enviar áudio.
-// Desbloqueia qualquer Wait em andamento.
+// Desbloqueia qualquer Wait em andamento enviando payload vazio.
+// Usa envio não-bloqueante para evitar race com close(ch) vs send(ch).
 func (b *TTSBroker) Cancel(messageID uint) {
 	if messageID == 0 {
 		return
@@ -109,6 +110,11 @@ func (b *TTSBroker) Cancel(messageID uint) {
 	b.mu.Unlock()
 
 	if ok {
-		close(ch)
+		// Envia payload vazio para desbloquear Wait. Non-blocking: se já há
+		// algo no buffer (Publish ganhou a corrida), descarta.
+		select {
+		case ch <- AudioPayload{}:
+		default:
+		}
 	}
 }

@@ -106,7 +106,7 @@ func TestBuildChatSpeakEventUsesBackendAudioForRemoteAssistantVoice(t *testing.T
 	}
 }
 
-func TestBuildChatSpeakEventUsesAnnounceWhenDisabled(t *testing.T) {
+func TestBuildChatSpeakEventUsesNoneWhenDisabled(t *testing.T) {
 	app := &App{}
 	req := ChatSpeakRequest{
 		ConversationID: 12,
