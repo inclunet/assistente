@@ -35,14 +35,14 @@ type SendMessageConfig struct {
 // SendMessageUseCase orquestra o pipeline completo de envio de mensagem ao LLM.
 // É agnóstico de framework: zero imports de Wails, CLI ou HTTP.
 type SendMessageUseCase struct {
-	chatInteractor *chat.Interactor
-	toolRegistry   *tools.Registry
-	providerSvc    *providers.Service
-	mcpMgr         *mcpmgr.Manager
-	agentSvc       *agent.Service
-	streamMgr      *chat.StreamingManager
-	speechSvc      *speech.Service
-	settingsSvc    *config.SettingsService
+	chatInteractor  *chat.Interactor
+	toolRegistry    *tools.Registry
+	providerSvc     *providers.Service
+	mcpMgr          *mcpmgr.Manager
+	agentSvc        *agent.Service
+	streamMgr       *chat.StreamingManager
+	speechSvc       *speech.Service
+	settingsSvc     *config.SettingsService
 	emitter         ports.Emitter
 	onSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
@@ -50,14 +50,14 @@ type SendMessageUseCase struct {
 // NewSendMessageUseCase cria um SendMessageUseCase com todas as dependências.
 func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 	return &SendMessageUseCase{
-		chatInteractor: cfg.ChatInteractor,
-		toolRegistry:   cfg.ToolRegistry,
-		providerSvc:    cfg.ProviderSvc,
-		mcpMgr:         cfg.MCPMgr,
-		agentSvc:       cfg.AgentSvc,
-		streamMgr:      cfg.StreamMgr,
-		speechSvc:      cfg.SpeechSvc,
-		settingsSvc:    cfg.SettingsSvc,
+		chatInteractor:  cfg.ChatInteractor,
+		toolRegistry:    cfg.ToolRegistry,
+		providerSvc:     cfg.ProviderSvc,
+		mcpMgr:          cfg.MCPMgr,
+		agentSvc:        cfg.AgentSvc,
+		streamMgr:       cfg.StreamMgr,
+		speechSvc:       cfg.SpeechSvc,
+		settingsSvc:     cfg.SettingsSvc,
 		emitter:         cfg.Emitter,
 		onSpeechRequest: cfg.OnSpeechRequest,
 	}

@@ -3,7 +3,10 @@
 
 package speech
 
-import "sync"
+import (
+	"errors"
+	"sync"
+)
 
 // Voice representa uma voz SAPI5
 type Voice struct {
@@ -48,9 +51,9 @@ func (m *SAPI5Manager) Speak(text string, voiceID string) error {
 	return nil
 }
 
-// SynthesizeToBytes retorna nil em sistemas não-Windows (SAPI5 indisponível)
+// SynthesizeToBytes retorna erro em sistemas não-Windows (SAPI5 indisponível)
 func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume int) ([]byte, error) {
-	return nil, nil
+	return nil, errors.New("SAPI5 indisponível nesta plataforma")
 }
 
 // Stop não faz nada em sistemas não-Windows

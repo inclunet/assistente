@@ -111,10 +111,7 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
       );
 
       if (!played) {
-        // TTS falhou — anuncia como fallback de acessibilidade
-        if (text) {
-          announce(`${getRolePrefix(role)}: ${text}`);
-        }
+        // TTS falhou — delega ao fallback (que pode incluir announce)
         await executeFallback(event);
       }
       return;

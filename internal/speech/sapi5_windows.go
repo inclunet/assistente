@@ -318,6 +318,8 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	var defaultOutput *ole.IDispatch
 	if defaultOutputResult.VT != ole.VT_EMPTY && defaultOutputResult.VT != ole.VT_NULL {
 		defaultOutput = defaultOutputResult.ToIDispatch()
+	} else {
+		defaultOutputResult.Clear()
 	}
 
 	// Cria SpFileStream COM object
@@ -325,6 +327,7 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	if err != nil {
 		return nil, fmt.Errorf("failed to create SpFileStream: %w", err)
 	}
+	defer fileStreamUnknown.Release()
 	fileStream, err := fileStreamUnknown.QueryInterface(ole.IID_IDispatch)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query SpFileStream IDispatch: %w", err)

@@ -582,7 +582,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
-        handleChatSpeak(event);
+        void handleChatSpeak(event).catch((err) => {
+          console.error('[chat:speak] falha ao processar evento TTS', err);
+        });
       });
 
       // chat:messages_ready → insere mensagem do usuário com ID REAL do backend (sem temp ID)
@@ -1071,7 +1073,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       const unsubSpeak = EventsOn('chat:speak', (event: ChatSpeakEvent) => {
         if (event.conversationId !== conversationId) return;
         if (!activeListeners.has(conversationIdStr)) return;
-        handleChatSpeak(event);
+        void handleChatSpeak(event).catch((err) => {
+          console.error('[chat:speak] falha ao processar evento TTS', err);
+        });
       });
 
       // chat:messages_ready → insere mensagem do usuário com ID real do backend

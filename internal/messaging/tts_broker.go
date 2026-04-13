@@ -56,13 +56,16 @@ func (b *TTSBroker) Wait(messageID uint, timeout time.Duration) (AudioPayload, b
 		return AudioPayload{}, false
 	}
 
+	timer := time.NewTimer(timeout)
+	defer timer.Stop()
+
 	select {
 	case audio := <-ch:
 		b.mu.Lock()
 		delete(b.slots, messageID)
 		b.mu.Unlock()
 		return audio, len(audio.Data) > 0
-	case <-time.After(timeout):
+	case <-timer.C:
 		b.mu.Lock()
 		delete(b.slots, messageID)
 		b.mu.Unlock()
