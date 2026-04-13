@@ -1208,7 +1208,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
             name: event.name, callId: event.callId, args: event.args, status: 'running' as const,
           }],
         }));
-        announce(`Executando ferramenta: ${event.name}`, 'polite');
+        announce(i18next.t('chat.toolRunning', { name: event.name }), 'polite');
       });
 
       unsubToolEnd = EventsOn('chat:tool_end', (event: ChatToolEndEvent) => {
@@ -1221,8 +1221,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
               : tc
           ),
         }));
-        const statusLabel = event.status === 'error' ? 'falhou' : 'concluída';
-        announce(`Ferramenta ${event.name} ${statusLabel}`, 'polite');
+        const key = event.status === 'error' ? 'chat.toolFailed' : 'chat.toolDone';
+        announce(i18next.t(key, { name: event.name }), event.status === 'error' ? 'assertive' : 'polite');
       });
 
       unsubSegmentDone = EventsOn('chat:segment_done', (event: ChatSegmentDoneEvent) => {

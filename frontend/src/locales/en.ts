@@ -128,6 +128,8 @@ const en = {
       enableAutoReadLabel: 'Enable auto-read of responses',
       autoReadError: 'Error playing audio automatically',
       toolFailed: 'Tool {{name}} failed',
+      toolRunning: 'Running tool: {{name}}',
+      toolDone: 'Tool {{name}} completed',
       validation: {
         messageTooLarge: 'Message too large ({{size}} bytes). Maximum allowed: {{max}} bytes',
         mediaTooLarge: 'Media files too large (~{{size}}MB). Maximum allowed: {{max}}MB',

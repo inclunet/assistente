@@ -128,6 +128,8 @@ const ptBR = {
       enableAutoReadLabel: 'Habilitar leitura automática de respostas',
       autoReadError: 'Erro ao reproduzir áudio automaticamente',
       toolFailed: 'Ferramenta {{name}} falhou',
+      toolRunning: 'Executando ferramenta: {{name}}',
+      toolDone: 'Ferramenta {{name}} concluída',
       validation: {
         messageTooLarge: 'Mensagem muito grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
         mediaTooLarge: 'Arquivos de mídia muito grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
