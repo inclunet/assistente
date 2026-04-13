@@ -336,7 +336,11 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	defer func() {
 		if redirected {
 			if defaultOutput != nil {
-				oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", defaultOutput)
+				if v, err := oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", defaultOutput); err != nil {
+					log.Printf("[SAPI5] Warning: failed to restore AudioOutputStream: %v", err)
+				} else if v != nil {
+					v.Clear()
+				}
 			} else {
 				m.restoreDefaultOutput()
 			}
@@ -360,25 +364,33 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 
 	// Abre o arquivo para escrita (SSFMCreateForWrite = 3)
 	const SSFMCreateForWrite = 3
-	_, err = oleutil.CallMethod(fileStream, "Open", absPath, SSFMCreateForWrite, false)
-	if err != nil {
+	if v, err := oleutil.CallMethod(fileStream, "Open", absPath, SSFMCreateForWrite, false); err != nil {
 		return nil, fmt.Errorf("SpFileStream.Open failed: %w", err)
+	} else if v != nil {
+		v.Clear()
 	}
 
 	// Redireciona SpVoice para escrever no arquivo
-	_, err = oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", fileStream)
-	if err != nil {
-		oleutil.CallMethod(fileStream, "Close")
+	if v, err := oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", fileStream); err != nil {
+		if cv, _ := oleutil.CallMethod(fileStream, "Close"); cv != nil {
+			cv.Clear()
+		}
 		return nil, fmt.Errorf("failed to redirect AudioOutputStream: %w", err)
+	} else if v != nil {
+		v.Clear()
 	}
 	redirected = true
 
 	// Fala síncrona — escreve WAV no arquivo
-	_, err = oleutil.CallMethod(m.spVoice, "Speak", text, 0) // 0 = síncrono
-	speakErr := err
+	speakResult, speakErr := oleutil.CallMethod(m.spVoice, "Speak", text, 0) // 0 = síncrono
+	if speakResult != nil {
+		speakResult.Clear()
+	}
 
 	// Fecha o stream de arquivo
-	oleutil.CallMethod(fileStream, "Close")
+	if v, _ := oleutil.CallMethod(fileStream, "Close"); v != nil {
+		v.Clear()
+	}
 
 	// Nota: restauração do output e Release do defaultOutput são
 	// feitos pelo defer acima, cobrindo inclusive caminhos de erro.
@@ -404,7 +416,11 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 // Seta AudioOutputStream para nil (VT_EMPTY), o que faz o SpVoice
 // voltar a usar o dispositivo de áudio padrão do sistema.
 func (m *SAPI5Manager) restoreDefaultOutput() {
-	oleutil.PutProperty(m.spVoice, "AudioOutputStream", nil)
+	if v, err := oleutil.PutProperty(m.spVoice, "AudioOutputStream", nil); err != nil {
+		log.Printf("[SAPI5] Warning: failed to restore default output: %v", err)
+	} else if v != nil {
+		v.Clear()
+	}
 }
 
 // selectVoice seleciona uma voz pelo nome
