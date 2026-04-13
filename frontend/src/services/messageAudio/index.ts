@@ -65,6 +65,7 @@ let currentMessageId: number | null = null;
 
 /** Para qualquer áudio em reprodução e resolve Promises pendentes */
 function stopCurrentAudio(): void {
+  currentMessageId = null;
   if (currentAbort) {
     currentAbort.abort();
     currentAbort = null;
@@ -82,8 +83,10 @@ function stopCurrentAudio(): void {
 }
 
 /** Reproduz um blob de áudio */
-async function playAudioBlob(audioBlob: Blob, volume: number = 1.0): Promise<void> {
+async function playAudioBlob(audioBlob: Blob, volume: number = 1.0, messageId?: number): Promise<void> {
   stopCurrentAudio();
+  // Setar messageId DEPOIS do stop para não ser zerado
+  if (messageId != null) currentMessageId = messageId;
 
   const abort = new AbortController();
   currentAbort = abort;
@@ -138,12 +141,10 @@ export interface TTSProviderParams {
  * @returns true se reproduziu, false se falhou (chamador deve usar speakAsRole)
  */
 async function speakMessage(messageId: number, volume: number = 1.0, provider?: TTSProviderParams): Promise<boolean> {
-  currentMessageId = messageId;
-
   // 1. Cache em memória — instantâneo, sem IPC
   const cached = memoryCacheGet(messageId);
   if (cached) {
-    await playAudioBlob(cached, volume);
+    await playAudioBlob(cached, volume, messageId);
     return true;
   }
 
@@ -159,7 +160,7 @@ async function speakMessage(messageId: number, volume: number = 1.0, provider?: 
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);
       memoryCacheSet(messageId, blob);
-      await playAudioBlob(blob, volume);
+      await playAudioBlob(blob, volume, messageId);
       return true;
     }
     return false;
