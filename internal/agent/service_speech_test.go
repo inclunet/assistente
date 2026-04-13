@@ -7,7 +7,6 @@ import (
 	"assistente/internal/chat"
 	"assistente/internal/core/ports"
 	"assistente/internal/database"
-	"assistente/internal/events"
 )
 
 // --- Mocks ---
@@ -70,10 +69,12 @@ func TestSaveAndFinish_CallsOnSpeechRequestBeforeChatDone(t *testing.T) {
 	repo := &mockMsgRepo{}
 
 	var speechCalls []speechCall
+	var speechAtEventCount int
 	svc := NewService(ServiceConfig{
 		Emitter: emitter,
 		MsgRepo: repo,
 		OnSpeechRequest: func(convID, msgID uint, role, text, origin, profileSlug string, interrupt bool) {
+			speechAtEventCount = len(emitter.getEvents())
 			speechCalls = append(speechCalls, speechCall{convID, msgID, role, text, origin, profileSlug, interrupt})
 		},
 	})
@@ -104,40 +105,24 @@ func TestSaveAndFinish_CallsOnSpeechRequestBeforeChatDone(t *testing.T) {
 		t.Error("interrupt deveria ser true")
 	}
 
-	// Verificar que chat:speak (via callback) veio ANTES de chat:done
+	// Verificar a ordem: OnSpeechRequest (síncrono) deve ser chamado ANTES de chat:done
 	evts := emitter.getEvents()
-	var speechIdx, doneIdx int = -1, -1
+	var doneIdx int = -1
 	for i, e := range evts {
 		if e.name == "chat:done" && doneIdx == -1 {
 			doneIdx = i
 		}
 	}
 
-	// O callback síncrono é chamado antes de chat:done, mas não emite diretamente
-	// (emissão é feita dentro do callback via app.go). Para validar a ordem,
-	// verificamos que chat:done existe e vem depois do chat:stream(done=true).
-	var streamDoneIdx int = -1
-	for i, e := range evts {
-		if e.name == "chat:stream" {
-			if se, ok := e.data.(events.StreamEvent); ok && se.Done {
-				streamDoneIdx = i
-			}
-		}
-	}
-
-	if streamDoneIdx == -1 {
-		t.Fatal("chat:stream (done=true) não emitido")
-	}
 	if doneIdx == -1 {
 		t.Fatal("chat:done não emitido")
 	}
-	if streamDoneIdx >= doneIdx {
-		t.Errorf("chat:stream(done) deve vir antes de chat:done: stream=%d done=%d", streamDoneIdx, doneIdx)
+	// speechAtEventCount captura quantos eventos existiam quando OnSpeechRequest foi chamado.
+	// Se chat:done está no índice doneIdx, o callback deve ter sido chamado quando
+	// havia menos eventos (ou seja, antes de chat:done ser emitido).
+	if speechAtEventCount > doneIdx {
+		t.Errorf("OnSpeechRequest deve ser chamado antes de chat:done: speechAtEvents=%d doneIdx=%d", speechAtEventCount, doneIdx)
 	}
-
-	// Confirmar que speechCall foi chamado — o callback é síncrono, então foi
-	// executado entre chat:stream(done) e chat:done
-	_ = speechIdx
 }
 
 func TestSaveAndFinish_NilOnSpeechRequest_NoPanic(t *testing.T) {
