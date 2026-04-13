@@ -98,6 +98,8 @@ func (m *SAPI5Manager) loadVoices() error {
 		return fmt.Errorf("GetVoices failed: %w", err)
 	}
 	voicesCollection := voicesResult.ToIDispatch()
+	// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+	voicesCollection.AddRef()
 	voicesResult.Clear()
 	defer voicesCollection.Release()
 
@@ -118,6 +120,8 @@ func (m *SAPI5Manager) loadVoices() error {
 			continue
 		}
 		voiceToken := itemResult.ToIDispatch()
+		// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+		voiceToken.AddRef()
 		itemResult.Clear()
 
 		voice := m.extractVoiceInfo(voiceToken)
@@ -441,6 +445,8 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 		return err
 	}
 	voicesCollection := voicesResult.ToIDispatch()
+	// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+	voicesCollection.AddRef()
 	voicesResult.Clear()
 	defer voicesCollection.Release()
 
@@ -459,6 +465,8 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 			continue
 		}
 		voiceToken := itemResult.ToIDispatch()
+		// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+		voiceToken.AddRef()
 		itemResult.Clear()
 
 		// Tenta match por Name
@@ -576,6 +584,8 @@ func (m *SAPI5Manager) IsSpeaking() bool {
 		return false
 	}
 	status := statusResult.ToIDispatch()
+	// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+	status.AddRef()
 	statusResult.Clear()
 	defer status.Release()
 
