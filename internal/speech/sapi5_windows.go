@@ -286,12 +286,20 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 		}
 	}
 
-	// Configura rate e volume
+	// Configura rate e volume (best-effort: loga erro mas continua)
 	if rate >= -10 && rate <= 10 {
-		oleutil.PutProperty(m.spVoice, "Rate", rate)
+		if v, err := oleutil.PutProperty(m.spVoice, "Rate", rate); err != nil {
+			log.Printf("[SAPI5] Warning: failed to set Rate: %v", err)
+		} else if v != nil {
+			v.Clear()
+		}
 	}
 	if volume >= 0 && volume <= 100 {
-		oleutil.PutProperty(m.spVoice, "Volume", volume)
+		if v, err := oleutil.PutProperty(m.spVoice, "Volume", volume); err != nil {
+			log.Printf("[SAPI5] Warning: failed to set Volume: %v", err)
+		} else if v != nil {
+			v.Clear()
+		}
 	}
 
 	// Cria arquivo temporário para saída WAV
