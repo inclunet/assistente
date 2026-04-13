@@ -234,7 +234,7 @@ func (s *Service) synthesizeSAPI5(text, voiceID string, rate int) ([]byte, strin
 		return nil, "", fmt.Errorf("SAPI5: %w", err)
 	}
 	if len(audioData) == 0 {
-		return nil, "", fmt.Errorf("SAPI5 returned empty audio")
+		return nil, "", fmt.Errorf("SAPI5 retornou áudio vazio")
 	}
 	return audioData, "audio/wav", nil
 }

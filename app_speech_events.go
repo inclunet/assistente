@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"assistente/internal/profiles"
@@ -189,10 +190,15 @@ func (a *App) buildChatSpeakEvent(req ChatSpeakRequest, role, text string, cfg p
 	case cfg.Provider == "webspeech":
 		event.Strategy = ChatSpeakStrategyWebSpeech
 	case cfg.Provider == "sapi5":
-		// SAPI5 unificado: backend gera WAV via COM, frontend reproduz como backend_audio
-		event.Strategy = ChatSpeakStrategyBackendAudio
-		event.ProviderID = "sapi5"
-		event.FallbackStrategy = ChatSpeakStrategyAnnounce
+		if runtime.GOOS != "windows" {
+			// SAPI5 indisponível fora do Windows — fallback acessível
+			event.Strategy = ChatSpeakStrategyAnnounce
+		} else {
+			// SAPI5 unificado: backend gera WAV via COM, frontend reproduz como backend_audio
+			event.Strategy = ChatSpeakStrategyBackendAudio
+			event.ProviderID = "sapi5"
+			event.FallbackStrategy = ChatSpeakStrategyAnnounce
+		}
 	case effectiveVoiceProviderID(cfg) == "":
 		event.Strategy = ChatSpeakStrategyAnnounce
 	default:
