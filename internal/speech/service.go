@@ -435,7 +435,7 @@ type SpeakPreviewParams struct {
 func (s *Service) SpeakPreview(p SpeakPreviewParams) error {
 	text := p.Text
 	if text == "" {
-		text = "Este é um teste das configurações de voz"
+		return fmt.Errorf("texto de preview é obrigatório")
 	}
 
 	rate := p.Rate
