@@ -143,6 +143,34 @@ describe('chatSpeak service', () => {
     expect(announceMock).toHaveBeenCalledWith('chat.assistant: Fallback');
   });
 
+  it('backend_audio sem messageId faz fallback para segmentos', async () => {
+    await handleChatSpeak({
+      role: 'assistant',
+      text: 'Segmento parcial',
+      strategy: 'backend_audio',
+      fallbackStrategy: 'announce',
+      autoRead: true,
+      origin: 'segment',
+    });
+
+    expect(speakMessageMock).not.toHaveBeenCalled();
+    expect(announceMock).toHaveBeenCalledWith('chat.assistant: Segmento parcial');
+  });
+
+  it('backend_audio sem messageId ignora origins não verbalizáveis', async () => {
+    await handleChatSpeak({
+      role: 'assistant',
+      text: 'Pensando...',
+      strategy: 'backend_audio',
+      fallbackStrategy: 'announce',
+      autoRead: true,
+      origin: 'thinking',
+    });
+
+    expect(speakMessageMock).not.toHaveBeenCalled();
+    expect(announceMock).not.toHaveBeenCalled();
+  });
+
   it('interrupt=false preserva o áudio atual', async () => {
     await handleChatSpeak({
       role: 'system',

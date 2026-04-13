@@ -315,10 +315,6 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	if err != nil {
 		return nil, fmt.Errorf("failed to get default AudioOutputStream: %w", err)
 	}
-	// Garante limpeza do VARIANT em todos os caminhos de retorno.
-	// Nota: se VT contém IDispatch, Clear() chama Release no pointer.
-	// Portanto, ao restaurar defaultOutput, fazemos Clear() explicitamente
-	// APÓS PutPropertyRef (que adiciona ref própria).
 	var defaultOutput *ole.IDispatch
 	if defaultOutputResult.VT != ole.VT_EMPTY && defaultOutputResult.VT != ole.VT_NULL {
 		defaultOutput = defaultOutputResult.ToIDispatch()
@@ -326,6 +322,22 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 		defaultOutput.AddRef()
 	}
 	defaultOutputResult.Clear()
+
+	// Garante Release() do defaultOutput e restauração do AudioOutputStream
+	// em todos os caminhos de retorno (inclusive erros antes do Speak).
+	redirected := false
+	defer func() {
+		if redirected {
+			if defaultOutput != nil {
+				oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", defaultOutput)
+			} else {
+				m.restoreDefaultOutput()
+			}
+		}
+		if defaultOutput != nil {
+			defaultOutput.Release()
+		}
+	}()
 
 	// Cria SpFileStream COM object
 	fileStreamUnknown, err := oleutil.CreateObject("SAPI.SpFileStream")
@@ -352,6 +364,7 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 		oleutil.CallMethod(fileStream, "Close")
 		return nil, fmt.Errorf("failed to redirect AudioOutputStream: %w", err)
 	}
+	redirected = true
 
 	// Fala síncrona — escreve WAV no arquivo
 	_, err = oleutil.CallMethod(m.spVoice, "Speak", text, 0) // 0 = síncrono
@@ -360,14 +373,8 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	// Fecha o stream de arquivo
 	oleutil.CallMethod(fileStream, "Close")
 
-	// Restaura output padrão
-	if defaultOutput != nil {
-		oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", defaultOutput)
-		// Libera a referência extra do AddRef() feito acima
-		defaultOutput.Release()
-	} else {
-		m.restoreDefaultOutput()
-	}
+	// Nota: restauração do output e Release do defaultOutput são
+	// feitos pelo defer acima, cobrindo inclusive caminhos de erro.
 
 	if speakErr != nil {
 		return nil, fmt.Errorf("SAPI5 Speak (to file) failed: %w", speakErr)

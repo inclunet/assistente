@@ -117,9 +117,10 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
       return;
     }
 
-    // Sem messageId — degrada para fallback em mensagens finais do assistente.
-    // Segmentos intermediários são ignorados (o assistant_message final virá com messageId).
-    if (event.origin === 'assistant_message') {
+    // Sem messageId — degrada para fallback em mensagens do assistente e segmentos.
+    // Segmentos intermediários são verbalizados via fallback (announce/webspeech)
+    // enquanto o assistant_message final usará SpeakMessage com messageId.
+    if (event.origin === 'assistant_message' || event.origin === 'segment') {
       await executeFallback(event);
     }
     return;
