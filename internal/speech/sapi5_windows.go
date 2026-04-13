@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-	"unicode/utf16"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
@@ -549,9 +548,4 @@ func (m *SAPI5Manager) Cleanup() {
 // StopSpeaking para a síntese atual (função global para compatibilidade)
 func StopSpeaking() {
 	GetSAPI5Manager().Stop()
-}
-
-// Função auxiliar para converter string Go para UTF-16 (não usada atualmente, mas útil)
-func stringToUTF16(s string) []uint16 {
-	return utf16.Encode([]rune(s + "\x00"))
 }

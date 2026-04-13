@@ -379,58 +379,6 @@ func (sm *SpeechManager) GetTTSClient() *TTSClient {
 	return sm.getTTSClientForRole("assistant")
 }
 
-// GetAvailableSTTProviders retorna os provedores de STT disponíveis
-func (sm *SpeechManager) GetAvailableSTTProviders() []string {
-	providers := []string{"webspeech"}
-
-	sm.mu.RLock()
-	hasWhisper := sm.config.STTCredentialPattern != ""
-	sm.mu.RUnlock()
-
-	if hasWhisper {
-		providers = append(providers, "whisper")
-	}
-
-	return providers
-}
-
-// GetAvailableTTSProviders retorna os provedores de TTS disponíveis
-func (sm *SpeechManager) GetAvailableTTSProviders() []string {
-	providers := []string{"webspeech", "sapi5"}
-
-	sm.mu.RLock()
-	hasOpenAI := sm.config.Assistant.Provider == string(TTSProviderOpenAI) &&
-		(sm.config.Assistant.APIKey != "" || sm.config.Assistant.CredentialPattern != "")
-	sm.mu.RUnlock()
-
-	if hasOpenAI {
-		providers = append(providers, "openai")
-	}
-
-	return providers
-}
-
-// GetAvailableTTSVoices retorna as vozes disponíveis no provedor dinâmico.
-func (sm *SpeechManager) GetAvailableTTSVoices() ([]TTSVoiceInfo, error) {
-	sm.mu.RLock()
-	client := sm.getTTSClientForRole("assistant")
-	provider := sm.config.Assistant.Provider
-	sm.mu.RUnlock()
-
-	// Se for OpenAI-like e temos cliente, tentamos buscar dinamicamente
-	if TTSProvider(provider) == TTSProviderOpenAI && client != nil {
-		return client.FetchVoices()
-	}
-
-	// Fallback para vozes estáticas para outros provedores (WebSpeech, SAPI5 expostos no frontend)
-	return GetAvailableVoices(), nil
-}
-
-// GetOpenAIVoices retorna as vozes disponíveis do OpenAI TTS (Legacy)
-func (sm *SpeechManager) GetOpenAIVoices() []TTSVoiceInfo {
-	return GetAvailableVoices()
-}
-
 // clampSpeed garante que o speed está dentro dos limites da API OpenAI (0.25–4.0).
 func clampSpeed(speed float64) float64 {
 	if speed < 0.25 {
