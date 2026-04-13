@@ -414,7 +414,7 @@ func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 	}
 }
 
-func TestGateway_TTSBrokerTimeout_FallsBackToText(t *testing.T) {
+func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
 	resetState(t)
 
 	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
@@ -437,8 +437,8 @@ func TestGateway_TTSBrokerTimeout_FallsBackToText(t *testing.T) {
 		nil,
 		nil,
 		func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
-			// Simula TTS lento (>5s timeout do broker) — na prática o Cancel é chamado
-			// mas aqui testamos o cenário onde TTS retorna vazio (perfil decide não gerar)
+			// Simula perfil que decide não gerar TTS (retorna nil) — Cancel é chamado,
+			// desbloqueando Wait imediatamente com fallback para texto
 			return nil, nil
 		},
 		nil,

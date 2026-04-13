@@ -89,6 +89,14 @@ func TestTTSBroker_TimeoutReturnsFalse(t *testing.T) {
 	if elapsed < 90*time.Millisecond {
 		t.Fatalf("retornou rápido demais: %v", elapsed)
 	}
+
+	// Verifica que o slot foi limpo após timeout (sem leak)
+	broker.mu.Lock()
+	_, slotExists := broker.slots[400]
+	broker.mu.Unlock()
+	if slotExists {
+		t.Fatal("slot deveria ter sido removido após timeout")
+	}
 }
 
 func TestTTSBroker_WaitWithoutPrepare(t *testing.T) {

@@ -143,11 +143,6 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 	}
 
 	event := a.buildChatSpeakEvent(req, role, text, voiceCfg)
-
-	log.Printf("[Speech] chat:speak emitido (conv=%d msg=%d role=%s strategy=%s provider=%s voiceID=%s enabled=%v origin=%s)",
-		event.ConversationID, event.MessageID, event.Role, event.Strategy,
-		event.ProviderID, event.VoiceID, event.AutoRead, event.Origin)
-
 	a.emitter.Emit("chat:speak", event)
 	return &event, nil
 }

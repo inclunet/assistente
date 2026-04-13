@@ -243,6 +243,19 @@ func (a *App) startup(ctx context.Context) {
 	// Inicializa o gateway de mensageria (Telegram, etc.)
 	a.initMessaging()
 
+	// Callback reutilizado pelo agent.Service e ChatController
+	speechDispatcher := func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool) {
+		a.dispatchSpeechEvent(ChatSpeakRequest{
+			ConversationID: conversationID,
+			MessageID:      messageID,
+			ProfileSlug:    profileSlug,
+			Role:           role,
+			Text:           text,
+			Origin:         ChatSpeakOrigin(origin),
+			Interrupt:      &interrupt,
+		})
+	}
+
 	// Inicializa o Agent Service (agentic loop desacoplado do Wails)
 	a.agentSvc = agent.NewService(agent.ServiceConfig{
 		Emitter:          a.emitter,
@@ -251,17 +264,7 @@ func (a *App) startup(ctx context.Context) {
 		ResponseNotifier: a.responseNotifier,
 		GetTokenStats:    a.GetConversationTokenStats,
 		TriggerSummarize: a.summarySvc.CheckAndTriggerSummarization,
-		OnSpeechRequest: func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool) {
-			a.dispatchSpeechEvent(ChatSpeakRequest{
-				ConversationID: conversationID,
-				MessageID:      messageID,
-				ProfileSlug:    profileSlug,
-				Role:           role,
-				Text:           text,
-				Origin:         ChatSpeakOrigin(origin),
-				Interrupt:      &interrupt,
-			})
-		},
+		OnSpeechRequest:  speechDispatcher,
 	})
 
 	// Workspace antes do Prompt Builder: senão Workspace fica (*Manager)(nil) numa interface (typed nil)
@@ -367,17 +370,7 @@ func (a *App) startup(ctx context.Context) {
 		ConvRepo:         a.convSvc,
 		MsgGateway:       a.msgGateway,
 		ResponseNotifier: a.responseNotifier,
-		OnSpeechRequest: func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool) {
-			a.dispatchSpeechEvent(ChatSpeakRequest{
-				ConversationID: conversationID,
-				MessageID:      messageID,
-				ProfileSlug:    profileSlug,
-				Role:           role,
-				Text:           text,
-				Origin:         ChatSpeakOrigin(origin),
-				Interrupt:      &interrupt,
-			})
-		},
+		OnSpeechRequest:  speechDispatcher,
 	})
 	a.taskListCtrl = controllers.NewTaskListController(controllers.TaskListControllerConfig{
 		TaskSvc: a.taskSvc,

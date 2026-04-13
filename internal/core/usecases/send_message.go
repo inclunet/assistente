@@ -58,7 +58,9 @@ func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 		streamMgr:      cfg.StreamMgr,
 		speechSvc:      cfg.SpeechSvc,
 		settingsSvc:    cfg.SettingsSvc,
-		emitter:        cfg.Emitter,		onSpeechRequest: cfg.OnSpeechRequest,	}
+		emitter:         cfg.Emitter,
+		onSpeechRequest: cfg.OnSpeechRequest,
+	}
 }
 
 // SendMessageRequest encapsula os parâmetros de entrada do Use Case.

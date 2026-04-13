@@ -64,8 +64,8 @@ chat:done → (backend continua)
 5. chat:tool_end         ← tool call concluída
 6. chat:segment_done     ← segmento agentic completo
 7. chat:stream (done)    ← streaming finalizado
-8. chat:done             ← resposta salva no banco
-9. chat:speak            ← TTS proativo (NOVO — disparado após chat:done)
+8. chat:speak            ← TTS proativo (NOVO — disparado ANTES de chat:done)
+9. chat:done             ← resposta salva no banco
 10. chat:token_stats     ← estatísticas de tokens
 11. chat:context_warning ← aviso de limite
 12. chat:error           ← erro (em qualquer ponto)
@@ -229,7 +229,7 @@ O `appStreamHandler` em `app_stream_handler.go` é legado — todo o streaming p
 |---|---|
 | Duplo TTS durante migração | Fase 1.4 (remover legado) só após validar backend-driven |
 | Latência: backend resolve perfil a cada mensagem | Perfil já é resolvido no handler; cache por conversa se necessário |
-| Race: `chat:speak` chega antes de `chat:done` | `dispatchSpeechEvent` é chamado **após** `chat:done`, em goroutine separada |
+| Race: `chat:speak` chega depois do cleanup | `dispatchSpeechEvent` é chamado **antes** de `chat:done`, de forma síncrona |
 | Regressão no play button (on-demand) | Path separado do `chat:speak`; `triggerAutoRead` mantida para on-demand |
 | SAPI5 `isSpeaking` stale data | Fix do isSpeaking (AEP-0028 Fase 2B) já aplicado |
 
