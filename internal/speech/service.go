@@ -164,55 +164,103 @@ func (s *Service) SpeakMessage(messageID uint, providerID string, voiceID string
 	// 1. Checa cache no DB
 	audio, mime, err := s.audioRepo.GetMessageAudio(messageID)
 	if err == nil && audio != "" {
-		log.Printf("[TTS] SpeakMessage(%d): cache hit (%d bytes)", messageID, len(audio))
 		return &AudioResult{Audio: audio, MimeType: mime, Cached: true}, nil
 	}
 
 	// 2. Busca o conteúdo textual da mensagem
 	content, err := s.audioRepo.GetMessageContent(messageID)
 	if err != nil {
-		log.Printf("[TTS] SpeakMessage(%d): mensagem não encontrada: %v", messageID, err)
 		return nil, fmt.Errorf("mensagem %d não encontrada: %w", messageID, err)
 	}
 	if strings.TrimSpace(content) == "" {
-		log.Printf("[TTS] SpeakMessage(%d): conteúdo vazio", messageID)
 		return nil, fmt.Errorf("mensagem %d sem conteúdo textual", messageID)
 	}
 
-	// 3. Cria TTS client com os parâmetros
-	log.Printf("[TTS] SpeakMessage(%d): cache miss, gerando TTS (%d chars) provider=%s voice=%s model=%s", messageID, len(content), providerID, voiceID, model)
-
-	if model == "" {
-		model = voiceID
-	}
-	speed := rate
-	if speed < 0.25 {
-		speed = 1.0
-	}
-
-	client := s.CreateTTSClient(providerID, model)
-	if client == nil {
-		return nil, fmt.Errorf("provider TTS %q não encontrado", providerID)
-	}
-	client.SetVoice(TTSVoice(voiceID))
-	client.SetSpeed(speed)
-
-	audioData, err := client.Synthesize(content)
+	// 3. Gera TTS: roteia entre SAPI5 (local) e provedores API (HTTP)
+	audioData, mimeType, err := s.synthesizeForProvider(content, providerID, voiceID, model, rate)
 	if err != nil {
-		log.Printf("[TTS] SpeakMessage(%d): erro ao gerar: %v", messageID, err)
-		return nil, fmt.Errorf("generate audio for message %d: %w", messageID, err)
+		return nil, fmt.Errorf("TTS for message %d: %w", messageID, err)
 	}
 
+	// 4. Persiste no DB
 	audioBase64 := base64.StdEncoding.EncodeToString(audioData)
-	mimeType := "audio/mpeg"
-
 	cached := true
 	if saveErr := s.audioRepo.SaveMessageAudio(messageID, audioBase64, mimeType); saveErr != nil {
-		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%d): %v — áudio será retornado mas não persistido", messageID, saveErr)
+		log.Printf("[TTS] WARN: falha ao salvar áudio no DB (messageID=%d): %v", messageID, saveErr)
 		cached = false
 	}
 
 	return &AudioResult{Audio: audioBase64, MimeType: mimeType, Cached: cached}, nil
+}
+
+// synthesizeForProvider roteia a síntese TTS para o provider correto.
+func (s *Service) synthesizeForProvider(text, providerID, voiceID, model string, rate float64) ([]byte, string, error) {
+	if providerID == "sapi5" {
+		return s.synthesizeSAPI5(text, voiceID, mapRateToSAPI5(rate))
+	}
+	return s.synthesizeAPI(text, providerID, voiceID, model, rate)
+}
+
+// mapRateToSAPI5 converte a escala de rate do perfil (0.25–4.0, padrão 1.0)
+// para a escala SAPI5 (-10..10, padrão 0). Valores fora do range são clamped.
+func mapRateToSAPI5(rate float64) int {
+	if rate <= 0 || rate == 1.0 {
+		return 0 // padrão
+	}
+	// rate < 1.0 → negativo (mais lento), rate > 1.0 → positivo (mais rápido)
+	// Escala: 0.25 → -10, 1.0 → 0, 4.0 → +10
+	var sapi5Rate float64
+	if rate < 1.0 {
+		// 0.25..1.0 → -10..0
+		sapi5Rate = (rate - 1.0) / 0.075 // (1.0-0.25)/10 = 0.075
+	} else {
+		// 1.0..4.0 → 0..10
+		sapi5Rate = (rate - 1.0) / 0.3 // (4.0-1.0)/10 = 0.3
+	}
+	// Clamp
+	if sapi5Rate < -10 {
+		sapi5Rate = -10
+	}
+	if sapi5Rate > 10 {
+		sapi5Rate = 10
+	}
+	return int(sapi5Rate)
+}
+
+// synthesizeSAPI5 gera áudio WAV via SAPI5 COM local.
+func (s *Service) synthesizeSAPI5(text, voiceID string, rate int) ([]byte, string, error) {
+	audioData, err := GetSAPI5Manager().SynthesizeToBytes(text, voiceID, rate, 100)
+	if err != nil {
+		return nil, "", fmt.Errorf("SAPI5: %w", err)
+	}
+	if len(audioData) == 0 {
+		return nil, "", fmt.Errorf("SAPI5 retornou áudio vazio")
+	}
+	return audioData, "audio/wav", nil
+}
+
+// synthesizeAPI gera áudio MP3 via provider OpenAI-compatible (HTTP).
+func (s *Service) synthesizeAPI(text, providerID, voiceID, model string, rate float64) ([]byte, string, error) {
+	if model == "" {
+		model = voiceID
+	}
+	if rate <= 0 {
+		rate = 1.0
+	}
+	speed := clampSpeed(rate)
+
+	client := s.CreateTTSClient(providerID, model)
+	if client == nil {
+		return nil, "", fmt.Errorf("provider TTS %q não encontrado", providerID)
+	}
+	client.SetVoice(TTSVoice(voiceID))
+	client.SetSpeed(speed)
+
+	audioData, err := client.Synthesize(text)
+	if err != nil {
+		return nil, "", fmt.Errorf("synthesize: %w", err)
+	}
+	return audioData, "audio/mpeg", nil
 }
 
 // GenerateAndSaveMessageAudio gera áudio TTS para uma mensagem e salva no DB.
@@ -237,22 +285,18 @@ func (s *Service) GenerateAndSaveMessageAudio(messageID uint, text string) (*Aud
 }
 
 // GetTTSVoices retorna vozes TTS disponíveis para um provedor.
-func (s *Service) GetTTSVoices(providerID string) []TTSVoiceEntry {
+func (s *Service) GetTTSVoices(providerID string) []TTSVoiceInfo {
 	if providerID == "" {
-		return []TTSVoiceEntry{}
+		return []TTSVoiceInfo{}
 	}
 
 	// SAPI5: vozes do Windows
 	if providerID == "sapi5" {
 		manager := GetSAPI5Manager()
-		if err := manager.Initialize(); err != nil {
-			log.Printf("[GetTTSVoices] erro SAPI5: %v", err)
-			return []TTSVoiceEntry{}
-		}
 		voices := manager.GetVoices()
-		result := make([]TTSVoiceEntry, len(voices))
+		result := make([]TTSVoiceInfo, len(voices))
 		for i, v := range voices {
-			result[i] = TTSVoiceEntry{
+			result[i] = TTSVoiceInfo{
 				ID:          v.Name,
 				Name:        v.Name,
 				Gender:      v.Gender,
@@ -264,44 +308,23 @@ func (s *Service) GetTTSVoices(providerID string) []TTSVoiceEntry {
 
 	// WebSpeech: vozes gerenciadas pelo browser
 	if providerID == "webspeech" {
-		return []TTSVoiceEntry{}
+		return []TTSVoiceInfo{}
 	}
 
 	// Provedores LLM: consulta via TTSClient
 	client := s.CreateTTSClient(providerID, "")
 	if client == nil {
 		log.Printf("[GetTTSVoices] não foi possível criar client para provider %s", providerID)
-		return []TTSVoiceEntry{}
+		return []TTSVoiceInfo{}
 	}
 
 	voices, err := client.FetchVoices()
 	if err != nil {
 		log.Printf("[GetTTSVoices] erro ao buscar vozes para %s: %v", providerID, err)
-		return []TTSVoiceEntry{}
+		return []TTSVoiceInfo{}
 	}
 
-	result := make([]TTSVoiceEntry, len(voices))
-	for i, v := range voices {
-		result[i] = TTSVoiceEntry{
-			ID:          v.ID,
-			Name:        v.Name,
-			Gender:      v.Gender,
-			Description: v.Description,
-		}
-	}
-	return result
-}
-
-// GetTTSModels retorna modelos TTS disponíveis para um provedor.
-func (s *Service) GetTTSModels(providerID string) []SpeechModelInfo {
-	if providerID == "" {
-		return []SpeechModelInfo{}
-	}
-	client := s.CreateTTSClient(providerID, "")
-	if client == nil {
-		return StaticTTSModels()
-	}
-	return client.FetchTTSModels()
+	return voices
 }
 
 // GetSTTModels retorna modelos STT disponíveis para um provedor.
@@ -397,34 +420,48 @@ func (s *Service) SynthesizeStream(text string, voice string, sessionID string) 
 	return nil
 }
 
+// SpeakPreviewParams agrupa os parâmetros de preview de voz.
+type SpeakPreviewParams struct {
+	ProviderID string
+	VoiceID    string
+	Model      string
+	Rate       float64
+	Volume     float64
+	Text       string
+	SessionID  string
+}
+
 // SpeakPreview faz preview de voz para configurações de perfil.
-func (s *Service) SpeakPreview(providerID string, voiceID string, model string, rate float64, volume float64, text string, sessionID string) error {
+func (s *Service) SpeakPreview(p SpeakPreviewParams) error {
+	text := p.Text
 	if text == "" {
-		text = "Este é um teste das configurações de voz"
+		return fmt.Errorf("texto de preview é obrigatório")
 	}
 
+	rate := p.Rate
 	if rate <= 0 {
 		rate = 1.0
 	}
+	volume := p.Volume
 	if volume <= 0 {
 		volume = 1.0
 	}
 
-	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, rate=%.2f, volume=%.2f", providerID, voiceID, model, rate, volume)
+	log.Printf("[SpeakPreview] provider=%s, voice=%s, model=%s, rate=%.2f, volume=%.2f", p.ProviderID, p.VoiceID, p.Model, rate, volume)
 
-	switch providerID {
+	switch p.ProviderID {
 	case "webspeech":
 		return fmt.Errorf("webspeech preview deve ser feito no frontend")
 	case "sapi5":
-		return s.previewSAPI5(text, voiceID, rate, volume)
+		return s.previewSAPI5(text, p.VoiceID, rate, volume)
 	default:
-		return s.previewLLM(providerID, text, voiceID, model, rate, sessionID)
+		return s.previewLLM(p.ProviderID, text, p.VoiceID, p.Model, rate, p.SessionID)
 	}
 }
 
 func (s *Service) previewSAPI5(text, voiceID string, rate, volume float64) error {
 	manager := GetSAPI5Manager()
-	sapiRate := int((rate - 1.0) * 10)
+	sapiRate := mapRateToSAPI5(rate)
 	sapiVolume := int(volume * 100)
 	if err := manager.SetRate(sapiRate); err != nil {
 		log.Printf("[SpeakPreview] SetRate error: %v", err)
@@ -545,66 +582,9 @@ func (s *Service) InitFromConfig(cfg SpeechConfig) {
 	s.speechManager = NewSpeechManager(cfg, s.credMgr)
 }
 
-// GetSAPI5Voices retorna as vozes SAPI5 instaladas.
-func (s *Service) GetSAPI5Voices() []Voice {
-	manager := GetSAPI5Manager()
-	if err := manager.Initialize(); err != nil {
-		log.Printf("SAPI5 Initialize error (may be expected on non-Windows): %v", err)
-		return nil
-	}
-	return manager.GetVoices()
-}
-
-// SpeakSAPI5 sintetiza texto usando SAPI5.
-func (s *Service) SpeakSAPI5(text, voiceName string) error {
-	return GetSAPI5Manager().Speak(text, voiceName)
-}
-
-// StopSAPI5 para a síntese SAPI5 atual.
-func (s *Service) StopSAPI5() error {
-	return GetSAPI5Manager().Stop()
-}
-
-// SetSAPI5Volume define volume SAPI5 (0-100).
-func (s *Service) SetSAPI5Volume(volume int) error {
-	return GetSAPI5Manager().SetVolume(volume)
-}
-
-// SetSAPI5Rate define velocidade SAPI5 (-10 a 10).
-func (s *Service) SetSAPI5Rate(rate int) error {
-	return GetSAPI5Manager().SetRate(rate)
-}
-
-// IsSAPI5Speaking verifica se SAPI5 está falando.
-func (s *Service) IsSAPI5Speaking() bool {
-	return GetSAPI5Manager().IsSpeaking()
-}
-
 // GetAvailableVoices retorna vozes OpenAI disponíveis.
 func (s *Service) GetAvailableVoices() []TTSVoiceInfo {
 	return GetAvailableVoices()
-}
-
-// PreviewVoiceSettings reproduz texto de teste com configurações ad-hoc (legacy).
-func (s *Service) PreviewVoiceSettings(provider, voiceID string, rate, volume float64, sampleText string) error {
-	if sampleText == "" {
-		sampleText = "Este é um teste das configurações de voz"
-	}
-	if !s.EnsureSpeechManager() {
-		return fmt.Errorf("speech manager não disponível - configure um provedor no perfil")
-	}
-	if provider == "openai" {
-		s.speechManager.SetTTSVoice(voiceID)
-	}
-	result, err := s.speechManager.SynthesizeWithVoice(sampleText, voiceID)
-	if err != nil {
-		return fmt.Errorf("erro ao sintetizar: %w", err)
-	}
-	s.emitter.Emit("voice_profile:preview", map[string]interface{}{
-		"audio_base64": result.AudioBase64,
-		"format":       result.Format,
-	})
-	return nil
 }
 
 // GetMessageAudio retorna o áudio cached de uma mensagem.
@@ -650,12 +630,4 @@ type TTSStreamEvent struct {
 	Format      string `json:"format"`
 	Done        bool   `json:"done"`
 	Error       string `json:"error"`
-}
-
-// TTSVoiceEntry é o formato de voz retornado para o frontend.
-type TTSVoiceEntry struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Gender      string `json:"gender"`
-	Description string `json:"description"`
 }

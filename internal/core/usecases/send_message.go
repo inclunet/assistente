@@ -28,34 +28,38 @@ type SendMessageConfig struct {
 	SpeechSvc      *speech.Service
 	SettingsSvc    *config.SettingsService
 	Emitter        ports.Emitter
+	// OnSpeechRequest é chamado após salvar a mensagem do usuário para disparar TTS proativo.
+	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // SendMessageUseCase orquestra o pipeline completo de envio de mensagem ao LLM.
 // É agnóstico de framework: zero imports de Wails, CLI ou HTTP.
 type SendMessageUseCase struct {
-	chatInteractor *chat.Interactor
-	toolRegistry   *tools.Registry
-	providerSvc    *providers.Service
-	mcpMgr         *mcpmgr.Manager
-	agentSvc       *agent.Service
-	streamMgr      *chat.StreamingManager
-	speechSvc      *speech.Service
-	settingsSvc    *config.SettingsService
-	emitter        ports.Emitter
+	chatInteractor  *chat.Interactor
+	toolRegistry    *tools.Registry
+	providerSvc     *providers.Service
+	mcpMgr          *mcpmgr.Manager
+	agentSvc        *agent.Service
+	streamMgr       *chat.StreamingManager
+	speechSvc       *speech.Service
+	settingsSvc     *config.SettingsService
+	emitter         ports.Emitter
+	onSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // NewSendMessageUseCase cria um SendMessageUseCase com todas as dependências.
 func NewSendMessageUseCase(cfg SendMessageConfig) *SendMessageUseCase {
 	return &SendMessageUseCase{
-		chatInteractor: cfg.ChatInteractor,
-		toolRegistry:   cfg.ToolRegistry,
-		providerSvc:    cfg.ProviderSvc,
-		mcpMgr:         cfg.MCPMgr,
-		agentSvc:       cfg.AgentSvc,
-		streamMgr:      cfg.StreamMgr,
-		speechSvc:      cfg.SpeechSvc,
-		settingsSvc:    cfg.SettingsSvc,
-		emitter:        cfg.Emitter,
+		chatInteractor:  cfg.ChatInteractor,
+		toolRegistry:    cfg.ToolRegistry,
+		providerSvc:     cfg.ProviderSvc,
+		mcpMgr:          cfg.MCPMgr,
+		agentSvc:        cfg.AgentSvc,
+		streamMgr:       cfg.StreamMgr,
+		speechSvc:       cfg.SpeechSvc,
+		settingsSvc:     cfg.SettingsSvc,
+		emitter:         cfg.Emitter,
+		onSpeechRequest: cfg.OnSpeechRequest,
 	}
 }
 
@@ -132,6 +136,11 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 	messages := rmsg.Messages
 	conversationSummary := rmsg.ConversationSummary
 
+	// TTS proativo: verbaliza a mensagem do usuário (síncrono para garantir ordem dos eventos)
+	if uc.onSpeechRequest != nil && userContent != "" {
+		uc.onSpeechRequest(req.ConversationID, userMsg.ID, "user", userContent, "user_message", params.ProfileSlug, true)
+	}
+
 	// Detecta slash skill, compõe system prompt e pré-processa mídia.
 	prepResult := uc.chatInteractor.PrepareMessages(chat.PrepareMessagesRequest{
 		Messages:            messages,
@@ -198,7 +207,7 @@ func (uc *SendMessageUseCase) Execute(req SendMessageRequest) (uint, error) {
 			)
 		}()
 	} else {
-		handler := uc.agentSvc.NewSimpleStreamHandler(req.ConversationID, userMsg.ID)
+		handler := uc.agentSvc.NewSimpleStreamHandler(req.ConversationID, userMsg.ID, params.ProfileSlug)
 		go func() {
 			defer func() {
 				r := recover()

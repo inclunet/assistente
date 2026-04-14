@@ -178,9 +178,7 @@ export function buildWailsMockScript(): string {
     /* Speech */
     GetSpeechProviders: [],
     GetTTSVoices: [],
-    GetTTSModels: [],
     GetSTTModels: [],
-    GetSAPI5Voices: [],
     GetOpenAITTSVoices: [],
     InitSpeechManager: undefined,
     InitSpeechManagerFromProfile: undefined,

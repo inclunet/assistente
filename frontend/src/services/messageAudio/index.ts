@@ -61,9 +61,11 @@ function memoryCacheSet(messageId: number, blob: Blob): void {
 let currentPlayer: HTMLAudioElement | null = null;
 let currentUrl: string | null = null;
 let currentAbort: AbortController | null = null;
+let currentMessageId: number | null = null;
 
 /** Para qualquer áudio em reprodução e resolve Promises pendentes */
 function stopCurrentAudio(): void {
+  currentMessageId = null;
   if (currentAbort) {
     currentAbort.abort();
     currentAbort = null;
@@ -81,8 +83,10 @@ function stopCurrentAudio(): void {
 }
 
 /** Reproduz um blob de áudio */
-async function playAudioBlob(audioBlob: Blob, volume: number = 1.0): Promise<void> {
+async function playAudioBlob(audioBlob: Blob, volume: number = 1.0, messageId?: number): Promise<void> {
   stopCurrentAudio();
+  // Setar messageId DEPOIS do stop para não ser zerado
+  if (messageId != null) currentMessageId = messageId;
 
   const abort = new AbortController();
   currentAbort = abort;
@@ -140,7 +144,7 @@ async function speakMessage(messageId: number, volume: number = 1.0, provider?: 
   // 1. Cache em memória — instantâneo, sem IPC
   const cached = memoryCacheGet(messageId);
   if (cached) {
-    await playAudioBlob(cached, volume);
+    await playAudioBlob(cached, volume, messageId);
     return true;
   }
 
@@ -156,7 +160,7 @@ async function speakMessage(messageId: number, volume: number = 1.0, provider?: 
     if (result && result.audio && result.audio.length > 0) {
       const blob = base64ToBlob(result.audio, result.mimeType);
       memoryCacheSet(messageId, blob);
-      await playAudioBlob(blob, volume);
+      await playAudioBlob(blob, volume, messageId);
       return true;
     }
     return false;
@@ -200,6 +204,12 @@ function isCurrentlyPlaying(): boolean {
   return currentPlayer !== null && !currentPlayer.paused;
 }
 
+/** Retorna o messageId sendo reproduzido, ou null */
+function getCurrentPlayingMessageId(): number | null {
+  if (!isCurrentlyPlaying()) return null;
+  return currentMessageId;
+}
+
 /** Baixa áudio como arquivo */
 function downloadAudioBlob(blob: Blob, filename: string): void {
   const url = URL.createObjectURL(blob);
@@ -222,6 +232,7 @@ export const messageAudioService = {
   playAudioBase64,
   stopCurrentAudio,
   isCurrentlyPlaying,
+  getCurrentPlayingMessageId,
   downloadAudioBlob,
 
   // Backend-driven (cache hierárquico: memória → DB)

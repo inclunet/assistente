@@ -1,6 +1,7 @@
 package main
 
 import (
+	"runtime"
 	"testing"
 
 	"assistente/internal/profiles"
@@ -106,7 +107,7 @@ func TestBuildChatSpeakEventUsesBackendAudioForRemoteAssistantVoice(t *testing.T
 	}
 }
 
-func TestBuildChatSpeakEventUsesAnnounceWhenDisabled(t *testing.T) {
+func TestBuildChatSpeakEventUsesNoneWhenDisabled(t *testing.T) {
 	app := &App{}
 	req := ChatSpeakRequest{
 		ConversationID: 12,
@@ -123,8 +124,8 @@ func TestBuildChatSpeakEventUsesAnnounceWhenDisabled(t *testing.T) {
 
 	event := app.buildChatSpeakEvent(req, "user", "Oi", cfg)
 
-	if event.Strategy != ChatSpeakStrategyAnnounce {
-		t.Fatalf("strategy = %q, want %q", event.Strategy, ChatSpeakStrategyAnnounce)
+	if event.Strategy != ChatSpeakStrategyNone {
+		t.Fatalf("strategy = %q, want %q", event.Strategy, ChatSpeakStrategyNone)
 	}
 	if event.AutoRead {
 		t.Fatal("autoRead = true, want false")
@@ -150,7 +151,20 @@ func TestBuildChatSpeakEventUsesLocalStrategies(t *testing.T) {
 		"pensando",
 		profiles.VoiceRoleConfig{Enabled: true, Provider: "sapi5", VoiceID: "Microsoft Maria"},
 	)
-	if sapiEvent.Strategy != ChatSpeakStrategySAPI5 {
-		t.Fatalf("sapi5 strategy = %q, want %q", sapiEvent.Strategy, ChatSpeakStrategySAPI5)
+	if runtime.GOOS == "windows" {
+		if sapiEvent.Strategy != ChatSpeakStrategyBackendAudio {
+			t.Fatalf("sapi5 strategy = %q, want %q (unified via backend_audio)", sapiEvent.Strategy, ChatSpeakStrategyBackendAudio)
+		}
+		if sapiEvent.ProviderID != "sapi5" {
+			t.Fatalf("sapi5 providerID = %q, want %q", sapiEvent.ProviderID, "sapi5")
+		}
+		if sapiEvent.FallbackStrategy != ChatSpeakStrategyAnnounce {
+			t.Fatalf("sapi5 fallbackStrategy = %q, want %q", sapiEvent.FallbackStrategy, ChatSpeakStrategyAnnounce)
+		}
+	} else {
+		// SAPI5 indisponível fora do Windows — fallback para announce
+		if sapiEvent.Strategy != ChatSpeakStrategyAnnounce {
+			t.Fatalf("sapi5 (non-windows) strategy = %q, want %q", sapiEvent.Strategy, ChatSpeakStrategyAnnounce)
+		}
 	}
 }

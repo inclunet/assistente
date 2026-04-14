@@ -2,7 +2,9 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"assistente/internal/profiles"
@@ -40,10 +42,9 @@ func stripMarkdownForTTS(text string) string {
 type ChatSpeakStrategy string
 
 const (
-	ChatSpeakStrategyNone        ChatSpeakStrategy = "none"
-	ChatSpeakStrategyAnnounce    ChatSpeakStrategy = "announce"
-	ChatSpeakStrategyWebSpeech   ChatSpeakStrategy = "webspeech"
-	ChatSpeakStrategySAPI5       ChatSpeakStrategy = "sapi5"
+	ChatSpeakStrategyNone         ChatSpeakStrategy = "none"
+	ChatSpeakStrategyAnnounce     ChatSpeakStrategy = "announce"
+	ChatSpeakStrategyWebSpeech    ChatSpeakStrategy = "webspeech"
 	ChatSpeakStrategyBackendAudio ChatSpeakStrategy = "backend_audio"
 )
 
@@ -123,6 +124,7 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 
 	profile, err := a.resolveSpeechProfile(req.ConversationID, req.ProfileSlug)
 	if err != nil {
+		log.Printf("[Speech] dispatchSpeechEvent: erro ao resolver perfil (conv=%d): %v", req.ConversationID, err)
 		return nil, err
 	}
 
@@ -177,12 +179,24 @@ func (a *App) buildChatSpeakEvent(req ChatSpeakRequest, role, text string, cfg p
 	}
 
 	switch {
-	case !cfg.Enabled || cfg.Provider == "" || cfg.Provider == "disabled":
+	case !cfg.Enabled || cfg.Provider == "disabled":
+		// TTS explicitamente desabilitado → silêncio completo
+		event.Strategy = ChatSpeakStrategyNone
+	case cfg.Provider == "":
+		// Nenhum provider configurado → anuncia via screen reader como fallback acessível
 		event.Strategy = ChatSpeakStrategyAnnounce
 	case cfg.Provider == "webspeech":
 		event.Strategy = ChatSpeakStrategyWebSpeech
 	case cfg.Provider == "sapi5":
-		event.Strategy = ChatSpeakStrategySAPI5
+		if runtime.GOOS != "windows" {
+			// SAPI5 indisponível fora do Windows — fallback acessível
+			event.Strategy = ChatSpeakStrategyAnnounce
+		} else {
+			// SAPI5 unificado: backend gera WAV via COM, frontend reproduz como backend_audio
+			event.Strategy = ChatSpeakStrategyBackendAudio
+			event.ProviderID = "sapi5"
+			event.FallbackStrategy = ChatSpeakStrategyAnnounce
+		}
 	case effectiveVoiceProviderID(cfg) == "":
 		event.Strategy = ChatSpeakStrategyAnnounce
 	default:

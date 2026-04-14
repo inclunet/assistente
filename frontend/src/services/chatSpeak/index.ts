@@ -1,11 +1,12 @@
 import { DispatchSpeech } from '@wailsjs/go/main/App';
+import i18next from 'i18next';
 
 import { announce } from '../../hooks/useAnnouncer';
 import { messageAudioService } from '../messageAudio';
 import { ttsService } from '../tts';
 import type { VoiceRole } from '../tts';
 
-export type ChatSpeakStrategy = 'announce' | 'webspeech' | 'sapi5' | 'backend_audio' | 'none';
+export type ChatSpeakStrategy = 'announce' | 'webspeech' | 'backend_audio' | 'none';
 
 export type ChatSpeakOrigin =
   | 'assistant_message'
@@ -46,11 +47,11 @@ export interface ChatSpeakEvent {
 function getRolePrefix(role: VoiceRole): string {
   switch (role) {
     case 'user':
-      return 'Você';
+      return i18next.t('chat.you');
     case 'system':
-      return 'Sistema';
+      return i18next.t('chat.system');
     default:
-      return 'Assistente';
+      return i18next.t('chat.assistant');
   }
 }
 
@@ -110,12 +111,18 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
       );
 
       if (!played) {
+        // TTS falhou — delega ao fallback (que pode incluir announce)
         await executeFallback(event);
       }
       return;
     }
 
-    await executeFallback(event);
+    // Sem messageId — degrada para fallback em mensagens do assistente e segmentos.
+    // Segmentos intermediários são verbalizados via fallback (announce/webspeech)
+    // enquanto o assistant_message final usará SpeakMessage com messageId.
+    if (event.origin === 'assistant_message' || event.origin === 'segment') {
+      await executeFallback(event);
+    }
     return;
   }
 
@@ -123,9 +130,9 @@ export async function handleChatSpeak(event: ChatSpeakEvent): Promise<void> {
     return;
   }
 
-  if (event.strategy === 'webspeech' || event.strategy === 'sapi5') {
+  if (event.strategy === 'webspeech') {
     await ttsService.speakWithOverride(text, {
-      providerId: event.providerId ?? event.strategy,
+      providerId: event.providerId ?? 'webspeech',
       voiceName: event.voiceId,
       ttsModel: event.model,
       rate: event.rate,

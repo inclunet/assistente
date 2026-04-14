@@ -13,12 +13,13 @@ import (
 type SimpleStreamHandler struct {
 	BaseStreamHandler
 	svc           *Service
-	userMessageID uint // ID of the user message (root of this response thread)
+	userMessageID uint   // ID of the user message (root of this response thread)
+	profileSlug   string // Profile slug for TTS resolution
 }
 
 // NewSimpleStreamHandler constructs a SimpleStreamHandler bound to a conversation.
 // It is created by the owning Service so it can close over its dependencies.
-func (s *Service) NewSimpleStreamHandler(conversationID, userMessageID uint) *SimpleStreamHandler {
+func (s *Service) NewSimpleStreamHandler(conversationID, userMessageID uint, profileSlug string) *SimpleStreamHandler {
 	return &SimpleStreamHandler{
 		BaseStreamHandler: BaseStreamHandler{
 			Emitter:        s.emitter,
@@ -26,6 +27,7 @@ func (s *Service) NewSimpleStreamHandler(conversationID, userMessageID uint) *Si
 		},
 		svc:           s,
 		userMessageID: userMessageID,
+		profileSlug:   profileSlug,
 	}
 }
 
@@ -72,5 +74,5 @@ func (h *SimpleStreamHandler) OnDone(fullResponse string, usage llm.Usage, model
 		Usage:        usage,
 		Model:        model,
 		IsDone:       true,
-	})
+	}, h.profileSlug)
 }

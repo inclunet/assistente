@@ -101,15 +101,15 @@ export class OpenAIProvider extends BaseTTSProvider {
   
   async setRate(rate: number): Promise<void> {
     // OpenAI usa 0.25 a 4.0
-    // Detecta se é escala OpenAI (0.25-4.0) ou escala SAPI5 (-10 a 10)
+    // Converte de escala alternativa (-10 a 10) se necessário
     // Valores entre 0.25 e 4.0 são considerados escala OpenAI
-    // Valores inteiros <= -1 ou >= 2 são considerados escala SAPI5
+    // Valores inteiros <= -1 ou >= 2 são convertidos para escala OpenAI
     
     if (rate >= 0.25 && rate <= 4.0) {
       // Já está em escala OpenAI
       this._rate = rate;
     } else if (rate >= -10 && rate <= 10) {
-      // Escala SAPI5 (-10 a 10), converte para OpenAI
+      // Escala alternativa (-10 a 10), converte para OpenAI (0.25-4.0)
       // -10 -> 0.25, 0 -> 1.0, 10 -> 4.0
       if (rate <= 0) {
         this._rate = 1 + (rate * 0.075); // -10 a 0 vira 0.25 a 1

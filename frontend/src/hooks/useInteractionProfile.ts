@@ -498,17 +498,21 @@ export function useInteractionProfile(options: UseInteractionProfileOptions = {}
       // Limpa configs de role anteriores antes de aplicar o novo perfil
       ttsService.clearAllRoleConfigs();
 
-      // Configura provider e voz padrão (assistant) para compatibilidade
-      const ttsProvider = mapTTSProvider(assistantVoice.provider);
-      await ttsService.setProvider(ttsProvider);
+      // Configura provider e voz padrão (assistant) para compatibilidade.
+      // Apenas webspeech usa o ttsService do frontend; sapi5 e openai (backend_audio)
+      // sintetizam no backend — não setar provider/voz no ttsService para evitar warnings.
+      if (assistantVoice.provider === 'webspeech') {
+        const ttsProvider = mapTTSProvider(assistantVoice.provider);
+        await ttsService.setProvider(ttsProvider);
 
-      if (assistantVoice.voice_id) {
-        await ttsService.setVoice(assistantVoice.voice_id);
+        if (assistantVoice.voice_id) {
+          await ttsService.setVoice(assistantVoice.voice_id);
+        }
+
+        await ttsService.setRate(assistantVoice.rate || 1.0);
+        ttsService.setPitch(assistantVoice.pitch || 1.0);
+        await ttsService.setVolume(assistantVoice.volume || 1.0);
       }
-
-      await ttsService.setRate(assistantVoice.rate || 1.0);
-      ttsService.setPitch(assistantVoice.pitch || 1.0);
-      await ttsService.setVolume(assistantVoice.volume || 1.0);
 
       // Configura voice configs por role para speakAsRole()
       const makeRoleConfig = (voice: { provider?: string; llm_provider_id?: string; voice_id?: string; model?: string; rate?: number; pitch?: number; volume?: number } | undefined): RoleVoiceConfig => ({
