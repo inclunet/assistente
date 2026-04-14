@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { profiles, llm, speech } from '@wailsjs/go/models';
-import { GetSpeechProviders, GetSTTModels } from '@wailsjs/go/main/App';
+import { GetSpeechProviders, GetSTTModels, GetNativeTTSProviders } from '@wailsjs/go/main/App';
 import { CollapsibleSection } from '../ui/CollapsibleSection';
 import { ProfileVoiceSection } from './ProfileVoiceSection';
 import { ProfileInteractionSection } from './ProfileInteractionSection';
@@ -16,34 +16,18 @@ export interface ProfileAudioTabProps {
   profileId: string;
 }
 
-type WailsApp = {
-  go?: {
-    main?: {
-      App?: {
-        GetPlatform?: () => Promise<string>;
-      };
-    };
-  };
-};
-
-const fetchPlatform = async (): Promise<string | null> => {
-  const app = (window as unknown as WailsApp).go?.main?.App;
-  if (!app?.GetPlatform) return null;
-  return app.GetPlatform();
-};
-
 export function ProfileAudioTab({ editingProfile, updateField, updateFields, profileId }: ProfileAudioTabProps) {
   const { t } = useTranslation();
   const [speechProviders, setSpeechProviders] = useState<llm.ProviderConfig[]>([]);
-  const [isWindows, setIsWindows] = useState(false);
+  const [nativeTTSProviders, setNativeTTSProviders] = useState<string[]>([]);
   const [voiceExpanded, setVoiceExpanded] = useState(false);
   const [sttModelsCache, setSTTModelsCache] = useState<Record<string, speech.SpeechModelInfo[]>>({});
 
   useEffect(() => {
     GetSpeechProviders().then(setSpeechProviders).catch(console.error);
-    fetchPlatform()
-      .then((platform) => setIsWindows(platform === 'windows'))
-      .catch(() => setIsWindows(false));
+    GetNativeTTSProviders()
+      .then(setNativeTTSProviders)
+      .catch(() => setNativeTTSProviders(['webspeech']));
   }, []);
 
   // Busca modelos STT quando o provider muda (com cache por providerID)
@@ -87,21 +71,23 @@ export function ProfileAudioTab({ editingProfile, updateField, updateFields, pro
     };
   });
 
-  const baseProviderItems: VoiceProviderItem[] = [
-    {
-      id: 'webspeech',
+  const nativeProviderLabels: Record<string, { label: string; description: string }> = {
+    webspeech: {
       label: t('pickers.voiceProvider.webspeech'),
       description: t('pickers.voiceProvider.webspeechDesc'),
     },
-    ...(isWindows
-      ? [
-          {
-            id: 'sapi5',
-            label: t('pickers.voiceProvider.sapi5'),
-            description: t('pickers.voiceProvider.sapi5Desc'),
-          },
-        ]
-      : []),
+    sapi5: {
+      label: t('pickers.voiceProvider.sapi5'),
+      description: t('pickers.voiceProvider.sapi5Desc'),
+    },
+  };
+
+  const nativeItems: VoiceProviderItem[] = nativeTTSProviders
+    .filter((id) => id in nativeProviderLabels)
+    .map((id) => ({ id, ...nativeProviderLabels[id] }));
+
+  const baseProviderItems: VoiceProviderItem[] = [
+    ...nativeItems,
     ...llmProviderItems,
   ];
 

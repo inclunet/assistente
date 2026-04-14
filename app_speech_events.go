@@ -2,7 +2,6 @@ package main
 
 import (
 	"fmt"
-	"log"
 	"regexp"
 	"runtime"
 	"strings"
@@ -124,7 +123,6 @@ func (a *App) dispatchSpeechEvent(req ChatSpeakRequest) (*ChatSpeakEvent, error)
 
 	profile, err := a.resolveSpeechProfile(req.ConversationID, req.ProfileSlug)
 	if err != nil {
-		log.Printf("[Speech] dispatchSpeechEvent: erro ao resolver perfil (conv=%d): %v", req.ConversationID, err)
 		return nil, err
 	}
 

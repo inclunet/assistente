@@ -502,6 +502,10 @@ export function GetOpenAITTSVoices() {
   return window['go']['main']['App']['GetOpenAITTSVoices']();
 }
 
+export function GetNativeTTSProviders() {
+  return window['go']['main']['App']['GetNativeTTSProviders']();
+}
+
 export function GetProfile(arg1) {
   return window['go']['main']['App']['GetProfile'](arg1);
 }

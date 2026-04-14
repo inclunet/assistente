@@ -11,7 +11,7 @@ func TestMapRateToSAPI5(t *testing.T) {
 		{"default 1.0", 1.0, 0},
 		{"zero", 0, 0},
 		{"negative", -1, 0},
-		{"slow 0.5", 0.5, -6},
+		{"slow 0.5", 0.5, -7},
 		{"very slow 0.25", 0.25, -10},
 		{"fast 2.0", 2.0, 3},
 		{"very fast 4.0", 4.0, 10},

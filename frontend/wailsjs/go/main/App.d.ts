@@ -267,6 +267,8 @@ export function GetModelsByProvider(arg1:string):Promise<Array<string>>;
 
 export function GetOpenAITTSVoices():Promise<Array<main.OpenAITTSVoiceInfo>>;
 
+export function GetNativeTTSProviders():Promise<Array<string>>;
+
 export function GetProfile(arg1:string):Promise<profiles.Profile>;
 
 export function GetProfileSearchPaths():Promise<Array<string>>;
