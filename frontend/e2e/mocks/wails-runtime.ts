@@ -177,6 +177,7 @@ export function buildWailsMockScript(): string {
 
     /* Speech */
     GetSpeechProviders: [],
+    GetNativeTTSProviders: ['webspeech'],
     GetTTSVoices: [],
     GetSTTModels: [],
     GetOpenAITTSVoices: [],
