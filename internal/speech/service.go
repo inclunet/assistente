@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"math"
 	"strings"
 
 	"assistente/internal/credentials"
@@ -224,7 +225,7 @@ func mapRateToSAPI5(rate float64) int {
 	if sapi5Rate > 10 {
 		sapi5Rate = 10
 	}
-	return int(sapi5Rate)
+	return int(math.Round(sapi5Rate))
 }
 
 // synthesizeSAPI5 gera áudio WAV via SAPI5 COM local.

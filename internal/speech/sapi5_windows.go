@@ -426,9 +426,8 @@ func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume in
 	return data, nil
 }
 
-// restoreDefaultOutput restaura a conexão com o output de áudio padrão.
-// Seta AudioOutputStream para nil (VT_EMPTY), o que faz o SpVoice
-// voltar a usar o dispositivo de áudio padrão do sistema.
+// restoreDefaultOutput seta AudioOutputStream para nil (VT_EMPTY), o que
+// faz o SpVoice voltar a usar o dispositivo de áudio padrão do sistema.
 func (m *SAPI5Manager) restoreDefaultOutput() {
 	if v, err := oleutil.PutProperty(m.spVoice, "AudioOutputStream", nil); err != nil {
 		log.Printf("[SAPI5] Warning: failed to restore default output: %v", err)
