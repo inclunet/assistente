@@ -8,6 +8,10 @@ const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
 const copyMessageMock = vi.fn();
 const speakMessageMock = vi.fn();
+const ensureWorkspaceTabHasConversationMock = vi.fn().mockResolvedValue(1);
+const workspaceStoreState = {
+  getActiveTab: () => ({ id: 'chat-tab', type: 'chat' as const, conversationId: 1, title: 'Conversa', position: 0 }),
+};
 
 vi.mock('react-router-dom', () => ({
   useNavigate: () => vi.fn(),
@@ -32,6 +36,7 @@ vi.mock('../services/tts', () => ({
 const chatStoreState = {
   isLoading: false,
   sendMessage: sendMessageMock,
+  sendMessageToConversation: sendMessageMock,
   getThreadedMessages: () => [],
   loadMessageChildren: vi.fn(),
   getActiveConversation: () => ({ id: 1, title: 'Conversa' }),
@@ -50,6 +55,19 @@ vi.mock('../store/chatStore', () => ({
     }
     return chatStoreState;
   },
+}));
+
+vi.mock('../store/workspaceStore', () => ({
+  useWorkspaceStore: (selector?: (s: typeof workspaceStoreState) => unknown) => {
+    if (typeof selector === 'function') {
+      return selector(workspaceStoreState);
+    }
+    return workspaceStoreState;
+  },
+}));
+
+vi.mock('../lib/workspaceConversation', () => ({
+  ensureWorkspaceTabHasConversation: (...args: unknown[]) => ensureWorkspaceTabHasConversationMock(...args),
 }));
 
 vi.mock('../store/editorStore', () => ({
@@ -149,6 +167,7 @@ describe('ChatPage', () => {
     sendMessageMock.mockReset();
     showMenuMock.mockReset();
     hideMenuMock.mockReset();
+    ensureWorkspaceTabHasConversationMock.mockClear();
     sendMessageMock.mockRejectedValueOnce(new Error('erro'));
   });
 
