@@ -40,6 +40,45 @@ Abas:
 _Nenhum workspace ativo._
 {{- end }}
 
+{{- if .Surface }}
+
+Superfície atual:
+- tipo: `{{ .Surface.Type }}`
+{{- if .Surface.Title }}
+- título: `{{ .Surface.Title }}`
+{{- end }}
+{{- if and .Surface.State (index .Surface.State "filePath") }}
+- arquivo ativo: `{{ index .Surface.State "filePath" }}`
+{{- end }}
+{{- if and .Surface.State (index .Surface.State "sessionId") }}
+- sessão de terminal: `{{ index .Surface.State "sessionId" }}`
+{{- end }}
+{{- if and .Surface.State (index .Surface.State "tasklistId") }}
+- tasklist ativa: `{{ index .Surface.State "tasklistId" }}`
+{{- end }}
+{{- if and .Surface.Context (index .Surface.Context "selectedText") }}
+- seleção atual:
+
+```text
+{{ index .Surface.Context "selectedText" }}
+```
+{{- end }}
+{{- if and .Surface.Context (index .Surface.Context "historyPreview") }}
+- histórico recente do terminal:
+
+```text
+{{ index .Surface.Context "historyPreview" }}
+```
+{{- end }}
+{{- if and .Surface.Context (index .Surface.Context "tasksPreview") }}
+- resumo atual da tasklist:
+
+```text
+{{ index .Surface.Context "tasksPreview" }}
+```
+{{- end }}
+{{- end }}
+
 Ao responder sobre o workspace, use títulos e tipos. Exemplo:
 
 > Você tem 3 abas:

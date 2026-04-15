@@ -16,7 +16,6 @@ import { buildChatSurfaceParams } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
 import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../../types/tasklist';
-import { createTextMediaFile } from '../../services/mediaService';
 
 const WorkflowEditor = lazy(() => import('./WorkflowEditor'));
 
@@ -208,14 +207,9 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           .slice(0, 40)
           .map((x) => `- ${String(x.title || '').trim()}`)
           .join('\n');
-        const contextAttachment = await createTextMediaFile(
-          'tasklist-context.md',
-          `${header}${body || t('tasklist.miniChatContext.noTasks')}`,
-          'text/markdown',
-        );
         return {
           content: instruction,
-          mediaFiles: [...(media ?? []), contextAttachment],
+          mediaFiles: media,
           paramsOverride: buildChatSurfaceParams(wsActiveTab, {
             profileSlug: effectiveProfileSlug || undefined,
             context: {

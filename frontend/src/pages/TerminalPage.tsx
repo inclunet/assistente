@@ -11,7 +11,6 @@ import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
 import { useTabScrollState } from '../hooks/useTabScrollState';
 import { buildChatSurfaceParams } from '../lib/chatSurface';
-import { createTextMediaFile } from '../services/mediaService';
 import './TerminalPage.css';
 
 export default function TerminalPage() {
@@ -114,13 +113,9 @@ export default function TerminalPage() {
           })
           .filter(Boolean)
           .join('\n---\n') || t('terminal.miniChat.noHistory');
-        const contextAttachment = await createTextMediaFile(
-          'terminal-context.txt',
-          contextDisplay,
-        );
         return {
           content: instruction,
-          mediaFiles: [...(media ?? []), contextAttachment],
+          mediaFiles: media,
           paramsOverride: buildChatSurfaceParams(wsActiveTab, {
             profileSlug: effectiveProfileSlug || undefined,
             context: {
