@@ -3,16 +3,21 @@ import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceS
 import { useChatStore } from '../store/chatStore';
 import { RenameConversation } from '@wailsjs/go/main/App';
 import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
+import type { TabType } from '../store/workspaceStore';
+
+/** Abas onde a conversa só é criada ao abrir o mini-chat (não ao focar o painel). */
+const MINI_CHAT_LAZY_CONVERSATION: ReadonlySet<TabType> = new Set(['editor', 'terminal', 'tasklist']);
 
 /**
  * Sincroniza a aba ativa do workspace com o chatStore.
- * Funciona para TODAS as abas — cada aba tem seu próprio conversationId dedicado.
+ * Cada aba pode ter um conversationId; abas editor/terminal/tasklist só criam conversa ao abrir o mini-chat.
  *
  * Fluxo:
  * 1. Workspace ativa qualquer aba
- * 2. Se conversationId vazio → ensureWorkspaceTabHasConversation (CreateConversation + updateTab + load)
- * 3. Se conversationId existente → chatStore.loadConversation(id)
- * 4. Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
+ * 2. Se conversationId > 0 → chatStore.loadConversation(id)
+ * 3. Se conversationId vazio e aba é chat → ensureWorkspaceTabHasConversation
+ * 4. Se conversationId vazio e aba é editor/terminal/tasklist → clearActiveConversation (conversa criada no requestOpen do mini-chat)
+ * 5. Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
  */
 export function useWorkspaceChatBridge() {
   const activeTab = useWorkspaceStore((s) => s.getActiveTab());
@@ -32,6 +37,12 @@ export function useWorkspaceChatBridge() {
       void syncExistingConversation(conversationId).then(() => {
         lastSyncedRef.current = syncKey;
       });
+      return;
+    }
+
+    if (MINI_CHAT_LAZY_CONVERSATION.has(activeTab.type)) {
+      useChatStore.getState().clearActiveConversation();
+      lastSyncedRef.current = syncKey;
       return;
     }
 

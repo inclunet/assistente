@@ -227,6 +227,8 @@ interface ChatStore {
 
   createConversation: (title?: string) => Promise<number>;
   loadConversation: (id: number) => Promise<void>;
+  /** Limpa a conversa ativa (ex.: ao focar editor/terminal/tasklist sem conversa até abrir o mini-chat). */
+  clearActiveConversation: () => void;
 
   updateMessage: (messageId: string, content: string) => void;
   updateMessageReasoning: (messageId: string, reasoning: string) => void;
@@ -308,6 +310,12 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         isInitialized: true,
       });
       return conv.id;
+    },
+
+    clearActiveConversation: () => {
+      messageAudioService.stopCurrentAudio();
+      ttsService.stop();
+      set({ activeConversationId: null, activeConversation: null });
     },
 
     loadConversation: async (id) => {

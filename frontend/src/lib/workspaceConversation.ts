@@ -8,7 +8,8 @@ const inflight = new Map<string, Promise<number>>();
 
 /**
  * Garante que a aba do workspace tem conversa no backend e que o chatStore está sincronizado.
- * Usa sempre CreateConversation (conversa nova), alinhado com useWorkspaceChatBridge.
+ * Usa sempre CreateConversation (conversa nova). Chamado ao abrir o mini-chat (editor/terminal/tasklist)
+ * e pelo bridge só para a aba dedicada a chat.
  */
 export async function ensureWorkspaceTabHasConversation(wsTab: WorkspaceTab): Promise<number> {
   const pending = inflight.get(wsTab.id);
