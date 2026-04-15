@@ -1,35 +1,5 @@
 import { test, expect } from '../fixtures';
-
-declare global {
-  interface Window {
-    __origRAF?: typeof requestAnimationFrame;
-    __rafQueue?: FrameRequestCallback[];
-  }
-}
-
-async function pauseRAF(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    window.__origRAF = window.requestAnimationFrame;
-    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
-      window.__rafQueue = window.__rafQueue || [];
-      window.__rafQueue.push(cb);
-      return 0;
-    };
-  });
-}
-
-async function resumeRAF(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    if (window.__origRAF) {
-      window.requestAnimationFrame = window.__origRAF;
-      const queue = window.__rafQueue || [];
-      window.__rafQueue = [];
-      for (const cb of queue) {
-        try { cb(performance.now()); } catch (_) { /* ignore */ }
-      }
-    }
-  });
-}
+import { pauseRAF, resumeRAF } from '../helpers/pauseRaf';
 
 /**
  * Testes de navegação por teclado na lista de abas (tablist).

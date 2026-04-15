@@ -1,4 +1,4 @@
-import { useCallback, useMemo } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
 import { ChatSessionView } from '../chat/ChatSessionView';
@@ -11,19 +11,16 @@ import type { MediaFile } from '../../services/mediaService';
 
 import './WorkspaceMiniChat.css';
 
-function getAdapterForActiveTab() {
-  const tab = useWorkspaceStore.getState().getActiveTab();
-  return getAdapter(tab?.id);
-}
-
 export function WorkspaceMiniChat() {
   const { t } = useTranslation();
   const isOpen = useMiniChatStore((s) => s.isOpen);
+  const boundTabId = useMiniChatStore((s) => s.boundTabId);
   const contextDisplay = useMiniChatStore((s) => s.contextDisplay);
   const focusNonce = useMiniChatStore((s) => s.focusNonce);
   const adapterError = useMiniChatStore((s) => s.adapterError);
   const close = useMiniChatStore((s) => s.close);
   const activeConversation = useChatStore((s) => s.activeConversation);
+  const activeWorkspaceTab = useWorkspaceStore((s) => s.getActiveTab());
 
   const modalTitle = useMemo(() => {
     const conversationTitle = activeConversation?.title || t('editor.inlineChat.conversation');
@@ -36,11 +33,20 @@ export function WorkspaceMiniChat() {
     close();
   }, [close]);
 
+  /** Evita enviar com o adaptador da aba errada se o utilizador mudar de painel com o modal aberto. */
+  useEffect(() => {
+    if (!isOpen || !boundTabId) return;
+    if (activeWorkspaceTab?.id !== boundTabId) {
+      handleClose();
+    }
+  }, [isOpen, boundTabId, activeWorkspaceTab?.id, handleClose]);
+
   const handleSend = useCallback(
     async (content: string, mediaFiles?: MediaFile[]) => {
-      const adapter = getAdapterForActiveTab();
+      const tabId = useMiniChatStore.getState().boundTabId;
+      const adapter = getAdapter(tabId);
       const meta = useMiniChatStore.getState().sessionMeta;
-      if (!adapter) {
+      if (!adapter || !tabId) {
         handleClose();
         return;
       }

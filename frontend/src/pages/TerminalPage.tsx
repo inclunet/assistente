@@ -7,6 +7,7 @@ import { useChatStore } from '../store/chatStore';
 import { useMiniChatStore } from '../store/miniChatStore';
 import type { MiniChatAdapter } from '../store/miniChatStore';
 import { useRegisterMiniChatAdapter } from '../hooks/useRegisterMiniChatAdapter';
+import { useUIStore } from '../store/uiStore';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
@@ -15,6 +16,7 @@ import './TerminalPage.css';
 
 export default function TerminalPage() {
   const { t } = useTranslation();
+  const { addToast } = useUIStore();
   const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const tabProfileSlug = wsActiveTab?.type === 'terminal'
@@ -96,6 +98,7 @@ export default function TerminalPage() {
           try {
             await useChatStore.getState().createConversation();
           } catch {
+            addToast(t('editor.inlineChat.newConversationError'), 'error');
             return { ok: false };
           }
         }
@@ -108,7 +111,7 @@ export default function TerminalPage() {
           })
           .filter(Boolean)
           .join('\n---\n');
-        const contextDisplay = lines || '(sem histórico no terminal)';
+        const contextDisplay = lines || t('terminal.miniChat.noHistory');
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
@@ -117,7 +120,7 @@ export default function TerminalPage() {
         });
       },
     };
-  }, [wsActiveTab, currentHistory, effectiveProfileSlug]);
+  }, [wsActiveTab, currentHistory, effectiveProfileSlug, addToast, t]);
 
   useRegisterMiniChatAdapter(wsActiveTab?.id, terminalMiniChatAdapter);
 

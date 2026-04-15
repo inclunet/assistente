@@ -1,4 +1,5 @@
 import { test, expect } from '../fixtures';
+import { pauseRAF, resumeRAF } from '../helpers/pauseRaf';
 
 const now = new Date().toISOString();
 
@@ -133,6 +134,7 @@ test.describe('Abas — trocar aba', () => {
     await wails.setResponse('SetActiveWorkspaceTab', undefined);
 
     await wails.waitForApp();
+    await pauseRAF(page);
 
     // Foca na aba ativa
     const firstTab = page.locator('button[role="tab"]').first();
@@ -145,6 +147,7 @@ test.describe('Abas — trocar aba', () => {
 
     const secondTab = page.locator('button[role="tab"]').nth(1);
     await expect(secondTab).toBeFocused({ timeout: 3_000 });
+    await resumeRAF(page);
   });
 });
 

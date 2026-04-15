@@ -195,15 +195,17 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           try {
             await useChatStore.getState().createConversation();
           } catch {
+            addToast(t('editor.inlineChat.newConversationError'), 'error');
             return { ok: false };
           }
         }
-        const header = `${taskList.title}\n${tasks.length} tarefa(s)\n`;
+        const taskLabel = t('tasklist.miniChatContext.taskCount', { count: tasks.length });
+        const header = `${taskList.title}\n${taskLabel}\n`;
         const body = tasks
           .slice(0, 40)
           .map((x) => `- ${String(x.title || '').trim()}`)
           .join('\n');
-        const contextDisplay = `${header}${body || '(nenhuma tarefa)'}`;
+        const contextDisplay = `${header}${body || t('tasklist.miniChatContext.noTasks')}`;
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
@@ -212,7 +214,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
         });
       },
     };
-  }, [wsActiveTab, taskList, tasks, effectiveProfileSlug, taskListId]);
+  }, [wsActiveTab, taskList, tasks, effectiveProfileSlug, taskListId, addToast, t]);
 
   useRegisterMiniChatAdapter(wsActiveTab?.id, tasklistMiniChatAdapter);
 

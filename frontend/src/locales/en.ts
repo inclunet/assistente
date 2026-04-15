@@ -134,6 +134,10 @@ const en = {
         messageTooLarge: 'Message too large ({{size}} bytes). Maximum allowed: {{max}} bytes',
         mediaTooLarge: 'Media files too large (~{{size}}MB). Maximum allowed: {{max}}MB',
       },
+      errors: {
+        noActiveConversation:
+          'No active conversation. Open a chat tab or wait for the workspace to finish syncing.',
+      },
       stopReading: 'Stop reading',
       stopReadingLabel: 'Stop text reading',
       loadingTokenStats: 'Loading token statistics',
@@ -652,6 +656,9 @@ const en = {
         clearBtn: 'Clear',
         contextBtn: 'Context',
         messageActions: 'Message actions',
+        prepareNeedCodeOrRich: 'Switch to Code or Rich mode to use the editor mini-chat.',
+        prepareSelectionFailed: 'Could not capture the editor selection.',
+        prepareSelectionTooLarge: 'Selection is too large to send to chat (limit: {{max}} characters).',
       },
       richText: { placeholder: 'Write…', label: 'Rich text editor' },
     },
@@ -664,6 +671,9 @@ const en = {
       entry: { llmCommand: 'LLM Command', command: 'Command', commandLLM: 'Command (LLM)', llm: 'LLM', output: 'Output', running: 'running', empty: 'empty', exitCode: 'Exit code:', duration: 'Duration:', exit: 'exit:', executing: 'Executing...', truncated: 'truncated' },
       history: { label: 'Terminal history', loading: 'Loading...', emptyTitle: 'No commands executed.', emptyHint: 'Type a command below to get started.', commandPrefix: 'Command:' },
       tabs: { closed: 'Terminal closed.', of: 'of', label: 'Terminals', listLabel: 'List of open terminals', running: 'Running', close: 'Close', newShortcut: 'Create new terminal, Ctrl+T', newTooltip: 'New terminal (Ctrl+T)' },
+      miniChat: {
+        noHistory: '(no terminal history)',
+      },
     },
 
     profiles: {
@@ -1368,6 +1378,9 @@ const en = {
       tabListLabel: 'Panel list',
       editTabTitle: 'Edit tab title',
       closeTab: 'Close tab',
+      miniChat: {
+        panelNotSupported: 'This panel does not support mini-chat yet.',
+      },
       tabType: {
         chat: 'Chat',
         editor: 'Editor',
@@ -1626,6 +1639,11 @@ const en = {
       emProgresso: 'In Progress',
       concluido: 'Completed',
       noWorkflow: 'No workflow defined',
+      miniChatContext: {
+        taskCount_one: '{{count}} task',
+        taskCount_other: '{{count}} tasks',
+        noTasks: '(no tasks)',
+      },
       createTask: 'Create Task',
       createTaskButton: 'Create Task',
       editTask: 'Edit Task',

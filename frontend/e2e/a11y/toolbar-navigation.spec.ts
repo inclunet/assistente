@@ -1,11 +1,5 @@
 import { test, expect } from '../fixtures';
-
-declare global {
-  interface Window {
-    __origRAF?: typeof requestAnimationFrame;
-    __rafQueue?: FrameRequestCallback[];
-  }
-}
+import { pauseRAF, resumeRAF } from '../helpers/pauseRaf';
 
 /**
  * Testes de navegação por setas dentro de toolbars.
@@ -20,36 +14,6 @@ declare global {
  * Para evitar race conditions com restoreDefaultFocus (rAF),
  * os testes pausam o requestAnimationFrame durante as interações.
  */
-
-/**
- * Pausa requestAnimationFrame para evitar que restoreDefaultFocus roube o foco
- * durante a interação com a toolbar.
- */
-async function pauseRAF(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    window.__origRAF = window.requestAnimationFrame;
-    window.requestAnimationFrame = (cb: FrameRequestCallback) => {
-      // Armazena callbacks para executar depois
-      window.__rafQueue = window.__rafQueue || [];
-      window.__rafQueue.push(cb);
-      return 0;
-    };
-  });
-}
-
-async function resumeRAF(page: import('@playwright/test').Page) {
-  await page.evaluate(() => {
-    if (window.__origRAF) {
-      window.requestAnimationFrame = window.__origRAF;
-      // Executa callbacks pendentes
-      const queue = window.__rafQueue || [];
-      window.__rafQueue = [];
-      for (const cb of queue) {
-        try { cb(performance.now()); } catch (_) { /* ignore */ }
-      }
-    }
-  });
-}
 
 test.describe('Toolbar — navegação por setas (workspace toolbar)', () => {
   test('ArrowRight move roving tabindex para o próximo elemento', async ({ page, wails }) => {

@@ -1780,7 +1780,7 @@ export default function EditorPage() {
       prepare: async (): Promise<MiniChatPrepareResult> => {
         if (!activeTab) return { ok: false };
         if (activeTab.mode === 'view') {
-          addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
+          addToast(t('editor.inlineChat.prepareNeedCodeOrRich'), 'info');
           return { ok: false };
         }
         if (isAsking) return { ok: false };
@@ -1789,7 +1789,7 @@ export default function EditorPage() {
           try {
             await useChatStore.getState().createConversation();
           } catch {
-            addToast('Não foi possível criar uma conversa para o chat inline.', 'error');
+            addToast(t('editor.inlineChat.newConversationError'), 'error');
             return { ok: false };
           }
         }
@@ -1802,12 +1802,12 @@ export default function EditorPage() {
               : null;
 
         if (!selectionRaw) {
-          addToast('Não foi possível capturar a seleção do editor.', 'error');
+          addToast(t('editor.inlineChat.prepareSelectionFailed'), 'error');
           return { ok: false };
         }
 
         if (selectionRaw.selectedText.length > 20000) {
-          addToast('Seleção muito grande para enviar ao chat (limite: 20.000 caracteres).', 'error');
+          addToast(t('editor.inlineChat.prepareSelectionTooLarge', { max: 20000 }), 'error');
           return { ok: false };
         }
 
@@ -1854,7 +1854,7 @@ export default function EditorPage() {
       send: (instruction, media, meta) =>
         sendEditorMiniChatRef.current(instruction, media, meta as InlineChatSelection),
     };
-  }, [wsActiveTab, activeTab, isAsking, addToast, editorReadyNonce]);
+  }, [wsActiveTab, activeTab, isAsking, addToast, editorReadyNonce, t]);
 
   useRegisterMiniChatAdapter(wsActiveTab?.id, editorMiniChatAdapter);
 
@@ -2290,7 +2290,7 @@ export default function EditorPage() {
         onClick: async () => {
           if (isAsking) return;
           if (activeTab?.mode === 'view') {
-            addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
+            addToast(t('editor.inlineChat.prepareNeedCodeOrRich'), 'info');
             return;
           }
           await useMiniChatStore.getState().requestOpen();
@@ -2298,7 +2298,7 @@ export default function EditorPage() {
         disabled: !activeTab || isAsking,
       },
     ];
-  }, [activeTab, isAsking, addToast]);
+  }, [activeTab, isAsking, addToast, t]);
 
   // Atalhos de arquivos
   useEffect(() => {

@@ -1,4 +1,5 @@
 import { create } from 'zustand';
+import i18next from 'i18next';
 import type { MediaFile } from '../services/mediaService';
 import { useWorkspaceStore } from './workspaceStore';
 import { isModalOpen } from '../components/ui/Modal';
@@ -39,11 +40,13 @@ export function getAdapter(tabId: string | undefined | null): MiniChatAdapter | 
 
 interface MiniChatState {
   isOpen: boolean;
+  /** Aba do workspace à qual este modal está vinculado (envio usa sempre este id). */
+  boundTabId: string | null;
   contextDisplay: string;
   sessionMeta: unknown;
   focusNonce: number;
   adapterError: string | null;
-  open: (contextDisplay: string, meta: unknown) => void;
+  open: (contextDisplay: string, meta: unknown, boundTabId: string) => void;
   close: () => void;
   bumpFocus: () => void;
   setAdapterError: (msg: string | null) => void;
@@ -52,14 +55,16 @@ interface MiniChatState {
 
 export const useMiniChatStore = create<MiniChatState>((set, get) => ({
   isOpen: false,
+  boundTabId: null,
   contextDisplay: '',
   sessionMeta: null,
   focusNonce: 0,
   adapterError: null,
 
-  open: (contextDisplay, meta) => {
+  open: (contextDisplay, meta, boundTabId) => {
     set({
       isOpen: true,
+      boundTabId,
       contextDisplay,
       sessionMeta: meta,
       adapterError: null,
@@ -70,6 +75,7 @@ export const useMiniChatStore = create<MiniChatState>((set, get) => ({
   close: () => {
     set({
       isOpen: false,
+      boundTabId: null,
       contextDisplay: '',
       sessionMeta: null,
       adapterError: null,
@@ -86,14 +92,6 @@ export const useMiniChatStore = create<MiniChatState>((set, get) => ({
     const tab = useWorkspaceStore.getState().getActiveTab();
     if (!tab) return;
 
-    if (tab.type === 'chat') {
-      const input = document.querySelector('.chat-page .chat-input textarea') as HTMLTextAreaElement | null;
-      if (input) {
-        input.focus();
-      }
-      return;
-    }
-
     if (get().isOpen) {
       return;
     }
@@ -102,10 +100,18 @@ export const useMiniChatStore = create<MiniChatState>((set, get) => ({
       return;
     }
 
+    if (tab.type === 'chat') {
+      const input = document.querySelector('.chat-page .chat-input textarea') as HTMLTextAreaElement | null;
+      if (input) {
+        input.focus();
+      }
+      return;
+    }
+
     const adapter = getAdapter(tab.id);
     if (!adapter) {
       useUIStore.getState().addToast(
-        'Este painel ainda não suporta o mini-chat.',
+        i18next.t('workspace.miniChat.panelNotSupported'),
         'info',
       );
       return;
@@ -119,6 +125,6 @@ export const useMiniChatStore = create<MiniChatState>((set, get) => ({
       return;
     }
 
-    get().open(result.contextDisplay, result.meta);
+    get().open(result.contextDisplay, result.meta, tab.id);
   },
 }));

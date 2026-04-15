@@ -133,6 +133,10 @@ const es = {
         messageTooLarge: 'Mensaje demasiado grande ({{size}} bytes). Máximo permitido: {{max}} bytes',
         mediaTooLarge: 'Archivos de medios demasiado grandes (~{{size}}MB). Máximo permitido: {{max}}MB',
       },
+      errors: {
+        noActiveConversation:
+          'No hay conversación activa. Abre una pestaña de chat o espera a que el workspace termine de sincronizar.',
+      },
       stopReading: 'Detener lectura',
       stopReadingLabel: 'Detener lectura de texto',
       loadingTokenStats: 'Cargando estadísticas de tokens',
@@ -651,6 +655,9 @@ const es = {
         clearBtn: 'Vaciar',
         contextBtn: 'Contexto',
         messageActions: 'Acciones del mensaje',
+        prepareNeedCodeOrRich: 'Cambia a Código o Rico para usar el mini-chat del editor.',
+        prepareSelectionFailed: 'No se pudo capturar la selección del editor.',
+        prepareSelectionTooLarge: 'La selección es demasiado grande para enviar al chat (límite: {{max}} caracteres).',
       },
       richText: { placeholder: 'Escribe…', label: 'Editor de texto enriquecido' },
     },
@@ -663,6 +670,9 @@ const es = {
       entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', output: 'Salida', running: 'ejecutando', empty: 'vacía', exitCode: 'Código de salida:', duration: 'Duración:', exit: 'exit:', executing: 'Ejecutando...', truncated: 'truncado' },
       history: { label: 'Historial del terminal', loading: 'Cargando...', emptyTitle: 'Ningún comando ejecutado.', emptyHint: 'Escribe un comando abajo para comenzar.', commandPrefix: 'Comando:' },
       tabs: { closed: 'Terminal cerrado.', of: 'de', label: 'Terminales', listLabel: 'Lista de terminales abiertos', running: 'Ejecutando', close: 'Cerrar', newShortcut: 'Crear nuevo terminal, Ctrl+T', newTooltip: 'Nuevo terminal (Ctrl+T)' },
+      miniChat: {
+        noHistory: '(sin historial en el terminal)',
+      },
     },
 
     profiles: {
@@ -1367,6 +1377,9 @@ const es = {
       tabListLabel: 'Lista de paneles',
       editTabTitle: 'Editar título de la pestaña',
       closeTab: 'Cerrar pestaña',
+      miniChat: {
+        panelNotSupported: 'Este panel aún no admite el mini-chat.',
+      },
       tabType: {
         chat: 'Chat',
         editor: 'Editor',
@@ -1625,6 +1638,11 @@ const es = {
       emProgresso: 'En progreso',
       concluido: 'Completado',
       noWorkflow: 'Sin flujo de trabajo definido',
+      miniChatContext: {
+        taskCount_one: '{{count}} tarea',
+        taskCount_other: '{{count}} tareas',
+        noTasks: '(ninguna tarea)',
+      },
       createTask: 'Crear tarea',
       createTaskButton: 'Crear tarea',
       editTask: 'Editar tarea',

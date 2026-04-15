@@ -6,6 +6,7 @@ import { ttsService } from '../services/tts';
 import { VoiceRole } from '../services/tts/index';
 import { messageAudioService } from '../services/messageAudio';
 import { stripMarkdown } from '../lib/stripMarkdown';
+import i18next from 'i18next';
 
 export interface UseContextMenuResult {
   menuVisible: boolean;
@@ -113,9 +114,19 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       if (!message.content || !message.id) return;
 
       const role: VoiceRole = message.role === 'user' ? 'user' : 'assistant';
+      const plain = stripMarkdown(message.content);
+      const prefix =
+        message.role === 'user'
+          ? i18next.t('chat.you')
+          : message.role === 'system'
+            ? i18next.t('chat.system')
+            : i18next.t('chat.assistant');
 
       const voiceCtx = ttsService.getVoiceContext(role);
-      if (!voiceCtx) return;
+      if (!voiceCtx) {
+        onAnnounce?.(`${prefix}: ${plain}`);
+        return;
+      }
 
       messageAudioService.stopCurrentAudio();
       ttsService.stop();
@@ -134,10 +145,13 @@ export function useMessageActions(options: UseMessageActionsOptions = {}) {
       }
 
       // Fallback: speakAsRole (WebSpeech/SAPI5/SpeakPreview)
-      const text = stripMarkdown(message.content);
-      await ttsService.speakAsRole(text, role);
+      try {
+        await ttsService.speakAsRole(plain, role);
+      } catch {
+        onAnnounce?.(`${prefix}: ${plain}`);
+      }
     },
-    []
+    [onAnnounce]
   );
 
   return {
