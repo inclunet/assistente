@@ -19,6 +19,11 @@ const withSuspense = (element: JSX.Element) => (
   </Suspense>
 );
 
+/** Rota index: o conteúdo vem de WorkspaceLayout + WorkspaceContent; este nó só satisfaz o router. */
+function WorkspaceIndexRoute() {
+  return null;
+}
+
 export const router = createHashRouter([
   {
     path: '/',
@@ -29,6 +34,7 @@ export const router = createHashRouter([
         children: [
           {
             index: true,
+            element: <WorkspaceIndexRoute />,
           },
           {
             path: 'settings/:tab?',

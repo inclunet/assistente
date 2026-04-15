@@ -279,6 +279,8 @@ export function WorkspaceLayout() {
         <WorkspaceToolbar />
         {workspace && <WorkspaceTabList />}
         <WorkspaceContent />
+        {/* Rota index (WorkspaceIndexRoute em router.tsx); conteúdo real vem de WorkspaceContent */}
+        <Outlet />
         <WorkspaceMiniChat />
       </div>
     );

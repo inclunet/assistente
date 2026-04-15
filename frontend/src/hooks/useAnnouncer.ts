@@ -31,11 +31,20 @@ export function useAnnouncer() {
 
 /**
  * Função global para anunciar mensagens (para uso fora de componentes React)
+ *
+ * Re-tenta no microtask se o handler ainda não estiver registado (ex.: React Strict Mode
+ * entre unmount e remount do ScreenReaderAnnouncer).
  */
 export function announce(message: string, priority: 'polite' | 'assertive' = 'polite') {
   if (announceFunction) {
     announceFunction(message, priority);
+    return;
   }
+  queueMicrotask(() => {
+    if (announceFunction) {
+      announceFunction(message, priority);
+    }
+  });
 }
 
 /**
@@ -48,27 +57,36 @@ export function useAnnouncerState() {
   const assertiveTimeoutRef = useRef<number>();
 
   useEffect(() => {
+    const scheduleClear = (
+      setter: (v: string) => void,
+      timeoutRef: { current: number | undefined },
+      timeoutMs: number,
+    ) => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      timeoutRef.current = window.setTimeout(() => {
+        setter('');
+      }, timeoutMs);
+    };
+
     const handleAnnounce = (message: string, priority: 'polite' | 'assertive' = 'polite') => {
       // Timeout scales with message length so screen readers have time to capture it.
       // Minimum 3s for short messages, ~50ms per char for longer text.
       const timeoutMs = Math.max(3000, message.length * 50);
 
       if (priority === 'assertive') {
-        if (assertiveTimeoutRef.current) {
-          clearTimeout(assertiveTimeoutRef.current);
-        }
-        setAssertiveMessage(message);
-        assertiveTimeoutRef.current = window.setTimeout(() => {
-          setAssertiveMessage('');
-        }, timeoutMs);
+        setAssertiveMessage('');
+        requestAnimationFrame(() => {
+          setAssertiveMessage(message);
+          scheduleClear(setAssertiveMessage, assertiveTimeoutRef, timeoutMs);
+        });
       } else {
-        if (politeTimeoutRef.current) {
-          clearTimeout(politeTimeoutRef.current);
-        }
-        setPoliteMessage(message);
-        politeTimeoutRef.current = window.setTimeout(() => {
-          setPoliteMessage('');
-        }, timeoutMs);
+        setPoliteMessage('');
+        requestAnimationFrame(() => {
+          setPoliteMessage(message);
+          scheduleClear(setPoliteMessage, politeTimeoutRef, timeoutMs);
+        });
       }
     };
 
