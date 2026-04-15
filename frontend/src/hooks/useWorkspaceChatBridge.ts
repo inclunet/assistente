@@ -24,6 +24,8 @@ export function useWorkspaceChatBridge() {
   const isWsInitialized = useWorkspaceStore((s) => s.isInitialized);
 
   const lastSyncedRef = useRef<string | null>(null);
+  /** Invalida `loadConversation` / `ensure` assíncronos quando a aba ativa muda antes de concluírem. */
+  const syncGenerationRef = useRef(0);
 
   useEffect(() => {
     if (!isWsInitialized) return;
@@ -33,10 +35,21 @@ export function useWorkspaceChatBridge() {
     const syncKey = `${activeTab.id}:${conversationId}`;
     if (lastSyncedRef.current === syncKey) return;
 
+    const snapshotTabId = activeTab.id;
+
     if (conversationId > 0) {
-      void syncExistingConversation(conversationId).then(() => {
+      const gen = ++syncGenerationRef.current;
+      void (async () => {
+        const chatState = useChatStore.getState();
+        if (chatState.activeConversationId !== conversationId) {
+          await useChatStore.getState().loadConversation(conversationId);
+        }
+        if (syncGenerationRef.current !== gen) return;
+        const nowTab = useWorkspaceStore.getState().getActiveTab();
+        if (!nowTab || nowTab.id !== snapshotTabId) return;
+        if ((nowTab.conversationId || 0) !== conversationId) return;
         lastSyncedRef.current = syncKey;
-      });
+      })();
       return;
     }
 
@@ -46,20 +59,18 @@ export function useWorkspaceChatBridge() {
       return;
     }
 
+    const gen = ++syncGenerationRef.current;
     void ensureWorkspaceTabHasConversation(activeTab)
       .then((id) => {
-        lastSyncedRef.current = `${activeTab.id}:${id}`;
+        if (syncGenerationRef.current !== gen) return;
+        const nowTab = useWorkspaceStore.getState().getActiveTab();
+        if (!nowTab || nowTab.id !== snapshotTabId) return;
+        lastSyncedRef.current = `${snapshotTabId}:${id}`;
       })
       .catch((error) => {
         console.error('[WorkspaceChatBridge] Erro ao garantir conversa:', error);
       });
   }, [activeTab?.id, activeTab?.type, activeTab?.conversationId, isWsInitialized]);
-
-  async function syncExistingConversation(conversationId: number) {
-    const chatState = useChatStore.getState();
-    if (chatState.activeConversationId === conversationId) return;
-    await useChatStore.getState().loadConversation(conversationId);
-  }
 
   // Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);

@@ -2,8 +2,9 @@ import { useEffect, useRef } from 'react';
 import { registerMiniChatAdapter, type MiniChatAdapter } from '../store/miniChatStore';
 
 /**
- * Regista o adaptador de mini-chat para a aba do workspace.
- * Usa um wrapper estável para o registo não depender da identidade do objeto `adapter` a cada render.
+ * Regista um adaptador de mini-chat por aba. O objeto registado é um wrapper estável
+ * (registo só depende de `tabId`); `prepare`/`send` delegam sempre para `adapterRef.current`,
+ * evitando janelas em que o mapa fica sem adaptador quando o `useMemo` recria o objeto.
  */
 export function useRegisterMiniChatAdapter(
   tabId: string | undefined,
@@ -14,11 +15,6 @@ export function useRegisterMiniChatAdapter(
 
   useEffect(() => {
     if (!tabId) return;
-
-    if (!adapterRef.current) {
-      registerMiniChatAdapter(tabId, null);
-      return;
-    }
 
     const wrapper: MiniChatAdapter = {
       prepare: () => {
@@ -35,5 +31,5 @@ export function useRegisterMiniChatAdapter(
 
     registerMiniChatAdapter(tabId, wrapper);
     return () => registerMiniChatAdapter(tabId, null);
-  }, [tabId, adapter]);
+  }, [tabId]);
 }

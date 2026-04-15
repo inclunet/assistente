@@ -7,7 +7,6 @@ import { useChatStore } from '../store/chatStore';
 import { useMiniChatStore } from '../store/miniChatStore';
 import type { MiniChatAdapter } from '../store/miniChatStore';
 import { useRegisterMiniChatAdapter } from '../hooks/useRegisterMiniChatAdapter';
-import { useUIStore } from '../store/uiStore';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
@@ -16,7 +15,6 @@ import './TerminalPage.css';
 
 export default function TerminalPage() {
   const { t } = useTranslation();
-  const { addToast } = useUIStore();
   const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
   const tabProfileSlug = wsActiveTab?.type === 'terminal'
@@ -112,7 +110,7 @@ export default function TerminalPage() {
         });
       },
     };
-  }, [wsActiveTab, currentHistory, effectiveProfileSlug, addToast, t]);
+  }, [wsActiveTab, currentHistory, effectiveProfileSlug, t]);
 
   useRegisterMiniChatAdapter(wsActiveTab?.id, terminalMiniChatAdapter);
 

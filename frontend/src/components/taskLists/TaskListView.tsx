@@ -206,7 +206,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
         });
       },
     };
-  }, [wsActiveTab, taskList, tasks, effectiveProfileSlug, taskListId, addToast, t]);
+  }, [wsActiveTab, taskList, tasks, effectiveProfileSlug, t]);
 
   useRegisterMiniChatAdapter(wsActiveTab?.id, tasklistMiniChatAdapter);
 

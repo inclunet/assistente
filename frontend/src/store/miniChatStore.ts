@@ -109,17 +109,6 @@ export const useMiniChatStore = create<MiniChatState>((set, get) => ({
       return;
     }
 
-    try {
-      await ensureWorkspaceTabHasConversation(tab);
-    } catch (e) {
-      console.error('[miniChat] falha ao garantir conversa:', e);
-      useUIStore.getState().addToast(
-        i18next.t('editor.inlineChat.newConversationError'),
-        'error',
-      );
-      return;
-    }
-
     const adapter = getAdapter(tab.id);
     if (!adapter) {
       useUIStore.getState().addToast(
@@ -134,6 +123,17 @@ export const useMiniChatStore = create<MiniChatState>((set, get) => ({
       if (result.message) {
         useUIStore.getState().addToast(result.message, 'info');
       }
+      return;
+    }
+
+    try {
+      await ensureWorkspaceTabHasConversation(tab);
+    } catch (e) {
+      console.error('[miniChat] falha ao garantir conversa:', e);
+      useUIStore.getState().addToast(
+        i18next.t('editor.inlineChat.newConversationError'),
+        'error',
+      );
       return;
     }
 
