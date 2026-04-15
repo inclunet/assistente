@@ -16,6 +16,7 @@ import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
+import { WorkspaceMiniChat } from './WorkspaceMiniChat';
 import './WorkspaceLayout.css';
 
 export function WorkspaceLayout() {
@@ -278,6 +279,7 @@ export function WorkspaceLayout() {
         <WorkspaceToolbar />
         {workspace && <WorkspaceTabList />}
         <WorkspaceContent />
+        <WorkspaceMiniChat />
       </div>
     );
   }

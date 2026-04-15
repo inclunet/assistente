@@ -53,10 +53,19 @@ vi.mock('../store/workspaceStore', () => ({
 }));
 
 vi.mock('../store/chatStore', () => ({
-  useChatStore: () => ({
-    sendMessage: vi.fn(),
-    isLoading: false,
-  }),
+  useChatStore: Object.assign(
+    (selector?: (s: Record<string, unknown>) => unknown) => {
+      const state: Record<string, unknown> = {
+        sendMessage: vi.fn(),
+        isLoading: false,
+        activeConversationId: null,
+        createConversation: vi.fn(),
+        getMessages: () => [],
+      };
+      return typeof selector === 'function' ? selector(state) : state;
+    },
+    { getState: () => ({ sendMessage: vi.fn(), activeConversationId: null, createConversation: vi.fn(), getMessages: () => [] }) },
+  ),
 }));
 
 vi.mock('../store/questionnaireUIStore', () => ({
@@ -148,8 +157,18 @@ vi.mock('../components/editor/MermaidEditorModal', () => ({
   MermaidEditorModal: () => null,
 }));
 
-vi.mock('../components/editor/EditorInlineChatModal', () => ({
-  EditorInlineChatModal: () => null,
+vi.mock('../store/miniChatStore', () => ({
+  useMiniChatStore: Object.assign(
+    (selector?: (s: { isOpen: boolean }) => unknown) => {
+      const state = { isOpen: false };
+      return typeof selector === 'function' ? selector(state) : state;
+    },
+    { getState: () => ({ requestOpen: vi.fn(), close: vi.fn(), setAdapterError: vi.fn(), bumpFocus: vi.fn() }) },
+  ),
+}));
+
+vi.mock('../hooks/useRegisterMiniChatAdapter', () => ({
+  useRegisterMiniChatAdapter: vi.fn(),
 }));
 
 vi.mock('../components/menu', () => ({

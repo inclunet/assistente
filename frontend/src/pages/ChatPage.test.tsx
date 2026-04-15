@@ -3,7 +3,6 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 
 const sendMessageMock = vi.fn();
-const loadConversationInActiveTabMock = vi.fn();
 const updateMessageMock = vi.fn();
 const showMenuMock = vi.fn();
 const hideMenuMock = vi.fn();
@@ -30,20 +29,27 @@ vi.mock('../services/tts', () => ({
   },
 }));
 
+const chatStoreState = {
+  isLoading: false,
+  sendMessage: sendMessageMock,
+  getThreadedMessages: () => [],
+  loadMessageChildren: vi.fn(),
+  getActiveConversation: () => ({ id: 1, title: 'Conversa' }),
+  loadConversation: vi.fn(),
+  updateMessage: updateMessageMock,
+  toggleReasoningExpanded: vi.fn(),
+  isReasoningExpanded: () => false,
+  startEditing: vi.fn(),
+  startReading: vi.fn(),
+};
+
 vi.mock('../store/chatStore', () => ({
-  useChatStore: () => ({
-    isLoading: false,
-    sendMessage: sendMessageMock,
-    getThreadedMessages: () => [],
-    loadMessageChildren: vi.fn(),
-    getActiveTab: () => ({ id: 'tab-1', title: 'Conversa', conversationId: 10 }),
-    loadConversationInActiveTab: loadConversationInActiveTabMock,
-    updateMessage: updateMessageMock,
-    toggleReasoningExpanded: vi.fn(),
-    isReasoningExpanded: () => false,
-    startEditing: vi.fn(),
-    startReading: vi.fn(),
-  }),
+  useChatStore: (selector?: (s: typeof chatStoreState) => unknown) => {
+    if (typeof selector === 'function') {
+      return selector(chatStoreState);
+    }
+    return chatStoreState;
+  },
 }));
 
 vi.mock('../store/editorStore', () => ({

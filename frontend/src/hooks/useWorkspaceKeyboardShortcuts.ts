@@ -15,6 +15,7 @@
 
 import { useEffect, useRef } from 'react';
 import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
+import { useMiniChatStore } from '../store/miniChatStore';
 import { useAnnouncer } from './useAnnouncer';
 import { restoreDefaultFocus } from './useDefaultFocus';
 
@@ -48,6 +49,18 @@ export function useWorkspaceKeyboardShortcuts() {
       const target = event.target as HTMLElement;
       const isDataGrid = target.closest('.datagrid-container') !== null;
       if (isDataGrid) return;
+
+      // Ctrl+Shift+I: mini-chat do painel (adaptador registado pela aba ativa)
+      if (
+        event.ctrlKey &&
+        event.shiftKey &&
+        (event.code === 'KeyI' || event.key === 'i' || event.key === 'I') &&
+        !event.altKey
+      ) {
+        event.preventDefault();
+        void useMiniChatStore.getState().requestOpen();
+        return;
+      }
 
       // Chord mode: aguardando segunda tecla após Ctrl+N
       if (chordPendingRef.current && !event.ctrlKey && !event.altKey && !event.metaKey) {

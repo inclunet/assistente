@@ -1,15 +1,18 @@
 import { useEffect, useRef, useCallback, useMemo, useState, lazy, Suspense } from 'react';
-import { AppstoreOutlined, CheckOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
+import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageOutlined, PlusOutlined, UnorderedListOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
+import { useChatStore } from '../../store/chatStore';
+import { useMiniChatStore } from '../../store/miniChatStore';
+import type { MiniChatAdapter } from '../../store/miniChatStore';
+import { useRegisterMiniChatAdapter } from '../../hooks/useRegisterMiniChatAdapter';
 import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
-import { ProfilePicker } from '../pickers/ProfilePicker';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
 import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../../types/tasklist';
@@ -32,7 +35,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
   const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
   const tabProfileSlug = wsActiveTab?.type === 'tasklist'
     ? (wsActiveTab.profileOverride?.slug as string | undefined)
     : undefined;
@@ -184,6 +186,36 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleOpenCreateTask, handleClear, handleClone]);
 
+  const tasklistMiniChatAdapter = useMemo((): MiniChatAdapter | null => {
+    if (!wsActiveTab || wsActiveTab.type !== 'tasklist' || !taskList) return null;
+
+    return {
+      prepare: async () => {
+        if (!useChatStore.getState().activeConversationId) {
+          try {
+            await useChatStore.getState().createConversation();
+          } catch {
+            return { ok: false };
+          }
+        }
+        const header = `${taskList.title}\n${tasks.length} tarefa(s)\n`;
+        const body = tasks
+          .slice(0, 40)
+          .map((x) => `- ${String(x.title || '').trim()}`)
+          .join('\n');
+        const contextDisplay = `${header}${body || '(nenhuma tarefa)'}`;
+        return { ok: true, contextDisplay, meta: null };
+      },
+      send: async (instruction, media) => {
+        await useChatStore.getState().sendMessage(instruction, media, {
+          profileSlug: effectiveProfileSlug || undefined,
+        });
+      },
+    };
+  }, [wsActiveTab, taskList, tasks, effectiveProfileSlug, taskListId]);
+
+  useRegisterMiniChatAdapter(wsActiveTab?.id, tasklistMiniChatAdapter);
+
   const handleDelete = useCallback(async () => {
     const confirmed = await requestConfirm({
       title: t('tasklist.deleteConfirmTitle', 'Deletar Lista'),
@@ -215,22 +247,14 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           left={
             <h1 className="page-toolbar__title">{taskList.title}</h1>
           }
-          rightEnd={
-            <ProfilePicker
-              value={effectiveProfileSlug}
-              onChange={(slug) => {
-                if (wsActiveTab) {
-                  void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
-                }
-              }}
-              variant="toolbar"
-              label={t('workspace.tabProfileLabel', 'Perfil')}
-              description={t('workspace.tabProfileDescription')}
-              icon={<CheckOutlined />}
-              maxWidth="180px"
-            />
-          }
           actions={[
+            {
+              key: 'mini-chat',
+              label: t('editor.inlineChat.title'),
+              icon: <MessageOutlined />,
+              shortcut: 'Ctrl+Shift+I',
+              onClick: () => void useMiniChatStore.getState().requestOpen(),
+            },
             {
               key: 'new-task',
               label: t('tasklist.createTask', 'Nova Tarefa'),

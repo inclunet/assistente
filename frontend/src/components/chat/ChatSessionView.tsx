@@ -1,0 +1,383 @@
+import { useRef, useState, useEffect, useCallback } from 'react';
+import { useTranslation } from 'react-i18next';
+import { Alert, Button } from 'antd';
+import { useChatStore } from '../../store/chatStore';
+import { useEditorStore } from '../../store/editorStore';
+import { useWorkspaceStore } from '../../store/workspaceStore';
+import { ttsService } from '../../services/tts';
+import { MessageList } from './MessageList';
+import { ChatInput } from './ChatInput';
+import { ChatToolbar } from './ChatToolbar';
+import { ContextMenu } from '../menu';
+import { KeyboardShortcutsHelp } from '../ui/KeyboardShortcutsHelp';
+import { useChatKeyboardNav } from '../../hooks/useChatKeyboardNav';
+import { useTabScrollState } from '../../hooks/useTabScrollState';
+import { useContextMenu, useMessageActions } from '../../hooks/useContextMenu';
+import type { MediaFile } from '../../services/mediaService';
+import { DeleteMessage } from '@wailsjs/go/main/App';
+import { EventsOn } from '@wailsjs/runtime/runtime';
+import { announce } from '../../hooks/useAnnouncer';
+import { handleError, ErrorSeverity, ErrorMessages } from '../../utils/errorHandler';
+import './ChatSessionView.css';
+import '../../pages/ChatPage.css';
+
+export interface ChatSessionViewProps {
+  variant?: 'page' | 'embedded';
+  /** Envio da mensagem (ex.: sendMessage da store ou adaptador do mini-chat) */
+  onSend: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
+  showShortcutsHelp?: boolean;
+}
+
+export function ChatSessionView({
+  variant = 'page',
+  onSend,
+  showShortcutsHelp,
+}: ChatSessionViewProps) {
+  const { t } = useTranslation();
+  const inputRef = useRef<HTMLTextAreaElement>(null);
+  const messagesContainerRef = useRef<HTMLDivElement>(null);
+  useTabScrollState(messagesContainerRef);
+  const hasAutoFocusedRef = useRef(false);
+  const retryButtonRef = useRef<HTMLButtonElement>(null);
+  const wasLoadingRef = useRef(false);
+
+  const {
+    isLoading,
+    getThreadedMessages,
+    loadMessageChildren,
+    getActiveConversation,
+    loadConversation,
+    updateMessage,
+    toggleReasoningExpanded,
+    isReasoningExpanded,
+  } = useChatStore();
+
+  const [hasVoiceConfig, setHasVoiceConfig] = useState(() => ttsService.hasVoiceConfig());
+  useEffect(() => {
+    const handler = () => setHasVoiceConfig(ttsService.hasVoiceConfig());
+    ttsService.on('voiceConfigChanged', handler);
+    return () => {
+      ttsService.off('voiceConfigChanged', handler);
+    };
+  }, []);
+  const isTTSDisabled = !hasVoiceConfig;
+
+  const shortcutsOpen = showShortcutsHelp ?? variant === 'page';
+  const [shortcutsHelpOpen, setShortcutsHelpOpen] = useState(false);
+
+  const [lastFailedMessage, setLastFailedMessage] = useState<{ content: string; media?: MediaFile[] } | null>(null);
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  const startEditing = useChatStore((state) => state.startEditing);
+  const startReading = useChatStore((state) => state.startReading);
+
+  const { copyMessage, speakMessage } = useMessageActions({
+    onAnnounce: announce,
+  });
+
+  const handleDeleteMessage = useCallback(
+    async (message: { id: string | number }) => {
+      let messageId: number | null = null;
+      try {
+        const parsedId = typeof message.id === 'number' ? message.id : parseInt(String(message.id), 10);
+        messageId = Number.isNaN(parsedId) ? null : parsedId;
+        if (messageId !== null) {
+          await DeleteMessage(messageId);
+          announce(t('chat.announce.messageDeleted'));
+          const conv = getActiveConversation();
+          if (conv?.id) {
+            await loadConversation(conv.id);
+          }
+        }
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const lower = errorMessage.toLowerCase();
+        const userCanceled =
+          lower.includes('cancelada') ||
+          lower.includes('cancelado') ||
+          lower.includes('canceled') ||
+          lower.includes('cancelled');
+        if (userCanceled) {
+          announce(t('chat.announce.deleteCancelled'));
+          return;
+        }
+
+        handleError(error, {
+          source: 'ChatSessionView.onDelete',
+          userMessage: ErrorMessages.CHAT.DELETE_FAILED,
+          severity: ErrorSeverity.RECOVERABLE,
+          metadata: { messageId },
+        });
+      }
+    },
+    [announce, getActiveConversation, loadConversation, t],
+  );
+
+  const sendToEditor = useCallback(
+    async (payload: {
+      target: 'current' | 'new_document';
+      format: 'markdown' | 'html' | 'plain';
+      title?: string;
+      content: string;
+    }) => {
+      const content = String(payload?.content ?? '');
+      if (!content) return;
+
+      useEditorStore.getState().requestInsert({
+        target: payload.target,
+        format: payload.format,
+        title: payload.title || t('editor.fallback.fromChat'),
+        content,
+        focus: true,
+      });
+
+      const { workspace, addTab, setActiveTab } = useWorkspaceStore.getState();
+      const existingEditor = workspace?.tabs.find((tab) => tab.type === 'editor');
+      if (existingEditor) {
+        void setActiveTab(existingEditor.id);
+      } else {
+        const tabId = await addTab('editor', t('workspace.newEditor', 'Novo documento'));
+        void setActiveTab(tabId);
+      }
+    },
+    [t],
+  );
+
+  const { menuVisible, menuPosition, menuItems, showMenu, hideMenu } = useContextMenu({
+    onCopy: copyMessage,
+    onReadMessage: (message) => {
+      startReading(message.id);
+    },
+    onSpeak: speakMessage,
+    onEdit: (message) => {
+      startEditing(message.id);
+    },
+    onResend: async (message) => {
+      if (message.content) {
+        await useChatStore.getState().sendMessage(String(message.content));
+        announce(t('chat.announce.messageResent'));
+      }
+    },
+    onDelete: handleDeleteMessage,
+    onSendToEditor: (payload) => sendToEditor(payload),
+    onPin: (_message) => {
+      announce(t('chat.announce.pinComingSoon'));
+    },
+    onToggleReasoning: (message) => {
+      toggleReasoningExpanded(message.id);
+      const isExpanded = isReasoningExpanded(message.id);
+      announce(isExpanded ? t('chat.reasoningHidden') : t('chat.reasoningShown'));
+    },
+    isReasoningExpanded: (messageId: string) => isReasoningExpanded(messageId),
+    isTTSDisabled,
+  });
+
+  useChatKeyboardNav({
+    enabled: true,
+    inputRef,
+    messagesContainerRef,
+  });
+
+  const threadedMessages = getThreadedMessages() || [];
+
+  useEffect(() => {
+    if (variant !== 'page') return;
+    const checkTimer = setInterval(() => {
+      const inputElement = inputRef.current;
+      if (inputElement && !hasAutoFocusedRef.current) {
+        hasAutoFocusedRef.current = true;
+        clearInterval(checkTimer);
+        setTimeout(() => {
+          inputElement.focus();
+        }, 100);
+      }
+    }, 100);
+
+    return () => {
+      clearInterval(checkTimer);
+    };
+  }, [variant]);
+
+  useEffect(() => {
+    if (wasLoadingRef.current && !isLoading) {
+      const active = document.activeElement as HTMLElement | null;
+      const isEditingMessage = active?.closest('.chat-message--editing') !== null;
+      if (!isEditingMessage) {
+        requestAnimationFrame(() => {
+          inputRef.current?.focus();
+        });
+      }
+    }
+    wasLoadingRef.current = isLoading;
+  }, [isLoading]);
+
+  useEffect(() => {
+    if (!shortcutsOpen) return;
+    const handleKeyPress = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement;
+      const isInputElement = target.tagName === 'INPUT' || target.tagName === 'TEXTAREA';
+
+      if (e.key === '?' && !isInputElement && !shortcutsHelpOpen) {
+        e.preventDefault();
+        setShortcutsHelpOpen(true);
+      }
+    };
+
+    document.addEventListener('keypress', handleKeyPress);
+    return () => document.removeEventListener('keypress', handleKeyPress);
+  }, [shortcutsHelpOpen, shortcutsOpen]);
+
+  useEffect(() => {
+    const handleMessageUpdated = (data: unknown) => {
+      const eventData = data as { message_id?: number | string; content?: string };
+      if (eventData.message_id && eventData.content !== undefined) {
+        updateMessage(String(eventData.message_id), eventData.content);
+      }
+    };
+
+    const unsubscribe = EventsOn('message:updated', handleMessageUpdated);
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [updateMessage]);
+
+  useEffect(() => {
+    if (sendError && retryButtonRef.current) {
+      retryButtonRef.current.focus();
+    }
+  }, [sendError]);
+
+  useEffect(() => {
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && sendError) {
+        setSendError(null);
+        setLastFailedMessage(null);
+        announce(t('chat.announce.errorDismissed'));
+      }
+    };
+
+    document.addEventListener('keydown', handleEscape);
+    return () => document.removeEventListener('keydown', handleEscape);
+  }, [sendError, announce, t]);
+
+  const handleSendMessage = async (content: string, mediaFiles?: MediaFile[]) => {
+    try {
+      setSendError(null);
+      setLastFailedMessage(null);
+      await onSend(content, mediaFiles);
+    } catch (error: unknown) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      console.error('[ChatSessionView] send error:', errorMessage);
+      setLastFailedMessage({ content, media: mediaFiles });
+      setSendError(ErrorMessages.CHAT.SEND_FAILED);
+
+      handleError(error, {
+        source: 'ChatSessionView.handleSendMessage',
+        userMessage: ErrorMessages.CHAT.SEND_FAILED,
+        severity: ErrorSeverity.RECOVERABLE,
+        onRetry: () => handleRetry(),
+      });
+    }
+  };
+
+  const handleRetry = async () => {
+    if (!lastFailedMessage) return;
+
+    try {
+      setSendError(null);
+      await onSend(lastFailedMessage.content, lastFailedMessage.media);
+      setLastFailedMessage(null);
+    } catch (error) {
+      handleError(error, {
+        source: 'ChatSessionView.handleRetry',
+        userMessage: ErrorMessages.CHAT.SEND_FAILED,
+        severity: ErrorSeverity.RECOVERABLE,
+      });
+    }
+  };
+
+  const handleReachEnd = () => {
+    inputRef.current?.focus();
+  };
+
+  const rootClass =
+    variant === 'page' ? 'chat-page chat-session-view' : 'chat-session-view chat-session-view--embedded';
+
+  return (
+    <div className={rootClass}>
+      <div className="ws-content-toolbar">
+        <ChatToolbar inputRef={inputRef} />
+      </div>
+      <div className="ws-content-area">
+        <MessageList
+          threadedMessages={threadedMessages}
+          onLoadChildren={loadMessageChildren}
+          onReachEnd={handleReachEnd}
+          isLoading={isLoading}
+          ref={messagesContainerRef}
+          onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
+          onSpeak={hasVoiceConfig ? speakMessage : undefined}
+          onDelete={handleDeleteMessage}
+          onSendToEditor={(payload) => sendToEditor(payload)}
+        />
+
+        {sendError && lastFailedMessage && (
+          <Alert
+            role="alert"
+            type="error"
+            showIcon
+            closable
+            message={sendError}
+            action={
+              <Button
+                ref={retryButtonRef}
+                size="small"
+                danger
+                onClick={handleRetry}
+                aria-label={t('chat.retryAriaLabel')}
+              >
+                {t('chat.retry')}
+              </Button>
+            }
+            onClose={() => {
+              setSendError(null);
+              setLastFailedMessage(null);
+            }}
+            style={{ flexShrink: 0 }}
+          />
+        )}
+
+        <ChatInput
+          onSend={handleSendMessage}
+          disabled={isLoading}
+          ref={inputRef}
+          voiceEnabled={true}
+          onArrowUp={() => {
+            const container = messagesContainerRef.current;
+            if (container) {
+              const lastMessage = container.querySelector('[data-message-node]:last-child') as HTMLElement;
+              if (lastMessage) {
+                lastMessage.focus();
+              } else {
+                container.focus();
+              }
+            }
+          }}
+        />
+      </div>
+
+      <ContextMenu
+        visible={menuVisible}
+        items={menuItems}
+        x={menuPosition.x}
+        y={menuPosition.y}
+        onClose={hideMenu}
+        ariaLabel={t('chat.contextMenuAriaLabel')}
+      />
+
+      {shortcutsOpen && (
+        <KeyboardShortcutsHelp isOpen={shortcutsHelpOpen} onClose={() => setShortcutsHelpOpen(false)} />
+      )}
+    </div>
+  );
+}

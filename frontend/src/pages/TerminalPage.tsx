@@ -1,10 +1,14 @@
-import { useEffect, useRef, useCallback } from 'react';
+import { useEffect, useRef, useCallback, useMemo } from 'react';
+import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
+import { useChatStore } from '../store/chatStore';
+import { useMiniChatStore } from '../store/miniChatStore';
+import type { MiniChatAdapter } from '../store/miniChatStore';
+import { useRegisterMiniChatAdapter } from '../hooks/useRegisterMiniChatAdapter';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
-import { ProfilePicker } from '../components/pickers/ProfilePicker';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
 import { useTabScrollState } from '../hooks/useTabScrollState';
 import './TerminalPage.css';
@@ -13,7 +17,6 @@ export default function TerminalPage() {
   const { t } = useTranslation();
   const wsActiveTab = useWorkspaceStore((s) => s.getActiveTab());
   const wsProfile = useWorkspaceStore((s) => s.workspace?.profile);
-  const updateWsTab = useWorkspaceStore((s) => s.updateTab);
   const tabProfileSlug = wsActiveTab?.type === 'terminal'
     ? (wsActiveTab.profileOverride?.slug as string | undefined)
     : undefined;
@@ -84,6 +87,40 @@ export default function TerminalPage() {
     inputRef.current?.focus();
   }, []);
 
+  const terminalMiniChatAdapter = useMemo((): MiniChatAdapter | null => {
+    if (!wsActiveTab || wsActiveTab.type !== 'terminal') return null;
+
+    return {
+      prepare: async () => {
+        if (!useChatStore.getState().activeConversationId) {
+          try {
+            await useChatStore.getState().createConversation();
+          } catch {
+            return { ok: false };
+          }
+        }
+        const slice = currentHistory.slice(-40);
+        const lines = slice
+          .map((e) => {
+            const cmd = String(e.command || '').trim();
+            const out = String(e.output || '').trimEnd();
+            return [`$ ${cmd}`, out].filter(Boolean).join('\n');
+          })
+          .filter(Boolean)
+          .join('\n---\n');
+        const contextDisplay = lines || '(sem histórico no terminal)';
+        return { ok: true, contextDisplay, meta: null };
+      },
+      send: async (instruction, media) => {
+        await useChatStore.getState().sendMessage(instruction, media, {
+          profileSlug: effectiveProfileSlug || undefined,
+        });
+      },
+    };
+  }, [wsActiveTab, currentHistory, effectiveProfileSlug]);
+
+  useRegisterMiniChatAdapter(wsActiveTab?.id, terminalMiniChatAdapter);
+
   return (
     <div className="terminal-page">
       <div className="ws-content-toolbar">
@@ -94,6 +131,15 @@ export default function TerminalPage() {
               {activeSession?.name || t('terminal.pageTitle')}
             </h1>
           }
+          actions={[
+            {
+              key: 'mini-chat',
+              label: t('editor.inlineChat.title'),
+              icon: <MessageOutlined />,
+              shortcut: 'Ctrl+Shift+I',
+              onClick: () => void useMiniChatStore.getState().requestOpen(),
+            },
+          ]}
           right={
             <>
               {activeSession && (
@@ -109,20 +155,6 @@ export default function TerminalPage() {
                 icon="■"
                 shortcut="Ctrl+C"
                 onClick={() => interrupt()}
-              />
-              <ToolbarSeparator />
-              <ProfilePicker
-                value={effectiveProfileSlug}
-                onChange={(slug) => {
-                  if (wsActiveTab) {
-                    void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
-                  }
-                }}
-                variant="toolbar"
-                label={t('workspace.tabProfileLabel', 'Perfil')}
-                description={t('workspace.tabProfileDescription')}
-                icon=">_"
-                maxWidth="180px"
               />
             </>
           }

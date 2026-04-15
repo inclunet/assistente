@@ -1,9 +1,8 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { CompassOutlined, EditOutlined, FileOutlined, MessageOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
+import { CompassOutlined, FileOutlined, MessageOutlined, PlusOutlined, SlidersOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { Toolbar, ToolbarButton } from '../components/ui/Toolbar';
-import { ProfilePicker } from '../components/pickers/ProfilePicker';
 import { CodeEditor } from '../components/ui/CodeEditor';
 import { MarkdownRenderer } from '../components/ui/MarkdownRenderer';
 import { Menu, type MenuItem } from '../components/menu';
@@ -12,7 +11,9 @@ import { MermaidEditorModal } from '../components/editor/MermaidEditorModal';
 import { RichTextEditor } from '../components/editor/RichTextEditor';
 import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
 import { useRichEditorFlushEvents } from './useRichEditorFlushEvents';
-import { EditorInlineChatModal } from '@/components/editor/EditorInlineChatModal';
+import { useRegisterMiniChatAdapter } from '../hooks/useRegisterMiniChatAdapter';
+import { useMiniChatStore } from '../store/miniChatStore';
+import type { MiniChatAdapter, MiniChatPrepareResult } from '../store/miniChatStore';
 import { useEditorStore, DEFAULT_MD, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -163,11 +164,9 @@ export default function EditorPage() {
     return '';
   };
 
-  const [inlineChatOpen, setInlineChatOpen] = useState(false);
-  const [inlineChatSelection, setInlineChatSelection] = useState<InlineChatSelection | null>(null);
-  const [inlineChatError, setInlineChatError] = useState<string | null>(null);
   const inlineChatRunIdRef = useRef(0);
-  const [inlineChatFocusNonce, setInlineChatFocusNonce] = useState(0);
+  const miniChatOpen = useMiniChatStore((s) => s.isOpen);
+  const prevMiniChatOpenRef = useRef(false);
 
   const [sessionLoaded, setSessionLoaded] = useState(false);
 
@@ -1043,8 +1042,7 @@ export default function EditorPage() {
   useEffect(() => {
     if (!sessionLoaded) return;
     if (!activeTab) return;
-    if (inlineChatOpen) return;
-    if (isModalOpen()) return;
+    if (miniChatOpen) return;
 
     const el = document.activeElement as HTMLElement | null;
     const tag = el?.tagName || '';
@@ -1072,7 +1070,7 @@ export default function EditorPage() {
     if (!isTypingTarget && (isDocumentBody || isEditorZone)) {
       focusEditorSoon();
     }
-  }, [sessionLoaded, activeTab?.id, activeTab?.mode, inlineChatOpen]);
+  }, [sessionLoaded, activeTab?.id, activeTab?.mode, miniChatOpen]);
 
 
   const prevDocsRef = useRef<Record<string, EditorDocument>>({});
@@ -1245,6 +1243,15 @@ export default function EditorPage() {
       }
     }, 20);
   }
+
+  useEffect(() => {
+    if (prevMiniChatOpenRef.current && !miniChatOpen) {
+      inlineChatRunIdRef.current += 1;
+      setIsAsking(false);
+      focusEditorSoon();
+    }
+    prevMiniChatOpenRef.current = miniChatOpen;
+  }, [miniChatOpen, activeTab]);
 
   const flushActiveRichMarkdownNow = useCallback(() => {
     try {
@@ -1427,99 +1434,18 @@ export default function EditorPage() {
     };
   }, [pendingInsert, editorReadyNonce]);
 
-  const closeInlineChatModal = () => {
-    inlineChatRunIdRef.current += 1;
-    setInlineChatOpen(false);
-    setInlineChatSelection(null);
-    setInlineChatError(null);
-    setIsAsking(false);
-    focusEditorSoon();
-  };
-
-  const askInlineChat = async () => {
-    if (!activeTab) return;
-
-    // Se não há conversa ativa no chatStore, cria uma
-    if (!useChatStore.getState().activeConversationId) {
-      try {
-        await useChatStore.getState().createConversation();
-      } catch {
-        addToast('Não foi possível criar uma conversa para o chat inline.', 'error');
-        return;
-      }
-    }
-
-    const selectionRaw =
-      activeTab.mode === 'markdown'
-        ? getSelectionSnapshot()
-        : activeTab.mode === 'rich'
-          ? getRichSelectionSnapshot()
-          : null;
-
-    if (!selectionRaw) {
-      addToast('Não foi possível capturar a seleção do editor.', 'error');
-      return;
-    }
-
-    if (selectionRaw.selectedText.length > 20000) {
-      addToast('Seleção muito grande para enviar ao chat (limite: 20.000 caracteres).', 'error');
-      return;
-    }
-
-    const snapshot =
-      activeTab.mode === 'markdown'
-        ? (editorRef.current?.getModel?.()?.getValue?.() ?? activeTab.markdown)
-        : (selectionRaw as any)?.snapshot ?? activeTab.markdown;
-    const selection: InlineChatSelection =
-      activeTab.mode === 'markdown'
-        ? {
-            mode: 'markdown',
-            tabId: activeTab.id,
-            selectedText: selectionRaw.selectedText,
-            selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
-            cursorContext: (selectionRaw as any).cursorContext,
-            displayText: (selectionRaw as any).displayText,
-            startOffset: (selectionRaw as any).startOffset,
-            endOffset: (selectionRaw as any).endOffset,
-            snapshot,
-          }
-        : {
-            mode: 'rich',
-            tabId: activeTab.id,
-            selectedText: selectionRaw.selectedText,
-            selectedMarkdown: (selectionRaw as any)?.selectedMarkdown,
-            selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
-            cursorContext: (selectionRaw as any).cursorContext,
-            displayText: (selectionRaw as any).displayText,
-            displayMarkdown: (selectionRaw as any)?.displayMarkdown,
-            from: (selectionRaw as any).from,
-            to: (selectionRaw as any).to,
-            snapshot,
-          };
-
-    setInlineChatError(null);
-    setInlineChatSelection(selection);
-    setInlineChatOpen(true);
-    setInlineChatFocusNonce((n) => n + 1);
-  };
-
-  const askInlineChatRef = useRef(askInlineChat);
-  useEffect(() => {
-    askInlineChatRef.current = askInlineChat;
-  }, [askInlineChat]);
-
   type EditorPatch = {
     replacement?: string;
     format?: string;
     notes?: string;
   };
 
-  const sendInlineChatInstruction = async (instruction: string, mediaFiles?: MediaFile[]) => {
+  const sendEditorMiniChatMessage = async (
+    instruction: string,
+    mediaFiles: MediaFile[] | undefined,
+    inlineChatSelection: InlineChatSelection,
+  ) => {
     if (!activeTab) return;
-    if (!inlineChatSelection) {
-      addToast('Seleção do editor não está disponível.', 'error');
-      return;
-    }
 
     const chatState = useChatStore.getState();
     if (chatState.isLoading) {
@@ -1558,7 +1484,7 @@ export default function EditorPage() {
     });
 
     const runId = (inlineChatRunIdRef.current += 1);
-    setInlineChatError(null);
+    useMiniChatStore.getState().setAdapterError(null);
 
     const isToolCallingEnabledForProfileSlug = async (slug: string): Promise<boolean> => {
       const s = String(slug || '').trim();
@@ -1729,9 +1655,8 @@ export default function EditorPage() {
         flushActiveRichMarkdownNow();
       }
 
-      setInlineChatError(null);
-      setInlineChatSelection(null);
-      setInlineChatOpen(false);
+      useMiniChatStore.getState().setAdapterError(null);
+      useMiniChatStore.getState().close();
       setIsAsking(false);
       focusEditorSoon();
     };
@@ -1778,7 +1703,7 @@ export default function EditorPage() {
       setIsAsking(false);
       // Mantém o mini-chat aberto para você criticar/explicar detalhes.
       // Apenas devolve o foco para o input do mini-chat.
-      setInlineChatFocusNonce((n) => n + 1);
+      useMiniChatStore.getState().bumpFocus();
     };
 
     try {
@@ -1815,9 +1740,8 @@ export default function EditorPage() {
       // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
       // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
       if (toolCallingEnabled) {
-        setInlineChatError(null);
-        setInlineChatSelection(null);
-        setInlineChatOpen(false);
+        useMiniChatStore.getState().setAdapterError(null);
+        useMiniChatStore.getState().close();
         setIsAsking(false);
         focusEditorSoon();
         return;
@@ -1833,7 +1757,7 @@ export default function EditorPage() {
         if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
           addToast('Resposta não contém patch aplicável', 'error');
         }
-        setInlineChatError(errText || 'Nenhum patch encontrado');
+        useMiniChatStore.getState().setAdapterError(errText || 'Nenhum patch encontrado');
         setIsAsking(false);
         return;
       }
@@ -1841,10 +1765,98 @@ export default function EditorPage() {
       await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
     } catch (e: unknown) {
       console.error('[EditorPage] inline chat error:', e);
-      setInlineChatError(getErrorMessage(e) || 'Erro ao pedir alteração ao chat');
+      useMiniChatStore.getState().setAdapterError(getErrorMessage(e) || 'Erro ao pedir alteração ao chat');
       setIsAsking(false);
     }
   };
+
+  const sendEditorMiniChatRef = useRef(sendEditorMiniChatMessage);
+  sendEditorMiniChatRef.current = sendEditorMiniChatMessage;
+
+  const editorMiniChatAdapter = useMemo((): MiniChatAdapter | null => {
+    if (!wsActiveTab || wsActiveTab.type !== 'editor') return null;
+
+    return {
+      prepare: async (): Promise<MiniChatPrepareResult> => {
+        if (!activeTab) return { ok: false };
+        if (activeTab.mode === 'view') {
+          addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
+          return { ok: false };
+        }
+        if (isAsking) return { ok: false };
+
+        if (!useChatStore.getState().activeConversationId) {
+          try {
+            await useChatStore.getState().createConversation();
+          } catch {
+            addToast('Não foi possível criar uma conversa para o chat inline.', 'error');
+            return { ok: false };
+          }
+        }
+
+        const selectionRaw =
+          activeTab.mode === 'markdown'
+            ? getSelectionSnapshot()
+            : activeTab.mode === 'rich'
+              ? getRichSelectionSnapshot()
+              : null;
+
+        if (!selectionRaw) {
+          addToast('Não foi possível capturar a seleção do editor.', 'error');
+          return { ok: false };
+        }
+
+        if (selectionRaw.selectedText.length > 20000) {
+          addToast('Seleção muito grande para enviar ao chat (limite: 20.000 caracteres).', 'error');
+          return { ok: false };
+        }
+
+        const snapshot =
+          activeTab.mode === 'markdown'
+            ? (editorRef.current?.getModel?.()?.getValue?.() ?? activeTab.markdown)
+            : (selectionRaw as any)?.snapshot ?? activeTab.markdown;
+        const selection: InlineChatSelection =
+          activeTab.mode === 'markdown'
+            ? {
+                mode: 'markdown',
+                tabId: activeTab.id,
+                selectedText: selectionRaw.selectedText,
+                selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
+                cursorContext: (selectionRaw as any).cursorContext,
+                displayText: (selectionRaw as any).displayText,
+                startOffset: (selectionRaw as any).startOffset,
+                endOffset: (selectionRaw as any).endOffset,
+                snapshot,
+              }
+            : {
+                mode: 'rich',
+                tabId: activeTab.id,
+                selectedText: selectionRaw.selectedText,
+                selectedMarkdown: (selectionRaw as any)?.selectedMarkdown,
+                selectionIsEmpty: !!(selectionRaw as any).selectionIsEmpty,
+                cursorContext: (selectionRaw as any).cursorContext,
+                displayText: (selectionRaw as any).displayText,
+                displayMarkdown: (selectionRaw as any)?.displayMarkdown,
+                from: (selectionRaw as any).from,
+                to: (selectionRaw as any).to,
+                snapshot,
+              };
+
+        const contextDisplay =
+          selection.displayText ||
+          (selection.mode === 'rich' ? selection.selectedMarkdown : '') ||
+          selection.selectedText ||
+          '';
+
+        useMiniChatStore.getState().setAdapterError(null);
+        return { ok: true, contextDisplay, meta: selection };
+      },
+      send: (instruction, media, meta) =>
+        sendEditorMiniChatRef.current(instruction, media, meta as InlineChatSelection),
+    };
+  }, [wsActiveTab, activeTab, isAsking, addToast, editorReadyNonce]);
+
+  useRegisterMiniChatAdapter(wsActiveTab?.id, editorMiniChatAdapter);
 
   const openFile = async () => {
     try {
@@ -2145,25 +2157,6 @@ export default function EditorPage() {
     };
   }, []);
 
-  // Ctrl+Shift+I: pedir alteração ao chat
-  useEffect(() => {
-    const onKeyDown = async (e: KeyboardEvent) => {
-      if (e.ctrlKey && e.shiftKey && (e.code === 'KeyI' || e.key === 'i' || e.key === 'I') && !e.altKey) {
-        e.preventDefault();
-        if (isAsking) return;
-        if (activeTab?.mode === 'view') {
-          addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
-          return;
-        }
-        if (isModalOpen()) return;
-        await askInlineChatRef.current();
-      }
-    };
-
-    window.addEventListener('keydown', onKeyDown, true);
-    return () => window.removeEventListener('keydown', onKeyDown, true);
-  }, [isAsking, activeTab?.mode, addToast]);
-
   const fileMenuItems = useMemo(() => {
     const canSave = !!activeTab && (!activeTab.filePath || isExternalConflictLocked(activeTab.id));
     const canSaveAs = !!activeTab?.filePath;
@@ -2300,12 +2293,12 @@ export default function EditorPage() {
             addToast('Mude para Código ou Rico para usar o mini-chat do editor.', 'info');
             return;
           }
-          await askInlineChat();
+          await useMiniChatStore.getState().requestOpen();
         },
         disabled: !activeTab || isAsking,
       },
     ];
-  }, [activeTab, askInlineChat, isAsking, addToast]);
+  }, [activeTab, isAsking, addToast]);
 
   // Atalhos de arquivos
   useEffect(() => {
@@ -2377,21 +2370,6 @@ export default function EditorPage() {
           </div>
         }
         actions={actions}
-        rightEnd={
-          <ProfilePicker
-            value={effectiveProfileSlug}
-            onChange={(slug) => {
-              if (wsActiveTab) {
-                void updateWsTab(wsActiveTab.id, { profile_override: { slug } });
-              }
-            }}
-            variant="toolbar"
-            label={t('workspace.tabProfileLabel', 'Perfil')}
-            description={t('workspace.tabProfileDescription')}
-            icon={<EditOutlined />}
-            maxWidth="180px"
-          />
-        }
         ariaLabel={t('editor.aria.toolbar')}
       />
 
@@ -2537,21 +2515,6 @@ export default function EditorPage() {
           </div>
         )}
       </div>
-
-      <EditorInlineChatModal
-        isOpen={inlineChatOpen}
-        title="Perguntar ao chat"
-        selectedText={
-          inlineChatSelection?.displayText ||
-          (inlineChatSelection?.mode === 'rich' ? inlineChatSelection.selectedMarkdown : '') ||
-          inlineChatSelection?.selectedText ||
-          ''
-        }
-        error={inlineChatError}
-        focusNonce={inlineChatFocusNonce}
-        onClose={closeInlineChatModal}
-        onSend={sendInlineChatInstruction}
-      />
 
       <MermaidEditorModal
         isOpen={activeMermaidIndex !== null || richMermaidSession !== null}
