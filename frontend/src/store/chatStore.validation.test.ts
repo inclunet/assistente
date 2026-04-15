@@ -164,6 +164,22 @@ describe('chatStore validation', () => {
     expect(mockSendMessage).toHaveBeenCalledWith(7, 'hello', '', expect.any(Object));
   });
 
+  it('repassa parâmetros estruturados de surface no envio', async () => {
+    await useChatStore.getState().sendMessageToConversation(7, 'hello', undefined, {
+      tabType: 'editor',
+      activeFilePath: '/tmp/readme.md',
+      surfaceStateJson: '{"filePath":"/tmp/readme.md"}',
+      surfaceContextJson: '{"selectedText":"hello"}',
+    });
+
+    expect(mockSendMessage).toHaveBeenCalledWith(7, 'hello', '', expect.objectContaining({
+      tabType: 'editor',
+      activeFilePath: '/tmp/readme.md',
+      surfaceStateJson: '{"filePath":"/tmp/readme.md"}',
+      surfaceContextJson: '{"selectedText":"hello"}',
+    }));
+  });
+
   it('chat:speak event invokes handleChatSpeak for matching conversation', async () => {
     mockSendMessage.mockImplementation(() => {
       // Simula backend: emite chat:messages_ready, depois chat:speak do user

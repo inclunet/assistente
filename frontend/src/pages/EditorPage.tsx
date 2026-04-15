@@ -27,6 +27,7 @@ import { applyRichTextInsert, applyRichTextInsertAtEnd } from '../lib/richTextPa
 import { validateRichTextSelectionSnapshot } from '../lib/richTextSelectionValidation';
 import { markdownToHtml } from '../lib/markdownToHtml';
 import { computeMonacoInsertText } from '../lib/monacoInsertHeuristics';
+import { buildChatSurfaceParams } from '../lib/chatSurface';
 import { findMermaidFenceByIndex, removeMermaidFence, replaceMermaidFenceCode } from '../lib/mermaidFence';
 import { basenameFromPath, normalizePathKey } from '../utils/path';
 import { useEditorInlineChatPatch } from '../hooks/useEditorInlineChatPatch';
@@ -1461,6 +1462,32 @@ export default function EditorPage() {
     if (!trimmed) return null;
 
     const prompt = trimmed;
+    const editorSurfaceTab = wsActiveTab ?? {
+      type: 'editor',
+      title: activeTab.title,
+      state: {
+        filePath: activeTab.filePath ?? undefined,
+        draftId: activeTab.draftId ?? undefined,
+      },
+    };
+    const surfaceContext = inlineChatSelection.mode === 'rich'
+      ? {
+          mode: 'rich',
+          selectedText: inlineChatSelection.selectedText,
+          selectedMarkdown: inlineChatSelection.selectedMarkdown,
+          selectionIsEmpty: inlineChatSelection.selectionIsEmpty,
+          cursorContext: inlineChatSelection.cursorContext,
+          from: inlineChatSelection.from,
+          to: inlineChatSelection.to,
+        }
+      : {
+          mode: 'markdown',
+          selectedText: inlineChatSelection.selectedText,
+          selectionIsEmpty: inlineChatSelection.selectionIsEmpty,
+          cursorContext: inlineChatSelection.cursorContext,
+          startOffset: inlineChatSelection.startOffset,
+          endOffset: inlineChatSelection.endOffset,
+        };
 
     const runId = (inlineChatRunIdRef.current += 1);
     useMiniChatStore.getState().setAdapterError(null);
@@ -1696,20 +1723,16 @@ export default function EditorPage() {
       // Drafts sem filePath não conseguem usar edit_file; nesse caso, cai para o
       // mesmo fluxo principal com fallback body-only e aplicação local do patch.
       const canUseToolCalling = toolCallingEnabled && !!activeTab?.filePath;
+      const surfaceParams = buildChatSurfaceParams(editorSurfaceTab, {
+        profileSlug: effectiveProfileSlug,
+        context: surfaceContext,
+      });
 
       const donePromise = waitForChatDone(expectedConversationId);
       return {
         content: prompt,
         mediaFiles,
-        paramsOverride: canUseToolCalling
-          ? {
-              profileSlug: effectiveProfileSlug,
-              tabType: 'editor',
-              activeFilePath: activeTab?.filePath ?? undefined,
-            }
-          : {
-              profileSlug: effectiveProfileSlug,
-            },
+        paramsOverride: surfaceParams,
         afterSend: async () => {
           try {
             await donePromise;

@@ -12,6 +12,7 @@ import { useConfirm } from '../../hooks/useConfirm';
 import { registerDefaultFocus, unregisterDefaultFocus } from '../../hooks/useDefaultFocus';
 import { isModalOpen, Modal } from '../ui/Modal';
 import { Toolbar } from '../ui/Toolbar';
+import { buildChatSurfaceParams } from '../../lib/chatSurface';
 import TasksTable, { type TasksTableRef } from './TasksTable';
 import KanbanBoard, { type KanbanBoardRef } from './KanbanBoard';
 import type { ViewMode, TaskListWorkflowStatus, WorkflowTransitions } from '../../types/tasklist';
@@ -215,9 +216,15 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
         return {
           content: instruction,
           mediaFiles: [...(media ?? []), contextAttachment],
-          paramsOverride: {
+          paramsOverride: buildChatSurfaceParams(wsActiveTab, {
             profileSlug: effectiveProfileSlug || undefined,
-          },
+            context: {
+              taskListId,
+              taskListTitle: taskList.title,
+              taskCount: tasks.length,
+              tasksPreview: `${header}${body || t('tasklist.miniChatContext.noTasks')}`,
+            },
+          }),
         };
       },
     };

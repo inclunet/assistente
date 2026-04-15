@@ -16,6 +16,21 @@ import (
 	"assistente/internal/tools/invocationctx"
 )
 
+func decodeSurfacePayload(raw string) map[string]any {
+	if raw == "" {
+		return nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		log.Printf("[agent] surface payload inválido: %v", err)
+		return nil
+	}
+	if len(decoded) == 0 {
+		return nil
+	}
+	return decoded
+}
+
 // AgenticResult captura o resultado de uma iteração do streaming LLM.
 // Preenchido pelos callbacks OnDone/OnToolCalls/OnError do IterationHandler.
 type AgenticResult struct {
@@ -106,10 +121,12 @@ func (s *Service) RunAgenticLoop(
 	}
 
 	// Propaga contexto de invocação (tab type + arquivo ativo) para as tools
-	if params.TabType != "" {
+	if params.TabType != "" || params.ActiveFilePath != "" || params.SurfaceStateJSON != "" || params.SurfaceContextJSON != "" {
 		ctx = invocationctx.With(ctx, invocationctx.InvocationContext{
 			TabType:        params.TabType,
 			ActiveFilePath: params.ActiveFilePath,
+			SurfaceState:   decodeSurfacePayload(params.SurfaceStateJSON),
+			SurfaceContext: decodeSurfacePayload(params.SurfaceContextJSON),
 		})
 	}
 

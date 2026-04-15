@@ -32,7 +32,7 @@ type ChatParams = llm.ChatParams
 // does not need to import internal/prompt (which already imports internal/chat).
 type SystemPromptBuilder interface {
 	Build(messages []llm.Message, enabledSkills []string, disableOnDemand bool, tplData any, slashSkillContent string, conversationSummary string) []llm.Message
-	BuildTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) TemplateData
+	BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID uint) TemplateData
 }
 
 // InteractorConfig groups all dependencies for Interactor.
@@ -367,7 +367,7 @@ type PrepareMessagesResponse struct {
 func (i *Interactor) PrepareMessages(req PrepareMessagesRequest) PrepareMessagesResponse {
 	var skillTplData TemplateData
 	if i.promptBuilder != nil {
-		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params.ProfileSlug, req.ConversationID)
+		skillTplData = i.promptBuilder.BuildTemplateData(req.ActiveProfile, req.Params, req.ConversationID)
 	}
 
 	var slashSkillContent string

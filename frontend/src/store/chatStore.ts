@@ -604,6 +604,10 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         topP: paramsOverride?.topP,
         reasoningEffort: paramsOverride?.reasoningEffort,
         profileSlug: paramsOverride?.profileSlug ?? get().contextProfileSlug ?? undefined,
+        tabType: paramsOverride?.tabType,
+        activeFilePath: paramsOverride?.activeFilePath,
+        surfaceStateJson: paramsOverride?.surfaceStateJson,
+        surfaceContextJson: paramsOverride?.surfaceContextJson,
       };
       await SendMessage(conversationId, content, mediaJson, mergedParams);
 

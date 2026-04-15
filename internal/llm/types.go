@@ -198,6 +198,8 @@ type ChatParams struct {
 	ResponseTimeout      int     `json:"responseTimeout,omitempty"`      // Timeout em segundos (2ª camada de proteção)
 	TabType              string  `json:"tabType,omitempty"`              // Tipo da aba de origem ("editor", "chat", etc.)
 	ActiveFilePath       string  `json:"activeFilePath,omitempty"`       // Caminho do arquivo ativo (editor tabs)
+	SurfaceStateJSON     string  `json:"surfaceStateJson,omitempty"`     // Espelho serializado de WorkspaceTab.state
+	SurfaceContextJSON   string  `json:"surfaceContextJson,omitempty"`   // Contexto transitório do envio atual
 }
 
 // ==================== Helper Functions ====================

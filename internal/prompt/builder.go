@@ -4,6 +4,7 @@
 package prompt
 
 import (
+	"encoding/json"
 	"log"
 	"reflect"
 	"strings"
@@ -59,25 +60,43 @@ type TemplateData = chat.TemplateData
 // TabInfo é um alias para chat.TabInfo.
 type TabInfo = chat.TabInfo
 
+func decodeSurfaceJSON(raw string) map[string]any {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil
+	}
+	var decoded map[string]any
+	if err := json.Unmarshal([]byte(raw), &decoded); err != nil {
+		log.Printf("[prompt] surface json inválido: %v", err)
+		return nil
+	}
+	if len(decoded) == 0 {
+		return nil
+	}
+	return decoded
+}
+
 // BuildTemplateData monta o TemplateData a partir do perfil ativo e do workspace.
-func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, profileSlug string, conversationID uint) TemplateData {
+func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, params llm.ChatParams, conversationID uint) TemplateData {
 	enabledToolNames := b.ComputeEnabledToolNames(activeProfile)
 	data := TemplateData{
 		Profile:            activeProfile,
-		ProfileSlug:        profileSlug,
+		ProfileSlug:        params.ProfileSlug,
 		ToolCallingEnabled: len(enabledToolNames) > 0,
 		EnabledTools:       enabledToolNames,
 		EnabledToolCount:   len(enabledToolNames),
 		ConversationID:     conversationID,
 	}
 
+	var activeTab *workspace.Tab
 	if workspaceReaderIsUsable(b.Workspace) {
 		if ws := b.Workspace.Active(); ws != nil {
 			data.WorkspaceName = ws.Name
 			data.WorkspaceProfile = ws.Profile
 			data.TabCount = len(ws.Tabs.Items)
 			data.Tabs = make([]TabInfo, 0, len(ws.Tabs.Items))
-			for _, tab := range ws.Tabs.Items {
+			for idx := range ws.Tabs.Items {
+				tab := ws.Tabs.Items[idx]
 				isActive := tab.ID == ws.Tabs.Active
 				info := TabInfo{
 					Title:     tab.Title,
@@ -87,10 +106,31 @@ func (b *Builder) BuildTemplateData(activeProfile *profiles.Profile, profileSlug
 				}
 				data.Tabs = append(data.Tabs, info)
 				if isActive {
+					activeTab = &ws.Tabs.Items[idx]
 					data.ActiveTabTitle = tab.Title
 					data.ActiveTabType = string(tab.Type)
 				}
 			}
+		}
+	}
+
+	surfaceType := strings.TrimSpace(params.TabType)
+	if surfaceType == "" {
+		surfaceType = data.ActiveTabType
+	}
+	surfaceTitle := data.ActiveTabTitle
+	surfaceState := decodeSurfaceJSON(params.SurfaceStateJSON)
+	if surfaceState == nil && activeTab != nil && len(activeTab.State) > 0 {
+		surfaceState = activeTab.State
+	}
+	surfaceContext := decodeSurfaceJSON(params.SurfaceContextJSON)
+
+	if surfaceType != "" || surfaceTitle != "" || surfaceState != nil || surfaceContext != nil {
+		data.Surface = &chat.SurfaceInfo{
+			Type:    surfaceType,
+			Title:   surfaceTitle,
+			State:   surfaceState,
+			Context: surfaceContext,
 		}
 	}
 

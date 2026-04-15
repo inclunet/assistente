@@ -193,7 +193,7 @@ func TestBuildSkillsSection_SupplementaryFiles_Listed(t *testing.T) {
 
 func TestBuildTemplateData_NilProfile_NoToolCalling(t *testing.T) {
 	b := &prompt.Builder{}
-	data := b.BuildTemplateData(nil, "default", 42)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "default"}, 42)
 	if data.ToolCallingEnabled {
 		t.Error("ToolCallingEnabled should be false")
 	}
@@ -214,7 +214,7 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 		},
 	}
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
-	data := b.BuildTemplateData(nil, "dev", 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, 1)
 	if data.WorkspaceName != "Meu Workspace" {
 		t.Errorf("WorkspaceName: got %q", data.WorkspaceName)
 	}
@@ -231,9 +231,44 @@ func TestBuildTemplateData_WithWorkspace_FillsTabInfo(t *testing.T) {
 
 func TestBuildTemplateData_WorkspaceNil_NoTabInfo(t *testing.T) {
 	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: nil}}
-	data := b.BuildTemplateData(nil, "dev", 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{ProfileSlug: "dev"}, 1)
 	if data.TabCount != 0 {
 		t.Errorf("TabCount should be 0, got %d", data.TabCount)
+	}
+}
+
+func TestBuildTemplateData_WithSurfacePayload(t *testing.T) {
+	ws := &workspace.Workspace{
+		Name: "Meu Workspace",
+		Tabs: workspace.TabsState{
+			Active: "tab-2",
+			Items: []workspace.Tab{
+				{ID: "tab-2", Title: "Editor", Type: "editor", State: map[string]any{"filePath": "/tmp/readme.md", "draftId": "draft-1"}},
+			},
+		},
+	}
+	b := &prompt.Builder{Workspace: &mockWorkspaceReader{ws: ws}}
+	data := b.BuildTemplateData(nil, llm.ChatParams{
+		ProfileSlug:        "editor-texto",
+		TabType:            "editor",
+		SurfaceStateJSON:   `{"filePath":"/tmp/readme.md","draftId":"draft-1"}`,
+		SurfaceContextJSON: `{"selectedText":"hello","selectionEmpty":false}`,
+	}, 7)
+
+	if data.Surface == nil {
+		t.Fatal("expected Surface to be filled")
+	}
+	if data.Surface.Type != "editor" {
+		t.Fatalf("Surface.Type = %q, want editor", data.Surface.Type)
+	}
+	if data.Surface.Title != "Editor" {
+		t.Fatalf("Surface.Title = %q, want Editor", data.Surface.Title)
+	}
+	if got := data.Surface.State["filePath"]; got != "/tmp/readme.md" {
+		t.Fatalf("Surface.State[filePath] = %v, want /tmp/readme.md", got)
+	}
+	if got := data.Surface.Context["selectedText"]; got != "hello" {
+		t.Fatalf("Surface.Context[selectedText] = %v, want hello", got)
 	}
 }
 
@@ -298,7 +333,7 @@ func (f *fakeTool) Execute(_ context.Context, _ json.RawMessage) (tools.ToolResu
 func TestBuildTemplateData_TypedNilWorkspaceManager(t *testing.T) {
 	var mgr *workspace.Manager
 	b := &prompt.Builder{Workspace: mgr}
-	data := b.BuildTemplateData(nil, "", 1)
+	data := b.BuildTemplateData(nil, llm.ChatParams{}, 1)
 	if data.WorkspaceName != "" || data.TabCount != 0 {
 		t.Fatalf("esperava dados de workspace vazios com manager typed-nil, obteve %+v", data)
 	}

@@ -10,6 +10,7 @@ import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
 import { useTabScrollState } from '../hooks/useTabScrollState';
+import { buildChatSurfaceParams } from '../lib/chatSurface';
 import { createTextMediaFile } from '../services/mediaService';
 import './TerminalPage.css';
 
@@ -120,9 +121,13 @@ export default function TerminalPage() {
         return {
           content: instruction,
           mediaFiles: [...(media ?? []), contextAttachment],
-          paramsOverride: {
+          paramsOverride: buildChatSurfaceParams(wsActiveTab, {
             profileSlug: effectiveProfileSlug || undefined,
-          },
+            context: {
+              historyPreview: contextDisplay,
+              historyEntryCount: currentHistory.length,
+            },
+          }),
         };
       },
     };
