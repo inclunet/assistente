@@ -1043,6 +1043,7 @@ export default function EditorPage() {
     if (!sessionLoaded) return;
     if (!activeTab) return;
     if (miniChatOpen) return;
+    if (isModalOpen()) return;
 
     const el = document.activeElement as HTMLElement | null;
     const tag = el?.tagName || '';
@@ -1745,9 +1746,9 @@ export default function EditorPage() {
       if (!extracted.ok) {
         const errText = String(extracted.error || '').trim();
         if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
-          addToast('Resposta não contém patch aplicável', 'error');
+          addToast(t('editor.inlineChat.patchNotApplicable'), 'error');
         }
-        useMiniChatStore.getState().setAdapterError(errText || 'Nenhum patch encontrado');
+        useMiniChatStore.getState().setAdapterError(errText || t('editor.inlineChat.patchExtractDefault'));
         setIsAsking(false);
         return;
       }
@@ -1755,7 +1756,7 @@ export default function EditorPage() {
       await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
     } catch (e: unknown) {
       console.error('[EditorPage] inline chat error:', e);
-      useMiniChatStore.getState().setAdapterError(getErrorMessage(e) || 'Erro ao pedir alteração ao chat');
+      useMiniChatStore.getState().setAdapterError(getErrorMessage(e) || t('editor.inlineChat.requestChangeError'));
       setIsAsking(false);
     }
   };

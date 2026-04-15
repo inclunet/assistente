@@ -316,7 +316,7 @@ export function ChatSessionView({
           isLoading={isLoading}
           ref={messagesContainerRef}
           onContextMenu={(event, message) => showMenu(event, message, message.role === 'user')}
-          onSpeak={speakMessage}
+          onSpeak={hasVoiceConfig ? speakMessage : undefined}
           onDelete={handleDeleteMessage}
           onSendToEditor={(payload) => sendToEditor(payload)}
         />

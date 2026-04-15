@@ -91,6 +91,18 @@ describe('miniChatStore.requestOpen', () => {
     expect(prepare).not.toHaveBeenCalled();
   });
 
+  it('com aba chat ativa não foca o input quando um modal está aberto', async () => {
+    const chatTab = { id: 'tab-chat', type: 'chat' as const, title: 'Chat', position: 0 };
+    mockGetActiveTab.mockReturnValue(chatTab);
+    mockIsModalOpen.mockReturnValue(true);
+    const focusSpy = vi.spyOn(HTMLElement.prototype, 'focus').mockImplementation(() => {});
+
+    await useMiniChatStore.getState().requestOpen();
+
+    expect(focusSpy).not.toHaveBeenCalled();
+    focusSpy.mockRestore();
+  });
+
   it('mostra toast quando o painel ativo não tem adaptador', async () => {
     mockGetActiveTab.mockReturnValue(editorTab);
 
