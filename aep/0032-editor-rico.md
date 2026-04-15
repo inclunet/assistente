@@ -87,6 +87,10 @@ Nota de performance:
 ### Integração com o “chat atual”
 - O Editor usa o **chatStore** existente (tab ativa atual) para enviar o pedido.
 - A resposta do LLM continua sendo uma mensagem normal do chat, mas inclui um bloco estruturado para o Editor.
+- O contexto do editor não deve ser injetado como mensagem sintética do usuário. Ele deve viajar em um contrato estruturado de superfície:
+  - `WorkspaceTab.state` para identidade persistida (`filePath`, `draftId`)
+  - `surfaceContext` para seleção, cursor e snapshot do envio atual
+- `activeFilePath` continua como compatibilidade operacional para tools baseadas em arquivo, enquanto a arquitetura converge para o contrato geral de superfície.
 
 ---
 

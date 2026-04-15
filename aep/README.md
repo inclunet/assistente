@@ -40,6 +40,7 @@ Propostas de melhoria para o Assistente, inspiradas nos PEPs (Python) e RFCs.
 | [0032](0032-editor-rico.md) | Editor Rico + Inline Chat | 📋 Open |
 | [0033](0033-mcp-oauth-autodiscovery.md) | MCP OAuth Auto-Discovery | 📋 Open |
 | [0037](0037-sdk-migration-chat-provider.md) | SDK Migration + ChatProvider Interface | 🚧 In Progress |
+| [0042](0042-chat-surface-context.md) | Chat Surface Context | 🚧 In Progress |
 
 ## Status Legend
 

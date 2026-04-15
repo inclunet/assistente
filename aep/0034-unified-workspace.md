@@ -102,10 +102,24 @@ Editor, terminal e tasklist podem abrir um **chat modal** vinculado à própria 
 
 - Usa a **mesma conversa persistida por aba** usada por uma aba de chat dedicada
 - Usa o **mesmo pipeline de envio** do chat principal, sempre endereçado por `conversationId`
-- Só adiciona capacidades contextuais da superfície ativa (ex.: contexto do editor, histórico do terminal, resumo da tasklist)
+- Deriva o contexto da superfície ativa a partir de `WorkspaceTab.state` + contexto transitório do envio
 - Não cria um produto paralelo; é apenas outra superfície para a mesma conversa
 
 Se a aba ainda não tiver conversa, o `conversationId` é criado sob demanda e persistido na configuração da aba do workspace antes do primeiro envio.
+
+### Contrato com o chat
+
+O workspace continua sendo o dono do contrato persistido da aba:
+
+- `tab.type` identifica a superfície
+- `tab.state` identifica o conteúdo persistido da aba
+
+Quando a superfície envia uma mensagem ao chat, ela deriva dois blocos:
+
+- `surfaceState`: espelho de `tab.state`
+- `surfaceContext`: contexto transitório do envio atual
+
+Isso evita criar um modelo paralelo para chat modal e mantém o contrato do workspace como fonte de verdade.
 
 ## Split View e Acessibilidade
 

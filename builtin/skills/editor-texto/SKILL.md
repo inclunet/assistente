@@ -26,6 +26,27 @@ Você está operando **dentro de um editor de texto**. O arquivo ativo está sem
 
 Objetivo: produzir uma alteração precisa e segura no arquivo aberto.
 
+{{- if .Surface }}
+{{- $state := .Surface.State }}
+{{- $ctx := .Surface.Context }}
+
+Superfície atual:
+- tipo: `{{ .Surface.Type }}`
+{{- if .Surface.Title }}
+- título: `{{ .Surface.Title }}`
+{{- end }}
+{{- if index $state "filePath" }}
+- arquivo ativo: `{{ index $state "filePath" }}`
+{{- end }}
+{{- if index $ctx "selectedText" }}
+- texto selecionado no momento do envio:
+
+```text
+{{ index $ctx "selectedText" }}
+```
+{{- end }}
+{{- end }}
+
 {{- if .ToolCallingEnabled }}
 
 ## Quando tool-calling estiver habilitado (preferido)
@@ -41,7 +62,11 @@ Use **sempre** a ferramenta `edit_file` para propor alterações.
 
 ### Parâmetros
 
+{{- if and .Surface .Surface.State (index .Surface.State "filePath") }}
+- `path`: `{{ index .Surface.State "filePath" }}`
+{{- else }}
 - `path`: caminho do arquivo ativo (informado no contexto da conversa)
+{{- end }}
 - `old_string`: trecho **exato** a substituir (incluindo indentação e quebras de linha)
 - `new_string`: conteúdo final a aplicar
 - `replace_all`: use `true` somente se a intenção for substituir todas as ocorrências
