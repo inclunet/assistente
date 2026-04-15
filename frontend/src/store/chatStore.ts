@@ -227,7 +227,7 @@ interface ChatStore {
 
   createConversation: (title?: string) => Promise<number>;
   loadConversation: (id: number) => Promise<void>;
-  /** Limpa a conversa ativa (ex.: ao focar editor/terminal/tasklist sem conversa até abrir o mini-chat). */
+  /** Limpa a conversa ativa (ex.: ao focar editor/terminal/tasklist sem conversa até abrir o chat modal). */
   clearActiveConversation: () => void;
 
   updateMessage: (messageId: string, content: string) => void;
@@ -419,7 +419,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         ensureAssistantNode();
         if (!streamingAnnounced) {
           streamingAnnounced = true;
-          announce('Assistente está respondendo', 'polite');
+          announce(i18next.t('chat.announce.assistantResponding'), 'polite');
         }
         debouncedUpdateMessage(streamingMsgId, event.content, get().updateMessage);
       }
@@ -475,7 +475,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
       ensureAssistantNode();
       if (event.started) {
         set({ isThinking: true, streamingReasoning: event.content || '' });
-        announce('O modelo está pensando...', 'polite');
+        announce(i18next.t('chat.announce.modelThinking'), 'polite');
       } else if (event.done) {
         set({ isThinking: false });
         if (event.content) get().updateMessageReasoning(streamingMsgId, event.content);
@@ -688,6 +688,8 @@ export const useChatStore = create<ChatStore>()((set, get) => {
     clearActiveConversation: () => {
       messageAudioService.stopCurrentAudio();
       ttsService.stop();
+      // Invalida loads pendentes para não restaurarem uma conversa antiga após troca de aba.
+      loadConversationSeq++;
       const prevId = get().activeConversationId;
       if (prevId) {
         const key = String(prevId);
@@ -1200,7 +1202,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
           ensureAssistantNode();
           if (!streamingAnnounced) {
             streamingAnnounced = true;
-            announce('Assistente está respondendo', 'polite');
+            announce(i18next.t('chat.announce.assistantResponding'), 'polite');
           }
           debouncedUpdateMessage(streamingMsgId, event.content, get().updateMessage);
         }
@@ -1252,7 +1254,7 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         ensureAssistantNode();
         if (event.started) {
           set({ isThinking: true, streamingReasoning: event.content || '' });
-          announce('O modelo está pensando...', 'polite');
+          announce(i18next.t('chat.announce.modelThinking'), 'polite');
         } else if (event.done) {
           set({ isThinking: false });
           if (event.content) get().updateMessageReasoning(streamingMsgId, event.content);

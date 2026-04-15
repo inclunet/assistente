@@ -2,21 +2,22 @@ import { useEffect, useRef } from 'react';
 import { useWorkspaceStore, registerTabRenameHandler } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
 import { RenameConversation } from '@wailsjs/go/main/App';
-import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
+import { ensureWorkspaceTabConversationId } from '../lib/workspaceConversation';
 import type { TabType } from '../store/workspaceStore';
 
-/** Abas onde a conversa só é criada ao abrir o mini-chat (não ao focar o painel). */
+/** Abas onde a conversa só é criada ao abrir o chat modal (não ao focar o painel). */
 const MINI_CHAT_LAZY_CONVERSATION: ReadonlySet<TabType> = new Set(['editor', 'terminal', 'tasklist']);
 
 /**
  * Sincroniza a aba ativa do workspace com o chatStore.
- * Cada aba pode ter um conversationId; abas editor/terminal/tasklist só criam conversa ao abrir o mini-chat.
+ * Cada aba pode ter um conversationId; abas editor/terminal/tasklist só criam conversa ao abrir o chat modal.
  *
  * Fluxo:
  * 1. Workspace ativa qualquer aba
  * 2. Se conversationId > 0 → chatStore.loadConversation(id)
- * 3. Se conversationId vazio e aba é chat → ensureWorkspaceTabHasConversation
- * 4. Se conversationId vazio e aba é editor/terminal/tasklist → clearActiveConversation (conversa criada no requestOpen do mini-chat)
+ * 3. Se conversationId vazio e aba é chat → garante `conversationId` e só sincroniza o chatStore
+ *    se a aba continuar ativa ao concluir a criação
+ * 4. Se conversationId vazio e aba é editor/terminal/tasklist → clearActiveConversation (conversa criada no requestOpen do chat modal)
  * 5. Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)
  */
 export function useWorkspaceChatBridge() {
@@ -65,16 +66,28 @@ export function useWorkspaceChatBridge() {
     }
 
     const gen = ++syncGenerationRef.current;
-    void ensureWorkspaceTabHasConversation(activeTab)
-      .then((id) => {
+    void (async () => {
+      try {
+        const id = await ensureWorkspaceTabConversationId(activeTab);
         if (syncGenerationRef.current !== gen) return;
         const nowTab = useWorkspaceStore.getState().getActiveTab();
         if (!nowTab || nowTab.id !== snapshotTabId) return;
+        if ((nowTab.conversationId || 0) !== id) return;
+
+        const chatState = useChatStore.getState();
+        if (chatState.activeConversationId !== id) {
+          await chatState.loadConversation(id);
+        }
+
+        if (syncGenerationRef.current !== gen) return;
+        const latestTab = useWorkspaceStore.getState().getActiveTab();
+        if (!latestTab || latestTab.id !== snapshotTabId) return;
+        if ((latestTab.conversationId || 0) !== id) return;
         lastSyncedRef.current = `${snapshotTabId}:${id}`;
-      })
-      .catch((error) => {
+      } catch (error) {
         console.error('[WorkspaceChatBridge] Erro ao garantir conversa:', error);
-      });
+      }
+    })();
   }, [activeTab?.id, activeTab?.type, activeTab?.conversationId, isWsInitialized]);
 
   // Profile cascade: tab.profileOverride.slug → workspace.profile → null (global)

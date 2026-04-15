@@ -4,7 +4,7 @@ import type { WorkspaceTab } from '../store/workspaceStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useChatStore } from '../store/chatStore';
 
-/** Evita duas criações em paralelo para a mesma aba (ex.: bridge + mini-chat). */
+/** Evita duas criações em paralelo para a mesma aba (ex.: bridge + chat modal). */
 const inflight = new Map<string, Promise<number>>();
 
 /**
@@ -30,7 +30,6 @@ export async function ensureWorkspaceTabConversationId(wsTab: WorkspaceTab): Pro
     const conv = await CreateConversation(title, '');
     cid = conv.id;
     await useWorkspaceStore.getState().updateTab(wsTab.id, { conversation_id: cid });
-    await useChatStore.getState().loadConversation(cid);
     return cid;
   };
 
@@ -47,9 +46,13 @@ export async function ensureWorkspaceTabConversationId(wsTab: WorkspaceTab): Pro
  */
 export async function ensureWorkspaceTabHasConversation(wsTab: WorkspaceTab): Promise<number> {
   const cid = await ensureWorkspaceTabConversationId(wsTab);
+  const activeTab = useWorkspaceStore.getState().getActiveTab?.();
+  if (activeTab && activeTab.id !== wsTab.id) {
+    return cid;
+  }
   const chat = useChatStore.getState();
   if (chat.activeConversationId !== cid) {
-    await useChatStore.getState().loadConversation(cid);
+    await chat.loadConversation(cid);
   }
   return cid;
 }

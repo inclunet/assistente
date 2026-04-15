@@ -3,9 +3,9 @@ import { MessageOutlined } from '@ant-design/icons';
 import { useTranslation } from 'react-i18next';
 import { useTerminalStore } from '../store/terminalStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
-import { useMiniChatStore } from '../store/miniChatStore';
-import type { MiniChatAdapter } from '../store/miniChatStore';
-import { useRegisterMiniChatAdapter } from '../hooks/useRegisterMiniChatAdapter';
+import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import type { WorkspaceChatModalAdapter } from '../store/workspaceChatModalStore';
+import { useRegisterWorkspaceChatAdapter } from '../hooks/useRegisterWorkspaceChatAdapter';
 import { TerminalHistory } from '../components/terminal/TerminalHistory';
 import { ChatInput } from '../components/chat/ChatInput';
 import { Toolbar, ToolbarButton, ToolbarSeparator } from '../components/ui/Toolbar';
@@ -87,7 +87,7 @@ export default function TerminalPage() {
     inputRef.current?.focus();
   }, []);
 
-  const terminalMiniChatAdapter = useMemo((): MiniChatAdapter | null => {
+  const terminalChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
     if (!wsActiveTab || wsActiveTab.type !== 'terminal') return null;
 
     return {
@@ -101,7 +101,7 @@ export default function TerminalPage() {
           })
           .filter(Boolean)
           .join('\n---\n');
-        const contextDisplay = lines || t('terminal.miniChat.noHistory');
+        const contextDisplay = lines || t('terminal.chatModal.noHistory');
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
@@ -112,7 +112,7 @@ export default function TerminalPage() {
             return [`$ ${cmd}`, out].filter(Boolean).join('\n');
           })
           .filter(Boolean)
-          .join('\n---\n') || t('terminal.miniChat.noHistory');
+          .join('\n---\n') || t('terminal.chatModal.noHistory');
         return {
           content: instruction,
           mediaFiles: media,
@@ -128,7 +128,7 @@ export default function TerminalPage() {
     };
   }, [wsActiveTab, currentHistory, effectiveProfileSlug, t]);
 
-  useRegisterMiniChatAdapter(wsActiveTab?.id, terminalMiniChatAdapter);
+  useRegisterWorkspaceChatAdapter(wsActiveTab?.id, terminalChatModalAdapter);
 
   return (
     <div className="terminal-page">
@@ -142,11 +142,11 @@ export default function TerminalPage() {
           }
           actions={[
             {
-              key: 'mini-chat',
-              label: t('editor.inlineChat.title'),
+              key: 'chat-modal',
+              label: t('editor.chatModal.title'),
               icon: <MessageOutlined />,
               shortcut: 'Ctrl+Shift+I',
-              onClick: () => void useMiniChatStore.getState().requestOpen(),
+              onClick: () => void useWorkspaceChatModalStore.getState().requestOpen(),
             },
           ]}
           right={

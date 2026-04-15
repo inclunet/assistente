@@ -22,7 +22,7 @@ import './ChatSessionView.css';
 
 export interface ChatSessionViewProps {
   variant?: 'page' | 'embedded';
-  /** Envio da mensagem (ex.: sendMessage da store ou adaptador do mini-chat) */
+  /** Envio da mensagem (ex.: sendMessage da store ou adaptador do chat modal) */
   onSend: (content: string, mediaFiles?: MediaFile[]) => Promise<void>;
   showShortcutsHelp?: boolean;
 }

@@ -167,6 +167,8 @@ const ptBR = {
       reasoningShown: 'Raciocínio exibido',
       reasoningHidden: 'Raciocínio ocultado',
       announce: {
+        assistantResponding: 'Assistente está respondendo',
+        modelThinking: 'O modelo está pensando...',
         messageDeleted: 'Mensagem excluída',
         deleteCancelled: 'Exclusão cancelada',
         messageResent: 'Mensagem reenviada',
@@ -640,7 +642,7 @@ const ptBR = {
         removeBtnLabel: 'Remover bloco Mermaid',
         previewLabel: 'Preview do Mermaid. Pressione Enter para editar',
       },
-      inlineChat: {
+      chatModal: {
         title: 'Chat',
         conversation: 'Conversa',
         messageDeleted: 'Mensagem excluída',
@@ -674,7 +676,7 @@ const ptBR = {
       entry: { llmCommand: 'Comando LLM', command: 'Comando', commandLLM: 'Comando (LLM)', llm: 'LLM', output: 'Saída', running: 'executando', empty: 'vazia', exitCode: 'Código de saída:', duration: 'Duração:', exit: 'exit:', executing: 'Executando...', truncated: 'truncado' },
       history: { label: 'Histórico do terminal', loading: 'Carregando...', emptyTitle: 'Nenhum comando executado.', emptyHint: 'Digite um comando abaixo para começar.', commandPrefix: 'Comando:' },
       tabs: { closed: 'Terminal fechado.', of: 'de', label: 'Terminais', listLabel: 'Lista de terminais abertos', running: 'Executando', close: 'Fechar', newShortcut: 'Criar novo terminal, Ctrl+T', newTooltip: 'Novo terminal (Ctrl+T)' },
-      miniChat: {
+      chatModal: {
         noHistory: '(sem histórico no terminal)',
       },
     },
@@ -1355,15 +1357,13 @@ const ptBR = {
       tabListLabel: 'Lista de painéis',
       editTabTitle: 'Editar título da aba',
       closeTab: 'Fechar aba',
-      miniChat: {
+      chatModal: {
         panelNotSupported: 'Este painel ainda não suporta o chat.',
         panelLoading: 'Aguarde o painel carregar ou tente abrir o chat de novo.',
         modalBlocked: 'Feche o diálogo aberto antes de usar o chat.',
         adapterUnavailable:
           'Não foi possível enviar: o painel não está ligado ao chat. Feche e abra o chat de novo.',
         prepareFailed: 'Não foi possível preparar o chat. Tente de novo.',
-      },
-      chatModal: {
         closeBeforeChangingTabs: 'Feche o chat aberto antes de trocar de aba.',
       },
       tabType: {
@@ -1624,7 +1624,7 @@ const ptBR = {
       emProgresso: 'Em Progresso',
       concluido: 'Concluído',
       noWorkflow: 'Sem workflow definido',
-      miniChatContext: {
+      chatModalContext: {
         taskCount_one: '{{count}} tarefa',
         taskCount_other: '{{count}} tarefas',
         noTasks: '(nenhuma tarefa)',

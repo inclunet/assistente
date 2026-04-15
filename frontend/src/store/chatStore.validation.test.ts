@@ -8,10 +8,12 @@ vi.mock('../hooks/useAnnouncer', () => ({
 }));
 
 const mockSendMessage = vi.fn().mockResolvedValue(undefined);
+const mockGetMessages = vi.fn().mockResolvedValue([]);
+const mockGetConversationInfo = vi.fn().mockResolvedValue({});
 vi.mock('@wailsjs/go/main/App', () => ({
   SendMessage: (...args: unknown[]) => mockSendMessage(...args),
-  GetMessages: vi.fn().mockResolvedValue([]),
-  GetConversationInfo: vi.fn().mockResolvedValue({}),
+  GetMessages: (...args: unknown[]) => mockGetMessages(...args),
+  GetConversationInfo: (...args: unknown[]) => mockGetConversationInfo(...args),
   EnsureConversation: vi.fn().mockResolvedValue(1),
   AssignConversationToChannel: vi.fn(),
   UnassignConversationFromChannel: vi.fn(),
@@ -85,6 +87,10 @@ describe('chatStore validation', () => {
     eventListeners.clear();
     mockAnnounce.mockClear();
     mockSendMessage.mockClear();
+    mockGetMessages.mockReset();
+    mockGetMessages.mockResolvedValue([]);
+    mockGetConversationInfo.mockReset();
+    mockGetConversationInfo.mockResolvedValue({});
     mockHandleChatSpeak.mockClear();
     const mod = await import('./chatStore');
     useChatStore = mod.useChatStore;
@@ -162,6 +168,26 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessageToConversation(7, 'hello');
 
     expect(mockSendMessage).toHaveBeenCalledWith(7, 'hello', '', expect.any(Object));
+  });
+
+  it('clearActiveConversation invalida loadConversation pendente', async () => {
+    let resolveInfo: ((value: unknown) => void) | undefined;
+    let resolveMessages: ((value: unknown) => void) | undefined;
+    mockGetConversationInfo.mockImplementation(
+      () => new Promise((resolve) => { resolveInfo = resolve; }),
+    );
+    mockGetMessages.mockImplementation(
+      () => new Promise((resolve) => { resolveMessages = resolve; }),
+    );
+
+    const pendingLoad = useChatStore.getState().loadConversation(7);
+    useChatStore.getState().clearActiveConversation();
+    resolveInfo?.({ title: 'Late conversation' });
+    resolveMessages?.([]);
+    await pendingLoad;
+
+    expect(useChatStore.getState().activeConversationId).toBeNull();
+    expect(useChatStore.getState().activeConversation).toBeNull();
   });
 
   it('repassa parâmetros estruturados de surface no envio', async () => {

@@ -157,8 +157,8 @@ vi.mock('../components/editor/MermaidEditorModal', () => ({
   MermaidEditorModal: () => null,
 }));
 
-vi.mock('../store/miniChatStore', () => ({
-  useMiniChatStore: Object.assign(
+vi.mock('../store/workspaceChatModalStore', () => ({
+  useWorkspaceChatModalStore: Object.assign(
     (selector?: (s: { isOpen: boolean }) => unknown) => {
       const state = { isOpen: false };
       return typeof selector === 'function' ? selector(state) : state;
@@ -167,8 +167,8 @@ vi.mock('../store/miniChatStore', () => ({
   ),
 }));
 
-vi.mock('../hooks/useRegisterMiniChatAdapter', () => ({
-  useRegisterMiniChatAdapter: vi.fn(),
+vi.mock('../hooks/useRegisterWorkspaceChatAdapter', () => ({
+  useRegisterWorkspaceChatAdapter: vi.fn(),
 }));
 
 vi.mock('../components/menu', () => ({

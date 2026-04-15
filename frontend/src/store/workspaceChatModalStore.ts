@@ -9,25 +9,27 @@ import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation'
 import { ttsService } from '../services/tts';
 import { messageAudioService } from '../services/messageAudio';
 
-export type MiniChatPrepareOk = {
+export type WorkspaceChatModalPrepareOk = {
   ok: true;
   contextDisplay: string;
   meta: unknown;
 };
 
-export type MiniChatPrepareFail = {
+export type WorkspaceChatModalPrepareFail = {
   ok: false;
   message?: string;
 };
 
-export type MiniChatPrepareResult = MiniChatPrepareOk | MiniChatPrepareFail;
+export type WorkspaceChatModalPrepareResult =
+  | WorkspaceChatModalPrepareOk
+  | WorkspaceChatModalPrepareFail;
 
-export type MiniChatSession = {
+export type WorkspaceChatModalSession = {
   tabId: string;
   conversationId: number;
 };
 
-export type MiniChatSendPlan = {
+export type WorkspaceChatSendPlan = {
   content: string;
   mediaFiles?: MediaFile[];
   paramsOverride?: Partial<llm.ChatParams>;
@@ -35,19 +37,22 @@ export type MiniChatSendPlan = {
   onSendError?: (error: unknown) => void;
 } | null;
 
-export interface MiniChatAdapter {
-  prepare: () => Promise<MiniChatPrepareResult>;
+export interface WorkspaceChatModalAdapter {
+  prepare: () => Promise<WorkspaceChatModalPrepareResult>;
   send: (
     instruction: string,
     media: MediaFile[] | undefined,
     meta: unknown,
-    session: MiniChatSession,
-  ) => Promise<MiniChatSendPlan>;
+    session: WorkspaceChatModalSession,
+  ) => Promise<WorkspaceChatSendPlan>;
 }
 
-const adapters = new Map<string, MiniChatAdapter>();
+const adapters = new Map<string, WorkspaceChatModalAdapter>();
 
-export function registerMiniChatAdapter(tabId: string, adapter: MiniChatAdapter | null) {
+export function registerWorkspaceChatModalAdapter(
+  tabId: string,
+  adapter: WorkspaceChatModalAdapter | null,
+) {
   if (!adapter) {
     adapters.delete(tabId);
     return;
@@ -55,21 +60,23 @@ export function registerMiniChatAdapter(tabId: string, adapter: MiniChatAdapter 
   adapters.set(tabId, adapter);
 }
 
-export function getAdapter(tabId: string | undefined | null): MiniChatAdapter | null {
+export function getWorkspaceChatModalAdapter(
+  tabId: string | undefined | null,
+): WorkspaceChatModalAdapter | null {
   if (!tabId) return null;
   return adapters.get(tabId) ?? null;
 }
 
-interface MiniChatState {
+interface WorkspaceChatModalState {
   isOpen: boolean;
-  /** Aba do workspace à qual este modal está vinculado (envio usa sempre este id). */
+  /** Aba do workspace à qual este modal de chat está vinculado. */
   boundTabId: string | null;
-  /** Conversa garantida ao abrir o mini-chat; usada para recuperar o chatStore antes do envio. */
+  /** Conversa garantida ao abrir o modal; usada para recuperar o chatStore antes do envio. */
   boundConversationId: number | null;
   contextDisplay: string;
   sessionMeta: unknown;
-  /** `adapter.send` capturado no `open()` — o envio não depende do mapa global no momento do clique. */
-  boundSend: MiniChatAdapter['send'] | null;
+  /** `adapter.send` capturado no `open()` para não depender do mapa global no clique. */
+  boundSend: WorkspaceChatModalAdapter['send'] | null;
   focusNonce: number;
   adapterError: string | null;
   open: (
@@ -77,7 +84,7 @@ interface MiniChatState {
     meta: unknown,
     boundTabId: string,
     boundConversationId: number,
-    send: MiniChatAdapter['send'],
+    send: WorkspaceChatModalAdapter['send'],
   ) => void;
   close: () => void;
   bumpFocus: () => void;
@@ -85,7 +92,7 @@ interface MiniChatState {
   requestOpen: () => Promise<void>;
 }
 
-export const useMiniChatStore = create<MiniChatState>((set, get) => ({
+export const useWorkspaceChatModalStore = create<WorkspaceChatModalState>((set, get) => ({
   isOpen: false,
   boundTabId: null,
   boundConversationId: null,
@@ -139,36 +146,36 @@ export const useMiniChatStore = create<MiniChatState>((set, get) => ({
 
     if (isModalOpen()) {
       useUIStore.getState().addToast(
-        i18next.t('workspace.miniChat.modalBlocked'),
+        i18next.t('workspace.chatModal.modalBlocked'),
         'info',
       );
       return;
     }
 
     if (tab.type === 'chat') {
-      const input = document.querySelector('.chat-page .chat-input textarea') as HTMLTextAreaElement | null;
+      const input = document.querySelector('.chat-page .chat-input__textarea') as HTMLTextAreaElement | null;
       if (input) {
         input.focus();
       }
       return;
     }
 
-    const adapter = getAdapter(tab.id);
+    const adapter = getWorkspaceChatModalAdapter(tab.id);
     if (!adapter) {
       useUIStore.getState().addToast(
-        i18next.t('workspace.miniChat.panelNotSupported'),
+        i18next.t('workspace.chatModal.panelNotSupported'),
         'info',
       );
       return;
     }
 
-    let result: MiniChatPrepareResult;
+    let result: WorkspaceChatModalPrepareResult;
     try {
       result = await adapter.prepare();
     } catch (e) {
-      console.error('[miniChat] prepare() falhou:', e);
+      console.error('[workspaceChatModal] prepare() falhou:', e);
       useUIStore.getState().addToast(
-        i18next.t('workspace.miniChat.prepareFailed'),
+        i18next.t('workspace.chatModal.prepareFailed'),
         'error',
       );
       return;
@@ -185,9 +192,9 @@ export const useMiniChatStore = create<MiniChatState>((set, get) => ({
     try {
       conversationId = await ensureWorkspaceTabHasConversation(tab);
     } catch (e) {
-      console.error('[miniChat] falha ao garantir conversa:', e);
+      console.error('[workspaceChatModal] falha ao garantir conversa:', e);
       useUIStore.getState().addToast(
-        i18next.t('editor.inlineChat.newConversationError'),
+        i18next.t('editor.chatModal.newConversationError'),
         'error',
       );
       return;

@@ -2,29 +2,29 @@ import { useCallback, useEffect, useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Modal } from '../ui/Modal';
 import { ChatSessionView } from '../chat/ChatSessionView';
-import { useMiniChatStore } from '../../store/miniChatStore';
+import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
 import { useChatStore } from '../../store/chatStore';
 import { useUIStore } from '../../store/uiStore';
 import { ensureWorkspaceTabConversationId } from '../../lib/workspaceConversation';
 import type { MediaFile } from '../../services/mediaService';
 
-import './WorkspaceMiniChat.css';
+import './WorkspaceChatModal.css';
 
-export function WorkspaceMiniChat() {
+export function WorkspaceChatModal() {
   const { t } = useTranslation();
-  const isOpen = useMiniChatStore((s) => s.isOpen);
-  const boundTabId = useMiniChatStore((s) => s.boundTabId);
-  const contextDisplay = useMiniChatStore((s) => s.contextDisplay);
-  const focusNonce = useMiniChatStore((s) => s.focusNonce);
-  const adapterError = useMiniChatStore((s) => s.adapterError);
-  const close = useMiniChatStore((s) => s.close);
+  const isOpen = useWorkspaceChatModalStore((s) => s.isOpen);
+  const boundTabId = useWorkspaceChatModalStore((s) => s.boundTabId);
+  const contextDisplay = useWorkspaceChatModalStore((s) => s.contextDisplay);
+  const focusNonce = useWorkspaceChatModalStore((s) => s.focusNonce);
+  const adapterError = useWorkspaceChatModalStore((s) => s.adapterError);
+  const close = useWorkspaceChatModalStore((s) => s.close);
   const activeConversation = useChatStore((s) => s.activeConversation);
   const activeWorkspaceTab = useWorkspaceStore((s) => s.getActiveTab());
 
   const modalTitle = useMemo(() => {
-    const conversationTitle = activeConversation?.title || t('editor.inlineChat.conversation');
-    return `${t('editor.inlineChat.title')} — ${conversationTitle}`;
+    const conversationTitle = activeConversation?.title || t('editor.chatModal.conversation');
+    return `${t('editor.chatModal.title')} — ${conversationTitle}`;
   }, [activeConversation?.title, activeConversation?.id, t]);
 
   const handleClose = useCallback(() => {
@@ -44,7 +44,7 @@ export function WorkspaceMiniChat() {
     if (!isOpen) return;
     const id = requestAnimationFrame(() => {
       const ta = document.querySelector(
-        '.workspace-mini-chat .chat-input__textarea',
+        '.workspace-chat-modal .chat-input__textarea',
       ) as HTMLTextAreaElement | null;
       ta?.focus();
     });
@@ -58,9 +58,9 @@ export function WorkspaceMiniChat() {
         boundConversationId: storedConversationId,
         sessionMeta: meta,
         boundSend,
-      } = useMiniChatStore.getState();
+      } = useWorkspaceChatModalStore.getState();
       if (!boundSend || !tabId) {
-        useUIStore.getState().addToast(t('workspace.miniChat.adapterUnavailable'), 'error');
+        useUIStore.getState().addToast(t('workspace.chatModal.adapterUnavailable'), 'error');
         handleClose();
         return;
       }
@@ -68,7 +68,7 @@ export function WorkspaceMiniChat() {
       const ws = useWorkspaceStore.getState().workspace;
       const tab = ws?.tabs.find((x) => x.id === tabId);
       if (!tab) {
-        useUIStore.getState().addToast(t('workspace.miniChat.adapterUnavailable'), 'error');
+        useUIStore.getState().addToast(t('workspace.chatModal.adapterUnavailable'), 'error');
         handleClose();
         return;
       }
@@ -77,14 +77,14 @@ export function WorkspaceMiniChat() {
       try {
         targetConversationId = await ensureWorkspaceTabConversationId(tab);
       } catch (e) {
-        console.error('[miniChat] falha ao garantir conversa no envio:', e);
-        useUIStore.getState().addToast(t('editor.inlineChat.newConversationError'), 'error');
+        console.error('[workspaceChatModal] falha ao garantir conversa no envio:', e);
+        useUIStore.getState().addToast(t('editor.chatModal.newConversationError'), 'error');
         return;
       }
 
       if (!targetConversationId) {
-        console.error('[miniChat] conversationId ausente após ensure — envio cancelado');
-        useUIStore.getState().addToast(t('editor.inlineChat.newConversationError'), 'error');
+        console.error('[workspaceChatModal] conversationId ausente após ensure — envio cancelado');
+        useUIStore.getState().addToast(t('editor.chatModal.newConversationError'), 'error');
         return;
       }
 
@@ -114,10 +114,10 @@ export function WorkspaceMiniChat() {
 
   return (
     <Modal isOpen={isOpen} title={modalTitle} onClose={handleClose} size="lg">
-      <div className="editor-inline-chat workspace-mini-chat" key={focusNonce}>
+      <div className="editor-inline-chat workspace-chat-modal" key={focusNonce}>
         <details className="editor-inline-chat__context" open={false}>
           <summary className="editor-inline-chat__context-summary">
-            {t('editor.inlineChat.contextBtn')}
+            {t('editor.chatModal.contextBtn')}
           </summary>
           <pre className="editor-inline-chat__context-pre">{contextDisplay}</pre>
         </details>
@@ -128,7 +128,7 @@ export function WorkspaceMiniChat() {
           </div>
         )}
 
-        <div className="workspace-mini-chat__session">
+        <div className="workspace-chat-modal__session">
           <ChatSessionView variant="embedded" onSend={handleSend} showShortcutsHelp={false} />
         </div>
       </div>

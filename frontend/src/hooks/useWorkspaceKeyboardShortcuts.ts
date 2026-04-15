@@ -16,7 +16,7 @@
 import { useEffect, useRef } from 'react';
 import i18next from 'i18next';
 import { useWorkspaceStore, type TabType } from '../store/workspaceStore';
-import { useMiniChatStore } from '../store/miniChatStore';
+import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
 import { useAnnouncer } from './useAnnouncer';
 import { restoreDefaultFocus } from './useDefaultFocus';
 
@@ -48,7 +48,7 @@ export function useWorkspaceKeyboardShortcuts() {
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
-      // Ctrl+Shift+I: mini-chat do painel (adaptador registado pela aba ativa)
+      // Ctrl+Shift+I: chat modal do painel (adaptador registado pela aba ativa)
       if (
         event.ctrlKey &&
         event.shiftKey &&
@@ -56,7 +56,7 @@ export function useWorkspaceKeyboardShortcuts() {
         !event.altKey
       ) {
         event.preventDefault();
-        void useMiniChatStore.getState().requestOpen();
+        void useWorkspaceChatModalStore.getState().requestOpen();
         return;
       }
 
@@ -166,7 +166,7 @@ export function useWorkspaceKeyboardShortcuts() {
         const num = parseInt(event.key, 10);
         if (num >= 1 && num <= 9) {
           event.preventDefault();
-          if (useMiniChatStore.getState().isOpen) {
+          if (useWorkspaceChatModalStore.getState().isOpen) {
             announce(i18next.t('workspace.chatModal.closeBeforeChangingTabs'));
             return;
           }
@@ -181,7 +181,7 @@ export function useWorkspaceKeyboardShortcuts() {
 
     function navigateTab(direction: 1 | -1) {
       if (tabs.length <= 1) return;
-      if (useMiniChatStore.getState().isOpen) {
+      if (useWorkspaceChatModalStore.getState().isOpen) {
         announce(i18next.t('workspace.chatModal.closeBeforeChangingTabs'));
         return;
       }

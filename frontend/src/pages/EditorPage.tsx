@@ -11,9 +11,14 @@ import { MermaidEditorModal } from '../components/editor/MermaidEditorModal';
 import { RichTextEditor } from '../components/editor/RichTextEditor';
 import type { RichTextEditorHandle } from '../components/editor/RichTextEditor';
 import { useRichEditorFlushEvents } from './useRichEditorFlushEvents';
-import { useRegisterMiniChatAdapter } from '../hooks/useRegisterMiniChatAdapter';
-import { useMiniChatStore } from '../store/miniChatStore';
-import type { MiniChatAdapter, MiniChatPrepareResult, MiniChatSendPlan, MiniChatSession } from '../store/miniChatStore';
+import { useRegisterWorkspaceChatAdapter } from '../hooks/useRegisterWorkspaceChatAdapter';
+import { useWorkspaceChatModalStore } from '../store/workspaceChatModalStore';
+import type {
+  WorkspaceChatModalAdapter,
+  WorkspaceChatModalPrepareResult,
+  WorkspaceChatSendPlan,
+  WorkspaceChatModalSession,
+} from '../store/workspaceChatModalStore';
 import { useEditorStore, DEFAULT_MD, type EditorMode, type EditorDocument, type EditorInsertRequest } from '../store/editorStore';
 import { useWorkspaceStore } from '../store/workspaceStore';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
@@ -131,7 +136,7 @@ export default function EditorPage() {
         selectionIsEmpty?: boolean;
         /** Contexto ao redor do cursor para orientar inserção */
         cursorContext?: string;
-        /** Texto a exibir no painel "Contexto" do mini-chat */
+        /** Texto a exibir no painel "Contexto" do chat modal */
         displayText?: string;
         startOffset: number;
         endOffset: number;
@@ -165,8 +170,8 @@ export default function EditorPage() {
   };
 
   const inlineChatRunIdRef = useRef(0);
-  const miniChatOpen = useMiniChatStore((s) => s.isOpen);
-  const prevMiniChatOpenRef = useRef(false);
+  const chatModalOpen = useWorkspaceChatModalStore((s) => s.isOpen);
+  const prevChatModalOpenRef = useRef(false);
 
   const [sessionLoaded, setSessionLoaded] = useState(false);
 
@@ -1042,7 +1047,7 @@ export default function EditorPage() {
   useEffect(() => {
     if (!sessionLoaded) return;
     if (!activeTab) return;
-    if (miniChatOpen) return;
+    if (chatModalOpen) return;
     if (isModalOpen()) return;
 
     const el = document.activeElement as HTMLElement | null;
@@ -1071,7 +1076,7 @@ export default function EditorPage() {
     if (!isTypingTarget && (isDocumentBody || isEditorZone)) {
       focusEditorSoon();
     }
-  }, [sessionLoaded, activeTab?.id, activeTab?.mode, miniChatOpen]);
+  }, [sessionLoaded, activeTab?.id, activeTab?.mode, chatModalOpen]);
 
 
   const prevDocsRef = useRef<Record<string, EditorDocument>>({});
@@ -1246,13 +1251,13 @@ export default function EditorPage() {
   }
 
   useEffect(() => {
-    if (prevMiniChatOpenRef.current && !miniChatOpen) {
+    if (prevChatModalOpenRef.current && !chatModalOpen) {
       inlineChatRunIdRef.current += 1;
       setIsAsking(false);
       focusEditorSoon();
     }
-    prevMiniChatOpenRef.current = miniChatOpen;
-  }, [miniChatOpen, activeTab]);
+    prevChatModalOpenRef.current = chatModalOpen;
+  }, [chatModalOpen, activeTab]);
 
   const flushActiveRichMarkdownNow = useCallback(() => {
     try {
@@ -1441,15 +1446,15 @@ export default function EditorPage() {
     notes?: string;
   };
 
-  const sendEditorMiniChatMessage = async (
+  const sendEditorChatModalMessage = async (
     instruction: string,
     mediaFiles: MediaFile[] | undefined,
     inlineChatSelection: InlineChatSelection,
-    session?: MiniChatSession,
-  ): Promise<MiniChatSendPlan> => {
+    session?: WorkspaceChatModalSession,
+  ): Promise<WorkspaceChatSendPlan> => {
     if (!activeTab) return null;
 
-    // Não bloquear pelo `isLoading` global: o mini-chat partilha o chatStore e um estado
+    // Não bloquear pelo `isLoading` global: o chat modal partilha o chatStore e um estado
     // preso (ou outro painel) desativava o input sem feedback claro; `sendMessage` já
     // trata pedidos em paralelo / substitui listeners.
 
@@ -1490,7 +1495,7 @@ export default function EditorPage() {
         };
 
     const runId = (inlineChatRunIdRef.current += 1);
-    useMiniChatStore.getState().setAdapterError(null);
+    useWorkspaceChatModalStore.getState().setAdapterError(null);
 
     const isToolCallingEnabledForProfileSlug = async (slug: string): Promise<boolean> => {
       const s = String(slug || '').trim();
@@ -1565,7 +1570,7 @@ export default function EditorPage() {
 
         // Se o conteúdo mudou desde o snapshot, evita aplicar offsets errados.
         if (!applied.ok) {
-          addToast('O texto selecionado mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
+          addToast('O texto selecionado mudou desde que você abriu o chat. Refazer a seleção e tentar novamente.', 'error');
           setIsAsking(false);
           focusEditorSoon();
           return;
@@ -1612,7 +1617,7 @@ export default function EditorPage() {
           return;
         }
 
-        // Evita aplicar em um range errado caso a seleção tenha mudado enquanto o mini-chat estava aberto.
+        // Evita aplicar em um range errado caso a seleção tenha mudado enquanto o chat estava aberto.
         try {
           const currentSel = rich.state?.selection;
           const expectedEmpty = !!s.selectionIsEmpty;
@@ -1637,11 +1642,11 @@ export default function EditorPage() {
             if (validation.reason === 'no_selection') {
               addToast('Não foi possível ler a seleção atual do editor rico. Refazer a seleção e tentar novamente.', 'error');
             } else if (validation.reason === 'selected_text_mismatch') {
-              addToast('O texto selecionado mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
+              addToast('O texto selecionado mudou desde que você abriu o chat. Refazer a seleção e tentar novamente.', 'error');
             } else if (validation.reason === 'cannot_read_selected_text') {
               addToast('Não foi possível validar a seleção do editor rico. Refazer a seleção e tentar novamente.', 'error');
             } else {
-              addToast('A seleção mudou desde que você abriu o mini-chat. Refazer a seleção e tentar novamente.', 'error');
+              addToast('A seleção mudou desde que você abriu o chat. Refazer a seleção e tentar novamente.', 'error');
             }
             setIsAsking(false);
             focusEditorSoon();
@@ -1661,8 +1666,8 @@ export default function EditorPage() {
         flushActiveRichMarkdownNow();
       }
 
-      useMiniChatStore.getState().setAdapterError(null);
-      useMiniChatStore.getState().close();
+      useWorkspaceChatModalStore.getState().setAdapterError(null);
+      useWorkspaceChatModalStore.getState().close();
       setIsAsking(false);
       focusEditorSoon();
     };
@@ -1707,16 +1712,16 @@ export default function EditorPage() {
 
       addToast('Alteração rejeitada', 'info');
       setIsAsking(false);
-      // Mantém o mini-chat aberto para você criticar/explicar detalhes.
-      // Apenas devolve o foco para o input do mini-chat.
-      useMiniChatStore.getState().bumpFocus();
+      // Mantém o chat modal aberto para você criticar/explicar detalhes.
+      // Apenas devolve o foco para o input do chat.
+      useWorkspaceChatModalStore.getState().bumpFocus();
     };
 
     try {
       setIsAsking(true);
 
       // Regra importante:
-      // - tools ON  => edit_file com confirmação contextual (Go-side); frontend fecha o mini-chat
+      // - tools ON  => edit_file com confirmação contextual (Go-side); frontend fecha o chat modal
       // - tools OFF => body-only (extrai ```editor_patch``` do texto e confirma aqui)
       const toolCallingEnabled = await isToolCallingEnabledForProfileSlug(effectiveProfileSlug);
 
@@ -1742,8 +1747,8 @@ export default function EditorPage() {
             // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
             // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
             if (canUseToolCalling) {
-              useMiniChatStore.getState().setAdapterError(null);
-              useMiniChatStore.getState().close();
+              useWorkspaceChatModalStore.getState().setAdapterError(null);
+              useWorkspaceChatModalStore.getState().close();
               setIsAsking(false);
               focusEditorSoon();
               return;
@@ -1757,9 +1762,9 @@ export default function EditorPage() {
             if (!extracted.ok) {
               const errText = String(extracted.error || '').trim();
               if (/nenhum patch encontrado|não contém patch|patch vazio|json inválido|patch inválido|muito grande/i.test(errText)) {
-                addToast(t('editor.inlineChat.patchNotApplicable'), 'error');
+                addToast(t('editor.chatModal.patchNotApplicable'), 'error');
               }
-              useMiniChatStore.getState().setAdapterError(errText || t('editor.inlineChat.patchExtractDefault'));
+              useWorkspaceChatModalStore.getState().setAdapterError(errText || t('editor.chatModal.patchExtractDefault'));
               setIsAsking(false);
               return;
             }
@@ -1767,39 +1772,39 @@ export default function EditorPage() {
             await confirmInlinePatch(inlineChatSelection, extracted.patch as EditorPatch);
           } catch (e: unknown) {
             console.error('[EditorPage] inline chat error:', e);
-            useMiniChatStore.getState().setAdapterError(getErrorMessage(e) || t('editor.inlineChat.requestChangeError'));
+            useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
             setIsAsking(false);
           }
         },
         onSendError: (e: unknown) => {
           console.error('[EditorPage] inline chat error:', e);
-          useMiniChatStore.getState().setAdapterError(getErrorMessage(e) || t('editor.inlineChat.requestChangeError'));
+          useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
           setIsAsking(false);
         },
       };
     } catch (e: unknown) {
       console.error('[EditorPage] inline chat error:', e);
-      useMiniChatStore.getState().setAdapterError(getErrorMessage(e) || t('editor.inlineChat.requestChangeError'));
+      useWorkspaceChatModalStore.getState().setAdapterError(getErrorMessage(e) || t('editor.chatModal.requestChangeError'));
       setIsAsking(false);
       return null;
     }
   };
 
-  const sendEditorMiniChatRef = useRef(sendEditorMiniChatMessage);
-  sendEditorMiniChatRef.current = sendEditorMiniChatMessage;
+  const sendEditorChatModalRef = useRef(sendEditorChatModalMessage);
+  sendEditorChatModalRef.current = sendEditorChatModalMessage;
 
-  const editorMiniChatAdapter = useMemo((): MiniChatAdapter | null => {
+  const editorChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
     if (!wsActiveTab || wsActiveTab.type !== 'editor') return null;
 
     return {
-      prepare: async (): Promise<MiniChatPrepareResult> => {
-        if (!activeTab) return { ok: false, message: t('workspace.miniChat.panelLoading') };
+      prepare: async (): Promise<WorkspaceChatModalPrepareResult> => {
+        if (!activeTab) return { ok: false, message: t('workspace.chatModal.panelLoading') };
         if (activeTab.mode === 'view') {
-          addToast(t('editor.inlineChat.prepareNeedCodeOrRich'), 'info');
+          addToast(t('editor.chatModal.prepareNeedCodeOrRich'), 'info');
           return { ok: false };
         }
         if (isAsking) {
-          return { ok: false, message: t('workspace.miniChat.panelLoading') };
+          return { ok: false, message: t('workspace.chatModal.panelLoading') };
         }
 
         const selectionRaw =
@@ -1810,12 +1815,12 @@ export default function EditorPage() {
               : null;
 
         if (!selectionRaw) {
-          addToast(t('editor.inlineChat.prepareSelectionFailed'), 'error');
+          addToast(t('editor.chatModal.prepareSelectionFailed'), 'error');
           return { ok: false };
         }
 
         if (selectionRaw.selectedText.length > 20000) {
-          addToast(t('editor.inlineChat.prepareSelectionTooLarge', { max: 20000 }), 'error');
+          addToast(t('editor.chatModal.prepareSelectionTooLarge', { max: 20000 }), 'error');
           return { ok: false };
         }
 
@@ -1856,15 +1861,15 @@ export default function EditorPage() {
           selection.selectedText ||
           '';
 
-        useMiniChatStore.getState().setAdapterError(null);
+        useWorkspaceChatModalStore.getState().setAdapterError(null);
         return { ok: true, contextDisplay, meta: selection };
       },
       send: (instruction, media, meta, session) =>
-        sendEditorMiniChatRef.current(instruction, media, meta as InlineChatSelection, session),
+        sendEditorChatModalRef.current(instruction, media, meta as InlineChatSelection, session),
     };
   }, [wsActiveTab, activeTab, isAsking, addToast, editorReadyNonce, t]);
 
-  useRegisterMiniChatAdapter(wsActiveTab?.id, editorMiniChatAdapter);
+  useRegisterWorkspaceChatAdapter(wsActiveTab?.id, editorChatModalAdapter);
 
   const openFile = async () => {
     try {
@@ -2298,10 +2303,10 @@ export default function EditorPage() {
         onClick: async () => {
           if (isAsking) return;
           if (activeTab?.mode === 'view') {
-            addToast(t('editor.inlineChat.prepareNeedCodeOrRich'), 'info');
+            addToast(t('editor.chatModal.prepareNeedCodeOrRich'), 'info');
             return;
           }
-          await useMiniChatStore.getState().requestOpen();
+          await useWorkspaceChatModalStore.getState().requestOpen();
         },
         disabled: !activeTab || isAsking,
       },

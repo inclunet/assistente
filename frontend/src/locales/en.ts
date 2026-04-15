@@ -167,6 +167,8 @@ const en = {
       reasoningShown: 'Reasoning shown',
       reasoningHidden: 'Reasoning hidden',
       announce: {
+        assistantResponding: 'Assistant is responding',
+        modelThinking: 'The model is thinking...',
         messageDeleted: 'Message deleted',
         deleteCancelled: 'Deletion canceled',
         messageResent: 'Message resent',
@@ -640,7 +642,7 @@ const en = {
         removeBtnLabel: 'Remove Mermaid block',
         previewLabel: 'Mermaid preview. Press Enter to edit',
       },
-      inlineChat: {
+      chatModal: {
         title: 'Chat',
         conversation: 'Conversation',
         messageDeleted: 'Message deleted',
@@ -674,7 +676,7 @@ const en = {
       entry: { llmCommand: 'LLM Command', command: 'Command', commandLLM: 'Command (LLM)', llm: 'LLM', output: 'Output', running: 'running', empty: 'empty', exitCode: 'Exit code:', duration: 'Duration:', exit: 'exit:', executing: 'Executing...', truncated: 'truncated' },
       history: { label: 'Terminal history', loading: 'Loading...', emptyTitle: 'No commands executed.', emptyHint: 'Type a command below to get started.', commandPrefix: 'Command:' },
       tabs: { closed: 'Terminal closed.', of: 'of', label: 'Terminals', listLabel: 'List of open terminals', running: 'Running', close: 'Close', newShortcut: 'Create new terminal, Ctrl+T', newTooltip: 'New terminal (Ctrl+T)' },
-      miniChat: {
+      chatModal: {
         noHistory: '(no terminal history)',
       },
     },
@@ -1381,15 +1383,13 @@ const en = {
       tabListLabel: 'Panel list',
       editTabTitle: 'Edit tab title',
       closeTab: 'Close tab',
-      miniChat: {
+      chatModal: {
         panelNotSupported: 'This panel does not support chat yet.',
         panelLoading: 'Wait for the panel to finish loading or try opening chat again.',
         modalBlocked: 'Close the open dialog before using chat.',
         adapterUnavailable:
           'Could not send: the panel is not connected to chat. Close and open chat again.',
         prepareFailed: 'Could not prepare chat. Please try again.',
-      },
-      chatModal: {
         closeBeforeChangingTabs: 'Close the open chat before switching tabs.',
       },
       tabType: {
@@ -1650,7 +1650,7 @@ const en = {
       emProgresso: 'In Progress',
       concluido: 'Completed',
       noWorkflow: 'No workflow defined',
-      miniChatContext: {
+      chatModalContext: {
         taskCount_one: '{{count}} task',
         taskCount_other: '{{count}} tasks',
         noTasks: '(no tasks)',

@@ -3,9 +3,9 @@ import { AppstoreOutlined, ClearOutlined, CopyOutlined, DeleteOutlined, MessageO
 import { useTranslation } from 'react-i18next';
 import { useTaskListStore } from '../../store/taskListStore';
 import { useWorkspaceStore } from '../../store/workspaceStore';
-import { useMiniChatStore } from '../../store/miniChatStore';
-import type { MiniChatAdapter } from '../../store/miniChatStore';
-import { useRegisterMiniChatAdapter } from '../../hooks/useRegisterMiniChatAdapter';
+import { useWorkspaceChatModalStore } from '../../store/workspaceChatModalStore';
+import type { WorkspaceChatModalAdapter } from '../../store/workspaceChatModalStore';
+import { useRegisterWorkspaceChatAdapter } from '../../hooks/useRegisterWorkspaceChatAdapter';
 import { useUIStore } from '../../store/uiStore';
 import { useAnnouncer } from '../../hooks/useAnnouncer';
 import { useConfirm } from '../../hooks/useConfirm';
@@ -186,22 +186,22 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     return () => window.removeEventListener('keydown', onKeyDown);
   }, [handleOpenCreateTask, handleClear, handleClone]);
 
-  const tasklistMiniChatAdapter = useMemo((): MiniChatAdapter | null => {
+  const tasklistChatModalAdapter = useMemo((): WorkspaceChatModalAdapter | null => {
     if (!wsActiveTab || wsActiveTab.type !== 'tasklist' || !taskList) return null;
 
     return {
       prepare: async () => {
-        const taskLabel = t('tasklist.miniChatContext.taskCount', { count: tasks.length });
+        const taskLabel = t('tasklist.chatModalContext.taskCount', { count: tasks.length });
         const header = `${taskList.title}\n${taskLabel}\n`;
         const body = tasks
           .slice(0, 40)
           .map((x) => `- ${String(x.title || '').trim()}`)
           .join('\n');
-        const contextDisplay = `${header}${body || t('tasklist.miniChatContext.noTasks')}`;
+        const contextDisplay = `${header}${body || t('tasklist.chatModalContext.noTasks')}`;
         return { ok: true, contextDisplay, meta: null };
       },
       send: async (instruction, media) => {
-        const taskLabel = t('tasklist.miniChatContext.taskCount', { count: tasks.length });
+        const taskLabel = t('tasklist.chatModalContext.taskCount', { count: tasks.length });
         const header = `${taskList.title}\n${taskLabel}\n`;
         const body = tasks
           .slice(0, 40)
@@ -216,7 +216,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
               taskListId,
               taskListTitle: taskList.title,
               taskCount: tasks.length,
-              tasksPreview: `${header}${body || t('tasklist.miniChatContext.noTasks')}`,
+              tasksPreview: `${header}${body || t('tasklist.chatModalContext.noTasks')}`,
             },
           }),
         };
@@ -224,7 +224,7 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
     };
   }, [wsActiveTab, taskList, tasks, effectiveProfileSlug, t]);
 
-  useRegisterMiniChatAdapter(wsActiveTab?.id, tasklistMiniChatAdapter);
+  useRegisterWorkspaceChatAdapter(wsActiveTab?.id, tasklistChatModalAdapter);
 
   const handleDelete = useCallback(async () => {
     const confirmed = await requestConfirm({
@@ -259,11 +259,11 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
           }
           actions={[
             {
-              key: 'mini-chat',
-              label: t('editor.inlineChat.title'),
+              key: 'chat-modal',
+              label: t('editor.chatModal.title'),
               icon: <MessageOutlined />,
               shortcut: 'Ctrl+Shift+I',
-              onClick: () => void useMiniChatStore.getState().requestOpen(),
+              onClick: () => void useWorkspaceChatModalStore.getState().requestOpen(),
             },
             {
               key: 'new-task',

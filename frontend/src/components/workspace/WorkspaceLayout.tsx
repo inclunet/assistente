@@ -16,7 +16,7 @@ import { Topbar } from '../layout/Topbar';
 import { WorkspaceToolbar } from './WorkspaceToolbar';
 import { WorkspaceTabList } from './WorkspaceTabList';
 import { WorkspaceContent } from './WorkspaceContent';
-import { WorkspaceMiniChat } from './WorkspaceMiniChat';
+import { WorkspaceChatModal } from './WorkspaceChatModal';
 import './WorkspaceLayout.css';
 
 export function WorkspaceLayout() {
@@ -281,7 +281,7 @@ export function WorkspaceLayout() {
         <WorkspaceContent />
         {/* Rota index (WorkspaceIndexRoute em router.tsx); conteúdo real vem de WorkspaceContent */}
         <Outlet />
-        <WorkspaceMiniChat />
+        <WorkspaceChatModal />
       </div>
     );
   }
