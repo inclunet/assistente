@@ -37,21 +37,6 @@ func synthesisResultInfo(r *speech.SynthesisResult) *SynthesisResultInfo {
 }
 
 // ============================================================================
-// SAPI5 Voice Methods (Windows only)
-// ============================================================================
-
-func (a *App) GetSAPI5Voices() ([]speech.Voice, error) {
-	return a.speechSvc.GetSAPI5Voices(), nil
-}
-func (a *App) SpeakSAPI5(text, voiceName string) error {
-	return a.speechSvc.SpeakSAPI5(text, voiceName)
-}
-func (a *App) StopSAPI5() error                { return a.speechSvc.StopSAPI5() }
-func (a *App) SetSAPI5Volume(volume int) error { return a.speechSvc.SetSAPI5Volume(volume) }
-func (a *App) SetSAPI5Rate(rate int) error     { return a.speechSvc.SetSAPI5Rate(rate) }
-func (a *App) IsSAPI5Speaking() bool           { return a.speechSvc.IsSAPI5Speaking() }
-
-// ============================================================================
 // OpenAI Speech API Methods (Whisper STT + OpenAI TTS)
 // ============================================================================
 
@@ -116,20 +101,24 @@ func (a *App) GetSpeechProviders() []*llm.ProviderConfig {
 	return a.speechSvc.GetSpeechProviders()
 }
 
-func (a *App) GetTTSVoices(profileID, providerID string) []speech.TTSVoiceEntry {
+func (a *App) GetTTSVoices(profileID, providerID string) []speech.TTSVoiceInfo {
 	return a.speechSvc.GetTTSVoices(providerID)
-}
-
-func (a *App) GetTTSModels(providerID string) []speech.SpeechModelInfo {
-	return a.speechSvc.GetTTSModels(providerID)
 }
 
 func (a *App) GetSTTModels(providerID string) []speech.SpeechModelInfo {
 	return a.speechSvc.GetSTTModels(providerID)
 }
 
-func (a *App) SpeakPreview(providerId, voiceId, model string, rate, volume float64, text, sessionId string) error {
-	return a.speechSvc.SpeakPreview(providerId, voiceId, model, rate, volume, text, sessionId)
+func (a *App) SpeakPreview(providerID, voiceID, model string, rate, volume float64, text, sessionID string) error {
+	return a.speechSvc.SpeakPreview(speech.SpeakPreviewParams{
+		ProviderID: providerID,
+		VoiceID:    voiceID,
+		Model:      model,
+		Rate:       rate,
+		Volume:     volume,
+		Text:       text,
+		SessionID:  sessionID,
+	})
 }
 
 // ============================================================================

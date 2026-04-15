@@ -4,7 +4,6 @@
 
 import { TTSProvider, ITTSProvider } from './types';
 import { WebSpeechProvider } from './providers/webSpeech';
-import { SAPI5Provider } from './providers/sapi5';
 import { OpenAIProvider } from './providers/openai';
 
 export class TTSProviderFactory {
@@ -21,16 +20,12 @@ export class TTSProviderFactory {
 
     // Cria instâncias dos provedores
     const webSpeech = new WebSpeechProvider();
-    const sapi5 = new SAPI5Provider();
     const openai = new OpenAIProvider();
 
     // Inicializa em paralelo
     await Promise.all([
       webSpeech.initialize().catch(err => 
         console.warn('[TTSFactory] WebSpeech init failed:', err)
-      ),
-      sapi5.initialize().catch(err => 
-        console.warn('[TTSFactory] SAPI5 init failed:', err)
       ),
       openai.initialize().catch(err => 
         console.warn('[TTSFactory] OpenAI init failed:', err)
@@ -40,10 +35,6 @@ export class TTSProviderFactory {
     // Registra provedores disponíveis
     if (webSpeech.isAvailable) {
       this.providers.set(TTSProvider.WEBSPEECH, webSpeech);
-    }
-
-    if (sapi5.isAvailable) {
-      this.providers.set(TTSProvider.SAPI5, sapi5);
     }
 
     if (openai.isAvailable) {
@@ -97,7 +88,7 @@ export class TTSProviderFactory {
 
   /**
    * Obtém o provider com fallback automático
-   * Tenta na ordem: requested -> SAPI5 -> WebSpeech
+   * Tenta na ordem: requested -> WebSpeech
    */
   getProviderWithFallback(requested: TTSProvider): ITTSProvider | null {
     // Tenta o provider solicitado
@@ -106,13 +97,7 @@ export class TTSProviderFactory {
       return provider;
     }
 
-    // Fallback para SAPI5 (Windows)
-    provider = this.getProvider(TTSProvider.SAPI5);
-    if (provider) {
-      return provider;
-    }
-
-    // Fallback final para WebSpeech
+    // Fallback para WebSpeech
     provider = this.getProvider(TTSProvider.WEBSPEECH);
     if (provider) {
       return provider;

@@ -153,7 +153,7 @@ func TestGateway_AuthorizedContact_TTSFallbackToText(t *testing.T) {
 		sendMessage,
 		nil,
 		nil,
-		func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
+		func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			return nil, fmt.Errorf("tts indisponível")
 		},
 		nil,
@@ -229,7 +229,7 @@ func TestGateway_AuthorizedContact_TTSSendsAudio(t *testing.T) {
 		},
 		nil,
 		nil,
-		func(text string, channel string, incomingIsAudio bool) ([]byte, error) {
+		func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
 			return []byte("audio-bytes"), nil
 		},
 		func(messageID uint, audioBase64 string, mimeType string) error {
@@ -413,5 +413,64 @@ func TestGateway_SendMessageErrorSendsToMessenger(t *testing.T) {
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatalf("timeout aguardando mensagem de erro")
+	}
+}
+
+func TestGateway_TTSNotApplicable_FallsBackToText(t *testing.T) {
+	resetState(t)
+
+	if err := channels.Save("telegram", &channels.ChannelConfig{Enabled: true, MaxContacts: 1}); err != nil {
+		t.Fatalf("erro ao salvar channel config: %v", err)
+	}
+	if err := contacts.Authorize("telegram", "123", "Fulano", "user", 1); err != nil {
+		t.Fatalf("erro ao autorizar contato: %v", err)
+	}
+
+	notifier := NewResponseNotifier()
+	fake := &fakeMessenger{name: "telegram", status: StatusConnected, sentCh: make(chan OutgoingMessage, 1)}
+
+	var sentConversationID uint
+	gateway := NewGateway(
+		notifier,
+		func(conversationID uint, content, media string, params llm.ChatParams, source string) (uint, error) {
+			sentConversationID = conversationID
+			return conversationID, nil
+		},
+		nil,
+		nil,
+		func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error) {
+			// Simula perfil que decide não gerar TTS (retorna nil) — Cancel é chamado,
+			// desbloqueando Wait imediatamente com fallback para texto
+			return nil, nil
+		},
+		nil,
+		nil,
+	)
+	gateway.Register("telegram", fake)
+
+	incoming := IncomingMessage{
+		ID:      "msg-timeout",
+		Channel: "telegram",
+		From:    Contact{ID: "123", DisplayName: "Fulano", Username: "user"},
+		Text:    "Oi",
+	}
+
+	gateway.handleIncoming(context.Background(), incoming)
+	if sentConversationID == 0 {
+		t.Fatalf("conversationID não foi criado")
+	}
+
+	notifier.Notify(sentConversationID, "Resposta texto", 50)
+
+	select {
+	case sent := <-fake.sentCh:
+		if sent.Text != "Resposta texto" {
+			t.Fatalf("esperava texto fallback, got=%q", sent.Text)
+		}
+		if len(sent.Attachments) != 0 {
+			t.Fatalf("não esperava attachments no timeout/cancel, got=%d", len(sent.Attachments))
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatalf("timeout aguardando envio de mensagem")
 	}
 }

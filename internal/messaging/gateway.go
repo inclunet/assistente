@@ -8,6 +8,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -29,7 +30,7 @@ type emitFunc func(event string, data any)
 // Recebe o texto, o canal e se a mensagem original era áudio.
 // Resolve o perfil do canal e o ChannelResponseMode para decidir se gera TTS.
 // Retorna (nil, nil) se não deve gerar áudio (o gateway enviará texto).
-type SynthesizeTTSFunc func(text string, channel string, incomingIsAudio bool) ([]byte, error)
+type SynthesizeTTSFunc func(ctx context.Context, text string, channel string, incomingIsAudio bool) ([]byte, error)
 
 // SaveAudioFunc é a assinatura da função que salva áudio no DB.
 type SaveAudioFunc func(messageID uint, audioBase64 string, mimeType string) error
@@ -53,11 +54,12 @@ type ApproveContactFunc func(ctx context.Context, channel, displayName, contactI
 //  5. Quando resposta fica pronta, Notifier dispara callback
 //  6. Gateway reenvia resposta ao mensageiro de origem
 type Gateway struct {
-	mu             sync.RWMutex
-	messengers     map[string]Messenger
-	notifier       *ResponseNotifier
-	sendMessage    SendMessageFunc
-	emitEvent      emitFunc
+	mu            sync.RWMutex
+	messengers    map[string]Messenger
+	notifier      *ResponseNotifier
+	ttsBroker     *TTSBroker
+	sendMessage   SendMessageFunc
+	emitEvent     emitFunc
 	approveContact ApproveContactFunc
 	synthesizeTTS  SynthesizeTTSFunc  // Opcional: sintetiza áudio para respostas em modo áudio
 	saveAudio      SaveAudioFunc      // Opcional: salva áudio no DB
@@ -75,10 +77,11 @@ func NewGateway(
 	getCachedAudio GetCachedAudioFunc,
 ) *Gateway {
 	return &Gateway{
-		messengers:     make(map[string]Messenger),
-		notifier:       notifier,
-		sendMessage:    sendMessage,
-		emitEvent:      emitEvent,
+		messengers:    make(map[string]Messenger),
+		notifier:      notifier,
+		ttsBroker:     NewTTSBroker(),
+		sendMessage:   sendMessage,
+		emitEvent:     emitEvent,
 		approveContact: approveContact,
 		synthesizeTTS:  synthesizeTTS,
 		saveAudio:      saveAudio,
@@ -316,42 +319,50 @@ func (g *Gateway) handleIncoming(ctx context.Context, msg IncomingMessage) {
 				}
 			}
 
-			// Consulta synthesizeTTS que resolve o perfil e o ChannelResponseMode
-			// para decidir se gera áudio. Retorna (nil, nil) se deve enviar texto.
-			if g.synthesizeTTS != nil {
-				audioData, err := g.synthesizeTTS(response, msg.Channel, incomingIsAudio)
-				if err == nil && len(audioData) > 0 {
+			// Gera TTS via TTSBroker (com timeout) para não bloquear indefinidamente.
+			// O broker coordena a goroutine de síntese com o envio da mensagem.
+			if g.synthesizeTTS != nil && assistantMsgID > 0 {
+				g.ttsBroker.Prepare(assistantMsgID)
+				go func() {
+					ttsCtx, ttsCancel := context.WithTimeout(ctx, 5*time.Second)
+					defer ttsCancel()
+					audioData, ttsErr := g.synthesizeTTS(ttsCtx, response, msg.Channel, incomingIsAudio)
+					if ttsErr != nil {
+						log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao gerar TTS: %v",
+							traceID, conversationID, msg.Channel, ttsErr)
+						g.ttsBroker.Cancel(assistantMsgID)
+						return
+					}
+					if len(audioData) == 0 {
+						// TTS não aplicável (perfil decidiu não gerar áudio)
+						g.ttsBroker.Cancel(assistantMsgID)
+						return
+					}
+					g.ttsBroker.Publish(assistantMsgID, audioData, "audio/mpeg")
+				}()
+
+				payload, ok := g.ttsBroker.Wait(assistantMsgID, 5*time.Second)
+				if ok && len(payload.Data) > 0 {
 					outMsg.Attachments = []Attachment{{
 						Filename: "resposta.mp3",
-						MIMEType: "audio/mpeg",
-						Data:     audioData,
+						MIMEType: payload.MIMEType,
+						Data:     payload.Data,
 					}}
 					outMsg.Text = ""
 					log.Printf("[Gateway] trace=%s conv=%d channel=%s TTS gerado bytes=%d",
-						traceID, conversationID, msg.Channel, len(audioData))
+						traceID, conversationID, msg.Channel, len(payload.Data))
 
 					// Salva o áudio TTS na mensagem do assistente no DB
-					if assistantMsgID > 0 && g.saveAudio != nil {
-						if err := g.saveAudio(assistantMsgID, base64.StdEncoding.EncodeToString(audioData), "audio/mpeg"); err != nil {
+					if g.saveAudio != nil {
+						if err := g.saveAudio(assistantMsgID, base64.StdEncoding.EncodeToString(payload.Data), payload.MIMEType); err != nil {
 							log.Printf("[Gateway] trace=%s conv=%d msgID=%d erro ao salvar áudio TTS no DB: %v",
 								traceID, conversationID, assistantMsgID, err)
 						} else {
 							log.Printf("[Gateway] trace=%s conv=%d msgID=%d áudio TTS salvo", traceID, conversationID, assistantMsgID)
 						}
 					}
-				} else if err != nil {
-					// Fallback explícito para texto
-					if outMsg.Text == "" {
-						outMsg.Text = response
-					}
-					log.Printf("[Gateway] trace=%s conv=%d channel=%s erro ao gerar TTS: %v (fallback texto)",
-						traceID, conversationID, msg.Channel, err)
 				} else {
-					// TTS ignorado (perfil decidiu não gerar áudio) — garantir texto
-					if outMsg.Text == "" {
-						outMsg.Text = response
-					}
-					log.Printf("[Gateway] trace=%s conv=%d channel=%s TTS ignorado (fallback texto)",
+					log.Printf("[Gateway] trace=%s conv=%d channel=%s TTS não disponível (timeout ou não aplicável)",
 						traceID, conversationID, msg.Channel)
 				}
 			}

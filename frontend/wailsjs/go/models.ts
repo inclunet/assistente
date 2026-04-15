@@ -1414,6 +1414,30 @@ export namespace llm {
 
 export namespace main {
 	
+	export class ChatSpeakRequest {
+	    conversationId: number;
+	    messageId?: number;
+	    profileSlug?: string;
+	    role: string;
+	    text: string;
+	    origin: string;
+	    interrupt?: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new ChatSpeakRequest(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.conversationId = source["conversationId"];
+	        this.messageId = source["messageId"];
+	        this.profileSlug = source["profileSlug"];
+	        this.role = source["role"];
+	        this.text = source["text"];
+	        this.origin = source["origin"];
+	        this.interrupt = source["interrupt"];
+	    }
+	}
 	export class AudioResult {
 	    audio: string;
 	    mimeType: string;
@@ -1837,50 +1861,6 @@ export namespace main {
 	        this.description = source["description"];
 	        this.gender = source["gender"];
 	        this.provider = source["provider"];
-	    }
-	}
-	export class SAPI5VoiceInfo {
-	    id: string;
-	    name: string;
-	    language: string;
-	    gender: string;
-	    age: string;
-	    vendor: string;
-	    description: string;
-	    source: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new SAPI5VoiceInfo(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.language = source["language"];
-	        this.gender = source["gender"];
-	        this.age = source["age"];
-	        this.vendor = source["vendor"];
-	        this.description = source["description"];
-	        this.source = source["source"];
-	    }
-	}
-	export class TTSVoiceEntry {
-	    id: string;
-	    name: string;
-	    gender: string;
-	    description: string;
-	
-	    static createFrom(source: any = {}) {
-	        return new TTSVoiceEntry(source);
-	    }
-	
-	    constructor(source: any = {}) {
-	        if ('string' === typeof source) source = JSON.parse(source);
-	        this.id = source["id"];
-	        this.name = source["name"];
-	        this.gender = source["gender"];
-	        this.description = source["description"];
 	    }
 	}
 	export class SkillCreateRequest {
@@ -3376,6 +3356,27 @@ export namespace speech {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.name = source["name"];
+	    }
+	}
+
+	export class TTSVoiceInfo {
+	    id: string;
+	    name: string;
+	    description: string;
+	    gender: string;
+	    provider: string;
+
+	    static createFrom(source: any = {}) {
+	        return new TTSVoiceInfo(source);
+	    }
+
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.name = source["name"];
+	        this.description = source["description"];
+	        this.gender = source["gender"];
+	        this.provider = source["provider"];
 	    }
 	}
 

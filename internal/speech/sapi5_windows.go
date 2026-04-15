@@ -6,8 +6,9 @@ package speech
 import (
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
-	"unicode/utf16"
 
 	"github.com/go-ole/go-ole"
 	"github.com/go-ole/go-ole/oleutil"
@@ -46,11 +47,9 @@ func GetSAPI5Manager() *SAPI5Manager {
 	return manager
 }
 
-// Initialize inicializa o COM e carrega as vozes disponíveis
-func (m *SAPI5Manager) Initialize() error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
+// initialize inicializa o COM e carrega as vozes disponíveis.
+// Deve ser chamado com m.mu já adquirido.
+func (m *SAPI5Manager) initialize() error {
 	if m.initialized {
 		return nil
 	}
@@ -99,6 +98,9 @@ func (m *SAPI5Manager) loadVoices() error {
 		return fmt.Errorf("GetVoices failed: %w", err)
 	}
 	voicesCollection := voicesResult.ToIDispatch()
+	// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+	voicesCollection.AddRef()
+	voicesResult.Clear()
 	defer voicesCollection.Release()
 
 	// Obtém o número de vozes
@@ -107,6 +109,7 @@ func (m *SAPI5Manager) loadVoices() error {
 		return fmt.Errorf("failed to get voice count: %w", err)
 	}
 	count := int(countResult.Val)
+	countResult.Clear()
 
 	m.voices = make([]Voice, 0, count)
 
@@ -117,6 +120,9 @@ func (m *SAPI5Manager) loadVoices() error {
 			continue
 		}
 		voiceToken := itemResult.ToIDispatch()
+		// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+		voiceToken.AddRef()
+		itemResult.Clear()
 
 		voice := m.extractVoiceInfo(voiceToken)
 		if voice.Name != "" {
@@ -136,28 +142,34 @@ func (m *SAPI5Manager) extractVoiceInfo(voiceToken *ole.IDispatch) Voice {
 	// Obtém o ID
 	if idResult, err := oleutil.GetProperty(voiceToken, "Id"); err == nil {
 		voice.ID = idResult.ToString()
+		idResult.Clear()
 	}
 
 	// Obtém os atributos
 	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Name"); err == nil {
 		voice.Name = attrsResult.ToString()
+		attrsResult.Clear()
 	}
 
 	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Language"); err == nil {
 		langCode := attrsResult.ToString()
 		voice.Language = lcidToLanguage(langCode)
+		attrsResult.Clear()
 	}
 
 	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Gender"); err == nil {
 		voice.Gender = attrsResult.ToString()
+		attrsResult.Clear()
 	}
 
 	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Age"); err == nil {
 		voice.Age = attrsResult.ToString()
+		attrsResult.Clear()
 	}
 
 	if attrsResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Vendor"); err == nil {
 		voice.Vendor = attrsResult.ToString()
+		attrsResult.Clear()
 	}
 
 	// Monta descrição
@@ -227,7 +239,8 @@ func (m *SAPI5Manager) GetVoices() []Voice {
 	defer m.mu.Unlock()
 
 	if !m.initialized {
-		if err := m.Initialize(); err != nil {
+		if err := m.initialize(); err != nil {
+			log.Printf("[SAPI5] falha ao inicializar COM: %v", err)
 			return []Voice{}
 		}
 	}
@@ -241,7 +254,7 @@ func (m *SAPI5Manager) Speak(text string, voiceName string) error {
 	defer m.mu.Unlock()
 
 	if !m.initialized {
-		if err := m.Initialize(); err != nil {
+		if err := m.initialize(); err != nil {
 			return err
 		}
 	}
@@ -259,12 +272,168 @@ func (m *SAPI5Manager) Speak(text string, voiceName string) error {
 	const SVSFlagsAsync = 1
 	const SVSFPurgeBeforeSpeak = 2
 
-	_, err := oleutil.CallMethod(m.spVoice, "Speak", text, SVSFlagsAsync|SVSFPurgeBeforeSpeak)
-	if err != nil {
+	if v, err := oleutil.CallMethod(m.spVoice, "Speak", text, SVSFlagsAsync|SVSFPurgeBeforeSpeak); err != nil {
 		return fmt.Errorf("Speak failed: %w", err)
+	} else if v != nil {
+		v.Clear()
 	}
 
 	return nil
+}
+
+// SynthesizeToBytes sintetiza texto via SAPI5 e retorna bytes WAV.
+// Redireciona o output do SpVoice para um SpFileStream temporário,
+// gerando um arquivo WAV que é lido e retornado como []byte.
+func (m *SAPI5Manager) SynthesizeToBytes(text, voiceName string, rate, volume int) ([]byte, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	if !m.initialized {
+		if err := m.initialize(); err != nil {
+			return nil, err
+		}
+	}
+
+	if voiceName != "" {
+		if err := m.selectVoice(voiceName); err != nil {
+			log.Printf("[SAPI5] Warning: failed to select voice '%s': %v", voiceName, err)
+		}
+	}
+
+	// Configura rate e volume (best-effort: loga erro mas continua)
+	if rate >= -10 && rate <= 10 {
+		if v, err := oleutil.PutProperty(m.spVoice, "Rate", rate); err != nil {
+			log.Printf("[SAPI5] Warning: failed to set Rate: %v", err)
+		} else if v != nil {
+			v.Clear()
+		}
+	}
+	if volume >= 0 && volume <= 100 {
+		if v, err := oleutil.PutProperty(m.spVoice, "Volume", volume); err != nil {
+			log.Printf("[SAPI5] Warning: failed to set Volume: %v", err)
+		} else if v != nil {
+			v.Clear()
+		}
+	}
+
+	// Cria arquivo temporário para saída WAV
+	tmpFile, err := os.CreateTemp("", "sapi5-*.wav")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create temp file: %w", err)
+	}
+	tmpFile.Close()
+
+	// Converte path para absoluto (COM precisa de path completo)
+	absPath, err := filepath.Abs(tmpFile.Name())
+	if err != nil {
+		os.Remove(tmpFile.Name())
+		return nil, fmt.Errorf("failed to get absolute path: %w", err)
+	}
+	defer os.Remove(absPath)
+
+	// Salva referência ao output padrão antes de redirecionar
+	defaultOutputResult, err := oleutil.GetProperty(m.spVoice, "AudioOutputStream")
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default AudioOutputStream: %w", err)
+	}
+	var defaultOutput *ole.IDispatch
+	if defaultOutputResult.VT != ole.VT_EMPTY && defaultOutputResult.VT != ole.VT_NULL {
+		defaultOutput = defaultOutputResult.ToIDispatch()
+		// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+		defaultOutput.AddRef()
+	}
+	defaultOutputResult.Clear()
+
+	// Garante Release() do defaultOutput e restauração do AudioOutputStream
+	// em todos os caminhos de retorno (inclusive erros antes do Speak).
+	redirected := false
+	defer func() {
+		if redirected {
+			if defaultOutput != nil {
+				if v, err := oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", defaultOutput); err != nil {
+					log.Printf("[SAPI5] Warning: failed to restore AudioOutputStream: %v", err)
+				} else if v != nil {
+					v.Clear()
+				}
+			} else {
+				m.restoreDefaultOutput()
+			}
+		}
+		if defaultOutput != nil {
+			defaultOutput.Release()
+		}
+	}()
+
+	// Cria SpFileStream COM object
+	fileStreamUnknown, err := oleutil.CreateObject("SAPI.SpFileStream")
+	if err != nil {
+		return nil, fmt.Errorf("failed to create SpFileStream: %w", err)
+	}
+	defer fileStreamUnknown.Release()
+	fileStream, err := fileStreamUnknown.QueryInterface(ole.IID_IDispatch)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query SpFileStream IDispatch: %w", err)
+	}
+	defer fileStream.Release()
+
+	// Abre o arquivo para escrita (SSFMCreateForWrite = 3)
+	const SSFMCreateForWrite = 3
+	if v, err := oleutil.CallMethod(fileStream, "Open", absPath, SSFMCreateForWrite, false); err != nil {
+		return nil, fmt.Errorf("SpFileStream.Open failed: %w", err)
+	} else if v != nil {
+		v.Clear()
+	}
+
+	// Redireciona SpVoice para escrever no arquivo
+	if v, err := oleutil.PutPropertyRef(m.spVoice, "AudioOutputStream", fileStream); err != nil {
+		if cv, _ := oleutil.CallMethod(fileStream, "Close"); cv != nil {
+			cv.Clear()
+		}
+		return nil, fmt.Errorf("failed to redirect AudioOutputStream: %w", err)
+	} else if v != nil {
+		v.Clear()
+	}
+	redirected = true
+
+	// Fala síncrona — escreve WAV no arquivo
+	speakResult, speakErr := oleutil.CallMethod(m.spVoice, "Speak", text, 0) // 0 = síncrono
+	if speakResult != nil {
+		speakResult.Clear()
+	}
+
+	// Fecha o stream de arquivo
+	if v, _ := oleutil.CallMethod(fileStream, "Close"); v != nil {
+		v.Clear()
+	}
+
+	// Nota: restauração do output e Release do defaultOutput são
+	// feitos pelo defer acima, cobrindo inclusive caminhos de erro.
+
+	if speakErr != nil {
+		return nil, fmt.Errorf("SAPI5 Speak (to file) failed: %w", speakErr)
+	}
+
+	// Lê o arquivo WAV gerado
+	data, err := os.ReadFile(absPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read WAV file: %w", err)
+	}
+
+	if len(data) == 0 {
+		return nil, fmt.Errorf("SAPI5 generated empty WAV")
+	}
+
+	return data, nil
+}
+
+// restoreDefaultOutput seta AudioOutputStream para nil (VT_EMPTY), o que
+// faz o SpVoice voltar a usar o dispositivo de áudio padrão do sistema.
+func (m *SAPI5Manager) restoreDefaultOutput() {
+	if v, err := oleutil.PutProperty(m.spVoice, "AudioOutputStream", nil); err != nil {
+		log.Printf("[SAPI5] Warning: failed to restore default output: %v", err)
+	} else if v != nil {
+		v.Clear()
+	}
 }
 
 // selectVoice seleciona uma voz pelo nome
@@ -275,6 +444,9 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 		return err
 	}
 	voicesCollection := voicesResult.ToIDispatch()
+	// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+	voicesCollection.AddRef()
+	voicesResult.Clear()
 	defer voicesCollection.Release()
 
 	// Obtém o número de vozes
@@ -283,6 +455,7 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 		return err
 	}
 	count := int(countResult.Val)
+	countResult.Clear()
 
 	// Procura a voz pelo nome ou ID
 	for i := 0; i < count; i++ {
@@ -291,22 +464,35 @@ func (m *SAPI5Manager) selectVoice(voiceName string) error {
 			continue
 		}
 		voiceToken := itemResult.ToIDispatch()
+		// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+		voiceToken.AddRef()
+		itemResult.Clear()
 
 		// Tenta match por Name
 		if nameResult, err := oleutil.CallMethod(voiceToken, "GetAttribute", "Name"); err == nil {
-			if nameResult.ToString() == voiceName {
-				_, err := oleutil.PutPropertyRef(m.spVoice, "Voice", voiceToken)
+			name := nameResult.ToString()
+			nameResult.Clear()
+			if name == voiceName {
+				v, putErr := oleutil.PutPropertyRef(m.spVoice, "Voice", voiceToken)
+				if v != nil {
+					v.Clear()
+				}
 				voiceToken.Release()
-				return err
+				return putErr
 			}
 		}
 
 		// Fallback: tenta match por ID (registry path)
 		if idResult, err := oleutil.GetProperty(voiceToken, "Id"); err == nil {
-			if idResult.ToString() == voiceName {
-				_, err := oleutil.PutPropertyRef(m.spVoice, "Voice", voiceToken)
+			id := idResult.ToString()
+			idResult.Clear()
+			if id == voiceName {
+				v, putErr := oleutil.PutPropertyRef(m.spVoice, "Voice", voiceToken)
+				if v != nil {
+					v.Clear()
+				}
 				voiceToken.Release()
-				return err
+				return putErr
 			}
 		}
 
@@ -326,8 +512,12 @@ func (m *SAPI5Manager) Stop() error {
 	}
 
 	// SVSFPurgeBeforeSpeak limpa o buffer e para a síntese
-	_, err := oleutil.CallMethod(m.spVoice, "Speak", "", 2) // 2 = SVSFPurgeBeforeSpeak
-	return err
+	if v, err := oleutil.CallMethod(m.spVoice, "Speak", "", 2); err != nil {
+		return err
+	} else if v != nil {
+		v.Clear()
+	}
+	return nil
 }
 
 // SetVolume define o volume (0-100)
@@ -346,8 +536,12 @@ func (m *SAPI5Manager) SetVolume(volume int) error {
 		volume = 100
 	}
 
-	_, err := oleutil.PutProperty(m.spVoice, "Volume", volume)
-	return err
+	if v, err := oleutil.PutProperty(m.spVoice, "Volume", volume); err != nil {
+		return err
+	} else if v != nil {
+		v.Clear()
+	}
+	return nil
 }
 
 // SetRate define a velocidade (-10 a 10, 0 é normal)
@@ -366,8 +560,12 @@ func (m *SAPI5Manager) SetRate(rate int) error {
 		rate = 10
 	}
 
-	_, err := oleutil.PutProperty(m.spVoice, "Rate", rate)
-	return err
+	if v, err := oleutil.PutProperty(m.spVoice, "Rate", rate); err != nil {
+		return err
+	} else if v != nil {
+		v.Clear()
+	}
+	return nil
 }
 
 // IsSpeaking verifica se está falando
@@ -385,14 +583,19 @@ func (m *SAPI5Manager) IsSpeaking() bool {
 		return false
 	}
 	status := statusResult.ToIDispatch()
+	// AddRef: garante que o IDispatch sobrevive ao Clear() do VARIANT
+	status.AddRef()
+	statusResult.Clear()
 	defer status.Release()
 
 	runningResult, err := oleutil.GetProperty(status, "RunningState")
 	if err != nil {
 		return false
 	}
+	val := runningResult.Val
+	runningResult.Clear()
 
-	return runningResult.Val == 2 // SRSEIsSpeaking
+	return val == 2 // SRSEIsSpeaking
 }
 
 // WaitUntilDone aguarda a síntese terminar
@@ -408,8 +611,10 @@ func (m *SAPI5Manager) WaitUntilDone(timeoutMs int) bool {
 	if err != nil {
 		return true
 	}
+	val := result.Val
+	result.Clear()
 
-	return result.Val != 0 // true se terminou, false se timeout
+	return val != 0 // true se terminou, false se timeout
 }
 
 // Cleanup libera recursos
@@ -431,9 +636,4 @@ func (m *SAPI5Manager) Cleanup() {
 // StopSpeaking para a síntese atual (função global para compatibilidade)
 func StopSpeaking() {
 	GetSAPI5Manager().Stop()
-}
-
-// Função auxiliar para converter string Go para UTF-16 (não usada atualmente, mas útil)
-func stringToUTF16(s string) []uint16 {
-	return utf16.Encode([]rune(s + "\x00"))
 }

@@ -56,12 +56,6 @@ func (a *App) DeleteLLMProvider(_ context.Context, id string) error {
 	return a.llmCtrl.DeleteLLMProvider(id)
 }
 
-// PreviewVoiceSettings reproduz um texto de teste com configurações ad-hoc.
-// Permane em App pois depende do speechManager (domínio separado — SpeechController virá depois).
-func (a *App) PreviewVoiceSettings(provider, voiceID string, rate, pitch, volume float64, sampleText string) error {
-	return a.speechSvc.PreviewVoiceSettings(provider, voiceID, rate, volume, sampleText)
-}
-
 // saveLLMProviders e helpers permanecem em App pois são chamados internamente.
 func (a *App) saveLLMProviders() error { return a.providerSvc.Save() }
 func (a *App) loadLLMProviders() error { return a.providerSvc.Load() }

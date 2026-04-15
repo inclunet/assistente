@@ -95,13 +95,6 @@ func Init() error {
 	ensureTaskNoteExternalUniqueIndex()
 	ensureTaskListSlugUniqueIndex()
 
-	// Migração: remover tabelas do editor (conteúdo migrado para arquivos em disco)
-	sqlDBRaw, _ := db.DB()
-	if sqlDBRaw != nil {
-		sqlDBRaw.Exec(`DROP TABLE IF EXISTS editor_documents`)
-		sqlDBRaw.Exec(`DROP TABLE IF EXISTS editor_session_states`)
-	}
-
 	// Migração: mover refresh_url → refresh_token_enc (coluna renomeada)
 	if db.Migrator().HasColumn(&CredentialEntry{}, "refresh_url") {
 		db.Exec(`UPDATE credential_entries SET refresh_token_enc = refresh_url WHERE refresh_url != '' AND (refresh_token_enc IS NULL OR refresh_token_enc = '')`)

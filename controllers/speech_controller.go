@@ -21,34 +21,6 @@ func NewSpeechController(cfg SpeechControllerConfig) *SpeechController {
 }
 
 // ============================================================================
-// SAPI5 Voice Methods (Windows only)
-// ============================================================================
-
-func (c *SpeechController) GetSAPI5Voices() []speech.Voice {
-	return c.speechSvc.GetSAPI5Voices()
-}
-
-func (c *SpeechController) SpeakSAPI5(text, voiceName string) error {
-	return c.speechSvc.SpeakSAPI5(text, voiceName)
-}
-
-func (c *SpeechController) StopSAPI5() error {
-	return c.speechSvc.StopSAPI5()
-}
-
-func (c *SpeechController) SetSAPI5Volume(volume int) error {
-	return c.speechSvc.SetSAPI5Volume(volume)
-}
-
-func (c *SpeechController) SetSAPI5Rate(rate int) error {
-	return c.speechSvc.SetSAPI5Rate(rate)
-}
-
-func (c *SpeechController) IsSAPI5Speaking() bool {
-	return c.speechSvc.IsSAPI5Speaking()
-}
-
-// ============================================================================
 // OpenAI Speech API Methods (Whisper STT + OpenAI TTS)
 // ============================================================================
 
@@ -112,12 +84,8 @@ func (c *SpeechController) GetSpeechProviders() []*llm.ProviderConfig {
 	return c.speechSvc.GetSpeechProviders()
 }
 
-func (c *SpeechController) GetTTSVoices(profileID, providerID string) []speech.TTSVoiceEntry {
+func (c *SpeechController) GetTTSVoices(profileID, providerID string) []speech.TTSVoiceInfo {
 	return c.speechSvc.GetTTSVoices(providerID)
-}
-
-func (c *SpeechController) GetTTSModels(providerID string) []speech.SpeechModelInfo {
-	return c.speechSvc.GetTTSModels(providerID)
 }
 
 func (c *SpeechController) GetSTTModels(providerID string) []speech.SpeechModelInfo {
@@ -125,5 +93,13 @@ func (c *SpeechController) GetSTTModels(providerID string) []speech.SpeechModelI
 }
 
 func (c *SpeechController) SpeakPreview(providerID, voiceID, model string, rate, volume float64, text, sessionID string) error {
-	return c.speechSvc.SpeakPreview(providerID, voiceID, model, rate, volume, text, sessionID)
+	return c.speechSvc.SpeakPreview(speech.SpeakPreviewParams{
+		ProviderID: providerID,
+		VoiceID:    voiceID,
+		Model:      model,
+		Rate:       rate,
+		Volume:     volume,
+		Text:       text,
+		SessionID:  sessionID,
+	})
 }

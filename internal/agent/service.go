@@ -8,6 +8,7 @@ import (
 	"log"
 
 	"assistente/internal/chat"
+	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 	"assistente/internal/messaging"
@@ -43,6 +44,9 @@ type ServiceConfig struct {
 	GetTokenStats    func(uint) (*chat.TokenStats, error)
 	TriggerSummarize func(uint)
 	OnResponseSaved  func(conversationID, messageID uint, text string)
+	// OnSpeechRequest é chamado após chat:done e chat:segment_done para disparar TTS proativo.
+	// Parâmetros: conversationID, messageID, role, text, origin, profileSlug, interrupt.
+	OnSpeechRequest func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // Service encapsula a lógica do agentic loop sem dependências do Wails.
@@ -54,6 +58,7 @@ type Service struct {
 	getTokenStats    func(uint) (*chat.TokenStats, error)
 	triggerSummarize func(uint)
 	onResponseSaved  func(conversationID, messageID uint, text string)
+	onSpeechRequest  func(conversationID uint, messageID uint, role, text, origin, profileSlug string, interrupt bool)
 }
 
 // NewService cria um novo Service com as dependências injetadas.
@@ -66,6 +71,7 @@ func NewService(cfg ServiceConfig) *Service {
 		getTokenStats:    cfg.GetTokenStats,
 		triggerSummarize: cfg.TriggerSummarize,
 		onResponseSaved:  cfg.OnResponseSaved,
+		onSpeechRequest:  cfg.OnSpeechRequest,
 	}
 }
 
@@ -142,17 +148,24 @@ func (s *Service) RunAgenticLoop(
 
 		// 3. Emite segment_done para verbalização e acumulação de segmentos no frontend
 		if result.FullResponse != "" || !result.IsDone {
-			s.emitter.Emit("chat:segment_done", map[string]interface{}{
-				"content":        result.FullResponse,
-				"iteration":      iteration,
-				"hasMore":        !result.IsDone,
-				"conversationId": conversationID,
+			s.emitter.Emit("chat:segment_done", ports.SegmentDoneEvent{
+				ConversationID: conversationID,
+				Content:        result.FullResponse,
+				Iteration:      iteration,
+				HasMore:        !result.IsDone,
 			})
+
+			// TTS proativo: verbaliza segmentos intermediários (não interrompe áudio anterior).
+			// Apenas para iterações intermediárias (!IsDone); na última iteração,
+			// SaveAndFinish emite chat:speak com origin=assistant_message e messageId real.
+			if s.onSpeechRequest != nil && result.FullResponse != "" && !result.IsDone {
+				s.onSpeechRequest(conversationID, 0, "assistant", result.FullResponse, "segment", params.ProfileSlug, false)
+			}
 		}
 
 		// 4. finish_reason="stop" → resposta final
 		if result.IsDone {
-			s.SaveAndFinish(conversationID, turnID, result)
+			s.SaveAndFinish(conversationID, turnID, result, params.ProfileSlug)
 			return
 		}
 
@@ -198,12 +211,12 @@ func (s *Service) RunAgenticLoop(
 			if execResult.Result.IsError {
 				status = "error"
 			}
-			s.emitter.Emit("chat:tool_end", map[string]interface{}{
-				"name":           execResult.ToolName,
-				"callId":         execResult.CallID,
-				"status":         status,
-				"summary":        truncateString(execResult.Result.Content, 200),
-				"conversationId": conversationID,
+			s.emitter.Emit("chat:tool_end", ports.ToolEndEvent{
+				ConversationID: conversationID,
+				Name:           execResult.ToolName,
+				CallID:         execResult.CallID,
+				Status:         status,
+				Summary:        truncateString(execResult.Result.Content, 200),
 			})
 
 			_, err := s.msgRepo.AddToolResultMessage(
@@ -230,22 +243,22 @@ func (s *Service) RunAgenticLoop(
 		// 5f. Emite token stats atualizadas em tempo real
 		if s.getTokenStats != nil {
 			if stats, err := s.getTokenStats(conversationID); err == nil && stats != nil {
-				s.emitter.Emit("chat:token_stats_update", map[string]interface{}{
-					"conversationId":              conversationID,
-					"promptTokens":                stats.PromptTokens,
-					"completionTokens":            stats.CompletionTokens,
-					"totalTokens":                 stats.TotalTokens,
-					"contextUsage":                stats.ContextUsage,
-					"contextLimit":                stats.ContextLimit,
-					"isNearLimit":                 stats.IsNearLimit,
-					"isCritical":                  stats.IsCritical,
-					"messageCount":                stats.MessageCount,
-					"systemPromptEstimatedTokens": stats.SystemPromptEstimatedTokens,
-					"summaryTokens":               stats.SummaryTokens,
-					"messagesInContextCount":      stats.MessagesInContextCount,
-					"messagesInContextTokens":     stats.MessagesInContextTokens,
-					"toolsUsedCount":              stats.ToolsUsedCount,
-					"toolBreakdown":               stats.ToolBreakdown,
+				s.emitter.Emit("chat:token_stats_update", ports.TokenStatsUpdateEvent{
+					ConversationID:              conversationID,
+					PromptTokens:                stats.PromptTokens,
+					CompletionTokens:            stats.CompletionTokens,
+					TotalTokens:                 stats.TotalTokens,
+					ContextUsage:                stats.ContextUsage,
+					ContextLimit:                stats.ContextLimit,
+					IsNearLimit:                 stats.IsNearLimit,
+					IsCritical:                  stats.IsCritical,
+					MessageCount:                stats.MessageCount,
+					SystemPromptEstimatedTokens: stats.SystemPromptEstimatedTokens,
+					SummaryTokens:               stats.SummaryTokens,
+					MessagesInContextCount:      stats.MessagesInContextCount,
+					MessagesInContextTokens:     stats.MessagesInContextTokens,
+					ToolsUsedCount:              stats.ToolsUsedCount,
+					ToolBreakdown:               stats.ToolBreakdown,
 				})
 			}
 		}
@@ -258,8 +271,8 @@ func (s *Service) RunAgenticLoop(
 		Done:           true,
 		ConversationId: conversationID,
 	})
-	s.emitter.Emit("chat:done", map[string]interface{}{
-		"conversationId": conversationID,
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID: conversationID,
 	})
 
 	if s.triggerSummarize != nil {
@@ -272,7 +285,7 @@ func (s *Service) RunAgenticLoop(
 
 // SaveAndFinish salva a resposta final do assistente e emite os eventos de conclusão.
 // Se houve MCP tool calls nativas, persiste no banco antes da mensagem final.
-func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResult) {
+func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResult, profileSlug string) {
 	var savedMsgID uint
 	if conversationID > 0 && result.FullResponse != "" {
 		if len(result.NativeMCPEvents) > 0 && turnID > 0 {
@@ -315,8 +328,15 @@ func (s *Service) SaveAndFinish(conversationID, turnID uint, result AgenticResul
 		FullResponse:   result.FullResponse,
 	})
 
-	s.emitter.Emit("chat:done", map[string]interface{}{
-		"conversationId": conversationID,
+	// TTS proativo: dispara ANTES de chat:done pois chat:done causa cleanup dos listeners no frontend
+	if s.onSpeechRequest != nil && result.FullResponse != "" {
+		s.onSpeechRequest(conversationID, savedMsgID, "assistant", result.FullResponse, "assistant_message", profileSlug, true)
+	}
+
+	s.emitter.Emit("chat:done", ports.DoneEvent{
+		ConversationID:     conversationID,
+		AssistantMessageID: savedMsgID,
+		HadToolCalls:       turnID > 0,
 	})
 
 	// TTS proativo: gera áudio em background. NÃO bloqueia o Notify/Gateway
@@ -349,51 +369,51 @@ func (s *Service) emitTokenStats(conversationID uint) {
 	if err != nil || stats == nil || stats.ContextLimit == 0 {
 		return
 	}
-	s.emitter.Emit("chat:token_stats", map[string]interface{}{
-		"conversationId":   conversationID,
-		"totalTokens":      stats.TotalTokens,
-		"contextLimit":     stats.ContextLimit,
-		"contextUsage":     stats.ContextUsage,
-		"isNearLimit":      stats.IsNearLimit,
-		"isCritical":       stats.IsCritical,
-		"promptTokens":     stats.PromptTokens,
-		"completionTokens": stats.CompletionTokens,
-		"messageCount":     stats.MessageCount,
+	s.emitter.Emit("chat:token_stats", ports.TokenStatsEvent{
+		ConversationID:   conversationID,
+		TotalTokens:      stats.TotalTokens,
+		ContextLimit:     stats.ContextLimit,
+		ContextUsage:     stats.ContextUsage,
+		IsNearLimit:      stats.IsNearLimit,
+		IsCritical:       stats.IsCritical,
+		PromptTokens:     stats.PromptTokens,
+		CompletionTokens: stats.CompletionTokens,
+		MessageCount:     stats.MessageCount,
 	})
 	if stats.IsCritical {
 		log.Printf("[Context] conversa %d em CRÍTICO: %0.1f%% (%d/%d tokens)",
 			conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
-		s.emitter.Emit("chat:context_warning", map[string]interface{}{
-			"conversationId": conversationID,
-			"level":          "critical",
-			"message": fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
+		s.emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
+			ConversationID: conversationID,
+			Level:          "critical",
+			Message: fmt.Sprintf("Atenção: Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa ou resumir o histórico.",
 				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
-			"percentage":   stats.ContextUsage,
-			"totalTokens":  stats.TotalTokens,
-			"contextLimit": stats.ContextLimit,
+			Percentage:   stats.ContextUsage,
+			TotalTokens:  stats.TotalTokens,
+			ContextLimit: stats.ContextLimit,
 		})
 	} else if stats.IsNearLimit {
 		log.Printf("[Context] conversa %d próxima do limite: %0.1f%% (%d/%d tokens)",
 			conversationID, stats.ContextUsage, stats.TotalTokens, stats.ContextLimit)
-		s.emitter.Emit("chat:context_warning", map[string]interface{}{
-			"conversationId": conversationID,
-			"level":          "warning",
-			"message": fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
+		s.emitter.Emit("chat:context_warning", ports.ContextWarningEvent{
+			ConversationID: conversationID,
+			Level:          "warning",
+			Message: fmt.Sprintf("Contexto em %0.1f%% (%d/%d tokens). Considere limpar a conversa em breve.",
 				stats.ContextUsage, stats.TotalTokens, stats.ContextLimit),
-			"percentage":   stats.ContextUsage,
-			"totalTokens":  stats.TotalTokens,
-			"contextLimit": stats.ContextLimit,
+			Percentage:   stats.ContextUsage,
+			TotalTokens:  stats.TotalTokens,
+			ContextLimit: stats.ContextLimit,
 		})
 	}
 }
 
 func (s *Service) emitToolStarts(conversationID uint, calls []llm.ToolCall) {
 	for _, call := range calls {
-		s.emitter.Emit("chat:tool_start", map[string]interface{}{
-			"name":           call.Function.Name,
-			"callId":         call.ID,
-			"args":           call.Function.Arguments,
-			"conversationId": conversationID,
+		s.emitter.Emit("chat:tool_start", ports.ToolStartEvent{
+			ConversationID: conversationID,
+			Name:           call.Function.Name,
+			CallID:         call.ID,
+			Args:           call.Function.Arguments,
 		})
 	}
 }

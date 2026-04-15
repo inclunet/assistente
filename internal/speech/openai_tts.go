@@ -448,21 +448,12 @@ type SpeechModelInfo struct {
 	Name string `json:"name"`
 }
 
-// staticTTSModels é o fallback quando /v1/models não está disponível.
-var staticTTSModels = []SpeechModelInfo{
-	{ID: "tts-1", Name: "tts-1"},
-	{ID: "tts-1-hd", Name: "tts-1-hd"},
-}
-
 // staticSTTModels é o fallback quando /v1/models não está disponível.
 var staticSTTModels = []SpeechModelInfo{
 	{ID: "whisper-1", Name: "whisper-1"},
 	{ID: "gpt-4o-transcribe", Name: "gpt-4o-transcribe"},
 	{ID: "gpt-4o-mini-transcribe", Name: "gpt-4o-mini-transcribe"},
 }
-
-// StaticTTSModels retorna a lista estática de modelos TTS (para uso quando não há client).
-func StaticTTSModels() []SpeechModelInfo { return staticTTSModels }
 
 // StaticSTTModels retorna a lista estática de modelos STT (para uso quando não há client).
 func StaticSTTModels() []SpeechModelInfo { return staticSTTModels }
@@ -542,34 +533,6 @@ func isSTTModel(id string) bool {
 		}
 	}
 	return false
-}
-
-// FetchTTSModels retorna modelos TTS disponíveis no provider.
-// Busca via /v1/models e filtra por prefixo "tts-".
-// Em caso de falha, retorna a lista estática (tts-1, tts-1-hd).
-func (c *TTSClient) FetchTTSModels() []SpeechModelInfo {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	page, err := c.listModelsSafe(ctx)
-	if err != nil {
-		log.Printf("[FetchTTSModels] erro ao listar modelos: %v", err)
-		return staticTTSModels
-	}
-	if page == nil {
-		return staticTTSModels
-	}
-
-	var models []SpeechModelInfo
-	for _, m := range page.Data {
-		if isTTSModel(m.ID) {
-			models = append(models, SpeechModelInfo{ID: m.ID, Name: m.ID})
-		}
-	}
-	if len(models) == 0 {
-		return staticTTSModels
-	}
-	return models
 }
 
 // FetchSTTModels retorna modelos STT disponíveis no provider.

@@ -1799,13 +1799,13 @@ export default function EditorPage() {
       const donePromise = waitForChatDone(expectedConversationId);
 
       if (toolCallingEnabled) {
-        await useChatStore.getState().sendMessageWithParams(prompt, mediaFiles, {
+        await useChatStore.getState().sendMessage(prompt, mediaFiles, {
           profileSlug: effectiveProfileSlug,
           tabType: 'editor',
           activeFilePath: activeTab?.filePath ?? undefined,
         });
       } else {
-        await useChatStore.getState().sendMessageWithParams(prompt, mediaFiles, { profileSlug: effectiveProfileSlug });
+        await useChatStore.getState().sendMessage(prompt, mediaFiles, { profileSlug: effectiveProfileSlug });
       }
 
       await donePromise;

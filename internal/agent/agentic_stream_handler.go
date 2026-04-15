@@ -3,6 +3,7 @@ package agent
 import (
 	"log"
 
+	"assistente/internal/core/ports"
 	"assistente/internal/events"
 	"assistente/internal/llm"
 )
@@ -77,27 +78,27 @@ func (h *AgenticStreamHandler) OnMCPToolEvent(event llm.MCPToolEvent) {
 		}
 		outputSummary := truncateString(event.Output, 200)
 
-		h.Emitter.Emit("chat:tool_end", map[string]interface{}{
-			"name":           event.Name,
-			"callId":         event.ID,
-			"status":         status,
-			"summary":        outputSummary,
-			"error":          errSummary,
-			"serverLabel":    event.ServerLabel,
-			"native":         true,
-			"conversationId": h.ConversationID,
+		h.Emitter.Emit("chat:tool_end", ports.ToolEndEvent{
+			ConversationID: h.ConversationID,
+			Name:           event.Name,
+			CallID:         event.ID,
+			Status:         status,
+			Summary:        outputSummary,
+			Error:          errSummary,
+			ServerLabel:    event.ServerLabel,
+			Native:         true,
 		})
 
 		log.Printf("[MCP Native] ✅ %s (server=%s, id=%s): %d bytes output",
 			event.Name, event.ServerLabel, event.ID, len(event.Output))
 	} else {
-		h.Emitter.Emit("chat:tool_start", map[string]interface{}{
-			"name":           event.Name,
-			"callId":         event.ID,
-			"args":           event.Arguments,
-			"serverLabel":    event.ServerLabel,
-			"native":         true,
-			"conversationId": h.ConversationID,
+		h.Emitter.Emit("chat:tool_start", ports.ToolStartEvent{
+			ConversationID: h.ConversationID,
+			Name:           event.Name,
+			CallID:         event.ID,
+			Args:           event.Arguments,
+			ServerLabel:    event.ServerLabel,
+			Native:         true,
 		})
 
 		log.Printf("[MCP Native] 🔧 %s (server=%s, id=%s)",

@@ -4,6 +4,7 @@ import (
 	"fmt"
 
 	"assistente/internal/chat"
+	"assistente/internal/core/ports"
 	"assistente/internal/database"
 	"assistente/internal/questionnaire"
 )
@@ -99,9 +100,9 @@ func (a *App) UpdateConversation(id uint, title, model string) error {
 	}
 
 	if title != "" {
-		a.emitter.Emit("conversation:renamed", map[string]interface{}{
-			"conversation_id": id,
-			"new_title":       title,
+		a.emitter.Emit("conversation:renamed", ports.ConversationRenamedEvent{
+			ConversationID: id,
+			NewTitle:       title,
 		})
 	}
 
@@ -155,12 +156,19 @@ func (a *App) DeleteMessage(messageID uint) error {
 	}
 
 	// Prossegue com a exclusão
+	var msg database.ChatMessage
+	if err := database.DB().First(&msg, messageID).Error; err != nil {
+		return err
+	}
+	convID := msg.ConversationID
+
 	if err := database.DeleteMessage(messageID); err != nil {
 		return err
 	}
 
-	a.emitter.Emit("message:deleted", map[string]interface{}{
-		"message_id": messageID,
+	a.emitter.Emit("message:deleted", ports.MessageDeletedEvent{
+		ConversationID: convID,
+		MessageID:      messageID,
 	})
 
 	return nil
@@ -168,6 +176,11 @@ func (a *App) DeleteMessage(messageID uint) error {
 
 // UpdateMessage atualiza o conteúdo de uma mensagem existente
 func (a *App) UpdateMessage(messageID uint, newContent string) error {
+	var msg database.ChatMessage
+	if err := database.DB().Select("conversation_id").First(&msg, messageID).Error; err != nil {
+		return err
+	}
+
 	if err := database.UpdateMessageContent(
 		messageID,
 		newContent,
@@ -176,9 +189,10 @@ func (a *App) UpdateMessage(messageID uint, newContent string) error {
 		return err
 	}
 
-	a.emitter.Emit("message:updated", map[string]interface{}{
-		"message_id": messageID,
-		"content":    newContent,
+	a.emitter.Emit("message:updated", ports.MessageUpdatedEvent{
+		ConversationID: msg.ConversationID,
+		MessageID:      messageID,
+		Content:        newContent,
 	})
 
 	return nil

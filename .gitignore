@@ -88,3 +88,7 @@ public/
 wails.json.bak
 frontend/wailsjs/wailsjs/
 __debug_bin*
+
+# Backup e artefatos de build
+*.bak
+*_error.txt

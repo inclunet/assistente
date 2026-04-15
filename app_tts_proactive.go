@@ -118,21 +118,3 @@ func (a *App) resolveConversationProfile(conversationID uint) *profiles.Profile 
 	return nil
 }
 
-// stripMarkdownForTTS remove formatação markdown básica para TTS mais natural.
-func stripMarkdownForTTS(text string) string {
-	r := strings.NewReplacer(
-		"**", "",
-		"__", "",
-		"*", "",
-		"_", "",
-		"`", "",
-		"```", "",
-		"# ", "",
-		"## ", "",
-		"### ", "",
-		"#### ", "",
-		"- ", "",
-		"> ", "",
-	)
-	return strings.TrimSpace(r.Replace(text))
-}

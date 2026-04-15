@@ -142,16 +142,24 @@ test.describe('Chat — tool calls (streaming)', () => {
     await textarea.fill('Pesquise o clima');
     await textarea.press('Enter');
 
+    // Backend confirma a mensagem do usuário
+    await wails.emit('chat:messages_ready', {
+      conversationId: 1,
+      userMessageId: 100,
+      userContent: 'Pesquise o clima',
+    });
+
     // Simula início de streaming
     await wails.emit('chat:stream', {
       conversationId: 1,
       messageId: 2,
-      token: '',
+      content: '',
       done: false,
     });
 
     // Simula início de tool call
     await wails.emit('chat:tool_start', {
+      conversationId: 1,
       name: 'search_web',
       callId: 'tc-live-1',
       args: '{"query":"clima"}',
@@ -184,14 +192,22 @@ test.describe('Chat — tool calls (streaming)', () => {
     await textarea.fill('Pesquise o clima');
     await textarea.press('Enter');
 
+    // Backend confirma a mensagem do usuário
+    await wails.emit('chat:messages_ready', {
+      conversationId: 1,
+      userMessageId: 100,
+      userContent: 'Pesquise o clima',
+    });
+
     await wails.emit('chat:stream', {
       conversationId: 1,
       messageId: 2,
-      token: '',
+      content: '',
       done: false,
     });
 
     await wails.emit('chat:tool_start', {
+      conversationId: 1,
       name: 'search_web',
       callId: 'tc-live-2',
       args: '{"query":"clima"}',
@@ -205,6 +221,7 @@ test.describe('Chat — tool calls (streaming)', () => {
 
     // Finaliza o tool call (muda de running para done)
     await wails.emit('chat:tool_end', {
+      conversationId: 1,
       callId: 'tc-live-2',
       name: 'search_web',
       status: 'success',

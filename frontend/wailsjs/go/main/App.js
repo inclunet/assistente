@@ -210,6 +210,10 @@ export function DiscoverMCPServerAuth(arg1) {
   return window['go']['main']['App']['DiscoverMCPServerAuth'](arg1);
 }
 
+export function DispatchSpeech(arg1) {
+  return window['go']['main']['App']['DispatchSpeech'](arg1);
+}
+
 export function DryRunJob(arg1) {
   return window['go']['main']['App']['DryRunJob'](arg1);
 }
@@ -442,10 +446,6 @@ export function GetTTSVoices(arg1, arg2) {
   return window['go']['main']['App']['GetTTSVoices'](arg1, arg2);
 }
 
-export function GetTTSModels(arg1) {
-  return window['go']['main']['App']['GetTTSModels'](arg1);
-}
-
 export function GetSTTModels(arg1) {
   return window['go']['main']['App']['GetSTTModels'](arg1);
 }
@@ -502,6 +502,10 @@ export function GetOpenAITTSVoices() {
   return window['go']['main']['App']['GetOpenAITTSVoices']();
 }
 
+export function GetNativeTTSProviders() {
+  return window['go']['main']['App']['GetNativeTTSProviders']();
+}
+
 export function GetProfile(arg1) {
   return window['go']['main']['App']['GetProfile'](arg1);
 }
@@ -516,10 +520,6 @@ export function GetProfiles() {
 
 export function GetRecentMessagesTokenCount(arg1, arg2) {
   return window['go']['main']['App']['GetRecentMessagesTokenCount'](arg1, arg2);
-}
-
-export function GetSAPI5Voices() {
-  return window['go']['main']['App']['GetSAPI5Voices']();
 }
 
 export function GetSkill(arg1) {

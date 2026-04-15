@@ -2,11 +2,22 @@ package main
 
 import (
 	"fmt"
+	"runtime"
 
 	"assistente/controllers"
 	"assistente/internal/config"
 	"assistente/internal/skills"
 )
+
+// GetNativeTTSProviders retorna os IDs de provedores TTS nativos
+// disponíveis na plataforma atual (ex.: webspeech sempre, sapi5 apenas no Windows).
+func (a *App) GetNativeTTSProviders() []string {
+	providers := []string{"webspeech"}
+	if runtime.GOOS == "windows" {
+		providers = append(providers, "sapi5")
+	}
+	return providers
+}
 
 // ==================== Adapters para interfaces do SettingsService ====================
 

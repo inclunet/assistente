@@ -78,11 +78,11 @@ vi.mock('@wailsjs/go/main/App', () => ({
     },
   }),
   GetModels: vi.fn().mockResolvedValue([]),
-  GetSAPI5Voices: vi.fn().mockResolvedValue([]),
   GetOpenAITTSVoices: vi.fn().mockResolvedValue([]),
   GetLLMProvidersWithStatus: vi.fn().mockResolvedValue([]),
   GetSpeechProviders: vi.fn().mockResolvedValue([]),
   GetSTTModels: vi.fn().mockResolvedValue([]),
+  GetNativeTTSProviders: vi.fn().mockResolvedValue(['webspeech', 'sapi5']),
 }));
 
 vi.mock('@wailsjs/go/models', () => ({
