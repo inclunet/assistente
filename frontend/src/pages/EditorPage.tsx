@@ -21,7 +21,6 @@ import { useQuestionnaireUIStore } from '../store/questionnaireUIStore';
 import { useUIStore } from '../store/uiStore';
 import { useChatStore } from '../store/chatStore';
 import { createTwoFilesPatch } from 'diff';
-import { buildEditorPatchPrompt } from '../lib/editorPatch';
 import { applyTextReplacementByOffset } from '../lib/editorPatchApply';
 import { normalizeEditorInsertContent } from '../lib/editorInsertNormalize';
 import { applyRichTextInsert, applyRichTextInsertAtEnd } from '../lib/richTextPatchApply';
@@ -1461,17 +1460,7 @@ export default function EditorPage() {
     const trimmed = String(instruction || '').trim();
     if (!trimmed) return null;
 
-    const prompt = buildEditorPatchPrompt({
-      instruction: trimmed,
-      selectedText:
-        inlineChatSelection.mode === 'rich'
-          ? String(inlineChatSelection.selectedMarkdown || inlineChatSelection.selectedText || '')
-          : inlineChatSelection.selectedText,
-      format: 'markdown',
-      selectionIsEmpty: !!inlineChatSelection.selectionIsEmpty,
-      cursorContext: inlineChatSelection.cursorContext,
-      filePath: activeTab?.filePath ?? undefined,
-    });
+    const prompt = trimmed;
 
     const runId = (inlineChatRunIdRef.current += 1);
     useMiniChatStore.getState().setAdapterError(null);
