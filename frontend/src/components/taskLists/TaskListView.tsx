@@ -191,14 +191,6 @@ export default function TaskListView({ taskListId }: TaskListViewProps) {
 
     return {
       prepare: async () => {
-        if (!useChatStore.getState().activeConversationId) {
-          try {
-            await useChatStore.getState().createConversation();
-          } catch {
-            addToast(t('editor.inlineChat.newConversationError'), 'error');
-            return { ok: false };
-          }
-        }
         const taskLabel = t('tasklist.miniChatContext.taskCount', { count: tasks.length });
         const header = `${taskList.title}\n${taskLabel}\n`;
         const body = tasks

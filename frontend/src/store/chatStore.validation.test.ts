@@ -153,6 +153,7 @@ describe('chatStore validation', () => {
     await useChatStore.getState().sendMessage('hello');
 
     expect(mockSendMessage).not.toHaveBeenCalled();
+    expect(mockAnnounce).toHaveBeenCalled();
   });
 
   it('chat:speak event invokes handleChatSpeak for matching conversation', async () => {

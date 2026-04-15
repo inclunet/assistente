@@ -30,6 +30,10 @@ vi.mock('i18next', () => ({
   },
 }));
 
+vi.mock('../lib/workspaceConversation', () => ({
+  ensureWorkspaceTabHasConversation: vi.fn().mockResolvedValue(1),
+}));
+
 import { useMiniChatStore, registerMiniChatAdapter } from './miniChatStore';
 
 const editorTab = { id: 'tab-editor', type: 'editor' as const, title: 'x', position: 0 };

@@ -508,18 +508,9 @@ export const useChatStore = create<ChatStore>()((set, get) => {
         }
       }
 
-      let conversationId = get().activeConversationId || 0;
+      const conversationId = get().activeConversationId ?? 0;
       if (conversationId === 0) {
-        try {
-          conversationId = await get().createConversation();
-        } catch (e) {
-          console.error('[Chat] sendMessage: falha ao criar conversa', e);
-          announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
-          return;
-        }
-      }
-      if (conversationId === 0) {
-        console.error('[Chat] sendMessage called without active conversation');
+        console.error('[Chat] sendMessage sem conversa ativa (use ensureWorkspaceTabHasConversation ao abrir o painel)');
         announce(i18next.t('chat.errors.noActiveConversation'), 'assertive');
         return;
       }

@@ -4,6 +4,7 @@ import type { MediaFile } from '../services/mediaService';
 import { useWorkspaceStore } from './workspaceStore';
 import { isModalOpen } from '../components/ui/Modal';
 import { useUIStore } from './uiStore';
+import { ensureWorkspaceTabHasConversation } from '../lib/workspaceConversation';
 
 export type MiniChatPrepareOk = {
   ok: true;
@@ -105,6 +106,17 @@ export const useMiniChatStore = create<MiniChatState>((set, get) => ({
       if (input) {
         input.focus();
       }
+      return;
+    }
+
+    try {
+      await ensureWorkspaceTabHasConversation(tab);
+    } catch (e) {
+      console.error('[miniChat] falha ao garantir conversa:', e);
+      useUIStore.getState().addToast(
+        i18next.t('editor.inlineChat.newConversationError'),
+        'error',
+      );
       return;
     }
 

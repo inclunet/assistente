@@ -94,14 +94,6 @@ export default function TerminalPage() {
 
     return {
       prepare: async () => {
-        if (!useChatStore.getState().activeConversationId) {
-          try {
-            await useChatStore.getState().createConversation();
-          } catch {
-            addToast(t('editor.inlineChat.newConversationError'), 'error');
-            return { ok: false };
-          }
-        }
         const slice = currentHistory.slice(-40);
         const lines = slice
           .map((e) => {

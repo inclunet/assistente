@@ -1453,16 +1453,6 @@ export default function EditorPage() {
       return;
     }
 
-    // Se não há conversa ativa no chatStore, cria uma
-    if (!chatState.activeConversationId) {
-      try {
-        await chatState.createConversation();
-      } catch {
-        addToast('Não foi possível criar uma conversa para o chat inline.', 'error');
-        return;
-      }
-    }
-
     const expectedConversationId = useChatStore.getState().activeConversationId ?? undefined;
 
     const beforeMessages = useChatStore.getState().getMessages();
@@ -1784,15 +1774,6 @@ export default function EditorPage() {
           return { ok: false };
         }
         if (isAsking) return { ok: false };
-
-        if (!useChatStore.getState().activeConversationId) {
-          try {
-            await useChatStore.getState().createConversation();
-          } catch {
-            addToast(t('editor.inlineChat.newConversationError'), 'error');
-            return { ok: false };
-          }
-        }
 
         const selectionRaw =
           activeTab.mode === 'markdown'
