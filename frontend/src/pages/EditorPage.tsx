@@ -1704,18 +1704,15 @@ export default function EditorPage() {
       // - tools OFF => body-only (extrai ```editor_patch``` do texto e confirma aqui)
       const toolCallingEnabled = await isToolCallingEnabledForProfileSlug(effectiveProfileSlug);
 
-      // Com tools ativas, edit_file precisa do caminho do arquivo. Drafts sem filePath não são suportados.
-      if (toolCallingEnabled && !activeTab?.filePath) {
-        addToast('Salve o arquivo antes de usar o assistente inline', 'warning');
-        setIsAsking(false);
-        return null;
-      }
+      // Drafts sem filePath não conseguem usar edit_file; nesse caso, cai para o
+      // mesmo fluxo principal com fallback body-only e aplicação local do patch.
+      const canUseToolCalling = toolCallingEnabled && !!activeTab?.filePath;
 
       const donePromise = waitForChatDone(expectedConversationId);
       return {
         content: prompt,
         mediaFiles,
-        paramsOverride: toolCallingEnabled
+        paramsOverride: canUseToolCalling
           ? {
               profileSlug: effectiveProfileSlug,
               tabType: 'editor',
@@ -1732,7 +1729,7 @@ export default function EditorPage() {
 
             // Tool calling: edit_file já fez tudo (questionnaire + escrita no disco).
             // O fsnotify detecta a mudança e recarrega o arquivo automaticamente.
-            if (toolCallingEnabled) {
+            if (canUseToolCalling) {
               useMiniChatStore.getState().setAdapterError(null);
               useMiniChatStore.getState().close();
               setIsAsking(false);

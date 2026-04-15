@@ -2,11 +2,14 @@ package chat
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
 
+	"assistente/internal/configdir"
 	"assistente/internal/core/ports"
 	"assistente/internal/events"
+	"assistente/internal/profiles"
 )
 
 // spyEmitter captures emitted events for assertions.
@@ -50,6 +53,18 @@ func newTestInteractor(em events.Emitter) *Interactor {
 		Emitter:  em,
 		ConvRepo: noopConvRepo{},
 	})
+}
+
+func setupProfileTestEnv(t *testing.T) *profiles.Manager {
+	t.Helper()
+
+	tempDir := t.TempDir()
+	t.Setenv("HOME", tempDir)
+	t.Setenv("USERPROFILE", tempDir)
+	configdir.ResetForTests()
+	t.Cleanup(configdir.ResetForTests)
+
+	return profiles.NewManager()
 }
 
 func TestPrepareContext_RejectsContentExceedingMaxSize(t *testing.T) {
@@ -144,5 +159,78 @@ func TestPrepareContext_RejectsConversationIDZero(t *testing.T) {
 	}
 	if ev.ConversationID != 0 {
 		t.Errorf("expected conversationId=0, got %d", ev.ConversationID)
+	}
+}
+
+func TestPrepareContext_ProfileSlugInheritsProviderAndModelFromActiveProfile(t *testing.T) {
+	spy := &spyEmitter{}
+	profileMgr := setupProfileTestEnv(t)
+
+	active := profiles.DefaultProfile()
+	active.Name = "Padrão Ativo"
+	active.Active = true
+	active.Chat.LLMProvider = "provider-global"
+	active.Chat.Model = "model-global"
+	active.Voice.Assistant.LLMProviderID = "voice-global"
+	active.Input.LLMProviderID = "stt-global"
+	activeSlug, err := profileMgr.Create(active)
+	if err != nil {
+		t.Fatalf("create active profile: %v", err)
+	}
+	if err := profileMgr.SetActive(activeSlug); err != nil {
+		t.Fatalf("set active profile: %v", err)
+	}
+
+	panel := profiles.DefaultProfile()
+	panel.Name = "Perfil do Editor"
+	panel.Active = false
+	panel.Chat.LLMProvider = ""
+	panel.Chat.Model = ""
+	panel.Voice.Assistant.LLMProviderID = ""
+	panel.Input.LLMProviderID = ""
+	panel.Chat.Temperature = 0.2
+	panelSlug := "perfil-editor-legado"
+	panelData, err := json.Marshal(panel)
+	if err != nil {
+		t.Fatalf("marshal panel profile: %v", err)
+	}
+	if err := configdir.NewResolver("profiles").Create(panelSlug+".json", panelData); err != nil {
+		t.Fatalf("write legacy panel profile: %v", err)
+	}
+
+	inter := NewInteractor(InteractorConfig{
+		Emitter:     spy,
+		ConvRepo:    noopConvRepo{},
+		ProfileMgr:  profileMgr,
+		ProviderSvc: nil,
+	})
+
+	resp, err := inter.PrepareContext(context.Background(), PrepareContextRequest{
+		ConversationID: 1,
+		UserContent:    "oi",
+		Params: ChatParams{
+			ProfileSlug: panelSlug,
+		},
+	})
+	if err != nil {
+		t.Fatalf("PrepareContext: %v", err)
+	}
+	if resp == nil || resp.ActiveProfile == nil {
+		t.Fatal("expected activeProfile in response")
+	}
+	if resp.ActiveProfile.Chat.LLMProvider != "provider-global" {
+		t.Fatalf("LLMProvider = %q, want provider-global", resp.ActiveProfile.Chat.LLMProvider)
+	}
+	if resp.ActiveProfile.Chat.Model != "model-global" {
+		t.Fatalf("Model = %q, want model-global", resp.ActiveProfile.Chat.Model)
+	}
+	if resp.ActiveProfile.Voice.Assistant.LLMProviderID != "voice-global" {
+		t.Fatalf("Voice.Assistant.LLMProviderID = %q, want voice-global", resp.ActiveProfile.Voice.Assistant.LLMProviderID)
+	}
+	if resp.ActiveProfile.Input.LLMProviderID != "stt-global" {
+		t.Fatalf("Input.LLMProviderID = %q, want stt-global", resp.ActiveProfile.Input.LLMProviderID)
+	}
+	if resp.ActiveProfile.Chat.Temperature != 0.2 {
+		t.Fatalf("Temperature = %v, want 0.2", resp.ActiveProfile.Chat.Temperature)
 	}
 }
